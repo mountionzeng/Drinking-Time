@@ -4,10 +4,13 @@ import {
   createTimelineViewport,
   formatTimelineTimecode,
   frameToPx,
+  frameDeltaToPx,
   framePx,
   msToPx,
   pxToFrame,
   pxToMs,
+  pxDeltaToFrame,
+  pxDeltaToMs,
   tickSeconds,
   tickStepSec,
   DEFAULT_TIMELINE_SCALE,
@@ -42,6 +45,13 @@ describe("时间线视口", () => {
     for (const frame of [0, 1, 71, 480, 1479]) {
       expect(pxToFrame(v, frameToPx(v, frame))).toBe(frame);
     }
+  });
+
+  it("像素位移保留方向，且同样 100px 在放大后移动更少帧", () => {
+    expect(pxDeltaToMs(viewport(60_000, 20), -100)).toBe(-5_000);
+    expect(pxDeltaToFrame(viewport(60_000, 16), 100)).toBe(188);
+    expect(pxDeltaToFrame(viewport(60_000, 32), 100)).toBe(94);
+    expect(frameDeltaToPx(viewport(60_000, 32), -30)).toBe(-32);
   });
 
   it("一帧的宽度随缩放变化——这就是「一帧图片点不中」有没有救的判据", () => {

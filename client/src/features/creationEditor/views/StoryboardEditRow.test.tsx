@@ -3,12 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  commitVisualClipDrag,
   StoryboardEditRow,
   StoryboardEditTransport,
   storyboardVisualLayerAtPoint,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
+import { createTimelineViewport } from "@shared/timelineViewport";
 
 vi.stubGlobal("React", React);
 
@@ -95,6 +97,46 @@ function renderRow(
 
 describe("StoryboardEditRow", () => {
 
+  it("keeps drag completion pending until the persisted move finishes", async () => {
+    let finishMove!: () => void;
+    const onMoveVisualClip = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishMove = resolve;
+        })
+    );
+    let settled = false;
+    const completion = commitVisualClipDrag({
+      clipId: "shot:sh-01",
+      startLeftPx: 0,
+      startRectLeft: 100,
+      startClientX: 120,
+      releaseClientX: 152,
+      releaseClientY: 80,
+      viewport: createTimelineViewport({ totalMs: 8_000, scale: 16 }),
+      onMoveVisualClip,
+      resolveTrack: () => ({
+        visualLayer: 0,
+        rect: {
+          left: 100,
+          right: 500,
+          top: 40,
+          bottom: 100,
+          width: 400,
+        },
+      }),
+    }).then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    expect(onMoveVisualClip).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+    finishMove();
+    await completion;
+    expect(settled).toBe(true);
+  });
+
 
 
   it("resolves the release layer from track geometry instead of the dragged child", () => {
@@ -153,8 +195,8 @@ describe("StoryboardEditRow", () => {
 
   it("sizes each shot block by its duration, not by the storyboard column width", () => {
     const html = renderRow(boardTimeline());
-    expect(html).toContain("left:0%;width:25%");
-    expect(html).toContain("left:25%;width:75%");
+    expect(html).toContain("left:0;width:32px");
+    expect(html).toContain("left:32px;width:96px");
   });
 
   it("spans every shot column so the track is one continuous row", () => {
@@ -199,6 +241,65 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain('src="/fallback.webp"');
   });
 
+  it("shows time-sampled video frames inside ordinary upper-layer shots", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={[
+          {
+            ...shots[0],
+            timelineItem: {
+              stableShotId: "sh-01",
+              included: true,
+              position: 0,
+              plannedDurationMs: 2_000,
+              timelineStartFrame: 0,
+              durationFrames: 60,
+              visualLayer: 1,
+              transform: {
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 1,
+                cropHeight: 1,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              },
+            },
+            posterUrl: "/upper-fallback.webp",
+            primaryFrameSource: {
+              takeId: 56,
+              sourceStartSec: 0,
+              sourceEndSec: 2,
+            },
+          },
+          shots[1],
+        ]}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    const upperShotStart = html.indexOf(
+      'data-testid="storyboard-visual-layer-shot-2-sh-01"'
+    );
+    expect(upperShotStart).toBeGreaterThanOrEqual(0);
+    const upperShotMarkup = html.slice(
+      Math.max(0, upperShotStart - 1_000),
+      upperShotStart + 2_000
+    );
+    expect(upperShotMarkup).toContain(
+      'data-testid="storyboard-upper-shot-filmstrip-sh-01"'
+    );
+    expect(upperShotMarkup).toContain(
+      "/api/video-frames/56?atSec=0.500"
+    );
+    expect(upperShotMarkup).toContain(
+      "/api/video-frames/56?atSec=1.500"
+    );
+    expect(upperShotMarkup).toContain('data-pointer-clip-move="true"');
+  });
+
   it("keeps the row header clean without duplicate split and extract icons", () => {
     const html = renderRow(boardTimeline({ playheadMs: 3_500 }));
     expect(html).not.toContain('data-testid="storyboard-edit-split"');
@@ -227,8 +328,8 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain('data-testid="storyboard-audio-track"');
     expect(html).toContain('data-testid="storyboard-audio-clip-voice-1"');
     expect(html).toContain('data-testid="storyboard-audio-playhead"');
-    expect(html).toContain("left:12.5%;width:25%");
-    expect(html).toContain("left:25%");
+    expect(html).toContain("left:16px;width:32px");
+    expect(html).toContain("left:32px");
     expect(html).toContain("强弱 · 停顿");
   });
 
@@ -283,8 +384,15 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain('data-testid="storyboard-extracted-frame-99"');
     expect(html).toContain('data-pointer-clip-move="true"');
     expect(html).toContain("cursor-grab");
+    const movableFrame = html.match(
+      /<div(?=[^>]*data-testid="storyboard-extracted-frame-99")[^>]*>/
+    )?.[0];
+    expect(movableFrame).toContain('data-pointer-clip-move="true"');
+    expect(movableFrame).toContain("touch-none");
+    expect(movableFrame).toContain("cursor-grab");
+    expect(movableFrame).toContain("h-7");
     expect(html).toContain('src="/frame-99.webp"');
-    expect(html).toContain("left:12.5%");
+    expect(html).toContain("left:16px");
     expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
   });
 
@@ -310,6 +418,42 @@ describe("StoryboardEditRow", () => {
     expect(
       html.match(/data-testid="storyboard-extracted-frame-99"/g)
     ).toHaveLength(2);
+  });
+
+  it("keeps legacy extracted frames clickable without advertising a dead drag target", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={[
+          {
+            ...shots[0],
+            extractedFrames: [
+              {
+                id: "legacy-image-99",
+                imageId: 99,
+                imageUrl: "/frame-99.webp",
+                atMs: 1_000,
+              },
+            ],
+          },
+          shots[1],
+        ]}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    const legacyFrame = html.match(
+      /<div(?=[^>]*data-testid="storyboard-extracted-frame-99")[^>]*>/
+    )?.[0];
+
+    expect(legacyFrame).toBeDefined();
+    expect(legacyFrame).toContain("cursor-pointer");
+    expect(legacyFrame).toContain("bottom-1");
+    expect(legacyFrame).toContain("h-7");
+    expect(legacyFrame).not.toContain("cursor-grab");
+    expect(legacyFrame).not.toContain("touch-none");
+    expect(legacyFrame).not.toContain("data-pointer-clip-move");
   });
 
   it("renders repeated extractions of the same image as independent movable clips", () => {
@@ -593,6 +737,12 @@ describe("StoryboardEditRow", () => {
     );
     expect(selected).toContain('aria-label="拖动左边缘修剪 0102 的时长"');
     expect(selected).toContain('data-testid="storyboard-edit-reorder-sh-02"');
+    const moveGrip = selected.match(
+      /<button(?=[^>]*data-testid="storyboard-edit-reorder-sh-02")[^>]*>/
+    )?.[0];
+    expect(moveGrip).toContain("left-1/2");
+    expect(moveGrip).toContain("w-8");
+    expect(moveGrip).toContain("-translate-x-1/2");
     expect(selected).not.toContain('data-testid="storyboard-edit-trim-sh-01"');
   });
 
@@ -604,7 +754,7 @@ describe("StoryboardEditRow", () => {
     expect(html).toMatch(
       /<span(?=[^>]*data-testid="storyboard-edit-playhead")(?=[^>]*pointer-events-none)[^>]*>/
     );
-    expect(html).toContain("left:25%");
+    expect(html).toContain("left:32px");
   });
 
   it("highlights a selection that runs across a shot boundary", () => {
@@ -612,7 +762,7 @@ describe("StoryboardEditRow", () => {
       boardTimeline({ selectedRange: { startMs: 1_000, endMs: 5_000 } })
     );
     expect(html).toContain('data-testid="storyboard-edit-selection"');
-    expect(html).toContain("left:12.5%;width:50%");
+    expect(html).toContain("left:16px;width:64px");
   });
 
   it("removes the visible timecode footer without losing live status", () => {
@@ -707,7 +857,7 @@ describe("StoryboardEditRow shortcuts", () => {
     expect(html).toContain(
       'data-testid="storyboard-magnetic-join-sh-01-sh-02"'
     );
-    expect(html).toContain("left:25%");
+    expect(html).toContain("left:32px");
   });
 
   it("keeps the old single-shot reorder drag when the group action is not wired", () => {
@@ -814,6 +964,6 @@ describe("StoryboardEditRow shortcuts", () => {
       />
     );
     expect(html).toContain("left:0%;width:100%");
-    expect(html).toContain("left:25%;width:25%");
+    expect(html).toContain("left:32px;width:32px");
   });
 });

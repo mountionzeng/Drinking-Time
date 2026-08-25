@@ -29,7 +29,6 @@ import type {
   StoryTimelineOverlay,
 } from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
-import { timelineOffsetMsToFrames } from "@shared/storyMaterial";
 import { visualTrackId } from "@shared/visualClipModel";
 import {
   canRemoveTimelineVisualLayer,
@@ -39,6 +38,16 @@ import {
   type TimelineVisualLayerAction,
 } from "@shared/timelineVisualLayers";
 import {
+  createTimelineViewport,
+  DEFAULT_TIMELINE_SCALE,
+  frameDeltaToPx,
+  frameToPx,
+  msToPx,
+  pxToFrame,
+  pxToMs,
+  type TimelineViewport,
+} from "@shared/timelineViewport";
+import {
   selectExtractedFrameCandidate,
   selectExtractedFrameCandidates,
   selectExtractedFramePair,
@@ -46,13 +55,16 @@ import {
 } from "@shared/extractedFrameTransition";
 import {
   formatStoryboardTimestamp,
-  storyboardTimingTotalMs,
   type StoryboardTimingRow,
 } from "@/features/storyAgent/storyboardTiming";
 import { useStoryImageDrop } from "../useStoryImageDrop";
+import { useStoryboardVisualClipNudge } from "../useStoryboardVisualClipNudge";
 
 import {
   STORYBOARD_EDIT_FRAME_MS,
+  focusStoryboardClipForDrag,
+  isStoryboardClipPointerDrag,
+  isStoryboardPointerOwner,
   storyboardEditBlocks,
   storyboardEditEdgeMs,
   storyboardEditFilmstripFrameUrls,
@@ -61,8 +73,8 @@ import {
   storyboardRollingBoundaryFrame,
   storyboardEditNeighborShotId,
   storyboardEditNudgedDurationMs,
-  storyboardEditPlayheadPct,
-  storyboardEditRangePct,
+  storyboardEditPlayheadPx,
+  storyboardEditRangePx,
   storyboardEditSeekMs,
   storyboardEditSegments,
   storyboardEditSelectionRange,
@@ -77,9 +89,11 @@ import {
   storyboardGroupDragSummary,
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
+  storyboardVisualClipShotTimingPreview,
   type StoryboardEditAction,
   type StoryboardEditFrameSource,
   type StoryboardEditRange,
+  type StoryboardShotTimingPreview,
 } from "../storyboardEditRow";
 import {
   StoryboardAudioTrack,
@@ -210,7 +224,7 @@ export type StoryboardBoardTimeline = {
     stableShotId: string;
     anchorId: string;
   }) => Promise<{ applied: boolean; reason?: string }>;
-  /** 正在保存时忽略新的时间线改动，避免用过期位置算下一步。 */
+  /** 正在保存时阻止新拖拽；方向键微调由队列合并，不会丢输入。 */
   writePending?: boolean;
 };
 
@@ -309,10 +323,10 @@ function submitVisualClipMove(input: {
     toTrackId: string;
     toStartFrame: number;
   }) => Promise<void>;
-}): void {
+}): Promise<void> {
   const move = input.onMoveVisualClip;
-  if (!move) return;
-  void move({
+  if (!move) return Promise.resolve();
+  return move({
     clipId: input.clipId,
     toTrackId: visualTrackId(input.visualLayer),
     toStartFrame: Math.max(0, Math.round(input.toStartFrame)),
@@ -322,17 +336,17 @@ function submitVisualClipMove(input: {
 }
 
 /**
- * 剪辑块自己渲染出来的起点（占轨道宽度的比例）。
+ * 剪辑块自己渲染出来的起点像素。
  *
  * 一帧图片的抓取盒是固定 40px 并且 -translate-x-1/2 居中，所以它的
- * getBoundingClientRect().left 比真实帧位置左半个盒子。行内 left 百分比才是
+ * getBoundingClientRect().left 比真实帧位置左半个盒子。行内 left 像素才是
  * 渲染时用的那个真实起点，拿它当锚点还顺带免疫拖动过程中的横向滚动。
  */
-function clipAnchorRatio(element: HTMLElement): number | null {
+function clipAnchorPx(element: HTMLElement): number | null {
   const raw = element.style.left;
-  if (!raw.endsWith("%")) return null;
-  const percent = Number.parseFloat(raw);
-  return Number.isFinite(percent) ? percent / 100 : null;
+  if (!raw.endsWith("px")) return null;
+  const px = Number.parseFloat(raw);
+  return Number.isFinite(px) ? px : null;
 }
 
 /**
@@ -344,13 +358,13 @@ function clipAnchorRatio(element: HTMLElement): number | null {
  */
 export function commitVisualClipDrag(input: {
   clipId: string;
-  /** 抓取瞬间这个剪辑块渲染出来的起点比例；拿不到时回退到它的左边缘像素。 */
-  startLeftRatio: number | null;
+  /** 抓取瞬间这个剪辑块渲染出来的起点像素；拿不到时回退到它的左边缘。 */
+  startLeftPx: number | null;
   startRectLeft: number;
   startClientX: number;
   releaseClientX: number;
   releaseClientY: number;
-  totalMs: number;
+  viewport: TimelineViewport;
   onMoveVisualClip?: (move: {
     clipId: string;
     toTrackId: string;
@@ -361,27 +375,24 @@ export function commitVisualClipDrag(input: {
     clientX: number,
     clientY: number
   ) => StoryboardVisualLayerTrackGeometry | null;
-}): void {
+}): Promise<void> {
   const move = input.onMoveVisualClip;
-  if (!move) return;
-  const resolveTrack = input.resolveTrack ?? storyboardVisualLayerAtDocumentPoint;
+  if (!move) return Promise.resolve();
+  const resolveTrack =
+    input.resolveTrack ?? storyboardVisualLayerAtDocumentPoint;
   const targetTrack = resolveTrack(input.releaseClientX, input.releaseClientY);
   if (!targetTrack || targetTrack.rect.width <= 0) {
     toast.error("没落在任何图层上，位置没有改变");
-    return;
+    return Promise.resolve();
   }
   // 保住抓取点：跟着走的是这个剪辑块自己的起点，不是鼠标。
-  const startRatio =
-    input.startLeftRatio ??
-    (input.startRectLeft - targetTrack.rect.left) / targetTrack.rect.width;
-  const movedRatio =
-    startRatio +
-    (input.releaseClientX - input.startClientX) / targetTrack.rect.width;
-  const startMs = movedRatio * input.totalMs;
-  submitVisualClipMove({
+  const startPx =
+    input.startLeftPx ?? input.startRectLeft - targetTrack.rect.left;
+  const movedPx = startPx + (input.releaseClientX - input.startClientX);
+  return submitVisualClipMove({
     clipId: input.clipId,
     visualLayer: targetTrack.visualLayer,
-    toStartFrame: timelineOffsetMsToFrames(Math.max(0, startMs)),
+    toStartFrame: pxToFrame(input.viewport, movedPx),
     onMoveVisualClip: move,
   });
 }
@@ -413,7 +424,7 @@ function useWindowPointerContinuation(input: {
 function storyboardVisualClipArrowMove(input: {
   event: ReactKeyboardEvent<HTMLElement>;
   visualLayer: number;
-  onMove: (deltaFrames: number, visualLayer: number) => void;
+  onMove: (deltaFrames: number, deltaVisualLayers: number) => void;
 }) {
   const { event } = input;
   if (!event.key.startsWith("Arrow")) return false;
@@ -421,14 +432,9 @@ function storyboardVisualClipArrowMove(input: {
   event.stopPropagation();
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     const step = event.shiftKey ? 15 : 1;
-    input.onMove(event.key === "ArrowLeft" ? -step : step, input.visualLayer);
+    input.onMove(event.key === "ArrowLeft" ? -step : step, 0);
   } else {
-    input.onMove(
-      0,
-      event.key === "ArrowUp"
-        ? input.visualLayer + 1
-        : Math.max(0, input.visualLayer - 1)
-    );
+    input.onMove(0, event.key === "ArrowUp" ? 1 : -1);
   }
   return true;
 }
@@ -743,6 +749,7 @@ function StoryboardAudioRowHeader() {
 function StoryboardUpperVisualLayerRow({
   shots,
   timeline,
+  viewport,
   columnSpan,
   onSelectShot,
   visualLayer,
@@ -750,9 +757,12 @@ function StoryboardUpperVisualLayerRow({
   hidden,
   canDelete,
   onManageLayer,
+  onNudgeVisualClip,
+  onShotTimingPreviewChange,
 }: {
   shots: readonly StoryboardEditShot[];
   timeline: StoryboardBoardTimeline;
+  viewport: TimelineViewport;
   columnSpan: number;
   onSelectShot: (shotNo: number) => void;
   visualLayer: number;
@@ -760,12 +770,19 @@ function StoryboardUpperVisualLayerRow({
   hidden: boolean;
   canDelete: boolean;
   onManageLayer: (action: TimelineVisualLayerAction) => void;
+  onNudgeVisualClip: (input: {
+    clipId: string;
+    startVisualLayer: number;
+    deltaVisualLayers: number;
+    startFrame: number;
+    deltaFrames: number;
+  }) => void;
+  onShotTimingPreviewChange?: (
+    preview: StoryboardShotTimingPreview | null,
+    gestureId: symbol
+  ) => void;
 }) {
-  const totalMs = Math.max(
-    timeline.totalMs,
-    storyboardTimingTotalMs(shots.map(shot => shot.timing)),
-    ...(timeline.overlays ?? []).map(overlay => (overlay.endFrame * 1000) / 30)
-  );
+  const totalMs = viewport.totalMs;
   const frames = shots
     .flatMap(shot => {
       const extractedFrames = shot.extractedFrames ?? [];
@@ -834,7 +851,8 @@ function StoryboardUpperVisualLayerRow({
         startClientY: number;
         /** 抓取瞬间这个剪辑块自己的左边缘，用来保住抓取点的相对位置。 */
         startRectLeft: number;
-        startLeftRatio: number | null;
+        startLeftPx: number | null;
+        viewport: TimelineViewport;
         moved: boolean;
         clipId: string;
         sourceStableShotId: string;
@@ -845,9 +863,13 @@ function StoryboardUpperVisualLayerRow({
         startClientX: number;
         startClientY: number;
         startRectLeft: number;
-        startLeftRatio: number | null;
+        startLeftPx: number | null;
+        viewport: TimelineViewport;
         moved: boolean;
+        gestureId: symbol;
         stableShotId: string;
+        startFrame: number;
+        durationFrames: number;
       }
     | null
   >(null);
@@ -858,38 +880,60 @@ function StoryboardUpperVisualLayerRow({
     deltaX: number;
     deltaY: number;
   } | null>(null);
-  const playheadPct = storyboardEditPlayheadPct(timeline.playheadMs, totalMs);
+  const clipPointerCommitPendingRef = useRef(false);
+  const [clipPointerCommitPreview, setClipPointerCommitPreview] = useState<{
+    kind: "image" | "shot";
+    id: string;
+    deltaX: number;
+    deltaY: number;
+  } | null>(null);
+  const visibleClipPointerPreview =
+    clipPointerPreview ?? clipPointerCommitPreview;
+  const playheadPx = storyboardEditPlayheadPx(timeline.playheadMs, viewport);
   const seekFromClientX = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) return;
-    timeline.onSeek(
-      Math.max(
-        0,
-        Math.min(totalMs, ((clientX - rect.left) / rect.width) * totalMs)
-      )
-    );
+    timeline.onSeek(Math.min(totalMs, pxToMs(viewport, clientX - rect.left)));
   };
   const startClipPointerDrag = (
     event: ReactPointerEvent<HTMLElement>,
     payload:
       | { kind: "image"; clipId: string; sourceStableShotId: string }
-      | { kind: "shot"; stableShotId: string }
+      | {
+          kind: "shot";
+          stableShotId: string;
+          startFrame: number;
+          durationFrames: number;
+        }
   ) => {
-    if (event.button !== 0 || timeline.writePending) return;
-    event.currentTarget.focus();
+    if (
+      event.button !== 0 ||
+      timeline.writePending ||
+      clipPointerCommitPendingRef.current
+    )
+      return;
+    focusStoryboardClipForDrag(event.currentTarget);
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     suppressClipClickRef.current = false;
-    clipPointerDragRef.current = {
-      ...payload,
+    const dragBase = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startRectLeft: event.currentTarget.getBoundingClientRect().left,
-      startLeftRatio: clipAnchorRatio(event.currentTarget),
+      startLeftPx: clipAnchorPx(event.currentTarget),
+      viewport,
       moved: false,
     };
+    clipPointerDragRef.current =
+      payload.kind === "shot"
+        ? {
+            ...payload,
+            ...dragBase,
+            gestureId: Symbol("upper-shot-drag"),
+          }
+        : { ...payload, ...dragBase };
     setClipPointerPreview({
       kind: payload.kind,
       id: payload.kind === "image" ? payload.clipId : payload.stableShotId,
@@ -913,6 +957,21 @@ function StoryboardUpperVisualLayerRow({
       suppressClipClickRef.current = true;
     }
     if (!drag.moved) return;
+    if (drag.kind === "shot") {
+      onShotTimingPreviewChange?.(
+        storyboardVisualClipShotTimingPreview({
+          kind: "shot",
+          stableShotId: drag.stableShotId,
+          startFrame: drag.startFrame,
+          durationFrames: drag.durationFrames,
+          deltaFrames: storyboardGroupDragDeltaFrames({
+            deltaPx: event.clientX - drag.startClientX,
+            viewport: drag.viewport,
+          }),
+        }),
+        drag.gestureId
+      );
+    }
     setClipPointerPreview({
       kind: drag.kind,
       id: drag.kind === "image" ? drag.clipId : drag.stableShotId,
@@ -920,46 +979,89 @@ function StoryboardUpperVisualLayerRow({
       deltaY: event.clientY - drag.startClientY,
     });
   };
-  const finishClipPointerDragAt = (
+  const finishClipPointerDragAt = async (
     event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">
   ) => {
     const drag = clipPointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
     clipPointerDragRef.current = null;
+    if (!drag.moved) {
+      setClipPointerPreview(null);
+      if (drag.kind === "shot")
+        onShotTimingPreviewChange?.(null, drag.gestureId);
+      return;
+    }
+    const releasePreview = {
+      kind: drag.kind,
+      id: drag.kind === "image" ? drag.clipId : drag.stableShotId,
+      deltaX: event.clientX - drag.startClientX,
+      deltaY: event.clientY - drag.startClientY,
+    };
+    // pointerup 可能早于最后一个 pointermove；以真实释放点固定最终预览。
+    // 活跃手势与提交中预览分开，窗口监听随前者结束，不会重复 finish。
     setClipPointerPreview(null);
-    if (!drag || drag.pointerId !== event.pointerId || !drag.moved) return;
-    commitVisualClipDrag({
-      clipId:
-        drag.kind === "image"
-          ? `image:${drag.clipId}`
-          : `shot:${drag.stableShotId}`,
-      startRectLeft: drag.startRectLeft,
-      startLeftRatio: drag.startLeftRatio,
-      startClientX: drag.startClientX,
-      releaseClientX: event.clientX,
-      releaseClientY: event.clientY,
-      totalMs,
-      onMoveVisualClip: timeline.onMoveVisualClip,
-    });
+    setClipPointerCommitPreview(releasePreview);
+    if (drag.kind === "shot") {
+      onShotTimingPreviewChange?.(
+        storyboardVisualClipShotTimingPreview({
+          kind: "shot",
+          stableShotId: drag.stableShotId,
+          startFrame: drag.startFrame,
+          durationFrames: drag.durationFrames,
+          deltaFrames: storyboardGroupDragDeltaFrames({
+            deltaPx: event.clientX - drag.startClientX,
+            viewport: drag.viewport,
+          }),
+        }),
+        drag.gestureId
+      );
+    }
+    clipPointerCommitPendingRef.current = true;
+    try {
+      await commitVisualClipDrag({
+        clipId:
+          drag.kind === "image"
+            ? `image:${drag.clipId}`
+            : `shot:${drag.stableShotId}`,
+        startRectLeft: drag.startRectLeft,
+        startLeftPx: drag.startLeftPx,
+        startClientX: drag.startClientX,
+        releaseClientX: event.clientX,
+        releaseClientY: event.clientY,
+        viewport: drag.viewport,
+        onMoveVisualClip: timeline.onMoveVisualClip,
+      });
+    } finally {
+      clipPointerCommitPendingRef.current = false;
+      setClipPointerCommitPreview(null);
+      if (drag.kind === "shot")
+        onShotTimingPreviewChange?.(null, drag.gestureId);
+    }
   };
   const finishClipPointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    // 先同步取走 active drag 并标记 pending，再释放 capture；否则浏览器可能在
+    // releasePointerCapture 期间派发取消/窗口事件，把最终预览提前清掉或重复提交。
+    const pendingMove = finishClipPointerDragAt(event);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     event.preventDefault();
     event.stopPropagation();
-    finishClipPointerDragAt(event);
+    void pendingMove;
   };
   const cancelClipPointerDrag = (event: Pick<PointerEvent, "pointerId">) => {
-    if (clipPointerDragRef.current?.pointerId === event.pointerId) {
-      clipPointerDragRef.current = null;
-    }
+    const drag = clipPointerDragRef.current;
+    if (!drag || !isStoryboardPointerOwner(drag.pointerId, event.pointerId))
+      return;
+    clipPointerDragRef.current = null;
+    if (drag.kind === "shot") onShotTimingPreviewChange?.(null, drag.gestureId);
     suppressClipClickRef.current = false;
     setClipPointerPreview(null);
   };
   useWindowPointerContinuation({
     active: clipPointerPreview != null,
     onMove: moveClipPointerDrag,
-    onFinish: finishClipPointerDragAt,
+    onFinish: event => void finishClipPointerDragAt(event),
     onCancel: cancelClipPointerDrag,
   });
   const consumeSuppressedClipClick = () => {
@@ -1025,10 +1127,7 @@ function StoryboardUpperVisualLayerRow({
     if (!pairingStart) return;
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) return;
-    const atMs = Math.max(
-      0,
-      Math.min(totalMs, ((clientX - rect.left) / rect.width) * totalMs)
-    );
+    const atMs = Math.min(totalMs, pxToMs(viewport, clientX - rect.left));
     setPairingCandidate(
       selectExtractedFrameCandidate({ frames, start: pairingStart, atMs })
     );
@@ -1101,7 +1200,7 @@ function StoryboardUpperVisualLayerRow({
       />
       <div
         role="cell"
-        className={`px-2 py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
+        className={`py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
         style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
       >
         <div
@@ -1120,11 +1219,7 @@ function StoryboardUpperVisualLayerRow({
             openAtMs(
               Math.max(
                 0,
-                Math.min(
-                  totalMs,
-                  ((event.clientX - rect.left) / Math.max(1, rect.width)) *
-                    totalMs
-                )
+                Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
               ),
               event.clientX,
               event.clientY
@@ -1153,10 +1248,7 @@ function StoryboardUpperVisualLayerRow({
             if (!rect || rect.width <= 0) return;
             const targetMs = Math.max(
               0,
-              Math.min(
-                totalMs,
-                ((event.clientX - rect.left) / rect.width) * totalMs
-              )
+              Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
             );
             if (
               timeline.onPlaceExternalVisual &&
@@ -1246,10 +1338,8 @@ function StoryboardUpperVisualLayerRow({
               shot => (shot.timelineItem?.visualLayer ?? 0) === visualLayer
             )
             .map(shot => {
-              const leftPct =
-                totalMs > 0 ? (shot.timing.startMs / totalMs) * 100 : 0;
-              const widthPct =
-                totalMs > 0 ? (shot.timing.durationMs / totalMs) * 100 : 0;
+              const leftPx = msToPx(viewport, shot.timing.startMs);
+              const widthPx = msToPx(viewport, shot.timing.durationMs);
               return (
                 <div
                   key={`upper-shot-${shot.stableShotId}`}
@@ -1258,18 +1348,20 @@ function StoryboardUpperVisualLayerRow({
                   data-pointer-clip-move="true"
                   className="absolute bottom-1 top-1 z-[6] touch-none cursor-grab overflow-hidden rounded-sm border border-cyan-400/70 bg-cyan-500/25 px-1 text-left text-[8px] active:cursor-grabbing focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   style={{
-                    left: `${leftPct}%`,
-                    width: `${Math.max(widthPct, 0.4)}%`,
+                    left: leftPx,
+                    width: Math.max(widthPx, 1),
                     transform:
-                      clipPointerPreview?.kind === "shot" &&
-                      clipPointerPreview.id === shot.stableShotId
-                        ? `translate(${clipPointerPreview.deltaX}px, ${clipPointerPreview.deltaY}px)`
+                      visibleClipPointerPreview?.kind === "shot" &&
+                      visibleClipPointerPreview.id === shot.stableShotId
+                        ? `translate(${visibleClipPointerPreview.deltaX}px, ${visibleClipPointerPreview.deltaY}px)`
                         : undefined,
                   }}
                   onPointerDown={event => {
                     startClipPointerDrag(event, {
                       kind: "shot",
                       stableShotId: shot.stableShotId,
+                      startFrame: shot.timing.startFrame,
+                      durationFrames: shot.timing.durationFrames,
                     });
                   }}
                   onPointerMove={moveClipPointerDrag}
@@ -1283,13 +1375,13 @@ function StoryboardUpperVisualLayerRow({
                     storyboardVisualClipArrowMove({
                       event,
                       visualLayer,
-                      onMove: (deltaFrames, nextVisualLayer) => {
-                        if (timeline.writePending) return;
-                        submitVisualClipMove({
+                      onMove: (deltaFrames, deltaVisualLayers) => {
+                        onNudgeVisualClip({
                           clipId: `shot:${shot.stableShotId}`,
-                          visualLayer: nextVisualLayer,
-                          toStartFrame: shot.timing.startFrame + deltaFrames,
-                          onMoveVisualClip: timeline.onMoveVisualClip,
+                          startVisualLayer: visualLayer,
+                          deltaVisualLayers,
+                          startFrame: shot.timing.startFrame,
+                          deltaFrames,
                         });
                       },
                     });
@@ -1301,7 +1393,10 @@ function StoryboardUpperVisualLayerRow({
                   title={`${shot.shotLabel} · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 可继续切割`}
                 >
                   <StoryboardEditFilmstrip
-                    frameUrls={[]}
+                    frameUrls={storyboardEditFilmstripFrameUrls({
+                      source: shot.primaryFrameSource,
+                      durationMs: shot.timing.durationMs,
+                    })}
                     posterUrl={shot.posterUrl}
                     testId={`storyboard-upper-shot-filmstrip-${shot.stableShotId}`}
                   />
@@ -1312,10 +1407,7 @@ function StoryboardUpperVisualLayerRow({
               );
             })}
           {frames.map(({ shot, clip, ...frame }) => {
-            const leftPct =
-              totalMs > 0
-                ? Math.min(100, Math.max(0, (frame.atMs / totalMs) * 100))
-                : 0;
+            const leftPx = msToPx(viewport, frame.atMs);
             const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
             return (
               <div
@@ -1323,30 +1415,37 @@ function StoryboardUpperVisualLayerRow({
                 role="button"
                 tabIndex={0}
                 data-pointer-clip-move={clip ? "true" : undefined}
-                className={`absolute bottom-1 top-1 z-10 w-10 -translate-x-1/2 touch-none cursor-grab overflow-hidden rounded-sm border bg-background shadow-sm transition active:cursor-grabbing hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`absolute bottom-1 z-10 h-7 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  clip
+                    ? "touch-none cursor-grab active:cursor-grabbing"
+                    : "cursor-pointer"
+                } ${
                   active
                     ? "border-primary ring-1 ring-primary"
                     : "border-white/60"
                 }`}
                 style={{
-                  left: `${leftPct}%`,
+                  left: leftPx,
                   transform:
-                    clipPointerPreview?.kind === "image" &&
-                    clipPointerPreview.id === clip?.id
-                      ? `translate(calc(-50% + ${clipPointerPreview.deltaX}px), ${clipPointerPreview.deltaY}px)`
+                    visibleClipPointerPreview?.kind === "image" &&
+                    visibleClipPointerPreview.id === clip?.id
+                      ? `translate(calc(-50% + ${visibleClipPointerPreview.deltaX}px), ${visibleClipPointerPreview.deltaY}px)`
                       : undefined,
                 }}
-                onPointerDown={event => {
-                  if (!clip) return;
-                  startClipPointerDrag(event, {
-                    kind: "image",
-                    clipId: clip.id,
-                    sourceStableShotId: shot.stableShotId,
-                  });
-                }}
-                onPointerMove={moveClipPointerDrag}
-                onPointerUp={finishClipPointerDrag}
-                onPointerCancel={cancelClipPointerDrag}
+                onPointerDown={
+                  clip
+                    ? event => {
+                        startClipPointerDrag(event, {
+                          kind: "image",
+                          clipId: clip.id,
+                          sourceStableShotId: shot.stableShotId,
+                        });
+                      }
+                    : undefined
+                }
+                onPointerMove={clip ? moveClipPointerDrag : undefined}
+                onPointerUp={clip ? finishClipPointerDrag : undefined}
+                onPointerCancel={clip ? cancelClipPointerDrag : undefined}
                 onClick={() => {
                   if (consumeSuppressedClipClick()) return;
                   if (pairingStart) {
@@ -1380,16 +1479,15 @@ function StoryboardUpperVisualLayerRow({
                   event.stopPropagation();
                   setTransitionMenu(null);
                   setDeleteError(null);
-                  const trackWidth =
-                    trackRef.current?.getBoundingClientRect().width ?? 0;
                   const overlappingFrames = frames.filter(candidate => {
-                    if (trackWidth <= 0 || totalMs <= 0) {
+                    if (totalMs <= 0) {
                       return candidate.imageId === frame.imageId;
                     }
                     return (
-                      (Math.abs(candidate.atMs - frame.atMs) / totalMs) *
-                        trackWidth <
-                      38
+                      Math.abs(
+                        msToPx(viewport, candidate.atMs) -
+                          msToPx(viewport, frame.atMs)
+                      ) < 38
                     );
                   });
                   setFrameMenu({
@@ -1409,17 +1507,16 @@ function StoryboardUpperVisualLayerRow({
                     storyboardVisualClipArrowMove({
                       event,
                       visualLayer,
-                      onMove: (deltaFrames, nextVisualLayer) => {
-                        if (timeline.writePending) return;
-                        submitVisualClipMove({
+                      onMove: (deltaFrames, deltaVisualLayers) => {
+                        onNudgeVisualClip({
                           clipId: `image:${clip.id}`,
-                          visualLayer: nextVisualLayer,
-                          toStartFrame:
-                            timelineImageClipStartFrame(
-                              clip,
-                              shot.timing.startFrame
-                            ) + deltaFrames,
-                          onMoveVisualClip: timeline.onMoveVisualClip,
+                          startVisualLayer: visualLayer,
+                          deltaVisualLayers,
+                          startFrame: timelineImageClipStartFrame(
+                            clip,
+                            shot.timing.startFrame
+                          ),
+                          deltaFrames,
                         });
                       },
                     })
@@ -1478,7 +1575,7 @@ function StoryboardUpperVisualLayerRow({
               data-testid="storyboard-extracted-frame-pair-candidate"
               className="absolute z-[30] -translate-x-1/2 rounded-full border border-primary bg-primary p-1 text-primary-foreground shadow-lg"
               style={{
-                left: `${(pairingCandidate.candidate.atMs / Math.max(1, totalMs)) * 100}%`,
+                left: msToPx(viewport, pairingCandidate.candidate.atMs),
                 top: "0.1rem",
               }}
               onClick={event => {
@@ -1507,24 +1604,15 @@ function StoryboardUpperVisualLayerRow({
                     )
                 )
                 .map(overlay => {
-                  const leftPct =
-                    totalMs > 0
-                      ? ((overlay.startFrame * 1000) / 30 / totalMs) * 100
-                      : 0;
-                  const mediaWidthPct =
-                    totalMs > 0
-                      ? (((overlay.mediaEndFrame - overlay.startFrame) * 1000) /
-                          30 /
-                          totalMs) *
-                        100
-                      : 0;
-                  const gapWidthPct =
-                    totalMs > 0
-                      ? (((overlay.endFrame - overlay.mediaEndFrame) * 1000) /
-                          30 /
-                          totalMs) *
-                        100
-                      : 0;
+                  const leftPx = frameToPx(viewport, overlay.startFrame);
+                  const mediaWidthPx = frameToPx(
+                    viewport,
+                    overlay.mediaEndFrame - overlay.startFrame
+                  );
+                  const gapWidthPx = frameToPx(
+                    viewport,
+                    overlay.endFrame - overlay.mediaEndFrame
+                  );
                   return (
                     <div
                       key={overlay.id}
@@ -1536,16 +1624,16 @@ function StoryboardUpperVisualLayerRow({
                         preload="metadata"
                         className="pointer-events-none absolute bottom-1 top-1 z-[5] rounded-sm border border-cyan-400/70 bg-black object-cover"
                         style={{
-                          left: `${leftPct}%`,
-                          width: `${Math.max(mediaWidthPct, 0.4)}%`,
+                          left: leftPx,
+                          width: Math.max(mediaWidthPx, 1),
                         }}
                       />
-                      {gapWidthPct > 0 ? (
+                      {gapWidthPx > 0 ? (
                         <span
                           className="pointer-events-none absolute bottom-1 top-1 z-[4] border border-dashed border-cyan-500/50 bg-black"
                           style={{
-                            left: `${leftPct + mediaWidthPct}%`,
-                            width: `${gapWidthPct}%`,
+                            left: leftPx + mediaWidthPx,
+                            width: gapWidthPx,
                           }}
                           title="未生成区间 · 留空"
                         />
@@ -1554,7 +1642,7 @@ function StoryboardUpperVisualLayerRow({
                   );
                 })
             : null}
-          {showTopPlayhead && playheadPct != null ? (
+          {showTopPlayhead && playheadPx != null ? (
             <div
               role="slider"
               tabIndex={0}
@@ -1565,7 +1653,7 @@ function StoryboardUpperVisualLayerRow({
               aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
               title="播放头位于所有视觉剪辑层最上方"
               className="group absolute bottom-0 top-0 z-50 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
-              style={{ left: `${playheadPct}%` }}
+              style={{ left: playheadPx }}
               data-testid="storyboard-top-playhead"
               onPointerDown={event => {
                 if (event.button !== 0) return;
@@ -1894,6 +1982,7 @@ function StoryboardEditContextMenu({
 
 function StoryboardEditTrack({
   timeline,
+  viewport,
   shots,
   selectedShotNo,
   onSelectShot,
@@ -1909,8 +1998,11 @@ function StoryboardEditTrack({
   onStatusMessage,
   excludedShotIds,
   disableGroupMove = false,
+  onNudgeVisualClip,
+  onShotTimingPreviewChange,
 }: {
   timeline: StoryboardBoardTimeline;
+  viewport: TimelineViewport;
   shots: readonly StoryboardEditShot[];
   selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
@@ -1926,6 +2018,17 @@ function StoryboardEditTrack({
   onStatusMessage: (message: string | null) => void;
   excludedShotIds?: ReadonlySet<string>;
   disableGroupMove?: boolean;
+  onNudgeVisualClip: (input: {
+    clipId: string;
+    startVisualLayer: number;
+    deltaVisualLayers: number;
+    startFrame: number;
+    deltaFrames: number;
+  }) => void;
+  onShotTimingPreviewChange?: (
+    preview: StoryboardShotTimingPreview | null,
+    gestureId: symbol
+  ) => void;
 }) {
   const dragAnchorMsRef = useRef<number | null>(null);
   const imagePointerDragRef = useRef<{
@@ -1933,7 +2036,8 @@ function StoryboardEditTrack({
     startClientX: number;
     startClientY: number;
     startRectLeft: number;
-    startLeftRatio: number | null;
+    startLeftPx: number | null;
+    viewport: TimelineViewport;
     moved: boolean;
     clipId: string;
     sourceStableShotId: string;
@@ -1942,7 +2046,6 @@ function StoryboardEditTrack({
   const [imagePointerActive, setImagePointerActive] = useState(false);
   const trimStartRef = useRef<{
     clientX: number;
-    trackWidthPx: number;
     baseDurationMs: number;
     maxDurationMs?: number;
     edge: "start" | "end";
@@ -1974,9 +2077,9 @@ function StoryboardEditTrack({
   const storyImageDrop = useStoryImageDrop();
   const groupDragRef = useRef<{
     clientX: number;
-    trackWidthPx: number;
     stableShotId: string;
     direction: "left" | "right" | null;
+    viewport: TimelineViewport;
   } | null>(null);
   const [groupDrag, setGroupDrag] = useState<{
     stableShotId: string;
@@ -1987,10 +2090,20 @@ function StoryboardEditTrack({
     blockedReason: string | null;
   } | null>(null);
   const singleDragRef = useRef<{
+    pointerId: number;
+    gestureId: symbol;
     clientX: number;
-    trackWidthPx: number;
+    clientY: number;
+    shotNo: number;
     stableShotId: string;
+    startFrame: number;
+    durationFrames: number;
+    blockedReason: string | null;
+    viewport: TimelineViewport;
   } | null>(null);
+  // 松手后命令可能要等持久化返回；这段时间保留 ghost，避免界面先弹回原位。
+  // lostpointercapture 会紧跟 releasePointerCapture 同步触发，不能把它清掉。
+  const singleDragCommitPendingRef = useRef(false);
   const gripDragModeRef = useRef<"single" | "group" | null>(null);
   const [singleDrag, setSingleDrag] = useState<{
     stableShotId: string;
@@ -2000,7 +2113,7 @@ function StoryboardEditTrack({
 
   const timings = shots.map(shot => shot.timing);
   // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
-  const totalMs = Math.max(timeline.totalMs, storyboardTimingTotalMs(timings));
+  const totalMs = viewport.totalMs;
   const groupEnabled =
     !disableGroupMove &&
     Boolean(timeline.previewGroupMove && timeline.onMoveTimelineGroup);
@@ -2021,12 +2134,11 @@ function StoryboardEditTrack({
       if (!rect) return 0;
       return storyboardEditTrackMs({
         clientX,
-        rectLeft: rect.left,
-        rectWidth: rect.width,
-        totalMs,
+        trackLeft: rect.left,
+        viewport,
       });
     },
-    [totalMs, trackRef]
+    [trackRef, viewport]
   );
 
   const startImagePointerDrag = (
@@ -2035,7 +2147,7 @@ function StoryboardEditTrack({
     sourceStableShotId: string
   ) => {
     if (event.button !== 0 || timeline.writePending) return;
-    event.currentTarget.focus();
+    focusStoryboardClipForDrag(event.currentTarget);
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -2045,7 +2157,8 @@ function StoryboardEditTrack({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startRectLeft: event.currentTarget.getBoundingClientRect().left,
-      startLeftRatio: clipAnchorRatio(event.currentTarget),
+      startLeftPx: clipAnchorPx(event.currentTarget),
+      viewport,
       moved: false,
       clipId,
       sourceStableShotId,
@@ -2072,49 +2185,55 @@ function StoryboardEditTrack({
     event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">
   ) => {
     const drag = imagePointerDragRef.current;
+    if (!drag || !isStoryboardPointerOwner(drag.pointerId, event.pointerId))
+      return;
     imagePointerDragRef.current = null;
     setImagePointerActive(false);
-    if (!drag || drag.pointerId !== event.pointerId || !drag.moved) return;
+    if (!drag.moved) return;
     commitVisualClipDrag({
       clipId: `image:${drag.clipId}`,
       startRectLeft: drag.startRectLeft,
-      startLeftRatio: drag.startLeftRatio,
+      startLeftPx: drag.startLeftPx,
       startClientX: drag.startClientX,
       releaseClientX: event.clientX,
       releaseClientY: event.clientY,
-      totalMs,
+      viewport: drag.viewport,
       onMoveVisualClip: timeline.onMoveVisualClip,
     });
   };
   const finishImagePointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    // 先消费有效手势再释放 capture；lostpointercapture 可能同步触发，不能让它
+    // 抢先清掉仍待提交的图片拖动。
+    finishImagePointerDragAt(event);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     event.preventDefault();
     event.stopPropagation();
-    finishImagePointerDragAt(event);
+  };
+  const cancelImagePointerDrag = (event: Pick<PointerEvent, "pointerId">) => {
+    const drag = imagePointerDragRef.current;
+    if (!drag || !isStoryboardPointerOwner(drag.pointerId, event.pointerId))
+      return;
+    imagePointerDragRef.current = null;
+    suppressImageClickRef.current = false;
+    setImagePointerActive(false);
   };
   useWindowPointerContinuation({
     active: imagePointerActive,
     onMove: moveImagePointerDrag,
     onFinish: finishImagePointerDragAt,
-    onCancel: event => {
-      if (imagePointerDragRef.current?.pointerId === event.pointerId) {
-        imagePointerDragRef.current = null;
-      }
-      suppressImageClickRef.current = false;
-      setImagePointerActive(false);
-    },
+    onCancel: cancelImagePointerDrag,
   });
 
-  const blocks = storyboardEditBlocks(timings, totalMs);
+  const blocks = storyboardEditBlocks(timings, viewport);
   const activeRange = draftRange ?? timeline.selectedRange;
   const highlight = activeRange
-    ? storyboardEditRangePct(activeRange, totalMs)
+    ? storyboardEditRangePx(activeRange, viewport)
     : null;
-  const playheadPct = storyboardEditPlayheadPct(timeline.playheadMs, totalMs);
-  const markInPct =
-    markInMs == null ? null : storyboardEditPlayheadPct(markInMs, totalMs);
+  const playheadPx = storyboardEditPlayheadPx(timeline.playheadMs, viewport);
+  const markInPx =
+    markInMs == null ? null : storyboardEditPlayheadPx(markInMs, viewport);
 
   const startRangeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -2172,8 +2291,7 @@ function StoryboardEditTrack({
     if (event.button !== 0 || timeline.writePending) return;
     event.preventDefault();
     event.stopPropagation();
-    const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
-    if (trackWidthPx <= 0) return;
+    if (!trackRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     timeline.onTogglePlay(false);
     const rollingJoin = timeline.onRollTimelineJoin
@@ -2191,7 +2309,6 @@ function StoryboardEditTrack({
       : null;
     trimStartRef.current = {
       clientX: event.clientX,
-      trackWidthPx,
       baseDurationMs: shot.timing.durationMs,
       maxDurationMs: edge === "start" ? shot.timing.endMs : undefined,
       edge,
@@ -2241,8 +2358,7 @@ function StoryboardEditTrack({
           rightEndFrame: start.rollingRightEndFrame,
           startClientX: start.clientX,
           currentClientX: event.clientX,
-          trackWidthPx: start.trackWidthPx,
-          totalMs,
+          viewport,
         }),
         leftStartFrame: start.rollingLeftStartFrame,
         rightEndFrame: start.rollingRightEndFrame,
@@ -2253,8 +2369,7 @@ function StoryboardEditTrack({
       stableShotId: start.stableShotId,
       durationMs: storyboardTrimmedDurationMs({
         baseDurationMs: start.baseDurationMs,
-        trackWidthPx: start.trackWidthPx,
-        totalMs,
+        viewport,
         deltaPx: event.clientX - start.clientX,
         edge: start.edge,
         maxDurationMs: start.maxDurationMs,
@@ -2275,8 +2390,7 @@ function StoryboardEditTrack({
             stableShotId: start.stableShotId,
             durationMs: storyboardTrimmedDurationMs({
               baseDurationMs: start.baseDurationMs,
-              trackWidthPx: start.trackWidthPx,
-              totalMs,
+              viewport,
               deltaPx: event.clientX - start.clientX,
               edge: start.edge,
               maxDurationMs: start.maxDurationMs,
@@ -2296,8 +2410,7 @@ function StoryboardEditTrack({
               rightEndFrame: start.rollingRightEndFrame,
               startClientX: start.clientX,
               currentClientX: event.clientX,
-              trackWidthPx: start.trackWidthPx,
-              totalMs,
+              viewport,
             }),
             leftStartFrame: start.rollingLeftStartFrame,
             rightEndFrame: start.rollingRightEndFrame,
@@ -2372,17 +2485,16 @@ function StoryboardEditTrack({
     if (event.button !== 0 || !groupEnabled || timeline.writePending) return;
     event.preventDefault();
     event.stopPropagation();
-    const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
-    if (trackWidthPx <= 0) return;
+    if (!trackRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     timeline.onTogglePlay(false);
     // 上一条结果不能盖住这次手势的反馈——尤其是「这一镜锁住了」这种拒绝原因。
     onStatusMessage(null);
     groupDragRef.current = {
       clientX: event.clientX,
-      trackWidthPx,
       stableShotId: shot.stableShotId,
       direction: null,
+      viewport,
     };
     // 还没越过阈值就先把两侧的候选范围亮出来，鼠标/触摸/键盘都能看见。
     const left = timeline.previewGroupMove?.({
@@ -2417,8 +2529,7 @@ function StoryboardEditTrack({
     const step = storyboardGroupDragStep({
       lockedDirection: start.direction,
       deltaPx: event.clientX - start.clientX,
-      trackWidthPx: start.trackWidthPx,
-      totalMs,
+      viewport: start.viewport,
     });
     if (!step) return;
     if (start.direction == null) {
@@ -2452,8 +2563,7 @@ function StoryboardEditTrack({
       ? storyboardGroupDragStep({
           lockedDirection: start.direction,
           deltaPx: event.clientX - start.clientX,
-          trackWidthPx: start.trackWidthPx,
-          totalMs,
+          viewport: start.viewport,
         })
       : null;
     groupDragRef.current = null;
@@ -2488,80 +2598,155 @@ function StoryboardEditTrack({
   }, [clearGroupDrag, groupDrag]);
 
   const clearSingleDrag = useCallback(() => {
+    if (singleDragCommitPendingRef.current) return;
+    const drag = singleDragRef.current;
     singleDragRef.current = null;
     setSingleDrag(null);
-  }, []);
+    if (drag) onShotTimingPreviewChange?.(null, drag.gestureId);
+  }, [onShotTimingPreviewChange]);
+  const clearSingleDragForPointer = useCallback(
+    (pointerId: number) => {
+      const start = singleDragRef.current;
+      if (start && isStoryboardPointerOwner(start.pointerId, pointerId)) {
+        clearSingleDrag();
+      }
+    },
+    [clearSingleDrag]
+  );
 
   const startSingleDrag = (
     event: ReactPointerEvent<HTMLElement>,
     shot: StoryboardEditShot
   ) => {
-    if (event.button !== 0 || !singleMoveEnabled || timeline.writePending)
+    if (
+      event.button !== 0 ||
+      !singleMoveEnabled ||
+      timeline.writePending ||
+      singleDragCommitPendingRef.current
+    )
       return;
     event.preventDefault();
     event.stopPropagation();
-    const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
-    if (trackWidthPx <= 0) return;
+    if (!trackRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     timeline.onTogglePlay(false);
     onStatusMessage(null);
+    const blockedReason =
+      shot.timing.anchorFrames.length > 0
+        ? "这一镜已有位置锚点，不能移动"
+        : null;
     singleDragRef.current = {
+      pointerId: event.pointerId,
+      gestureId: Symbol("main-shot-drag"),
       clientX: event.clientX,
-      trackWidthPx,
+      clientY: event.clientY,
+      shotNo: shot.shotNo,
       stableShotId: shot.stableShotId,
+      startFrame: shot.timing.startFrame,
+      durationFrames: shot.timing.durationFrames,
+      blockedReason,
+      viewport,
     };
     setSingleDrag({
       stableShotId: shot.stableShotId,
       deltaFrames: 0,
       // 锚定的这一镜不能移动；这里立刻给出理由，不用等松手才告诉用户。
-      blockedReason:
-        shot.timing.anchorFrames.length > 0
-          ? "这一镜已有位置锚点，不能移动"
-          : null,
+      blockedReason,
     });
   };
 
-  const moveSingleDrag = (event: Pick<PointerEvent, "clientX">) => {
+  const moveSingleDrag = (
+    event: Pick<PointerEvent, "pointerId" | "clientX">
+  ) => {
     const start = singleDragRef.current;
-    if (!start) return;
+    if (!start || !isStoryboardPointerOwner(start.pointerId, event.pointerId))
+      return;
     const deltaFrames = storyboardGroupDragDeltaFrames({
       deltaPx: event.clientX - start.clientX,
-      trackWidthPx: start.trackWidthPx,
-      totalMs,
+      viewport: start.viewport,
     });
     setSingleDrag(current =>
       current == null || current.deltaFrames === deltaFrames
         ? current
         : { ...current, deltaFrames }
     );
+    onShotTimingPreviewChange?.(
+      start.blockedReason || deltaFrames === 0
+        ? null
+        : storyboardVisualClipShotTimingPreview({
+            kind: "shot",
+            stableShotId: start.stableShotId,
+            startFrame: start.startFrame,
+            durationFrames: start.durationFrames,
+            deltaFrames,
+          }),
+      start.gestureId
+    );
   };
 
   const endSingleDragAt = async (
-    event: Pick<PointerEvent, "clientX" | "clientY">
+    event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">
   ) => {
     const start = singleDragRef.current;
+    if (!start || !isStoryboardPointerOwner(start.pointerId, event.pointerId))
+      return;
     singleDragRef.current = null;
-    setSingleDrag(null);
-    if (!start) return;
+    if (!isStoryboardClipPointerDrag(start, event)) {
+      setSingleDrag(null);
+      onShotTimingPreviewChange?.(null, start.gestureId);
+      // 点击才选择；拖动不能触发分镜列展开与自动横滚。
+      onSelectShot(start.shotNo);
+      return;
+    }
+    const releaseDeltaFrames = storyboardGroupDragDeltaFrames({
+      deltaPx: event.clientX - start.clientX,
+      viewport: start.viewport,
+    });
+    // pointerup 可能早于最后一个 pointermove；以真实释放点固定最终 ghost。
+    setSingleDrag(current => ({
+      stableShotId: start.stableShotId,
+      deltaFrames: releaseDeltaFrames,
+      blockedReason: current?.blockedReason ?? null,
+    }));
+    onShotTimingPreviewChange?.(
+      start.blockedReason || releaseDeltaFrames === 0
+        ? null
+        : storyboardVisualClipShotTimingPreview({
+            kind: "shot",
+            stableShotId: start.stableShotId,
+            startFrame: start.startFrame,
+            durationFrames: start.durationFrames,
+            deltaFrames: releaseDeltaFrames,
+          }),
+      start.gestureId
+    );
+    singleDragCommitPendingRef.current = true;
     const sourceTiming = timings.find(
       timing => timing.stableShotId === start.stableShotId
     );
-    commitVisualClipDrag({
-      clipId: `shot:${start.stableShotId}`,
-      // 镜头块渲染在 startMs/totalMs 处，用它当锚点就能保住抓取点。
-      startLeftRatio:
-        sourceTiming && totalMs > 0 ? sourceTiming.startMs / totalMs : null,
-      startRectLeft: 0,
-      startClientX: start.clientX,
-      releaseClientX: event.clientX,
-      releaseClientY: event.clientY,
-      totalMs,
-      onMoveVisualClip: timeline.onMoveVisualClip,
-      // 松手落在所有轨道之外时保持在主轨，等同于以前的纯横移。
-      resolveTrack: (clientX, clientY) =>
-        storyboardVisualLayerAtDocumentPoint(clientX, clientY) ??
-        storyboardVisualLayerTrackGeometry(0),
-    });
+    try {
+      await commitVisualClipDrag({
+        clipId: `shot:${start.stableShotId}`,
+        // 镜头块渲染在绝对时间像素上，用它当锚点就能保住抓取点。
+        startLeftPx: sourceTiming
+          ? msToPx(start.viewport, sourceTiming.startMs)
+          : null,
+        startRectLeft: 0,
+        startClientX: start.clientX,
+        releaseClientX: event.clientX,
+        releaseClientY: event.clientY,
+        viewport: start.viewport,
+        onMoveVisualClip: timeline.onMoveVisualClip,
+        // 松手落在所有轨道之外时保持在主轨，等同于以前的纯横移。
+        resolveTrack: (clientX, clientY) =>
+          storyboardVisualLayerAtDocumentPoint(clientX, clientY) ??
+          storyboardVisualLayerTrackGeometry(0),
+      });
+    } finally {
+      singleDragCommitPendingRef.current = false;
+      setSingleDrag(null);
+      onShotTimingPreviewChange?.(null, start.gestureId);
+    }
   };
   const endSingleDrag = async (event: ReactPointerEvent<HTMLElement>) => {
     // Read and clear the drag synchronously before releasing capture. React's
@@ -2577,7 +2762,9 @@ function StoryboardEditTrack({
     active: singleDrag != null,
     onMove: moveSingleDrag,
     onFinish: event => void endSingleDragAt(event),
-    onCancel: () => clearSingleDrag(),
+    onCancel: event => {
+      clearSingleDragForPointer(event.pointerId);
+    },
   });
 
   // 拖到一半按 Esc 或丢掉指针捕获都直接取消，不写任何数据。
@@ -2592,12 +2779,23 @@ function StoryboardEditTrack({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [clearSingleDrag, singleDrag]);
 
-  const clearGripDrag = useCallback(() => {
-    const mode = gripDragModeRef.current;
-    gripDragModeRef.current = null;
-    if (mode === "group") clearGroupDrag();
-    if (mode === "single") clearSingleDrag();
-  }, [clearGroupDrag, clearSingleDrag]);
+  const clearGripDrag = useCallback(
+    (pointerId?: number) => {
+      const mode = gripDragModeRef.current;
+      if (
+        mode === "single" &&
+        pointerId != null &&
+        singleDragRef.current &&
+        !isStoryboardPointerOwner(singleDragRef.current.pointerId, pointerId)
+      ) {
+        return;
+      }
+      gripDragModeRef.current = null;
+      if (mode === "group") clearGroupDrag();
+      if (mode === "single") clearSingleDrag();
+    },
+    [clearGroupDrag, clearSingleDrag]
+  );
 
   const startGripDrag = (
     event: ReactPointerEvent<HTMLElement>,
@@ -2636,10 +2834,9 @@ function StoryboardEditTrack({
     groupDrag?.direction && groupDrag.deltaFrames !== 0
       ? groupDrag.stableShotIds
       : [];
-  const groupDeltaPct =
-    totalMs > 0 && groupDrag
-      ? ((groupDrag.deltaFrames * (1000 / 30)) / totalMs) * 100
-      : 0;
+  const groupDeltaPx = groupDrag
+    ? frameDeltaToPx(viewport, groupDrag.deltaFrames)
+    : 0;
   const mainImageClips = shots.flatMap(shot =>
     (shot.timelineItem?.imageClips ?? [])
       .filter(clip => clip.visualLayer === 0)
@@ -2654,7 +2851,7 @@ function StoryboardEditTrack({
 
   return (
     <div
-      className="relative min-w-0 border-b border-r px-2 py-2"
+      className="relative min-w-0 border-b border-r py-2"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
@@ -2774,7 +2971,7 @@ function StoryboardEditTrack({
         }}
       >
         {mainImageClips.map(({ shot, clip, atMs }) => {
-          const leftPct = totalMs > 0 ? (atMs / totalMs) * 100 : 0;
+          const leftPx = msToPx(viewport, atMs);
           return (
             <div
               key={clip.id}
@@ -2782,20 +2979,13 @@ function StoryboardEditTrack({
               tabIndex={0}
               data-pointer-clip-move="true"
               className="absolute bottom-1 top-5 z-[25] w-10 -translate-x-1/2 touch-none cursor-grab overflow-hidden rounded-sm border border-sky-400 bg-background shadow-sm active:cursor-grabbing focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              style={{ left: `${leftPct}%` }}
+              style={{ left: leftPx }}
               onPointerDown={event => {
                 startImagePointerDrag(event, clip.id, shot.stableShotId);
               }}
               onPointerMove={moveImagePointerDrag}
               onPointerUp={finishImagePointerDrag}
-              onPointerCancel={event => {
-                if (
-                  imagePointerDragRef.current?.pointerId === event.pointerId
-                ) {
-                  imagePointerDragRef.current = null;
-                }
-                suppressImageClickRef.current = false;
-              }}
+              onPointerCancel={cancelImagePointerDrag}
               onClick={event => {
                 if (suppressImageClickRef.current) {
                   suppressImageClickRef.current = false;
@@ -2809,18 +2999,16 @@ function StoryboardEditTrack({
                 storyboardVisualClipArrowMove({
                   event,
                   visualLayer: 0,
-                  onMove: (deltaFrames, visualLayer) => {
-                    if (!timeline.onMoveVisualClip || timeline.writePending)
-                      return;
-                    submitVisualClipMove({
+                  onMove: (deltaFrames, deltaVisualLayers) => {
+                    onNudgeVisualClip({
                       clipId: `image:${clip.id}`,
-                      visualLayer,
-                      toStartFrame:
-                        timelineImageClipStartFrame(
-                          clip,
-                          shot.timing.startFrame
-                        ) + deltaFrames,
-                      onMoveVisualClip: timeline.onMoveVisualClip,
+                      startVisualLayer: 0,
+                      deltaVisualLayers,
+                      startFrame: timelineImageClipStartFrame(
+                        clip,
+                        shot.timing.startFrame
+                      ),
+                      deltaFrames,
                     });
                   },
                 });
@@ -2840,7 +3028,7 @@ function StoryboardEditTrack({
             </div>
           );
         })}
-        {blocks.map(({ timing, leftPct, widthPct }) => {
+        {blocks.map(({ timing, leftPx, widthPx }) => {
           if (excludedShotIds?.has(timing.stableShotId)) return null;
           const shot = shots.find(
             item => item.stableShotId === timing.stableShotId
@@ -2867,17 +3055,13 @@ function StoryboardEditTrack({
             rollingDurationFrames == null
               ? (trimming?.durationMs ?? timing.durationMs)
               : (rollingDurationFrames * 1000) / 30;
-          const drawnWidthPct =
-            totalMs > 0 ? (durationMs / totalMs) * 100 : widthPct;
-          const drawnLeftPct =
+          const drawnWidthPx = msToPx(viewport, durationMs);
+          const drawnLeftPx =
             rollingSide === "right" && draftRollingJoin
-              ? ((draftRollingJoin.requestedBoundaryFrame * 1000) /
-                  30 /
-                  totalMs) *
-                100
+              ? frameToPx(viewport, draftRollingJoin.requestedBoundaryFrame)
               : trimming?.edge === "start"
-                ? leftPct + widthPct - drawnWidthPct
-                : leftPct;
+                ? leftPx + widthPx - drawnWidthPx
+                : leftPx;
           const segments = storyboardEditSegments({
             durationMs,
             label: shot.shotLabel,
@@ -2898,7 +3082,7 @@ function StoryboardEditTrack({
                   ? "outline-dashed outline-2 outline-primary"
                   : ""
               }`}
-              style={{ left: `${drawnLeftPct}%`, width: `${drawnWidthPct}%` }}
+              style={{ left: drawnLeftPx, width: drawnWidthPx }}
               title={
                 singleMoveEnabled
                   ? `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 拖动或六点抓手只移动这一镜 · ⇧拖六点抓手才整体移动 · ⇧拖画面改选一段 · 右键出剪辑菜单`
@@ -2919,8 +3103,7 @@ function StoryboardEditTrack({
                 ) {
                   return;
                 }
-                event.currentTarget.focus();
-                onSelectShot(shot.shotNo);
+                focusStoryboardClipForDrag(event.currentTarget);
                 startSingleDrag(event, shot);
               }}
               onPointerMove={singleMoveEnabled ? moveSingleDrag : undefined}
@@ -2930,22 +3113,26 @@ function StoryboardEditTrack({
                   : undefined
               }
               onPointerCancel={
-                singleMoveEnabled ? () => clearSingleDrag() : undefined
+                singleMoveEnabled
+                  ? event => clearSingleDragForPointer(event.pointerId)
+                  : undefined
               }
               onLostPointerCapture={
-                singleMoveEnabled ? () => clearSingleDrag() : undefined
+                singleMoveEnabled
+                  ? event => clearSingleDragForPointer(event.pointerId)
+                  : undefined
               }
               onKeyDown={event => {
                 storyboardVisualClipArrowMove({
                   event,
                   visualLayer: 0,
-                  onMove: (deltaFrames, visualLayer) => {
-                    if (timeline.writePending) return;
-                    submitVisualClipMove({
+                  onMove: (deltaFrames, deltaVisualLayers) => {
+                    onNudgeVisualClip({
                       clipId: `shot:${shot.stableShotId}`,
-                      visualLayer,
-                      toStartFrame: shot.timing.startFrame + deltaFrames,
-                      onMoveVisualClip: timeline.onMoveVisualClip,
+                      startVisualLayer: 0,
+                      deltaVisualLayers,
+                      startFrame: shot.timing.startFrame,
+                      deltaFrames,
                     });
                   },
                 });
@@ -2959,9 +3146,7 @@ function StoryboardEditTrack({
                 const atMs = trackMsFromPointer(event.clientX);
                 const atFrame = Math.round((atMs * 30) / 1000);
                 const thresholdFrames = storyboardMagnetThresholdFrames({
-                  trackWidthPx:
-                    trackRef.current?.getBoundingClientRect().width ?? 0,
-                  totalMs,
+                  viewport,
                 });
                 const magneticJoin =
                   (timeline.magneticJoins ?? []).find(
@@ -3155,16 +3340,16 @@ function StoryboardEditTrack({
                     }
                     onPointerCancel={
                       groupEnabled || singleMoveEnabled
-                        ? () => clearGripDrag()
+                        ? event => clearGripDrag(event.pointerId)
                         : undefined
                     }
                     onLostPointerCapture={
                       groupEnabled || singleMoveEnabled
-                        ? () => clearGripDrag()
+                        ? event => clearGripDrag(event.pointerId)
                         : undefined
                     }
                     disabled={timeline.writePending === true}
-                    className="absolute -top-4 left-0 z-30 flex h-4 w-4 cursor-grab touch-none items-center justify-center rounded-t-sm bg-primary/70 text-[var(--background)] shadow-sm active:cursor-grabbing disabled:cursor-wait"
+                    className="absolute -top-4 left-1/2 z-30 flex h-4 w-8 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-t-sm bg-primary/70 text-[var(--background)] shadow-sm active:cursor-grabbing disabled:cursor-wait"
                     aria-label={
                       singleMoveEnabled
                         ? `拖动只移动 ${shot.shotLabel}；按住 Shift 拖动才整体移动连续镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
@@ -3205,17 +3390,14 @@ function StoryboardEditTrack({
           );
         })}
         {(timeline.magneticJoins ?? []).map(join => {
-          const leftPct =
-            totalMs > 0
-              ? ((join.boundaryFrame * 1000) / 30 / totalMs) * 100
-              : 0;
-          if (leftPct < 0 || leftPct > 100) return null;
+          const leftPx = frameToPx(viewport, join.boundaryFrame);
+          if (leftPx < 0 || leftPx > viewport.contentWidth) return null;
           return (
             <span
               key={`${join.leftStableShotId}-${join.rightStableShotId}`}
               aria-hidden="true"
               className="pointer-events-none absolute top-0 z-40 -ml-1 flex h-4 w-2 items-center justify-center text-primary"
-              style={{ left: `${leftPct}%` }}
+              style={{ left: leftPx }}
               data-testid={`storyboard-magnetic-join-${join.leftStableShotId}-${join.rightStableShotId}`}
             >
               <Magnet className="h-2.5 w-2.5" />
@@ -3236,8 +3418,12 @@ function StoryboardEditTrack({
                       : "border-primary/50 bg-primary/10"
                   }`}
                   style={{
-                    left: `${block.leftPct + (groupGhostShotIds.includes(block.timing.stableShotId) ? groupDeltaPct : 0)}%`,
-                    width: `${block.widthPct}%`,
+                    left:
+                      block.leftPx +
+                      (groupGhostShotIds.includes(block.timing.stableShotId)
+                        ? groupDeltaPx
+                        : 0),
+                    width: block.widthPx,
                   }}
                   data-testid={`storyboard-edit-group-ghost-${block.timing.stableShotId}`}
                 />
@@ -3249,17 +3435,17 @@ function StoryboardEditTrack({
                 block => block.timing.stableShotId === singleDrag.stableShotId
               )
               .map(block => {
-                const deltaPct =
-                  totalMs > 0
-                    ? ((singleDrag.deltaFrames * (1000 / 30)) / totalMs) * 100
-                    : 0;
+                const deltaPx = frameDeltaToPx(
+                  viewport,
+                  singleDrag.deltaFrames
+                );
                 return (
                   <span
                     key={`single-ghost-${block.timing.stableShotId}`}
                     className="pointer-events-none absolute bottom-0.5 top-4 z-30 rounded-[2px] border-2 border-dashed border-primary bg-primary/20"
                     style={{
-                      left: `${block.leftPct + deltaPct}%`,
-                      width: `${block.widthPct}%`,
+                      left: block.leftPx + deltaPx,
+                      width: block.widthPx,
                     }}
                     data-testid={`storyboard-edit-single-ghost-${block.timing.stableShotId}`}
                   />
@@ -3267,11 +3453,8 @@ function StoryboardEditTrack({
               })
           : null}
         {anchors.map((anchor, index) => {
-          const leftPct =
-            totalMs > 0
-              ? ((anchor.timelineFrame * (1000 / 30)) / totalMs) * 100
-              : 0;
-          if (leftPct < 0 || leftPct > 100) return null;
+          const leftPx = frameToPx(viewport, anchor.timelineFrame);
+          if (leftPx < 0 || leftPx > viewport.contentWidth) return null;
           const label = labelByShotId.get(anchor.stableShotId) ?? "镜头";
           const focused =
             focusedAnchorId === anchor.id ||
@@ -3283,7 +3466,7 @@ function StoryboardEditTrack({
               // 每个锚点只占一个键盘停留点：这个是可操作的，镜头块里那道是它的影子。
               tabIndex={focused ? 0 : -1}
               className="absolute -top-1 z-40 h-3 w-3 -translate-x-1/2 rounded-sm bg-amber-500 outline-none ring-white/70 focus-visible:ring-2"
-              style={{ left: `${leftPct}%` }}
+              style={{ left: leftPx }}
               aria-label={`${label} 的位置锚点，${formatStoryboardTimestamp(anchor.timelineFrame * (1000 / 30))}，按 Delete 取消`}
               aria-keyshortcuts="Delete Backspace ArrowLeft ArrowRight"
               title={`${label} 位置锚点 · Delete 取消`}
@@ -3325,11 +3508,10 @@ function StoryboardEditTrack({
             className="pointer-events-none absolute -top-6 z-50 -translate-x-1/2 whitespace-nowrap rounded-sm bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white shadow"
             // 轨道有几千像素宽，提示必须贴着被拖的那一镜，否则会飘到屏幕外。
             style={{
-              left: `${
+              left:
                 blocks.find(
                   block => block.timing.stableShotId === groupDrag.stableShotId
-                )?.leftPct ?? 0
-              }%`,
+                )?.leftPx ?? 0,
             }}
             data-testid="storyboard-edit-group-blocked"
           >
@@ -3340,11 +3522,10 @@ function StoryboardEditTrack({
           <span
             className="pointer-events-none absolute -top-6 z-50 -translate-x-1/2 whitespace-nowrap rounded-sm bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white shadow"
             style={{
-              left: `${
+              left:
                 blocks.find(
                   block => block.timing.stableShotId === singleDrag.stableShotId
-                )?.leftPct ?? 0
-              }%`,
+                )?.leftPx ?? 0,
             }}
             data-testid="storyboard-edit-single-blocked"
           >
@@ -3355,25 +3536,25 @@ function StoryboardEditTrack({
           <span
             className="pointer-events-none absolute bottom-0 top-0 z-30 border-x-2 border-primary bg-primary/25"
             style={{
-              left: `${highlight.leftPct}%`,
-              width: `${highlight.widthPct}%`,
+              left: highlight.leftPx,
+              width: highlight.widthPx,
             }}
             data-testid="storyboard-edit-selection"
           />
         ) : null}
-        {markInPct != null ? (
+        {markInPx != null ? (
           <span
             className="pointer-events-none absolute bottom-0 top-0 z-30 w-0.5 bg-amber-500"
-            style={{ left: `${markInPct}%` }}
+            style={{ left: markInPx }}
             title="入点，按 O 打出点"
             data-testid="storyboard-edit-mark-in"
           />
         ) : null}
-        {playheadPct != null ? (
+        {playheadPx != null ? (
           <span
             aria-hidden="true"
             className="pointer-events-none absolute bottom-0 top-0 z-40 w-px -translate-x-1/2"
-            style={{ left: `${playheadPct}%` }}
+            style={{ left: playheadPx }}
             data-testid="storyboard-edit-playhead"
           >
             <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
@@ -3435,19 +3616,40 @@ const ACTION_LABELS: Record<StoryboardEditAction, string> = {
  */
 export function StoryboardEditRow({
   timeline,
+  viewport: providedViewport,
   shots,
   selectedShotNo,
   onSelectShot,
   columnSpan,
   shotActions,
+  onShotTimingPreviewChange,
 }: {
   timeline: StoryboardBoardTimeline;
+  viewport?: TimelineViewport;
   shots: readonly StoryboardEditShot[];
   selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
   columnSpan: number;
   shotActions?: StoryboardEditShotActions;
+  onShotTimingPreviewChange?: (
+    preview: StoryboardShotTimingPreview | null,
+    gestureId: symbol
+  ) => void;
 }) {
+  // 生产看板显式传入和标尺、缩放控件同一个 viewport。回退只服务
+  // 独立渲染与旧测试夹具，坐标语义仍是像素。
+  const viewport =
+    providedViewport ??
+    createTimelineViewport({
+      totalMs: Math.max(
+        timeline.totalMs,
+        ...shots.map(shot => shot.timing.endMs),
+        ...(timeline.overlays ?? []).map(
+          overlay => (overlay.endFrame * 1000) / 30
+        )
+      ),
+      scale: DEFAULT_TIMELINE_SCALE,
+    });
   const [pendingAction, setPendingAction] =
     useState<StoryboardEditAction | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -3458,6 +3660,28 @@ export function StoryboardEditRow({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const activeTimingGestureRef = useRef<symbol | null>(null);
+  const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
+  shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
+  const handleShotTimingPreviewChange = useCallback(
+    (preview: StoryboardShotTimingPreview | null, gestureId: symbol) => {
+      if (preview) {
+        activeTimingGestureRef.current = gestureId;
+      } else if (activeTimingGestureRef.current !== gestureId) {
+        return;
+      } else {
+        activeTimingGestureRef.current = null;
+      }
+      onShotTimingPreviewChange?.(preview, gestureId);
+    },
+    [onShotTimingPreviewChange]
+  );
+  useEffect(() => {
+    return () => {
+      const gestureId = activeTimingGestureRef.current;
+      if (gestureId) shotTimingPreviewCallbackRef.current?.(null, gestureId);
+    };
+  }, []);
   const anchors = timeline.anchors ?? [];
   const timelineItems = shots.flatMap(shot =>
     shot.timelineItem ? [shot.timelineItem] : []
@@ -3478,6 +3702,9 @@ export function StoryboardEditRow({
       layer,
     });
   const mainLayerHidden = visualLayerState.hidden.includes(0);
+  const nudgeVisualClip = useStoryboardVisualClipNudge(
+    timeline.onMoveVisualClip
+  );
   const manageVisualLayer = (action: TimelineVisualLayerAction) => {
     if (!timeline.onManageVisualLayer || timeline.writePending) return;
     if (action.kind === "move") {
@@ -3880,6 +4107,7 @@ export function StoryboardEditRow({
           key={`persisted-visual-layer-${visualLayer}`}
           shots={shots}
           timeline={timeline}
+          viewport={viewport}
           columnSpan={columnSpan}
           onSelectShot={onSelectShot}
           visualLayer={visualLayer}
@@ -3887,6 +4115,8 @@ export function StoryboardEditRow({
           hidden={visualLayerState.hidden.includes(visualLayer)}
           canDelete={canRemoveLayer(visualLayer)}
           onManageLayer={manageVisualLayer}
+          onNudgeVisualClip={nudgeVisualClip}
+          onShotTimingPreviewChange={handleShotTimingPreviewChange}
         />
       ))}
       <StoryboardVisualLayerHeader
@@ -3915,6 +4145,7 @@ export function StoryboardEditRow({
         <div className={mainLayerHidden ? "opacity-25" : undefined}>
           <StoryboardEditTrack
             timeline={timeline}
+            viewport={viewport}
             shots={shots}
             selectedShotNo={selectedShotNo}
             onSelectShot={onSelectShot}
@@ -3936,18 +4167,19 @@ export function StoryboardEditRow({
               )
             }
             disableGroupMove={false}
+            onNudgeVisualClip={nudgeVisualClip}
+            onShotTimingPreviewChange={handleShotTimingPreviewChange}
           />
         </div>
       </div>
       <StoryboardAudioRowHeader />
       <div
         role="cell"
-        className="px-2"
         style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
       >
         <StoryboardAudioTrack
           clips={timeline.audioClips}
-          totalMs={timeline.audioTotalMs ?? timeline.totalMs}
+          viewport={viewport}
           playheadMs={timeline.playheadMs}
         />
       </div>

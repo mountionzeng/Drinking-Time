@@ -1217,7 +1217,8 @@
       "userValue": "可以单独移动一个镜头，靠近相邻镜头时像剪辑软件一样自动吸附；拖吸附接缝可同时调整左右两镜，右键可取消吸附。仍可按住六点把手整体移动一串镜头，并用位置锚点钉死绝对时间。",
       "entryPoints": [
         "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
-        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
       ],
       "owners": [
         "shared/timelineLayout.ts",
@@ -1226,7 +1227,9 @@
         "shared/storyMaterial.ts",
         "shared/timelineCommands.ts",
         "client/src/features/creationEditor/CreationEditorContext.tsx",
+        "client/src/features/creationEditor/useStoryboardVisualClipNudge.ts",
         "client/src/features/storyAgent/storyboardTiming.ts",
+        "client/src/features/storyAgent/views/storyboardMatrixLayout.ts",
         "server/services/storyMaterials.ts",
         "server/services/videoExport.ts",
         "shared/timelineViewport.ts"
@@ -1257,7 +1260,8 @@
         "一次单镜/批量移动、滚动剪辑、取消吸附、打标、取消锚点或锚点安全裁剪各自只保存一次，一次 ⌘Z 完整撤销。",
         "position 仍然只表示故事顺序，批量移动不改它。",
         "音轨不随视觉镜头批量移动。",
-        "完整故事板的镜头列按时间线绝对起点排序，列起点必须与剪辑块起点一致；重叠导致列过窄时，点击镜头自动缩小其他列并展开当前可编辑列。"
+        "完整故事板的镜头列按时间线绝对起点排序，列起点必须与剪辑块起点一致；重叠导致列过窄时，点击镜头自动缩小其他列并展开当前可编辑列。",
+        "普通视频拖动中的镜头信息列只使用瞬态 timing 预览并继续复用起手时 viewport；预览不得落库、改变图片位置或绕过 moveVisualClip 唯一写入口。"
       ],
       "dependencies": [
         "publishing-video-storyboard",
@@ -1271,6 +1275,16 @@
         "聊天剪辑代理尚未暴露绝对帧单镜移动、滚动剪辑和取消吸附原语，也没有磁吸拓扑上下文。"
       ],
       "history": [
+        {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "主轨与普通上层视频拖动增加纯展示的瞬态 timing 投影：手势越过 4px 后，镜头标题、画面、提示词、声音和预计费用等完整信息列立即按预览 startFrame 重排；首镜头前空档建立独立空白列，所有列起点统一用 framePx(viewport) 投影，不会被 720px 最小画布或更长音频/overlay 拉伸错位。每次手势绑定起手 pointerId 与唯一 gestureId，其他指针不能误移动或提前提交，较早异步保存也不能清掉较新预览；缩小模式只在拖动期间临时恢复时间对齐列宽。预览不参与 viewport、Context 或持久化，保存仍只走 moveVisualClip；独立 imageClip 与 overlay 不触发表格联动。左侧内置浏览器实测上层 03 从 360px 移到 372.26px 时对应信息列从 358.99px 同步移到 371.26px，主轨 0102 从 369.05px 移到 377.05px 时信息列同步移动 8px；独立抽帧移动时信息列保持不变，三项素材均已恢复原位，页面无 error 日志。"
+        },
+        {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "在 Codex 左侧内置浏览器的真实 Story 时间线里复现并修复底层镜头『像是拖不动』：选中镜头的六点移动抓手由左上 16px 扩大为顶部居中 32px，避开左右修剪手柄；pointerup 后保留最终位置 ghost 直到唯一 moveVisualClip 命令完成，不再在约 1–2 秒的本地持久化等待期间先弹回旧位置。处理 releasePointerCapture/lostpointercapture 竞态且不建立第二位置真相；实测 0101 从 0px 移到 16px 后恢复 0px。"
+        },
         {
           "date": "2026-08-18",
           "kind": "feature",
@@ -1310,6 +1324,11 @@
           "date": "2026-08-24",
           "kind": "refactor",
           "summary": "剪辑行的标尺、缩放与时间视口收敛到 shared/timelineViewport 与 StoryboardTimelineRuler；底部时间线删除后，剪辑行成为唯一可编辑表面。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "fix",
+          "summary": "Storyboard 剪辑横轴完成绝对像素迁移：播放头、标记、选区、镜头、overlay、锚点、波形与拖动预览统一走 shared/timelineViewport；方向键连按按 clip 合并目标并串行写入，写入进行中继续接收输入且多 clip 不互相饿死。修复短底层剪辑 pointerdown 选择镜头触发分镜列展开和自动横滚、令轨道从指针下逃走的问题：聚焦使用 preventScroll，纯点击才选择，达到 4px 的真实拖动只提交位置；拖动固定使用起手时 viewport，缩放变化不再混用两套尺度。main:3000 可见浏览器验证未选中与已选中 26px 短剪辑、上层剪辑、底层↔上层跨层移动，刷新后全部持久化；验收素材已恢复原位置。"
         }
       ]
     },
@@ -1374,7 +1393,8 @@
       "entryPoints": [
         "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
         "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
-        "client/src/features/storyAgent/StoryAgentContext.tsx"
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
       ],
       "owners": [
         "server/services/visualClipEditing.ts",
@@ -1392,6 +1412,8 @@
         "server/services/videoExport.ts",
         "server/db.ts",
         "shared/timelineViewport.ts",
+        "client/src/features/creationEditor/storyboardEditRow.ts",
+        "client/src/features/storyAgent/views/storyboardMatrixLayout.ts",
         "server/services/visualEditUndoJournal.ts",
         "shared/timelineCommands.ts",
         "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
@@ -1470,6 +1492,21 @@
         "播放推进依赖 requestAnimationFrame，无法用无头浏览器验证（隐藏页面里浏览器会冻结 rAF）。时钟的算术与「片尾按播放回到开头」有单测覆盖，真实播放需人工在浏览器确认。"
       ],
       "history": [
+        {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "普通上层视频不再把帧条输入硬编码为空数组，改为复用 primaryFrameSource 按真实来源时间采样、每镜最多显示 6 帧并保留 poster 回退；蓝色色块现在和主轨一样能直接看见镜头内容，原有 pointer 拖动命中不变。镜头拖动预览严格按 kind=shot 才通知信息列，独立抽帧图片继续只移动自身。左侧内置浏览器确认上层 03、07、0104 均显示真实视频帧，03 有 6 帧且可拖动，页面无 error 日志。"
+        },
+        {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "用左侧内置浏览器连到用户的真实 Story 后确认上层视频 z-6 会被 40px、z-10 的抽帧整高覆盖；遗留抽帧没有持久 imageClip，却显示 grab 光标并在 pointerdown 直接返回，形成真实死区。抽帧操作盒改为轨道底部 28px，给同位置视频留出顶部稳定抓取带；只有持久 imageClip 继续声明 grab/touch-none 和拖动目标，遗留抽帧改为 pointer 且保留点击、配对、右键与键盘菜单能力。上层图片和视频在 moveVisualClip 保存期间继续显示最终释放位置，并同步拒绝保存未完时的重复拖动。实测可从露出抓取带将上层 03 从 37.872px 移到 21.872px，保存等待全程保留 -16px 预览，随后精确恢复原位。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "fix",
+          "summary": "唯一 Storyboard 编辑表面的视觉剪辑交互完成像素坐标与可靠输入收敛：图片、上层视频和底层视频共享绝对像素时间视口，方向键连按合并为最终帧/图层写入；拖动按 4px 阈值区分点击，禁止选择镜头的自动展开横滚打断 pointer capture，并固定起手 viewport 处理拖动期间缩放。共享视口总时长现在取镜头、timeline、overlay 与独立音轨的最大尾点，避免片尾素材被裁掉。main:3000 验证上层 03 横移、0102 底层↔上一层、刷新持久化且无页面错误。"
+        },
         {
           "date": "2026-08-23",
           "kind": "refactor",

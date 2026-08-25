@@ -67,12 +67,37 @@ export function pxToMs(viewport: TimelineViewport, px: number): number {
   return Math.max(0, (px / viewport.scale) * 1000);
 }
 
+/** 位移量保留正负号；与 pxToMs 的绝对位置语义分开。 */
+export function pxDeltaToMs(
+  viewport: TimelineViewport,
+  deltaPx: number
+): number {
+  if (viewport.scale <= 0) return 0;
+  return (deltaPx / viewport.scale) * 1000;
+}
+
 export function frameToPx(viewport: TimelineViewport, frame: number): number {
   return msToPx(viewport, (Math.max(0, frame) / TIMELINE_FPS) * 1000);
 }
 
+/** 帧位移量→有符号像素增量。 */
+export function frameDeltaToPx(
+  viewport: TimelineViewport,
+  deltaFrame: number
+): number {
+  return (deltaFrame / TIMELINE_FPS) * viewport.scale;
+}
+
 export function pxToFrame(viewport: TimelineViewport, px: number): number {
   return Math.round((pxToMs(viewport, px) / 1000) * TIMELINE_FPS);
+}
+
+/** 拖动像素增量→有符号帧增量。 */
+export function pxDeltaToFrame(
+  viewport: TimelineViewport,
+  deltaPx: number
+): number {
+  return Math.round((pxDeltaToMs(viewport, deltaPx) / 1000) * TIMELINE_FPS);
 }
 
 /** 一帧有多宽——用来判断"这个 clip 窄到点不中了吗"。 */

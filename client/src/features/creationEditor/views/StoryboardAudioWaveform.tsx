@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  msToPx,
+  type TimelineViewport,
+} from "@shared/timelineViewport";
 
-import { storyboardAudioPeaks, storyboardEditPlayheadPct } from "../storyboardEditRow";
+import {
+  storyboardAudioPeaks,
+  storyboardEditPlayheadPx,
+} from "../storyboardEditRow";
 
 export type StoryboardAudioClip = {
   id: string;
@@ -121,30 +128,31 @@ function clipKindLabel(kind: StoryboardAudioClip["kind"]): string {
 
 function AudioClipWaveform({
   clip,
-  totalMs,
+  viewport,
 }: {
   clip: StoryboardAudioClip;
-  totalMs: number;
+  viewport: TimelineViewport;
 }) {
   const peaks = useStoryboardAudioPeaks(clip);
   const placement = useMemo(() => {
+    const totalMs = viewport.totalMs;
     if (!(totalMs > 0)) return null;
     const startMs = Math.max(0, Math.min(totalMs, clip.startMs));
     const endMs = Math.max(startMs, Math.min(totalMs, clip.endMs));
     if (endMs <= startMs) return null;
     return {
-      leftPct: (startMs / totalMs) * 100,
-      widthPct: ((endMs - startMs) / totalMs) * 100,
+      leftPx: msToPx(viewport, startMs),
+      widthPx: msToPx(viewport, endMs - startMs),
     };
-  }, [clip.endMs, clip.startMs, totalMs]);
+  }, [clip.endMs, clip.startMs, viewport]);
   if (!placement) return null;
 
   return (
     <div
       className={`absolute bottom-1 top-1 overflow-hidden rounded-[2px] border ${clipTone(clip.kind)}`}
       style={{
-        left: `${placement.leftPct}%`,
-        width: `${placement.widthPct}%`,
+        left: placement.leftPx,
+        width: placement.widthPx,
       }}
       title={`${clipKindLabel(clip.kind)} · ${clip.name}`}
       data-testid={`storyboard-audio-clip-${clip.id}`}
@@ -182,14 +190,14 @@ function AudioClipWaveform({
 
 export function StoryboardAudioTrack({
   clips,
-  totalMs,
+  viewport,
   playheadMs,
 }: {
   clips: readonly StoryboardAudioClip[];
-  totalMs: number;
+  viewport: TimelineViewport;
   playheadMs: number;
 }) {
-  const playheadPct = storyboardEditPlayheadPct(playheadMs, totalMs);
+  const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
   return (
     <div
       className="relative h-12 min-w-0 overflow-hidden border-b border-r bg-muted/15"
@@ -202,17 +210,17 @@ export function StoryboardAudioTrack({
     >
       {clips.length > 0 ? (
         clips.map(clip => (
-          <AudioClipWaveform key={clip.id} clip={clip} totalMs={totalMs} />
+          <AudioClipWaveform key={clip.id} clip={clip} viewport={viewport} />
         ))
       ) : (
         <span className="absolute inset-0 flex items-center justify-center text-[8px] text-muted-foreground/70">
           导入旁白、音乐或原声后显示声音变化
         </span>
       )}
-      {playheadPct != null ? (
+      {playheadPx != null ? (
         <span
           className="pointer-events-none absolute bottom-0 top-0 z-30 w-px -translate-x-1/2 bg-rose-500"
-          style={{ left: `${playheadPct}%` }}
+          style={{ left: playheadPx }}
           data-testid="storyboard-audio-playhead"
         />
       ) : null}

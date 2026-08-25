@@ -28,8 +28,6 @@
 | --- | --- | --- | --- | --- |
 | 视觉资产标准板 | `affectionate-bartik-1d9c06` | 待办：放开 `visualAssetGenerationContext.ts:226` 的 provider 白名单（现只放行 midjourney），会同时动 `server/routers/storyAgent.ts` 的估价分支 | **未动手**，等用户给 OSS 凭据 + 裁决是否放开 gpt-image | 2026-08-23 18:35 |
 | 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
-
-
 （收工时删掉自己这行。）
 
 > **交叉点已解除**（08-24 02:41）：滚动剪辑修复线已收工，`shared/timelineCommands.ts`

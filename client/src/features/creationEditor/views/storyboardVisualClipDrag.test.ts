@@ -16,18 +16,19 @@ function track(visualLayer: number) {
 }
 
 const TOTAL_MS = 8000; // 240 帧
+const VIEWPORT = { totalMs: TOTAL_MS, scale: 30, contentWidth: 720 };
 
 describe("commitVisualClipDrag", () => {
   it("一次拖动只提交一次移动命令，同时带上目标轨道和绝对帧", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "image:img-abs",
-      startLeftRatio: null,
+      startLeftPx: null,
       startRectLeft: 100, // 原来贴在时间线最左端
       startClientX: 150,
-      releaseClientX: 400, // 向右 250px = 时间线的 250/600
+      releaseClientX: 250, // 向右 100px，30px/秒下就是 100 帧
       releaseClientY: 20,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => track(2),
     });
@@ -35,7 +36,6 @@ describe("commitVisualClipDrag", () => {
     expect(move).toHaveBeenCalledWith({
       clipId: "image:img-abs",
       toTrackId: "track-2",
-      // 250/600 * 8000ms = 3333ms ≈ 100 帧
       toStartFrame: 100,
     });
   });
@@ -45,16 +45,16 @@ describe("commitVisualClipDrag", () => {
     // 从块中间偏右 40px 处抓取，原地松手：位置不应该跳到鼠标下面。
     commitVisualClipDrag({
       clipId: "shot:sh-01",
-      startLeftRatio: null,
-      startRectLeft: 250,
-      startClientX: 290,
-      releaseClientX: 290,
+      startLeftPx: null,
+      startRectLeft: 160,
+      startClientX: 200,
+      releaseClientX: 200,
       releaseClientY: 20,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => track(0),
     });
-    // (250-100)/600 * 8000 = 2000ms = 60 帧，与抓取点无关。
+    // (160-100)px 在 30px/秒下是 2 秒 = 60 帧，与抓取点无关。
     expect(move).toHaveBeenCalledWith(
       expect.objectContaining({ toStartFrame: 60 })
     );
@@ -64,12 +64,12 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "shot:sh-01",
-      startLeftRatio: null,
+      startLeftPx: null,
       startRectLeft: 150,
       startClientX: 150,
       releaseClientX: 0,
       releaseClientY: 20,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => track(0),
     });
@@ -83,12 +83,12 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "image:img-abs",
-      startLeftRatio: null,
+      startLeftPx: null,
       startRectLeft: 100,
       startClientX: 150,
       releaseClientX: 400,
       releaseClientY: 900,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => null,
     });
@@ -101,12 +101,12 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockRejectedValue(new Error("时间轴版本已更新"));
     commitVisualClipDrag({
       clipId: "image:img-abs",
-      startLeftRatio: null,
+      startLeftPx: null,
       startRectLeft: 100,
       startClientX: 150,
       releaseClientX: 400,
       releaseClientY: 20,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => track(1),
     });
@@ -117,19 +117,19 @@ describe("commitVisualClipDrag", () => {
 
   it("一帧图片按渲染出来的真实起点走，而不是居中命中盒的左边缘", () => {
     const move = vi.fn().mockResolvedValue(undefined);
-    // 图片渲染在轨道 50% 处；命中盒宽 40px 且居中，rect.left 因此偏左 20px。
+    // 图片渲染在时间轴 120px 处；命中盒宽 40px 且居中，rect.left 因此偏左 20px。
     commitVisualClipDrag({
       clipId: "image:img-abs",
-      startLeftRatio: 0.5,
-      startRectLeft: 100 + 300 - 20,
+      startLeftPx: 120,
+      startRectLeft: 100 + 120 - 20,
       startClientX: 400,
       releaseClientX: 400, // 原地松手
       releaseClientY: 20,
-      totalMs: TOTAL_MS,
+      viewport: VIEWPORT,
       onMoveVisualClip: move,
       resolveTrack: () => track(1),
     });
-    // 0.5 * 8000ms = 4000ms = 120 帧；若误用 rect.left 会算成 116 帧。
+    // 120px = 4000ms = 120 帧；若误用 rect.left 会算成 100 帧。
     expect(move).toHaveBeenCalledWith(
       expect.objectContaining({ toStartFrame: 120 })
     );

@@ -104,6 +104,7 @@ import {
   type StartEndShotVideoEstimate,
 } from "@shared/startEndVideo";
 import { displayShotCode } from "@shared/shotIdentity";
+import { framePx } from "@shared/timelineViewport";
 import type { ShotPendingCandidate } from "../shotCandidateSummary";
 import ShotCandidateBadge from "./ShotCandidateBadge";
 import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
@@ -130,7 +131,9 @@ import {
 } from "@/features/creationEditor/views/StoryboardEditRow";
 import {
   storyboardExtractedFrameTimeMs,
+  storyboardTimelineContentTotalMs,
   type StoryboardEditFrameSource,
+  type StoryboardShotTimingPreview,
 } from "@/features/creationEditor/storyboardEditRow";
 import {
   StoryboardFieldVersionSelect,
@@ -240,6 +243,8 @@ import {
 import {
   buildStoryboardMatrixLayout,
   shouldCompactStoryboardMatrixForShot,
+  updateStoryboardMatrixTimingPreview,
+  type StoryboardMatrixTimingPreviewState,
 } from "./storyboardMatrixLayout";
 
 /**
@@ -596,6 +601,18 @@ export function StoryboardReviewBoard({
   );
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [compactShots, setCompactShots] = useState(false);
+  const [shotTimingPreview, setShotTimingPreview] =
+    useState<StoryboardMatrixTimingPreviewState | null>(null);
+  const updateShotTimingPreview = useCallback(
+    (preview: StoryboardShotTimingPreview | null, gestureId: symbol) => {
+      setShotTimingPreview(current =>
+        updateStoryboardMatrixTimingPreview(current, preview, gestureId)
+      );
+    },
+    []
+  );
+  // 拖动时临时展开时间对齐列，结束后恢复用户原来的“缩小”偏好。
+  const renderCompactShots = compactShots && shotTimingPreview == null;
   const [compactExpandedShotNo, setCompactExpandedShotNo] = useState<
     number | null
   >(null);
@@ -848,8 +865,10 @@ export function StoryboardReviewBoard({
     [creationShots, timelineShotIds]
   );
   // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
-  const storyboardTimelineDurationMs =
-    storyboardTimingTotalMs(storyboardTimingRows);
+  const storyboardTimelineDurationMs = storyboardTimelineContentTotalMs(
+    storyboardTimingTotalMs(storyboardTimingRows),
+    boardTimeline
+  );
   // 剪辑时间条按成片顺序铺开，所以这里用时间线顺序而不是镜头列顺序。
   const storyboardEditShots = useMemo<StoryboardEditShot[]>(
     () =>
@@ -1681,13 +1700,21 @@ export function StoryboardReviewBoard({
         startFrame: timing.startFrame,
         endFrame: timing.startFrame + timing.durationFrames,
       })),
+      previewTiming: shotTimingPreview?.timing,
+      pixelsPerFrame: framePx(storyboardViewport),
       // 总宽来自时间视口，不再是「镜头数 × 固定列宽」。
       targetWidth: storyboardViewport.contentWidth,
     });
-  }, [shots, storyboardTimingRows, storyboardViewport]);
+  }, [shots, shotTimingPreview, storyboardTimingRows, storyboardViewport]);
+  const hasMatrixLeadingGap = matrixShotEntries.leadingWidth > 0;
+  const matrixColumnSpan =
+    matrixShotEntries.entries.length + (hasMatrixLeadingGap ? 1 : 0);
   const matrixGridTemplateColumns = useMemo(() => {
-    if (compactShots) {
-      return `76px ${matrixShotEntries.entries
+    const leadingGap = hasMatrixLeadingGap
+      ? `${Math.max(1, matrixShotEntries.leadingWidth)}px `
+      : "";
+    if (renderCompactShots) {
+      return `76px ${leadingGap}${matrixShotEntries.entries
         .map(({ shot }) =>
           shot.shotNo === compactExpandedShotNo
             ? `${matrixShotColumnWidth}px`
@@ -1695,14 +1722,15 @@ export function StoryboardReviewBoard({
         )
         .join(" ")}`;
     }
-    return `76px ${matrixShotEntries.widths
+    return `76px ${leadingGap}${matrixShotEntries.widths
       .map(width => `${Math.max(1, width)}px`)
       .join(" ")}`;
   }, [
     compactExpandedShotNo,
-    compactShots,
+    hasMatrixLeadingGap,
     matrixShotEntries,
     matrixShotColumnWidth,
+    renderCompactShots,
   ]);
   const selectMatrixShot = (shotNo: number) => {
     const entryIndex = matrixShotEntries.entries.findIndex(
@@ -3291,7 +3319,7 @@ export function StoryboardReviewBoard({
               >
                 <StoryboardTimelineRulerRow
                   viewport={storyboardViewport}
-                  columnSpan={matrixShotEntries.entries.length}
+                  columnSpan={matrixColumnSpan}
                 />
                 <div
                   role="columnheader"
@@ -3304,6 +3332,18 @@ export function StoryboardReviewBoard({
                 >
                   镜头
                 </div>
+                {hasMatrixLeadingGap ? (
+                  <div
+                    aria-hidden="true"
+                    role="columnheader"
+                    className="sticky top-0 z-30 min-h-14 border-b border-r"
+                    style={{
+                      borderColor:
+                        "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                      background: "var(--panel-header)",
+                    }}
+                  />
+                ) : null}
                 {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
                   const index = originalIndex;
                   const creationShot = creationShotByNo.get(shot.shotNo);
@@ -3314,7 +3354,7 @@ export function StoryboardReviewBoard({
                   const shotLabel = displayShotCode(shot);
                   const selected = selectedShotNo === shot.shotNo;
                   const shotIsCompact =
-                    compactShots && compactExpandedShotNo !== shot.shotNo;
+                    renderCompactShots && compactExpandedShotNo !== shot.shotNo;
                   const shotTimelineId = creationShot
                     ? creationTimelineShotId(creationShot)
                     : (shot.stableShotId ??
@@ -3522,11 +3562,13 @@ export function StoryboardReviewBoard({
                 {boardTimeline ? (
                   <StoryboardEditRow
                     timeline={boardTimeline}
+                    viewport={storyboardViewport}
                     shots={storyboardEditShots}
                     selectedShotNo={selectedShotNo}
                     onSelectShot={selectMatrixShot}
-                    columnSpan={shots.length}
+                    columnSpan={matrixColumnSpan}
                     shotActions={storyboardEditShotActions}
+                    onShotTimingPreviewChange={updateShotTimingPreview}
                   />
                 ) : null}
 
@@ -3541,6 +3583,18 @@ export function StoryboardReviewBoard({
                 >
                   画面
                 </div>
+                {hasMatrixLeadingGap ? (
+                  <div
+                    aria-hidden="true"
+                    role="cell"
+                    className="border-b border-r"
+                    style={{
+                      borderColor:
+                        "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                      background: "var(--background)",
+                    }}
+                  />
+                ) : null}
                 {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
                   const index = originalIndex;
                   const image = frameByShotNo.get(shot.shotNo);
@@ -4928,6 +4982,18 @@ export function StoryboardReviewBoard({
                         </span>
                       ) : null}
                     </div>
+                    {hasMatrixLeadingGap ? (
+                      <div
+                        aria-hidden="true"
+                        role="cell"
+                        className="border-b border-r"
+                        style={{
+                          borderColor:
+                            "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                          background: "var(--background)",
+                        }}
+                      />
+                    ) : null}
                     {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
                       const index = originalIndex;
                       const selected = selectedShotNo === shot.shotNo;
@@ -5261,7 +5327,19 @@ export function StoryboardReviewBoard({
                     当前图片与视频链路 · 提交前仍会确认
                   </span>
                 </div>
-                {shots.map(shot => (
+                {hasMatrixLeadingGap ? (
+                  <div
+                    aria-hidden="true"
+                    role="cell"
+                    className="border-b border-r"
+                    style={{
+                      borderColor:
+                        "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                      background: "var(--background)",
+                    }}
+                  />
+                ) : null}
+                {matrixShotEntries.entries.map(({ shot }) => (
                   <StoryboardCostCell
                     key={`matrix-cost-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}`}
                     selected={selectedShotNo === shot.shotNo}

@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
+import { createTimelineViewport } from "@shared/timelineViewport";
 import type { StoryboardTimingRow } from "@/features/storyAgent/storyboardTiming";
 
 import {
   STORYBOARD_EDIT_FRAME_MS,
+  createStoryboardVisualClipNudgeQueue,
+  focusStoryboardClipForDrag,
+  isStoryboardClipPointerDrag,
+  isStoryboardPointerOwner,
   storyboardAudioPeaks,
   storyboardEditBlocks,
   storyboardEditEdgeMs,
@@ -15,8 +20,8 @@ import {
   storyboardMagnetThresholdFrames,
   storyboardRollingBoundaryFrame,
   storyboardEditNudgedDurationMs,
-  storyboardEditPlayheadPct,
-  storyboardEditRangePct,
+  storyboardEditPlayheadPx,
+  storyboardEditRangePx,
   storyboardEditSegments,
   storyboardEditSelectionRange,
   storyboardEditSelectionSummary,
@@ -31,11 +36,17 @@ import {
   storyboardGripDragMode,
   storyboardGroupDragStep,
   storyboardGroupDragSummary,
+  storyboardTimelineContentTotalMs,
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
   storyboardExtractedFrameTimeMs,
+  storyboardVisualClipShotTimingPreview,
   storyboardVisualLayerShotIds,
 } from "./storyboardEditRow";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function visualClip(
   overrides: Partial<StoryTimelineVisualClip> & { id: string }
@@ -76,7 +87,258 @@ const timings = [
   timingRow("sh-02", 2, 1, 2_000, 6_000),
 ];
 
+const viewport = (totalMs = 8_000, scale = 40) =>
+  createTimelineViewport({ totalMs, scale });
+
 describe("storyboard edit track", () => {
+  it("聚焦待拖动剪辑时禁止浏览器自动滚动时间线", () => {
+    const focus = vi.fn();
+
+    focusStoryboardClipForDrag({ focus });
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it("只有超过点击容差的位移才算拖动剪辑", () => {
+    expect(
+      isStoryboardClipPointerDrag(
+        { clientX: 100, clientY: 50 },
+        { clientX: 102, clientY: 52 }
+      )
+    ).toBe(false);
+    expect(
+      isStoryboardClipPointerDrag(
+        { clientX: 100, clientY: 50 },
+        { clientX: 104, clientY: 50 }
+      )
+    ).toBe(true);
+    expect(
+      isStoryboardClipPointerDrag(
+        { clientX: 100, clientY: 50 },
+        { clientX: 100, clientY: 54 }
+      )
+    ).toBe(true);
+  });
+
+  it("只接受起手指针继续或结束当前镜头拖动", () => {
+    expect(isStoryboardPointerOwner(7, 7)).toBe(true);
+    expect(isStoryboardPointerOwner(7, 8)).toBe(false);
+  });
+
+  it("时间视口覆盖超出最后镜头的上层素材与音频", () => {
+    expect(
+      storyboardTimelineContentTotalMs(8_000, {
+        totalMs: 9_000,
+        audioTotalMs: 10_000,
+        audioClips: [{ endMs: 11_000 }],
+        overlays: [{ endFrame: 360 }],
+      })
+    ).toBe(12_000);
+  });
+
+  it("把连续方向键合并成一次最终位置写入", async () => {
+    vi.useFakeTimers();
+    const move = vi.fn(async () => {});
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100 });
+
+    for (let index = 0; index < 4; index += 1) {
+      queue.enqueue({
+        clipId: "shot:sh-01",
+        startVisualLayer: 0,
+        deltaVisualLayers: 0,
+        startFrame: 30,
+        deltaFrames: 1,
+        move,
+      });
+    }
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(move).toHaveBeenCalledWith({
+      clipId: "shot:sh-01",
+      visualLayer: 0,
+      toStartFrame: 34,
+    });
+  });
+
+  it("上一次写入未完成时保留新的方向键输入", async () => {
+    vi.useFakeTimers();
+    let releaseFirst = () => {};
+    const firstWrite = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const move = vi
+      .fn<(input: { toStartFrame: number }) => Promise<void>>()
+      .mockImplementationOnce(() => firstWrite)
+      .mockResolvedValue(undefined);
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100 });
+
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(move).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(move).toHaveBeenCalledTimes(2);
+    expect(move).toHaveBeenLastCalledWith({
+      clipId: "image:7",
+      visualLayer: 0,
+      toStartFrame: 12,
+    });
+  });
+
+  it("连按上下键同样累积图层，不只保留最后一次", async () => {
+    vi.useFakeTimers();
+    const move = vi.fn(async () => {});
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100 });
+    for (let index = 0; index < 3; index += 1) {
+      queue.enqueue({
+        clipId: "image:7",
+        startVisualLayer: 0,
+        deltaVisualLayers: 1,
+        startFrame: 10,
+        deltaFrames: 0,
+        move,
+      });
+    }
+    await vi.advanceTimersByTimeAsync(100);
+    expect(move).toHaveBeenCalledWith({
+      clipId: "image:7",
+      visualLayer: 3,
+      toStartFrame: 10,
+    });
+  });
+
+  it("交替操作多个片段不会无限推迟最早的队列项", async () => {
+    vi.useFakeTimers();
+    const move = vi.fn(async () => {});
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100 });
+
+    queue.enqueue({
+      clipId: "image:first",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(80);
+    queue.enqueue({
+      clipId: "image:second",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 20,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(move).toHaveBeenCalled();
+    expect(move).toHaveBeenNthCalledWith(1, {
+      clipId: "image:first",
+      visualLayer: 0,
+      toStartFrame: 11,
+    });
+  });
+
+  it("写入被拒绝时报错并丢弃失败目标，之后的新输入仍可成功", async () => {
+    vi.useFakeTimers();
+    const error = new Error("rejected");
+    const onError = vi.fn();
+    const move = vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined);
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100, onError });
+
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(onError).toHaveBeenCalledWith(error);
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(move).toHaveBeenCalledTimes(2);
+    expect(move).toHaveBeenLastCalledWith({
+      clipId: "image:7",
+      visualLayer: 0,
+      toStartFrame: 11,
+    });
+  });
+
+  it("首次写入延迟拒绝时保留期间接收的同片段新输入", async () => {
+    vi.useFakeTimers();
+    let rejectFirst = (_error: Error) => {};
+    const firstWrite = new Promise<void>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    const error = new Error("rejected");
+    const onError = vi.fn();
+    const move = vi
+      .fn<(input: { toStartFrame: number }) => Promise<void>>()
+      .mockImplementationOnce(() => firstWrite)
+      .mockResolvedValue(undefined);
+    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100, onError });
+
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    queue.enqueue({
+      clipId: "image:7",
+      startVisualLayer: 0,
+      deltaVisualLayers: 0,
+      startFrame: 10,
+      deltaFrames: 1,
+      move,
+    });
+
+    rejectFirst(error);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onError).toHaveBeenCalledWith(error);
+    expect(move).toHaveBeenCalledTimes(2);
+    expect(move).toHaveBeenLastCalledWith({
+      clipId: "image:7",
+      visualLayer: 0,
+      toStartFrame: 12,
+    });
+  });
+
   it("samples real audio amplitude into a normalized waveform", () => {
     expect(
       storyboardAudioPeaks(
@@ -87,42 +349,41 @@ describe("storyboard edit track", () => {
   });
 
   it("maps a pointer position to an absolute time on the whole track", () => {
-    const input = { rectLeft: 100, rectWidth: 400, totalMs: 8_000 };
-    expect(storyboardEditTrackMs({ ...input, clientX: 200 })).toBe(2_000);
+    const input = { trackLeft: 100, viewport: viewport() };
+    expect(storyboardEditTrackMs({ ...input, clientX: 180 })).toBe(2_000);
     expect(storyboardEditTrackMs({ ...input, clientX: 40 })).toBe(0);
     expect(storyboardEditTrackMs({ ...input, clientX: 999 })).toBe(8_000);
   });
 
   it("sizes blocks by duration share, so a long shot is a wide block", () => {
-    expect(storyboardEditBlocks(timings, 8_000)).toEqual([
-      expect.objectContaining({ leftPct: 0, widthPct: 25 }),
-      expect.objectContaining({ leftPct: 25, widthPct: 75 }),
+    expect(storyboardEditBlocks(timings, viewport())).toEqual([
+      expect.objectContaining({ leftPx: 0, widthPx: 80 }),
+      expect.objectContaining({ leftPx: 80, widthPx: 240 }),
     ]);
   });
 
   it("returns no blocks when the film has no running time yet", () => {
-    expect(storyboardEditBlocks(timings, 0)).toEqual([]);
+    expect(storyboardEditBlocks(timings, viewport(0))).toEqual([]);
   });
 
   it("trims by real time: pixels dragged convert straight to milliseconds", () => {
     const base = {
       baseDurationMs: 2_000,
-      trackWidthPx: 800,
-      totalMs: 8_000,
+      viewport: viewport(),
     };
-    expect(storyboardTrimmedDurationMs({ ...base, deltaPx: 100 })).toBe(3_000);
-    expect(storyboardTrimmedDurationMs({ ...base, deltaPx: -100 })).toBe(1_000);
+    expect(storyboardTrimmedDurationMs({ ...base, deltaPx: 40 })).toBe(3_000);
+    expect(storyboardTrimmedDurationMs({ ...base, deltaPx: -40 })).toBe(1_000);
     expect(
       storyboardTrimmedDurationMs({
         ...base,
-        deltaPx: 100,
+        deltaPx: 40,
         edge: "start",
       })
     ).toBe(1_000);
     expect(
       storyboardTrimmedDurationMs({
         ...base,
-        deltaPx: -100,
+        deltaPx: -40,
         edge: "start",
       })
     ).toBe(3_000);
@@ -132,9 +393,8 @@ describe("storyboard edit track", () => {
     expect(
       storyboardTrimmedDurationMs({
         baseDurationMs: 2_000,
-        trackWidthPx: 800,
-        totalMs: 8_000,
-        deltaPx: -400,
+        viewport: viewport(),
+        deltaPx: -160,
         edge: "start",
         maxDurationMs: 2_000,
       })
@@ -142,19 +402,19 @@ describe("storyboard edit track", () => {
   });
 
   it("clamps trimming to the storyboard duration bounds", () => {
-    const base = { trackWidthPx: 800, totalMs: 8_000 };
+    const base = { viewport: viewport() };
     expect(
       storyboardTrimmedDurationMs({
         ...base,
         baseDurationMs: 2_000,
-        deltaPx: -400,
+        deltaPx: -160,
       })
     ).toBe(100);
     expect(
       storyboardTrimmedDurationMs({
         ...base,
         baseDurationMs: 8_000,
-        deltaPx: 900,
+        deltaPx: 360,
       })
     ).toBe(12_000);
   });
@@ -246,6 +506,41 @@ describe("storyboard edit track", () => {
     ).toEqual([]);
   });
 
+  it("projects only ordinary video movement into a transient shot timing", () => {
+    expect(
+      storyboardVisualClipShotTimingPreview({
+        kind: "shot",
+        stableShotId: "sh-02",
+        startFrame: 60,
+        durationFrames: 45,
+        deltaFrames: -20,
+      })
+    ).toEqual({
+      stableShotId: "sh-02",
+      startFrame: 40,
+      endFrame: 85,
+    });
+    expect(
+      storyboardVisualClipShotTimingPreview({ kind: "image" })
+    ).toBeNull();
+  });
+
+  it("clamps a dragged shot preview at frame zero without changing duration", () => {
+    expect(
+      storyboardVisualClipShotTimingPreview({
+        kind: "shot",
+        stableShotId: "sh-01",
+        startFrame: 10,
+        durationFrames: 60,
+        deltaFrames: -30,
+      })
+    ).toEqual({
+      stableShotId: "sh-01",
+      startFrame: 0,
+      endFrame: 60,
+    });
+  });
+
   it("treats a micro drag as a click rather than a range", () => {
     expect(storyboardEditSelectionRange(1_000, 1_040)).toBeNull();
     expect(storyboardEditSelectionRange(1_400, 1_000)).toEqual({
@@ -256,20 +551,20 @@ describe("storyboard edit track", () => {
 
   it("places a selection that spans several shots on the track", () => {
     expect(
-      storyboardEditRangePct({ startMs: 1_000, endMs: 5_000 }, 8_000)
-    ).toEqual({ leftPct: 12.5, widthPct: 50 });
+      storyboardEditRangePx({ startMs: 1_000, endMs: 5_000 }, viewport())
+    ).toEqual({ leftPx: 40, widthPx: 160 });
   });
 
   it("clips a selection that runs past the end of the film", () => {
     expect(
-      storyboardEditRangePct({ startMs: 7_000, endMs: 99_000 }, 8_000)
-    ).toEqual({ leftPct: 87.5, widthPct: 12.5 });
+      storyboardEditRangePx({ startMs: 7_000, endMs: 99_000 }, viewport())
+    ).toEqual({ leftPx: 280, widthPx: 40 });
   });
 
   it("places the playhead anywhere on the track, including the very end", () => {
-    expect(storyboardEditPlayheadPct(2_000, 8_000)).toBe(25);
-    expect(storyboardEditPlayheadPct(8_000, 8_000)).toBe(100);
-    expect(storyboardEditPlayheadPct(9_000, 8_000)).toBeNull();
+    expect(storyboardEditPlayheadPx(2_000, viewport())).toBe(80);
+    expect(storyboardEditPlayheadPx(8_000, viewport())).toBe(320);
+    expect(storyboardEditPlayheadPx(9_000, viewport())).toBeNull();
   });
 
   it("finds which shot owns a point in time", () => {
@@ -407,11 +702,11 @@ describe("storyboard edit shortcuts", () => {
 describe("storyboard edit navigation", () => {
   it("keeps the magnet threshold at eight screen pixels across timeline scales", () => {
     expect(
-      storyboardMagnetThresholdFrames({ trackWidthPx: 800, totalMs: 10_000 })
-    ).toBe(3);
+      storyboardMagnetThresholdFrames({ viewport: viewport(10_000, 16) })
+    ).toBe(15);
     expect(
-      storyboardMagnetThresholdFrames({ trackWidthPx: 400, totalMs: 10_000 })
-    ).toBe(6);
+      storyboardMagnetThresholdFrames({ viewport: viewport(10_000, 32) })
+    ).toBe(8);
   });
 
   it("computes a rolling boundary from the release coordinate and clamps both shots", () => {
@@ -422,10 +717,9 @@ describe("storyboard edit navigation", () => {
         rightEndFrame: 120,
         startClientX: 200,
         currentClientX: 220,
-        trackWidthPx: 600,
-        totalMs: 4_000,
+        viewport: viewport(4_000, 30),
       })
-    ).toBe(64);
+    ).toBe(80);
     expect(
       storyboardRollingBoundaryFrame({
         baseBoundaryFrame: 60,
@@ -433,8 +727,7 @@ describe("storyboard edit navigation", () => {
         rightEndFrame: 120,
         startClientX: 200,
         currentClientX: 2_000,
-        trackWidthPx: 600,
-        totalMs: 4_000,
+        viewport: viewport(4_000, 30),
       })
     ).toBe(119);
   });
@@ -719,14 +1012,19 @@ describe("方向批量移动手势", () => {
   it("把像素位移量化成整数帧", () => {
     expect(
       storyboardGroupDragDeltaFrames({
-        deltaPx: 50,
-        trackWidthPx: 1000,
-        totalMs: 8000,
+        deltaPx: 100,
+        viewport: viewport(8_000, 16),
       })
-    ).toBe(12);
+    ).toBe(188);
     expect(
-      storyboardGroupDragDeltaFrames({ deltaPx: 50, trackWidthPx: 0, totalMs: 8000 })
+      storyboardGroupDragDeltaFrames({ deltaPx: 50, viewport: viewport(0) })
     ).toBe(0);
+    expect(
+      storyboardGroupDragDeltaFrames({
+        deltaPx: 100,
+        viewport: viewport(8_000, 32),
+      })
+    ).toBe(94);
   });
 
   it("一次 pointermove 就能同时锁方向并算出位移", () => {
@@ -735,10 +1033,9 @@ describe("方向批量移动手势", () => {
     const step = storyboardGroupDragStep({
       lockedDirection: null,
       deltaPx: 50,
-      trackWidthPx: 1000,
-      totalMs: 8000,
+      viewport: viewport(8_000, 40),
     });
-    expect(step).toEqual({ direction: "right", deltaFrames: 12 });
+    expect(step).toEqual({ direction: "right", deltaFrames: 38 });
   });
 
   it("没越过阈值就还不算拖动", () => {
@@ -746,8 +1043,7 @@ describe("方向批量移动手势", () => {
       storyboardGroupDragStep({
         lockedDirection: null,
         deltaPx: 3,
-        trackWidthPx: 1000,
-        totalMs: 8000,
+        viewport: viewport(),
       })
     ).toBeNull();
   });
@@ -756,8 +1052,7 @@ describe("方向批量移动手势", () => {
     const step = storyboardGroupDragStep({
       lockedDirection: "right",
       deltaPx: -40,
-      trackWidthPx: 1000,
-      totalMs: 8000,
+      viewport: viewport(),
     });
     expect(step).toMatchObject({ direction: "right" });
     expect(step!.deltaFrames).toBeLessThan(0);

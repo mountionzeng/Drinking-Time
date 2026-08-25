@@ -1,5 +1,12 @@
 import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
 import type { SelectionSourceType } from "@shared/selectionContext";
+import {
+  msToPx,
+  pxDeltaToFrame,
+  pxDeltaToMs,
+  pxToMs,
+  type TimelineViewport,
+} from "@shared/timelineViewport";
 
 import {
   clampStoryboardDurationMs,
@@ -16,21 +23,188 @@ const STORYBOARD_EDIT_MIN_SELECTION_MS = 80;
 export const STORYBOARD_EDIT_FRAME_MS = 1000 / 30;
 const STORYBOARD_MAGNET_THRESHOLD_PX = 8;
 
+export type StoryboardVisualClipNudge = {
+  clipId: string;
+  startVisualLayer: number;
+  deltaVisualLayers: number;
+  startFrame: number;
+  deltaFrames: number;
+  move: (input: {
+    clipId: string;
+    visualLayer: number;
+    toStartFrame: number;
+  }) => Promise<void>;
+};
+
+/** 聚焦拖动目标，但不能让浏览器替用户滚动时间线。 */
+export function focusStoryboardClipForDrag(
+  element: Pick<HTMLElement, "focus">
+): void {
+  element.focus({ preventScroll: true });
+}
+
+/** 把手指/鼠标的轻微抖动留给点击；达到 4px 才进入真正的剪辑拖动。 */
+export function isStoryboardClipPointerDrag(
+  start: { clientX: number; clientY: number },
+  release: { clientX: number; clientY: number }
+): boolean {
+  return (
+    Math.hypot(release.clientX - start.clientX, release.clientY - start.clientY) >=
+    4
+  );
+}
+
+/** Only the pointer that started a drag may continue or finish it. */
+export function isStoryboardPointerOwner(
+  activePointerId: number,
+  eventPointerId: number
+): boolean {
+  return activePointerId === eventPointerId;
+}
+
+/**
+ * 时间视口必须包住所有会画在时间线上的内容，不能只看最后一个视频镜头。
+ * overlay 和独立音轨完全可能延伸到片尾之后。
+ */
+export function storyboardTimelineContentTotalMs(
+  shotTotalMs: number,
+  timeline?: {
+    totalMs?: number;
+    audioTotalMs?: number;
+    audioClips?: readonly { endMs: number }[];
+    overlays?: readonly { endFrame: number }[];
+  }
+): number {
+  return Math.max(
+    0,
+    shotTotalMs,
+    timeline?.totalMs ?? 0,
+    timeline?.audioTotalMs ?? 0,
+    ...(timeline?.audioClips ?? []).map(clip => clip.endMs),
+    ...(timeline?.overlays ?? []).map(overlay => (overlay.endFrame * 1000) / 30)
+  );
+}
+
+/**
+ * 合并连续的方向键微调，并且串行化真正的写入。
+ *
+ * 以前键盘事件在 mutation pending 时直接 return，所以用户按了四次可能只落
+ * 三次。这里记的是「用户最终想去的帧」：同一段连按只提交一次；如果
+ * 上一次已经在写，新输入留在队列里，等它完成后再提交，不丢掉。
+ */
+export function createStoryboardVisualClipNudgeQueue(input?: {
+  delayMs?: number;
+  onError?: (error: unknown) => void;
+}) {
+  type PendingNudge = Pick<StoryboardVisualClipNudge, "clipId" | "move"> & {
+    visualLayer: number;
+    toStartFrame: number;
+  };
+
+  const delayMs = Math.max(0, input?.delayMs ?? 120);
+  const pending = new Map<string, PendingNudge>();
+  const latestTarget = new Map<
+    string,
+    { visualLayer: number; toStartFrame: number }
+  >();
+  let inFlight: PendingNudge | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+
+  const clearTimer = () => {
+    if (timer == null) return;
+    clearTimeout(timer);
+    timer = null;
+  };
+
+  const flush = async (): Promise<void> => {
+    clearTimer();
+    if (disposed || inFlight) return;
+    const nextEntry = pending.entries().next().value as
+      | [string, PendingNudge]
+      | undefined;
+    if (!nextEntry) return;
+    const [clipId, next] = nextEntry;
+    pending.delete(clipId);
+    inFlight = next;
+    try {
+      await next.move({
+        clipId: next.clipId,
+        visualLayer: next.visualLayer,
+        toStartFrame: next.toStartFrame,
+      });
+    } catch (error) {
+      // A server rejection is terminal when nothing newer was accepted. If the
+      // user nudged this clip while the write was in flight, preserve that
+      // explicit newer intent and let the serialized queue flush it.
+      if (!pending.has(clipId)) latestTarget.delete(clipId);
+      input?.onError?.(error);
+    } finally {
+      inFlight = null;
+      if (!pending.has(clipId)) latestTarget.delete(clipId);
+      if (!disposed && pending.size > 0) void flush();
+    }
+  };
+
+  const schedule = () => {
+    // Keep the deadline established by the oldest queued clip. Resetting one
+    // global timer on every enqueue lets activity on another clip postpone it
+    // forever. Inputs still merge until this fixed batching window expires.
+    if (timer != null) return;
+    timer = setTimeout(() => void flush(), delayMs);
+  };
+
+  return {
+    enqueue(nudge: StoryboardVisualClipNudge) {
+      if (disposed) return;
+      const previous = latestTarget.get(nudge.clipId);
+      const toStartFrame = Math.max(
+        0,
+        Math.round(
+          (previous?.toStartFrame ?? nudge.startFrame) + nudge.deltaFrames
+        )
+      );
+      const visualLayer = Math.max(
+        0,
+        (previous?.visualLayer ?? nudge.startVisualLayer) +
+          nudge.deltaVisualLayers
+      );
+      const next = {
+        clipId: nudge.clipId,
+        visualLayer,
+        toStartFrame,
+        move: nudge.move,
+      };
+      latestTarget.set(nudge.clipId, {
+        visualLayer,
+        toStartFrame,
+      });
+      pending.set(nudge.clipId, next);
+      schedule();
+    },
+    flush,
+    dispose() {
+      disposed = true;
+      clearTimer();
+      pending.clear();
+      latestTarget.clear();
+    },
+  };
+}
+
 /** Keep the magnetic feel stable on screen even when the timeline zoom changes. */
 export function storyboardMagnetThresholdFrames(input: {
-  trackWidthPx: number;
-  totalMs: number;
+  viewport: TimelineViewport;
   thresholdPx?: number;
 }): number {
-  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) return 0;
+  if (!(input.viewport.totalMs > 0)) return 0;
   return Math.max(
     1,
-    Math.round(
-      (((input.thresholdPx ?? STORYBOARD_MAGNET_THRESHOLD_PX) /
-        input.trackWidthPx) *
-        input.totalMs *
-        30) /
-        1000
+    Math.abs(
+      pxDeltaToFrame(
+        input.viewport,
+        input.thresholdPx ?? STORYBOARD_MAGNET_THRESHOLD_PX
+      )
     )
   );
 }
@@ -42,17 +216,14 @@ export function storyboardRollingBoundaryFrame(input: {
   rightEndFrame: number;
   startClientX: number;
   currentClientX: number;
-  trackWidthPx: number;
-  totalMs: number;
+  viewport: TimelineViewport;
 }): number {
-  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) {
+  if (!(input.viewport.totalMs > 0)) {
     return input.baseBoundaryFrame;
   }
-  const deltaFrames = Math.round(
-    (((input.currentClientX - input.startClientX) / input.trackWidthPx) *
-      input.totalMs *
-      30) /
-      1000
+  const deltaFrames = pxDeltaToFrame(
+    input.viewport,
+    input.currentClientX - input.startClientX
   );
   return Math.max(
     input.leftStartFrame + 1,
@@ -118,11 +289,11 @@ export type StoryboardEditRange = {
   endMs: number;
 };
 
-/** 剪辑条上的一个镜头块：位置和宽度都按时长在整条里的占比算。 */
+/** 剪辑条上的一个镜头块：位置和宽度都是时间视口里的绝对像素。 */
 export type StoryboardEditBlock = {
   timing: StoryboardTimingRow;
-  leftPct: number;
-  widthPct: number;
+  leftPx: number;
+  widthPx: number;
 };
 
 /**
@@ -155,31 +326,29 @@ export function storyboardAudioPeaks(
 /** 把鼠标横坐标换算成整条时间线上的绝对毫秒。 */
 export function storyboardEditTrackMs(input: {
   clientX: number;
-  rectLeft: number;
-  rectWidth: number;
-  totalMs: number;
+  trackLeft: number;
+  viewport: TimelineViewport;
 }): number {
-  if (!(input.rectWidth > 0) || !(input.totalMs > 0)) return 0;
-  const ratio = (input.clientX - input.rectLeft) / input.rectWidth;
+  if (!(input.viewport.totalMs > 0)) return 0;
   return Math.min(
-    input.totalMs,
-    Math.max(0, Math.round(ratio * input.totalMs))
+    input.viewport.totalMs,
+    Math.round(pxToMs(input.viewport, input.clientX - input.trackLeft))
   );
 }
 
 /**
- * 剪辑条不跟镜头列对齐，它按时间等比铺满一整行：
+ * 剪辑条不跟镜头列对齐，它按视口的每秒像素数铺在一整行：
  * 长镜头就宽，短镜头就窄，和上面固定列宽的镜头信息靠编号与选中状态关联。
  */
 export function storyboardEditBlocks(
   timings: readonly StoryboardTimingRow[],
-  totalMs: number
+  viewport: TimelineViewport
 ): StoryboardEditBlock[] {
-  if (!(totalMs > 0)) return [];
+  if (!(viewport.totalMs > 0)) return [];
   return timings.map(timing => ({
     timing,
-    leftPct: (timing.startMs / totalMs) * 100,
-    widthPct: (timing.durationMs / totalMs) * 100,
+    leftPx: msToPx(viewport, timing.startMs),
+    widthPx: msToPx(viewport, timing.durationMs),
   }));
 }
 
@@ -207,16 +376,15 @@ export function storyboardTrimmedBoundaryFrame(input: {
 /** 拖任一边缘改时长：左边缘的拖动方向与右边缘相反。 */
 export function storyboardTrimmedDurationMs(input: {
   baseDurationMs: number;
-  trackWidthPx: number;
-  totalMs: number;
+  viewport: TimelineViewport;
   deltaPx: number;
   edge?: "start" | "end";
   maxDurationMs?: number;
 }): number {
-  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) {
+  if (!(input.viewport.totalMs > 0)) {
     return clampStoryboardDurationMs(input.baseDurationMs);
   }
-  const deltaMs = (input.deltaPx / input.trackWidthPx) * input.totalMs;
+  const deltaMs = pxDeltaToMs(input.viewport, input.deltaPx);
   const durationMs = clampStoryboardDurationMs(
     input.baseDurationMs + (input.edge === "start" ? -deltaMs : deltaMs)
   );
@@ -289,27 +457,32 @@ export function storyboardEditSelectionRange(
 }
 
 /** 选区在整条时间线上的位置，用来画高亮；空区间返回 null。 */
-export function storyboardEditRangePct(
+export function storyboardEditRangePx(
   range: StoryboardEditRange,
-  totalMs: number
-): { leftPct: number; widthPct: number } | null {
-  if (!(totalMs > 0)) return null;
-  const startMs = Math.max(0, Math.min(range.startMs, totalMs));
-  const endMs = Math.max(startMs, Math.min(range.endMs, totalMs));
+  viewport: TimelineViewport
+): { leftPx: number; widthPx: number } | null {
+  if (!(viewport.totalMs > 0)) return null;
+  const startMs = Math.max(0, Math.min(range.startMs, viewport.totalMs));
+  const endMs = Math.max(startMs, Math.min(range.endMs, viewport.totalMs));
   if (endMs <= startMs) return null;
   return {
-    leftPct: (startMs / totalMs) * 100,
-    widthPct: ((endMs - startMs) / totalMs) * 100,
+    leftPx: msToPx(viewport, startMs),
+    widthPx: msToPx(viewport, endMs - startMs),
   };
 }
 
 /** 播放头在整条时间线上的位置。 */
-export function storyboardEditPlayheadPct(
+export function storyboardEditPlayheadPx(
   playheadMs: number,
-  totalMs: number
+  viewport: TimelineViewport
 ): number | null {
-  if (!(totalMs > 0) || playheadMs < 0 || playheadMs > totalMs) return null;
-  return (playheadMs / totalMs) * 100;
+  if (
+    !(viewport.totalMs > 0) ||
+    playheadMs < 0 ||
+    playheadMs > viewport.totalMs
+  )
+    return null;
+  return msToPx(viewport, playheadMs);
 }
 
 /** 键盘微调时长：在故事版允许的范围内加减，取整到毫秒。 */
@@ -452,12 +625,44 @@ export function storyboardGroupDragDirection(
 /** 一次拖动只量化一次：像素 → 整数帧。 */
 export function storyboardGroupDragDeltaFrames(input: {
   deltaPx: number;
-  trackWidthPx: number;
-  totalMs: number;
+  viewport: TimelineViewport;
 }): number {
-  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) return 0;
-  const deltaMs = (input.deltaPx / input.trackWidthPx) * input.totalMs;
-  return Math.round((deltaMs * 30) / 1000);
+  if (!(input.viewport.totalMs > 0)) return 0;
+  return pxDeltaToFrame(input.viewport, input.deltaPx);
+}
+
+/**
+ * 把视觉剪辑拖动投影成“镜头信息列”的瞬态时间，只用于界面预览。
+ * 图片有自己的绝对位置，不对应一整列镜头信息，因此永远不产生表格预览。
+ */
+export type StoryboardShotTimingPreview = {
+  stableShotId: string;
+  startFrame: number;
+  endFrame: number;
+};
+
+export function storyboardVisualClipShotTimingPreview(
+  input:
+    | { kind: "image" }
+    | {
+        kind: "shot";
+        stableShotId: string;
+        startFrame: number;
+        durationFrames: number;
+        deltaFrames: number;
+      }
+): StoryboardShotTimingPreview | null {
+  if (input.kind !== "shot") return null;
+  const startFrame = Math.max(
+    0,
+    Math.round(input.startFrame + input.deltaFrames)
+  );
+  const durationFrames = Math.max(1, Math.round(input.durationFrames));
+  return {
+    stableShotId: input.stableShotId,
+    startFrame,
+    endFrame: startFrame + durationFrames,
+  };
 }
 
 /**
@@ -471,8 +676,7 @@ export function storyboardGroupDragDeltaFrames(input: {
 export function storyboardGroupDragStep(input: {
   lockedDirection: "left" | "right" | null;
   deltaPx: number;
-  trackWidthPx: number;
-  totalMs: number;
+  viewport: TimelineViewport;
 }): { direction: "left" | "right"; deltaFrames: number } | null {
   const direction =
     input.lockedDirection ?? storyboardGroupDragDirection(input.deltaPx);
@@ -481,8 +685,7 @@ export function storyboardGroupDragStep(input: {
     direction,
     deltaFrames: storyboardGroupDragDeltaFrames({
       deltaPx: input.deltaPx,
-      trackWidthPx: input.trackWidthPx,
-      totalMs: input.totalMs,
+      viewport: input.viewport,
     }),
   };
 }
