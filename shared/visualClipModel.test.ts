@@ -323,6 +323,29 @@ describe("insertVisualImageClip", () => {
     expect(placements(second.document)["image:img-new"]).toBe("track-2@400+1");
   });
 
+  it("同一个完整放置意图重放是无写入的幂等成功", () => {
+    const first = insertVisualImageClip(fixture(), {
+      clipId: "img-replay",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(1),
+      startFrame: 150,
+    });
+    if (first.status !== "ok") return;
+    const replay = insertVisualImageClip(first.document, {
+      clipId: "img-replay",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(1),
+      startFrame: 150,
+    });
+    expect(replay).toMatchObject({ status: "ok", changed: false });
+    if (replay.status !== "ok") return;
+    expect(replay.document).toBe(first.document);
+  });
+
   it("插入后的图片可以立刻用同一个移动命令搬走", () => {
     const doc = fixture();
     const inserted = insertVisualImageClip(doc, {

@@ -73,7 +73,13 @@ type InsertVisualClipError =
   | "empty-timeline";
 
 export type InsertVisualClipResult =
-  | { status: "ok"; document: VisualEditDocument; clip: VisualClip }
+  | {
+      status: "ok";
+      document: VisualEditDocument;
+      clip: VisualClip;
+      /** false when the same placement intent was already fully applied. */
+      changed: boolean;
+    }
   | { status: "error"; error: InsertVisualClipError; message: string };
 
 type RemoveVisualClipError = "clip-not-found" | "unsupported-kind";
@@ -461,6 +467,7 @@ export function insertVisualImageClip(
     };
   }
   const startFrame = Math.round(input.startFrame);
+  const requestedDurationFrames = positiveFrames(input.durationFrames ?? 1);
   const base = materializeAbsolutePlacements(doc);
   const hostId = hostItemForFrame(base, startFrame);
   if (!hostId) {
@@ -468,6 +475,27 @@ export function insertVisualImageClip(
       status: "error",
       error: "empty-timeline",
       message: "时间线上还没有任何镜头，无法放置素材",
+    };
+  }
+  const existingProjection = findVisualClip(base, `image:${input.clipId}`);
+  const existingImage = base.items
+    .flatMap(item => item.imageClips ?? [])
+    .find(clip => clip.id === input.clipId);
+  if (
+    existingProjection?.origin.kind === "image-clip" &&
+    existingImage &&
+    existingProjection.trackId === visualTrackId(layer) &&
+    existingProjection.startFrame === startFrame &&
+    existingProjection.durationFrames === requestedDurationFrames &&
+    existingImage.imageId === input.imageId &&
+    existingImage.imageUrl === input.imageUrl &&
+    existingImage.label === input.label
+  ) {
+    return {
+      status: "ok",
+      document: doc,
+      clip: existingProjection,
+      changed: false,
     };
   }
   const hostStart =
@@ -480,7 +508,7 @@ export function insertVisualImageClip(
     label: input.label,
     offsetFrames: Math.max(0, startFrame - hostStart),
     timelineStartFrame: startFrame,
-    durationFrames: positiveFrames(input.durationFrames ?? 1),
+    durationFrames: requestedDurationFrames,
     visualLayer: layer,
   };
   const next: VisualEditDocument = {
@@ -502,6 +530,7 @@ export function insertVisualImageClip(
   return {
     status: "ok",
     document: next,
+    changed: true,
     clip: clip ?? {
       id: `image:${input.clipId}`,
       kind: "image",

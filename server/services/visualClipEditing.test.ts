@@ -297,8 +297,10 @@ describe("insertVisualImageClipForStory", () => {
 
   it("同一个 clipId 重复落位是替换，不会攒出重复素材", async () => {
     const storyId = await seedStory();
+    const beforeVersion = await persistedVersion(storyId);
+    const versions: number[] = [];
     for (const frame of [150, 150, 260]) {
-      await insertVisualImageClipForStory({
+      const result = await insertVisualImageClipForStory({
         storyId,
         userId: USER_ID,
         clip: {
@@ -310,6 +312,7 @@ describe("insertVisualImageClipForStory", () => {
           startFrame: frame,
         },
       });
+      if (result.status === "ok") versions.push(result.timelineVersion);
     }
     const placements = await persistedPlacements(storyId);
     const matching = Object.keys(placements).filter(
@@ -317,6 +320,11 @@ describe("insertVisualImageClipForStory", () => {
     );
     expect(matching).toHaveLength(1);
     expect(placements["image:img-extracted"]).toBe("track-1@260+1");
+    expect(versions).toEqual([
+      beforeVersion + 1,
+      beforeVersion + 1,
+      beforeVersion + 2,
+    ]);
   });
 });
 
