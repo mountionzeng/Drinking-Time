@@ -852,8 +852,8 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
  *   请求会合并成一次全量重写（见 createWriteCoalescer），每个调用方拿到的仍是
  *   "覆盖了自己这次变更"的 promise，失败与否互不影响。
  *   注意：本函数只保证"失败会向调用方抛出"，不保证"调用方已经应用到
- *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前只有
- *   `updateStoryBodyIfRevision` 在失败时做了按字段回滚（见其定义处注释）；其余
+ *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前
+ *   `updateStoryBodyIfRevision` 与 `updateStoryTimeline` 在失败时做了按字段回滚；其余
  *   本地模式写函数（User、Shot 等约 50+ 处）在磁盘失败后会正确抛出异常，但它们
  *   已经生效的内存态变更不会被撤销，且可能被后续任意一次成功的写盘操作顺带落
  *   盘（因为 persistMemoryStateToDisk 每次都是序列化当前完整的 memoryState）。
@@ -4870,38 +4870,74 @@ export async function updateStoryTimeline(input: {
     if (!existing) {
       if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
       const current = now();
+      const createdItems = encodeStoryTimelinePayload({
+        items: input.items,
+        ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+        ...(input.visualLayerState === undefined
+          ? {}
+          : { visualLayerState: input.visualLayerState }),
+      });
       const row: StoryTimeline = {
         id: nextMemoryId("storyTimeline"),
         storyId: input.storyId,
         userId: input.userId,
         version: 1,
-        items: encodeStoryTimelinePayload({
-          items: input.items,
-          ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
-          ...(input.visualLayerState === undefined
-            ? {}
-            : { visualLayerState: input.visualLayerState }),
-        }),
+        items: createdItems,
         createdAt: current,
         updatedAt: current,
       };
       memoryState.storyTimelines.push(row);
-      await persistMemoryState();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        const index = memoryState.storyTimelines.indexOf(row);
+        if (
+          index >= 0 &&
+          row.version === 1 &&
+          row.items === createdItems &&
+          row.updatedAt === memoryState.storyTimelines[index]?.updatedAt
+        ) {
+          memoryState.storyTimelines.splice(index, 1);
+        }
+        throw error;
+      }
       return storyTimelineView(row);
     }
     if (existing.version !== input.expectedVersion) {
       throw new Error("时间轴版本已更新");
     }
     const currentPayload = decodeStoryTimelinePayload(existing.items);
-    existing.items = encodeStoryTimelinePayload({
+    const previousItems = existing.items;
+    const previousVersion = existing.version;
+    const previousUpdatedAt = existing.updatedAt;
+    const nextItems = encodeStoryTimelinePayload({
       items: input.items,
       overlays: input.overlays ?? currentPayload.overlays,
       visualLayerState:
         input.visualLayerState ?? currentPayload.visualLayerState,
     });
-    existing.version += 1;
-    existing.updatedAt = now();
-    await persistMemoryState();
+    const nextVersion = previousVersion + 1;
+    const nextUpdatedAt = now();
+    existing.items = nextItems;
+    existing.version = nextVersion;
+    existing.updatedAt = nextUpdatedAt;
+    try {
+      await persistMemoryState();
+    } catch (error) {
+      // A later successful CAS writer may already have advanced this row while
+      // our full-state write was in flight. Only roll back the exact values
+      // published by this call; never erase a newer in-memory success.
+      if (
+        existing.items === nextItems &&
+        existing.version === nextVersion &&
+        existing.updatedAt === nextUpdatedAt
+      ) {
+        existing.items = previousItems;
+        existing.version = previousVersion;
+        existing.updatedAt = previousUpdatedAt;
+      }
+      throw error;
+    }
     return storyTimelineView(existing);
   }
 

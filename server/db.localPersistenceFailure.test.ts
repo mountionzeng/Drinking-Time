@@ -1,7 +1,15 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // Wrap the real fs/promises mkdir/writeFile/rename so individual tests can
 // force a single call to fail (disk full, permission denied, rename across
@@ -185,11 +193,123 @@ describe("local persistence write-failure semantics", () => {
     expect(filesLeftBehind).toEqual([]);
   });
 
+  it("does not publish a newly-created timeline when its durable write fails", async () => {
+    vi.mocked(fs.writeFile).mockRejectedValueOnce(new Error("disk error"));
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 101,
+        userId: 1,
+        expectedVersion: 0,
+        items: [{ stableShotId: "shot-create-failed" }],
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+
+    expect(await db.getStoryTimeline(101, 1)).toBeNull();
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 101,
+        userId: 1,
+        expectedVersion: 0,
+        items: [{ stableShotId: "shot-create-retry" }],
+      })
+    ).resolves.toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "shot-create-retry" }],
+    });
+  });
+
+  it("restores an existing timeline when its durable update fails", async () => {
+    await db.updateStoryTimeline({
+      storyId: 102,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-before" }],
+    });
+    vi.mocked(fs.rename).mockRejectedValueOnce(new Error("rename failed"));
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 102,
+        userId: 1,
+        expectedVersion: 1,
+        items: [{ stableShotId: "shot-should-not-land" }],
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+
+    expect(await db.getStoryTimeline(102, 1)).toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "shot-before" }],
+    });
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 102,
+        userId: 1,
+        expectedVersion: 1,
+        items: [{ stableShotId: "shot-update-retry" }],
+      })
+    ).resolves.toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "shot-update-retry" }],
+    });
+  });
+
+  it("never rolls a failed write back over a newer timeline success", async () => {
+    await db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-v1" }],
+    });
+
+    let signalWriteStarted!: () => void;
+    let rejectWrite!: (error: Error) => void;
+    const writeStarted = new Promise<void>(resolve => {
+      signalWriteStarted = resolve;
+    });
+    vi.mocked(fs.writeFile).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectWrite = reject;
+          signalWriteStarted();
+        })
+    );
+
+    const first = db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "shot-v2-write-fails" }],
+    });
+    await writeStarted;
+    const second = db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 2,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+    rejectWrite(new Error("first write failed"));
+
+    await expect(first).rejects.toMatchObject({
+      name: "LocalPersistenceWriteError",
+    });
+    await expect(second).resolves.toMatchObject({
+      version: 3,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+    expect(await db.getStoryTimeline(103, 1)).toMatchObject({
+      version: 3,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+  });
+
   it("documents the scoped rollback boundary: a non-CAS writer's failed mutation stays applied in memory and can be silently persisted by a later unrelated write", async () => {
     // This is the known, intentionally-scoped gap recorded in
     // docs/features/feature-ledger.json's story-ownership card: only
-    // updateStoryBodyIfRevision gets copy-on-write rollback. Every other
-    // local writer (upsertUser here) now correctly throws on disk failure,
+    // updateStoryBodyIfRevision and updateStoryTimeline get copy-on-write
+    // rollback. Other local writers (upsertUser here) correctly throw on disk failure,
     // but its in-memory mutation is not undone — and because
     // persistMemoryStateToDisk always serializes the full ambient
     // memoryState, a later unrelated successful write silently carries the
