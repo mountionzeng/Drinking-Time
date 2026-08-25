@@ -39,10 +39,14 @@ import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
   patchImageTransformForStory,
+  pasteVisualImageForStory,
+  deleteVisualObjectForStory,
+  splitOwnedVideoClipForStory,
   setShotDurationForStory,
   undoVisualEditForStory,
   withPlayheadShot,
   updateVideoEditForStory,
+  withVisualEditServiceLock,
   includeAllShotsForStory,
   moveShotOrderForStory,
   removeInnerVideoClipForStory,
@@ -58,6 +62,58 @@ import {
   rollingTrimForStory,
   trimShotForStory,
 } from "../services/visualClipEditing";
+import {
+  copyStoryVisualObject,
+  deleteStoryVisualShot,
+  pasteStoryVisualObject,
+  retireStoryVisualClipboardScope,
+  splitStoryVisualShot,
+} from "../services/storyVisualObjectEditing";
+import { activateVisualEditSession } from "../services/visualEditSessionRegistry";
+import { retireVisualEditUndoScope } from "../services/visualEditUndoJournal";
+
+const visualEditOperationSchema = z
+  .object({
+    editorSessionEpoch: z.string().min(1).max(160),
+    operationId: z.string().min(1).max(160),
+  })
+  .strict();
+
+const visualObjectRefSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("story-shot"),
+      stableShotId: z.string().min(1).max(240),
+      shotNo: z.number().int().positive().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("owned-video-clip"),
+      clipId: z.string().min(1).max(240),
+      ownerStableShotId: z.string().min(1).max(240),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("image-clip"),
+      clipId: z.string().min(1).max(240),
+      ownerStableShotId: z.string().min(1).max(240),
+    })
+    .strict(),
+]);
+const timelineTransformSchema = z.object({
+  cropX: z.number().min(0).max(1),
+  cropY: z.number().min(0).max(1),
+  cropWidth: z.number().min(0.01).max(1),
+  cropHeight: z.number().min(0.01).max(1),
+  zoom: z.number().min(0.25).max(8),
+  panX: z.number().min(-1).max(1),
+  panY: z.number().min(-1).max(1),
+  rotationDeg: z.number().min(-180).max(180).optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
+});
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
   replyFromCreationAgent,
@@ -79,6 +135,7 @@ import {
   runTimelineEditCommand,
 } from "../services/timelineEditAgent";
 import { confirmEditingTransition } from "../services/editingTransitionWorkflow";
+import { extractTimelineFrameForStory } from "../services/timelineFrameExtraction";
 import { exportStoryTimeline } from "../services/videoExport";
 import {
   adviseStoryImages,
@@ -200,13 +257,30 @@ const timelineTransitionCandidateInput = z.object({
   estimatedCny: z.number().positive(),
   expectedTimelineVersion: z.number().int().min(0),
   placement: z
-    .object({
-      kind: z.literal("timeline-overlay"),
-      startFrame: z.number().int().min(0),
-      targetEndFrame: z.number().int().positive(),
-      leftImageId: z.number().int().positive(),
-      rightImageId: z.number().int().positive(),
-    })
+    .union([
+      z.object({
+        kind: z.literal("timeline-overlay"),
+        startFrame: z.number().int().min(0),
+        targetEndFrame: z.number().int().positive(),
+        leftImageId: z.number().int().positive(),
+        rightImageId: z.number().int().positive(),
+      }),
+      z.object({
+        kind: z.literal("story-shot"),
+        left: z.object({
+          clipId: z.string().min(1).max(256),
+          imageId: z.number().int().positive(),
+          timelineFrame: z.number().int().min(0),
+          visualLayer: z.number().int().min(0),
+        }),
+        right: z.object({
+          clipId: z.string().min(1).max(256),
+          imageId: z.number().int().positive(),
+          timelineFrame: z.number().int().min(0),
+          visualLayer: z.number().int().min(0),
+        }),
+      }),
+    ])
     .optional(),
 });
 
@@ -1332,6 +1406,8 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         leftImageId: z.number().int().positive(),
         rightImageId: z.number().int().positive(),
+        leftClipId: z.string().trim().min(1).max(256),
+        rightClipId: z.string().trim().min(1).max(256),
         instruction: z.string().trim().max(2_000).optional(),
         movementAmplitude: z
           .enum(["auto", "small", "medium", "large"])
@@ -1833,6 +1909,26 @@ export const creationAgentRouter = router({
     }),
 
   /**
+   * 权威时间线抽帧。客户端只交代播放头与操作层；赢家解析、视频解码、
+   * 仓库备份、相邻可见层规划和图片落位全部由服务端完成并可幂等重放。
+   */
+  extractTimelineFrame: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        requestId: z.string().trim().min(1).max(160),
+        timelineFrame: z.number().int().min(0),
+        operationLayer: z.number().int().min(0),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      extractTimelineFrameForStory({
+        ...input,
+        userId: ctx.user.id,
+      })
+    ),
+
+  /**
    * 唯一的图片落位命令。调用方只说「哪张图、去哪条轨、去哪一帧」，
    * 不需要指定它挂在哪个镜头下面；同一个 clipId 重复提交是替换。
    */
@@ -2182,18 +2278,7 @@ export const creationAgentRouter = router({
         storyId: z.number(),
         stableShotId: z.string().min(1).max(240),
         imageId: z.number().int().positive(),
-        transform: z.object({
-          cropX: z.number().min(0).max(1),
-          cropY: z.number().min(0).max(1),
-          cropWidth: z.number().min(0.01).max(1),
-          cropHeight: z.number().min(0.01).max(1),
-          zoom: z.number().min(0.25).max(8),
-          panX: z.number().min(-1).max(1),
-          panY: z.number().min(-1).max(1),
-          rotationDeg: z.number().min(-180).max(180).optional(),
-          flipX: z.boolean().optional(),
-          flipY: z.boolean().optional(),
-        }),
+        transform: timelineTransformSchema,
         textOverlay: timelineImageTextOverlaySchema.nullable(),
       })
     )
@@ -2212,6 +2297,174 @@ export const creationAgentRouter = router({
    * 撤销上一次视觉剪辑命令。客户端只说「撤销」，不再持有也不再写回 items。
    * 回退的粒度是整份文档，所以图层与素材天然一起还原。
    */
+  pasteVisualImage: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          pasteId: z.string().min(1).max(160),
+          targetFrame: z.number().int().min(0),
+          targetLayer: z.number().int().min(0),
+          snapshot: z
+            .object({
+              version: z.literal(1),
+              kind: z.literal("image-clip"),
+              sourceStoryId: z.number().int().positive(),
+              sourceClipId: z.string().min(1).max(240),
+              sourceLayer: z.number().int().min(0),
+              imageId: z.number().int().positive(),
+              label: z.string().max(500),
+              durationFrames: z.number().int().positive(),
+              transform: timelineTransformSchema.strict().nullable(),
+            })
+            .strict(),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      pasteVisualImageForStory({
+        ...input,
+        userId: ctx.user.id,
+        snapshot: { ...input.snapshot, imageUrl: "" },
+      })
+    ),
+
+  deleteVisualObject: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          object: visualObjectRefSchema,
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      deleteVisualObjectForStory({ ...input, userId: ctx.user.id })
+    ),
+
+  splitOwnedVideoClip: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          ownerStableShotId: z.string().min(1).max(240),
+          clipId: z.string().min(1).max(240),
+          cutFrame: z.number().int().min(0),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      splitOwnedVideoClipForStory({ ...input, userId: ctx.user.id })
+    ),
+
+  copyStoryVisualObject: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          editorSessionEpoch: z.string().min(1).max(160),
+          clipboardId: z.string().min(1).max(160),
+          object: visualObjectRefSchema,
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      copyStoryVisualObject({ ...input, userId: ctx.user.id })
+    ),
+
+  activateVisualEditSession: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          editorClientId: z.string().trim().min(1).max(160),
+          editorSessionEpoch: z.string().trim().min(1).max(160),
+          activationSequence: z.number().int().nonnegative(),
+        })
+        .strict()
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!(await getStoryById(input.storyId, ctx.user.id)))
+        return { status: "error" as const, error: "故事不存在或无权访问" };
+      return withVisualEditServiceLock(input.storyId, ctx.user.id, async () => {
+        const activation = activateVisualEditSession({
+          ...input,
+          userId: ctx.user.id,
+        });
+        if (activation.status === "ok" && activation.replacedEpoch) {
+          const retired = {
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            editorSessionEpoch: activation.replacedEpoch,
+          };
+          retireStoryVisualClipboardScope(retired);
+          retireVisualEditUndoScope(retired);
+        }
+        return activation;
+      });
+    }),
+
+  pasteStoryVisualObject: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          clipboardId: z.string().min(1).max(160),
+          targetFrame: z.number().int().nonnegative(),
+          targetLayer: z.number().int().nonnegative(),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      pasteStoryVisualObject({ ...input, userId: ctx.user.id })
+    ),
+
+  deleteStoryVisualShot: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          stableShotId: z.string().min(1).max(240),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      deleteStoryVisualShot({ ...input, userId: ctx.user.id })
+    ),
+
+  splitStoryVisualShot: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          stableShotId: z.string().min(1).max(240),
+          cutFrame: z.number().int().nonnegative(),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      splitStoryVisualShot({ ...input, userId: ctx.user.id })
+    ),
+
+  undoVisualEditReceipt: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      undoVisualEditForStory({ ...input, userId: ctx.user.id })
+    ),
+
   undoVisualEdit: protectedProcedure
     .input(z.object({ storyId: z.number() }))
     .mutation(async ({ ctx, input }) =>

@@ -1,7 +1,15 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // Wrap the real fs/promises mkdir/writeFile/rename so individual tests can
 // force a single call to fail (disk full, permission denied, rename across
@@ -185,11 +193,333 @@ describe("local persistence write-failure semantics", () => {
     expect(filesLeftBehind).toEqual([]);
   });
 
+  it("does not publish a newly-created timeline when its durable write fails", async () => {
+    vi.mocked(fs.writeFile).mockRejectedValueOnce(new Error("disk error"));
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 101,
+        userId: 1,
+        expectedVersion: 0,
+        items: [{ stableShotId: "shot-create-failed" }],
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+
+    expect(await db.getStoryTimeline(101, 1)).toBeNull();
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 101,
+        userId: 1,
+        expectedVersion: 0,
+        items: [{ stableShotId: "shot-create-retry" }],
+      })
+    ).resolves.toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "shot-create-retry" }],
+    });
+  });
+
+  it.each(["mkdir", "writeFile", "rename"] as const)(
+    "rolls back timeline create when %s fails",
+    async method => {
+      if (method === "mkdir")
+        vi.mocked(fs.mkdir).mockRejectedValueOnce(new Error("mkdir failed"));
+      else if (method === "writeFile")
+        vi.mocked(fs.writeFile).mockRejectedValueOnce(
+          new Error("write failed")
+        );
+      else
+        vi.mocked(fs.rename).mockRejectedValueOnce(new Error("rename failed"));
+      await expect(
+        db.updateStoryTimeline({
+          storyId: 201,
+          userId: 1,
+          expectedVersion: 0,
+          items: [{ stableShotId: "never" }],
+        })
+      ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+      expect(await db.getStoryTimeline(201, 1)).toBeNull();
+    }
+  );
+
+  it.each(["mkdir", "writeFile", "rename"] as const)(
+    "rolls back timeline update when %s fails",
+    async method => {
+      await db.updateStoryTimeline({
+        storyId: 202,
+        userId: 1,
+        expectedVersion: 0,
+        items: [{ stableShotId: "before" }],
+      });
+      if (method === "mkdir")
+        vi.mocked(fs.mkdir).mockRejectedValueOnce(new Error("mkdir failed"));
+      else if (method === "writeFile")
+        vi.mocked(fs.writeFile).mockRejectedValueOnce(
+          new Error("write failed")
+        );
+      else
+        vi.mocked(fs.rename).mockRejectedValueOnce(new Error("rename failed"));
+      await expect(
+        db.updateStoryTimeline({
+          storyId: 202,
+          userId: 1,
+          expectedVersion: 1,
+          items: [{ stableShotId: "never" }],
+        })
+      ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+      await expect(db.getStoryTimeline(202, 1)).resolves.toMatchObject({
+        version: 1,
+        items: [{ stableShotId: "before" }],
+      });
+    }
+  );
+
+  it("restores an existing timeline when its durable update fails", async () => {
+    await db.updateStoryTimeline({
+      storyId: 102,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-before" }],
+    });
+    vi.mocked(fs.rename).mockRejectedValueOnce(new Error("rename failed"));
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 102,
+        userId: 1,
+        expectedVersion: 1,
+        items: [{ stableShotId: "shot-should-not-land" }],
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+
+    expect(await db.getStoryTimeline(102, 1)).toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "shot-before" }],
+    });
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 102,
+        userId: 1,
+        expectedVersion: 1,
+        items: [{ stableShotId: "shot-update-retry" }],
+      })
+    ).resolves.toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "shot-update-retry" }],
+    });
+  });
+
+  it("rolls back a failed timeline write before the next same-story CAS begins", async () => {
+    await db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-v1" }],
+    });
+
+    let signalWriteStarted!: () => void;
+    let rejectWrite!: (error: Error) => void;
+    const writeStarted = new Promise<void>(resolve => {
+      signalWriteStarted = resolve;
+    });
+    vi.mocked(fs.writeFile).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectWrite = reject;
+          signalWriteStarted();
+        })
+    );
+
+    const first = db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "shot-v2-write-fails" }],
+    });
+    await writeStarted;
+    const second = db.updateStoryTimeline({
+      storyId: 103,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+    rejectWrite(new Error("first write failed"));
+
+    await expect(first).rejects.toMatchObject({
+      name: "LocalPersistenceWriteError",
+    });
+    await expect(second).resolves.toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+    expect(await db.getStoryTimeline(103, 1)).toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "shot-v3-succeeds" }],
+    });
+  });
+
+  it("does not expose a tentative timeline through a getter while persistence is pending", async () => {
+    await db.updateStoryTimeline({
+      storyId: 104,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "before" }],
+    });
+    let started!: () => void;
+    let fail!: (error: Error) => void;
+    const writeStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    vi.mocked(fs.writeFile).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+          started();
+        })
+    );
+    const update = db.updateStoryTimeline({
+      storyId: 104,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "tentative" }],
+    });
+    await writeStarted;
+    let getterSettled = false;
+    const getter = db.getStoryTimeline(104, 1).then(value => {
+      getterSettled = true;
+      return value;
+    });
+    await Promise.resolve();
+    expect(getterSettled).toBe(false);
+    fail(new Error("disk failed"));
+    await expect(update).rejects.toMatchObject({
+      name: "LocalPersistenceWriteError",
+    });
+    await expect(getter).resolves.toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "before" }],
+    });
+  });
+
+  it("cleans a failed Story before a queued different-Story batch serializes", async () => {
+    await db.updateStoryTimeline({
+      storyId: 105,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "a-before" }],
+    });
+    await db.updateStoryTimeline({
+      storyId: 106,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "b-before" }],
+    });
+    let started!: () => void;
+    let fail!: (error: Error) => void;
+    const writeStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    vi.mocked(fs.writeFile).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+          started();
+        })
+    );
+    const a = db.updateStoryTimeline({
+      storyId: 105,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "a-failed" }],
+    });
+    await writeStarted;
+    const b = db.updateStoryTimeline({
+      storyId: 106,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "b-success" }],
+    });
+    fail(new Error("disk failed"));
+    await expect(a).rejects.toMatchObject({
+      name: "LocalPersistenceWriteError",
+    });
+    await expect(b).resolves.toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "b-success" }],
+    });
+    expect(await db.getStoryTimeline(105, 1)).toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "a-before" }],
+    });
+  });
+
+  it("snapshots a batch before mkdir so a queued mutation cannot hitchhike into its successful disk write", async () => {
+    await db.updateStoryTimeline({
+      storyId: 107,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "a-before" }],
+    });
+    await db.updateStoryTimeline({
+      storyId: 108,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "b-before" }],
+    });
+    let releaseMkdir!: () => void;
+    const mkdirPending = new Promise<string | undefined>(resolve => {
+      releaseMkdir = () => resolve(undefined);
+    });
+    const defaultWriteFile = vi.mocked(fs.writeFile).getMockImplementation();
+    vi.mocked(fs.mkdir).mockImplementationOnce(() => mkdirPending);
+    if (!defaultWriteFile)
+      throw new Error("writeFile mock missing default implementation");
+    vi.mocked(fs.writeFile)
+      .mockImplementationOnce(defaultWriteFile)
+      .mockRejectedValueOnce(new Error("B write failed"));
+    const a = db.updateStoryTimeline({
+      storyId: 107,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "a-success" }],
+    });
+    await vi.waitFor(() => expect(fs.mkdir).toHaveBeenCalled());
+    const b = db.updateStoryTimeline({
+      storyId: 108,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "b-must-not-land" }],
+    });
+    releaseMkdir();
+    await expect(a).resolves.toMatchObject({ version: 2 });
+    await expect(b).rejects.toMatchObject({
+      name: "LocalPersistenceWriteError",
+    });
+    const disk = JSON.parse(
+      await readFile(process.env.LOCAL_PERSIST_PATH!, "utf-8")
+    ) as {
+      storyTimelines: Array<{
+        storyId: number;
+        version: number;
+        items: unknown;
+      }>;
+    };
+    expect(disk.storyTimelines.find(row => row.storyId === 107)).toMatchObject({
+      version: 2,
+    });
+    expect(disk.storyTimelines.find(row => row.storyId === 108)).toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "b-before" }],
+    });
+  });
+
   it("documents the scoped rollback boundary: a non-CAS writer's failed mutation stays applied in memory and can be silently persisted by a later unrelated write", async () => {
     // This is the known, intentionally-scoped gap recorded in
     // docs/features/feature-ledger.json's story-ownership card: only
-    // updateStoryBodyIfRevision gets copy-on-write rollback. Every other
-    // local writer (upsertUser here) now correctly throws on disk failure,
+    // updateStoryBodyIfRevision and updateStoryTimeline get copy-on-write
+    // rollback. Other local writers (upsertUser here) correctly throw on disk failure,
     // but its in-memory mutation is not undone — and because
     // persistMemoryStateToDisk always serializes the full ambient
     // memoryState, a later unrelated successful write silently carries the

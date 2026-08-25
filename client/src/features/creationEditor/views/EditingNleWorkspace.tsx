@@ -1,10 +1,4 @@
-import {
-  Clapperboard,
-  FileUp,
-  Loader2,
-  Upload,
-  Video,
-} from "lucide-react";
+import { Clapperboard, FileUp, Loader2, Upload, Video } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -36,7 +30,6 @@ import {
   resolveTimelineVisualFrame,
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
-import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 
 import {
   ResizableHandle,
@@ -44,14 +37,13 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
-import {
-  readStoryImageDragPayload,
-} from "@/features/storyAgent/storyImageDrag";
-import {
-  readVideoTakeDragPayload,
-} from "@/features/storyAgent/views/videoTakeDrag";
+import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
+import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import {
+  useVisualObjectEditingSession,
+} from "../useVisualObjectEditingSession";
 import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
@@ -79,9 +71,7 @@ import {
 } from "../CreationEditorContext";
 import { timelineMagneticJoins } from "@shared/timelineCommands";
 import type { CreationEditorShot } from "../types";
-import {
-  stepTimelinePlayheadByFrames,
-} from "../timelinePlayhead";
+import { stepTimelinePlayheadByFrames } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
   editedTimelineDurationMs,
@@ -724,9 +714,9 @@ function ShotPreview({
       )
     : null;
   const videoUrl = timelineImageSource
-      ? null
+    ? null
     : (editorPreview?.target.videoUrl ??
-        timelineVideoSource?.videoUrl ??
+      timelineVideoSource?.videoUrl ??
       (suppressDefaultVideo ? null : playableVideoUrl(shot)));
   const imageUrl =
     timelineImageSource?.imageUrl ??
@@ -1217,8 +1207,6 @@ export function timelineLaneDomain(laneId: string): TimelineLane["domain"] {
     : "visual";
 }
 
-
-
 function cueText(clip: ChatCutTimelineClip, manifest: ChatCutTimelineManifest) {
   const code = chatCutCueCode(clip.name);
   const scripted = code
@@ -1342,62 +1330,62 @@ export function buildTimelineLanes(
   }
 
   const visualClips = timings.flatMap(timing => {
-      const shot = shotsByNo.get(timing.shotNo);
+    const shot = shotsByNo.get(timing.shotNo);
     const baseVisualLayer = Math.max(
       0,
       Math.round(shot?.timelineItem?.visualLayer ?? 0)
     );
-      const baseClip = {
-        id: timing.stableShotId,
-        label: shot
-          ? chatCutSourceNameFromShot(shot)
-          : displayShotCode({ shotNo: timing.shotNo }),
-        title: shot
-          ? `${shotLabel(shot)} · ${chatCutSourceNameFromShot(shot)}`
-          : displayShotCode({ shotNo: timing.shotNo }),
-        startMs: timing.startMs,
-        endMs: timing.endMs,
-        shotNo: timing.shotNo,
-        imageUrl: shot ? shotImageUrl(shot) : null,
-        stableShotId: timing.stableShotId,
+    const baseClip = {
+      id: timing.stableShotId,
+      label: shot
+        ? chatCutSourceNameFromShot(shot)
+        : displayShotCode({ shotNo: timing.shotNo }),
+      title: shot
+        ? `${shotLabel(shot)} · ${chatCutSourceNameFromShot(shot)}`
+        : displayShotCode({ shotNo: timing.shotNo }),
+      startMs: timing.startMs,
+      endMs: timing.endMs,
+      shotNo: timing.shotNo,
+      imageUrl: shot ? shotImageUrl(shot) : null,
+      stableShotId: timing.stableShotId,
       visualLayer: baseVisualLayer,
       moveTarget: {
         kind: "shot" as const,
         stableShotId: timing.stableShotId,
       },
-        videoEditTarget: shot
-          ? (() => {
-              const take =
-                shot.selectedVideoTake ??
-                shot.videoTakes?.find(
-                  item =>
-                    Boolean(item.videoUrl) &&
-                    videoTakeAffordance(item.status).canPlay
-                );
-              return take
-                ? (videoClipEditorTargetForTake({
-                    stableShotId: timing.stableShotId,
-                    shotNo: shot.shotNo,
-                    cueCode: shot.cueCode,
-                    label: `${shotLabel(shot)} · Take ${take.id}`,
-                    take,
-                    timelineItem: shot.timelineItem,
-                    posterUrl: videoTakeFrameUrl(take, "start"),
-                  }) ?? undefined)
-                : undefined;
-            })()
+      videoEditTarget: shot
+        ? (() => {
+            const take =
+              shot.selectedVideoTake ??
+              shot.videoTakes?.find(
+                item =>
+                  Boolean(item.videoUrl) &&
+                  videoTakeAffordance(item.status).canPlay
+              );
+            return take
+              ? (videoClipEditorTargetForTake({
+                  stableShotId: timing.stableShotId,
+                  shotNo: shot.shotNo,
+                  cueCode: shot.cueCode,
+                  label: `${shotLabel(shot)} · Take ${take.id}`,
+                  take,
+                  timelineItem: shot.timelineItem,
+                  posterUrl: videoTakeFrameUrl(take, "start"),
+                }) ?? undefined)
+              : undefined;
+          })()
+        : undefined,
+      imageEditTarget:
+        shot?.imageId && shotImageUrl(shot)
+          ? imageClipEditorTargetForShot({
+              shot,
+              stableShotId: timing.stableShotId,
+              imageId: shot.imageId,
+              imageUrl: shotImageUrl(shot) ?? "",
+              label: `${shotLabel(shot)} · 图片 #${shot.imageId}`,
+            })
           : undefined,
-        imageEditTarget:
-          shot?.imageId && shotImageUrl(shot)
-            ? imageClipEditorTargetForShot({
-                shot,
-                stableShotId: timing.stableShotId,
-                imageId: shot.imageId,
-                imageUrl: shotImageUrl(shot) ?? "",
-                label: `${shotLabel(shot)} · 图片 #${shot.imageId}`,
-              })
-            : undefined,
-      };
+    };
     const derivedVideoClips = (shot?.timelineItem?.visualClips ?? []).map(
       clip => {
         const take = shot?.videoTakes?.find(item => item.id === clip.takeId);
@@ -1458,7 +1446,7 @@ export function buildTimelineLanes(
         };
       }
     );
-      return shot?.timelineItem?.visualClipsReplacePrimary
+    return shot?.timelineItem?.visualClipsReplacePrimary
       ? [...derivedVideoClips, ...derivedImageClips]
       : [baseClip, ...derivedVideoClips, ...derivedImageClips];
   });
@@ -1486,7 +1474,7 @@ export function buildTimelineLanes(
       visualLayer,
       tone: visualLayer === 0 ? "green" : "gray",
       clips: visualClips.filter(clip => clip.visualLayer === visualLayer),
-  });
+    });
   }
 
   const musicClips = playbackAudioTracks.flatMap(track =>
@@ -1552,8 +1540,10 @@ export function buildTimelineLanes(
   return lanes;
 }
 
-
-
+export {
+  clearVisualIntentIfCurrent,
+  visualClipboardTargetLayer,
+} from "../useVisualObjectEditingSession";
 
 export default function EditingNleWorkspace({
   videoEditorHandoffTarget = null,
@@ -1562,6 +1552,7 @@ export default function EditingNleWorkspace({
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
 }) {
+  const creationEditor = useCreationEditor();
   const {
     generateScript,
     setActiveSelection,
@@ -1577,6 +1568,7 @@ export default function EditingNleWorkspace({
     )
   );
   const {
+    visualEditSessionReady,
     activeStoryId,
     shots,
     timelineShotIds,
@@ -1592,8 +1584,6 @@ export default function EditingNleWorkspace({
     reuseVideoTake,
     appendTimelineVideoClip,
     undoTimeline,
-    splitTimelineVideoClip,
-    addTimelineImageClip,
     moveVisualClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
@@ -1614,7 +1604,7 @@ export default function EditingNleWorkspace({
     detachTimelineMagnet,
     timelineWritePending,
     initialStoryLoading,
-  } = useCreationEditor();
+  } = creationEditor;
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
   const [videoEditorTarget, setVideoEditorTarget] =
@@ -1640,8 +1630,24 @@ export default function EditingNleWorkspace({
   const [boardSelectedRange, setBoardSelectedRange] =
     useState<StoryboardEditRange | null>(null);
   const [extractedFrameRequirements, setExtractedFrameRequirements] = useState<{
-    left: { id: string; imageId: number; atMs: number; imageUrl: string };
-    right: { id: string; imageId: number; atMs: number; imageUrl: string };
+    left: {
+      id: string;
+      clipId: string;
+      imageId: number;
+      atMs: number;
+      timelineFrame: number;
+      visualLayer: number;
+      imageUrl: string;
+    };
+    right: {
+      id: string;
+      clipId: string;
+      imageId: number;
+      atMs: number;
+      timelineFrame: number;
+      visualLayer: number;
+      imageUrl: string;
+    };
   } | null>(null);
   const keyboardShortcutZoneRef = useRef(false);
   const timelineShots = useMemo(
@@ -1700,11 +1706,7 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     if (playbackClock.isPlaying) return;
     setSpinePlayheadMs(Math.max(0, Math.round(playbackClock.playheadMs)));
-  }, [
-    setSpinePlayheadMs,
-    playbackClock.isPlaying,
-    playbackClock.playheadMs,
-  ]);
+  }, [setSpinePlayheadMs, playbackClock.isPlaying, playbackClock.playheadMs]);
   /** 时间尺上要画的位置锚点，按绝对帧排好。 */
   const timelineAnchors = useMemo(
     () =>
@@ -1818,6 +1820,40 @@ export default function EditingNleWorkspace({
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
   );
 
+  const resolveActiveVideoSource = useCallback(
+    (playheadMs: number) =>
+      resolveTimelineVideoSource(
+        shots,
+        timelineShotIds,
+        playheadMs,
+        timelineOverlays,
+        timelineVisualLayerState.hidden
+      ),
+    [
+      shots,
+      timelineOverlays,
+      timelineShotIds,
+      timelineVisualLayerState.hidden,
+    ]
+  );
+  const {
+    editingStorySessionKey,
+    isEditingStorySessionCurrent,
+    hasVisualClipboard,
+    splitAtPlayhead,
+    extractFrameAtPlayhead,
+    pasteVisualObject,
+    isVisualObjectCommandAvailable,
+    executeVisualObjectCommand,
+  } = useVisualObjectEditingSession({
+    editor: creationEditor,
+    timings,
+    selectShot,
+    setActiveSelection,
+    seekTimeline: playbackClock.seek,
+    resolveVideoSource: resolveActiveVideoSource,
+  });
+
   const copyVideo = useCallback((target: VideoClipEditorTarget) => {
     const payload = videoClipboardPayloadFromTarget(target);
     setVideoClipboard(payload);
@@ -1892,18 +1928,18 @@ export default function EditingNleWorkspace({
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (
         !shouldHandleCreationEditorUndoShortcut({
-        key: event.key,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-        targetIsEditable: Boolean(
-          target?.closest(
-            'input, textarea, select, [contenteditable="true"], [role="textbox"]'
-          )
-        ),
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          defaultPrevented: event.defaultPrevented,
+          repeat: event.repeat,
+          targetIsEditable: Boolean(
+            target?.closest(
+              'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+            )
+          ),
         })
       ) {
         return;
@@ -2267,147 +2303,12 @@ export default function EditingNleWorkspace({
     }
   };
 
-  const splitAtPlayhead = useCallback(
-    async (playheadMs: number) => {
-      const source = resolveTimelineVideoSource(
-        shots,
-        timelineShotIds,
-        playheadMs,
-        timelineOverlays,
-        timelineVisualLayerState.hidden
-      );
-      if (!source) {
-        throw new Error("当前帧没有可切割的视频，请先为这个镜头采用视频 Take");
-      }
-      const sourceDurationSec = source.sourceEndSec - source.sourceStartSec;
-      if (sourceDurationSec <= 2 / 30) {
-        throw new Error("当前视频片段太短，无法继续切割");
-      }
-      const sourceProgress = Math.min(
-        1,
-        Math.max(
-          0,
-          (source.sourceTimeSec - source.sourceStartSec) / sourceDurationSec
-        )
-      );
-      const timelineProgress = source.effects.reverse
-        ? 1 - sourceProgress
-        : sourceProgress;
-      await splitTimelineVideoClip({
-        stableShotId: source.stableShotId,
-        cutFrame: timelineOffsetMsToFrames(playheadMs),
-        takeStableShotId: source.takeStableShotId,
-        existingClipId: source.existingClipId,
-        takeId: source.takeId,
-        videoUrl: source.videoUrl,
-        sourceStartSec: source.sourceStartSec,
-        sourceEndSec: source.sourceEndSec,
-        splitSourceSec: source.sourceTimeSec,
-        offsetMs: source.offsetMs,
-        durationMs: source.durationMs,
-        splitOffsetMs: source.offsetMs + source.durationMs * timelineProgress,
-        label: source.label,
-        effects: source.effects,
-        transform: source.transform,
-        overlayId: source.overlayId,
-      });
-    },
-    [
-      shots,
-      splitTimelineVideoClip,
-      timelineOverlays,
-      timelineShotIds,
-      timelineVisualLayerState.hidden,
-    ]
-  );
-
-  const extractFrameAtPlayhead = useCallback(
-    async (playheadMs: number) => {
-      const timelineFrame = timelineOffsetMsToFrames(playheadMs);
-      const visualSource = resolveTimelineVisualFrame({
-        items: timelineItems,
-        overlays: timelineOverlays,
-        hiddenVisualLayers: timelineVisualLayerState.hidden,
-        frame: timelineFrame,
-      });
-      const source = resolveTimelineVideoSource(
-        shots,
-        timelineShotIds,
-        playheadMs,
-        timelineOverlays,
-        timelineVisualLayerState.hidden
-      );
-      if (visualSource.kind === "image") {
-        const imageSource = visualSource.placement;
-        const targetLayer = extractedFrameTargetVisualLayer(imageSource.clip);
-        await addTimelineImageClip({
-          clipId: duplicatedTimelineImageClipId({
-            imageId: imageSource.clip.imageId,
-            timelineFrame,
-            visualLayer: targetLayer,
-          }),
-          timelineFrame,
-          imageId: imageSource.clip.imageId,
-          imageUrl: imageSource.clip.imageUrl,
-          label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
-          visualLayer: targetLayer,
-        });
-        return;
-      }
-      if (!source) {
-        throw new Error("当前帧没有可提取的图片或视频");
-      }
-      const finalFrameInset = 1 / 30;
-      const captureAtSec = Math.max(
-        source.sourceStartSec,
-        Math.min(
-          source.sourceTimeSec,
-          Math.max(source.sourceStartSec, source.sourceEndSec - finalFrameInset)
-        )
-      );
-      const rangeQuery = source.rangeId ? `&rangeId=${source.rangeId}` : "";
-      const response = await fetch(
-        `/api/video-frames/${source.takeId}?atSec=${captureAtSec.toFixed(3)}${rangeQuery}`
-      );
-      if (!response.ok) throw new Error("服务器无法提取当前视频帧");
-      const frameBlob = await response.blob();
-      const mimeType = frameBlob.type || "image/png";
-      const frameBase64 = await fileBase64(
-        new File([frameBlob], "timeline-frame.png", { type: mimeType })
-      );
-      const imported = await importStoryMaterial({
-        fileName: `${source.label.replace(/[\s\\/:*?"<>|]+/g, "-") || "shot"}-${Math.round(playheadMs)}ms.png`,
-        mimeType,
-        fileBase64: frameBase64,
-        targetStableShotId: source.stableShotId,
-        preserveTimelineSelection: true,
-        note: `时间线抽帧 · ${Math.round(playheadMs)}ms · ${formatStoryboardTimestamp(playheadMs)} · 来源 Take ${source.takeId}`,
-      });
-      if (imported.kind !== "image") {
-        throw new Error("服务器返回的抽帧素材类型不正确");
-      }
-      await addTimelineImageClip({
-        timelineFrame,
-        imageId: imported.imageId,
-        imageUrl: imported.imageUrl,
-        label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
-        visualLayer: extractedFrameTargetVisualLayer(source),
-      });
-    },
-    [
-      addTimelineImageClip,
-      importStoryMaterial,
-      shots,
-      timelineItems,
-      timelineOverlays,
-      timelineShotIds,
-    ]
-  );
-
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
+      storySessionKey: editingStorySessionKey,
+      isStorySessionCurrent: isEditingStorySessionCurrent,
       playheadMs: playbackClock.playheadMs,
       isPlaying: playbackClock.isPlaying,
       totalMs: boardTimelineTotalMs,
@@ -2418,6 +2319,10 @@ export default function EditingNleWorkspace({
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveVisualClip: moveVisualClip,
+      canPasteVisualObject: hasVisualClipboard && visualEditSessionReady,
+      onPasteVisualObject: pasteVisualObject,
+      isVisualObjectCommandAvailable,
+      onVisualObjectCommand: executeVisualObjectCommand,
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
       magneticJoins: timelineMagneticJoins(
@@ -2432,6 +2337,7 @@ export default function EditingNleWorkspace({
           direction,
           deltaFrames
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已整体移动这一组镜头");
         else if (result.reason) toast.error(result.reason);
         return result;
@@ -2450,17 +2356,20 @@ export default function EditingNleWorkspace({
           snapThresholdFrames,
           visualLayer
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.reason) toast.error(result.reason);
         return result;
       },
       onAddAnchor: async timelineFrame => {
         const result = await addTimelineAnchorAtFrame(timelineFrame);
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已钉下位置锚点");
         else if (result.reason) toast.error(result.reason);
         return result;
       },
       onRemoveAnchor: async ({ stableShotId, anchorId }) => {
         const result = await removeTimelineAnchor(stableShotId, anchorId);
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已取消位置锚点");
         else if (result.reason) toast.error(result.reason);
         return result;
@@ -2477,6 +2386,7 @@ export default function EditingNleWorkspace({
           beforeStableShotId,
           afterStableShotId,
         });
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) {
           toast.success("已在聊天里生成待确认的过渡镜头卡片");
         } else if (result.reason) {
@@ -2487,37 +2397,37 @@ export default function EditingNleWorkspace({
       onCreateExtractedFrameTransition: async ({
         leftImageId,
         rightImageId,
+        leftClipId,
+        rightClipId,
       }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
-        const extracted = shots.flatMap(shot =>
-          (
-            (
-              shot as typeof shot & {
-                imageVersions?: Array<{
-                  id: number;
-                  imageUrl: string;
-                  prompt: string | null;
-                }>;
-              }
-            ).imageVersions ?? []
-          ).flatMap(image => {
-            const atMs = extractedFrameTimeMs(image.prompt);
-            return atMs == null
-              ? []
-              : [
-                  {
-                    id: `image-${image.id}`,
-                    imageId: image.id,
-                    atMs,
-                    imageUrl: image.imageUrl,
-                  },
-                ];
-          })
+        const extracted = timelineItems.flatMap(item => {
+          const timing = timings.find(row => row.stableShotId === item.stableShotId);
+          if (!timing) return [];
+          return (item.imageClips ?? []).map(clip => {
+            const timelineFrame = timelineImageClipStartFrame(
+              clip,
+              timing.startFrame
+            );
+            return {
+              id: clip.id,
+              clipId: clip.id,
+              imageId: clip.imageId,
+              atMs: timelineFramesToMs(timelineFrame),
+              timelineFrame,
+              visualLayer: clip.visualLayer,
+              imageUrl: clip.imageUrl,
+            };
+          });
+        });
+        const left = extracted.find(
+          frame => frame.clipId === leftClipId && frame.imageId === leftImageId
         );
-        const left = extracted.find(frame => frame.imageId === leftImageId);
-        const right = extracted.find(frame => frame.imageId === rightImageId);
+        const right = extracted.find(
+          frame => frame.clipId === rightClipId && frame.imageId === rightImageId
+        );
         if (!left || !right) {
           return { applied: false, reason: "抽帧已失效，请重新选择" };
         }
@@ -2531,12 +2441,14 @@ export default function EditingNleWorkspace({
       onDeleteExtractedFrame: async imageId => {
         try {
           await deleteExtractedFrame(imageId);
-          toast.success("已删除这张抽帧");
+          if (isEditingStorySessionCurrent()) {
+            toast.success("已删除这张抽帧");
+          }
           return { applied: true };
         } catch (error) {
           const reason =
             error instanceof Error ? error.message : "删除抽帧失败";
-          toast.error(reason);
+          if (isEditingStorySessionCurrent()) toast.error(reason);
           return { applied: false, reason };
         }
       },
@@ -2553,20 +2465,14 @@ export default function EditingNleWorkspace({
         return Boolean(source && !source.overlayId);
       },
       canExtractAt: playheadMs => {
-        const source = resolveTimelineVideoSource(
-          shots,
-          timelineShotIds,
-          playheadMs,
-          timelineOverlays,
-          timelineVisualLayerState.hidden
-        );
         const visual = resolveTimelineVisualFrame({
           items: timelineItems,
           overlays: timelineOverlays,
           hiddenVisualLayers: timelineVisualLayerState.hidden,
           frame: timelineOffsetMsToFrames(playheadMs),
         });
-        return Boolean(source || visual.kind === "image");
+        // 这里只做即时菜单提示；服务端仍会重新授权并判断素材是否可解码。
+        return visual.kind !== "gap";
       },
       // 直接驱动时钟。以前要经过 playbackRequest 的 id 握手转给底部时间线，
       // 那一层随底部时间线一起删了。
@@ -2631,7 +2537,9 @@ export default function EditingNleWorkspace({
         try {
           await updateShotDuration(input.shotNo, input.durationMs);
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "时长未保存");
+          if (isEditingStorySessionCurrent()) {
+            toast.error(error instanceof Error ? error.message : "时长未保存");
+          }
         }
       },
       // 帧级、锚点安全的裁剪：另一头锚定不动，裁边贴到位置锚点为止。
@@ -2647,6 +2555,7 @@ export default function EditingNleWorkspace({
           edge,
           requestedBoundaryFrame
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
@@ -2660,6 +2569,7 @@ export default function EditingNleWorkspace({
           rightStableShotId,
           requestedBoundaryFrame
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
@@ -2671,27 +2581,36 @@ export default function EditingNleWorkspace({
           leftStableShotId,
           rightStableShotId
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
-      onSplitAt: async playheadMs => {
+      onSplitAt: async (playheadMs, stableShotId) => {
         try {
-          await splitAtPlayhead(playheadMs);
-          toast.success("已在当前帧切割视频");
+          await splitAtPlayhead(playheadMs, stableShotId);
+          if (isEditingStorySessionCurrent()) {
+            toast.success("已在当前帧切割视频");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "切割当前帧失败"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "切割当前帧失败"
+            );
+          }
         }
       },
-      onExtractFrameAt: async playheadMs => {
+      onExtractFrameAt: async (playheadMs, operationLayer) => {
         try {
-          await extractFrameAtPlayhead(playheadMs);
-          toast.success("当前帧已加入该镜头的画面");
+          await extractFrameAtPlayhead(playheadMs, operationLayer);
+          if (isEditingStorySessionCurrent()) {
+            toast.success("当前帧已加入该镜头的画面");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "提取当前帧失败"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "提取当前帧失败"
+            );
+          }
         }
       },
       onReorderShot: async input => {
@@ -2700,17 +2619,25 @@ export default function EditingNleWorkspace({
             input.sourceStableShotId,
             input.targetStableShotId
           );
-          toast.success("镜头顺序已保存");
+          if (isEditingStorySessionCurrent()) {
+            toast.success("镜头顺序已保存");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "镜头顺序未保存"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "镜头顺序未保存"
+            );
+          }
         }
       },
     }),
     [
       activeSelection?.sourceType,
       activeStoryId,
+      editingStorySessionKey,
+      executeVisualObjectCommand,
+      isEditingStorySessionCurrent,
+      isVisualObjectCommandAvailable,
       addTimelineAnchorAtFrame,
       boardSelectedRange,
       extractFrameAtPlayhead,
@@ -2719,6 +2646,7 @@ export default function EditingNleWorkspace({
       manageTimelineVisualLayer,
       moveTimelineShot,
       placeExternalVisual,
+      pasteVisualObject,
       previewTimelineGroup,
       removeTimelineAnchor,
       reorderShotInTimeline,
@@ -2735,6 +2663,7 @@ export default function EditingNleWorkspace({
       proposeGapTransitionCard,
       proposeExtractedFrameTransitionCard,
       timelineWritePending,
+      hasVisualClipboard,
       timelineOverlays,
       timings,
       trimTimelineItemEdge,
@@ -2774,12 +2703,12 @@ export default function EditingNleWorkspace({
       playbackClock.setPlaying(false);
       playbackClock.seek(
         stepTimelinePlayheadByFrames(
-            playbackClock.playheadMs,
-            event.key === "ArrowRight" ? 1 : -1,
-            chatCutTimeline?.fps ?? 30,
-            timings.at(-1)?.endMs ?? 0,
-            event.shiftKey ? 10 : 1
-          )
+          playbackClock.playheadMs,
+          event.key === "ArrowRight" ? 1 : -1,
+          chatCutTimeline?.fps ?? 30,
+          timings.at(-1)?.endMs ?? 0,
+          event.shiftKey ? 10 : 1
+        )
       );
     };
     window.addEventListener("keydown", handleEditingShortcut);
@@ -2998,12 +2927,14 @@ export default function EditingNleWorkspace({
               storyId: activeStoryId,
               leftImageId: extractedFrameRequirements.left.imageId,
               rightImageId: extractedFrameRequirements.right.imageId,
+              leftClipId: extractedFrameRequirements.left.clipId,
+              rightClipId: extractedFrameRequirements.right.clipId,
               instruction,
               movementAmplitude,
             });
             if (result.applied) {
               setExtractedFrameRequirements(null);
-              toast.success("已在聊天里生成待确认的覆盖视频卡片");
+              toast.success("已在聊天里生成待确认的普通镜头视频卡片");
             }
             return result;
           }}

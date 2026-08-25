@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   extractedFrameTimeMs,
+  hasCanonicalImageClipIdentity,
   requestedExtractedFrameVideoDurationSec,
   selectExtractedFrameCandidate,
   selectExtractedFrameCandidates,
   selectExtractedFramePair,
 } from "./extractedFrameTransition";
+
+describe("hasCanonicalImageClipIdentity", () => {
+  it("requires the immutable clip id and canonical absolute frame/layer", () => {
+    expect(hasCanonicalImageClipIdentity({ id: "legacy", imageId: 1, atMs: 0 })).toBe(false);
+    expect(hasCanonicalImageClipIdentity({ id: "clip", imageId: 1, atMs: 0, clipId: "image-clip-1", timelineFrame: 0, visualLayer: 2 })).toBe(true);
+  });
+});
 
 describe("extractedFrameTimeMs", () => {
   it("reads durable and legacy extraction prompts without accepting arbitrary numbers", () => {

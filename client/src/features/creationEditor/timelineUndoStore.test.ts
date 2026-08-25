@@ -4,11 +4,12 @@ import {
   type StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
+  activateTimelineUndoSession,
   clearTimelineUndoForTesting,
+  clearTimelineUndoForStory,
   executeTimelineUndo,
-  recordDeletedStoryShotUndo,
   recordInsertedStoryShotUndo,
-  recordSplitStoryShotUndo,
+  recordTimelineCommandUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
   shouldHandleCreationEditorUndoShortcut,
@@ -33,6 +34,90 @@ function timeline(durationMs: number): StoryTimelineItem[] {
 beforeEach(clearTimelineUndoForTesting);
 
 describe("timelineUndoStore", () => {
+  it("keeps the concrete server receipt on a command undo entry", () => {
+    activateTimelineUndoSession(7, "tab-a");
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "tab-a",
+      operationId: "paste-a",
+      storyId: 7,
+      beforeTimelineVersion: 3,
+      afterTimelineVersion: 4,
+      status: "available",
+      order: 9,
+    });
+
+    expect(takeCreationEditorUndoEntry(7)).toEqual({
+      kind: "timeline-command",
+      receipt: {
+        editorSessionEpoch: "tab-a",
+        operationId: "paste-a",
+        storyId: 7,
+        beforeTimelineVersion: 3,
+        afterTimelineVersion: 4,
+        status: "available",
+        order: 9,
+      },
+    });
+  });
+
+  it("deduplicates receipt replay and ignores consumed receipts", () => {
+    activateTimelineUndoSession(7, "tab-a");
+    const receipt = {
+      editorSessionEpoch: "tab-a",
+      operationId: "paste-a",
+      storyId: 7,
+      beforeTimelineVersion: 3,
+      afterTimelineVersion: 4,
+      status: "available" as const,
+      order: 9,
+    };
+    recordTimelineCommandUndo(7, receipt);
+    recordTimelineCommandUndo(7, receipt);
+    recordTimelineCommandUndo(7, {
+      ...receipt,
+      operationId: "old",
+      status: "consumed",
+    });
+
+    expect(takeCreationEditorUndoEntry(7)).toMatchObject({ receipt });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+  });
+
+  it("does not revive an old epoch receipt after switching away and back", () => {
+    activateTimelineUndoSession(7, "epoch-a-1");
+    activateTimelineUndoSession(8, "epoch-b");
+    activateTimelineUndoSession(7, "epoch-a-2");
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "epoch-a-1",
+      operationId: "late",
+      storyId: 7,
+      beforeTimelineVersion: 1,
+      afterTimelineVersion: 2,
+      status: "available",
+      order: 1,
+    });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "epoch-a-2",
+      operationId: "current",
+      storyId: 7,
+      beforeTimelineVersion: 2,
+      afterTimelineVersion: 3,
+      status: "available",
+      order: 2,
+    });
+    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
+      receipt: { operationId: "current" },
+    });
+  });
+
+  it("clears only the Story whose committed editor session changed", () => {
+    recordTimelineUndoSnapshot(7, timeline(1_000));
+    recordTimelineUndoSnapshot(8, timeline(2_000));
+    clearTimelineUndoForStory(7);
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+    expect(takeCreationEditorUndoEntry(8)).toMatchObject({ kind: "timeline" });
+  });
   it("returns snapshots in reverse operation order", () => {
     recordTimelineUndoSnapshot(7, timeline(1_000));
     recordTimelineUndoSnapshot(7, timeline(2_000));
@@ -181,38 +266,6 @@ describe("timelineUndoStore", () => {
     });
   });
 
-  it("keeps deleted story shots in the same operation-ordered undo history", () => {
-    recordTimelineUndoSnapshot(7, timeline(1_000));
-    recordDeletedStoryShotUndo(7, {
-      deletedShot: {
-        shotNo: 2,
-        stableShotId: "shot-b",
-        shotIdentity: "shot-b",
-        dialogue: "完整台词",
-      },
-      deletedIndex: 1,
-      deletedStableShotId: "shot-b",
-      expectedRevision: 12,
-      afterDeleteBody: {
-        _revision: 12,
-        shots: [{ shotNo: 1, stableShotId: "shot-a" }],
-      },
-    });
-
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "deleted-story-shot",
-      deletedIndex: 1,
-      deletedStableShotId: "shot-b",
-      expectedRevision: 12,
-      deletedShot: { dialogue: "完整台词" },
-      afterDeleteBody: { _revision: 12 },
-    });
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "timeline",
-      items: [{ plannedDurationMs: 1_000 }],
-    });
-  });
-
   it("records external placement as one inserted-shot undo step", () => {
     recordInsertedStoryShotUndo(7, "shot-external");
 
@@ -221,34 +274,6 @@ describe("timelineUndoStore", () => {
       insertedStableShotId: "shot-external",
     });
     expect(takeCreationEditorUndoEntry(7)).toBeNull();
-  });
-
-  it("clones structural split snapshots in the shared undo history", () => {
-    const beforeStoryBody = {
-      _revision: 4,
-      shots: [{ shotNo: 1, stableShotId: "shot-a" }],
-    };
-    const beforeTimelineItems = timeline(1_000);
-    recordSplitStoryShotUndo(7, {
-      splitStableShotId: "split-right",
-      beforeStoryBody,
-      beforeTimelineItems,
-      expectedStoryRevision: 5,
-      expectedTimelineVersion: 9,
-      restoreShotNo: 1,
-    });
-    beforeStoryBody.shots[0].stableShotId = "corrupted";
-    beforeTimelineItems[0].plannedDurationMs = 9_999;
-
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "split-story-shot",
-      splitStableShotId: "split-right",
-      beforeStoryBody: { shots: [{ stableShotId: "shot-a" }] },
-      beforeTimelineItems: [{ plannedDurationMs: 1_000 }],
-      expectedStoryRevision: 5,
-      expectedTimelineVersion: 9,
-      restoreShotNo: 1,
-    });
   });
 
   it("recognizes Ctrl+Z and Cmd+Z without stealing editable-field undo", () => {

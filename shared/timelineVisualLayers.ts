@@ -310,6 +310,64 @@ export function hiddenTimelineVisualLayers(
   return hiddenVisualLayerSet(state?.hidden);
 }
 
+export type ExtractedFrameTargetLayerPlan =
+  | {
+      status: "ok";
+      targetLayer: number;
+      insertedLayer: boolean;
+      change: TimelineVisualLayerChange;
+    }
+  | { status: "error"; error: "operation-layer-unavailable" };
+
+/**
+ * Find the visible layer immediately above the layer the user operated on.
+ *
+ * A hidden adjacent layer is never silently unhidden. Instead, insert a new
+ * visible layer at that index and move every existing layer (including the
+ * hidden index) together. The returned change is ready to be combined with
+ * image placement in one CAS write and therefore must not be persisted on its
+ * own.
+ */
+export function planExtractedFrameTargetLayer(
+  input: LayerInput & { operationLayer: number }
+): ExtractedFrameTargetLayerPlan {
+  const current = resolveTimelineVisualLayerState(
+    input.state,
+    input.items,
+    input.overlays
+  );
+  if (
+    !Number.isInteger(input.operationLayer) ||
+    input.operationLayer < 0 ||
+    input.operationLayer >= current.count
+  ) {
+    return { status: "error", error: "operation-layer-unavailable" };
+  }
+
+  const targetLayer = input.operationLayer + 1;
+  const mustInsert =
+    targetLayer >= current.count || current.hidden.includes(targetLayer);
+  if (mustInsert) {
+    return {
+      status: "ok",
+      targetLayer,
+      insertedLayer: true,
+      change: insertTimelineVisualLayer({ ...input, at: targetLayer }),
+    };
+  }
+
+  return {
+    status: "ok",
+    targetLayer,
+    insertedLayer: false,
+    change: {
+      items: input.items.map(item => ({ ...item })),
+      overlays: (input.overlays ?? []).map(overlay => ({ ...overlay })),
+      state: normalizePersistedVisualLayerState(input.state),
+    },
+  };
+}
+
 export function applyTimelineVisualLayerAction(
   input: LayerInput & { action: TimelineVisualLayerAction }
 ): TimelineVisualLayerChange {

@@ -112,23 +112,22 @@ import {
   buildPromptAttribution,
   encodeAttributionReason,
 } from "@shared/promptRevisionAttribution";
+import {
+  applyTransitionStoryResult,
+  canPersistStorySnapshot,
+  canPersistStoryToActiveScope,
+  editingTransitionAppliedToast,
+  patchEditingTransitionMessages,
+  storyScopeMatches,
+  storySessionTokenMatches,
+  type StorySessionToken,
+} from "./editingTransitionSession";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
 export type { ImageProviderSelection };
 
 export type { StoryListItem };
-
-export function applyTransitionStoryResult(
-  result: { storyRevision: number; storyShots: unknown },
-  setters: {
-    setServerRevision: (revision: number) => void;
-    setStoryShots: (shots: StoryShot[]) => void;
-  }
-) {
-  setters.setServerRevision(result.storyRevision);
-  setters.setStoryShots(result.storyShots as StoryShot[]);
-}
 
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
@@ -412,34 +411,6 @@ export function resolvePersistedStoryId(
   return storyIds.find(storyId => storyId != null && storyId > 0) ?? null;
 }
 
-export function storyScopeMatches(
-  expectedStoryId: number | null,
-  currentStoryId: number | null
-): boolean {
-  return expectedStoryId === currentStoryId;
-}
-
-export function canPersistStoryToActiveScope(
-  persistedStoryId: number | null | undefined,
-  activeStoryId: number | null
-): boolean {
-  if (activeStoryId === null) return false;
-  if (persistedStoryId == null) return activeStoryId < 0;
-  return activeStoryId === persistedStoryId;
-}
-
-export function canPersistStorySnapshot(input: {
-  snapshotScopeEpoch: number;
-  currentScopeEpoch: number;
-  persistedStoryId: number | null | undefined;
-  activeStoryId: number | null;
-}): boolean {
-  return (
-    input.snapshotScopeEpoch === input.currentScopeEpoch &&
-    canPersistStoryToActiveScope(input.persistedStoryId, input.activeStoryId)
-  );
-}
-
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";
   message: string;
@@ -577,6 +548,8 @@ interface StoryAgentContextValue {
     storyId: number;
     leftImageId: number;
     rightImageId: number;
+    leftClipId: string;
+    rightClipId: string;
     instruction?: string;
     movementAmplitude?: "auto" | "small" | "medium" | "large";
   }) => Promise<{ applied: boolean; reason?: string }>;
@@ -3869,23 +3842,7 @@ export function StoryAgentProvider({
       replySuffix?: string
     ) => {
       setMessages(previous =>
-        previous.map(message => {
-          if (message.id !== messageId || !message.editingTransitionCandidate) {
-            return message;
-          }
-          const suffix = replySuffix?.trim();
-          return {
-            ...message,
-            content:
-              suffix && !message.content.includes(suffix)
-                ? `${message.content}\n\n${suffix}`
-                : message.content,
-            editingTransitionCandidate: {
-              ...message.editingTransitionCandidate,
-              ...patch,
-            },
-          };
-        })
+        patchEditingTransitionMessages(previous, messageId, patch, replySuffix)
       );
     },
     [setMessages]
@@ -4008,6 +3965,8 @@ export function StoryAgentProvider({
       storyId: number;
       leftImageId: number;
       rightImageId: number;
+      leftClipId: string;
+      rightClipId: string;
       instruction?: string;
       movementAmplitude?: "auto" | "small" | "medium" | "large";
     }): Promise<{ applied: boolean; reason?: string }> => {
@@ -4015,16 +3974,32 @@ export function StoryAgentProvider({
         return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
       }
       const current = storySpineStore.getState();
+      const requestSession: StorySessionToken = {
+        storyId: current.activeStoryId,
+        scopeEpoch: current.storyScopeEpoch,
+      };
       const userMsg: ChatMessage = {
         id: newId("msg"),
         role: "user",
-        content: input.instruction?.trim() || "用这两张时间线抽帧生成上层覆盖视频",
+        content: input.instruction?.trim() || "用这两张时间线抽帧生成普通镜头视频",
         timestamp: Date.now(),
       };
       const nextMessages = [...current.messages, userMsg];
       setMessages(nextMessages);
       try {
         const result = await proposeExtractedFrameTransitionMut.mutateAsync(input);
+        const responseSession = storySpineStore.getState();
+        if (
+          !storySessionTokenMatches(requestSession, {
+            storyId: responseSession.activeStoryId,
+            scopeEpoch: responseSession.storyScopeEpoch,
+          })
+        ) {
+          return {
+            applied: false,
+            reason: "故事会话已切换，已忽略旧会话返回的提案",
+          };
+        }
         const replyMsg: ChatMessage = {
           id: newId("msg"),
           role: "assistant",
@@ -4055,7 +4030,7 @@ export function StoryAgentProvider({
       } catch (error) {
         return {
           applied: false,
-          reason: error instanceof Error ? error.message : "创建覆盖视频提案失败",
+          reason: error instanceof Error ? error.message : "创建普通镜头视频提案失败",
         };
       }
     },
@@ -4107,7 +4082,6 @@ export function StoryAgentProvider({
         });
         if (!stillOnCandidateStory()) return;
         if (result.status === "applied") {
-          const isOverlay = candidate.placement?.kind === "timeline-overlay";
           const nextShots = result.storyShots as unknown as StoryShot[];
           applyTransitionStoryResult(result, {
             setServerRevision,
@@ -4123,7 +4097,7 @@ export function StoryAgentProvider({
             { status: "applied", error: undefined, retryable: false },
             result.reply
           );
-          if (inserted && !isOverlay) {
+          if (inserted) {
             setActiveSelection({
               sourceType: "animatic-video",
               sourceId: String(result.takeId),
@@ -4147,9 +4121,7 @@ export function StoryAgentProvider({
               storyId: candidate.storyId,
             }),
           ]);
-          toast.success(
-            isOverlay ? "覆盖视频已放到抽帧上层轨道" : "衔接视频已插入两镜之间"
-          );
+          toast.success(editingTransitionAppliedToast(candidate.placement));
         } else if (result.status === "processing") {
           patchEditingTransitionCandidate(
             messageId,

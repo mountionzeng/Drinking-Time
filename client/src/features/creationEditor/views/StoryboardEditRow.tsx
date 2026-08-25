@@ -1,40 +1,35 @@
 import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowDown,
-  ArrowUp,
-  Eye,
-  EyeOff,
   GripVertical,
   Loader2,
   Magnet,
-  Pause,
-  Play,
-  Plus,
-  SkipBack,
-  Trash2,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
 
-import type {
-  StoryTimelineItem,
-  StoryTimelineOverlay,
-} from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
-import { visualTrackId } from "@shared/visualClipModel";
+import {
+  imageClipId,
+  shotClipId,
+  videoClipId,
+} from "@shared/visualClipModel";
+import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
+import {
+  createVisualObjectPendingGuard,
+  visualObjectCapabilities,
+  type VisualObjectCommand,
+} from "@shared/visualObjectCapabilities";
 import {
   canRemoveTimelineVisualLayer,
   countTimelineVisualLayerClips,
   resolveTimelineVisualLayerState,
-  type ResolvedTimelineVisualLayerState,
   type TimelineVisualLayerAction,
 } from "@shared/timelineVisualLayers";
 import {
@@ -43,16 +38,8 @@ import {
   frameDeltaToPx,
   frameToPx,
   msToPx,
-  pxToFrame,
-  pxToMs,
   type TimelineViewport,
 } from "@shared/timelineViewport";
-import {
-  selectExtractedFrameCandidate,
-  selectExtractedFrameCandidates,
-  selectExtractedFramePair,
-  type ExtractedFrameCandidateResult,
-} from "@shared/extractedFrameTransition";
 import {
   formatStoryboardTimestamp,
   type StoryboardTimingRow,
@@ -90,17 +77,53 @@ import {
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
   storyboardVisualClipShotTimingPreview,
+  storyboardVisualObjectMenuFocusIndex,
+  storyboardVisualObjectShortcutRoute,
+  storyboardOwnedClipVisualLayer,
   type StoryboardEditAction,
   type StoryboardEditFrameSource,
   type StoryboardEditRange,
   type StoryboardShotTimingPreview,
 } from "../storyboardEditRow";
+import { StoryboardAudioTrack } from "./StoryboardAudioWaveform";
 import {
-  StoryboardAudioTrack,
-  type StoryboardAudioClip,
-} from "./StoryboardAudioWaveform";
-import { STORY_IMAGE_DRAG_MIME } from "@/features/storyAgent/storyImageDrag";
-import { VIDEO_TAKE_DRAG_MIME } from "@/features/storyAgent/views/videoTakeDrag";
+  StoryboardVisualLayerHeader,
+  StoryboardVisualLayerRow,
+  clipAnchorPx,
+  commitVisualClipDrag,
+  createStoryboardAsyncSessionGuard,
+  hasExternalVisualPayload,
+  storyboardVisualLayerAtDocumentPoint,
+  storyboardVisualLayerTrackGeometry,
+  storyboardVisualObjectMenuTimelineFrame,
+  submitVisualClipMove,
+  useWindowPointerContinuation,
+  type StoryboardBoardTimeline,
+  type StoryboardEditShotActions,
+  type StoryboardEditShot,
+  type StoryboardMagneticJoin,
+  type StoryboardTimelineAnchor,
+  type VisualPasteMenuState,
+} from "./StoryboardVisualLayerRow";
+import { StoryboardEditFilmstrip } from "./StoryboardEditFilmstrip";
+import { storyboardVisualClipArrowMove } from "../storyboardVisualObjectInteraction";
+import {
+  STORYBOARD_IMAGE_CLIP_DRAG_MIME,
+  STORYBOARD_SHOT_DRAG_MIME,
+  STORYBOARD_VIDEO_CLIP_DRAG_MIME,
+} from "../storyboardVisualDragProtocol";
+
+export {
+  StoryboardEditTransport,
+  commitVisualClipDrag,
+  createStoryboardAsyncSessionGuard,
+  storyboardVisualLayerAtPoint,
+  storyboardVisualObjectMenuTimelineFrame,
+  type StoryboardEditShotActions,
+  type StoryboardBoardTimeline,
+  type StoryboardEditShot,
+  type StoryboardVisualLayerTrackGeometry,
+} from "./StoryboardVisualLayerRow";
 
 /**
  * 故事版看板里的「剪辑」行：不跟镜头列对齐，自己按时间等比铺成一整条，
@@ -108,626 +131,6 @@ import { VIDEO_TAKE_DRAG_MIME } from "@/features/storyAgent/views/videoTakeDrag"
  * 左键拖选一段交给聊聊、拖右边缘改时长、拖左边把手换顺序；
  * 右键出剪辑菜单，键盘走主流剪辑软件那一套快捷键。
  */
-export type StoryboardBoardTimeline = {
-  playheadMs: number;
-  isPlaying: boolean;
-  totalMs: number;
-  audioClips: StoryboardAudioClip[];
-  /** 听觉轨道自己的时间范围，不随视觉镜头时长重排。 */
-  audioTotalMs?: number;
-  /** 全片绝对毫秒 */
-  onSeek: (ms: number) => void;
-  onTogglePlay: (playing: boolean) => void;
-  onSelectRange: (
-    range:
-      | (StoryboardEditRange & { stableShotId: string; shotNo: number })
-      | null
-  ) => void;
-  selectedRange: StoryboardEditRange | null;
-  /** 这个时间点上有没有可切的视频。 */
-  canSplitAt: (ms: number) => boolean;
-  /** 这个时间点上有没有可继续抽取的图片或视频。 */
-  canExtractAt: (ms: number) => boolean;
-  onTrimShotDuration: (input: {
-    shotNo: number;
-    stableShotId: string;
-    durationMs: number;
-  }) => Promise<void> | void;
-  /**
-   * 锚点安全的帧级裁剪：给出这次拖动/微调之后另一头锚定不动时对应的绝对帧边界。
-   * 有它就走它——旧的 onTrimShotDuration 只改毫秒，改动会被已经写死的
-   * durationFrames 盖掉，松手瞬间又弹回原状。
-   */
-  onTrimTimelineEdge?: (input: {
-    stableShotId: string;
-    edge: "start" | "end";
-    requestedBoundaryFrame: number;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  magneticJoins?: readonly StoryboardMagneticJoin[];
-  onRollTimelineJoin?: (
-    input: StoryboardMagneticJoin & {
-      requestedBoundaryFrame: number;
-    }
-  ) => Promise<{ applied: boolean; reason?: string }>;
-  onDetachTimelineMagnet?: (
-    input: Pick<
-      StoryboardMagneticJoin,
-      "leftStableShotId" | "rightStableShotId"
-    >
-  ) => Promise<{ applied: boolean; reason?: string }>;
-  onSplitAt: (ms: number) => Promise<void>;
-  onExtractFrameAt: (ms: number) => Promise<void>;
-  onReorderShot: (input: {
-    sourceStableShotId: string;
-    targetStableShotId: string;
-  }) => Promise<void> | void;
-  /**
-   * 位置锚点与方向批量移动。都是可选的：还没接上的调用点保持原有行为，
-   * 抓手默认移动单镜；按住 Shift 才进入方向批量移动。
-   */
-  anchors?: readonly StoryboardTimelineAnchor[];
-  /** 拖之前先问一句：这次会带上哪些镜头、被谁挡住。 */
-  previewGroupMove?: (input: {
-    stableShotId: string;
-    direction: "left" | "right";
-  }) => StoryboardGroupPreview;
-  onMoveTimelineGroup?: (input: {
-    stableShotId: string;
-    direction: "left" | "right";
-    deltaFrames: number;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  /**
-   * 拖镜头本体：只移动这一镜，同方向的邻居原地不动。批量移动是六点抓手的
-   * 单独手势（onMoveTimelineGroup），两者不共用同一个拖动入口。
-   */
-  onMoveTimelineShot?: (input: {
-    stableShotId: string;
-    deltaFrames: number;
-    snapThresholdFrames: number;
-    visualLayer?: number;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  onAddAnchor?: (
-    timelineFrame: number
-  ) => Promise<{ applied: boolean; reason?: string }>;
-  /**
-   * 空档右键「自动创建镜头」：用前一镜的末帧和后一镜的首帧生成过渡提案。
-   * 只生成待确认卡片（注入聊天），真正调用模型和扣费仍要等用户在卡片上点确认。
-   */
-  onCreateGapTransition?: (input: {
-    beforeStableShotId: string;
-    afterStableShotId: string;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  onCreateExtractedFrameTransition?: (input: {
-    leftImageId: number;
-    rightImageId: number;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  onDeleteExtractedFrame?: (imageId: number) => Promise<{
-    applied: boolean;
-    reason?: string;
-  }>;
-  /** 唯一的素材移动命令：图片和视频共用同一条提交路径。 */
-  onMoveVisualClip?: (input: {
-    clipId: string;
-    toTrackId: string;
-    toStartFrame: number;
-  }) => Promise<void>;
-  onPlaceExternalVisual?: (
-    dataTransfer: DataTransfer,
-    timelineFrame: number,
-    visualLayer: number
-  ) => Promise<{ shotNo: number }>;
-  overlays?: readonly StoryTimelineOverlay[];
-  /** 渲染形态的图层状态：`count` 已含派生的空白投放层，`explicitCount` 是落库值。 */
-  visualLayerState?: ResolvedTimelineVisualLayerState;
-  onManageVisualLayer?: (action: TimelineVisualLayerAction) => Promise<void>;
-  onRemoveAnchor?: (input: {
-    stableShotId: string;
-    anchorId: string;
-  }) => Promise<{ applied: boolean; reason?: string }>;
-  /** 正在保存时阻止新拖拽；方向键微调由队列合并，不会丢输入。 */
-  writePending?: boolean;
-};
-
-export type StoryboardVisualLayerTrackGeometry = {
-  visualLayer: number;
-  rect: {
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    width: number;
-  };
-};
-
-/**
- * Pointer capture and translated drag previews make `elementFromPoint()`
- * unreliable: the returned child can still belong to the source layer. The
- * Storyboard owns the layer tracks, so resolve the destination from their
- * visible geometry instead of the DOM ancestry of whichever child is on top.
- */
-export function storyboardVisualLayerAtPoint(input: {
-  clientX: number;
-  clientY: number;
-  tracks: readonly StoryboardVisualLayerTrackGeometry[];
-}): StoryboardVisualLayerTrackGeometry | null {
-  return (
-    input.tracks.find(
-      track =>
-        Number.isFinite(track.visualLayer) &&
-        track.rect.width > 0 &&
-        input.clientX >= track.rect.left &&
-        input.clientX <= track.rect.right &&
-        input.clientY >= track.rect.top &&
-        input.clientY <= track.rect.bottom
-    ) ?? null
-  );
-}
-
-function storyboardVisualLayerAtDocumentPoint(
-  clientX: number,
-  clientY: number
-): StoryboardVisualLayerTrackGeometry | null {
-  return storyboardVisualLayerAtPoint({
-    clientX,
-    clientY,
-    tracks: Array.from(
-      document.querySelectorAll<HTMLElement>("[data-storyboard-visual-layer]")
-    ).map(track => {
-      const rect = track.getBoundingClientRect();
-      return {
-        visualLayer: Number(track.dataset.storyboardVisualLayer),
-        rect: {
-          left: rect.left,
-          right: rect.right,
-          top: rect.top,
-          bottom: rect.bottom,
-          width: rect.width,
-        },
-      };
-    }),
-  });
-}
-
-function storyboardVisualLayerTrackGeometry(
-  visualLayer: number
-): StoryboardVisualLayerTrackGeometry | null {
-  const track = document.querySelector<HTMLElement>(
-    `[data-storyboard-visual-layer="${visualLayer}"]`
-  );
-  if (!track) return null;
-  const rect = track.getBoundingClientRect();
-  return {
-    visualLayer,
-    rect: {
-      left: rect.left,
-      right: rect.right,
-      top: rect.top,
-      bottom: rect.bottom,
-      width: rect.width,
-    },
-  };
-}
-
-/**
- * 把一次移动交给唯一命令，并保证失败一定被用户看见。
- *
- * 拖拽、外部拖放和键盘微调都走这里：它们各自只负责算出「哪个 clip、去哪一层、
- * 去哪一帧」，不再各自决定素材归属哪个镜头。
- */
-function submitVisualClipMove(input: {
-  clipId: string;
-  visualLayer: number;
-  toStartFrame: number;
-  onMoveVisualClip?: (move: {
-    clipId: string;
-    toTrackId: string;
-    toStartFrame: number;
-  }) => Promise<void>;
-}): Promise<void> {
-  const move = input.onMoveVisualClip;
-  if (!move) return Promise.resolve();
-  return move({
-    clipId: input.clipId,
-    toTrackId: visualTrackId(input.visualLayer),
-    toStartFrame: Math.max(0, Math.round(input.toStartFrame)),
-  }).catch((error: unknown) => {
-    toast.error(error instanceof Error ? error.message : "素材没有移动成功");
-  });
-}
-
-/**
- * 剪辑块自己渲染出来的起点像素。
- *
- * 一帧图片的抓取盒是固定 40px 并且 -translate-x-1/2 居中，所以它的
- * getBoundingClientRect().left 比真实帧位置左半个盒子。行内 left 像素才是
- * 渲染时用的那个真实起点，拿它当锚点还顺带免疫拖动过程中的横向滚动。
- */
-function clipAnchorPx(element: HTMLElement): number | null {
-  const raw = element.style.left;
-  if (!raw.endsWith("px")) return null;
-  const px = Number.parseFloat(raw);
-  return Number.isFinite(px) ? px : null;
-}
-
-/**
- * 拖拽提交的唯一出口。
- *
- * 像素 → (轨道, 绝对帧) 换算完就交给服务端命令，客户端不再决定素材归属哪个
- * 镜头、也不再算相对偏移。任何一步失败都必须让用户看见，不能像以前那样直接
- * return 掉，看上去就是「拖了没反应」。
- */
-export function commitVisualClipDrag(input: {
-  clipId: string;
-  /** 抓取瞬间这个剪辑块渲染出来的起点像素；拿不到时回退到它的左边缘。 */
-  startLeftPx: number | null;
-  startRectLeft: number;
-  startClientX: number;
-  releaseClientX: number;
-  releaseClientY: number;
-  viewport: TimelineViewport;
-  onMoveVisualClip?: (move: {
-    clipId: string;
-    toTrackId: string;
-    toStartFrame: number;
-  }) => Promise<void>;
-  /** 命中哪条轨道。默认查真实 DOM；测试注入几何，好让换算本身可验证。 */
-  resolveTrack?: (
-    clientX: number,
-    clientY: number
-  ) => StoryboardVisualLayerTrackGeometry | null;
-}): Promise<void> {
-  const move = input.onMoveVisualClip;
-  if (!move) return Promise.resolve();
-  const resolveTrack =
-    input.resolveTrack ?? storyboardVisualLayerAtDocumentPoint;
-  const targetTrack = resolveTrack(input.releaseClientX, input.releaseClientY);
-  if (!targetTrack || targetTrack.rect.width <= 0) {
-    toast.error("没落在任何图层上，位置没有改变");
-    return Promise.resolve();
-  }
-  // 保住抓取点：跟着走的是这个剪辑块自己的起点，不是鼠标。
-  const startPx =
-    input.startLeftPx ?? input.startRectLeft - targetTrack.rect.left;
-  const movedPx = startPx + (input.releaseClientX - input.startClientX);
-  return submitVisualClipMove({
-    clipId: input.clipId,
-    visualLayer: targetTrack.visualLayer,
-    toStartFrame: pxToFrame(input.viewport, movedPx),
-    onMoveVisualClip: move,
-  });
-}
-
-function useWindowPointerContinuation(input: {
-  active: boolean;
-  onMove: (event: PointerEvent) => void;
-  onFinish: (event: PointerEvent) => void;
-  onCancel: (event: PointerEvent) => void;
-}) {
-  const handlersRef = useRef(input);
-  handlersRef.current = input;
-  useEffect(() => {
-    if (!input.active) return;
-    const move = (event: PointerEvent) => handlersRef.current.onMove(event);
-    const finish = (event: PointerEvent) => handlersRef.current.onFinish(event);
-    const cancel = (event: PointerEvent) => handlersRef.current.onCancel(event);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", cancel);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", cancel);
-    };
-  }, [input.active]);
-}
-
-function storyboardVisualClipArrowMove(input: {
-  event: ReactKeyboardEvent<HTMLElement>;
-  visualLayer: number;
-  onMove: (deltaFrames: number, deltaVisualLayers: number) => void;
-}) {
-  const { event } = input;
-  if (!event.key.startsWith("Arrow")) return false;
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-    const step = event.shiftKey ? 15 : 1;
-    input.onMove(event.key === "ArrowLeft" ? -step : step, 0);
-  } else {
-    input.onMove(0, event.key === "ArrowUp" ? 1 : -1);
-  }
-  return true;
-}
-
-export type StoryboardMagneticJoin = {
-  leftStableShotId: string;
-  rightStableShotId: string;
-  boundaryFrame: number;
-};
-
-export type StoryboardTimelineAnchor = {
-  id: string;
-  stableShotId: string;
-  timelineFrame: number;
-};
-
-type StoryboardGroupPreview =
-  | {
-      kind: "ok";
-      stableShotIds: string[];
-      boundaryStableShotId: string | null;
-    }
-  | { kind: "blocked"; reason: string };
-
-/** 镜头本身的增删由故事版看板提供，不走时间线那套接口。 */
-export type StoryboardEditShotActions = {
-  onInsertShotAfter?: (input: {
-    shotNo: number;
-    stableShotId: string;
-  }) => Promise<void> | void;
-  onDeleteShot?: (input: {
-    shotNo: number;
-    stableShotId: string;
-  }) => Promise<void> | void;
-};
-
-export type StoryboardEditShot = {
-  timing: StoryboardTimingRow;
-  shotLabel: string;
-  shotNo: number;
-  stableShotId: string;
-  timelineItem: StoryTimelineItem | null;
-  posterUrl: string | null;
-  /** 当前主视频在成片里的真实来源范围，用来画出随时间变化的缩略帧。 */
-  primaryFrameSource?: StoryboardEditFrameSource | null;
-  /** 通过右键“抽帧”保存的时间线画面，显示在剪辑行上方的独立轨道。 */
-  extractedFrames?: readonly {
-    id: string;
-    imageId: number;
-    imageUrl: string;
-    atMs: number;
-  }[];
-};
-
-function StoryboardEditFilmstrip({
-  frameUrls,
-  posterUrl,
-  testId,
-}: {
-  frameUrls: readonly string[];
-  posterUrl?: string | null;
-  testId: string;
-}) {
-  if (frameUrls.length === 0 && !posterUrl) return null;
-  return (
-    <span
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-      aria-hidden="true"
-      data-testid={testId}
-    >
-      {posterUrl ? (
-        <img
-          src={posterUrl}
-          alt=""
-          draggable={false}
-          className="absolute inset-0 h-full w-full select-none object-cover"
-        />
-      ) : null}
-      {frameUrls.length > 0 ? (
-        <span className="absolute inset-0 flex">
-          {frameUrls.map((src, index) => (
-            <img
-              key={`${src}-${index}`}
-              src={src}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              draggable={false}
-              className="h-full min-w-0 flex-1 select-none border-r border-black/15 object-cover last:border-r-0"
-              onError={event => {
-                // 抽帧暂时失败时露出底下的主图/色块，避免出现破图图标。
-                event.currentTarget.style.visibility = "hidden";
-              }}
-            />
-          ))}
-        </span>
-      ) : null}
-      <span className="absolute inset-0 bg-black/10" />
-    </span>
-  );
-}
-
-const SHOT_DRAG_MIME = "application/x-storyboard-shot";
-const IMAGE_CLIP_DRAG_MIME = "application/x-storyboard-image-clip";
-
-function hasExternalVisualPayload(dataTransfer: DataTransfer): boolean {
-  const types = Array.from(dataTransfer.types);
-  return (
-    types.includes("Files") ||
-    types.includes(STORY_IMAGE_DRAG_MIME) ||
-    types.includes(VIDEO_TAKE_DRAG_MIME)
-  );
-}
-
-export function StoryboardEditTransport({
-  timeline,
-}: {
-  timeline: StoryboardBoardTimeline;
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1"
-      aria-label="故事版走带控制"
-      data-testid="storyboard-edit-transport"
-    >
-      <button
-        type="button"
-        onClick={() => timeline.onSeek(0)}
-        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        aria-label="回到开头"
-        title="回到开头"
-      >
-        <SkipBack className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={() => timeline.onTogglePlay(!timeline.isPlaying)}
-        className="flex h-6 w-6 items-center justify-center rounded-sm border border-rose-500/45 bg-rose-500/10 text-rose-600 transition hover:bg-rose-500/20"
-        aria-label={timeline.isPlaying ? "暂停" : "播放"}
-        title={timeline.isPlaying ? "暂停" : "播放"}
-      >
-        {timeline.isPlaying ? (
-          <Pause className="h-3 w-3" />
-        ) : (
-          <Play className="h-3 w-3 fill-current" />
-        )}
-      </button>
-      <span className="font-mono text-[9px] tabular-nums text-rose-600">
-        {formatStoryboardTimestamp(timeline.playheadMs)}
-      </span>
-    </span>
-  );
-}
-
-/** 行首保持纯标签；切割和提帧仍保留在右键菜单与 S / F 快捷键里。 */
-const VISUAL_LAYER_DRAG_MIME = "application/x-storyboard-visual-layer";
-
-function StoryboardVisualLayerHeader({
-  visualLayer,
-  hidden,
-  onToggleHidden,
-  onAddAbove,
-  onAddBelow,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
-  canDelete,
-  onDelete,
-  onDropLayer,
-}: {
-  visualLayer: number;
-  hidden: boolean;
-  onToggleHidden: () => void;
-  onAddAbove: () => void;
-  onAddBelow: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  canDelete: boolean;
-  onDelete: () => void;
-  onDropLayer: (sourceLayer: number) => void;
-}) {
-  return (
-    <div
-      role="rowheader"
-      className="group sticky left-0 z-20 flex flex-col justify-center gap-1 border-b border-r px-1.5 py-1 text-[9px] font-semibold text-muted-foreground"
-      style={{
-        borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
-        background: "var(--background)",
-      }}
-      onDragOver={event => {
-        if (!event.dataTransfer.types.includes(VISUAL_LAYER_DRAG_MIME)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-      }}
-      onDrop={event => {
-        const value = event.dataTransfer.getData(VISUAL_LAYER_DRAG_MIME);
-        if (!value) return;
-        event.preventDefault();
-        onDropLayer(Number(value));
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-0.5">
-        <span
-          draggable
-          onDragStart={event => {
-            event.dataTransfer.setData(
-              VISUAL_LAYER_DRAG_MIME,
-              String(visualLayer)
-            );
-            event.dataTransfer.effectAllowed = "move";
-          }}
-          className="flex min-w-0 flex-1 cursor-grab items-center gap-0.5 truncate active:cursor-grabbing"
-          title="拖动可调整整层顺序"
-        >
-          <GripVertical className="h-3 w-3 shrink-0" />
-          {visualLayer === 0 ? "视觉 · 剪辑" : `视觉层 ${visualLayer + 1}`}
-        </span>
-        <button
-          type="button"
-          className="flex h-5 w-5 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground"
-          onClick={onToggleHidden}
-          aria-label={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}
-          title={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}
-        >
-          {hidden ? (
-            <EyeOff className="h-3 w-3" />
-          ) : (
-            <Eye className="h-3 w-3" />
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={!canDelete}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onDelete}
-          aria-label={`删除视觉层 ${visualLayer + 1}`}
-          title={
-            canDelete
-              ? "删除图层；非空层会先确认并把素材合并到相邻层"
-              : "最高的空白投放层始终保留，删不掉"
-          }
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
-      </div>
-      <div
-        className="flex items-center gap-0.5"
-        aria-label={`视觉层 ${visualLayer + 1} 排列控制`}
-      >
-        <button
-          type="button"
-          className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
-          onClick={onAddAbove}
-          title="在上方插入图层"
-        >
-          <Plus className="h-2.5 w-2.5" />上
-        </button>
-        <button
-          type="button"
-          className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
-          onClick={onAddBelow}
-          title="在下方插入图层"
-        >
-          <Plus className="h-2.5 w-2.5" />下
-        </button>
-        <button
-          type="button"
-          disabled={!canMoveUp}
-          className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onMoveUp}
-          aria-label={`视觉层 ${visualLayer + 1} 上移`}
-          title="整层上移"
-        >
-          <ArrowUp className="h-2.5 w-2.5" />
-        </button>
-        <button
-          type="button"
-          disabled={!canMoveDown}
-          className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onMoveDown}
-          aria-label={`视觉层 ${visualLayer + 1} 下移`}
-          title="整层下移"
-        >
-          <ArrowDown className="h-2.5 w-2.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function StoryboardAudioRowHeader() {
   return (
     <div
@@ -743,1062 +146,6 @@ function StoryboardAudioRowHeader() {
         强弱 · 停顿
       </span>
     </div>
-  );
-}
-
-function StoryboardUpperVisualLayerRow({
-  shots,
-  timeline,
-  viewport,
-  columnSpan,
-  onSelectShot,
-  visualLayer,
-  showTopPlayhead,
-  hidden,
-  canDelete,
-  onManageLayer,
-  onNudgeVisualClip,
-  onShotTimingPreviewChange,
-}: {
-  shots: readonly StoryboardEditShot[];
-  timeline: StoryboardBoardTimeline;
-  viewport: TimelineViewport;
-  columnSpan: number;
-  onSelectShot: (shotNo: number) => void;
-  visualLayer: number;
-  showTopPlayhead: boolean;
-  hidden: boolean;
-  canDelete: boolean;
-  onManageLayer: (action: TimelineVisualLayerAction) => void;
-  onNudgeVisualClip: (input: {
-    clipId: string;
-    startVisualLayer: number;
-    deltaVisualLayers: number;
-    startFrame: number;
-    deltaFrames: number;
-  }) => void;
-  onShotTimingPreviewChange?: (
-    preview: StoryboardShotTimingPreview | null,
-    gestureId: symbol
-  ) => void;
-}) {
-  const totalMs = viewport.totalMs;
-  const frames = shots
-    .flatMap(shot => {
-      const extractedFrames = shot.extractedFrames ?? [];
-      const imageClips = shot.timelineItem?.imageClips ?? [];
-      const persisted = imageClips.map(clip => {
-        const frame = extractedFrames.find(
-          item => item.imageId === clip.imageId
-        );
-        return {
-          id: frame?.id ?? clip.id,
-          imageId: clip.imageId,
-          imageUrl: clip.imageUrl,
-          atMs:
-            (timelineImageClipStartFrame(clip, shot.timing.startFrame) * 1000) /
-            30,
-          clip,
-          shot,
-        };
-      });
-      const persistedImageIds = new Set(imageClips.map(clip => clip.imageId));
-      const legacy = extractedFrames
-        .filter(frame => !persistedImageIds.has(frame.imageId))
-        .map(frame => ({ ...frame, clip: undefined, shot }));
-      return [...persisted, ...legacy];
-    })
-    .filter(
-      frame =>
-        frame.clip?.visualLayer === visualLayer ||
-        (!frame.clip && visualLayer === 1)
-    )
-    .sort(
-      (left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id)
-    );
-  const [transitionMenu, setTransitionMenu] = useState<{
-    clientX: number;
-    clientY: number;
-    leftImageId: number;
-    rightImageId: number;
-    durationSec: number;
-  } | null>(null);
-  const [pending, setPending] = useState(false);
-  const [frameMenu, setFrameMenu] = useState<{
-    clientX: number;
-    clientY: number;
-    frames: Array<{
-      imageId: number;
-      shotLabel: string;
-      atMs: number;
-    }>;
-  } | null>(null);
-  const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [pairingStart, setPairingStart] = useState<{
-    id: string;
-    imageId: number;
-    atMs: number;
-  } | null>(null);
-  const [pairingCandidate, setPairingCandidate] =
-    useState<ExtractedFrameCandidateResult | null>(null);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const clipPointerDragRef = useRef<
-    | {
-        kind: "image";
-        pointerId: number;
-        startClientX: number;
-        startClientY: number;
-        /** 抓取瞬间这个剪辑块自己的左边缘，用来保住抓取点的相对位置。 */
-        startRectLeft: number;
-        startLeftPx: number | null;
-        viewport: TimelineViewport;
-        moved: boolean;
-        clipId: string;
-        sourceStableShotId: string;
-      }
-    | {
-        kind: "shot";
-        pointerId: number;
-        startClientX: number;
-        startClientY: number;
-        startRectLeft: number;
-        startLeftPx: number | null;
-        viewport: TimelineViewport;
-        moved: boolean;
-        gestureId: symbol;
-        stableShotId: string;
-        startFrame: number;
-        durationFrames: number;
-      }
-    | null
-  >(null);
-  const suppressClipClickRef = useRef(false);
-  const [clipPointerPreview, setClipPointerPreview] = useState<{
-    kind: "image" | "shot";
-    id: string;
-    deltaX: number;
-    deltaY: number;
-  } | null>(null);
-  const clipPointerCommitPendingRef = useRef(false);
-  const [clipPointerCommitPreview, setClipPointerCommitPreview] = useState<{
-    kind: "image" | "shot";
-    id: string;
-    deltaX: number;
-    deltaY: number;
-  } | null>(null);
-  const visibleClipPointerPreview =
-    clipPointerPreview ?? clipPointerCommitPreview;
-  const playheadPx = storyboardEditPlayheadPx(timeline.playheadMs, viewport);
-  const seekFromClientX = (clientX: number) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return;
-    timeline.onSeek(Math.min(totalMs, pxToMs(viewport, clientX - rect.left)));
-  };
-  const startClipPointerDrag = (
-    event: ReactPointerEvent<HTMLElement>,
-    payload:
-      | { kind: "image"; clipId: string; sourceStableShotId: string }
-      | {
-          kind: "shot";
-          stableShotId: string;
-          startFrame: number;
-          durationFrames: number;
-        }
-  ) => {
-    if (
-      event.button !== 0 ||
-      timeline.writePending ||
-      clipPointerCommitPendingRef.current
-    )
-      return;
-    focusStoryboardClipForDrag(event.currentTarget);
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    suppressClipClickRef.current = false;
-    const dragBase = {
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startRectLeft: event.currentTarget.getBoundingClientRect().left,
-      startLeftPx: clipAnchorPx(event.currentTarget),
-      viewport,
-      moved: false,
-    };
-    clipPointerDragRef.current =
-      payload.kind === "shot"
-        ? {
-            ...payload,
-            ...dragBase,
-            gestureId: Symbol("upper-shot-drag"),
-          }
-        : { ...payload, ...dragBase };
-    setClipPointerPreview({
-      kind: payload.kind,
-      id: payload.kind === "image" ? payload.clipId : payload.stableShotId,
-      deltaX: 0,
-      deltaY: 0,
-    });
-  };
-  const moveClipPointerDrag = (
-    event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">
-  ) => {
-    const drag = clipPointerDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (
-      !drag.moved &&
-      Math.hypot(
-        event.clientX - drag.startClientX,
-        event.clientY - drag.startClientY
-      ) >= 4
-    ) {
-      drag.moved = true;
-      suppressClipClickRef.current = true;
-    }
-    if (!drag.moved) return;
-    if (drag.kind === "shot") {
-      onShotTimingPreviewChange?.(
-        storyboardVisualClipShotTimingPreview({
-          kind: "shot",
-          stableShotId: drag.stableShotId,
-          startFrame: drag.startFrame,
-          durationFrames: drag.durationFrames,
-          deltaFrames: storyboardGroupDragDeltaFrames({
-            deltaPx: event.clientX - drag.startClientX,
-            viewport: drag.viewport,
-          }),
-        }),
-        drag.gestureId
-      );
-    }
-    setClipPointerPreview({
-      kind: drag.kind,
-      id: drag.kind === "image" ? drag.clipId : drag.stableShotId,
-      deltaX: event.clientX - drag.startClientX,
-      deltaY: event.clientY - drag.startClientY,
-    });
-  };
-  const finishClipPointerDragAt = async (
-    event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">
-  ) => {
-    const drag = clipPointerDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    clipPointerDragRef.current = null;
-    if (!drag.moved) {
-      setClipPointerPreview(null);
-      if (drag.kind === "shot")
-        onShotTimingPreviewChange?.(null, drag.gestureId);
-      return;
-    }
-    const releasePreview = {
-      kind: drag.kind,
-      id: drag.kind === "image" ? drag.clipId : drag.stableShotId,
-      deltaX: event.clientX - drag.startClientX,
-      deltaY: event.clientY - drag.startClientY,
-    };
-    // pointerup 可能早于最后一个 pointermove；以真实释放点固定最终预览。
-    // 活跃手势与提交中预览分开，窗口监听随前者结束，不会重复 finish。
-    setClipPointerPreview(null);
-    setClipPointerCommitPreview(releasePreview);
-    if (drag.kind === "shot") {
-      onShotTimingPreviewChange?.(
-        storyboardVisualClipShotTimingPreview({
-          kind: "shot",
-          stableShotId: drag.stableShotId,
-          startFrame: drag.startFrame,
-          durationFrames: drag.durationFrames,
-          deltaFrames: storyboardGroupDragDeltaFrames({
-            deltaPx: event.clientX - drag.startClientX,
-            viewport: drag.viewport,
-          }),
-        }),
-        drag.gestureId
-      );
-    }
-    clipPointerCommitPendingRef.current = true;
-    try {
-      await commitVisualClipDrag({
-        clipId:
-          drag.kind === "image"
-            ? `image:${drag.clipId}`
-            : `shot:${drag.stableShotId}`,
-        startRectLeft: drag.startRectLeft,
-        startLeftPx: drag.startLeftPx,
-        startClientX: drag.startClientX,
-        releaseClientX: event.clientX,
-        releaseClientY: event.clientY,
-        viewport: drag.viewport,
-        onMoveVisualClip: timeline.onMoveVisualClip,
-      });
-    } finally {
-      clipPointerCommitPendingRef.current = false;
-      setClipPointerCommitPreview(null);
-      if (drag.kind === "shot")
-        onShotTimingPreviewChange?.(null, drag.gestureId);
-    }
-  };
-  const finishClipPointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    // 先同步取走 active drag 并标记 pending，再释放 capture；否则浏览器可能在
-    // releasePointerCapture 期间派发取消/窗口事件，把最终预览提前清掉或重复提交。
-    const pendingMove = finishClipPointerDragAt(event);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    void pendingMove;
-  };
-  const cancelClipPointerDrag = (event: Pick<PointerEvent, "pointerId">) => {
-    const drag = clipPointerDragRef.current;
-    if (!drag || !isStoryboardPointerOwner(drag.pointerId, event.pointerId))
-      return;
-    clipPointerDragRef.current = null;
-    if (drag.kind === "shot") onShotTimingPreviewChange?.(null, drag.gestureId);
-    suppressClipClickRef.current = false;
-    setClipPointerPreview(null);
-  };
-  useWindowPointerContinuation({
-    active: clipPointerPreview != null,
-    onMove: moveClipPointerDrag,
-    onFinish: event => void finishClipPointerDragAt(event),
-    onCancel: cancelClipPointerDrag,
-  });
-  const consumeSuppressedClipClick = () => {
-    if (!suppressClipClickRef.current) return false;
-    suppressClipClickRef.current = false;
-    return true;
-  };
-  useEffect(() => {
-    if (!transitionMenu && !frameMenu && !pairingStart) return;
-    const close = (event?: Event) => {
-      if (deletingImageId != null) return;
-      if (
-        pairingStart &&
-        event?.target instanceof Node &&
-        trackRef.current?.contains(event.target)
-      )
-        return;
-      setTransitionMenu(null);
-      setFrameMenu(null);
-      setDeleteError(null);
-      setPairingStart(null);
-      setPairingCandidate(null);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [deletingImageId, frameMenu, pairingStart, transitionMenu]);
-  const startPairing = (frame: {
-    id: string;
-    imageId: number;
-    atMs: number;
-  }) => {
-    setTransitionMenu(null);
-    setFrameMenu(null);
-    setDeleteError(null);
-    setPairingStart(frame);
-    const nearest = selectExtractedFrameCandidates({
-      frames,
-      start: frame,
-    }).sort(
-      (left, right) =>
-        Math.abs(left.frame.atMs - frame.atMs) -
-          Math.abs(right.frame.atMs - frame.atMs) ||
-        left.frame.atMs - right.frame.atMs
-    )[0];
-    setPairingCandidate(
-      nearest
-        ? { kind: "ok", candidate: nearest.frame, pair: nearest.pair }
-        : { kind: "blocked", reason: "起始抽帧附近没有间隔至少 1 秒的抽帧" }
-    );
-  };
-  const updatePairingCandidate = (clientX: number) => {
-    if (!pairingStart) return;
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return;
-    const atMs = Math.min(totalMs, pxToMs(viewport, clientX - rect.left));
-    setPairingCandidate(
-      selectExtractedFrameCandidate({ frames, start: pairingStart, atMs })
-    );
-  };
-  const finishPairing = async (pair: {
-    leftImageId: number;
-    rightImageId: number;
-  }) => {
-    if (!timeline.onCreateExtractedFrameTransition) return;
-    setPending(true);
-    try {
-      const result = await timeline.onCreateExtractedFrameTransition(pair);
-      if (result.applied) {
-        setPairingStart(null);
-        setPairingCandidate(null);
-      }
-    } finally {
-      setPending(false);
-    }
-  };
-  const openAtMs = (atMs: number, clientX: number, clientY: number) => {
-    const selected = selectExtractedFramePair({ frames, atMs });
-    if (selected.kind !== "ok") return;
-    setFrameMenu(null);
-    setDeleteError(null);
-    setTransitionMenu({
-      clientX,
-      clientY,
-      leftImageId: selected.pair.left.imageId,
-      rightImageId: selected.pair.right.imageId,
-      durationSec: selected.pair.requestedDurationSec,
-    });
-  };
-  return (
-    <>
-      <StoryboardVisualLayerHeader
-        visualLayer={visualLayer}
-        hidden={hidden}
-        onToggleHidden={() =>
-          onManageLayer({ kind: "toggle-hidden", layer: visualLayer })
-        }
-        onAddAbove={() =>
-          onManageLayer({ kind: "insert", at: visualLayer + 1 })
-        }
-        onAddBelow={() => onManageLayer({ kind: "insert", at: visualLayer })}
-        onMoveUp={() =>
-          onManageLayer({
-            kind: "move",
-            from: visualLayer,
-            to: visualLayer + 1,
-          })
-        }
-        onMoveDown={() =>
-          onManageLayer({
-            kind: "move",
-            from: visualLayer,
-            to: visualLayer - 1,
-          })
-        }
-        canMoveUp={
-          visualLayer <
-          (timeline.visualLayerState?.count ?? visualLayer + 1) - 1
-        }
-        canMoveDown={visualLayer > 0}
-        canDelete={canDelete}
-        onDelete={() => onManageLayer({ kind: "remove", layer: visualLayer })}
-        onDropLayer={sourceLayer =>
-          onManageLayer({ kind: "move", from: sourceLayer, to: visualLayer })
-        }
-      />
-      <div
-        role="cell"
-        className={`py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
-        style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
-      >
-        <div
-          ref={trackRef}
-          className="relative h-12 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
-          data-testid={`storyboard-visual-layer-track-${visualLayer + 1}`}
-          data-storyboard-visual-layer={visualLayer}
-          aria-label={`视觉层 ${visualLayer + 1} 时间线`}
-          role="button"
-          tabIndex={0}
-          aria-keyshortcuts="Shift+F10 ContextMenu"
-          onContextMenu={event => {
-            if (!timeline.onCreateExtractedFrameTransition) return;
-            event.preventDefault();
-            const rect = event.currentTarget.getBoundingClientRect();
-            openAtMs(
-              Math.max(
-                0,
-                Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
-              ),
-              event.clientX,
-              event.clientY
-            );
-          }}
-          onPointerMove={event => updatePairingCandidate(event.clientX)}
-          onDragOver={event => {
-            if (
-              timeline.onPlaceExternalVisual &&
-              hasExternalVisualPayload(event.dataTransfer)
-            ) {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "copy";
-              return;
-            }
-            if (
-              !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME) &&
-              !event.dataTransfer.types.includes(SHOT_DRAG_MIME)
-            )
-              return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-          }}
-          onDrop={event => {
-            const rect = trackRef.current?.getBoundingClientRect();
-            if (!rect || rect.width <= 0) return;
-            const targetMs = Math.max(
-              0,
-              Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
-            );
-            if (
-              timeline.onPlaceExternalVisual &&
-              hasExternalVisualPayload(event.dataTransfer)
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              void timeline
-                .onPlaceExternalVisual(
-                  event.dataTransfer,
-                  Math.round((targetMs * 30) / 1000),
-                  visualLayer
-                )
-                .then(result => onSelectShot(result.shotNo))
-                .catch(error =>
-                  toast.error(
-                    error instanceof Error ? error.message : "素材落位失败"
-                  )
-                );
-              return;
-            }
-            const imagePayload =
-              event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
-            if (imagePayload && timeline.onMoveVisualClip) {
-              event.preventDefault();
-              const parsed = JSON.parse(imagePayload) as { clipId: string };
-              // 落点就是绝对帧，不再要求那一刻恰好压在某个镜头上。
-              submitVisualClipMove({
-                clipId: `image:${parsed.clipId}`,
-                visualLayer,
-                toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
-                onMoveVisualClip: timeline.onMoveVisualClip,
-              });
-              return;
-            }
-            const stableShotId = event.dataTransfer.getData(SHOT_DRAG_MIME);
-            const sourceShot = shots.find(
-              shot => shot.stableShotId === stableShotId
-            );
-            if (sourceShot && timeline.onMoveVisualClip) {
-              event.preventDefault();
-              submitVisualClipMove({
-                clipId: `shot:${stableShotId}`,
-                visualLayer,
-                toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
-                onMoveVisualClip: timeline.onMoveVisualClip,
-              });
-            }
-          }}
-          onPointerLeave={() => {
-            if (pairingStart) setPairingCandidate(null);
-          }}
-          onClick={event => {
-            if (pairingStart && event.target === event.currentTarget) {
-              setPairingStart(null);
-              setPairingCandidate(null);
-            }
-          }}
-          onKeyDown={event => {
-            if (
-              !timeline.onCreateExtractedFrameTransition ||
-              !(
-                event.key === "ContextMenu" ||
-                (event.shiftKey && event.key === "F10")
-              )
-            )
-              return;
-            event.preventDefault();
-            const rect = trackRef.current?.getBoundingClientRect();
-            openAtMs(
-              timeline.playheadMs,
-              rect ? rect.left + rect.width / 2 : 0,
-              rect ? rect.top + rect.height / 2 : 0
-            );
-          }}
-        >
-          {frames.length === 0 &&
-          !shots.some(
-            shot => (shot.timelineItem?.visualLayer ?? 0) === visualLayer
-          ) ? (
-            <span className="absolute inset-0 flex items-center px-2 text-[8px] text-muted-foreground/65">
-              在剪辑条上右键，选择“抽帧”
-            </span>
-          ) : null}
-          {shots
-            .filter(
-              shot => (shot.timelineItem?.visualLayer ?? 0) === visualLayer
-            )
-            .map(shot => {
-              const leftPx = msToPx(viewport, shot.timing.startMs);
-              const widthPx = msToPx(viewport, shot.timing.durationMs);
-              return (
-                <div
-                  key={`upper-shot-${shot.stableShotId}`}
-                  role="button"
-                  tabIndex={0}
-                  data-pointer-clip-move="true"
-                  className="absolute bottom-1 top-1 z-[6] touch-none cursor-grab overflow-hidden rounded-sm border border-cyan-400/70 bg-cyan-500/25 px-1 text-left text-[8px] active:cursor-grabbing focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  style={{
-                    left: leftPx,
-                    width: Math.max(widthPx, 1),
-                    transform:
-                      visibleClipPointerPreview?.kind === "shot" &&
-                      visibleClipPointerPreview.id === shot.stableShotId
-                        ? `translate(${visibleClipPointerPreview.deltaX}px, ${visibleClipPointerPreview.deltaY}px)`
-                        : undefined,
-                  }}
-                  onPointerDown={event => {
-                    startClipPointerDrag(event, {
-                      kind: "shot",
-                      stableShotId: shot.stableShotId,
-                      startFrame: shot.timing.startFrame,
-                      durationFrames: shot.timing.durationFrames,
-                    });
-                  }}
-                  onPointerMove={moveClipPointerDrag}
-                  onPointerUp={finishClipPointerDrag}
-                  onPointerCancel={cancelClipPointerDrag}
-                  onClick={() => {
-                    if (consumeSuppressedClipClick()) return;
-                    onSelectShot(shot.shotNo);
-                  }}
-                  onKeyDown={event => {
-                    storyboardVisualClipArrowMove({
-                      event,
-                      visualLayer,
-                      onMove: (deltaFrames, deltaVisualLayers) => {
-                        onNudgeVisualClip({
-                          clipId: `shot:${shot.stableShotId}`,
-                          startVisualLayer: visualLayer,
-                          deltaVisualLayers,
-                          startFrame: shot.timing.startFrame,
-                          deltaFrames,
-                        });
-                      },
-                    });
-                  }}
-                  data-visual-clip-move-target="true"
-                  data-testid={`storyboard-visual-layer-shot-${visualLayer + 1}-${shot.stableShotId}`}
-                  aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
-                  aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
-                  title={`${shot.shotLabel} · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 可继续切割`}
-                >
-                  <StoryboardEditFilmstrip
-                    frameUrls={storyboardEditFilmstripFrameUrls({
-                      source: shot.primaryFrameSource,
-                      durationMs: shot.timing.durationMs,
-                    })}
-                    posterUrl={shot.posterUrl}
-                    testId={`storyboard-upper-shot-filmstrip-${shot.stableShotId}`}
-                  />
-                  <span className="relative block truncate">
-                    {shot.shotLabel}
-                  </span>
-                </div>
-              );
-            })}
-          {frames.map(({ shot, clip, ...frame }) => {
-            const leftPx = msToPx(viewport, frame.atMs);
-            const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
-            return (
-              <div
-                key={`${shot.stableShotId}-${clip?.id ?? frame.id}-${visualLayer}`}
-                role="button"
-                tabIndex={0}
-                data-pointer-clip-move={clip ? "true" : undefined}
-                className={`absolute bottom-1 z-10 h-7 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                  clip
-                    ? "touch-none cursor-grab active:cursor-grabbing"
-                    : "cursor-pointer"
-                } ${
-                  active
-                    ? "border-primary ring-1 ring-primary"
-                    : "border-white/60"
-                }`}
-                style={{
-                  left: leftPx,
-                  transform:
-                    visibleClipPointerPreview?.kind === "image" &&
-                    visibleClipPointerPreview.id === clip?.id
-                      ? `translate(calc(-50% + ${visibleClipPointerPreview.deltaX}px), ${visibleClipPointerPreview.deltaY}px)`
-                      : undefined,
-                }}
-                onPointerDown={
-                  clip
-                    ? event => {
-                        startClipPointerDrag(event, {
-                          kind: "image",
-                          clipId: clip.id,
-                          sourceStableShotId: shot.stableShotId,
-                        });
-                      }
-                    : undefined
-                }
-                onPointerMove={clip ? moveClipPointerDrag : undefined}
-                onPointerUp={clip ? finishClipPointerDrag : undefined}
-                onPointerCancel={clip ? cancelClipPointerDrag : undefined}
-                onClick={() => {
-                  if (consumeSuppressedClipClick()) return;
-                  if (pairingStart) {
-                    if (pairingStart.id === frame.id) {
-                      setPairingStart(null);
-                      setPairingCandidate(null);
-                      return;
-                    }
-                    const candidate = selectExtractedFrameCandidates({
-                      frames,
-                      start: pairingStart,
-                    }).find(item => item.frame.id === frame.id);
-                    if (candidate)
-                      void finishPairing({
-                        leftImageId: candidate.pair.left.imageId,
-                        rightImageId: candidate.pair.right.imageId,
-                      });
-                    return;
-                  }
-                  onSelectShot(shot.shotNo);
-                  timeline.onTogglePlay(false);
-                  timeline.onSeek(frame.atMs);
-                  startPairing({
-                    id: frame.id,
-                    imageId: frame.imageId,
-                    atMs: frame.atMs,
-                  });
-                }}
-                onContextMenu={event => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setTransitionMenu(null);
-                  setDeleteError(null);
-                  const overlappingFrames = frames.filter(candidate => {
-                    if (totalMs <= 0) {
-                      return candidate.imageId === frame.imageId;
-                    }
-                    return (
-                      Math.abs(
-                        msToPx(viewport, candidate.atMs) -
-                          msToPx(viewport, frame.atMs)
-                      ) < 38
-                    );
-                  });
-                  setFrameMenu({
-                    clientX: event.clientX,
-                    clientY: event.clientY,
-                    frames: overlappingFrames.map(candidate => ({
-                      imageId: candidate.imageId,
-                      shotLabel: candidate.shot.shotLabel,
-                      atMs: candidate.atMs,
-                    })),
-                  });
-                }}
-                onKeyDown={event => {
-                  if (
-                    clip &&
-                    timeline.onMoveVisualClip &&
-                    storyboardVisualClipArrowMove({
-                      event,
-                      visualLayer,
-                      onMove: (deltaFrames, deltaVisualLayers) => {
-                        onNudgeVisualClip({
-                          clipId: `image:${clip.id}`,
-                          startVisualLayer: visualLayer,
-                          deltaVisualLayers,
-                          startFrame: timelineImageClipStartFrame(
-                            clip,
-                            shot.timing.startFrame
-                          ),
-                          deltaFrames,
-                        });
-                      },
-                    })
-                  )
-                    return;
-                  if (
-                    !(
-                      event.key === "ContextMenu" ||
-                      (event.shiftKey && event.key === "F10")
-                    )
-                  )
-                    return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setTransitionMenu(null);
-                  setDeleteError(null);
-                  setFrameMenu({
-                    clientX: rect.left + rect.width / 2,
-                    clientY: rect.top + rect.height / 2,
-                    frames: [
-                      {
-                        imageId: frame.imageId,
-                        shotLabel: shot.shotLabel,
-                        atMs: frame.atMs,
-                      },
-                    ],
-                  });
-                }}
-                data-visual-clip-move-target={clip ? "true" : undefined}
-                aria-keyshortcuts={
-                  clip
-                    ? "ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
-                    : "Shift+F10 ContextMenu"
-                }
-                aria-label={`查看抽帧 ${shot.shotLabel} ${formatStoryboardTimestamp(frame.atMs)}${clip ? "，方向键左右移动、上下换层，按住 Shift 加速" : ""}`}
-                title={`${shot.shotLabel} · 抽帧 ${formatStoryboardTimestamp(frame.atMs)} · 图片 #${frame.imageId}${clip ? " · 方向键左右移动、上下换层，Shift+左右移动 15 帧" : ""}`}
-                data-testid={`storyboard-extracted-frame-${frame.imageId}`}
-              >
-                <img
-                  src={frame.imageUrl}
-                  alt=""
-                  draggable={false}
-                  className="h-full w-full select-none object-cover"
-                />
-                <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/65 px-0.5 font-mono text-[6px] leading-3 text-white">
-                  {formatStoryboardTimestamp(frame.atMs)}
-                </span>
-              </div>
-            );
-          })}
-          {pairingStart && pairingCandidate?.kind === "ok" ? (
-            <button
-              type="button"
-              aria-label={`选择候选抽帧 ${formatStoryboardTimestamp(pairingCandidate.candidate.atMs)}`}
-              data-testid="storyboard-extracted-frame-pair-candidate"
-              className="absolute z-[30] -translate-x-1/2 rounded-full border border-primary bg-primary p-1 text-primary-foreground shadow-lg"
-              style={{
-                left: msToPx(viewport, pairingCandidate.candidate.atMs),
-                top: "0.1rem",
-              }}
-              onClick={event => {
-                event.stopPropagation();
-                void finishPairing({
-                  leftImageId: pairingCandidate.pair.left.imageId,
-                  rightImageId: pairingCandidate.pair.right.imageId,
-                });
-              }}
-            >
-              {pairingCandidate.candidate.atMs < pairingStart.atMs ? (
-                <ArrowLeft className="h-3 w-3" />
-              ) : (
-                <ArrowRight className="h-3 w-3" />
-              )}
-            </button>
-          ) : null}
-          {visualLayer === 1
-            ? (timeline.overlays ?? [])
-                .filter(
-                  overlay =>
-                    !shots.some(
-                      shot =>
-                        shot.stableShotId === overlay.sourceStableShotId &&
-                        (shot.timelineItem?.visualLayer ?? 0) > 0
-                    )
-                )
-                .map(overlay => {
-                  const leftPx = frameToPx(viewport, overlay.startFrame);
-                  const mediaWidthPx = frameToPx(
-                    viewport,
-                    overlay.mediaEndFrame - overlay.startFrame
-                  );
-                  const gapWidthPx = frameToPx(
-                    viewport,
-                    overlay.endFrame - overlay.mediaEndFrame
-                  );
-                  return (
-                    <div
-                      key={overlay.id}
-                      data-testid={`storyboard-overlay-${overlay.id}`}
-                    >
-                      <video
-                        src={overlay.videoUrl}
-                        muted
-                        preload="metadata"
-                        className="pointer-events-none absolute bottom-1 top-1 z-[5] rounded-sm border border-cyan-400/70 bg-black object-cover"
-                        style={{
-                          left: leftPx,
-                          width: Math.max(mediaWidthPx, 1),
-                        }}
-                      />
-                      {gapWidthPx > 0 ? (
-                        <span
-                          className="pointer-events-none absolute bottom-1 top-1 z-[4] border border-dashed border-cyan-500/50 bg-black"
-                          style={{
-                            left: leftPx + mediaWidthPx,
-                            width: gapWidthPx,
-                          }}
-                          title="未生成区间 · 留空"
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })
-            : null}
-          {showTopPlayhead && playheadPx != null ? (
-            <div
-              role="slider"
-              tabIndex={0}
-              aria-label="拖动顶层播放头"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(totalMs)}
-              aria-valuenow={Math.round(timeline.playheadMs)}
-              aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
-              title="播放头位于所有视觉剪辑层最上方"
-              className="group absolute bottom-0 top-0 z-50 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
-              style={{ left: playheadPx }}
-              data-testid="storyboard-top-playhead"
-              onPointerDown={event => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                event.stopPropagation();
-                timeline.onTogglePlay(false);
-                event.currentTarget.setPointerCapture(event.pointerId);
-                seekFromClientX(event.clientX);
-              }}
-              onPointerMove={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  seekFromClientX(event.clientX);
-                }
-              }}
-              onPointerUp={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-              }}
-              onPointerCancel={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-              }}
-            >
-              <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/80 transition group-hover:scale-110" />
-              <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
-            </div>
-          ) : null}
-        </div>
-        {transitionMenu ? (
-          <div
-            role="menu"
-            className="fixed z-[100] min-w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{
-              left: transitionMenu.clientX,
-              top: transitionMenu.clientY,
-            }}
-            onPointerDown={event => event.stopPropagation()}
-            data-testid="storyboard-extracted-frame-transition-menu"
-          >
-            <button
-              type="button"
-              role="menuitem"
-              disabled={pending}
-              className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
-              onClick={async () => {
-                if (!timeline.onCreateExtractedFrameTransition) return;
-                setPending(true);
-                const result = await timeline.onCreateExtractedFrameTransition({
-                  leftImageId: transitionMenu.leftImageId,
-                  rightImageId: transitionMenu.rightImageId,
-                });
-                setPending(false);
-                if (result.applied) setTransitionMenu(null);
-              }}
-            >
-              {pending
-                ? "正在生成确认卡…"
-                : `用左右抽帧生成 ${transitionMenu.durationSec} 秒覆盖视频…`}
-            </button>
-          </div>
-        ) : null}
-        {frameMenu ? (
-          <div
-            role="menu"
-            aria-label="抽帧操作"
-            className="fixed z-[110] min-w-48 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{
-              left: Math.min(frameMenu.clientX, window.innerWidth - 208),
-              top: Math.min(frameMenu.clientY, window.innerHeight - 120),
-            }}
-            onPointerDown={event => event.stopPropagation()}
-            onContextMenu={event => event.preventDefault()}
-            data-testid="storyboard-extracted-frame-delete-menu"
-          >
-            <div className="border-b border-border/60 px-2 pb-1 text-[9px] text-muted-foreground">
-              {frameMenu.frames.length > 1
-                ? `此处有 ${frameMenu.frames.length} 张重叠抽帧`
-                : `${frameMenu.frames[0]?.shotLabel ?? "抽帧"} · ${formatStoryboardTimestamp(frameMenu.frames[0]?.atMs ?? 0)} · 图片 #${frameMenu.frames[0]?.imageId ?? "-"}`}
-            </div>
-            {frameMenu.frames.map(candidate => (
-              <button
-                key={candidate.imageId}
-                type="button"
-                role="menuitem"
-                disabled={
-                  deletingImageId != null || !timeline.onDeleteExtractedFrame
-                }
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-destructive transition enabled:hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-                data-testid={`storyboard-extracted-frame-delete-action-${candidate.imageId}`}
-                onClick={async () => {
-                  if (
-                    !timeline.onDeleteExtractedFrame ||
-                    deletingImageId != null
-                  )
-                    return;
-                  setDeletingImageId(candidate.imageId);
-                  setDeleteError(null);
-                  try {
-                    const result = await timeline.onDeleteExtractedFrame(
-                      candidate.imageId
-                    );
-                    if (result.applied) {
-                      setFrameMenu(current => {
-                        if (!current) return null;
-                        const remaining = current.frames.filter(
-                          item => item.imageId !== candidate.imageId
-                        );
-                        return remaining.length > 0
-                          ? { ...current, frames: remaining }
-                          : null;
-                      });
-                    } else {
-                      setDeleteError(result.reason ?? "删除抽帧失败");
-                    }
-                  } finally {
-                    setDeletingImageId(null);
-                  }
-                }}
-              >
-                {deletingImageId === candidate.imageId ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3 w-3" />
-                )}
-                {deletingImageId === candidate.imageId
-                  ? "正在删除…"
-                  : frameMenu.frames.length > 1
-                    ? `删除 ${candidate.shotLabel} ${formatStoryboardTimestamp(candidate.atMs)} · 图片 #${candidate.imageId}`
-                    : "删除这张抽帧"}
-              </button>
-            ))}
-            {deleteError ? (
-              <p
-                role="alert"
-                className="max-w-52 px-2 py-1 text-[9px] text-destructive"
-              >
-                {deleteError}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </>
   );
 }
 
@@ -1824,11 +171,13 @@ function StoryboardEditGapMenu({
   pending,
   onCreate,
   onClose,
+  onPaste,
 }: {
   menu: GapMenuState;
   pending: boolean;
   onCreate: () => void;
   onClose: () => void;
+  onPaste?: () => void;
 }) {
   useEffect(() => {
     const close = () => onClose();
@@ -1869,6 +218,17 @@ function StoryboardEditGapMenu({
         {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
         自动创建镜头（用前后帧生成过渡）
       </button>
+      {onPaste ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={pending}
+          onClick={onPaste}
+          className="flex w-full items-center px-3 py-1 text-left text-[11px] hover:bg-muted disabled:opacity-40"
+        >
+          粘贴到这里
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1980,11 +340,160 @@ function StoryboardEditContextMenu({
   );
 }
 
+const VISUAL_OBJECT_COMMAND_LABELS: Record<VisualObjectCommand, string> = {
+  move: "移动（拖动或方向键）",
+  split: "在这里切一刀",
+  "extract-frame": "抽帧（存成画面）",
+  chat: "交给聊聊",
+  copy: "复制",
+  delete: "删除",
+  "generate-video": "用图片生成视频",
+  "set-anchor": "设置位置锚点",
+};
+
+type VisualObjectMenuState = {
+  object: VisualObjectRef;
+  clientX: number;
+  clientY: number;
+  timelineFrame?: number;
+  visualLayer?: number;
+};
+
+function StoryboardVisualObjectMenu({
+  menu,
+  commandAvailable,
+  pending,
+  onPick,
+  onClose,
+}: {
+  menu: VisualObjectMenuState;
+  commandAvailable: (command: VisualObjectCommand) => boolean;
+  pending: boolean;
+  onPick: (command: VisualObjectCommand) => void;
+  onClose: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const capabilities = visualObjectCapabilities(menu.object);
+  const focusable = () =>
+    Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitem"]'
+      ) ?? []
+    );
+  useEffect(() => {
+    focusable()[0]?.focus({ preventScroll: true });
+  }, []);
+  return (
+    <div
+      className="fixed inset-0 z-[120]"
+      onPointerDown={onClose}
+      onContextMenu={event => event.preventDefault()}
+    >
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={`${menu.object.type} 操作`}
+        className="fixed min-w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-xl"
+        style={{ left: menu.clientX, top: menu.clientY }}
+        onPointerDown={event => event.stopPropagation()}
+        onKeyDown={event => {
+          const items = focusable();
+          const current = items.indexOf(
+            document.activeElement as HTMLButtonElement
+          );
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+            return;
+          }
+          const next = storyboardVisualObjectMenuFocusIndex({
+            key: event.key,
+            currentIndex: current,
+            itemCount: items.length,
+          });
+          if (next == null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          items[next]?.focus({ preventScroll: true });
+        }}
+      >
+        {capabilities.map(capability => {
+          const unavailableReason =
+            capability.command === "move"
+              ? "请直接拖动素材或使用方向键"
+              : !commandAvailable(capability.command)
+                ? "该操作将在持久化命令接入后启用"
+                : undefined;
+          const disabled =
+            pending || !capability.enabled || Boolean(unavailableReason);
+          return (
+            <button
+              key={capability.command}
+              type="button"
+              role="menuitem"
+              aria-disabled={disabled}
+              tabIndex={-1}
+              title={capability.disabledReason ?? unavailableReason}
+              className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs ${disabled ? "cursor-not-allowed opacity-45" : "hover:bg-muted"}`}
+              onClick={() => {
+                if (!disabled) onPick(capability.command);
+              }}
+            >
+              <span>{VISUAL_OBJECT_COMMAND_LABELS[capability.command]}</span>
+              {disabled ? (
+                <span className="ml-3 text-[9px]">暂不可用</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StoryboardVisualPasteMenu({
+  menu,
+  pending,
+  onPaste,
+  onClose,
+}: {
+  menu: VisualPasteMenuState;
+  pending: boolean;
+  onPaste: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[120]" onPointerDown={onClose}>
+      <div
+        role="menu"
+        aria-label={`视觉层 ${menu.visualLayer + 1} 空白操作`}
+        className="fixed min-w-44 rounded-md border bg-popover p-1 shadow-xl"
+        style={{ left: menu.clientX, top: menu.clientY }}
+        onPointerDown={event => event.stopPropagation()}
+        onContextMenu={event => event.preventDefault()}
+      >
+        <button
+          autoFocus
+          type="button"
+          role="menuitem"
+          disabled={pending}
+          onClick={onPaste}
+          data-testid="storyboard-visual-paste"
+          className="flex w-full justify-between gap-6 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-45"
+        >
+          <span>粘贴</span>
+          <span className="text-[9px] text-muted-foreground">⌘V</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StoryboardEditTrack({
   timeline,
   viewport,
   shots,
-  selectedShotNo,
   onSelectShot,
   onOpenMenu,
   onOpenGapMenu,
@@ -2000,11 +509,14 @@ function StoryboardEditTrack({
   disableGroupMove = false,
   onNudgeVisualClip,
   onShotTimingPreviewChange,
+  selectedVisualObject,
+  onSelectVisualObject,
+  onOpenObjectMenu,
+  onOpenPasteMenu,
 }: {
   timeline: StoryboardBoardTimeline;
   viewport: TimelineViewport;
   shots: readonly StoryboardEditShot[];
-  selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
   onOpenMenu: (menu: MenuState) => void;
   onOpenGapMenu: (menu: GapMenuState) => void;
@@ -2029,7 +541,13 @@ function StoryboardEditTrack({
     preview: StoryboardShotTimingPreview | null,
     gestureId: symbol
   ) => void;
+  selectedVisualObject: VisualObjectRef | null;
+  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
+  onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
+  const isCurrentStorySession = () =>
+    timeline.isStorySessionCurrent?.() !== false;
   const dragAnchorMsRef = useRef<number | null>(null);
   const imagePointerDragRef = useRef<{
     pointerId: number;
@@ -2191,7 +709,7 @@ function StoryboardEditTrack({
     setImagePointerActive(false);
     if (!drag.moved) return;
     commitVisualClipDrag({
-      clipId: `image:${drag.clipId}`,
+      clipId: imageClipId(drag.clipId),
       startRectLeft: drag.startRectLeft,
       startLeftPx: drag.startLeftPx,
       startClientX: drag.startClientX,
@@ -2199,6 +717,7 @@ function StoryboardEditTrack({
       releaseClientY: event.clientY,
       viewport: drag.viewport,
       onMoveVisualClip: timeline.onMoveVisualClip,
+      isStorySessionCurrent: timeline.isStorySessionCurrent,
     });
   };
   const finishImagePointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -2428,11 +947,12 @@ function StoryboardEditTrack({
           boundaryFrame: rolling.boundaryFrame,
           requestedBoundaryFrame: rolling.requestedBoundaryFrame,
         });
+        if (!isCurrentStorySession()) return;
         if (result && !result.applied && result.reason) {
           onStatusMessage(result.reason);
         }
       } finally {
-        setDraftRollingJoin(null);
+        if (isCurrentStorySession()) setDraftRollingJoin(null);
       }
       return;
     }
@@ -2453,6 +973,7 @@ function StoryboardEditTrack({
             newDurationMs: trim.durationMs,
           }),
         });
+        if (!isCurrentStorySession()) return;
         if (!result.applied && result.reason) onStatusMessage(result.reason);
         return;
       }
@@ -2462,8 +983,10 @@ function StoryboardEditTrack({
         durationMs: trim.durationMs,
       });
     } finally {
-      setDraftTrim(null);
-      setDraftRollingJoin(null);
+      if (isCurrentStorySession()) {
+        setDraftTrim(null);
+        setDraftRollingJoin(null);
+      }
     }
   };
 
@@ -2726,7 +1249,7 @@ function StoryboardEditTrack({
     );
     try {
       await commitVisualClipDrag({
-        clipId: `shot:${start.stableShotId}`,
+        clipId: shotClipId(start.stableShotId),
         // 镜头块渲染在绝对时间像素上，用它当锚点就能保住抓取点。
         startLeftPx: sourceTiming
           ? msToPx(start.viewport, sourceTiming.startMs)
@@ -2737,15 +1260,18 @@ function StoryboardEditTrack({
         releaseClientY: event.clientY,
         viewport: start.viewport,
         onMoveVisualClip: timeline.onMoveVisualClip,
+        isStorySessionCurrent: timeline.isStorySessionCurrent,
         // 松手落在所有轨道之外时保持在主轨，等同于以前的纯横移。
         resolveTrack: (clientX, clientY) =>
           storyboardVisualLayerAtDocumentPoint(clientX, clientY) ??
           storyboardVisualLayerTrackGeometry(0),
       });
     } finally {
-      singleDragCommitPendingRef.current = false;
-      setSingleDrag(null);
-      onShotTimingPreviewChange?.(null, start.gestureId);
+      if (isCurrentStorySession()) {
+        singleDragCommitPendingRef.current = false;
+        setSingleDrag(null);
+        onShotTimingPreviewChange?.(null, start.gestureId);
+      }
     }
   };
   const endSingleDrag = async (event: ReactPointerEvent<HTMLElement>) => {
@@ -2889,8 +1415,13 @@ function StoryboardEditTrack({
             return;
           }
           if (
-            !event.dataTransfer.types.includes(SHOT_DRAG_MIME) &&
-            !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME)
+            !event.dataTransfer.types.includes(STORYBOARD_SHOT_DRAG_MIME) &&
+            !event.dataTransfer.types.includes(
+              STORYBOARD_IMAGE_CLIP_DRAG_MIME
+            ) &&
+            !event.dataTransfer.types.includes(
+              STORYBOARD_VIDEO_CLIP_DRAG_MIME
+            )
           )
             return;
           event.preventDefault();
@@ -2910,29 +1441,54 @@ function StoryboardEditTrack({
                 Math.round((atMs * 30) / 1000),
                 0
               )
-              .then(result => onSelectShot(result.shotNo))
-              .catch(error =>
+              .then(result => {
+                if (isCurrentStorySession()) onSelectShot(result.shotNo);
+              })
+              .catch(error => {
+                if (!isCurrentStorySession()) return;
                 toast.error(
                   error instanceof Error ? error.message : "素材落位失败"
-                )
-              );
+                );
+              });
             return;
           }
-          const imagePayload = event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
+          const imagePayload = event.dataTransfer.getData(
+            STORYBOARD_IMAGE_CLIP_DRAG_MIME
+          );
           if (imagePayload && timeline.onMoveVisualClip) {
             const atMs = trackMsFromPointer(event.clientX);
             event.preventDefault();
             event.stopPropagation();
             const parsed = JSON.parse(imagePayload) as { clipId: string };
             submitVisualClipMove({
-              clipId: `image:${parsed.clipId}`,
+              clipId: imageClipId(parsed.clipId),
               visualLayer: 0,
               toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
               onMoveVisualClip: timeline.onMoveVisualClip,
+              isStorySessionCurrent: timeline.isStorySessionCurrent,
             });
             return;
           }
-          const sourceStableShotId = event.dataTransfer.getData(SHOT_DRAG_MIME);
+          const sourceStableShotId = event.dataTransfer.getData(
+            STORYBOARD_SHOT_DRAG_MIME
+          );
+          const videoPayload = event.dataTransfer.getData(
+            STORYBOARD_VIDEO_CLIP_DRAG_MIME
+          );
+          if (videoPayload && timeline.onMoveVisualClip) {
+            const atMs = trackMsFromPointer(event.clientX);
+            event.preventDefault();
+            event.stopPropagation();
+            const parsed = JSON.parse(videoPayload) as { clipId: string };
+            submitVisualClipMove({
+              clipId: videoClipId(parsed.clipId),
+              visualLayer: 0,
+              toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
+              onMoveVisualClip: timeline.onMoveVisualClip,
+              isStorySessionCurrent: timeline.isStorySessionCurrent,
+            });
+            return;
+          }
           const sourceShot = shots.find(
             shot => shot.stableShotId === sourceStableShotId
           );
@@ -2941,33 +1497,45 @@ function StoryboardEditTrack({
           event.stopPropagation();
           const targetMs = trackMsFromPointer(event.clientX);
           submitVisualClipMove({
-            clipId: `shot:${sourceStableShotId}`,
+            clipId: shotClipId(sourceStableShotId),
             visualLayer: 0,
             toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
             onMoveVisualClip: timeline.onMoveVisualClip,
+            isStorySessionCurrent: timeline.isStorySessionCurrent,
           });
         }}
         onContextMenu={event => {
           // 落在某个镜头块上时，块自己的 onContextMenu 已经 stopPropagation，
           // 冒泡到这里的只会是真正的空档。
-          if (!timeline.onCreateGapTransition) return;
           const atMs = trackMsFromPointer(event.clientX);
           if (storyboardEditTimingAt(timings, atMs)) return;
           const sorted = [...timings].sort((a, b) => a.startMs - b.startMs);
           const before = [...sorted].reverse().find(t => t.endMs <= atMs);
           const after = sorted.find(t => t.startMs >= atMs);
-          if (!before || !after) return;
-          event.preventDefault();
-          event.stopPropagation();
-          trackRef.current?.focus();
-          timeline.onTogglePlay(false);
-          onOpenGapMenu({
-            atMs,
-            before,
-            after,
-            clientX: event.clientX,
-            clientY: event.clientY,
-          });
+          if (timeline.onCreateGapTransition && before && after) {
+            event.preventDefault();
+            event.stopPropagation();
+            trackRef.current?.focus();
+            timeline.onTogglePlay(false);
+            onOpenGapMenu({
+              atMs,
+              before,
+              after,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            });
+            return;
+          }
+          if (timeline.canPasteVisualObject) {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenPasteMenu({
+              clientX: event.clientX,
+              clientY: event.clientY,
+              timelineFrame: Math.max(0, Math.round((atMs * 30) / 1000)),
+              visualLayer: 0,
+            });
+          }
         }}
       >
         {mainImageClips.map(({ shot, clip, atMs }) => {
@@ -2981,6 +1549,14 @@ function StoryboardEditTrack({
               className="absolute bottom-1 top-5 z-[25] w-10 -translate-x-1/2 touch-none cursor-grab overflow-hidden rounded-sm border border-sky-400 bg-background shadow-sm active:cursor-grabbing focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               style={{ left: leftPx }}
               onPointerDown={event => {
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
                 startImagePointerDrag(event, clip.id, shot.stableShotId);
               }}
               onPointerMove={moveImagePointerDrag}
@@ -2992,30 +1568,103 @@ function StoryboardEditTrack({
                   return;
                 }
                 event.stopPropagation();
-                onSelectShot(shot.shotNo);
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
                 timeline.onSeek(atMs);
               }}
               onKeyDown={event => {
-                storyboardVisualClipArrowMove({
-                  event,
-                  visualLayer: 0,
-                  onMove: (deltaFrames, deltaVisualLayers) => {
-                    onNudgeVisualClip({
-                      clipId: `image:${clip.id}`,
-                      startVisualLayer: 0,
-                      deltaVisualLayers,
-                      startFrame: timelineImageClipStartFrame(
-                        clip,
-                        shot.timing.startFrame
-                      ),
-                      deltaFrames,
-                    });
+                if (
+                  storyboardVisualClipArrowMove({
+                    event,
+                    onMove: (deltaFrames, deltaVisualLayers) => {
+                      onNudgeVisualClip({
+                        clipId: imageClipId(clip.id),
+                        startVisualLayer: 0,
+                        deltaVisualLayers,
+                        startFrame: timelineImageClipStartFrame(
+                          clip,
+                          shot.timing.startFrame
+                        ),
+                        deltaFrames,
+                      });
+                    },
+                  })
+                )
+                  return;
+                if (
+                  !(
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  )
+                )
+                  return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
                   },
+                  event.currentTarget
+                );
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenObjectMenu({
+                  object: {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  clientX: rect.left + rect.width / 2,
+                  clientY: rect.top + rect.height / 2,
+                  timelineFrame: timelineImageClipStartFrame(
+                    clip,
+                    shot.timing.startFrame
+                  ),
+                  visualLayer: Math.max(0, clip.visualLayer),
+                });
+              }}
+              onContextMenu={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
+                onOpenObjectMenu({
+                  object: {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                  timelineFrame: timelineImageClipStartFrame(
+                    clip,
+                    shot.timing.startFrame
+                  ),
+                  visualLayer: Math.max(0, clip.visualLayer),
                 });
               }}
               data-visual-clip-move-target="true"
-              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
-              aria-label={`${clip.label}，方向键左右移动、上下换层，按住 Shift 加速`}
+              data-visual-object-type="image-clip"
+              data-visual-object-id={clip.id}
+              aria-selected={
+                selectedVisualObject?.type === "image-clip" &&
+                selectedVisualObject.clipId === clip.id
+              }
+              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
+              aria-label={`${clip.label}，图片`}
               title={`${clip.label} · 方向键左右移动、上下换层，Shift+左右移动 15 帧`}
               data-testid={`storyboard-main-image-clip-${clip.imageId}`}
             >
@@ -3034,7 +1683,9 @@ function StoryboardEditTrack({
             item => item.stableShotId === timing.stableShotId
           );
           if (!shot) return null;
-          const selected = shot.shotNo === selectedShotNo;
+          const selected =
+            selectedVisualObject?.type === "story-shot" &&
+            selectedVisualObject.stableShotId === shot.stableShotId;
           const trimming =
             draftTrim?.stableShotId === shot.stableShotId ? draftTrim : null;
           const rollingSide =
@@ -3065,7 +1716,9 @@ function StoryboardEditTrack({
           const segments = storyboardEditSegments({
             durationMs,
             label: shot.shotLabel,
-            visualClips: shot.timelineItem?.visualClips,
+            visualClips: (shot.timelineItem?.visualClips ?? []).filter(
+              clip => storyboardOwnedClipVisualLayer(clip) === 0
+            ),
             visualClipsReplacePrimary:
               shot.timelineItem?.visualClipsReplacePrimary,
           });
@@ -3089,7 +1742,10 @@ function StoryboardEditTrack({
                   : `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`
               }
               data-visual-clip-move-target="true"
-              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+              data-visual-object-type="story-shot"
+              data-visual-object-id={shot.stableShotId}
+              aria-selected={selected}
+              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
               aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
               data-storyboard-edit-shot-no={shot.shotNo}
@@ -3103,6 +1759,14 @@ function StoryboardEditTrack({
                 ) {
                   return;
                 }
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  },
+                  event.currentTarget
+                );
                 focusStoryboardClipForDrag(event.currentTarget);
                 startSingleDrag(event, shot);
               }}
@@ -3123,18 +1787,46 @@ function StoryboardEditTrack({
                   : undefined
               }
               onKeyDown={event => {
-                storyboardVisualClipArrowMove({
-                  event,
-                  visualLayer: 0,
-                  onMove: (deltaFrames, deltaVisualLayers) => {
-                    onNudgeVisualClip({
-                      clipId: `shot:${shot.stableShotId}`,
-                      startVisualLayer: 0,
-                      deltaVisualLayers,
-                      startFrame: shot.timing.startFrame,
-                      deltaFrames,
-                    });
+                if (
+                  storyboardVisualClipArrowMove({
+                    event,
+                    onMove: (deltaFrames, deltaVisualLayers) => {
+                      onNudgeVisualClip({
+                        clipId: shotClipId(shot.stableShotId),
+                        startVisualLayer: 0,
+                        deltaVisualLayers,
+                        startFrame: shot.timing.startFrame,
+                        deltaFrames,
+                      });
+                    },
+                  })
+                )
+                  return;
+                if (
+                  !(
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  )
+                )
+                  return;
+                event.preventDefault();
+                event.stopPropagation();
+                timeline.onTogglePlay(false);
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
                   },
+                  event.currentTarget
+                );
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenMenu({
+                  shot,
+                  atMs: shot.timing.startMs,
+                  clientX: rect.left + rect.width / 2,
+                  clientY: rect.top + rect.height / 2,
+                  magneticJoin: null,
                 });
               }}
               onContextMenu={event => {
@@ -3142,7 +1834,14 @@ function StoryboardEditTrack({
                 event.stopPropagation();
                 trackRef.current?.focus();
                 timeline.onTogglePlay(false);
-                onSelectShot(shot.shotNo);
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  },
+                  event.currentTarget
+                );
                 const atMs = trackMsFromPointer(event.clientX);
                 const atFrame = Math.round((atMs * 30) / 1000);
                 const thresholdFrames = storyboardMagnetThresholdFrames({
@@ -3180,7 +1879,12 @@ function StoryboardEditTrack({
                   setDropTargetShotId(shot.stableShotId);
                   return;
                 }
-                if (!event.dataTransfer.types.includes(SHOT_DRAG_MIME)) return;
+                if (
+                  !event.dataTransfer.types.includes(
+                    STORYBOARD_SHOT_DRAG_MIME
+                  )
+                )
+                  return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
                 setDropTargetShotId(shot.stableShotId);
@@ -3201,12 +1905,15 @@ function StoryboardEditTrack({
                       Math.round((atMs * 30) / 1000),
                       0
                     )
-                    .then(result => onSelectShot(result.shotNo))
-                    .catch(error =>
+                    .then(result => {
+                      if (isCurrentStorySession()) onSelectShot(result.shotNo);
+                    })
+                    .catch(error => {
+                      if (!isCurrentStorySession()) return;
                       toast.error(
                         error instanceof Error ? error.message : "素材落位失败"
-                      )
-                    );
+                      );
+                    });
                   return;
                 }
                 if (storyImageDrop.accepts(event.dataTransfer)) {
@@ -3219,7 +1926,7 @@ function StoryboardEditTrack({
                   return;
                 }
                 const sourceStableShotId =
-                  event.dataTransfer.getData(SHOT_DRAG_MIME);
+                  event.dataTransfer.getData(STORYBOARD_SHOT_DRAG_MIME);
                 if (
                   !sourceStableShotId ||
                   sourceStableShotId === shot.stableShotId
@@ -3268,6 +1975,124 @@ function StoryboardEditTrack({
                       }
                       testId={`storyboard-edit-filmstrip-${shot.stableShotId}-${segment.id}`}
                     />
+                    {segment.clip ? (
+                      <button
+                        type="button"
+                        className="absolute inset-0 z-10 min-w-6 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        data-visual-object-type="owned-video-clip"
+                        data-visual-object-id={segment.clip.id}
+                        aria-selected={
+                          selectedVisualObject?.type === "owned-video-clip" &&
+                          selectedVisualObject.clipId === segment.clip.id
+                        }
+                        aria-label={`${segment.clip.label}，视频片段`}
+                        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
+                        data-visual-clip-move-target="true"
+                        onPointerDown={event => {
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                        }}
+                        draggable={Boolean(timeline.onMoveVisualClip)}
+                        onDragStart={event => {
+                          event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            STORYBOARD_VIDEO_CLIP_DRAG_MIME,
+                            JSON.stringify({ clipId: segment.clip!.id })
+                          );
+                        }}
+                        onClick={event => {
+                          event.stopPropagation();
+                          timeline.onTogglePlay(false);
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                        }}
+                        onContextMenu={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                          onOpenObjectMenu({
+                            object: {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            clientX: event.clientX,
+                            clientY: event.clientY,
+                          });
+                        }}
+                        onKeyDown={event => {
+                          if (
+                            storyboardVisualClipArrowMove({
+                              event,
+                              onMove: (deltaFrames, deltaVisualLayers) => {
+                                onNudgeVisualClip({
+                                  clipId: videoClipId(segment.clip!.id),
+                                  startVisualLayer: 0,
+                                  deltaVisualLayers,
+                                  startFrame:
+                                    shot.timing.startFrame +
+                                    Math.round(
+                                      ((segment.clip!.offsetMs ?? 0) * 30) /
+                                        1000
+                                    ),
+                                  deltaFrames,
+                                });
+                              },
+                            })
+                          )
+                            return;
+                          if (
+                            !(
+                              event.key === "ContextMenu" ||
+                              (event.shiftKey && event.key === "F10")
+                            )
+                          )
+                            return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          onOpenObjectMenu({
+                            object: {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2,
+                          });
+                        }}
+                      />
+                    ) : null}
                   </span>
                 );
               })}
@@ -3319,7 +2144,7 @@ function StoryboardEditTrack({
                     onDragStart={event => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData(
-                        SHOT_DRAG_MIME,
+                        STORYBOARD_SHOT_DRAG_MIME,
                         shot.stableShotId
                       );
                       event.dataTransfer.setData("text/plain", shot.shotLabel);
@@ -3623,18 +2448,22 @@ export function StoryboardEditRow({
   columnSpan,
   shotActions,
   onShotTimingPreviewChange,
+  selectedVisualObject: controlledSelectedVisualObject,
+  onSelectVisualObject,
 }: {
   timeline: StoryboardBoardTimeline;
   viewport?: TimelineViewport;
   shots: readonly StoryboardEditShot[];
   selectedShotNo: number | null;
-  onSelectShot: (shotNo: number) => void;
+  onSelectShot: (shotNo: number | null) => void;
   columnSpan: number;
   shotActions?: StoryboardEditShotActions;
   onShotTimingPreviewChange?: (
     preview: StoryboardShotTimingPreview | null,
     gestureId: symbol
   ) => void;
+  selectedVisualObject?: VisualObjectRef | null;
+  onSelectVisualObject?: (object: VisualObjectRef | null) => void;
 }) {
   // 生产看板显式传入和标尺、缩放控件同一个 viewport。回退只服务
   // 独立渲染与旧测试夹具，坐标语义仍是像素。
@@ -3653,16 +2482,193 @@ export function StoryboardEditRow({
   const [pendingAction, setPendingAction] =
     useState<StoryboardEditAction | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [objectMenu, setObjectMenu] = useState<VisualObjectMenuState | null>(
+    null
+  );
+  const [pasteMenu, setPasteMenu] = useState<VisualPasteMenuState | null>(null);
+  const [pastePending, setPastePending] = useState(false);
+  const [pendingObjectKey, setPendingObjectKey] = useState<string | null>(null);
   const [gapMenu, setGapMenu] = useState<GapMenuState | null>(null);
   const [gapTransitionPending, setGapTransitionPending] = useState(false);
   const [markInMs, setMarkInMs] = useState<number | null>(null);
   const [focusedAnchorId, setFocusedAnchorId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [localSelectedVisualObject, setLocalSelectedVisualObject] =
+    useState<VisualObjectRef | null>(null);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
+  const pendingGuardRef = useRef(createVisualObjectPendingGuard());
+  const pendingMenuItemRef = useRef<HTMLElement | null>(null);
+  const projectedShotNoRef = useRef<number | null | undefined>(undefined);
   const activeTimingGestureRef = useRef<symbol | null>(null);
   const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
   shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
+  const storySessionKeyRef = useRef(timeline.storySessionKey);
+  const renderedStorySessionToken = useMemo(
+    () => Symbol("storyboard-async-session"),
+    [timeline.storySessionKey]
+  );
+  const asyncSessionGuardRef = useRef(
+    createStoryboardAsyncSessionGuard(renderedStorySessionToken)
+  );
+  const isStorySessionTokenCurrent = useCallback(
+    (candidate: symbol) =>
+      asyncSessionGuardRef.current.isCurrent(candidate) &&
+      timeline.isStorySessionCurrent?.() !== false,
+    [timeline.isStorySessionCurrent]
+  );
+  const isRenderedStorySessionCurrent = useCallback(
+    () => isStorySessionTokenCurrent(renderedStorySessionToken),
+    [isStorySessionTokenCurrent, renderedStorySessionToken]
+  );
+  const childTimeline = useMemo<StoryboardBoardTimeline>(
+    () => ({
+      ...timeline,
+      isStorySessionCurrent: isRenderedStorySessionCurrent,
+    }),
+    [isRenderedStorySessionCurrent, timeline]
+  );
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const selectedVisualObject =
+    controlledSelectedVisualObject !== undefined
+      ? controlledSelectedVisualObject
+      : (localSelectedVisualObject ??
+        (selectedShotNo == null
+          ? null
+          : (() => {
+              const shot = shots.find(item => item.shotNo === selectedShotNo);
+              return shot
+                ? ({
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  } as const)
+                : null;
+            })()));
+  const selectVisualObject = useCallback(
+    (object: VisualObjectRef, target: HTMLElement) => {
+      focusReturnRef.current = target;
+      if (controlledSelectedVisualObject === undefined) {
+        setLocalSelectedVisualObject(object);
+      }
+      onSelectVisualObject?.(object);
+      const projectedShotNo =
+        object.type === "story-shot" ? (object.shotNo ?? null) : null;
+      projectedShotNoRef.current = projectedShotNo;
+      onSelectShot(projectedShotNo);
+    },
+    [controlledSelectedVisualObject, onSelectShot, onSelectVisualObject]
+  );
+  useEffect(() => {
+    if (projectedShotNoRef.current === selectedShotNo) {
+      projectedShotNoRef.current = undefined;
+      return;
+    }
+    if (controlledSelectedVisualObject !== undefined) return;
+    const shot =
+      selectedShotNo == null
+        ? null
+        : (shots.find(item => item.shotNo === selectedShotNo) ?? null);
+    setLocalSelectedVisualObject(
+      shot
+        ? {
+            type: "story-shot",
+            stableShotId: shot.stableShotId,
+            shotNo: shot.shotNo,
+          }
+        : null
+    );
+    setMenu(null);
+    setObjectMenu(null);
+    setPasteMenu(null);
+    setPastePending(false);
+    focusReturnRef.current = null;
+  }, [controlledSelectedVisualObject, selectedShotNo, shots]);
+  useLayoutEffect(() => {
+    // Only a committed render may advance the guard. An interrupted concurrent
+    // render never reaches this effect and therefore cannot invalidate A.
+    asyncSessionGuardRef.current.commit(renderedStorySessionToken);
+    if (storySessionKeyRef.current === timeline.storySessionKey) return;
+    storySessionKeyRef.current = timeline.storySessionKey;
+    if (controlledSelectedVisualObject === undefined)
+      setLocalSelectedVisualObject(null);
+    onSelectVisualObject?.(null);
+    setMenu(null);
+    setObjectMenu(null);
+    setGapMenu(null);
+    setPendingAction(null);
+    setPendingObjectKey(null);
+    setGapTransitionPending(false);
+    setStatusMessage(null);
+    setMarkInMs(null);
+    setFocusedAnchorId(null);
+    const activeTimingGesture = activeTimingGestureRef.current;
+    activeTimingGestureRef.current = null;
+    if (activeTimingGesture)
+      shotTimingPreviewCallbackRef.current?.(null, activeTimingGesture);
+    projectedShotNoRef.current = undefined;
+    pendingMenuItemRef.current = null;
+    pendingGuardRef.current = createVisualObjectPendingGuard();
+    focusReturnRef.current = null;
+  }, [
+    controlledSelectedVisualObject,
+    onSelectVisualObject,
+    renderedStorySessionToken,
+    timeline.storySessionKey,
+  ]);
+  useEffect(() => {
+    if (!selectedVisualObject) return;
+    const availableKeys = new Set<string>();
+    for (const shot of shots) {
+      availableKeys.add(
+        visualObjectRefKey({
+          type: "story-shot",
+          stableShotId: shot.stableShotId,
+        })
+      );
+      for (const clip of shot.timelineItem?.visualClips ?? []) {
+        availableKeys.add(
+          visualObjectRefKey({
+            type: "owned-video-clip",
+            clipId: clip.id,
+            ownerStableShotId: shot.stableShotId,
+          })
+        );
+      }
+      for (const clip of shot.timelineItem?.imageClips ?? []) {
+        availableKeys.add(
+          visualObjectRefKey({
+            type: "image-clip",
+            clipId: clip.id,
+            ownerStableShotId: shot.stableShotId,
+          })
+        );
+      }
+    }
+    if (availableKeys.has(visualObjectRefKey(selectedVisualObject))) return;
+    if (controlledSelectedVisualObject === undefined)
+      setLocalSelectedVisualObject(null);
+    onSelectVisualObject?.(null);
+    onSelectShot(null);
+    setMenu(null);
+    setObjectMenu(null);
+    focusReturnRef.current = null;
+  }, [
+    controlledSelectedVisualObject,
+    onSelectShot,
+    onSelectVisualObject,
+    selectedVisualObject,
+    shots,
+  ]);
+  useEffect(() => {
+    if (
+      objectMenu &&
+      visualObjectRefKey(objectMenu.object) !==
+        (selectedVisualObject ? visualObjectRefKey(selectedVisualObject) : null)
+    ) {
+      setObjectMenu(null);
+    }
+  }, [objectMenu, selectedVisualObject]);
   const handleShotTimingPreviewChange = useCallback(
     (preview: StoryboardShotTimingPreview | null, gestureId: symbol) => {
       if (preview) {
@@ -3687,6 +2693,30 @@ export function StoryboardEditRow({
     shot.timelineItem ? [shot.timelineItem] : []
   );
   const timelineOverlays = timeline.overlays ?? [];
+  const visualObjectLayer = (object: VisualObjectRef): number | null => {
+    if (object.type === "story-shot") {
+      const item = timelineItems.find(
+        candidate => candidate.stableShotId === object.stableShotId
+      );
+      return item == null ? null : Math.max(0, item.visualLayer ?? 0);
+    }
+    const owner = timelineItems.find(
+      candidate => candidate.stableShotId === object.ownerStableShotId
+    );
+    if (!owner) return null;
+    if (object.type === "owned-video-clip") {
+      const clip = owner.visualClips?.find(
+        candidate => candidate.id === object.clipId
+      );
+      return clip == null
+        ? null
+        : Math.max(0, clip.visualLayer ?? owner.visualLayer ?? 0);
+    }
+    const clip = owner.imageClips?.find(
+      candidate => candidate.id === object.clipId
+    );
+    return clip == null ? null : Math.max(0, clip.visualLayer);
+  };
   const visualLayerState =
     timeline.visualLayerState ??
     resolveTimelineVisualLayerState(null, timelineItems, timelineOverlays);
@@ -3730,25 +2760,175 @@ export function StoryboardEditRow({
       )
         return;
     }
+    const sessionToken = renderedStorySessionToken;
     setStatusMessage("正在保存图层…");
     void timeline
       .onManageVisualLayer(action)
-      .then(() => setStatusMessage("图层已更新"))
-      .catch(error =>
+      .then(() => {
+        if (isStorySessionTokenCurrent(sessionToken))
+          setStatusMessage("图层已更新");
+      })
+      .catch(error => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           error instanceof Error ? error.message : "图层更新失败"
-        )
-      );
+        );
+      });
   };
 
   const timings = shots.map(shot => shot.timing);
-  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    focusReturnRef.current?.focus({ preventScroll: true });
+  }, []);
   const closeGapMenu = useCallback(() => setGapMenu(null), []);
+  const closeObjectMenu = useCallback(() => {
+    setObjectMenu(null);
+    focusReturnRef.current?.focus({ preventScroll: true });
+  }, []);
+  const openObjectMenu = useCallback(
+    (next: VisualObjectMenuState) => {
+      const trackRect = trackRef.current?.getBoundingClientRect();
+      const timelineFrame = storyboardVisualObjectMenuTimelineFrame({
+        explicitTimelineFrame: next.timelineFrame,
+        clientX: next.clientX,
+        trackLeft: trackRect?.left ?? null,
+        viewport,
+        playheadMs: timeline.playheadMs,
+      });
+      setMenu(null);
+      setGapMenu(null);
+      setObjectMenu({
+        ...next,
+        timelineFrame,
+        visualLayer: next.visualLayer ?? visualObjectLayer(next.object) ?? 0,
+      });
+    },
+    [timeline.playheadMs, timelineItems, viewport]
+  );
+  const pasteVisualObject = useCallback(
+    (context: { timelineFrame: number; visualLayer?: number }) => {
+      if (!timeline.onPasteVisualObject || pastePending) return;
+      const sessionToken = renderedStorySessionToken;
+      setPastePending(true);
+      void timeline
+        .onPasteVisualObject(context)
+        .then(() => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setPasteMenu(null);
+          setStatusMessage("素材已粘贴");
+        })
+        .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setStatusMessage(error instanceof Error ? error.message : "粘贴失败");
+        })
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken)) setPastePending(false);
+        });
+    },
+    [
+      pastePending,
+      timeline,
+      isStorySessionTokenCurrent,
+      renderedStorySessionToken,
+    ]
+  );
+  const runObjectCommand = useCallback(
+    (command: VisualObjectCommand) => {
+      if (!objectMenu || !timeline.onVisualObjectCommand) return;
+      const object = objectMenu.object;
+      if (
+        timeline.isVisualObjectCommandAvailable &&
+        !timeline.isVisualObjectCommandAvailable(object, command, {
+          timelineFrame:
+            objectMenu.timelineFrame ??
+            Math.max(0, Math.round((timeline.playheadMs * 30) / 1_000)),
+          visualLayer: objectMenu.visualLayer ?? visualObjectLayer(object) ?? 0,
+        })
+      ) {
+        return;
+      }
+      const key = visualObjectRefKey(object);
+      const sessionToken = renderedStorySessionToken;
+      pendingMenuItemRef.current =
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement.getAttribute("role") === "menuitem"
+          ? document.activeElement
+          : null;
+      setPendingObjectKey(key);
+      void pendingGuardRef.current
+        .run(key, () =>
+          timeline.onVisualObjectCommand!(object, command, {
+            timelineFrame:
+              objectMenu.timelineFrame ??
+              Math.max(0, Math.round((timeline.playheadMs * 30) / 1_000)),
+            visualLayer:
+              objectMenu.visualLayer ?? visualObjectLayer(object) ?? 0,
+          })
+        )
+        .then(result => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          if (result !== null) closeObjectMenu();
+        })
+        .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setStatusMessage(
+            error instanceof Error ? error.message : "对象操作失败，请重试"
+          );
+          pendingMenuItemRef.current?.focus({ preventScroll: true });
+        })
+        .finally(() => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          pendingMenuItemRef.current = null;
+          setPendingObjectKey(null);
+        });
+    },
+    [closeObjectMenu, objectMenu, timeline]
+  );
+  const runSelectedObjectCommand = useCallback(
+    (
+      command: VisualObjectCommand,
+      context: { timelineFrame: number; visualLayer: number }
+    ) => {
+      const object = selectedVisualObject;
+      if (!object || !timeline.onVisualObjectCommand) return false;
+      if (
+        timeline.isVisualObjectCommandAvailable &&
+        !timeline.isVisualObjectCommandAvailable(object, command, context)
+      )
+        return false;
+      const key = visualObjectRefKey(object);
+      const sessionToken = renderedStorySessionToken;
+      setPendingObjectKey(key);
+      void pendingGuardRef.current
+        .run(key, () =>
+          timeline.onVisualObjectCommand!(object, command, context)
+        )
+        .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setStatusMessage(
+            error instanceof Error ? error.message : "对象操作失败，请重试"
+          );
+        })
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken))
+            setPendingObjectKey(null);
+        });
+      return true;
+    },
+    [
+      selectedVisualObject,
+      timeline,
+      renderedStorySessionToken,
+      isStorySessionTokenCurrent,
+    ]
+  );
 
   const createGapTransition = (target: GapMenuState) => {
     if (!timeline.onCreateGapTransition || gapTransitionPending) return;
     closeGapMenu();
     setGapTransitionPending(true);
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(
       timeline.onCreateGapTransition({
         beforeStableShotId: target.before.stableShotId,
@@ -3756,13 +2936,17 @@ export function StoryboardEditRow({
       })
     )
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied
             ? "已在聊天里生成待确认的过渡镜头卡片"
             : (result?.reason ?? "创建过渡镜头失败")
         );
       })
-      .finally(() => setGapTransitionPending(false));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken))
+          setGapTransitionPending(false);
+      });
   };
 
   // onSeek 要过一轮 state 才落到 timeline.playheadMs 上，所以连着敲
@@ -3788,6 +2972,9 @@ export function StoryboardEditRow({
         storyboardEditTimingAt(timings, headRef.current)?.stableShotId
     ) ??
     null;
+  const selectedOperationLayer = selectedVisualObject
+    ? visualObjectLayer(selectedVisualObject)
+    : null;
 
   const frameAt = (ms: number) => Math.max(0, Math.round((ms * 30) / 1000));
 
@@ -3802,6 +2989,7 @@ export function StoryboardEditRow({
     );
     const index = ordered.findIndex(entry => entry.id === anchor.id);
     const next = ordered[index + 1] ?? ordered[index - 1] ?? null;
+    const sessionToken = renderedStorySessionToken;
     setPendingAction("removeAnchor");
     void Promise.resolve(
       timeline.onRemoveAnchor({
@@ -3810,6 +2998,7 @@ export function StoryboardEditRow({
       })
     )
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied
             ? "已取消位置锚点"
@@ -3820,19 +3009,25 @@ export function StoryboardEditRow({
           if (!next) trackRef.current?.focus();
         }
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const addAnchor = (ms: number) => {
     if (!timeline.onAddAnchor || pendingAction) return;
     setPendingAction("addAnchor");
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(timeline.onAddAnchor(frameAt(ms)))
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied ? "已钉下位置锚点" : (result?.reason ?? "打标失败")
         );
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const runAction = (
@@ -3863,19 +3058,23 @@ export function StoryboardEditRow({
         return;
       }
       setPendingAction("detachMagnet");
+      const sessionToken = renderedStorySessionToken;
       void timeline
         .onDetachTimelineMagnet({
           leftStableShotId: magneticJoin.leftStableShotId,
           rightStableShotId: magneticJoin.rightStableShotId,
         })
         .then(result => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
           setStatusMessage(
             result.applied
               ? "已取消这两个镜头的吸附"
               : (result.reason ?? "取消吸附失败")
           );
         })
-        .finally(() => setPendingAction(null));
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+        });
       return;
     }
     if (pendingAction || timeline.writePending || !shot) return;
@@ -3919,10 +3118,14 @@ export function StoryboardEditRow({
     let done: Promise<unknown> | unknown;
     switch (action) {
       case "split":
-        done = timeline.onSplitAt(atMs);
+        done = timeline.onSplitAt(atMs, shot.stableShotId);
         break;
       case "extract":
-        done = timeline.onExtractFrameAt(atMs);
+        done = timeline.onExtractFrameAt(
+          atMs,
+          selectedOperationLayer ??
+            Math.max(0, shot.timelineItem?.visualLayer ?? 0)
+        );
         break;
       case "selectShot":
         timeline.onSelectRange({
@@ -3969,13 +3172,17 @@ export function StoryboardEditRow({
     if (done == null) return;
     timeline.onTogglePlay(false);
     setPendingAction(action);
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(done)
       .catch(error => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           error instanceof Error ? error.message : "剪辑操作失败，请重试"
         );
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const markRange = (outMs: number) => {
@@ -3996,7 +3203,40 @@ export function StoryboardEditRow({
   const handleShortcut = (event: KeyboardEvent) => {
     const shortcut = storyboardEditShortcut(event);
     if (!shortcut) return;
+    const selectedObjectContext = selectedVisualObject
+      ? {
+          timelineFrame: Math.max(
+            0,
+            Math.round((headRef.current * 30) / 1_000)
+          ),
+          visualLayer: visualObjectLayer(selectedVisualObject) ?? 0,
+        }
+      : null;
+    const objectRoute = storyboardVisualObjectShortcutRoute({
+      shortcut,
+      selectedObject: selectedVisualObject,
+      commandAvailable: (object, command) =>
+        Boolean(
+          timeline.onVisualObjectCommand &&
+            (!timeline.isVisualObjectCommandAvailable ||
+              timeline.isVisualObjectCommandAvailable(object, command, {
+                timelineFrame: selectedObjectContext?.timelineFrame ?? 0,
+                visualLayer:
+                  selectedObjectContext?.visualLayer ??
+                  visualObjectLayer(object) ??
+                  0,
+              }))
+        ),
+    });
+    if (shortcut.kind === "copyVisualObject" && objectRoute.kind === "legacy")
+      return;
     if (
+      shortcut.kind === "pasteVisualObject" &&
+      (!timeline.canPasteVisualObject || !timeline.onPasteVisualObject)
+    )
+      return;
+    if (
+      objectRoute.kind === "legacy" &&
       shortcut.kind === "action" &&
       storyboardEditNeedsRowFocus(shortcut.action) &&
       !rowRef.current?.contains(document.activeElement)
@@ -4005,7 +3245,27 @@ export function StoryboardEditRow({
     }
     event.preventDefault();
     event.stopPropagation();
+    if (objectRoute.kind === "blocked") return;
+    if (objectRoute.kind === "object") {
+      if (selectedObjectContext) {
+        runSelectedObjectCommand(objectRoute.command, selectedObjectContext);
+      }
+      return;
+    }
     switch (shortcut.kind) {
+      case "copyVisualObject":
+        return;
+      case "pasteVisualObject":
+        pasteVisualObject({
+          timelineFrame: Math.max(
+            0,
+            Math.round((headRef.current * 30) / 1_000)
+          ),
+          ...(selectedOperationLayer == null
+            ? {}
+            : { visualLayer: selectedOperationLayer }),
+        });
+        return;
       case "togglePlay":
         timeline.onTogglePlay(!timeline.isPlaying);
         return;
@@ -4088,6 +3348,11 @@ export function StoryboardEditRow({
         isVisualClipMoveTarget: Boolean(
           target?.closest('[data-visual-clip-move-target="true"]')
         ),
+        isInteractionBoundary: Boolean(
+          target?.closest(
+            'select, [role="combobox"], [role="dialog"], [role="menu"], [data-renaming="true"], [data-rename-input="true"]'
+          )
+        ),
         rowVisible: rowRef.current?.offsetParent != null,
       });
       if (!allowed) return;
@@ -4103,10 +3368,10 @@ export function StoryboardEditRow({
         { length: Math.max(1, visualLayerState.count - 1) },
         (_, index) => visualLayerState.count - 1 - index
       ).map((visualLayer, index) => (
-        <StoryboardUpperVisualLayerRow
-          key={`persisted-visual-layer-${visualLayer}`}
+        <StoryboardVisualLayerRow
+          key={`${timeline.storySessionKey ?? "legacy-story"}:persisted-visual-layer-${visualLayer}`}
           shots={shots}
-          timeline={timeline}
+          timeline={childTimeline}
           viewport={viewport}
           columnSpan={columnSpan}
           onSelectShot={onSelectShot}
@@ -4117,6 +3382,11 @@ export function StoryboardEditRow({
           onManageLayer={manageVisualLayer}
           onNudgeVisualClip={nudgeVisualClip}
           onShotTimingPreviewChange={handleShotTimingPreviewChange}
+          selectedVisualObject={selectedVisualObject}
+          onSelectVisualObject={selectVisualObject}
+          onOpenMenu={setMenu}
+          onOpenObjectMenu={openObjectMenu}
+          onOpenPasteMenu={setPasteMenu}
         />
       ))}
       <StoryboardVisualLayerHeader
@@ -4144,10 +3414,10 @@ export function StoryboardEditRow({
       >
         <div className={mainLayerHidden ? "opacity-25" : undefined}>
           <StoryboardEditTrack
-            timeline={timeline}
+            key={`${timeline.storySessionKey ?? "legacy-story"}:main-visual-track`}
+            timeline={childTimeline}
             viewport={viewport}
             shots={shots}
-            selectedShotNo={selectedShotNo}
             onSelectShot={onSelectShot}
             onOpenMenu={setMenu}
             onOpenGapMenu={setGapMenu}
@@ -4169,6 +3439,10 @@ export function StoryboardEditRow({
             disableGroupMove={false}
             onNudgeVisualClip={nudgeVisualClip}
             onShotTimingPreviewChange={handleShotTimingPreviewChange}
+            selectedVisualObject={selectedVisualObject}
+            onSelectVisualObject={selectVisualObject}
+            onOpenObjectMenu={openObjectMenu}
+            onOpenPasteMenu={setPasteMenu}
           />
         </div>
       </div>
@@ -4189,6 +3463,29 @@ export function StoryboardEditRow({
           pending={gapTransitionPending}
           onCreate={() => createGapTransition(gapMenu)}
           onClose={closeGapMenu}
+          onPaste={
+            timeline.canPasteVisualObject
+              ? () => {
+                  const target = gapMenu;
+                  closeGapMenu();
+                  pasteVisualObject({
+                    timelineFrame: Math.max(
+                      0,
+                      Math.round((target.atMs * 30) / 1_000)
+                    ),
+                    visualLayer: 0,
+                  });
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {pasteMenu ? (
+        <StoryboardVisualPasteMenu
+          menu={pasteMenu}
+          pending={pastePending}
+          onPaste={() => pasteVisualObject(pasteMenu)}
+          onClose={() => setPasteMenu(null)}
         />
       ) : null}
       {menu ? (
@@ -4217,6 +3514,42 @@ export function StoryboardEditRow({
             runAction(action, menu.shot, menu.atMs, menu.magneticJoin)
           }
           onClose={closeMenu}
+        />
+      ) : null}
+      {objectMenu ? (
+        <StoryboardVisualObjectMenu
+          key={visualObjectRefKey(objectMenu.object)}
+          menu={objectMenu}
+          commandAvailable={command =>
+            Boolean(
+              timeline.onVisualObjectCommand &&
+                (!timeline.isVisualObjectCommandAvailable ||
+                  timeline.isVisualObjectCommandAvailable(
+                    objectMenu.object,
+                    command,
+                    {
+                      timelineFrame:
+                        objectMenu.timelineFrame ??
+                        Math.max(
+                          0,
+                          Math.round((timeline.playheadMs * 30) / 1_000)
+                        ),
+                      visualLayer:
+                        objectMenu.visualLayer ??
+                        visualObjectLayer(objectMenu.object) ??
+                        0,
+                    }
+                  ))
+            )
+          }
+          pending={
+            pendingObjectKey === visualObjectRefKey(objectMenu.object) ||
+            pendingGuardRef.current.isPending(
+              visualObjectRefKey(objectMenu.object)
+            )
+          }
+          onPick={runObjectCommand}
+          onClose={closeObjectMenu}
         />
       ) : null}
     </>

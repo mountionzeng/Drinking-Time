@@ -14,6 +14,7 @@ import type {
   StoryTimelineItem,
   StoryTimelineOverlay,
   StoryTimelineVisualLayerState,
+  TimelineTransform,
 } from "./storyMaterial";
 import {
   timelineFramesToMs,
@@ -37,7 +38,7 @@ export type VisualEditDocument = {
 type VisualClipKind = "image" | "video";
 
 /** clip 落在哪个持久化实体上。移动命令据此只改那一处。 */
-type VisualClipOrigin =
+export type VisualClipOrigin =
   | { kind: "shot"; stableShotId: string }
   | { kind: "image-clip"; ownerStableShotId: string; clipId: string }
   | { kind: "video-clip"; ownerStableShotId: string; clipId: string }
@@ -65,6 +66,7 @@ export type InsertVisualImageClipInput = {
   startFrame: number;
   /** 抽帧默认严格一帧。 */
   durationFrames?: number;
+  transform?: TimelineTransform;
 };
 
 type InsertVisualClipError =
@@ -73,7 +75,13 @@ type InsertVisualClipError =
   | "empty-timeline";
 
 export type InsertVisualClipResult =
-  | { status: "ok"; document: VisualEditDocument; clip: VisualClip }
+  | {
+      status: "ok";
+      document: VisualEditDocument;
+      clip: VisualClip;
+      /** false when the same placement intent was already fully applied. */
+      changed: boolean;
+    }
   | { status: "error"; error: InsertVisualClipError; message: string };
 
 type RemoveVisualClipError = "clip-not-found" | "unsupported-kind";
@@ -92,7 +100,8 @@ type MoveVisualClipError =
   | "clip-not-found"
   | "invalid-track"
   | "invalid-start"
-  | "before-owner-start";
+  | "before-owner-start"
+  | "unsupported-kind";
 
 export type MoveVisualClipResult =
   | {
@@ -118,19 +127,19 @@ function parseVisualTrackId(trackId: string): number | null {
   return Number.parseInt(raw, 10);
 }
 
-function shotClipId(stableShotId: string): string {
+export function shotClipId(stableShotId: string): string {
   return `shot:${stableShotId}`;
 }
 
-function imageClipId(clipId: string): string {
+export function imageClipId(clipId: string): string {
   return `image:${clipId}`;
 }
 
-function videoClipId(clipId: string): string {
+export function videoClipId(clipId: string): string {
   return `video:${clipId}`;
 }
 
-function overlayClipId(overlayId: string): string {
+export function overlayClipId(overlayId: string): string {
   return `overlay:${overlayId}`;
 }
 
@@ -377,23 +386,11 @@ export function moveVisualClip(
       break;
     }
     case "overlay": {
-      const overlayId = clip.origin.overlayId;
-      next = {
-        ...base,
-        overlays: (base.overlays ?? []).map(overlay => {
-          if (overlay.id !== overlayId) return overlay;
-          const delta = toStartFrame - overlay.startFrame;
-          return {
-            ...overlay,
-            startFrame: toStartFrame,
-            targetEndFrame: overlay.targetEndFrame + delta,
-            mediaEndFrame: overlay.mediaEndFrame + delta,
-            endFrame: overlay.endFrame + delta,
-            visualLayer: layer,
-          };
-        }),
+      return {
+        status: "error",
+        error: "unsupported-kind",
+        message: "遗留覆盖层只能先归一为普通故事镜头再移动",
       };
-      break;
     }
   }
 
@@ -413,16 +410,14 @@ export function moveVisualClip(
  * 所以宿主是谁**不再影响它出现在哪里**——这里只需要一个确定的、可复现的选择：
  * 优先落在覆盖该帧的最底层镜头上，否则取它左边最近的那个，再否则取第一个。
  */
-function hostItemForFrame(
+export function selectImageClipHostForFrame(
   doc: VisualEditDocument,
   startFrame: number
 ): string | null {
   const rows = buildTimelineLayout(doc.items);
   if (rows.length === 0) return null;
   const covering = rows
-    .filter(
-      row => startFrame >= row.startFrame && startFrame < row.endFrame
-    )
+    .filter(row => startFrame >= row.startFrame && startFrame < row.endFrame)
     .sort(
       (left, right) =>
         normalizeVisualLayer(left.item.visualLayer) -
@@ -463,13 +458,35 @@ export function insertVisualImageClip(
     };
   }
   const startFrame = Math.round(input.startFrame);
+  const requestedDurationFrames = positiveFrames(input.durationFrames ?? 1);
   const base = materializeAbsolutePlacements(doc);
-  const hostId = hostItemForFrame(base, startFrame);
+  const hostId = selectImageClipHostForFrame(base, startFrame);
   if (!hostId) {
     return {
       status: "error",
       error: "empty-timeline",
       message: "时间线上还没有任何镜头，无法放置素材",
+    };
+  }
+  const existingProjection = findVisualClip(base, `image:${input.clipId}`);
+  const existingImage = base.items
+    .flatMap(item => item.imageClips ?? [])
+    .find(clip => clip.id === input.clipId);
+  if (
+    existingProjection?.origin.kind === "image-clip" &&
+    existingImage &&
+    existingProjection.trackId === visualTrackId(layer) &&
+    existingProjection.startFrame === startFrame &&
+    existingProjection.durationFrames === requestedDurationFrames &&
+    existingImage.imageId === input.imageId &&
+    existingImage.imageUrl === input.imageUrl &&
+    existingImage.label === input.label
+  ) {
+    return {
+      status: "ok",
+      document: doc,
+      clip: existingProjection,
+      changed: false,
     };
   }
   const hostStart =
@@ -482,8 +499,9 @@ export function insertVisualImageClip(
     label: input.label,
     offsetFrames: Math.max(0, startFrame - hostStart),
     timelineStartFrame: startFrame,
-    durationFrames: positiveFrames(input.durationFrames ?? 1),
+    durationFrames: requestedDurationFrames,
     visualLayer: layer,
+    ...(input.transform ? { transform: { ...input.transform } } : {}),
   };
   const next: VisualEditDocument = {
     ...base,
@@ -504,6 +522,7 @@ export function insertVisualImageClip(
   return {
     status: "ok",
     document: next,
+    changed: true,
     clip: clip ?? {
       id: `image:${input.clipId}`,
       kind: "image",
@@ -586,16 +605,10 @@ export function removeVisualClip(
       };
     }
     case "overlay": {
-      const overlayId = clip.origin.overlayId;
       return {
-        status: "ok",
-        removed: clip,
-        document: {
-          ...base,
-          overlays: (base.overlays ?? []).filter(
-            overlay => overlay.id !== overlayId
-          ),
-        },
+        status: "error",
+        error: "unsupported-kind",
+        message: "遗留覆盖层只能先归一为普通故事镜头再删除",
       };
     }
   }

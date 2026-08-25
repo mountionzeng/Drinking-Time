@@ -21,7 +21,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { createKeyedSerialLock } from "./utils/keyedSerialLock";
+import { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
+export { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
 import type { StoryTimelineOverlay } from "../shared/storyMaterial";
+import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
   InsertUser,
   users,
@@ -59,6 +64,8 @@ import {
   InsertGeneratedImage,
   generatedImages,
   GeneratedImage,
+  timelineFrameExtractionOperations,
+  TimelineFrameExtractionOperation,
   InsertImageSignal,
   imageSignals,
   ImageSignal,
@@ -124,6 +131,7 @@ type MemoryState = {
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
   generatedImages: GeneratedImage[];
+  timelineFrameExtractionOperations: TimelineFrameExtractionOperation[];
   imageSignals: ImageSignal[];
   videoTakes: VideoTake[];
   videoTakeRanges: VideoTakeRange[];
@@ -146,6 +154,7 @@ type MemoryState = {
     editSnapshot: number;
     semanticAnnotation: number;
     generatedImage: number;
+    timelineFrameExtractionOperation: number;
     imageSignal: number;
     videoTake: number;
     videoTakeRange: number;
@@ -170,6 +179,7 @@ const memoryState: MemoryState = {
   editSnapshots: [],
   semanticAnnotations: [],
   generatedImages: [],
+  timelineFrameExtractionOperations: [],
   imageSignals: [],
   videoTakes: [],
   videoTakeRanges: [],
@@ -192,6 +202,7 @@ const memoryState: MemoryState = {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
     videoTakeRange: 1,
@@ -398,6 +409,13 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       null,
     createdAt: toDate(item.createdAt),
   })) as GeneratedImage[];
+  memoryState.timelineFrameExtractionOperations = (
+    raw.timelineFrameExtractionOperations ?? []
+  ).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as TimelineFrameExtractionOperation[];
 
   memoryState.imageSignals = (raw.imageSignals ?? []).map(item => ({
     ...item,
@@ -495,6 +513,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     generatedImage: Math.max(
       raw.nextIds?.generatedImage ?? 0,
       nextIdFromRows(memoryState.generatedImages)
+    ),
+    timelineFrameExtractionOperation: Math.max(
+      raw.nextIds?.timelineFrameExtractionOperation ?? 0,
+      nextIdFromRows(memoryState.timelineFrameExtractionOperations)
     ),
     imageSignal: Math.max(
       raw.nextIds?.imageSignal ?? 0,
@@ -745,7 +767,7 @@ export class LocalPersistenceWriteError extends Error {
   }
 }
 
-async function persistMemoryStateToDisk() {
+async function persistMemoryStateToDisk(state: MemoryState = memoryState) {
   // ① 测试防误写：测试环境下，绝不往默认真文件写——哪怕 vitest.setup.ts 被删/没生效。
   //    要在测试里持久化，必须在导入前显式设 LOCAL_PERSIST_PATH（指向临时文件）。
   if (isTestEnv() && LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH) {
@@ -757,18 +779,21 @@ async function persistMemoryStateToDisk() {
     }
     return;
   }
+  // Capture this batch synchronously, before the first filesystem await. A
+  // later caller may mutate memoryState while mkdir/backup/write is pending;
+  // that mutation belongs to the next coalescer batch and must not hitchhike
+  // into this batch's durable payload.
+  const {
+    promptLineage: _promptLineage,
+    editSnapshots: _editSnapshots,
+    ...mainState
+  } = state;
+  const payload = JSON.stringify(mainState);
+  const nextBytes = Buffer.byteLength(payload, "utf-8");
   let tmpPathWritten: string | null = null;
   try {
     const dir = path.dirname(LOCAL_PERSIST_PATH);
     await mkdir(dir, { recursive: true });
-    const {
-      promptLineage: _promptLineage,
-      editSnapshots: _editSnapshots,
-      ...mainState
-    } = memoryState;
-    // 紧凑序列化，理由同 persistLocalEditSnapshotsToDisk：省掉 ~1/3 的序列化与写盘开销。
-    const payload = JSON.stringify(mainState);
-    const nextBytes = Buffer.byteLength(payload, "utf-8");
     // ② 写前滚动备份 + 骤减告警（自身失败不影响主写入，backupBeforeWrite 内部已吞错误）
     await backupBeforeWrite(nextBytes);
     const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
@@ -791,6 +816,7 @@ type PendingWrite = {
   promise: Promise<void>;
   resolve: () => void;
   reject: (reason: unknown) => void;
+  failureCleanups: Array<() => void>;
 };
 
 const createPendingWrite = (): PendingWrite => {
@@ -800,7 +826,7 @@ const createPendingWrite = (): PendingWrite => {
     resolve = res;
     reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve, reject, failureCleanups: [] };
 };
 
 /**
@@ -817,7 +843,9 @@ const createPendingWrite = (): PendingWrite => {
  * 失败语义与过去一致：某一批写盘失败，只有这一批的调用方拿到异常，不会卡死
  *   后面排队的写入。
  */
-function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
+function createWriteCoalescer(
+  write: () => Promise<void>
+): (onFailureBeforeNextBatch?: () => void) => Promise<void> {
   let running = false;
   let pending: PendingWrite | null = null;
 
@@ -831,6 +859,7 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
           await write();
           batch.resolve();
         } catch (error) {
+          for (const cleanup of batch.failureCleanups) cleanup();
           batch.reject(error);
         }
       }
@@ -839,8 +868,12 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
     }
   }
 
-  return function schedule(): Promise<void> {
+  return function schedule(
+    onFailureBeforeNextBatch?: () => void
+  ): Promise<void> {
     pending ??= createPendingWrite();
+    if (onFailureBeforeNextBatch)
+      pending.failureCleanups.push(onFailureBeforeNextBatch);
     const joined = pending.promise;
     if (!running) void pump();
     return joined;
@@ -853,8 +886,8 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
  *   请求会合并成一次全量重写（见 createWriteCoalescer），每个调用方拿到的仍是
  *   "覆盖了自己这次变更"的 promise，失败与否互不影响。
  *   注意：本函数只保证"失败会向调用方抛出"，不保证"调用方已经应用到
- *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前只有
- *   `updateStoryBodyIfRevision` 在失败时做了按字段回滚（见其定义处注释）；其余
+ *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前
+ *   `updateStoryBodyIfRevision` 与 `updateStoryTimeline` 在失败时做了按字段回滚；其余
  *   本地模式写函数（User、Shot 等约 50+ 处）在磁盘失败后会正确抛出异常，但它们
  *   已经生效的内存态变更不会被撤销，且可能被后续任意一次成功的写盘操作顺带落
  *   盘（因为 persistMemoryStateToDisk 每次都是序列化当前完整的 memoryState）。
@@ -862,7 +895,107 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
  * 调用入口：db.ts 内所有本地模式写函数（Story、User、Shot 等约 50+ 处）。
  * 下游调用：persistMemoryStateToDisk。
  */
-const persistMemoryState = createWriteCoalescer(persistMemoryStateToDisk);
+let localPersistenceWriteTail: Promise<void> = Promise.resolve();
+
+function enqueueLocalPersistenceWrite<T>(action: () => Promise<T>): Promise<T> {
+  const previous = localPersistenceWriteTail;
+  const result = previous.catch(() => {}).then(action);
+  localPersistenceWriteTail = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
+function frozenMemoryStateSnapshot(state: MemoryState): MemoryState {
+  return structuredClone(state);
+}
+
+const persistMemoryState = createWriteCoalescer(() => {
+  // Freeze at batch creation, before waiting for the disk queue. Otherwise a
+  // later optimistic mutation could hitchhike into an earlier durable batch.
+  const snapshot = frozenMemoryStateSnapshot(memoryState);
+  return enqueueLocalPersistenceWrite(() => persistMemoryStateToDisk(snapshot));
+});
+
+let localAggregateMutationTail: Promise<void> = Promise.resolve();
+let localAggregateMutationPending = 0;
+let localBodyMutationCount = 0;
+let localBodyMutationDrain: Promise<void> = Promise.resolve();
+let resolveLocalBodyMutationDrain: (() => void) | null = null;
+
+function beginLocalBodyMutation(): void {
+  if (localBodyMutationCount === 0) {
+    localBodyMutationDrain = new Promise<void>(resolve => {
+      resolveLocalBodyMutationDrain = resolve;
+    });
+  }
+  localBodyMutationCount += 1;
+}
+
+function endLocalBodyMutation(): void {
+  localBodyMutationCount -= 1;
+  if (localBodyMutationCount === 0) {
+    resolveLocalBodyMutationDrain?.();
+    resolveLocalBodyMutationDrain = null;
+  }
+}
+
+async function withLocalBodyMutation<T>(action: () => Promise<T>): Promise<T> {
+  while (localAggregateMutationPending > 0) {
+    await localAggregateMutationTail.catch(() => {});
+  }
+  // No await may appear between the pending check and this registration:
+  // aggregate writers mark themselves pending synchronously, so either this
+  // body writer joins the current reader group or the aggregate waits for it.
+  beginLocalBodyMutation();
+  try {
+    return await action();
+  } finally {
+    endLocalBodyMutation();
+  }
+}
+
+async function withLocalAggregateMutationLock<T>(
+  action: () => Promise<T>
+): Promise<T> {
+  localAggregateMutationPending += 1;
+  const previous = localAggregateMutationTail;
+  let release!: () => void;
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  localAggregateMutationTail = previous.catch(() => {}).then(() => current);
+  await previous.catch(() => {});
+  await localBodyMutationDrain;
+  try {
+    return await action();
+  } finally {
+    localAggregateMutationPending -= 1;
+    release();
+  }
+}
+
+const localTimelineLock = createKeyedSerialLock<string>();
+const localStoryLock = createKeyedSerialLock<string>();
+
+async function withLocalStoryLock<T>(
+  storyId: number,
+  userId: number,
+  action: () => Promise<T>
+): Promise<T> {
+  const key = `${userId}:${storyId}`;
+  return localStoryLock.run(key, action);
+}
+
+async function withLocalTimelineLock<T>(
+  storyId: number,
+  userId: number,
+  action: () => Promise<T>
+): Promise<T> {
+  const key = `${userId}:${storyId}`;
+  return localTimelineLock.run(key, action);
+}
 
 /**
  * 编辑快照走独立文件、独立合并器：它是三份本地文件里最大的一份（曾涨到 24MB+），
@@ -1283,15 +1416,15 @@ export async function getAccessOverview(
   let videoUsage: Array<{ userId: number; count: number; seconds: number }>;
   if (!db) {
     videoUsage = Array.from(
-        memoryState.videoTakes.reduce((usage, video) => {
-          if (video.status !== "available") return usage;
-          const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
-          current.count += 1;
-          current.seconds += video.durationSec ?? 0;
-          usage.set(video.userId, current);
-          return usage;
-        }, new Map<number, { count: number; seconds: number }>())
-      ).map(([userId, value]) => ({ userId, ...value }));
+      memoryState.videoTakes.reduce((usage, video) => {
+        if (video.status !== "available") return usage;
+        const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
+        current.count += 1;
+        current.seconds += video.durationSec ?? 0;
+        usage.set(video.userId, current);
+        return usage;
+      }, new Map<number, { count: number; seconds: number }>())
+    ).map(([userId, value]) => ({ userId, ...value }));
   } else {
     try {
       videoUsage = await db
@@ -2339,28 +2472,29 @@ export async function updateStoryBodyIfRevision(input: {
   }
   const db = await getDb();
   if (!db) {
-    const row = memoryState.stories.find(
-      story => story.id === input.id && story.userId === input.userId
-    );
-    if (
-      !row ||
-      persistedStoryBodyRevision(row.body) !== input.expectedRevision
-    ) {
-      return false;
-    }
-    // Copy-on-write snapshot: mutate optimistically, but if the disk flush
-    // fails, restore this row to what it was before this call so a failed
-    // write never leaves memoryState in a "succeeded in RAM, lost on disk"
-    // state. This restore must be per-field, not a blanket
-    // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
-    // between our mutation and the disk flush settling, a concurrent writer
-    // (another CAS call once this call's optimistic revision makes it look
-    // like a legal base, or an unrelated writer like writeStoryTitle
-    // touching only `title`) can legitimately mutate a *different* field on
-    // the same object and already succeed. A blanket restore would silently
-    // erase that already-committed change. So: only roll back a field if it
-    // still holds exactly the value *this call* set — if something else has
-    // since changed it, that's a newer write we must not clobber.
+    return withLocalBodyMutation(async () => {
+      const row = memoryState.stories.find(
+        story => story.id === input.id && story.userId === input.userId
+      );
+      if (
+        !row ||
+        persistedStoryBodyRevision(row.body) !== input.expectedRevision
+      ) {
+        return false;
+      }
+        // Copy-on-write snapshot: mutate optimistically, but if the disk flush
+        // fails, restore this row to what it was before this call so a failed
+        // write never leaves memoryState in a "succeeded in RAM, lost on disk"
+        // state. This restore must be per-field, not a blanket
+        // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
+        // between our mutation and the disk flush settling, a concurrent writer
+        // (another CAS call once this call's optimistic revision makes it look
+        // like a legal base, or an unrelated writer like writeStoryTitle
+        // touching only `title`) can legitimately mutate a *different* field on
+        // the same object and already succeed. A blanket restore would silently
+        // erase that already-committed change. So: only roll back a field if it
+        // still holds exactly the value *this call* set — if something else has
+        // since changed it, that's a newer write we must not clobber.
     const previousRow = { ...row };
     const writtenFields: Record<string, unknown> = { body: input.body };
     if (input.data) {
@@ -2378,12 +2512,12 @@ export async function updateStoryBodyIfRevision(input: {
     } catch (error) {
       const rowRecord = row as unknown as Record<string, unknown>;
       const previousRecord = previousRow as unknown as Record<string, unknown>;
-      // Known narrow limitation: for primitive `data` fields this compares by
-      // value, so a concurrent writer that legitimately set the same field to
-      // an identical value would still be rolled back here. `body` and
-      // `updatedAt` are immune (always freshly constructed per call, so this
-      // is a reference comparison). Accepted for now — closing it needs
-      // per-field write tokens, which is out of scope for this unit.
+          // Known narrow limitation: for primitive `data` fields this compares by
+          // value, so a concurrent writer that legitimately set the same field to
+          // an identical value would still be rolled back here. `body` and
+          // `updatedAt` are immune (always freshly constructed per call, so this
+          // is a reference comparison). Accepted for now — closing it needs
+          // per-field write tokens, which is out of scope for this unit.
       for (const key of Object.keys(writtenFields)) {
         if (rowRecord[key] === writtenFields[key]) {
           rowRecord[key] = previousRecord[key];
@@ -2391,7 +2525,8 @@ export async function updateStoryBodyIfRevision(input: {
       }
       throw error;
     }
-    return true;
+      return true;
+    });
   }
   const result = await db
     .update(stories)
@@ -3007,6 +3142,37 @@ export async function getStoryGeneratedImages(
       )
     )
     .orderBy(desc(generatedImages.createdAt));
+}
+
+export async function getGeneratedImageByStoryAndImageKey(
+  storyId: number,
+  userId: number,
+  imageKey: string
+): Promise<GeneratedImage | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.generatedImages.find(
+        image =>
+          image.storyId === storyId &&
+          (image.userId === userId || image.userId == null) &&
+          image.imageKey === imageKey
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.storyId, storyId),
+        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId)),
+        eq(generatedImages.imageKey, imageKey)
+      )
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 // ─── Image Signals ──────────────────────────────────────────────────────
@@ -3670,6 +3836,883 @@ async function resolvePromptCompilationIdForAsset(
   return head?.currentCompilationId ?? null;
 }
 
+type TimelineFrameExtractionOwner = {
+  storyId: number;
+  userId: number;
+  requestId: string;
+};
+
+const TIMELINE_FRAME_EXTRACTION_LEASE_MS = 10 * 60 * 1000;
+
+function normalizedExtractionCoordinates(input: {
+  timelineFrame: number;
+  operationLayer: number;
+}) {
+  return {
+    timelineFrame: Math.max(0, Math.round(input.timelineFrame)),
+    operationLayer: Math.max(0, Math.round(input.operationLayer)),
+  };
+}
+
+function assertMatchingExtractionClaim(
+  existing: TimelineFrameExtractionOperation,
+  input: { inputHash: string; timelineFrame: number; operationLayer: number }
+) {
+  const normalized = normalizedExtractionCoordinates(input);
+  if (
+    existing.inputHash !== input.inputHash ||
+    existing.timelineFrame !== normalized.timelineFrame ||
+    existing.operationLayer !== normalized.operationLayer
+  ) {
+    throw new Error("抽帧 requestId 已用于不同输入（claim conflict）");
+  }
+}
+
+function assertActiveExtractionClaim(
+  current: TimelineFrameExtractionOperation,
+  claimToken: string
+) {
+  if (
+    current.claimToken !== claimToken ||
+    current.leaseUntil.getTime() <= Date.now()
+  ) {
+    throw new Error("抽帧 claim 已失效");
+  }
+}
+
+function extractionResultMatches(
+  current: TimelineFrameExtractionOperation,
+  result: { clipId: string; timelineVersion: number }
+) {
+  return (
+    current.clipId === result.clipId &&
+    current.timelineVersion === result.timelineVersion
+  );
+}
+
+function extractionDescriptorMatches(
+  current: TimelineFrameExtractionOperation,
+  value: { winnerIdentity: string; descriptor: unknown }
+) {
+  return (
+    current.winnerIdentity === value.winnerIdentity &&
+    canonicalJsonStringify(current.descriptor) ===
+      canonicalJsonStringify(value.descriptor)
+  );
+}
+
+const timelineFrameExtractionMemoryLock = createKeyedSerialLock<string>();
+
+export const TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT = 240;
+export const TIMELINE_FRAME_EXTRACTION_USER_RECEIPT_LIMIT = 5_000;
+export const TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT = 2_000;
+export function assertTimelineFrameExtractionReceiptQuota(input: {
+  last24Hours: number;
+  userTotal: number;
+  storyTotal: number;
+}): void {
+  if (
+    input.last24Hours >= TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT ||
+    input.userTotal >= TIMELINE_FRAME_EXTRACTION_USER_RECEIPT_LIMIT ||
+    input.storyTotal >= TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT
+  ) {
+    throw new Error(TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR);
+  }
+}
+
+async function withTimelineFrameExtractionMemoryLock<T>(
+  owner: TimelineFrameExtractionOwner,
+  run: () => Promise<T>
+): Promise<T> {
+  // All extraction writes for one user share a lock. Besides making receipt
+  // quota checks atomic, this makes imageKey lookup+insert mutually exclusive
+  // across different request ids and Stories in local-persist mode.
+  const key = String(owner.userId);
+  return timelineFrameExtractionMemoryLock.run(key, run);
+}
+
+function memoryTimelineFrameExtractionOperation(
+  owner: TimelineFrameExtractionOwner
+): TimelineFrameExtractionOperation | null {
+  return (
+    memoryState.timelineFrameExtractionOperations.find(
+      row =>
+        row.storyId === owner.storyId &&
+        row.userId === owner.userId &&
+        row.requestId === owner.requestId
+    ) ?? null
+  );
+}
+
+export async function getTimelineFrameExtractionOperation(
+  owner: TimelineFrameExtractionOwner
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryTimelineFrameExtractionOperation(owner);
+  }
+  const [row] = await db
+    .select()
+    .from(timelineFrameExtractionOperations)
+    .where(
+      and(
+        eq(timelineFrameExtractionOperations.storyId, owner.storyId),
+        eq(timelineFrameExtractionOperations.userId, owner.userId),
+        eq(timelineFrameExtractionOperations.requestId, owner.requestId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function claimTimelineFrameExtractionOperation(
+  input: TimelineFrameExtractionOwner & {
+    inputHash: string;
+    timelineFrame: number;
+    operationLayer: number;
+  }
+): Promise<{
+  created: boolean;
+  acquired: boolean;
+  operation: TimelineFrameExtractionOperation;
+}> {
+  const requestId = input.requestId.trim();
+  if (!requestId || requestId.length > 160)
+    throw new Error("抽帧 requestId 不合法");
+  const owner = { ...input, requestId };
+  const coordinates = normalizedExtractionCoordinates(input);
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(owner, async () => {
+      const existing = memoryTimelineFrameExtractionOperation(owner);
+      if (existing) {
+        assertMatchingExtractionClaim(existing, input);
+        if (
+          existing.status !== "claimed" ||
+          existing.leaseUntil.getTime() > Date.now()
+        ) {
+          return { created: false, acquired: false, operation: existing };
+        }
+        const before = { ...existing };
+        existing.claimToken = randomUUID();
+        existing.leaseUntil = new Date(
+          Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+        );
+        existing.attempt += 1;
+        existing.updatedAt = now();
+        try {
+          await persistMemoryState();
+        } catch (error) {
+          Object.assign(existing, before);
+          throw error;
+        }
+        return { created: false, acquired: true, operation: existing };
+      }
+      const story = memoryState.stories.find(
+        row => row.id === input.storyId && row.userId === input.userId
+      );
+      if (!story) throw new Error("Story 不存在或不属于当前用户");
+      const current = now();
+      const receiptRows = memoryState.timelineFrameExtractionOperations.filter(
+        row => row.userId === input.userId
+      );
+      assertTimelineFrameExtractionReceiptQuota({
+        last24Hours: receiptRows.filter(
+          row => row.createdAt.getTime() >= current.getTime() - 86_400_000
+        ).length,
+        userTotal: receiptRows.length,
+        storyTotal: receiptRows.filter(row => row.storyId === input.storyId)
+          .length,
+      });
+      const operation: TimelineFrameExtractionOperation = {
+        id: nextMemoryId("timelineFrameExtractionOperation"),
+        storyId: input.storyId,
+        userId: input.userId,
+        requestId,
+        inputHash: input.inputHash,
+        ...coordinates,
+        claimToken: randomUUID(),
+        leaseUntil: new Date(
+          current.getTime() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+        ),
+        attempt: 1,
+        status: "claimed",
+        winnerIdentity: null,
+        descriptor: null,
+        imageId: null,
+        clipId: null,
+        timelineVersion: null,
+        errorCode: null,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.timelineFrameExtractionOperations.push(operation);
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.timelineFrameExtractionOperations =
+          memoryState.timelineFrameExtractionOperations.filter(
+            row => row !== operation
+          );
+        throw error;
+      }
+      return { created: true, acquired: true, operation };
+    });
+  }
+  return db.transaction(async tx => {
+    // Fixed lock order for every claim/asset transaction: user -> Story ->
+    // receipt. The user row serializes quota checks and cross-request asset
+    // deduplication without requiring a schema migration.
+    const [lockedUser] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
+      .limit(1);
+    if (!lockedUser) throw new Error("Story 不存在或不属于当前用户");
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("Story 不存在或不属于当前用户");
+    const [existing] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    const claimToken = randomUUID();
+    const leaseUntil = new Date(
+      Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+    );
+    if (existing) {
+      assertMatchingExtractionClaim(existing, input);
+      if (
+        existing.status !== "claimed" ||
+        existing.leaseUntil.getTime() > Date.now()
+      ) {
+        return { created: false, acquired: false, operation: existing };
+      }
+      await tx
+        .update(timelineFrameExtractionOperations)
+        .set({
+          claimToken,
+          leaseUntil,
+          attempt: existing.attempt + 1,
+        })
+        .where(eq(timelineFrameExtractionOperations.id, existing.id));
+      const [reclaimed] = await tx
+        .select()
+        .from(timelineFrameExtractionOperations)
+        .where(eq(timelineFrameExtractionOperations.id, existing.id))
+        .limit(1);
+      return { created: false, acquired: true, operation: reclaimed };
+    }
+
+    const cutoff = new Date(Date.now() - 86_400_000);
+    const [dailyCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          gte(timelineFrameExtractionOperations.createdAt, cutoff)
+        )
+      );
+    const [userCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.userId, input.userId));
+    const [storyCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.storyId, input.storyId)
+        )
+      );
+    assertTimelineFrameExtractionReceiptQuota({
+      last24Hours: Number(dailyCount?.value ?? 0),
+      userTotal: Number(userCount?.value ?? 0),
+      storyTotal: Number(storyCount?.value ?? 0),
+    });
+
+    await tx.insert(timelineFrameExtractionOperations).values({
+      storyId: input.storyId,
+      userId: input.userId,
+      requestId,
+      inputHash: input.inputHash,
+      ...coordinates,
+      claimToken,
+      leaseUntil,
+      attempt: 1,
+      status: "claimed",
+    });
+    const [operation] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation) throw new Error("抽帧操作 claim 后无法读取");
+    return { created: true, acquired: true, operation };
+  });
+}
+
+export async function renewTimelineFrameExtractionClaim(
+  input: TimelineFrameExtractionOwner & { claimToken: string }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const renew = async (
+    current: TimelineFrameExtractionOperation,
+    persist: (leaseUntil: Date) => Promise<void>
+  ) => {
+    if (current.status !== "claimed" || current.claimToken !== input.claimToken)
+      return null;
+    const previousLeaseUntil = current.leaseUntil;
+    const leaseUntil = new Date(
+      Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+    );
+    current.leaseUntil = leaseUntil;
+    try {
+      await persist(leaseUntil);
+    } catch (error) {
+      current.leaseUntil = previousLeaseUntil;
+      throw error;
+    }
+    return current;
+  };
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      return renew(current, async () => {
+        current.updatedAt = now();
+        await persistMemoryState();
+      });
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    return renew(current, leaseUntil =>
+      tx
+        .update(timelineFrameExtractionOperations)
+        .set({ leaseUntil })
+        .where(
+          and(
+            eq(timelineFrameExtractionOperations.id, current.id),
+            eq(timelineFrameExtractionOperations.claimToken, input.claimToken),
+            eq(timelineFrameExtractionOperations.status, "claimed")
+          )
+        )
+        .then(() => undefined)
+    );
+  });
+}
+
+export async function recordTimelineFrameExtractionDescriptor(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    winnerIdentity: string;
+    descriptor: unknown;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const apply = async (
+    current: TimelineFrameExtractionOperation,
+    persist: () => Promise<void>
+  ) => {
+    if (current.status !== "claimed")
+      throw new Error("只有 claimed 操作可以记录 descriptor");
+    assertActiveExtractionClaim(current, input.claimToken);
+    if (current.descriptor != null) {
+      if (!extractionDescriptorMatches(current, input))
+        throw new Error("抽帧 descriptor conflict");
+      return current;
+    }
+    current.winnerIdentity = input.winnerIdentity;
+    current.descriptor = input.descriptor;
+    await persist();
+    return current;
+  };
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      const before = { ...current };
+      return apply(current, async () => {
+        current.updatedAt = now();
+        try {
+          await persistMemoryState();
+        } catch (error) {
+          Object.assign(current, before);
+          throw error;
+        }
+      });
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    return apply(current, async () => {
+      await tx
+        .update(timelineFrameExtractionOperations)
+        .set({
+          winnerIdentity: input.winnerIdentity,
+          descriptor: input.descriptor,
+        })
+        .where(eq(timelineFrameExtractionOperations.id, current.id));
+    });
+  });
+}
+
+export async function releaseTimelineFrameExtractionClaim(
+  input: TimelineFrameExtractionOwner & { claimToken: string }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status !== "claimed") return current;
+      if (current.claimToken !== input.claimToken)
+        throw new Error("抽帧 claim 已失效");
+      const before = { ...current };
+      const releasedAt = now();
+      current.leaseUntil = releasedAt;
+      current.updatedAt = releasedAt;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status !== "claimed") return current;
+    if (current.claimToken !== input.claimToken)
+      throw new Error("抽帧 claim 已失效");
+    const releasedAt = now();
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({ leaseUntil: releasedAt })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    const [released] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, current.id))
+      .limit(1);
+    return released;
+  });
+}
+
+export async function failTimelineFrameExtractionOperation(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    errorCode: string;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const errorCode = input.errorCode.slice(0, 128);
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status !== "claimed")
+        throw new Error("只有 claimed 操作可以标记失败");
+      assertActiveExtractionClaim(current, input.claimToken);
+      const before = { ...current };
+      current.status = "failed";
+      current.errorCode = errorCode;
+      current.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status !== "claimed")
+      throw new Error("只有 claimed 操作可以标记失败");
+    assertActiveExtractionClaim(current, input.claimToken);
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({ status: "failed", errorCode })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    return { ...current, status: "failed", errorCode };
+  });
+}
+
+export async function settleTimelineFrameExtractionAsset(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    existingImageId?: number;
+    image?: Omit<InsertGeneratedImage, "id" | "createdAt" | "isCurrent">;
+  }
+): Promise<{
+  operation: TimelineFrameExtractionOperation;
+  image: GeneratedImage;
+}> {
+  if ((input.existingImageId == null) === (input.image == null)) {
+    throw new Error("抽帧资产必须且只能提供 existingImageId 或 image");
+  }
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const operation = memoryTimelineFrameExtractionOperation(input);
+      if (!operation) throw new Error("抽帧操作不存在");
+      if (operation.imageId != null) {
+        if (operation.status !== "asset_ready")
+          throw new Error("抽帧资产状态不一致");
+        const replay = memoryState.generatedImages.find(
+          row =>
+            row.id === operation.imageId &&
+            row.storyId === input.storyId &&
+            (row.userId === input.userId || row.userId == null)
+        );
+        if (!replay) throw new Error("抽帧操作引用的图片不存在");
+        return { operation, image: replay };
+      }
+      if (operation.status !== "claimed")
+        throw new Error("只有 claimed 操作可以登记资产");
+      assertActiveExtractionClaim(operation, input.claimToken);
+      const beforeOperation = { ...operation };
+      let image: GeneratedImage;
+      let created = false;
+      if (input.existingImageId != null) {
+        const existing = memoryState.generatedImages.find(
+          row =>
+            row.id === input.existingImageId &&
+            row.storyId === input.storyId &&
+            (row.userId === input.userId || row.userId == null)
+        );
+        if (!existing) throw new Error("复用图片不存在或不属于当前 Story");
+        image = existing;
+      } else {
+        const data = input.image!;
+        if (data.storyId !== input.storyId || data.userId !== input.userId) {
+          throw new Error("新图片归属与抽帧操作不一致");
+        }
+        const reusable =
+          data.imageKey == null
+            ? undefined
+            : memoryState.generatedImages.find(
+                row =>
+                  row.storyId === input.storyId &&
+                  (row.userId === input.userId || row.userId == null) &&
+                  row.imageKey === data.imageKey
+              );
+        image = reusable ?? {
+          id: nextMemoryId("generatedImage"),
+          projectId: data.projectId ?? null,
+          storyId: data.storyId ?? null,
+          userId: data.userId ?? null,
+          shotNo: data.shotNo ?? null,
+          shotIdentity: data.shotIdentity ?? null,
+          imageKey: data.imageKey ?? null,
+          imageUrl: data.imageUrl,
+          prompt: data.prompt ?? null,
+          promptCompilationId: data.promptCompilationId ?? null,
+          parentImageId: data.parentImageId ?? null,
+          isCurrent: false,
+          generationType: data.generationType ?? "initial",
+          maskKey: data.maskKey ?? null,
+          createdAt: now(),
+        };
+        if (!reusable) {
+          memoryState.generatedImages.push(image);
+          created = true;
+        }
+      }
+      operation.imageId = image.id;
+      operation.status = "asset_ready";
+      operation.updatedAt = now();
+      try {
+        // Extracted warehouse registration is authoritative in generatedImages;
+        // no imageSignal is emitted here because it cannot share this local atomic write safely.
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(operation, beforeOperation);
+        if (created)
+          memoryState.generatedImages = memoryState.generatedImages.filter(
+            row => row !== image
+          );
+        throw error;
+      }
+      return { operation, image };
+    });
+  }
+  return db.transaction(async tx => {
+    const [lockedUser] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
+      .limit(1);
+    if (!lockedUser) throw new Error("抽帧操作不存在");
+    const [lockedStory] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!lockedStory) throw new Error("抽帧操作不存在");
+    const [operation] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation) throw new Error("抽帧操作不存在");
+    if (operation.imageId != null) {
+      if (operation.status !== "asset_ready")
+        throw new Error("抽帧资产状态不一致");
+      const [replay] = await tx
+        .select()
+        .from(generatedImages)
+        .where(
+          and(
+            eq(generatedImages.id, operation.imageId),
+            eq(generatedImages.storyId, input.storyId),
+            or(
+              eq(generatedImages.userId, input.userId),
+              isNull(generatedImages.userId)
+            )
+          )
+        )
+        .limit(1);
+      if (!replay) throw new Error("抽帧操作引用的图片不存在");
+      return { operation, image: replay };
+    }
+    if (operation.status !== "claimed")
+      throw new Error("只有 claimed 操作可以登记资产");
+    assertActiveExtractionClaim(operation, input.claimToken);
+    let image: GeneratedImage | undefined;
+    if (input.existingImageId != null) {
+      [image] = await tx
+        .select()
+        .from(generatedImages)
+        .where(
+          and(
+            eq(generatedImages.id, input.existingImageId),
+            eq(generatedImages.storyId, input.storyId),
+            or(
+              eq(generatedImages.userId, input.userId),
+              isNull(generatedImages.userId)
+            )
+          )
+        )
+        .limit(1);
+      if (!image) throw new Error("复用图片不存在或不属于当前 Story");
+    } else {
+      const data = input.image!;
+      if (data.storyId !== input.storyId || data.userId !== input.userId)
+        throw new Error("新图片归属与抽帧操作不一致");
+      if (data.imageKey != null) {
+        [image] = await tx
+          .select()
+          .from(generatedImages)
+          .where(
+            and(
+              eq(generatedImages.storyId, input.storyId),
+              or(
+                eq(generatedImages.userId, input.userId),
+                isNull(generatedImages.userId)
+              ),
+              eq(generatedImages.imageKey, data.imageKey)
+            )
+          )
+          .limit(1);
+      }
+      if (!image) {
+        const [inserted] = await tx
+          .insert(generatedImages)
+          .values({ ...data, isCurrent: false });
+        [image] = await tx
+          .select()
+          .from(generatedImages)
+          .where(eq(generatedImages.id, inserted.insertId))
+          .limit(1);
+      }
+      if (!image) throw new Error("抽帧图片创建后无法读取");
+      // Do not call createGeneratedImage: its imageSignal is a second write outside this receipt transaction.
+    }
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({
+        imageId: image.id,
+        status: "asset_ready",
+        errorCode: null,
+      })
+      .where(eq(timelineFrameExtractionOperations.id, operation.id));
+    const [settled] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, operation.id))
+      .limit(1);
+    return { operation: settled, image };
+  });
+}
+
+export async function markTimelineFrameExtractionSucceeded(
+  input: TimelineFrameExtractionOwner & {
+    clipId: string;
+    timelineVersion: number;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status === "succeeded") {
+        if (!extractionResultMatches(current, input))
+          throw new Error("抽帧成功结果 conflict");
+        return current;
+      }
+      if (current.status !== "asset_ready" || current.imageId == null)
+        throw new Error("只有 asset_ready 操作可以标记成功");
+      const before = { ...current };
+      current.status = "succeeded";
+      current.clipId = input.clipId;
+      current.timelineVersion = input.timelineVersion;
+      current.errorCode = null;
+      current.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status === "succeeded") {
+      if (!extractionResultMatches(current, input))
+        throw new Error("抽帧成功结果 conflict");
+      return current;
+    }
+    if (current.status !== "asset_ready" || current.imageId == null)
+      throw new Error("只有 asset_ready 操作可以标记成功");
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({
+        status: "succeeded",
+        clipId: input.clipId,
+        timelineVersion: input.timelineVersion,
+        errorCode: null,
+      })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    const [settled] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, current.id))
+      .limit(1);
+    return settled;
+  });
+}
+
 // ─── Generated Images（统一） ────────────────────────────────────────────
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
@@ -4314,8 +5357,8 @@ function sameEditingTransitionSlot(
   if (left.placementKey || right.placementKey) {
     return Boolean(
       left.placementKey &&
-      right.placementKey &&
-      left.placementKey === right.placementKey
+        right.placementKey &&
+        left.placementKey === right.placementKey
     );
   }
   return (
@@ -4835,12 +5878,13 @@ export async function getStoryTimeline(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const row = (
-      memoryState.storyTimelines.find(
-        timeline => timeline.storyId === storyId && timeline.userId === userId
-      ) ?? null
-    );
-    return row ? storyTimelineView(row) : null;
+    return withLocalTimelineLock(storyId, userId, async () => {
+      const row =
+        memoryState.storyTimelines.find(
+          timeline => timeline.storyId === storyId && timeline.userId === userId
+        ) ?? null;
+      return row ? storyTimelineView(row) : null;
+    });
   }
   const [row] = await db
     .select()
@@ -4879,11 +5923,14 @@ function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
 }
 
 function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
-  return payload.overlays === undefined && payload.visualLayerState === undefined
+  return payload.overlays === undefined &&
+    payload.visualLayerState === undefined
     ? payload.items
     : {
         items: payload.items,
-        ...(payload.overlays === undefined ? {} : { overlays: payload.overlays }),
+        ...(payload.overlays === undefined
+          ? {}
+          : { overlays: payload.overlays }),
         ...(payload.visualLayerState === undefined
           ? {}
           : { visualLayerState: payload.visualLayerState }),
@@ -4924,50 +5971,91 @@ export async function updateStoryTimeline(input: {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
-}): Promise<StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }> {
+}): Promise<
+  StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }
+> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const existing = memoryState.storyTimelines.find(
-      timeline =>
-        timeline.storyId === input.storyId && timeline.userId === input.userId
-    );
-    if (!existing) {
-      if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
-      const current = now();
-      const row: StoryTimeline = {
-        id: nextMemoryId("storyTimeline"),
-        storyId: input.storyId,
-        userId: input.userId,
-        version: 1,
-        items: encodeStoryTimelinePayload({
+    return withLocalAggregateMutationLock(() =>
+      withLocalTimelineLock(input.storyId, input.userId, async () => {
+        const existing = memoryState.storyTimelines.find(
+          timeline =>
+            timeline.storyId === input.storyId &&
+            timeline.userId === input.userId
+        );
+        if (!existing) {
+          if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
+          const current = now();
+          const createdItems = encodeStoryTimelinePayload({
+            items: input.items,
+            ...(input.overlays === undefined
+              ? {}
+              : { overlays: input.overlays }),
+            ...(input.visualLayerState === undefined
+              ? {}
+              : { visualLayerState: input.visualLayerState }),
+          });
+          const row: StoryTimeline = {
+            id: nextMemoryId("storyTimeline"),
+            storyId: input.storyId,
+            userId: input.userId,
+            version: 1,
+            items: createdItems,
+            createdAt: current,
+            updatedAt: current,
+          };
+          memoryState.storyTimelines.push(row);
+          const rollback = () => {
+            const index = memoryState.storyTimelines.indexOf(row);
+            if (
+              index >= 0 &&
+              row.version === 1 &&
+              row.items === createdItems &&
+              row.updatedAt === memoryState.storyTimelines[index]?.updatedAt
+            ) {
+              memoryState.storyTimelines.splice(index, 1);
+            }
+          };
+          await persistMemoryState(rollback);
+          return storyTimelineView(row);
+        }
+        if (existing.version !== input.expectedVersion) {
+          throw new Error("时间轴版本已更新");
+        }
+        const currentPayload = decodeStoryTimelinePayload(existing.items);
+        const previousItems = existing.items;
+        const previousVersion = existing.version;
+        const previousUpdatedAt = existing.updatedAt;
+        const nextItems = encodeStoryTimelinePayload({
           items: input.items,
-          ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
-          ...(input.visualLayerState === undefined
-            ? {}
-            : { visualLayerState: input.visualLayerState }),
-        }),
-        createdAt: current,
-        updatedAt: current,
-      };
-      memoryState.storyTimelines.push(row);
-      await persistMemoryState();
-      return storyTimelineView(row);
-    }
-    if (existing.version !== input.expectedVersion) {
-      throw new Error("时间轴版本已更新");
-    }
-    const currentPayload = decodeStoryTimelinePayload(existing.items);
-    existing.items = encodeStoryTimelinePayload({
-      items: input.items,
-      overlays: input.overlays ?? currentPayload.overlays,
-      visualLayerState:
-        input.visualLayerState ?? currentPayload.visualLayerState,
-    });
-    existing.version += 1;
-    existing.updatedAt = now();
-    await persistMemoryState();
-    return storyTimelineView(existing);
+          overlays: input.overlays ?? currentPayload.overlays,
+          visualLayerState:
+            input.visualLayerState ?? currentPayload.visualLayerState,
+        });
+        const nextVersion = previousVersion + 1;
+        const nextUpdatedAt = now();
+        existing.items = nextItems;
+        existing.version = nextVersion;
+        existing.updatedAt = nextUpdatedAt;
+        const rollback = () => {
+          // A later successful CAS writer may already have advanced this row while
+          // our full-state write was in flight. Only roll back the exact values
+          // published by this call; never erase a newer in-memory success.
+          if (
+            existing.items === nextItems &&
+            existing.version === nextVersion &&
+            existing.updatedAt === nextUpdatedAt
+          ) {
+            existing.items = previousItems;
+            existing.version = previousVersion;
+            existing.updatedAt = previousUpdatedAt;
+          }
+        };
+        await persistMemoryState(rollback);
+        return storyTimelineView(existing);
+      })
+    );
   }
 
   return db.transaction(async tx => {
@@ -5026,6 +6114,196 @@ export async function updateStoryTimeline(input: {
   });
 }
 
+/**
+ * Service-only aggregate compare-and-swap for commands that must replace the
+ * Story body and the complete Timeline document as one fact. `nextTimeline`
+ * is replacement data: an empty overlays array clears overlays, while an
+ * omitted overlays/visualLayerState field remains omitted. It never inherits
+ * fields from the previous document.
+ *
+ * Local mode takes locks in the fixed Story -> Timeline order and persists an
+ * isolated next state before publishing either row to shared memory. SQL mode
+ * locks the same rows in the same order inside one transaction.
+ */
+export async function updateStoryAndTimelineAtomic(input: {
+  storyId: number;
+  userId: number;
+  expectedStoryRevision: number;
+  expectedTimelineVersion: number;
+  nextStoryBody: unknown;
+  nextTimeline: StoryTimelinePayload;
+}): Promise<{
+  story: Story;
+  timeline: StoryTimeline & {
+    overlays?: unknown;
+    visualLayerState?: unknown;
+  };
+}> {
+  const nextStoryRevision = persistedStoryBodyRevision(input.nextStoryBody);
+  if (nextStoryRevision !== input.expectedStoryRevision + 1) {
+    throw new Error(
+      `Story CAS body revision ${nextStoryRevision} must follow expected revision ${input.expectedStoryRevision}`
+    );
+  }
+  const nextTimelinePayload = encodeStoryTimelinePayload({
+    items: input.nextTimeline.items,
+    ...(input.nextTimeline.overlays === undefined
+      ? {}
+      : { overlays: input.nextTimeline.overlays }),
+    ...(input.nextTimeline.visualLayerState === undefined
+      ? {}
+      : { visualLayerState: input.nextTimeline.visualLayerState }),
+  });
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withLocalAggregateMutationLock(() =>
+      withLocalStoryLock(input.storyId, input.userId, () =>
+        withLocalTimelineLock(input.storyId, input.userId, async () => {
+          const storyIndex = memoryState.stories.findIndex(
+            row => row.id === input.storyId && row.userId === input.userId
+          );
+          if (storyIndex < 0) throw new Error("故事不存在或无权操作");
+          const story = memoryState.stories[storyIndex];
+          const timelineIndex = memoryState.storyTimelines.findIndex(
+            row => row.storyId === input.storyId && row.userId === input.userId
+          );
+          const timeline = memoryState.storyTimelines[timelineIndex];
+          if (
+            persistedStoryBodyRevision(story.body) !==
+            input.expectedStoryRevision
+          ) {
+            throw new Error("故事已经更新，请重新加载后再试");
+          }
+          if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+            throw new Error("时间轴已经更新，请重新加载后再试");
+          }
+
+          const current = now();
+          const nextStory: Story = {
+            ...story,
+            body: input.nextStoryBody as StoryBody,
+            updatedAt: current,
+          };
+          const nextIds = { ...memoryState.nextIds };
+          const nextTimeline: StoryTimeline = timeline
+            ? {
+                ...timeline,
+                items: nextTimelinePayload,
+                version: timeline.version + 1,
+                updatedAt: current,
+              }
+            : {
+                id: nextIds.storyTimeline++,
+                storyId: input.storyId,
+                userId: input.userId,
+                items: nextTimelinePayload,
+                version: 1,
+                createdAt: current,
+                updatedAt: current,
+              };
+          // This primitive deliberately bypasses optimistic publication: the
+          // durable snapshot is written first, then both live rows become
+          // visible together. A failed write therefore requires no rollback.
+          const nextState: MemoryState = {
+            ...memoryState,
+            stories: memoryState.stories.map((row, index) =>
+              index === storyIndex ? nextStory : row
+            ),
+            storyTimelines:
+              timelineIndex >= 0
+                ? memoryState.storyTimelines.map((row, index) =>
+                    index === timelineIndex ? nextTimeline : row
+                  )
+                : [...memoryState.storyTimelines, nextTimeline],
+            nextIds,
+          };
+          const frozenNextState = frozenMemoryStateSnapshot(nextState);
+          await enqueueLocalPersistenceWrite(() =>
+            persistMemoryStateToDisk(frozenNextState)
+          );
+          memoryState.stories[storyIndex] = nextStory;
+          if (timelineIndex >= 0) {
+            memoryState.storyTimelines[timelineIndex] = nextTimeline;
+          } else {
+            memoryState.storyTimelines.push(nextTimeline);
+            memoryState.nextIds.storyTimeline = nextIds.storyTimeline;
+          }
+          return {
+            story: nextStory,
+            timeline: storyTimelineView(nextTimeline),
+          };
+        })
+      )
+    );
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+    if (
+      persistedStoryBodyRevision(story.body) !== input.expectedStoryRevision
+    ) {
+      throw new Error("故事已经更新，请重新加载后再试");
+    }
+
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已经更新，请重新加载后再试");
+    }
+
+    await tx
+      .update(stories)
+      .set({ body: input.nextStoryBody as StoryBody })
+      .where(eq(stories.id, story.id));
+    let timelineId: number;
+    if (timeline) {
+      timelineId = timeline.id;
+      await tx
+        .update(storyTimelines)
+        .set({ items: nextTimelinePayload, version: timeline.version + 1 })
+        .where(eq(storyTimelines.id, timeline.id));
+    } else {
+      const [inserted] = await tx.insert(storyTimelines).values({
+        storyId: input.storyId,
+        userId: input.userId,
+        items: nextTimelinePayload,
+        version: 1,
+      });
+      timelineId = inserted.insertId;
+    }
+    const [[updatedStory], [updatedTimeline]] = await Promise.all([
+      tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
+      tx
+        .select()
+        .from(storyTimelines)
+        .where(eq(storyTimelines.id, timelineId))
+        .limit(1),
+    ]);
+    return {
+      story: updatedStory,
+      timeline: storyTimelineView(updatedTimeline),
+    };
+  });
+}
+
 export async function applyStoryTimelineOverlayAtomic(input: {
   storyId: number;
   userId: number;
@@ -5035,7 +6313,9 @@ export async function applyStoryTimelineOverlayAtomic(input: {
   expectedVersion: number;
   nextStoryBody: unknown;
   nextTimelineItems: unknown;
-  overlay: StoryTimelineOverlay;
+  nextTimelineOverlays?: unknown;
+  nextVisualLayerState?: unknown;
+  overlay?: StoryTimelineOverlay;
 }): Promise<{
   applied: boolean;
   story: Story;
@@ -5049,34 +6329,200 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       ? (take.parameterSnapshot as Record<string, unknown>)
       : {}),
     appliedToTimeline: true,
-    overlayId: input.overlay.id,
+    ...(input.overlay ? { overlayId: input.overlay.id } : {}),
   });
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const story = memoryState.stories.find(
-      row => row.id === input.storyId && row.userId === input.userId
+    return withLocalAggregateMutationLock(() =>
+      withLocalStoryLock(input.storyId, input.userId, () =>
+        withLocalTimelineLock(input.storyId, input.userId, async () => {
+          const storyIndex = memoryState.stories.findIndex(
+            row => row.id === input.storyId && row.userId === input.userId
+          );
+          const timelineIndex = memoryState.storyTimelines.findIndex(
+            row => row.storyId === input.storyId && row.userId === input.userId
+          );
+          const takeIndex = memoryState.videoTakes.findIndex(
+            row =>
+              row.id === input.takeId &&
+              row.storyId === input.storyId &&
+              row.userId === input.userId
+          );
+          if (storyIndex < 0 || timelineIndex < 0 || takeIndex < 0) {
+            throw new Error("故事、时间轴或生成视频不存在");
+          }
+          const story = memoryState.stories[storyIndex];
+          const timeline = memoryState.storyTimelines[timelineIndex];
+          const take = memoryState.videoTakes[takeIndex];
+          const payload = decodeStoryTimelinePayload(timeline.items);
+          const overlays = Array.isArray(payload.overlays)
+            ? [...payload.overlays]
+            : [];
+          const overlayExists =
+            !input.overlay ||
+            overlays.some(
+              value =>
+                value &&
+                typeof value === "object" &&
+                !Array.isArray(value) &&
+                (value as Record<string, unknown>).id === input.overlay!.id
+            );
+          const shotExists = storyBodyContainsStableShotId(
+            story.body,
+            input.stableShotId
+          );
+          const timelineItemExists = timelineContainsStableShotId(
+            payload.items,
+            input.stableShotId
+          );
+          if (
+            overlayExists &&
+            shotExists &&
+            timelineItemExists &&
+            jsonRecord(take.parameterSnapshot).appliedToTimeline === true
+          ) {
+            return {
+              applied: false,
+              story,
+              timeline: storyTimelineView(timeline),
+              take,
+            };
+          }
+          if (revisionOf(story.body) !== input.expectedStoryRevision)
+            throw new Error("故事已经更新，请重新确认覆盖位置");
+          if (timeline.version !== input.expectedVersion)
+            throw new Error("时间轴已经更新，请重新确认覆盖位置");
+          if (
+            !shotExists &&
+            !storyBodyContainsStableShotId(
+              input.nextStoryBody,
+              input.stableShotId
+            )
+          )
+            throw new Error("待写入的故事版缺少生成镜头");
+          if (
+            !timelineItemExists &&
+            !timelineContainsStableShotId(
+              input.nextTimelineItems,
+              input.stableShotId
+            )
+          )
+            throw new Error("待写入的时间轴缺少生成镜头列");
+          const current = now();
+          const nextStory = shotExists
+            ? story
+            : {
+                ...story,
+                body: input.nextStoryBody as StoryBody,
+                updatedAt: current,
+              };
+          const nextTimeline =
+            timelineItemExists && overlayExists
+              ? timeline
+              : {
+                  ...timeline,
+                  items: encodeStoryTimelinePayload({
+                    items: timelineItemExists
+                      ? payload.items
+                      : input.nextTimelineItems,
+                    overlays:
+                      input.nextTimelineOverlays ??
+                      (overlayExists
+                        ? overlays
+                        : [...overlays, input.overlay!]),
+                    visualLayerState:
+                      input.nextVisualLayerState ?? payload.visualLayerState,
+                  }),
+                  version: timeline.version + 1,
+                  updatedAt: current,
+                };
+          const nextTake = {
+            ...take,
+            parameterSnapshot: snapshotWithApplied(take),
+            errorMessage: null,
+            updatedAt: current,
+          };
+          const nextState: MemoryState = {
+            ...memoryState,
+            stories: memoryState.stories.map((row, i) =>
+              i === storyIndex ? nextStory : row
+            ),
+            storyTimelines: memoryState.storyTimelines.map((row, i) =>
+              i === timelineIndex ? nextTimeline : row
+            ),
+            videoTakes: memoryState.videoTakes.map((row, i) =>
+              i === takeIndex ? nextTake : row
+            ),
+          };
+          const snapshot = frozenMemoryStateSnapshot(nextState);
+          await enqueueLocalPersistenceWrite(() =>
+            persistMemoryStateToDisk(snapshot)
+          );
+          memoryState.stories[storyIndex] = nextStory;
+          memoryState.storyTimelines[timelineIndex] = nextTimeline;
+          memoryState.videoTakes[takeIndex] = nextTake;
+          return {
+            applied: true,
+            story: nextStory,
+            timeline: storyTimelineView(nextTimeline),
+            take: nextTake,
+          };
+        })
+      )
     );
-    const timeline = memoryState.storyTimelines.find(
-      row => row.storyId === input.storyId && row.userId === input.userId
-    );
-    const take = memoryState.videoTakes.find(
-      row =>
-        row.id === input.takeId &&
-        row.storyId === input.storyId &&
-        row.userId === input.userId
-    );
+  }
+
+  return db.transaction(async tx => {
+    // All aggregate writers acquire locks in the same deterministic order.
+    // Parallel FOR UPDATE queries can reach MySQL in an arbitrary order and
+    // deadlock against Story -> Timeline writers.
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    const [take] = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.id, input.takeId),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
     if (!story || !timeline || !take) {
       throw new Error("故事、时间轴或生成视频不存在");
     }
     const payload = decodeStoryTimelinePayload(timeline.items);
-    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
-    const overlayExists = overlays.some(
+    const overlays = Array.isArray(payload.overlays)
+      ? [...payload.overlays]
+      : [];
+    const overlayExists =
+      !input.overlay ||
+      overlays.some(
         value =>
           value &&
           typeof value === "object" &&
           !Array.isArray(value) &&
-          (value as Record<string, unknown>).id === input.overlay.id
+          (value as Record<string, unknown>).id === input.overlay!.id
       );
     const shotExists = storyBodyContainsStableShotId(
       story.body,
@@ -5086,7 +6532,12 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       payload.items,
       input.stableShotId
     );
-    if (overlayExists && shotExists && timelineItemExists) {
+    if (
+      overlayExists &&
+      shotExists &&
+      timelineItemExists &&
+      jsonRecord(take.parameterSnapshot).appliedToTimeline === true
+    ) {
       return {
         applied: false,
         story,
@@ -5100,121 +6551,10 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     if (timeline.version !== input.expectedVersion) {
       throw new Error("时间轴已经更新，请重新确认覆盖位置");
     }
-    const previousStory = { ...story };
-    const previousTimeline = { ...timeline };
-    const previousTake = { ...take };
     if (!shotExists) {
-      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
-        throw new Error("待写入的故事版缺少生成镜头");
-      }
-      story.body = input.nextStoryBody as StoryBody;
-      story.updatedAt = now();
-    }
-    if (!timelineItemExists || !overlayExists) {
       if (
-        !timelineItemExists &&
-        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+        !storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)
       ) {
-        throw new Error("待写入的时间轴缺少生成镜头列");
-      }
-      timeline.items = encodeStoryTimelinePayload({
-        items: timelineItemExists ? payload.items : input.nextTimelineItems,
-        overlays: overlayExists ? overlays : [...overlays, input.overlay],
-        // 采用抽帧生成视频不得顺手抹掉图层数量与显隐；不带上它 encode 会整个丢字段。
-        visualLayerState: payload.visualLayerState,
-      });
-      timeline.version += 1;
-      timeline.updatedAt = now();
-    }
-    take.parameterSnapshot = snapshotWithApplied(take);
-    take.errorMessage = null;
-    take.updatedAt = now();
-    try {
-      await persistMemoryState();
-    } catch (error) {
-      Object.assign(story, previousStory);
-      Object.assign(timeline, previousTimeline);
-      Object.assign(take, previousTake);
-      throw error;
-    }
-    return {
-      applied: true,
-      story,
-      timeline: storyTimelineView(timeline),
-      take,
-    };
-  }
-
-  return db.transaction(async tx => {
-    const [[story], [timeline], [take]] = await Promise.all([
-      tx
-        .select()
-        .from(stories)
-        .where(
-          and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
-        )
-        .for("update")
-        .limit(1),
-      tx
-        .select()
-        .from(storyTimelines)
-        .where(
-          and(
-            eq(storyTimelines.storyId, input.storyId),
-            eq(storyTimelines.userId, input.userId)
-          )
-        )
-        .for("update")
-        .limit(1),
-      tx
-        .select()
-        .from(videoTakes)
-        .where(
-          and(
-            eq(videoTakes.id, input.takeId),
-            eq(videoTakes.storyId, input.storyId),
-            eq(videoTakes.userId, input.userId)
-          )
-        )
-        .for("update")
-        .limit(1),
-    ]);
-    if (!story || !timeline || !take) {
-      throw new Error("故事、时间轴或生成视频不存在");
-    }
-    const payload = decodeStoryTimelinePayload(timeline.items);
-    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
-    const overlayExists = overlays.some(
-      value =>
-        value &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        (value as Record<string, unknown>).id === input.overlay.id
-    );
-    const shotExists = storyBodyContainsStableShotId(
-      story.body,
-      input.stableShotId
-    );
-    const timelineItemExists = timelineContainsStableShotId(
-      payload.items,
-      input.stableShotId
-    );
-    if (overlayExists && shotExists && timelineItemExists) {
-      return {
-        applied: false,
-        story,
-        timeline: storyTimelineView(timeline),
-        take,
-      };
-    }
-    if (revisionOf(story.body) !== input.expectedStoryRevision) {
-      throw new Error("故事已经更新，请重新确认覆盖位置");
-    }
-    if (timeline.version !== input.expectedVersion) {
-      throw new Error("时间轴已经更新，请重新确认覆盖位置");
-    }
-    if (!shotExists) {
-      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
         throw new Error("待写入的故事版缺少生成镜头");
       }
       await tx
@@ -5227,7 +6567,10 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     if (!timelineItemExists || !overlayExists) {
       if (
         !timelineItemExists &&
-        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+        !timelineContainsStableShotId(
+          input.nextTimelineItems,
+          input.stableShotId
+        )
       ) {
         throw new Error("待写入的时间轴缺少生成镜头列");
       }
@@ -5236,8 +6579,11 @@ export async function applyStoryTimelineOverlayAtomic(input: {
         .set({
           items: encodeStoryTimelinePayload({
             items: timelineItemExists ? payload.items : input.nextTimelineItems,
-            overlays: overlayExists ? overlays : [...overlays, input.overlay],
-            visualLayerState: payload.visualLayerState,
+            overlays:
+              input.nextTimelineOverlays ??
+              (overlayExists ? overlays : [...overlays, input.overlay!]),
+            visualLayerState:
+              input.nextVisualLayerState ?? payload.visualLayerState,
           }),
           version: timeline.version + 1,
         })
@@ -5247,11 +6593,16 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       .update(videoTakes)
       .set({ parameterSnapshot: snapshotWithApplied(take), errorMessage: null })
       .where(eq(videoTakes.id, take.id));
-    const [[updatedStory], [updatedTimeline], [updatedTake]] = await Promise.all([
-      tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
-      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
-      tx.select().from(videoTakes).where(eq(videoTakes.id, take.id)).limit(1),
-    ]);
+    const [[updatedStory], [updatedTimeline], [updatedTake]] =
+      await Promise.all([
+        tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
+        tx
+          .select()
+          .from(storyTimelines)
+          .where(eq(storyTimelines.id, timeline.id))
+          .limit(1),
+        tx.select().from(videoTakes).where(eq(videoTakes.id, take.id)).limit(1),
+      ]);
     return {
       applied: true,
       story: updatedStory,
@@ -5259,6 +6610,26 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       take: updatedTake,
     };
   });
+}
+
+/**
+ * Atomically publishes a generated ordinary visual shot and marks its paid
+ * Take adopted. It intentionally preserves the complete overlay document and
+ * never creates a compatibility overlay.
+ */
+export function applyGeneratedVisualShotAtomic(input: {
+  storyId: number;
+  userId: number;
+  takeId: number;
+  stableShotId: string;
+  expectedStoryRevision: number;
+  expectedVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+  nextTimelineOverlays?: unknown;
+  nextVisualLayerState?: unknown;
+}) {
+  return applyStoryTimelineOverlayAtomic(input);
 }
 
 function storyBodyContainsStableShotId(
@@ -5285,7 +6656,8 @@ function timelineContainsStableShotId(
   return (
     Array.isArray(timelineItems) &&
     timelineItems.some(item => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      if (!item || typeof item !== "object" || Array.isArray(item))
+        return false;
       return (item as Record<string, unknown>).stableShotId === stableShotId;
     })
   );
@@ -5312,50 +6684,86 @@ export async function insertTransitionShotAtomic(input: {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const story = memoryState.stories.find(
-      row => row.id === input.storyId && row.userId === input.userId
-    );
-    const timeline = memoryState.storyTimelines.find(
-      row => row.storyId === input.storyId && row.userId === input.userId
-    );
-    if (!story) throw new Error("故事不存在或无权操作");
-    if (storyBodyContainsStableShotId(story.body, input.stableShotId)) {
-      if (!timeline) throw new Error("衔接镜头已经存在，但时间轴记录缺失");
-      return { applied: false, story, timeline };
-    }
-    if (revisionOf(story.body) !== input.expectedStoryRevision) {
-      throw new Error("故事已经更新，请重新确认衔接位置");
-    }
-    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
-      throw new Error("时间轴已经更新，请重新确认衔接位置");
-    }
+    return withLocalAggregateMutationLock(() =>
+      withLocalStoryLock(input.storyId, input.userId, () =>
+        withLocalTimelineLock(input.storyId, input.userId, async () => {
+          const storyIndex = memoryState.stories.findIndex(
+            row => row.id === input.storyId && row.userId === input.userId
+          );
+          const timelineIndex = memoryState.storyTimelines.findIndex(
+            row => row.storyId === input.storyId && row.userId === input.userId
+          );
+          const story = memoryState.stories[storyIndex];
+          const timeline = memoryState.storyTimelines[timelineIndex];
+          if (storyIndex < 0) throw new Error("故事不存在或无权操作");
+          if (storyBodyContainsStableShotId(story.body, input.stableShotId)) {
+            if (!timeline)
+              throw new Error("衔接镜头已经存在，但时间轴记录缺失");
+            return { applied: false, story, timeline };
+          }
+          if (revisionOf(story.body) !== input.expectedStoryRevision) {
+            throw new Error("故事已经更新，请重新确认衔接位置");
+          }
+          if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+            throw new Error("时间轴已经更新，请重新确认衔接位置");
+          }
 
-    story.body = input.nextStoryBody as StoryBody;
-    story.updatedAt = now();
-    let savedTimeline: StoryTimeline;
-    if (timeline) {
-      timeline.items = replaceStoryTimelineItemsPreservingOverlays(
-        timeline.items,
-        input.nextTimelineItems
-      );
-      timeline.version += 1;
-      timeline.updatedAt = now();
-      savedTimeline = timeline;
-    } else {
-      const current = now();
-      savedTimeline = {
-        id: nextMemoryId("storyTimeline"),
-        storyId: input.storyId,
-        userId: input.userId,
-        version: 1,
-        items: input.nextTimelineItems,
-        createdAt: current,
-        updatedAt: current,
-      };
-      memoryState.storyTimelines.push(savedTimeline);
-    }
-    await persistMemoryState();
-    return { applied: true, story, timeline: savedTimeline };
+          const current = now();
+          const nextStory = {
+            ...story,
+            body: input.nextStoryBody as StoryBody,
+            updatedAt: current,
+          };
+          const nextIds = { ...memoryState.nextIds };
+          let savedTimeline: StoryTimeline;
+          if (timeline) {
+            savedTimeline = {
+              ...timeline,
+              items: replaceStoryTimelineItemsPreservingOverlays(
+                timeline.items,
+                input.nextTimelineItems
+              ),
+              version: timeline.version + 1,
+              updatedAt: current,
+            };
+          } else {
+            savedTimeline = {
+              id: nextIds.storyTimeline++,
+              storyId: input.storyId,
+              userId: input.userId,
+              version: 1,
+              items: input.nextTimelineItems,
+              createdAt: current,
+              updatedAt: current,
+            };
+          }
+          const nextState: MemoryState = {
+            ...memoryState,
+            stories: memoryState.stories.map((row, i) =>
+              i === storyIndex ? nextStory : row
+            ),
+            storyTimelines:
+              timelineIndex >= 0
+                ? memoryState.storyTimelines.map((row, i) =>
+                    i === timelineIndex ? savedTimeline : row
+                  )
+                : [...memoryState.storyTimelines, savedTimeline],
+            nextIds,
+          };
+          await enqueueLocalPersistenceWrite(() =>
+            persistMemoryStateToDisk(frozenMemoryStateSnapshot(nextState))
+          );
+          memoryState.stories[storyIndex] = nextStory;
+          if (timelineIndex >= 0)
+            memoryState.storyTimelines[timelineIndex] = savedTimeline;
+          else {
+            memoryState.storyTimelines.push(savedTimeline);
+            memoryState.nextIds.storyTimeline = nextIds.storyTimeline;
+          }
+          return { applied: true, story: nextStory, timeline: savedTimeline };
+        })
+      )
+    );
   }
 
   return db.transaction(async tx => {
@@ -5459,13 +6867,26 @@ export async function restoreSplitStoryShotAtomic(input: {
     if (!storyBodyContainsStableShotId(story.body, input.splitStableShotId)) {
       throw new Error("切割产生的镜头已经不存在，无法撤销");
     }
-    if (storyBodyContainsStableShotId(input.nextStoryBody, input.splitStableShotId)) {
+    if (
+      storyBodyContainsStableShotId(
+        input.nextStoryBody,
+        input.splitStableShotId
+      )
+    ) {
       throw new Error("撤销快照仍包含切割镜头");
     }
-    if (!timeline || !timelineContainsStableShotId(timeline.items, input.splitStableShotId)) {
+    if (
+      !timeline ||
+      !timelineContainsStableShotId(timeline.items, input.splitStableShotId)
+    ) {
       throw new Error("切割产生的时间轴镜头已经不存在，无法撤销");
     }
-    if (timelineContainsStableShotId(input.nextTimelineItems, input.splitStableShotId)) {
+    if (
+      timelineContainsStableShotId(
+        input.nextTimelineItems,
+        input.splitStableShotId
+      )
+    ) {
       throw new Error("撤销时间轴快照仍包含切割镜头");
     }
   };
@@ -5473,31 +6894,64 @@ export async function restoreSplitStoryShotAtomic(input: {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const story = memoryState.stories.find(
-      row => row.id === input.storyId && row.userId === input.userId
+    return withLocalAggregateMutationLock(() =>
+      withLocalStoryLock(input.storyId, input.userId, () =>
+        withLocalTimelineLock(input.storyId, input.userId, async () => {
+          const storyIndex = memoryState.stories.findIndex(
+            row => row.id === input.storyId && row.userId === input.userId
+          );
+          const timelineIndex = memoryState.storyTimelines.findIndex(
+            row => row.storyId === input.storyId && row.userId === input.userId
+          );
+          const story = memoryState.stories[storyIndex];
+          const timeline =
+            timelineIndex >= 0
+              ? memoryState.storyTimelines[timelineIndex]
+              : null;
+          if (storyIndex < 0) throw new Error("故事不存在或无权操作");
+          validate(story, timeline);
+          const current = now();
+          const nextStory = {
+            ...story,
+            body: input.nextStoryBody as StoryBody,
+            updatedAt: current,
+          };
+          const nextTimeline = {
+            ...timeline!,
+            items: replaceStoryTimelineItemsPreservingOverlays(
+              timeline!.items,
+              input.nextTimelineItems
+            ),
+            version: timeline!.version + 1,
+            updatedAt: current,
+          };
+          const nextState: MemoryState = {
+            ...memoryState,
+            stories: memoryState.stories.map((row, i) =>
+              i === storyIndex ? nextStory : row
+            ),
+            storyTimelines: memoryState.storyTimelines.map((row, i) =>
+              i === timelineIndex ? nextTimeline : row
+            ),
+          };
+          await enqueueLocalPersistenceWrite(() =>
+            persistMemoryStateToDisk(frozenMemoryStateSnapshot(nextState))
+          );
+          memoryState.stories[storyIndex] = nextStory;
+          memoryState.storyTimelines[timelineIndex] = nextTimeline;
+          return { story: nextStory, timeline: nextTimeline };
+        })
+      )
     );
-    const timeline = memoryState.storyTimelines.find(
-      row => row.storyId === input.storyId && row.userId === input.userId
-    ) ?? null;
-    if (!story) throw new Error("故事不存在或无权操作");
-    validate(story, timeline);
-    story.body = input.nextStoryBody as StoryBody;
-    story.updatedAt = now();
-    timeline!.items = replaceStoryTimelineItemsPreservingOverlays(
-      timeline!.items,
-      input.nextTimelineItems
-    );
-    timeline!.version += 1;
-    timeline!.updatedAt = now();
-    await persistMemoryState();
-    return { story, timeline: timeline! };
   }
 
   return db.transaction(async tx => {
     const [story] = await tx
       .select()
       .from(stories)
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)))
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
       .for("update")
       .limit(1);
     const [timeline] = await tx
@@ -5516,7 +6970,9 @@ export async function restoreSplitStoryShotAtomic(input: {
     await tx
       .update(stories)
       .set({ body: input.nextStoryBody as StoryBody })
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)));
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      );
     await tx
       .update(storyTimelines)
       .set({
@@ -5529,7 +6985,11 @@ export async function restoreSplitStoryShotAtomic(input: {
       .where(eq(storyTimelines.id, timeline.id));
     const [[savedStory], [savedTimeline]] = await Promise.all([
       tx.select().from(stories).where(eq(stories.id, input.storyId)).limit(1),
-      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
+      tx
+        .select()
+        .from(storyTimelines)
+        .where(eq(storyTimelines.id, timeline.id))
+        .limit(1),
     ]);
     if (!savedStory || !savedTimeline) throw new Error("切割撤销后读取失败");
     return { story: savedStory, timeline: savedTimeline };
@@ -6301,6 +7761,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
   memoryState.generatedImages = [];
+  memoryState.timelineFrameExtractionOperations = [];
   memoryState.imageSignals = [];
   memoryState.videoTakes = [];
   memoryState.videoTakeRanges = [];
@@ -6327,6 +7788,7 @@ export function resetMemoryStateForTesting(): void {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
     videoTakeRange: 1,
@@ -6337,6 +7799,7 @@ export function resetMemoryStateForTesting(): void {
     inviteCode: 1,
   };
   defaultProjectLocks.clear();
+  timelineFrameExtractionMemoryLock.clear();
   memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
   memoryInviteClaimQueue = Promise.resolve();
   memoryEmailOtps = [];

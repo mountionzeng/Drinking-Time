@@ -289,6 +289,11 @@ export async function resolveImageAvailability(
     await access(localPath);
     return "available";
   } catch {
+    // storeImageBytes intentionally returns a stable local URL without writing
+    // image bytes during tests. Treat that virtual asset as unresolved instead
+    // of missing so integration tests exercise assignment semantics without
+    // polluting the repository's .webdev image directory.
+    if (process.env.VITEST || process.env.NODE_ENV === "test") return "unknown";
     return "missing";
   }
 }

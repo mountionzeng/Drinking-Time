@@ -665,6 +665,26 @@ export function normalizeTimelineItems(
   });
 }
 
+export function projectStoryTimelineDocument(
+  story: Story,
+  timelineRow: {
+    version: number;
+    items: unknown;
+    overlays?: unknown;
+    visualLayerState?: unknown;
+  } | null
+): TimelineDocument {
+  return {
+    storyId: story.id,
+    version: timelineRow?.version ?? 0,
+    items: normalizeTimelineItems(timelineRow?.items, storyShots(story)),
+    overlays: timelineOverlays(timelineRow?.overlays),
+    visualLayerState: normalizePersistedVisualLayerState(
+      timelineVisualLayerState(timelineRow?.visualLayerState)
+    ),
+  };
+}
+
 export async function getStoryMaterialState(
   storyId: number,
   userId: number
@@ -697,18 +717,9 @@ export async function getStoryMaterialState(
       getStoryTimeline(storyId, userId),
       getStoryPromptCompilationHeads({ storyId, userId }),
     ]);
-  const timelineItems = normalizeTimelineItems(timelineRow?.items, facts);
-  const timeline: TimelineDocument = {
-    storyId,
-    version: timelineRow?.version ?? 0,
-    items: timelineItems,
-    overlays: timelineOverlays(timelineRow?.overlays),
-    // 落库形态：显式层数 + 隐藏集合。最高那层空白投放层由客户端和导出各自派生，
-    // 不写进文档——写进去就会让「拖上顶层再拖回来」永久多出一层。
-    visualLayerState: normalizePersistedVisualLayerState(
-      timelineVisualLayerState(timelineRow?.visualLayerState)
-    ),
-  };
+  // 统一投影保留新视觉图层字段；提示词读取则沿用 main 的按 Story 窄查询，
+  // 避免刷新时复制整份 prompt lineage 仓库。
+  const timeline = projectStoryTimelineDocument(story, timelineRow);
   const timelineByShot = new Map(
     timeline.items.map(item => [item.stableShotId, item])
   );
@@ -806,7 +817,7 @@ export async function getStoryMaterialState(
           shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
           shotIdentityMatchKeys(take.stableShotId)
         )
-      );
+    );
     const relatedSeedIds = new Set<number>(fact.relatedImageIds);
     for (const overlay of timeline.overlays ?? []) {
       if (overlay.sourceStableShotId !== fact.stableShotId) continue;
@@ -844,37 +855,37 @@ export async function getStoryMaterialState(
           : [];
       });
     const ownVideoTakes = rawOwnVideoTakes.map(take => {
-        // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
-        // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
-        // 会因为继承源 take 的旧 promptCompilationId 被判 stale，
-        // 导致统一完成的版本无法成为当前视频。
-        const isDerivedVariant = Boolean(
-          take.parameterSnapshot &&
-            typeof take.parameterSnapshot === "object" &&
-            !Array.isArray(take.parameterSnapshot) &&
-            (take.parameterSnapshot as Record<string, unknown>).sourceTakeId !=
-              null
-        );
-        const promptFreshness = isDerivedVariant
-          ? ("legacy" as const)
-          : resolvePromptAssetFreshness(
-              take.promptCompilationId,
-              videoCompilationId
-            );
-        const staleReasons = isDerivedVariant
-          ? []
-          : resolveVideoStaleReasons({
-              sourceImageId: take.sourceImageId,
-              currentImageId: currentImage?.id ?? null,
-              promptFreshness,
-            });
-        return {
-          ...take,
-          promptFreshness,
-          staleReasons,
-          isStale: staleReasons.length > 0,
-        };
-      });
+      // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
+      // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
+      // 会因为继承源 take 的旧 promptCompilationId 被判 stale，
+      // 导致统一完成的版本无法成为当前视频。
+      const isDerivedVariant = Boolean(
+        take.parameterSnapshot &&
+          typeof take.parameterSnapshot === "object" &&
+          !Array.isArray(take.parameterSnapshot) &&
+          (take.parameterSnapshot as Record<string, unknown>).sourceTakeId !=
+            null
+      );
+      const promptFreshness = isDerivedVariant
+        ? ("legacy" as const)
+        : resolvePromptAssetFreshness(
+            take.promptCompilationId,
+            videoCompilationId
+          );
+      const staleReasons = isDerivedVariant
+        ? []
+        : resolveVideoStaleReasons({
+            sourceImageId: take.sourceImageId,
+            currentImageId: currentImage?.id ?? null,
+            promptFreshness,
+          });
+      return {
+        ...take,
+        promptFreshness,
+        staleReasons,
+        isStale: staleReasons.length > 0,
+      };
+    });
     const videoTakes = ownVideoTakes;
     const currentVideo =
       videoTakes.find(

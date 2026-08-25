@@ -87,7 +87,7 @@ const fictionIntent: StoryIntent = {
 
 describe('StoryAgentContext intent state', () => {
   it('refreshes story revision and shots for every applied transition result', async () => {
-    const { applyTransitionStoryResult } = await import('./StoryAgentContext');
+    const { applyTransitionStoryResult } = await import('./editingTransitionSession');
     const setServerRevision = vi.fn();
     const setStoryShots = vi.fn();
     const storyShots = [{ shotNo: 1, stableShotId: 'generated-overlay-shot' }];
@@ -369,18 +369,25 @@ describe('StoryAgentContext intent state', () => {
   });
 
   it('prefers the first persisted story id over draft sentinels', async () => {
+    const { resolvePersistedStoryId } = await import('./StoryAgentContext');
     const {
       canPersistStoryToActiveScope,
       canPersistStorySnapshot,
-      resolvePersistedStoryId,
+      storySessionTokenMatches,
       storyScopeMatches,
-    } = await import('./StoryAgentContext');
+    } = await import('./editingTransitionSession');
 
     expect(resolvePersistedStoryId(-1, 36, 42)).toBe(36);
     expect(resolvePersistedStoryId(null, undefined, 42)).toBe(42);
     expect(resolvePersistedStoryId(-1, 0, null)).toBeNull();
     expect(storyScopeMatches(-1, -1)).toBe(true);
     expect(storyScopeMatches(36, 34)).toBe(false);
+    expect(
+      storySessionTokenMatches(
+        { storyId: 36, scopeEpoch: 7 },
+        { storyId: 36, scopeEpoch: 7 },
+      ),
+    ).toBe(true);
     expect(canPersistStoryToActiveScope(36, 36)).toBe(true);
     expect(canPersistStoryToActiveScope(36, null)).toBe(false);
     expect(canPersistStoryToActiveScope(36, 34)).toBe(false);
@@ -401,6 +408,28 @@ describe('StoryAgentContext intent state', () => {
         persistedStoryId: 36,
         activeStoryId: 36,
       })
+    ).toBe(false);
+  });
+
+  it('rejects an extracted-frame proposal response that arrives after A switches to B', async () => {
+    const { storySessionTokenMatches } = await import('./editingTransitionSession');
+
+    expect(
+      storySessionTokenMatches(
+        { storyId: 91, scopeEpoch: 12 },
+        { storyId: 92, scopeEpoch: 13 },
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects an extracted-frame proposal response after A switches to B and back to A', async () => {
+    const { storySessionTokenMatches } = await import('./editingTransitionSession');
+
+    expect(
+      storySessionTokenMatches(
+        { storyId: 91, scopeEpoch: 12 },
+        { storyId: 91, scopeEpoch: 14 },
+      ),
     ).toBe(false);
   });
 });

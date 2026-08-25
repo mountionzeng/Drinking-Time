@@ -7,6 +7,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   applyStoryTimelineOverlayAtomic,
+  applyGeneratedVisualShotAtomic,
   claimEditingTransitionSubmission,
   createVideoTakeIdempotently,
   findVideoTakeByIdempotencyKey,
@@ -23,6 +24,7 @@ import {
   type StoryTimelineOverlay,
 } from "../../shared/storyMaterial";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
+import { planExtractedFrameTargetLayer } from "../../shared/timelineVisualLayers";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { getStoryImageAssets, localImagePathForUrl } from "./imageAssets";
 import { getStoryMaterialState } from "./storyMaterials";
@@ -49,6 +51,25 @@ import {
 import { displayShotCode } from "../../shared/shotIdentity";
 
 type RecordValue = Record<string, unknown>;
+
+const IMAGE_PAIR_DURATION_BOUNDARY_TOLERANCE_SEC = 0.15;
+const IMAGE_PAIR_QUOTED_DURATION_TOLERANCE_SEC = 0.35;
+
+function validateImagePairMediaDuration(
+  candidate: TimelineTransitionCandidate,
+  durationSec: number | null | undefined
+) {
+  if (candidate.placement?.kind !== "story-shot" || durationSec == null) return;
+  if (
+    !Number.isFinite(durationSec) ||
+    durationSec < 1 - IMAGE_PAIR_DURATION_BOUNDARY_TOLERANCE_SEC ||
+    durationSec > 8 + IMAGE_PAIR_DURATION_BOUNDARY_TOLERANCE_SEC ||
+    Math.abs(durationSec - candidate.durationSec) >
+      IMAGE_PAIR_QUOTED_DURATION_TOLERANCE_SEC
+  ) {
+    throw new Error("生成结果没有通过 1–8 秒 / 报价时长成片校验");
+  }
+}
 
 export type ConfirmEditingTransitionResult =
   | {
@@ -189,8 +210,8 @@ async function patchTake(
 
 function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
   const placement = candidate.placement;
-  const overlay = placement?.kind === "timeline-overlay";
-  if (overlay) {
+  const imagePlacement = placement?.kind === "timeline-overlay" || placement?.kind === "story-shot";
+  if (imagePlacement) {
     const estimate = estimateViduQ2TransitionCost({
       durationSec: candidate.durationSec,
       resolution: candidate.resolution,
@@ -205,15 +226,22 @@ function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
       candidate.cutAtSec !== null ||
       candidate.estimatedCredits !== estimate.credits ||
       candidate.estimatedCny !== cny.estimatedCny ||
-      placement!.startFrame < 0 ||
-      placement!.targetEndFrame <= placement!.startFrame ||
       candidate.source.mediaKind !== "image" ||
-      candidate.target.mediaKind !== "image" ||
-      candidate.source.imageId !== placement!.leftImageId ||
-      candidate.target.imageId !== placement!.rightImageId
+      candidate.target.mediaKind !== "image"
     ) {
       throw new Error("覆盖视频参数已经变化，请重新生成确认卡");
     }
+    if (placement.kind === "timeline-overlay" && (
+      placement.startFrame < 0 || placement.targetEndFrame <= placement.startFrame ||
+      candidate.durationSec !== Math.min(8, Math.floor((placement.targetEndFrame - placement.startFrame) / 30)) ||
+      candidate.source.imageId !== placement.leftImageId || candidate.target.imageId !== placement.rightImageId
+    )) throw new Error("覆盖视频参数已经变化，请重新生成确认卡");
+    if (placement.kind === "story-shot" && (
+      placement.right.timelineFrame <= placement.left.timelineFrame ||
+      candidate.durationSec !== Math.min(8, Math.floor((placement.right.timelineFrame - placement.left.timelineFrame) / 30)) ||
+      candidate.source.imageId !== placement.left.imageId || candidate.target.imageId !== placement.right.imageId ||
+      !placement.left.clipId || !placement.right.clipId
+    )) throw new Error("图片视频参数已经变化，请重新生成确认卡");
   } else if (
     candidate.durationSec !== 2 ||
     candidate.resolution !== "720p" ||
@@ -226,7 +254,7 @@ function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
   if (
     !candidate.candidateId.startsWith("transition-") ||
     !candidate.provisionalStableShotId.startsWith("transition-shot-") ||
-    (!overlay && candidate.source.stableShotId === candidate.target.stableShotId)
+    (!imagePlacement && candidate.source.stableShotId === candidate.target.stableShotId)
   ) {
     throw new Error("衔接确认卡无效，请重新选择镜头");
   }
@@ -285,10 +313,10 @@ function storedCandidateForTake(
   ) {
     throw new Error("衔接任务与确认卡不一致，为避免串用视频已停止处理");
   }
-  if (normalized.placement?.kind === "timeline-overlay") {
+  if (normalized.placement?.kind === "timeline-overlay" || normalized.placement?.kind === "story-shot") {
     const requestedPlacement = requested.placement;
     if (
-      requestedPlacement?.kind !== "timeline-overlay" ||
+      requestedPlacement?.kind !== normalized.placement.kind ||
       JSON.stringify(normalized.placement) !== JSON.stringify(requestedPlacement)
     ) {
       throw new Error("覆盖视频落点与已付费任务不一致，已停止采用");
@@ -327,12 +355,15 @@ async function validateBeforePaidSubmission(
   if (material.timeline.version !== candidate.expectedTimelineVersion) {
     throw new Error("时间轴已经更新，请让聊聊重新确认衔接位置");
   }
-  if (candidate.placement?.kind === "timeline-overlay") {
+  if (candidate.placement?.kind === "story-shot") {
+    const placement = candidate.placement;
     const canonicalResult = await proposeExtractedFrameTransition({
       storyId: candidate.storyId,
       userId,
-      leftImageId: candidate.placement.leftImageId,
-      rightImageId: candidate.placement.rightImageId,
+      leftImageId: placement.left.imageId,
+      rightImageId: placement.right.imageId,
+      leftClipId: placement.left.clipId,
+      rightClipId: placement.right.clipId,
       instruction:
         candidate.instruction === "用两张时间线抽帧生成上层覆盖视频"
           ? undefined
@@ -348,6 +379,9 @@ async function validateBeforePaidSubmission(
     }
     return canonical;
   }
+  // Persisted paid legacy overlay candidates retain their original recovery
+  // path. New proposals are never created with this placement kind.
+  if (candidate.placement?.kind === "timeline-overlay") return candidate;
   if (
     !adjacentIncludedPair(
       material.timeline.items,
@@ -872,6 +906,87 @@ async function applyGeneratedTransition(
   if (!story || !material) throw new Error("故事不存在或无权操作");
   const body = record(story.body);
   const shots = storyShots(story.body);
+  if (candidate.placement?.kind === "story-shot") {
+    validateImagePairMediaDuration(candidate, take.durationSec);
+    const placement = candidate.placement;
+    const actualDurationSec =
+      typeof take.durationSec === "number" && take.durationSec > 0
+        ? take.durationSec
+        : candidate.durationSec;
+    const durationFrames = Math.max(1, Math.round(actualDurationSec * 30));
+    const mediaEndFrame = placement.left.timelineFrame + durationFrames;
+    const anchoredConflict = buildTimelineLayout(material.timeline.items).find(
+      row => (row.item.anchors?.length ?? 0) > 0 &&
+        row.startFrame < mediaEndFrame && row.endFrame > placement.left.timelineFrame
+    );
+    if (anchoredConflict) {
+      throw new Error("视频已经生成，但实际完整时长碰到位置锚点；已保留素材，没有自动采用");
+    }
+    const existing = shots.find(shot => stableShotIdOf(shot) === candidate.provisionalStableShotId);
+    const existingItem = material.timeline.items.find(item => item.stableShotId === candidate.provisionalStableShotId);
+    if (existing && existingItem) {
+      return { storyShots: shots, storyRevision: getStoryRevision(story.body), timelineVersion: material.timeline.version, applied: false, overlay: false };
+    }
+    const sourceIndex = shots.findIndex(shot => stableShotIdOf(shot) === candidate.source.stableShotId);
+    const targetIndex = shots.findIndex(shot => stableShotIdOf(shot) === candidate.target.stableShotId);
+    if (sourceIndex < 0 || targetIndex < 0) throw new Error("视频已生成，但来源图片所属镜头已经不存在");
+    const startByStableId = new Map(buildTimelineLayout(material.timeline.items).map(row => [row.item.stableShotId, row.startFrame] as const));
+    const laterShotIndex = shots.findIndex(shot => (startByStableId.get(stableShotIdOf(shot)) ?? Number.POSITIVE_INFINITY) > placement.left.timelineFrame);
+    const insertionIndex = laterShotIndex < 0 ? shots.length : laterShotIndex;
+    const inserted = insertedTransitionShot({ candidate, source: shots[sourceIndex], target: shots[targetIndex], shotNo: insertionIndex + 1, takeId: take.id });
+    const nextShots = existing ? shots : [...shots.slice(0, insertionIndex), inserted, ...shots.slice(insertionIndex)]
+      .map((shot, index) => ({ ...shot, shotNo: index + 1 }));
+    const nextBody = existing ? story.body : prepareStoryBody({ ...body, shots: nextShots }, getStoryRevision(story.body) + 1, story.body);
+    const operationLayer = Math.max(placement.left.visualLayer, placement.right.visualLayer);
+    const layerPlan = planExtractedFrameTargetLayer({
+      items: material.timeline.items,
+      overlays: material.timeline.overlays,
+      state: material.timeline.visualLayerState,
+      operationLayer,
+    });
+    if (layerPlan.status === "error") throw new Error("来源图片图层已经变化，请重新选择抽帧");
+    let foundLeft = false;
+    let foundRight = false;
+    const boundaryItems: StoryTimelineItem[] = layerPlan.change.items.map(item => ({
+      ...item,
+      imageClips: item.imageClips?.map(clip => {
+        if (clip.id === placement.left.clipId && clip.imageId === placement.left.imageId) {
+          foundLeft = true;
+          return { ...clip, timelineStartFrame: placement.left.timelineFrame };
+        }
+        if (clip.id === placement.right.clipId && clip.imageId === placement.right.imageId) {
+          foundRight = true;
+          return { ...clip, timelineStartFrame: mediaEndFrame - 1 };
+        }
+        return clip;
+      }),
+    }));
+    if (!foundLeft || !foundRight) throw new Error("来源图片块已经失效，请重新选择抽帧");
+    const stackOrder = Math.max(-1, ...boundaryItems.map(item => item.stackOrder ?? item.position), ...layerPlan.change.overlays.map(overlay => overlay.stackOrder)) + 1;
+    const timelineItems = [...boundaryItems].sort((a, b) => a.position - b.position);
+    if (!existingItem) timelineItems.splice(insertionIndex, 0, {
+      stableShotId: candidate.provisionalStableShotId,
+      included: true,
+      position: insertionIndex,
+      plannedDurationMs: Math.max(100, Math.round(actualDurationSec * 1_000)),
+      durationFrames,
+      timelineStartFrame: placement.left.timelineFrame,
+      stackOrder,
+      visualLayer: layerPlan.targetLayer,
+      transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      primaryVideoEdit: { takeId: take.id, sourceStartSec: 0, sourceEndSec: actualDurationSec, effects: { ...DEFAULT_TIMELINE_VIDEO_EFFECTS } },
+    });
+    const nextTimelineItems = timelineItems.map((item, position) => ({ ...item, position }));
+    const saved = await applyGeneratedVisualShotAtomic({
+      storyId: candidate.storyId, userId, takeId: take.id,
+      stableShotId: candidate.provisionalStableShotId,
+      expectedStoryRevision: getStoryRevision(story.body), expectedVersion: candidate.expectedTimelineVersion,
+      nextStoryBody: nextBody, nextTimelineItems,
+      nextTimelineOverlays: layerPlan.change.overlays,
+      nextVisualLayerState: layerPlan.change.state,
+    });
+    return { storyShots: storyShots(saved.story.body), storyRevision: getStoryRevision(saved.story.body), timelineVersion: saved.timeline.version, applied: saved.applied, overlay: false };
+  }
   if (candidate.placement?.kind === "timeline-overlay") {
     const placement = candidate.placement;
     const actualDurationSec =
@@ -1114,9 +1229,10 @@ async function finishAndApply(params: {
     }
     let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null = null;
     const isOverlay = candidate.placement?.kind === "timeline-overlay";
+    const isImagePair = isOverlay || candidate.placement?.kind === "story-shot";
     const savedLastFrame = durableLastFramePath(take.id);
     let lastFramePath: string | null = null;
-    if (!isOverlay) {
+    if (!isImagePair) {
       lastFramePath = await editingTransitionRuntime.findDurableLastFrame(take.id);
       if (!lastFramePath) {
         frames = await editingTransitionRuntime.prepareCandidateFrames(
@@ -1135,7 +1251,7 @@ async function finishAndApply(params: {
     );
     try {
       await downloadVideoToFile(params.providerVideoUrl, rawPath);
-      if (isOverlay) {
+      if (isImagePair) {
         await fs.promises.copyFile(rawPath, outputPath);
       } else {
         await hardCutToLastFrame({
@@ -1148,9 +1264,10 @@ async function finishAndApply(params: {
         });
       }
       const metadata = await probeVideoFileMetadata(outputPath);
+      validateImagePairMediaDuration(candidate, metadata.durationSec);
       if (
         Math.abs(metadata.width - metadata.height) > 2 ||
-        (!isOverlay && metadata.durationSec != null &&
+        (!isImagePair && metadata.durationSec != null &&
           Math.abs(metadata.durationSec - candidate.durationSec) > 0.15)
       ) {
         throw new Error("生成结果没有通过 1:1 / 时长成片校验");
@@ -1175,7 +1292,7 @@ async function finishAndApply(params: {
       );
       await Promise.all([
         fs.promises.rm(rawPath, { force: true }),
-        ...(isOverlay
+        ...(isImagePair
           ? []
           : [fs.promises.rm(savedLastFrame, { force: true })]),
       ]).catch(() => undefined);
@@ -1201,52 +1318,44 @@ async function finishAndApply(params: {
   }
 
   try {
-    if (candidate.placement?.kind === "timeline-overlay") {
+    if (candidate.placement?.kind === "story-shot") {
+      const material = await getStoryMaterialState(candidate.storyId, params.userId);
+      if (!material) throw new Error("故事不存在或无权操作");
+      const timelineAdopted = material.timeline.items.some(
+        item => item.stableShotId === candidate.provisionalStableShotId
+      );
+      const storyAdopted = material.shots.some(
+        shot => shot.stableShotId === candidate.provisionalStableShotId
+      );
+      // Only a fully published aggregate may skip source revalidation. A
+      // half-published recovery must never replay stale image coordinates.
+      if (timelineAdopted && storyAdopted) {
+        candidate = { ...candidate, expectedTimelineVersion: material.timeline.version };
+      } else {
+        const refreshed = await proposeExtractedFrameTransition({
+          storyId: candidate.storyId,
+          userId: params.userId,
+          leftImageId: candidate.placement.left.imageId,
+          rightImageId: candidate.placement.right.imageId,
+          leftClipId: candidate.placement.left.clipId,
+          rightClipId: candidate.placement.right.clipId,
+          instruction: candidate.instruction === "用两张时间线抽帧生成上层覆盖视频" ? undefined : candidate.instruction,
+          movementAmplitude: candidate.movementAmplitude,
+        });
+        if (refreshed.status !== "ok" || !overlayCandidateMatchesCanonical(candidate, refreshed.proposal, true)) {
+          throw new Error(refreshed.status === "blocked" ? refreshed.reply : "图片视频位置已经变化，请重新选择抽帧");
+        }
+        candidate = normalizeCandidate(refreshed.proposal);
+      }
+    } else if (candidate.placement?.kind === "timeline-overlay") {
       const material = await getStoryMaterialState(
         candidate.storyId,
         params.userId
       );
       if (!material) throw new Error("故事不存在或无权操作");
-      const overlayId = `overlay-${candidate.candidateId.slice("transition-".length)}`;
-      const adoptionStarted =
-        material.timeline.items.some(
-          item => item.stableShotId === candidate.provisionalStableShotId
-        ) ||
-        (material.timeline.overlays ?? []).some(
-          overlay => overlay.id === overlayId
-        ) ||
-        material.shots.some(
-          shot => shot.stableShotId === candidate.provisionalStableShotId
-        );
-      if (adoptionStarted) {
-        candidate = {
-          ...candidate,
-          expectedTimelineVersion: material.timeline.version,
-        };
-      } else {
-        const refreshed = await proposeExtractedFrameTransition({
-          storyId: candidate.storyId,
-          userId: params.userId,
-          leftImageId: candidate.placement.leftImageId,
-          rightImageId: candidate.placement.rightImageId,
-          instruction:
-            candidate.instruction === "用两张时间线抽帧生成上层覆盖视频"
-              ? undefined
-              : candidate.instruction,
-          movementAmplitude: candidate.movementAmplitude,
-        });
-        if (
-          refreshed.status !== "ok" ||
-          !overlayCandidateMatchesCanonical(candidate, refreshed.proposal, true)
-        ) {
-          throw new Error(
-            refreshed.status === "blocked"
-              ? refreshed.reply
-              : "覆盖视频位置已经变化，请重新选择抽帧"
-          );
-        }
-        candidate = normalizeCandidate(refreshed.proposal);
-      }
+      // Compatibility-only recovery for already paid legacy candidates. New
+      // proposals are story-shot placements and are revalidated by clip id.
+      candidate = { ...candidate, expectedTimelineVersion: material.timeline.version };
     }
     const applied = await applyGeneratedTransition(
       candidate,
@@ -1286,14 +1395,16 @@ async function finishAndApply(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "衔接镜头插入失败";
-    await patchTake(
-      take,
+    const persistedTake = await findVideoTakeByIdempotencyKey(
+      candidate.storyId,
       params.userId,
-      { errorMessage: message },
-      {
-        appliedToTimeline: false,
-      }
+      `editing-transition:${candidate.candidateId}`
     );
+    const alreadyApplied = persistedTake
+      ? currentSnapshot(persistedTake).appliedToTimeline === true
+      : currentSnapshot(take).appliedToTimeline === true;
+    await patchTake(persistedTake ?? take, params.userId, { errorMessage: message },
+      alreadyApplied ? undefined : { appliedToTimeline: false });
     return {
       status: "error",
       error: message,

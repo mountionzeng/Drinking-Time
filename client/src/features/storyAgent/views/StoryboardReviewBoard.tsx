@@ -246,6 +246,10 @@ import {
   updateStoryboardMatrixTimingPreview,
   type StoryboardMatrixTimingPreviewState,
 } from "./storyboardMatrixLayout";
+import {
+  StoryboardImageRenderMonitor,
+  type StoryboardImageRenderMonitorState,
+} from "./StoryboardImageRenderMonitor";
 
 /**
  * 用户自己滚看板的时候，播放跟随让出这么久再接着跟。
@@ -374,7 +378,7 @@ export function StoryboardReviewBoard({
     runner: StoryboardImageRerenderRunner
   ) => () => void;
   selectedShotNo?: number | null;
-  onSelectShot?: (shotNo: number) => void;
+  onSelectShot?: (shotNo: number | null) => void;
   onUpdateShotField?: (
     index: number,
     field: StoryShotEditableField,
@@ -566,18 +570,8 @@ export function StoryboardReviewBoard({
     } | null>(null);
   const [selectedPublishingCoverCandidateId, setSelectedPublishingCoverCandidateId] =
     useState<number | null>(null);
-  const [imageRenderMonitor, setImageRenderMonitor] = useState<{
-    id: string;
-    label: string;
-    imageUrl: string;
-    startedAt: number;
-    estimatedSeconds: number;
-    status: "running" | "success" | "error";
-    message?: string;
-  } | null>(null);
-  const [imageRenderMonitorNow, setImageRenderMonitorNow] = useState(() =>
-    Date.now()
-  );
+  const [imageRenderMonitor, setImageRenderMonitor] =
+    useState<StoryboardImageRenderMonitorState | null>(null);
   const [restoringStoryboardField, setRestoringStoryboardField] =
     useState<StoryboardVersionedField | null>(null);
   const [hoveredImagePreview, setHoveredImagePreview] = useState<{
@@ -737,13 +731,6 @@ export function StoryboardReviewBoard({
     field: StoryboardMatrixField;
   } | null>(null);
 
-  useEffect(() => {
-    if (imageRenderMonitor?.status !== "running") return;
-    const timer = window.setInterval(() => {
-      setImageRenderMonitorNow(Date.now());
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [imageRenderMonitor?.status]);
   const [matrixDropTarget, setMatrixDropTarget] = useState<{
     targetIndex: number;
     field: StoryboardMatrixField;
@@ -1732,7 +1719,12 @@ export function StoryboardReviewBoard({
     matrixShotColumnWidth,
     renderCompactShots,
   ]);
-  const selectMatrixShot = (shotNo: number) => {
+  const selectMatrixShot = (shotNo: number | null) => {
+    if (shotNo == null) {
+      setCompactExpandedShotNo(null);
+      onSelectShot?.(null);
+      return;
+    }
     const entryIndex = matrixShotEntries.entries.findIndex(
       entry => entry.shot.shotNo === shotNo
     );
@@ -2453,7 +2445,6 @@ export function StoryboardReviewBoard({
       estimatedSeconds: 90,
       status: "running",
     });
-    setImageRenderMonitorNow(monitorStartedAt);
     setImageEditSubmitting(true);
     try {
       const renderPromise = renderShotImageCandidates(
@@ -5544,126 +5535,18 @@ export function StoryboardReviewBoard({
             document.body
           )
         : null}
-      {imageRenderMonitor
-        ? createPortal(
-            <aside
-              className={`fixed bottom-4 right-4 z-[150] w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-background/95 p-3 shadow-2xl backdrop-blur ${
-                imageRenderMonitor.status === "success"
-                  ? "cursor-pointer transition hover:border-[var(--nayin-accent)]/50 hover:shadow-[0_12px_35px_-18px_var(--nayin-accent)]"
-                  : ""
-              }`}
-              aria-live="polite"
-              aria-label="图片渲染监控"
-              data-testid="storyboard-image-render-monitor"
-              role={
-                imageRenderMonitor.status === "success" ? "button" : undefined
-              }
-              tabIndex={imageRenderMonitor.status === "success" ? 0 : undefined}
-              onClick={() => {
-                if (imageRenderMonitor.status !== "success") return;
-                setPreviewMedia({
-                  kind: "image",
-                  url: imageRenderMonitor.imageUrl,
-                  label: `${imageRenderMonitor.label} · 新版本`,
-                });
-              }}
-              onKeyDown={event => {
-                if (
-                  imageRenderMonitor.status === "success" &&
-                  (event.key === "Enter" || event.key === " ")
-                ) {
-                  event.preventDefault();
-                  setPreviewMedia({
-                    kind: "image",
-                    url: imageRenderMonitor.imageUrl,
-                    label: `${imageRenderMonitor.label} · 新版本`,
-                  });
-                }
-              }}
-            >
-              <div className="flex items-start gap-2.5">
-                <img
-                  src={imageRenderMonitor.imageUrl}
-                  alt=""
-                  className="h-11 w-11 shrink-0 rounded-md object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-xs font-semibold text-foreground">
-                      {imageRenderMonitor.status === "running"
-                        ? "图片正在后台渲染"
-                        : imageRenderMonitor.status === "success"
-                          ? "图片渲染完成"
-                          : "图片渲染失败"}
-                    </p>
-                    <button
-                      type="button"
-                      aria-label="关闭渲染提醒"
-                      className="shrink-0 text-muted-foreground transition hover:text-foreground"
-                      onClick={event => {
-                        event.stopPropagation();
-                        setImageRenderMonitor(null);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                    {imageRenderMonitor.label}
-                  </p>
-                </div>
-              </div>
-              {imageRenderMonitor.status === "running" ? (
-                <>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-[var(--nayin-accent)] transition-[width] duration-700"
-                      style={{
-                        width: `${Math.min(
-                          94,
-                          Math.max(
-                            4,
-                            ((imageRenderMonitorNow -
-                              imageRenderMonitor.startedAt) /
-                              (imageRenderMonitor.estimatedSeconds * 1_000)) *
-                              100
-                          )
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="mt-1.5 text-[10px] text-muted-foreground">
-                    预计还需约{" "}
-                    {Math.max(
-                      1,
-                      Math.ceil(
-                        imageRenderMonitor.estimatedSeconds -
-                          (imageRenderMonitorNow -
-                            imageRenderMonitor.startedAt) /
-                            1_000
-                      )
-                    )}{" "}
-                    秒 · 你可以继续编辑其他内容
-                  </p>
-                </>
-              ) : (
-                <p
-                  className={`mt-2 text-[10px] ${
-                    imageRenderMonitor.status === "success"
-                      ? "text-emerald-700"
-                      : "text-destructive"
-                  }`}
-                >
-                  {imageRenderMonitor.message ??
-                    (imageRenderMonitor.status === "success"
-                      ? "新版本已回到对应镜头"
-                      : "请检查错误信息后再试")}
-                </p>
-              )}
-            </aside>,
-            document.body
-          )
-        : null}
+      <StoryboardImageRenderMonitor
+        monitor={imageRenderMonitor}
+        onDismiss={() => setImageRenderMonitor(null)}
+        onOpen={() => {
+          if (imageRenderMonitor?.status !== "success") return;
+          setPreviewMedia({
+            kind: "image",
+            url: imageRenderMonitor.imageUrl,
+            label: `${imageRenderMonitor.label} · 新版本`,
+          });
+        }}
+      />
       <StoryboardMediaPreviewDialog
         preview={previewMedia}
         onClose={() => setPreviewMedia(null)}

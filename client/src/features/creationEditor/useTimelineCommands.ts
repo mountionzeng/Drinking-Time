@@ -5,6 +5,12 @@ import type {
   TimelineTransform,
   TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import type { VisualObjectRef } from "@shared/visualObject";
+import type { ImageClipClipboardSnapshot } from "@shared/visualObjectClipboard";
+import type {
+  VisualEditOperationRef,
+  VisualEditReceipt,
+} from "@shared/visualEditReceipt";
 import { trpc } from "@/lib/trpc";
 import {
   recordTimelineCommandUndo,
@@ -31,6 +37,17 @@ export type TimelineCommandOutcome = {
   anchorId?: string;
 };
 
+/** One bounded replay for idempotent visual operations whose first response is unknown. */
+export async function replayVisualOperationOnce<T>(
+  invoke: () => Promise<T>
+): Promise<T> {
+  try {
+    return await invoke();
+  } catch {
+    return invoke();
+  }
+}
+
 type TimelineWriteLock = {
   run<T extends TimelineCommandOutcome>(
     task: () => Promise<T>,
@@ -55,7 +72,8 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const addAnchorMut = trpc.creationAgent.addTimelineAnchor.useMutation();
   const removeAnchorMut = trpc.creationAgent.removeTimelineAnchor.useMutation();
   const trimShotMut = trpc.creationAgent.trimShot.useMutation();
-  const layerActionMut = trpc.creationAgent.applyVisualLayerAction.useMutation();
+  const layerActionMut =
+    trpc.creationAgent.applyVisualLayerAction.useMutation();
   const setIncludedMut = trpc.creationAgent.setShotIncluded.useMutation();
   const moveOrderMut = trpc.creationAgent.moveShotOrder.useMutation();
   const reorderToTargetMut =
@@ -68,6 +86,11 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     trpc.creationAgent.patchImageTransform.useMutation();
   const undoVisualEditMut = trpc.creationAgent.undoVisualEdit.useMutation();
   const updateVideoEditMut = trpc.creationAgent.updateVideoEdit.useMutation();
+  const pasteVisualImageMut = trpc.creationAgent.pasteVisualImage.useMutation();
+  const deleteVisualObjectMut =
+    trpc.creationAgent.deleteVisualObject.useMutation();
+  const splitOwnedVideoClipMut =
+    trpc.creationAgent.splitOwnedVideoClip.useMutation();
 
   const { activeStoryId, refetchStoryMaterial, writeLock } = deps;
 
@@ -78,6 +101,7 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
         changed?: boolean;
         anchorId?: string;
         error?: string;
+        receipt?: VisualEditReceipt;
       }>,
       failureReason: string
     ): Promise<TimelineCommandOutcome> => {
@@ -102,10 +126,10 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
                     reason: result.error || failureReason,
                   };
                 }
-                if (result.changed !== false) {
-                  // 只记一格占位：回退内容在服务端的撤销日志里。
-                  // 图层与素材本来就是同一份文档，所以一次 Cmd+Z 天然全部还原。
-                  recordTimelineCommandUndo(storyId);
+                if (result.receipt || result.changed !== false) {
+                  // 新命令保存可寻址 receipt；旧命令暂时保留无身份占位。
+                  // 两者都只占一格，图层与素材由服务端一次完整回退。
+                  recordTimelineCommandUndo(storyId, result.receipt);
                 }
                 await refetchStoryMaterial();
                 return {
@@ -163,7 +187,9 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
             ...(snapThresholdFrames === undefined
               ? {}
               : { snapThresholdFrames }),
-            ...(visualLayer === undefined ? {} : { toVisualLayer: visualLayer }),
+            ...(visualLayer === undefined
+              ? {}
+              : { toVisualLayer: visualLayer }),
           }),
         "移动镜头失败"
       ),
@@ -269,7 +295,11 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     (stableShotId: string) =>
       run(
         storyId =>
-          setIncludedMut.mutateAsync({ storyId, stableShotId, included: false }),
+          setIncludedMut.mutateAsync({
+            storyId,
+            stableShotId,
+            included: false,
+          }),
         "移出时间线失败"
       ),
     [run, setIncludedMut]
@@ -300,7 +330,8 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   );
 
   const resetTimelineShots = useCallback(
-    () => run(storyId => includeAllMut.mutateAsync({ storyId }), "恢复镜头失败"),
+    () =>
+      run(storyId => includeAllMut.mutateAsync({ storyId }), "恢复镜头失败"),
     [includeAllMut, run]
   );
 
@@ -388,7 +419,79 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [run, updateVideoEditMut]
   );
 
+  const pasteVisualImage = useCallback(
+    async (input: {
+      operation: VisualEditOperationRef;
+      pasteId: string;
+      snapshot: ImageClipClipboardSnapshot;
+      targetFrame: number;
+      targetLayer: number;
+    }) => {
+      // URL is display-only clipboard provenance. The server re-authorizes the
+      // imageId and supplies its canonical URL, and its strict schema rejects
+      // callers that try to upload a URL.
+      const { imageUrl: _displayUrl, ...snapshot } = input.snapshot;
+      const outcome = await run(
+        storyId =>
+          replayVisualOperationOnce(() =>
+            pasteVisualImageMut.mutateAsync({
+              storyId,
+              operation: input.operation,
+              pasteId: input.pasteId,
+              snapshot,
+              targetFrame: input.targetFrame,
+              targetLayer: input.targetLayer,
+            })
+          ),
+        "图片粘贴失败"
+      );
+      if (!outcome.applied) throw new Error(outcome.reason ?? "图片粘贴失败");
+    },
+    [pasteVisualImageMut, run]
+  );
+
+  const deleteVisualObject = useCallback(
+    async (input: {
+      operation: VisualEditOperationRef;
+      object: VisualObjectRef;
+    }) => {
+      const outcome = await run(
+        storyId =>
+          replayVisualOperationOnce(() =>
+            deleteVisualObjectMut.mutateAsync({ storyId, ...input })
+          ),
+        "素材删除失败"
+      );
+      if (!outcome.applied) throw new Error(outcome.reason ?? "素材删除失败");
+    },
+    [deleteVisualObjectMut, run]
+  );
+
+  const splitOwnedVideoClip = useCallback(
+    async (input: {
+      operation: VisualEditOperationRef;
+      ownerStableShotId: string;
+      clipId: string;
+      cutFrame: number;
+    }) => {
+      const outcome = await run(
+        storyId =>
+          replayVisualOperationOnce(() =>
+            splitOwnedVideoClipMut.mutateAsync({ storyId, ...input })
+          ),
+        "视频片段拆分失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "视频片段拆分失败");
+      }
+    },
+    [run, splitOwnedVideoClipMut]
+  );
+
   return {
+    pasteVisualImage,
+    deleteVisualObject,
+    splitOwnedVideoClip,
     updateTimelineVideoEdit,
     undoVisualEdit,
     setTimelineShotDuration,

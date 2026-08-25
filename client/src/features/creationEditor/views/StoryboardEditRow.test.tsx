@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   commitVisualClipDrag,
+  createStoryboardAsyncSessionGuard,
   StoryboardEditRow,
   StoryboardEditTransport,
   storyboardVisualLayerAtPoint,
+  storyboardVisualObjectMenuTimelineFrame,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
@@ -96,6 +98,125 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
+  it("ignores an old Story completion after a new Story starts work", async () => {
+    const storyAToken = Symbol("story-a");
+    const guard = createStoryboardAsyncSessionGuard(storyAToken);
+    let finishStoryA!: () => void;
+    const storyA = new Promise<void>(resolve => {
+      finishStoryA = resolve;
+    });
+    const visibleState: string[] = [];
+    const lateStoryACompletion = storyA.then(() => {
+      if (guard.isCurrent(storyAToken)) visibleState.push("story-a-finished");
+    });
+
+    const storyBToken = Symbol("story-b");
+    // Merely rendering B creates a candidate token; it must not affect the
+    // committed A session until B's layout commit advances the guard.
+    expect(guard.isCurrent(storyAToken)).toBe(true);
+    expect(guard.isCurrent(storyBToken)).toBe(false);
+    guard.commit(storyBToken);
+    expect(guard.isCurrent(storyAToken)).toBe(false);
+    expect(guard.isCurrent(storyBToken)).toBe(true);
+    if (guard.isCurrent(storyBToken)) visibleState.push("story-b-finished");
+
+    finishStoryA();
+    await lateStoryACompletion;
+    expect(visibleState).toEqual(["story-b-finished"]);
+
+    // Returning to A is a new session; it must not revive A's original token.
+    const nextStoryAToken = Symbol("story-a-again");
+    guard.commit(nextStoryAToken);
+    expect(guard.isCurrent(storyAToken)).toBe(false);
+    expect(guard.isCurrent(nextStoryAToken)).toBe(true);
+  });
+
+  it("keeps a one-frame image menu on its canonical frame across the enlarged thumbnail", () => {
+    const viewport = createTimelineViewport({ totalMs: 8_000, scale: 16 });
+
+    for (const clientX of [80, 100, 120]) {
+      expect(
+        storyboardVisualObjectMenuTimelineFrame({
+          explicitTimelineFrame: 90,
+          clientX,
+          trackLeft: 80,
+          viewport,
+          playheadMs: 0,
+        })
+      ).toBe(90);
+    }
+  });
+
+  it("exposes canonical type, stable selection state, and independent focus targets", () => {
+    const richShots: StoryboardEditShot[] = [
+      {
+        ...shots[0],
+        timelineItem: {
+          stableShotId: "sh-01",
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+          timelineStartFrame: 0,
+          durationFrames: 60,
+          visualLayer: 0,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+          imageClips: [
+            {
+              id: "img-one",
+              imageId: 11,
+              imageUrl: "/one.png",
+              label: "关键帧",
+              offsetFrames: 10,
+              durationFrames: 1,
+              visualLayer: 0,
+            },
+          ],
+          visualClips: [
+            {
+              id: "vid-one",
+              takeId: 5,
+              rangeId: 6,
+              sourceStableShotId: "source",
+              videoUrl: "/one.mp4",
+              label: "内部片段",
+              sourceStartSec: 0,
+              sourceEndSec: 1,
+              offsetMs: 500,
+              durationMs: 500,
+              visualLayer: 0,
+            },
+          ],
+        },
+      },
+      shots[1],
+    ];
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ onMoveVisualClip: vi.fn() })}
+        shots={richShots}
+        selectedShotNo={1}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain('data-visual-object-type="story-shot"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('data-visual-object-type="owned-video-clip"');
+    expect(html).toContain('data-visual-object-type="image-clip"');
+    expect(html).toContain('aria-label="内部片段，视频片段"');
+    expect(html).toContain('data-visual-object-id="vid-one"');
+    expect(html).toContain('draggable="true"');
+    expect(html).toContain("Shift+F10 ContextMenu");
+    expect(html).toContain('aria-label="关键帧，图片"');
+  });
 
   it("keeps drag completion pending until the persisted move finishes", async () => {
     let finishMove!: () => void;
@@ -137,7 +258,62 @@ describe("StoryboardEditRow", () => {
     expect(settled).toBe(true);
   });
 
-
+  it("projects an owned clip only onto its own third visual track", () => {
+    const layeredShots: StoryboardEditShot[] = [
+      {
+        ...shots[0],
+        timelineItem: {
+          stableShotId: "sh-01",
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+          timelineStartFrame: 0,
+          durationFrames: 60,
+          visualLayer: 0,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+          visualClips: [
+            {
+              id: "owned-layer-two",
+              takeId: 5,
+              rangeId: 6,
+              sourceStableShotId: "source",
+              videoUrl: "/owned.mp4",
+              label: "三层片段",
+              sourceStartSec: 0,
+              sourceEndSec: 1,
+              offsetMs: 500,
+              durationMs: 500,
+              visualLayer: 2,
+            },
+          ],
+        },
+      },
+      shots[1],
+    ];
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ onMoveVisualClip: vi.fn() })}
+        shots={layeredShots}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain(
+      'data-testid="storyboard-owned-video-clip-3-owned-layer-two"'
+    );
+    expect(html).not.toContain(
+      'data-testid="storyboard-owned-video-clip-1-owned-layer-two"'
+    );
+  });
 
   it("resolves the release layer from track geometry instead of the dragged child", () => {
     expect(
@@ -180,15 +356,11 @@ describe("StoryboardEditRow", () => {
     ).not.toBe(1);
   });
 
-
-
-
-
   it("advertises arrow movement on ordinary video clips", () => {
     const html = renderRow(boardTimeline({ onMoveVisualClip: vi.fn() }));
     expect(html).toContain('data-visual-clip-move-target="true"');
     expect(html).toContain(
-      'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"'
+      'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"'
     );
     expect(html).toContain("方向键左右移动、上下换层");
   });
@@ -291,12 +463,8 @@ describe("StoryboardEditRow", () => {
     expect(upperShotMarkup).toContain(
       'data-testid="storyboard-upper-shot-filmstrip-sh-01"'
     );
-    expect(upperShotMarkup).toContain(
-      "/api/video-frames/56?atSec=0.500"
-    );
-    expect(upperShotMarkup).toContain(
-      "/api/video-frames/56?atSec=1.500"
-    );
+    expect(upperShotMarkup).toContain("/api/video-frames/56?atSec=0.500");
+    expect(upperShotMarkup).toContain("/api/video-frames/56?atSec=1.500");
     expect(upperShotMarkup).toContain('data-pointer-clip-move="true"');
   });
 

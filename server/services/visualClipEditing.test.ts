@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createGeneratedImage,
   createStory,
+  createVideoTake,
+  getGeneratedImageById,
+  getStoryById,
   getStoryTimeline,
   resetMemoryStateForTesting,
   updateStoryTimeline,
@@ -8,6 +12,7 @@ import {
 import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
+  deleteVisualObjectForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
   patchImageTransformForStory,
@@ -23,11 +28,18 @@ import {
   moveShotGroupForStory,
   moveShotSingleForStory,
   moveVisualClipForStory,
+  pasteVisualImageForStory,
+  placeExtractedFrameForStory,
   removeTimelineAnchorForStory,
   rollingTrimForStory,
+  splitOwnedVideoClipForStory,
   trimShotForStory,
 } from "./visualClipEditing";
-import { projectVisualClips, type VisualEditDocument } from "../../shared/visualClipModel";
+import type { ImageClipClipboardSnapshot } from "../../shared/visualObjectClipboard";
+import {
+  projectVisualClips,
+  type VisualEditDocument,
+} from "../../shared/visualClipModel";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import { clearVisualEditUndoForTesting } from "./visualEditUndoJournal";
 import * as dbModule from "../db";
@@ -55,6 +67,16 @@ async function seedStory() {
       ],
     },
   });
+  const overlayTake = await createVideoTake({
+    storyId: story.id,
+    userId: USER_ID,
+    stableShotId: "sh-01",
+    status: "available",
+    model: "test",
+    prompt: "test",
+    durationSec: 1,
+    videoUrl: "/ov.mp4",
+  });
   await updateStoryTimeline({
     storyId: story.id,
     userId: USER_ID,
@@ -70,7 +92,7 @@ async function seedStory() {
         visualLayer: 0,
         transform: TRANSFORM,
         primaryVideoEdit: {
-          takeId: 9,
+          takeId: overlayTake.id,
           sourceStartSec: 0,
           sourceEndSec: 4,
           effects: { playbackRate: 1, reverse: false, volume: 1, muted: false },
@@ -111,7 +133,7 @@ async function seedStory() {
       {
         id: "ov-1",
         kind: "generated-video",
-        takeId: 5,
+        takeId: overlayTake.id,
         sourceStableShotId: "sh-01",
         videoUrl: "/ov.mp4",
         startFrame: 71,
@@ -147,6 +169,164 @@ async function persistedPlacements(storyId: number) {
     ])
   );
 }
+
+async function seedOwnedClip(storyId: number) {
+  const row = await getStoryTimeline(storyId, USER_ID);
+  if (!row) throw new Error("timeline missing");
+  const items = row.items as VisualEditDocument["items"];
+  await updateStoryTimeline({
+    storyId,
+    userId: USER_ID,
+    expectedVersion: row.version,
+    items: items.map(item =>
+      item.stableShotId === "sh-01"
+        ? {
+            ...item,
+            visualClipsReplacePrimary: true,
+            visualClips: [
+              {
+                id: "owned-duplicate",
+                takeId: 701,
+                rangeId: 801,
+                sourceStableShotId: "sh-01",
+                videoUrl: "/owned.mp4",
+                label: "owned",
+                sourceStartSec: 2,
+                sourceEndSec: 6,
+                offsetMs: 0,
+                durationMs: 2_000,
+                effects: {
+                  playbackRate: 2,
+                  reverse: false,
+                  volume: 1,
+                  muted: false,
+                },
+                transform: TRANSFORM,
+              },
+            ],
+          }
+        : {
+            ...item,
+            visualClips: [
+              {
+                id: "owned-duplicate",
+                takeId: 702,
+                rangeId: 802,
+                sourceStableShotId: "sh-02",
+                videoUrl: "/other.mp4",
+                label: "other",
+                sourceStartSec: 0,
+                sourceEndSec: 1,
+                offsetMs: 0,
+                durationMs: 1_000,
+              },
+            ],
+          }
+    ),
+    overlays: row.overlays,
+    visualLayerState: row.visualLayerState,
+  });
+}
+
+describe("splitOwnedVideoClipForStory", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("changes only Timeline once, replays idempotently, and one undo restores it", async () => {
+    const storyId = await seedStory();
+    await seedOwnedClip(storyId);
+    const beforeStory = await getStoryById(storyId, USER_ID);
+    const beforeTimeline = await getStoryTimeline(storyId, USER_ID);
+    const operation = {
+      editorSessionEpoch: "split-epoch",
+      operationId: "split-op",
+    };
+    const input = {
+      storyId,
+      userId: USER_ID,
+      ownerStableShotId: "sh-01",
+      clipId: "owned-duplicate",
+      // sh-01 still has one legacy overlay; command normalization makes its
+      // canonical absolute start frame 71 before applying this split.
+      cutFrame: 101,
+      operation,
+    };
+
+    const first = await splitOwnedVideoClipForStory(input);
+    expect(first).toMatchObject({
+      status: "ok",
+      changed: true,
+      rightClipId: expect.stringMatching(/^owned-split-/),
+      receipt: operation,
+    });
+    const afterTimeline = await getStoryTimeline(storyId, USER_ID);
+    expect(afterTimeline?.version).toBe((beforeTimeline?.version ?? 0) + 1);
+    const afterItems = afterTimeline?.items as VisualEditDocument["items"];
+    expect(afterItems[0].visualClips).toMatchObject([
+      {
+        id: "owned-duplicate",
+        sourceStartSec: 2,
+        sourceEndSec: 4,
+        durationMs: 1_000,
+      },
+      {
+        id: first.status === "ok" ? first.rightClipId : "",
+        sourceStartSec: 4,
+        sourceEndSec: 6,
+        durationMs: 1_000,
+      },
+    ]);
+    expect(afterItems[1].visualClips).toHaveLength(1);
+
+    const replay = await splitOwnedVideoClipForStory(input);
+    expect(replay).toMatchObject({
+      status: "ok",
+      rightClipId: first.status === "ok" ? first.rightClipId : undefined,
+      receipt: operation,
+    });
+    expect((await getStoryTimeline(storyId, USER_ID))?.version).toBe(
+      afterTimeline?.version
+    );
+    expect(await getStoryById(storyId, USER_ID)).toEqual(beforeStory);
+
+    await expect(
+      undoVisualEditForStory({ storyId, userId: USER_ID, operation })
+    ).resolves.toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(restored?.items).toEqual(beforeTimeline?.items);
+    expect(await getStoryById(storyId, USER_ID)).toEqual(beforeStory);
+  });
+
+  it("does zero writes for invalid cuts and wrong owners", async () => {
+    const storyId = await seedStory();
+    await seedOwnedClip(storyId);
+    const before = await getStoryTimeline(storyId, USER_ID);
+    const operation = {
+      editorSessionEpoch: "bad-split",
+      operationId: "bad-cut",
+    };
+    await expect(
+      splitOwnedVideoClipForStory({
+        storyId,
+        userId: USER_ID,
+        ownerStableShotId: "sh-01",
+        clipId: "owned-duplicate",
+        cutFrame: 0,
+        operation,
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    await expect(
+      splitOwnedVideoClipForStory({
+        storyId,
+        userId: USER_ID,
+        ownerStableShotId: "missing",
+        clipId: "owned-duplicate",
+        cutFrame: 30,
+        operation: { ...operation, operationId: "bad-owner" },
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await getStoryTimeline(storyId, USER_ID)).toEqual(before);
+  });
+});
 
 describe("moveVisualClipForStory", () => {
   beforeEach(() => resetMemoryStateForTesting());
@@ -195,6 +375,49 @@ describe("moveVisualClipForStory", () => {
     expect(after["image:img-abs"]).toBe(before["image:img-abs"]);
     expect(after["overlay:ov-1"]).toBe(before["overlay:ov-1"]);
     expect(after["shot:sh-02"]).toBe(before["shot:sh-02"]);
+  });
+
+  it("拖动遗留 overlay 时先归一为普通镜头，并在同一次写入完成移动", async () => {
+    const storyId = await seedStory();
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
+    const baseVersion = await persistedVersion(storyId);
+
+    const result = await moveVisualClipForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "overlay:ov-1",
+      toTrackId: "track-3",
+      toStartFrame: 180,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      timelineVersion: baseVersion + 1,
+    });
+    expect(await persistedPlacements(storyId)).toMatchObject({
+      "shot:sh-01": "track-3@180+30",
+    });
+    expect(
+      (await persistedPlacements(storyId))["overlay:ov-1"]
+    ).toBeUndefined();
+
+    expect(
+      await undoVisualEditForStory({ storyId, userId: USER_ID })
+    ).toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
   });
 
   it("重复提交同一次移动不再写库，版本不动", async () => {
@@ -297,8 +520,10 @@ describe("insertVisualImageClipForStory", () => {
 
   it("同一个 clipId 重复落位是替换，不会攒出重复素材", async () => {
     const storyId = await seedStory();
+    const beforeVersion = await persistedVersion(storyId);
+    const versions: number[] = [];
     for (const frame of [150, 150, 260]) {
-      await insertVisualImageClipForStory({
+      const result = await insertVisualImageClipForStory({
         storyId,
         userId: USER_ID,
         clip: {
@@ -310,6 +535,7 @@ describe("insertVisualImageClipForStory", () => {
           startFrame: frame,
         },
       });
+      if (result.status === "ok") versions.push(result.timelineVersion);
     }
     const placements = await persistedPlacements(storyId);
     const matching = Object.keys(placements).filter(
@@ -317,6 +543,484 @@ describe("insertVisualImageClipForStory", () => {
     );
     expect(matching).toHaveLength(1);
     expect(placements["image:img-extracted"]).toBe("track-1@260+1");
+    expect(versions).toEqual([
+      beforeVersion + 1,
+      beforeVersion + 1,
+      beforeVersion + 2,
+    ]);
+  });
+});
+
+describe("Story-scoped image paste and narrow delete", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  async function warehouseSnapshot(
+    storyId: number
+  ): Promise<ImageClipClipboardSnapshot> {
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId,
+      userId: USER_ID,
+      shotNo: "1",
+      shotIdentity: "sh-01",
+      imageKey: "generated/clipboard.png",
+      imageUrl: "/api/images/clipboard.png",
+      prompt: "剪贴板图片",
+      generationType: "initial",
+      isCurrent: false,
+    });
+    return Object.freeze({
+      version: 1,
+      kind: "image-clip",
+      sourceStoryId: storyId,
+      sourceClipId: "source-image",
+      sourceLayer: 1,
+      imageId: image.id,
+      imageUrl: "/untrusted-stale-url.png",
+      label: "复制图片",
+      durationFrames: 3,
+      transform: Object.freeze({ ...TRANSFORM, zoom: 1.4 }),
+    });
+  }
+
+  it("re-authorizes the image and replays one paste without a second version", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const beforeVersion = await persistedVersion(storyId);
+    const first = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    const replay = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+
+    expect(first).toMatchObject({ status: "ok", changed: true });
+    expect(replay).toMatchObject({
+      status: "ok",
+      changed: false,
+      timelineVersion: beforeVersion + 1,
+      clipId: first.clipId,
+    });
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const pasted = (row?.items as VisualEditDocument["items"])
+      .flatMap(item => item.imageClips ?? [])
+      .find(clip => clip.id === first.clipId);
+    expect(pasted).toMatchObject({
+      imageId: snapshot.imageId,
+      imageUrl: "/api/images/clipboard.png",
+      timelineStartFrame: 80,
+      durationFrames: 3,
+      visualLayer: 2,
+      transform: { zoom: 1.4 },
+    });
+  });
+
+  it("returns an addressable receipt and replays the same operation without another write", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const operation = { editorSessionEpoch: "epoch-a", operationId: "op-a" };
+    const first = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "receipt-paste",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    });
+    const version = await persistedVersion(storyId);
+    const replay = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "receipt-paste",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    });
+    expect(first).toMatchObject({
+      status: "ok",
+      changed: true,
+      receipt: {
+        ...operation,
+        beforeTimelineVersion: version - 1,
+        afterTimelineVersion: version,
+        status: "available",
+      },
+    });
+    if (first.status === "ok") {
+      expect(Object.keys(first.receipt ?? {}).sort()).toEqual([
+        "afterTimelineVersion",
+        "beforeTimelineVersion",
+        "editorSessionEpoch",
+        "kind",
+        "operationId",
+        "order",
+        "status",
+        "storyId",
+      ]);
+    }
+    expect(replay).toMatchObject({ status: "ok", receipt: { ...operation } });
+    if (replay.status === "ok") {
+      expect(Object.keys(replay.receipt ?? {}).sort()).toEqual([
+        "afterTimelineVersion",
+        "beforeTimelineVersion",
+        "editorSessionEpoch",
+        "kind",
+        "operationId",
+        "order",
+        "status",
+        "storyId",
+      ]);
+    }
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+
+  it("rejects reusing one operation id for a different payload", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const operation = {
+      editorSessionEpoch: "epoch-a",
+      operationId: "op-conflict",
+    };
+    await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "receipt-conflict",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    });
+    const conflict = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "receipt-conflict",
+      snapshot,
+      targetFrame: 81,
+      targetLayer: 2,
+      operation,
+    });
+    expect(conflict).toMatchObject({ status: "error", errorKind: "invalid" });
+  });
+
+  it("single-flights concurrent calls with the same operation reference", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const operation = {
+      editorSessionEpoch: "epoch-a",
+      operationId: "op-concurrent",
+    };
+    const input = {
+      storyId,
+      userId: USER_ID,
+      pasteId: "concurrent-paste",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    };
+    const [first, second] = await Promise.all([
+      pasteVisualImageForStory(input),
+      pasteVisualImageForStory(input),
+    ]);
+    expect(first).toMatchObject({ status: "ok", receipt: { ...operation } });
+    expect(second).toMatchObject({ status: "ok", receipt: { ...operation } });
+    expect(
+      first.status === "ok" && second.status === "ok" && first.receipt?.order
+    ).toBe(second.status === "ok" ? second.receipt?.order : undefined);
+  });
+
+  it("undoes only the addressed latest receipt and consumes it after restore", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const operation = {
+      editorSessionEpoch: "epoch-undo",
+      operationId: "op-undo",
+    };
+    const pasted = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "undo-paste",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    });
+    expect(pasted.status).toBe("ok");
+    const update = vi.spyOn(dbModule, "updateStoryTimeline");
+    const undone = await undoVisualEditForStory({
+      storyId,
+      userId: USER_ID,
+      operation,
+    });
+    expect(undone).toMatchObject({ status: "ok", changed: true });
+    expect(update).toHaveBeenCalledTimes(1);
+    const replayUndo = await undoVisualEditForStory({
+      storyId,
+      userId: USER_ID,
+      operation,
+    });
+    expect(replayUndo).toEqual(undone);
+    expect(update).toHaveBeenCalledTimes(1);
+    update.mockRestore();
+
+    await expect(
+      undoVisualEditForStory({
+        storyId,
+        userId: USER_ID,
+        operation: { ...operation, editorSessionEpoch: "wrong-epoch" },
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    await expect(
+      undoVisualEditForStory({ storyId, userId: USER_ID + 1, operation })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    const replayCommand = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "undo-paste",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+      operation,
+    });
+    expect(replayCommand).toMatchObject({
+      status: "error",
+      errorKind: "invalid",
+      error: expect.stringContaining("已经撤销"),
+    });
+  });
+
+  it("rejects replaying a consumed delete operation", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const pasted = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "delete-replay-source",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    if (pasted.status !== "ok" || !pasted.clipId)
+      throw new Error("paste setup failed");
+    const operation = {
+      editorSessionEpoch: "epoch-delete-undo",
+      operationId: "op-delete-undo",
+    };
+    const timeline = await getStoryTimeline(storyId, USER_ID);
+    const owner = (timeline?.items as VisualEditDocument["items"]).find(item =>
+      item.imageClips?.some(clip => clip.id === pasted.clipId)
+    );
+    if (!owner) throw new Error("pasted clip owner missing");
+    const object = {
+      type: "image-clip" as const,
+      clipId: pasted.clipId,
+      ownerStableShotId: owner.stableShotId,
+    };
+    const deleted = await deleteVisualObjectForStory({
+      storyId,
+      userId: USER_ID,
+      object,
+      operation,
+    });
+    expect(deleted.status).toBe("ok");
+    await expect(
+      undoVisualEditForStory({ storyId, userId: USER_ID, operation })
+    ).resolves.toMatchObject({ status: "ok" });
+
+    await expect(
+      deleteVisualObjectForStory({
+        storyId,
+        userId: USER_ID,
+        object,
+        operation,
+      })
+    ).resolves.toMatchObject({
+      status: "error",
+      errorKind: "invalid",
+      error: expect.stringContaining("已经撤销"),
+    });
+  });
+
+  it("does not let one paste identity move an already-created copy", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const first = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    const version = await persistedVersion(storyId);
+    const conflicting = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 120,
+      targetLayer: 3,
+    });
+    expect(conflicting).toMatchObject({
+      status: "error",
+      errorKind: "invalid",
+    });
+    expect(await persistedVersion(storyId)).toBe(version);
+    expect((await persistedPlacements(storyId))[`image:${first.clipId}`]).toBe(
+      "track-2@80+3"
+    );
+  });
+
+  it("deletes only the selected reference and keeps its warehouse image", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const pasted = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-delete",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    if (pasted.status !== "ok" || !pasted.clipId) return;
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const owner = (row?.items as VisualEditDocument["items"]).find(item =>
+      item.imageClips?.some(clip => clip.id === pasted.clipId)
+    );
+    const deleted = await deleteVisualObjectForStory({
+      storyId,
+      userId: USER_ID,
+      object: {
+        type: "image-clip",
+        ownerStableShotId: owner!.stableShotId,
+        clipId: pasted.clipId,
+      },
+    });
+    expect(deleted).toMatchObject({ status: "ok", changed: true });
+    expect(
+      (await persistedPlacements(storyId))[`image:${pasted.clipId}`]
+    ).toBeUndefined();
+    await expect(
+      getGeneratedImageById(snapshot.imageId)
+    ).resolves.toMatchObject({
+      id: snapshot.imageId,
+      storyId,
+    });
+  });
+
+  it("rejects a clipboard snapshot from another Story", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const result = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-cross-story",
+      snapshot: { ...snapshot, sourceStoryId: storyId + 1 },
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+  });
+});
+
+describe("durable extracted-frame placement", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("inserts a visible adjacent layer and the one-frame image in one write", async () => {
+    const storyId = await seedStory();
+    const before = await getStoryTimeline(storyId, USER_ID);
+    await updateStoryTimeline({
+      storyId,
+      userId: USER_ID,
+      expectedVersion: before!.version,
+      items: before!.items,
+      overlays: before!.overlays,
+      visualLayerState: { count: 2, hidden: [1] },
+    });
+    const version = await persistedVersion(storyId);
+
+    const result = await placeExtractedFrameForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "receipt-frame-a",
+      imageId: 9001,
+      imageUrl: "/api/images/frame-a.png",
+      label: "抽帧 500ms",
+      timelineFrame: 15,
+      operationLayer: 0,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      timelineVersion: version + 1,
+      clipId: "receipt-frame-a",
+      targetLayer: 1,
+    });
+    const saved = await getStoryTimeline(storyId, USER_ID);
+    expect(saved?.visualLayerState).toEqual({ count: 4, hidden: [2] });
+    const document = {
+      items: saved!.items as VisualEditDocument["items"],
+      overlays: saved!.overlays as VisualEditDocument["overlays"],
+    };
+    expect(projectVisualClips(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "image:receipt-frame-a",
+          trackId: "track-1",
+          startFrame: 15,
+          durationFrames: 1,
+        }),
+        expect.objectContaining({ id: "overlay:ov-1", trackId: "track-2" }),
+      ])
+    );
+  });
+
+  it("treats a placed receipt clip as replay even after the user moves it", async () => {
+    const storyId = await seedStory();
+    const input = {
+      storyId,
+      userId: USER_ID,
+      clipId: "receipt-frame-b",
+      imageId: 9002,
+      imageUrl: "/api/images/frame-b.png",
+      label: "抽帧 1000ms",
+      timelineFrame: 30,
+      operationLayer: 0,
+    };
+    await placeExtractedFrameForStory(input);
+    await moveVisualClipForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "image:receipt-frame-b",
+      toTrackId: "track-3",
+      toStartFrame: 75,
+    });
+    const versionAfterMove = await persistedVersion(storyId);
+
+    const replay = await placeExtractedFrameForStory(input);
+
+    expect(replay).toMatchObject({
+      status: "ok",
+      changed: false,
+      timelineVersion: versionAfterMove,
+      targetLayer: 3,
+    });
+    expect((await persistedPlacements(storyId))["image:receipt-frame-b"]).toBe(
+      "track-3@75+1"
+    );
   });
 });
 
@@ -479,6 +1183,10 @@ describe("planner 系列命令（U3）", () => {
     expect(result.errorKind).toBe("invalid");
     expect(result.error).toContain("吸附");
     expect(await persistedVersion(storyId)).toBe(version);
+    expect(
+      ((await getStoryTimeline(storyId, USER_ID))?.overlays as unknown[])
+        ?.length
+    ).toBe(1);
   });
 
   it("镜头不在时间轴上时，修剪返回可见错误且不写库", async () => {
@@ -556,9 +1264,9 @@ describe("单镜移动的换层与 overlay 迁移（U3）", () => {
     expect(result.status).toBe("ok");
     expect(await persistedVersion(storyId)).toBe(version + 1);
     const row = await getStoryTimeline(storyId, USER_ID);
-    const moved = (row?.items as { stableShotId: string; visualLayer?: number }[]).find(
-      item => item.stableShotId === "sh-02"
-    );
+    const moved = (
+      row?.items as { stableShotId: string; visualLayer?: number }[]
+    ).find(item => item.stableShotId === "sh-02");
     expect(moved?.visualLayer).toBe(2);
   });
 
@@ -577,9 +1285,9 @@ describe("单镜移动的换层与 overlay 迁移（U3）", () => {
     expect(result.status).toBe("ok");
     expect(await persistedVersion(storyId)).toBe(version + 1);
     const row = await getStoryTimeline(storyId, USER_ID);
-    const moved = (row?.items as { stableShotId: string; visualLayer?: number }[]).find(
-      item => item.stableShotId === "sh-02"
-    );
+    const moved = (
+      row?.items as { stableShotId: string; visualLayer?: number }[]
+    ).find(item => item.stableShotId === "sh-02");
     expect(moved?.visualLayer).toBe(3);
   });
 
@@ -601,11 +1309,53 @@ describe("单镜移动的换层与 overlay 迁移（U3）", () => {
     expect(result.status).toBe("ok");
     const after = await getStoryTimeline(storyId, USER_ID);
     expect((after?.overlays as unknown[])?.length).toBe(0);
-    const migrated = (after?.items as { stableShotId: string; visualLayer?: number }[]).find(
-      item => item.stableShotId === "sh-01"
-    );
+    const migrated = (
+      after?.items as { stableShotId: string; visualLayer?: number }[]
+    ).find(item => item.stableShotId === "sh-01");
     // 不给层号会掉回底层把画面盖掉，所以迁移默认落在第 1 层。
     expect(migrated?.visualLayer).toBe(1);
+  });
+
+  it("同一镜头绑定多条遗留 overlay 时拒绝且完全不写", async () => {
+    const storyId = await seedStory();
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const overlays = row?.overlays as Array<Record<string, unknown>>;
+    await updateStoryTimeline({
+      storyId,
+      userId: USER_ID,
+      expectedVersion: row?.version ?? 0,
+      items: row?.items as never[],
+      overlays: [
+        { ...overlays[0], id: "ov-duplicate" },
+        ...overlays,
+      ] as never[],
+    });
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      deltaFrames: 12,
+      snapThresholdFrames: 0,
+    });
+
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await persistedVersion(storyId)).toBe(version);
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
   });
 
   it("镜头不在时间轴上时返回 invalid，不写库", async () => {
@@ -632,13 +1382,13 @@ describe("图层管理命令（U4）", () => {
 
   async function layerState(storyId: number) {
     const row = await getStoryTimeline(storyId, USER_ID);
-    return row?.visualLayerState as { count: number; hidden: number[] } | undefined;
+    return row?.visualLayerState as
+      | { count: number; hidden: number[] }
+      | undefined;
   }
 
   it("隐藏一层不改变其它层任何素材的绝对时间（账本第 29 条）", async () => {
     const storyId = await seedStory();
-    const before = await persistedPlacements(storyId);
-
     const result = await applyVisualLayerActionForStory({
       storyId,
       userId: USER_ID,
@@ -647,8 +1397,14 @@ describe("图层管理命令（U4）", () => {
 
     expect(result.status).toBe("ok");
     expect((await layerState(storyId))?.hidden).toContain(1);
-    // 隐藏只影响可见性解析，不得挪动任何素材。
-    expect(await persistedPlacements(storyId)).toEqual(before);
+    // 第一次持久命令同时把遗留 overlay 归一为普通镜头；显隐动作本身不再改位置。
+    expect(await persistedPlacements(storyId)).toMatchObject({
+      "shot:sh-01": "track-1@71+30",
+      "image:img-abs": "track-1@107+1",
+    });
+    expect(
+      (await persistedPlacements(storyId))["overlay:ov-1"]
+    ).toBeUndefined();
   });
 
   it("再切一次显隐会取消隐藏", async () => {
@@ -668,6 +1424,11 @@ describe("图层管理命令（U4）", () => {
 
   it("插入一层把层内全部素材一起重编号，版本只 +1", async () => {
     const storyId = await seedStory();
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 2 },
+    });
     const version = await persistedVersion(storyId);
     const before = await persistedPlacements(storyId);
 
@@ -690,6 +1451,11 @@ describe("图层管理命令（U4）", () => {
 
   it("整层上下移动后素材仍在同一绝对帧上", async () => {
     const storyId = await seedStory();
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 2 },
+    });
     const before = await persistedPlacements(storyId);
 
     const result = await applyVisualLayerActionForStory({
@@ -838,8 +1604,14 @@ describe("窄补丁命令（U6）", () => {
     expect(await persistedVersion(storyId)).toBe(version);
   });
 
-  it("源与目标相同时返回未改变，不写库不推高版本", async () => {
+  it("planner 未改变时仍持久化前置归一，并能一次撤销全部恢复", async () => {
     const storyId = await seedStory();
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
     const version = await persistedVersion(storyId);
 
     const result = await reorderShotToTargetForStory({
@@ -851,8 +1623,54 @@ describe("窄补丁命令（U6）", () => {
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    expect(result.changed).toBe(false);
+    expect(result.changed).toBe(true);
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    expect(
+      ((await getStoryTimeline(storyId, USER_ID))?.overlays as unknown[])
+        ?.length
+    ).toBe(0);
+    expect(
+      await undoVisualEditForStory({ storyId, userId: USER_ID })
+    ).toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
+  });
+
+  it("CAS 冲突重试时重读 Story binding，旧 body 不得验证新 Timeline", async () => {
+    const storyId = await seedStory();
+    const before = JSON.stringify(await getStoryTimeline(storyId, USER_ID));
+    const version = await persistedVersion(storyId);
+    const update = vi
+      .spyOn(dbModule, "updateStoryTimeline")
+      .mockImplementationOnce(async () => {
+        await dbModule.updateStory(storyId, USER_ID, {
+          body: { shots: [{ shotNo: 2, stableShotId: "sh-02" }] },
+        });
+        throw new Error("时间轴版本已更新");
+      });
+
+    const result = await reorderShotToTargetForStory({
+      storyId,
+      userId: USER_ID,
+      sourceShotId: "sh-01",
+      targetShotId: "sh-01",
+    });
+
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+    if (result.status === "error") {
+      expect(result.error).toContain("无法归一遗留覆盖层");
+    }
     expect(await persistedVersion(storyId)).toBe(version);
+    expect(JSON.stringify(await getStoryTimeline(storyId, USER_ID))).toBe(
+      before
+    );
+    update.mockRestore();
   });
 
   it("恢复全部镜头后 included 全为真且顺序连续", async () => {
@@ -968,11 +1786,13 @@ describe("时长与图片构图命令（U6）", () => {
     });
 
     const row = await getStoryTimeline(storyId, USER_ID);
-    const shot = (row?.items as {
-      stableShotId: string;
-      imageTextOverlays?: Record<string, unknown>;
-      imageTransforms?: Record<string, unknown>;
-    }[]).find(i => i.stableShotId === "sh-01");
+    const shot = (
+      row?.items as {
+        stableShotId: string;
+        imageTextOverlays?: Record<string, unknown>;
+        imageTransforms?: Record<string, unknown>;
+      }[]
+    ).find(i => i.stableShotId === "sh-01");
     // 留个空对象会让导出以为还有文字要画。
     expect(shot?.imageTextOverlays).toBeUndefined();
     expect(shot?.imageTransforms?.["1702"]).toBeTruthy();
@@ -1086,8 +1906,8 @@ describe("服务端撤销日志（U5）", () => {
     await reorderShotToTargetForStory({
       storyId,
       userId: USER_ID,
-      sourceShotId: "sh-01",
-      targetShotId: "sh-01",
+      sourceShotId: "sh-02",
+      targetShotId: "sh-02",
     });
 
     const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
@@ -1192,6 +2012,33 @@ describe("撤销失败后不吞掉那一格（U5）", () => {
     expect(retried.status).toBe("ok");
     const after = await getStoryTimeline(storyId, USER_ID);
     expect(JSON.stringify(after?.items)).toBe(JSON.stringify(before?.items));
+  });
+
+  it("CAS 冲突时不在新版本上自动重试覆盖，receipt 仍可重试", async () => {
+    const storyId = await seedStory();
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+    const afterMove = JSON.stringify(
+      (await getStoryTimeline(storyId, USER_ID))?.items
+    );
+    const conflict = vi
+      .spyOn(dbModule, "updateStoryTimeline")
+      .mockRejectedValueOnce(new Error("时间轴版本已更新"));
+    const failed = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(failed).toMatchObject({ status: "error", errorKind: "conflict" });
+    expect(conflict).toHaveBeenCalledTimes(1);
+    conflict.mockRestore();
+    expect(
+      JSON.stringify((await getStoryTimeline(storyId, USER_ID))?.items)
+    ).toBe(afterMove);
+    await expect(
+      undoVisualEditForStory({ storyId, userId: USER_ID })
+    ).resolves.toMatchObject({ status: "ok" });
   });
 });
 

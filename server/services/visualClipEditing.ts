@@ -7,29 +7,43 @@
  *
  * 这里改成服务端自己读—改—写：调用方只说「哪个 clip、去哪条轨、去哪一帧」。
  */
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  VisualEditOperationRef,
+  VisualEditReceipt,
+} from "../../shared/visualEditReceipt";
 import type {
   StoryTimelineImageTextOverlay,
   StoryTimelineItem,
   StoryTimelineOverlay,
-  StoryTimelineVisualLayerState,
   TimelineTransform,
 } from "../../shared/storyMaterial";
 import { withTimelineDurationMs } from "../../shared/storyMaterial";
 import {
   insertVisualImageClip,
   moveVisualClip,
+  shotClipId,
+  visualTrackId,
   removeVisualClip,
   type InsertVisualImageClipInput,
   type VisualEditDocument,
 } from "../../shared/visualClipModel";
+import type { VisualObjectRef } from "../../shared/visualObject";
+import type { ImageClipClipboardSnapshot } from "../../shared/visualObjectClipboard";
+import {
+  deleteVisualObjectReference,
+  pasteImageClipboardSnapshot,
+} from "../../shared/visualObjectOperations";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
   applyTimelineVideoEdit,
+  splitOwnedTimelineVisualClip,
   type TimelineVideoEditInput,
 } from "../../shared/timelineVisualClips";
 import {
   applyTimelineVisualLayerAction,
   hiddenTimelineVisualLayers,
+  planExtractedFrameTargetLayer,
   type TimelineVisualLayerAction,
 } from "../../shared/timelineVisualLayers";
 import {
@@ -44,12 +58,30 @@ import {
   type TimelinePlan,
   type TimelineResolverShot,
 } from "../../shared/timelineCommands";
-import { getStoryTimeline, updateStoryTimeline } from "../db";
 import {
+  loadAuthorizedStoryImage,
+  loadOwnedStory,
+  loadOwnedStoryVisualAggregate,
+  loadStoryVideoSources,
+  saveStoryVisualAggregateCas,
+  saveStoryVisualTimelineCas,
+  visualDocumentFromTimeline,
+} from "../persistence/storyVisualPersistence";
+import {
+  consumeVisualEditUndo,
+  findVisualEditUndo,
+  latestAvailableVisualEditUndo,
+  publicVisualEditReceipt,
+  rebaseLatestVisualEditUndoAfterVersion,
+  rebaseLatestVisualEditUndoAfterVersions,
   recordVisualEditUndo,
-  takeVisualEditUndo,
 } from "./visualEditUndoJournal";
 import { getStoryMaterialState } from "./storyMaterials";
+import { normalizeLegacyOverlay } from "../../shared/legacyOverlayNormalization";
+import { getStoryRevision, prepareStoryBody } from "./storySync";
+import { shotIdentityFromShot } from "../../shared/shotIdentity";
+import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
+import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 
 export type VisualClipEditResult =
   | {
@@ -59,6 +91,7 @@ export type VisualClipEditResult =
       changed: boolean;
       /** 打标命令返回新锚点 id，其余命令没有。 */
       anchorId?: string;
+      receipt?: VisualEditReceipt;
     }
   | {
       status: "error";
@@ -87,22 +120,14 @@ async function loadVisualEditDocument(
 ): Promise<
   { document: VisualEditDocument; version: number } | { error: string }
 > {
-  const row = await getStoryTimeline(storyId, userId);
+  const aggregate = await loadOwnedStoryVisualAggregate({ storyId, userId });
+  if (!aggregate) return { error: "故事不存在或无权访问" };
+  const row = aggregate.timeline;
   if (!row) return { error: "这个故事还没有时间线" };
-  if (!Array.isArray(row.items)) return { error: "时间线数据异常，无法编辑" };
+  const document = visualDocumentFromTimeline(row);
+  if (!document) return { error: "时间线数据异常，无法编辑" };
   return {
-    document: {
-      items: row.items as StoryTimelineItem[],
-      ...(Array.isArray(row.overlays)
-        ? { overlays: row.overlays as StoryTimelineOverlay[] }
-        : {}),
-      ...(row.visualLayerState
-        ? {
-            visualLayerState:
-              row.visualLayerState as StoryTimelineVisualLayerState,
-          }
-        : {}),
-    },
+    document,
     version: row.version,
   };
 }
@@ -115,9 +140,7 @@ async function loadVisualEditDocument(
  * 冲突会自动重读重试一次：服务端是读完立刻写，冲突窗口只有这一瞬，
  * 真撞上基本都是别处刚好写完。重试仍冲突才交回给用户。
  */
-type VisualEditMutation = (
-  document: VisualEditDocument
-) =>
+type VisualEditMutation = (document: VisualEditDocument) =>
   | {
       status: "ok";
       document: VisualEditDocument;
@@ -128,6 +151,78 @@ type VisualEditMutation = (
 
 const CONFLICT_RETRY_LIMIT = 1;
 
+type LegacyOverlayScope =
+  | { kind: "sources"; sourceStableShotIds: readonly string[] }
+  | { kind: "overlays"; overlayIds: readonly string[] }
+  | { kind: "all" };
+
+function storyShotBindings(body: unknown): Record<string, unknown>[] {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return [];
+  const shots = (body as Record<string, unknown>).shots;
+  return Array.isArray(shots)
+    ? shots.filter(
+        (shot): shot is Record<string, unknown> =>
+          !!shot && typeof shot === "object" && !Array.isArray(shot)
+      )
+    : [];
+}
+
+async function normalizeLegacyWorkingSet(input: {
+  storyId: number;
+  userId: number;
+  storyBody: unknown;
+  document: VisualEditDocument;
+  scope: LegacyOverlayScope;
+}): Promise<
+  | { status: "ok"; document: VisualEditDocument; changed: boolean }
+  | { status: "error"; message: string }
+> {
+  const overlays = input.document.overlays ?? [];
+  let selected: StoryTimelineOverlay[];
+  if (input.scope.kind === "all") {
+    selected = overlays;
+  } else if (input.scope.kind === "overlays") {
+    const overlayIds = input.scope.overlayIds;
+    selected = overlays.filter(overlay => overlayIds.includes(overlay.id));
+  } else {
+    const sourceStableShotIds = input.scope.sourceStableShotIds;
+    selected = overlays.filter(overlay =>
+      sourceStableShotIds.includes(overlay.sourceStableShotId)
+    );
+  }
+  if (selected.length === 0) {
+    return { status: "ok", document: input.document, changed: false };
+  }
+
+  const takes = await loadStoryVideoSources({
+    storyId: input.storyId,
+    userId: input.userId,
+  });
+  let document = input.document;
+  for (const selectedOverlay of selected) {
+    const normalized = normalizeLegacyOverlay({
+      overlayId: selectedOverlay.id,
+      sourceStableShotId: selectedOverlay.sourceStableShotId,
+      expectedVideoUrl: selectedOverlay.videoUrl,
+      storyShots: storyShotBindings(input.storyBody),
+      document,
+      takes: takes.map(take => ({
+        id: take.id,
+        stableShotId: take.stableShotId,
+        videoUrl: take.videoUrl,
+      })),
+    });
+    if (normalized.status === "error") {
+      return {
+        status: "error",
+        message: `无法归一遗留覆盖层：${normalized.message}`,
+      };
+    }
+    document = normalized.document;
+  }
+  return { status: "ok", document, changed: document !== input.document };
+}
+
 async function withVisualEditDocument(
   input: {
     storyId: number;
@@ -135,45 +230,162 @@ async function withVisualEditDocument(
     failureMessage: string;
     /** 撤销本身不进撤销栈，否则一次 Cmd+Z 会在两个状态之间来回跳。 */
     recordUndo?: boolean;
+    operation?: VisualEditOperationRef;
+    commandPayload?: unknown;
+    lockHeld?: boolean;
+    retryConflicts?: boolean;
+    normalizeLegacy?: (document: VisualEditDocument) => LegacyOverlayScope;
   },
   mutate: VisualEditMutation
 ): Promise<VisualClipEditResult> {
+  if (!input.lockHeld) {
+    return withVisualEditServiceLock(input.storyId, input.userId, () =>
+      withVisualEditDocument({ ...input, lockHeld: true }, mutate)
+    );
+  }
+  if (
+    !(await loadOwnedStory({
+      storyId: input.storyId,
+      userId: input.userId,
+    }))
+  ) {
+    return {
+      status: "error",
+      error: "故事不存在或无权访问",
+      errorKind: "invalid",
+    };
+  }
+  const operation = input.operation ?? {
+    editorSessionEpoch: "legacy",
+    operationId: randomUUID(),
+  };
+  if (
+    !isVisualEditSessionEpochAllowed({
+      storyId: input.storyId,
+      userId: input.userId,
+      editorSessionEpoch: operation.editorSessionEpoch,
+    })
+  ) {
+    return {
+      status: "error",
+      error: "这个剪辑会话已经失效，请刷新后重试",
+      errorKind: "invalid",
+    };
+  }
+  const commandDigest = createHash("sha256")
+    .update(JSON.stringify(input.commandPayload ?? operation.operationId))
+    .digest("hex");
+  const replay = findVisualEditUndo({
+    storyId: input.storyId,
+    userId: input.userId,
+    operation,
+  });
+  if (replay) {
+    if (replay.commandDigest !== commandDigest) {
+      return {
+        status: "error",
+        error: "操作标识已用于另一条命令",
+        errorKind: "invalid",
+      };
+    }
+    if (replay.status !== "available") {
+      return {
+        status: "error",
+        error: "这条操作已经撤销，不能再次重放",
+        errorKind: "invalid",
+      };
+    }
+    return {
+      status: "ok",
+      timelineVersion: replay.afterTimelineVersion,
+      changed: true,
+      ...(replay.undoEvicted ? {} : { receipt: publicVisualEditReceipt(replay) }),
+    };
+  }
   for (let attempt = 0; ; attempt += 1) {
-    const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+    // CAS 重试必须重新读取 Story，不能用旧 body 验证新 Timeline。
+    const aggregate = await loadOwnedStoryVisualAggregate({
+      storyId: input.storyId,
+      userId: input.userId,
+    });
+    if (!aggregate) {
+      return {
+        status: "error",
+        error: "故事不存在或无权访问",
+        errorKind: "invalid",
+      };
+    }
+    const story = aggregate.story;
+    const row = aggregate.timeline;
+    const document = row ? visualDocumentFromTimeline(row) : null;
+    const loaded:
+      | { document: VisualEditDocument; version: number }
+      | { error: string } = !row
+      ? ({ error: "这个故事还没有时间线" } as const)
+      : !document
+        ? ({ error: "时间线数据异常，无法编辑" } as const)
+        : { document, version: row.version };
     if ("error" in loaded) {
       return { status: "error", error: loaded.error, errorKind: "invalid" };
     }
 
-    const result = mutate(loaded.document);
+    const normalized = input.normalizeLegacy
+      ? await normalizeLegacyWorkingSet({
+          storyId: input.storyId,
+          userId: input.userId,
+          storyBody: story.body,
+          document: loaded.document,
+          scope: input.normalizeLegacy(loaded.document),
+        })
+      : {
+          status: "ok" as const,
+          document: loaded.document,
+          changed: false,
+        };
+    if (normalized.status === "error") {
+      return {
+        status: "error",
+        error: normalized.message,
+        errorKind: "invalid",
+      };
+    }
+    const result = mutate(normalized.document);
     if (result.status === "error") {
       return { status: "error", error: result.message, errorKind: "invalid" };
     }
-    // 目标与当前一致：不写库，也就不会因为重试把版本号越推越高。
-    if (result.changed === false) {
+    // Planner 自身虽是 no-op，前置归一仍是同一命令的一部分，必须落库。
+    if (result.changed === false && !normalized.changed) {
       return { status: "ok", timelineVersion: loaded.version, changed: false };
     }
 
     try {
-      const saved = await updateStoryTimeline({
+      const saved = await saveStoryVisualTimelineCas({
         storyId: input.storyId,
         userId: input.userId,
         // 版本来自刚刚这次服务端读取，客户端不再持有版本号。
         expectedVersion: loaded.version,
-        items: result.document.items,
-        ...(result.document.overlays === undefined
-          ? {}
-          : { overlays: result.document.overlays }),
-        ...(result.document.visualLayerState === undefined
-          ? {}
-          : { visualLayerState: result.document.visualLayerState }),
+        document: result.document,
       });
       if (input.recordUndo !== false) {
         // 写成功之后才记，否则失败的命令会在撤销栈里留下一格空转。
-        recordVisualEditUndo({
+        const receipt = recordVisualEditUndo({
           storyId: input.storyId,
           userId: input.userId,
+          operation,
           before: loaded.document,
+          beforeTimelineVersion: loaded.version,
+          afterTimelineVersion: saved.version,
+          commandDigest,
         });
+        return {
+          status: "ok",
+          timelineVersion: saved.version,
+          changed: true,
+          ...(result.anchorId === undefined
+            ? {}
+            : { anchorId: result.anchorId }),
+          receipt: publicVisualEditReceipt(receipt),
+        };
       }
       return {
         status: "ok",
@@ -182,7 +394,11 @@ async function withVisualEditDocument(
         ...(result.anchorId === undefined ? {} : { anchorId: result.anchorId }),
       };
     } catch (error) {
-      if (isVersionConflict(error) && attempt < CONFLICT_RETRY_LIMIT) {
+      if (
+        isVersionConflict(error) &&
+        input.retryConflicts !== false &&
+        attempt < CONFLICT_RETRY_LIMIT
+      ) {
         continue;
       }
       if (isVersionConflict(error)) {
@@ -235,6 +451,10 @@ async function withTimelinePlan(
     failureMessage: string;
     /** 只有滚动剪辑、修剪和打标需要镜头素材时长；其余命令别白跑一次读取。 */
     needsShotMaterials?: boolean;
+    normalizeLegacy?: (
+      document: VisualEditDocument,
+      shotsById: ReadonlyMap<string, TimelineResolverShot>
+    ) => LegacyOverlayScope;
   },
   planner: TimelinePlanner
 ): Promise<VisualClipEditResult> {
@@ -242,31 +462,71 @@ async function withTimelinePlan(
     ? await loadResolverShots(input.storyId, input.userId)
     : new Map<string, TimelineResolverShot>();
 
-  return withVisualEditDocument(input, document => {
-    const rows = buildTimelineLayout(document.items);
-    const plan = planner({ document, rows, shotsById });
-    if (plan.kind !== "ok") return { status: "error", message: plan.reason };
-    return {
-      status: "ok",
-      document: { ...document, items: plan.items },
-      ...(plan.anchorId === undefined ? {} : { anchorId: plan.anchorId }),
-    };
-  });
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: input.failureMessage,
+      ...(input.normalizeLegacy
+        ? {
+            normalizeLegacy: (document: VisualEditDocument) =>
+              input.normalizeLegacy!(document, shotsById),
+          }
+        : {}),
+    },
+    document => {
+      const rows = buildTimelineLayout(document.items);
+      const plan = planner({ document, rows, shotsById });
+      if (plan.kind !== "ok") return { status: "error", message: plan.reason };
+      return {
+        status: "ok",
+        document: { ...document, items: plan.items },
+        ...(plan.anchorId === undefined ? {} : { anchorId: plan.anchorId }),
+      };
+    }
+  );
 }
 
 export async function moveVisualClipForStory(input: {
-
   storyId: number;
   userId: number;
   clipId: string;
   toTrackId: string;
   toStartFrame: number;
 }): Promise<VisualClipEditResult> {
+  const legacyOverlayId = input.clipId.startsWith("overlay:")
+    ? input.clipId.slice("overlay:".length)
+    : null;
+  // A retry may observe the overlay after another writer has already
+  // normalized it. Retain the exact canonical identity established by the
+  // first attempt so the same user intent can continue against the fresh
+  // Timeline instead of falling back to direct overlay mutation.
+  let normalizedClipId: string | null = null;
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "移动没有保存成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "移动没有保存成功",
+      ...(legacyOverlayId
+        ? {
+            normalizeLegacy: (document: VisualEditDocument) => {
+              const matching = (document.overlays ?? []).filter(
+                overlay => overlay.id === legacyOverlayId
+              );
+              if (matching.length === 1) {
+                normalizedClipId = shotClipId(matching[0].sourceStableShotId);
+              }
+              return {
+                kind: "overlays" as const,
+                overlayIds: [legacyOverlayId],
+              };
+            },
+          }
+        : {}),
+    },
     document =>
       moveVisualClip(document, {
-        clipId: input.clipId,
+        clipId: normalizedClipId ?? input.clipId,
         toTrackId: input.toTrackId,
         toStartFrame: input.toStartFrame,
       })
@@ -279,9 +539,104 @@ export async function insertVisualImageClipForStory(input: {
   clip: InsertVisualImageClipInput;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有放置成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材没有放置成功",
+    },
     document => insertVisualImageClip(document, input.clip)
   );
+}
+
+export type ExtractedFramePlacementResult = VisualClipEditResult & {
+  clipId?: string;
+  targetLayer?: number;
+};
+
+/**
+ * Place a durable extracted-frame asset immediately above the layer the user
+ * operated on. Layer insertion and image placement share one timeline CAS, so
+ * a hidden adjacent layer can never be shifted without the frame appearing.
+ *
+ * `clipId` is derived from the extraction request. If the timeline write
+ * succeeded but the process died before its receipt was finalized, replaying
+ * that request recognizes the existing block and leaves any later user move
+ * untouched instead of dragging the frame back to its original position.
+ */
+export async function placeExtractedFrameForStory(input: {
+  storyId: number;
+  userId: number;
+  clipId: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  timelineFrame: number;
+  operationLayer: number;
+}): Promise<ExtractedFramePlacementResult> {
+  let targetLayer: number | undefined;
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "抽帧没有放置成功",
+    },
+    document => {
+      const existing = document.items
+        .flatMap(item => item.imageClips ?? [])
+        .find(clip => clip.id === input.clipId);
+      if (existing) {
+        if (existing.imageId !== input.imageId) {
+          return {
+            status: "error",
+            message: "这个抽帧请求已绑定另一张仓库图片",
+          };
+        }
+        targetLayer = existing.visualLayer;
+        return { status: "ok", document, changed: false };
+      }
+
+      const layerPlan = planExtractedFrameTargetLayer({
+        items: document.items,
+        overlays: document.overlays,
+        state: document.visualLayerState,
+        operationLayer: input.operationLayer,
+      });
+      if (layerPlan.status === "error") {
+        return {
+          status: "error",
+          message: "操作图层已不存在，请重新选择图层后抽帧",
+        };
+      }
+      targetLayer = layerPlan.targetLayer;
+      const placement = insertVisualImageClip(
+        {
+          items: layerPlan.change.items,
+          overlays: layerPlan.change.overlays,
+          visualLayerState: layerPlan.change.state,
+        },
+        {
+          clipId: input.clipId,
+          imageId: input.imageId,
+          imageUrl: input.imageUrl,
+          label: input.label,
+          trackId: visualTrackId(layerPlan.targetLayer),
+          startFrame: input.timelineFrame,
+          durationFrames: 1,
+        }
+      );
+      if (placement.status === "error") {
+        return { status: "error", message: placement.message };
+      }
+      return {
+        status: "ok",
+        document: placement.document,
+        changed: placement.changed || layerPlan.insertedLayer,
+      };
+    }
+  );
+  return result.status === "ok"
+    ? { ...result, clipId: input.clipId, targetLayer }
+    : result;
 }
 
 export async function removeVisualClipForStory(input: {
@@ -290,9 +645,221 @@ export async function removeVisualClipForStory(input: {
   clipId: string;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有删除成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材没有删除成功",
+    },
     document => removeVisualClip(document, input.clipId)
   );
+}
+
+function pastedImageClipId(input: {
+  storyId: number;
+  userId: number;
+  pasteId: string;
+}): string {
+  const digest = createHash("sha256")
+    .update(`${input.userId}:${input.storyId}:${input.pasteId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `image-paste-${digest}`;
+}
+
+export type PasteVisualImageResult = VisualClipEditResult & {
+  clipId?: string;
+};
+
+/**
+ * Paste an immutable image snapshot after re-authorizing its warehouse asset.
+ * The request identity becomes the clip identity, so a lost response can be
+ * replayed without creating or moving a second block.
+ */
+export async function pasteVisualImageForStory(input: {
+  storyId: number;
+  userId: number;
+  pasteId: string;
+  snapshot: ImageClipClipboardSnapshot;
+  targetFrame: number;
+  targetLayer: number;
+  operation?: VisualEditOperationRef;
+}): Promise<PasteVisualImageResult> {
+  const pasteId = input.pasteId.trim();
+  if (!pasteId || pasteId.length > 160) {
+    return {
+      status: "error",
+      error: "粘贴请求标识无效",
+      errorKind: "invalid",
+    };
+  }
+  if (
+    !Number.isInteger(input.targetFrame) ||
+    input.targetFrame < 0 ||
+    !Number.isInteger(input.targetLayer) ||
+    input.targetLayer < 0
+  ) {
+    return {
+      status: "error",
+      error: "粘贴位置无效",
+      errorKind: "invalid",
+    };
+  }
+  const image = await loadAuthorizedStoryImage({
+    storyId: input.storyId,
+    userId: input.userId,
+    imageId: input.snapshot.imageId,
+  });
+  if (!image) {
+    return {
+      status: "error",
+      error: "剪贴板图片已失效或不属于当前故事",
+      errorKind: "invalid",
+    };
+  }
+  const clipId = pastedImageClipId({
+    storyId: input.storyId,
+    userId: input.userId,
+    pasteId,
+  });
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "图片粘贴失败",
+      operation: input.operation,
+      commandPayload: {
+        kind: "pasteVisualImage",
+        pasteId,
+        snapshot: input.snapshot,
+        targetFrame: input.targetFrame,
+        targetLayer: input.targetLayer,
+      },
+    },
+    document => {
+      const existed = document.items.some(item =>
+        item.imageClips?.some(clip => clip.id === clipId)
+      );
+      const plan = pasteImageClipboardSnapshot({
+        document,
+        storyId: input.storyId,
+        snapshot: input.snapshot,
+        newClipId: clipId,
+        targetFrame: input.targetFrame,
+        targetLayer: input.targetLayer,
+        canonicalImageUrl: image.imageUrl,
+      });
+      if (plan.status === "error") {
+        return { status: "error", message: plan.message };
+      }
+      if (existed && plan.changed) {
+        return {
+          status: "error",
+          message: "这个粘贴请求已经用于另一个位置，请重新复制后粘贴",
+        };
+      }
+      return plan;
+    }
+  );
+  return result.status === "ok" ? { ...result, clipId } : result;
+}
+
+/** Delete only a canonical clip reference; full shots use the aggregate path. */
+export async function deleteVisualObjectForStory(input: {
+  storyId: number;
+  userId: number;
+  object: VisualObjectRef;
+  operation?: VisualEditOperationRef;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材删除失败",
+      operation: input.operation,
+      commandPayload: { kind: "deleteVisualObject", object: input.object },
+    },
+    document => {
+      const result = deleteVisualObjectReference({
+        document,
+        object: input.object,
+      });
+      return result.status === "ok"
+        ? result
+        : { status: "error", message: result.message };
+    }
+  );
+}
+
+function splitOwnedVideoClipRightId(input: {
+  storyId: number;
+  userId: number;
+  ownerStableShotId: string;
+  clipId: string;
+  cutFrame: number;
+  operation: VisualEditOperationRef;
+}): string {
+  const digest = createHash("sha256")
+    .update(
+      [
+        input.userId,
+        input.storyId,
+        input.operation.editorSessionEpoch,
+        input.operation.operationId,
+        input.ownerStableShotId,
+        input.clipId,
+        input.cutFrame,
+      ].join(":")
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `owned-split-${digest}`;
+}
+
+export type SplitOwnedVideoClipForStoryResult = VisualClipEditResult & {
+  rightClipId?: string;
+};
+
+/** Split a canonical owned video clip; Story identity/body are never written. */
+export async function splitOwnedVideoClipForStory(input: {
+  storyId: number;
+  userId: number;
+  ownerStableShotId: string;
+  clipId: string;
+  cutFrame: number;
+  operation: VisualEditOperationRef;
+}): Promise<SplitOwnedVideoClipForStoryResult> {
+  const rightClipId = splitOwnedVideoClipRightId(input);
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "视频片段拆分失败",
+      operation: input.operation,
+      commandPayload: {
+        kind: "splitOwnedVideoClip",
+        ownerStableShotId: input.ownerStableShotId,
+        clipId: input.clipId,
+        cutFrame: input.cutFrame,
+      },
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.ownerStableShotId],
+      }),
+    },
+    document => {
+      const plan = splitOwnedTimelineVisualClip({
+        items: document.items,
+        ownerStableShotId: input.ownerStableShotId,
+        clipId: input.clipId,
+        cutFrame: input.cutFrame,
+        rightClipId,
+      });
+      return plan.status === "ok"
+        ? { status: "ok", document: { ...document, items: plan.items } }
+        : { status: "error", message: plan.message };
+    }
+  );
+  return result.status === "ok" ? { ...result, rightClipId } : result;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -315,6 +882,7 @@ export async function moveShotGroupForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "移动镜头失败",
+      normalizeLegacy: () => ({ kind: "all" }),
     },
     ({ document, rows }) =>
       planTimelineGroupMove({
@@ -351,6 +919,10 @@ export async function moveShotSingleForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "移动镜头失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       const rows = buildTimelineLayout(document.items);
@@ -360,9 +932,6 @@ export async function moveShotSingleForStory(input: {
       if (!sourceItem) {
         return { status: "error", message: "镜头不在时间轴中" };
       }
-      const overlay = (document.overlays ?? []).find(
-        candidate => candidate.sourceStableShotId === input.stableShotId
-      );
       const targetLayer =
         input.toVisualLayer == null
           ? undefined
@@ -387,13 +956,11 @@ export async function moveShotSingleForStory(input: {
         return { status: "error", message: plan.reason };
       }
 
-      const needsLayerWrite = targetLayer != null || overlay !== undefined;
+      const needsLayerWrite = targetLayer != null;
       const items = needsLayerWrite
         ? plan.items.map(item =>
             item.stableShotId === input.stableShotId
-              ? // overlay 迁移时默认落在第 1 层：遗留 overlay 本来就画在
-                // 底层视频之上，不给层号会掉回底层把画面盖掉。
-                { ...item, visualLayer: targetLayer ?? 1 }
+              ? { ...item, visualLayer: targetLayer }
               : item
           )
         : plan.items;
@@ -403,13 +970,6 @@ export async function moveShotSingleForStory(input: {
         document: {
           ...document,
           items,
-          ...(overlay === undefined
-            ? {}
-            : {
-                overlays: (document.overlays ?? []).filter(
-                  candidate => candidate.id !== overlay.id
-                ),
-              }),
         },
       };
     }
@@ -429,6 +989,10 @@ export async function rollingTrimForStory(input: {
       userId: input.userId,
       failureMessage: "滚动剪辑失败",
       needsShotMaterials: true,
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.leftStableShotId, input.rightStableShotId],
+      }),
     },
     ({ document, rows, shotsById }) =>
       planTimelineRollingTrim({
@@ -438,7 +1002,8 @@ export async function rollingTrimForStory(input: {
         rightStableShotId: input.rightStableShotId,
         requestedBoundaryFrame: input.requestedBoundaryFrame,
         leftSourceLimitSec:
-          shotsById.get(input.leftStableShotId)?.currentVideoDurationSec ?? null,
+          shotsById.get(input.leftStableShotId)?.currentVideoDurationSec ??
+          null,
         rightSourceLimitSec:
           shotsById.get(input.rightStableShotId)?.currentVideoDurationSec ??
           null,
@@ -457,6 +1022,10 @@ export async function magnetDetachForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "取消吸附失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.leftStableShotId, input.rightStableShotId],
+      }),
     },
     ({ document, rows }) =>
       planTimelineMagnetDetach({
@@ -479,6 +1048,28 @@ export async function addTimelineAnchorForStory(input: {
       userId: input.userId,
       failureMessage: "打标失败",
       needsShotMaterials: true,
+      normalizeLegacy: (document, shotsById) => {
+        const rows = buildTimelineLayout(document.items);
+        const winner = resolveTimelineFrameSource({
+          rows,
+          shotsById,
+          ...(document.overlays === undefined
+            ? {}
+            : { overlays: document.overlays }),
+          hiddenVisualLayers: Array.from(
+            hiddenTimelineVisualLayers(document.visualLayerState)
+          ),
+          timelineFrame: input.timelineFrame,
+        });
+        return winner.kind === "source" &&
+          winner.sourceType === "visual-clip" &&
+          winner.sourceId.startsWith("overlay-")
+          ? {
+              kind: "overlays",
+              overlayIds: [winner.sourceId.slice("overlay-".length)],
+            }
+          : { kind: "overlays", overlayIds: [] };
+      },
     },
     ({ document, rows, shotsById }) =>
       planTimelineAnchorAdd({
@@ -511,6 +1102,10 @@ export async function removeTimelineAnchorForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "取消打标失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     ({ document }) =>
       planTimelineAnchorRemove({
@@ -534,6 +1129,10 @@ export async function trimShotForStory(input: {
       userId: input.userId,
       failureMessage: "修剪失败",
       needsShotMaterials: true,
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     ({ document, shotsById }) =>
       planTimelineTrim({
@@ -568,6 +1167,7 @@ export async function applyVisualLayerActionForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "图层操作失败",
+      normalizeLegacy: () => ({ kind: "all" }),
     },
     document => {
       const change = applyTimelineVisualLayerAction({
@@ -608,6 +1208,10 @@ export async function setShotIncludedForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "更新镜头失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       if (
@@ -642,6 +1246,10 @@ export async function moveShotOrderForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "调整顺序失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       const ordered = [...document.items].sort(
@@ -651,7 +1259,8 @@ export async function moveShotOrderForStory(input: {
         item => item.stableShotId === input.stableShotId
       );
       const target = index + input.direction;
-      if (index < 0) return { status: "error", message: "当前镜头不在时间线上" };
+      if (index < 0)
+        return { status: "error", message: "当前镜头不在时间线上" };
       if (target < 0 || target >= ordered.length) {
         return { status: "error", message: "已经到头了" };
       }
@@ -679,6 +1288,10 @@ export async function reorderShotToTargetForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "调整顺序失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.sourceShotId],
+      }),
     },
     document => {
       const ordered = [...document.items].sort(
@@ -719,6 +1332,7 @@ export async function includeAllShotsForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "恢复镜头失败",
+      normalizeLegacy: () => ({ kind: "all" }),
     },
     document => ({
       status: "ok",
@@ -746,6 +1360,10 @@ export async function removeInnerVideoClipForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "移除视频片段失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       const sourceItem = document.items.find(
@@ -791,6 +1409,10 @@ export async function setShotDurationForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "更新镜头时长失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       if (
@@ -832,6 +1454,10 @@ export async function patchImageTransformForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "更新图片构图失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.stableShotId],
+      }),
     },
     document => {
       if (
@@ -879,34 +1505,185 @@ export async function patchImageTransformForStory(input: {
 export async function undoVisualEditForStory(input: {
   storyId: number;
   userId: number;
+  operation?: VisualEditOperationRef;
 }): Promise<VisualClipEditResult> {
-  const entry = takeVisualEditUndo(input);
-  if (!entry) {
-    return {
-      status: "error",
-      error: "没有可撤销的剪辑操作",
-      errorKind: "invalid",
-    };
-  }
-  const result = await withVisualEditDocument(
-    {
-      storyId: input.storyId,
-      userId: input.userId,
-      failureMessage: "撤销失败",
-      recordUndo: false,
-    },
-    () => ({ status: "ok", document: entry.before })
-  );
-  if (result.status === "error") {
-    // 取出来了却没写成，就得放回去——否则这一步永远撤不掉了，
-    // 而用户看到的只是一句「撤销失败」，再按一次就跳到更早的状态。
-    recordVisualEditUndo({
-      storyId: input.storyId,
-      userId: input.userId,
-      before: entry.before,
+  return withVisualEditServiceLock(input.storyId, input.userId, async () => {
+    if (
+      input.operation &&
+      !isVisualEditSessionEpochAllowed({
+        storyId: input.storyId,
+        userId: input.userId,
+        editorSessionEpoch: input.operation.editorSessionEpoch,
+      })
+    ) {
+      return {
+        status: "error",
+        error: "这个剪辑会话已经失效，不能撤销其中的操作",
+        errorKind: "invalid",
+      };
+    }
+    const entry = input.operation
+      ? findVisualEditUndo({ ...input, operation: input.operation })
+      : latestAvailableVisualEditUndo({
+          ...input,
+          editorSessionEpoch: "legacy",
+        });
+    if (!entry) {
+      return {
+        status: "error",
+        error: "没有可撤销的剪辑操作",
+        errorKind: "invalid",
+      };
+    }
+    if (
+      entry.status === "consumed" &&
+      entry.undoResultTimelineVersion !== undefined
+    ) {
+      return {
+        status: "ok",
+        timelineVersion: entry.undoResultTimelineVersion,
+        changed: true,
+      };
+    }
+    if ("replayOnly" in entry) {
+      return {
+        status: "error",
+        error: "这条操作已超出可撤销范围",
+        errorKind: "invalid",
+      };
+    }
+    const latest = latestAvailableVisualEditUndo({
+      ...input,
+      editorSessionEpoch: entry.editorSessionEpoch,
     });
-  }
-  return result;
+    if (entry.status !== "available" || latest !== entry) {
+      return {
+        status: "error",
+        error: "只能撤销当前最新的剪辑操作",
+        errorKind: "invalid",
+      };
+    }
+    const aggregate = await loadOwnedStoryVisualAggregate({
+      storyId: input.storyId,
+      userId: input.userId,
+    });
+    const current = aggregate?.timeline ?? null;
+    if (!current || current.version !== entry.afterTimelineVersion) {
+      return {
+        status: "error",
+        error: "时间线已变化，无法撤销这条操作",
+        errorKind: "conflict",
+      };
+    }
+    if (entry.kind === "aggregate") {
+      const story = aggregate?.story ?? null;
+      if (!story || getStoryRevision(story.body) !== entry.afterStoryRevision) {
+        return {
+          status: "error",
+          error: "故事已变化，无法撤销这条操作",
+          errorKind: "conflict",
+        };
+      }
+      const body =
+        story.body && typeof story.body === "object" && !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots)
+        ? body.shots.filter(
+            (shot): shot is Record<string, unknown> =>
+              Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          )
+        : [];
+      const currentFingerprint = createHash("sha256")
+        .update(
+          JSON.stringify({
+            shots: shots.map((shot, index) => shotIdentityFromShot(shot, index)),
+            items: (current.items as StoryTimelineItem[]).map(item => item.stableShotId),
+          })
+        )
+        .digest("hex");
+      if (currentFingerprint !== entry.identityFingerprint) {
+        return {
+          status: "error",
+          error: "镜头身份已变化，无法撤销这条操作",
+          errorKind: "conflict",
+        };
+      }
+      try {
+        const restoredBody = prepareStoryBody(
+          entry.beforeStoryBody as Record<string, unknown>,
+          entry.afterStoryRevision + 1,
+          story.body
+        );
+        const saved = await saveStoryVisualAggregateCas({
+          storyId: input.storyId,
+          userId: input.userId,
+          expectedStoryRevision: entry.afterStoryRevision,
+          expectedTimelineVersion: entry.afterTimelineVersion,
+          nextStoryBody: restoredBody,
+          nextDocument: {
+            items: entry.before.items,
+            overlays: entry.before.overlays ?? [],
+            ...(entry.before.visualLayerState === undefined
+              ? {}
+              : { visualLayerState: entry.before.visualLayerState }),
+          },
+        });
+        const storyRevision = getStoryRevision(saved.story.body);
+        consumeVisualEditUndo(entry, {
+          timelineVersion: saved.timeline.version,
+          storyRevision,
+        });
+        rebaseLatestVisualEditUndoAfterVersions({
+          ...input,
+          editorSessionEpoch: entry.editorSessionEpoch,
+          afterTimelineVersion: saved.timeline.version,
+          afterStoryRevision: storyRevision,
+        });
+        return {
+          status: "ok",
+          timelineVersion: saved.timeline.version,
+          changed: true,
+        };
+      } catch (error) {
+        return {
+          status: "error",
+          error: error instanceof Error ? error.message : "撤销失败",
+          errorKind: "conflict",
+        };
+      }
+    }
+    const result = await withVisualEditDocument(
+      {
+        storyId: input.storyId,
+        userId: input.userId,
+        failureMessage: "撤销失败",
+        recordUndo: false,
+        lockHeld: true,
+        retryConflicts: false,
+      },
+      () => ({ status: "ok", document: entry.before })
+    );
+    if (result.status === "ok") {
+      consumeVisualEditUndo(entry, result.timelineVersion);
+      rebaseLatestVisualEditUndoAfterVersion({
+        ...input,
+        editorSessionEpoch: entry.editorSessionEpoch,
+        afterTimelineVersion: result.timelineVersion,
+      });
+    }
+    return result;
+  });
+}
+
+const visualEditServiceLock = createKeyedSerialLock<string>();
+export async function withVisualEditServiceLock<T>(
+  storyId: number,
+  userId: number,
+  action: () => Promise<T>
+): Promise<T> {
+  const key = `${userId}:${storyId}`;
+  return visualEditServiceLock.run(key, action);
 }
 
 /** 改一段视频的入出点、速度、音量与构图。纯计算住在 shared，服务端只负责读写。 */
@@ -920,6 +1697,10 @@ export async function updateVideoEditForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "更新视频剪辑失败",
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.edit.stableShotId],
+      }),
     },
     document => {
       const edited = applyTimelineVideoEdit(document.items, input.edit);

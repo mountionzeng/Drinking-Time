@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -54,7 +55,6 @@ import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
-
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
@@ -73,7 +73,6 @@ import {
 import { visualTrackId } from "@shared/visualClipModel";
 import {
   buildTimelineLayout,
-  overlayVisualLayer,
   resolveTimelineFrame,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
@@ -86,6 +85,12 @@ import {
   type TimelineResolverShot,
 } from "@shared/timelineCommands";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
+import type { VisualObjectRef } from "@shared/visualObject";
+import type {
+  ImageClipClipboardSnapshot,
+  StoryShotClipboardSnapshot,
+} from "@shared/visualObjectClipboard";
+import type { VisualEditOperationRef } from "@shared/visualEditReceipt";
 import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import type {
@@ -116,9 +121,7 @@ import {
 import { resolveScopedPublishingHandoff } from "./publishingHandoffScope";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
-  recordDeletedStoryShotUndo,
   recordInsertedStoryShotUndo,
-  recordSplitStoryShotUndo,
   recordTimelineCommandUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
@@ -152,6 +155,8 @@ export type {
 export type { CreationTimelineFrameResolution } from "@shared/timelineCommands";
 
 type CreationEditorContextValue = {
+  editorSessionEpoch: string;
+  visualEditSessionReady: boolean;
   stories: CreationEditorStory[];
   activeStoryId: number | null;
   setActiveStoryId: (storyId: number | null) => void;
@@ -288,6 +293,21 @@ type CreationEditorContextValue = {
   commitInsertedTimelineShotUndo: (stableShotId: string) => void;
   discardPersistedShot: (stableShotId: string) => Promise<void>;
   deletePersistedShot: (stableShotId: string) => Promise<number | null>;
+  copyStoryVisualObject: (input: {
+    editorSessionEpoch: string;
+    clipboardId: string;
+    object: Extract<VisualObjectRef, { type: "story-shot" }>;
+  }) => Promise<StoryShotClipboardSnapshot>;
+  pasteStoryVisualObject: (input: {
+    operation: VisualEditOperationRef;
+    clipboardId: string;
+    targetFrame: number;
+    targetLayer: number;
+  }) => Promise<string>;
+  deleteStoryVisualShot: (input: {
+    operation: VisualEditOperationRef;
+    stableShotId: string;
+  }) => Promise<string | null>;
   updatePromptOverride: (
     shotNo: number,
     dimension: string,
@@ -460,20 +480,15 @@ type CreationEditorContextValue = {
   splitTimelineVideoClip: (input: {
     stableShotId: string;
     cutFrame: number;
-    takeStableShotId: string;
-    existingClipId?: string | null;
-    takeId: number;
-    videoUrl: string;
-    sourceStartSec: number;
-    sourceEndSec: number;
-    splitSourceSec: number;
-    offsetMs: number;
-    durationMs: number;
-    splitOffsetMs: number;
-    label: string;
-    effects: TimelineVideoEffects;
-    transform: TimelineTransform;
+    operation?: VisualEditOperationRef;
     overlayId?: string;
+    videoUrl?: string;
+  }) => Promise<string | null>;
+  splitOwnedVideoClip: (input: {
+    operation: VisualEditOperationRef;
+    ownerStableShotId: string;
+    clipId: string;
+    cutFrame: number;
   }) => Promise<void>;
   addTimelineImageClip: (input: {
     clipId?: string;
@@ -483,11 +498,27 @@ type CreationEditorContextValue = {
     label: string;
     visualLayer?: number;
   }) => Promise<void>;
+  /** 服务端权威抽帧：赢家、仓库备份、相邻层和落位都由一个可重放请求完成。 */
+  extractTimelineFrame: (input: {
+    timelineFrame: number;
+    operationLayer: number;
+  }) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
   moveVisualClip: (input: {
     clipId: string;
     toTrackId: string;
     toStartFrame: number;
+  }) => Promise<void>;
+  pasteVisualImage: (input: {
+    operation: VisualEditOperationRef;
+    pasteId: string;
+    snapshot: ImageClipClipboardSnapshot;
+    targetFrame: number;
+    targetLayer: number;
+  }) => Promise<void>;
+  deleteVisualObject: (input: {
+    operation: VisualEditOperationRef;
+    object: VisualObjectRef;
   }) => Promise<void>;
   removeTimelineVideoClip: (input: {
     stableShotId: string;
@@ -1170,8 +1201,8 @@ export function mergeShotsWithImages(
         if (
           image.relatedShotIdentities?.some(
             relatedIdentity =>
-            normalizeShotIdentity(relatedIdentity) ===
-            normalizeShotIdentity(identity)
+              normalizeShotIdentity(relatedIdentity) ===
+              normalizeShotIdentity(identity)
           )
         ) {
           return true;
@@ -1189,10 +1220,10 @@ export function mergeShotsWithImages(
     )
       .filter(key => hasUniqueShotNo || key === normalizeShotIdentity(identity))
       .reduce<CreationEditorImage | undefined>((selected, key) => {
-      const candidate = displayByIdentity.get(key);
-      if (!candidate) return selected;
-      if (!selected || candidate.id >= selected.id) return candidate;
-      return selected;
+        const candidate = displayByIdentity.get(key);
+        if (!candidate) return selected;
+        if (!selected || candidate.id >= selected.id) return candidate;
+        return selected;
       }, undefined);
     const promptRunImage =
       shot.promptRun?.imageId != null
@@ -1464,10 +1495,66 @@ type CreationEditorProviderProps = PropsWithChildren<{
   activeStoryId?: number | null;
 }>;
 
+const VISUAL_EDITOR_CLIENT_ID_KEY = "creation-editor:visual-client-id";
+const VISUAL_EDITOR_ACTIVATION_SEQUENCE_PREFIX =
+  "creation-editor:visual-activation-sequence:";
+export function visualEditorClientId(): string {
+  try {
+    const existing = globalThis.sessionStorage?.getItem(
+      VISUAL_EDITOR_CLIENT_ID_KEY
+    );
+    if (existing) return existing;
+    const created =
+      globalThis.crypto?.randomUUID?.() ??
+      `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    globalThis.sessionStorage?.setItem(VISUAL_EDITOR_CLIENT_ID_KEY, created);
+    return created;
+  } catch {
+    return (
+      globalThis.crypto?.randomUUID?.() ??
+      `client-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    );
+  }
+}
+
+let fallbackVisualActivationSequence = 0;
+export function nextVisualActivationSequence(editorClientId: string): number {
+  let validStoredSequence = 0;
+  try {
+    const storage = globalThis.sessionStorage;
+    if (!storage) {
+      fallbackVisualActivationSequence += 1;
+      return fallbackVisualActivationSequence;
+    }
+    const key = `${VISUAL_EDITOR_ACTIVATION_SEQUENCE_PREFIX}${editorClientId}`;
+    const stored = storage.getItem(key);
+    const parsed = stored == null ? 0 : Number(stored);
+    validStoredSequence =
+      Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+    const next = validStoredSequence + 1;
+    storage.setItem(key, String(next));
+    return next;
+  } catch {
+    fallbackVisualActivationSequence =
+      Math.max(fallbackVisualActivationSequence, validStoredSequence) + 1;
+    return fallbackVisualActivationSequence;
+  }
+}
+
 export function CreationEditorProvider({
   children,
   activeStoryId: controlledActiveStoryId,
 }: CreationEditorProviderProps) {
+  const editorClientId = useMemo(() => visualEditorClientId(), []);
+  const [activatedVisualEditEpoch, setActivatedVisualEditEpoch] = useState<
+    string | null
+  >(null);
+  const persistedDeleteIntentRef = useRef(
+    new Map<string, VisualEditOperationRef>()
+  );
+  const cleanupDeleteIntentRef = useRef(
+    new Map<string, VisualEditOperationRef>()
+  );
   const isControlled = controlledActiveStoryId !== undefined;
   const [localActiveStoryId, setLocalActiveStoryId] = useState<number | null>(
     null
@@ -1505,12 +1592,14 @@ export function CreationEditorProvider({
     trpc.storyAgent.restoreStoryShotFieldVersion.useMutation();
   const insertStoryShotAfterMut =
     trpc.storyAgent.insertStoryShotAfter.useMutation();
-  const deleteStoryShotMut = trpc.storyAgent.deleteStoryShot.useMutation();
-  const restoreDeletedStoryShotMut =
-    trpc.storyAgent.restoreDeletedStoryShot.useMutation();
-  const splitStoryShotMut = trpc.storyAgent.splitStoryShot.useMutation();
-  const undoSplitStoryShotMut =
-    trpc.storyAgent.undoSplitStoryShot.useMutation();
+  const copyStoryVisualObjectMut =
+    trpc.creationAgent.copyStoryVisualObject.useMutation();
+  const pasteStoryVisualObjectMut =
+    trpc.creationAgent.pasteStoryVisualObject.useMutation();
+  const deleteStoryVisualShotMut =
+    trpc.creationAgent.deleteStoryVisualShot.useMutation();
+  const splitStoryVisualShotMut =
+    trpc.creationAgent.splitStoryVisualShot.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const promoteStoryImageMut =
@@ -1558,6 +1647,8 @@ export function CreationEditorProvider({
   const moveVisualClipMut = trpc.creationAgent.moveVisualClip.useMutation();
   const insertVisualImageClipMut =
     trpc.creationAgent.insertVisualImageClip.useMutation();
+  const extractTimelineFrameMut =
+    trpc.creationAgent.extractTimelineFrame.useMutation();
   const createDerivationDraftMut =
     trpc.creationAgent.createDerivationDraft.useMutation();
   const analyzeDerivationDraftMut =
@@ -1568,6 +1659,10 @@ export function CreationEditorProvider({
     trpc.creationAgent.confirmDerivedShot.useMutation();
   const undoStoryOperationMut =
     trpc.creationAgent.undoStoryOperation.useMutation();
+  const undoVisualEditReceiptMut =
+    trpc.creationAgent.undoVisualEditReceipt.useMutation();
+  const activateVisualEditSessionMut =
+    trpc.creationAgent.activateVisualEditSession.useMutation();
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
   const spineRemoteStoryId = useStorySpine(state => state.remoteStoryId);
   const setCanonicalStoryShots = useStorySpine(state => state.setStoryShots);
@@ -1582,8 +1677,73 @@ export function CreationEditorProvider({
     spineActiveStoryId,
     spineRemoteStoryId,
   });
+  const editorSessionEpoch = useMemo(
+    () =>
+      globalThis.crypto?.randomUUID?.() ??
+      `editor-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    [activeId]
+  );
+  const visualEditSessionReady =
+    activatedVisualEditEpoch === editorSessionEpoch;
   const activeStoryIdRef = useRef(activeId);
-  activeStoryIdRef.current = activeId;
+  const renderedExtractionStorySessionToken = useMemo(
+    () => Symbol(`timeline-extraction-story:${activeId ?? "none"}`),
+    [activeId]
+  );
+  const committedExtractionStorySessionTokenRef = useRef(
+    renderedExtractionStorySessionToken
+  );
+  useLayoutEffect(() => {
+    // Concurrent rendering may prepare another Story and then abandon it.
+    // Advance the active Story and extraction session only after React commits
+    // that render, so the still-visible Story keeps ownership of late results.
+    activeStoryIdRef.current = activeId;
+    committedExtractionStorySessionTokenRef.current =
+      renderedExtractionStorySessionToken;
+  }, [activeId, renderedExtractionStorySessionToken]);
+  useEffect(() => {
+    setActivatedVisualEditEpoch(null);
+    if (activeId == null) return;
+    let cancelled = false;
+    const activationSequence = nextVisualActivationSequence(editorClientId);
+    void activateVisualEditSessionMut
+      .mutateAsync({
+        storyId: activeId,
+        editorClientId,
+        editorSessionEpoch,
+        activationSequence,
+      })
+      .then(result => {
+        if (
+          !cancelled &&
+          activeStoryIdRef.current === activeId &&
+          result.status === "ok"
+        ) {
+          setActivatedVisualEditEpoch(editorSessionEpoch);
+        }
+      })
+      .catch(error => {
+        if (!cancelled && activeStoryIdRef.current === activeId) {
+          console.warn("visual edit session activation failed", error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, editorClientId, editorSessionEpoch]);
+  const extractionIntentByPositionRef = useRef(
+    new Map<
+      string,
+      {
+        requestId: string;
+        inFlight?: {
+          promise: Promise<void>;
+          originStorySessionToken: symbol;
+          undoRecorded: boolean;
+        };
+      }
+    >()
+  );
   const canonicalStoryShots = useStorySpine(state =>
     isStoryScopeReady({
       activeId,
@@ -1984,7 +2144,6 @@ export function CreationEditorProvider({
     [timelineLayoutRows]
   );
 
-
   // 时间线领域命令的客户端住在自己的文件里（见 useTimelineCommands）：
   // 它是一层独立职责，不是本 Context 的一部分。
   const {
@@ -2006,6 +2165,9 @@ export function CreationEditorProvider({
     removeTimelineVideoClip,
     undoVisualEdit,
     updateTimelineVideoEdit,
+    pasteVisualImage,
+    deleteVisualObject,
+    splitOwnedVideoClip,
   } = useTimelineCommands({
     activeStoryId: activeId,
     refetchStoryMaterial: storyMaterialQuery.refetch,
@@ -2462,53 +2624,172 @@ export function CreationEditorProvider({
     return { shotNo: inserted.shotNo, stableShotId: inserted.stableShotId };
   };
 
+  const runAggregateVisualEdit = async <T,>(
+    storyId: number,
+    task: () => Promise<T>
+  ): Promise<T> => {
+    if (!visualEditSessionReady) {
+      throw new Error("剪辑会话仍在初始化，请稍后再试");
+    }
+    const outcome = await timelineWriteLockRef.current.run<
+      { applied: true; value: T } | { applied: false; reason: string }
+    >(
+      async () => ({
+        applied: true as const,
+        value: await trackCreationEditorOperation(storyId, task()),
+      }),
+      { applied: false as const, reason: "另一个剪辑操作仍在保存" }
+    );
+    if (!outcome.applied) throw new Error(outcome.reason);
+    return outcome.value;
+  };
+
+  const refreshAggregateStory = async (
+    storyId: number,
+    selectedStableShotId?: string | null
+  ): Promise<number | null> => {
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: storyId }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+    ]);
+    if (activeStoryIdRef.current !== storyId) return null;
+    const [freshStory] = await Promise.all([
+      storyQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
+    if (activeStoryIdRef.current !== storyId) return null;
+    const freshBody = freshStory.data?.body;
+    if (!freshBody || typeof freshBody !== "object" || Array.isArray(freshBody))
+      return null;
+    const body = freshBody as Record<string, unknown>;
+    const freshShots = normalizeStoryShots(body);
+    setCanonicalStoryShots(freshShots);
+    setSpineServerRevision(Number(body._revision) || 0);
+    const selected = selectedStableShotId
+      ? freshShots.find(
+          shot => shotIdentityFromShot(shot) === selectedStableShotId
+        )
+      : null;
+    const nextSelected = selected ?? freshShots[0] ?? null;
+    setSelectedShotNo(nextSelected?.shotNo ?? null);
+    return nextSelected?.shotNo ?? null;
+  };
+
   const deletePersistedShot = async (stableShotId: string) => {
     if (activeId == null) throw new Error("故事尚未加载，无法删除镜头");
-    const result = await deleteStoryShotMut.mutateAsync({
-      storyId: activeId,
-      stableShotId,
-    });
+    const storyId = activeId;
+    const intentKey = `${editorSessionEpoch}:${storyId}:${stableShotId}`;
+    const operation = persistedDeleteIntentRef.current.get(intentKey) ?? {
+      editorSessionEpoch,
+      operationId:
+        globalThis.crypto?.randomUUID?.() ??
+        `delete-story-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    persistedDeleteIntentRef.current.set(intentKey, operation);
+    const result = await runAggregateVisualEdit(storyId, () =>
+      deleteStoryVisualShotMut.mutateAsync({
+        storyId,
+        operation,
+        stableShotId,
+      })
+    );
+    persistedDeleteIntentRef.current.delete(intentKey);
     if (result.status !== "ok") {
       throw new Error(result.error || "删除镜头失败");
     }
-    recordDeletedStoryShotUndo(activeId, {
-      deletedShot: result.deletedShot,
-      deletedIndex: result.deletedIndex,
-      deletedStableShotId: result.deletedStableShotId,
-      expectedRevision: result.deletedAtRevision,
-      afterDeleteBody: result.afterDeleteBody,
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    // 服务端对 A 的删除即使在用户已切到 B 后才返回也仍然有效；但 A 的晚到
+    // 响应绝不能覆盖当前 B 的 spine 投影，或借当前 query hook 重取 B。
+    return refreshAggregateStory(storyId, result.selectedStableShotId);
+  };
+
+  const copyStoryVisualObject = async (input: {
+    editorSessionEpoch: string;
+    clipboardId: string;
+    object: Extract<VisualObjectRef, { type: "story-shot" }>;
+  }): Promise<StoryShotClipboardSnapshot> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法复制镜头");
+    if (!visualEditSessionReady)
+      throw new Error("剪辑会话仍在初始化，请稍后再试");
+    const result = await copyStoryVisualObjectMut.mutateAsync({
+      storyId: activeId,
+      ...input,
     });
-    const savedBody =
-      result.story?.body &&
-      typeof result.story.body === "object" &&
-      !Array.isArray(result.story.body)
-        ? (result.story.body as Record<string, unknown>)
-        : null;
-    if (savedBody && Array.isArray(savedBody.shots)) {
-      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    if (result.status !== "ok" || result.snapshot.kind !== "story-shot") {
+      throw new Error(
+        result.status === "error" ? result.error : "镜头复制失败"
+      );
     }
-    if (result.story && typeof result.story.revision === "number") {
-      setSpineServerRevision(result.story.revision);
+    return result.snapshot;
+  };
+
+  const pasteStoryVisualObject = async (input: {
+    operation: VisualEditOperationRef;
+    clipboardId: string;
+    targetFrame: number;
+    targetLayer: number;
+  }): Promise<string> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法粘贴镜头");
+    const storyId = activeId;
+    const result = await runAggregateVisualEdit(storyId, () =>
+      pasteStoryVisualObjectMut.mutateAsync({ storyId, ...input })
+    );
+    if (result.status !== "ok" || !result.stableShotId) {
+      throw new Error(
+        result.status === "error" ? result.error : "镜头粘贴失败"
+      );
     }
-    await Promise.all([
-      utils.storyAgent.storyGet.invalidate({ id: activeId }),
-      utils.storyAgent.storyList.invalidate(),
-      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
-    ]);
-    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-    return result.nextSelectedShotNo;
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    await refreshAggregateStory(storyId, result.stableShotId);
+    return result.stableShotId;
+  };
+
+  const deleteStoryVisualShot = async (input: {
+    operation: VisualEditOperationRef;
+    stableShotId: string;
+  }): Promise<string | null> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法删除镜头");
+    const storyId = activeId;
+    const result = await runAggregateVisualEdit(storyId, () =>
+      deleteStoryVisualShotMut.mutateAsync({ storyId, ...input })
+    );
+    if (result.status !== "ok") throw new Error(result.error || "镜头删除失败");
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    await refreshAggregateStory(storyId, result.selectedStableShotId);
+    return result.selectedStableShotId ?? null;
+  };
+
+  const discardPersistedShotUnlocked = async (stableShotId: string) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法清理镜头");
+    const storyId = activeId;
+    const intentKey = `${editorSessionEpoch}:${storyId}:${stableShotId}`;
+    const operation = cleanupDeleteIntentRef.current.get(intentKey) ?? {
+      editorSessionEpoch: `cleanup-${editorClientId}-${editorSessionEpoch}`,
+      operationId:
+        globalThis.crypto?.randomUUID?.() ??
+        `discard-story-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    cleanupDeleteIntentRef.current.set(intentKey, operation);
+    const result = await deleteStoryVisualShotMut.mutateAsync({
+      storyId,
+      // Internal cleanup lives in a separate journal scope, so it cannot
+      // reorder the user's current editor-session LIFO.
+      operation,
+      stableShotId,
+    });
+    cleanupDeleteIntentRef.current.delete(intentKey);
+    if (result.status !== "ok") {
+      throw new Error(result.error || "清理未完成镜头失败");
+    }
+    await refreshAggregateStory(storyId, result.selectedStableShotId);
   };
 
   const discardPersistedShot = async (stableShotId: string) => {
     if (activeId == null) throw new Error("故事尚未加载，无法清理镜头");
-    const result = await deleteStoryShotMut.mutateAsync({
-      storyId: activeId,
-      stableShotId,
-    });
-    if (result.status !== "ok") {
-      throw new Error(result.error || "清理未完成镜头失败");
-    }
-    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    await runAggregateVisualEdit(activeId, () =>
+      discardPersistedShotUnlocked(stableShotId)
+    );
   };
 
   const commitInsertedTimelineShotUndo = (stableShotId: string) => {
@@ -3224,106 +3505,68 @@ export function CreationEditorProvider({
 
   const undoTimeline = useCallback(async (): Promise<boolean> => {
     if (activeId == null) return false;
-    await waitForCreationEditorOperations(activeId);
-    const entry = takeCreationEditorUndoEntry(activeId);
-    if (!entry) return false;
-    try {
-      if (entry.kind === "timeline-command") {
-        // 回退由服务端完成：客户端这一格只是占位，用来保住撤销顺序。
-        const ok = await undoVisualEdit(activeId);
-        if (!ok) return false;
-      } else if (entry.kind === "timeline") {
-        await saveTimelineItems(entry.items, {
-          throwOnError: true,
-          recordUndo: false,
-          ...(entry.visualLayerState === undefined
-            ? {}
-            : { visualLayerState: entry.visualLayerState }),
-          ...(entry.overlays === undefined ? {} : { overlays: entry.overlays }),
-        });
-      } else if (entry.kind === "deleted-story-shot") {
-        const result = await restoreDeletedStoryShotMut.mutateAsync({
-          storyId: activeId,
-          deletedShot: entry.deletedShot,
-          deletedIndex: entry.deletedIndex,
-          deletedStableShotId: entry.deletedStableShotId,
-          expectedRevision: entry.expectedRevision,
-          afterDeleteBody: entry.afterDeleteBody,
-        });
-        if (result.status !== "ok") {
-          throw new Error(result.error || "恢复镜头失败");
+    const outcome = await timelineWriteLockRef.current.run<
+      | { applied: true; undone: boolean }
+      | { applied: false; reason: string; undone: false }
+    >(
+      async () => {
+        await waitForCreationEditorOperations(activeId);
+        const entry = takeCreationEditorUndoEntry(activeId);
+        if (!entry) return { applied: true, undone: false };
+        try {
+          if (entry.kind === "timeline-command") {
+            // 回退由服务端完成：客户端这一格只是占位，用来保住撤销顺序。
+            const ok = entry.receipt
+              ? (
+                  await undoVisualEditReceiptMut.mutateAsync({
+                    storyId: activeId,
+                    operation: {
+                      editorSessionEpoch: entry.receipt.editorSessionEpoch,
+                      operationId: entry.receipt.operationId,
+                    },
+                  })
+                ).status === "ok"
+              : await undoVisualEdit(activeId);
+            if (!ok) throw new Error("撤销失败，剪辑已保留在撤销栈中");
+            if (entry.receipt?.kind === "aggregate") {
+              await refreshAggregateStory(activeId);
+            } else if (entry.receipt) {
+              await storyMaterialQuery.refetch();
+            }
+          } else if (entry.kind === "timeline") {
+            await saveTimelineItems(entry.items, {
+              throwOnError: true,
+              recordUndo: false,
+              ...(entry.visualLayerState === undefined
+                ? {}
+                : { visualLayerState: entry.visualLayerState }),
+              ...(entry.overlays === undefined
+                ? {}
+                : { overlays: entry.overlays }),
+            });
+          } else if (entry.kind === "inserted-story-shot") {
+            await discardPersistedShotUnlocked(entry.insertedStableShotId);
+          }
+          return { applied: true, undone: true };
+        } catch (error) {
+          if (entry.kind === "timeline-command") {
+            // 服务端那一格在写入失败时自己放回去了，这里只补回客户端的占位。
+            recordTimelineCommandUndo(activeId, entry.receipt);
+          } else if (entry.kind === "timeline") {
+            recordTimelineUndoSnapshot(activeId, entry.items);
+          } else if (entry.kind === "inserted-story-shot") {
+            recordInsertedStoryShotUndo(activeId, entry.insertedStableShotId);
+          }
+          throw error;
         }
-        const savedBody =
-          result.story?.body &&
-          typeof result.story.body === "object" &&
-          !Array.isArray(result.story.body)
-            ? (result.story.body as Record<string, unknown>)
-            : null;
-        if (savedBody && Array.isArray(savedBody.shots)) {
-          setCanonicalStoryShots(normalizeStoryShots(savedBody));
-        }
-        if (result.story && typeof result.story.revision === "number") {
-          setSpineServerRevision(result.story.revision);
-        }
-        setSelectedShotNo(result.restoredShotNo);
-        await Promise.all([
-          utils.storyAgent.storyGet.invalidate({ id: activeId }),
-          utils.storyAgent.storyList.invalidate(),
-          utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
-        ]);
-        await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-      } else if (entry.kind === "inserted-story-shot") {
-        await discardPersistedShot(entry.insertedStableShotId);
-      } else {
-        const result = await undoSplitStoryShotMut.mutateAsync({
-          storyId: activeId,
-          splitStableShotId: entry.splitStableShotId,
-          beforeStoryBody: entry.beforeStoryBody,
-          beforeTimelineItems: entry.beforeTimelineItems,
-          expectedStoryRevision: entry.expectedStoryRevision,
-          expectedTimelineVersion: entry.expectedTimelineVersion,
-        });
-        if (result.status !== "ok") {
-          throw new Error(result.error || "撤销镜头拆分失败");
-        }
-        const savedBody =
-          result.story?.body &&
-          typeof result.story.body === "object" &&
-          !Array.isArray(result.story.body)
-            ? (result.story.body as Record<string, unknown>)
-            : null;
-        if (savedBody && Array.isArray(savedBody.shots)) {
-          setCanonicalStoryShots(normalizeStoryShots(savedBody));
-          setSpineServerRevision(Number(savedBody._revision) || 0);
-        }
-        setSelectedShotNo(entry.restoreShotNo);
-        await Promise.all([
-          utils.storyAgent.storyGet.invalidate({ id: activeId }),
-          utils.storyAgent.storyList.invalidate(),
-          utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
-        ]);
-        await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-      }
-      return true;
-    } catch (error) {
-      if (entry.kind === "timeline-command") {
-        // 服务端那一格在写入失败时自己放回去了，这里只补回客户端的占位。
-        recordTimelineCommandUndo(activeId);
-      } else if (entry.kind === "timeline") {
-        recordTimelineUndoSnapshot(activeId, entry.items);
-      } else if (entry.kind === "deleted-story-shot") {
-        recordDeletedStoryShotUndo(activeId, entry);
-      } else if (entry.kind === "inserted-story-shot") {
-        recordInsertedStoryShotUndo(activeId, entry.insertedStableShotId);
-      } else {
-        recordSplitStoryShotUndo(activeId, entry);
-      }
-      throw error;
-    }
+      },
+      { applied: false, reason: "另一个剪辑操作仍在保存", undone: false }
+    );
+    return outcome.applied && outcome.undone;
   }, [
     activeId,
-    restoreDeletedStoryShotMut,
-    undoSplitStoryShotMut,
+    undoVisualEditReceiptMut,
+    undoVisualEdit,
     saveTimelineItems,
     storyMaterialQuery,
     storyQuery,
@@ -3418,119 +3661,137 @@ export function CreationEditorProvider({
   const splitTimelineVideoClip = async (input: {
     stableShotId: string;
     cutFrame: number;
-    takeStableShotId: string;
-    existingClipId?: string | null;
-    takeId: number;
-    videoUrl: string;
-    sourceStartSec: number;
-    sourceEndSec: number;
-    splitSourceSec: number;
-    offsetMs: number;
-    durationMs: number;
-    splitOffsetMs: number;
-    label: string;
-    effects: TimelineVideoEffects;
-    transform: TimelineTransform;
+    operation?: VisualEditOperationRef;
     overlayId?: string;
+    videoUrl?: string;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法切割视频");
-    const revisionFromBody = (body: unknown) =>
-      body && typeof body === "object" && !Array.isArray(body)
-        ? Number((body as Record<string, unknown>)._revision) || 0
-        : 0;
-    const requestSplit = (
-      expectedStoryRevision: number,
-      expectedTimelineVersion: number
-    ) =>
-      splitStoryShotMut.mutateAsync({
-        storyId: activeId,
+    const storyId = activeId;
+    const operation = input.operation ?? {
+      editorSessionEpoch,
+      operationId:
+        globalThis.crypto?.randomUUID?.() ??
+        `split-story-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    const result = await runAggregateVisualEdit(storyId, () =>
+      splitStoryVisualShotMut.mutateAsync({
+        storyId,
+        operation,
         stableShotId: input.stableShotId,
         cutFrame: input.cutFrame,
-        expectedStoryRevision,
-        expectedTimelineVersion,
-      });
-    let timelineVersion = storyMaterialQuery.data?.timeline.version ?? 0;
-    if (input.overlayId) {
-      // 迁移到 overlay 当前真正所在的那一层，而不是写死的 1：图层排序之后
-      // 遗留 overlay 可能已经被重编号，写死会让切割出来的镜头落在错误的层。
-      const promotedOverlay = timelineOverlays.find(
-        overlay => overlay.id === input.overlayId
-      );
-      const promotedLayer = promotedOverlay
-        ? overlayVisualLayer(promotedOverlay)
-        : 1;
-      const promoted = await updateStoryTimelineMut.mutateAsync({
-        storyId: activeId,
-        expectedVersion: timelineVersion,
-        items: timelineItems.map(item =>
-          item.stableShotId === input.stableShotId
-            ? { ...item, visualLayer: promotedLayer }
-            : item
-        ),
-        overlays: timelineOverlays.filter(
-          overlay => overlay.id !== input.overlayId
-        ),
-      });
-      if (promoted.status !== "ok") {
-        throw new Error(promoted.error || "历史覆盖视频迁移失败");
-      }
-      timelineVersion = promoted.timeline.version;
-    }
-    let result = await requestSplit(
-      revisionFromBody(storyQuery.data?.body),
-      timelineVersion
+      })
     );
-    if (
-      result.status !== "ok" &&
-      /故事已经更新|时间线已经更新/.test(result.error || "")
-    ) {
-      const [freshStory, freshMaterial] = await Promise.all([
-        storyQuery.refetch(),
-        storyMaterialQuery.refetch(),
-      ]);
-      result = await requestSplit(
-        revisionFromBody(freshStory.data?.body),
-        freshMaterial.data?.timeline.version ?? 0
-      );
-    }
     if (result.status !== "ok") {
       throw new Error(result.error || "镜头拆分失败");
     }
-    recordSplitStoryShotUndo(activeId, {
-      splitStableShotId: result.splitStableShotId,
-      beforeStoryBody: result.beforeStoryBody,
-      beforeTimelineItems: result.beforeTimelineItems,
-      expectedStoryRevision: result.expectedStoryRevision,
-      expectedTimelineVersion: result.expectedTimelineVersion,
-      restoreShotNo: Math.max(1, result.rightShotNo - 1),
-    });
-    const savedBody =
-      result.story?.body &&
-      typeof result.story.body === "object" &&
-      !Array.isArray(result.story.body)
-        ? (result.story.body as Record<string, unknown>)
-        : null;
-    if (savedBody && Array.isArray(savedBody.shots)) {
-      setCanonicalStoryShots(normalizeStoryShots(savedBody));
-      setSpineServerRevision(Number(savedBody._revision) || 0);
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    await utils.storyAgent.storyVideoAssets.invalidate({ storyId });
+    await refreshAggregateStory(storyId, result.rightStableShotId);
+    if (activeStoryIdRef.current === storyId)
+      await storyVideoAssetsQuery.refetch();
+    return result.rightStableShotId ?? null;
+  };
+  /**
+   * 服务端权威抽帧。位置相同的并发点击共享一个 Promise；如果网络在服务端
+   * 已成功后断开，下一次点击沿用同一 requestId，回执会把成功结果原样重放。
+   */
+  const extractTimelineFrame = async (input: {
+    timelineFrame: number;
+    operationLayer: number;
+  }): Promise<void> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法抽帧");
+    const storyId = activeId;
+    const storySessionToken = renderedExtractionStorySessionToken;
+    const timelineFrame = Math.max(0, Math.round(input.timelineFrame));
+    const operationLayer = Math.max(0, Math.round(input.operationLayer));
+    const positionKey = `${storyId}:${timelineFrame}:${operationLayer}`;
+    let intent = extractionIntentByPositionRef.current.get(positionKey);
+    if (!intent) {
+      intent = {
+        requestId:
+          globalThis.crypto?.randomUUID?.() ??
+          `frame-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      };
+      extractionIntentByPositionRef.current.set(positionKey, intent);
     }
-    setSelectedShotNo(result.rightShotNo);
-    await Promise.all([
-      utils.storyAgent.storyGet.invalidate({ id: activeId }),
-      utils.storyAgent.storyList.invalidate(),
-      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
-      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
-    ]);
-    await Promise.all([
-      storyQuery.refetch(),
-      storyMaterialQuery.refetch(),
-      storyVideoAssetsQuery.refetch(),
-    ]);
+    let inFlight = intent.inFlight;
+    if (!inFlight) {
+      const requestId = intent.requestId;
+      const forgetCurrentIntent = () => {
+        if (extractionIntentByPositionRef.current.get(positionKey) === intent) {
+          extractionIntentByPositionRef.current.delete(positionKey);
+        }
+      };
+
+      const promise = (async () => {
+        const pollingStartedAt = Date.now();
+        let pendingDelayMs = 1_000;
+        while (true) {
+          const result = await trackCreationEditorOperation(
+            storyId,
+            extractTimelineFrameMut.mutateAsync({
+              storyId,
+              requestId,
+              timelineFrame,
+              operationLayer,
+            })
+          );
+          if (result.status === "pending") {
+            if (Date.now() - pollingStartedAt >= 20_000) {
+              throw new Error(
+                `${result.message}；完成后再次点击会沿用同一次请求，不会重复创建`
+              );
+            }
+            await new Promise(resolve =>
+              globalThis.setTimeout(resolve, pendingDelayMs)
+            );
+            pendingDelayMs = Math.min(4_000, pendingDelayMs * 2);
+            continue;
+          }
+          if (result.status === "error") {
+            if (result.requestDisposition === "replace") {
+              forgetCurrentIntent();
+            }
+            throw new Error(result.error);
+          }
+
+          await Promise.all([
+            utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+            utils.storyAgent.storyImages.invalidate({ storyId }),
+          ]);
+          forgetCurrentIntent();
+          return;
+        }
+      })();
+      inFlight = {
+        promise,
+        originStorySessionToken: storySessionToken,
+        undoRecorded: false,
+      };
+      intent.inFlight = inFlight;
+    }
+    try {
+      await inFlight.promise;
+      if (
+        activeStoryIdRef.current === storyId &&
+        committedExtractionStorySessionTokenRef.current ===
+          inFlight.originStorySessionToken &&
+        !inFlight.undoRecorded
+      ) {
+        inFlight.undoRecorded = true;
+        recordTimelineCommandUndo(storyId);
+      }
+    } finally {
+      const current = extractionIntentByPositionRef.current.get(positionKey);
+      if (current === intent && current.inFlight === inFlight) {
+        current.inFlight = undefined;
+      }
+    }
   };
 
-
   /**
-   * 唯一的图片落位入口：抽帧和导入都走这里。
+   * 唯一的图片落位入口：普通导入和显式放置走这里；时间线抽帧走上面的
+   * extractTimelineFrame 聚合命令，避免客户端自己裁决赢家和分两次写入。
    *
    * 调用方不再需要知道这张图会挂在哪个镜头下面——位置是绝对帧，宿主只是存储细节。
    */
@@ -3554,7 +3815,9 @@ export function CreationEditorProvider({
         imageId: input.imageId,
         imageUrl: input.imageUrl,
         label: input.label,
-        toTrackId: visualTrackId(Math.max(0, Math.round(input.visualLayer ?? 1))),
+        toTrackId: visualTrackId(
+          Math.max(0, Math.round(input.visualLayer ?? 1))
+        ),
         toStartFrame: Math.max(0, Math.round(input.timelineFrame)),
       })
     );
@@ -3565,8 +3828,6 @@ export function CreationEditorProvider({
     });
     await storyMaterialQuery.refetch();
   };
-
-
 
   /**
    * 唯一的素材移动入口。
@@ -3740,6 +4001,8 @@ export function CreationEditorProvider({
 
   const value = useMemo<CreationEditorContextValue>(
     () => ({
+      editorSessionEpoch,
+      visualEditSessionReady,
       stories,
       activeStoryId: activeId,
       setActiveStoryId,
@@ -3800,7 +4063,8 @@ export function CreationEditorProvider({
       isSaving:
         updateStoryShotFieldsMut.isPending ||
         updateStoryTimelineMut.isPending ||
-        moveVisualClipMut.isPending,
+        moveVisualClipMut.isPending ||
+        extractTimelineFrameMut.isPending,
       rerenderingShotNos,
       rerenderError,
       promotingFrameCropShotNo,
@@ -3837,6 +4101,9 @@ export function CreationEditorProvider({
       commitInsertedTimelineShotUndo,
       discardPersistedShot,
       deletePersistedShot,
+      copyStoryVisualObject,
+      pasteStoryVisualObject,
+      deleteStoryVisualShot,
       moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
       reuseVideoTake: reuseVideoTakeForShot,
@@ -3844,8 +4111,12 @@ export function CreationEditorProvider({
       undoTimeline,
       createVideoTakeRange,
       splitTimelineVideoClip,
+      splitOwnedVideoClip,
       addTimelineImageClip,
+      extractTimelineFrame,
       moveVisualClip,
+      pasteVisualImage,
+      deleteVisualObject,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
       updateTimelineImageTransform,
@@ -3868,6 +4139,8 @@ export function CreationEditorProvider({
       },
     }),
     [
+      editorSessionEpoch,
+      visualEditSessionReady,
       activeId,
       activeStory,
       publishingHandoff,
@@ -3910,6 +4183,9 @@ export function CreationEditorProvider({
       commitInsertedTimelineShotUndo,
       discardPersistedShot,
       deletePersistedShot,
+      copyStoryVisualObject,
+      pasteStoryVisualObject,
+      deleteStoryVisualShot,
       markVideoTakeUnusable,
       moveVideoTakeToShot,
       reuseVideoTakeForShot,
@@ -3932,6 +4208,7 @@ export function CreationEditorProvider({
       storyQuery,
       publishingDraftQuery,
       storyboardCoverReferencesQuery,
+      splitOwnedVideoClip,
     ]
   );
 

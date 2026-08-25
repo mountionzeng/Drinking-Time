@@ -62,6 +62,113 @@ describe("editing transition message persistence", () => {
     });
   });
 
+  it("restores canonical image clip identities for a new ordinary-shot proposal", () => {
+    const restored = normalizeChatMessages(
+      [
+        {
+          who: "s",
+          text: "普通镜头视频待确认",
+          editingTransitionCandidate: {
+            ...candidate(),
+            placement: {
+              kind: "story-shot",
+              left: {
+                clipId: "image-clip-left",
+                imageId: 101,
+                timelineFrame: 30,
+                visualLayer: 2,
+              },
+              right: {
+                clipId: "image-clip-right",
+                imageId: 102,
+                timelineFrame: 90,
+                visualLayer: 3,
+              },
+            },
+          },
+        },
+      ],
+      []
+    );
+
+    expect(restored[0].editingTransitionCandidate?.placement).toEqual({
+      kind: "story-shot",
+      left: {
+        clipId: "image-clip-left",
+        imageId: 101,
+        timelineFrame: 30,
+        visualLayer: 2,
+      },
+      right: {
+        clipId: "image-clip-right",
+        imageId: 102,
+        timelineFrame: 90,
+        visualLayer: 3,
+      },
+    });
+  });
+
+  it("continues restoring paid legacy overlay proposals", () => {
+    const restored = normalizeChatMessages(
+      [
+        {
+          who: "s",
+          text: "旧版覆盖视频待恢复",
+          editingTransitionCandidate: {
+            ...candidate(),
+            placement: {
+              kind: "timeline-overlay",
+              startFrame: 30,
+              targetEndFrame: 90,
+              leftImageId: 101,
+              rightImageId: 102,
+            },
+          },
+        },
+      ],
+      []
+    );
+
+    expect(restored[0].editingTransitionCandidate?.placement).toEqual({
+      kind: "timeline-overlay",
+      startFrame: 30,
+      targetEndFrame: 90,
+      leftImageId: 101,
+      rightImageId: 102,
+    });
+  });
+
+  it("drops a new ordinary-shot proposal when either persistent clip identity is missing", () => {
+    const restored = normalizeChatMessages(
+      [
+        {
+          who: "s",
+          text: "身份已失效",
+          editingTransitionCandidate: {
+            ...candidate(),
+            placement: {
+              kind: "story-shot",
+              left: {
+                imageId: 101,
+                timelineFrame: 30,
+                visualLayer: 2,
+              },
+              right: {
+                clipId: "image-clip-right",
+                imageId: 102,
+                timelineFrame: 90,
+                visualLayer: 3,
+              },
+            },
+          },
+        },
+      ],
+      []
+    );
+
+    expect(restored[0].editingTransitionCandidate).toBeUndefined();
+  });
+
   it("turns an interrupted generating card into a safe same-task retry", () => {
     const restored = normalizeChatMessages(
       [

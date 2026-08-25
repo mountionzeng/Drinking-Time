@@ -1,5 +1,15 @@
-import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
+import {
+  timelineOffsetMsToFrames,
+  type StoryTimelineVisualClip,
+} from "@shared/storyMaterial";
 import type { SelectionSourceType } from "@shared/selectionContext";
+import type { VisualObjectRef } from "@shared/visualObject";
+import {
+  visualObjectCapabilities,
+  type VisualObjectCommand,
+} from "@shared/visualObjectCapabilities";
+import { videoClipId } from "@shared/visualClipModel";
+import { normalizeVisualLayer } from "@shared/timelineVisualPriority";
 import {
   msToPx,
   pxDeltaToFrame,
@@ -49,8 +59,10 @@ export function isStoryboardClipPointerDrag(
   release: { clientX: number; clientY: number }
 ): boolean {
   return (
-    Math.hypot(release.clientX - start.clientX, release.clientY - start.clientY) >=
-    4
+    Math.hypot(
+      release.clientX - start.clientX,
+      release.clientY - start.clientY
+    ) >= 4
   );
 }
 
@@ -239,6 +251,25 @@ export type StoryboardEditSegment = {
   label: string;
   clip: StoryTimelineVisualClip | null;
 };
+
+export function storyboardOwnedClipVisualLayer(clip: {
+  visualLayer?: number;
+}): number {
+  return normalizeVisualLayer(clip.visualLayer);
+}
+
+export function storyboardOwnedClipNudgeBase(input: {
+  ownerStartFrame: number;
+  clip: { id: string; offsetMs?: number; visualLayer?: number };
+}) {
+  return {
+    clipId: videoClipId(input.clip.id),
+    startVisualLayer: storyboardOwnedClipVisualLayer(input.clip),
+    startFrame:
+      input.ownerStartFrame +
+      timelineOffsetMsToFrames(input.clip.offsetMs ?? 0),
+  };
+}
 
 /** 剪辑条 filmstrip 所需的最小视频来源；不把整份 Take 数据塞进展示组件。 */
 export type StoryboardEditFrameSource = {
@@ -767,9 +798,10 @@ export function storyboardEditMenuItems(input: {
   const noVideo = input.canSplitHere
     ? null
     : "这一处还没有视频，先给这一镜生成或采用视频";
-  const noVisual = (input.canExtractHere ?? input.canSplitHere)
-    ? null
-    : "这一处还没有可提取的图片或视频";
+  const noVisual =
+    (input.canExtractHere ?? input.canSplitHere)
+      ? null
+      : "这一处还没有可提取的图片或视频";
   const items: StoryboardEditMenuItem[] = [];
   if (input.anchors) {
     items.push({
@@ -900,6 +932,8 @@ export function storyboardEditShouldHandleKey(input: {
   isAnchorTarget?: boolean;
   /** 焦点是否落在可用方向键直接移动的图片/视频剪辑上。 */
   isVisualClipMoveTarget?: boolean;
+  /** Select/combobox/dialog/rename surfaces own their keyboard contract. */
+  isInteractionBoundary?: boolean;
 }): boolean {
   if (!input.rowVisible) return false;
   if (input.defaultPrevented) return false;
@@ -908,12 +942,49 @@ export function storyboardEditShouldHandleKey(input: {
   // 这条监听挂在捕获阶段，早于锚点自己的 onKeyDown，所以必须在这里让路。
   if (input.isAnchorTarget) return false;
   // 方向键在片段上是「移动片段」，不能先被 window 捕获监听拿去移动播放头。
-  if (input.isVisualClipMoveTarget) return false;
+  if (
+    input.isVisualClipMoveTarget &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(input.key)
+  )
+    return false;
+  if (input.isInteractionBoundary) return false;
+  if (
+    input.isButtonTarget &&
+    (input.key === "Delete" || input.key === "Backspace") &&
+    !input.isVisualClipMoveTarget
+  ) {
+    return false;
+  }
   // 空格在按钮上就是「按下这个按钮」，别抢。
   if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
     return false;
   }
   return true;
+}
+
+export function consumeStoryboardVisualPasteContextMenu(event: {
+  preventDefault(): void;
+  stopPropagation(): void;
+}): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+export function storyboardVisualObjectMenuFocusIndex(input: {
+  key: string;
+  currentIndex: number;
+  itemCount: number;
+}): number | null {
+  if (input.itemCount <= 0) return null;
+  if (input.key === "Home") return 0;
+  if (input.key === "End") return input.itemCount - 1;
+  if (input.key === "ArrowDown") {
+    return (input.currentIndex + 1 + input.itemCount) % input.itemCount;
+  }
+  if (input.key === "ArrowUp") {
+    return (input.currentIndex - 1 + input.itemCount) % input.itemCount;
+  }
+  return null;
 }
 
 /**
@@ -928,6 +999,8 @@ export function storyboardEditShouldFollowSelectionToShot(
 
 /** 键盘敲下去要干的事。 */
 export type StoryboardEditShortcut =
+  | { kind: "copyVisualObject" }
+  | { kind: "pasteVisualObject" }
   | { kind: "togglePlay" }
   | { kind: "play" }
   | { kind: "pause" }
@@ -939,6 +1012,53 @@ export type StoryboardEditShortcut =
   | { kind: "addAnchor" }
   | { kind: "clearSelection" }
   | { kind: "action"; action: StoryboardEditAction };
+
+export type StoryboardVisualObjectShortcutRoute =
+  | { kind: "object"; command: VisualObjectCommand }
+  | { kind: "blocked" }
+  | { kind: "legacy" };
+
+/**
+ * A unique visual-object selection owns destructive/creative shortcuts.
+ * Unsupported or unavailable commands are deliberately blocked: they must not
+ * fall through to a nearby shot under the playhead.
+ */
+export function storyboardVisualObjectShortcutRoute(input: {
+  shortcut: StoryboardEditShortcut;
+  selectedObject: VisualObjectRef | null;
+  commandAvailable: (
+    object: VisualObjectRef,
+    command: VisualObjectCommand
+  ) => boolean;
+}): StoryboardVisualObjectShortcutRoute {
+  const command =
+    input.shortcut.kind === "copyVisualObject"
+      ? "copy"
+      : input.shortcut.kind === "addAnchor"
+        ? "set-anchor"
+        : input.shortcut.kind === "action"
+          ? input.shortcut.action === "split"
+            ? "split"
+            : input.shortcut.action === "extract"
+              ? "extract-frame"
+              : input.shortcut.action === "selectShot"
+                ? "chat"
+                : input.shortcut.action === "delete"
+                  ? "delete"
+                  : null
+          : null;
+  if (!command || !input.selectedObject) return { kind: "legacy" };
+  const capability = visualObjectCapabilities(input.selectedObject).find(
+    item => item.command === command
+  );
+  if (
+    !capability?.enabled ||
+    !input.commandAvailable(input.selectedObject, command)
+  ) {
+    return { kind: "blocked" };
+  }
+  return { kind: "object", command };
+}
 
 /**
  * 快捷键照搬主流剪辑软件：空格走带、JKL、左右一帧、上下跳切点、
@@ -952,6 +1072,12 @@ export function storyboardEditShortcut(event: {
   altKey: boolean;
 }): StoryboardEditShortcut | null {
   const modified = event.metaKey || event.ctrlKey;
+  if (modified && !event.altKey && event.key.toLowerCase() === "c") {
+    return { kind: "copyVisualObject" };
+  }
+  if (modified && !event.altKey && event.key.toLowerCase() === "v") {
+    return { kind: "pasteVisualObject" };
+  }
   // ⌘Z 之类的留给全局撤销，这里一律不拦。
   if (modified && event.key.toLowerCase() !== "k") return null;
   if (modified && event.key.toLowerCase() === "k") {

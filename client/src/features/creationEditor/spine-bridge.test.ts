@@ -1,12 +1,45 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { nextVisualActivationSequence } from "./CreationEditorContext";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
 describe("creation editor spine boundary", () => {
+  it("keeps activation sequence monotonic when sessionStorage is absent", () => {
+    const first = nextVisualActivationSequence("storage-less-tab");
+    const second = nextVisualActivationSequence("storage-less-tab");
+    expect(Number.isSafeInteger(first)).toBe(true);
+    expect(second).toBe(first + 1);
+  });
+  it("activates each Story visual session with a tab client id and fresh epoch", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    expect(editorContext).toMatch(
+      /const editorClientId = useMemo\(\(\) => visualEditorClientId\(\), \[\]\)/
+    );
+    expect(editorContext).toMatch(
+      /const editorSessionEpoch = useMemo\([\s\S]*?\[activeId\][\s\S]*?const activationSequence = nextVisualActivationSequence\(editorClientId\)[\s\S]*?activateVisualEditSessionMut[\s\S]*?storyId: activeId,[\s\S]*?editorClientId,[\s\S]*?editorSessionEpoch,[\s\S]*?activationSequence/
+    );
+    expect(editorContext).toMatch(
+      /setActivatedVisualEditEpoch\(null\)[\s\S]*?result\.status === "ok"[\s\S]*?setActivatedVisualEditEpoch\(editorSessionEpoch\)/
+    );
+  });
+
+  it("reuses direct and cleanup delete operation ids until an explicit response", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    expect(editorContext).toMatch(
+      /const deletePersistedShot = async[\s\S]*?persistedDeleteIntentRef\.current\.get\(intentKey\)[\s\S]*?persistedDeleteIntentRef\.current\.set\(intentKey, operation\)[\s\S]*?await runAggregateVisualEdit[\s\S]*?persistedDeleteIntentRef\.current\.delete\(intentKey\)/
+    );
+    expect(editorContext).toMatch(
+      /const discardPersistedShotUnlocked = async[\s\S]*?cleanupDeleteIntentRef\.current\.get\(intentKey\)[\s\S]*?cleanupDeleteIntentRef\.current\.set\(intentKey, operation\)[\s\S]*?await deleteStoryVisualShotMut\.mutateAsync[\s\S]*?cleanupDeleteIntentRef\.current\.delete\(intentKey\)/
+    );
+  });
   it("opens the recent story only while the entry scope is still empty", () => {
     const storyContext = source(
       "client/src/features/storyAgent/StoryAgentContext.tsx"
@@ -112,6 +145,81 @@ describe("creation editor spine boundary", () => {
         /if \(activeStoryIdRef\.current === storyId\) \{[\s\S]*?setCanonicalStoryShots\(normalizeStoryShots\(savedBody\)\)[\s\S]*?setSpineServerRevision\(result\.story\.revision\)[\s\S]*?\}/
       );
     }
+  });
+
+  it("drops a late aggregate deleted-shot projection after switching stories", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    const deleteStart = editorContext.indexOf(
+      "const deletePersistedShot = async"
+    );
+    const deleteEnd = editorContext.indexOf(
+      "const discardPersistedShot = async",
+      deleteStart
+    );
+    const deleteFlow = editorContext.slice(deleteStart, deleteEnd);
+
+    expect(deleteFlow).toMatch(
+      /const storyId = activeId;[\s\S]*?await runAggregateVisualEdit\(storyId,[\s\S]*?deleteStoryVisualShotMut\.mutateAsync\([\s\S]*?storyId,[\s\S]*?recordTimelineCommandUndo\(storyId, result\.receipt\)[\s\S]*?return refreshAggregateStory\(storyId, result\.selectedStableShotId\)/
+    );
+    const refreshStart = editorContext.indexOf(
+      "const refreshAggregateStory = async"
+    );
+    const refreshEnd = editorContext.indexOf(
+      "const deletePersistedShot = async",
+      refreshStart
+    );
+    const refreshFlow = editorContext.slice(refreshStart, refreshEnd);
+    expect(
+      refreshFlow.match(/activeStoryIdRef\.current !== storyId/g)
+    ).toHaveLength(2);
+  });
+
+  it("reuses one keyboard object context for availability and execution", () => {
+    const storyboard = source(
+      "client/src/features/creationEditor/views/StoryboardEditRow.tsx"
+    );
+    const shortcutStart = storyboard.indexOf(
+      "const handleShortcut = (event: KeyboardEvent)"
+    );
+    const shortcutEnd = storyboard.indexOf("useEffect(() => {", shortcutStart);
+    const shortcutFlow = storyboard.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutFlow).toMatch(
+      /const selectedObjectContext = selectedVisualObject[\s\S]*?headRef\.current[\s\S]*?isVisualObjectCommandAvailable\([\s\S]*?selectedObjectContext\?\.timelineFrame[\s\S]*?runSelectedObjectCommand\(objectRoute\.command, selectedObjectContext\)/
+    );
+  });
+
+  it("keeps extraction receipts replayable without projecting an old Story session", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    const extractionStart = editorContext.indexOf(
+      "const extractTimelineFrame = async"
+    );
+    const extractionEnd = editorContext.indexOf(
+      "/**\n   * 唯一的图片落位入口",
+      extractionStart
+    );
+    const extractionFlow = editorContext.slice(extractionStart, extractionEnd);
+
+    expect(editorContext).not.toContain(
+      "extractionIntentByPositionRef.current.clear()"
+    );
+    expect(extractionFlow).toMatch(
+      /extractionIntentByPositionRef\.current\.get\(positionKey\) === intent[\s\S]*?delete\(positionKey\)/
+    );
+    expect(extractionFlow).toContain('result.requestDisposition === "replace"');
+    expect(extractionFlow).toMatch(
+      /activeStoryIdRef\.current === storyId[\s\S]*?committedExtractionStorySessionTokenRef\.current ===[\s\S]*?inFlight\.originStorySessionToken[\s\S]*?recordTimelineCommandUndo\(storyId\)/
+    );
+    expect(editorContext).toMatch(
+      /useLayoutEffect\(\(\) => \{[\s\S]*?activeStoryIdRef\.current = activeId;[\s\S]*?committedExtractionStorySessionTokenRef\.current =[\s\S]*?renderedExtractionStorySessionToken;/
+    );
+    expect(editorContext).not.toMatch(
+      /const activeStoryIdRef = useRef\(activeId\);\s*activeStoryIdRef\.current = activeId;/
+    );
   });
 
   it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {
@@ -232,7 +340,9 @@ describe("creation editor spine boundary", () => {
     // 从被删组件的 `selectShot: true` 搬到了父层的 selectShotFromPlayhead，
     // 行为不变，锚点跟着改——守的是行为，不是某一版的写法。
     expect(editingWorkspace).toContain("selectShotFromPlayhead");
-    expect(editingWorkspace).toContain("onPlayheadCommit: selectShotFromPlayhead");
+    expect(editingWorkspace).toContain(
+      "onPlayheadCommit: selectShotFromPlayhead"
+    );
     expect(editingWorkspace).toContain("ResizablePanelGroup");
     expect(editingWorkspace).toContain(
       'autoSaveId="editing-storyboard-preview-widths-v3"'
@@ -288,5 +398,4 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).toContain("<TimelineAudioPlayback");
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
-
 });

@@ -56,16 +56,29 @@ export type EditingTransitionCandidateReference = {
   estimatedCredits: number;
   estimatedCny: number;
   expectedTimelineVersion: number;
-  placement?: {
-    kind: "timeline-overlay";
-    startFrame: number;
-    targetEndFrame: number;
-    leftImageId: number;
-    rightImageId: number;
-  };
+  placement?:
+    | {
+        kind: "timeline-overlay";
+        startFrame: number;
+        targetEndFrame: number;
+        leftImageId: number;
+        rightImageId: number;
+      }
+    | {
+        kind: "story-shot";
+        left: EditingTransitionImageClipReference;
+        right: EditingTransitionImageClipReference;
+      };
   status: EditingTransitionCandidateStatus;
   error?: string;
   retryable?: boolean;
+};
+
+export type EditingTransitionImageClipReference = {
+  clipId: string;
+  imageId: number;
+  timelineFrame: number;
+  visualLayer: number;
 };
 
 export type StoryboardImageRerenderActionReference = {
@@ -418,7 +431,7 @@ function normalizeEditingTransitionCandidate(
     !Array.isArray(candidate.placement)
       ? (candidate.placement as Record<string, unknown>)
       : null;
-  const placement =
+  const legacyPlacement =
     placementRecord?.kind === "timeline-overlay" &&
     typeof placementRecord.startFrame === "number" &&
     typeof placementRecord.targetEndFrame === "number" &&
@@ -432,6 +445,43 @@ function normalizeEditingTransitionCandidate(
           rightImageId: placementRecord.rightImageId,
         }
       : undefined;
+  const normalizeImageClipReference = (
+    raw: unknown
+  ): EditingTransitionImageClipReference | undefined => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const value = raw as Record<string, unknown>;
+    return typeof value.clipId === "string" &&
+      value.clipId.length > 0 &&
+      typeof value.imageId === "number" &&
+      Number.isInteger(value.imageId) &&
+      value.imageId > 0 &&
+      typeof value.timelineFrame === "number" &&
+      Number.isInteger(value.timelineFrame) &&
+      value.timelineFrame >= 0 &&
+      typeof value.visualLayer === "number" &&
+      Number.isInteger(value.visualLayer) &&
+      value.visualLayer >= 0
+      ? {
+          clipId: value.clipId,
+          imageId: value.imageId,
+          timelineFrame: value.timelineFrame,
+          visualLayer: value.visualLayer,
+        }
+      : undefined;
+  };
+  const left = normalizeImageClipReference(placementRecord?.left);
+  const right = normalizeImageClipReference(placementRecord?.right);
+  const storyShotPlacement =
+    placementRecord?.kind === "story-shot" && left && right
+      ? { kind: "story-shot" as const, left, right }
+      : undefined;
+  // A persisted new-style proposal must retain both canonical image clip
+  // identities. Dropping a malformed placement would incorrectly turn it into
+  // a legacy gap proposal that the confirmation UI could still submit.
+  if (placementRecord?.kind === "story-shot" && !storyShotPlacement) {
+    return undefined;
+  }
+  const placement = storyShotPlacement ?? legacyPlacement;
   const allowedStatus =
     rawStatus === "pending" ||
     rawStatus === "generating" ||

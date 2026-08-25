@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import sharp from "sharp";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
 import {
   editImage,
   generateDraftImage,
@@ -11,6 +12,7 @@ import {
   resetCircuitBreaker,
   resume302GptImageTask,
   resume302MidjourneyTask,
+  storeImageBytes,
 } from "./imageGen";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -897,6 +899,65 @@ describe("generateImage", () => {
   });
 });
 
+describe("storeImageBytes", () => {
+  it("accepts a deterministic extraction key for replay-safe local storage", async () => {
+    const first = await storeImageBytes(
+      new Uint8Array([1, 2, 3]),
+      "image/png",
+      { storageKey: "generated/timeline-frames/abc123.png" }
+    );
+    const replay = await storeImageBytes(
+      new Uint8Array([1, 2, 3]),
+      "image/png",
+      { storageKey: "generated/timeline-frames/abc123.png" }
+    );
+
+    expect(first).toMatchObject({
+      status: "ok",
+      imageKey: "generated/timeline-frames/abc123.png",
+      imageUrl: "/api/images/abc123.png",
+    });
+    expect(replay).toMatchObject({
+      imageKey: first.imageKey,
+      imageUrl: first.imageUrl,
+    });
+  });
+
+  it("rejects storage keys outside the generated asset namespace", async () => {
+    await expect(
+      storeImageBytes(new Uint8Array([1]), "image/png", {
+        storageKey: "../outside.png",
+      })
+    ).rejects.toThrow("图片存储标识无效");
+  });
+
+  it("does not fall back to remote-only storage when local durability is required", async () => {
+    const originalVitest = process.env.VITEST;
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.VITEST;
+    process.env.NODE_ENV = "development";
+    const mkdir = vi.spyOn(fs, "mkdirSync").mockImplementation(() => {
+      throw new Error("disk unavailable");
+    });
+    vi.mocked(storagePut).mockClear();
+    try {
+      await expect(
+        storeImageBytes(new Uint8Array([1]), "image/png", {
+          storageKey: "generated/timeline-extractions/source-local.png",
+          requireLocal: true,
+        })
+      ).rejects.toThrow("本地图片存储不可用");
+      expect(storagePut).not.toHaveBeenCalled();
+    } finally {
+      mkdir.mockRestore();
+      if (originalVitest == null) delete process.env.VITEST;
+      else process.env.VITEST = originalVitest;
+      if (originalNodeEnv == null) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+});
+
 describe("editImage", () => {
   const originalEnv = {
     api302Key: ENV.api302Key,
@@ -1550,7 +1611,9 @@ describe("editImage", () => {
       {
         ok: true,
         status: 200,
-        json: { choices: [{ message: { content: "EYES_COVERED: no\n小脸尖下巴。" } }] },
+        json: {
+          choices: [{ message: { content: "EYES_COVERED: no\n小脸尖下巴。" } }],
+        },
       },
       { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
     ]);

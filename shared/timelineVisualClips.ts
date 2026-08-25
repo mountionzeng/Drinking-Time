@@ -1,10 +1,119 @@
 import {
+  timelineFramesToMs,
+  timelineMsToFrames,
+  timelineOffsetMsToFrames,
   withTimelineDurationMs,
   type StoryTimelineItem,
   type StoryTimelineVisualClip,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "./storyMaterial";
+import { buildTimelineLayout } from "./timelineLayout";
+
+export type SplitOwnedVideoClipResult =
+  | { status: "ok"; items: StoryTimelineItem[]; rightClipId: string }
+  | { status: "error"; message: string };
+
+function cloneVisualClip(
+  clip: StoryTimelineVisualClip
+): StoryTimelineVisualClip {
+  return {
+    ...clip,
+    ...(clip.effects
+      ? {
+          effects: {
+            ...clip.effects,
+            motionPreset: clip.effects.motionPreset
+              ? { ...clip.effects.motionPreset }
+              : null,
+          },
+        }
+      : {}),
+    ...(clip.transform ? { transform: { ...clip.transform } } : {}),
+  };
+}
+
+/** Split one owned clip at an absolute 30fps timeline frame. */
+export function splitOwnedTimelineVisualClip(input: {
+  items: readonly StoryTimelineItem[];
+  ownerStableShotId: string;
+  clipId: string;
+  cutFrame: number;
+  rightClipId: string;
+}): SplitOwnedVideoClipResult {
+  if (!Number.isInteger(input.cutFrame)) {
+    return { status: "error", message: "切点必须落在 30fps 的完整帧上" };
+  }
+  const owner = input.items.find(
+    item => item.stableShotId === input.ownerStableShotId
+  );
+  if (!owner) return { status: "error", message: "找不到视频片段所属镜头" };
+  const source = owner.visualClips ?? [];
+  const clip = source.find(entry => entry.id === input.clipId);
+  if (!clip)
+    return { status: "error", message: "所属镜头中找不到这个视频片段" };
+  if (
+    !input.rightClipId ||
+    input.rightClipId === input.clipId ||
+    input.items.some(item =>
+      item.visualClips?.some(entry => entry.id === input.rightClipId)
+    )
+  ) {
+    return { status: "error", message: "新片段身份已被占用" };
+  }
+
+  // Implicitly positioned items are laid out after their predecessors. Using
+  // `timelineStartFrame ?? 0` here would interpret every such owner as the
+  // first shot and split at the wrong absolute frame.
+  const ownerStartFrame = buildTimelineLayout(input.items).find(
+    row => row.item.stableShotId === input.ownerStableShotId
+  )?.startFrame;
+  if (ownerStartFrame == null) {
+    return { status: "error", message: "无法解析视频片段所属镜头的位置" };
+  }
+  const clipStartFrame =
+    ownerStartFrame + timelineOffsetMsToFrames(clip.offsetMs);
+  const totalFrames = timelineMsToFrames(clip.durationMs);
+  const leftFrames = input.cutFrame - clipStartFrame;
+  const rightFrames = totalFrames - leftFrames;
+  if (leftFrames < 1 || rightFrames < 1) {
+    return { status: "error", message: "切点两侧都必须至少保留一帧" };
+  }
+  if (!(clip.sourceEndSec > clip.sourceStartSec)) {
+    return { status: "error", message: "视频片段的源范围无效" };
+  }
+
+  const spanSec = clip.sourceEndSec - clip.sourceStartSec;
+  const reverse = Boolean(clip.effects?.reverse);
+  const boundarySec = reverse
+    ? clip.sourceEndSec - (spanSec * leftFrames) / totalFrames
+    : clip.sourceStartSec + (spanSec * leftFrames) / totalFrames;
+  const left = cloneVisualClip(clip);
+  left.durationMs = timelineFramesToMs(leftFrames);
+  left.sourceStartSec = reverse ? boundarySec : clip.sourceStartSec;
+  left.sourceEndSec = reverse ? clip.sourceEndSec : boundarySec;
+  const right = cloneVisualClip(clip);
+  right.id = input.rightClipId;
+  right.offsetMs = clip.offsetMs + left.durationMs;
+  right.durationMs = timelineFramesToMs(rightFrames);
+  right.sourceStartSec = reverse ? clip.sourceStartSec : boundarySec;
+  right.sourceEndSec = reverse ? boundarySec : clip.sourceEndSec;
+
+  return {
+    status: "ok",
+    rightClipId: input.rightClipId,
+    items: input.items.map(item =>
+      item.stableShotId !== input.ownerStableShotId
+        ? item
+        : {
+            ...item,
+            visualClips: (item.visualClips ?? []).flatMap(entry =>
+              entry.id === input.clipId ? [left, right] : entry
+            ),
+          }
+    ),
+  };
+}
 
 function clipEndMs(clip: StoryTimelineVisualClip): number {
   return clip.offsetMs + clip.durationMs;
@@ -168,7 +277,10 @@ export function applyTimelineVideoEdit(
           };
         }
         // 只有「片段替代主画面」时后面的片段才排在一条线上，需要顺移。
-        if (item.visualClipsReplacePrimary && clip.offsetMs >= previousEndMs - 1) {
+        if (
+          item.visualClipsReplacePrimary &&
+          clip.offsetMs >= previousEndMs - 1
+        ) {
           return { ...clip, offsetMs: Math.max(0, clip.offsetMs + deltaMs) };
         }
         return clip;

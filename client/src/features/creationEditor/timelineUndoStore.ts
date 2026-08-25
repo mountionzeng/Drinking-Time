@@ -3,27 +3,9 @@ import type {
   StoryTimelineOverlay,
   StoryTimelineVisualLayerState,
 } from "@shared/storyMaterial";
+import type { VisualEditReceipt } from "@shared/visualEditReceipt";
 
 const MAX_UNDO_STEPS = 40;
-export type DeletedStoryShotUndoEntry = {
-  kind: "deleted-story-shot";
-  deletedShot: Record<string, unknown>;
-  deletedIndex: number;
-  deletedStableShotId: string;
-  expectedRevision: number;
-  afterDeleteBody: Record<string, unknown>;
-};
-
-export type SplitStoryShotUndoEntry = {
-  kind: "split-story-shot";
-  splitStableShotId: string;
-  beforeStoryBody: Record<string, unknown>;
-  beforeTimelineItems: StoryTimelineItem[];
-  expectedStoryRevision: number;
-  expectedTimelineVersion: number;
-  restoreShotNo: number;
-};
-
 export type InsertedStoryShotUndoEntry = {
   kind: "inserted-story-shot";
   insertedStableShotId: string;
@@ -41,23 +23,26 @@ export type TimelineUndoSnapshot = {
 };
 
 /**
- * 走服务端命令的那些编辑，客户端只记一个占位。
+ * 走服务端命令的编辑只记服务端 receipt，不保存文档副本。尚未迁移的旧命令
+ * 仍允许一个无身份占位，由旧的服务端 LIFO 撤销兜底。
  *
  * 回退内容住在服务端的撤销日志里（visualEditUndoJournal），客户端不再持有
  * 也不再写回任何 items 数组——那本来就是一个整份写入口。
  * 之所以还要占这一格，是为了让它和 deleted-story-shot 这类还没迁走的撤销项
  * 保持同一个先后顺序：用户按 Cmd+Z 的顺序必须和他操作的顺序一致。
  */
-export type TimelineCommandUndoEntry = { kind: "timeline-command" };
+export type TimelineCommandUndoEntry = {
+  kind: "timeline-command";
+  receipt?: VisualEditReceipt;
+};
 
 export type CreationEditorUndoEntry =
   | ({ kind: "timeline" } & TimelineUndoSnapshot)
   | TimelineCommandUndoEntry
-  | DeletedStoryShotUndoEntry
-  | InsertedStoryShotUndoEntry
-  | SplitStoryShotUndoEntry;
+  | InsertedStoryShotUndoEntry;
 
 const undoByStory = new Map<number, CreationEditorUndoEntry[]>();
+const activeUndoEpochByStory = new Map<number, string>();
 const undoExecutorByStory = new Map<number, () => Promise<boolean>>();
 const pendingOperationsByStory = new Map<number, Set<Promise<unknown>>>();
 
@@ -150,26 +135,32 @@ export function recordTimelineUndoSnapshot(
   undoByStory.set(storyId, stack);
 }
 
-/** 记一格占位；真正的回退内容在服务端。 */
-export function recordTimelineCommandUndo(storyId: number): void {
-  const stack = undoByStory.get(storyId) ?? [];
-  stack.push({ kind: "timeline-command" });
-  if (stack.length > MAX_UNDO_STEPS) {
-    stack.splice(0, stack.length - MAX_UNDO_STEPS);
-  }
-  undoByStory.set(storyId, stack);
-}
-
-export function recordDeletedStoryShotUndo(
+/** 记一格服务端命令；真正的回退内容在服务端。 */
+export function recordTimelineCommandUndo(
   storyId: number,
-  entry: Omit<DeletedStoryShotUndoEntry, "kind">
+  receipt?: VisualEditReceipt
 ): void {
+  if (
+    receipt &&
+    receipt.editorSessionEpoch !== "legacy" &&
+    activeUndoEpochByStory.get(storyId) !== receipt.editorSessionEpoch
+  )
+    return;
   const stack = undoByStory.get(storyId) ?? [];
+  if (receipt?.status !== undefined && receipt.status !== "available") return;
+  if (
+    receipt &&
+    stack.some(
+      entry =>
+        entry.kind === "timeline-command" &&
+        entry.receipt?.editorSessionEpoch === receipt.editorSessionEpoch &&
+        entry.receipt.operationId === receipt.operationId
+    )
+  )
+    return;
   stack.push({
-    kind: "deleted-story-shot",
-    ...entry,
-    deletedShot: structuredClone(entry.deletedShot),
-    afterDeleteBody: structuredClone(entry.afterDeleteBody),
+    kind: "timeline-command",
+    ...(receipt ? { receipt: { ...receipt } } : {}),
   });
   if (stack.length > MAX_UNDO_STEPS) {
     stack.splice(0, stack.length - MAX_UNDO_STEPS);
@@ -177,21 +168,18 @@ export function recordDeletedStoryShotUndo(
   undoByStory.set(storyId, stack);
 }
 
-export function recordSplitStoryShotUndo(
+/** A newly committed Story session never inherits undo history from an older tab/session. */
+export function clearTimelineUndoForStory(storyId: number): void {
+  undoByStory.delete(storyId);
+}
+
+export function activateTimelineUndoSession(
   storyId: number,
-  entry: Omit<SplitStoryShotUndoEntry, "kind">
+  editorSessionEpoch: string
 ): void {
-  const stack = undoByStory.get(storyId) ?? [];
-  stack.push({
-    kind: "split-story-shot",
-    ...entry,
-    beforeStoryBody: structuredClone(entry.beforeStoryBody),
-    beforeTimelineItems: cloneTimelineItems(entry.beforeTimelineItems),
-  });
-  if (stack.length > MAX_UNDO_STEPS) {
-    stack.splice(0, stack.length - MAX_UNDO_STEPS);
-  }
-  undoByStory.set(storyId, stack);
+  if (activeUndoEpochByStory.get(storyId) === editorSessionEpoch) return;
+  undoByStory.delete(storyId);
+  activeUndoEpochByStory.set(storyId, editorSessionEpoch);
 }
 
 export function recordInsertedStoryShotUndo(
@@ -228,20 +216,13 @@ export function takeCreationEditorUndoEntry(
         : undefined,
     };
   }
-  if (entry.kind === "deleted-story-shot") {
+  if (entry.kind === "timeline-command") {
     return {
-      ...entry,
-      deletedShot: structuredClone(entry.deletedShot),
-      afterDeleteBody: structuredClone(entry.afterDeleteBody),
+      kind: "timeline-command",
+      ...(entry.receipt ? { receipt: { ...entry.receipt } } : {}),
     };
   }
-  if (entry.kind === "timeline-command") return { kind: "timeline-command" };
-  if (entry.kind === "inserted-story-shot") return { ...entry };
-  return {
-    ...entry,
-    beforeStoryBody: structuredClone(entry.beforeStoryBody),
-    beforeTimelineItems: cloneTimelineItems(entry.beforeTimelineItems),
-  };
+  return { ...entry };
 }
 
 export function takeTimelineUndoSnapshot(
@@ -325,6 +306,7 @@ export async function executeTimelineUndo(
 
 export function clearTimelineUndoForTesting(): void {
   undoByStory.clear();
+  activeUndoEpochByStory.clear();
   undoExecutorByStory.clear();
   pendingOperationsByStory.clear();
 }

@@ -36,6 +36,7 @@ import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { storyIntentProfileFromLegacy } from "../../shared/storyIntentProfile";
 import { getStoryById } from "../db";
+import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
 import {
   persistPreparedStoryBody,
@@ -1034,26 +1035,13 @@ function applyPlatformContextOperation(
   };
 }
 
-const storyWriteTails = new Map<string, Promise<void>>();
+const storyWriteLock = createKeyedSerialLock<string>();
 
 async function withStoryWriteLock<T>(
   key: string,
   task: () => Promise<T>
 ): Promise<T> {
-  const previous = storyWriteTails.get(key) ?? Promise.resolve();
-  let release = () => {};
-  const gate = new Promise<void>(resolve => {
-    release = resolve;
-  });
-  const tail = previous.catch(() => undefined).then(() => gate);
-  storyWriteTails.set(key, tail);
-  await previous.catch(() => undefined);
-  try {
-    return await task();
-  } finally {
-    release();
-    if (storyWriteTails.get(key) === tail) storyWriteTails.delete(key);
-  }
+  return storyWriteLock.run(key, task);
 }
 
 function assertRevision(
