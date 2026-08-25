@@ -410,7 +410,7 @@ export function moveVisualClip(
  * 所以宿主是谁**不再影响它出现在哪里**——这里只需要一个确定的、可复现的选择：
  * 优先落在覆盖该帧的最底层镜头上，否则取它左边最近的那个，再否则取第一个。
  */
-function hostItemForFrame(
+export function selectImageClipHostForFrame(
   doc: VisualEditDocument,
   startFrame: number
 ): string | null {
@@ -460,7 +460,7 @@ export function insertVisualImageClip(
   const startFrame = Math.round(input.startFrame);
   const requestedDurationFrames = positiveFrames(input.durationFrames ?? 1);
   const base = materializeAbsolutePlacements(doc);
-  const hostId = hostItemForFrame(base, startFrame);
+  const hostId = selectImageClipHostForFrame(base, startFrame);
   if (!hostId) {
     return {
       status: "error",
