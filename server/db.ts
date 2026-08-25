@@ -3691,11 +3691,34 @@ function extractionDescriptorMatches(
 
 const timelineFrameExtractionMemoryTails = new Map<string, Promise<void>>();
 
+export const TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT = 240;
+export const TIMELINE_FRAME_EXTRACTION_USER_RECEIPT_LIMIT = 5_000;
+export const TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT = 2_000;
+export const TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR =
+  "timeline frame extraction quota exceeded";
+
+export function assertTimelineFrameExtractionReceiptQuota(input: {
+  last24Hours: number;
+  userTotal: number;
+  storyTotal: number;
+}): void {
+  if (
+    input.last24Hours >= TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT ||
+    input.userTotal >= TIMELINE_FRAME_EXTRACTION_USER_RECEIPT_LIMIT ||
+    input.storyTotal >= TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT
+  ) {
+    throw new Error(TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR);
+  }
+}
+
 async function withTimelineFrameExtractionMemoryLock<T>(
   owner: TimelineFrameExtractionOwner,
   run: () => Promise<T>
 ): Promise<T> {
-  const key = `${owner.storyId}:${owner.userId}:${owner.requestId}`;
+  // All extraction writes for one user share a lock. Besides making receipt
+  // quota checks atomic, this makes imageKey lookup+insert mutually exclusive
+  // across different request ids and Stories in local-persist mode.
+  const key = String(owner.userId);
   const previous =
     timelineFrameExtractionMemoryTails.get(key) ?? Promise.resolve();
   let release!: () => void;
@@ -3798,6 +3821,17 @@ export async function claimTimelineFrameExtractionOperation(
       );
       if (!story) throw new Error("Story 不存在或不属于当前用户");
       const current = now();
+      const receiptRows = memoryState.timelineFrameExtractionOperations.filter(
+        row => row.userId === input.userId
+      );
+      assertTimelineFrameExtractionReceiptQuota({
+        last24Hours: receiptRows.filter(
+          row => row.createdAt.getTime() >= current.getTime() - 86_400_000
+        ).length,
+        userTotal: receiptRows.length,
+        storyTotal: receiptRows.filter(row => row.storyId === input.storyId)
+          .length,
+      });
       const operation: TimelineFrameExtractionOperation = {
         id: nextMemoryId("timelineFrameExtractionOperation"),
         storyId: input.storyId,
@@ -3834,19 +3868,95 @@ export async function claimTimelineFrameExtractionOperation(
     });
   }
   return db.transaction(async tx => {
+    // Fixed lock order for every claim/asset transaction: user -> Story ->
+    // receipt. The user row serializes quota checks and cross-request asset
+    // deduplication without requiring a schema migration.
+    const [lockedUser] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
+      .limit(1);
+    if (!lockedUser) throw new Error("Story 不存在或不属于当前用户");
     const [story] = await tx
       .select({ id: stories.id })
       .from(stories)
       .where(
         and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
       )
+      .for("update")
       .limit(1);
     if (!story) throw new Error("Story 不存在或不属于当前用户");
+    const [existing] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
     const claimToken = randomUUID();
     const leaseUntil = new Date(
       Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
     );
-    const [result] = await tx
+    if (existing) {
+      assertMatchingExtractionClaim(existing, input);
+      if (
+        existing.status !== "claimed" ||
+        existing.leaseUntil.getTime() > Date.now()
+      ) {
+        return { created: false, acquired: false, operation: existing };
+      }
+      await tx
+        .update(timelineFrameExtractionOperations)
+        .set({
+          claimToken,
+          leaseUntil,
+          attempt: existing.attempt + 1,
+        })
+        .where(eq(timelineFrameExtractionOperations.id, existing.id));
+      const [reclaimed] = await tx
+        .select()
+        .from(timelineFrameExtractionOperations)
+        .where(eq(timelineFrameExtractionOperations.id, existing.id))
+        .limit(1);
+      return { created: false, acquired: true, operation: reclaimed };
+    }
+
+    const cutoff = new Date(Date.now() - 86_400_000);
+    const [dailyCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          gte(timelineFrameExtractionOperations.createdAt, cutoff)
+        )
+      );
+    const [userCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.userId, input.userId));
+    const [storyCount] = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.storyId, input.storyId)
+        )
+      );
+    assertTimelineFrameExtractionReceiptQuota({
+      last24Hours: Number(dailyCount?.value ?? 0),
+      userTotal: Number(userCount?.value ?? 0),
+      storyTotal: Number(storyCount?.value ?? 0),
+    });
+
+    await tx
       .insert(timelineFrameExtractionOperations)
       .values({
         storyId: input.storyId,
@@ -3858,9 +3968,6 @@ export async function claimTimelineFrameExtractionOperation(
         leaseUntil,
         attempt: 1,
         status: "claimed",
-      })
-      .onDuplicateKeyUpdate({
-        set: { requestId: sql`${timelineFrameExtractionOperations.requestId}` },
       });
     const [operation] = await tx
       .select()
@@ -3875,29 +3982,7 @@ export async function claimTimelineFrameExtractionOperation(
       .for("update")
       .limit(1);
     if (!operation) throw new Error("抽帧操作 claim 后无法读取");
-    assertMatchingExtractionClaim(operation, input);
-    const created = result.insertId > 0;
-    if (created) return { created: true, acquired: true, operation };
-    if (
-      operation.status !== "claimed" ||
-      operation.leaseUntil.getTime() > Date.now()
-    ) {
-      return { created: false, acquired: false, operation };
-    }
-    await tx
-      .update(timelineFrameExtractionOperations)
-      .set({
-        claimToken,
-        leaseUntil,
-        attempt: operation.attempt + 1,
-      })
-      .where(eq(timelineFrameExtractionOperations.id, operation.id));
-    const [reclaimed] = await tx
-      .select()
-      .from(timelineFrameExtractionOperations)
-      .where(eq(timelineFrameExtractionOperations.id, operation.id))
-      .limit(1);
-    return { created: false, acquired: true, operation: reclaimed };
+    return { created: true, acquired: true, operation };
   });
 }
 
@@ -4130,7 +4215,16 @@ export async function settleTimelineFrameExtractionAsset(
         if (data.storyId !== input.storyId || data.userId !== input.userId) {
           throw new Error("新图片归属与抽帧操作不一致");
         }
-        image = {
+        const reusable =
+          data.imageKey == null
+            ? undefined
+            : memoryState.generatedImages.find(
+                row =>
+                  row.storyId === input.storyId &&
+                  (row.userId === input.userId || row.userId == null) &&
+                  row.imageKey === data.imageKey
+              );
+        image = reusable ?? {
           id: nextMemoryId("generatedImage"),
           projectId: data.projectId ?? null,
           storyId: data.storyId ?? null,
@@ -4147,8 +4241,10 @@ export async function settleTimelineFrameExtractionAsset(
           maskKey: data.maskKey ?? null,
           createdAt: now(),
         };
-        memoryState.generatedImages.push(image);
-        created = true;
+        if (!reusable) {
+          memoryState.generatedImages.push(image);
+          created = true;
+        }
       }
       operation.imageId = image.id;
       operation.status = "asset_ready";
@@ -4169,6 +4265,22 @@ export async function settleTimelineFrameExtractionAsset(
     });
   }
   return db.transaction(async tx => {
+    const [lockedUser] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
+      .limit(1);
+    if (!lockedUser) throw new Error("抽帧操作不存在");
+    const [lockedStory] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!lockedStory) throw new Error("抽帧操作不存在");
     const [operation] = await tx
       .select()
       .from(timelineFrameExtractionOperations)
@@ -4226,14 +4338,32 @@ export async function settleTimelineFrameExtractionAsset(
       const data = input.image!;
       if (data.storyId !== input.storyId || data.userId !== input.userId)
         throw new Error("新图片归属与抽帧操作不一致");
-      const [inserted] = await tx
-        .insert(generatedImages)
-        .values({ ...data, isCurrent: false });
-      [image] = await tx
-        .select()
-        .from(generatedImages)
-        .where(eq(generatedImages.id, inserted.insertId))
-        .limit(1);
+      if (data.imageKey != null) {
+        [image] = await tx
+          .select()
+          .from(generatedImages)
+          .where(
+            and(
+              eq(generatedImages.storyId, input.storyId),
+              or(
+                eq(generatedImages.userId, input.userId),
+                isNull(generatedImages.userId)
+              ),
+              eq(generatedImages.imageKey, data.imageKey)
+            )
+          )
+          .limit(1);
+      }
+      if (!image) {
+        const [inserted] = await tx
+          .insert(generatedImages)
+          .values({ ...data, isCurrent: false });
+        [image] = await tx
+          .select()
+          .from(generatedImages)
+          .where(eq(generatedImages.id, inserted.insertId))
+          .limit(1);
+      }
       if (!image) throw new Error("抽帧图片创建后无法读取");
       // Do not call createGeneratedImage: its imageSignal is a second write outside this receipt transaction.
     }

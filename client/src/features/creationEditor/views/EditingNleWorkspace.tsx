@@ -8,6 +8,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1593,7 +1594,7 @@ export default function EditingNleWorkspace({
     appendTimelineVideoClip,
     undoTimeline,
     splitTimelineVideoClip,
-    addTimelineImageClip,
+    extractTimelineFrame,
     moveVisualClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
@@ -1615,6 +1616,26 @@ export default function EditingNleWorkspace({
     timelineWritePending,
     isLoading,
   } = useCreationEditor();
+  const renderedEditingStorySessionToken = useMemo(
+    () => Symbol(`editing-story:${activeStoryId ?? "none"}`),
+    [activeStoryId]
+  );
+  const committedEditingStorySessionTokenRef = useRef(
+    renderedEditingStorySessionToken
+  );
+  useLayoutEffect(() => {
+    // An interrupted concurrent render must not invalidate callbacks owned by
+    // the Story that is still committed on screen.
+    committedEditingStorySessionTokenRef.current =
+      renderedEditingStorySessionToken;
+  }, [renderedEditingStorySessionToken]);
+  const editingStorySessionKey = `story:${activeStoryId ?? "none"}`;
+  const isEditingStorySessionCurrent = useCallback(
+    () =>
+      committedEditingStorySessionTokenRef.current ===
+      renderedEditingStorySessionToken,
+    [renderedEditingStorySessionToken]
+  );
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
   const [videoEditorTarget, setVideoEditorTarget] =
@@ -2322,93 +2343,21 @@ export default function EditingNleWorkspace({
   );
 
   const extractFrameAtPlayhead = useCallback(
-    async (playheadMs: number) => {
-      const timelineFrame = timelineOffsetMsToFrames(playheadMs);
-      const visualSource = resolveTimelineVisualFrame({
-        items: timelineItems,
-        overlays: timelineOverlays,
-        hiddenVisualLayers: timelineVisualLayerState.hidden,
-        frame: timelineFrame,
-      });
-      const source = resolveTimelineVideoSource(
-        shots,
-        timelineShotIds,
-        playheadMs,
-        timelineOverlays,
-        timelineVisualLayerState.hidden
-      );
-      if (visualSource.kind === "image") {
-        const imageSource = visualSource.placement;
-        const targetLayer = extractedFrameTargetVisualLayer(imageSource.clip);
-        await addTimelineImageClip({
-          clipId: duplicatedTimelineImageClipId({
-            imageId: imageSource.clip.imageId,
-            timelineFrame,
-            visualLayer: targetLayer,
-          }),
-          timelineFrame,
-          imageId: imageSource.clip.imageId,
-          imageUrl: imageSource.clip.imageUrl,
-          label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
-          visualLayer: targetLayer,
-        });
-        return;
-      }
-      if (!source) {
-        throw new Error("当前帧没有可提取的图片或视频");
-      }
-      const finalFrameInset = 1 / 30;
-      const captureAtSec = Math.max(
-        source.sourceStartSec,
-        Math.min(
-          source.sourceTimeSec,
-          Math.max(source.sourceStartSec, source.sourceEndSec - finalFrameInset)
-        )
-      );
-      const rangeQuery = source.rangeId ? `&rangeId=${source.rangeId}` : "";
-      const response = await fetch(
-        `/api/video-frames/${source.takeId}?atSec=${captureAtSec.toFixed(3)}${rangeQuery}`
-      );
-      if (!response.ok) throw new Error("服务器无法提取当前视频帧");
-      const frameBlob = await response.blob();
-      const mimeType = frameBlob.type || "image/png";
-      const frameBase64 = await fileBase64(
-        new File([frameBlob], "timeline-frame.png", { type: mimeType })
-      );
-      const imported = await importStoryMaterial({
-        fileName: `${source.label.replace(/[\s\\/:*?"<>|]+/g, "-") || "shot"}-${Math.round(playheadMs)}ms.png`,
-        mimeType,
-        fileBase64: frameBase64,
-        targetStableShotId: source.stableShotId,
-        preserveTimelineSelection: true,
-        note: `时间线抽帧 · ${Math.round(playheadMs)}ms · ${formatStoryboardTimestamp(playheadMs)} · 来源 Take ${source.takeId}`,
-      });
-      if (imported.kind !== "image") {
-        throw new Error("服务器返回的抽帧素材类型不正确");
-      }
-      await addTimelineImageClip({
-        timelineFrame,
-        imageId: imported.imageId,
-        imageUrl: imported.imageUrl,
-        label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
-        visualLayer: extractedFrameTargetVisualLayer(source),
+    async (playheadMs: number, operationLayer: number) => {
+      await extractTimelineFrame({
+        timelineFrame: timelineOffsetMsToFrames(playheadMs),
+        operationLayer,
       });
     },
-    [
-      addTimelineImageClip,
-      importStoryMaterial,
-      shots,
-      timelineItems,
-      timelineOverlays,
-      timelineShotIds,
-    ]
+    [extractTimelineFrame]
   );
 
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
-      storySessionKey: `story:${activeStoryId ?? "none"}`,
+      storySessionKey: editingStorySessionKey,
+      isStorySessionCurrent: isEditingStorySessionCurrent,
       playheadMs: playbackClock.playheadMs,
       isPlaying: playbackClock.isPlaying,
       totalMs: boardTimelineTotalMs,
@@ -2419,6 +2368,24 @@ export default function EditingNleWorkspace({
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveVisualClip: moveVisualClip,
+      isVisualObjectCommandAvailable: (_object, command) =>
+        command === "extract-frame",
+      onVisualObjectCommand: async (_object, command, context) => {
+        if (command !== "extract-frame") {
+          throw new Error("这个对象命令尚未接入");
+        }
+        const atMs = timelineFramesToMs(context.timelineFrame);
+        playbackClock.seek(atMs);
+        try {
+          await extractFrameAtPlayhead(atMs, context.visualLayer);
+        } catch (error) {
+          if (!isEditingStorySessionCurrent()) return;
+          throw error;
+        }
+        if (isEditingStorySessionCurrent()) {
+          toast.success("当前帧已加入相邻上层，并保存在图片仓库");
+        }
+      },
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
       magneticJoins: timelineMagneticJoins(
@@ -2433,6 +2400,7 @@ export default function EditingNleWorkspace({
           direction,
           deltaFrames
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已整体移动这一组镜头");
         else if (result.reason) toast.error(result.reason);
         return result;
@@ -2451,17 +2419,20 @@ export default function EditingNleWorkspace({
           snapThresholdFrames,
           visualLayer
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.reason) toast.error(result.reason);
         return result;
       },
       onAddAnchor: async timelineFrame => {
         const result = await addTimelineAnchorAtFrame(timelineFrame);
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已钉下位置锚点");
         else if (result.reason) toast.error(result.reason);
         return result;
       },
       onRemoveAnchor: async ({ stableShotId, anchorId }) => {
         const result = await removeTimelineAnchor(stableShotId, anchorId);
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) toast.success("已取消位置锚点");
         else if (result.reason) toast.error(result.reason);
         return result;
@@ -2478,6 +2449,7 @@ export default function EditingNleWorkspace({
           beforeStableShotId,
           afterStableShotId,
         });
+        if (!isEditingStorySessionCurrent()) return result;
         if (result.applied) {
           toast.success("已在聊天里生成待确认的过渡镜头卡片");
         } else if (result.reason) {
@@ -2532,12 +2504,14 @@ export default function EditingNleWorkspace({
       onDeleteExtractedFrame: async imageId => {
         try {
           await deleteExtractedFrame(imageId);
-          toast.success("已删除这张抽帧");
+          if (isEditingStorySessionCurrent()) {
+            toast.success("已删除这张抽帧");
+          }
           return { applied: true };
         } catch (error) {
           const reason =
             error instanceof Error ? error.message : "删除抽帧失败";
-          toast.error(reason);
+          if (isEditingStorySessionCurrent()) toast.error(reason);
           return { applied: false, reason };
         }
       },
@@ -2554,20 +2528,14 @@ export default function EditingNleWorkspace({
         return Boolean(source && !source.overlayId);
       },
       canExtractAt: playheadMs => {
-        const source = resolveTimelineVideoSource(
-          shots,
-          timelineShotIds,
-          playheadMs,
-          timelineOverlays,
-          timelineVisualLayerState.hidden
-        );
         const visual = resolveTimelineVisualFrame({
           items: timelineItems,
           overlays: timelineOverlays,
           hiddenVisualLayers: timelineVisualLayerState.hidden,
           frame: timelineOffsetMsToFrames(playheadMs),
         });
-        return Boolean(source || visual.kind === "image");
+        // 这里只做即时菜单提示；服务端仍会重新授权并判断素材是否可解码。
+        return visual.kind !== "gap";
       },
       // 直接驱动时钟。以前要经过 playbackRequest 的 id 握手转给底部时间线，
       // 那一层随底部时间线一起删了。
@@ -2632,7 +2600,9 @@ export default function EditingNleWorkspace({
         try {
           await updateShotDuration(input.shotNo, input.durationMs);
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "时长未保存");
+          if (isEditingStorySessionCurrent()) {
+            toast.error(error instanceof Error ? error.message : "时长未保存");
+          }
         }
       },
       // 帧级、锚点安全的裁剪：另一头锚定不动，裁边贴到位置锚点为止。
@@ -2648,6 +2618,7 @@ export default function EditingNleWorkspace({
           edge,
           requestedBoundaryFrame
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
@@ -2661,6 +2632,7 @@ export default function EditingNleWorkspace({
           rightStableShotId,
           requestedBoundaryFrame
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
@@ -2672,27 +2644,36 @@ export default function EditingNleWorkspace({
           leftStableShotId,
           rightStableShotId
         );
+        if (!isEditingStorySessionCurrent()) return result;
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
       onSplitAt: async playheadMs => {
         try {
           await splitAtPlayhead(playheadMs);
-          toast.success("已在当前帧切割视频");
+          if (isEditingStorySessionCurrent()) {
+            toast.success("已在当前帧切割视频");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "切割当前帧失败"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "切割当前帧失败"
+            );
+          }
         }
       },
-      onExtractFrameAt: async playheadMs => {
+      onExtractFrameAt: async (playheadMs, operationLayer) => {
         try {
-          await extractFrameAtPlayhead(playheadMs);
-          toast.success("当前帧已加入该镜头的画面");
+          await extractFrameAtPlayhead(playheadMs, operationLayer);
+          if (isEditingStorySessionCurrent()) {
+            toast.success("当前帧已加入该镜头的画面");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "提取当前帧失败"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "提取当前帧失败"
+            );
+          }
         }
       },
       onReorderShot: async input => {
@@ -2701,17 +2682,23 @@ export default function EditingNleWorkspace({
             input.sourceStableShotId,
             input.targetStableShotId
           );
-          toast.success("镜头顺序已保存");
+          if (isEditingStorySessionCurrent()) {
+            toast.success("镜头顺序已保存");
+          }
         } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "镜头顺序未保存"
-          );
+          if (isEditingStorySessionCurrent()) {
+            toast.error(
+              error instanceof Error ? error.message : "镜头顺序未保存"
+            );
+          }
         }
       },
     }),
     [
       activeSelection?.sourceType,
       activeStoryId,
+      editingStorySessionKey,
+      isEditingStorySessionCurrent,
       addTimelineAnchorAtFrame,
       boardSelectedRange,
       extractFrameAtPlayhead,

@@ -17,6 +17,8 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -30,7 +32,12 @@ import type {
   StoryTimelineVisualClip,
 } from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
-import { visualTrackId } from "@shared/visualClipModel";
+import {
+  imageClipId,
+  shotClipId,
+  videoClipId,
+  visualTrackId,
+} from "@shared/visualClipModel";
 import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
 import {
   createVisualObjectPendingGuard,
@@ -121,6 +128,8 @@ import { VIDEO_TAKE_DRAG_MIME } from "@/features/storyAgent/views/videoTakeDrag"
 export type StoryboardBoardTimeline = {
   /** Changes whenever the active Story/editor session changes. */
   storySessionKey?: string;
+  /** False once the render that supplied this timeline is no longer current. */
+  isStorySessionCurrent?: () => boolean;
   playheadMs: number;
   isPlaying: boolean;
   totalMs: number;
@@ -168,7 +177,7 @@ export type StoryboardBoardTimeline = {
     >
   ) => Promise<{ applied: boolean; reason?: string }>;
   onSplitAt: (ms: number) => Promise<void>;
-  onExtractFrameAt: (ms: number) => Promise<void>;
+  onExtractFrameAt: (ms: number, operationLayer: number) => Promise<void>;
   onReorderShot: (input: {
     sourceStableShotId: string;
     targetStableShotId: string;
@@ -226,8 +235,13 @@ export type StoryboardBoardTimeline = {
   /** Narrow U2 facade; commands without an implementation remain visibly disabled. */
   onVisualObjectCommand?: (
     object: VisualObjectRef,
-    command: VisualObjectCommand
+    command: VisualObjectCommand,
+    context: { timelineFrame: number; visualLayer: number }
   ) => Promise<void>;
+  isVisualObjectCommandAvailable?: (
+    object: VisualObjectRef,
+    command: VisualObjectCommand
+  ) => boolean;
   onPlaceExternalVisual?: (
     dataTransfer: DataTransfer,
     timelineFrame: number,
@@ -280,6 +294,33 @@ export function storyboardVisualLayerAtPoint(input: {
   );
 }
 
+/**
+ * Resolve the command frame without treating an enlarged one-frame image
+ * thumbnail as real timeline duration. Image callers pass the canonical frame;
+ * video/shot callers intentionally use the pointer position within the track.
+ */
+export function storyboardVisualObjectMenuTimelineFrame(input: {
+  explicitTimelineFrame?: number;
+  clientX: number;
+  trackLeft: number | null;
+  viewport: TimelineViewport;
+  playheadMs: number;
+}): number {
+  if (
+    input.explicitTimelineFrame != null &&
+    Number.isFinite(input.explicitTimelineFrame)
+  ) {
+    return Math.max(0, Math.round(input.explicitTimelineFrame));
+  }
+  if (input.trackLeft != null && Number.isFinite(input.trackLeft)) {
+    return Math.max(
+      0,
+      pxToFrame(input.viewport, input.clientX - input.trackLeft)
+    );
+  }
+  return Math.max(0, Math.round((input.playheadMs * 30) / 1_000));
+}
+
 function storyboardVisualLayerAtDocumentPoint(
   clientX: number,
   clientY: number
@@ -326,6 +367,22 @@ function storyboardVisualLayerTrackGeometry(
 }
 
 /**
+ * Promise callbacks may outlive the Story that started them.  A key alone is
+ * not enough here because A -> B -> A must not make the first A current again.
+ */
+export function createStoryboardAsyncSessionGuard(initialToken: symbol) {
+  let committedToken = initialToken;
+  return {
+    commit(nextToken: symbol) {
+      committedToken = nextToken;
+    },
+    isCurrent(candidate: symbol) {
+      return candidate === committedToken;
+    },
+  };
+}
+
+/**
  * 把一次移动交给唯一命令，并保证失败一定被用户看见。
  *
  * 拖拽、外部拖放和键盘微调都走这里：它们各自只负责算出「哪个 clip、去哪一层、
@@ -340,6 +397,7 @@ function submitVisualClipMove(input: {
     toTrackId: string;
     toStartFrame: number;
   }) => Promise<void>;
+  isStorySessionCurrent?: () => boolean;
 }): Promise<void> {
   const move = input.onMoveVisualClip;
   if (!move) return Promise.resolve();
@@ -348,6 +406,7 @@ function submitVisualClipMove(input: {
     toTrackId: visualTrackId(input.visualLayer),
     toStartFrame: Math.max(0, Math.round(input.toStartFrame)),
   }).catch((error: unknown) => {
+    if (input.isStorySessionCurrent?.() === false) return;
     toast.error(error instanceof Error ? error.message : "素材没有移动成功");
   });
 }
@@ -387,6 +446,7 @@ export function commitVisualClipDrag(input: {
     toTrackId: string;
     toStartFrame: number;
   }) => Promise<void>;
+  isStorySessionCurrent?: () => boolean;
   /** 命中哪条轨道。默认查真实 DOM；测试注入几何，好让换算本身可验证。 */
   resolveTrack?: (
     clientX: number,
@@ -411,6 +471,7 @@ export function commitVisualClipDrag(input: {
     visualLayer: targetTrack.visualLayer,
     toStartFrame: pxToFrame(input.viewport, movedPx),
     onMoveVisualClip: move,
+    isStorySessionCurrent: input.isStorySessionCurrent,
   });
 }
 
@@ -944,6 +1005,8 @@ function StoryboardUpperVisualLayerRow({
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
 }) {
   const totalMs = viewport.totalMs;
+  const isCurrentStorySession = () =>
+    timeline.isStorySessionCurrent?.() !== false;
   const frames = shots
     .flatMap(shot => {
       const extractedFrames = shot.extractedFrames ?? [];
@@ -1182,8 +1245,8 @@ function StoryboardUpperVisualLayerRow({
       await commitVisualClipDrag({
         clipId:
           drag.kind === "image"
-            ? `image:${drag.clipId}`
-            : `shot:${drag.stableShotId}`,
+            ? imageClipId(drag.clipId)
+            : shotClipId(drag.stableShotId),
         startRectLeft: drag.startRectLeft,
         startLeftPx: drag.startLeftPx,
         startClientX: drag.startClientX,
@@ -1191,12 +1254,15 @@ function StoryboardUpperVisualLayerRow({
         releaseClientY: event.clientY,
         viewport: drag.viewport,
         onMoveVisualClip: timeline.onMoveVisualClip,
+        isStorySessionCurrent: timeline.isStorySessionCurrent,
       });
     } finally {
-      clipPointerCommitPendingRef.current = false;
-      setClipPointerCommitPreview(null);
-      if (drag.kind === "shot")
-        onShotTimingPreviewChange?.(null, drag.gestureId);
+      if (isCurrentStorySession()) {
+        clipPointerCommitPendingRef.current = false;
+        setClipPointerCommitPreview(null);
+        if (drag.kind === "shot")
+          onShotTimingPreviewChange?.(null, drag.gestureId);
+      }
     }
   };
   const finishClipPointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -1301,12 +1367,13 @@ function StoryboardUpperVisualLayerRow({
     setPending(true);
     try {
       const result = await timeline.onCreateExtractedFrameTransition(pair);
+      if (!isCurrentStorySession()) return;
       if (result.applied) {
         setPairingStart(null);
         setPairingCandidate(null);
       }
     } finally {
-      setPending(false);
+      if (isCurrentStorySession()) setPending(false);
     }
   };
   const openAtMs = (atMs: number, clientX: number, clientY: number) => {
@@ -1424,12 +1491,15 @@ function StoryboardUpperVisualLayerRow({
                   Math.round((targetMs * 30) / 1000),
                   visualLayer
                 )
-                .then(result => onSelectShot(result.shotNo))
-                .catch(error =>
+                .then(result => {
+                  if (isCurrentStorySession()) onSelectShot(result.shotNo);
+                })
+                .catch(error => {
+                  if (!isCurrentStorySession()) return;
                   toast.error(
                     error instanceof Error ? error.message : "素材落位失败"
-                  )
-                );
+                  );
+                });
               return;
             }
             const imagePayload =
@@ -1439,10 +1509,11 @@ function StoryboardUpperVisualLayerRow({
               const parsed = JSON.parse(imagePayload) as { clipId: string };
               // 落点就是绝对帧，不再要求那一刻恰好压在某个镜头上。
               submitVisualClipMove({
-                clipId: `image:${parsed.clipId}`,
+                clipId: imageClipId(parsed.clipId),
                 visualLayer,
                 toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
                 onMoveVisualClip: timeline.onMoveVisualClip,
+                isStorySessionCurrent: timeline.isStorySessionCurrent,
               });
               return;
             }
@@ -1452,10 +1523,11 @@ function StoryboardUpperVisualLayerRow({
               event.preventDefault();
               const parsed = JSON.parse(videoPayload) as { clipId: string };
               submitVisualClipMove({
-                clipId: `video:${parsed.clipId}`,
+                clipId: videoClipId(parsed.clipId),
                 visualLayer,
                 toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
                 onMoveVisualClip: timeline.onMoveVisualClip,
+                isStorySessionCurrent: timeline.isStorySessionCurrent,
               });
               return;
             }
@@ -1466,10 +1538,11 @@ function StoryboardUpperVisualLayerRow({
             if (sourceShot && timeline.onMoveVisualClip) {
               event.preventDefault();
               submitVisualClipMove({
-                clipId: `shot:${stableShotId}`,
+                clipId: shotClipId(stableShotId),
                 visualLayer,
                 toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
                 onMoveVisualClip: timeline.onMoveVisualClip,
+                isStorySessionCurrent: timeline.isStorySessionCurrent,
               });
             }
           }}
@@ -1568,7 +1641,7 @@ function StoryboardUpperVisualLayerRow({
                         visualLayer,
                         onMove: (deltaFrames, deltaVisualLayers) => {
                           onNudgeVisualClip({
-                            clipId: `shot:${shot.stableShotId}`,
+                            clipId: shotClipId(shot.stableShotId),
                             startVisualLayer: visualLayer,
                             deltaVisualLayers,
                             startFrame: shot.timing.startFrame,
@@ -1800,6 +1873,11 @@ function StoryboardUpperVisualLayerRow({
                       },
                       clientX: event.clientX,
                       clientY: event.clientY,
+                      timelineFrame: timelineImageClipStartFrame(
+                        clip,
+                        shot.timing.startFrame
+                      ),
+                      visualLayer,
                     });
                     return;
                   }
@@ -1833,7 +1911,7 @@ function StoryboardUpperVisualLayerRow({
                       visualLayer,
                       onMove: (deltaFrames, deltaVisualLayers) => {
                         onNudgeVisualClip({
-                          clipId: `image:${clip.id}`,
+                          clipId: imageClipId(clip.id),
                           startVisualLayer: visualLayer,
                           deltaVisualLayers,
                           startFrame: timelineImageClipStartFrame(
@@ -1880,6 +1958,11 @@ function StoryboardUpperVisualLayerRow({
                       },
                       clientX: rect.left + rect.width / 2,
                       clientY: rect.top + rect.height / 2,
+                      timelineFrame: timelineImageClipStartFrame(
+                        clip,
+                        shot.timing.startFrame
+                      ),
+                      visualLayer,
                     });
                     return;
                   }
@@ -2063,12 +2146,17 @@ function StoryboardUpperVisualLayerRow({
               onClick={async () => {
                 if (!timeline.onCreateExtractedFrameTransition) return;
                 setPending(true);
-                const result = await timeline.onCreateExtractedFrameTransition({
-                  leftImageId: transitionMenu.leftImageId,
-                  rightImageId: transitionMenu.rightImageId,
-                });
-                setPending(false);
-                if (result.applied) setTransitionMenu(null);
+                try {
+                  const result =
+                    await timeline.onCreateExtractedFrameTransition({
+                      leftImageId: transitionMenu.leftImageId,
+                      rightImageId: transitionMenu.rightImageId,
+                    });
+                  if (!isCurrentStorySession()) return;
+                  if (result.applied) setTransitionMenu(null);
+                } finally {
+                  if (isCurrentStorySession()) setPending(false);
+                }
               }}
             >
               {pending
@@ -2117,6 +2205,7 @@ function StoryboardUpperVisualLayerRow({
                     const result = await timeline.onDeleteExtractedFrame(
                       candidate.imageId
                     );
+                    if (!isCurrentStorySession()) return;
                     if (result.applied) {
                       setFrameMenu(current => {
                         if (!current) return null;
@@ -2131,7 +2220,7 @@ function StoryboardUpperVisualLayerRow({
                       setDeleteError(result.reason ?? "删除抽帧失败");
                     }
                   } finally {
-                    setDeletingImageId(null);
+                    if (isCurrentStorySession()) setDeletingImageId(null);
                   }
                 }}
               >
@@ -2355,6 +2444,8 @@ type VisualObjectMenuState = {
   object: VisualObjectRef;
   clientX: number;
   clientY: number;
+  timelineFrame?: number;
+  visualLayer?: number;
 };
 
 function StoryboardVisualObjectMenu({
@@ -2365,7 +2456,7 @@ function StoryboardVisualObjectMenu({
   onClose,
 }: {
   menu: VisualObjectMenuState;
-  commandAvailable: boolean;
+  commandAvailable: (command: VisualObjectCommand) => boolean;
   pending: boolean;
   onPick: (command: VisualObjectCommand) => void;
   onClose: () => void;
@@ -2420,7 +2511,7 @@ function StoryboardVisualObjectMenu({
           const unavailableReason =
             capability.command === "move"
               ? "请直接拖动素材或使用方向键"
-              : !commandAvailable
+              : !commandAvailable(capability.command)
                 ? "该操作将在持久化命令接入后启用"
                 : undefined;
           const disabled =
@@ -2504,6 +2595,8 @@ function StoryboardEditTrack({
   onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
 }) {
+  const isCurrentStorySession = () =>
+    timeline.isStorySessionCurrent?.() !== false;
   const dragAnchorMsRef = useRef<number | null>(null);
   const imagePointerDragRef = useRef<{
     pointerId: number;
@@ -2665,7 +2758,7 @@ function StoryboardEditTrack({
     setImagePointerActive(false);
     if (!drag.moved) return;
     commitVisualClipDrag({
-      clipId: `image:${drag.clipId}`,
+      clipId: imageClipId(drag.clipId),
       startRectLeft: drag.startRectLeft,
       startLeftPx: drag.startLeftPx,
       startClientX: drag.startClientX,
@@ -2673,6 +2766,7 @@ function StoryboardEditTrack({
       releaseClientY: event.clientY,
       viewport: drag.viewport,
       onMoveVisualClip: timeline.onMoveVisualClip,
+      isStorySessionCurrent: timeline.isStorySessionCurrent,
     });
   };
   const finishImagePointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -2902,11 +2996,12 @@ function StoryboardEditTrack({
           boundaryFrame: rolling.boundaryFrame,
           requestedBoundaryFrame: rolling.requestedBoundaryFrame,
         });
+        if (!isCurrentStorySession()) return;
         if (result && !result.applied && result.reason) {
           onStatusMessage(result.reason);
         }
       } finally {
-        setDraftRollingJoin(null);
+        if (isCurrentStorySession()) setDraftRollingJoin(null);
       }
       return;
     }
@@ -2927,6 +3022,7 @@ function StoryboardEditTrack({
             newDurationMs: trim.durationMs,
           }),
         });
+        if (!isCurrentStorySession()) return;
         if (!result.applied && result.reason) onStatusMessage(result.reason);
         return;
       }
@@ -2936,8 +3032,10 @@ function StoryboardEditTrack({
         durationMs: trim.durationMs,
       });
     } finally {
-      setDraftTrim(null);
-      setDraftRollingJoin(null);
+      if (isCurrentStorySession()) {
+        setDraftTrim(null);
+        setDraftRollingJoin(null);
+      }
     }
   };
 
@@ -3200,7 +3298,7 @@ function StoryboardEditTrack({
     );
     try {
       await commitVisualClipDrag({
-        clipId: `shot:${start.stableShotId}`,
+        clipId: shotClipId(start.stableShotId),
         // 镜头块渲染在绝对时间像素上，用它当锚点就能保住抓取点。
         startLeftPx: sourceTiming
           ? msToPx(start.viewport, sourceTiming.startMs)
@@ -3211,15 +3309,18 @@ function StoryboardEditTrack({
         releaseClientY: event.clientY,
         viewport: start.viewport,
         onMoveVisualClip: timeline.onMoveVisualClip,
+        isStorySessionCurrent: timeline.isStorySessionCurrent,
         // 松手落在所有轨道之外时保持在主轨，等同于以前的纯横移。
         resolveTrack: (clientX, clientY) =>
           storyboardVisualLayerAtDocumentPoint(clientX, clientY) ??
           storyboardVisualLayerTrackGeometry(0),
       });
     } finally {
-      singleDragCommitPendingRef.current = false;
-      setSingleDrag(null);
-      onShotTimingPreviewChange?.(null, start.gestureId);
+      if (isCurrentStorySession()) {
+        singleDragCommitPendingRef.current = false;
+        setSingleDrag(null);
+        onShotTimingPreviewChange?.(null, start.gestureId);
+      }
     }
   };
   const endSingleDrag = async (event: ReactPointerEvent<HTMLElement>) => {
@@ -3385,12 +3486,15 @@ function StoryboardEditTrack({
                 Math.round((atMs * 30) / 1000),
                 0
               )
-              .then(result => onSelectShot(result.shotNo))
-              .catch(error =>
+              .then(result => {
+                if (isCurrentStorySession()) onSelectShot(result.shotNo);
+              })
+              .catch(error => {
+                if (!isCurrentStorySession()) return;
                 toast.error(
                   error instanceof Error ? error.message : "素材落位失败"
-                )
-              );
+                );
+              });
             return;
           }
           const imagePayload = event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
@@ -3400,10 +3504,11 @@ function StoryboardEditTrack({
             event.stopPropagation();
             const parsed = JSON.parse(imagePayload) as { clipId: string };
             submitVisualClipMove({
-              clipId: `image:${parsed.clipId}`,
+              clipId: imageClipId(parsed.clipId),
               visualLayer: 0,
               toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
               onMoveVisualClip: timeline.onMoveVisualClip,
+              isStorySessionCurrent: timeline.isStorySessionCurrent,
             });
             return;
           }
@@ -3415,10 +3520,11 @@ function StoryboardEditTrack({
             event.stopPropagation();
             const parsed = JSON.parse(videoPayload) as { clipId: string };
             submitVisualClipMove({
-              clipId: `video:${parsed.clipId}`,
+              clipId: videoClipId(parsed.clipId),
               visualLayer: 0,
               toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
               onMoveVisualClip: timeline.onMoveVisualClip,
+              isStorySessionCurrent: timeline.isStorySessionCurrent,
             });
             return;
           }
@@ -3430,10 +3536,11 @@ function StoryboardEditTrack({
           event.stopPropagation();
           const targetMs = trackMsFromPointer(event.clientX);
           submitVisualClipMove({
-            clipId: `shot:${sourceStableShotId}`,
+            clipId: shotClipId(sourceStableShotId),
             visualLayer: 0,
             toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
             onMoveVisualClip: timeline.onMoveVisualClip,
+            isStorySessionCurrent: timeline.isStorySessionCurrent,
           });
         }}
         onContextMenu={event => {
@@ -3506,7 +3613,7 @@ function StoryboardEditTrack({
                     visualLayer: 0,
                     onMove: (deltaFrames, deltaVisualLayers) => {
                       onNudgeVisualClip({
-                        clipId: `image:${clip.id}`,
+                        clipId: imageClipId(clip.id),
                         startVisualLayer: 0,
                         deltaVisualLayers,
                         startFrame: timelineImageClipStartFrame(
@@ -3545,6 +3652,11 @@ function StoryboardEditTrack({
                   },
                   clientX: rect.left + rect.width / 2,
                   clientY: rect.top + rect.height / 2,
+                  timelineFrame: timelineImageClipStartFrame(
+                    clip,
+                    shot.timing.startFrame
+                  ),
+                  visualLayer: Math.max(0, clip.visualLayer),
                 });
               }}
               onContextMenu={event => {
@@ -3566,6 +3678,11 @@ function StoryboardEditTrack({
                   },
                   clientX: event.clientX,
                   clientY: event.clientY,
+                  timelineFrame: timelineImageClipStartFrame(
+                    clip,
+                    shot.timing.startFrame
+                  ),
+                  visualLayer: Math.max(0, clip.visualLayer),
                 });
               }}
               data-visual-clip-move-target="true"
@@ -3705,7 +3822,7 @@ function StoryboardEditTrack({
                     visualLayer: 0,
                     onMove: (deltaFrames, deltaVisualLayers) => {
                       onNudgeVisualClip({
-                        clipId: `shot:${shot.stableShotId}`,
+                        clipId: shotClipId(shot.stableShotId),
                         startVisualLayer: 0,
                         deltaVisualLayers,
                         startFrame: shot.timing.startFrame,
@@ -3813,12 +3930,15 @@ function StoryboardEditTrack({
                       Math.round((atMs * 30) / 1000),
                       0
                     )
-                    .then(result => onSelectShot(result.shotNo))
-                    .catch(error =>
+                    .then(result => {
+                      if (isCurrentStorySession()) onSelectShot(result.shotNo);
+                    })
+                    .catch(error => {
+                      if (!isCurrentStorySession()) return;
                       toast.error(
                         error instanceof Error ? error.message : "素材落位失败"
-                      )
-                    );
+                      );
+                    });
                   return;
                 }
                 if (storyImageDrop.accepts(event.dataTransfer)) {
@@ -3953,7 +4073,7 @@ function StoryboardEditTrack({
                               visualLayer: 0,
                               onMove: (deltaFrames, deltaVisualLayers) => {
                                 onNudgeVisualClip({
-                                  clipId: `video:${segment.clip!.id}`,
+                                  clipId: videoClipId(segment.clip!.id),
                                   startVisualLayer: 0,
                                   deltaVisualLayers,
                                   startFrame:
@@ -4403,7 +4523,34 @@ export function StoryboardEditRow({
   const pendingGuardRef = useRef(createVisualObjectPendingGuard());
   const pendingMenuItemRef = useRef<HTMLElement | null>(null);
   const projectedShotNoRef = useRef<number | null | undefined>(undefined);
+  const activeTimingGestureRef = useRef<symbol | null>(null);
+  const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
+  shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
   const storySessionKeyRef = useRef(timeline.storySessionKey);
+  const renderedStorySessionToken = useMemo(
+    () => Symbol("storyboard-async-session"),
+    [timeline.storySessionKey]
+  );
+  const asyncSessionGuardRef = useRef(
+    createStoryboardAsyncSessionGuard(renderedStorySessionToken)
+  );
+  const isStorySessionTokenCurrent = useCallback(
+    (candidate: symbol) =>
+      asyncSessionGuardRef.current.isCurrent(candidate) &&
+      timeline.isStorySessionCurrent?.() !== false,
+    [timeline.isStorySessionCurrent]
+  );
+  const isRenderedStorySessionCurrent = useCallback(
+    () => isStorySessionTokenCurrent(renderedStorySessionToken),
+    [isStorySessionTokenCurrent, renderedStorySessionToken]
+  );
+  const childTimeline = useMemo<StoryboardBoardTimeline>(
+    () => ({
+      ...timeline,
+      isStorySessionCurrent: isRenderedStorySessionCurrent,
+    }),
+    [isRenderedStorySessionCurrent, timeline]
+  );
   const trackRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
   const selectedVisualObject =
@@ -4459,7 +4606,10 @@ export function StoryboardEditRow({
     setObjectMenu(null);
     focusReturnRef.current = null;
   }, [controlledSelectedVisualObject, selectedShotNo, shots]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // Only a committed render may advance the guard. An interrupted concurrent
+    // render never reaches this effect and therefore cannot invalidate A.
+    asyncSessionGuardRef.current.commit(renderedStorySessionToken);
     if (storySessionKeyRef.current === timeline.storySessionKey) return;
     storySessionKeyRef.current = timeline.storySessionKey;
     if (controlledSelectedVisualObject === undefined)
@@ -4467,10 +4617,25 @@ export function StoryboardEditRow({
     onSelectVisualObject?.(null);
     setMenu(null);
     setObjectMenu(null);
+    setGapMenu(null);
+    setPendingAction(null);
+    setPendingObjectKey(null);
+    setGapTransitionPending(false);
+    setStatusMessage(null);
+    setMarkInMs(null);
+    setFocusedAnchorId(null);
+    const activeTimingGesture = activeTimingGestureRef.current;
+    activeTimingGestureRef.current = null;
+    if (activeTimingGesture)
+      shotTimingPreviewCallbackRef.current?.(null, activeTimingGesture);
+    projectedShotNoRef.current = undefined;
+    pendingMenuItemRef.current = null;
+    pendingGuardRef.current = createVisualObjectPendingGuard();
     focusReturnRef.current = null;
   }, [
     controlledSelectedVisualObject,
     onSelectVisualObject,
+    renderedStorySessionToken,
     timeline.storySessionKey,
   ]);
   useEffect(() => {
@@ -4526,9 +4691,6 @@ export function StoryboardEditRow({
       setObjectMenu(null);
     }
   }, [objectMenu, selectedVisualObject]);
-  const activeTimingGestureRef = useRef<symbol | null>(null);
-  const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
-  shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
   const handleShotTimingPreviewChange = useCallback(
     (preview: StoryboardShotTimingPreview | null, gestureId: symbol) => {
       if (preview) {
@@ -4553,6 +4715,30 @@ export function StoryboardEditRow({
     shot.timelineItem ? [shot.timelineItem] : []
   );
   const timelineOverlays = timeline.overlays ?? [];
+  const visualObjectLayer = (object: VisualObjectRef): number | null => {
+    if (object.type === "story-shot") {
+      const item = timelineItems.find(
+        candidate => candidate.stableShotId === object.stableShotId
+      );
+      return item == null ? null : Math.max(0, item.visualLayer ?? 0);
+    }
+    const owner = timelineItems.find(
+      candidate => candidate.stableShotId === object.ownerStableShotId
+    );
+    if (!owner) return null;
+    if (object.type === "owned-video-clip") {
+      const clip = owner.visualClips?.find(
+        candidate => candidate.id === object.clipId
+      );
+      return clip == null
+        ? null
+        : Math.max(0, clip.visualLayer ?? owner.visualLayer ?? 0);
+    }
+    const clip = owner.imageClips?.find(
+      candidate => candidate.id === object.clipId
+    );
+    return clip == null ? null : Math.max(0, clip.visualLayer);
+  };
   const visualLayerState =
     timeline.visualLayerState ??
     resolveTimelineVisualLayerState(null, timelineItems, timelineOverlays);
@@ -4596,15 +4782,20 @@ export function StoryboardEditRow({
       )
         return;
     }
+    const sessionToken = renderedStorySessionToken;
     setStatusMessage("正在保存图层…");
     void timeline
       .onManageVisualLayer(action)
-      .then(() => setStatusMessage("图层已更新"))
-      .catch(error =>
+      .then(() => {
+        if (isStorySessionTokenCurrent(sessionToken))
+          setStatusMessage("图层已更新");
+      })
+      .catch(error => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           error instanceof Error ? error.message : "图层更新失败"
-        )
-      );
+        );
+      });
   };
 
   const timings = shots.map(shot => shot.timing);
@@ -4617,16 +4808,38 @@ export function StoryboardEditRow({
     setObjectMenu(null);
     focusReturnRef.current?.focus({ preventScroll: true });
   }, []);
-  const openObjectMenu = useCallback((next: VisualObjectMenuState) => {
-    setMenu(null);
-    setGapMenu(null);
-    setObjectMenu(next);
-  }, []);
+  const openObjectMenu = useCallback(
+    (next: VisualObjectMenuState) => {
+      const trackRect = trackRef.current?.getBoundingClientRect();
+      const timelineFrame = storyboardVisualObjectMenuTimelineFrame({
+        explicitTimelineFrame: next.timelineFrame,
+        clientX: next.clientX,
+        trackLeft: trackRect?.left ?? null,
+        viewport,
+        playheadMs: timeline.playheadMs,
+      });
+      setMenu(null);
+      setGapMenu(null);
+      setObjectMenu({
+        ...next,
+        timelineFrame,
+        visualLayer: next.visualLayer ?? visualObjectLayer(next.object) ?? 0,
+      });
+    },
+    [timeline.playheadMs, timelineItems, viewport]
+  );
   const runObjectCommand = useCallback(
     (command: VisualObjectCommand) => {
       if (!objectMenu || !timeline.onVisualObjectCommand) return;
       const object = objectMenu.object;
+      if (
+        timeline.isVisualObjectCommandAvailable &&
+        !timeline.isVisualObjectCommandAvailable(object, command)
+      ) {
+        return;
+      }
       const key = visualObjectRefKey(object);
+      const sessionToken = renderedStorySessionToken;
       pendingMenuItemRef.current =
         document.activeElement instanceof HTMLElement &&
         document.activeElement.getAttribute("role") === "menuitem"
@@ -4634,17 +4847,28 @@ export function StoryboardEditRow({
           : null;
       setPendingObjectKey(key);
       void pendingGuardRef.current
-        .run(key, () => timeline.onVisualObjectCommand!(object, command))
+        .run(key, () =>
+          timeline.onVisualObjectCommand!(object, command, {
+            timelineFrame:
+              objectMenu.timelineFrame ??
+              Math.max(0, Math.round((timeline.playheadMs * 30) / 1_000)),
+            visualLayer:
+              objectMenu.visualLayer ?? visualObjectLayer(object) ?? 0,
+          })
+        )
         .then(result => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
           if (result !== null) closeObjectMenu();
         })
         .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
           setStatusMessage(
             error instanceof Error ? error.message : "对象操作失败，请重试"
           );
           pendingMenuItemRef.current?.focus({ preventScroll: true });
         })
         .finally(() => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
           pendingMenuItemRef.current = null;
           setPendingObjectKey(null);
         });
@@ -4656,6 +4880,7 @@ export function StoryboardEditRow({
     if (!timeline.onCreateGapTransition || gapTransitionPending) return;
     closeGapMenu();
     setGapTransitionPending(true);
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(
       timeline.onCreateGapTransition({
         beforeStableShotId: target.before.stableShotId,
@@ -4663,13 +4888,17 @@ export function StoryboardEditRow({
       })
     )
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied
             ? "已在聊天里生成待确认的过渡镜头卡片"
             : (result?.reason ?? "创建过渡镜头失败")
         );
       })
-      .finally(() => setGapTransitionPending(false));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken))
+          setGapTransitionPending(false);
+      });
   };
 
   // onSeek 要过一轮 state 才落到 timeline.playheadMs 上，所以连着敲
@@ -4695,6 +4924,9 @@ export function StoryboardEditRow({
         storyboardEditTimingAt(timings, headRef.current)?.stableShotId
     ) ??
     null;
+  const selectedOperationLayer = selectedVisualObject
+    ? visualObjectLayer(selectedVisualObject)
+    : null;
 
   const frameAt = (ms: number) => Math.max(0, Math.round((ms * 30) / 1000));
 
@@ -4709,6 +4941,7 @@ export function StoryboardEditRow({
     );
     const index = ordered.findIndex(entry => entry.id === anchor.id);
     const next = ordered[index + 1] ?? ordered[index - 1] ?? null;
+    const sessionToken = renderedStorySessionToken;
     setPendingAction("removeAnchor");
     void Promise.resolve(
       timeline.onRemoveAnchor({
@@ -4717,6 +4950,7 @@ export function StoryboardEditRow({
       })
     )
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied
             ? "已取消位置锚点"
@@ -4727,19 +4961,25 @@ export function StoryboardEditRow({
           if (!next) trackRef.current?.focus();
         }
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const addAnchor = (ms: number) => {
     if (!timeline.onAddAnchor || pendingAction) return;
     setPendingAction("addAnchor");
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(timeline.onAddAnchor(frameAt(ms)))
       .then(result => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           result?.applied ? "已钉下位置锚点" : (result?.reason ?? "打标失败")
         );
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const runAction = (
@@ -4770,19 +5010,23 @@ export function StoryboardEditRow({
         return;
       }
       setPendingAction("detachMagnet");
+      const sessionToken = renderedStorySessionToken;
       void timeline
         .onDetachTimelineMagnet({
           leftStableShotId: magneticJoin.leftStableShotId,
           rightStableShotId: magneticJoin.rightStableShotId,
         })
         .then(result => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
           setStatusMessage(
             result.applied
               ? "已取消这两个镜头的吸附"
               : (result.reason ?? "取消吸附失败")
           );
         })
-        .finally(() => setPendingAction(null));
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+        });
       return;
     }
     if (pendingAction || timeline.writePending || !shot) return;
@@ -4829,7 +5073,11 @@ export function StoryboardEditRow({
         done = timeline.onSplitAt(atMs);
         break;
       case "extract":
-        done = timeline.onExtractFrameAt(atMs);
+        done = timeline.onExtractFrameAt(
+          atMs,
+          selectedOperationLayer ??
+            Math.max(0, shot.timelineItem?.visualLayer ?? 0)
+        );
         break;
       case "selectShot":
         timeline.onSelectRange({
@@ -4876,13 +5124,17 @@ export function StoryboardEditRow({
     if (done == null) return;
     timeline.onTogglePlay(false);
     setPendingAction(action);
+    const sessionToken = renderedStorySessionToken;
     void Promise.resolve(done)
       .catch(error => {
+        if (!isStorySessionTokenCurrent(sessionToken)) return;
         setStatusMessage(
           error instanceof Error ? error.message : "剪辑操作失败，请重试"
         );
       })
-      .finally(() => setPendingAction(null));
+      .finally(() => {
+        if (isStorySessionTokenCurrent(sessionToken)) setPendingAction(null);
+      });
   };
 
   const markRange = (outMs: number) => {
@@ -5016,9 +5268,9 @@ export function StoryboardEditRow({
         (_, index) => visualLayerState.count - 1 - index
       ).map((visualLayer, index) => (
         <StoryboardUpperVisualLayerRow
-          key={`persisted-visual-layer-${visualLayer}`}
+          key={`${timeline.storySessionKey ?? "legacy-story"}:persisted-visual-layer-${visualLayer}`}
           shots={shots}
-          timeline={timeline}
+          timeline={childTimeline}
           viewport={viewport}
           columnSpan={columnSpan}
           onSelectShot={onSelectShot}
@@ -5060,7 +5312,8 @@ export function StoryboardEditRow({
       >
         <div className={mainLayerHidden ? "opacity-25" : undefined}>
           <StoryboardEditTrack
-            timeline={timeline}
+            key={`${timeline.storySessionKey ?? "legacy-story"}:main-visual-track`}
+            timeline={childTimeline}
             viewport={viewport}
             shots={shots}
             onSelectShot={onSelectShot}
@@ -5141,7 +5394,16 @@ export function StoryboardEditRow({
         <StoryboardVisualObjectMenu
           key={visualObjectRefKey(objectMenu.object)}
           menu={objectMenu}
-          commandAvailable={Boolean(timeline.onVisualObjectCommand)}
+          commandAvailable={command =>
+            Boolean(
+              timeline.onVisualObjectCommand &&
+                (!timeline.isVisualObjectCommandAvailable ||
+                  timeline.isVisualObjectCommandAvailable(
+                    objectMenu.object,
+                    command
+                  ))
+            )
+          }
           pending={
             pendingObjectKey === visualObjectRefKey(objectMenu.object) ||
             pendingGuardRef.current.isPending(

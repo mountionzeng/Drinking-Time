@@ -94,6 +94,54 @@ describe("timeline frame extraction operation receipts", () => {
     );
   });
 
+  it("enforces durable receipt quotas but never charges an existing request", async () => {
+    const firstOwner = { ...owner };
+    await claim();
+    for (
+      let index = 1;
+      index < db.TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT;
+      index += 1
+    ) {
+      owner = { ...firstOwner, requestId: `request-${index}` };
+      await claim();
+    }
+
+    owner = firstOwner;
+    await expect(claim()).resolves.toMatchObject({
+      created: false,
+      operation: { requestId: firstOwner.requestId },
+    });
+    owner = { ...firstOwner, requestId: "request-over-quota" };
+    await expect(claim()).rejects.toThrow(
+      db.TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR
+    );
+    await expect(
+      db.getTimelineFrameExtractionOperation(owner)
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    {
+      last24Hours: db.TIMELINE_FRAME_EXTRACTION_DAILY_RECEIPT_LIMIT,
+      userTotal: 0,
+      storyTotal: 0,
+    },
+    {
+      last24Hours: 0,
+      userTotal: db.TIMELINE_FRAME_EXTRACTION_USER_RECEIPT_LIMIT,
+      storyTotal: 0,
+    },
+    {
+      last24Hours: 0,
+      userTotal: 0,
+      storyTotal: db.TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT,
+    },
+  ])("rejects each durable quota boundary: $last24Hours/$userTotal/$storyTotal", counts => {
+    expect(() => db.assertTimelineFrameExtractionReceiptQuota(counts)).toThrow(
+      db.TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR
+    );
+  });
+
   it("validates story ownership and keeps reads owner-scoped", async () => {
     await expect(claim({ userId: owner.userId + 1 })).rejects.toThrow(
       "不属于当前用户"
@@ -395,5 +443,34 @@ describe("timeline frame extraction operation receipts", () => {
       image: imageInput(),
     });
     expect(settled.image.id).toBe(2);
+  });
+
+  it("atomically reuses a deterministic source image across concurrent receipts", async () => {
+    const firstClaim = await claim();
+    const firstOwner = { ...owner };
+    owner = { ...owner, requestId: "request-b" };
+    const secondClaim = await claim();
+    const secondOwner = { ...owner };
+    const [first, second] = await Promise.all([
+      db.settleTimelineFrameExtractionAsset({
+        ...firstOwner,
+        claimToken: firstClaim.operation.claimToken,
+        image: { ...imageInput(), storyId: firstOwner.storyId },
+      }),
+      db.settleTimelineFrameExtractionAsset({
+        ...secondOwner,
+        claimToken: secondClaim.operation.claimToken,
+        image: { ...imageInput(), storyId: secondOwner.storyId },
+      }),
+    ]);
+
+    expect(second.image.id).toBe(first.image.id);
+    expect(
+      await db.getStoryGeneratedImages(owner.storyId, owner.userId)
+    ).toHaveLength(1);
+    expect(second.operation).toMatchObject({
+      status: "asset_ready",
+      imageId: first.image.id,
+    });
   });
 });

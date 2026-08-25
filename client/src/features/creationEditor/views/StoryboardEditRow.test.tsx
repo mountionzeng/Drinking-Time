@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   commitVisualClipDrag,
+  createStoryboardAsyncSessionGuard,
   StoryboardEditRow,
   StoryboardEditTransport,
   storyboardVisualLayerAtPoint,
+  storyboardVisualObjectMenuTimelineFrame,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
@@ -96,6 +98,55 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
+  it("ignores an old Story completion after a new Story starts work", async () => {
+    const storyAToken = Symbol("story-a");
+    const guard = createStoryboardAsyncSessionGuard(storyAToken);
+    let finishStoryA!: () => void;
+    const storyA = new Promise<void>(resolve => {
+      finishStoryA = resolve;
+    });
+    const visibleState: string[] = [];
+    const lateStoryACompletion = storyA.then(() => {
+      if (guard.isCurrent(storyAToken)) visibleState.push("story-a-finished");
+    });
+
+    const storyBToken = Symbol("story-b");
+    // Merely rendering B creates a candidate token; it must not affect the
+    // committed A session until B's layout commit advances the guard.
+    expect(guard.isCurrent(storyAToken)).toBe(true);
+    expect(guard.isCurrent(storyBToken)).toBe(false);
+    guard.commit(storyBToken);
+    expect(guard.isCurrent(storyAToken)).toBe(false);
+    expect(guard.isCurrent(storyBToken)).toBe(true);
+    if (guard.isCurrent(storyBToken)) visibleState.push("story-b-finished");
+
+    finishStoryA();
+    await lateStoryACompletion;
+    expect(visibleState).toEqual(["story-b-finished"]);
+
+    // Returning to A is a new session; it must not revive A's original token.
+    const nextStoryAToken = Symbol("story-a-again");
+    guard.commit(nextStoryAToken);
+    expect(guard.isCurrent(storyAToken)).toBe(false);
+    expect(guard.isCurrent(nextStoryAToken)).toBe(true);
+  });
+
+  it("keeps a one-frame image menu on its canonical frame across the enlarged thumbnail", () => {
+    const viewport = createTimelineViewport({ totalMs: 8_000, scale: 16 });
+
+    for (const clientX of [80, 100, 120]) {
+      expect(
+        storyboardVisualObjectMenuTimelineFrame({
+          explicitTimelineFrame: 90,
+          clientX,
+          trackLeft: 80,
+          viewport,
+          playheadMs: 0,
+        })
+      ).toBe(90);
+    }
+  });
+
   it("exposes canonical type, stable selection state, and independent focus targets", () => {
     const richShots: StoryboardEditShot[] = [
       {

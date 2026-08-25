@@ -126,19 +126,19 @@ function parseVisualTrackId(trackId: string): number | null {
   return Number.parseInt(raw, 10);
 }
 
-function shotClipId(stableShotId: string): string {
+export function shotClipId(stableShotId: string): string {
   return `shot:${stableShotId}`;
 }
 
-function imageClipId(clipId: string): string {
+export function imageClipId(clipId: string): string {
   return `image:${clipId}`;
 }
 
-function videoClipId(clipId: string): string {
+export function videoClipId(clipId: string): string {
   return `video:${clipId}`;
 }
 
-function overlayClipId(overlayId: string): string {
+export function overlayClipId(overlayId: string): string {
   return `overlay:${overlayId}`;
 }
 

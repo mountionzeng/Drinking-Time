@@ -79,6 +79,7 @@ import {
   runTimelineEditCommand,
 } from "../services/timelineEditAgent";
 import { confirmEditingTransition } from "../services/editingTransitionWorkflow";
+import { extractTimelineFrameForStory } from "../services/timelineFrameExtraction";
 import { exportStoryTimeline } from "../services/videoExport";
 import {
   adviseStoryImages,
@@ -1831,6 +1832,26 @@ export const creationAgentRouter = router({
         toStartFrame: input.toStartFrame,
       });
     }),
+
+  /**
+   * 权威时间线抽帧。客户端只交代播放头与操作层；赢家解析、视频解码、
+   * 仓库备份、相邻可见层规划和图片落位全部由服务端完成并可幂等重放。
+   */
+  extractTimelineFrame: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        requestId: z.string().trim().min(1).max(160),
+        timelineFrame: z.number().int().min(0),
+        operationLayer: z.number().int().min(0),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      extractTimelineFrameForStory({
+        ...input,
+        userId: ctx.user.id,
+      })
+    ),
 
   /**
    * 唯一的图片落位命令。调用方只说「哪张图、去哪条轨、去哪一帧」，

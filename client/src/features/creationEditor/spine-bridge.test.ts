@@ -114,6 +114,39 @@ describe("creation editor spine boundary", () => {
     }
   });
 
+  it("keeps extraction receipts replayable without projecting an old Story session", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    const extractionStart = editorContext.indexOf(
+      "const extractTimelineFrame = async"
+    );
+    const extractionEnd = editorContext.indexOf(
+      "/**\n   * 唯一的图片落位入口",
+      extractionStart
+    );
+    const extractionFlow = editorContext.slice(extractionStart, extractionEnd);
+
+    expect(editorContext).not.toContain(
+      "extractionIntentByPositionRef.current.clear()"
+    );
+    expect(extractionFlow).toMatch(
+      /extractionIntentByPositionRef\.current\.get\(positionKey\) === intent[\s\S]*?delete\(positionKey\)/
+    );
+    expect(extractionFlow).toContain(
+      'result.requestDisposition === "replace"'
+    );
+    expect(extractionFlow).toMatch(
+      /activeStoryIdRef\.current === storyId[\s\S]*?committedExtractionStorySessionTokenRef\.current ===[\s\S]*?inFlight\.originStorySessionToken[\s\S]*?recordTimelineCommandUndo\(storyId\)/
+    );
+    expect(editorContext).toMatch(
+      /useLayoutEffect\(\(\) => \{[\s\S]*?activeStoryIdRef\.current = activeId;[\s\S]*?committedExtractionStorySessionTokenRef\.current =[\s\S]*?renderedExtractionStorySessionToken;/
+    );
+    expect(editorContext).not.toMatch(
+      /const activeStoryIdRef = useRef\(activeId\);\s*activeStoryIdRef\.current = activeId;/
+    );
+  });
+
   it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {
     const context = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"

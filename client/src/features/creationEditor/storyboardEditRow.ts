@@ -1,5 +1,10 @@
-import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
+import {
+  timelineOffsetMsToFrames,
+  type StoryTimelineVisualClip,
+} from "@shared/storyMaterial";
 import type { SelectionSourceType } from "@shared/selectionContext";
+import { videoClipId } from "@shared/visualClipModel";
+import { normalizeVisualLayer } from "@shared/timelineVisualPriority";
 import {
   msToPx,
   pxDeltaToFrame,
@@ -245,7 +250,7 @@ export type StoryboardEditSegment = {
 export function storyboardOwnedClipVisualLayer(clip: {
   visualLayer?: number;
 }): number {
-  return Math.max(0, Math.round(clip.visualLayer ?? 0));
+  return normalizeVisualLayer(clip.visualLayer);
 }
 
 export function storyboardOwnedClipNudgeBase(input: {
@@ -253,11 +258,11 @@ export function storyboardOwnedClipNudgeBase(input: {
   clip: { id: string; offsetMs?: number; visualLayer?: number };
 }) {
   return {
-    clipId: `video:${input.clip.id}`,
+    clipId: videoClipId(input.clip.id),
     startVisualLayer: storyboardOwnedClipVisualLayer(input.clip),
     startFrame:
       input.ownerStartFrame +
-      Math.round(((input.clip.offsetMs ?? 0) * 30) / 1000),
+      timelineOffsetMsToFrames(input.clip.offsetMs ?? 0),
   };
 }
 

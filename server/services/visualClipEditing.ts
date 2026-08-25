@@ -19,6 +19,7 @@ import { withTimelineDurationMs } from "../../shared/storyMaterial";
 import {
   insertVisualImageClip,
   moveVisualClip,
+  visualTrackId,
   removeVisualClip,
   type InsertVisualImageClipInput,
   type VisualEditDocument,
@@ -37,6 +38,7 @@ import {
 import {
   applyTimelineVisualLayerAction,
   hiddenTimelineVisualLayers,
+  planExtractedFrameTargetLayer,
   type TimelineVisualLayerAction,
 } from "../../shared/timelineVisualLayers";
 import {
@@ -293,6 +295,97 @@ export async function insertVisualImageClipForStory(input: {
     { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有放置成功" },
     document => insertVisualImageClip(document, input.clip)
   );
+}
+
+export type ExtractedFramePlacementResult = VisualClipEditResult & {
+  clipId?: string;
+  targetLayer?: number;
+};
+
+/**
+ * Place a durable extracted-frame asset immediately above the layer the user
+ * operated on. Layer insertion and image placement share one timeline CAS, so
+ * a hidden adjacent layer can never be shifted without the frame appearing.
+ *
+ * `clipId` is derived from the extraction request. If the timeline write
+ * succeeded but the process died before its receipt was finalized, replaying
+ * that request recognizes the existing block and leaves any later user move
+ * untouched instead of dragging the frame back to its original position.
+ */
+export async function placeExtractedFrameForStory(input: {
+  storyId: number;
+  userId: number;
+  clipId: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  timelineFrame: number;
+  operationLayer: number;
+}): Promise<ExtractedFramePlacementResult> {
+  let targetLayer: number | undefined;
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "抽帧没有放置成功",
+    },
+    document => {
+      const existing = document.items
+        .flatMap(item => item.imageClips ?? [])
+        .find(clip => clip.id === input.clipId);
+      if (existing) {
+        if (existing.imageId !== input.imageId) {
+          return {
+            status: "error",
+            message: "这个抽帧请求已绑定另一张仓库图片",
+          };
+        }
+        targetLayer = existing.visualLayer;
+        return { status: "ok", document, changed: false };
+      }
+
+      const layerPlan = planExtractedFrameTargetLayer({
+        items: document.items,
+        overlays: document.overlays,
+        state: document.visualLayerState,
+        operationLayer: input.operationLayer,
+      });
+      if (layerPlan.status === "error") {
+        return {
+          status: "error",
+          message: "操作图层已不存在，请重新选择图层后抽帧",
+        };
+      }
+      targetLayer = layerPlan.targetLayer;
+      const placement = insertVisualImageClip(
+        {
+          items: layerPlan.change.items,
+          overlays: layerPlan.change.overlays,
+          visualLayerState: layerPlan.change.state,
+        },
+        {
+          clipId: input.clipId,
+          imageId: input.imageId,
+          imageUrl: input.imageUrl,
+          label: input.label,
+          trackId: visualTrackId(layerPlan.targetLayer),
+          startFrame: input.timelineFrame,
+          durationFrames: 1,
+        }
+      );
+      if (placement.status === "error") {
+        return { status: "error", message: placement.message };
+      }
+      return {
+        status: "ok",
+        document: placement.document,
+        changed: placement.changed || layerPlan.insertedLayer,
+      };
+    }
+  );
+  return result.status === "ok"
+    ? { ...result, clipId: input.clipId, targetLayer }
+    : result;
 }
 
 export async function removeVisualClipForStory(input: {

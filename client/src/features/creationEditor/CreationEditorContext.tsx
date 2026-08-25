@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -467,6 +468,11 @@ type CreationEditorContextValue = {
     imageUrl: string;
     label: string;
     visualLayer?: number;
+  }) => Promise<void>;
+  /** 服务端权威抽帧：赢家、仓库备份、相邻层和落位都由一个可重放请求完成。 */
+  extractTimelineFrame: (input: {
+    timelineFrame: number;
+    operationLayer: number;
   }) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
   moveVisualClip: (input: {
@@ -1539,6 +1545,8 @@ export function CreationEditorProvider({
   const moveVisualClipMut = trpc.creationAgent.moveVisualClip.useMutation();
   const insertVisualImageClipMut =
     trpc.creationAgent.insertVisualImageClip.useMutation();
+  const extractTimelineFrameMut =
+    trpc.creationAgent.extractTimelineFrame.useMutation();
   const createDerivationDraftMut =
     trpc.creationAgent.createDerivationDraft.useMutation();
   const analyzeDerivationDraftMut =
@@ -1564,7 +1572,34 @@ export function CreationEditorProvider({
     spineRemoteStoryId,
   });
   const activeStoryIdRef = useRef(activeId);
-  activeStoryIdRef.current = activeId;
+  const renderedExtractionStorySessionToken = useMemo(
+    () => Symbol(`timeline-extraction-story:${activeId ?? "none"}`),
+    [activeId]
+  );
+  const committedExtractionStorySessionTokenRef = useRef(
+    renderedExtractionStorySessionToken
+  );
+  useLayoutEffect(() => {
+    // Concurrent rendering may prepare another Story and then abandon it.
+    // Advance the active Story and extraction session only after React commits
+    // that render, so the still-visible Story keeps ownership of late results.
+    activeStoryIdRef.current = activeId;
+    committedExtractionStorySessionTokenRef.current =
+      renderedExtractionStorySessionToken;
+  }, [activeId, renderedExtractionStorySessionToken]);
+  const extractionIntentByPositionRef = useRef(
+    new Map<
+      string,
+      {
+        requestId: string;
+        inFlight?: {
+          promise: Promise<void>;
+          originStorySessionToken: symbol;
+          undoRecorded: boolean;
+        };
+      }
+    >()
+  );
   const canonicalStoryShots = useStorySpine(state =>
     activeId != null &&
     (state.activeStoryId === activeId || state.remoteStoryId === activeId)
@@ -3498,10 +3533,107 @@ export function CreationEditorProvider({
       storyVideoAssetsQuery.refetch(),
     ]);
   };
+  /**
+   * 服务端权威抽帧。位置相同的并发点击共享一个 Promise；如果网络在服务端
+   * 已成功后断开，下一次点击沿用同一 requestId，回执会把成功结果原样重放。
+   */
+  const extractTimelineFrame = async (input: {
+    timelineFrame: number;
+    operationLayer: number;
+  }): Promise<void> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法抽帧");
+    const storyId = activeId;
+    const storySessionToken = renderedExtractionStorySessionToken;
+    const timelineFrame = Math.max(0, Math.round(input.timelineFrame));
+    const operationLayer = Math.max(0, Math.round(input.operationLayer));
+    const positionKey = `${storyId}:${timelineFrame}:${operationLayer}`;
+    let intent = extractionIntentByPositionRef.current.get(positionKey);
+    if (!intent) {
+      intent = {
+        requestId:
+          globalThis.crypto?.randomUUID?.() ??
+          `frame-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      };
+      extractionIntentByPositionRef.current.set(positionKey, intent);
+    }
+    let inFlight = intent.inFlight;
+    if (!inFlight) {
+      const requestId = intent.requestId;
+      const forgetCurrentIntent = () => {
+        if (extractionIntentByPositionRef.current.get(positionKey) === intent) {
+          extractionIntentByPositionRef.current.delete(positionKey);
+        }
+      };
 
+      const promise = (async () => {
+        const pollingStartedAt = Date.now();
+        let pendingDelayMs = 1_000;
+        while (true) {
+          const result = await trackCreationEditorOperation(
+            storyId,
+            extractTimelineFrameMut.mutateAsync({
+              storyId,
+              requestId,
+              timelineFrame,
+              operationLayer,
+            })
+          );
+          if (result.status === "pending") {
+            if (Date.now() - pollingStartedAt >= 20_000) {
+              throw new Error(
+                `${result.message}；完成后再次点击会沿用同一次请求，不会重复创建`
+              );
+            }
+            await new Promise(resolve =>
+              globalThis.setTimeout(resolve, pendingDelayMs)
+            );
+            pendingDelayMs = Math.min(4_000, pendingDelayMs * 2);
+            continue;
+          }
+          if (result.status === "error") {
+            if (result.requestDisposition === "replace") {
+              forgetCurrentIntent();
+            }
+            throw new Error(result.error);
+          }
+
+          await Promise.all([
+            utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+            utils.storyAgent.storyImages.invalidate({ storyId }),
+          ]);
+          forgetCurrentIntent();
+          return;
+        }
+      })();
+      inFlight = {
+        promise,
+        originStorySessionToken: storySessionToken,
+        undoRecorded: false,
+      };
+      intent.inFlight = inFlight;
+    }
+    try {
+      await inFlight.promise;
+      if (
+        activeStoryIdRef.current === storyId &&
+        committedExtractionStorySessionTokenRef.current ===
+          inFlight.originStorySessionToken &&
+        !inFlight.undoRecorded
+      ) {
+        inFlight.undoRecorded = true;
+        recordTimelineCommandUndo(storyId);
+      }
+    } finally {
+      const current = extractionIntentByPositionRef.current.get(positionKey);
+      if (current === intent && current.inFlight === inFlight) {
+        current.inFlight = undefined;
+      }
+    }
+  };
 
   /**
-   * 唯一的图片落位入口：抽帧和导入都走这里。
+   * 唯一的图片落位入口：普通导入和显式放置走这里；时间线抽帧走上面的
+   * extractTimelineFrame 聚合命令，避免客户端自己裁决赢家和分两次写入。
    *
    * 调用方不再需要知道这张图会挂在哪个镜头下面——位置是绝对帧，宿主只是存储细节。
    */
@@ -3766,7 +3898,8 @@ export function CreationEditorProvider({
       isSaving:
         updateStoryShotFieldsMut.isPending ||
         updateStoryTimelineMut.isPending ||
-        moveVisualClipMut.isPending,
+        moveVisualClipMut.isPending ||
+        extractTimelineFrameMut.isPending,
       rerenderingShotNos,
       rerenderError,
       promotingFrameCropShotNo,
@@ -3811,6 +3944,7 @@ export function CreationEditorProvider({
       createVideoTakeRange,
       splitTimelineVideoClip,
       addTimelineImageClip,
+      extractTimelineFrame,
       moveVisualClip,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,

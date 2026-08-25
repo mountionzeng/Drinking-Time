@@ -823,7 +823,7 @@ function saveImageLocally(
 export async function storeImageBytes(
   bytes: ArrayBuffer | Uint8Array,
   mimeType = "image/png",
-  options: { storageKey?: string } = {}
+  options: { storageKey?: string; requireLocal?: boolean } = {}
 ): Promise<ImageGenResult> {
   const requestedStorageKey = options.storageKey?.trim();
   if (
@@ -853,6 +853,13 @@ export async function storeImageBytes(
       }
     );
     return { status: "ok", imageUrl: localUrl, imageKey: storageKey };
+  }
+
+  // Some callers use the local asset directory as their durable quota source
+  // of truth. They must not succeed through a remote-only fallback because
+  // that would create an object which was never charged to the local quota.
+  if (options.requireLocal) {
+    throw new Error("本地图片存储不可用");
   }
 
   // 本地写不了（磁盘满/权限）：退而求其次等远程备份成功，用稳定路由（服务端会按 key 回源）

@@ -27,6 +27,7 @@ import {
   moveShotSingleForStory,
   moveVisualClipForStory,
   pasteVisualImageForStory,
+  placeExtractedFrameForStory,
   removeTimelineAnchorForStory,
   rollingTrimForStory,
   trimShotForStory,
@@ -479,6 +480,95 @@ describe("Story-scoped image paste and narrow delete", () => {
       targetLayer: 2,
     });
     expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+  });
+});
+
+describe("durable extracted-frame placement", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("inserts a visible adjacent layer and the one-frame image in one write", async () => {
+    const storyId = await seedStory();
+    const before = await getStoryTimeline(storyId, USER_ID);
+    await updateStoryTimeline({
+      storyId,
+      userId: USER_ID,
+      expectedVersion: before!.version,
+      items: before!.items,
+      overlays: before!.overlays,
+      visualLayerState: { count: 2, hidden: [1] },
+    });
+    const version = await persistedVersion(storyId);
+
+    const result = await placeExtractedFrameForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "receipt-frame-a",
+      imageId: 9001,
+      imageUrl: "/api/images/frame-a.png",
+      label: "抽帧 500ms",
+      timelineFrame: 15,
+      operationLayer: 0,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      timelineVersion: version + 1,
+      clipId: "receipt-frame-a",
+      targetLayer: 1,
+    });
+    const saved = await getStoryTimeline(storyId, USER_ID);
+    expect(saved?.visualLayerState).toEqual({ count: 4, hidden: [2] });
+    const document = {
+      items: saved!.items as VisualEditDocument["items"],
+      overlays: saved!.overlays as VisualEditDocument["overlays"],
+    };
+    expect(projectVisualClips(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "image:receipt-frame-a",
+          trackId: "track-1",
+          startFrame: 15,
+          durationFrames: 1,
+        }),
+        expect.objectContaining({ id: "overlay:ov-1", trackId: "track-2" }),
+      ])
+    );
+  });
+
+  it("treats a placed receipt clip as replay even after the user moves it", async () => {
+    const storyId = await seedStory();
+    const input = {
+      storyId,
+      userId: USER_ID,
+      clipId: "receipt-frame-b",
+      imageId: 9002,
+      imageUrl: "/api/images/frame-b.png",
+      label: "抽帧 1000ms",
+      timelineFrame: 30,
+      operationLayer: 0,
+    };
+    await placeExtractedFrameForStory(input);
+    await moveVisualClipForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "image:receipt-frame-b",
+      toTrackId: "track-3",
+      toStartFrame: 75,
+    });
+    const versionAfterMove = await persistedVersion(storyId);
+
+    const replay = await placeExtractedFrameForStory(input);
+
+    expect(replay).toMatchObject({
+      status: "ok",
+      changed: false,
+      timelineVersion: versionAfterMove,
+      targetLayer: 3,
+    });
+    expect((await persistedPlacements(storyId))["image:receipt-frame-b"]).toBe(
+      "track-3@75+1"
+    );
   });
 });
 
