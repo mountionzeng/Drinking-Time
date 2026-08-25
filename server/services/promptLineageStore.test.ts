@@ -8,6 +8,8 @@ import {
   PromptLineageOwnershipError,
   createPromptLineageMemoryStore,
   createPersistentLocalPromptLineageStore,
+  loadStoryPromptAggregate,
+  loadStoryPromptCompilationHeads,
 } from "./promptLineageStore";
 
 const owner = { storyId: 28, userId: 7 };
@@ -233,5 +235,180 @@ describe("prompt lineage memory store", () => {
       { storyId: 28, userId: 7, version: 1 },
     ]);
     expect(persisted?.nodes).toHaveLength(1);
+  });
+});
+
+describe("loadStoryPromptAggregate — single-Story narrow read (local mode)", () => {
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+  });
+
+  const seedStory = async (
+    seedOwner: { storyId: number; userId: number },
+    dimension: string,
+  ) => {
+    const store = await createPersistentLocalPromptLineageStore();
+    await store.transact(
+      { ...seedOwner, expectedVersion: 0, operationKey: `seed-${seedOwner.storyId}` },
+      tx => {
+        const node = tx.createNode({
+          stableShotId: "shot-01",
+          scope: "shot",
+          modality: "shared",
+          dimension,
+        });
+        const revision = tx.createRevision({
+          nodeId: node.id,
+          content: `内容属于 story ${seedOwner.storyId}`,
+          authorType: "user",
+        });
+        tx.confirmRevision(node.id, revision.id);
+        tx.createCompilation({
+          stableShotId: "shot-01",
+          modality: "video",
+          finalText: `编译属于 story ${seedOwner.storyId}`,
+          inputFingerprint: `fp-${seedOwner.storyId}`,
+          revisionIds: [revision.id],
+        });
+      },
+    );
+  };
+
+  it("excludes an unrelated Story's nodes/revisions/compilations from the aggregate", async () => {
+    const target = { storyId: 101, userId: 5 };
+    const other = { storyId: 202, userId: 5 };
+    await seedStory(target, "subject");
+    await seedStory(other, "subject");
+
+    const aggregate = await loadStoryPromptAggregate(target);
+
+    expect(aggregate?.state.storyId).toBe(target.storyId);
+    expect(aggregate?.nodes).toHaveLength(1);
+    expect(aggregate?.revisions.map(r => r.content)).toEqual([
+      "内容属于 story 101",
+    ]);
+    expect(aggregate?.compilations.map(c => c.finalText)).toEqual([
+      "编译属于 story 101",
+    ]);
+    // 没有一条记录把另一个 Story 的 storyId 带出来。
+    for (const collection of [
+      aggregate?.nodes,
+      aggregate?.revisions,
+      aggregate?.compilations,
+    ]) {
+      for (const item of collection ?? []) {
+        expect((item as { storyId: number }).storyId).toBe(target.storyId);
+      }
+    }
+  });
+
+  it("throws PromptLineageOwnershipError when the Story belongs to a different user", async () => {
+    const target = { storyId: 303, userId: 5 };
+    await seedStory(target, "subject");
+
+    await expect(
+      loadStoryPromptAggregate({ storyId: target.storyId, userId: 999 }),
+    ).rejects.toBeInstanceOf(PromptLineageOwnershipError);
+  });
+
+  it("returns null for a Story with no prompt lineage state yet, without throwing", async () => {
+    const aggregate = await loadStoryPromptAggregate({
+      storyId: 404,
+      userId: 5,
+    });
+    expect(aggregate).toBeNull();
+  });
+});
+
+describe("loadStoryPromptCompilationHeads — heads-only narrow read (local mode)", () => {
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+  });
+
+  it("returns only this Story's compilation heads with the fields storyMaterials needs", async () => {
+    const target = { storyId: 111, userId: 8 };
+    const other = { storyId: 222, userId: 8 };
+    const store = await createPersistentLocalPromptLineageStore();
+    for (const seedOwner of [target, other]) {
+      await store.transact(
+        {
+          ...seedOwner,
+          expectedVersion: 0,
+          operationKey: `seed-${seedOwner.storyId}`,
+        },
+        tx => {
+          const node = tx.createNode({
+            stableShotId: "shot-01",
+            scope: "shot",
+            modality: "shared",
+            dimension: "subject",
+          });
+          const revision = tx.createRevision({
+            nodeId: node.id,
+            content: "内容",
+            authorType: "user",
+          });
+          tx.confirmRevision(node.id, revision.id);
+          tx.createCompilation({
+            stableShotId: "shot-01",
+            modality: "video",
+            finalText: "编译",
+            inputFingerprint: `fp-${seedOwner.storyId}`,
+            revisionIds: [revision.id],
+          });
+        },
+      );
+    }
+
+    const heads = await loadStoryPromptCompilationHeads(target);
+
+    expect(heads).toHaveLength(1);
+    expect(heads[0]).toMatchObject({
+      stableShotId: "shot-01",
+      modality: "video",
+      storyId: target.storyId,
+    });
+    expect(typeof heads[0]?.currentCompilationId).toBe("number");
+  });
+
+  it("throws PromptLineageOwnershipError when the Story belongs to a different user", async () => {
+    const target = { storyId: 333, userId: 8 };
+    const store = await createPersistentLocalPromptLineageStore();
+    await store.transact(
+      { ...target, expectedVersion: 0, operationKey: "seed" },
+      tx => {
+        const node = tx.createNode({
+          stableShotId: "shot-01",
+          scope: "shot",
+          modality: "shared",
+          dimension: "subject",
+        });
+        const revision = tx.createRevision({
+          nodeId: node.id,
+          content: "内容",
+          authorType: "user",
+        });
+        tx.confirmRevision(node.id, revision.id);
+        tx.createCompilation({
+          stableShotId: "shot-01",
+          modality: "video",
+          finalText: "编译",
+          inputFingerprint: "fp",
+          revisionIds: [revision.id],
+        });
+      },
+    );
+
+    await expect(
+      loadStoryPromptCompilationHeads({ storyId: target.storyId, userId: 999 }),
+    ).rejects.toBeInstanceOf(PromptLineageOwnershipError);
+  });
+
+  it("returns an empty array for a Story with no compilations yet", async () => {
+    const heads = await loadStoryPromptCompilationHeads({
+      storyId: 555,
+      userId: 8,
+    });
+    expect(heads).toEqual([]);
   });
 });

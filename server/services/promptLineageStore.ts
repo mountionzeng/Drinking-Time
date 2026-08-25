@@ -46,6 +46,8 @@ import {
 import {
   getDb,
   getLocalPromptLineageState,
+  getLocalPromptLineageStateForStory,
+  getLocalPromptCompilationHeadsForStory,
   replaceLocalPromptLineageState,
 } from "../db";
 
@@ -788,7 +790,18 @@ export async function loadStoryPromptAggregate(
 ): Promise<StoryPromptAggregate | null> {
   const db = await getDb();
   if (!db) {
-    const store = await createPersistentLocalPromptLineageStore();
+    // 只读一个 Story：先按 storyId 从内存态筛出切片再 clone（见
+    // getLocalPromptLineageStateForStory），不走
+    // createPersistentLocalPromptLineageStore() 那条为写入准备的
+    // 「clone 整库 + 挂 onCommit 写回」路径——读聚合不需要能写回，也不该
+    // 为了读一个 Story 就把其它 Story 的提示词一起搬一遍。
+    const slice = await getLocalPromptLineageStateForStory(owner.storyId);
+    if (!slice) {
+      throw new Error(
+        "Persistent local prompt lineage store is unavailable in MySQL mode",
+      );
+    }
+    const store = createPromptLineageMemoryStore(slice);
     return store.hasStoryState(owner) ? store.getStoryAggregate(owner) : null;
   }
 
@@ -979,6 +992,45 @@ export async function loadStoryPromptAggregate(
         }
       : null,
   };
+}
+
+/**
+ * 只取 compilationHeads（stableShotId + modality + currentCompilationId 的
+ * 当前指针），不展开 nodes/revisions/messages 等大字段。
+ * storyMaterials.getStoryMaterialState 只用这张表拼时间线投影的 lookup，
+ * 之前却要先取回整个 loadStoryPromptAggregate（本地模式还等于先复制一遍
+ * 提示词仓库），是最重的确定性热点。
+ *
+ * 所有权校验：本地模式沿用 getStoryAggregate 那条「故事存在但不属于这个
+ * user 就抛错」的路径；SQL 模式的 WHERE 已经把 storyId 和 userId 都收在
+ * 查询条件里，跟 loadStoryPromptAggregate 的 storyPromptStates 查询同一个
+ * 口径——查不到就是空数组，不是这个函数的职责去区分「不存在」和「不属于
+ * 你」。
+ */
+export async function loadStoryPromptCompilationHeads(
+  owner: PromptLineageOwner,
+): Promise<PromptCompilationHead[]> {
+  const db = await getDb();
+  if (!db) {
+    const heads = await getLocalPromptCompilationHeadsForStory(owner.storyId);
+    if (heads.some(head => head.userId !== owner.userId)) {
+      throw new PromptLineageOwnershipError(
+        `Story ${owner.storyId} is not owned by user ${owner.userId}`,
+      );
+    }
+    return heads;
+  }
+
+  const headRows = await db
+    .select()
+    .from(promptCompilationHeads)
+    .where(
+      and(
+        eq(promptCompilationHeads.storyId, owner.storyId),
+        eq(promptCompilationHeads.userId, owner.userId),
+      ),
+    );
+  return headRows.map(row => ({ ...row, updatedAt: iso(row.updatedAt) }));
 }
 
 export async function clearStoryPromptLineage(

@@ -24,7 +24,7 @@ import {
 import { normalizeStoryVisualAssets } from "../../shared/visualAssets";
 import { getStoryById, getStoryTimeline } from "../db";
 import { getStoryImageAssets } from "./imageAssets";
-import { getStoryPromptProjection } from "./promptLineage";
+import { getStoryPromptCompilationHeads } from "./promptLineage";
 import {
   resolvePromptAssetFreshness,
   resolveVideoStaleReasons,
@@ -690,11 +690,12 @@ export async function getStoryMaterialState(
       binding,
     ])
   );
-  const [images, videos, timelineRow, promptProjection] = await Promise.all([
+  const [images, videos, timelineRow, promptCompilationHeads] =
+    await Promise.all([
       getStoryImageAssets(storyId, userId),
       getStoryVideoAssets(storyId, userId),
       getStoryTimeline(storyId, userId),
-      getStoryPromptProjection({ storyId, userId }),
+      getStoryPromptCompilationHeads({ storyId, userId }),
     ]);
   const timelineItems = normalizeTimelineItems(timelineRow?.items, facts);
   const timeline: TimelineDocument = {
@@ -712,7 +713,7 @@ export async function getStoryMaterialState(
     timeline.items.map(item => [item.stableShotId, item])
   );
   const compilationHeadByKey = new Map(
-    (promptProjection?.compilationHeads ?? []).map(head => [
+    promptCompilationHeads.map(head => [
       `${head.stableShotId}:${head.modality}`,
       head.currentCompilationId,
     ])
