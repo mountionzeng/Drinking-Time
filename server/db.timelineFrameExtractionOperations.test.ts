@@ -197,6 +197,64 @@ describe("timeline frame extraction operation receipts", () => {
     });
   });
 
+  it("reuses and replays a legacy same-Story image without a user owner", async () => {
+    const image = await db.createGeneratedImage({
+      ...imageInput(),
+      userId: null,
+      isCurrent: false,
+    });
+    const { operation } = await claim();
+    const settle = {
+      ...owner,
+      claimToken: operation.claimToken,
+      existingImageId: image.id,
+    };
+    await expect(
+      db.settleTimelineFrameExtractionAsset(settle)
+    ).resolves.toMatchObject({
+      operation: { status: "asset_ready", imageId: image.id },
+      image: { id: image.id, storyId: owner.storyId, userId: null },
+    });
+    await expect(
+      db.settleTimelineFrameExtractionAsset(settle)
+    ).resolves.toMatchObject({ image: { id: image.id, userId: null } });
+  });
+
+  it("rejects existing images from another Story or another non-null user", async () => {
+    await db.upsertUser({ openId: "receipt-other-user" });
+    const otherUser = await db.getUserByOpenId("receipt-other-user");
+    const otherStory = await db.createStory({
+      userId: otherUser!.id,
+      title: "other receipt story",
+      body: { _revision: 1, shots: [] },
+    });
+    const otherStoryLegacyImage = await db.createGeneratedImage({
+      ...imageInput(),
+      storyId: otherStory.id,
+      userId: null,
+      isCurrent: false,
+    });
+    const otherUserImage = await db.createGeneratedImage({
+      ...imageInput(),
+      userId: otherUser!.id,
+      isCurrent: false,
+    });
+    const { operation } = await claim();
+    const settle = (existingImageId: number) =>
+      db.settleTimelineFrameExtractionAsset({
+        ...owner,
+        claimToken: operation.claimToken,
+        existingImageId,
+      });
+
+    await expect(settle(otherStoryLegacyImage.id)).rejects.toThrow(
+      "不属于当前 Story"
+    );
+    await expect(settle(otherUserImage.id)).rejects.toThrow(
+      "不属于当前 Story"
+    );
+  });
+
   it("enforces terminal results and the strict state sequence", async () => {
     const { operation } = await claim();
     await expect(

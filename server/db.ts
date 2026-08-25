@@ -4058,7 +4058,10 @@ export async function settleTimelineFrameExtractionAsset(
         if (operation.status !== "asset_ready")
           throw new Error("抽帧资产状态不一致");
         const replay = memoryState.generatedImages.find(
-          row => row.id === operation.imageId
+          row =>
+            row.id === operation.imageId &&
+            row.storyId === input.storyId &&
+            (row.userId === input.userId || row.userId == null)
         );
         if (!replay) throw new Error("抽帧操作引用的图片不存在");
         return { operation, image: replay };
@@ -4074,7 +4077,7 @@ export async function settleTimelineFrameExtractionAsset(
           row =>
             row.id === input.existingImageId &&
             row.storyId === input.storyId &&
-            row.userId === input.userId
+            (row.userId === input.userId || row.userId == null)
         );
         if (!existing) throw new Error("复用图片不存在或不属于当前 Story");
         image = existing;
@@ -4145,7 +4148,10 @@ export async function settleTimelineFrameExtractionAsset(
           and(
             eq(generatedImages.id, operation.imageId),
             eq(generatedImages.storyId, input.storyId),
-            eq(generatedImages.userId, input.userId)
+            or(
+              eq(generatedImages.userId, input.userId),
+              isNull(generatedImages.userId)
+            )
           )
         )
         .limit(1);
@@ -4164,7 +4170,10 @@ export async function settleTimelineFrameExtractionAsset(
           and(
             eq(generatedImages.id, input.existingImageId),
             eq(generatedImages.storyId, input.storyId),
-            eq(generatedImages.userId, input.userId)
+            or(
+              eq(generatedImages.userId, input.userId),
+              isNull(generatedImages.userId)
+            )
           )
         )
         .limit(1);
