@@ -1944,6 +1944,11 @@
         {
           "date": "2026-08-25",
           "kind": "fix",
+          "summary": "Phase B（刷新延迟修复）：给 storyList/storyGet 两个初始化 query key 各加一个 5 秒窄 staleTime 窗口（recentStoryListCache.ts，含单测），不改全局 QueryClient。refreshStoryList 新增可选 allowRecentColdEntryCache，只有冷启动自动打开最近故事那条路径传 true；StoryListView 的手动刷新/重命名后刷新、handleDeleteStory、backToList 均未传，继续强制真实网络请求。loadStory() 的 staleTime:0 未改动，跨端同步语义不变。主仓 3000 用 Story 1186 连续 3 次整页刷新实测：每次 storyList 恰好 1 次网络请求、storyGet(1186) 恰好 1 次，不再出现刷新前重复的 storyList 第二份或 storyGet 独立第三份请求；镜头与预览渲染正常，无 console error。"
+        },
+        {
+          "date": "2026-08-25",
+          "kind": "fix",
           "summary": "Phase A（刷新延迟修复）：CreationEditorContext 把十项 query 的 isLoading 拆出 initialStoryLoading，只反映 activeId 是否已对齐 spine 的 activeStoryId/remoteStoryId（新增 isStoryScopeReady()/resolveInitialStoryLoading() 纯函数，含单测），不再等素材/发布稿/提示词谱系/供应商状态。EditingNleWorkspace 的整页 loading 门改用它。主仓 3000 用 Story 1186（37 镜头）连续 3 次整页刷新实测：Storyboard 与镜头缩略图刷新后立即渲染，未出现整页 spinner，无 console error，故事内容未串到其它 Story。"
         },
         {
