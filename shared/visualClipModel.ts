@@ -37,7 +37,7 @@ export type VisualEditDocument = {
 type VisualClipKind = "image" | "video";
 
 /** clip 落在哪个持久化实体上。移动命令据此只改那一处。 */
-type VisualClipOrigin =
+export type VisualClipOrigin =
   | { kind: "shot"; stableShotId: string }
   | { kind: "image-clip"; ownerStableShotId: string; clipId: string }
   | { kind: "video-clip"; ownerStableShotId: string; clipId: string }
@@ -420,9 +420,7 @@ function hostItemForFrame(
   const rows = buildTimelineLayout(doc.items);
   if (rows.length === 0) return null;
   const covering = rows
-    .filter(
-      row => startFrame >= row.startFrame && startFrame < row.endFrame
-    )
+    .filter(row => startFrame >= row.startFrame && startFrame < row.endFrame)
     .sort(
       (left, right) =>
         normalizeVisualLayer(left.item.visualLayer) -

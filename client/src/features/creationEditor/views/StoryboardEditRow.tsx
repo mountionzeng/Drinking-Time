@@ -752,6 +752,7 @@ function StoryboardUpperVisualLayerRow({
   viewport,
   columnSpan,
   onSelectShot,
+  selectedShotNo,
   visualLayer,
   showTopPlayhead,
   hidden,
@@ -765,6 +766,7 @@ function StoryboardUpperVisualLayerRow({
   viewport: TimelineViewport;
   columnSpan: number;
   onSelectShot: (shotNo: number) => void;
+  selectedShotNo: number | null;
   visualLayer: number;
   showTopPlayhead: boolean;
   hidden: boolean;
@@ -1387,6 +1389,9 @@ function StoryboardUpperVisualLayerRow({
                     });
                   }}
                   data-visual-clip-move-target="true"
+                  data-visual-object-type="story-shot"
+                  data-visual-object-id={shot.stableShotId}
+                  aria-selected={shot.shotNo === selectedShotNo}
                   data-testid={`storyboard-visual-layer-shot-${visualLayer + 1}-${shot.stableShotId}`}
                   aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
                   aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
@@ -1547,6 +1552,9 @@ function StoryboardUpperVisualLayerRow({
                   });
                 }}
                 data-visual-clip-move-target={clip ? "true" : undefined}
+                data-visual-object-type={clip ? "image-clip" : undefined}
+                data-visual-object-id={clip?.id}
+                aria-selected={false}
                 aria-keyshortcuts={
                   clip
                     ? "ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
@@ -3014,8 +3022,11 @@ function StoryboardEditTrack({
                 });
               }}
               data-visual-clip-move-target="true"
+              data-visual-object-type="image-clip"
+              data-visual-object-id={clip.id}
+              aria-selected={false}
               aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
-              aria-label={`${clip.label}，方向键左右移动、上下换层，按住 Shift 加速`}
+              aria-label={`${clip.label}，图片`}
               title={`${clip.label} · 方向键左右移动、上下换层，Shift+左右移动 15 帧`}
               data-testid={`storyboard-main-image-clip-${clip.imageId}`}
             >
@@ -3089,6 +3100,9 @@ function StoryboardEditTrack({
                   : `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`
               }
               data-visual-clip-move-target="true"
+              data-visual-object-type="story-shot"
+              data-visual-object-id={shot.stableShotId}
+              aria-selected={selected}
               aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
               aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
@@ -3268,6 +3282,21 @@ function StoryboardEditTrack({
                       }
                       testId={`storyboard-edit-filmstrip-${shot.stableShotId}-${segment.id}`}
                     />
+                    {segment.clip ? (
+                      <button
+                        type="button"
+                        className="absolute inset-0 z-10 min-w-6 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        data-visual-object-type="owned-video-clip"
+                        data-visual-object-id={segment.clip.id}
+                        aria-selected={false}
+                        aria-label={`${segment.clip.label}，视频片段`}
+                        onPointerDown={event => event.stopPropagation()}
+                        onClick={event => {
+                          event.stopPropagation();
+                          timeline.onTogglePlay(false);
+                        }}
+                      />
+                    ) : null}
                   </span>
                 );
               })}
@@ -4110,6 +4139,7 @@ export function StoryboardEditRow({
           viewport={viewport}
           columnSpan={columnSpan}
           onSelectShot={onSelectShot}
+          selectedShotNo={selectedShotNo}
           visualLayer={visualLayer}
           showTopPlayhead={index === 0}
           hidden={visualLayerState.hidden.includes(visualLayer)}

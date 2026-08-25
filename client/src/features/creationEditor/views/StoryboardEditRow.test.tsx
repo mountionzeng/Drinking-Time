@@ -96,6 +96,64 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
+  it("exposes canonical type, stable selection state, and independent focus targets", () => {
+    const richShots: StoryboardEditShot[] = [
+      {
+        ...shots[0],
+        timelineItem: {
+          stableShotId: "sh-01",
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+          timelineStartFrame: 0,
+          durationFrames: 60,
+          visualLayer: 0,
+          imageClips: [
+            {
+              id: "img-one",
+              imageId: 11,
+              imageUrl: "/one.png",
+              label: "关键帧",
+              offsetFrames: 10,
+              durationFrames: 1,
+              visualLayer: 0,
+            },
+          ],
+          visualClips: [
+            {
+              id: "vid-one",
+              takeId: 5,
+              rangeId: 6,
+              sourceStableShotId: "source",
+              videoUrl: "/one.mp4",
+              label: "内部片段",
+              sourceStartSec: 0,
+              sourceEndSec: 1,
+              offsetMs: 500,
+              durationMs: 500,
+              visualLayer: 0,
+            },
+          ],
+        },
+      },
+      shots[1],
+    ];
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={richShots}
+        selectedShotNo={1}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain('data-visual-object-type="story-shot"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('data-visual-object-type="owned-video-clip"');
+    expect(html).toContain('data-visual-object-type="image-clip"');
+    expect(html).toContain('aria-label="内部片段，视频片段"');
+    expect(html).toContain('aria-label="关键帧，图片"');
+  });
 
   it("keeps drag completion pending until the persisted move finishes", async () => {
     let finishMove!: () => void;
@@ -137,8 +195,6 @@ describe("StoryboardEditRow", () => {
     expect(settled).toBe(true);
   });
 
-
-
   it("resolves the release layer from track geometry instead of the dragged child", () => {
     expect(
       storyboardVisualLayerAtPoint({
@@ -179,10 +235,6 @@ describe("StoryboardEditRow", () => {
       })?.visualLayer
     ).not.toBe(1);
   });
-
-
-
-
 
   it("advertises arrow movement on ordinary video clips", () => {
     const html = renderRow(boardTimeline({ onMoveVisualClip: vi.fn() }));
@@ -291,12 +343,8 @@ describe("StoryboardEditRow", () => {
     expect(upperShotMarkup).toContain(
       'data-testid="storyboard-upper-shot-filmstrip-sh-01"'
     );
-    expect(upperShotMarkup).toContain(
-      "/api/video-frames/56?atSec=0.500"
-    );
-    expect(upperShotMarkup).toContain(
-      "/api/video-frames/56?atSec=1.500"
-    );
+    expect(upperShotMarkup).toContain("/api/video-frames/56?atSec=0.500");
+    expect(upperShotMarkup).toContain("/api/video-frames/56?atSec=1.500");
     expect(upperShotMarkup).toContain('data-pointer-clip-move="true"');
   });
 
