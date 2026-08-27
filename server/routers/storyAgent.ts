@@ -2037,7 +2037,9 @@ export const storyAgentRouter = router({
             sceneAnalysis: input.sceneAnalysis,
           });
         const referenceImage =
-          referencePlan.primaryImage ?? lockedAssets?.sceneRef;
+          referencePlan.primaryImage ??
+          lockedAssets?.sceneRef ??
+          lockedAssets?.petRef;
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
@@ -2166,7 +2168,7 @@ export const storyAgentRouter = router({
             ? {
                 fingerprint: lockedAssets.fingerprint,
                 kinds: Object.keys(lockedAssets.dimensions) as Array<
-                  "character" | "scene" | "style"
+                  "character" | "pet" | "scene" | "style"
                 >,
                 promptContract: lockedAssets.promptContract,
               }
@@ -2278,6 +2280,10 @@ export const storyAgentRouter = router({
                     ...(lockedAssets?.sceneRef &&
                     lockedAssets.sceneRef !== referenceImage
                       ? [lockedAssets.sceneRef]
+                      : []),
+                    ...(lockedAssets?.petRef &&
+                    lockedAssets.petRef !== referenceImage
+                      ? [lockedAssets.petRef]
                       : []),
                   ])
                 ).slice(0, 3),

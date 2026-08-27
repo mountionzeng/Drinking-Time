@@ -2,15 +2,168 @@ import { describe, expect, it } from "vitest";
 
 import {
   normalizeStoryVisualAssets,
+  recoverableVisualAssetBoardOperationToken,
+  recoverableVisualAssetViewOperationToken,
   requiredVisualAssetViewRoles,
+  visualAssetFixedFactsAreComplete,
+  visualAssetReferenceRoleFor,
 } from "./visualAssets";
+
+describe("pet visual assets", () => {
+  it("uses an independent identity responsibility and requires stable pet facts", () => {
+    expect(visualAssetReferenceRoleFor("pet")).toBe("pet-identity");
+    expect(requiredVisualAssetViewRoles("pet")).toEqual([
+      "front",
+      "profile",
+      "back",
+      "identity-detail",
+    ]);
+    expect(
+      visualAssetFixedFactsAreComplete({
+        kind: "pet",
+        species: "金毛犬",
+        face: "深色杏仁眼，黑色鼻头",
+        coat: "金黄色中长毛，耳部颜色略深",
+        body: "中大型，胸宽，尾巴蓬松",
+        distinctiveFeatures: ["左耳尖有一小块浅色毛"],
+        accessories: ["红色项圈"],
+      })
+    ).toBe(true);
+  });
+});
+
+describe("recoverableVisualAssetBoardOperationToken", () => {
+  it("reuses the failed board token when a paid view already succeeded for the same input", () => {
+    expect(
+      recoverableVisualAssetBoardOperationToken(
+        [
+          {
+            token: "visual-board-old:view:front",
+            kind: "generate_views",
+            status: "succeeded",
+            createdAt: 1,
+            updatedAt: 2,
+            inputHash: "same-input",
+            resultId: "1746",
+          },
+          {
+            token: "visual-board-old:view:profile",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 3,
+            updatedAt: 4,
+            inputHash: "same-input",
+            error: "fetch failed",
+          },
+          {
+            token: "visual-board-old",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 5,
+            updatedAt: 6,
+            inputHash: "same-input",
+            error: "fetch failed",
+          },
+        ],
+        "same-input"
+      )
+    ).toBe("visual-board-old");
+  });
+
+  it("does not reuse a token from a different input or a completed board", () => {
+    expect(
+      recoverableVisualAssetBoardOperationToken(
+        [
+          {
+            token: "visual-board-other",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 1,
+            updatedAt: 2,
+            inputHash: "other-input",
+          },
+          {
+            token: "visual-board-complete",
+            kind: "generate_views",
+            status: "succeeded",
+            createdAt: 3,
+            updatedAt: 4,
+            inputHash: "same-input",
+          },
+        ],
+        "same-input"
+      )
+    ).toBeUndefined();
+  });
+});
+
+describe("recoverableVisualAssetViewOperationToken", () => {
+  it("reuses a failed single-view token for the same quoted view after reload", () => {
+    expect(
+      recoverableVisualAssetViewOperationToken(
+        [
+          {
+            token: "visual-view-old:view:identity-detail",
+            kind: "generate_views",
+            status: "succeeded",
+            createdAt: 1,
+            updatedAt: 2,
+            inputHash: "same-view-input",
+            resultId: "1753",
+          },
+          {
+            token: "visual-view-old",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 3,
+            updatedAt: 4,
+            inputHash: "same-view-input",
+            error: "board composition failed",
+          },
+        ],
+        "same-view-input",
+        "identity-detail"
+      )
+    ).toBe("visual-view-old");
+  });
+
+  it("does not reuse a token for another role or input", () => {
+    expect(
+      recoverableVisualAssetViewOperationToken(
+        [
+          {
+            token: "visual-view-old:view:front",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 1,
+            updatedAt: 2,
+            inputHash: "other-input",
+          },
+          {
+            token: "visual-view-old",
+            kind: "generate_views",
+            status: "failed",
+            createdAt: 3,
+            updatedAt: 4,
+            inputHash: "other-input",
+          },
+        ],
+        "same-view-input",
+        "identity-detail"
+      )
+    ).toBeUndefined();
+  });
+});
 
 function completeCharacterVersion(overrides: Record<string, unknown> = {}) {
   return {
     id: "character-v1",
     version: 1,
     status: "locked",
-    referenceImageIds: [101, 102],
+    references: [
+      { imageId: 101, role: "character-identity" },
+      { imageId: 102, role: "character-identity" },
+    ],
     fixedFacts: {
       kind: "character",
       face: "圆脸，左眼下有小痣",
@@ -34,6 +187,117 @@ function completeCharacterVersion(overrides: Record<string, unknown> = {}) {
 }
 
 describe("normalizeStoryVisualAssets", () => {
+  it("migrates legacy image IDs into explicit type-scoped reference responsibilities", () => {
+    const aggregate = normalizeStoryVisualAssets({
+      schemaVersion: 1,
+      assets: [
+        {
+          id: "scene-a",
+          kind: "scene",
+          name: "旧场景",
+          versions: [
+            {
+              id: "scene-v1",
+              version: 1,
+              status: "draft",
+              referenceImageIds: [201, 202, 201],
+              fixedFacts: { kind: "scene", geometry: [], materials: [], fixedProps: [] },
+              allowedVariations: [],
+              conflicts: [],
+              views: [],
+              createdAt: 1,
+            },
+          ],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(aggregate.schemaVersion).toBe(2);
+    expect(aggregate.assets[0]?.versions[0]?.references).toEqual([
+      { imageId: 201, role: "scene-space" },
+      { imageId: 202, role: "scene-space" },
+    ]);
+  });
+
+  it("deduplicates and limits legacy image references to the typed reference invariant", () => {
+    const legacyIds = [1, 1, ...Array.from({ length: 13 }, (_, index) => index + 2)];
+    const aggregate = normalizeStoryVisualAssets({
+      schemaVersion: 1,
+      assets: [
+        {
+          id: "character-a",
+          kind: "character",
+          name: "旧人物",
+          versions: [
+            {
+              id: "character-v1",
+              version: 1,
+              status: "draft",
+              referenceImageIds: legacyIds,
+              fixedFacts: { kind: "character", face: "", hair: "", outfit: "", accessories: [] },
+              allowedVariations: [],
+              conflicts: [],
+              views: [],
+              createdAt: 1,
+            },
+          ],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(aggregate.assets[0]?.versions[0]?.references).toEqual(
+      Array.from({ length: 12 }, (_, index) => ({
+        imageId: index + 1,
+        role: "character-identity",
+      }))
+    );
+  });
+
+  it("drops references whose responsibility does not match the asset type", () => {
+    const aggregate = normalizeStoryVisualAssets({
+      assets: [
+        {
+          id: "style-a",
+          kind: "style",
+          name: "画风",
+          versions: [
+            {
+              id: "style-v1",
+              version: 1,
+              status: "draft",
+              references: [
+                { imageId: 301, role: "style-language" },
+                { imageId: 302, role: "character-identity" },
+              ],
+              fixedFacts: {
+                kind: "style",
+                medium: [],
+                brushwork: [],
+                formLanguage: [],
+                colorLanguage: [],
+                forbidden: [],
+              },
+              allowedVariations: [],
+              conflicts: [],
+              views: [],
+              createdAt: 1,
+            },
+          ],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(aggregate.assets[0]?.versions[0]?.references).toEqual([
+      { imageId: 301, role: visualAssetReferenceRoleFor("style") },
+    ]);
+  });
+
   it("保留完整 locked 版本，并让历史绑定继续指向旧版本", () => {
     const aggregate = normalizeStoryVisualAssets({
       schemaVersion: 1,

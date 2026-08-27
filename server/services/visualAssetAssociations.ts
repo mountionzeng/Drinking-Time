@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 
 import {
   visualAssetSetFingerprint,
+  VISUAL_ASSET_KINDS,
   type ShotVisualAssetBindingProposal,
   type ShotVisualAssetSelection,
   type StoryVisualAsset,
@@ -30,6 +31,7 @@ const defaultDependencies: AssociationDependencies = {
 type RawBinding = {
   stableShotId?: unknown;
   characterAssetId?: unknown;
+  petAssetId?: unknown;
   sceneAssetId?: unknown;
   styleAssetId?: unknown;
   rationale?: unknown;
@@ -88,12 +90,12 @@ function currentLockedAssets(assets: StoryVisualAsset[]) {
 
 function systemPrompt(): string {
   return [
-    "你是 Story 视觉资产绑定助手。根据镜头内容和已经锁定的资产，为每个镜头提出人物、场景和美术风格绑定建议。",
-    "只能使用输入中列出的 assetId，禁止发明资产或版本。每镜最多一个主要人物、一个场景和一个风格。",
+    "你是 Story 视觉资产绑定助手。根据镜头内容和已经锁定的资产，为每个镜头提出人物、宠物、场景和美术风格绑定建议。",
+    "只能使用输入中列出的 assetId，禁止发明资产或版本。每镜最多一个主要人物、一个主要宠物、一个场景和一个风格；人物和宠物是两个独立维度，可以同时绑定。",
     "建议只是待确认提案，不能假定它已经生效。",
     "如果镜头文字要求改变资产固定事实（例如短发变长发、红外套变白衬衫、房间布局改变、媒介改变），必须写入 conflicts，不能暗中选一边。",
     "严格返回 JSON：",
-    '{"bindings":[{"stableShotId":"","characterAssetId":"","sceneAssetId":"","styleAssetId":"","rationale":{"character":"","scene":"","style":""},"conflicts":[{"kind":"character","field":"hair","assetFact":"短发","shotRequest":"长发"}]}]}',
+    '{"bindings":[{"stableShotId":"","characterAssetId":"","petAssetId":"","sceneAssetId":"","styleAssetId":"","rationale":{"character":"","pet":"","scene":"","style":""},"conflicts":[{"kind":"pet","field":"coat","assetFact":"金色长毛","shotRequest":"黑色短毛"}]}]}',
     "没有适合资产的维度省略对应 assetId；不要为了填满而乱绑。",
   ].join("\n");
 }
@@ -115,8 +117,8 @@ function normalizeConflicts(value: unknown): VisualAssetBindingConflict[] {
   return value.flatMap(raw => {
     const item = record(raw);
     const kind =
-      item.kind === "character" || item.kind === "scene" || item.kind === "style"
-        ? item.kind
+      VISUAL_ASSET_KINDS.includes(item.kind as VisualAssetKind)
+        ? (item.kind as VisualAssetKind)
         : undefined;
     const field = text(item.field, 160);
     const assetFact = text(item.assetFact);
@@ -183,15 +185,17 @@ export async function proposeVisualAssetAssociations(input: {
     if (!stableShotId || !shotIds.has(stableShotId) || seenShots.has(stableShotId)) continue;
     const selections: ShotVisualAssetSelection = {};
     const character = versionSelection(raw.characterAssetId, "character", assets);
+    const pet = versionSelection(raw.petAssetId, "pet", assets);
     const scene = versionSelection(raw.sceneAssetId, "scene", assets);
     const style = versionSelection(raw.styleAssetId, "style", assets);
     if (character) selections.character = character;
+    if (pet) selections.pet = pet;
     if (scene) selections.scene = scene;
     if (style) selections.style = style;
-    if (!character && !scene && !style) continue;
+    if (!character && !pet && !scene && !style) continue;
     const rationaleRaw = record(raw.rationale);
     const rationale: Partial<Record<VisualAssetKind, string>> = {};
-    for (const kind of ["character", "scene", "style"] as const) {
+    for (const kind of VISUAL_ASSET_KINDS) {
       const reason = text(rationaleRaw[kind]);
       if (reason) rationale[kind] = reason;
     }

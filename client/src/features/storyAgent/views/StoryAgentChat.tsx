@@ -79,10 +79,13 @@ import {
 } from "@/features/publishingDraft/PublishingIntentProposalDialog";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
+  buildImportedImageRefs,
   buildImportedMediaPrompt,
   chatMediaFileKey,
   chatMediaKind,
   inferChatMediaMime,
+  isImportedImageGenerationRequest,
+  extractImportedPhotoFeatures,
   MAX_CHAT_MEDIA_ATTACHMENTS,
   readChatMediaBase64,
   selectChatMediaFiles,
@@ -771,6 +774,7 @@ export default function StoryAgentChat({
             kind: result.kind,
             fileName: attachment.file.name,
             assetId: result.kind === "image" ? result.imageId : result.takeId,
+            imageUrl: result.kind === "image" ? result.imageUrl : undefined,
             targetShotNo:
               result.kind === "video" ? (targetShot?.shotNo ?? null) : null,
             targetCueCode:
@@ -791,6 +795,48 @@ export default function StoryAgentChat({
         toast.error(failures.slice(0, 2).join("；"));
       }
       if (imported.length === 0) return;
+
+      if (imported.some(item => item.kind === "image")) {
+        const extraction = await extractImportedPhotoFeatures({
+          imported,
+          extract: photo => creationEditor.extractPhotoVisualFeatures(photo),
+          onProgress: (completed, total) =>
+            setMediaProgress(
+              `正在提取人物、宠物、场景和物体特征 ${completed} / ${total}`
+            ),
+        });
+        if (extraction.createdKinds.length > 0) {
+          const labels = [
+            extraction.createdKinds.includes("character") ? "人物" : "",
+            extraction.createdKinds.includes("pet") ? "宠物" : "",
+            extraction.createdKinds.includes("scene") ? "场景与物体" : "",
+          ].filter(Boolean);
+          toast.success(
+            `已建立待检查的${labels.join("、")}资产；完成标准视图、锁定和绑定后，后续生成会自动关联`
+          );
+        }
+        if (extraction.failures.length > 0) {
+          toast.error(
+            `${extraction.failures.slice(0, 2).join("；")}。图片已保留在素材库，可稍后重试。`
+          );
+        }
+      }
+
+      if (isImportedImageGenerationRequest({ instruction: text, imported })) {
+        const store = chatImageRefsStore.getState();
+        store.scopeToStory(storyId);
+        for (const ref of buildImportedImageRefs(imported)) {
+          const rejected = chatImageRefsStore.getState().toggle(storyId, ref);
+          if (rejected) toast.error(rejected);
+        }
+        const refs = chatImageRefsStore.getState().refs;
+        setInput("");
+        if (remix.arm(text, refs)) {
+          setMediaProgress("参考图已就绪，等待确认生成");
+          resizeAndFocusInput();
+          return;
+        }
+      }
 
       setInput("");
       setMediaProgress("聊聊正在看片并整理归属…");

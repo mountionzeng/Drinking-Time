@@ -944,7 +944,13 @@ export default function MaterialWarehousePanel({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-3 custom-scrollbar">
+        <div
+          className={`min-h-0 flex-1 custom-scrollbar ${
+            drawerTab === "assets"
+              ? "overflow-x-hidden overflow-y-auto p-2"
+              : "overflow-x-auto overflow-y-hidden p-3"
+          }`}
+        >
           {panelError || error ? (
             <div className="mb-2 text-xs text-destructive">
               {panelError ?? error?.message}

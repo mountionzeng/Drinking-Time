@@ -357,6 +357,10 @@ type CreationEditorContextValue = {
     note?: string;
     preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
+  extractPhotoVisualFeatures: (input: {
+    imageId: number;
+    sourceLabel: string;
+  }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
   attachChatCutXml: (xml: string) => Promise<{
     primaryClipCount: number;
     audioClipCount: number;
@@ -1611,6 +1615,8 @@ export function CreationEditorProvider({
     trpc.storyAgent.deleteExtractedFrame.useMutation();
   const importStoryMaterialMut =
     trpc.creationAgent.importStoryMaterial.useMutation();
+  const extractPhotoVisualFeaturesMut =
+    trpc.visualAssets.extractPhotoFeatures.useMutation();
   const attachChatCutXmlMut = trpc.storyAgent.attachChatCutXml.useMutation();
   const adviseStoryImagesMut =
     trpc.creationAgent.adviseStoryImages.useMutation();
@@ -3158,6 +3164,34 @@ export function CreationEditorProvider({
     };
   };
 
+  const extractPhotoVisualFeatures = async (input: {
+    imageId: number;
+    sourceLabel: string;
+  }): Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法提取照片特征");
+    const latest = await utils.visualAssets.read.fetch({ storyId: activeId });
+    const result = await extractPhotoVisualFeaturesMut.mutateAsync({
+      storyId: activeId,
+      expectedRevision: latest.revision,
+      // 同一 Story 的同一张导入图只做一次自动提取。响应丢失或页面重试时，
+      // 服务端按稳定 token 回放回执，避免再次调用视觉模型并创建重复资产。
+      operationToken: `chat-photo-features-${activeId}-${input.imageId}`,
+      imageId: input.imageId,
+      sourceLabel: input.sourceLabel,
+    });
+    void Promise.all([
+      utils.visualAssets.read.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      storyMaterialQuery.refetch(),
+    ]).catch(error => {
+      console.warn(
+        "[creation-editor] visual asset refresh after photo extraction failed",
+        error
+      );
+    });
+    return { createdKinds: result.createdKinds };
+  };
+
   const attachChatCutXml = async (xml: string) => {
     if (activeId == null) throw new Error("故事尚未加载，无法同步 ChatCut XML");
     const result = await attachChatCutXmlMut.mutateAsync({
@@ -4085,6 +4119,7 @@ export function CreationEditorProvider({
       deleteStoryImage,
       deleteExtractedFrame,
       importStoryMaterial,
+      extractPhotoVisualFeatures,
       attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,
@@ -4193,6 +4228,7 @@ export function CreationEditorProvider({
       deleteStoryImage,
       deleteExtractedFrame,
       importStoryMaterial,
+      extractPhotoVisualFeatures,
       attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,

@@ -507,7 +507,7 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
     expect(mocks.editImage).not.toHaveBeenCalled();
   });
 
-  it("资产镜头注入人物、场景和风格三种独立职责", async () => {
+  it("资产镜头注入人物、宠物、场景和风格四种独立职责", async () => {
     mocks.resolveVisualAssetGenerationContext.mockResolvedValue({
       status: "ready",
       snapshot: {
@@ -517,10 +517,12 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
         fingerprint: "fixed-snapshot",
         promptContract: "【锁定视觉资产·最高优先级】固定事实",
         characterRef: "https://assets.test/character.png",
+        petRef: "https://assets.test/pet.png",
         sceneRef: "data:image/png;base64,scene",
         styleRef: "https://assets.test/style.png",
         dimensions: {
           character: { views: [] },
+          pet: { views: [] },
           scene: { views: [] },
           style: { views: [] },
         },
@@ -561,7 +563,10 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
         characterRef: "https://assets.test/character.png",
         characterWeight: 100,
         styleRef: "https://assets.test/style.png",
-        referenceContextImageUrls: ["data:image/png;base64,scene"],
+        referenceContextImageUrls: [
+          "data:image/png;base64,scene",
+          "https://assets.test/pet.png",
+        ],
         requireInputImage: true,
       })
     );
@@ -573,6 +578,61 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
       expect.any(Function)
     );
     expect(mocks.deriveInjection).not.toHaveBeenCalled();
+  });
+
+  it("宠物单独绑定时作为独立图片参考，不冒充人物 characterRef", async () => {
+    mocks.resolveVisualAssetGenerationContext.mockResolvedValue({
+      status: "ready",
+      snapshot: {
+        storyId: 8,
+        stableShotId: "shot-001",
+        provider: "midjourney",
+        fingerprint: "pet-only-snapshot",
+        promptContract: "【宠物资产锁】金毛犬",
+        petRef: "https://assets.test/pet.png",
+        dimensions: { pet: { views: [] } },
+      },
+    });
+    mocks.editImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+    const request = {
+      prompt: "金毛犬跑向镜头",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      imageProvider: "midjourney",
+      assets: [
+        asset({
+          shotIdentity: "shot-001",
+          isCurrent: false,
+          isPrimary: false,
+        }),
+      ],
+    } as const;
+    const quote = await generateNextImage(request);
+    expect(quote.status).toBe("confirmation_required");
+    if (quote.status !== "confirmation_required") return;
+    const result = await generateNextImage({
+      ...request,
+      visualAssetCostConfirmation: {
+        accepted: true,
+        estimatedCny: quote.estimatedCny,
+        fingerprint: quote.fingerprint,
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    const options = mocks.editImage.mock.calls[0]?.[2];
+    expect(options).toMatchObject({
+      referenceContextImageUrls: ["https://assets.test/pet.png"],
+      requireInputImage: true,
+    });
+    expect(options).not.toHaveProperty("characterRef");
+    expect(options).not.toHaveProperty("characterWeight");
   });
 
   it("Happy path：无连续性资产 → 走 generateImage，落一张待确认图，返回 ok", async () => {

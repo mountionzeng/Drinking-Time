@@ -6,6 +6,7 @@
  */
 
 import { hasStoryAgentCompute } from "../_core/agentChannel";
+import { VISUAL_ASSET_KINDS } from "../../shared/visualAssets";
 import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
 import {
@@ -692,9 +693,9 @@ export async function generateNextImage(
         lockedVisualAssets: lockedAssets
           ? {
               fingerprint: lockedAssets.fingerprint,
-              kinds: Object.keys(lockedAssets.dimensions) as Array<
-                "character" | "scene" | "style"
-              >,
+              kinds: VISUAL_ASSET_KINDS.filter(kind =>
+                Boolean(lockedAssets.dimensions[kind])
+              ),
               promptContract: lockedAssets.promptContract,
             }
           : undefined,
@@ -706,13 +707,23 @@ export async function generateNextImage(
       },
       async prompt => {
         const generateAttempt = (attemptPrompt: string) => {
-        const editBase = continuitySource ?? lockedAssets?.sceneRef;
+        const editBase =
+          continuitySource ?? lockedAssets?.sceneRef ?? lockedAssets?.petRef;
         if (editBase) {
           return editImage(editBase, attemptPrompt, {
             provider: input.imageProvider,
             ...injection,
-            ...(lockedAssets?.sceneRef && continuitySource
-              ? { referenceContextImageUrls: [lockedAssets.sceneRef] }
+            ...(lockedAssets
+              ? {
+                  referenceContextImageUrls: Array.from(
+                    new Set(
+                      [lockedAssets.sceneRef, lockedAssets.petRef].filter(
+                        (value): value is string =>
+                          Boolean(value) && value !== editBase
+                      )
+                    )
+                  ),
+                }
               : {}),
             ...(lockedAssets ? { requireInputImage: true } : {}),
           });

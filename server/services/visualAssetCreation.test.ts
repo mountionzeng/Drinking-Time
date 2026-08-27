@@ -17,7 +17,9 @@ const db = await import("../db");
 const persistence = await import("./visualAssetPersistence");
 const creation = await import("./visualAssetCreation");
 
-async function seedDraft(kind: "character" | "scene" | "style" = "character") {
+async function seedDraft(
+  kind: "character" | "pet" | "scene" | "style" = "character"
+) {
   const referenceBytes = await sharp({
     create: {
       width: 1024,
@@ -52,7 +54,19 @@ async function seedDraft(kind: "character" | "scene" | "style" = "character") {
     operationToken: `create-${kind}`,
     kind,
     name: kind === "character" ? "红外套人物" : "测试资产",
-    referenceImageIds: [image.id],
+    references: [
+      {
+        imageId: image.id,
+        role:
+          kind === "character"
+            ? "character-identity"
+            : kind === "pet"
+              ? "pet-identity"
+            : kind === "scene"
+              ? "scene-space"
+              : "style-language",
+      },
+    ],
     now: 10,
   });
   const asset = created.aggregate.assets[0]!;
@@ -66,6 +80,216 @@ vi.setConfig({ testTimeout: 30_000 });
 describe("visual asset creation", () => {
   beforeEach(() => {
     db.resetMemoryStateForTesting();
+  });
+
+  it("extracts character, pet, scene, and object facts from one photo with one vision call", async () => {
+    const referenceBytes = await sharp({
+      create: {
+        width: 1200,
+        height: 800,
+        channels: 3,
+        background: { r: 120, g: 140, b: 160 },
+      },
+    }).png().toBuffer();
+    const story = await db.createStory({
+      userId: 72,
+      title: "聊天照片",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await db.createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 72,
+      shotNo: null,
+      shotIdentity: null,
+      imageUrl: `data:image/png;base64,${referenceBytes.toString("base64")}`,
+      imageKey: null,
+      prompt: "聊天上传",
+      generationType: "import",
+      isCurrent: false,
+    });
+    const vision = vi.fn(async () => ({
+      modelLabel: "vision-test",
+      text: JSON.stringify({
+        character: {
+          present: true,
+          face: "方圆脸，浓眉",
+          hair: "黑色短发",
+          outfit: "米色风衣",
+          accessories: ["黑框眼镜"],
+        },
+        pet: {
+          present: true,
+          species: "金毛犬",
+          face: "深色杏仁眼，黑色鼻头",
+          coat: "金黄色中长毛，耳部颜色略深",
+          body: "中大型，胸宽，尾巴蓬松",
+          distinctiveFeatures: ["左耳尖有一小块浅色毛"],
+          accessories: ["红色项圈"],
+        },
+        scene: {
+          geometry: ["狭长走廊"],
+          materials: ["白色瓷砖"],
+          fixedProps: ["蓝色储物柜"],
+        },
+      }),
+    }));
+
+    const result = await creation.extractPhotoVisualFeatures({
+      storyId: story.id,
+      userId: 72,
+      expectedRevision: 1,
+      operationToken: "chat-photo-features-1",
+      imageId: image.id,
+      sourceLabel: "走廊.jpg",
+      dependencies: {
+        vision: vision as never,
+        materialize: async value => value,
+        now: () => 20,
+      },
+    });
+
+    expect(vision).toHaveBeenCalledTimes(1);
+    expect(vision.mock.calls[0]?.[0].system).toContain("人物、宠物、场景和关键物体");
+    expect(vision.mock.calls[0]?.[0].system).toContain("看不清就留空");
+    expect(vision.mock.calls[0]?.[0].imageUrls[0]).toMatch(
+      /^data:image\/jpeg;base64,/
+    );
+    expect(result.createdKinds).toEqual(["character", "pet", "scene"]);
+    expect(result.aggregate.assets).toHaveLength(3);
+    expect(result.aggregate.assets[1]?.versions[0]?.fixedFacts).toMatchObject({
+      kind: "pet",
+      species: "金毛犬",
+      coat: "金黄色中长毛，耳部颜色略深",
+    });
+    expect(result.aggregate.assets[2]?.versions[0]?.fixedFacts).toMatchObject({
+      kind: "scene",
+      fixedProps: ["蓝色储物柜"],
+    });
+  });
+
+  it("does not invent a character when no face is present", async () => {
+    const { story, image } = await seedDraft("scene");
+    const result = await creation.extractPhotoVisualFeatures({
+      storyId: story.id,
+      userId: 71,
+      expectedRevision: 2,
+      operationToken: "chat-photo-no-person",
+      imageId: image.id,
+      sourceLabel: "空房间.png",
+      dependencies: {
+        vision: async () => ({
+          modelLabel: "vision-test",
+          text: JSON.stringify({
+            character: {
+              present: false,
+              face: "模型不应保存的猜测",
+              hair: "",
+              outfit: "",
+              accessories: [],
+            },
+            scene: {
+              geometry: ["方形房间"],
+              materials: ["木地板"],
+              fixedProps: ["单人沙发"],
+            },
+          }),
+        }),
+        materialize: async value => value,
+      },
+    });
+
+    expect(result.createdKinds).toEqual(["scene"]);
+    expect(result.aggregate.assets.filter(asset => asset.kind === "character")).toHaveLength(0);
+  });
+
+  it("skips an incomplete pet while preserving other reliable photo assets", async () => {
+    const { story, image } = await seedDraft("scene");
+    const result = await creation.extractPhotoVisualFeatures({
+      storyId: story.id,
+      userId: 71,
+      expectedRevision: 2,
+      operationToken: "chat-photo-incomplete-pet",
+      imageId: image.id,
+      sourceLabel: "人物和模糊宠物.png",
+      dependencies: {
+        vision: async () => ({
+          modelLabel: "vision-test",
+          text: JSON.stringify({
+            character: {
+              present: true,
+              face: "方圆脸，浓眉",
+              hair: "黑色短发",
+              outfit: "米色风衣",
+              accessories: [],
+            },
+            pet: {
+              present: true,
+              species: "犬",
+              face: "",
+              coat: "棕色短毛",
+              body: "",
+              distinctiveFeatures: [],
+              accessories: [],
+            },
+            scene: {
+              geometry: ["狭长走廊"],
+              materials: ["白色瓷砖"],
+              fixedProps: [],
+            },
+          }),
+        }),
+        materialize: async value => value,
+      },
+    });
+
+    expect(result.createdKinds).toEqual(["character", "scene"]);
+    expect(result.aggregate.assets.filter(asset => asset.kind === "pet")).toHaveLength(0);
+  });
+
+  it("analyzes a pet draft with pet-only facts and four identity views", async () => {
+    const { story, asset, version } = await seedDraft("pet");
+    const vision = vi.fn(async () => ({
+      modelLabel: "vision-test",
+      text: JSON.stringify({
+        fixedFacts: {
+          species: "金毛犬",
+          face: "深色杏仁眼，黑色鼻头",
+          coat: "金黄色中长毛",
+          body: "中大型，胸宽，尾巴蓬松",
+          distinctiveFeatures: ["左耳尖有浅色毛"],
+          accessories: ["红色项圈"],
+        },
+        allowedVariations: ["动作", "表情", "光线"],
+        conflicts: [],
+      }),
+    }));
+    const analyzed = await creation.analyzeVisualAssetVersion({
+      storyId: story.id,
+      userId: 71,
+      expectedRevision: 2,
+      operationToken: "analyze-pet",
+      assetId: asset.id,
+      versionId: version.id,
+      dependencies: {
+        vision: vision as never,
+        materialize: async value => value,
+      },
+    });
+
+    expect(vision.mock.calls[0]?.[0].system).toContain("宠物固定外观");
+    expect(vision.mock.calls[0]?.[0].system).toContain("毛色纹理");
+    expect(analyzed.aggregate.assets[0]?.versions[0]?.fixedFacts).toMatchObject({
+      kind: "pet",
+      species: "金毛犬",
+      coat: "金黄色中长毛",
+    });
+    expect(creation.generatedVisualAssetViewRoles("pet")).toEqual([
+      "front",
+      "profile",
+      "back",
+      "identity-detail",
+    ]);
   });
 
   afterAll(async () => {
@@ -136,6 +360,7 @@ describe("visual asset creation", () => {
     expect(visionInput.imageUrls).toHaveLength(1);
     expect(visionInput.imageUrls[0]).toMatch(/^data:image\/jpeg;base64,/);
     expect(visionInput.userText).toContain("第 1 格=图片 ID");
+    expect(visionInput.userText).toContain("职责：character-identity");
     const board = Buffer.from(visionInput.imageUrls[0]!.split(",")[1]!, "base64");
     await expect(sharp(board).metadata()).resolves.toMatchObject({
       width: 512,
@@ -335,13 +560,22 @@ describe("visual asset creation", () => {
     for (const prompt of viewPrompts) {
       expect(prompt).toContain("本次只画这一个视角");
       expect(prompt).toContain("禁止自行拼成多格、三视图、对比图或分镜");
+      expect(prompt).toContain("中性浅灰色影棚背景");
+    }
+    for (const prompt of viewPrompts.slice(0, 3)) {
       // 参考图是半身肖像，edit 模式会连取景一起带过来。
       // 只写「全身」不够，必须把镜头距离、上下留白和禁止截断点都写死。
       expect(prompt).toContain("从头顶到鞋底必须完整出现在画面里");
       expect(prompt).toContain("不能在膝盖、大腿或腰部截断");
-      expect(prompt).toContain("中性浅灰色影棚背景");
       expect(prompt).toContain("禁止坐姿");
     }
+    // 头部特写不能再混入前三个全身视角的通用模板。真实付费生成 #1749/#1751
+    // 都因为同一条 prompt 同时要求「只画头肩」和「从头到鞋完整入画」而退化成全身图。
+    expect(viewPrompts[3]).toContain("只允许头部、颈部和肩线入画");
+    expect(viewPrompts[3]).toContain("绝不能出现胸部以下、腰、手、腿、脚或全身");
+    expect(viewPrompts[3]).not.toContain("从头顶到鞋底必须完整出现在画面里");
+    expect(viewPrompts[3]).not.toContain("全身占画面高度的约 80%");
+    expect(viewPrompts[3]).not.toContain("禁止坐姿");
     // 背面视图最容易被模型画成回头看镜头，必须逐条堵死。
     expect(viewPrompts[2]).toContain("看不到脸、看不到任何五官");
     expect(viewPrompts[2]).toContain("禁止回头、禁止侧脸、禁止露出半张脸");
@@ -1012,6 +1246,20 @@ describe("visual asset creation", () => {
     });
     expect(crashed.status).toBe("error");
     expect(edit).toHaveBeenCalledTimes(1);
+    const afterCrash = await persistence.getStoryVisualAssets({
+      storyId: story.id,
+      userId: 71,
+    });
+    expect(
+      afterCrash.aggregate.operations.find(
+        receipt => receipt.token === "regenerate-profile-retry"
+      )?.inputHash
+    ).toBe(viewQuote.inputHash);
+    expect(
+      afterCrash.aggregate.operations.find(
+        receipt => receipt.token === "regenerate-profile-retry:view:profile"
+      )?.inputHash
+    ).toBe(viewQuote.inputHash);
 
     // 同一个 token 重试：图已经买到手了，绝不能再买一遍。
     failFinalize = false;

@@ -1,4 +1,10 @@
-import type { VisualAssetKind } from "@shared/visualAssets";
+import {
+  VISUAL_ASSET_KINDS,
+  type ShotVisualAssetBinding,
+  type ShotVisualAssetSelection,
+  type VisualAssetKind,
+  type VisualAssetVersionRef,
+} from "@shared/visualAssets";
 
 /**
  * 「把这张图里的人换成素材里的那个人物」——选中一张镜头画面，在聊天框里点名用
@@ -22,12 +28,14 @@ import type { VisualAssetKind } from "@shared/visualAssets";
  */
 const KIND_WORDS: Record<VisualAssetKind, readonly string[]> = {
   character: ["人物", "角色", "主角", "女主", "男主"],
+  pet: ["宠物", "猫咪", "小猫", "狗狗", "小狗", "动物"],
   scene: ["场景", "地点", "环境"],
   style: ["风格", "画风", "调性"],
 };
 
 const LOOSE_KIND_WORDS: Record<VisualAssetKind, readonly string[]> = {
   character: ["人"],
+  pet: ["猫", "狗", "犬"],
   scene: ["景"],
   style: [],
 };
@@ -75,6 +83,21 @@ export type AssetSwapIntent =
     }
   | { status: "ready"; kind: VisualAssetKind; asset: AssetSwapCandidate };
 
+/** Replace one dimension without dropping the shot's other confirmed assets. */
+export function mergeAssetSwapSelection(input: {
+  binding?: ShotVisualAssetBinding;
+  kind: VisualAssetKind;
+  replacement: VisualAssetVersionRef;
+}): ShotVisualAssetSelection {
+  const selection: ShotVisualAssetSelection = {};
+  for (const kind of VISUAL_ASSET_KINDS) {
+    const current = input.binding?.[kind];
+    if (current) selection[kind] = current;
+  }
+  selection[input.kind] = input.replacement;
+  return selection;
+}
+
 function mentions(text: string, words: readonly string[]): boolean {
   return words.some(word => text.includes(word));
 }
@@ -85,10 +108,10 @@ export function detectAssetSwapKind(
 ): VisualAssetKind | null {
   const text = instruction.trim();
   if (!text) return null;
-  for (const kind of ["character", "scene", "style"] as const) {
+  for (const kind of VISUAL_ASSET_KINDS) {
     if (mentions(text, KIND_WORDS[kind])) return kind;
   }
-  for (const kind of ["character", "scene", "style"] as const) {
+  for (const kind of VISUAL_ASSET_KINDS) {
     if (mentions(text, LOOSE_KIND_WORDS[kind])) return kind;
   }
   return null;
@@ -154,6 +177,7 @@ export function detectAssetSwapIntent(input: {
 
 export function assetKindLabel(kind: VisualAssetKind): string {
   if (kind === "character") return "人物";
+  if (kind === "pet") return "宠物";
   if (kind === "scene") return "场景";
   return "风格";
 }

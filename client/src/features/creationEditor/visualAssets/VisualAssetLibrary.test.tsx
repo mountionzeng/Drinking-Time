@@ -39,6 +39,8 @@ vi.mock("@/lib/trpc", () => {
         resolveConflicts: { useMutation: mutation },
         quoteCanonicalBoard: { useMutation: mutation },
         generateCanonicalBoard: { useMutation: mutation },
+        quoteView: { useMutation: mutation },
+        regenerateView: { useMutation: mutation },
         proposeBindings: { useMutation: mutation },
         confirmBindings: { useMutation: mutation },
       },
@@ -46,13 +48,16 @@ vi.mock("@/lib/trpc", () => {
   };
 });
 
-import VisualAssetLibrary, { visualAssetLockBlockers } from "./VisualAssetLibrary";
+import VisualAssetLibrary, {
+  visualAssetBoardConfirmationMessage,
+  visualAssetLockBlockers,
+} from "./VisualAssetLibrary";
 
 const draftVersion = {
   id: "character-v1",
   version: 1,
   status: "draft" as const,
-  referenceImageIds: [101],
+  references: [{ imageId: 101, role: "character-identity" as const }],
   legacyReferenceIds: [],
   fixedFacts: {
     kind: "character" as const,
@@ -68,12 +73,80 @@ const draftVersion = {
 };
 
 describe("VisualAssetLibrary", () => {
-  it("shows assets as a first-class warehouse category and explains lock blockers", () => {
+  it("describes all four paid character views before confirmation", () => {
+    const message = visualAssetBoardConfirmationMessage("character", {
+      candidateCount: 4,
+      estimatedCny: 5.96,
+    });
+
+    expect(message).toContain("分 4 次生成");
+    expect(message).toContain("正面头部特写");
+    expect(message).toContain("正面全身");
+    expect(message).toContain("严格 90° 侧面全身");
+    expect(message).toContain("背面全身");
+    expect(message).toContain("¥5.96");
+  });
+
+  it("makes the standard board and individual views available for large preview", () => {
+    api.data = {
+      storyId: 7,
+      revision: 5,
+      aggregate: {
+        schemaVersion: 2,
+        legacyMigrationVersion: 1,
+        assets: [
+          {
+            id: "character-a",
+            kind: "character",
+            name: "开发者女孩",
+            versions: [
+              {
+                ...draftVersion,
+                status: "review",
+                boardImageId: 201,
+                views: [
+                  {
+                    id: "character-v1-front",
+                    role: "front",
+                    imageId: 202,
+                    status: "unknown",
+                    failureReason: "自动质检超时",
+                  },
+                ],
+              },
+            ],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        proposals: [],
+        bindings: [],
+        operations: [],
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <VisualAssetLibrary
+        storyId={7}
+        images={[
+          { id: 201, imageUrl: "/board.png", label: "标准板" },
+          { id: 202, imageUrl: "/front.png", label: "正面" },
+        ]}
+      />
+    );
+
+    expect(html).toContain('aria-label="查看 开发者女孩 标准板大图"');
+    expect(html).toContain('aria-label="查看 开发者女孩 front 大图"');
+    expect(html).toContain('aria-label="重新生成 开发者女孩 正面全身"');
+    expect(html).toContain("查看大图");
+  });
+
+  it("shows asset cards without the redundant library instructions", () => {
     api.data = {
       storyId: 7,
       revision: 2,
       aggregate: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         legacyMigrationVersion: 1,
         assets: [
           {
@@ -98,20 +171,54 @@ describe("VisualAssetLibrary", () => {
       />
     );
 
-    expect(html).toContain("资产");
     expect(html).toContain("红外套人物");
-    expect(html).toContain("尚未生成人物三视图");
+    expect(html).toContain("尚未生成人物标准视图");
     expect(html).toContain("锁定前还需");
-    expect(html).toContain("同一镜头只需关联一次，图片和视频生成都会使用");
+    expect(html).not.toContain("锁定人物、场景和美术风格");
+    expect(html).not.toContain("使用顺序");
+    expect(html).not.toContain("同一镜头只需关联一次，图片和视频生成都会使用");
     expect(html).toContain("disabled");
   });
 
-  it("offers one character three-view board after reference analysis", () => {
+  it("stacks asset cards in the compact drawer instead of forcing a horizontal strip", () => {
+    api.data = {
+      storyId: 7,
+      revision: 2,
+      aggregate: {
+        schemaVersion: 2,
+        legacyMigrationVersion: 1,
+        assets: [
+          {
+            id: "character-a",
+            kind: "character",
+            name: "红外套人物",
+            versions: [draftVersion],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        proposals: [],
+        bindings: [],
+        operations: [],
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <VisualAssetLibrary storyId={7} images={[]} compact />
+    );
+
+    expect(html).toContain('data-visual-asset-layout="drawer-stack"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("min-w-[720px]");
+    expect(html).not.toContain("w-[430px]");
+  });
+
+  it("offers all required character standard views after reference analysis", () => {
     api.data = {
       storyId: 7,
       revision: 3,
       aggregate: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         legacyMigrationVersion: 1,
         assets: [
           {
@@ -145,8 +252,7 @@ describe("VisualAssetLibrary", () => {
       <VisualAssetLibrary storyId={7} images={[]} currentStableShotId="shot-01" />
     );
 
-    expect(html).toContain("生成人物三视图");
-    expect(html).toContain("① 生成人物三视图");
+    expect(html).toContain("生成人物标准视图");
   });
 
   it("reports unresolved conflicts separately from missing views", () => {
@@ -175,12 +281,12 @@ describe("VisualAssetLibrary", () => {
     expect(blockers).toContain("标准视图尚未生成");
   });
 
-  it("keeps the three-view next step visible while character conflicts await confirmation", () => {
+  it("keeps the standard-view next step visible while character conflicts await confirmation", () => {
     api.data = {
       storyId: 7,
       revision: 4,
       aggregate: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         legacyMigrationVersion: 1,
         assets: [
           {
@@ -223,7 +329,7 @@ describe("VisualAssetLibrary", () => {
 
     expect(html).toContain("下一步：确认人物固定造型");
     expect(html).toContain("推荐：使用已整理的固定造型");
-    expect(html).toContain("确认推荐造型，继续生成三视图");
-    expect(html).toContain("确认造型后，此处直接生成人物三视图");
+    expect(html).toContain("确认推荐造型，继续生成标准视图");
+    expect(html).toContain("确认造型后，此处直接生成人物标准视图");
   });
 });

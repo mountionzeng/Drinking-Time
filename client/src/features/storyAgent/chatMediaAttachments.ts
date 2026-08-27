@@ -1,3 +1,5 @@
+import type { ChatImageRef } from "./chatImageRefs";
+
 export const MAX_CHAT_MEDIA_ATTACHMENTS = 8;
 export const MAX_CHAT_IMAGE_BYTES = 30 * 1024 * 1024;
 export const MAX_CHAT_VIDEO_BYTES = 200 * 1024 * 1024;
@@ -17,6 +19,8 @@ export type ImportedChatMedia = {
   kind: ChatMediaKind;
   fileName: string;
   assetId: number;
+  /** Imported generated_images URL. Present for images that can become image-to-image refs. */
+  imageUrl?: string;
   targetShotNo?: number | null;
   targetCueCode?: string | null;
 };
@@ -142,4 +146,77 @@ export function buildImportedMediaPrompt(
     list,
     "请先判断它们各自适合哪个镜头、怎样与前后镜头衔接，以及还需要怎样裁切、调色或做成动态；先给建议，不要自动覆盖已有时间线。",
   ].join("\n");
+}
+
+const IMAGE_GENERATION_INTENT =
+  /(?:生成.{0,12}(?:一张|图片|图像|插画|照片|海报|画面|新图)|生图|出图|画(?:一张|成|出来)?|重绘|重画|改图|(?:做成|变成|换成).{0,12}(?:一张|图片|图像|插画|照片|海报|画面|水彩|油画|漫画|卡通|视觉|风格)|generate|create\s+(?:an?\s+)?image|turn\s+.+\s+into|redraw|restyle)/i;
+const NEGATED_IMAGE_GENERATION_INTENT =
+  /(?:不要|不用|无需|别).{0,12}(?:生成|生图|出图|画|重绘|重画|改图)|(?:do\s+not|don't).{0,20}(?:generate|create|redraw|restyle)/i;
+
+/**
+ * Dragged media is a general material-import surface, not an implicit paid job.
+ * Route to image-to-image only when an imported image exists and the user's own
+ * instruction explicitly asks for a new visual. Analysis requests stay in chat.
+ */
+export function isImportedImageGenerationRequest(input: {
+  instruction: string;
+  imported: readonly ImportedChatMedia[];
+}): boolean {
+  const instruction = input.instruction.trim();
+  if (!instruction || !input.imported.some(item => item.kind === "image")) {
+    return false;
+  }
+  if (NEGATED_IMAGE_GENERATION_INTENT.test(instruction)) return false;
+  return IMAGE_GENERATION_INTENT.test(instruction);
+}
+
+/** Convert freshly persisted uploads into the same reference identity every panel uses. */
+export function buildImportedImageRefs(
+  imported: readonly ImportedChatMedia[]
+): ChatImageRef[] {
+  return imported.flatMap(item =>
+    item.kind === "image" && item.imageUrl
+      ? [
+          {
+            imageId: item.assetId,
+            imageUrl: item.imageUrl,
+            label: `${item.fileName} · 聊聊上传`,
+          },
+        ]
+      : []
+  );
+}
+
+export async function extractImportedPhotoFeatures(input: {
+  imported: readonly ImportedChatMedia[];
+  extract: (photo: {
+    imageId: number;
+    sourceLabel: string;
+  }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
+  onProgress?: (completed: number, total: number) => void;
+}): Promise<{
+  createdKinds: Array<"character" | "pet" | "scene">;
+  failures: string[];
+}> {
+  const photos = input.imported.filter(item => item.kind === "image");
+  const createdKinds = new Set<"character" | "pet" | "scene">();
+  const failures: string[] = [];
+  for (let index = 0; index < photos.length; index += 1) {
+    const photo = photos[index]!;
+    input.onProgress?.(index + 1, photos.length);
+    try {
+      const result = await input.extract({
+        imageId: photo.assetId,
+        sourceLabel: photo.fileName,
+      });
+      result.createdKinds.forEach(kind => createdKinds.add(kind));
+    } catch (error) {
+      failures.push(
+        `${photo.fileName}：${
+          error instanceof Error ? error.message : "特征提取失败"
+        }`
+      );
+    }
+  }
+  return { createdKinds: [...createdKinds], failures };
 }

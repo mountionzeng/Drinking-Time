@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { protectedProcedure, router } from "../_core/trpc";
 import {
+  VISUAL_ASSET_KINDS,
+  VISUAL_ASSET_REFERENCE_ROLES,
+} from "../../shared/visualAssets";
+import {
   amendVisualAssetFixedFacts,
   deleteVisualAsset,
   deleteVisualAssetVersion,
@@ -27,6 +31,7 @@ import {
 import { getStoryRevision } from "../services/storySync";
 import {
   analyzeVisualAssetVersion,
+  extractPhotoVisualFeatures,
   generateVisualAssetCanonicalBoard,
   quoteVisualAssetCanonicalBoard,
   quoteVisualAssetView,
@@ -49,14 +54,22 @@ const versionRefSchema = z
   })
   .strict();
 
+const assetReferenceSchema = z
+  .object({
+    imageId: z.number().int().positive(),
+    role: z.enum(VISUAL_ASSET_REFERENCE_ROLES),
+  })
+  .strict();
+
 const selectionSchema = z
   .object({
     character: versionRefSchema.optional(),
+    pet: versionRefSchema.optional(),
     scene: versionRefSchema.optional(),
     style: versionRefSchema.optional(),
   })
   .strict()
-  .refine(value => Boolean(value.character || value.scene || value.style), {
+  .refine(value => Boolean(value.character || value.pet || value.scene || value.style), {
     message: "至少选择一项视觉资产",
   });
 
@@ -130,9 +143,9 @@ export const visualAssetsRouter = router({
   createDraft: protectedProcedure
     .input(
       mutationEnvelope.extend({
-        kind: z.enum(["character", "scene", "style"]),
+        kind: z.enum(VISUAL_ASSET_KINDS),
         name: z.string().trim().min(1).max(240),
-        referenceImageIds: z.array(z.number().int().positive()).min(1).max(12),
+        references: z.array(assetReferenceSchema).min(1).max(12),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -149,7 +162,7 @@ export const visualAssetsRouter = router({
     .input(
       mutationEnvelope.extend({
         assetId: z.string().trim().min(1).max(160),
-        referenceImageIds: z.array(z.number().int().positive()).min(1).max(12),
+        references: z.array(assetReferenceSchema).min(1).max(12),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -207,6 +220,24 @@ export const visualAssetsRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         return await analyzeVisualAssetVersion({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        return routeError(error);
+      }
+    }),
+
+  extractPhotoFeatures: protectedProcedure
+    .input(
+      mutationEnvelope.extend({
+        imageId: z.number().int().positive(),
+        sourceLabel: z.string().trim().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await extractPhotoVisualFeatures({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         return routeError(error);
       }

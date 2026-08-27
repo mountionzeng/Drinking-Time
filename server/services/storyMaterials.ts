@@ -842,7 +842,9 @@ export async function getStoryMaterialState(
       .filter(imageId => !directImageIds.has(imageId))
       .flatMap(imageId => {
         const image = imageById.get(imageId);
-        return image
+        // 视觉资产标准板和视角有自己的资产分类。它们可以通过 parentImageId
+        // 保留与原镜头参考图的证据谱系，但不能因此混进普通“图片”素材列表。
+        return image && image.kind !== "visual_asset"
           ? [
               {
                 ...image,

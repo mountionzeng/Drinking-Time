@@ -9,6 +9,7 @@ import type {
   VisualAssetFixedFacts,
   VisualAssetKind,
   VisualAssetOperationReceipt,
+  VisualAssetReference,
   VisualAssetVersion,
   VisualAssetView,
   VisualAssetViewRole,
@@ -16,10 +17,14 @@ import type {
 } from "../../shared/visualAssets";
 import {
   emptyStoryVisualAssets,
+  emptyVisualAssetFacts,
   isVisualAssetVersionLockable,
   requiredVisualAssetViewRoles,
   normalizeStoryVisualAssets,
+  visualAssetFixedFactsAreComplete,
   visualAssetSetFingerprint,
+  visualAssetReferenceRoleFor,
+  VISUAL_ASSET_KINDS,
 } from "../../shared/visualAssets";
 import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import { getGeneratedImageById, getStoryById } from "../db";
@@ -217,25 +222,26 @@ async function assertOwnedReferenceImages(input: {
   return imageIds;
 }
 
-function emptyFacts(kind: VisualAssetKind): VisualAssetFixedFacts {
-  if (kind === "character") {
-    return { kind, face: "", hair: "", outfit: "", accessories: [] };
+async function assertOwnedReferences(input: {
+  storyId: number;
+  userId: number;
+  kind: VisualAssetKind;
+  references: VisualAssetReference[];
+}): Promise<VisualAssetReference[]> {
+  const expectedRole = visualAssetReferenceRoleFor(input.kind);
+  if (input.references.some(reference => reference.role !== expectedRole)) {
+    throw new VisualAssetValidationError("参考图职责与资产类型不一致");
   }
-  if (kind === "scene") {
-    return { kind, geometry: [], materials: [], fixedProps: [] };
-  }
-  return {
-    kind,
-    medium: [],
-    brushwork: [],
-    formLanguage: [],
-    colorLanguage: [],
-    forbidden: [],
-  };
+  const imageIds = await assertOwnedReferenceImages({
+    storyId: input.storyId,
+    userId: input.userId,
+    imageIds: input.references.map(reference => reference.imageId),
+  });
+  return imageIds.map(imageId => ({ imageId, role: expectedRole }));
 }
 
 function allowedVariations(kind: VisualAssetKind): string[] {
-  return kind === "character"
+  return kind === "character" || kind === "pet"
     ? ["景别", "机位", "动作", "表情", "光线"]
     : kind === "scene"
       ? ["景别", "机位", "人物动作", "光线"]
@@ -249,7 +255,7 @@ export async function createVisualAssetDraft(input: {
   operationToken: string;
   kind: VisualAssetKind;
   name: string;
-  referenceImageIds: number[];
+  references: VisualAssetReference[];
   now?: number;
 }): Promise<VisualAssetMutationResult> {
   const name = input.name.trim().slice(0, 240);
@@ -258,10 +264,11 @@ export async function createVisualAssetDraft(input: {
     ...input,
     operationKind: "analyze",
     mutate: async (aggregate, _story, now) => {
-      const referenceImageIds = await assertOwnedReferenceImages({
+      const references = await assertOwnedReferences({
         storyId: input.storyId,
         userId: input.userId,
-        imageIds: input.referenceImageIds,
+        kind: input.kind,
+        references: input.references,
       });
       const assetId = `va_${nanoid(12)}`;
       const versionId = `vav_${nanoid(12)}`;
@@ -274,9 +281,9 @@ export async function createVisualAssetDraft(input: {
             id: versionId,
             version: 1,
             status: "draft",
-            referenceImageIds,
+            references,
             legacyReferenceIds: [],
-            fixedFacts: emptyFacts(input.kind),
+            fixedFacts: emptyVisualAssetFacts(input.kind),
             allowedVariations: allowedVariations(input.kind),
             conflicts: [],
             views: [],
@@ -294,26 +301,156 @@ export async function createVisualAssetDraft(input: {
   });
 }
 
+export type PhotoVisualAssetKind = "character" | "pet" | "scene";
+
+export function photoVisualAssetKindsFromResultId(
+  resultId?: string
+): PhotoVisualAssetKind[] {
+  if (!resultId?.startsWith("photo-features:")) return [];
+  const kinds = resultId
+    .slice("photo-features:".length)
+    .split(",")
+    .map(part => part.split("=")[0]);
+  return (["character", "pet", "scene"] as const).filter(kind =>
+    kinds.includes(kind)
+  );
+}
+
+/**
+ * One uploaded photo is one observation, but it can support independent
+ * character, pet, and scene responsibilities. Persist every observed version
+ * in one Story CAS so retries cannot leave a partial feature set.
+ */
+export async function createAnalyzedVisualAssetsFromPhoto(input: {
+  storyId: number;
+  userId: number;
+  expectedRevision: number;
+  operationToken: string;
+  imageId: number;
+  sourceLabel: string;
+  character?: Extract<VisualAssetFixedFacts, { kind: "character" }>;
+  pet?: Extract<VisualAssetFixedFacts, { kind: "pet" }>;
+  scene?: Extract<VisualAssetFixedFacts, { kind: "scene" }>;
+  now?: number;
+}): Promise<VisualAssetMutationResult> {
+  const sourceLabel =
+    input.sourceLabel
+      .trim()
+      .replace(/\.[a-z0-9]{1,10}$/i, "")
+      .slice(0, 180) || `照片 #${input.imageId}`;
+  if (input.character && !visualAssetFixedFactsAreComplete(input.character)) {
+    throw new VisualAssetValidationError("人物特征不完整，未保存人物资产");
+  }
+  if (input.pet && !visualAssetFixedFactsAreComplete(input.pet)) {
+    throw new VisualAssetValidationError("宠物特征不完整，未保存宠物资产");
+  }
+  const hasSceneFacts = Boolean(
+    input.scene &&
+      (input.scene.geometry.length > 0 ||
+        input.scene.materials.length > 0 ||
+        input.scene.fixedProps.length > 0)
+  );
+  if (!input.character && !input.pet && !hasSceneFacts) {
+    throw new VisualAssetValidationError(
+      "照片中没有可保存的人物、宠物、场景或物体特征"
+    );
+  }
+
+  return mutateVisualAssets({
+    ...input,
+    operationKind: "analyze",
+    mutate: async (aggregate, _story, now) => {
+      await assertOwnedReferenceImages({
+        storyId: input.storyId,
+        userId: input.userId,
+        imageIds: [input.imageId],
+      });
+      const created: Array<{
+        kind: PhotoVisualAssetKind;
+        asset: StoryVisualAsset;
+      }> = [];
+      const addAsset = (
+        kind: PhotoVisualAssetKind,
+        name: string,
+        fixedFacts: VisualAssetFixedFacts
+      ) => {
+        const assetId = `va_${nanoid(12)}`;
+        const versionId = `vav_${nanoid(12)}`;
+        created.push({
+          kind,
+          asset: {
+            id: assetId,
+            kind,
+            name,
+            versions: [
+              {
+                id: versionId,
+                version: 1,
+                status: "review",
+                references: [
+                  {
+                    imageId: input.imageId,
+                    role: visualAssetReferenceRoleFor(kind),
+                  },
+                ],
+                legacyReferenceIds: [],
+                fixedFacts,
+                allowedVariations: allowedVariations(kind),
+                conflicts: [],
+                views: [],
+                createdAt: now,
+              },
+            ],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      };
+
+      if (input.character) {
+        addAsset("character", `${sourceLabel} · 人物`, input.character);
+      }
+      if (input.pet) {
+        addAsset("pet", `${sourceLabel} · 宠物`, input.pet);
+      }
+      if (input.scene && hasSceneFacts) {
+        addAsset("scene", `${sourceLabel} · 场景与物体`, input.scene);
+      }
+      const resultId = `photo-features:${created
+        .map(item => `${item.kind}=${item.asset.id}`)
+        .join(",")}`;
+      return {
+        aggregate: {
+          ...aggregate,
+          assets: [...aggregate.assets, ...created.map(item => item.asset)],
+        },
+        resultId,
+      };
+    },
+  });
+}
+
 export async function createVisualAssetVersion(input: {
   storyId: number;
   userId: number;
   expectedRevision: number;
   operationToken: string;
   assetId: string;
-  referenceImageIds: number[];
+  references: VisualAssetReference[];
   now?: number;
 }): Promise<VisualAssetMutationResult> {
   return mutateVisualAssets({
     ...input,
     operationKind: "analyze",
     mutate: async (aggregate, _story, now) => {
-      const referenceImageIds = await assertOwnedReferenceImages({
-        storyId: input.storyId,
-        userId: input.userId,
-        imageIds: input.referenceImageIds,
-      });
       const asset = aggregate.assets.find(item => item.id === input.assetId);
       if (!asset) throw new VisualAssetNotFoundError(input.assetId);
+      const references = await assertOwnedReferences({
+        storyId: input.storyId,
+        userId: input.userId,
+        kind: asset.kind,
+        references: input.references,
+      });
       const versionId = `vav_${nanoid(12)}`;
       const version = Math.max(0, ...asset.versions.map(item => item.version)) + 1;
       return {
@@ -329,9 +466,9 @@ export async function createVisualAssetVersion(input: {
                       id: versionId,
                       version,
                       status: "draft" as const,
-                      referenceImageIds,
+                      references,
                       legacyReferenceIds: [],
-                      fixedFacts: emptyFacts(item.kind),
+                      fixedFacts: emptyVisualAssetFacts(item.kind),
                       allowedVariations: allowedVariations(item.kind),
                       conflicts: [],
                       views: [],
@@ -709,7 +846,7 @@ export async function forkVisualAssetVersion(input: {
         id: versionId,
         version: versionNumber,
         status: "review",
-        referenceImageIds: [...source.referenceImageIds],
+        references: source.references.map(reference => ({ ...reference })),
         legacyReferenceIds: [...(source.legacyReferenceIds ?? [])],
         fixedFacts: source.fixedFacts,
         allowedVariations: [...source.allowedVariations],
@@ -738,7 +875,7 @@ function boundShotsFor(
 ): string[] {
   const shots = new Set<string>();
   for (const binding of aggregate.bindings) {
-    for (const kind of ["character", "scene", "style"] as const) {
+    for (const kind of VISUAL_ASSET_KINDS) {
       const ref = binding[kind];
       if (ref && match(ref)) shots.add(binding.stableShotId);
     }
@@ -829,7 +966,7 @@ export async function deleteVisualAsset(input: {
           assets: aggregate.assets.filter(item => item.id !== asset.id),
           // 该资产的绑定建议一并作废，别留下指向不存在资产的提案。
           proposals: aggregate.proposals.filter(proposal =>
-            !(["character", "scene", "style"] as const).some(
+            !VISUAL_ASSET_KINDS.some(
               kind => proposal.selections[kind]?.assetId === asset.id
             )
           ),

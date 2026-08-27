@@ -152,4 +152,18 @@ describe("canonical board structure inspection", () => {
     expect(invoke.mock.calls[0]?.[0].system).toContain("2×2 四格");
     expect(invoke.mock.calls[0]?.[0].userText).toContain("establishing");
   });
+
+  it("checks a pet as one animal across four identity views", async () => {
+    const invoke = invoker(
+      JSON.stringify({ checks: [], confidence: 0.99, reason: "x" })
+    );
+    await inspectCanonicalBoardStructure({
+      kind: "pet",
+      boardImageUrl: BOARD,
+      invoke: invoke as never,
+    });
+    expect(invoke.mock.calls[0]?.[0].system).toContain("同一只宠物");
+    expect(invoke.mock.calls[0]?.[0].system).toContain("没有人物、其他动物");
+    expect(invoke.mock.calls[0]?.[0].userText).toContain("identity-detail");
+  });
 });

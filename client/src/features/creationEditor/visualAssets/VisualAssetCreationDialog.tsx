@@ -1,7 +1,11 @@
-import { Check, ImagePlus, Loader2, Palette, UserRound, Warehouse, X } from "lucide-react";
+import { Check, ImagePlus, Loader2, Palette, PawPrint, UserRound, Warehouse, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { VisualAssetKind } from "@shared/visualAssets";
+import {
+  visualAssetReferenceRoleFor,
+  type VisualAssetKind,
+  type VisualAssetReference,
+} from "@shared/visualAssets";
 
 export type VisualAssetImageOption = {
   id: number;
@@ -12,7 +16,7 @@ export type VisualAssetImageOption = {
 export type VisualAssetCreationValue = {
   kind: VisualAssetKind;
   name: string;
-  referenceImageIds: number[];
+  references: VisualAssetReference[];
 };
 
 const KIND_OPTIONS: Array<{
@@ -26,6 +30,12 @@ const KIND_OPTIONS: Array<{
     label: "人物",
     description: "锁定脸、发型、服饰和配件",
     icon: UserRound,
+  },
+  {
+    kind: "pet",
+    label: "宠物",
+    description: "锁定物种、头脸、毛色纹理、体型和标志特征",
+    icon: PawPrint,
   },
   {
     kind: "scene",
@@ -43,6 +53,23 @@ const KIND_OPTIONS: Array<{
 
 export function visualAssetKindLabel(kind: VisualAssetKind): string {
   return KIND_OPTIONS.find(option => option.kind === kind)?.label ?? kind;
+}
+
+export function visualAssetReferenceResponsibilityLabel(
+  kind: VisualAssetKind
+): string {
+  if (kind === "character") return "只证明人物身份与固定造型，不控制构图和场景";
+  if (kind === "pet") return "只证明宠物身份与固定外观，不控制人物、构图和场景";
+  if (kind === "scene") return "只证明空间、材质与固定陈设，不改写人物";
+  return "只证明媒介、笔触、造型和色彩语言，不复刻主体与布局";
+}
+
+export function visualAssetReferencesFor(
+  kind: VisualAssetKind,
+  imageIds: number[]
+): VisualAssetReference[] {
+  const role = visualAssetReferenceRoleFor(kind);
+  return Array.from(new Set(imageIds)).map(imageId => ({ imageId, role }));
 }
 
 export default function VisualAssetCreationDialog({
@@ -101,7 +128,7 @@ export default function VisualAssetCreationDialog({
               {initialKind ? `建立新的${visualAssetKindLabel(initialKind)}版本` : "创建视觉资产"}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              先明确资产类型，再选择同一设计的参考图。AI 不会把人物、场景和画风混在一起分析。
+              先明确资产类型，再选择同一设计的参考图。AI 不会把人物、宠物、场景和画风混在一起分析。
             </p>
           </div>
           <button
@@ -175,7 +202,7 @@ export default function VisualAssetCreationDialog({
 
               <div>
                 <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="font-medium">选择参考图</span>
+                  <span className="font-medium">选择参考图并确认逐图职责</span>
                   <span className="text-muted-foreground">
                     已选 {selectedIds.length} 张 · 最多 12 张
                   </span>
@@ -210,6 +237,11 @@ export default function VisualAssetCreationDialog({
                             {image.label}
                           </span>
                           {selected ? (
+                            <span className="block border-t border-primary/20 bg-primary/5 px-2 py-1.5 text-[10px] leading-snug text-primary">
+                              职责：{visualAssetReferenceResponsibilityLabel(kind)}
+                            </span>
+                          ) : null}
+                          {selected ? (
                             <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                               <Check className="h-3 w-3" />
                             </span>
@@ -236,7 +268,13 @@ export default function VisualAssetCreationDialog({
             </button>
             <button
               type="button"
-              onClick={() => void onSubmit({ kind, name: name.trim(), referenceImageIds: selectedIds })}
+              onClick={() =>
+                void onSubmit({
+                  kind,
+                  name: name.trim(),
+                  references: visualAssetReferencesFor(kind, selectedIds),
+                })
+              }
               disabled={pending || !name.trim() || selectedIds.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50"
             >

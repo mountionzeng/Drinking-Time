@@ -5,12 +5,26 @@ import {
 } from "./artDirection";
 import { normalizeShotIdentity } from "./shotIdentity";
 
-export const STORY_VISUAL_ASSETS_SCHEMA_VERSION = 1 as const;
+export const STORY_VISUAL_ASSETS_SCHEMA_VERSION = 2 as const;
 export const STORY_VISUAL_ASSETS_LEGACY_MIGRATION_VERSION = 1 as const;
 export const MAX_VISUAL_ASSET_OPERATION_RECEIPTS = 100;
 export const VISUAL_ASSET_IMAGE_SHOT_NO = "VISUAL-ASSET" as const;
 
-export type VisualAssetKind = "character" | "scene" | "style";
+export const VISUAL_ASSET_KINDS = ["character", "pet", "scene", "style"] as const;
+export type VisualAssetKind = (typeof VISUAL_ASSET_KINDS)[number];
+export const VISUAL_ASSET_REFERENCE_ROLES = [
+  "character-identity",
+  "pet-identity",
+  "scene-space",
+  "style-language",
+] as const;
+export type VisualAssetReferenceRole =
+  (typeof VISUAL_ASSET_REFERENCE_ROLES)[number];
+
+export type VisualAssetReference = {
+  imageId: number;
+  role: VisualAssetReferenceRole;
+};
 export type VisualAssetVersionStatus =
   | "draft"
   | "generating_views"
@@ -24,6 +38,16 @@ export type CharacterVisualAssetFacts = {
   face: string;
   hair: string;
   outfit: string;
+  accessories: string[];
+};
+
+export type PetVisualAssetFacts = {
+  kind: "pet";
+  species: string;
+  face: string;
+  coat: string;
+  body: string;
+  distinctiveFeatures: string[];
   accessories: string[];
 };
 
@@ -45,6 +69,7 @@ export type StyleVisualAssetFacts = {
 
 export type VisualAssetFixedFacts =
   | CharacterVisualAssetFacts
+  | PetVisualAssetFacts
   | SceneVisualAssetFacts
   | StyleVisualAssetFacts;
 
@@ -87,7 +112,7 @@ export type VisualAssetVersion = {
   id: string;
   version: number;
   status: VisualAssetVersionStatus;
-  referenceImageIds: number[];
+  references: VisualAssetReference[];
   /** Old references without a durable image row remain evidence only. */
   legacyReferenceIds: string[];
   fixedFacts: VisualAssetFixedFacts;
@@ -116,6 +141,7 @@ export type VisualAssetVersionRef = {
 
 export type ShotVisualAssetSelection = {
   character?: VisualAssetVersionRef;
+  pet?: VisualAssetVersionRef;
   scene?: VisualAssetVersionRef;
   style?: VisualAssetVersionRef;
 };
@@ -156,6 +182,58 @@ export type VisualAssetOperationReceipt = {
   error?: string;
 };
 
+/**
+ * 找回同一份生成输入最近一次未完成的整板任务。
+ *
+ * 视角回执使用 `${boardToken}:view:${role}`；恢复时必须继续使用原 boardToken，
+ * 服务端才能复用已经付费成功的视角并只补失败部分。
+ */
+export function recoverableVisualAssetBoardOperationToken(
+  operations: VisualAssetOperationReceipt[],
+  inputHash: string
+): string | undefined {
+  return [...operations]
+    .filter(
+      receipt =>
+        receipt.kind === "generate_views" &&
+        receipt.inputHash === inputHash &&
+        !receipt.token.includes(":view:") &&
+        (receipt.status === "failed" || receipt.status === "unknown")
+    )
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .find(receipt =>
+      operations.some(
+        child =>
+          child.inputHash === inputHash &&
+          child.token.startsWith(`${receipt.token}:view:`)
+      )
+    )?.token;
+}
+
+/** Recover a failed single-view retry without buying that view again after reload. */
+export function recoverableVisualAssetViewOperationToken(
+  operations: VisualAssetOperationReceipt[],
+  inputHash: string,
+  role: VisualAssetViewRole
+): string | undefined {
+  return [...operations]
+    .filter(
+      receipt =>
+        receipt.kind === "generate_views" &&
+        receipt.inputHash === inputHash &&
+        !receipt.token.includes(":view:") &&
+        (receipt.status === "failed" || receipt.status === "unknown")
+    )
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .find(receipt =>
+      operations.some(
+        child =>
+          child.token === `${receipt.token}:view:${role}` &&
+          child.inputHash === inputHash
+      )
+    )?.token;
+}
+
 export type StoryVisualAssets = {
   schemaVersion: typeof STORY_VISUAL_ASSETS_SCHEMA_VERSION;
   legacyMigrationVersion: number;
@@ -167,6 +245,7 @@ export type StoryVisualAssets = {
 
 const REQUIRED_VIEW_ROLES: Record<VisualAssetKind, VisualAssetViewRole[]> = {
   character: ["front", "profile", "back", "identity-detail"],
+  pet: ["front", "profile", "back", "identity-detail"],
   scene: ["establishing", "reverse", "side", "top"],
   style: [
     "character-sample",
@@ -175,6 +254,19 @@ const REQUIRED_VIEW_ROLES: Record<VisualAssetKind, VisualAssetViewRole[]> = {
     "closeup-sample",
   ],
 };
+
+const REFERENCE_ROLE_BY_KIND: Record<VisualAssetKind, VisualAssetReferenceRole> = {
+  character: "character-identity",
+  pet: "pet-identity",
+  scene: "scene-space",
+  style: "style-language",
+};
+
+export function visualAssetReferenceRoleFor(
+  kind: VisualAssetKind
+): VisualAssetReferenceRole {
+  return REFERENCE_ROLE_BY_KIND[kind];
+}
 
 export function requiredVisualAssetViewRoles(
   kind: VisualAssetKind
@@ -237,15 +329,50 @@ function cleanImageIds(value: unknown): number[] {
   ).slice(0, 100);
 }
 
+function normalizeReferences(
+  value: unknown,
+  kind: VisualAssetKind,
+  legacyImageIds: unknown
+): VisualAssetReference[] {
+  const expectedRole = visualAssetReferenceRoleFor(kind);
+  if (!Array.isArray(value)) {
+    return cleanImageIds(legacyImageIds).slice(0, 12).map(imageId => ({
+      imageId,
+      role: expectedRole,
+    }));
+  }
+  const seen = new Set<number>();
+  return value.flatMap(item => {
+    const obj = recordOf(item);
+    const imageId = cleanPositiveInteger(obj.imageId);
+    if (!imageId || obj.role !== expectedRole || seen.has(imageId)) return [];
+    seen.add(imageId);
+    return [{ imageId, role: expectedRole }];
+  }).slice(0, 12);
+}
+
 function normalizeKind(value: unknown): VisualAssetKind | undefined {
-  return value === "character" || value === "scene" || value === "style"
-    ? value
+  return VISUAL_ASSET_KINDS.includes(value as VisualAssetKind)
+    ? (value as VisualAssetKind)
     : undefined;
 }
 
-function emptyFacts(kind: VisualAssetKind): VisualAssetFixedFacts {
+export function emptyVisualAssetFacts(
+  kind: VisualAssetKind
+): VisualAssetFixedFacts {
   if (kind === "character") {
     return { kind, face: "", hair: "", outfit: "", accessories: [] };
+  }
+  if (kind === "pet") {
+    return {
+      kind,
+      species: "",
+      face: "",
+      coat: "",
+      body: "",
+      distinctiveFeatures: [],
+      accessories: [],
+    };
   }
   if (kind === "scene") {
     return { kind, geometry: [], materials: [], fixedProps: [] };
@@ -265,13 +392,24 @@ function normalizeFacts(
   kind: VisualAssetKind
 ): VisualAssetFixedFacts {
   const obj = recordOf(value);
-  if (obj.kind !== kind) return emptyFacts(kind);
+  if (obj.kind !== kind) return emptyVisualAssetFacts(kind);
   if (kind === "character") {
     return {
       kind,
       face: cleanString(obj.face),
       hair: cleanString(obj.hair),
       outfit: cleanString(obj.outfit),
+      accessories: cleanStringList(obj.accessories),
+    };
+  }
+  if (kind === "pet") {
+    return {
+      kind,
+      species: cleanString(obj.species),
+      face: cleanString(obj.face),
+      coat: cleanString(obj.coat),
+      body: cleanString(obj.body),
+      distinctiveFeatures: cleanStringList(obj.distinctiveFeatures),
       accessories: cleanStringList(obj.accessories),
     };
   }
@@ -296,6 +434,9 @@ function normalizeFacts(
 export function visualAssetFixedFactsAreComplete(facts: VisualAssetFixedFacts): boolean {
   if (facts.kind === "character") {
     return Boolean(facts.face && facts.hair && facts.outfit);
+  }
+  if (facts.kind === "pet") {
+    return Boolean(facts.species && facts.face && facts.coat && facts.body);
   }
   if (facts.kind === "scene") {
     return facts.geometry.length > 0 && facts.materials.length > 0;
@@ -425,7 +566,7 @@ function normalizeVersion(
     id,
     version: versionNumber,
     status,
-    referenceImageIds: cleanImageIds(obj.referenceImageIds),
+    references: normalizeReferences(obj.references, kind, obj.referenceImageIds),
     legacyReferenceIds: cleanStringList(obj.legacyReferenceIds),
     fixedFacts,
     allowedVariations: cleanStringList(obj.allowedVariations),
@@ -500,7 +641,7 @@ function normalizeSelection(
 ): ShotVisualAssetSelection {
   const obj = recordOf(value);
   const selection: ShotVisualAssetSelection = {};
-  for (const kind of ["character", "scene", "style"] as const) {
+  for (const kind of VISUAL_ASSET_KINDS) {
     if (versionRefIsValid(obj[kind], kind, assetsById)) {
       selection[kind] = {
         assetId: cleanId(recordOf(obj[kind]).assetId),
@@ -512,7 +653,7 @@ function normalizeSelection(
 }
 
 function hasSelection(value: ShotVisualAssetSelection): boolean {
-  return Boolean(value.character || value.scene || value.style);
+  return VISUAL_ASSET_KINDS.some(kind => Boolean(value[kind]));
 }
 
 function normalizeBinding(
@@ -543,7 +684,7 @@ function normalizeProposal(
   if (!id || !stableShotId || !hasSelection(selections)) return undefined;
   const rationaleObj = recordOf(obj.rationale);
   const rationale: Partial<Record<VisualAssetKind, string>> = {};
-  for (const kind of ["character", "scene", "style"] as const) {
+  for (const kind of VISUAL_ASSET_KINDS) {
     const text = cleanString(rationaleObj[kind], 1000);
     if (text) rationale[kind] = text;
   }
@@ -643,9 +784,12 @@ function legacyDraftVersion(input: {
     id: `${input.id}-v1`,
     version: 1,
     status: "draft",
-    referenceImageIds: input.imageIds ?? [],
+    references: (input.imageIds ?? []).map(imageId => ({
+      imageId,
+      role: visualAssetReferenceRoleFor(input.kind),
+    })),
     legacyReferenceIds: input.referenceIds ?? [],
-    fixedFacts: input.fixedFacts ?? emptyFacts(input.kind),
+    fixedFacts: input.fixedFacts ?? emptyVisualAssetFacts(input.kind),
     allowedVariations: ["景别", "机位", "动作", "表情", "光线"],
     conflicts: [],
     views: [],

@@ -27,7 +27,7 @@ export type ImageReferencePolicy =
 
 export type LockedVisualAssetPromptContract = {
   fingerprint: string;
-  kinds: Array<"character" | "scene" | "style">;
+  kinds: Array<"character" | "pet" | "scene" | "style">;
   promptContract: string;
 };
 

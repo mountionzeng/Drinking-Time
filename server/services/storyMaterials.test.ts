@@ -29,7 +29,10 @@ import {
   emptyPublishingDraftState,
   upsertPublishingPlatformDraft,
 } from "@shared/publishingDraft";
-import { requiredVisualAssetViewRoles } from "@shared/visualAssets";
+import {
+  requiredVisualAssetViewRoles,
+  VISUAL_ASSET_IMAGE_SHOT_NO,
+} from "@shared/visualAssets";
 
 const savedDatabaseUrl = ENV.databaseUrl;
 
@@ -421,6 +424,60 @@ describe("normalizeTimelineItems", () => {
 });
 
 describe("Story visual asset material projection", () => {
+  it("keeps visual asset evidence out of regular shot image collections", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "资产图片分类隔离",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-visual-1",
+            shotIdentity: "shot-visual-1",
+            shotNo: 1,
+          },
+        ],
+      },
+    });
+    const reference = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-visual-1",
+      imageUrl: "data:image/png;base64,REFERENCE",
+      imageKey: null,
+      prompt: "镜头参考图",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const assetView = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: VISUAL_ASSET_IMAGE_SHOT_NO,
+      shotIdentity: null,
+      imageUrl: "data:image/png;base64,ASSET",
+      imageKey: null,
+      prompt: "人物标准视图",
+      generationType: "initial",
+      parentImageId: reference.id,
+      isCurrent: false,
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.visualAssets?.images.map(image => image.id)).toContain(
+      assetView.id
+    );
+    expect(materials?.shots[0]?.relatedImages.map(image => image.id)).not.toContain(
+      assetView.id
+    );
+    expect(materials?.unassignedImages.map(image => image.id)).not.toContain(
+      assetView.id
+    );
+  });
+
   it("projects only this Story's locked assets and stable-shot binding", async () => {
     const views = requiredVisualAssetViewRoles("character").map(
       (role, index) => ({

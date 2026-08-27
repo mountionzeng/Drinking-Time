@@ -58,7 +58,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-character-1",
       kind: "character",
       name: "红外套人物",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "character-identity" }],
       now: 1000,
     });
     await db.deleteGeneratedImage(image.id, 11);
@@ -69,7 +69,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-character-1",
       kind: "character",
       name: "不会重复创建",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "character-identity" }],
       now: 2000,
     });
 
@@ -82,11 +82,161 @@ describe("visual asset persistence", () => {
       versions: [
         expect.objectContaining({
           status: "draft",
-          referenceImageIds: [image.id],
+          references: [{ imageId: image.id, role: "character-identity" }],
         }),
       ],
     });
     expect((replay.story.body as Record<string, unknown>)._revision).toBe(2);
+  });
+
+  it("atomically creates review assets for a photo's character, pet, scene, and fixed props", async () => {
+    const story = await db.createStory({
+      userId: 12,
+      title: "照片特征",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await createOwnedImage(story.id, 12);
+
+    const first = await persistence.createAnalyzedVisualAssetsFromPhoto({
+      storyId: story.id,
+      userId: 12,
+      expectedRevision: 1,
+      operationToken: "extract-photo-1",
+      imageId: image.id,
+      sourceLabel: "车站合影.jpg",
+      character: {
+        kind: "character",
+        face: "椭圆脸，浓眉，鼻梁挺直",
+        hair: "黑色齐耳短发",
+        outfit: "深蓝色短夹克",
+        accessories: ["银色耳钉"],
+      },
+      pet: {
+        kind: "pet",
+        species: "金毛犬",
+        face: "深色杏仁眼，黑色鼻头",
+        coat: "金黄色中长毛",
+        body: "中大型，胸宽，尾巴蓬松",
+        distinctiveFeatures: ["左耳尖有浅色毛"],
+        accessories: ["红色项圈"],
+      },
+      scene: {
+        kind: "scene",
+        geometry: ["狭长站台", "拱形顶棚"],
+        materials: ["灰色混凝土", "深色钢材"],
+        fixedProps: ["红色长椅", "圆形站牌"],
+      },
+      now: 100,
+    });
+    await db.deleteGeneratedImage(image.id, 12);
+    const replay = await persistence.createAnalyzedVisualAssetsFromPhoto({
+      storyId: story.id,
+      userId: 12,
+      expectedRevision: 1,
+      operationToken: "extract-photo-1",
+      imageId: image.id,
+      sourceLabel: "不会重复",
+      character: {
+        kind: "character",
+        face: "不同",
+        hair: "不同",
+        outfit: "不同",
+        accessories: [],
+      },
+      now: 200,
+    });
+
+    expect(first.replayed).toBe(false);
+    expect(first.aggregate.assets).toHaveLength(3);
+    expect(first.aggregate.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "character",
+          name: "车站合影 · 人物",
+          versions: [
+            expect.objectContaining({
+              status: "review",
+              references: [
+                { imageId: image.id, role: "character-identity" },
+              ],
+              fixedFacts: expect.objectContaining({ face: "椭圆脸，浓眉，鼻梁挺直" }),
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: "pet",
+          name: "车站合影 · 宠物",
+          versions: [
+            expect.objectContaining({
+              status: "review",
+              references: [{ imageId: image.id, role: "pet-identity" }],
+              fixedFacts: expect.objectContaining({
+                species: "金毛犬",
+                coat: "金黄色中长毛",
+              }),
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: "scene",
+          name: "车站合影 · 场景与物体",
+          versions: [
+            expect.objectContaining({
+              status: "review",
+              references: [{ imageId: image.id, role: "scene-space" }],
+              fixedFacts: expect.objectContaining({
+                fixedProps: ["红色长椅", "圆形站牌"],
+              }),
+            }),
+          ],
+        }),
+      ])
+    );
+    expect(replay.replayed).toBe(true);
+    expect(replay.aggregate.assets).toHaveLength(3);
+    expect((replay.story.body as Record<string, unknown>)._revision).toBe(2);
+  });
+
+  it("creates only observed feature groups and rejects an empty extraction", async () => {
+    const story = await db.createStory({
+      userId: 13,
+      title: "无人照片",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await createOwnedImage(story.id, 13);
+
+    const sceneOnly = await persistence.createAnalyzedVisualAssetsFromPhoto({
+      storyId: story.id,
+      userId: 13,
+      expectedRevision: 1,
+      operationToken: "extract-scene-only",
+      imageId: image.id,
+      sourceLabel: "静物",
+      scene: {
+        kind: "scene",
+        geometry: [],
+        materials: ["磨砂玻璃"],
+        fixedProps: ["绿色玻璃瓶"],
+      },
+    });
+    expect(sceneOnly.aggregate.assets).toHaveLength(1);
+    expect(sceneOnly.aggregate.assets[0]?.kind).toBe("scene");
+
+    await expect(
+      persistence.createAnalyzedVisualAssetsFromPhoto({
+        storyId: story.id,
+        userId: 13,
+        expectedRevision: 2,
+        operationToken: "extract-empty",
+        imageId: image.id,
+        sourceLabel: "空白",
+      })
+    ).rejects.toMatchObject({
+      name: "VisualAssetValidationError",
+      message: "照片中没有可保存的人物、宠物、场景或物体特征",
+    });
+    const latest = await db.getStoryById(story.id, 13);
+    expect((latest?.body as Record<string, unknown>)._revision).toBe(2);
   });
 
   it("rejects images from another Story or another owner before mutation", async () => {
@@ -111,7 +261,7 @@ describe("visual asset persistence", () => {
         operationToken: "wrong-story",
         kind: "scene",
         name: "越权场景",
-        referenceImageIds: [otherStoryImage.id],
+        references: [{ imageId: otherStoryImage.id, role: "scene-space" }],
       })
     ).rejects.toMatchObject({ name: "VisualAssetImageOwnershipError" });
     await expect(
@@ -122,13 +272,98 @@ describe("visual asset persistence", () => {
         operationToken: "wrong-owner",
         kind: "scene",
         name: "越权场景",
-        referenceImageIds: [otherOwnerImage.id],
+        references: [{ imageId: otherOwnerImage.id, role: "scene-space" }],
       })
     ).rejects.toMatchObject({ name: "VisualAssetImageOwnershipError" });
 
     const latest = await db.getStoryById(storyA.id, 21);
     expect((latest?.body as Record<string, unknown>)._revision).toBe(1);
     expect((latest?.body as Record<string, unknown>).visualAssets).toBeUndefined();
+  });
+
+  it("rejects a reference responsibility from another asset type", async () => {
+    const story = await db.createStory({
+      userId: 23,
+      title: "职责隔离",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await createOwnedImage(story.id, 23);
+
+    await expect(
+      persistence.createVisualAssetDraft({
+        storyId: story.id,
+        userId: 23,
+        expectedRevision: 1,
+        operationToken: "wrong-reference-role",
+        kind: "character",
+        name: "人物",
+        references: [{ imageId: image.id, role: "style-language" }],
+      })
+    ).rejects.toMatchObject({
+      name: "VisualAssetValidationError",
+      message: "参考图职责与资产类型不一致",
+    });
+
+    const latest = await db.getStoryById(story.id, 23);
+    expect((latest?.body as Record<string, unknown>)._revision).toBe(1);
+  });
+
+  it("creates a typed-reference version and rejects a wrong role without advancing revision", async () => {
+    const story = await db.createStory({
+      userId: 24,
+      title: "资产新版",
+      body: { _revision: 1, shots: [] },
+    });
+    const firstImage = await createOwnedImage(story.id, 24);
+    const secondImage = await createOwnedImage(story.id, 24);
+    const created = await persistence.createVisualAssetDraft({
+      storyId: story.id,
+      userId: 24,
+      expectedRevision: 1,
+      operationToken: "create-version-source",
+      kind: "character",
+      name: "人物",
+      references: [{ imageId: firstImage.id, role: "character-identity" }],
+      now: 10,
+    });
+    const asset = created.aggregate.assets[0]!;
+
+    const versioned = await persistence.createVisualAssetVersion({
+      storyId: story.id,
+      userId: 24,
+      expectedRevision: 2,
+      operationToken: "create-version-success",
+      assetId: asset.id,
+      references: [{ imageId: secondImage.id, role: "character-identity" }],
+      now: 20,
+    });
+
+    expect(versioned.aggregate.assets[0]?.versions).toHaveLength(2);
+    expect(versioned.aggregate.assets[0]?.versions[1]).toMatchObject({
+      version: 2,
+      status: "draft",
+      references: [
+        { imageId: secondImage.id, role: "character-identity" },
+      ],
+    });
+    expect((versioned.story.body as Record<string, unknown>)._revision).toBe(3);
+
+    await expect(
+      persistence.createVisualAssetVersion({
+        storyId: story.id,
+        userId: 24,
+        expectedRevision: 3,
+        operationToken: "create-version-wrong-role",
+        assetId: asset.id,
+        references: [{ imageId: secondImage.id, role: "scene-space" }],
+      })
+    ).rejects.toMatchObject({
+      name: "VisualAssetValidationError",
+      message: "参考图职责与资产类型不一致",
+    });
+
+    const latest = await db.getStoryById(story.id, 24);
+    expect((latest?.body as Record<string, unknown>)._revision).toBe(3);
   });
 
   it("accepts the analyzed fixed fact as the recommended conflict choice", async () => {
@@ -145,7 +380,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-conflict-character",
       kind: "character",
       name: "人物",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "character-identity" }],
       now: 10,
     });
     const asset = created.aggregate.assets[0]!;
@@ -214,7 +449,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-scene-conflict",
       kind: "scene",
       name: "展厅",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "scene-space" }],
     });
     const asset = created.aggregate.assets[0]!;
     const version = asset.versions[0]!;
@@ -282,7 +517,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-multi-conflict",
       kind: "scene",
       name: "展厅",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "scene-space" }],
     });
     const asset = created.aggregate.assets[0]!;
     const version = asset.versions[0]!;
@@ -369,7 +604,7 @@ describe("visual asset persistence", () => {
         operationToken: "writer-a",
         kind: "character",
         name: "人物 A",
-        referenceImageIds: [image.id],
+        references: [{ imageId: image.id, role: "character-identity" }],
       }),
       persistence.createVisualAssetDraft({
         storyId: story.id,
@@ -378,7 +613,7 @@ describe("visual asset persistence", () => {
         operationToken: "writer-b",
         kind: "character",
         name: "人物 B",
-        referenceImageIds: [image.id],
+        references: [{ imageId: image.id, role: "character-identity" }],
       }),
     ]);
 
@@ -415,7 +650,7 @@ describe("visual asset persistence", () => {
       operationToken: `create-${userId}`,
       kind: "character",
       name: "人物",
-      referenceImageIds: [reference.id],
+      references: [{ imageId: reference.id, role: "character-identity" }],
     });
     const asset = created.aggregate.assets[0]!;
     const version = asset.versions[0]!;
@@ -723,7 +958,7 @@ describe("visual asset persistence", () => {
       operationToken: "create-lock-test",
       kind: "character",
       name: "人物",
-      referenceImageIds: [image.id],
+      references: [{ imageId: image.id, role: "character-identity" }],
     });
     const asset = created.aggregate.assets[0]!;
     const version = asset.versions[0]!;

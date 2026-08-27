@@ -28,7 +28,7 @@ function lockedCharacterAsset() {
         id: "character-v1",
         version: 1,
         status: "locked",
-        referenceImageIds: [101],
+        references: [{ imageId: 101, role: "character-identity" }],
         legacyReferenceIds: [],
         fixedFacts: {
           kind: "character",
@@ -44,6 +44,46 @@ function lockedCharacterAsset() {
           id: `character-${role}`,
           role,
           imageId: 111 + index,
+          status: "pass",
+        })),
+        createdAt: 1,
+        lockedAt: 2,
+      },
+    ],
+  };
+}
+
+function lockedPetAsset() {
+  return {
+    id: "pet-a",
+    kind: "pet",
+    name: "红项圈金毛犬",
+    currentVersionId: "pet-v1",
+    createdAt: 1,
+    updatedAt: 2,
+    versions: [
+      {
+        id: "pet-v1",
+        version: 1,
+        status: "locked",
+        references: [{ imageId: 201, role: "pet-identity" }],
+        legacyReferenceIds: [],
+        fixedFacts: {
+          kind: "pet",
+          species: "金毛犬",
+          face: "深色杏仁眼，黑色鼻头",
+          coat: "金黄色中长毛",
+          body: "中大型，胸宽，尾巴蓬松",
+          distinctiveFeatures: ["左耳尖有浅色毛"],
+          accessories: ["红色项圈"],
+        },
+        allowedVariations: ["景别", "动作", "表情", "光线"],
+        conflicts: [],
+        boardImageId: 210,
+        views: requiredVisualAssetViewRoles("pet").map((role, index) => ({
+          id: `pet-${role}`,
+          role,
+          imageId: 211 + index,
           status: "pass",
         })),
         createdAt: 1,
@@ -71,7 +111,7 @@ async function seedStory() {
       visualAssets: {
         schemaVersion: 1,
         legacyMigrationVersion: 1,
-        assets: [lockedCharacterAsset()],
+        assets: [lockedCharacterAsset(), lockedPetAsset()],
         proposals: [],
         bindings: [],
         operations: [],
@@ -135,6 +175,46 @@ describe("visual asset associations", () => {
     });
     const latest = await persistence.getStoryVisualAssets({ storyId: story.id, userId: 81 });
     expect(latest.aggregate.bindings).toEqual([]);
+  });
+
+  it("can propose a person and a pet independently for the same shot", async () => {
+    const story = await seedStory();
+    const result = await associations.proposeVisualAssetAssociations({
+      storyId: story.id,
+      userId: 81,
+      expectedRevision: 1,
+      operationToken: "propose-person-and-pet",
+      dependencies: {
+        runAgent: async () => ({
+          modelLabel: "agent-test",
+          rawText: "{}",
+          parsed: {
+            bindings: [
+              {
+                stableShotId: "shot-001",
+                characterAssetId: "character-a",
+                petAssetId: "pet-a",
+                rationale: {
+                  character: "镜头主体是主角",
+                  pet: "镜头里有主角的金毛犬",
+                },
+              },
+            ],
+          },
+        }),
+      },
+    });
+
+    expect(result.proposals[0]).toMatchObject({
+      selections: {
+        character: { assetId: "character-a", versionId: "character-v1" },
+        pet: { assetId: "pet-a", versionId: "pet-v1" },
+      },
+      rationale: {
+        character: "镜头主体是主角",
+        pet: "镜头里有主角的金毛犬",
+      },
+    });
   });
 
   it("blocks conflicting proposals but allows a user-confirmed override with no conflict", async () => {

@@ -8,6 +8,7 @@ import type {
   StoryVisualAssets,
   VisualAssetKind,
 } from "@shared/visualAssets";
+import { VISUAL_ASSET_KINDS } from "@shared/visualAssets";
 import { trpc } from "@/lib/trpc";
 import { visualAssetKindLabel } from "./VisualAssetCreationDialog";
 
@@ -16,7 +17,7 @@ function token(prefix: string) {
 }
 
 function selectionKey(selection: ShotVisualAssetSelection): string {
-  return (["character", "scene", "style"] as const)
+  return VISUAL_ASSET_KINDS
     .map(kind => `${kind}:${selection[kind]?.assetId ?? ""}:${selection[kind]?.versionId ?? ""}`)
     .join("|");
 }
@@ -26,7 +27,7 @@ export function proposalCanBeConfirmed(
   current: ShotVisualAssetSelection
 ): boolean {
   return (
-    Boolean(current.character || current.scene || current.style) &&
+    VISUAL_ASSET_KINDS.some(kind => Boolean(current[kind])) &&
     (proposal.conflicts.length === 0 ||
       selectionKey(current) !== selectionKey(proposal.selections))
   );
@@ -81,6 +82,7 @@ export default function ShotAssetBindingPanel({
       binding
         ? {
             ...(binding.character ? { character: binding.character } : {}),
+            ...(binding.pet ? { pet: binding.pet } : {}),
             ...(binding.scene ? { scene: binding.scene } : {}),
             ...(binding.style ? { style: binding.style } : {}),
           }
@@ -166,6 +168,7 @@ export default function ShotAssetBindingPanel({
     if (!currentStableShotId) return;
     if (
       !currentShotSelection.character &&
+      !currentShotSelection.pet &&
       !currentShotSelection.scene &&
       !currentShotSelection.style
     ) {
@@ -234,8 +237,8 @@ export default function ShotAssetBindingPanel({
               确认关联当前镜头
             </button>
           </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
-            {(["character", "scene", "style"] as const).map(kind => {
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {VISUAL_ASSET_KINDS.map(kind => {
               const selected = currentShotSelection[kind];
               return (
                 <label key={kind} className="text-[10px] text-muted-foreground">
@@ -266,7 +269,7 @@ export default function ShotAssetBindingPanel({
         </div>
       ) : (
         <div className="mt-3 rounded-md border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
-          先在故事板选择一个镜头，再回来关联人物、场景和美术风格。
+          先在故事板选择一个镜头，再回来关联人物、宠物、场景和美术风格。
         </div>
       )}
 
@@ -294,8 +297,8 @@ export default function ShotAssetBindingPanel({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-semibold">{proposal.stableShotId}</div>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                      {(["character", "scene", "style"] as const).map(kind => {
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      {VISUAL_ASSET_KINDS.map(kind => {
                         const selected = selection[kind];
                         return (
                           <label key={kind} className="text-[10px] text-muted-foreground">

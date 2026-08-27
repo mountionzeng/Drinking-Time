@@ -11,6 +11,7 @@ import { useCreationEditor } from "../CreationEditorContext";
 import { useStoryImageDrop } from "../useStoryImageDrop";
 import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
+import { VISUAL_ASSET_KINDS } from "@shared/visualAssets";
 import {
   latestFrameCandidateSheet,
   type FrameCandidateSource,
@@ -103,12 +104,19 @@ export default function PromptTablePanel() {
     const binding = selectedShotMaterial?.visualAssetBinding;
     if (!binding) return [];
     const assets = materialState?.visualAssets?.assets ?? [];
-    return (["character", "scene", "style"] as const).flatMap(kind => {
+    return VISUAL_ASSET_KINDS.flatMap(kind => {
       const selected = binding[kind];
       if (!selected) return [];
       const asset = assets.find(item => item.id === selected.assetId);
       const version = asset?.versions.find(item => item.id === selected.versionId);
-      const kindLabel = kind === "character" ? "人物" : kind === "scene" ? "场景" : "美术风格";
+      const kindLabel =
+        kind === "character"
+          ? "人物"
+          : kind === "pet"
+            ? "宠物"
+            : kind === "scene"
+              ? "场景"
+              : "美术风格";
       return [`${kindLabel}：${asset?.name ?? selected.assetId}${version ? ` · 版本 ${version.version}` : ""}`];
     });
   }, [materialState?.visualAssets?.assets, selectedShotMaterial?.visualAssetBinding]);
@@ -766,7 +774,7 @@ export default function PromptTablePanel() {
                   </div>
                 ) : (
                   <div className="mt-1 text-muted-foreground">
-                    本镜尚未关联资产。到“素材仓库 → 资产”选择当前镜头，关联人物、场景和美术风格；关联一次即可同时用于图片和视频。
+                    本镜尚未关联资产。到“素材仓库 → 资产”选择当前镜头，关联人物、宠物、场景和美术风格；关联一次即可同时用于图片和视频。
                   </div>
                 )}
               </div>

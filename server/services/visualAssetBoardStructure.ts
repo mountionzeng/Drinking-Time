@@ -47,6 +47,14 @@ const CHECKS: Record<VisualAssetKind, VisualAssetBoardStructureCheck[]> = {
     { id: "same_person", label: "四栏是同一张脸、同一发型、同一套服饰、同一比例", verdict: "unknown" },
     { id: "clean_board", label: "没有额外人物、文字、水印、分隔线，也没有人物跨栏", verdict: "unknown" },
   ],
+  pet: [
+    { id: "subject_count", label: "画面是横向四栏，每栏恰好同一只宠物，不多不少", verdict: "unknown" },
+    { id: "full_body", label: "左起前三栏的宠物都从耳尖到脚爪、鼻尖到尾端完整，没有被裁掉", verdict: "unknown" },
+    { id: "view_order", label: "从左到右依次是正面全身、严格 90° 侧面全身、背面全身、正面头部特写", verdict: "unknown" },
+    { id: "face_readable", label: "第四栏是清晰的宠物正面头部特写，看得清眼睛、鼻口、耳形、脸部斑纹和毛发纹理", verdict: "unknown" },
+    { id: "same_pet", label: "四栏是同一只宠物，物种、毛色纹理、体型、标志特征和固定配件一致", verdict: "unknown" },
+    { id: "clean_board", label: "没有人物、其他动物、文字、水印、分隔线，也没有宠物跨栏", verdict: "unknown" },
+  ],
   scene: [
     { id: "cell_count", label: "画面是完整的 2×2 四格，每格都有内容", verdict: "unknown" },
     { id: "same_space", label: "四格是同一空间，几何关系、材质和固定陈设一致", verdict: "unknown" },
@@ -101,7 +109,7 @@ function unknownResult(
 /** 版式要求的一句话描述，用于 prompt 与失败提示复用。 */
 export function canonicalBoardLayoutSummary(kind: VisualAssetKind): string {
   const roles = requiredVisualAssetViewRoles(kind).join(" / ");
-  return kind === "character"
+  return kind === "character" || kind === "pet"
     ? `横向四栏：正面 / 侧面 / 背面全身三视图 + 正面头部特写（${roles}）`
     : `2×2 四格标准板（${roles}）`;
 }

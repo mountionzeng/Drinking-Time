@@ -9,6 +9,7 @@ import type {
 import {
   findVisualAssetVersion,
   requiredVisualAssetViewRoles,
+  VISUAL_ASSET_KINDS,
 } from "../../shared/visualAssets";
 import { getGeneratedImageById, getStoryById } from "../db";
 import { materializeImageInput } from "./imageAssets";
@@ -57,6 +58,8 @@ export type VisualAssetGenerationSnapshot = {
   promptContract: string;
   /** MJ --oref: identity, hair, wardrobe and accessories. */
   characterRef?: string;
+  /** Pet identity anchor; used as a separate image/context reference. */
+  petRef?: string;
   /** Scene view supplied as an image prompt/context image. */
   sceneRef?: string;
   /** MJ --sref: medium and visual language only. */
@@ -87,6 +90,7 @@ const REPRESENTATIVE_ROLE: Record<VisualAssetKind, VisualAssetViewRole> = {
   // 人物的身份锚点必须是头部特写，不能是全身正面：
   // 全身图里脸只有几十像素，递给出图模型等于没给脸（2026-08-22）。
   character: "identity-detail",
+  pet: "identity-detail",
   scene: "establishing",
   style: "character-sample",
 };
@@ -94,6 +98,8 @@ const REPRESENTATIVE_ROLE: Record<VisualAssetKind, VisualAssetViewRole> = {
 const DIMENSION_TERMS: Record<VisualAssetKind, RegExp> = {
   character:
     /发型|头发|脸|五官|服装|衣服|外套|裤|裙|鞋|配饰|眼镜|hair|face|outfit|clothes|wardrobe|accessor/i,
+  pet:
+    /宠物|猫|狗|犬|动物|物种|品种|毛色|毛发|斑纹|耳朵|尾巴|体型|项圈|胸背|pet|animal|species|breed|coat|fur|marking|collar/i,
   scene:
     /场景|地点|空间|布局|结构|墙|地面|材质|固定道具|家具|scene|location|layout|geometry|material|prop|furniture/i,
   style:
@@ -133,6 +139,16 @@ function factsLines(facts: VisualAssetFixedFacts): string[] {
       `配饰：${facts.accessories.join("、") || "无"}`,
     ];
   }
+  if (facts.kind === "pet") {
+    return [
+      `物种：${facts.species}`,
+      `头脸：${facts.face}`,
+      `毛色纹理：${facts.coat}`,
+      `体型：${facts.body}`,
+      `标志特征：${facts.distinctiveFeatures.join("、") || "无"}`,
+      `固定配件：${facts.accessories.join("、") || "无"}`,
+    ];
+  }
   if (facts.kind === "scene") {
     return [
       `空间结构：${facts.geometry.join("、")}`,
@@ -154,10 +170,11 @@ function promptContract(
 ): string {
   const labels: Record<VisualAssetKind, string> = {
     character: "人物资产锁",
+    pet: "宠物资产锁",
     scene: "场景资产锁",
     style: "美术风格资产锁",
   };
-  const blocks = (["character", "scene", "style"] as const)
+  const blocks = VISUAL_ASSET_KINDS
     .map(kind => {
       const dimension = dimensions[kind];
       if (!dimension) return "";
@@ -169,7 +186,7 @@ function promptContract(
     })
     .filter(Boolean);
   return [
-    "【锁定视觉资产·最高优先级】以下人物、场景和美术事实是用户已经确认的视觉真相，必须与所附标准视图一致，不得被镜头文字、当前帧、自动美术库或模型默认想象改写。镜头景别、机位、动作、表情和光线只有在下方明确列为允许变化时才可改变。",
+    "【锁定视觉资产·最高优先级】以下人物、宠物、场景和美术事实是用户已经确认的视觉真相，必须与所附标准视图一致，不得被镜头文字、当前帧、自动美术库或模型默认想象改写。镜头景别、机位、动作、表情和光线只有在下方明确列为允许变化时才可改变。",
     ...blocks,
   ].join("\n");
 }
@@ -213,7 +230,7 @@ export async function resolveVisualAssetGenerationContext(input: {
   const dimensions: Partial<
     Record<VisualAssetKind, VisualAssetGenerationDimension>
   > = {};
-  const selectedKinds = (["character", "scene", "style"] as const).filter(
+  const selectedKinds = VISUAL_ASSET_KINDS.filter(
     kind => Boolean(binding[kind])
   );
 
@@ -226,7 +243,7 @@ export async function resolveVisualAssetGenerationContext(input: {
   if ((input.provider ?? "midjourney") !== "midjourney") {
     issues.push({
       code: "provider-role-unsupported",
-      message: "当前供应商尚未验证人物、场景和风格参考职责，未提交付费生成",
+      message: "当前供应商尚未验证人物、宠物、场景和风格参考职责，未提交付费生成",
     });
   }
 
@@ -264,58 +281,77 @@ export async function resolveVisualAssetGenerationContext(input: {
       });
     }
 
+    const resolvedViews = await Promise.all(
+      requiredVisualAssetViewRoles(kind).map(
+        async (
+          role
+        ): Promise<
+          | { issue: VisualAssetGenerationIssue }
+          | { view: VisualAssetGenerationView }
+        > => {
+        const view = found.version.views.find(
+          item => item.role === role && item.status === "pass"
+        );
+        if (!view) {
+          return {
+            issue: {
+              code: "view-missing" as const,
+              kind,
+              message: `${found.asset.name} 缺少可用的 ${role} 标准视图`,
+            },
+          };
+        }
+        try {
+          const image = await loadImage(view.imageId);
+          if (
+            !image ||
+            image.storyId !== input.storyId ||
+            image.userId !== input.userId ||
+            !image.imageUrl.trim()
+          ) {
+            return {
+              issue: {
+                code: "view-image-unavailable" as const,
+                kind,
+                imageId: view.imageId,
+                message: `${found.asset.name} 的 ${role} 标准视图已丢失或不属于当前故事`,
+              },
+            };
+          }
+          const materializedUrl = await materialize(image.imageUrl);
+          if (!materializedUrl) throw new Error("empty image input");
+          return {
+            view: {
+              role,
+              imageId: image.id,
+              sourceUrl: image.imageUrl,
+              materializedUrl,
+            } satisfies VisualAssetGenerationView,
+          };
+        } catch {
+          return {
+            issue: {
+              code: "view-image-unavailable" as const,
+              kind,
+              imageId: view.imageId,
+              message: `${found.asset.name} 的 ${role} 标准视图无法读取`,
+            },
+          };
+        }
+        }
+      )
+    );
     const views: VisualAssetGenerationView[] = [];
-    for (const role of requiredVisualAssetViewRoles(kind)) {
-      const view = found.version.views.find(
-        item => item.role === role && item.status === "pass"
-      );
-      if (!view) {
-        issues.push({
-          code: "view-missing",
-          kind,
-          message: `${found.asset.name} 缺少可用的 ${role} 标准视图`,
-        });
-        continue;
-      }
-      const image = await loadImage(view.imageId);
-      if (
-        !image ||
-        image.storyId !== input.storyId ||
-        image.userId !== input.userId ||
-        !image.imageUrl.trim()
-      ) {
-        issues.push({
-          code: "view-image-unavailable",
-          kind,
-          imageId: view.imageId,
-          message: `${found.asset.name} 的 ${role} 标准视图已丢失或不属于当前故事`,
-        });
-        continue;
-      }
-      try {
-        const materializedUrl = await materialize(image.imageUrl);
-        if (!materializedUrl) throw new Error("empty image input");
-        views.push({
-          role,
-          imageId: image.id,
-          sourceUrl: image.imageUrl,
-          materializedUrl,
-        });
-      } catch {
-        issues.push({
-          code: "view-image-unavailable",
-          kind,
-          imageId: image.id,
-          message: `${found.asset.name} 的 ${role} 标准视图无法读取`,
-        });
-      }
+    for (const resolved of resolvedViews) {
+      if ("issue" in resolved) issues.push(resolved.issue);
+      else views.push(resolved.view);
     }
     const representative = views.find(
       view => view.role === REPRESENTATIVE_ROLE[kind]
     );
     if (!representative) continue;
     let providerReferenceUrl = representative.materializedUrl;
-    if (kind === "character" || kind === "style") {
+    if (kind === "character" || kind === "pet" || kind === "style") {
       const publicUrl = await makePublic(representative.sourceUrl);
       if (!publicUrl) {
         issues.push({
@@ -342,7 +378,7 @@ export async function resolveVisualAssetGenerationContext(input: {
 
   if (issues.length > 0) return { status: "blocked", issues };
   const fingerprint = fingerprintOf(
-    (["character", "scene", "style"] as const).map(kind => {
+    VISUAL_ASSET_KINDS.map(kind => {
       const dimension = dimensions[kind];
       return dimension
         ? {
@@ -365,6 +401,7 @@ export async function resolveVisualAssetGenerationContext(input: {
     ...(dimensions.character
       ? { characterRef: dimensions.character.providerReferenceUrl }
       : {}),
+    ...(dimensions.pet ? { petRef: dimensions.pet.providerReferenceUrl } : {}),
     ...(dimensions.scene ? { sceneRef: dimensions.scene.providerReferenceUrl } : {}),
     ...(dimensions.style ? { styleRef: dimensions.style.providerReferenceUrl } : {}),
   };

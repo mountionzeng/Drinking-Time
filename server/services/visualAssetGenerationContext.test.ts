@@ -21,6 +21,16 @@ function fixture(kinds: VisualAssetKind[] = ["character", "scene", "style"]) {
     const fixedFacts =
       kind === "character"
         ? { kind, face: "圆脸小痣", hair: "黑色短发", outfit: "红外套", accessories: ["银项链"] }
+        : kind === "pet"
+          ? {
+              kind,
+              species: "金毛犬",
+              face: "深色杏仁眼，黑色鼻头",
+              coat: "金黄色中长毛",
+              body: "中大型，胸宽，尾巴蓬松",
+              distinctiveFeatures: ["左耳尖有浅色毛"],
+              accessories: ["红色项圈"],
+            }
         : kind === "scene"
           ? { kind, geometry: ["L 形房间"], materials: ["灰砖"], fixedProps: ["木桌"] }
           : { kind, medium: ["水粉"], brushwork: ["干刷"], formLanguage: ["平面造型"], colorLanguage: ["低饱和"], forbidden: ["摄影感"] };
@@ -35,7 +45,7 @@ function fixture(kinds: VisualAssetKind[] = ["character", "scene", "style"]) {
         id: `version-${kind}`,
         version: 1,
         status: "locked" as const,
-        referenceImageIds: [],
+        references: [],
         legacyReferenceIds: [],
         fixedFacts,
         allowedVariations: ["景别", "机位", "动作", "表情", "光线"],
@@ -48,7 +58,7 @@ function fixture(kinds: VisualAssetKind[] = ["character", "scene", "style"]) {
     };
   });
   const visualAssets: StoryVisualAssets = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     legacyMigrationVersion: 1,
     assets,
     proposals: [],
@@ -73,6 +83,24 @@ function fixture(kinds: VisualAssetKind[] = ["character", "scene", "style"]) {
 }
 
 describe("resolveVisualAssetGenerationContext", () => {
+  it("keeps a pet independent from a person in the same shot contract", async () => {
+    const test = fixture(["character", "pet"]);
+    const result = await resolveVisualAssetGenerationContext({
+      storyId: 1,
+      userId: 7,
+      stableShotId: "shot-a",
+      provider: "midjourney",
+      dependencies: test.dependencies,
+    });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.snapshot.characterRef).toContain("character-identity-detail");
+    expect(result.snapshot.petRef).toContain("pet-identity-detail");
+    expect(result.snapshot.promptContract).toContain("【宠物资产锁");
+    expect(result.snapshot.promptContract).toContain("毛色纹理：金黄色中长毛");
+    expect(result.snapshot.dimensions.pet?.views).toHaveLength(4);
+  });
+
   it("does not treat a machine-written shot description as a user conflict", async () => {
     const test = fixture();
     // synthesizeShotPrompt 产出的画面描述天然会写「白色长裙」这类外观词，

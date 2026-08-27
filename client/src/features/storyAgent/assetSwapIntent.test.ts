@@ -5,6 +5,7 @@ import {
   describeAssetSwapProposal,
   detectAssetSwapIntent,
   detectAssetSwapKind,
+  mergeAssetSwapSelection,
   type AssetSwapCandidate,
 } from "./assetSwapIntent";
 
@@ -31,7 +32,48 @@ const scene: AssetSwapCandidate = {
   versionLabel: "版本 1",
 };
 
+const pet: AssetSwapCandidate = {
+  assetId: "va_pet",
+  versionId: "vav_pet",
+  kind: "pet",
+  assetName: "红项圈金毛犬",
+  versionLabel: "版本 1",
+};
+
 describe("assetSwapIntent", () => {
+  it("replaces one asset dimension while preserving character and pet together", () => {
+    const binding = {
+      stableShotId: "shot-1",
+      confirmedAt: 1,
+      character: { assetId: "character-old", versionId: "character-v1" },
+      pet: { assetId: "pet-old", versionId: "pet-v1" },
+      scene: { assetId: "scene-old", versionId: "scene-v1" },
+    };
+
+    expect(
+      mergeAssetSwapSelection({
+        binding,
+        kind: "pet",
+        replacement: { assetId: "pet-new", versionId: "pet-v2" },
+      })
+    ).toEqual({
+      character: binding.character,
+      pet: { assetId: "pet-new", versionId: "pet-v2" },
+      scene: binding.scene,
+    });
+    expect(
+      mergeAssetSwapSelection({
+        binding,
+        kind: "character",
+        replacement: { assetId: "character-new", versionId: "character-v2" },
+      })
+    ).toEqual({
+      character: { assetId: "character-new", versionId: "character-v2" },
+      pet: binding.pet,
+      scene: binding.scene,
+    });
+  });
+
   it("recognizes the user's own phrasing", () => {
     const intent = detectAssetSwapIntent({
       instruction: "把这张图里的人换成素材里的那个人物",
@@ -89,6 +131,15 @@ describe("assetSwapIntent", () => {
       lockedAssets: [character, scene],
     });
     expect(intent).toEqual({ status: "ready", kind: "scene", asset: scene });
+  });
+
+  it("recognizes pet replacement without routing it through character", () => {
+    const intent = detectAssetSwapIntent({
+      instruction: "把图里的狗换成素材库里的宠物",
+      lockedAssets: [character, pet],
+    });
+    expect(intent).toEqual({ status: "ready", kind: "pet", asset: pet });
+    expect(detectAssetSwapKind("把小猫换成素材里的猫咪")).toBe("pet");
   });
 
   it("asks instead of guessing when several assets of that kind are locked", () => {

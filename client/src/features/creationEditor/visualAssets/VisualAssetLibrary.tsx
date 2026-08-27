@@ -1,10 +1,14 @@
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronRight,
   Layers3,
   Loader2,
   Lock,
+  Maximize2,
   Palette,
+  PawPrint,
   Plus,
   UserRound,
   Warehouse,
@@ -19,12 +23,22 @@ import type {
   VisualAssetFixedFacts,
   VisualAssetKind,
   VisualAssetVersion,
+  VisualAssetView,
 } from "@shared/visualAssets";
 import {
   isVisualAssetVersionLockable,
+  recoverableVisualAssetBoardOperationToken,
+  recoverableVisualAssetViewOperationToken,
   visualAssetFixedFactsAreComplete,
 } from "@shared/visualAssets";
 import { trpc } from "@/lib/trpc";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import VisualAssetCreationDialog, {
   type VisualAssetCreationValue,
   type VisualAssetImageOption,
@@ -34,6 +48,7 @@ import ShotAssetBindingPanel from "./ShotAssetBindingPanel";
 
 const KIND_ICON = {
   character: UserRound,
+  pet: PawPrint,
   scene: Warehouse,
   style: Palette,
 } satisfies Record<VisualAssetKind, typeof UserRound>;
@@ -46,6 +61,30 @@ const STATUS_LABEL: Record<VisualAssetVersion["status"], string> = {
   superseded: "历史版本",
 };
 
+const VIEW_ROLE_LABEL: Record<VisualAssetView["role"], string> = {
+  front: "正面全身",
+  profile: "严格 90° 侧面全身",
+  back: "背面全身",
+  "identity-detail": "正面头部特写",
+  establishing: "建立视角",
+  reverse: "反向视角",
+  side: "侧向视角",
+  top: "正交俯视",
+  "character-sample": "人物风格样例",
+  "scene-sample": "场景风格样例",
+  "object-sample": "物件风格样例",
+  "closeup-sample": "细节风格样例",
+};
+
+export function visualAssetBoardConfirmationMessage(
+  kind: VisualAssetKind,
+  quote: { candidateCount: number; estimatedCny: number }
+): string {
+  return kind === "character" || kind === "pet"
+    ? `分 ${quote.candidateCount} 次生成正面头部特写、正面全身、严格 90° 侧面全身和背面全身，再由服务端合成${kind === "pet" ? "宠物" : "人物"}标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+    : `分 ${quote.candidateCount} 次生成 ${quote.candidateCount} 个标准视角，再由服务端合成标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`;
+}
+
 function operationToken(prefix: string): string {
   const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
   return `${prefix}-${random}`;
@@ -54,6 +93,16 @@ function operationToken(prefix: string): string {
 function factsSummary(facts: VisualAssetFixedFacts): string[] {
   if (facts.kind === "character") {
     return [facts.face, facts.hair, facts.outfit, ...facts.accessories].filter(Boolean);
+  }
+  if (facts.kind === "pet") {
+    return [
+      facts.species,
+      facts.face,
+      facts.coat,
+      facts.body,
+      ...facts.distinctiveFeatures,
+      ...facts.accessories,
+    ].filter(Boolean);
   }
   if (facts.kind === "scene") {
     return [...facts.geometry, ...facts.materials, ...facts.fixedProps];
@@ -131,6 +180,8 @@ export default function VisualAssetLibrary({
   const resolveConflictsMutation = trpc.visualAssets.resolveConflicts.useMutation();
   const quoteBoard = trpc.visualAssets.quoteCanonicalBoard.useMutation();
   const generateBoardMutation = trpc.visualAssets.generateCanonicalBoard.useMutation();
+  const quoteView = trpc.visualAssets.quoteView.useMutation();
+  const regenerateViewMutation = trpc.visualAssets.regenerateView.useMutation();
   const [dialog, setDialog] = useState<{
     assetId?: string;
     kind?: VisualAssetKind;
@@ -141,6 +192,15 @@ export default function VisualAssetLibrary({
   const [busyVersionId, setBusyVersionId] = useState<string | null>(null);
   const [processingVersionId, setProcessingVersionId] = useState<string | null>(null);
   const [conflictResolutions, setConflictResolutions] = useState<Record<string, string>>({});
+  const [expandedCompactAssetId, setExpandedCompactAssetId] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<{
+    src: string;
+    title: string;
+    description: string;
+  } | null>(null);
+  const [viewOperationTokens, setViewOperationTokens] = useState<
+    Record<string, string>
+  >({});
 
   const aggregate = (query.data?.aggregate as StoryVisualAssets | undefined) ?? null;
   const assets = aggregate?.assets ?? [];
@@ -168,7 +228,7 @@ export default function VisualAssetLibrary({
           expectedRevision: query.data.revision,
           operationToken: operationToken("visual-version"),
           assetId: dialog.assetId,
-          referenceImageIds: value.referenceImageIds,
+          references: value.references,
         });
         toast.success("新版本草案已创建，旧版本和历史镜头保持不变");
       } else {
@@ -178,7 +238,7 @@ export default function VisualAssetLibrary({
           operationToken: operationToken("visual-create"),
           kind: value.kind,
           name: value.name,
-          referenceImageIds: value.referenceImageIds,
+          references: value.references,
         });
         toast.success("资产草案已创建，下一步生成并检查标准视图");
       }
@@ -317,24 +377,30 @@ export default function VisualAssetLibrary({
       });
       // 报价是所有视角的总额：每个视角都是一次独立付费生成，标准板由服务端合成。
       const confirmed = window.confirm(
-        asset.kind === "character"
-          ? `分 ${quote.candidateCount} 次生成正面 / 侧面 / 背面三个视角，再由服务端合成三视图标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
-          : `分 ${quote.candidateCount} 次生成 ${quote.candidateCount} 个标准视角，再由服务端合成标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+        visualAssetBoardConfirmationMessage(asset.kind, quote)
       );
       if (!confirmed) return;
+      const recoveredOperationToken = recoverableVisualAssetBoardOperationToken(
+        aggregate?.operations ?? [],
+        quote.inputHash
+      );
+      if (recoveredOperationToken) {
+        toast.info("正在恢复原标准视图任务，已成功的付费视角会直接复用");
+      }
       const result = await generateBoardMutation.mutateAsync({
         storyId,
         assetId: asset.id,
         versionId: version.id,
-        operationToken: operationToken("visual-board"),
+        operationToken:
+          recoveredOperationToken ?? operationToken("visual-board"),
         confirmation: quote,
       });
       if (result.status === "ok") {
         // 生成成功 ≠ 版式合格。结构质检不通过时必须直说，不能报喜。
         if (result.structure.verdict === "pass") {
           toast.success(
-            asset.kind === "character"
-              ? "人物三视图已生成，请检查正面、侧面和背面后再锁定"
+            asset.kind === "character" || asset.kind === "pet"
+              ? `${visualAssetKindLabel(asset.kind)}标准视图已生成，请检查头部特写、正面、侧面和背面后再锁定`
               : "标准视图已生成，请逐格检查后再锁定"
           );
         } else if (result.structure.verdict === "fail") {
@@ -350,6 +416,71 @@ export default function VisualAssetLibrary({
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "标准视图生成失败");
+    } finally {
+      setProcessingVersionId(null);
+    }
+  };
+
+  const regenerateView = async (
+    asset: StoryVisualAsset,
+    version: VisualAssetVersion,
+    view: VisualAssetVersion["views"][number]
+  ) => {
+    if (storyId == null) return;
+    const operationKey = `${version.id}:${view.role}`;
+    setProcessingVersionId(version.id);
+    try {
+      const quote = await quoteView.mutateAsync({
+        storyId,
+        assetId: asset.id,
+        versionId: version.id,
+        role: view.role,
+      });
+      const viewToken =
+        viewOperationTokens[operationKey] ??
+        recoverableVisualAssetViewOperationToken(
+          aggregate?.operations ?? [],
+          quote.inputHash,
+          view.role
+        ) ??
+        operationToken(`visual-view-${view.role}`);
+      setViewOperationTokens(current => ({
+        ...current,
+        [operationKey]: viewToken,
+      }));
+      const confirmed = window.confirm(
+        `只重新生成「${VIEW_ROLE_LABEL[view.role]}」这一张，其余已付费视角直接复用。预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+      );
+      if (!confirmed) return;
+      const result = await regenerateViewMutation.mutateAsync({
+        storyId,
+        assetId: asset.id,
+        versionId: version.id,
+        role: view.role,
+        operationToken: viewToken,
+        confirmation: quote,
+      });
+      if (result.status === "ok") {
+        setViewOperationTokens(current => {
+          const next = { ...current };
+          delete next[operationKey];
+          return next;
+        });
+        if (result.structure.verdict === "pass") {
+          toast.success(`${VIEW_ROLE_LABEL[view.role]}已重新生成并通过结构质检`);
+        } else if (result.structure.verdict === "fail") {
+          toast.error(`新标准板不合格：${result.structure.reason}`);
+        } else {
+          toast.warning(`新标准板结构未确认：${result.structure.reason}`);
+        }
+        await refresh();
+      } else if (result.status === "confirmation_required") {
+        toast.error("报价已变化，请重新确认");
+      } else {
+        toast.error(result.error);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "单视角重新生成失败");
     } finally {
       setProcessingVersionId(null);
     }
@@ -381,7 +512,7 @@ export default function VisualAssetLibrary({
         versionId: version.id,
         resolutions,
       });
-      toast.success("冲突裁决已保存，现在可以生成人物三视图");
+      toast.success("冲突裁决已保存，现在可以生成人物标准视图");
       await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "冲突裁决保存失败");
@@ -394,36 +525,24 @@ export default function VisualAssetLibrary({
     return <div className="p-6 text-center text-sm text-muted-foreground">请先打开一个 Story</div>;
   }
 
-  return (
-    <section className={compact ? "min-w-[720px]" : "min-w-0"} aria-label="视觉资产库">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Layers3 className="h-4 w-4 text-primary" />
-            资产
-            <span className="text-xs font-normal text-muted-foreground">{assets.length}</span>
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            锁定人物、场景和美术风格。镜头只有在用户确认绑定后才会使用。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setDialog({})}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          创建资产
-        </button>
-      </div>
+  const createAssetButton = (
+    <button
+      type="button"
+      onClick={() => setDialog({})}
+      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground"
+    >
+      <Plus className="h-3.5 w-3.5" />
+      创建资产
+    </button>
+  );
 
-      <div className="mb-3 grid gap-2 rounded-md border border-border bg-muted/20 px-3 py-2.5 text-[11px] sm:grid-cols-[auto_1fr]">
-        <div className="font-semibold text-foreground">使用顺序</div>
-        <div className="text-muted-foreground">
-          ① 生成人物三视图 / 场景或风格标准板　② 检查并锁定版本　③ 选择镜头并关联资产。
-          <span className="ml-1 font-medium text-foreground">同一镜头只需关联一次，图片和视频生成都会使用。</span>
+  return (
+    <section className="min-w-0" aria-label="视觉资产库">
+      {!compact ? (
+        <div className="mb-2 flex justify-end" aria-label="资产操作">
+          {createAssetButton}
         </div>
-      </div>
+      ) : null}
 
       {query.isLoading ? (
         <div className="flex min-h-32 items-center justify-center rounded-md border border-border text-xs text-muted-foreground">
@@ -442,7 +561,10 @@ export default function VisualAssetLibrary({
           </div>
         </div>
       ) : (
-        <div className={compact ? "flex gap-3" : "grid gap-3 xl:grid-cols-2"}>
+        <div
+          className={`grid min-w-0 grid-cols-1 ${compact ? "gap-2" : "gap-3"}`}
+          data-visual-asset-layout={compact ? "drawer-stack" : "single-column"}
+        >
           {assets.map(asset => {
             const Icon = KIND_ICON[asset.kind];
             const version = selectedVersionOf(asset, selectedVersionIds[asset.id]);
@@ -467,23 +589,50 @@ export default function VisualAssetLibrary({
             const rejectedView = version.views.find(
               view => view.status !== "pass" && view.failureReason
             );
+            const compactExpanded = compact && expandedCompactAssetId === asset.id;
+            const assetIdentity = (
+              <>
+                <span className={`flex shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ${compact ? "h-7 w-7" : "h-8 w-8"}`}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{asset.name}</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    {visualAssetKindLabel(asset.kind)} · {STATUS_LABEL[version.status]}
+                  </span>
+                </span>
+              </>
+            );
             return (
               <article
                 key={asset.id}
-                className={`overflow-hidden rounded-lg border border-border bg-background ${compact ? "w-[430px] shrink-0" : ""}`}
+                className="min-w-0 overflow-hidden rounded-lg border border-border bg-background"
               >
-                <div className="flex items-start justify-between gap-3 border-b border-border p-3">
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">{asset.name}</div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        {visualAssetKindLabel(asset.kind)} · {STATUS_LABEL[version.status]}
-                      </div>
+                <div className={`flex flex-wrap items-start justify-between gap-2 ${compact ? "px-2 py-1.5" : "border-b border-border p-3"}`}>
+                  {compact ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedCompactAssetId(current =>
+                          current === asset.id ? null : asset.id
+                        )
+                      }
+                      aria-expanded={compactExpanded}
+                      aria-controls={`visual-asset-details-${asset.id}`}
+                      className="flex min-w-0 flex-1 items-start gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                    >
+                      {assetIdentity}
+                      {compactExpanded ? (
+                        <ChevronDown className="mt-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="mt-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                    </button>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      {assetIdentity}
                     </div>
-                  </div>
+                  )}
                   <select
                     value={version.id}
                     onChange={event =>
@@ -492,7 +641,7 @@ export default function VisualAssetLibrary({
                         [asset.id]: event.currentTarget.value,
                       }))
                     }
-                    className="h-7 rounded border border-border bg-background px-1.5 text-[11px]"
+                    className="h-7 max-w-full rounded border border-border bg-background px-1.5 text-[11px]"
                     aria-label={`${asset.name} 版本`}
                   >
                     {[...asset.versions]
@@ -505,16 +654,46 @@ export default function VisualAssetLibrary({
                   </select>
                 </div>
 
-                <div className="space-y-3 p-3">
+                {!compact || compactExpanded ? (
+                <div
+                  id={`visual-asset-details-${asset.id}`}
+                  className="space-y-3 border-t border-border p-3"
+                >
                   {boardImage ? (
                     <figure className="overflow-hidden rounded-md border border-border bg-muted/30">
-                      <img
-                        src={boardImage.imageUrl}
-                        alt={asset.kind === "character" ? `${asset.name} 人物三视图标准板` : `${asset.name} 标准板`}
-                        className="aspect-square w-full object-contain"
-                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setImagePreview({
+                            src: boardImage.imageUrl,
+                            title: `${asset.name} · 标准板`,
+                            description:
+                              asset.kind === "character" || asset.kind === "pet"
+                                ? "头部特写 / 正面全身 / 侧面全身 / 背面全身"
+                                : "完整标准视图板",
+                          })
+                        }
+                        aria-label={`查看 ${asset.name} 标准板大图`}
+                        className="group relative block w-full cursor-zoom-in bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                      >
+                        <img
+                          src={boardImage.imageUrl}
+                          alt={
+                            asset.kind === "character" || asset.kind === "pet"
+                              ? `${asset.name} ${visualAssetKindLabel(asset.kind)}标准视图板`
+                              : `${asset.name} 标准板`
+                          }
+                          className={compact ? "max-h-52 w-full object-contain" : "aspect-square w-full object-contain"}
+                        />
+                        <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded bg-black/65 px-2 py-1 text-[10px] font-medium text-white opacity-90 transition group-hover:opacity-100">
+                          <Maximize2 className="h-3 w-3" />
+                          查看大图
+                        </span>
+                      </button>
                       <figcaption className="border-t border-border px-2 py-1.5 text-[10px] font-medium text-muted-foreground">
-                        {asset.kind === "character" ? "人物三视图 · 正面 / 侧面 / 背面" : "完整标准板"}
+                        {asset.kind === "character" || asset.kind === "pet"
+                          ? `${visualAssetKindLabel(asset.kind)}标准视图 · 头部特写 / 正面 / 侧面 / 背面`
+                          : "完整标准板"}
                       </figcaption>
                     </figure>
                   ) : null}
@@ -540,14 +719,28 @@ export default function VisualAssetLibrary({
                         return (
                           <div key={view.id} className="overflow-hidden rounded border border-border bg-muted">
                             {image ? (
-                              <img src={image.imageUrl} alt={view.role} className="aspect-square w-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setImagePreview({
+                                    src: image.imageUrl,
+                                    title: `${asset.name} · ${view.role}`,
+                                    description: `标准视图 #${view.imageId}`,
+                                  })
+                                }
+                                aria-label={`查看 ${asset.name} ${view.role} 大图`}
+                                className="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                              >
+                                <img src={image.imageUrl} alt={view.role} className="aspect-square w-full object-cover" />
+                                <Maximize2 className="absolute right-1.5 top-1.5 h-3 w-3 text-white drop-shadow" />
+                              </button>
                             ) : (
                               <div className="flex aspect-square items-center justify-center px-1 text-center text-[9px] text-muted-foreground">
                                 标准视图 #{view.imageId}
                               </div>
                             )}
                             <div className="flex items-center justify-between gap-1 px-1.5 py-1 text-[9px] text-muted-foreground">
-                              <span className="truncate">{view.role}</span>
+                              <span className="truncate">{VIEW_ROLE_LABEL[view.role]}</span>
                               {view.status === "pass" ? (
                                 <Check className="h-2.5 w-2.5 text-emerald-600" />
                               ) : view.status === "fail" ? (
@@ -556,12 +749,25 @@ export default function VisualAssetLibrary({
                                 <AlertTriangle className="h-2.5 w-2.5 text-amber-600" />
                               )}
                             </div>
+                            {view.status !== "pass" ? (
+                              <button
+                                type="button"
+                                onClick={() => void regenerateView(asset, version, view)}
+                                disabled={processing}
+                                className="flex min-h-7 w-full items-center justify-center border-t border-border bg-background px-1.5 py-1 text-[9px] font-medium text-primary transition hover:bg-primary/5 disabled:opacity-50"
+                                aria-label={`重新生成 ${asset.name} ${VIEW_ROLE_LABEL[view.role]}`}
+                              >
+                                重生此视角
+                              </button>
+                            ) : null}
                           </div>
                         );
                       })
                     ) : (
                       <div className="col-span-4 rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                        {asset.kind === "character" ? "尚未生成人物三视图" : "尚未生成标准视图"}
+                        {asset.kind === "character" || asset.kind === "pet"
+                          ? `尚未生成${visualAssetKindLabel(asset.kind)}标准视图`
+                          : "尚未生成标准视图"}
                       </div>
                     )}
                   </div>
@@ -569,7 +775,7 @@ export default function VisualAssetLibrary({
                   {factsSummary(version.fixedFacts).length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {factsSummary(version.fixedFacts).slice(0, 8).map(fact => (
-                        <span key={fact} className="max-w-full truncate rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                        <span key={fact} className="max-w-full whitespace-normal break-words rounded bg-muted px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
                           {fact}
                         </span>
                       ))}
@@ -580,13 +786,13 @@ export default function VisualAssetLibrary({
                     <div className="rounded-md border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
                       <div className="flex items-center gap-1 font-semibold">
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        {asset.kind === "character"
-                          ? "下一步：确认人物固定造型"
+                        {asset.kind === "character" || asset.kind === "pet"
+                          ? `下一步：确认${visualAssetKindLabel(asset.kind)}固定${asset.kind === "pet" ? "外观" : "造型"}`
                           : "下一步：确认资产固定事实"}
                       </div>
                       <p className="mt-1 text-[10px] leading-relaxed text-amber-700">
-                        {asset.kind === "character"
-                          ? "AI 在参考图中发现差异。已整理的人物固定造型会作为推荐值；你也可以在下拉框改成其他版本。"
+                        {asset.kind === "character" || asset.kind === "pet"
+                          ? `AI 在参考图中发现差异。已整理的${visualAssetKindLabel(asset.kind)}固定${asset.kind === "pet" ? "外观" : "造型"}会作为推荐值；你也可以在下拉框改成其他版本。`
                           : "AI 在参考图中发现差异。请选择这个资产以后必须保持的版本。"}
                       </p>
                       {unresolvedConflicts.map(conflict => {
@@ -637,8 +843,8 @@ export default function VisualAssetLibrary({
                           disabled={processing}
                           className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-amber-700 px-3 text-[11px] font-semibold text-white disabled:opacity-50"
                         >
-                          {asset.kind === "character"
-                            ? "确认推荐造型，继续生成三视图"
+                          {asset.kind === "character" || asset.kind === "pet"
+                            ? `确认推荐${asset.kind === "pet" ? "外观" : "造型"}，继续生成标准视图`
                             : "确认推荐事实，继续生成标准板"}
                         </button>
                         <button
@@ -657,7 +863,7 @@ export default function VisualAssetLibrary({
                     <div className="text-[11px] text-muted-foreground">锁定前还需：{blockers.join("、")}</div>
                   ) : null}
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {needsAnalysis ? (
                       <button
                         type="button"
@@ -676,15 +882,20 @@ export default function VisualAssetLibrary({
                         className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 text-xs font-medium text-primary disabled:opacity-50"
                       >
                         {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                        {asset.kind === "character" ? "生成人物三视图" : "生成标准视图"}
+                        {asset.kind === "character" || asset.kind === "pet"
+                          ? `生成${visualAssetKindLabel(asset.kind)}标准视图`
+                          : "生成标准视图"}
                       </button>
                     ) : unresolvedConflicts.length > 0 ? (
                       <button
                         type="button"
                         disabled
-                        className="inline-flex h-8 flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 text-xs font-medium text-primary/70"
+                        className="inline-flex min-h-8 min-w-48 flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-center text-xs font-medium text-primary/70"
                       >
-                        确认造型后，此处直接生成人物三视图
+                        确认
+                        {asset.kind === "character" ? "造型" : "固定事实"}
+                        后，此处直接生成
+                        {visualAssetKindLabel(asset.kind)}标准视图
                       </button>
                     ) : null}
                     <button
@@ -738,11 +949,18 @@ export default function VisualAssetLibrary({
                     </button>
                   </div>
                 </div>
+                ) : null}
               </article>
             );
           })}
         </div>
       )}
+
+      {compact ? (
+        <div className="mt-2 flex justify-end" aria-label="资产操作">
+          {createAssetButton}
+        </div>
+      ) : null}
 
       {aggregate && query.data ? (
         <ShotAssetBindingPanel
@@ -772,6 +990,33 @@ export default function VisualAssetLibrary({
         }
         onSubmit={submit}
       />
+
+      <Dialog
+        open={imagePreview != null}
+        onOpenChange={open => {
+          if (!open) setImagePreview(null);
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-1rem)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden p-4 sm:max-w-[calc(100vw-2rem)]">
+          <DialogHeader className="min-w-0 pr-8">
+            <DialogTitle className="truncate text-base">
+              {imagePreview?.title ?? "资产大图"}
+            </DialogTitle>
+            <DialogDescription>
+              {imagePreview?.description ?? "按原始比例查看资产图片"}
+            </DialogDescription>
+          </DialogHeader>
+          {imagePreview ? (
+            <div className="flex min-h-0 items-center justify-center overflow-auto rounded-lg bg-black/90 p-3">
+              <img
+                src={imagePreview.src}
+                alt={imagePreview.title}
+                className="max-h-[calc(100vh-8rem)] max-w-full object-contain"
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

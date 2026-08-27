@@ -35,7 +35,7 @@ export type ChatImageRemixController = {
   result: ChatImageRemixResult | null;
   error: string | null;
   /** 把输入框里的话变成一张待确认的卡；返回 false 表示这句话不该走图生图。 */
-  arm: (instruction: string) => boolean;
+  arm: (instruction: string, refsOverride?: ChatImageRef[]) => boolean;
   confirm: () => Promise<void>;
   cancel: () => void;
   dismissResult: () => void;
@@ -62,13 +62,17 @@ export function useChatImageRemix(
   const utils = trpc.useUtils();
 
   const arm = useCallback(
-    (instruction: string) => {
-      if (refs.length === 0) return false;
+    (instruction: string, refsOverride?: ChatImageRef[]) => {
+      const requestRefs = refsOverride ?? refs;
+      if (requestRefs.length === 0) return false;
       if (storyId == null || storyId <= 0) {
         toast.error("先打开一个故事，再让聊聊改图");
         return false;
       }
-      const request = buildChatImageRemixRequest({ refs, instruction });
+      const request = buildChatImageRemixRequest({
+        refs: requestRefs,
+        instruction,
+      });
       if ("error" in request) {
         toast.error(request.error);
         return false;
@@ -77,7 +81,7 @@ export function useChatImageRemix(
       setError(null);
       setResult(null);
       setDraft({
-        refs: [...refs],
+        refs: [...requestRefs],
         instruction: request.explicitInstruction,
         prompt: request.prompt,
         referenceImageUrl: request.referenceImageUrl,

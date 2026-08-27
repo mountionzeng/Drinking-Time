@@ -4,11 +4,13 @@ import sharp from "sharp";
 import { estimateStoryboardMaskedEditCost } from "../../shared/imageRenderCost";
 import {
   VISUAL_ASSET_IMAGE_SHOT_NO,
+  requiredVisualAssetViewRoles,
   visualAssetFixedFactsAreComplete,
   type StoryVisualAsset,
   type VisualAssetConflict,
   type VisualAssetFixedFacts,
   type VisualAssetKind,
+  type VisualAssetReferenceRole,
   type VisualAssetVersion,
   type VisualAssetView,
 } from "../../shared/visualAssets";
@@ -28,7 +30,9 @@ import {
 import { materializeImageInput } from "./imageAssets";
 import { renderViaGate } from "./renderGate";
 import {
+  createAnalyzedVisualAssetsFromPhoto,
   getStoryVisualAssets,
+  photoVisualAssetKindsFromResultId,
   saveVisualAssetVersionAnalysis,
   upsertVisualAssetOperation,
   VisualAssetNotFoundError,
@@ -145,6 +149,17 @@ function parseFacts(value: unknown, kind: VisualAssetKind): VisualAssetFixedFact
       accessories: strings(obj.accessories),
     };
   }
+  if (kind === "pet") {
+    return {
+      kind,
+      species: stringValue(obj.species),
+      face: stringValue(obj.face),
+      coat: stringValue(obj.coat),
+      body: stringValue(obj.body),
+      distinctiveFeatures: strings(obj.distinctiveFeatures),
+      accessories: strings(obj.accessories),
+    };
+  }
   if (kind === "scene") {
     return {
       kind,
@@ -184,15 +199,19 @@ function analysisSystemPrompt(kind: VisualAssetKind): string {
   const contract =
     kind === "character"
       ? '{"fixedFacts":{"face":"","hair":"","outfit":"","accessories":[]},"allowedVariations":[],"conflicts":[{"field":"hair","descriptions":["",""],"sourceImageIds":[1,2]}]}'
+      : kind === "pet"
+        ? '{"fixedFacts":{"species":"","face":"","coat":"","body":"","distinctiveFeatures":[],"accessories":[]},"allowedVariations":[],"conflicts":[{"field":"coat","descriptions":["",""],"sourceImageIds":[1,2]}]}'
       : kind === "scene"
         ? '{"fixedFacts":{"geometry":[],"materials":[],"fixedProps":[]},"allowedVariations":[],"conflicts":[{"field":"geometry","descriptions":["",""],"sourceImageIds":[1,2]}]}'
         : '{"fixedFacts":{"medium":[],"brushwork":[],"formLanguage":[],"colorLanguage":[],"forbidden":[]},"allowedVariations":[],"conflicts":[{"field":"medium","descriptions":["",""],"sourceImageIds":[1,2]}]}';
   return [
-    `你是视觉资产分析员。本次只分析${kind === "character" ? "人物固定造型" : kind === "scene" ? "场景固定事实" : "美术风格语言"}。`,
-    "即使图片同时出现人物、场景和画风，也禁止提取本次类型以外的控制事实。",
+    `你是视觉资产分析员。本次只分析${kind === "character" ? "人物固定造型" : kind === "pet" ? "宠物固定外观" : kind === "scene" ? "场景固定事实" : "美术风格语言"}。`,
+    "即使图片同时出现人物、宠物、场景和画风，也禁止提取本次类型以外的控制事实。",
     kind === "character"
       ? "景别、机位、动作、表情、视线和光线变化属于允许变化，不得列为冲突；只有人物身份/脸型五官、发型结构、服装款式颜色或固定配件本身不一致时才列冲突。"
-      : "只把固定事实本身不一致列为冲突；视角、构图、景别和光线变化不得列为冲突。",
+      : kind === "pet"
+        ? "景别、机位、动作、表情、姿态和光线变化属于允许变化，不得列为冲突；只有物种、头脸特征、毛色纹理、体型比例、标志斑纹或固定配件本身不一致时才列冲突。"
+        : "只把固定事实本身不一致列为冲突；视角、构图、景别和光线变化不得列为冲突。",
     // 实测（2026-08-22 画廊场景）：只说「禁止提取本类型以外的事实」太抽象，
     // 模型照样把「短发女性，着露背长裙」写进了场景的 fixedProps。必须点名这个失败模式。
     ...(kind === "scene"
@@ -228,9 +247,15 @@ async function ownedReferenceInputs(input: {
   userId: number;
   version: VisualAssetVersion;
   dependencies: CreationDependencies;
-}): Promise<Array<{ id: number; imageUrl: string; materialized: string }>> {
+}): Promise<Array<{
+  id: number;
+  role: VisualAssetReferenceRole;
+  imageUrl: string;
+  materialized: string;
+}>> {
   const rows = [];
-  for (const imageId of input.version.referenceImageIds) {
+  for (const reference of input.version.references) {
+    const imageId = reference.imageId;
     const image = await input.dependencies.getImage(imageId);
     if (
       !image ||
@@ -248,7 +273,12 @@ async function ownedReferenceInputs(input: {
         `参考图片 #${imageId} 读取失败：${error instanceof Error ? error.message : "未知错误"}`
       );
     }
-    rows.push({ id: image.id, imageUrl: image.imageUrl, materialized });
+    rows.push({
+      id: image.id,
+      role: reference.role,
+      imageUrl: image.imageUrl,
+      materialized,
+    });
   }
   if (rows.length === 0) throw new VisualAssetValidationError("资产没有可用参考图");
   return rows;
@@ -268,13 +298,19 @@ function materializedImageBytes(value: string): Buffer | null {
 }
 
 async function analysisReferenceInput(
-  references: Array<{ id: number; materialized: string }>
+  references: Array<{
+    id: number;
+    role: VisualAssetReferenceRole;
+    materialized: string;
+  }>
 ): Promise<{ imageUrls: string[]; description: string }> {
   const decoded = references.map(reference => materializedImageBytes(reference.materialized));
   if (decoded.some(bytes => !bytes)) {
     return {
       imageUrls: references.map(reference => reference.materialized),
-      description: references.map(reference => `图片 ID ${reference.id}`).join("、"),
+      description: references
+        .map(reference => `图片 ID ${reference.id}（职责：${reference.role}）`)
+        .join("、"),
     };
   }
 
@@ -319,8 +355,136 @@ async function analysisReferenceInput(
   return {
     imageUrls: [`data:image/jpeg;base64,${board.toString("base64")}`],
     description: references
-      .map((reference, index) => `第 ${index + 1} 格=图片 ID ${reference.id}`)
+      .map(
+        (reference, index) =>
+          `第 ${index + 1} 格=图片 ID ${reference.id}（职责：${reference.role}）`
+      )
       .join("；"),
+  };
+}
+
+function photoFeatureSystemPrompt(): string {
+  return [
+    "你是照片视觉特征分析员。一次同时观察人物、宠物、场景和关键物体，但必须把职责分开。",
+    "人物只记录可重复识别的脸型与五官、发型结构、固定服装和配件；动作、表情、视线、景别、构图和光线不属于人物固定事实。",
+    "只有清晰可见一张人物面部且脸、发型、服装都能可靠描述时，character.present 才能为 true。没有人、背影、面部太小、遮挡严重或多人无法确定主体时必须为 false，其他人物字段留空，禁止猜测。",
+    "宠物是独立资产，绝不能写进 character。只有清晰可见一只主要宠物，且物种、头脸特征、毛色纹理和整体体型都能可靠描述时，pet.present 才能为 true；多只宠物无法确定主体、严重遮挡、过小或只有局部时必须为 false。distinctiveFeatures 只写可重复识别的斑纹、耳尾形状等标志，accessories 只写固定项圈、胸背或衣饰。动作、表情、姿态和光线不属于宠物固定事实。",
+    "场景只记录空间结构与可见材质；人物及其服装绝不属于场景。fixedProps 记录对后续画面一致性重要的家具、装置、交通工具、器皿、标识或其他关键物体，并包含可见颜色、材质或形态；临时光影和人物手持但不可识别的东西不要写。",
+    "只写照片直接支持的事实，看不清就留空。不得依据职业、身份、地点名称或常识补全画外信息。",
+    "严格返回 JSON：{\"character\":{\"present\":false,\"face\":\"\",\"hair\":\"\",\"outfit\":\"\",\"accessories\":[]},\"pet\":{\"present\":false,\"species\":\"\",\"face\":\"\",\"coat\":\"\",\"body\":\"\",\"distinctiveFeatures\":[],\"accessories\":[]},\"scene\":{\"geometry\":[],\"materials\":[],\"fixedProps\":[]}}",
+  ].join("\n");
+}
+
+/** Analyze one imported photo once, then atomically persist independent review assets. */
+export async function extractPhotoVisualFeatures(input: {
+  storyId: number;
+  userId: number;
+  expectedRevision: number;
+  operationToken: string;
+  imageId: number;
+  sourceLabel: string;
+  dependencies?: Partial<CreationDependencies>;
+}) {
+  const dependencies = dependenciesOf(input.dependencies);
+  const current = await getStoryVisualAssets(input);
+  const priorReceipt = current.aggregate.operations.find(
+    receipt => receipt.token === input.operationToken
+  );
+  if (priorReceipt?.status === "succeeded") {
+    return {
+      status: "ok" as const,
+      revision: getStoryRevision(current.story.body),
+      aggregate: current.aggregate,
+      replayed: true,
+      createdKinds: photoVisualAssetKindsFromResultId(priorReceipt.resultId),
+      modelLabel: "receipt-replay",
+    };
+  }
+  if (getStoryRevision(current.story.body) !== input.expectedRevision) {
+    throw new VisualAssetValidationError("资产已更新，请刷新后重新提取");
+  }
+  const image = await dependencies.getImage(input.imageId);
+  if (
+    !image ||
+    image.storyId !== input.storyId ||
+    image.userId !== input.userId ||
+    !image.imageUrl
+  ) {
+    throw new VisualAssetValidationError(
+      `参考图片 #${input.imageId} 不属于当前 Story 或已不可用`
+    );
+  }
+  let materialized: string;
+  try {
+    materialized = await dependencies.materialize(image.imageUrl);
+  } catch (error) {
+    throw new VisualAssetValidationError(
+      `参考图片 #${input.imageId} 读取失败：${error instanceof Error ? error.message : "未知错误"}`
+    );
+  }
+  const prepared = await analysisReferenceInput([
+    {
+      id: image.id,
+      role: "character-identity",
+      materialized,
+    },
+  ]);
+  const vision = await dependencies.vision({
+    system: photoFeatureSystemPrompt(),
+    userText: `来源：${input.sourceLabel.trim().slice(0, 240) || `图片 #${input.imageId}`}\n图片 ID：${input.imageId}\n提取人物、宠物、场景和关键物体的可见固定特征。`,
+    imageUrls: prepared.imageUrls,
+    maxTokens: 1800,
+    attemptTimeoutMs: 70_000,
+    timeoutMs: 145_000,
+  });
+  const parsed = parseJsonLoose<Record<string, unknown>>(vision.text);
+  const characterObj = record(parsed.character);
+  const characterFacts = parseFacts(characterObj, "character");
+  const character =
+    characterObj.present === true &&
+    visualAssetFixedFactsAreComplete(characterFacts)
+      ? (characterFacts as Extract<VisualAssetFixedFacts, { kind: "character" }>)
+      : undefined;
+  const petObj = record(parsed.pet);
+  const petFacts = parseFacts(petObj, "pet");
+  const pet =
+    petObj.present === true && visualAssetFixedFactsAreComplete(petFacts)
+      ? (petFacts as Extract<VisualAssetFixedFacts, { kind: "pet" }>)
+      : undefined;
+  const sceneFacts = parseFacts(parsed.scene, "scene") as Extract<
+    VisualAssetFixedFacts,
+    { kind: "scene" }
+  >;
+  const scene =
+    sceneFacts.geometry.length > 0 ||
+    sceneFacts.materials.length > 0 ||
+    sceneFacts.fixedProps.length > 0
+      ? sceneFacts
+      : undefined;
+
+  // Vision may outlive unrelated editor saves. Rebase only this additive,
+  // immutable observation onto the latest Story snapshot; image ownership is
+  // checked again inside the atomic persistence command.
+  const latest = await getStoryVisualAssets(input);
+  const saved = await createAnalyzedVisualAssetsFromPhoto({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedRevision: getStoryRevision(latest.story.body),
+    operationToken: input.operationToken,
+    imageId: input.imageId,
+    sourceLabel: input.sourceLabel,
+    ...(character ? { character } : {}),
+    ...(pet ? { pet } : {}),
+    ...(scene ? { scene } : {}),
+    now: dependencies.now(),
+  });
+  return {
+    status: "ok" as const,
+    revision: getStoryRevision(saved.story.body),
+    aggregate: saved.aggregate,
+    replayed: saved.replayed,
+    createdKinds: photoVisualAssetKindsFromResultId(saved.resultId),
+    modelLabel: vision.modelLabel,
   };
 }
 
@@ -387,8 +551,8 @@ export async function analyzeVisualAssetVersion(input: {
   );
   if (
     latestTarget.asset.kind !== asset.kind ||
-    JSON.stringify(latestTarget.version.referenceImageIds) !==
-      JSON.stringify(version.referenceImageIds)
+    JSON.stringify(latestTarget.version.references) !==
+      JSON.stringify(version.references)
   ) {
     throw new VisualAssetValidationError("资产参考图已更新，请重新分析");
   }
@@ -437,20 +601,10 @@ export const CANONICAL_BOARD_COMPOSITION_VERSION = 6;
 
 const BOARD_CELL_EDGE = 512;
 
-/** 真正需要付费生成的视角；其余角色由已生成结果派生。 */
-const GENERATED_VIEW_ROLES: Record<VisualAssetKind, VisualAssetView["role"][]> = {
-  // identity-detail 必须真生成，不能从正面图裁。
-  // 全身图一格只有 512px，脸只剩几十像素，裁出来等于把糊脸放大——锁不住五官，
-  // 而它同时还是下游镜头出图的身份锚点（REPRESENTATIVE_ROLE），糊在这里全链路都糊。
-  character: ["front", "profile", "back", "identity-detail"],
-  scene: ["establishing", "reverse", "side", "top"],
-  style: ["character-sample", "scene-sample", "object-sample", "closeup-sample"],
-};
-
 export function generatedVisualAssetViewRoles(
   kind: VisualAssetKind
 ): VisualAssetView["role"][] {
-  return [...GENERATED_VIEW_ROLES[kind]];
+  return requiredVisualAssetViewRoles(kind);
 }
 
 const VIEW_BRIEF: Record<VisualAssetView["role"], string> = {
@@ -480,9 +634,28 @@ const VIEW_BRIEF: Record<VisualAssetView["role"], string> = {
     "近景细节样例：用这套美术风格画一处材质特写，让笔触和肌理充满画面。主体内容必须和前三格完全不同，只有风格语言一致。",
 };
 
+const PET_VIEW_BRIEF: Record<"front" | "profile" | "back" | "identity-detail", string> = {
+  front:
+    "严格正面全身站姿：宠物面向镜头自然站立，四肢、躯干、耳朵和尾巴完整可见。",
+  profile:
+    "严格 90° 正侧面全身站姿：宠物完全侧对镜头，头部、背线、四肢比例和尾巴轮廓清晰。绝不能是四分之三侧身。",
+  back:
+    "严格背面全身站姿：宠物完全背对镜头，不能回头。后脑、耳朵背面、背部毛色纹理、后腿和尾巴完整可见。",
+  "identity-detail":
+    "正面头部特写：宠物头部正对镜头，眼睛、鼻口、耳形、脸部斑纹和毛发纹理清晰可辨。中性自然状态，不要手或人入画。",
+};
+
+function viewBrief(kind: VisualAssetKind, role: VisualAssetView["role"]): string {
+  return kind === "pet" && role in PET_VIEW_BRIEF
+    ? PET_VIEW_BRIEF[role as keyof typeof PET_VIEW_BRIEF]
+    : VIEW_BRIEF[role];
+}
+
 function referenceRole(kind: VisualAssetKind): string {
   return kind === "character"
     ? "人物身份参考，只提供脸、发型、服饰和固定配件"
+    : kind === "pet"
+      ? "宠物身份参考，只提供物种、头脸、毛色纹理、体型、标志特征和固定配件"
     : kind === "scene"
       ? "场景参考，只提供空间几何、材质和固定陈设"
       : "风格参考，只提供媒介、笔触、造型与色彩语言";
@@ -501,7 +674,9 @@ function viewPrompt(
     referenceCount > 0
       ? [
           `图 1 是${referenceRole(asset.kind)}。禁止沿用它的构图、机位、景别、姿势和背景——只取${
-            asset.kind === "character" ? "身份与造型" : "固定事实"
+            asset.kind === "character" || asset.kind === "pet"
+              ? "身份与固定外观"
+              : "固定事实"
           }。`,
           ...(referenceCount > 1
             ? [`图 2–${referenceCount} 是同一对象的补充参考，作用与图 1 相同。`]
@@ -511,17 +686,34 @@ function viewPrompt(
   return [
     `为视觉资产“${asset.name}”单独绘制一个标准视角。`,
     ...inputContract,
-    `本次只画这一个视角：${VIEW_BRIEF[role]}`,
+    `本次只画这一个视角：${viewBrief(asset.kind, role)}`,
     `不可改变的固定事实：${facts}`,
-    // 参考图都是半身肖像，edit 模式会把它们的取景一起带过来（2026-08-21 第三次付费事故）。
-    // 全身要求必须写得比「全身」两个字更硬，把镜头距离和留白一起指定死。
+    // edit 模式会把参考图取景一起带过来，因此每类人物视角必须有唯一、无冲突的取景合同：
+    // 三个站姿视角把全身距离和留白写死；identity-detail 则明确排除胸部以下与全身。
     ...(asset.kind === "character"
-      ? [
-          "取景：全身远景。从头顶到鞋底必须完整出现在画面里，脚和鞋子必须可见。头顶上方和鞋底下方各留出明显空白。这是一张站姿全身图，不是半身像、不是胸像、不是七分身，绝对不能在膝盖、大腿或腰部截断。",
-          "人物站在画面正中，全身占画面高度的约 80%，相机与人物保持整个人入画的距离。",
-          "画面里只能有一个人物。背景是完全平整的中性浅灰色影棚背景，没有墙面、没有墙角、没有柱子、没有家具、没有道具、没有地平线、没有阴影分割线。",
-          "禁止坐姿、禁止倚靠、禁止蹲姿——三个视角都必须是同一个直立站姿。",
-        ]
+      ? role === "identity-detail"
+        ? [
+            "取景：正面头部特写，只允许头部、颈部和肩线入画，画面下缘停在锁骨或肩部附近。绝不能出现胸部以下、腰、手、腿、脚或全身。脸部应占画面高度约 70%，头顶与下巴都要完整，双眼保持在同一水平线。",
+            "画面里只能有一个人物。背景是完全平整的中性浅灰色影棚背景，没有墙面、没有墙角、没有柱子、没有家具、没有道具、没有地平线、没有阴影分割线。",
+          ]
+        : [
+            "取景：全身远景。从头顶到鞋底必须完整出现在画面里，脚和鞋子必须可见。头顶上方和鞋底下方各留出明显空白。这是一张站姿全身图，不是半身像、不是胸像、不是七分身，绝对不能在膝盖、大腿或腰部截断。",
+            "人物站在画面正中，全身占画面高度的约 80%，相机与人物保持整个人入画的距离。",
+            "画面里只能有一个人物。背景是完全平整的中性浅灰色影棚背景，没有墙面、没有墙角、没有柱子、没有家具、没有道具、没有地平线、没有阴影分割线。",
+            "禁止坐姿、禁止倚靠、禁止蹲姿——三个视角都必须是同一个直立站姿。",
+          ]
+      : asset.kind === "pet"
+        ? role === "identity-detail"
+          ? [
+              "取景：宠物正面头部特写，只允许头部、颈部和少量肩胸入画。脸部应占画面高度约 70%，双眼、鼻口、双耳和头顶都完整清晰。",
+              "画面里只能有这一只宠物，不能出现人物或其他动物。背景是完全平整的中性浅灰色影棚背景，没有家具、道具、地平线或文字。",
+            ]
+          : [
+              "取景：宠物全身远景。耳尖到脚爪、鼻尖到尾巴末端必须完整入画，四肢和尾巴不能被裁掉。",
+              "宠物自然站立在画面正中，全身占画面约 75%，三个全身视角必须保持同一体型比例和自然站姿。",
+              "画面里只能有这一只宠物，不能出现人物或其他动物。背景是完全平整的中性浅灰色影棚背景，没有家具、道具、地平线或文字。",
+              "禁止坐姿、趴卧、跳跃或被人抱着——三个全身视角都必须是自然直立站姿。",
+            ]
       : asset.kind === "scene"
         ? [
             // 场景本身就是背景。这里绝不能写「纯净中性背景」——那会让模型
@@ -586,7 +778,7 @@ async function generationInput(input: {
     assetId: asset.id,
     versionId: version.id,
     kind: asset.kind,
-    referenceImageIds: version.referenceImageIds,
+    references: version.references,
     fixedFacts: version.fixedFacts,
     compositionVersion: CANONICAL_BOARD_COMPOSITION_VERSION,
     prompts: roles.map(role => prompts.get(role)),
@@ -645,7 +837,10 @@ async function composeCanonicalBoard(input: {
   views: Buffer[];
   storeBytes: typeof storeImageBytes;
 }): Promise<{ imageUrl: string; imageKey?: string }> {
-  const columns = input.kind === "character" ? input.views.length : 2;
+  const columns =
+    input.kind === "character" || input.kind === "pet"
+      ? input.views.length
+      : 2;
   const rows = Math.ceil(input.views.length / columns);
   const cells = await Promise.all(
     input.views.map(bytes =>
@@ -748,9 +943,11 @@ async function renderOneView(input: {
   contextReferences: string[];
   resumeTaskId?: string;
   resolved: ResolvedGenerationInput;
+  receiptInputHash?: string;
   dependencies: CreationDependencies;
 }): Promise<RenderedView | { status: "error"; error: string; operationToken: string }> {
   const { dependencies, resolved, role } = input;
+  const receiptInputHash = input.receiptInputHash ?? resolved.inputHash;
   const onAccepted = async (taskId: string) => {
     await upsertVisualAssetOperation({
       storyId: input.storyId,
@@ -759,7 +956,7 @@ async function renderOneView(input: {
       kind: "generate_views",
       status: "submitted",
       providerTaskId: taskId,
-      inputHash: resolved.inputHash,
+      inputHash: receiptInputHash,
       now: dependencies.now(),
     });
   };
@@ -769,7 +966,7 @@ async function renderOneView(input: {
     token: input.viewToken,
     kind: "generate_views",
     status: "claimed",
-    inputHash: resolved.inputHash,
+    inputHash: receiptInputHash,
     now: dependencies.now(),
   });
   const options = generationOptions(
@@ -793,7 +990,7 @@ async function renderOneView(input: {
         referenceImages: [input.identityBase, ...input.contextReferences],
         outputPurpose: "image-edit",
         referencePolicy:
-          resolved.asset.kind === "character"
+          resolved.asset.kind === "character" || resolved.asset.kind === "pet"
             ? "preserve-identity"
             : resolved.asset.kind === "scene"
               ? "preserve-composition"
@@ -815,7 +1012,7 @@ async function renderOneView(input: {
       kind: "generate_views",
       status: uncertain ? "unknown" : "failed",
       providerTaskId: generated.providerTaskId,
-      inputHash: resolved.inputHash,
+      inputHash: receiptInputHash,
       error: message,
       now: dependencies.now(),
     });
@@ -825,7 +1022,7 @@ async function renderOneView(input: {
       token: input.operationToken,
       kind: "generate_views",
       status: uncertain ? "unknown" : "failed",
-      inputHash: resolved.inputHash,
+      inputHash: receiptInputHash,
       error: message,
       now: dependencies.now(),
     });
@@ -842,7 +1039,7 @@ async function renderOneView(input: {
     prompt: input.prompt,
     promptCompilationId: null,
     generationType: "initial",
-    parentImageId: resolved.version.referenceImageIds[0] ?? null,
+    parentImageId: resolved.version.references[0]?.imageId ?? null,
     isCurrent: false,
     maskKey: null,
   });
@@ -853,7 +1050,7 @@ async function renderOneView(input: {
     kind: "generate_views",
     status: "succeeded",
     providerTaskId: generated.providerTaskId,
-    inputHash: resolved.inputHash,
+    inputHash: receiptInputHash,
     resultId: String(row.id),
     now: dependencies.now(),
   });
@@ -877,6 +1074,7 @@ async function finalizeCanonicalBoard(input: {
   operationToken: string;
   resolved: ResolvedGenerationInput;
   renderedRows: RenderedView[];
+  receiptInputHash?: string;
   dependencies: CreationDependencies;
 }): Promise<CanonicalBoardResult> {
   const { dependencies, resolved, renderedRows } = input;
@@ -946,7 +1144,7 @@ async function finalizeCanonicalBoard(input: {
       token: input.operationToken,
       kind: "generate_views",
       status: "succeeded",
-      inputHash: resolved.inputHash,
+      inputHash: input.receiptInputHash ?? resolved.inputHash,
       resultId: input.versionId,
       now: dependencies.now(),
     });
@@ -969,7 +1167,7 @@ async function finalizeCanonicalBoard(input: {
       token: input.operationToken,
       kind: "generate_views",
       status: "failed",
-      inputHash: resolved.inputHash,
+      inputHash: input.receiptInputHash ?? resolved.inputHash,
       error: message,
       now: dependencies.now(),
     });
@@ -1247,6 +1445,7 @@ export async function regenerateVisualAssetView(input: {
         contextReferences,
         ...(viewReceipt?.providerTaskId ? { resumeTaskId: viewReceipt.providerTaskId } : {}),
         resolved,
+        receiptInputHash: viewInputHash(resolved, input.role),
         dependencies,
       });
       if ("status" in rendered) return rendered;
@@ -1277,5 +1476,11 @@ export async function regenerateVisualAssetView(input: {
     });
   }
 
-  return finalizeCanonicalBoard({ ...input, resolved, renderedRows, dependencies });
+  return finalizeCanonicalBoard({
+    ...input,
+    resolved,
+    renderedRows,
+    receiptInputHash: viewInputHash(resolved, input.role),
+    dependencies,
+  });
 }

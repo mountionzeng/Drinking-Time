@@ -28,6 +28,63 @@ function snapshot(): VisualAssetGenerationSnapshot {
 }
 
 describe("inspectVisualAssetConsistency", () => {
+  it("checks pet identity independently from character identity", async () => {
+    const base = snapshot();
+    base.dimensions = {
+      pet: {
+        kind: "pet",
+        assetId: "asset-pet",
+        versionId: "version-pet",
+        assetName: "金毛犬",
+        fixedFacts: {
+          kind: "pet",
+          species: "金毛犬",
+          face: "深色杏仁眼，黑色鼻头",
+          coat: "金黄色中长毛",
+          body: "中大型，胸宽，尾巴蓬松",
+          distinctiveFeatures: ["左耳尖有浅色毛"],
+          accessories: ["红色项圈"],
+        },
+        allowedVariations: ["动作", "光线"],
+        views: [
+          {
+            role: "identity-detail",
+            imageId: 8,
+            sourceUrl: "pet.png",
+            materializedUrl: "data:pet",
+          },
+        ],
+        providerReferenceUrl: "https://pet.test/ref.png",
+      },
+    };
+    const invoke = vi.fn(async (_input: unknown) => ({
+      modelLabel: "vision-test",
+      text: JSON.stringify({
+        dimensions: [
+          {
+            kind: "pet",
+            verdict: "pass",
+            confidence: 0.97,
+            evidence: "同一只金毛犬，耳尖浅色毛和红项圈一致",
+          },
+        ],
+      }),
+    }));
+    const result = await inspectVisualAssetConsistency({
+      snapshot: base,
+      candidateImageUrl: "candidate.png",
+      invoke: invoke as never,
+      materialize: async url => `data:${url}`,
+    });
+    expect(result).toMatchObject({
+      status: "pass",
+      dimensions: [{ kind: "pet", verdict: "pass" }],
+    });
+    expect(
+      (invoke.mock.calls[0]?.[0] as { system: string } | undefined)?.system
+    ).toContain("pet 必须核对同一宠物");
+  });
+
   it("passes only when every bound dimension has evidence and high confidence", async () => {
     const invoke = vi.fn(async () => ({
       modelLabel: "vision-test",

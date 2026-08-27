@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 import {
   buildAssetSwapRenderPrompt,
   detectAssetSwapIntent,
+  mergeAssetSwapSelection,
   looksLikeAssetSwap,
   describeAssetSwapProposal,
   type AssetSwapCandidate,
@@ -253,6 +254,9 @@ export function useAssetSwapProposal(input: {
           return;
         }
         setStatus("binding");
+        const currentBinding = bindings.find(
+          item => item.stableShotId === proposal.stableShotId
+        );
         await bindMut.mutateAsync({
           storyId,
           expectedRevision: storyRevision,
@@ -261,12 +265,14 @@ export function useAssetSwapProposal(input: {
           bindings: [
             {
               stableShotId: proposal.stableShotId,
-              selections: {
-                [proposal.kind]: {
+              selections: mergeAssetSwapSelection({
+                binding: currentBinding,
+                kind: proposal.kind,
+                replacement: {
                   assetId: proposal.asset.assetId,
                   versionId: proposal.asset.versionId,
                 },
-              },
+              }),
             },
           ],
         });
@@ -314,7 +320,7 @@ export function useAssetSwapProposal(input: {
       setError(readableRerenderError(err));
       setStatus("error");
     }
-  }, [bindMut, generateMut, input, proposal, status, storyRevision, utils]);
+  }, [bindings, bindMut, generateMut, input, proposal, status, storyRevision, utils]);
 
   /**
    * 「用这张」。重渲产物落库时 isCurrent 为 false —— 生成不等于采用
