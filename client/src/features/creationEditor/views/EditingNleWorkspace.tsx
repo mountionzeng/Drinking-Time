@@ -2180,7 +2180,6 @@ export default function EditingNleWorkspace({
             mimeType: mediaMime(file),
             fileBase64: await fileBase64(file),
             targetStableShotId: inserted.stableShotId,
-            preserveTimelineSelection: true,
             note: `拖入时间线 · 第 ${visualLayer + 1} 层 · ${timelineFrame} 帧`,
           });
           if (imported.kind === "video") {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T23:12:00+08:00",
+  "updatedAt": "2026-08-28T12:15:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -43,6 +43,11 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "成品版本组合写入继续使用 Story/user ownership 与 Story CAS；服务端按当前 Story 组装正式图片和时间线 Take 快照，客户端不能上传跨 Story 的素材 ID。"
+        },
         {
           "date": "2026-08-22",
           "kind": "refactor",
@@ -213,6 +218,7 @@
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
+        "图片采用或绑定只改变图像层，不得清除同镜头已经采用的视频 Take。",
         "未采用和失配素材仍可作为未分配素材找回。",
         "抽帧轨删除必须按当前 Story 的 exact imageId 执行；服务端只接受带时间线抽帧标记的图片，不得删除普通镜头主图、来源视频或故事镜头。"
       ],
@@ -223,6 +229,11 @@
       "replaces": [],
       "knownGaps": [],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "删除图片采用与绑定时清除 videoTimelineSelections 的隐式副作用，并移除 preserveTimelineSelection 开关；图像与视频版本从此独立。成品版本引用中的图片禁止硬删除。"
+        },
         {
           "date": "2026-06-13",
           "kind": "feature",
@@ -394,6 +405,9 @@
       "owners": [
         "server/routers/publishingDraft.ts",
         "server/services/publishingDraft.ts",
+        "server/services/publishingPersistence.ts",
+        "shared/finishedProductVersion.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx",
         "shared/publishingDraft.ts",
         "server/services/imageGen.ts",
         "server/services/staticImageQualityGate.ts",
@@ -401,6 +415,8 @@
         "server/services/renderGate.ts"
       ],
       "evidence": [
+        "shared/finishedProductVersion.test.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "server/routers.publishingDraft.test.ts",
         "server/services/publishingDraft.test.ts",
@@ -429,11 +445,16 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "尚未完成版本、意图、封面和视频故事版统一生命周期的真实 UI 全链路验收。",
+        "成品组合表尚未在 main:3000 完成文字、图像、视频跨层保存、完成、放弃与连续刷新恢复的真实 UI 全链路验收。",
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "发布区版本操作收敛为一张成品组合表和一个 mutation；明确保存文字、图像或视频才更新对应层，普通保存、候选生成、图片采用和 Take 生成均不自动建成品版本。删除旧选择、重命名、意图自动建版和 dirty 草稿搬运弹窗。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -528,18 +549,22 @@
     },
     {
       "id": "publishing-versions",
-      "name": "发布文字稿版本",
+      "name": "成品版本组合",
       "status": "observing",
-      "userValue": "核心内容变化创建新版本，旧文字稿、封面和视频交接不会被覆盖。",
+      "userValue": "一眼看清每个成品由哪一版文字、图像和视频组成，并且只替换明确保存的那一层。",
       "entryPoints": [
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
       ],
       "owners": [
+        "shared/finishedProductVersion.ts",
         "shared/publishingDraft.ts",
         "server/services/publishingPersistence.ts",
         "server/routers/publishingDraft.ts"
       ],
       "evidence": [
+        "shared/finishedProductVersion.test.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
         "shared/publishingDraft.test.ts",
         "server/routers.publishingDraft.test.ts",
         "shared/scopedResource.test.ts",
@@ -548,21 +573,27 @@
         "server/services/storyBodyPersistence.test.ts"
       ],
       "invariants": [
-        "V2 写入不得改变 V1。",
-        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。",
-        "versions[] 是发布内容的唯一持久权威，顶层字段只能由活动版本派生。",
-        "核心变化只能提出版本转换，不能原地改写当前版本。"
+        "已完成的成品版本不可修改；新更新只能建立或修改唯一一条 editing 组合行。",
+        "文字、图像、视频三层独立，保存一层不得替换另外两层。",
+        "只有明确保存层级才更新组合；普通保存、候选生成、采用素材和付费生成不得自动建版。",
+        "完成时才分配稳定的成品 Vn、Image Vn 与 Video Vn；空媒体层不得虚构版本号。",
+        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
       ],
       "dependencies": [
         "publishing-workspace"
       ],
       "replaces": [],
       "knownGaps": [
-        "版本重命名已有工作区入口，但真实 main:3000 交互与失败重试仍待验收。",
-        "底层 committed receipt 与本地 buffer 恢复握手已接入 hydrate/loadStory；版本切换带草稿仍是 server select 与 local buffer 两步，尚无跨端原子提交。",
-        "版本转换 CAS 冲突目前仍由调用方重新读取最新 projection，统一冲突响应将在工作区作用域接入时完成。"
+        "尚未在 main:3000 完成创建、跨层替换、完成锁定、放弃、连续刷新和旧版本回看的真实验收。",
+        "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
+        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "用成品组合版本替代旧发布生命周期：删除 create/select/rename 网络写入口及持久化 select/rename 命令；Text 新版只冻结 core/drafts，不继承封面、候选轮次、对话快照、画册、视频故事板、意图快照或待更新状态。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -632,18 +663,22 @@
       ],
       "invariants": [
         "用途与平台是不同维度。",
-        "意图必须绑定发布版本。"
+        "确认意图不得自动创建文字、图像、视频或成品版本。"
       ],
       "dependencies": [
         "publishing-versions"
       ],
       "replaces": [],
       "knownGaps": [
-        "共享 profile、proposal 与活动版本 snapshot 权威已建立，聊天与发布工作区已复用同一提案组件；确认后的多状态持久化仍缺真实 main:3000 全链路验收。",
-        "切换用途与受众后的命名、dirty buffer 选择、生成状态和刷新恢复仍缺真实 UI 全链路验收。",
+        "共享 profile 与聊天确认流程仍缺真实 main:3000 刷新恢复验收；发布工作区不再维护第二套意图弹窗。",
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "删除发布工作区意图 proposal 自动建版和用途编辑建版弹窗；意图确认回归聊天流程，是否更新成品由用户在组合表明确保存层级决定。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -707,6 +742,11 @@
         "内存分支用 JS .trim() 判占位标题、数据库分支用 MySQL TRIM()，前者会去掉 \\n/\\t/全角空格而后者不会，因此形如「未命名\\n」的标题在两种模式下判定不同。此分歧在合并前就存在，合并成一个函数后更容易被误当成单一行为，故登记。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "进入视频或画册不再先复制一份旧发布版本；继续使用当前文字稿构建下游内容，且不会自动更新成品组合或触发组合层的付费动作。"
+        },
         {
           "date": "2026-08-15",
           "kind": "refactor",

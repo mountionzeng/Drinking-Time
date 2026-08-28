@@ -18,6 +18,12 @@ import {
 } from "../../shared/storyMaterial";
 import { normalizePersistedVisualLayerState } from "../../shared/timelineVisualLayers";
 import {
+  normalizeFinishedProductImageSnapshot,
+  normalizeFinishedProductVideoSnapshot,
+  type FinishedProductImageReference,
+  type FinishedProductVideoReference,
+} from "../../shared/finishedProductVersion";
+import {
   normalizeShotIdentity,
   shotIdentityMatchKeys,
 } from "../../shared/shotIdentity";
@@ -945,4 +951,64 @@ export async function getStoryMaterialState(
     },
     shots,
   };
+}
+
+/**
+ * Resolve the two mutable media layers into the smallest immutable reference
+ * snapshot used by finished-product history. Ownership and candidate/adoption
+ * rules stay centralized in getStoryMaterialState; callers cannot upload or
+ * assemble a competing image/take set.
+ */
+export async function getCurrentFinishedProductSnapshot(
+  storyId: number,
+  userId: number
+): Promise<{
+  images: FinishedProductImageReference[];
+  videos: FinishedProductVideoReference[];
+} | null> {
+  const materials = await getStoryMaterialState(storyId, userId);
+  if (!materials) return null;
+
+  const images = normalizeFinishedProductImageSnapshot(
+    materials.shots.flatMap(shot =>
+      shot.currentImage
+        ? [{ stableShotId: shot.stableShotId, imageId: shot.currentImage.id }]
+        : []
+    )
+  );
+  const videos = normalizeFinishedProductVideoSnapshot(
+    materials.shots.flatMap(shot => {
+      const timelineItem = shot.timelineItem;
+      if (!timelineItem) return [];
+      const ownedTakeIds = new Set(shot.videoTakes.map(take => take.id));
+      const references: FinishedProductVideoReference[] = [];
+      if (
+        timelineItem.primaryVideoEdit &&
+        ownedTakeIds.has(timelineItem.primaryVideoEdit.takeId)
+      ) {
+        references.push({
+          stableShotId: shot.stableShotId,
+          role: "primary",
+          takeId: timelineItem.primaryVideoEdit.takeId,
+          sourceStartSec: timelineItem.primaryVideoEdit.sourceStartSec,
+          sourceEndSec: timelineItem.primaryVideoEdit.sourceEndSec,
+        });
+      }
+      for (const clip of timelineItem.visualClips ?? []) {
+        if (!ownedTakeIds.has(clip.takeId)) continue;
+        references.push({
+          stableShotId: shot.stableShotId,
+          role: "visual_clip",
+          clipId: clip.id,
+          takeId: clip.takeId,
+          rangeId: clip.rangeId,
+          sourceStartSec: clip.sourceStartSec,
+          sourceEndSec: clip.sourceEndSec,
+        });
+      }
+      return references;
+    })
+  );
+
+  return { images, videos };
 }

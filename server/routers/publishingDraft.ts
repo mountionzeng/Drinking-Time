@@ -54,7 +54,9 @@ import type { ArtRecipeDNA } from "../../shared/artDirection";
 import {
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
+  getFinishedProductState,
   getPublishingDraftState,
+  writeFinishedProductState,
   writePublishingDraftState,
 } from "../services/publishingPersistence";
 import {
@@ -804,6 +806,62 @@ function coverArtRecipe(
 }
 
 export const publishingDraftRouter = router({
+  finishedProduct: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getFinishedProductState(input.storyId, ctx.user.id);
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  updateFinishedProduct: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        operationToken: z.string().trim().min(1).max(200),
+        requestHash: z.string().trim().min(8).max(128),
+        expectedRevision: z.number().int().nonnegative(),
+        command: z.discriminatedUnion("type", [
+          z.object({
+            type: z.literal("save_layer"),
+            layer: z.enum(["text", "image", "video"]),
+            purpose: z.string().trim().min(1).max(160).optional(),
+            textVersion: z
+              .object({
+                platform: platformSchema,
+                core: coreSchema,
+                content: contentSchema,
+                baseCoreRevision: z.number().int().nonnegative(),
+                baseDraftRevision: z.number().int().nonnegative(),
+                baseVersionRevision: z.number().int().nonnegative().optional(),
+                baseContainerRevision: z.number().int().nonnegative(),
+                displayName: z.string().trim().max(80).optional(),
+                narrativeIntent: narrativeIntentSchema.optional(),
+              })
+              .optional(),
+          }),
+          z.object({
+            type: z.literal("update_purpose"),
+            purpose: z.string().trim().min(1).max(160),
+          }),
+          z.object({ type: z.literal("complete") }),
+          z.object({ type: z.literal("abandon") }),
+        ]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await writeFinishedProductState({
+          ...input,
+          userId: ctx.user.id,
+        });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
   read: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1192,129 +1250,6 @@ export const publishingDraftRouter = router({
           versionId: input.versionId,
           previewId: input.previewId,
           operationToken: input.operationToken,
-        });
-      } catch (error) {
-        throwPublishingError(error);
-      }
-    }),
-
-  createVersion: protectedProcedure
-    .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        platform: platformSchema,
-        core: coreSchema,
-        content: contentSchema,
-        baseCoreRevision: z.number().int().nonnegative(),
-        baseDraftRevision: z.number().int().nonnegative(),
-        baseVersionRevision: z.number().int().nonnegative(),
-        baseContainerRevision: z.number().int().nonnegative(),
-        displayName: z.string().trim().max(80).optional(),
-        narrativeIntent: narrativeIntentSchema.optional(),
-        operationToken: z.string().trim().min(1).max(200).optional(),
-        requestHash: z.string().trim().min(8).max(128).optional(),
-        sourceVersionId: z.string().trim().min(1).max(64).optional(),
-        bufferDisposition: z.enum(["leave", "carry", "cancel"]).optional(),
-        sourceBufferKey: z.string().trim().max(300).optional(),
-        sourceBufferHash: z.string().trim().max(128).optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        assertPublishingContentFitsPlatform(input.platform, input.content);
-        const conversation = await loadOwnedPublishingConversation(
-          input.storyId,
-          ctx.user.id
-        );
-        const saved = await writePublishingDraftState({
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          operationToken: input.operationToken,
-          operation: {
-            type: "create_version",
-            platform: input.platform,
-            core: input.core as PublishingStoryCoreContent,
-            content: input.content,
-            baseCoreRevision: input.baseCoreRevision,
-            baseDraftRevision: input.baseDraftRevision,
-            baseVersionRevision: input.baseVersionRevision,
-            baseContainerRevision: input.baseContainerRevision,
-            displayName: input.displayName,
-            narrativeIntent: input.narrativeIntent,
-            conversationSnapshot: {
-              messages: conversation,
-              updatedAt: Date.now(),
-            },
-            requestHash: input.requestHash,
-            sourceVersionId: input.sourceVersionId,
-            bufferDisposition: input.bufferDisposition,
-            sourceBufferKey: input.sourceBufferKey,
-            sourceBufferHash: input.sourceBufferHash,
-            storyId: input.storyId,
-          },
-        });
-        return saved;
-      } catch (error) {
-        throwPublishingError(error);
-      }
-    }),
-
-  selectVersion: protectedProcedure
-    .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        versionId: z.string().trim().min(1).max(64),
-        baseContainerRevision: z.number().int().nonnegative(),
-        baseVersionRevision: z.number().int().nonnegative(),
-        operationToken: z.string().trim().min(1).max(200).optional(),
-        requestHash: z.string().trim().min(8).max(128).optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await writePublishingDraftState({
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          operationToken: input.operationToken,
-          operation: {
-            type: "select_version",
-            versionId: input.versionId,
-            baseContainerRevision: input.baseContainerRevision,
-            baseVersionRevision: input.baseVersionRevision,
-            ...(input.requestHash ? { requestHash: input.requestHash } : {}),
-          },
-        });
-      } catch (error) {
-        throwPublishingError(error);
-      }
-    }),
-
-  renameVersion: protectedProcedure
-    .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        versionId: z.string().trim().min(1).max(64),
-        displayName: z.string().trim().min(1).max(80),
-        baseContainerRevision: z.number().int().nonnegative(),
-        baseVersionRevision: z.number().int().nonnegative(),
-        operationToken: z.string().trim().min(1).max(200).optional(),
-        requestHash: z.string().trim().min(8).max(128).optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await writePublishingDraftState({
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          operationToken: input.operationToken,
-          operation: {
-            type: "rename_version",
-            versionId: input.versionId,
-            displayName: input.displayName,
-            baseContainerRevision: input.baseContainerRevision,
-            baseVersionRevision: input.baseVersionRevision,
-            ...(input.requestHash ? { requestHash: input.requestHash } : {}),
-          },
         });
       } catch (error) {
         throwPublishingError(error);

@@ -3207,8 +3207,7 @@ export async function createImageSignal(
 
 /**
  * Promote a story image and persist the explicit selection as one operation.
- * Changing the main image also deactivates the previously adopted video for
- * that shot; the take itself remains available in history.
+ * Image and video selections are independent layers.
  */
 export async function promoteStoryImageToCurrent(data: {
   imageId: number;
@@ -3239,20 +3238,6 @@ export async function promoteStoryImageToCurrent(data: {
       if (sameIdentity || sameLegacyShot) candidate.isCurrent = false;
     }
     image.isCurrent = true;
-
-    const stableShotIds = new Set(
-      [
-        image.shotIdentity,
-        image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
-      ].filter((value): value is string => Boolean(value))
-    );
-    memoryState.videoTimelineSelections =
-      memoryState.videoTimelineSelections.filter(
-        selection =>
-          selection.storyId !== data.storyId ||
-          selection.userId !== data.userId ||
-          !stableShotIds.has(selection.stableShotId)
-      );
 
     const signal: ImageSignal = {
       id: nextMemoryId("imageSignal"),
@@ -3320,22 +3305,6 @@ export async function promoteStoryImageToCurrent(data: {
       .set({ isCurrent: true })
       .where(eq(generatedImages.id, image.id));
 
-    const stableShotIds = [
-      image.shotIdentity,
-      image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
-    ].filter((value): value is string => Boolean(value));
-    if (stableShotIds.length > 0) {
-      await tx
-        .delete(videoTimelineSelections)
-        .where(
-          and(
-            eq(videoTimelineSelections.storyId, data.storyId),
-            eq(videoTimelineSelections.userId, data.userId),
-            inArray(videoTimelineSelections.stableShotId, stableShotIds)
-          )
-        );
-    }
-
     const [result] = await tx.insert(imageSignals).values({
       userId: data.userId,
       storyId: data.storyId,
@@ -3357,7 +3326,6 @@ export async function assignStoryImageToShot(data: {
   userId: number;
   shotNo: string;
   shotIdentity: string;
-  preserveTimelineSelection?: boolean;
   metadata?: InsertImageSignal["metadata"];
 }): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
   const db = await getDb();
@@ -3381,17 +3349,6 @@ export async function assignStoryImageToShot(data: {
     image.shotNo = data.shotNo;
     image.shotIdentity = data.shotIdentity;
     image.isCurrent = true;
-
-    if (!data.preserveTimelineSelection) {
-      const stableShotIds = [data.shotIdentity, `legacy-${data.shotNo}`];
-      memoryState.videoTimelineSelections =
-        memoryState.videoTimelineSelections.filter(
-          selection =>
-            selection.storyId !== data.storyId ||
-            selection.userId !== data.userId ||
-            !stableShotIds.includes(selection.stableShotId)
-        );
-    }
 
     const signal: ImageSignal = {
       id: nextMemoryId("imageSignal"),
@@ -3454,21 +3411,6 @@ export async function assignStoryImageToShot(data: {
         isCurrent: true,
       })
       .where(eq(generatedImages.id, image.id));
-
-    if (!data.preserveTimelineSelection) {
-      await tx
-        .delete(videoTimelineSelections)
-        .where(
-          and(
-            eq(videoTimelineSelections.storyId, data.storyId),
-            eq(videoTimelineSelections.userId, data.userId),
-            inArray(videoTimelineSelections.stableShotId, [
-              data.shotIdentity,
-              `legacy-${data.shotNo}`,
-            ])
-          )
-        );
-    }
 
     const [result] = await tx.insert(imageSignals).values({
       userId: data.userId,
@@ -4865,6 +4807,15 @@ export async function deleteGeneratedImage(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
+    if (
+      memoryState.stories.some(
+        story =>
+          story.userId === userId &&
+          finishedProductReferencesImage(story.body, imageId)
+      )
+    ) {
+      throw new Error("该图片已被成品版本引用，不能删除");
+    }
     memoryState.generatedImages = memoryState.generatedImages.filter(
       img => !(img.id === imageId && img.userId === userId)
     );
@@ -4874,12 +4825,49 @@ export async function deleteGeneratedImage(
     await persistMemoryState();
     return;
   }
+  const ownedStories = await db
+    .select({ body: stories.body })
+    .from(stories)
+    .where(eq(stories.userId, userId));
+  if (ownedStories.some(story => finishedProductReferencesImage(story.body, imageId))) {
+    throw new Error("该图片已被成品版本引用，不能删除");
+  }
   await db.delete(imageSignals).where(eq(imageSignals.imageId, imageId));
   await db
     .delete(generatedImages)
     .where(
       and(eq(generatedImages.id, imageId), eq(generatedImages.userId, userId))
     );
+}
+
+function finishedProductReferencesImage(body: unknown, imageId: number): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const finishedProduct = (body as Record<string, unknown>).finishedProduct;
+  if (
+    !finishedProduct ||
+    typeof finishedProduct !== "object" ||
+    Array.isArray(finishedProduct)
+  ) {
+    return false;
+  }
+  const versions = (finishedProduct as Record<string, unknown>).versions;
+  if (!Array.isArray(versions)) return false;
+  return versions.some(version => {
+    if (!version || typeof version !== "object" || Array.isArray(version)) {
+      return false;
+    }
+    const images = (version as Record<string, unknown>).images;
+    return (
+      Array.isArray(images) &&
+      images.some(
+        image =>
+          image != null &&
+          typeof image === "object" &&
+          !Array.isArray(image) &&
+          (image as Record<string, unknown>).imageId === imageId
+      )
+    );
+  });
 }
 
 export async function updateImageCurrent(

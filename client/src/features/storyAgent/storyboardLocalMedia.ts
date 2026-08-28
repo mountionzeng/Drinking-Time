@@ -134,7 +134,6 @@ export async function importStoryboardMediaFiles(input: {
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   adoptVideoTake?: (input: {
     stableShotId: string;
@@ -168,7 +167,6 @@ export async function importStoryboardMediaFiles(input: {
       fileBase64: await readBase64(file),
       targetStableShotId: input.stableShotId,
       note: input.note,
-      preserveTimelineSelection: true,
     });
     if (result.kind === "image") {
       imageCount += 1;

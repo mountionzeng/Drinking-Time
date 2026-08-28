@@ -31,7 +31,6 @@ import {
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
-import { getPublishingBuffer } from "@/features/storyAgent/storyAgentPersistence";
 import { trpc } from "@/lib/trpc";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
@@ -41,23 +40,17 @@ import {
 } from "@shared/narrativeRhythm";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
-  PUBLISHING_NARRATIVE_PURPOSES,
   computePublishingTextOperationRequestHash,
-  defaultPublishingNarrativeIntent,
   getPublishingContentError,
   getXThreadStats,
-  hasPersistedPublishingVersion,
   type PublishingDraftContent,
   type PublishingEditAssessment,
   type PublishingCoverArtReference,
   type PublishingCoverRound,
   type PublishingPlatformId,
-  type PublishingNarrativeIntent,
-  type PublishingNarrativePurpose,
   type PublishingStoryCoreContent,
   type PublishingTextOperationKind,
   type PublishingTextOperationScope,
-  publishingNarrativePurposeLabel,
 } from "@shared/publishingDraft";
 import {
   PUBLISHING_TREND_PLATFORM_IDS,
@@ -89,17 +82,11 @@ import {
   publishingTextOperationScopeMatches,
 } from "./publishingDraftViewModel";
 import { PublishingVersionControls } from "./PublishingVersionControls";
-import {
-  PublishingIntentProposalDialog,
-  publishingNarrativeIntentFromStoryIntent,
-} from "./PublishingIntentProposalDialog";
 import { PublishingTrendTagPicker } from "./PublishingTrendTagPicker";
 import {
   publishingOperationScope,
   publishingOperationScopeMatches,
-  publishingSimpleVersionIdentity,
   publishingTrendWriteScope,
-  publishingVersionTransitionIdentity,
 } from "./publishingOperationScope";
 import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
 
@@ -129,15 +116,6 @@ type PendingEditDecision = {
   assessment: PublishingEditAssessment;
   proposedCore: PublishingStoryCoreContent | null;
 };
-
-type PendingVersionAction =
-  | { kind: "switch"; targetVersionId: string }
-  | {
-      kind: "create";
-      displayName?: string;
-      narrativeIntent?: PublishingNarrativeIntent;
-      acceptIntentProposal?: boolean;
-    };
 
 type ScopedPlatformSnapshot = {
   storyId: number;
@@ -294,9 +272,6 @@ export default function PublishingDraftWorkspace({
     activeStoryId,
     publishing,
     publishingBuffers,
-    confirmedIntent,
-    pendingIntentDraft,
-    pendingIntentCommitProposalId,
   } = useStoryAgent();
   const { storyTitle } = useStoryAgentChatSlice();
   const {
@@ -305,10 +280,6 @@ export default function PublishingDraftWorkspace({
     discardPublishingBuffer,
     ensureActiveStoryPersisted,
     loadStory,
-    confirmPendingIntent,
-    dismissPendingIntent,
-    beginPendingIntentCommit,
-    finishPendingIntentCommit,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
   const readQuery = trpc.publishingDraft.read.useQuery(
@@ -324,9 +295,12 @@ export default function PublishingDraftWorkspace({
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
   const confirmCoreMut = trpc.publishingDraft.confirmCoreChange.useMutation();
-  const createVersionMut = trpc.publishingDraft.createVersion.useMutation();
-  const selectVersionMut = trpc.publishingDraft.selectVersion.useMutation();
-  const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
+  const finishedProductQuery = trpc.publishingDraft.finishedProduct.useQuery(
+    { storyId: activeStoryId ?? 0 },
+    { enabled: activeStoryId != null }
+  );
+  const updateFinishedProductMut =
+    trpc.publishingDraft.updateFinishedProduct.useMutation();
   const refreshPlatformContextMut =
     trpc.publishingDraft.refreshPlatformContext.useMutation();
   const selectPlatformContextTagsMut =
@@ -374,23 +348,12 @@ export default function PublishingDraftWorkspace({
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
     useState<StoryScopedPublishingCoverRounds | null>(null);
-  const [pendingVersionAction, setPendingVersionAction] =
-    useState<PendingVersionAction | null>(null);
-  const [loadingVersionId, setLoadingVersionId] = useState<string | null>(null);
-  const [intentEditorOpen, setIntentEditorOpen] = useState(false);
+  const [finishedProductPurpose, setFinishedProductPurpose] = useState("");
   const [videoSetupOpen, setVideoSetupOpen] = useState(false);
   const [albumWorkspaceOpen, setAlbumWorkspaceOpen] = useState(false);
   const [coverStudioReturnToAlbum, setCoverStudioReturnToAlbum] = useState(false);
   const [selectedNarrativeSpec, setSelectedNarrativeSpec] =
     useState<NarrativeSpecId>("video30");
-  const [selectedNarrativePurpose, setSelectedNarrativePurpose] =
-    useState<PublishingNarrativePurpose>("create");
-  const [intentDraft, setIntentDraft] = useState<PublishingNarrativeIntent>(
-    () => defaultPublishingNarrativeIntent()
-  );
-  const [closedIntentProposalId, setClosedIntentProposalId] = useState<
-    string | null
-  >(null);
   const [platformSnapshot, setPlatformSnapshot] =
     useState<ScopedPlatformSnapshot | null>(null);
   const [platformContextBusy, setPlatformContextBusy] = useState<{
@@ -430,12 +393,6 @@ export default function PublishingDraftWorkspace({
   }, [activeStoryId, versionId]);
 
   useEffect(() => {
-    if (pendingIntentDraft?.proposal?.id !== closedIntentProposalId) {
-      setClosedIntentProposalId(null);
-    }
-  }, [closedIntentProposalId, pendingIntentDraft?.proposal?.id]);
-
-  useEffect(() => {
     const readData = readQuery.data;
     const remote = readData?.publishing;
     if (!readData || !remote || readData.storyId !== activeStoryId) return;
@@ -459,26 +416,16 @@ export default function PublishingDraftWorkspace({
     publishing.versions?.find(version => version.versionId === versionId) ??
     publishing.versions?.[0] ??
     null;
+  const finishedProduct = finishedProductQuery.data?.finishedProduct;
+  useEffect(() => {
+    const editing = finishedProduct?.versions.find(
+      version => version.status === "editing"
+    );
+    setFinishedProductPurpose(editing?.purpose ?? "");
+  }, [activeStoryId, finishedProduct?.revision]);
   useEffect(() => {
     if (activeVersion?.album) setAlbumWorkspaceOpen(true);
   }, [activeVersion?.versionId]);
-  const activeNarrativeIntent =
-    activeVersion?.narrativeIntent ?? defaultPublishingNarrativeIntent();
-  const hasPublishingVersion = hasPersistedPublishingVersion(publishing);
-  const currentProposalIntent = confirmedIntent
-    ? publishingNarrativeIntentFromStoryIntent(
-        confirmedIntent,
-        activeNarrativeIntent,
-        activeNarrativeIntent.updatedAt
-      )
-    : activeNarrativeIntent;
-  const proposedNarrativeIntent = pendingIntentDraft
-    ? publishingNarrativeIntentFromStoryIntent(
-        pendingIntentDraft,
-        currentProposalIntent,
-        pendingIntentDraft.revision ?? currentProposalIntent.updatedAt
-      )
-    : null;
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
@@ -533,10 +480,8 @@ export default function PublishingDraftWorkspace({
     repairFormattingMut.isPending ||
     applyMut.isPending ||
     confirmWordingMut.isPending ||
-    confirmCoreMut.isPending ||
-    createVersionMut.isPending ||
-    selectVersionMut.isPending ||
-    renameVersionMut.isPending;
+    confirmCoreMut.isPending;
+  const finishedProductBusy = busy || updateFinishedProductMut.isPending;
   const coverBusy =
     coverGenerationMode !== null ||
     generateCoverMut.isPending ||
@@ -1341,57 +1286,32 @@ export default function PublishingDraftWorkspace({
   const openVideoSetup = () => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
     setSelectedNarrativeSpec(activeVersion?.narrativeSpec ?? "video30");
-    setSelectedNarrativePurpose(activeNarrativeIntent.primaryPurpose);
     setVideoSetupOpen(true);
   };
 
-  const confirmVideoSetup = () => {
+  const confirmVideoSetup = async () => {
     setVideoSetupOpen(false);
-    const narrativeIntent = {
-      ...activeNarrativeIntent,
-      primaryPurpose: selectedNarrativePurpose,
-      secondaryPurposes: activeNarrativeIntent.secondaryPurposes.filter(
-        purpose => purpose !== selectedNarrativePurpose
-      ),
-      status: "confirmed" as const,
-      updatedAt: Date.now(),
-    };
-    if (activeStoryId == null || !publishing.core || !draft || !editorContent) {
+    if (
+      activeStoryId == null ||
+      !publishing.core ||
+      !draft ||
+      !editorContent ||
+      !activeVersion
+    ) {
       return;
     }
     const storyId = activeStoryId;
-    const scope = publishingOperationScope({ storyId, publishing, platform });
-    const core: PublishingStoryCoreContent = {
-      facts: [...publishing.core.facts],
-      thesis: publishing.core.thesis,
-      emotion: publishing.core.emotion,
-      voiceTraits: [...publishing.core.voiceTraits],
-      visualConcept: publishing.core.visualConcept,
-    };
-    const identity = publishingVersionTransitionIdentity({
-      scope,
-      core,
-      content: draft.content,
-      narrativeIntent,
-      bufferDisposition: "leave",
-    });
-    void createVersionMut
-      .mutateAsync({
-        storyId,
-        platform,
-        core,
-        content: draft.content,
-        baseCoreRevision: scope.coreRevision,
-        baseDraftRevision: draft.revision,
-        baseVersionRevision: scope.versionRevision,
-        baseContainerRevision: scope.containerRevision,
-        displayName: selectedNarrativeSpec === "album9"
-          ? `画册版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`
-          : `视频版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`,
-        narrativeIntent,
-        ...identity,
-      })
-      .then(async result => {
+    try {
+      if (selectedNarrativeSpec === "album9") {
+        const initialized = await initializeAlbumMut.mutateAsync({
+          storyId,
+          versionId: activeVersion.versionId,
+          platform,
+          baseContainerRevision:
+            publishing.containerRevision ?? publishing.revision,
+          baseVersionRevision: activeVersion.versionRevision,
+          operationToken: `album-initialize-${crypto.randomUUID()}`,
+        });
         if (
           !publishingStoryScopeMatches(
             storyId,
@@ -1400,45 +1320,23 @@ export default function PublishingDraftWorkspace({
         ) {
           return;
         }
-        setPublishing(result.publishing);
+        setPublishing(initialized.publishing);
         await refreshPublishingRead(storyId);
-        const createdVersionId = result.publishing.activeVersionId ?? versionId;
-        if (selectedNarrativeSpec === "album9") {
-          const createdVersion = result.publishing.versions?.find(
-            candidate => candidate.versionId === createdVersionId
-          );
-          if (!createdVersion) throw new Error("新画册版本没有保存成功");
-          const initialized = await initializeAlbumMut.mutateAsync({
-            storyId,
-            versionId: createdVersionId,
-            platform,
-            baseContainerRevision:
-              result.publishing.containerRevision ?? result.publishing.revision,
-            baseVersionRevision: createdVersion.versionRevision,
-            operationToken: `album-initialize-${crypto.randomUUID()}`,
-          });
-          if (!publishingStoryScopeMatches(
-            storyId,
-            storySpineStore.getState().activeStoryId
-          )) return;
-          setPublishing(initialized.publishing);
-          await refreshPublishingRead(storyId);
-          setAlbumWorkspaceOpen(true);
-          toast.success("画册页面已建立；视频故事版和剪辑台没有改变");
-          return;
-        }
-        await continueToVideo(selectedNarrativeSpec, createdVersionId);
-      })
-      .catch(error => {
-        toast.error(
-          publishingErrorMessage(
-            error,
-            selectedNarrativeSpec === "album9"
-              ? "新的画册版本创建失败，原版本和视频流程仍然保留"
-              : "新的视频版本创建失败，原版本仍然保留"
-          )
-        );
-      });
+        setAlbumWorkspaceOpen(true);
+        toast.success("画册页面已建立；文字稿和视频故事板没有改变");
+        return;
+      }
+      await continueToVideo(selectedNarrativeSpec, activeVersion.versionId);
+    } catch (error) {
+      toast.error(
+        publishingErrorMessage(
+          error,
+          selectedNarrativeSpec === "album9"
+            ? "画册建立失败，当前文字稿仍然保留"
+            : "视频故事版生成失败，当前文字稿仍然保留"
+        )
+      );
+    }
   };
 
   const adoptCoverCandidate = async (shouldContinueToVideo = false) => {
@@ -1515,331 +1413,6 @@ export default function PublishingDraftWorkspace({
       utils.publishingDraft.read.setData({ storyId }, latest);
     }
     return latest;
-  };
-
-  const performVersionSwitch = async (
-    targetVersionId: string,
-    carryContent?: PublishingDraftContent
-  ) => {
-    if (activeStoryId == null || targetVersionId === versionId) return;
-    const target = publishing.versions?.find(
-      candidate => candidate.versionId === targetVersionId
-    );
-    if (!target) return;
-    if (carryContent) {
-      const targetBuffer = getPublishingBuffer(
-        publishingBuffers,
-        activeStoryId,
-        platform,
-        targetVersionId
-      );
-      if (
-        targetBuffer &&
-        !publishingContentEquals(targetBuffer.content, carryContent)
-      ) {
-        toast.error(
-          "目标版本已有另一份未应用修改；先到目标版本处理，当前修改仍保留"
-        );
-        return;
-      }
-    }
-    const identity = publishingSimpleVersionIdentity({
-      type: "select_version",
-      storyId: activeStoryId,
-      versionId: targetVersionId,
-      baseContainerRevision:
-        publishing.containerRevision ?? publishing.revision,
-      baseVersionRevision: target.versionRevision,
-    });
-    setLoadingVersionId(targetVersionId);
-    try {
-      const result = await selectVersionMut.mutateAsync({
-        storyId: activeStoryId,
-        versionId: targetVersionId,
-        baseContainerRevision:
-          publishing.containerRevision ?? publishing.revision,
-        baseVersionRevision: target.versionRevision,
-        ...identity,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          activeStoryId,
-          storySpineStore.getState().activeStoryId
-        )
-      )
-        return;
-      setPublishing(result.publishing);
-      if (carryContent) {
-        setPublishingBuffer(
-          activeStoryId,
-          platform,
-          carryContent,
-          targetVersionId
-        );
-        discardPublishingBuffer(activeStoryId, platform, versionId);
-      }
-      await refreshPublishingRead(activeStoryId);
-      setPendingDecision(null);
-      setPendingVersionAction(null);
-      setRewriteInstruction("");
-      toast.success(`已切换到 ${target.displayName}`);
-    } catch (error) {
-      toast.error(
-        publishingErrorMessage(error, "版本切换失败，当前版本仍然保留")
-      );
-    } finally {
-      setLoadingVersionId(null);
-    }
-  };
-
-  const requestVersionSwitch = (targetVersionId: string) => {
-    if (targetVersionId === versionId || busy) return;
-    if (dirty) {
-      setPendingVersionAction({ kind: "switch", targetVersionId });
-      return;
-    }
-    void performVersionSwitch(targetVersionId);
-  };
-
-  const performCreateVersion = async (input: {
-    displayName?: string;
-    narrativeIntent?: PublishingNarrativeIntent;
-    disposition: "leave" | "carry";
-    content: PublishingDraftContent;
-    acceptIntentProposal?: boolean;
-  }) => {
-    if (activeStoryId == null || !publishing.core || !draft || busy) return;
-    let acceptedProposalId: string | null = null;
-    if (input.acceptIntentProposal) {
-      const intentState = storySpineStore.getState();
-      const proposalId = intentState.pendingIntentDraft?.proposal?.id;
-      if (!proposalId) return;
-      if (
-        intentState.pendingIntentCommitProposalId !== proposalId &&
-        !beginPendingIntentCommit(proposalId)
-      ) {
-        return;
-      }
-      acceptedProposalId = proposalId;
-    }
-    const scope = publishingOperationScope({
-      storyId: activeStoryId,
-      publishing,
-      platform,
-    });
-    const core: PublishingStoryCoreContent = {
-      facts: [...publishing.core.facts],
-      thesis: publishing.core.thesis,
-      emotion: publishing.core.emotion,
-      voiceTraits: [...publishing.core.voiceTraits],
-      visualConcept: publishing.core.visualConcept,
-    };
-    const identity = publishingVersionTransitionIdentity({
-      scope,
-      core,
-      content: input.content,
-      narrativeIntent: input.narrativeIntent,
-      bufferDisposition: input.disposition,
-    });
-    try {
-      const result = await createVersionMut.mutateAsync({
-        storyId: activeStoryId,
-        platform,
-        core,
-        content: input.content,
-        baseCoreRevision: scope.coreRevision,
-        baseDraftRevision: draft.revision,
-        baseVersionRevision: scope.versionRevision,
-        baseContainerRevision: scope.containerRevision,
-        displayName: input.displayName,
-        narrativeIntent: input.narrativeIntent,
-        ...identity,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          activeStoryId,
-          storySpineStore.getState().activeStoryId
-        )
-      ) {
-        return;
-      }
-      setPublishing(result.publishing);
-      const targetVersionId = result.publishing.activeVersionId;
-      if (input.disposition === "carry" && targetVersionId) {
-        setPublishingBuffer(
-          activeStoryId,
-          platform,
-          input.content,
-          targetVersionId
-        );
-        discardPublishingBuffer(activeStoryId, platform, versionId);
-      }
-      if (acceptedProposalId) {
-        finishPendingIntentCommit(acceptedProposalId, true);
-        acceptedProposalId = null;
-      }
-      await refreshPublishingRead(activeStoryId);
-      setPendingVersionAction(null);
-      toast.success(
-        input.narrativeIntent
-          ? "已按新用途创建版本，旧版本仍完整保留"
-          : "已创建新版本，其他平台保留原稿并标记为待更新"
-      );
-    } catch (error) {
-      toast.error(
-        publishingErrorMessage(
-          error,
-          "新版本创建失败，当前版本和未应用修改都还在"
-        )
-      );
-    } finally {
-      if (acceptedProposalId) {
-        finishPendingIntentCommit(acceptedProposalId, false);
-      }
-    }
-  };
-
-  const requestCreateVersion = (
-    input: {
-      displayName?: string;
-      narrativeIntent?: PublishingNarrativeIntent;
-      acceptIntentProposal?: boolean;
-    } = {}
-  ) => {
-    if (
-      activeStoryId == null ||
-      !publishing.core ||
-      !draft ||
-      !editorContent ||
-      busy
-    ) {
-      if (input.acceptIntentProposal) {
-        const proposalId =
-          storySpineStore.getState().pendingIntentDraft?.proposal?.id;
-        if (proposalId) finishPendingIntentCommit(proposalId, false);
-      }
-      return;
-    }
-    if (dirty) {
-      setPendingVersionAction({ kind: "create", ...input });
-      return;
-    }
-    void performCreateVersion({
-      ...input,
-      disposition: "leave",
-      content: draft.content,
-    });
-  };
-
-  const renameCurrentVersion = async (displayName: string) => {
-    if (activeStoryId == null || !activeVersion || busy) return;
-    const identity = publishingSimpleVersionIdentity({
-      type: "rename_version",
-      storyId: activeStoryId,
-      versionId: activeVersion.versionId,
-      displayName,
-      baseContainerRevision:
-        publishing.containerRevision ?? publishing.revision,
-      baseVersionRevision: activeVersion.versionRevision,
-    });
-    try {
-      const result = await renameVersionMut.mutateAsync({
-        storyId: activeStoryId,
-        versionId: activeVersion.versionId,
-        displayName,
-        baseContainerRevision:
-          publishing.containerRevision ?? publishing.revision,
-        baseVersionRevision: activeVersion.versionRevision,
-        ...identity,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          activeStoryId,
-          storySpineStore.getState().activeStoryId
-        )
-      )
-        return;
-      setPublishing(result.publishing);
-      toast.success("版本名称已修改");
-    } catch (error) {
-      toast.error(publishingErrorMessage(error, "版本名称没有修改"));
-      throw error;
-    }
-  };
-
-  const leaveBufferForPendingVersionAction = () => {
-    const action = pendingVersionAction;
-    if (!action || !draft) return;
-    if (action.kind === "switch") {
-      void performVersionSwitch(action.targetVersionId);
-      return;
-    }
-    void performCreateVersion({
-      ...action,
-      disposition: "leave",
-      content: draft.content,
-    });
-  };
-
-  const carryBufferForPendingVersionAction = () => {
-    const action = pendingVersionAction;
-    if (!action || !editorContent) return;
-    if (action.kind === "switch") {
-      void performVersionSwitch(action.targetVersionId, editorContent);
-      return;
-    }
-    void performCreateVersion({
-      ...action,
-      disposition: "carry",
-      content: editorContent,
-    });
-  };
-
-  const openIntentEditor = () => {
-    setIntentDraft({
-      ...activeNarrativeIntent,
-      secondaryPurposes: [...activeNarrativeIntent.secondaryPurposes],
-      secondaryAudiences: [...activeNarrativeIntent.secondaryAudiences],
-    });
-    setIntentEditorOpen(true);
-  };
-
-  const saveIntentAsNewVersion = async () => {
-    const coreAudience = intentDraft.coreAudience.trim();
-    if (!coreAudience) {
-      toast.error("请写下这版最优先给谁看");
-      return;
-    }
-    const narrativeIntent = {
-      ...intentDraft,
-      coreAudience,
-      secondaryAudiences: intentDraft.secondaryAudiences
-        .map(audience => audience.trim())
-        .filter(Boolean)
-        .filter(audience => audience !== coreAudience)
-        .slice(0, 5),
-      status: "confirmed",
-      updatedAt: Date.now(),
-    } satisfies PublishingNarrativeIntent;
-    setIntentEditorOpen(false);
-    requestCreateVersion({ narrativeIntent });
-  };
-
-  const acceptIntentProposal = () => {
-    if (!pendingIntentDraft || !proposedNarrativeIntent) return;
-    if (!hasPublishingVersion) {
-      confirmPendingIntent();
-      return;
-    }
-    const proposalId = pendingIntentDraft.proposal?.id;
-    if (!proposalId || !beginPendingIntentCommit(proposalId)) return;
-    requestCreateVersion({
-      narrativeIntent: {
-        ...proposedNarrativeIntent,
-        updatedAt: Date.now(),
-      },
-      acceptIntentProposal: true,
-    });
   };
 
   const refreshPlatformContext = async () => {
@@ -1978,6 +1551,95 @@ export default function PublishingDraftWorkspace({
     );
   }
 
+  const updateFinishedProduct = async (
+    command:
+      | {
+          type: "save_layer";
+          layer: "text" | "image" | "video";
+          purpose: string;
+          textVersion?: {
+            platform: PublishingPlatformId;
+            core: PublishingStoryCoreContent;
+            content: PublishingDraftContent;
+            baseCoreRevision: number;
+            baseDraftRevision: number;
+            baseVersionRevision?: number;
+            baseContainerRevision: number;
+          };
+        }
+      | { type: "complete" }
+      | { type: "abandon" }
+  ) => {
+    if (activeStoryId == null || !finishedProduct) return;
+    const token = crypto.randomUUID();
+    try {
+      const result = await updateFinishedProductMut.mutateAsync({
+        storyId: activeStoryId,
+        operationToken: token,
+        requestHash: token,
+        expectedRevision: finishedProduct.revision,
+        command,
+      });
+      if (
+        !publishingStoryScopeMatches(
+          activeStoryId,
+          storySpineStore.getState().activeStoryId
+        )
+      ) {
+        return;
+      }
+      setPublishing(result.publishing);
+      await finishedProductQuery.refetch();
+      toast.success(
+        command.type === "complete"
+          ? "成品版本已完成"
+          : command.type === "abandon"
+            ? "已放弃进行中的成品版本，素材仍然保留"
+            : `${command.layer === "text" ? "文字" : command.layer === "image" ? "图像" : "视频"}已保存到成品版本`
+      );
+    } catch (error) {
+      toast.error(publishingErrorMessage(error, "成品版本保存失败，请刷新后重试"));
+    }
+  };
+
+  const saveFinishedProductText = () => {
+    if (
+      !finishedProductPurpose.trim() ||
+      !publishing.core ||
+      !draft ||
+      !editorContent ||
+      !activeVersion
+    ) {
+      return;
+    }
+    const hasFinishedProductRow = (finishedProduct?.versions.length ?? 0) > 0;
+    void updateFinishedProduct({
+      type: "save_layer",
+      layer: "text",
+      purpose: finishedProductPurpose.trim(),
+      ...(hasFinishedProductRow
+        ? {
+            textVersion: {
+              platform,
+              core: {
+                facts: [...publishing.core.facts],
+                thesis: publishing.core.thesis,
+                emotion: publishing.core.emotion,
+                voiceTraits: [...publishing.core.voiceTraits],
+                visualConcept: publishing.core.visualConcept,
+              },
+              content: editorContent,
+              baseCoreRevision: publishing.core.revision,
+              baseDraftRevision: draft.revision,
+              baseVersionRevision: activeVersion.versionRevision,
+              baseContainerRevision:
+                publishing.containerRevision ?? publishing.revision,
+            },
+          }
+        : {}),
+    });
+  };
+
   if (albumWorkspaceOpen && activeVersion?.album) {
     return (
       <PublishingAlbumWorkspace
@@ -2014,21 +1676,30 @@ export default function PublishingDraftWorkspace({
               {storyTitle?.trim() || "未命名故事"}
             </h1>
             <PublishingVersionControls
-              versions={publishing.versions ?? []}
-              activeVersionId={versionId}
-              activeIntent={activeNarrativeIntent}
-              busy={busy}
-              loadingVersionId={loadingVersionId}
-              canCreate={Boolean(draft && publishing.core && editorContent)}
-              disabledReason={
-                !draft || !publishing.core || !editorContent
-                  ? "先生成并确认当前平台文字稿，再创建版本"
-                  : null
+              versions={finishedProduct?.versions ?? []}
+              purpose={finishedProductPurpose}
+              busy={finishedProductBusy}
+              canSaveText={Boolean(draft && publishing.core && editorContent)}
+              canSaveImage={activeStoryId != null}
+              canSaveVideo={activeStoryId != null}
+              onPurposeChange={setFinishedProductPurpose}
+              onSaveText={saveFinishedProductText}
+              onSaveImage={() =>
+                void updateFinishedProduct({
+                  type: "save_layer",
+                  layer: "image",
+                  purpose: finishedProductPurpose.trim(),
+                })
               }
-              onSwitch={requestVersionSwitch}
-              onRename={renameCurrentVersion}
-              onCreate={displayName => requestCreateVersion({ displayName })}
-              onEditIntent={openIntentEditor}
+              onSaveVideo={() =>
+                void updateFinishedProduct({
+                  type: "save_layer",
+                  layer: "video",
+                  purpose: finishedProductPurpose.trim(),
+                })
+              }
+              onComplete={() => void updateFinishedProduct({ type: "complete" })}
+              onAbandon={() => void updateFinishedProduct({ type: "abandon" })}
             />
             {activeVersion?.album ? (
               <nav className="mt-2 flex gap-1" aria-label="发布工作区子导航">
@@ -2036,16 +1707,6 @@ export default function PublishingDraftWorkspace({
                 <button type="button" onClick={() => openCoverStudio(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">封面</button>
                 <button type="button" onClick={() => setAlbumWorkspaceOpen(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">画册</button>
               </nav>
-            ) : null}
-            {pendingIntentDraft?.proposal?.id &&
-            closedIntentProposalId === pendingIntentDraft.proposal.id ? (
-              <button
-                type="button"
-                onClick={() => setClosedIntentProposalId(null)}
-                className="mt-2 text-[11px] font-medium text-[var(--nayin-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-              >
-                有一条用途或观众变化建议，点击查看
-              </button>
             ) : null}
           </div>
           <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
@@ -2093,20 +1754,7 @@ export default function PublishingDraftWorkspace({
             )}
           </div>
 
-          {loadingVersionId ? (
-            <div
-              className="flex flex-1 items-center justify-center px-6 py-16 text-center"
-              aria-label="版本内容加载中"
-            >
-              <div>
-                <Loader2 className="mx-auto h-6 w-6 animate-spin text-[var(--nayin-accent)]" />
-                <p className="mt-3 text-sm text-foreground">正在读取目标版本</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  加载完成前不会拿上一版的文字、意图或来源占位。
-                </p>
-              </div>
-            </div>
-          ) : !draft || !editorContent ? (
+          {!draft || !editorContent ? (
             <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
               <div className="max-w-md">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
@@ -2497,29 +2145,6 @@ export default function PublishingDraftWorkspace({
         </article>
       </div>
 
-      {pendingIntentDraft && proposedNarrativeIntent ? (
-        <PublishingIntentProposalDialog
-          open={closedIntentProposalId !== pendingIntentDraft.proposal?.id}
-          current={currentProposalIntent}
-          proposed={proposedNarrativeIntent}
-          evidence={
-            pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence
-          }
-          hasPublishingVersion={hasPublishingVersion}
-          busy={
-            busy ||
-            pendingIntentCommitProposalId === pendingIntentDraft.proposal?.id
-          }
-          onOpenChange={open => {
-            if (!open && pendingIntentDraft.proposal?.id) {
-              setClosedIntentProposalId(pendingIntentDraft.proposal.id);
-            }
-          }}
-          onAccept={acceptIntentProposal}
-          onReject={dismissPendingIntent}
-        />
-      ) : null}
-
       <Dialog open={videoSetupOpen} onOpenChange={setVideoSetupOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -2575,44 +2200,6 @@ export default function PublishingDraftWorkspace({
                 })}
               </div>
             </fieldset>
-            <fieldset className="space-y-2">
-              <legend className="text-xs font-medium text-foreground">
-                这版故事的调子
-              </legend>
-              <p className="text-[11px] leading-5 text-muted-foreground">
-                已按当前识别结果预填，你也可以改成这次更想要的方向。
-              </p>
-              <div
-                className="flex flex-wrap gap-2"
-                role="radiogroup"
-                aria-label="故事调子"
-              >
-                {PUBLISHING_NARRATIVE_PURPOSES.map(purpose => {
-                  const selected = selectedNarrativePurpose === purpose;
-                  return (
-                    <button
-                      key={purpose}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setSelectedNarrativePurpose(purpose)}
-                      className={`rounded-full border px-3 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
-                        selected
-                          ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)] text-foreground"
-                          : "text-muted-foreground hover:bg-muted/40"
-                      }`}
-                      style={
-                        selected
-                          ? undefined
-                          : { borderColor: "var(--panel-border)" }
-                      }
-                    >
-                      {publishingNarrativePurposeLabel(purpose)}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
           </div>
           <DialogFooter>
             <ActionButton
@@ -2632,172 +2219,6 @@ export default function PublishingDraftWorkspace({
                 <ArrowRight className="h-4 w-4" />
               )}
               {selectedNarrativeSpec === "album9" ? "制作画册" : "按这个节奏生成"}
-            </ActionButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={intentEditorOpen} onOpenChange={setIntentEditorOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>这版故事想完成什么</DialogTitle>
-            <DialogDescription>
-              修改用途或观众会新建一个版本；当前文字、封面和故事版都不会被覆盖。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-1 text-sm">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-foreground">
-                主用途
-              </span>
-              <select
-                value={intentDraft.primaryPurpose}
-                onChange={event => {
-                  const primaryPurpose = event.target
-                    .value as PublishingNarrativePurpose;
-                  setIntentDraft(current => ({
-                    ...current,
-                    primaryPurpose,
-                    secondaryPurposes: current.secondaryPurposes.filter(
-                      purpose => purpose !== primaryPurpose
-                    ),
-                  }));
-                }}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                {PUBLISHING_NARRATIVE_PURPOSES.map(purpose => (
-                  <option key={purpose} value={purpose}>
-                    {publishingNarrativePurposeLabel(purpose)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <fieldset className="space-y-1.5">
-              <legend className="text-xs font-medium text-foreground">
-                兼顾用途
-              </legend>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {PUBLISHING_NARRATIVE_PURPOSES.filter(
-                  purpose => purpose !== intentDraft.primaryPurpose
-                ).map(purpose => (
-                  <label
-                    key={purpose}
-                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={intentDraft.secondaryPurposes.includes(purpose)}
-                      onChange={event =>
-                        setIntentDraft(current => ({
-                          ...current,
-                          secondaryPurposes: event.target.checked
-                            ? [...current.secondaryPurposes, purpose].slice(
-                                0,
-                                4
-                              )
-                            : current.secondaryPurposes.filter(
-                                item => item !== purpose
-                              ),
-                        }))
-                      }
-                    />
-                    {publishingNarrativePurposeLabel(purpose)}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-foreground">
-                最优先给谁看
-              </span>
-              <input
-                value={intentDraft.coreAudience}
-                onChange={event =>
-                  setIntentDraft(current => ({
-                    ...current,
-                    coreAudience: event.target.value,
-                  }))
-                }
-                maxLength={80}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
-                style={{ borderColor: "var(--panel-border)" }}
-                placeholder="例如：妈妈、招聘者、正在经历同样困惑的人"
-              />
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-foreground">
-                还要兼顾谁（用顿号或逗号分开）
-              </span>
-              <input
-                value={intentDraft.secondaryAudiences.join("、")}
-                onChange={event =>
-                  setIntentDraft(current => ({
-                    ...current,
-                    secondaryAudiences: event.target.value
-                      .split(/[、,，]/)
-                      .map(value => value.trim())
-                      .filter(Boolean)
-                      .slice(0, 5),
-                  }))
-                }
-                maxLength={400}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
-                style={{ borderColor: "var(--panel-border)" }}
-                placeholder="例如：朋友圈朋友"
-              />
-            </label>
-          </div>
-          <DialogFooter>
-            <ActionButton onClick={() => setIntentEditorOpen(false)}>
-              取消
-            </ActionButton>
-            <ActionButton
-              onClick={() => void saveIntentAsNewVersion()}
-              disabled={busy}
-              primary
-            >
-              按这个目的新建版本
-            </ActionButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(pendingVersionAction)}
-        onOpenChange={open => !open && setPendingVersionAction(null)}
-      >
-        <DialogContent showCloseButton={!busy}>
-          <DialogHeader>
-            <DialogTitle>当前版本还有未应用修改</DialogTitle>
-            <DialogDescription>
-              {pendingVersionAction?.kind === "create"
-                ? "创建新版本前，决定这份修改留在当前版本，还是作为候选带到新版本。两种选择都不会静默覆盖已应用正文。"
-                : "切换版本前，决定这份修改留在当前版本，还是作为候选带到目标版本。目标版本已有另一份修改时会停止，不会覆盖。"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setPendingVersionAction(null)}
-              disabled={busy}
-              className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              取消
-            </button>
-            <ActionButton
-              onClick={leaveBufferForPendingVersionAction}
-              disabled={busy}
-            >
-              留在当前版本
-            </ActionButton>
-            <ActionButton
-              onClick={carryBufferForPendingVersionAction}
-              disabled={busy}
-              primary
-            >
-              带到
-              {pendingVersionAction?.kind === "create" ? "新版本" : "目标版本"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
