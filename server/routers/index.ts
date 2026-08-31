@@ -32,6 +32,7 @@ import {
   upsertEmotionAnalysisProfile,
   listEmotionDailyLetters,
   getAccessOverview,
+  getInviteOverview,
   recordAccessHeartbeat,
 } from "../db";
 import { saveSnapshot, getRecentAnnotations } from "../services/editContext";
@@ -279,6 +280,13 @@ export const appRouter = router({
         generatedAt: new Date(),
         users: await getAccessOverview(input.siteHost.trim().toLowerCase()),
       })),
+    invites: adminProcedure.query(async () => {
+      const generatedAt = new Date();
+      return {
+        generatedAt,
+        invites: await getInviteOverview(generatedAt),
+      };
+    }),
   }),
 
   promptLineage: promptLineageRouter,

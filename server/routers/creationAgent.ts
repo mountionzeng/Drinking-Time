@@ -20,6 +20,7 @@ import {
   SHOT_VIDEO_ASPECT_RATIO,
 } from "@shared/shotDirector";
 import { protectedProcedure, router } from "../_core/trpc";
+import { ENV } from "../_core/env";
 import { assertOptionalProjectOwner } from "./_projectAccess";
 import {
   assignStoryImageToShot as assignStoryImageToShotDb,
@@ -29,9 +30,15 @@ import {
   getStoryById,
   createGeneratedImage,
   getGeneratedImageById,
+  getLatestSucceededPreviewMaskedImageOperationForTarget,
   createImageSignal,
+  claimPreviewMaskedImageOperation,
+  failPreviewMaskedImageOperation,
+  getSucceededPreviewMaskedImageOperationForCandidate,
   promoteStoryImageToCurrent,
+  markPreviewMaskedImageOperationAccepted,
   reassignImage,
+  settlePreviewMaskedImageOperationSuccess,
   updateStoryTimeline as persistStoryTimeline,
   updateVideoTake,
 } from "../db";
@@ -39,6 +46,8 @@ import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
   patchImageTransformForStory,
+  previewMaskedImageTargetIsCurrent,
+  replaceVisualImageClipImageForStory,
   pasteVisualImageForStory,
   deleteVisualObjectForStory,
   splitOwnedVideoClipForStory,
@@ -71,6 +80,13 @@ import {
 } from "../services/storyVisualObjectEditing";
 import { activateVisualEditSession } from "../services/visualEditSessionRegistry";
 import { retireVisualEditUndoScope } from "../services/visualEditUndoJournal";
+import { runSponsoredSegmentation } from "../services/segmentationRequestGuard";
+import {
+  previewMaskedImageInputHash,
+  previewMaskedImageQuoteIsValid,
+  quotePreviewMaskedImageEdit,
+  runPreviewMaskedImageOperation,
+} from "../services/previewMaskedImageEditing";
 
 const visualEditOperationSchema = z
   .object({
@@ -127,7 +143,12 @@ import {
   goalGuidance,
   detectGoalFromText,
 } from "../services/creationGoal";
-import { segmentAtPoint } from "../services/segmentation";
+import {
+  resolveStoredMaskUrl,
+  semanticObjectSelectionConfigured,
+  segmentAtPoint,
+  segmentWithinPolygon,
+} from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import {
   proposeExtractedFrameTransition,
@@ -144,7 +165,7 @@ import {
 import {
   editImage as editMobileImage,
   getImageProviderStatus,
-  inpaintImage,
+  resume302GptImageTask,
   storeImageBytes,
 } from "../services/imageGen";
 import { localVideoDir, storeVideoBytesForTake } from "../services/videoMedia";
@@ -186,7 +207,6 @@ import {
   appendVideoTakeToTimeline,
 } from "../services/videoTimeline";
 import {
-  resolveStoryImageCompilationId,
   shotIdentityForStoryShot,
   storyArtRecipe,
   storyArtReferenceImages,
@@ -2869,97 +2889,516 @@ export const creationAgentRouter = router({
       return { success: true };
     }),
 
-  /** SAM 2 segmentation — click a point on an image to get a mask */
+  /** Point selection needs SAM; lasso selection can also use the vision contour fallback. */
+  maskSelectionCapabilities: protectedProcedure.query(() => ({
+    automaticObjectSelection: Boolean(ENV.falApiKey),
+    semanticRegionSelection: semanticObjectSelectionConfigured(),
+  })),
+
   segment: protectedProcedure
     .input(
       z.object({
-        imageUrl: z.string().url(),
-        x: z.number().min(0).max(1),
-        y: z.number().min(0).max(1),
-      })
-    )
-    .mutation(async ({ input }) => {
-      return segmentAtPoint(input.imageUrl, input.x, input.y);
-    }),
-
-  /** Inpaint — replace a masked region with a new generation */
-  inpaint: protectedProcedure
-    .input(
-      z.object({
-        imageUrl: z.string().url(),
-        maskUrl: z.string().url(),
-        prompt: z.string().min(1),
-        shotNo: z.string(),
-        projectId: z.number(),
-        // 美术风格跟随当前故事（U3）：取该故事的 artReferences；getStoryById 带 userId 验归属
-        storyId: z.number().optional(),
-        parentImageId: z.number().optional(),
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        x: z.number().finite().min(0).max(32_768),
+        y: z.number().finite().min(0).max(32_768),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // projectId 会被喂进 renderGate 去捞该项目的编辑偏好与聊天修正，是访问键
-      // 而不是标签；不校验归属就会把别人项目的文字带进本次出图提示词。
-      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
-      const story = input.storyId
-        ? await getStoryById(input.storyId, ctx.user.id)
-        : null;
-      const storyReferences = story ? storyArtReferenceImages(story) : [];
-      const result = await renderViaGate(
-        {
-          prompt: input.prompt,
-          referenceImages: Array.from(
-            new Set([input.imageUrl, ...storyReferences])
-          ),
-          shotNo: input.shotNo,
-          projectId: input.projectId,
-          outputPurpose: "image-edit",
-          referencePolicy: "preserve-composition",
-          artDirection: story ? storyArtRecipe(story) : undefined,
-          styleIndex:
-            story &&
-            typeof (story.body as Record<string, unknown>)?.styleIndex ===
-              "number"
-              ? ((story.body as Record<string, unknown>).styleIndex as number)
-              : undefined,
-        },
-        prompt => inpaintImage(input.imageUrl, input.maskUrl, prompt)
-      );
-      if (result.status === "error" || !result.imageUrl) {
-        return {
-          status: "error" as const,
-          message: result.message ?? "No image returned",
-        };
+      const [story, image] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.imageId),
+      ]);
+      if (
+        !story ||
+        !image ||
+        image.storyId !== input.storyId ||
+        image.userId !== ctx.user.id
+      ) {
+        return { status: "error" as const, message: "图片不存在或无权操作" };
       }
-      // Save the inpainted image to DB
-      const shotIdentity = story
-        ? shotIdentityForStoryShot(story, input.shotNo)
-        : null;
-      const promptCompilationId =
-        story && story.id
-          ? await resolveStoryImageCompilationId({
-              story,
-              storyId: story.id,
-              userId: ctx.user.id,
-              shotIdentity,
-            })
-          : null;
-      const saved = await createGeneratedImage({
-        projectId: input.projectId,
-        storyId: story?.id ?? null,
+      return runSponsoredSegmentation({
         userId: ctx.user.id,
-        shotNo: canonicalizeShotNo(input.shotNo),
-        shotIdentity,
-        imageKey: `inpaint-${Date.now()}`,
-        imageUrl: result.imageUrl,
-        prompt: input.prompt,
-        promptCompilationId,
-        parentImageId: input.parentImageId ?? null,
-        generationType: "inpaint",
-        maskKey: input.maskUrl,
+        storyId: input.storyId,
+        imageId: input.imageId,
+        x: input.x,
+        y: input.y,
+        task: () =>
+          segmentAtPoint(image.imageUrl, input.x, input.y, {
+            scope: {
+              userId: ctx.user.id,
+              storyId: input.storyId,
+              imageId: input.imageId,
+            },
+          }),
       });
+    }),
+
+  segmentRegion: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        points: z.array(z.object({
+          x: z.number().finite().min(0).max(32_768),
+          y: z.number().finite().min(0).max(32_768),
+        })).min(3).max(512),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [story, image] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.imageId),
+      ]);
+      if (
+        !story ||
+        !image ||
+        image.storyId !== input.storyId ||
+        image.userId !== ctx.user.id
+      ) {
+        return { status: "error" as const, message: "图片不存在或无权操作" };
+      }
+      const center = input.points.reduce(
+        (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
+        { x: 0, y: 0 }
+      );
+      return runSponsoredSegmentation({
+        userId: ctx.user.id,
+        storyId: input.storyId,
+        imageId: input.imageId,
+        x: center.x / input.points.length,
+        y: center.y / input.points.length,
+        task: () => segmentWithinPolygon(image.imageUrl, input.points, {
+          scope: {
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: input.imageId,
+          },
+        }),
+      });
+    }),
+
+  latestInpaintCandidate: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        sourceImageId: z.number().int().positive(),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        stableShotId: z.string().trim().min(1).max(240),
+        clipId: z.string().trim().min(1).max(240).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const [story, source] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.sourceImageId),
+      ]);
+      if (
+        !story ||
+        !source ||
+        source.storyId !== input.storyId ||
+        source.userId !== ctx.user.id ||
+        !(await previewMaskedImageTargetIsCurrent({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageId: input.sourceImageId,
+          targetKind: input.targetKind,
+          stableShotId: input.stableShotId,
+          clipId: input.clipId ?? null,
+        }))
+      ) {
+        return { status: "ok" as const, candidate: null };
+      }
+      const receipt = await getLatestSucceededPreviewMaskedImageOperationForTarget({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        sourceImageId: input.sourceImageId,
+        targetKind: input.targetKind,
+        stableShotId: input.stableShotId,
+        clipId: input.clipId ?? null,
+      });
+      if (!receipt?.candidateImageId) {
+        return { status: "ok" as const, candidate: null };
+      }
+      const candidate = await getGeneratedImageById(receipt.candidateImageId);
+      if (
+        !candidate ||
+        candidate.storyId !== input.storyId ||
+        candidate.userId !== ctx.user.id ||
+        candidate.parentImageId !== source.id ||
+        candidate.isCurrent
+      ) {
+        return { status: "ok" as const, candidate: null };
+      }
       return {
         status: "ok" as const,
-        image: saved,
+        candidate: { imageId: candidate.id, imageUrl: candidate.imageUrl },
       };
+    }),
+
+  quoteInpaint: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        maskKey: z.string().trim().min(1).max(512),
+        prompt: z.string().trim().min(1).max(2_000),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        stableShotId: z.string().trim().min(1).max(240),
+        clipId: z.string().trim().min(1).max(240).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [story, image] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.imageId),
+      ]);
+      const expectedMaskPrefix = `masks/${ctx.user.id}/${input.storyId}/${input.imageId}/`;
+      if (
+        !story ||
+        !image ||
+        image.storyId !== input.storyId ||
+        image.userId !== ctx.user.id ||
+        !input.maskKey.startsWith(expectedMaskPrefix) ||
+        !input.maskKey.endsWith("-edit.png") ||
+        (input.targetKind === "timeline-image-clip" && !input.clipId)
+      ) {
+        return { status: "error" as const, message: "底图或选区不存在或无权操作" };
+      }
+      if (
+        !(await previewMaskedImageTargetIsCurrent({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageId: input.imageId,
+          targetKind: input.targetKind,
+          stableShotId: input.stableShotId,
+          clipId: input.clipId ?? null,
+        }))
+      ) {
+        return { status: "error" as const, message: "当前图片目标已经变化，请重新点选" };
+      }
+      return {
+        status: "ok" as const,
+        quote: quotePreviewMaskedImageEdit({
+          ...input,
+          userId: ctx.user.id,
+        }),
+      };
+    }),
+
+  /** Paid 302 masked edit. The signed quote and durable receipt are mandatory. */
+  inpaint: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        maskKey: z.string().trim().min(1).max(512),
+        prompt: z.string().trim().min(1).max(2_000),
+        operationToken: z.string().trim().min(8).max(160),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        stableShotId: z.string().trim().min(1).max(240),
+        clipId: z.string().trim().min(1).max(240).optional(),
+        confirmation: z.object({
+          quoteId: z.string().regex(/^[a-f0-9]{64}$/),
+          storyId: z.number().int().positive(),
+          imageId: z.number().int().positive(),
+          maskKey: z.string().trim().min(1).max(512),
+          targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+          stableShotId: z.string().trim().min(1).max(240),
+          clipId: z.string().trim().min(1).max(240).nullable().optional(),
+          inputHash: z.string().regex(/^[a-f0-9]{64}$/),
+          currency: z.literal("CNY"),
+          estimatedCny: z.number().nonnegative(),
+          candidateCount: z.literal(1),
+          expiresAt: z.number().int().positive(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [story, image] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.imageId),
+      ]);
+      const expectedMaskPrefix = `masks/${ctx.user.id}/${input.storyId}/${input.imageId}/`;
+      if (
+        !story ||
+        !image ||
+        image.storyId !== input.storyId ||
+        image.userId !== ctx.user.id ||
+        !input.maskKey.startsWith(expectedMaskPrefix) ||
+        !input.maskKey.endsWith("-edit.png") ||
+        (input.targetKind === "timeline-image-clip" && !input.clipId)
+      ) {
+        return { status: "error" as const, message: "底图或选区不存在或无权操作" };
+      }
+      const target = {
+        targetKind: input.targetKind,
+        stableShotId: input.stableShotId,
+        clipId: input.clipId ?? null,
+      };
+      if (
+        !(await previewMaskedImageTargetIsCurrent({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageId: input.imageId,
+          ...target,
+        }))
+      ) {
+        return { status: "error" as const, message: "当前图片目标已经变化，请重新确认费用" };
+      }
+      if (
+        !previewMaskedImageQuoteIsValid({
+          quote: input.confirmation,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageId: input.imageId,
+          maskKey: input.maskKey,
+          prompt: input.prompt,
+          ...target,
+        })
+      ) {
+        return { status: "error" as const, message: "报价已过期或修改内容已变化，请重新确认费用" };
+      }
+      const inputHash = previewMaskedImageInputHash({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        imageId: input.imageId,
+        maskKey: input.maskKey,
+        prompt: input.prompt,
+        ...target,
+      });
+      return runPreviewMaskedImageOperation({
+        operationToken: `${ctx.user.id}:${input.storyId}:${input.operationToken}`,
+        inputHash,
+        task: async () => {
+          if (
+            !(await previewMaskedImageTargetIsCurrent({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              imageId: input.imageId,
+              ...target,
+            }))
+          ) {
+            return { status: "error" as const, message: "当前图片目标已经变化，请重新确认费用" };
+          }
+          const claim = await claimPreviewMaskedImageOperation({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operationToken: input.operationToken,
+            inputHash,
+            sourceImageId: image.id,
+            maskKey: input.maskKey,
+            ...target,
+            quoteId: input.confirmation.quoteId,
+            currency: input.confirmation.currency,
+            estimatedCny: input.confirmation.estimatedCny,
+            quoteExpiresAt: new Date(input.confirmation.expiresAt),
+          });
+          if (!claim.acquired) {
+            if (claim.operation.status === "succeeded" && claim.operation.candidateImageId) {
+              const replay = await getGeneratedImageById(claim.operation.candidateImageId);
+              if (replay) return { status: "ok" as const, image: replay };
+            }
+            if (
+              claim.operation.status === "provider_accepted" &&
+              claim.operation.providerTaskId
+            ) {
+              try {
+                const resumed = await resume302GptImageTask(
+                  claim.operation.providerTaskId
+                );
+                if (resumed.status === "ok" && resumed.imageUrl) {
+                  const settled = await settlePreviewMaskedImageOperationSuccess({
+                    storyId: input.storyId,
+                    userId: ctx.user.id,
+                    operationToken: input.operationToken,
+                    claimToken: claim.operation.claimToken,
+                    image: {
+                      projectId: image.projectId,
+                      storyId: input.storyId,
+                      userId: ctx.user.id,
+                      shotNo: image.shotNo,
+                      shotIdentity: image.shotIdentity,
+                      imageKey: resumed.imageKey ?? `inpaint-${Date.now()}`,
+                      imageUrl: resumed.imageUrl,
+                      prompt: input.prompt,
+                      promptCompilationId: image.promptCompilationId,
+                      parentImageId: image.id,
+                      generationType: "inpaint",
+                      maskKey: input.maskKey,
+                      isCurrent: false,
+                    },
+                  });
+                  return { status: "ok" as const, image: settled.image };
+                }
+              } catch {
+                // Keep the accepted receipt protected. A recovery poll must
+                // never make a second paid submission possible.
+              }
+            }
+            return {
+              status: "error" as const,
+              message:
+                claim.operation.status === "failed"
+                  ? "这次局部修改已明确失败，请重新确认费用后再试"
+                  : "这次付费提交正在处理或状态未知，系统不会重复提交",
+              submissionUncertain: claim.operation.status !== "failed",
+              ...(claim.operation.providerTaskId
+                ? { providerTaskId: claim.operation.providerTaskId }
+                : {}),
+            };
+          }
+          try {
+            const maskUrl = await resolveStoredMaskUrl(input.maskKey);
+            const result = await editMobileImage(image.imageUrl, input.prompt, {
+              provider: "gpt-image",
+              editMaskImageUrl: maskUrl,
+              onProviderTaskAccepted: taskId =>
+                markPreviewMaskedImageOperationAccepted({
+                  storyId: input.storyId,
+                  userId: ctx.user.id,
+                  operationToken: input.operationToken,
+                  claimToken: claim.operation.claimToken,
+                  providerTaskId: taskId,
+                }).then(() => undefined),
+            });
+            if (result.status === "error" || !result.imageUrl) {
+              await failPreviewMaskedImageOperation({
+                storyId: input.storyId,
+                userId: ctx.user.id,
+                operationToken: input.operationToken,
+                claimToken: claim.operation.claimToken,
+                errorCode: result.submissionUncertain || result.providerTaskId
+                  ? "provider_submission_unknown"
+                  : "provider_failed",
+                ...(result.providerTaskId ? { providerTaskId: result.providerTaskId } : {}),
+                ...(result.submissionUncertain ? { submissionUncertain: true } : {}),
+              });
+              return {
+                status: "error" as const,
+                message: result.message ?? "局部图片生成没有返回结果",
+                ...(result.providerTaskId ? { providerTaskId: result.providerTaskId } : {}),
+                ...(result.submissionUncertain ? { submissionUncertain: true } : {}),
+              };
+            }
+            const settled = await settlePreviewMaskedImageOperationSuccess({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              operationToken: input.operationToken,
+              claimToken: claim.operation.claimToken,
+              image: {
+                projectId: image.projectId,
+                storyId: input.storyId,
+                userId: ctx.user.id,
+                shotNo: image.shotNo,
+                shotIdentity: image.shotIdentity,
+                imageKey: result.imageKey ?? `inpaint-${Date.now()}`,
+                imageUrl: result.imageUrl,
+                prompt: input.prompt,
+                promptCompilationId: image.promptCompilationId,
+                parentImageId: image.id,
+                generationType: "inpaint",
+                maskKey: input.maskKey,
+                isCurrent: false,
+              },
+            });
+            return { status: "ok" as const, image: settled.image };
+          } catch (error) {
+            await failPreviewMaskedImageOperation({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              operationToken: input.operationToken,
+              claimToken: claim.operation.claimToken,
+              errorCode: "masked_edit_internal_error",
+              submissionUncertain: true,
+            });
+            return {
+              status: "error" as const,
+              message: error instanceof Error ? error.message : "局部图片修改失败",
+              submissionUncertain: true,
+            };
+          }
+        },
+      });
+    }),
+
+  adoptInpaintCandidate: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        candidateImageId: z.number().int().positive(),
+        expectedSourceImageId: z.number().int().positive(),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        stableShotId: z.string().trim().min(1).max(240),
+        clipId: z.string().trim().min(1).max(240).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [story, candidate, source] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getGeneratedImageById(input.candidateImageId),
+        getGeneratedImageById(input.expectedSourceImageId),
+      ]);
+      if (
+        !story ||
+        !candidate ||
+        !source ||
+        candidate.storyId !== input.storyId ||
+        candidate.userId !== ctx.user.id ||
+        candidate.parentImageId !== source.id ||
+        candidate.generationType !== "inpaint" ||
+        !candidate.maskKey ||
+        source.storyId !== input.storyId ||
+        source.userId !== ctx.user.id
+      ) {
+        return { status: "error" as const, message: "候选或原图不存在或无权操作" };
+      }
+      const receipt = await getSucceededPreviewMaskedImageOperationForCandidate({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        candidateImageId: candidate.id,
+      });
+      if (
+        !receipt ||
+        receipt.sourceImageId !== source.id ||
+        receipt.targetKind !== input.targetKind ||
+        receipt.stableShotId !== input.stableShotId ||
+        receipt.clipId !== (input.clipId ?? null)
+      ) {
+        return { status: "error" as const, message: "候选不属于当前图片目标，请重新审阅" };
+      }
+      if (input.targetKind === "timeline-image-clip") {
+        if (!input.clipId) {
+          return { status: "error" as const, message: "缺少时间线图片剪辑身份" };
+        }
+        const replaced = await replaceVisualImageClipImageForStory({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          stableShotId: input.stableShotId,
+          clipId: input.clipId,
+          expectedImageId: source.id,
+          replacementImageId: candidate.id,
+        });
+        return replaced.status === "ok"
+          ? { status: "ok" as const, imageId: candidate.id }
+          : { status: "error" as const, message: replaced.error };
+      }
+      if (!source.isCurrent || source.shotIdentity !== input.stableShotId) {
+        return { status: "error" as const, message: "当前主图已经变化，请重新审阅候选" };
+      }
+      const promoted = await promoteStoryImageToCurrent({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        imageId: candidate.id,
+        expectedCurrentImageId: source.id,
+        metadata: {
+          source: "preview_object_mask_edit",
+          parentImageId: source.id,
+          maskKey: candidate.maskKey,
+        },
+      });
+      return promoted
+        ? { status: "ok" as const, imageId: candidate.id }
+        : { status: "error" as const, message: "候选采用失败" };
     }),
 });

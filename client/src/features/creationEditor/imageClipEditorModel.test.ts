@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TIMELINE_TRANSFORM } from "@shared/storyMaterial";
 import {
   imageClipEditorTargetForShot,
+  imageClipEditorTargetForTimelineImage,
   normalizeImageClipEditDraft,
   timelineTransformStyle,
 } from "./imageClipEditorModel";
@@ -63,6 +64,42 @@ describe("imageClipEditorModel", () => {
     expect(timelineTransformStyle(target.transform)?.transform).toContain(
       "rotate(-90deg) scale(0.75)"
     );
+  });
+
+  it("opens an extracted timeline frame with its independent clip transform", () => {
+    const target = imageClipEditorTargetForTimelineImage({
+      stableShotId: "shot-0101",
+      imageId: 71,
+      imageUrl: "/extracted-frame.png",
+      label: "0101 · 当前帧 00:01.200",
+      clipTransform: {
+        ...DEFAULT_TIMELINE_TRANSFORM,
+        zoom: 1.4,
+        panX: 0.2,
+      },
+      shot: {
+        shotNo: 1,
+        shotKey: "shot-0101",
+        stableShotId: "shot-0101",
+        dialogue: "抽帧编辑仍可添加这句旁白",
+        timelineItem: {
+          stableShotId: "shot-0101",
+          included: true,
+          position: 0,
+          plannedDurationMs: 3000,
+          imageTransforms: {
+            "71": { ...DEFAULT_TIMELINE_TRANSFORM, zoom: 0.8 },
+          },
+        },
+      },
+    });
+
+    expect(target).toMatchObject({
+      imageId: 71,
+      imageUrl: "/extracted-frame.png",
+      transform: { zoom: 1.4, panX: 0.2 },
+      defaultText: "抽帧编辑仍可添加这句旁白",
+    });
   });
 
   it("keeps an existing image text layer ahead of the shot dialogue", () => {

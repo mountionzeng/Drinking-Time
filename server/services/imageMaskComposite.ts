@@ -1,6 +1,8 @@
 import sharp from "sharp";
 
-/** Preserve protected source pixels and blend generated pixels through mask alpha. */
+/** Overlay a hard-edged generated object patch and preserve every protected
+ * source pixel. Canonical masks are binary; thresholding here prevents a
+ * malformed soft mask from feathering changes into protected content. */
 export async function compositeMaskedEditPixels(
   sourceBytes: Uint8Array,
   generatedBytes: Uint8Array,
@@ -26,17 +28,12 @@ export async function compositeMaskedEditPixels(
       .raw()
       .toBuffer(),
   ]);
-  const composited = Buffer.alloc(source.length);
+  const composited = Buffer.from(source);
 
   for (let offset = 0; offset < source.length; offset += 4) {
-    const editableWeight = 255 - mask[offset + 3];
-    const protectedWeight = 255 - editableWeight;
+    if (mask[offset + 3] >= 128) continue;
     for (let channel = 0; channel < 4; channel += 1) {
-      composited[offset + channel] = Math.round(
-        (generated[offset + channel] * editableWeight +
-          source[offset + channel] * protectedWeight) /
-          255
-      );
+      composited[offset + channel] = generated[offset + channel];
     }
   }
 

@@ -1,4 +1,5 @@
 import { Image, Quote, Timer, Video, X } from "lucide-react";
+import React from "react";
 import type { SelectionContext } from "@shared/selectionContext";
 import { displayShotCode } from "@shared/shotIdentity";
 
@@ -31,7 +32,11 @@ function contextLabel(selection: Props["selection"]): string {
     const shotNo = selection.shotNo ?? Number(rawIndex) + 1;
     return `${displayShotCode({ cueCode: selection.cueCode, shotNo })} · ${FIELD_LABELS[field] ?? field}`;
   }
-  if (selection.sourceType === "storyboard-image") return "故事版主图";
+  if (selection.sourceType === "storyboard-image") {
+    return selection.sourceId.startsWith("timeline-frame:")
+      ? "当前抽帧"
+      : "故事版主图";
+  }
   if (selection.sourceType === "animatic-video") return "动态分镜视频";
   if (selection.sourceType === "timeline-range") return "时间轴片段";
   if (selection.sourceType === "script-scene") {

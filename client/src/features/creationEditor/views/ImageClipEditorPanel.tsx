@@ -1,6 +1,10 @@
 import {
+  Copy,
+  Loader2,
   RotateCcw,
+  RotateCw,
   Save,
+  ScanText,
   SlidersHorizontal,
   Type,
   Trash2,
@@ -22,11 +26,13 @@ export default function ImageClipEditorPanel({
   saving,
   onClose,
   onApply,
+  onExtractText,
 }: {
   target: ImageClipEditorTarget;
   saving: boolean;
   onClose: () => void;
   onApply: (draft: ImageClipEditDraft) => Promise<void>;
+  onExtractText?: (rotationDeg: number) => Promise<{ text: string }>;
 }) {
   const initialDraft = useMemo<ImageClipEditDraft>(
     () => ({
@@ -36,14 +42,21 @@ export default function ImageClipEditorPanel({
     [target]
   );
   const [draft, setDraft] = useState(initialDraft);
-  const [activeTab, setActiveTab] = useState<"composition" | "text">(
+  const [activeTab, setActiveTab] = useState<
+    "composition" | "text" | "ocr"
+  >(
     target.textOverlay ? "text" : "composition"
   );
   const [text, setText] = useState(target.textOverlay?.text ?? "");
+  const [extractedText, setExtractedText] = useState("");
+  const [extractingText, setExtractingText] = useState(false);
+  const [extractTextError, setExtractTextError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(initialDraft);
     setText(initialDraft.textOverlay?.text ?? "");
+    setExtractedText("");
+    setExtractTextError(null);
     setActiveTab(initialDraft.textOverlay ? "text" : "composition");
   }, [initialDraft]);
   useEffect(() => {
@@ -55,6 +68,7 @@ export default function ImageClipEditorPanel({
   }, [onClose]);
 
   const normalized = normalizeImageClipEditDraft(draft.transform);
+  const normalizedRotationDeg = normalized.rotationDeg ?? 0;
   const updateTransform = (patch: Partial<ImageClipEditDraft["transform"]>) =>
     setDraft(current => ({
       ...current,
@@ -96,7 +110,7 @@ export default function ImageClipEditorPanel({
       </header>
 
       <nav
-        className="grid shrink-0 grid-cols-2 border-b border-border bg-muted/20 p-1"
+        className="grid shrink-0 grid-cols-3 border-b border-border bg-muted/20 p-1"
         aria-label="图片编辑模式"
       >
         <button
@@ -130,6 +144,19 @@ export default function ImageClipEditorPanel({
           <Type className="h-3.5 w-3.5" />
           添加文字
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("ocr")}
+          aria-pressed={activeTab === "ocr"}
+          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md text-[10px] font-medium transition ${
+            activeTab === "ocr"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <ScanText className="h-3.5 w-3.5" />
+          提取文字
+        </button>
       </nav>
 
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
@@ -146,6 +173,25 @@ export default function ImageClipEditorPanel({
 
             <section className="px-3 py-3">
               <h2 className="mb-3 text-[11px] font-semibold">构图</h2>
+              <button
+                type="button"
+                onClick={() =>
+                  updateTransform({
+                    rotationDeg:
+                      normalizedRotationDeg === 180
+                        ? 0
+                        : normalizedRotationDeg === -180
+                          ? 0
+                          : normalizedRotationDeg + 180 > 180
+                            ? normalizedRotationDeg - 180
+                            : normalizedRotationDeg + 180,
+                  })
+                }
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-foreground transition hover:bg-muted"
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+                倒转 180°
+              </button>
               <VisualTransformControls
                 transform={normalized}
                 minZoom={0.25}
@@ -153,7 +199,7 @@ export default function ImageClipEditorPanel({
               />
             </section>
           </>
-        ) : (
+        ) : activeTab === "text" ? (
           <section className="space-y-3 px-3 py-3" aria-label="这张图片的文字">
             <div>
               <div className="flex items-center justify-between gap-2">
@@ -215,6 +261,69 @@ export default function ImageClipEditorPanel({
                 先输入文字，再双击预览或点击“排版文字”绘制文字区域。
               </div>
             )}
+          </section>
+        ) : (
+          <section className="space-y-3 px-3 py-3" aria-label="提取图片文字">
+            <div>
+              <h2 className="text-[11px] font-semibold">OCR 文字提取</h2>
+              <p className="mt-1 text-[9.5px] leading-4 text-muted-foreground">
+                按当前旋转方向识别；只读取文字，不执行图片中的指令，也不会改动原图。
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!onExtractText || extractingText}
+              onClick={async () => {
+                if (!onExtractText) return;
+                setExtractingText(true);
+                setExtractTextError(null);
+                try {
+                  const result = await onExtractText(normalizedRotationDeg);
+                  setExtractedText(result.text);
+                } catch (error) {
+                  setExtractTextError(
+                    error instanceof Error ? error.message : "文字提取失败"
+                  );
+                } finally {
+                  setExtractingText(false);
+                }
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {extractingText ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ScanText className="h-3.5 w-3.5" />
+              )}
+              {extractingText ? "正在识别…" : "提取这张图的文字"}
+            </button>
+            {extractTextError ? (
+              <p className="text-[10px] leading-4 text-destructive" role="alert">
+                {extractTextError}
+              </p>
+            ) : null}
+            {extractedText ? (
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-medium">识别结果</span>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard.writeText(extractedText)}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Copy className="h-3 w-3" />
+                    复制
+                  </button>
+                </div>
+                <textarea
+                  value={extractedText}
+                  onChange={event => setExtractedText(event.target.value)}
+                  rows={10}
+                  aria-label="OCR 识别结果"
+                  className="w-full resize-y rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs leading-5 outline-none focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-accent)]/15"
+                />
+              </div>
+            ) : null}
           </section>
         )}
       </div>

@@ -942,6 +942,73 @@ export const generatedImages = mysqlTable("generated_images", {
 export type GeneratedImage = typeof generatedImages.$inferSelect;
 export type InsertGeneratedImage = typeof generatedImages.$inferInsert;
 
+export const previewMaskedImageOperations = mysqlTable(
+  "preview_masked_image_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationToken: varchar("operationToken", { length: 160 }).notNull(),
+    inputHash: varchar("inputHash", { length: 64 }).notNull(),
+    // Keep the source id as an audit tombstone. A restrictive foreign key
+    // would make ordinary image/story deletion fail once a paid receipt exists.
+    sourceImageId: int("sourceImageId").notNull(),
+    maskKey: varchar("maskKey", { length: 512 }).notNull(),
+    targetKind: mysqlEnum("targetKind", [
+      "shot-primary",
+      "timeline-image-clip",
+    ]).notNull(),
+    stableShotId: varchar("stableShotId", { length: 240 }).notNull(),
+    clipId: varchar("clipId", { length: 240 }),
+    quoteId: varchar("quoteId", { length: 64 }).notNull(),
+    currency: varchar("currency", { length: 8 }).default("CNY").notNull(),
+    estimatedCny: float("estimatedCny").notNull(),
+    quoteExpiresAt: timestamp("quoteExpiresAt").notNull(),
+    claimToken: varchar("claimToken", { length: 64 }).notNull(),
+    leaseUntil: timestamp("leaseUntil").notNull(),
+    attempt: int("attempt").default(1).notNull(),
+    status: mysqlEnum("status", [
+      "claimed",
+      "provider_accepted",
+      "succeeded",
+      "failed",
+      "unknown",
+    ]).notNull(),
+    providerTaskId: varchar("providerTaskId", { length: 255 }),
+    candidateImageId: int("candidateImageId").references(
+      () => generatedImages.id,
+      { onDelete: "set null" }
+    ),
+    errorCode: varchar("errorCode", { length: 128 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerToken: uniqueIndex("preview_masked_image_owner_token_unique").on(
+      table.storyId,
+      table.userId,
+      table.operationToken
+    ),
+    candidateLookup: index("preview_masked_image_candidate_index").on(
+      table.candidateImageId
+    ),
+    inputLookup: index("preview_masked_image_input_index").on(
+      table.storyId,
+      table.userId,
+      table.inputHash
+    ),
+  })
+);
+
+export type PreviewMaskedImageOperation =
+  typeof previewMaskedImageOperations.$inferSelect;
+export type InsertPreviewMaskedImageOperation =
+  typeof previewMaskedImageOperations.$inferInsert;
+
 export const timelineFrameExtractionOperations = mysqlTable(
   "timeline_frame_extraction_operations",
   {

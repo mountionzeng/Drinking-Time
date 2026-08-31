@@ -45,6 +45,7 @@ import {
   getStoryImageAssets,
   materializeImageInput,
 } from "../services/imageAssets";
+import { extractImageText } from "../services/imageTextExtraction";
 import { getStoryVideoAssets } from "../services/videoAssets";
 import { getStoryMaterialState } from "../services/storyMaterials";
 import { buildScriptResonanceContextForUser } from "../services/scriptAgent";
@@ -2674,6 +2675,18 @@ export const storyAgentRouter = router({
       await deleteGeneratedImage(input.imageId, ctx.user.id);
       return { status: "ok" as const, imageId: input.imageId };
     }),
+
+  extractImageText: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        rotationDeg: z.number().finite().min(-3600).max(3600).default(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      extractImageText({ ...input, userId: ctx.user.id })
+    ),
 
   storyVideoAssets: protectedProcedure
     .input(z.object({ storyId: z.number() }))

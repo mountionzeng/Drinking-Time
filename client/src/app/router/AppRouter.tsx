@@ -4,6 +4,7 @@ import EditingStudioPage from "@/pages/EditingStudioPage";
 import LoginPage from "@/pages/LoginPage";
 import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
 import NotFound from "@/pages/NotFound";
+import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type ReactNode } from "react";
@@ -64,6 +65,11 @@ export default function AppRouter() {
       </Route>
       <Route path="/admin/visits">
         <Redirect to="/admin/users" />
+      </Route>
+      <Route path="/admin/invites">
+        <AdminGuard>
+          <AdminInvitesPage />
+        </AdminGuard>
       </Route>
       {/* 手机端已并入同一套响应式页面；老的 /m 链接回落到入口 */}
       <Route path="/m/:rest*">

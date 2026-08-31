@@ -290,6 +290,9 @@ describe("creation editor spine boundary", () => {
     const editingWorkspace = source(
       "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
     );
+    const shotPreview = source(
+      "client/src/features/creationEditor/views/ShotPreview.tsx"
+    );
 
     expect(editingPage).toContain(
       'workspace === "editing" ? "editing-nle" : workspace'
@@ -353,9 +356,14 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).toContain(
       'aria-label="Resize Storyboard and Preview"'
     );
-    expect(editingWorkspace).toContain('aria-label="Preview"');
-    expect(editingWorkspace).toContain("editing-panel-heading");
-    expect(editingWorkspace).toContain("Preview");
+    expect(shotPreview).toContain('aria-label="Preview"');
+    expect(shotPreview).toContain("editing-panel-heading");
+    expect(shotPreview).toContain("Preview");
+    expect(shotPreview).toContain('aria-label="调整 Preview 当前画面"');
+    expect(editingWorkspace).toContain("editCurrentVideoFrame");
+    expect(editingWorkspace).toContain(
+      "当前帧已抽取；可在下方调整或在左侧聊天框描述修改"
+    );
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");
     expect(editingWorkspace).toContain(
       "onPreviewChange={setVideoEditorPreviewDraft}"
@@ -370,19 +378,19 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).not.toContain(
       'aria-label="调整预览页面与导演面板宽度"'
     );
-    expect(editingWorkspace).toContain(
+    expect(shotPreview).toContain(
       'className="h-full w-full object-cover"'
     );
-    expect(editingWorkspace).toContain(
+    expect(shotPreview).toContain(
       'data-testid="editing-preview-subtitle-rail"'
     );
-    expect(editingWorkspace).toContain(
+    expect(shotPreview).toContain(
       'className="flex h-12 shrink-0 items-center justify-center overflow-hidden'
     );
-    expect(editingWorkspace).toContain(
+    expect(shotPreview).toContain(
       'data-testid="editing-preview-subtitle"'
     );
-    expect(editingWorkspace).not.toContain(
+    expect(shotPreview).not.toContain(
       "pointer-events-none absolute inset-x-3"
     );
     // 底部时间线（MultiTrackTimeline）已于 2026-08-24 删除：它和上方 Storyboard

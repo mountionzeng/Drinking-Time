@@ -145,7 +145,8 @@ export function useVisualObjectEditingSession(input: {
     new Map<string, { editorSessionEpoch: string; operationId: string }>()
   );
   const renderedEditingStorySessionToken = useMemo(
-    () => Symbol(visualEditingSessionIdentity(activeStoryId, editorSessionEpoch)),
+    () =>
+      Symbol(visualEditingSessionIdentity(activeStoryId, editorSessionEpoch)),
     [activeStoryId, editorSessionEpoch]
   );
   const committedEditingStorySessionTokenRef = useRef(
@@ -282,7 +283,7 @@ export function useVisualObjectEditingSession(input: {
 
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number, operationLayer: number) => {
-      await extractTimelineFrame({
+      return extractTimelineFrame({
         timelineFrame: timelineOffsetMsToFrames(playheadMs),
         operationLayer,
       });

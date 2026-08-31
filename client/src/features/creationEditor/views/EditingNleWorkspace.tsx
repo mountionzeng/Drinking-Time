@@ -1,7 +1,13 @@
-import { Clapperboard, FileUp, Loader2, Upload, Video } from "lucide-react";
+import {
+  Clapperboard,
+  FileUp,
+  Loader2,
+  Upload,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,8 +19,6 @@ import type {
   StoryTimelineVisualClip,
   StoryTimelineImageClip,
   StoryTimelineOverlay,
-  TimelineTransform,
-  TimelineVideoEffects,
   StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
@@ -41,9 +45,7 @@ import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag"
 import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
-import {
-  useVisualObjectEditingSession,
-} from "../useVisualObjectEditingSession";
+import { useVisualObjectEditingSession } from "../useVisualObjectEditingSession";
 import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
@@ -80,14 +82,13 @@ import {
   videoClipboardPlannedDurationSec,
   videoClipEditorTargetForTake,
   videoClipEditorTargetForVisualClip,
-  timelineVideoMotionStyle,
   type VideoClipboardPayload,
   type VideoClipEditDraft,
   type VideoClipEditorTarget,
 } from "../videoClipEditorModel";
 import {
   imageClipEditorTargetForShot,
-  timelineTransformStyle,
+  imageClipEditorTargetForTimelineImage,
   type ImageClipEditDraft,
   type ImageClipEditorTarget,
 } from "../imageClipEditorModel";
@@ -95,200 +96,41 @@ import ImageClipEditorPanel from "./ImageClipEditorPanel";
 import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
 import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransitionRequirementsDialog";
+import ShotPreview from "./ShotPreview";
 import {
   storyboardEditSelectionSummary,
   storyboardEditShouldFollowSelectionToShot,
   type StoryboardEditRange,
 } from "../storyboardEditRow";
 import { shouldHandleCreationEditorUndoShortcut } from "../timelineUndoStore";
-
 const DEFAULT_STORYBOARD_PANEL_SIZE = 50;
 const DEFAULT_PREVIEW_PANEL_SIZE = 50;
-const PREVIEW_CANVAS_INSET_PX = 12;
 
-type VideoEditorPreview = {
-  target: VideoClipEditorTarget;
-  draft: VideoClipEditDraft;
-};
-
-export function fitProjectCanvas(input: {
-  stageWidth: number;
-  stageHeight: number;
-  projectWidth: number;
-  projectHeight: number;
-  inset?: number;
-}) {
-  const inset = Number.isFinite(input.inset)
-    ? Math.max(0, input.inset ?? 0)
-    : 0;
-  const availableWidth = Math.max(0, input.stageWidth - inset);
-  const availableHeight = Math.max(0, input.stageHeight - inset);
-  const projectWidth =
-    Number.isFinite(input.projectWidth) && input.projectWidth > 0
-      ? input.projectWidth
-      : 1;
-  const projectHeight =
-    Number.isFinite(input.projectHeight) && input.projectHeight > 0
-      ? input.projectHeight
-      : 1;
-  const projectAspect = projectWidth / projectHeight;
-
-  if (availableWidth === 0 || availableHeight === 0) {
-    return { width: 0, height: 0 };
-  }
-  if (availableWidth / availableHeight > projectAspect) {
-    return {
-      width: Math.floor(availableHeight * projectAspect),
-      height: Math.floor(availableHeight),
-    };
-  }
-  return {
-    width: Math.floor(availableWidth),
-    height: Math.floor(availableWidth / projectAspect),
-  };
-}
-
-function shotLabel(
-  shot: Pick<CreationEditorShot, "cueCode" | "shotKey" | "shotNo">
-) {
-  return displayShotCode(shot);
-}
-
-function playableVideoUrl(shot: CreationEditorShot | null): string | null {
-  if (!shot) return null;
-  if (
-    shot.selectedVideoTake?.videoUrl &&
-    videoTakeAffordance(shot.selectedVideoTake.status).canPlay
-  ) {
-    return shot.selectedVideoTake.videoUrl;
-  }
-  return (
-    shot.videoTakes?.find(
-      take => Boolean(take.videoUrl) && videoTakeAffordance(take.status).canPlay
-    )?.videoUrl ?? null
-  );
-}
-
-function shotImageUrl(shot: CreationEditorShot | null): string | null {
-  return shot?.imageUrl || shot?.promptRun?.imageUrl || null;
-}
-
-const PREVIEW_CONTROL_PAUSE_WINDOW_MS = 1_200;
-
-export function shouldForwardPreviewPause(input: {
-  timelinePlaying: boolean;
-  ignoreNextPause: boolean;
-  mediaIsCurrent: boolean;
-  mediaConnected: boolean;
-  mediaEnded: boolean;
-  lastInteractionAtMs: number | null;
-  nowMs: number;
-}): boolean {
-  const interactionAgeMs =
-    input.lastInteractionAtMs == null
-      ? null
-      : input.nowMs - input.lastInteractionAtMs;
-  return (
-    input.timelinePlaying &&
-    !input.ignoreNextPause &&
-    input.mediaIsCurrent &&
-    input.mediaConnected &&
-    !input.mediaEnded &&
-    interactionAgeMs != null &&
-    interactionAgeMs >= 0 &&
-    interactionAgeMs <= PREVIEW_CONTROL_PAUSE_WINDOW_MS
-  );
-}
-
-export type EditingShortcutTargetKind = "text" | "button" | "other";
-
-/** Preview/时间线悬停快捷键：按钮焦点可以接管，文字输入始终让开。 */
-export function shouldHandleEditingShortcut(input: {
-  key: string;
-  zoneActive: boolean;
-  defaultPrevented: boolean;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  altKey: boolean;
-  targetKind: EditingShortcutTargetKind;
-}): boolean {
-  const isArrowKey = input.key === "ArrowLeft" || input.key === "ArrowRight";
-  const isSpaceKey = input.key === " " || input.key === "Spacebar";
-  return (
-    (isArrowKey || isSpaceKey) &&
-    input.zoneActive &&
-    !input.defaultPrevented &&
-    !input.metaKey &&
-    !input.ctrlKey &&
-    !input.altKey &&
-    input.targetKind !== "text"
-  );
-}
-
-export type TimelineVideoSource = {
-  shotNo: number;
-  stableShotId: string;
-  takeStableShotId: string;
-  takeId: number;
-  rangeId: number | null;
-  videoUrl: string;
-  sourceStartSec: number;
-  sourceEndSec: number;
-  sourceTimeSec: number;
-  offsetMs: number;
-  durationMs: number;
-  existingClipId: string | null;
-  label: string;
-  effects: TimelineVideoEffects;
-  transform: TimelineTransform;
-  overlayId?: string;
-  visualLayer: number;
-};
-
-export function extractedFrameTargetVisualLayer(source: {
-  visualLayer: number;
-}): number {
-  return Math.max(0, Math.round(source.visualLayer)) + 1;
-}
-
-const VIDEO_END_HOLD_EPSILON_SECONDS = 1 / 120;
-
-export function timelineVideoPlaybackRate(
-  source: Pick<
-    TimelineVideoSource,
-    "sourceStartSec" | "sourceEndSec" | "durationMs"
-  > & { effects?: TimelineVideoEffects }
-): number {
-  if (source.effects) return source.effects.playbackRate;
-  const sourceDurationSec = Math.max(
-    0,
-    source.sourceEndSec - source.sourceStartSec
-  );
-  const timelineDurationSec = Math.max(0, source.durationMs / 1_000);
-  if (sourceDurationSec <= 0 || timelineDurationSec <= 0) return 1;
-  return Math.min(4, Math.max(0.25, sourceDurationSec / timelineDurationSec));
-}
-
-export function timelineVideoShouldHoldLastFrame(input: {
-  targetTimeSec: number;
-  sourceStartSec: number;
-  sourceEndSec: number;
-  reverse?: boolean;
-}): boolean {
-  if (input.sourceEndSec <= input.sourceStartSec) return false;
-  return input.reverse
-    ? input.targetTimeSec <=
-        input.sourceStartSec + VIDEO_END_HOLD_EPSILON_SECONDS
-    : input.targetTimeSec >=
-        input.sourceEndSec - VIDEO_END_HOLD_EPSILON_SECONDS;
-}
-
-export function timelineVideoSourceForSelectedShot(
-  source: TimelineVideoSource | null | undefined,
-  selectedShotNo: number | null | undefined
-): TimelineVideoSource | null {
-  return source && source.shotNo === selectedShotNo ? source : null;
-}
+import {
+  adoptedVideoTake,
+  selectedShotPlayheadSyncTarget,
+  shotImageUrl,
+  shotLabel,
+  shouldHandleEditingShortcut,
+  type EditingShortcutTargetKind,
+  type TimelineVideoSource,
+} from "../previewPlaybackModel";
+export {
+  canEditCurrentVideoFrame,
+  extractedFrameTargetVisualLayer,
+  fitProjectCanvas,
+  previewMediaLayerPlan,
+  selectedShotPlayheadSyncTarget,
+  shouldForwardPreviewPause,
+  shouldHandleEditingShortcut,
+  timelineVideoPlaybackRate,
+  timelineVideoShouldHoldLastFrame,
+  timelineSubtitleText,
+} from "../previewPlaybackModel";
+export type {
+  EditingShortcutTargetKind,
+  TimelineVideoSource,
+} from "../previewPlaybackModel";
 
 function timelineVisualClipFrameUrl(
   clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
@@ -347,12 +189,17 @@ export function resolveTimelineVideoSource(
   timelineShotIds: string[],
   playheadMs: number,
   overlays: readonly StoryTimelineOverlay[] = [],
-  hiddenVisualLayers: readonly number[] = []
+  hiddenVisualLayers: readonly number[] = [],
+  options: { ignoreImageClips?: boolean } = {}
 ): TimelineVideoSource | null {
   const timelineItems = timelineItemsForShots(shots);
   const timelineFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
   const documentResolution = resolveTimelineVisualFrame({
-    items: timelineItems,
+    items: options.ignoreImageClips
+      ? timelineItems.map(item =>
+          item.imageClips?.length ? { ...item, imageClips: [] } : item
+        )
+      : timelineItems,
     overlays,
     hiddenVisualLayers,
     frame: timelineFrame,
@@ -458,11 +305,7 @@ export function resolveTimelineVideoSource(
   }
   if (shot.timelineItem?.visualClipsReplacePrimary) return null;
 
-  const take =
-    shot.selectedVideoTake ??
-    shot.videoTakes?.find(
-      item => Boolean(item.videoUrl) && videoTakeAffordance(item.status).canPlay
-    );
+  const take = adoptedVideoTake(shot);
   if (!take?.videoUrl) return null;
   const editorTarget = videoClipEditorTargetForTake({
     stableShotId,
@@ -535,28 +378,6 @@ function isVisualFile(file: File) {
   return /^(image|video)\//.test(mediaMime(file));
 }
 
-export function timelineSubtitleText(
-  manifest: ChatCutTimelineManifest | null,
-  playheadMs: number,
-  fallbackDialogue?: string | null
-): string | null {
-  const fallback = fallbackDialogue?.trim() || null;
-  if (!manifest) return fallback;
-  const activeVoiceClip = chatCutPlaybackAudioTracks(manifest)
-    .flatMap(track => track.clips)
-    .find(
-      clip =>
-        Boolean(chatCutCueCode(clip.name)) &&
-        playheadMs >= clip.startMs &&
-        playheadMs < clip.endMs
-    );
-  if (!activeVoiceClip) return null;
-  const cueCode = chatCutCueCode(activeVoiceClip.name);
-  const scriptedText = cueCode
-    ? manifest.scriptCues.find(cue => cue.code === cueCode)?.text.trim()
-    : "";
-  return scriptedText || fallback;
-}
 
 function EditingStoryboardPanel({
   onRelink,
@@ -669,436 +490,6 @@ function EditingStoryboardPanel({
   );
 }
 
-function ShotPreview({
-  shot,
-  timing,
-  sourceClip,
-  timelineVideoSource,
-  timelineImageSource,
-  editorPreview,
-  suppressDefaultVideo,
-  playheadMs,
-  timelinePlaying,
-  format,
-  onRequestTimelinePlaying,
-  keyboardShortcutZoneRef,
-}: {
-  shot: CreationEditorShot | null;
-  timing?: { startMs: number; endMs: number; durationMs: number };
-  sourceClip?: ChatCutTimelineClip | null;
-  timelineVideoSource?: TimelineVideoSource | null;
-  timelineImageSource?: {
-    imageUrl: string;
-    transform?: TimelineTransform;
-  } | null;
-  editorPreview?: VideoEditorPreview | null;
-  suppressDefaultVideo?: boolean;
-  playheadMs: number;
-  timelinePlaying: boolean;
-  format: ChatCutTimelineManifest | null;
-  onRequestTimelinePlaying: (isPlaying: boolean) => void;
-  keyboardShortcutZoneRef: { current: boolean };
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const ignoreNextVideoPauseRef = useRef(false);
-  const previewControlInteractionAtRef = useRef<number | null>(null);
-  const previewStageRef = useRef<HTMLDivElement | null>(null);
-  const [previewStageSize, setPreviewStageSize] = useState({
-    width: 0,
-    height: 0,
-  });
-  const normalizedEditorDraft = editorPreview
-    ? normalizeVideoClipEditDraft(
-        editorPreview.draft,
-        editorPreview.target.mediaDurationSec
-      )
-    : null;
-  const videoUrl = timelineImageSource
-    ? null
-    : (editorPreview?.target.videoUrl ??
-      timelineVideoSource?.videoUrl ??
-      (suppressDefaultVideo ? null : playableVideoUrl(shot)));
-  const imageUrl =
-    timelineImageSource?.imageUrl ??
-    editorPreview?.target.posterUrl ??
-    shotImageUrl(shot);
-  const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
-  const formatLabel = format ? `${format.width}×${format.height}` : "1080×1080";
-  const canvasSize = fitProjectCanvas({
-    stageWidth: previewStageSize.width,
-    stageHeight: previewStageSize.height,
-    projectWidth: format?.width ?? 1,
-    projectHeight: format?.height ?? 1,
-    inset: PREVIEW_CANVAS_INSET_PX,
-  });
-  const timelineOffsetMs = timing
-    ? Math.min(timing.durationMs, Math.max(0, playheadMs - timing.startMs))
-    : 0;
-  const sourceInMs = sourceClip?.sourceInMs ?? 0;
-  const sourceDurationMs = Math.max(
-    0,
-    (sourceClip?.sourceOutMs ?? sourceInMs) - sourceInMs
-  );
-  const sourceStartSeconds =
-    normalizedEditorDraft?.sourceStartSec ??
-    timelineVideoSource?.sourceStartSec ??
-    sourceInMs / 1_000;
-  const sourceEndSeconds =
-    normalizedEditorDraft?.sourceEndSec ??
-    timelineVideoSource?.sourceEndSec ??
-    (sourceClip?.sourceOutMs ?? sourceInMs) / 1_000;
-  const playbackRate =
-    normalizedEditorDraft?.effects.playbackRate ??
-    timelineVideoPlaybackRate({
-      sourceStartSec: sourceStartSeconds,
-      sourceEndSec: sourceEndSeconds,
-      durationMs: timelineVideoSource?.durationMs ?? timing?.durationMs ?? 0,
-      effects: timelineVideoSource?.effects,
-    });
-  const reverse =
-    normalizedEditorDraft?.effects.reverse ??
-    timelineVideoSource?.effects.reverse ??
-    false;
-  const sourceVolume =
-    normalizedEditorDraft?.effects.volume ??
-    timelineVideoSource?.effects.volume ??
-    1;
-  const sourceMuted =
-    normalizedEditorDraft?.effects.muted ??
-    timelineVideoSource?.effects.muted ??
-    false;
-  const videoTransform =
-    timelineImageSource?.transform ??
-    normalizedEditorDraft?.transform ??
-    timelineVideoSource?.transform;
-  const videoMotionStyle = timelineVideoMotionStyle(
-    normalizedEditorDraft?.effects ?? timelineVideoSource?.effects
-  );
-  const editorSourceOffsetSeconds = Math.min(
-    Math.max(0, sourceEndSeconds - sourceStartSeconds),
-    (timelineOffsetMs / 1_000) * playbackRate
-  );
-  const targetVideoTimeSeconds = normalizedEditorDraft
-    ? reverse
-      ? Math.max(
-          sourceStartSeconds,
-          sourceEndSeconds - editorSourceOffsetSeconds
-        )
-      : Math.min(
-          sourceEndSeconds,
-          sourceStartSeconds + editorSourceOffsetSeconds
-        )
-    : (timelineVideoSource?.sourceTimeSec ??
-      (sourceInMs +
-        (sourceDurationMs > 0
-          ? Math.min(timelineOffsetMs, sourceDurationMs)
-          : timelineOffsetMs)) /
-        1000);
-  const shouldHoldLastFrame = timelineVideoShouldHoldLastFrame({
-    targetTimeSec: targetVideoTimeSeconds,
-    sourceStartSec: sourceStartSeconds,
-    sourceEndSec: sourceEndSeconds,
-    reverse,
-  });
-  const subtitleText = timelineSubtitleText(format, playheadMs, shot?.dialogue);
-
-  useEffect(() => {
-    const stage = previewStageRef.current;
-    if (!stage) return;
-    const updateStageSize = () => {
-      const rect = stage.getBoundingClientRect();
-      const next = {
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      };
-      setPreviewStageSize(current =>
-        current.width === next.width && current.height === next.height
-          ? current
-          : next
-      );
-    };
-    updateStageSize();
-    const observer = new ResizeObserver(updateStageSize);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
-    const maximumTime = Math.max(0, video.duration - 0.001);
-    const lastFrameTime = Math.min(
-      maximumTime,
-      Math.max(
-        sourceStartSeconds,
-        sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
-      )
-    );
-    const targetTime = Math.min(
-      shouldHoldLastFrame ? lastFrameTime : targetVideoTimeSeconds,
-      maximumTime
-    );
-    const drift = Math.abs(video.currentTime - targetTime);
-    video.defaultPlaybackRate = playbackRate;
-    video.playbackRate = playbackRate;
-    video.volume = sourceVolume;
-    video.muted = sourceMuted;
-
-    if (!timelinePlaying || shouldHoldLastFrame || reverse) {
-      if (!video.paused) {
-        ignoreNextVideoPauseRef.current = true;
-        video.pause();
-      }
-      if (drift > 0.004) video.currentTime = targetTime;
-      return;
-    }
-
-    if (drift > 0.35) video.currentTime = targetTime;
-    if (video.paused) void video.play().catch(() => undefined);
-  }, [
-    playbackRate,
-    reverse,
-    shouldHoldLastFrame,
-    sourceEndSeconds,
-    sourceStartSeconds,
-    targetVideoTimeSeconds,
-    timelinePlaying,
-    videoUrl,
-    sourceMuted,
-    sourceVolume,
-  ]);
-
-  return (
-    <section
-      className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
-      aria-label="Preview"
-      onPointerEnter={() => {
-        keyboardShortcutZoneRef.current = true;
-      }}
-      onPointerMove={() => {
-        keyboardShortcutZoneRef.current = true;
-      }}
-      onPointerLeave={() => {
-        keyboardShortcutZoneRef.current = false;
-      }}
-    >
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-        <div className="min-w-0">
-          <span className="editing-panel-heading">Preview</span>
-          {shot ? (
-            <span className="ml-2 font-mono text-[10px] text-primary">
-              {shotLabel(shot)}
-            </span>
-          ) : null}
-          <span
-            className="ml-2 font-mono text-[9px] tabular-nums text-muted-foreground"
-            title="项目画布尺寸"
-          >
-            {formatLabel}
-          </span>
-          {editorPreview ? (
-            <span
-              className="ml-2 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary"
-              data-testid="editing-preview-live-draft"
-            >
-              参数预览
-            </span>
-          ) : null}
-        </div>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {timing
-            ? `${formatStoryboardTimestamp(timing.startMs)} / ${formatStoryboardTimestamp(timing.endMs)}`
-            : "00:00.000"}
-        </span>
-      </div>
-
-      <div className="flex min-h-[150px] flex-1 flex-col overflow-hidden bg-muted/35">
-        <div
-          ref={previewStageRef}
-          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
-          data-testid="editing-preview-stage"
-        >
-          <div
-            className="relative flex shrink-0 items-center justify-center overflow-hidden border border-white/10 bg-black shadow-sm"
-            style={{
-              aspectRatio,
-              width: canvasSize.width || 180,
-              height: canvasSize.height || 180,
-            }}
-            data-testid="editing-project-canvas"
-            data-project-size={formatLabel}
-          >
-            {videoUrl ? (
-              <div
-                className="h-full w-full"
-                style={videoMotionStyle}
-                data-testid={
-                  videoMotionStyle ? "editing-preview-heartbeat" : undefined
-                }
-              >
-                <video
-                  key={
-                    editorPreview
-                      ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
-                      : videoUrl
-                  }
-                  ref={videoRef}
-                  src={videoUrl}
-                  poster={imageUrl ?? undefined}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  onPointerDown={() => {
-                    previewControlInteractionAtRef.current = Date.now();
-                  }}
-                  onKeyDown={event => {
-                    if (
-                      event.key === " " ||
-                      event.key === "Enter" ||
-                      event.key.toLowerCase() === "k" ||
-                      event.key === "MediaPlayPause"
-                    ) {
-                      previewControlInteractionAtRef.current = Date.now();
-                    }
-                  }}
-                  onLoadedMetadata={event => {
-                    const maximumTime = Math.max(
-                      0,
-                      event.currentTarget.duration - 0.001
-                    );
-                    event.currentTarget.defaultPlaybackRate = playbackRate;
-                    event.currentTarget.playbackRate = playbackRate;
-                    event.currentTarget.volume = sourceVolume;
-                    event.currentTarget.muted = sourceMuted;
-                    const targetTime = shouldHoldLastFrame
-                      ? Math.max(
-                          sourceStartSeconds,
-                          sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
-                        )
-                      : targetVideoTimeSeconds;
-                    event.currentTarget.currentTime = Math.min(
-                      targetTime,
-                      maximumTime
-                    );
-                    if (timelinePlaying && !shouldHoldLastFrame && !reverse) {
-                      void event.currentTarget.play().catch(() => undefined);
-                    }
-                  }}
-                  onPlay={event => {
-                    previewControlInteractionAtRef.current = null;
-                    const startSeconds = sourceStartSeconds;
-                    const endSeconds = sourceEndSeconds;
-                    event.currentTarget.defaultPlaybackRate = playbackRate;
-                    event.currentTarget.playbackRate = playbackRate;
-                    event.currentTarget.volume = sourceVolume;
-                    event.currentTarget.muted = sourceMuted;
-                    if (
-                      event.currentTarget.currentTime < startSeconds ||
-                      (endSeconds > startSeconds &&
-                        event.currentTarget.currentTime >= endSeconds - 0.03)
-                    ) {
-                      event.currentTarget.currentTime = reverse
-                        ? Math.max(startSeconds, endSeconds - 1 / 120)
-                        : startSeconds;
-                    }
-                    if (!timelinePlaying) onRequestTimelinePlaying(true);
-                    if (reverse) {
-                      ignoreNextVideoPauseRef.current = true;
-                      event.currentTarget.pause();
-                    }
-                  }}
-                  onPause={event => {
-                    const ignoreNextPause = ignoreNextVideoPauseRef.current;
-                    const lastInteractionAtMs =
-                      previewControlInteractionAtRef.current;
-                    ignoreNextVideoPauseRef.current = false;
-                    previewControlInteractionAtRef.current = null;
-                    if (
-                      shouldForwardPreviewPause({
-                        timelinePlaying,
-                        ignoreNextPause,
-                        mediaIsCurrent:
-                          videoRef.current === event.currentTarget,
-                        mediaConnected: event.currentTarget.isConnected,
-                        mediaEnded: event.currentTarget.ended,
-                        lastInteractionAtMs,
-                        nowMs: Date.now(),
-                      })
-                    ) {
-                      onRequestTimelinePlaying(false);
-                    }
-                  }}
-                  onTimeUpdate={event => {
-                    const endSeconds = sourceEndSeconds;
-                    if (
-                      !reverse &&
-                      endSeconds > 0 &&
-                      event.currentTarget.currentTime >= endSeconds
-                    ) {
-                      ignoreNextVideoPauseRef.current = true;
-                      event.currentTarget.pause();
-                      event.currentTarget.currentTime = Math.max(
-                        sourceStartSeconds,
-                        endSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
-                      );
-                    }
-                  }}
-                  className="h-full w-full object-cover"
-                  style={
-                    videoTransform
-                      ? timelineTransformStyle(videoTransform)
-                      : undefined
-                  }
-                  aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
-                />
-              </div>
-            ) : imageUrl ? (
-              <>
-                <img
-                  src={imageUrl}
-                  alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
-                  className="h-full w-full object-cover"
-                  style={timelineTransformStyle(
-                    shot?.imageId != null
-                      ? (shot.timelineItem?.imageTransforms?.[
-                          String(shot.imageId)
-                        ] ?? shot.timelineItem?.transform)
-                      : shot?.timelineItem?.transform
-                  )}
-                />
-                <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
-                  静态首帧占位 · 尚未采用视频
-                </span>
-              </>
-            ) : (
-              <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
-                <Video className="h-7 w-7" />
-                <span className="text-xs">当前镜头尚未关联画面</span>
-                <span className="max-w-[260px] truncate text-[10px] text-neutral-500">
-                  {shot ? chatCutSourceNameFromShot(shot) : "从左侧选择镜头"}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-        <div
-          className="flex h-12 shrink-0 items-center justify-center overflow-hidden border-t border-border/70 bg-[color:var(--panel-header)] px-4 text-center"
-          aria-live="polite"
-          data-testid="editing-preview-subtitle-rail"
-        >
-          {subtitleText ? (
-            <p
-              className="m-0 line-clamp-2 max-w-[92%] text-[13px] font-medium leading-5 text-foreground"
-              data-testid="editing-preview-subtitle"
-            >
-              {subtitleText}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 type TimelineClipMoveTarget =
   | { kind: "shot"; stableShotId: string }
@@ -1617,6 +1008,8 @@ export default function EditingNleWorkspace({
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
+  const [extractingCurrentVideoFrame, setExtractingCurrentVideoFrame] =
+    useState(false);
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
    *
@@ -1728,62 +1121,114 @@ export default function EditingNleWorkspace({
     timelineShots[0] ??
     shots[0] ??
     null;
-  const selectedTimelineIndex = selectedShot
+  const selectedShotTiming = selectedShot
+    ? timingByShotNo.get(selectedShot.shotNo)
+    : null;
+  const previewPlayheadMs = playbackClock.playheadMs;
+
+  useLayoutEffect(() => {
+    const syncTargetMs = selectedShotPlayheadSyncTarget({
+      selectedShotNo,
+      selectionFromPlayheadShotNo: selectionFromPlayheadRef.current,
+      timing: selectedShotTiming,
+    });
+    selectionFromPlayheadRef.current = null;
+    if (syncTargetMs == null) return;
+    playbackClock.setPlaying(false);
+    playbackClock.seek(syncTargetMs);
+    // seek 会同步投影一次选中态；这次投影已经消费完，不能污染下一次显式选择。
+    selectionFromPlayheadRef.current = null;
+  }, [
+    playbackClock.seek,
+    playbackClock.setPlaying,
+    selectedShotNo,
+    selectedShotTiming,
+  ]);
+
+  const activeTimelineVisualFrame = useMemo(
+    () =>
+      resolveTimelineVisualFrame({
+        items: timelineItems,
+        overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
+        frame: timelineOffsetMsToFrames(previewPlayheadMs),
+      }),
+    [
+      previewPlayheadMs,
+      timelineItems,
+      timelineOverlays,
+      timelineVisualLayerState.hidden,
+    ]
+  );
+  const activeTimelineVideoSource = useMemo(
+    () =>
+      resolveTimelineVideoSource(
+        shots,
+        timelineShotIds,
+        previewPlayheadMs,
+        timelineOverlays,
+        timelineVisualLayerState.hidden,
+        { ignoreImageClips: true }
+      ),
+    [
+      shots,
+      timelineOverlays,
+      previewPlayheadMs,
+      timelineShotIds,
+      timelineVisualLayerState.hidden,
+    ]
+  );
+  const previewStableShotId =
+    activeTimelineVisualFrame.kind === "shot"
+      ? activeTimelineVisualFrame.row.item.stableShotId
+      : activeTimelineVisualFrame.kind === "image"
+        ? (activeTimelineVideoSource?.stableShotId ??
+          activeTimelineVisualFrame.placement.stableShotId)
+        : activeTimelineVisualFrame.kind === "overlay"
+          ? activeTimelineVisualFrame.overlay.sourceStableShotId
+          : null;
+  const previewShot =
+    previewStableShotId == null
+      ? null
+      : (shots.find(
+          shot => creationTimelineShotId(shot) === previewStableShotId
+        ) ?? null);
+  const previewShotTiming = previewShot
+    ? timingByShotNo.get(previewShot.shotNo)
+    : null;
+  const previewTimelineIndex = previewShot
     ? timelineShots.findIndex(
         shot =>
-          creationTimelineShotId(shot) === creationTimelineShotId(selectedShot)
+          creationTimelineShotId(shot) === creationTimelineShotId(previewShot)
       )
     : -1;
   const primarySourceClips =
     chatCutTimeline?.videoTracks.find(
       track => track.index === chatCutTimeline.primaryVideoTrackIndex
     )?.clips ?? [];
-  const selectedSourceClipId = chatCutClipIdFromShot(selectedShot);
-  const selectedSourceClip =
-    selectedShot?.shotType === "转场镜头"
+  const previewSourceClipId = chatCutClipIdFromShot(previewShot);
+  const previewSourceClip =
+    previewShot?.shotType === "转场镜头"
       ? null
-      : selectedSourceClipId
-        ? (primarySourceClips.find(clip => clip.id === selectedSourceClipId) ??
+      : previewSourceClipId
+        ? (primarySourceClips.find(clip => clip.id === previewSourceClipId) ??
           null)
-        : selectedTimelineIndex >= 0
-          ? (primarySourceClips[selectedTimelineIndex] ?? null)
+        : previewTimelineIndex >= 0
+          ? (primarySourceClips[previewTimelineIndex] ?? null)
           : null;
-  const activeTimelineVideoSource = useMemo(
+  const activeTimelineImageSource = useMemo(
     () =>
-      resolveTimelineVideoSource(
-        shots,
-        timelineShotIds,
-        playbackClock.playheadMs,
-        timelineOverlays,
-        timelineVisualLayerState.hidden
-      ),
-    [
-      shots,
-      timelineOverlays,
-      playbackClock.playheadMs,
-      timelineShotIds,
-      timelineVisualLayerState.hidden,
-    ]
-  );
-  const activeTimelineImageSource = useMemo(() => {
-    const resolved = resolveTimelineVisualFrame({
-      items: timelineItems,
-      overlays: timelineOverlays,
-      hiddenVisualLayers: timelineVisualLayerState.hidden,
-      frame: Math.max(0, Math.round((playbackClock.playheadMs * 30) / 1000)),
-    });
-    return resolved.kind === "image"
+      activeTimelineVisualFrame.kind === "image"
       ? {
-          imageUrl: resolved.placement.clip.imageUrl,
-          transform: resolved.placement.clip.transform,
+          imageUrl: activeTimelineVisualFrame.placement.clip.imageUrl,
+          transform: activeTimelineVisualFrame.placement.clip.transform,
+          imageId: activeTimelineVisualFrame.placement.clip.imageId,
+          clipId: activeTimelineVisualFrame.placement.clip.id,
+          stableShotId: activeTimelineVisualFrame.placement.stableShotId,
         }
-      : null;
-  }, [
-    timelineItems,
-    timelineOverlays,
-    playbackClock.playheadMs,
-    timelineVisualLayerState.hidden,
-  ]);
+      : null,
+    [activeTimelineVisualFrame]
+  );
   const storyboardAudioClips = useMemo(
     () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
     [activeStoryId, chatCutTimeline]
@@ -1827,14 +1272,10 @@ export default function EditingNleWorkspace({
         timelineShotIds,
         playheadMs,
         timelineOverlays,
-        timelineVisualLayerState.hidden
+        timelineVisualLayerState.hidden,
+        { ignoreImageClips: true }
       ),
-    [
-      shots,
-      timelineOverlays,
-      timelineShotIds,
-      timelineVisualLayerState.hidden,
-    ]
+    [shots, timelineOverlays, timelineShotIds, timelineVisualLayerState.hidden]
   );
   const {
     editingStorySessionKey,
@@ -2011,29 +1452,155 @@ export default function EditingNleWorkspace({
     onVideoEditorHandoffHandled?.();
   }, [onVideoEditorHandoffHandled, openVideoEditor, videoEditorHandoffTarget]);
 
-  const openImageEditor = useCallback(
-    (target: ImageClipEditorTarget) => {
-      setSelectedShotNo(target.shotNo);
+  const selectImageForChat = useCallback(
+    (
+      target: ImageClipEditorTarget,
+      options: { preservePlayhead?: boolean } = {}
+    ) => {
+      if (!options.preservePlayhead) setSelectedShotNo(target.shotNo);
       playbackClock.setPlaying(false);
-      setVideoEditorTarget(null);
-      setVideoEditorPreviewDraft(null);
-      setImageEditorTarget(target);
+      const extractedTimelineFrame = Boolean(target.clipId);
       setActiveSelection({
         sourceType: "storyboard-image",
-        sourceId: String(target.imageId),
-        selectedText: `${target.label} · 图片构图调整`,
-        fullText: `${target.label}，旋转、缩放与位置调整`,
+        sourceId: extractedTimelineFrame
+          ? `timeline-frame:${target.clipId}`
+          : String(target.imageId),
+        selectedText: extractedTimelineFrame
+          ? `${target.label} · 当前抽帧`
+          : `${target.label} · 图片构图调整`,
+        fullText: extractedTimelineFrame
+          ? `${target.label}，这是从当前视频位置抽取的图片；在聊天框描述对这一帧的修改`
+          : `${target.label}，旋转、缩放与位置调整`,
         storyId: activeStoryId,
         stableShotId: target.stableShotId,
         shotNo: target.shotNo,
         cueCode: target.cueCode ?? null,
         imageId: target.imageId,
-        objectVersion: `image:${target.imageId}`,
+        objectVersion: extractedTimelineFrame
+          ? `timeline-clip:${target.clipId}`
+          : `image:${target.imageId}`,
         materialStatus: "current-image",
       });
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo]
   );
+
+  const openImageEditor = useCallback(
+    (
+      target: ImageClipEditorTarget,
+      options: { preservePlayhead?: boolean } = {}
+    ) => {
+      setVideoEditorTarget(null);
+      setVideoEditorPreviewDraft(null);
+      setImageEditorTarget(target);
+      selectImageForChat(target, options);
+    },
+    [selectImageForChat]
+  );
+
+  const previewImageEditTarget = useMemo(() => {
+    if (!previewShot?.imageId) return null;
+    const imageUrl = shotImageUrl(previewShot);
+    const stableShotId =
+      previewShot.stableShotId ?? previewShot.shotIdentity ?? null;
+    if (!imageUrl || !stableShotId) return null;
+    return imageClipEditorTargetForShot({
+      shot: previewShot,
+      stableShotId,
+      imageId: previewShot.imageId,
+      imageUrl,
+      label: `${shotLabel(previewShot)} · 图片 #${previewShot.imageId}`,
+    });
+  }, [previewShot]);
+
+  const previewObjectMaskTarget = useMemo(() => {
+    if (activeTimelineImageSource) {
+      const ownerShot = shots.find(
+        shot => creationTimelineShotId(shot) === activeTimelineImageSource.stableShotId
+      );
+      if (!ownerShot) return null;
+      return imageClipEditorTargetForTimelineImage({
+        shot: ownerShot,
+        stableShotId: activeTimelineImageSource.stableShotId,
+        imageId: activeTimelineImageSource.imageId,
+        imageUrl: activeTimelineImageSource.imageUrl,
+        label: `${shotLabel(ownerShot)} · 时间线图片`,
+        clipTransform: activeTimelineImageSource.transform,
+        clipId: activeTimelineImageSource.clipId,
+      });
+    }
+    return activeTimelineVideoSource ? null : previewImageEditTarget;
+  }, [
+    activeTimelineImageSource,
+    activeTimelineVideoSource,
+    previewImageEditTarget,
+    shots,
+  ]);
+
+  const previewHasVideo = Boolean(activeTimelineVideoSource);
+  const previewWholeImageEditTarget = previewObjectMaskTarget
+    ? previewObjectMaskTarget
+    : previewHasVideo
+      ? null
+      : previewImageEditTarget;
+
+  const prepareCurrentVideoFrameForImageEdit = useCallback(async () => {
+    playbackClock.setPlaying(false);
+    const source = resolveActiveVideoSource(previewPlayheadMs);
+    if (!source) {
+      throw new Error("当前播放头没有可编辑的视频画面");
+    }
+    setExtractingCurrentVideoFrame(true);
+    try {
+      const result = await extractFrameAtPlayhead(
+        previewPlayheadMs,
+        source.visualLayer
+      );
+      if (!isEditingStorySessionCurrent()) return null;
+      const targetOwnerShot = shots.find(
+        shot => creationTimelineShotId(shot) === result.stableShotId
+      );
+      if (!targetOwnerShot) {
+        throw new Error("当前帧已抽取，但找不到它在时间线中的位置");
+      }
+      const target = imageClipEditorTargetForTimelineImage({
+        shot: targetOwnerShot,
+        stableShotId: result.stableShotId,
+        imageId: result.imageId,
+        imageUrl: result.imageUrl,
+        label: `${shotLabel(targetOwnerShot)} · 当前帧 ${formatStoryboardTimestamp(previewPlayheadMs)}`,
+        clipTransform: result.transform,
+        clipId: result.clipId,
+      });
+      // 图片 clip 的持久宿主可能是当前帧下方的另一个镜头。这里只是在聊天里
+      // 引用刚抽出的精确 clip，不能把播放镜头切成存储宿主，否则这一帧会立刻
+      // 从 Preview 消失，看起来像“抽取成功但图层里没有”。
+      selectImageForChat(target, { preservePlayhead: true });
+      return target;
+    } catch (error) {
+      if (isEditingStorySessionCurrent()) throw error;
+      return null;
+    } finally {
+      setExtractingCurrentVideoFrame(false);
+    }
+  }, [
+    extractFrameAtPlayhead,
+    isEditingStorySessionCurrent,
+    previewPlayheadMs,
+    resolveActiveVideoSource,
+    selectImageForChat,
+    shots,
+  ]);
+
+  const editCurrentVideoFrame = useCallback(async () => {
+    try {
+      const target = await prepareCurrentVideoFrameForImageEdit();
+      if (!target) return;
+      toast.success("当前帧已抽取；可在下方调整或在左侧聊天框描述修改");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "当前帧编辑失败");
+    }
+  }, [prepareCurrentVideoFrameForImageEdit]);
 
   const applyImageEdit = useCallback(
     async (draft: ImageClipEditDraft) => {
@@ -2404,7 +1971,9 @@ export default function EditingNleWorkspace({
           return { applied: false, reason: "故事未加载" };
         }
         const extracted = timelineItems.flatMap(item => {
-          const timing = timings.find(row => row.stableShotId === item.stableShotId);
+          const timing = timings.find(
+            row => row.stableShotId === item.stableShotId
+          );
           if (!timing) return [];
           return (item.imageClips ?? []).map(clip => {
             const timelineFrame = timelineImageClipStartFrame(
@@ -2426,7 +1995,8 @@ export default function EditingNleWorkspace({
           frame => frame.clipId === leftClipId && frame.imageId === leftImageId
         );
         const right = extracted.find(
-          frame => frame.clipId === rightClipId && frame.imageId === rightImageId
+          frame =>
+            frame.clipId === rightClipId && frame.imageId === rightImageId
         );
         if (!left || !right) {
           return { applied: false, reason: "抽帧已失效，请重新选择" };
@@ -2854,16 +2424,13 @@ export default function EditingNleWorkspace({
           className="min-w-0"
         >
           <ShotPreview
-            shot={selectedShot}
-            timing={
-              selectedShot ? timingByShotNo.get(selectedShot.shotNo) : undefined
-            }
-            sourceClip={selectedSourceClip}
-            timelineVideoSource={timelineVideoSourceForSelectedShot(
-              activeTimelineVideoSource,
-              selectedShot?.shotNo
-            )}
+            storyId={activeStoryId}
+            shot={previewShot}
+            timing={previewShotTiming ?? undefined}
+            sourceClip={previewSourceClip}
+            timelineVideoSource={activeTimelineVideoSource}
             timelineImageSource={activeTimelineImageSource}
+            maskEditTarget={previewObjectMaskTarget}
             editorPreview={
               videoEditorTarget && videoEditorPreviewDraft
                 ? {
@@ -2872,16 +2439,37 @@ export default function EditingNleWorkspace({
                   }
                 : null
             }
-            suppressDefaultVideo={Boolean(
-              selectedShot?.timelineItem?.visualClipsReplacePrimary
-            )}
-            playheadMs={playbackClock.playheadMs}
+            suppressDefaultVideo
+            playheadMs={previewPlayheadMs}
             timelinePlaying={playbackClock.isPlaying}
             format={chatCutTimeline}
             onRequestTimelinePlaying={isPlaying =>
               playbackClock.setPlaying(isPlaying)
             }
             keyboardShortcutZoneRef={keyboardShortcutZoneRef}
+            onEditImage={
+              previewWholeImageEditTarget
+                ? () =>
+                    openImageEditor(previewWholeImageEditTarget, {
+                      preservePlayhead: true,
+                    })
+                : undefined
+            }
+            onSelectImageForChat={
+              previewWholeImageEditTarget
+                ? () =>
+                    selectImageForChat(previewWholeImageEditTarget, {
+                      preservePlayhead: true,
+                    })
+                : undefined
+            }
+            onEditCurrentVideoFrame={
+              previewHasVideo && !videoEditorTarget
+                ? () => void editCurrentVideoFrame()
+                : undefined
+            }
+            onMaskAdopted={() => creationEditor.refetch()}
+            extractingCurrentVideoFrame={extractingCurrentVideoFrame}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
@@ -2912,6 +2500,12 @@ export default function EditingNleWorkspace({
           saving={savingImageEdit}
           onClose={() => setImageEditorTarget(null)}
           onApply={applyImageEdit}
+          onExtractText={rotationDeg =>
+            creationEditor.extractImageText({
+              imageId: imageEditorTarget.imageId,
+              rotationDeg,
+            })
+          }
         />
       ) : null}
       {extractedFrameRequirements ? (

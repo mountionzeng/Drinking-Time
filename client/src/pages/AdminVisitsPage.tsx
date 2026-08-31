@@ -111,6 +111,24 @@ export default function AdminVisitsPage() {
             />
           </button>
         </div>
+        <nav
+          aria-label="管理页面"
+          className="mx-auto flex max-w-6xl gap-5 px-5 sm:px-8"
+        >
+          <a
+            href="/admin/users"
+            aria-current="page"
+            className="border-b-2 border-foreground pb-3 text-xs font-medium text-foreground"
+          >
+            用户
+          </a>
+          <a
+            href="/admin/invites"
+            className="border-b-2 border-transparent pb-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            邀请
+          </a>
+        </nav>
       </header>
 
       <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8">

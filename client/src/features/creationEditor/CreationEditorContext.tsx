@@ -130,6 +130,7 @@ import {
   waitForCreationEditorOperations,
 } from "./timelineUndoStore";
 import { addShotToRenderSlots, removeShotFromRenderSlots } from "./renderSlots";
+import { findTimelineImageClipLocation } from "./timelineImageClipLocation";
 import type {
   CreationEditorError,
   CreationEditorImage,
@@ -153,6 +154,18 @@ export type {
 } from "./types";
 
 export type { CreationTimelineFrameResolution } from "@shared/timelineCommands";
+
+export type ExtractedTimelineFrameResult = {
+  requestId: string;
+  imageId: number;
+  imageUrl: string;
+  clipId: string;
+  stableShotId: string;
+  transform?: TimelineTransform;
+  timelineVersion: number;
+  targetLayer?: number;
+  replayed: boolean;
+};
 
 type CreationEditorContextValue = {
   editorSessionEpoch: string;
@@ -361,6 +374,10 @@ type CreationEditorContextValue = {
     imageId: number;
     sourceLabel: string;
   }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
+  extractImageText: (input: {
+    imageId: number;
+    rotationDeg?: number;
+  }) => Promise<{ text: string; language: string; modelLabel: string }>;
   attachChatCutXml: (xml: string) => Promise<{
     primaryClipCount: number;
     audioClipCount: number;
@@ -506,7 +523,7 @@ type CreationEditorContextValue = {
   extractTimelineFrame: (input: {
     timelineFrame: number;
     operationLayer: number;
-  }) => Promise<void>;
+  }) => Promise<ExtractedTimelineFrameResult>;
   /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
   moveVisualClip: (input: {
     clipId: string;
@@ -1617,6 +1634,7 @@ export function CreationEditorProvider({
     trpc.creationAgent.importStoryMaterial.useMutation();
   const extractPhotoVisualFeaturesMut =
     trpc.visualAssets.extractPhotoFeatures.useMutation();
+  const extractImageTextMut = trpc.storyAgent.extractImageText.useMutation();
   const attachChatCutXmlMut = trpc.storyAgent.attachChatCutXml.useMutation();
   const adviseStoryImagesMut =
     trpc.creationAgent.adviseStoryImages.useMutation();
@@ -1743,7 +1761,7 @@ export function CreationEditorProvider({
       {
         requestId: string;
         inFlight?: {
-          promise: Promise<void>;
+          promise: Promise<ExtractedTimelineFrameResult>;
           originStorySessionToken: symbol;
           undoRecorded: boolean;
         };
@@ -3192,6 +3210,18 @@ export function CreationEditorProvider({
     return { createdKinds: result.createdKinds };
   };
 
+  const extractImageText = async (input: {
+    imageId: number;
+    rotationDeg?: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法提取图片文字");
+    return extractImageTextMut.mutateAsync({
+      storyId: activeId,
+      imageId: input.imageId,
+      rotationDeg: input.rotationDeg ?? 0,
+    });
+  };
+
   const attachChatCutXml = async (xml: string) => {
     if (activeId == null) throw new Error("故事尚未加载，无法同步 ChatCut XML");
     const result = await attachChatCutXmlMut.mutateAsync({
@@ -3732,7 +3762,7 @@ export function CreationEditorProvider({
   const extractTimelineFrame = async (input: {
     timelineFrame: number;
     operationLayer: number;
-  }): Promise<void> => {
+  }): Promise<ExtractedTimelineFrameResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法抽帧");
     const storyId = activeId;
     const storySessionToken = renderedExtractionStorySessionToken;
@@ -3789,12 +3819,31 @@ export function CreationEditorProvider({
             throw new Error(result.error);
           }
 
-          await Promise.all([
-            utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+          const [refreshedMaterial] = await Promise.all([
+            storyMaterialQuery.refetch(),
             utils.storyAgent.storyImages.invalidate({ storyId }),
           ]);
+          const persistedTarget = findTimelineImageClipLocation(
+            refreshedMaterial.data?.timeline.items ?? [],
+            result.clipId
+          );
+          if (!persistedTarget) {
+            throw new Error(
+              "当前帧已抽取，但时间线还没有同步完成，请再点一次继续编辑"
+            );
+          }
           forgetCurrentIntent();
-          return;
+          return {
+            requestId: result.requestId,
+            imageId: result.imageId,
+            imageUrl: result.imageUrl,
+            clipId: result.clipId,
+            stableShotId: persistedTarget.stableShotId,
+            transform: persistedTarget.clip.transform,
+            timelineVersion: result.timelineVersion,
+            targetLayer: result.targetLayer,
+            replayed: result.replayed,
+          };
         }
       })();
       inFlight = {
@@ -3805,7 +3854,7 @@ export function CreationEditorProvider({
       intent.inFlight = inFlight;
     }
     try {
-      await inFlight.promise;
+      const result = await inFlight.promise;
       if (
         activeStoryIdRef.current === storyId &&
         committedExtractionStorySessionTokenRef.current ===
@@ -3815,6 +3864,7 @@ export function CreationEditorProvider({
         inFlight.undoRecorded = true;
         recordTimelineCommandUndo(storyId);
       }
+      return result;
     } finally {
       const current = extractionIntentByPositionRef.current.get(positionKey);
       if (current === intent && current.inFlight === inFlight) {
@@ -4120,6 +4170,7 @@ export function CreationEditorProvider({
       deleteExtractedFrame,
       importStoryMaterial,
       extractPhotoVisualFeatures,
+      extractImageText,
       attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,
@@ -4229,6 +4280,7 @@ export function CreationEditorProvider({
       deleteExtractedFrame,
       importStoryMaterial,
       extractPhotoVisualFeatures,
+      extractImageText,
       attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,

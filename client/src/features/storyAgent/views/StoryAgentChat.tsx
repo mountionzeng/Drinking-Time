@@ -28,8 +28,11 @@ import {
   Mic,
   Cloud,
   Check,
+  Copy,
   Link2,
   Pencil,
+  RotateCw,
+  ScanText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOptionalCreationEditor } from "@/features/creationEditor/CreationEditorContext";
@@ -92,6 +95,11 @@ import {
   type ImportedChatMedia,
   type PendingChatMedia,
 } from "../chatMediaAttachments";
+import {
+  parseChatImageLocalEditInstruction,
+  rotateTimelineImage180,
+} from "../chatImageLocalEdit";
+import { DEFAULT_TIMELINE_TRANSFORM } from "@shared/storyMaterial";
 
 type OpenCreationChatDetail = {
   draftMessage?: string;
@@ -325,6 +333,11 @@ export default function StoryAgentChat({
   const [applyingAdviceImageId, setApplyingAdviceImageId] = useState<
     number | null
   >(null);
+  const [imageTextResult, setImageTextResult] = useState<{
+    imageId: number;
+    text: string;
+    rotated: boolean;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -701,6 +714,77 @@ export default function StoryAgentChat({
     }
 
     if (pendingMedia.length === 0 && activeSelection) {
+      const localImageIntent = parseChatImageLocalEditInstruction(text);
+      if (
+        localImageIntent &&
+        activeSelection.imageId != null &&
+        creationEditor
+      ) {
+        const selectedImageId = activeSelection.imageId;
+        const shot =
+          (activeSelection.stableShotId
+            ? creationEditor.shots.find(
+                item =>
+                  (item.stableShotId ?? item.shotIdentity) ===
+                  activeSelection.stableShotId
+              )
+            : null) ??
+          creationEditor.shots.find(item => item.shotNo === activeSelection.shotNo);
+        const stableShotId =
+          shot?.stableShotId ?? shot?.shotIdentity ?? activeSelection.stableShotId;
+        if (!shot || !stableShotId) {
+          toast.error("这张图片还没有可编辑的镜头位置");
+          return;
+        }
+        const currentTransform = {
+          ...DEFAULT_TIMELINE_TRANSFORM,
+          ...(shot.timelineItem?.transform ?? {}),
+          ...(shot.timelineItem?.imageTransforms?.[String(selectedImageId)] ?? {}),
+        };
+        const rotationDeg = localImageIntent.rotate180
+          ? rotateTimelineImage180(currentTransform.rotationDeg ?? 0)
+          : (currentTransform.rotationDeg ?? 0);
+        setInput("");
+        setMediaProgress(
+          localImageIntent.extractText ? "正在按当前方向提取文字…" : "正在倒转图片…"
+        );
+        try {
+          if (localImageIntent.rotate180) {
+            await creationEditor.updateTimelineImageTransform({
+              stableShotId,
+              imageId: selectedImageId,
+              transform: { ...currentTransform, rotationDeg },
+              textOverlay:
+                shot.timelineItem?.imageTextOverlays?.[String(selectedImageId)] ??
+                null,
+            });
+          }
+          const extracted = localImageIntent.extractText
+            ? await creationEditor.extractImageText({
+                imageId: selectedImageId,
+                rotationDeg,
+              })
+            : null;
+          setImageTextResult({
+            imageId: selectedImageId,
+            text: extracted?.text ?? "",
+            rotated: localImageIntent.rotate180,
+          });
+          toast.success(
+            localImageIntent.extractText
+              ? localImageIntent.rotate180
+                ? "图片已倒转，文字已提取"
+                : "文字已提取"
+              : "图片已倒转 180°"
+          );
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "图片处理失败");
+        } finally {
+          setMediaProgress(null);
+          resizeAndFocusInput();
+        }
+        return;
+      }
       // 「换成素材里的那个人物」不是文字润色，是要绑资产 + 重画这一镜。
       // 必须排在 sendSelectionEdit 前面，否则会被当成普通选区改写送给 LLM。
       if (assetSwap.arm(text)) {
@@ -1543,6 +1627,62 @@ export default function StoryAgentChat({
         )}
 
         {interactionMode === "story" ? <ChatImageRemixTray remix={remix} /> : null}
+        {interactionMode === "story" && imageTextResult ? (
+          <article
+            className="mt-1.5 rounded-md border border-border bg-background px-2.5 py-2"
+            aria-label="图片本地编辑结果"
+            data-testid="chat-image-local-edit-result"
+          >
+            <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+              {imageTextResult.rotated ? (
+                <RotateCw className="h-3 w-3" />
+              ) : (
+                <ScanText className="h-3 w-3" />
+              )}
+              <span>
+                图片 #{imageTextResult.imageId}
+                {imageTextResult.rotated ? " · 已倒转 180°" : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => setImageTextResult(null)}
+                className="ml-auto rounded p-1 hover:bg-muted"
+                aria-label="关闭图片处理结果"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            {imageTextResult.text ? (
+              <>
+                <textarea
+                  value={imageTextResult.text}
+                  onChange={event =>
+                    setImageTextResult(current =>
+                      current ? { ...current, text: event.target.value } : current
+                    )
+                  }
+                  rows={5}
+                  aria-label="聊天框 OCR 识别结果"
+                  className="mt-2 w-full resize-y rounded-md border border-border bg-muted/20 px-2.5 py-2 text-[11px] leading-5 outline-none focus:border-[var(--nayin-accent)]"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(imageTextResult.text)
+                  }
+                  className="mt-1.5 inline-flex items-center gap-1 rounded px-2 py-1 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Copy className="h-3 w-3" />
+                  复制文字
+                </button>
+              </>
+            ) : (
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                {imageTextResult.rotated ? "构图变换已保存。" : "没有识别到文字。"}
+              </p>
+            )}
+          </article>
+        ) : null}
         {interactionMode === "story" ? (
           <AssetSwapProposalCard swap={assetSwap} />
         ) : null}

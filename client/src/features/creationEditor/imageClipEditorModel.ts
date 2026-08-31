@@ -8,6 +8,8 @@ import {
 } from "@shared/storyMaterial";
 
 export type ImageClipEditorTarget = {
+  targetKind?: "shot-primary" | "timeline-image-clip";
+  clipId?: string;
   stableShotId: string;
   shotNo: number;
   cueCode?: string | null;
@@ -56,6 +58,7 @@ export function imageClipEditorTargetForShot(input: {
   label: string;
 }): ImageClipEditorTarget {
   return {
+    targetKind: "shot-primary",
     stableShotId: input.stableShotId,
     shotNo: input.shot.shotNo,
     cueCode: input.shot.cueCode,
@@ -67,6 +70,38 @@ export function imageClipEditorTargetForShot(input: {
       ...(input.shot.timelineItem?.transform ?? {}),
       ...(input.shot.timelineItem?.imageTransforms?.[String(input.imageId)] ??
         {}),
+    }),
+    textOverlay:
+      input.shot.timelineItem?.imageTextOverlays?.[String(input.imageId)] ??
+      null,
+    defaultText: input.shot.dialogue?.trim() ?? "",
+  };
+}
+
+/** Build an editor target for an independent timeline image such as an extracted frame. */
+export function imageClipEditorTargetForTimelineImage(input: {
+  shot: CreationEditorShot;
+  stableShotId: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  clipTransform?: TimelineTransform;
+  clipId?: string;
+}): ImageClipEditorTarget {
+  return {
+    targetKind: "timeline-image-clip",
+    clipId: input.clipId,
+    stableShotId: input.stableShotId,
+    shotNo: input.shot.shotNo,
+    cueCode: input.shot.cueCode,
+    imageId: input.imageId,
+    imageUrl: input.imageUrl,
+    label: input.label,
+    transform: normalizeImageClipEditDraft({
+      ...DEFAULT_TIMELINE_TRANSFORM,
+      ...(input.shot.timelineItem?.imageTransforms?.[String(input.imageId)] ??
+        {}),
+      ...(input.clipTransform ?? {}),
     }),
     textOverlay:
       input.shot.timelineItem?.imageTextOverlays?.[String(input.imageId)] ??
