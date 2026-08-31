@@ -1,0 +1,16 @@
+id: dreamy-colored-pencil-minimal
+name: 朦胧彩铅极简
+status: active
+style: [朦胧彩铅, 抽象概括]
+palette: [柔和渐变]
+composition: 大面积留白与稀疏主体
+material: 可见纸纹与轻柔彩铅叠色
+negative: [摄影景深, 塑料渐变, 细节堆积]
+automatic_selection:
+  version: "2026-08-31.1"
+  scope: main
+  concepts: [quiet-grief-memory, dream-dissolve, sparse-negative-space, colored-pencil]
+  provider_fragments: [柔软彩铅颗粒与纸面阻力, 克制渐变, 大面积留白, 形体抽象概括]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["reviewed-brief: user-confirmed 2026-08-31"]

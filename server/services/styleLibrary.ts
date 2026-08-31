@@ -22,6 +22,10 @@ import {
   affinityField,
   statusField,
 } from "./libraryFields";
+import {
+  SEMANTIC_ART_CATALOG_VERSION,
+  type SemanticArtCard,
+} from "../../shared/semanticArtDirection";
 
 // ── zod schema：镜像 _TEMPLATE.yaml 字段。空标量/缺字段都收敛到安全默认（字段助手见 libraryFields）──
 
@@ -51,6 +55,21 @@ const StyleEntrySchema = z.object({
   // 校准
   references: strArrField,
   notes: strField,
+
+  automatic_selection: z.object({
+    version: z.string().min(1).default(SEMANTIC_ART_CATALOG_VERSION),
+    scope: z.enum(["main", "auxiliary"]),
+    concepts: z.array(z.string()).default([]),
+    counter_signals: z.array(z.string()).default([]),
+    provider_fragments: z.array(z.string()).default([]),
+    allowed_auxiliary_dimensions: z.array(z.string()).default([]),
+    compatible_main_ids: z.array(z.string()).default([]),
+    forbidden_purposes: z.array(z.enum([
+      "story-frame", "publishing-cover", "publishing-album", "image-edit",
+      "product", "standard-view", "factual",
+    ])).default([]),
+    provenance: z.array(z.string()).default([]),
+  }).optional(),
 });
 
 export type StyleEntry = z.infer<typeof StyleEntrySchema>;
@@ -121,4 +140,24 @@ export function styleToFragments(entry: StyleEntry): FragmentForPrompt[] {
 /** 一个流派的负面清单（与正面 DNA 同等重要：这流派最怕变成什么） */
 export function styleNegatives(entry: StyleEntry): string[] {
   return entry.negative.map((n) => n.trim()).filter(Boolean);
+}
+
+/** Active, reviewed entries eligible for automatic semantic selection. */
+export function getSemanticArtCards(dir?: string): SemanticArtCard[] {
+  return getActiveStyles(dir).flatMap(entry => {
+    const metadata = entry.automatic_selection;
+    if (!metadata || metadata.concepts.length === 0 || metadata.provider_fragments.length === 0) return [];
+    return [{
+      id: entry.id,
+      version: metadata.version,
+      scope: metadata.scope,
+      concepts: metadata.concepts,
+      counterSignals: metadata.counter_signals,
+      providerFragments: metadata.provider_fragments,
+      allowedAuxiliaryDimensions: metadata.allowed_auxiliary_dimensions,
+      compatibleMainIds: metadata.compatible_main_ids,
+      forbiddenPurposes: metadata.forbidden_purposes,
+      provenance: metadata.provenance,
+    }];
+  });
 }

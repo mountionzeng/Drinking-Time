@@ -1,0 +1,16 @@
+id: modernist-sanyu-seurat-wu
+name: 线性色面现代主义融合
+status: active
+style: [平面化造型, 书法性轮廓, 疏密点触]
+palette: [克制低饱和底色, 局部清亮色点]
+composition: 大面积留白与平面空间
+material: 纸本颜料与可见笔触
+negative: [艺术家姓名堆叠, 复制特定作品]
+automatic_selection:
+  version: "2026-08-31.1"
+  scope: main
+  concepts: [modernist-lines, sparse-negative-space]
+  provider_fragments: [书法性轮廓与概括色面, 疏密点触组织空气感, 大面积留白]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["internal-authority: Sanyu / Georges Seurat / Wu Guanzhong; provider names prohibited"]

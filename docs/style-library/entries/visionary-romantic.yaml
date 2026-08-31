@@ -1,0 +1,12 @@
+id: visionary-romantic
+name: 浪漫主义幻视
+status: active
+style: [浪漫主义幻视, 手工印制]
+material: 水彩渗色、压印边缘与手工套色偏差
+automatic_selection:
+  scope: main
+  concepts: [mythic-nature]
+  provider_fragments: [水彩渗色、压印边缘与手工套色偏差构成幻视空间]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

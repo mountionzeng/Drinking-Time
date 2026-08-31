@@ -305,9 +305,11 @@ function stableIndex(value: string, length: number): number {
 
 function chooseHandmadeLineage(
   ctx: RenderContext,
-  signals: TextArtSignals
-): ArtLineage {
-  const text = `${ctx.prompt}\n${signals.emotion}\n${signals.livedTextures.join(" ")}`;
+  _signals: TextArtSignals
+): ArtLineage | null {
+  // Score only source evidence. Display fallbacks such as “由具体人物关系与动作决定”
+  // must never manufacture a match (it used to select spiritual-abstraction via “关系”).
+  const text = `${ctx.prompt}\n${ctx.emotion ?? ""}`;
   const ranked = HANDMADE_ART_LINEAGES.map(lineage => ({
     lineage,
     score: lineage.signals.reduce(
@@ -315,6 +317,8 @@ function chooseHandmadeLineage(
       0
     ),
   }));
+  const bestScore = Math.max(...ranked.map(candidate => candidate.score));
+  if (bestScore <= 0) return null;
   if (ctx.discardPreviousRound && ctx.explorationRound) {
     const ordered = ranked.slice().sort((left, right) => {
       if (right.score !== left.score) return right.score - left.score;
@@ -322,7 +326,6 @@ function chooseHandmadeLineage(
     });
     return ordered[(ctx.explorationRound - 1) % ordered.length]!.lineage;
   }
-  const bestScore = Math.max(...ranked.map(candidate => candidate.score));
   const candidates = ranked
     .filter(candidate => candidate.score === bestScore)
     .map(candidate => candidate.lineage);
@@ -479,9 +482,8 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
         .join("；");
       if (dna) additions.push(`【美术流派·${style.name}】${dna}`);
     } else {
-      additions.push(
-        ...handmadeLineageBlocks(chooseHandmadeLineage(ctx, textSignals))
-      );
+      const lineage = chooseHandmadeLineage(ctx, textSignals);
+      if (lineage) additions.push(...handmadeLineageBlocks(lineage));
     }
   }
 

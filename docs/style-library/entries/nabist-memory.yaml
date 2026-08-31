@@ -1,0 +1,12 @@
+id: nabist-memory
+name: 私密记忆绘画
+status: active
+style: [平面化室内绘画, 私密记忆]
+material: 不透明水粉、蜡笔与吸水纸
+automatic_selection:
+  scope: main
+  concepts: [memory, intimate-interior]
+  provider_fragments: [可见叠笔、局部擦洗与轻微失准表现被触摸过的记忆]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

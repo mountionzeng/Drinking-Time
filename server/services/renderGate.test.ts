@@ -80,9 +80,8 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("不是内容模板");
     expect(seen).toContain("不得因此固定色调");
     expect(seen).toContain("平台水印");
-    expect(seen).toContain("【艺术谱系】");
-    expect(seen).toContain("【手作完成度】");
-    expect(seen).toContain("历史艺术家");
+    expect(seen).not.toContain("【艺术谱系】");
+    expect(seen).not.toContain("【手作完成度】");
     expect(seen).not.toContain("【美术流派·");
     expect(seen).toContain("【静态图片无字硬约束】");
     expect(seen).toContain("禁止可读文字、伪文字、字母、数字");

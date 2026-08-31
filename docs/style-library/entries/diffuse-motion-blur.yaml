@@ -1,0 +1,15 @@
+id: diffuse-motion-blur
+name: 动态弥散
+status: active
+style: [方向性动态模糊, 边缘弥散]
+material: 局部拖擦与颜料扩散
+negative: [全画面失焦, 覆盖主体身份, 改写主风格色板]
+automatic_selection:
+  version: "2026-08-31.1"
+  scope: auxiliary
+  concepts: [motion, diffusion]
+  provider_fragments: [仅在运动边缘加入方向性拖擦与局部弥散]
+  allowed_auxiliary_dimensions: [edge-motion]
+  compatible_main_ids: [dreamy-colored-pencil-minimal, modernist-sanyu-seurat-wu, expressive-print, symbolist-pastel, nabist-memory, visionary-romantic, spiritual-abstraction, naive-fable]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["reviewed-brief: user-confirmed 2026-08-31"]

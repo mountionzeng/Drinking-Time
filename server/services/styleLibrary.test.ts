@@ -7,6 +7,7 @@ import {
   getActiveStyles,
   styleToFragments,
   styleNegatives,
+  getSemanticArtCards,
   clearStyleLibraryCache,
 } from "./styleLibrary";
 
@@ -82,6 +83,17 @@ describe("styleLibrary loader", () => {
     expect(frags.find((f) => f.tag === "风格")?.text).toBe("x");
     // 缺的字段不产出片段
     expect(frags.find((f) => f.tag === "光线")).toBeUndefined();
+  });
+
+  it("exposes only reviewed active automatic-selection metadata", () => {
+    write("auto.yaml", [
+      "id: auto", "name: Auto", "status: active", "style: [x]",
+      "automatic_selection:", "  version: '1'", "  scope: main",
+      "  concepts: [memory]", "  provider_fragments: [soft paper grain]",
+      "  forbidden_purposes: [product]", "  provenance: ['museum:example']", "",
+    ].join("\n"));
+    write("plain.yaml", "id: plain\nname: Plain\nstatus: active\nstyle: [y]\n");
+    expect(getSemanticArtCards(tmp)).toEqual([expect.objectContaining({ id: "auto", scope: "main", concepts: ["memory"] })]);
   });
 
   it("treats empty scalars (yaml null) as empty strings", () => {
