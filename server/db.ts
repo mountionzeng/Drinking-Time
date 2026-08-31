@@ -51,6 +51,9 @@ import {
   InsertEmotionDailyLetter,
   emotionDailyLetters,
   EmotionDailyLetter,
+  InsertCreatorVisualPreference,
+  creatorVisualPreferences,
+  CreatorVisualPreference,
   InsertStory,
   stories,
   Story,
@@ -127,6 +130,7 @@ type MemoryState = {
   analysisResults: AnalysisResult[];
   emotionAnalysisProfiles: EmotionAnalysisProfile[];
   emotionDailyLetters: EmotionDailyLetter[];
+  creatorVisualPreferences: CreatorVisualPreference[];
   stories: Story[];
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
@@ -150,6 +154,7 @@ type MemoryState = {
     analysisResult: number;
     emotionAnalysisProfile: number;
     emotionDailyLetter: number;
+    creatorVisualPreference: number;
     story: number;
     editSnapshot: number;
     semanticAnnotation: number;
@@ -175,6 +180,7 @@ const memoryState: MemoryState = {
   analysisResults: [],
   emotionAnalysisProfiles: [],
   emotionDailyLetters: [],
+  creatorVisualPreferences: [],
   stories: [],
   editSnapshots: [],
   semanticAnnotations: [],
@@ -198,6 +204,7 @@ const memoryState: MemoryState = {
     analysisResult: 1,
     emotionAnalysisProfile: 1,
     emotionDailyLetter: 1,
+    creatorVisualPreference: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -385,6 +392,22 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     })
   ) as EmotionDailyLetter[];
 
+  memoryState.creatorVisualPreferences = (
+    raw.creatorVisualPreferences ?? []
+  ).map(item => ({
+    ...item,
+    seasonalProfile:
+      item.seasonalProfile ?? "unknown",
+    timeZone: item.timeZone ?? null,
+    source: item.source ?? "cleared",
+    revision:
+      typeof item.revision === "number" && item.revision >= 1
+        ? item.revision
+        : 1,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as CreatorVisualPreference[];
+
   memoryState.stories = (raw.stories ?? []).map(item => ({
     ...item,
     createdAt: toDate(item.createdAt),
@@ -497,6 +520,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     emotionDailyLetter: Math.max(
       raw.nextIds?.emotionDailyLetter ?? 0,
       nextIdFromRows(memoryState.emotionDailyLetters)
+    ),
+    creatorVisualPreference: Math.max(
+      raw.nextIds?.creatorVisualPreference ?? 0,
+      nextIdFromRows(memoryState.creatorVisualPreferences)
     ),
     story: Math.max(
       raw.nextIds?.story ?? 0,
@@ -978,6 +1005,7 @@ async function withLocalAggregateMutationLock<T>(
 
 const localTimelineLock = createKeyedSerialLock<string>();
 const localStoryLock = createKeyedSerialLock<string>();
+const localCreatorVisualPreferenceLock = createKeyedSerialLock<string>();
 
 async function withLocalStoryLock<T>(
   storyId: number,
@@ -2026,6 +2054,205 @@ export async function upsertEmotionAnalysisProfile(
     .where(eq(emotionAnalysisProfiles.id, result[0].insertId))
     .limit(1);
   return inserted[0];
+}
+
+// ─── Creator visual preferences ─────────────────────────────────────────
+
+export type CreatorVisualPreferenceWrite = Pick<
+  InsertCreatorVisualPreference,
+  "userId" | "seasonalProfile" | "timeZone" | "source"
+> & { expectedRevision: number };
+
+export async function getCreatorVisualPreference(
+  userId: number
+): Promise<CreatorVisualPreference | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.creatorVisualPreferences.find(row => row.userId === userId) ??
+      null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(creatorVisualPreferences)
+    .where(eq(creatorVisualPreferences.userId, userId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Owner-scoped CAS. Revision 0 means create; all later writes must match. */
+export async function writeCreatorVisualPreferenceIfRevision(
+  input: CreatorVisualPreferenceWrite
+): Promise<CreatorVisualPreference | null> {
+  const db = await getDb();
+  if (!db) {
+    return localCreatorVisualPreferenceLock.run("all", async () => {
+      const beforeRows = structuredClone(memoryState.creatorVisualPreferences);
+      const beforeNextId = memoryState.nextIds.creatorVisualPreference;
+      const existing = memoryState.creatorVisualPreferences.find(
+        row => row.userId === input.userId
+      );
+      if (input.expectedRevision === 0) {
+        if (existing) return null;
+        const current = now();
+        memoryState.creatorVisualPreferences.push({
+          id: nextMemoryId("creatorVisualPreference"),
+          userId: input.userId,
+          seasonalProfile: input.seasonalProfile ?? "unknown",
+          timeZone: input.timeZone ?? null,
+          source: input.source ?? "cleared",
+          revision: 1,
+          createdAt: current,
+          updatedAt: current,
+        });
+      } else {
+        if (!existing || existing.revision !== input.expectedRevision) {
+          return null;
+        }
+        existing.seasonalProfile = input.seasonalProfile ?? "unknown";
+        existing.timeZone = input.timeZone ?? null;
+        existing.source = input.source ?? "cleared";
+        existing.revision = input.expectedRevision + 1;
+        existing.updatedAt = now();
+      }
+      await persistMemoryState(() => {
+        memoryState.creatorVisualPreferences = beforeRows;
+        memoryState.nextIds.creatorVisualPreference = beforeNextId;
+      });
+      return (
+        memoryState.creatorVisualPreferences.find(
+          row => row.userId === input.userId
+        ) ?? null
+      );
+    });
+  }
+
+  if (input.expectedRevision === 0) {
+    try {
+      await db.insert(creatorVisualPreferences).values({
+        userId: input.userId,
+        seasonalProfile: input.seasonalProfile ?? "unknown",
+        timeZone: input.timeZone ?? null,
+        source: input.source ?? "cleared",
+        revision: 1,
+      });
+    } catch (error) {
+      const mysqlError = error as { code?: string; errno?: number };
+      if (mysqlError.code === "ER_DUP_ENTRY" || mysqlError.errno === 1062) {
+        return null;
+      }
+      throw error;
+    }
+    return getCreatorVisualPreference(input.userId);
+  }
+
+  const result = await db
+    .update(creatorVisualPreferences)
+    .set({
+      seasonalProfile: input.seasonalProfile ?? "unknown",
+      timeZone: input.timeZone ?? null,
+      source: input.source ?? "cleared",
+      revision: input.expectedRevision + 1,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(creatorVisualPreferences.userId, input.userId),
+        eq(creatorVisualPreferences.revision, input.expectedRevision)
+      )
+    );
+  if (result[0].affectedRows !== 1) return null;
+  return getCreatorVisualPreference(input.userId);
+}
+
+export function clearCreatorVisualPreferenceIfRevision(input: {
+  userId: number;
+  expectedRevision: number;
+}): Promise<CreatorVisualPreference | null> {
+  return writeCreatorVisualPreferenceIfRevision({
+    ...input,
+    seasonalProfile: "unknown",
+    timeZone: null,
+    source: "cleared",
+  });
+}
+
+/** Account lifecycle hook. Story deletion intentionally does not call this. */
+export async function deleteCreatorVisualPreferenceForUser(
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await localCreatorVisualPreferenceLock.run("all", async () => {
+      const beforeRows = structuredClone(memoryState.creatorVisualPreferences);
+      memoryState.creatorVisualPreferences =
+        memoryState.creatorVisualPreferences.filter(row => row.userId !== userId);
+      await persistMemoryState(() => {
+        memoryState.creatorVisualPreferences = beforeRows;
+      });
+    });
+    return;
+  }
+  await db
+    .delete(creatorVisualPreferences)
+    .where(eq(creatorVisualPreferences.userId, userId));
+}
+
+/** Authenticated account-merge hook; an existing target preference wins. */
+export async function reassignCreatorVisualPreference(input: {
+  sourceUserId: number;
+  targetUserId: number;
+}): Promise<CreatorVisualPreference | null> {
+  if (input.sourceUserId === input.targetUserId) {
+    return getCreatorVisualPreference(input.targetUserId);
+  }
+  const db = await getDb();
+  if (!db) {
+    return localCreatorVisualPreferenceLock.run("all", async () => {
+      const beforeRows = structuredClone(memoryState.creatorVisualPreferences);
+      const source = memoryState.creatorVisualPreferences.find(
+        row => row.userId === input.sourceUserId
+      );
+      const target = memoryState.creatorVisualPreferences.find(
+        row => row.userId === input.targetUserId
+      );
+      if (source && target) {
+        memoryState.creatorVisualPreferences =
+          memoryState.creatorVisualPreferences.filter(row => row !== source);
+      } else if (source) {
+        source.userId = input.targetUserId;
+        source.updatedAt = now();
+      }
+      await persistMemoryState(() => {
+        memoryState.creatorVisualPreferences = beforeRows;
+      });
+      return (
+        memoryState.creatorVisualPreferences.find(
+          row => row.userId === input.targetUserId
+        ) ?? null
+      );
+    });
+  }
+
+  await db.transaction(async tx => {
+    const [target] = await tx
+      .select({ id: creatorVisualPreferences.id })
+      .from(creatorVisualPreferences)
+      .where(eq(creatorVisualPreferences.userId, input.targetUserId))
+      .limit(1);
+    if (target) {
+      await tx
+        .delete(creatorVisualPreferences)
+        .where(eq(creatorVisualPreferences.userId, input.sourceUserId));
+    } else {
+      await tx
+        .update(creatorVisualPreferences)
+        .set({ userId: input.targetUserId, updatedAt: new Date() })
+        .where(eq(creatorVisualPreferences.userId, input.sourceUserId));
+    }
+  });
+  return getCreatorVisualPreference(input.targetUserId);
 }
 
 // ─── Emotion Daily Letters ─────────────────────────────────────────────
@@ -7757,6 +7984,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.analysisResults = [];
   memoryState.emotionAnalysisProfiles = [];
   memoryState.emotionDailyLetters = [];
+  memoryState.creatorVisualPreferences = [];
   memoryState.stories = [];
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
@@ -7784,6 +8012,7 @@ export function resetMemoryStateForTesting(): void {
     analysisResult: 1,
     emotionAnalysisProfile: 1,
     emotionDailyLetter: 1,
+    creatorVisualPreference: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -7799,6 +8028,7 @@ export function resetMemoryStateForTesting(): void {
     inviteCode: 1,
   };
   defaultProjectLocks.clear();
+  localCreatorVisualPreferenceLock.clear();
   timelineFrameExtractionMemoryLock.clear();
   memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
   memoryInviteClaimQueue = Promise.resolve();
