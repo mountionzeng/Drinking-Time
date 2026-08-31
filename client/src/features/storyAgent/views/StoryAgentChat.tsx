@@ -65,6 +65,8 @@ import AssetSwapProposalCard from "./AssetSwapProposalCard";
 import { useAssetSwapProposal } from "../useAssetSwapProposal";
 import { chatImageRefsStore } from "../chatImageRefsStore";
 import { useChatImageRemix } from "../useChatImageRemix";
+import { routeSelectionSubmission } from "../selectionSubmissionRouter";
+import { selectionReadiness } from "@shared/selectionContext";
 import EditingTransitionCandidateCard from "../components/EditingTransitionCandidateCard";
 import {
   loadStoryConversationDraft,
@@ -257,6 +259,12 @@ export default function StoryAgentChat({
     Record<string, StoryboardImageRerenderResult>
   >({});
   const creationEditor = useOptionalCreationEditor();
+  const activeSelectionReadiness = activeSelection
+    ? selectionReadiness(
+        activeSelection,
+        creationEditor?.activeStoryId ?? remoteStoryId ?? null
+      )
+    : undefined;
   const remix = useChatImageRemix(
     creationEditor?.activeStoryId ?? remoteStoryId ?? null
   );
@@ -703,9 +711,19 @@ export default function StoryAgentChat({
       return;
     }
 
-    // 篮子里有图时，这句话是在说「怎么把这几张改成一张新的」，不是聊天。
-    // 用户明确点选过图片，比一个自动跟随的选区更能代表他此刻要做什么，所以排在前面。
-    if (pendingMedia.length === 0 && remix.refs.length > 0) {
+    const selectionRoute = routeSelectionSubmission({
+      selection: activeSelection,
+      activeStoryId: creationEditor?.activeStoryId ?? remoteStoryId ?? null,
+      pendingMediaCount: pendingMedia.length,
+    });
+    if (selectionRoute.kind === "blocked") {
+      toast.error(selectionRoute.reason);
+      if (selectionRoute.clearSelection) clearSelection();
+      return;
+    }
+
+    // 多图重组只在没有明确活动选区时接管；明确选区永远是唯一修改范围。
+    if (selectionRoute.kind === "ordinary-chat" && remix.refs.length > 0) {
       if (remix.arm(text)) {
         setInput("");
         resizeAndFocusInput();
@@ -713,25 +731,34 @@ export default function StoryAgentChat({
       return;
     }
 
-    if (pendingMedia.length === 0 && activeSelection) {
+    if (
+      selectionRoute.kind === "text-edit" ||
+      selectionRoute.kind === "image-edit" ||
+      selectionRoute.kind === "image-region-edit" ||
+      selectionRoute.kind === "editing-command"
+    ) {
+      const routedSelection = selectionRoute.selection;
       const localImageIntent = parseChatImageLocalEditInstruction(text);
       if (
+        selectionRoute.kind === "image-edit" &&
         localImageIntent &&
-        activeSelection.imageId != null &&
+        routedSelection.imageId != null &&
         creationEditor
       ) {
-        const selectedImageId = activeSelection.imageId;
-        const shot =
-          (activeSelection.stableShotId
-            ? creationEditor.shots.find(
-                item =>
-                  (item.stableShotId ?? item.shotIdentity) ===
-                  activeSelection.stableShotId
-              )
-            : null) ??
-          creationEditor.shots.find(item => item.shotNo === activeSelection.shotNo);
+        const selectedImageId = routedSelection.imageId;
+        const shot = routedSelection.stableShotId
+          ? creationEditor.shots.find(
+              item =>
+                (item.stableShotId ?? item.shotIdentity) ===
+                routedSelection.stableShotId
+            )
+          : creationEditor.shots.find(
+              item => item.shotNo === routedSelection.shotNo
+            );
         const stableShotId =
-          shot?.stableShotId ?? shot?.shotIdentity ?? activeSelection.stableShotId;
+          shot?.stableShotId ??
+          shot?.shotIdentity ??
+          routedSelection.stableShotId;
         if (!shot || !stableShotId) {
           toast.error("这张图片还没有可编辑的镜头位置");
           return;
@@ -739,14 +766,17 @@ export default function StoryAgentChat({
         const currentTransform = {
           ...DEFAULT_TIMELINE_TRANSFORM,
           ...(shot.timelineItem?.transform ?? {}),
-          ...(shot.timelineItem?.imageTransforms?.[String(selectedImageId)] ?? {}),
+          ...(shot.timelineItem?.imageTransforms?.[String(selectedImageId)] ??
+            {}),
         };
         const rotationDeg = localImageIntent.rotate180
           ? rotateTimelineImage180(currentTransform.rotationDeg ?? 0)
           : (currentTransform.rotationDeg ?? 0);
         setInput("");
         setMediaProgress(
-          localImageIntent.extractText ? "正在按当前方向提取文字…" : "正在倒转图片…"
+          localImageIntent.extractText
+            ? "正在按当前方向提取文字…"
+            : "正在倒转图片…"
         );
         try {
           if (localImageIntent.rotate180) {
@@ -755,8 +785,9 @@ export default function StoryAgentChat({
               imageId: selectedImageId,
               transform: { ...currentTransform, rotationDeg },
               textOverlay:
-                shot.timelineItem?.imageTextOverlays?.[String(selectedImageId)] ??
-                null,
+                shot.timelineItem?.imageTextOverlays?.[
+                  String(selectedImageId)
+                ] ?? null,
             });
           }
           const extracted = localImageIntent.extractText
@@ -787,7 +818,7 @@ export default function StoryAgentChat({
       }
       // 「换成素材里的那个人物」不是文字润色，是要绑资产 + 重画这一镜。
       // 必须排在 sendSelectionEdit 前面，否则会被当成普通选区改写送给 LLM。
-      if (assetSwap.arm(text)) {
+      if (selectionRoute.kind === "image-edit" && assetSwap.arm(text)) {
         setInput("");
         resizeAndFocusInput();
         return;
@@ -798,7 +829,7 @@ export default function StoryAgentChat({
       return;
     }
 
-    if (pendingMedia.length === 0) {
+    if (selectionRoute.kind === "ordinary-chat") {
       setInput("");
       await sendMessage(text);
       resizeAndFocusInput();
@@ -1154,7 +1185,11 @@ export default function StoryAgentChat({
           </div>
           {activeSelection ? (
             <div className="mt-2">
-              <SelectionContextCard selection={activeSelection} compact />
+              <SelectionContextCard
+                selection={activeSelection}
+                compact
+                readiness={activeSelectionReadiness}
+              />
               <p className="mt-1.5 text-[10px] text-muted-foreground">
                 下一条消息会带着这个选区交给聊聊。
               </p>
@@ -1496,13 +1531,18 @@ export default function StoryAgentChat({
               open={closedIntentProposalId !== pendingIntentDraft.proposal?.id}
               current={currentNarrativeIntent}
               proposed={proposedNarrativeIntent}
-              evidence={pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence}
+              evidence={
+                pendingIntentDraft.proposal?.evidence ??
+                pendingIntentDraft.evidence
+              }
               hasPublishingVersion={hasPublishingVersion}
               busy={
                 pendingIntentCommitProposalId ===
                 pendingIntentDraft.proposal?.id
               }
-              acceptLabel={hasPublishingVersion ? "到发布工作区确认新版本" : undefined}
+              acceptLabel={
+                hasPublishingVersion ? "到发布工作区确认新版本" : undefined
+              }
               onOpenChange={open => {
                 if (!open && pendingIntentDraft.proposal?.id) {
                   setClosedIntentProposalId(pendingIntentDraft.proposal.id);
@@ -1622,11 +1662,14 @@ export default function StoryAgentChat({
             <SelectionContextCard
               selection={activeSelection}
               onClear={clearSelection}
+              readiness={activeSelectionReadiness}
             />
           </div>
         )}
 
-        {interactionMode === "story" ? <ChatImageRemixTray remix={remix} /> : null}
+        {interactionMode === "story" ? (
+          <ChatImageRemixTray remix={remix} />
+        ) : null}
         {interactionMode === "story" && imageTextResult ? (
           <article
             className="mt-1.5 rounded-md border border-border bg-background px-2.5 py-2"
@@ -1658,7 +1701,9 @@ export default function StoryAgentChat({
                   value={imageTextResult.text}
                   onChange={event =>
                     setImageTextResult(current =>
-                      current ? { ...current, text: event.target.value } : current
+                      current
+                        ? { ...current, text: event.target.value }
+                        : current
                     )
                   }
                   rows={5}
@@ -1678,7 +1723,9 @@ export default function StoryAgentChat({
               </>
             ) : (
               <p className="mt-1.5 text-[10px] text-muted-foreground">
-                {imageTextResult.rotated ? "构图变换已保存。" : "没有识别到文字。"}
+                {imageTextResult.rotated
+                  ? "构图变换已保存。"
+                  : "没有识别到文字。"}
               </p>
             )}
           </article>

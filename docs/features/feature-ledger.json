@@ -106,12 +106,41 @@
     {
       "id": "selection-scoped-chat-editing",
       "name": "聊天选区定向修改",
-      "status": "planned",
+      "status": "working",
       "userValue": "选中文字、图片或图片局部后，只用一句自然语言修改该选区，选区之外保持不变。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/storyAgent/views/StoryCardsBoard.tsx",
+        "client/src/features/analysis/views/ShotTable.tsx",
+        "client/src/features/creationEditor/views/ShotPreview.tsx"
+      ],
+      "owners": [
+        "shared/selectionContext.ts",
+        "client/src/features/storyAgent/hooks/useSelectionCapture.ts",
+        "client/src/features/storyAgent/selectionLifecycle.ts",
+        "client/src/features/storyAgent/selectionSubmissionRouter.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/SelectionContextCard.tsx",
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
+        "client/src/features/creationEditor/previewObjectMaskEditing.ts",
+        "client/src/features/creationEditor/views/ShotPreview.tsx",
+        "server/archive/selectionEdit.ts",
+        "server/services/selectionTextSource.ts",
+        "server/services/storyShotFieldPatch.ts",
+        "server/routers/storyAgent.ts"
+      ],
       "evidence": [
-        "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md"
+        "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
+        "client/src/features/storyAgent/selectionScopedChatEditing.integration.test.ts",
+        "client/src/features/storyAgent/selectionSubmissionRouter.test.ts",
+        "client/src/features/storyAgent/selectionLifecycle.test.ts",
+        "client/src/features/creationEditor/previewObjectMaskEditing.test.ts",
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
+        "server/archive/selectionEdit.test.ts",
+        "server/services/selectionTextSource.test.ts",
+        "server/routers.storyAgentSelectionEdit.test.ts",
+        "server/routers.creationAgentMaskEditing.test.ts",
+        "server/services/imageMaskComposite.test.ts"
       ],
       "invariants": [
         "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
@@ -126,14 +155,20 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "现有文字、整图和图片局部选区已经分别存在，但尚未统一生命周期、范围展示、漂移校验和提交分流。",
-        "当前需求已确认，尚未形成实现计划、权威代码或可执行验收证据。"
+        "浏览器验收会话中没有可用故事数据，因此未在真实内容上手动走完划词、整图和蒙版三条 UI 链；自动化已覆盖路由、身份、漂移、权限与范围保护。",
+        "尚未执行真实 302 整图重渲或遮罩编辑烟测；两条路径都会产生费用，当前只验证到报价前失败关闭、既有签名报价/幂等收据/候选采用测试与蒙版外像素合成测试。",
+        "v1 不支持多选区、跨对象批量修改或可编辑历史聊天消息。"
       ],
       "history": [
         {
           "date": "2026-08-31",
           "kind": "decision",
           "summary": "确认『选区即作用范围』：文字只改所选文字，整图只改目标图片，图片局部只改确认区域；无选区不猜测，目标漂移后失败关闭，并保留各自既有安全与费用流程。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feat",
+          "summary": "统一文字、整图和确认语义蒙版的活动选区身份、范围卡片和提交路由。文字由服务端读取 Story 权威内容并机械保留选区外前后缀后 CAS 写回；整图严格绑定 stableShotId 与 imageId，不再回退其他镜头或当前图；局部聊天只回填仍匹配的 Preview 蒙版会话，报价、付费生成、候选审阅和显式采用仍由原流程负责。"
         }
       ]
     },

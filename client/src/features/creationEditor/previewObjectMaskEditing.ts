@@ -1,4 +1,5 @@
 import type { ImageClipEditorTarget } from "./imageClipEditorModel";
+import type { SelectionContext } from "@shared/selectionContext";
 
 export type PreviewObjectMask = {
   maskKey: string;
@@ -42,12 +43,74 @@ export const INITIAL_PREVIEW_OBJECT_MASK_STATE: PreviewObjectMaskState = {
   error: null,
 };
 
+export function confirmedPreviewMaskSelection(input: {
+  storyId: number;
+  target: ImageClipEditorTarget;
+  mask: PreviewObjectMask;
+}): SelectionContext {
+  const { storyId, target, mask } = input;
+  const timelineFrame = Boolean(target.clipId);
+  return {
+    sourceType: "storyboard-image",
+    sourceId: timelineFrame
+      ? `timeline-frame:${target.clipId}`
+      : String(target.imageId),
+    selectedText: `${target.label} · 已确认局部区域`,
+    fullText: `${target.label}，只修改已确认的语义蒙版区域`,
+    storyId,
+    stableShotId: target.stableShotId,
+    shotNo: target.shotNo,
+    cueCode: target.cueCode ?? null,
+    imageId: target.imageId,
+    objectVersion: timelineFrame
+      ? `timeline-clip:${target.clipId}`
+      : `image:${target.imageId}`,
+    confirmedImageRegion: {
+      maskKey: mask.maskKey,
+      imageId: target.imageId,
+      width: mask.width,
+      height: mask.height,
+      previewMaskUrl: mask.previewMaskUrl,
+      confirmed: true,
+    },
+    materialStatus: "current-image",
+  };
+}
+
+export function previewMaskSelectionMatchesSession(input: {
+  selection: SelectionContext;
+  storyId: number | null | undefined;
+  state: PreviewObjectMaskState;
+}): boolean {
+  const { selection, storyId, state } = input;
+  return Boolean(
+    storyId != null &&
+      selection.storyId === storyId &&
+      state.phase === "mask-ready" &&
+      state.maskConfirmed &&
+      state.target &&
+      state.mask &&
+      selection.sourceType === "storyboard-image" &&
+      selection.imageId === state.target.imageId &&
+      selection.stableShotId === state.target.stableShotId &&
+      selection.confirmedImageRegion?.confirmed === true &&
+      selection.confirmedImageRegion.imageId === state.target.imageId &&
+      selection.confirmedImageRegion.maskKey === state.mask.maskKey &&
+      selection.objectVersion ===
+        (state.target.clipId
+          ? `timeline-clip:${state.target.clipId}`
+          : `image:${state.target.imageId}`)
+  );
+}
+
 /** Monotonic fence for async work whose result must not survive a session reset. */
 export function createPreviewMaskRequestFence() {
   let current = 0;
   return {
     begin: () => ++current,
-    invalidate: () => { current += 1; },
+    invalidate: () => {
+      current += 1;
+    },
     isCurrent: (token: number) => token === current,
   };
 }
@@ -107,7 +170,11 @@ type Action =
   | { type: "mask"; requestId: number; mask: PreviewObjectMask }
   | { type: "confirm-mask" }
   | { type: "generate"; requestId: number }
-  | { type: "candidate"; requestId: number; candidate: PreviewObjectMaskCandidate }
+  | {
+      type: "candidate";
+      requestId: number;
+      candidate: PreviewObjectMaskCandidate;
+    }
   | {
       type: "restore-candidate";
       target: ImageClipEditorTarget;
@@ -130,7 +197,8 @@ export function previewObjectMaskReducer(
     "requestId" in action &&
     action.requestId !== undefined &&
     action.requestId !== state.requestId
-  ) return state;
+  )
+    return state;
   switch (action.type) {
     case "extracting":
       return {
@@ -160,11 +228,24 @@ export function previewObjectMaskReducer(
     case "confirm-mask":
       return { ...state, maskConfirmed: true, error: null };
     case "generate":
-      return { ...state, phase: "generating", requestId: action.requestId, error: null };
+      return {
+        ...state,
+        phase: "generating",
+        requestId: action.requestId,
+        error: null,
+      };
     case "candidate":
-      return { ...state, phase: "candidate-ready", candidate: action.candidate, error: null };
+      return {
+        ...state,
+        phase: "candidate-ready",
+        candidate: action.candidate,
+        error: null,
+      };
     case "restore-candidate":
-      if (!state.target || previewMaskTargetChanged(state.target, action.target)) {
+      if (
+        !state.target ||
+        previewMaskTargetChanged(state.target, action.target)
+      ) {
         return state;
       }
       return {
@@ -176,7 +257,12 @@ export function previewObjectMaskReducer(
     case "uncertain":
       return { ...state, phase: "uncertain", error: action.message };
     case "adopt":
-      return { ...state, phase: "adopting", requestId: action.requestId, error: null };
+      return {
+        ...state,
+        phase: "adopting",
+        requestId: action.requestId,
+        error: null,
+      };
     case "error":
       return {
         ...state,

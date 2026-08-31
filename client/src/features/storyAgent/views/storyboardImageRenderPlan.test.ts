@@ -6,6 +6,7 @@ import {
   buildSheSelf02ImageEditInstruction,
   buildStoryboardImageRenderPlan,
   isSheSelf02ImageEditTemplateEnabled,
+  resolveStoryboardRerenderShotIndex,
   storyboardImageReferenceLabel,
   storyboardImageRenderBlockReason,
   storyboardExactEditConstraint,
@@ -32,6 +33,26 @@ const references = {
 };
 
 describe("storyboard image render plan", () => {
+  it("never falls back from a stale stable shot identity to cue code or shot number", () => {
+    const shots = [
+      { stableShotId: "shot-current", cueCode: "0201", shotNo: 2 },
+    ];
+    expect(
+      resolveStoryboardRerenderShotIndex(shots, {
+        stableShotId: "shot-stale",
+        cueCode: "0201",
+        shotNo: 2,
+      })
+    ).toBe(-1);
+    expect(
+      resolveStoryboardRerenderShotIndex(shots, {
+        stableShotId: null,
+        cueCode: "0201",
+        shotNo: 99,
+      })
+    ).toBe(0);
+  });
+
   it("carries SheSelf02 0201 continuity without dictating the action", () => {
     expect(isSheSelf02ImageEditTemplateEnabled("SheSelf02", "0201")).toBe(true);
     expect(isSheSelf02ImageEditTemplateEnabled("SheSelf", "0201")).toBe(false);

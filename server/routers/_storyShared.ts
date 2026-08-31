@@ -340,10 +340,7 @@ export async function writeCharacterAnchor(
   return {
     status: "ok" as const,
     publicUrl,
-    story: await composeStoryWorkspace(
-      saved,
-      userId
-    ),
+    story: await composeStoryWorkspace(saved, userId),
   };
 }
 
@@ -551,7 +548,19 @@ export const selectionContextSchema = z.object({
   selectedText: z.string().trim().min(1),
   fullText: z.string(),
   objectVersion: z.string().nullable().optional(),
+  contentFingerprint: z.string().trim().min(1).nullable().optional(),
   selection: selectionRegionSchema.nullable().optional(),
+  confirmedImageRegion: z
+    .object({
+      maskKey: z.string().trim().min(1).max(512),
+      imageId: z.number().int().positive(),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      confirmed: z.literal(true),
+      previewMaskUrl: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   materialStatus: selectionMaterialStatusSchema.optional(),
   storyId: z.number().int().positive().nullable().optional(),
   stableShotId: z.string().nullable().optional(),

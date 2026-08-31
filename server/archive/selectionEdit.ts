@@ -15,7 +15,11 @@ export async function handleSelectionEdit(params: {
   selectionContext?: SelectionContext;
   projectId?: number;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
-}): Promise<{ isApprovalOnly: boolean; modifiedFullText: string; reply: string }> {
+}): Promise<{
+  isApprovalOnly: boolean;
+  modifiedFullText: string;
+  reply: string;
+}> {
   const isTextSelection =
     !params.selectionContext?.selection ||
     params.selectionContext.selection.kind === "text";
@@ -42,7 +46,8 @@ export async function handleSelectionEdit(params: {
 1. 仅修改选中片段，上下文保持一致
 2. 遵循用户的编辑指令
 3. 如果指令是确认/赞同性质的（如"好的"、"不错"），不做修改，isApprovalOnly 设为 true
-4. 返回 JSON 格式：{"isApprovalOnly":false,"modifiedFullText":"修改后的完整文本","reply":"简短说明做了什么改动"}`
+4. 只返回选中片段的替换文字，不要返回整篇文本
+5. 返回 JSON 格式：{"isApprovalOnly":false,"replacementText":"选中片段的替换文字","reply":"简短说明做了什么改动"}`
       : `你是聊聊，一位会听用户说话、帮用户把故事做成画面和短片的创作伙伴。
 用户现在不是在要求你改一段文字，而是在动态分镜/故事画面里框选了图片区域或视频时间段。
 
@@ -72,7 +77,7 @@ ${selectionSummary ? `选区上下文：\n---\n${selectionSummary}\n---\n\n` : "
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
-    ...(params.history ?? []).map((h) => ({
+    ...(params.history ?? []).map(h => ({
       role: h.role as "user" | "assistant",
       content: h.content,
     })),
@@ -80,7 +85,38 @@ ${selectionSummary ? `选区上下文：\n---\n${selectionSummary}\n---\n\n` : "
   ];
 
   const result = await invokeAgent(messages, 2048);
-  const parsed = parseJsonLoose<{ isApprovalOnly: boolean; modifiedFullText: string; reply: string }>(result.text);
+  const parsed = parseJsonLoose<{
+    isApprovalOnly: boolean;
+    modifiedFullText?: string;
+    replacementText?: string;
+    reply: string;
+  }>(result.text);
+  if (parsed && isTextSelection && !isPromptRewrite) {
+    const range = params.selectionContext?.selection;
+    if (
+      !range ||
+      range.kind !== "text" ||
+      range.start < 0 ||
+      range.end <= range.start ||
+      range.end > params.fullText.length ||
+      params.fullText.slice(range.start, range.end) !== params.selectedText ||
+      typeof parsed.replacementText !== "string"
+    ) {
+      return {
+        isApprovalOnly: true,
+        modifiedFullText: params.fullText,
+        reply: "选区已经变化，请重新选择后再试。",
+      };
+    }
+    return {
+      isApprovalOnly: parsed.isApprovalOnly === true,
+      modifiedFullText:
+        parsed.isApprovalOnly === true
+          ? params.fullText
+          : `${params.fullText.slice(0, range.start)}${parsed.replacementText}${params.fullText.slice(range.end)}`,
+      reply: parsed.reply || "已只修改选中的文字。",
+    };
+  }
   if (parsed && typeof parsed.modifiedFullText === "string") {
     if (!canRewrite) {
       return {
@@ -89,7 +125,11 @@ ${selectionSummary ? `选区上下文：\n---\n${selectionSummary}\n---\n\n` : "
         reply: parsed.reply || "我收到这个选区了，可以基于它继续判断下一步。",
       };
     }
-    return parsed;
+    return {
+      isApprovalOnly: parsed.isApprovalOnly === true,
+      modifiedFullText: parsed.modifiedFullText,
+      reply: parsed.reply,
+    };
   }
   // 解析失败时回退：直接返回原文
   return {
@@ -107,20 +147,22 @@ function describeSelectionContext(selection?: SelectionContext): string {
     `来源：${selection.sourceType}:${selection.sourceId}`,
     selection.storyId != null ? `故事 ID：${selection.storyId}` : "",
     selection.stableShotId ? `稳定镜头 ID：${selection.stableShotId}` : "",
-    selection.shotNo != null
-      ? `镜号：${displayShotCode(selection)}`
-      : "",
+    selection.shotNo != null ? `镜号：${displayShotCode(selection)}` : "",
     selection.materialStatus ? `素材状态：${selection.materialStatus}` : "",
     selection.objectVersion ? `对象版本：${selection.objectVersion}` : "",
     selection.imageId != null ? `图片 ID：${selection.imageId}` : "",
-    selection.videoTakeId != null ? `视频 Take ID：${selection.videoTakeId}` : "",
+    selection.videoTakeId != null
+      ? `视频 Take ID：${selection.videoTakeId}`
+      : "",
     selection.rangeId != null ? `时间段 ID：${selection.rangeId}` : "",
     selection.selection ? `选区：${describeRegion(selection.selection)}` : "",
   ];
   return lines.filter(Boolean).join("\n");
 }
 
-function describeRegion(region: NonNullable<SelectionContext["selection"]>): string {
+function describeRegion(
+  region: NonNullable<SelectionContext["selection"]>
+): string {
   if (region.kind === "text") {
     return `文字 ${region.start}-${region.end}`;
   }

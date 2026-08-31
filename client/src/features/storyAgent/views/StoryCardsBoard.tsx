@@ -157,6 +157,7 @@ function CardItem({
   onRemove,
   onCommitContent,
   onDeleteGeneratedImage,
+  storyId,
 }: {
   card: StoryCard;
   index: number;
@@ -167,6 +168,7 @@ function CardItem({
   onRemove: () => void;
   onCommitContent: (content: string) => void;
   onDeleteGeneratedImage: (image: GeneratedImageItem) => void;
+  storyId: number | null;
 }) {
   const controls = useDragControls();
   const tint = emotionAccent(card.emotion);
@@ -237,6 +239,7 @@ function CardItem({
             </div>
             <p
               data-selection-source={`card:${card.id}`}
+              data-story-id={storyId ?? undefined}
               contentEditable
               suppressContentEditableWarning
               role="textbox"
@@ -684,6 +687,7 @@ export default function StoryCardsBoard() {
                           updateCardContent(card.id, text)
                         }
                         onDeleteGeneratedImage={handleDeleteGeneratedImage}
+                        storyId={activeStoryId}
                       />
                     ))}
                   </AnimatePresence>

@@ -1,7 +1,7 @@
 ---
 title: "feat: Add selection-scoped chat editing"
 type: feat
-status: active
+status: completed
 date: 2026-08-31
 origin: docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md
 deepened: 2026-08-31

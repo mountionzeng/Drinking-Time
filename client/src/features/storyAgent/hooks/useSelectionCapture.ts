@@ -1,5 +1,6 @@
-import { useEffect, useRef, useCallback } from 'react';
-import type { SelectionState } from '../types';
+import { useEffect, useRef, useCallback } from "react";
+import type { SelectionState } from "../types";
+import { selectionContentFingerprint } from "@shared/selectionContext";
 
 function textOffset(root: HTMLElement, node: Node, offset: number): number {
   const range = document.createRange();
@@ -22,7 +23,7 @@ function numberAttribute(element: HTMLElement, name: string): number | null {
  * Debounced at ~200ms to avoid firing on every cursor move.
  */
 export function useSelectionCapture(
-  onSelection: (state: SelectionState | null) => void,
+  onSelection: (state: SelectionState | null) => void
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSelectionRef = useRef(onSelection);
@@ -34,8 +35,8 @@ export function useSelectionCapture(
       return;
     }
 
-    const selectedText = sel.toString().trim();
-    if (!selectedText) {
+    const selectedText = sel.toString();
+    if (!selectedText.trim()) {
       return;
     }
 
@@ -46,7 +47,7 @@ export function useSelectionCapture(
     while (node) {
       if (
         node instanceof HTMLElement &&
-        node.hasAttribute('data-selection-source')
+        node.hasAttribute("data-selection-source")
       ) {
         sourceEl = node;
         break;
@@ -66,16 +67,16 @@ export function useSelectionCapture(
       return;
     }
 
-    const attr = sourceEl.getAttribute('data-selection-source')!;
-    const colonIdx = attr.indexOf(':');
+    const attr = sourceEl.getAttribute("data-selection-source")!;
+    const colonIdx = attr.indexOf(":");
     if (colonIdx === -1) {
       onSelectionRef.current(null);
       return;
     }
 
-    const sourceType = attr.slice(0, colonIdx) as SelectionState['sourceType'];
+    const sourceType = attr.slice(0, colonIdx) as SelectionState["sourceType"];
     const sourceId = attr.slice(colonIdx + 1);
-    const fullText = sourceEl.innerText || '';
+    const fullText = sourceEl.innerText || "";
     const anchorOffset = textOffset(sourceEl, sel.anchorNode, sel.anchorOffset);
     const focusOffset = sel.focusNode
       ? textOffset(sourceEl, sel.focusNode, sel.focusOffset)
@@ -87,15 +88,16 @@ export function useSelectionCapture(
       sourceType,
       sourceId,
       selectedText,
-      fullText: fullText.trim(),
-      objectVersion: sourceEl.getAttribute('data-selection-version'),
-      selection: { kind: 'text', start, end },
-      storyId: numberAttribute(sourceEl, 'data-story-id'),
-      stableShotId: sourceEl.getAttribute('data-stable-shot-id'),
-      shotNo: numberAttribute(sourceEl, 'data-shot-no'),
-      imageId: numberAttribute(sourceEl, 'data-image-id'),
-      videoTakeId: numberAttribute(sourceEl, 'data-video-take-id'),
-      rangeId: numberAttribute(sourceEl, 'data-range-id'),
+      fullText,
+      objectVersion: sourceEl.getAttribute("data-selection-version"),
+      contentFingerprint: selectionContentFingerprint(fullText),
+      selection: { kind: "text", start, end },
+      storyId: numberAttribute(sourceEl, "data-story-id"),
+      stableShotId: sourceEl.getAttribute("data-stable-shot-id"),
+      shotNo: numberAttribute(sourceEl, "data-shot-no"),
+      imageId: numberAttribute(sourceEl, "data-image-id"),
+      videoTakeId: numberAttribute(sourceEl, "data-video-take-id"),
+      rangeId: numberAttribute(sourceEl, "data-range-id"),
     });
   }, []);
 
@@ -105,9 +107,9 @@ export function useSelectionCapture(
       timerRef.current = setTimeout(resolve, 200);
     };
 
-    document.addEventListener('selectionchange', handler);
+    document.addEventListener("selectionchange", handler);
     return () => {
-      document.removeEventListener('selectionchange', handler);
+      document.removeEventListener("selectionchange", handler);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [resolve]);

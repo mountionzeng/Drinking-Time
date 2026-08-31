@@ -36,10 +36,6 @@ const routersDir = path.join(import.meta.dirname, "routers");
  */
 const projectIdIsLabelOnly = new Map<string, string>([
   [
-    "storyAgent.ts:selectionEdit",
-    "projectId 进了 params 类型但函数体从不引用（server/archive/selectionEdit.ts）",
-  ],
-  [
     "storyAgent.ts:classify",
     "写镜头前用 getStoryById(storyId, ctx.user.id) 校验归属，projectId 仅作列值",
   ],
@@ -87,9 +83,7 @@ async function routerSources() {
  * body, and the guard would report zero violations for the worst case there is
  * — an unauthenticated procedure taking a projectId.
  */
-function procedureBlocks(
-  content: string
-): Array<[string, string, string]> {
+function procedureBlocks(content: string): Array<[string, string, string]> {
   const marks: Array<[number, string, string]> = [];
   const pattern =
     /(\w+):\s*(protectedProcedure|adminProcedure|publicProcedure)\b/g;

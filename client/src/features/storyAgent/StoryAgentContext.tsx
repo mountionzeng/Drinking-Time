@@ -15,6 +15,16 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { selectionBelongsToStory } from "./selectionStoryScope";
+import { consumeSubmittedSelection } from "./selectionLifecycle";
+import {
+  commitSelectionReply as persistSelectionReply,
+  selectionQuoteFrom,
+} from "./selectionReplyCommit";
+import {
+  handoffConfirmedImageRegion,
+  useImageRegionEditHandoffRunner,
+  type ImageRegionEditHandoffRunner,
+} from "./imageRegionEditHandoff";
 // normalizeImageProvider / ImageProvider 的使用已随出图渠道助手搬到 ./storyAgentImageProvider。
 import { trpc } from "@/lib/trpc";
 import {
@@ -295,8 +305,14 @@ export function shouldTriggerIntentRecognition({
 }): boolean {
   if (pendingIntentDraft) return false;
   if (confirmedIntent?.status === "confirmed") {
-    const hasChangeAction = /(?:想|要|准备|请|帮我).{0,8}(?:公开|发布|发给|发到|改成|换成|转成|给.+看)|改成|换成|转成|公开发布|发给|发到/i.test(latestUserMessage);
-    const hasIntentTarget = /给自己|自己看|公开|陌生人|亲友|家人|朋友|招聘|客户|投资人|团队|发布|小红书|领英|linkedin|twitter|\bx\b|instagram|朋友圈|抖音|tiktok|视频号/i.test(latestUserMessage);
+    const hasChangeAction =
+      /(?:想|要|准备|请|帮我).{0,8}(?:公开|发布|发给|发到|改成|换成|转成|给.+看)|改成|换成|转成|公开发布|发给|发到/i.test(
+        latestUserMessage
+      );
+    const hasIntentTarget =
+      /给自己|自己看|公开|陌生人|亲友|家人|朋友|招聘|客户|投资人|团队|发布|小红书|领英|linkedin|twitter|\bx\b|instagram|朋友圈|抖音|tiktok|视频号/i.test(
+        latestUserMessage
+      );
     return hasChangeAction && hasIntentTarget;
   }
   const userMessageCount = messages.filter(
@@ -344,7 +360,8 @@ export function recognitionResultToIntentState({
   if (
     !scopeMatches ||
     pendingIntentDraft ||
-    (recognized.proposal?.id && rejectedProposalIds?.has(recognized.proposal.id))
+    (recognized.proposal?.id &&
+      rejectedProposalIds?.has(recognized.proposal.id))
   ) {
     return { confirmedIntent, pendingIntentDraft };
   }
@@ -366,10 +383,11 @@ export function recognitionProposalScopeMatches(
   current: RecognitionScope | null | undefined
 ): boolean {
   return Boolean(
-    expected && current &&
-    expected.storyId === current.storyId &&
-    expected.versionId === current.versionId &&
-    expected.intentRevision === current.intentRevision
+    expected &&
+      current &&
+      expected.storyId === current.storyId &&
+      expected.versionId === current.versionId &&
+      expected.intentRevision === current.intentRevision
   );
 }
 
@@ -383,11 +401,13 @@ export function publishingRecognitionScope(
   return {
     storyId,
     versionId: hasVersion
-      ? publishing.activeVersionId ?? version.versionId
+      ? (publishing.activeVersionId ?? version.versionId)
       : null,
     intentRevision: storyIntentScopeRevision(
       version.intentSnapshot ??
-      (hasVersion ? version.narrativeIntent : intent ?? version.narrativeIntent)
+        (hasVersion
+          ? version.narrativeIntent
+          : (intent ?? version.narrativeIntent))
     ),
   };
 }
@@ -532,6 +552,9 @@ interface StoryAgentContextValue {
   registerImageRerenderRunner: (
     runner: StoryboardImageRerenderRunner
   ) => () => void;
+  registerImageRegionEditRunner: (
+    runner: ImageRegionEditHandoffRunner
+  ) => () => void;
   confirmEditingTransitionCandidate: (messageId: string) => Promise<void>;
   rejectEditingTransitionCandidate: (messageId: string) => Promise<void>;
   /**
@@ -598,6 +621,7 @@ type StoryAgentActionKey =
   | "rejectSelectionCandidate"
   | "rerenderSelectionImage"
   | "registerImageRerenderRunner"
+  | "registerImageRegionEditRunner"
   | "confirmEditingTransitionCandidate"
   | "rejectEditingTransitionCandidate"
   | "proposeGapTransitionCard"
@@ -647,6 +671,7 @@ const storyAgentActionKeys = [
   "rejectSelectionCandidate",
   "rerenderSelectionImage",
   "registerImageRerenderRunner",
+  "registerImageRegionEditRunner",
   "confirmEditingTransitionCandidate",
   "rejectEditingTransitionCandidate",
   "proposeGapTransitionCard",
@@ -1217,7 +1242,9 @@ export function StoryAgentProvider({
     setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? "default");
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
-    const restoredPublishing = normalizePublishingDraftState(persisted.publishing);
+    const restoredPublishing = normalizePublishingDraftState(
+      persisted.publishing
+    );
     setPublishing(restoredPublishing);
     setPublishingBuffers(
       reconcilePublishingBuffersFromState(
@@ -1789,9 +1816,12 @@ export function StoryAgentProvider({
         );
         const scopeMatches = Boolean(
           recognitionProposalScopeMatches(sourceScope, returnedScope) &&
-          recognitionProposalScopeMatches(sourceScope, currentScope) &&
-          storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId) &&
-          sourceScope
+            recognitionProposalScopeMatches(sourceScope, currentScope) &&
+            storyScopeMatches(
+              requestStoryId,
+              storySpineStore.getState().activeStoryId
+            ) &&
+            sourceScope
         );
         const next = recognitionResultToIntentState({
           recognized: result as StoryIntent,
@@ -3391,6 +3421,7 @@ export function StoryAgentProvider({
   const imageRerenderRunnerRef = useRef<StoryboardImageRerenderRunner | null>(
     null
   );
+  const imageRegionEditHandoff = useImageRegionEditHandoffRunner();
 
   const registerImageRerenderRunner = useCallback(
     (runner: StoryboardImageRerenderRunner) => {
@@ -3403,6 +3434,8 @@ export function StoryAgentProvider({
     },
     []
   );
+
+  const registerImageRegionEditRunner = imageRegionEditHandoff.register;
 
   const rerenderSelectionImage = useCallback(
     async (
@@ -3431,6 +3464,7 @@ export function StoryAgentProvider({
   const sendSelectionEdit = useCallback(
     async (instruction: string) => {
       if (!activeSelection || isReplying) return;
+      const submittedSelection = activeSelection;
       if (!selectionBelongsToStory(activeSelection, activeStoryId)) {
         // 兜底：读取侧已经把跨故事选区读成空，能走到这里说明还有别的入口漏了清除。
         setActiveSelection(null);
@@ -3440,33 +3474,52 @@ export function StoryAgentProvider({
       const requestStoryId = activeStoryId;
 
       const { sourceType, sourceId, selectedText, fullText } = activeSelection;
-      const selectionQuote = {
-        sourceType,
-        sourceId,
-        selectedText,
-        objectVersion: activeSelection.objectVersion,
-        selection: activeSelection.selection,
-        storyId: activeSelection.storyId,
-        stableShotId: activeSelection.stableShotId,
-        shotNo: activeSelection.shotNo,
-        imageId: activeSelection.imageId,
-        videoTakeId: activeSelection.videoTakeId,
-        rangeId: activeSelection.rangeId,
-      };
-
       const userMsg: ChatMessage = {
         id: newId("msg"),
         role: "user",
         content: instruction,
         timestamp: Date.now(),
-        selectionQuote,
+        selectionQuote: selectionQuoteFrom(activeSelection),
       };
-      const nextMessages = [...messages, userMsg];
-      setMessages(nextMessages);
+      const nextMessages = [...messages, userMsg]; setMessages(nextMessages);
       setIsReplying(true);
       setReturningGreeting(null);
 
+      const commitSelectionReply = async (replyMsg: ChatMessage, persistWarning: string) =>
+        persistSelectionReply({
+        nextMessages, reply: replyMsg, selection: submittedSelection,
+        userMessage: userMsg, persistWarning, setMessages, setActiveSelection,
+        storyId: resolvePersistedStoryId(submittedSelection.storyId, activeStoryId, remoteStoryId),
+        appendTurn: appendConversationTurnMut.mutateAsync,
+        archive: messages => saveArchiveStory({
+          messages, cards, scripts, storyShots, characters, remoteStoryId,
+          title: storyTitle, logline: storyLogline, theme: storyTheme, arc: storyArc,
+        }),
+      });
+
       try {
+        const imageRegionHandoff = await handoffConfirmedImageRegion({
+          instruction,
+          selection: submittedSelection,
+          run: imageRegionEditHandoff.run,
+          scopeIsCurrent: () => storyScopeMatches(
+            requestStoryId, storySpineStore.getState().activeStoryId
+          ),
+          consumeStaleSelection: () => setActiveSelection(current =>
+            consumeSubmittedSelection(current, submittedSelection)
+          ),
+        });
+        if (imageRegionHandoff) {
+          if (imageRegionHandoff.status === "abandoned") return;
+          const replyMsg: ChatMessage = { id: newId("msg"), role: "assistant",
+            content: imageRegionHandoff.message, timestamp: Date.now() };
+          await commitSelectionReply(
+            replyMsg,
+            "[storyConversation] persist image-region handoff failed:"
+          );
+          return;
+        }
+
         // 在剪辑工作室里，镜头/图片选区先交给时间轴代理。它只在明确的
         // 剪辑意图下接管；普通文字润色仍继续走下面原有 selectionEdit。
         if (editingCommandRunner) {
@@ -3502,47 +3555,10 @@ export function StoryAgentProvider({
                 ? { ...outcome.transitionCandidate, status: "pending" }
                 : undefined,
             };
-            const finalMessages = [...nextMessages, replyMsg];
-            setMessages(finalMessages);
-            setActiveSelection(null);
-            const storyId = resolvePersistedStoryId(
-              activeSelection.storyId,
-              activeStoryId,
-              remoteStoryId
+            await commitSelectionReply(
+              replyMsg,
+              "[storyConversation] persist editing selection turn failed:"
             );
-            if (storyId != null) {
-              try {
-                await appendConversationTurnMut.mutateAsync({
-                  storyId,
-                  userMessage: {
-                    clientMessageId: userMsg.id,
-                    content: instruction,
-                    selection: activeSelection,
-                  },
-                  assistantMessage: {
-                    clientMessageId: replyMsg.id,
-                    content: replyMsg.content,
-                  },
-                });
-              } catch (error) {
-                console.warn(
-                  "[storyConversation] persist editing selection turn failed:",
-                  error
-                );
-              }
-            }
-            await saveArchiveStory({
-              messages: finalMessages,
-              cards,
-              scripts,
-              storyShots,
-              characters,
-              remoteStoryId,
-              title: storyTitle,
-              logline: storyLogline,
-              theme: storyTheme,
-              arc: storyArc,
-            });
             return;
           }
         }
@@ -3592,6 +3608,9 @@ export function StoryAgentProvider({
           )
         ) {
           return;
+        }
+        if (result.applied && storyId != null) {
+          await loadStory(storyId, { silent: true });
         }
 
         let promptCandidate: ChatMessage["promptCandidate"];
@@ -3661,49 +3680,15 @@ export function StoryAgentProvider({
                 }
               : undefined,
         };
-        const finalMessages = [...nextMessages, replyMsg];
-        setMessages(finalMessages);
-        setActiveSelection(null);
-
-        if (storyId != null) {
-          try {
-            await appendConversationTurnMut.mutateAsync({
-              storyId,
-              userMessage: {
-                clientMessageId: userMsg.id,
-                content: instruction,
-                selection: activeSelection,
-              },
-              assistantMessage: {
-                clientMessageId: replyMsg.id,
-                content: replyMsg.content,
-                candidateRevisionId:
-                  replyMsg.promptCandidate?.revisionId ?? null,
-              },
-            });
-          } catch (error) {
-            console.warn(
-              "[storyConversation] persist selection turn failed:",
-              error
-            );
-          }
-        }
-
-        await saveArchiveStory({
-          messages: finalMessages,
-          cards,
-          scripts,
-          storyShots,
-          characters,
-          remoteStoryId,
-          title: storyTitle,
-          logline: storyLogline,
-          theme: storyTheme,
-          arc: storyArc,
-        });
+        await commitSelectionReply(
+          replyMsg,
+          "[storyConversation] persist selection turn failed:"
+        );
       } catch (err) {
         console.error("selectionEdit failed", err);
-        toast.error("修改失败，再试一次？");
+        toast.error(
+          err instanceof Error ? err.message : "修改失败，再试一次？"
+        );
         // Don't clear selection on failure so user can retry
       } finally {
         setIsReplying(false);
@@ -3730,6 +3715,8 @@ export function StoryAgentProvider({
       promptCandidateMut,
       appendConversationTurnMut,
       editingCommandRunner,
+      loadStory,
+      imageRegionEditHandoff,
     ]
   );
 
@@ -3880,7 +3867,10 @@ export function StoryAgentProvider({
           storySpineStore.getState().activeStoryId
         )
       ) {
-        return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
+        return {
+          applied: false,
+          reason: "故事已切换，请重新打开这条时间轴再试",
+        };
       }
       const current = storySpineStore.getState();
       const userMsg: ChatMessage = {
@@ -3957,7 +3947,12 @@ export function StoryAgentProvider({
         };
       }
     },
-    [appendConversationTurnMut, proposeGapTransitionMut, saveArchiveStory, setMessages]
+    [
+      appendConversationTurnMut,
+      proposeGapTransitionMut,
+      saveArchiveStory,
+      setMessages,
+    ]
   );
 
   const proposeExtractedFrameTransitionCard = useCallback(
@@ -3970,8 +3965,16 @@ export function StoryAgentProvider({
       instruction?: string;
       movementAmplitude?: "auto" | "small" | "medium" | "large";
     }): Promise<{ applied: boolean; reason?: string }> => {
-      if (!storyScopeMatches(input.storyId, storySpineStore.getState().activeStoryId)) {
-        return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
+      if (
+        !storyScopeMatches(
+          input.storyId,
+          storySpineStore.getState().activeStoryId
+        )
+      ) {
+        return {
+          applied: false,
+          reason: "故事已切换，请重新打开这条时间轴再试",
+        };
       }
       const current = storySpineStore.getState();
       const requestSession: StorySessionToken = {
@@ -3981,13 +3984,15 @@ export function StoryAgentProvider({
       const userMsg: ChatMessage = {
         id: newId("msg"),
         role: "user",
-        content: input.instruction?.trim() || "用这两张时间线抽帧生成普通镜头视频",
+        content:
+          input.instruction?.trim() || "用这两张时间线抽帧生成普通镜头视频",
         timestamp: Date.now(),
       };
       const nextMessages = [...current.messages, userMsg];
       setMessages(nextMessages);
       try {
-        const result = await proposeExtractedFrameTransitionMut.mutateAsync(input);
+        const result =
+          await proposeExtractedFrameTransitionMut.mutateAsync(input);
         const responseSession = storySpineStore.getState();
         if (
           !storySessionTokenMatches(requestSession, {
@@ -4030,7 +4035,8 @@ export function StoryAgentProvider({
       } catch (error) {
         return {
           applied: false,
-          reason: error instanceof Error ? error.message : "创建普通镜头视频提案失败",
+          reason:
+            error instanceof Error ? error.message : "创建普通镜头视频提案失败",
         };
       }
     },
@@ -4261,7 +4267,11 @@ export function StoryAgentProvider({
       rejectedIntentProposalIdsRef.current.add(pendingIntentDraft.proposal.id);
     }
     setPendingIntentDraft(null);
-  }, [pendingIntentCommitProposalId, pendingIntentDraft, setPendingIntentDraft]);
+  }, [
+    pendingIntentCommitProposalId,
+    pendingIntentDraft,
+    setPendingIntentDraft,
+  ]);
 
   const beginPendingIntentCommit = useCallback((proposalId: string) => {
     const current = storySpineStore.getState();
@@ -4359,6 +4369,7 @@ export function StoryAgentProvider({
       rejectSelectionCandidate,
       rerenderSelectionImage,
       registerImageRerenderRunner,
+      registerImageRegionEditRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       proposeGapTransitionCard,
@@ -4428,6 +4439,7 @@ export function StoryAgentProvider({
       rejectSelectionCandidate,
       rerenderSelectionImage,
       registerImageRerenderRunner,
+      registerImageRegionEditRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       proposeGapTransitionCard,
@@ -4474,6 +4486,7 @@ export function StoryAgentProvider({
     rejectSelectionCandidate,
     rerenderSelectionImage,
     registerImageRerenderRunner,
+    registerImageRegionEditRunner,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
     proposeGapTransitionCard,

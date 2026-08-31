@@ -1,10 +1,4 @@
-import {
-  Check,
-  Crosshair,
-  Loader2,
-  Pencil,
-  Video,
-} from "lucide-react";
+import { Check, Crosshair, Loader2, Pencil, Video } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -19,6 +13,11 @@ import type { TimelineTransform } from "@shared/storyMaterial";
 
 import { trpc } from "@/lib/trpc";
 import { formatStoryboardTimestamp } from "@/features/storyAgent/storyboardTiming";
+import {
+  useStoryAgentActions,
+} from "@/features/storyAgent/StoryAgentContext";
+import type { ImageRegionEditHandoffRunner } from "@/features/storyAgent/imageRegionEditHandoff";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type {
   ChatCutTimelineClip,
   ChatCutTimelineManifest,
@@ -35,6 +34,8 @@ import {
 } from "../imageClipEditorModel";
 import {
   INITIAL_PREVIEW_OBJECT_MASK_STATE,
+  confirmedPreviewMaskSelection,
+  previewMaskSelectionMatchesSession,
   resetPreviewMaskSessionForTargetChange,
   previewObjectMaskReducer,
 } from "../previewObjectMaskEditing";
@@ -100,6 +101,9 @@ export default function ShotPreview({
   extractingCurrentVideoFrame?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const maskPromptRef = useRef<HTMLTextAreaElement | null>(null);
+  const { registerImageRegionEditRunner, setActiveSelection } =
+    useStoryAgentActions();
   const ignoreNextVideoPauseRef = useRef(false);
   const previewControlInteractionAtRef = useRef<number | null>(null);
   const previewStageRef = useRef<HTMLDivElement | null>(null);
@@ -111,8 +115,14 @@ export default function ShotPreview({
     previewObjectMaskReducer,
     INITIAL_PREVIEW_OBJECT_MASK_STATE
   );
+  const maskStateRef = useRef(maskState);
+  maskStateRef.current = maskState;
   const [maskPrompt, setMaskPrompt] = useState("");
-  const [previewImageSize, setPreviewImageSize] = useState({ width: 0, height: 0 });
+  const publishedMaskKeyRef = useRef<string | null>(null);
+  const [previewImageSize, setPreviewImageSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const [maskDrag, setMaskDrag] = useState<{
     pointerId: number;
     points: Array<{ x: number; y: number }>;
@@ -125,34 +135,93 @@ export default function ShotPreview({
   const quoteInpaintMutation = trpc.creationAgent.quoteInpaint.useMutation();
   const inpaintMutation = trpc.creationAgent.inpaint.useMutation();
   const adoptMutation = trpc.creationAgent.adoptInpaintCandidate.useMutation();
-  const latestCandidateQuery = trpc.creationAgent.latestInpaintCandidate.useQuery(
-    {
-      storyId: storyId ?? 0,
-      sourceImageId: maskState.target?.imageId ?? 0,
-      targetKind: maskState.target?.targetKind ?? "shot-primary",
-      stableShotId: maskState.target?.stableShotId ?? "pending",
-      ...(maskState.target?.clipId ? { clipId: maskState.target.clipId } : {}),
-    },
-    {
-      enabled: Boolean(
-        storyId &&
-        maskState.target &&
-        maskState.phase === "selecting"
-      ),
-      staleTime: 0,
-    }
-  );
+  const latestCandidateQuery =
+    trpc.creationAgent.latestInpaintCandidate.useQuery(
+      {
+        storyId: storyId ?? 0,
+        sourceImageId: maskState.target?.imageId ?? 0,
+        targetKind: maskState.target?.targetKind ?? "shot-primary",
+        stableShotId: maskState.target?.stableShotId ?? "pending",
+        ...(maskState.target?.clipId
+          ? { clipId: maskState.target.clipId }
+          : {}),
+      },
+      {
+        enabled: Boolean(
+          storyId && maskState.target && maskState.phase === "selecting"
+        ),
+        staleTime: 0,
+      }
+    );
   const maskedEstimate = estimateStoryboardMaskedEditCost();
   const maskSubmitInFlightRef = useRef(false);
   const maskSessionPlayheadRef = useRef<number | null>(null);
   const maskSessionEpochRef = useRef(0);
+  const clearPublishedMaskSelection = useCallback(() => {
+    const maskKey = publishedMaskKeyRef.current;
+    if (!maskKey) return;
+    const current = storySpineStore.getState().activeSelection;
+    if (current?.confirmedImageRegion?.maskKey === maskKey) {
+      setActiveSelection(null);
+    }
+    publishedMaskKeyRef.current = null;
+  }, [setActiveSelection]);
   const resetMaskSession = useCallback(() => {
+    clearPublishedMaskSelection();
     maskSessionEpochRef.current += 1;
     dispatchMask({ type: "reset" });
     setMaskPrompt("");
     setMaskDrag(null);
     maskSessionPlayheadRef.current = null;
-  }, []);
+  }, [clearPublishedMaskSelection]);
+
+  const confirmMaskForChat = useCallback(() => {
+    if (!storyId || !maskState.target || !maskState.mask) return;
+    dispatchMask({ type: "confirm-mask" });
+    setActiveSelection(
+      confirmedPreviewMaskSelection({
+        storyId,
+        target: maskState.target,
+        mask: maskState.mask,
+      })
+    );
+    publishedMaskKeyRef.current = maskState.mask.maskKey;
+    toast.success("局部选区已放进聊天框，只会修改确认区域");
+  }, [maskState.mask, maskState.target, setActiveSelection, storyId]);
+
+  const reselectMaskRegion = useCallback(() => {
+    clearPublishedMaskSelection();
+    dispatchMask({ type: "reselect" });
+  }, [clearPublishedMaskSelection]);
+
+  useEffect(() => {
+    const runner: ImageRegionEditHandoffRunner = async ({
+      instruction,
+      selection,
+    }) => {
+      if (
+        !previewMaskSelectionMatchesSession({
+          selection,
+          storyId,
+          state: maskStateRef.current,
+        })
+      ) {
+        return {
+          status: "error",
+          stale: true,
+          message: "图片或局部蒙版已经变化，请在 Preview 里重新确认区域",
+        };
+      }
+      setMaskPrompt(instruction);
+      globalThis.requestAnimationFrame?.(() => maskPromptRef.current?.focus());
+      return {
+        status: "success",
+        message:
+          "已把修改要求填入 Preview。请核对局部选区和费用后手动生成；现在还没有提交付费任务。",
+      };
+    };
+    return registerImageRegionEditRunner(runner);
+  }, [registerImageRegionEditRunner, storyId]);
   const normalizedEditorDraft = editorPreview
     ? normalizeVideoClipEditDraft(
         editorPreview.draft,
@@ -269,7 +338,8 @@ export default function ShotPreview({
       maskState.phase === "idle" ||
       maskSessionPlayheadRef.current == null ||
       maskSessionPlayheadRef.current === playheadMs
-    ) return;
+    )
+      return;
     resetMaskSession();
   }, [maskState.phase, playheadMs, resetMaskSession, timelinePlaying]);
 
@@ -283,7 +353,8 @@ export default function ShotPreview({
 
   useEffect(() => {
     const candidate = latestCandidateQuery.data?.candidate;
-    if (!candidate || !maskState.target || maskState.phase !== "selecting") return;
+    if (!candidate || !maskState.target || maskState.phase !== "selecting")
+      return;
     dispatchMask({
       type: "restore-candidate",
       target: maskState.target,
@@ -329,14 +400,18 @@ export default function ShotPreview({
   ]);
 
   const segmentPreviewRegion = useCallback(
-    async (element: HTMLDivElement, previewPath: Array<{ x: number; y: number }>) => {
+    async (
+      element: HTMLDivElement,
+      previewPath: Array<{ x: number; y: number }>
+    ) => {
       if (
         !storyId ||
         !maskState.target ||
         (maskState.phase !== "selecting" && maskState.phase !== "mask-ready") ||
         previewImageSize.width <= 0 ||
         previewImageSize.height <= 0
-      ) return;
+      )
+        return;
       const rect = element.getBoundingClientRect();
       const points = previewPathToSourcePolygon(
         {
@@ -349,7 +424,10 @@ export default function ShotPreview({
         previewPath
       );
       if (!points) {
-        dispatchMask({ type: "error", message: "请沿着物体外侧圈出一个完整范围" });
+        dispatchMask({
+          type: "error",
+          message: "请沿着物体外侧圈出一个完整范围",
+        });
         return;
       }
       const requestId = maskState.requestId + 1;
@@ -444,7 +522,10 @@ export default function ShotPreview({
       setMaskDrag(drag => {
         if (!drag || drag.pointerId !== event.pointerId) return drag;
         const previous = drag.points.at(-1);
-        if (previous && Math.hypot(current.x - previous.x, current.y - previous.y) < 3) {
+        if (
+          previous &&
+          Math.hypot(current.x - previous.x, current.y - previous.y) < 3
+        ) {
           return drag;
         }
         return { ...drag, points: [...drag.points, current] };
@@ -461,9 +542,10 @@ export default function ShotPreview({
       const element = event.currentTarget;
       const end = maskPointerPosition(event);
       const previous = maskDrag.points.at(-1);
-      const points = previous && Math.hypot(end.x - previous.x, end.y - previous.y) >= 1
-        ? [...maskDrag.points, end]
-        : maskDrag.points;
+      const points =
+        previous && Math.hypot(end.x - previous.x, end.y - previous.y) >= 1
+          ? [...maskDrag.points, end]
+          : maskDrag.points;
       setMaskDrag(null);
       if (element.hasPointerCapture(event.pointerId)) {
         element.releasePointerCapture(event.pointerId);
@@ -477,11 +559,7 @@ export default function ShotPreview({
       }
       void segmentPreviewRegion(element, points);
     },
-    [
-      maskDrag,
-      maskPointerPosition,
-      segmentPreviewRegion,
-    ]
+    [maskDrag, maskPointerPosition, segmentPreviewRegion]
   );
 
   const generateMaskedCandidate = useCallback(async () => {
@@ -491,7 +569,8 @@ export default function ShotPreview({
       !maskState.target ||
       !maskState.mask ||
       !maskState.maskConfirmed
-    ) return;
+    )
+      return;
     const prompt = maskPrompt.trim();
     if (!prompt) {
       toast.error("请写清楚只想修改什么");
@@ -502,9 +581,11 @@ export default function ShotPreview({
     dispatchMask({ type: "generate", requestId });
     let providerSubmissionStarted = false;
     try {
-      const token = globalThis.crypto?.randomUUID?.() ?? `mask-${Date.now()}-${Math.random()}`;
+      const token =
+        globalThis.crypto?.randomUUID?.() ??
+        `mask-${Date.now()}-${Math.random()}`;
       const target = {
-        targetKind: maskState.target.targetKind ?? "shot-primary" as const,
+        targetKind: maskState.target.targetKind ?? ("shot-primary" as const),
         stableShotId: maskState.target.stableShotId,
         clipId: maskState.target.clipId,
       };
@@ -520,7 +601,8 @@ export default function ShotPreview({
       }
       if (
         quoted.quote.currency !== maskedEstimate.currency ||
-        Math.abs(quoted.quote.estimatedCny - maskedEstimate.estimatedCny) > 0.001
+        Math.abs(quoted.quote.estimatedCny - maskedEstimate.estimatedCny) >
+          0.001
       ) {
         throw new Error(
           `费用已变化为 ¥${quoted.quote.estimatedCny.toFixed(2)}，请核对后重新确认`
@@ -555,7 +637,10 @@ export default function ShotPreview({
       dispatchMask({
         type: "candidate",
         requestId,
-        candidate: { imageId: result.image.id, imageUrl: result.image.imageUrl },
+        candidate: {
+          imageId: result.image.id,
+          imageUrl: result.image.imageUrl,
+        },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "局部修改失败";
@@ -571,7 +656,17 @@ export default function ShotPreview({
     } finally {
       maskSubmitInFlightRef.current = false;
     }
-  }, [inpaintMutation, maskPrompt, maskState.mask, maskState.maskConfirmed, maskState.target, maskedEstimate.currency, maskedEstimate.estimatedCny, quoteInpaintMutation, storyId]);
+  }, [
+    inpaintMutation,
+    maskPrompt,
+    maskState.mask,
+    maskState.maskConfirmed,
+    maskState.target,
+    maskedEstimate.currency,
+    maskedEstimate.estimatedCny,
+    quoteInpaintMutation,
+    storyId,
+  ]);
 
   const adoptMaskedCandidate = useCallback(async () => {
     if (!storyId || !maskState.target || !maskState.candidate) return;
@@ -587,7 +682,8 @@ export default function ShotPreview({
         stableShotId: maskState.target.stableShotId,
         clipId: maskState.target.clipId,
       });
-      if (result.status !== "ok") throw new Error(result.message || "候选采用失败");
+      if (result.status !== "ok")
+        throw new Error(result.message || "候选采用失败");
       if (maskSessionEpochRef.current !== sessionEpoch) return;
       resetMaskSession();
       onMaskAdopted?.();
@@ -599,7 +695,14 @@ export default function ShotPreview({
         message: error instanceof Error ? error.message : "候选采用失败",
       });
     }
-  }, [adoptMutation, maskState.candidate, maskState.target, onMaskAdopted, resetMaskSession, storyId]);
+  }, [
+    adoptMutation,
+    maskState.candidate,
+    maskState.target,
+    onMaskAdopted,
+    resetMaskSession,
+    storyId,
+  ]);
 
   useEffect(() => {
     const stage = previewStageRef.current;
@@ -747,7 +850,8 @@ export default function ShotPreview({
         >
           <div
             className={`relative flex shrink-0 items-center justify-center overflow-hidden border border-white/10 bg-black shadow-sm ${
-              maskState.phase === "selecting" || maskState.phase === "mask-ready"
+              maskState.phase === "selecting" ||
+              maskState.phase === "mask-ready"
                 ? "cursor-crosshair ring-2 ring-cyan-400/50"
                 : ""
             }`}
@@ -971,7 +1075,9 @@ export default function ShotPreview({
                     aria-hidden="true"
                   >
                     <polygon
-                      points={maskDrag.points.map(point => `${point.x},${point.y}`).join(" ")}
+                      points={maskDrag.points
+                        .map(point => `${point.x},${point.y}`)
+                        .join(" ")}
                       fill="rgba(34,211,238,0.18)"
                       stroke="rgb(103,232,249)"
                       strokeWidth="2"
@@ -1001,16 +1107,17 @@ export default function ShotPreview({
                             ? "正在生成局部修改候选…"
                             : maskState.phase === "uncertain"
                               ? "付费任务状态未知，已停止自动重试"
-                            : maskState.phase === "adopting"
-                              ? "正在采用候选…"
-                              : maskState.phase === "candidate-ready"
-                                ? "候选已生成，原图尚未改变"
-                                : maskState.maskConfirmed
-                                  ? "选区已确认，请描述修改"
-                                  : "检查高亮范围，确认后再生成"
-                    }
+                              : maskState.phase === "adopting"
+                                ? "正在采用候选…"
+                                : maskState.phase === "candidate-ready"
+                                  ? "候选已生成，原图尚未改变"
+                                  : maskState.maskConfirmed
+                                    ? "选区已确认，请描述修改"
+                                    : "检查高亮范围，确认后再生成"}
                     {maskState.error ? (
-                      <p className="mt-1 text-[10px] text-red-300">{maskState.error}</p>
+                      <p className="mt-1 text-[10px] text-red-300">
+                        {maskState.error}
+                      </p>
                     ) : null}
                   </div>
                   <button
@@ -1021,18 +1128,20 @@ export default function ShotPreview({
                     退出
                   </button>
                 </div>
-                {maskState.phase === "mask-ready" && !maskState.maskConfirmed ? (
+                {maskState.phase === "mask-ready" &&
+                !maskState.maskConfirmed ? (
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
-                      onClick={() => dispatchMask({ type: "confirm-mask" })}
+                      onClick={confirmMaskForChat}
                       className="inline-flex items-center gap-1 rounded bg-cyan-500 px-2.5 py-1.5 text-[10px] font-medium text-black"
                     >
-                      <Check className="h-3 w-3" />确认选区
+                      <Check className="h-3 w-3" />
+                      确认选区
                     </button>
                     <button
                       type="button"
-                      onClick={() => dispatchMask({ type: "reselect" })}
+                      onClick={reselectMaskRegion}
                       className="rounded border border-white/20 px-2.5 py-1.5 text-[10px]"
                     >
                       重新点选
@@ -1042,15 +1151,19 @@ export default function ShotPreview({
                 {maskState.phase === "mask-ready" && maskState.maskConfirmed ? (
                   <div className="mt-2 space-y-2">
                     <textarea
+                      ref={maskPromptRef}
                       value={maskPrompt}
-                      onChange={event => setMaskPrompt(event.currentTarget.value)}
+                      onChange={event =>
+                        setMaskPrompt(event.currentTarget.value)
+                      }
                       placeholder="例如：把杯子改成蓝色陶瓷杯"
                       rows={2}
                       className="w-full resize-none rounded border border-white/20 bg-white/10 px-2 py-1.5 text-[11px] text-white outline-none placeholder:text-white/40 focus:border-cyan-400"
                     />
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[9px] text-white/60">
-                        仅透明蒙版内可修改，预计 ¥{maskedEstimate.estimatedCny.toFixed(2)}
+                        仅透明蒙版内可修改，预计 ¥
+                        {maskedEstimate.estimatedCny.toFixed(2)}
                       </span>
                       <button
                         type="button"
@@ -1063,7 +1176,8 @@ export default function ShotPreview({
                     </div>
                   </div>
                 ) : null}
-                {maskState.phase === "candidate-ready" && maskState.candidate ? (
+                {maskState.phase === "candidate-ready" &&
+                maskState.candidate ? (
                   <div className="mt-2 flex items-center gap-3">
                     <img
                       src={maskState.candidate.imageUrl}
@@ -1099,7 +1213,9 @@ export default function ShotPreview({
           >
             <div className="min-w-0">
               <p className="text-[10px] font-medium text-foreground">
-                {currentFrameIsTimelineImage ? "当前抽帧已就绪" : "当前图片已就绪"}
+                {currentFrameIsTimelineImage
+                  ? "当前抽帧已就绪"
+                  : "当前图片已就绪"}
               </p>
               <p className="text-[9px] text-muted-foreground">
                 {currentFrameIsTimelineImage
