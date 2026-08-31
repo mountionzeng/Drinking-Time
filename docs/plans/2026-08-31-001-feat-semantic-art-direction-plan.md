@@ -72,7 +72,7 @@ Replace the current zero-evidence art-lineage fallback with one structured, evid
 
 - `server/services/renderGate.ts` owns the only static-image art compiler. Its `authoredBrief`, locked-style, `preservePrompt`, product-purpose, and hard-constraint branches establish the priority and bypass patterns to preserve.
 - `server/services/styleLibrary.ts` and `docs/style-library/entries/*.yaml` already provide validated, cached, status-gated art entries. Extend this catalog instead of introducing a parallel prompt library.
-- `shared/artDirection.ts` already normalizes backward-compatible story art state and versions a locked recipe. Add semantic-selection state alongside—not inside—the confirmed recipe.
+- `shared/artDirection.ts` already normalizes backward-compatible confirmed recipes. Keep that client-editable state unchanged; add semantic selection as a separate server-owned slice in `shared/storyContract.ts` and protect it through `server/services/storySync.ts`.
 - `server/services/visualAssetGenerationContext.ts` makes a locked outfit a highest-priority fact and blocks conflicting text before payment.
 - `server/services/visualAssetPersistence.ts` already uses story revision CAS and operation tokens for asset versions. Its generic fork path inherits passed views, so seasonal outfit changes need a distinct invalidating path.
 - `server/services/promptLineage.ts`, `shared/promptCompiler.ts`, and generated-image `promptCompilationId` links preserve upstream prompt lineage. The provider-final prompt remains separately stored on generated images.
@@ -101,15 +101,18 @@ Replace the current zero-evidence art-lineage fallback with one structured, evid
 ## Key Technical Decisions
 
 - Extend the existing style-library schema with optional automatic-selection metadata and migrate the six hard-coded lineages into reviewed entries beside the three new cards. Explicitly selected legacy styles remain usable even when they have no auto-trigger metadata.
-- Separate semantic evidence normalization from deterministic policy selection. A bounded classifier may normalize structured story/shot evidence, but it cannot choose a card ID or emit prompt fragments; classifier failure or ambiguity becomes `unknown`. The pure art-card selector returns only applied or skipped results from normalized evidence and the reviewed catalog; the composed `ArtDirectionDecisionSnapshot` adds `confirmation_needed` when time/clothing evaluation conflicts with a locked outfit.
+- Separate semantic evidence normalization from deterministic policy selection. Version 1 uses an application-local, deterministic normalizer over explicit instructions and structured story/shot fields, with reviewed concept aliases plus explicit polarity, quotation, and subject-attribution rules; it makes no remote classifier call. The normalizer emits versioned evidence labels and provenance—not card IDs or provider text—and failure or ambiguity becomes `unknown`. The pure art-card selector returns only applied or skipped results; the composed `ArtDirectionDecisionSnapshot` adds `confirmation_needed` when time/clothing evaluation conflicts with a locked outfit.
+- Treat an explicit natural-language aesthetic request as highest-priority selector evidence. Only an already selected/confirmed story recipe, locked style, or authored brief suppresses inferred main-card selection; all routes consume the same resolved decision rather than independently interpreting “explicit style.”
 - Persist the automatic story main card in a dedicated server-owned story slice, not ordinary client-editable `body.artDirection`. Bind it to story revision, evidence fingerprint, catalog version, and creator-preference revision. Story evidence changes mark an inferred choice stale; explicit user choices remain until cleared. Shot auxiliaries are recalculated from stable shot revision and snapshotted per attempt.
 - Treat explicit creator seasonal preference as authoritative. The browser IANA time zone may prefill a suggestion and local calendar date, but it cannot establish hemisphere or climate by itself; an unknown/tropical/ambiguous profile produces no seasonal outfit guess.
-- Define one immutable `ArtDirectionDecisionSnapshot` for the story/shot/time/asset inputs and one immutable compiled image artifact containing provider-final prompt/hash, hard constraints, catalog/decision/time/asset fingerprints, and compiler identity. Preview, save, preserve, and submit must consume the same valid artifact; missing or stale fingerprints force recompile or block.
+- Define one immutable `ArtDirectionDecisionSnapshot` for the story/shot/time/asset inputs and one persisted, owner-scoped compiled image artifact containing provider-final prompt/hash, hard constraints, catalog/decision/time/asset/input-context fingerprints, and compiler identity. The server returns only an opaque artifact ID plus content hash; preview, save, preserve, quote, confirm, and submit load that exact record. Foreign-owner, altered, expired, consumed-incompatibly, or stale artifacts block and require a fresh preview.
+- Hydrate every compiler dependency before pure compilation through one caller-owned context loader. Rejection signals, edit preferences, art-repository blocks, references, purpose, and locked assets enter as immutable versioned/fingerprinted inputs with explicit nil/error fallbacks; `renderGate` performs no database reads, payment orchestration, or provider calls.
 - Add a dedicated immutable image-prompt attempt record rather than overloading prompt-lineage revisions or interaction signals. The route/service caller—not the render gate—claims the operation, invokes the provider outside a transaction, and CAS-settles success/failure/unknown. A provider success followed by persistence uncertainty remains reconcilable and must never auto-buy again.
 - Introduce a detailed render-gate result while preserving the existing string-returning facade for compatibility. All feature-bearing static-image routes migrate to the detailed path so they can persist the exact compiled artifact they submit.
 - Keep selector failure fail-open for availability: record `selector_error`, apply no conditional card, and continue through the current global stylization/text-free rules. Locked-asset conflict remains fail-closed before paid submission.
 - Seasonal outfit changes use a dedicated proposal/version transition based on the same decision snapshot. A locked conflict yields `confirmation_needed` and makes the provider path unreachable. Proposal acceptance atomically deep-copies facts, changes only the proposed outfit, invalidates every outfit-bearing view, and records a receipt; the accepted version triggers a fresh decision before any separately confirmed paid generation, locking, or rebinding.
 - Keep SQL and local-JSON persistence behavior explicit and symmetric: additive migration, defaults/load normalization, next IDs, copy-on-write atomic persistence, deletion, user merge/reassignment, export where applicable, and non-destructive rollback all require parity tests.
+- Separate account-, story-, and reconciliation-scoped retention. Creator preferences survive individual story deletion but are removed on account deletion; story selections and ordinary compiled content follow story deletion; retained paid/reconciliation evidence drops full prompts and user text, keeping only non-reversible hashes and minimum provider/payment identifiers for the configured retention window.
 - Roll out behind an application flag with observe-only attempt recording first. Catalog versions remain readable, old code ignores additive fields, and rollback disables new application without deleting decisions, proposals, attempts, assets, or paid evidence.
 - Roll out with deterministic fixtures and provider-callback capture first; no paid generation is part of the implementation proof.
 
@@ -192,6 +195,8 @@ flowchart TB
 
 - Create: `shared/semanticArtDirection.ts`
 - Create: `shared/semanticArtDirection.test.ts`
+- Create: `server/services/semanticEvidenceNormalizer.ts`
+- Create: `server/services/semanticEvidenceNormalizer.test.ts`
 - Create: `server/services/semanticArtDirectionCatalog.ts`
 - Create: `server/services/semanticArtDirectionCatalog.test.ts`
 - Modify: `server/services/styleLibrary.ts`
@@ -205,7 +210,9 @@ flowchart TB
 
 - Extend the existing catalog with stable version/provenance, allowed scope, positive and counter-signals, observable feature dimensions, compatibility, forbidden purposes, and sourced period/region claims.
 - Keep names and source claims out of provider fragments; compile only reviewed observable traits.
-- Normalize evidence independently from card choice. The normalizer consumes explicit direction plus structured story/shot fields and may use a bounded classifier, but its output is evidence labels with subject attribution, polarity, and provenance—not card IDs or provider text.
+- Normalize evidence independently from card choice. Version 1 uses deterministic local concept aliases and structural rules over explicit direction plus structured story/shot fields; it does not call a hosted classifier. Its output includes normalizer version, input fingerprint, evidence labels, subject attribution, polarity, quotation status, and provenance—not card IDs or provider text.
+- Give explicit natural-language aesthetic instructions the highest evidence weight unless a confirmed recipe/locked style/authored brief already owns the story main. “Explicit” text alone does not become a separate bypass; U3 persists the resolved confirmed state and U4 consumes it.
+- Persist the normalized output and normalizer version in the decision snapshot. Reuse the same normalized result for replay; a normalizer upgrade marks an inferred decision reviewable/stale and never silently rewrites an active story main.
 - Score explicit user, story, and shot evidence separately; require a clear threshold and margin. A tie, low score, hard conflict, invalid entry, or missing catalog returns a structured skip.
 - Treat dynamic blur/diffusion as auxiliary-only. Validate that every auxiliary contribution is allowed by the selected main card.
 - Remove the zero-score hash fallback when U3 integrates the selector; retain deterministic tie-breaking only after eligibility is proven.
@@ -223,6 +230,9 @@ flowchart TB
 - Covers AE1. Happy path: quiet, sparse bereavement memory evidence selects dreamy colored-pencil minimalism as main without requiring the word “彩铅”.
 - Covers AE1. Near-negative: an ordinary indoor conversation containing only “回忆” skips all conditional cards.
 - Semantic boundaries: paraphrase can match, while negation, quoted dialogue, and a style description attributed to a different subject do not become positive evidence.
+- Determinism: repeated normalization of the same input/version produces the same labels and fingerprint; a version bump cannot silently alter an active story main.
+- Priority boundary: an explicit request such as “画面要像逐渐消散的梦” is evidence for a compatible card, while an already confirmed recipe suppresses inferred replacement until cleared.
+- Privacy boundary: version 1 makes no external classifier call and never logs raw normalized input.
 - Covers AE2. Happy path: a running/vertigo shot under a compatible main selects diffuse motion blur only as auxiliary.
 - Edge case: multiple compatible matches still yield at most one main and one auxiliary; a close-score tie skips rather than choosing by hash.
 - Edge case: an auxiliary attempting a non-allowlisted medium/palette override is rejected while the main remains intact.
@@ -262,12 +272,14 @@ flowchart TB
 **Approach:**
 
 - Store the minimum creator-controlled season context: coarse seasonal profile, optional IANA time zone, source, and update time. Do not store coordinates, IP-derived geography, or the emotion-analysis location.
+- Use a closed first-release profile enum: `northern_four_seasons`, `southern_four_seasons`, `tropical_or_non_four_season`, and `unknown`. Only the first two may derive a four-season clothing hint from date; tropical/non-four-season and unknown never guess clothing without explicit story weather/season.
 - Give each owner at most one revisioned preference record. Clearing it is a first-class write that increments revision, so in-flight decisions cannot continue using a withdrawn value.
 - Let the browser suggest its IANA time zone, visibly distinguish suggestion from a saved preference, and allow edit/clear/unknown.
+- Use the following UI state contract in `GenerationSettingsPanel`: `loading`; `unknown` with no saved profile; `suggested` with an unsaved browser-zone suggestion; `dirty`; `saving`; `saved`; `save_error`; `revision_conflict`; and `cleared`. Labels distinguish “浏览器建议” from “已保存设置,” and the initial selection is unknown. A suggestion never affects generation until the creator explicitly saves a seasonal profile. Save errors retain edits; revision conflicts reload the current value before retry; clearing returns to explicit unknown.
 - Resolve local date from an injected instant and IANA zone. Resolve season only from explicit story facts or an explicit seasonal profile; a browser zone alone may establish local date but not climate/hemisphere.
 - Return a structured time result with source, confidence, and as-of instant. Only the resolved season/clothing trait may enter prompt compilation; raw creator context stays out.
 - Preserve MySQL and local JSON behavior and owner isolation. The additive migration and local-memory implementation must cover array/default initialization, load normalization, next IDs, atomic persist, story/account deletion, user merge/reassignment, and export if the preference is included there.
-- Retain only the saved coarse profile and optional zone; decision/attempt evidence stores evidence type plus a hash and short bounded excerpt rather than raw creator/story text. Define account deletion behavior and de-identification rules for records that must remain as paid/audit evidence.
+- Retain only the saved coarse profile and optional zone; decision/attempt evidence stores evidence type plus a hash and short bounded excerpt rather than raw creator/story text. Preferences survive deletion of one story, are reassigned only through an authenticated account-merge operation, and are deleted on account deletion. Story semantic selections are deleted with their story; paid/audit evidence follows the U4 de-identification matrix.
 
 **Patterns to follow:**
 
@@ -286,7 +298,9 @@ flowchart TB
 - Error path: invalid IANA input is rejected; missing preference degrades to unknown without blocking generation.
 - Ownership: one user cannot read or update another user's creator visual preference in SQL or local mode.
 - Lifecycle: clearing a preference increments its revision; deletion and user merge/reassignment produce the same result in SQL and local JSON modes.
+- UI lifecycle: an unsaved browser suggestion never changes a decision; loading/saving disables conflicting actions; save error preserves edits; revision conflict reloads and explains the newer value; successful save and clear are announced.
 - Persistence failure: local JSON uses copy-on-write plus one atomic persist, leaving the prior state readable if disk persistence fails.
+- Accessibility/responsive: controls are keyboard operable with visible focus and programmatic labels that distinguish suggested from saved state; async status is announced; touch targets meet the existing UI standard; narrow layouts retain label/value/action hierarchy without hiding clear or unknown.
 - Determinism: year boundary, local-midnight boundary, leap day, and DST cases use the injected instant rather than server `Date.now()`.
 
 **Verification:**
@@ -319,6 +333,7 @@ flowchart TB
 - Add a dedicated optional server-owned story semantic-selection slice: main card/catalog version, source (explicit or inferred), bounded evidence fingerprint, creator-preference revision, decision snapshot ID/hash, confidence, and stale status. Keep client-editable `body.artDirection`, its confirmed recipe, and recipe-version history unchanged.
 - Extend `SERVER_OWNED_BODY_FIELDS`/story sync merging so stale browser saves cannot erase or roll back this slice. Old clients ignore the additive field; server round-trips it unchanged.
 - Use story/user ownership plus revision CAS for first selection, recomputation, explicit override, clear/return-to-auto, and stale transitions. The selection token binds story revision, evidence fingerprint, catalog version, and creator-preference revision; a CAS loser rereads and either reuses the winner or recomputes.
+- Distinguish explicit request from confirmed state: explicit natural-language text participates in U1 normalization; accepting/selecting a recipe writes a confirmed story-main source that suppresses inferred replacement until the creator clears or returns it to auto.
 - Recompute an inferred main only when its relevant story-evidence fingerprint changes or its catalog entry becomes unavailable. A catalog upgrade alone marks the choice reviewable/stale; it does not silently replace the active main during a multi-shot run.
 - Derive shot auxiliaries from stable-shot identity and current shot revision. Store the result on the generation attempt rather than mutating the story main.
 - Normalize old stories to “no semantic selection” and preserve all existing art-direction references, recipe versions, prompt-lineage migration, and story sync behavior.
@@ -337,6 +352,7 @@ flowchart TB
 - Staleness: relevant story content changes mark an inferred main stale and allow recomputation; unrelated timeline edits do not.
 - Stability: catalog version changes do not silently change the active main mid-story; missing catalog entry yields a recorded skip/review state.
 - Explicit priority: a user-selected story recipe/style suppresses automatic main selection until the user clears it.
+- Explicit-request transition: an unconfirmed natural-language request can select a semantic card; once the creator confirms the result, subsequent routes reuse the confirmed story main instead of reinterpreting the original text.
 - Backward compatibility: legacy stories and prompt-lineage migration retain recipes, references, and current compilation heads.
 - Concurrency: two first-generation requests use expected story revision/idempotency semantics and cannot create divergent main selections.
 - Stale-client safety: a browser that loaded the story before server selection cannot erase or replace the server-owned slice when it later saves unrelated edits.
@@ -360,6 +376,10 @@ flowchart TB
 - Modify: `server/services/renderGate.ts`
 - Modify: `server/services/renderGate.test.ts`
 - Modify: `server/services/renderGate.longPrompt.test.ts`
+- Create: `server/services/imagePromptCompilationContext.ts`
+- Create: `server/services/imagePromptCompilationContext.test.ts`
+- Create: `shared/imagePromptArtifact.ts`
+- Create: `shared/imagePromptArtifact.test.ts`
 - Create: `server/services/imagePromptRuns.ts`
 - Create: `server/services/imagePromptRuns.test.ts`
 - Modify: `drizzle/schema.ts`
@@ -384,13 +404,29 @@ flowchart TB
 
 - Replace `inferTextArtSignals()` plus unconditional `chooseHandmadeLineage()` with the structured decision supplied by U3/U1. Keep existing content sovereignty, user instruction, reference boundary, rejection/preference, product-purpose, prompt-budget, stylization, and text-free blocks in their current priority order.
 - Compile catalog observable traits only once. `authoredBrief`, locked style, purpose suppression, and explicit user style remain explicit decision inputs instead of disconnected bypasses.
-- Make render-gate compilation a pure operation returning an immutable compiled artifact: provider-final prompt/hash, hard-constraint fingerprint, catalog version, decision snapshot ID/hash, time/asset fingerprints, compiler identity/version, purpose, and upstream compilation link. It performs no DB, payment, or provider orchestration.
-- Preserve `preservePrompt` only for callers carrying that immutable compiled artifact. Preview, save, and submit must reference the same artifact/hash; a missing artifact or stale story/time/asset/compiler fingerprint requires recompile or blocks instead of silently preserving text.
+- Add one caller-owned context loader that resolves rejection signals, edit preferences, art-repository blocks, references, purpose, locked assets, and upstream lineage before compilation. It returns an immutable input snapshot plus per-source version/fingerprint; missing optional input becomes an explicit empty value, while ownership, required-source, or load errors block rather than silently varying by route.
+- Make render-gate compilation a pure operation over that snapshot, returning provider-final prompt/hash, hard-constraint fingerprint, catalog version, decision snapshot ID/hash, time/asset/context fingerprints, compiler identity/version, purpose, and upstream compilation link. It performs no DB, payment, or provider orchestration.
+- Persist the compiled artifact before preview/save/quote/submit. The server returns an opaque artifact ID and content hash; clients cannot replace prompt text or fingerprint fields. Load validates owner/target scope, hash, expiry, compiler/context/story/time/asset fingerprints, and compatible consumption state.
+- Preserve `preservePrompt` only for callers carrying a valid artifact ID/hash. A missing, foreign-owner, altered, expired, or stale artifact requires a new preview; paid quote and confirmation receipts bind the artifact hash, so recompilation always requires a new quote/confirmation.
 - Before provider submission, the caller claims an attempt using owner/story/stable-shot scope plus a unique operation token and non-null input hash. Reusing a token with a different hash is a conflict; terminal states are irreversible.
 - Invoke the provider outside the transaction, then settle with a claim token/CAS. Provider failure settles `failed`; crash or ambiguous provider/persistence outcome settles or recovers as `unknown` and must never auto-resubmit or auto-buy.
+- Reconcile `unknown` through a separately leased operation. Where the provider supports task lookup, persist/checkpoint its task ID as soon as it is returned, poll or retrieve the result, and allow only `unknown -> succeeded|failed|manual_review`. Recovered image insertion and attempt linkage remain one owner-scoped transaction. Providers without lookup terminate in `manual_review`; the UI may offer a new separately quoted attempt only after explicit acknowledgement and never automatic retry.
 - Capture provider-final prompt/hash, decision/catalog/time snapshot, actual story revision/selection fingerprint, stable shot, locked-asset fingerprint, provider/model/task ID, and outcome. Store bounded evidence type/hash/short excerpt, not full duplicated private story text.
 - On success, insert/validate the same-owner/story generated image and link it to the attempt in one DB transaction. Failed/unknown attempts cannot link an image. Index provider task ID, story/shot/time queries, and recoverable status/lease queries.
+- Keep active attempt ownership non-null and owner-scoped. On story/account deletion, a single transaction copies only minimum paid/provider reconciliation fields into a separate de-identified reconciliation receipt with a random non-account-linkable subject, then deletes the user-content-bearing attempt/artifact/image rows. Active operation-token uniqueness and same-owner image-link rules therefore never depend on nullable or pseudonymous owners.
 - Implement the same state machine in local JSON with copy-on-write and one atomic persist. Define normalization/defaults/next IDs, deletion, user merge/reassignment, export behavior, and rollback that stops new writes without deleting audit or paid evidence.
+- Apply this lifecycle matrix in SQL and local JSON:
+
+  | Record | Story deletion | Account deletion / merge | Retained fields |
+  |---|---|---|---|
+  | Creator visual preference | Keep for other stories | Delete on account deletion; reassign only during authenticated merge | Saved coarse profile, zone, revision |
+  | Story semantic selection | Delete with story | Delete with story/account | None after deletion |
+  | Unused/failed compiled artifact | Delete with story or expiry | Delete | Non-reversible content hash only if referenced by an attempt |
+  | Attempt without paid/provider reconciliation need | Delete prompt text and decision content with story/account | Delete owner content | Hash, outcome, timestamps only when aggregate integrity requires it |
+  | Paid or provider-reconcilable attempt | Atomically copy minimum receipt fields to a de-identified reconciliation-receipt table, then delete prompt/artifact/image/attempt content | Same transaction on account deletion; account merges reassign still-active attempts before any de-identification | Random reconciliation subject, hashes, provider task/payment IDs, provider/model, amount/receipt reference, timestamps, outcome for the existing billing-dispute retention window |
+  | Outfit proposal/review version | Delete with story unless paid evidence requires the version receipt | Delete content; de-identify paid receipt as above | Minimum receipt identifiers only |
+
+- Owner/story authorization applies to every artifact/attempt read and export. Ordinary logs and analytics exclude raw prompts, excerpts, seasonal profiles, and decision payloads; account/story deletion tests cover every attempt state and verify retained reconciliation records cannot be used to reconstruct user content.
 - Keep provider adapters unchanged except for tests proving they receive exactly the gate output.
 
 **Execution note:** Add characterization tests for every bypass and provider callback before replacing the current selector.
@@ -408,12 +444,17 @@ flowchart TB
 - Covers AE3. Standard-view/factual/product purpose: conditional cards are absent, but `STATIC_IMAGE_STYLIZATION_CONSTRAINT` and text-free rules remain.
 - Priority: authored brief, explicit style, locked style, story recipe, and locked asset each suppress or constrain inference according to the confirmed hierarchy.
 - Preserve path: an inherited compiled cover prompt is not recompiled, has verifiable hard-constraint provenance, and records a skip reason rather than silently bypassing audit.
+- Artifact boundary: altered, expired, stale, foreign-owner, wrong-target, or prompt-replaced artifacts cannot be previewed, quoted, confirmed, or submitted; a valid artifact hash is identical across those stages.
+- Context hydration: rejection/preference/repository inputs are loaded once, fingerprinted, and replayed; nil and loader-error cases cannot fall back differently by route.
 - Error path: selector/catalog error records a skipped/error decision and still submits the base prompt; locked-asset conflict blocks before attempt acceptance/payment.
 - Failure path: provider failure or unknown status retains the attempt and never creates a false successful image or auto-resubmission.
 - Idempotency: repeated confirmation with the same operation identity reuses the attempt and cannot buy twice.
 - Token conflict: the same operation token with a different input hash is rejected; terminal attempts cannot regress or be reassigned.
 - Crash windows: provider success followed by DB/image persistence failure remains `unknown`/reconcilable and never triggers an automatic second purchase.
+- Reconciliation: a leased recovery can move `unknown` only to succeeded, failed, or manual review; duplicate workers cannot both settle; providers without result lookup never trigger resubmission.
 - Link integrity: a successful attempt can link only an image owned by the same user/story; failed/unknown attempts cannot link any image.
+- Deletion/merge: each lifecycle-matrix row behaves identically in SQL and local JSON; retained paid records contain no prompt, evidence excerpt, seasonal profile, or reversible owner/story reference.
+- Receipt separation: deleting an account with paid/unknown work atomically creates only the de-identified reconciliation receipt and removes active owner-linked content; retained receipts cannot satisfy artifact reads, image links, or operation-token claims.
 - Cross-entry matrix: story frame, image edit, publishing cover/album, art-agent image, shot derivation, and visual-asset standard view each supply the correct purpose, story/shot identity, and decision policy.
 - Provider boundary: `server/services/imageGen.ts` does not add card, palette, artist, or seasonal clothing text after the render gate.
 - Budget edge: structured additions respect Midjourney and long-prompt budgets while preserving latest explicit user instructions and hard constraints.
@@ -444,6 +485,7 @@ flowchart TB
 - Modify: `client/src/features/creationEditor/visualAssets/VisualAssetLibrary.tsx`
 - Modify: `client/src/features/creationEditor/visualAssets/VisualAssetLibrary.test.tsx`
 - Modify: `client/src/features/storyAgent/views/StoryAgentChat.tsx`
+- Create: `client/src/features/storyAgent/views/SemanticWardrobeProposal.tsx`
 - Create: `client/src/features/storyAgent/views/SemanticWardrobeProposal.test.tsx`
 
 **Approach:**
@@ -454,6 +496,10 @@ flowchart TB
 - After acceptance, compute a fresh art-direction decision against the new asset version. Paid-view quote/generation remains a separate operation and receipt.
 - Keep proposal acceptance separate from paid view quotes/generation, manual review, locking, and rebinding. Existing bindings continue to point to the old locked version until the user explicitly selects the new locked version.
 - Revalidate source version, story revision, season decision, and asset fingerprint at each mutation. Stale proposals fail without partial writes; selected stable shots continue through the existing explicit binding workflow.
+- Make `StoryAgentChat` the discovery and decision-summary surface. It shows, in order: why the proposal appeared; source locked version; preserved identity traits; outfit-only delta; affected-shot summary; and current status. Actions are **保留原造型** (records the explicit override for this decision revision), **创建季节版供审阅** (accepts the proposal only), and **稍后处理** (dismisses the current card without changing assets and leaves it reopenable).
+- Make `VisualAssetLibrary` the authoritative version-lifecycle surface. Successful acceptance deep-links to the new review version while the old locked version remains visibly active. The next actions appear separately and in order: review facts, request a paid-view quote, confirm paid generation, review results, lock the new version, then explicitly bind selected shots.
+- Cover proposal states `loading`, `ready`, `accepting`, `accepted`, `keep_original`, `dismissed`, `stale`, `revision_conflict`, and `error`. Stale/conflict reloads the current source and requires a fresh proposal; errors retain the old version/bindings and allow retry. Duplicate acceptance resolves to the existing review version.
+- Keep the flow accessible and responsive: semantic headings and preserved/changed lists, keyboard-operable actions with visible focus, focus on the proposal heading when opened and predictable return on close, announced async/stale/error/success states, unambiguous paid-adjacent labels, existing minimum touch targets, and narrow-screen layouts that preserve action hierarchy.
 
 **Patterns to follow:**
 
@@ -465,7 +511,9 @@ flowchart TB
 
 - Covers AE6. A locked deep-red coat + silver brooch in summer yields a proposal preserving color/silhouette/accessory cues; the original version and bindings remain unchanged.
 - User override: “继续穿原外套” suppresses the seasonal proposal and keeps the locked contract.
+- Proposal exits: keep-original records the scoped override; later/dismiss changes no asset state and can reopen; stale/error recovery leaves old version and bindings unchanged.
 - Proposal acceptance: a new review version deep-copies facts, changes only outfit, and has no inherited clothing-bearing pass views.
+- UX handoff: acceptance success identifies and deep-links the new review version, shows the old version is still active, and presents paid quote/generation, lock, and bind only as separate later actions.
 - Confirmation boundary: accepting text does not quote, pay, generate, lock, adopt, or bind automatically.
 - Happy path: after paid views pass and the new version is locked, explicit rebinding changes only selected stable shots.
 - Stale path: changed source version, story time/place, seasonal preference, or asset fingerprint rejects the old proposal.
@@ -473,6 +521,7 @@ flowchart TB
 - Atomicity: injected failure at any acceptance write leaves no partial version, cleared view, or receipt; rebinding remains a later explicit per-selection operation.
 - Failure path: view generation failure retains paid evidence and the review version, does not re-buy successful views, and does not affect old bindings.
 - Ownership: another user/story cannot accept, inspect, or bind the proposal.
+- Accessibility/responsive: keyboard, focus, announcements, semantic delta text, touch targets, and narrow-screen action ordering are covered by React tests in both chat and asset-library surfaces.
 
 **Verification:**
 
@@ -534,15 +583,17 @@ flowchart TB
 flowchart TB
   UI["Creator settings and proposal UI"] --> API["Owner-scoped tRPC and CAS services"]
   API --> STATE["Story art state and visual-asset versions"]
-  STATE --> GATE["Single render gate"]
-  GATE --> PROVIDER["Image providers"]
-  GATE --> AUDIT["Image-prompt attempts"]
+  STATE --> CTX["Immutable compilation context"]
+  CTX --> GATE["Pure render-gate compiler"]
+  GATE --> ARTIFACT["Persisted compiled artifact"]
+  ARTIFACT --> PROVIDER["Image providers"]
+  ARTIFACT --> AUDIT["Image-prompt attempts"]
   PROVIDER --> AUDIT
   AUDIT --> EVAL["Offline evaluation and feedback"]
 ```
 
-- **Interaction graph:** creator preference and story facts feed evidence normalization and the deterministic selector; the server-owned story main plus stable-shot evidence form one decision snapshot; locked-outfit conflicts divert before claim/payment; otherwise one compiled artifact is claimed, submitted, and CAS-settled by the caller.
-- **Error propagation:** classifier/selector/catalog/location uncertainty degrades to no conditional card; ownership, locked-asset conflict, stale artifact/proposal, and missing paid reference remain blocking errors; provider failure/unknown settles the attempt without automatic resubmission.
+- **Interaction graph:** creator preference and story facts feed local evidence normalization and the deterministic selector; the server-owned story main plus stable-shot evidence form one decision snapshot; locked-outfit conflicts divert before claim/payment; otherwise the caller hydrates one immutable compilation context, persists the pure compiler output, and claims/submits/CAS-settles that artifact.
+- **Error propagation:** normalizer/selector/catalog/location uncertainty degrades to no conditional card; input-loader errors, ownership, locked-asset conflict, stale artifact/proposal, and missing paid reference remain blocking errors; provider failure/unknown settles or enters the leased reconciliation path without automatic resubmission.
 - **State lifecycle risks:** stale client saves, story-selection CAS races, preference withdrawal, catalog upgrades, travel/time changes, stale seasonal proposals, and attempt/image partial writes require server-owned merge rules, bound fingerprints, idempotent claim/CAS settlement, and reconciliation. Old story/art/asset/catalog versions remain readable.
 - **API surface parity:** all static image routes must declare purpose and supply or intentionally skip semantic context. Client and server types plus SQL/local JSON lifecycle operations—create/load/update/clear/delete/merge/export/rollback—must remain behaviorally symmetric.
 - **Integration coverage:** unit tests cannot prove the actual provider prompt matches the audit, so each entry class needs callback-capture integration coverage; asset proposal tests must cross service, router, and UI confirmation boundaries.
@@ -555,14 +606,18 @@ flowchart TB
 | Risk | Mitigation |
 |------|------------|
 | Semantic false positives homogenize unrelated stories | Require evidence threshold + margin, counter-signals, purpose gates, deterministic near-negative fixtures, and skip on uncertainty. |
+| Local normalization fails to capture a valid paraphrase | Version concept aliases and structural rules, report missed-trigger fixtures, and add remote classification only through a separately reviewed privacy/security change. |
 | Catalog claims misattribute artist, period, or region | Use reviewed offline sources, separate provenance from observable traits, version entries, and output no artist when a claim is uncertain. |
 | Story main style drifts between shots | Persist story main choice with evidence/catalog fingerprints and explicit stale semantics; snapshot each attempt. |
 | Creator time zone is mistaken for location/climate | Require an explicit coarse seasonal profile; treat browser time zone as suggestion/local-date input only; unknown means no inference. |
 | Seasonal clothing breaks locked character identity | Divert to a deep-copied review version, invalidate old views, separate all confirmations, and keep old bindings until explicit rebind. |
 | Audit write and provider/image outcome diverge | Use an idempotent attempt lifecycle and link the actual callback prompt/hash and resulting image or failure state. |
+| Preview, quote, and submit use different prompt text | Persist an owner-scoped compiled artifact and bind every stage and receipt to its opaque ID and content hash. |
+| Hidden render-gate reads make replay nondeterministic | Hydrate rejection, preference, repository, reference, purpose, and asset inputs once through the versioned context loader. |
 | A stale browser save erases the selected story main | Store semantic selection in a dedicated server-owned slice and add stale-client merge/round-trip tests. |
 | One operation token is replayed with changed inputs | Bind owner scope and a non-null input hash; reject token/hash conflicts and make terminal states irreversible. |
 | Provider succeeds during a DB crash window | Settle as unknown/reconcilable, index provider task IDs, and never automatically repurchase. |
+| Unknown paid work remains permanently unattached | Use leased reconciliation and provider task lookup where available; otherwise terminate in manual review without automatic retry. |
 | Existing prompt paths bypass the new decision | Maintain a cross-entry matrix, classify purpose explicitly, validate preserved compiled prompts, and test provider callbacks for each class. |
 | Prompt budget pushes user instructions or hard rules out | Preserve current latest-instruction and hard-constraint budgeting; add long/MJ regression cases. |
 | Dirty working tree causes unrelated schema/router changes to be overwritten | Re-check status and diffs before execution, edit narrowly, and do not revert existing user/other-session changes. |
@@ -576,9 +631,22 @@ flowchart TB
 - Implementation must begin with `pnpm env:status`; only the main repository may run the port-3000 dev server, and worktrees may not write `.webdev` business data.
 - This plan contains no paid verification. Any later real-image validation requires a separate explicit quote/confirmation and must preserve all candidates and receipts.
 - Add concise UI copy explaining whether a decision came from explicit user choice, story inference, or current-season default; do not expose raw private evidence.
-- Define retention explicitly: ordinary semantic preferences/selections follow story/account deletion; audit records retain only bounded/de-identified evidence needed for provider or paid reconciliation. Clearing a preference increments revision immediately.
+- Apply the lifecycle matrix explicitly: account-level preferences survive story deletion and disappear on account deletion; story selections/artifacts follow their story; retained paid/reconciliation records delete prompt text and reversible creator/story content. Clearing a preference increments revision immediately.
+- Keep first-release evidence normalization local and deterministic. Any future hosted classifier is a separate security/privacy decision requiring approved provider terms, minimum-field inputs, server-side credentials, environment separation, redacted logs, bounded retention, versioned outputs, and fail-to-unknown behavior.
 - Rollout sequence is schema/read compatibility, observe-only computation and recording, metric review, then gated application. Rollback never drops the additive schema or historical evidence.
 - Record the new feature under the existing `unified-static-image-prompt`, `prompt-lineage`, and `story-visual-assets` ledger cards unless implementation creates a durable independently user-visible capability warranting its own card.
+
+---
+
+## Deferred / Open Questions
+
+### From 2026-08-31 review
+
+- **Generation-purpose contract is not defined** — U4. Integrate one render-gate compilation and immutable attempt audit (P1, feasibility, confidence 100)
+
+  Routes cannot apply factual, product, and standard-view suppression consistently until the authoritative purpose taxonomy and every existing entry-point mapping are confirmed. The current contract groups some verification imagery under generic image-edit behavior, so implementation must inventory callers and resolve the mapping before enabling conditional cards on those paths.
+
+  <!-- dedup-key: section="u4 integrate one rendergate compilation and immutable attempt audit" title="generationpurpose contract is not defined" evidence="All static image routes must declare purpose and supply or intentionally skip semantic context." -->
 
 ---
 
