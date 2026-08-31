@@ -32,51 +32,6 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
- * CreatorVisualPreferences — creator-controlled, privacy-safe season context.
- *
- * Browser time zone is stored only after confirmation. It is never a proxy for
- * physical location; only the explicit four-season profile can derive season.
- */
-export const creatorVisualPreferences = mysqlTable(
-  "creator_visual_preferences",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    userId: int("userId")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    seasonalProfile: mysqlEnum("seasonalProfile", [
-      "northern_four_seasons",
-      "southern_four_seasons",
-      "tropical_or_non_four_season",
-      "unknown",
-    ])
-      .default("unknown")
-      .notNull(),
-    timeZone: varchar("timeZone", { length: 64 }),
-    source: mysqlEnum("source", [
-      "manual",
-      "browser_confirmed",
-      "cleared",
-    ])
-      .default("cleared")
-      .notNull(),
-    revision: int("revision").default(1).notNull(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => ({
-    userUnique: uniqueIndex("creator_visual_preferences_user_unique").on(
-      table.userId
-    ),
-  })
-);
-
-export type CreatorVisualPreference =
-  typeof creatorVisualPreferences.$inferSelect;
-export type InsertCreatorVisualPreference =
-  typeof creatorVisualPreferences.$inferInsert;
-
-/**
  * AccessSessions — 已登录用户的轻量访问时长记录。
  *
  * 只记录访问起止和累计活跃秒数，不保存 IP、设备指纹、访问内容或故事数据。
