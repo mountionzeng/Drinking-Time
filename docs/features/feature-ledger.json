@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-31T22:29:00+08:00",
+  "updatedAt": "2026-08-31T23:12:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -100,6 +100,40 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "修复聊天选区跨故事串台：clearCurrentStory 逐个清了 22 个字段却漏了 activeSelection，而 loadStory 压根不走 clearCurrentStory，于是从故事 A 切到 B 后 A 的选区仍挂在输入框上，下方还提示「下一条消息会带着这个选区交给聊聊」。现在切换时真正清除，并在聊天切片选择器和 sendSelectionEdit 两处按 storyId 兜底。"
+        }
+      ]
+    },
+    {
+      "id": "selection-scoped-chat-editing",
+      "name": "聊天选区定向修改",
+      "status": "planned",
+      "userValue": "选中文字、图片或图片局部后，只用一句自然语言修改该选区，选区之外保持不变。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md"
+      ],
+      "invariants": [
+        "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
+        "文字选区之外的原文、整图选区之外的图片与镜头、图片局部选区之外的像素必须保持不变。",
+        "目标内容、图片版本、局部蒙版或所属 Story 变化后，旧选区必须失败关闭并要求重新选择。",
+        "三类选区共享交互语义，但不得绕过既有故事归属、图片权限、非破坏性编辑、报价确认和候选采用规则。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "image-preview-local-edit-ocr",
+        "preview-object-mask-editing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "现有文字、整图和图片局部选区已经分别存在，但尚未统一生命周期、范围展示、漂移校验和提交分流。",
+        "当前需求已确认，尚未形成实现计划、权威代码或可执行验收证据。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "decision",
+          "summary": "确认『选区即作用范围』：文字只改所选文字，整图只改目标图片，图片局部只改确认区域；无选区不猜测，目标漂移后失败关闭，并保留各自既有安全与费用流程。"
         }
       ]
     },
