@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 
 import { drizzle } from "drizzle-orm/mysql2";
@@ -59,6 +60,54 @@ export type MysqlTestDatabase = {
   databaseUrl: string;
   cleanup: () => Promise<void>;
 };
+
+export type MysqlTestWorker = {
+  process: ChildProcessWithoutNullStreams;
+  completion: Promise<{ stdout: string; stderr: string }>;
+};
+
+export function spawnMysqlTestWorker(input: {
+  databaseUrl: string;
+  script: string;
+  args?: string[];
+}): MysqlTestWorker {
+  const executable = path.resolve(process.cwd(), "node_modules/.bin/tsx");
+  const child = spawn(executable, [input.script, ...(input.args ?? [])], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      DATABASE_URL: input.databaseUrl,
+      NODE_ENV: "test",
+      VITEST: "1",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", chunk => {
+    stderr += chunk;
+  });
+  return {
+    process: child,
+    completion: new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+        reject(new Error(
+          `MySQL test worker failed (${code ?? signal ?? "unknown"})\n${stderr || stdout}`
+        ));
+      });
+    }),
+  };
+}
 
 export async function createMysqlTestDatabase(input: {
   rootUrl?: string;

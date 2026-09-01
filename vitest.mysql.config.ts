@@ -16,6 +16,7 @@ export default defineConfig({
     environment: "node",
     minWorkers: 1,
     maxWorkers: 1,
+    globalSetup: ["./vitest.globalSetup.ts"],
     setupFiles: ["./vitest.setup.ts"],
     include: ["server/integration/**/*.mysql.test.ts"],
     testTimeout: 120_000,

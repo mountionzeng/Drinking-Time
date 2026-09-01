@@ -18,6 +18,8 @@ import {
   computePublishingDraftContentHash,
   computePublishingSimpleVersionRequestHash,
   computePublishingVersionRequestHash,
+  getPublishingBodyRevision,
+  getPublishingContentError,
   publishingDraftBufferKey,
   type PublishingStoryCoreContent,
   type PublishingTextOperationReceipt,
@@ -77,6 +79,53 @@ export class PublishingDraftConflictError extends Error {
   }
 }
 
+export type PublishingBodyConflictReason =
+  | "body_changed"
+  | "scope_changed"
+  | "target_missing"
+  | "retry_exhausted";
+
+export type PublishingBodyDocument = {
+  storyId: number;
+  storyRevision: number;
+  versionId: string;
+  platform: PublishingPlatformId;
+  body: string;
+  bodyRevision: number;
+  draftRevision: number;
+  versionRevision: number;
+  containerRevision: number;
+  publishingRevision: number;
+  updatedAt: number;
+};
+
+export class PublishingBodyConflictError extends Error {
+  constructor(
+    public readonly reason: PublishingBodyConflictReason,
+    public readonly latestDocument: PublishingBodyDocument | null
+  ) {
+    super(`Publishing body conflict: ${reason}`);
+    this.name = "PublishingBodyConflictError";
+  }
+}
+
+export class PublishingBodyUnavailableError extends Error {
+  constructor(
+    public readonly versionId: string,
+    public readonly platform: PublishingPlatformId
+  ) {
+    super("当前发布版本还没有可编辑正文，请先在电脑端生成发布稿");
+    this.name = "PublishingBodyUnavailableError";
+  }
+}
+
+export class PublishingBodyValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PublishingBodyValidationError";
+  }
+}
+
 type InitializeOperation = {
   type: "initialize";
   activePlatform: PublishingPlatformId;
@@ -100,6 +149,15 @@ type UpsertDraftOperation = {
   baseContainerRevision?: number;
   baseVersionRevision?: number;
   textOperationReceipt?: PublishingTextOperationReceipt;
+  storyId?: number;
+};
+
+type SaveBodyOperation = {
+  type: "save_body";
+  versionId: string;
+  platform: PublishingPlatformId;
+  body: string;
+  baseBodyRevision: number;
   storyId?: number;
 };
 
@@ -312,6 +370,7 @@ export type AdoptPublishingAlbumBackgroundOperation = {
 export type PublishingDraftWriteOperation =
   | InitializeOperation
   | UpsertDraftOperation
+  | SaveBodyOperation
   | ApplyWordingOperation
   | ConfirmCoreOperation
   | SetSelectionOperation
@@ -641,6 +700,9 @@ function applyVersionOperation(
     appliedBaseline: structuredClone(op.content),
     sourceCoreRevision: nextCore.revision,
     revision: (priorDraft?.revision ?? 0) + 1,
+    // A version/platform pair is a new document scope even when its initial
+    // text was copied from the parent version.
+    bodyRevision: 1,
     needsReview: false,
     updatedAt: now,
   };
@@ -1513,6 +1575,71 @@ function applyOperation(
         now
       );
     }
+    case "save_body": {
+      if (
+        current.activeVersionId !== operation.versionId ||
+        current.activePlatform !== operation.platform
+      ) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseBodyRevision,
+          current.containerRevision ?? current.revision
+        );
+      }
+      const version = current.versions?.find(
+        candidate => candidate.versionId === operation.versionId
+      );
+      const draft = current.drafts[operation.platform];
+      if (!version || !draft) {
+        throw new PublishingDraftConflictError(
+          operation.platform,
+          operation.baseBodyRevision,
+          draft ? getPublishingBodyRevision(draft) : 0
+        );
+      }
+      assertRevision(
+        operation.platform,
+        operation.baseBodyRevision,
+        getPublishingBodyRevision(draft)
+      );
+      validatePublishingBodyInput(
+        operation.platform,
+        operation.body,
+        draft.content
+      );
+      if (draft.content.body === operation.body) return current;
+      const nextDraft = {
+        ...draft,
+        content: { ...draft.content, body: operation.body },
+        appliedBaseline: { ...draft.appliedBaseline, body: operation.body },
+        revision: draft.revision + 1,
+        bodyRevision: getPublishingBodyRevision(draft) + 1,
+        updatedAt: now,
+      };
+      return {
+        ...current,
+        revision: current.revision + 1,
+        containerRevision:
+          (current.containerRevision ?? current.revision) + 1,
+        drafts: {
+          ...current.drafts,
+          [operation.platform]: nextDraft,
+        },
+        versions: current.versions?.map(candidate =>
+          candidate.versionId === operation.versionId
+            ? {
+                ...candidate,
+                versionRevision: candidate.versionRevision + 1,
+                drafts: {
+                  ...candidate.drafts,
+                  [operation.platform]: structuredClone(nextDraft),
+                },
+              }
+            : candidate
+        ),
+        updatedAt: now,
+      };
+    }
     case "apply_wording": {
       assertRevision(
         operation.platform,
@@ -1675,6 +1802,236 @@ export async function getPublishingDraftState(
     storyRevision: getStoryRevision(body),
     publishing: normalizeStoredPublishing(body.publishing),
   };
+}
+
+function storyBodyRecord(story: { body: unknown }): Record<string, unknown> {
+  return story.body &&
+    typeof story.body === "object" &&
+    !Array.isArray(story.body)
+    ? (story.body as Record<string, unknown>)
+    : {};
+}
+
+function publishingBodyDocumentFromState(params: {
+  storyId: number;
+  storyRevision: number;
+  publishing: PublishingDraftState;
+}): PublishingBodyDocument | null {
+  const active = resolvePublishingActiveVersion(params.publishing);
+  const draft = active.drafts[active.activePlatform];
+  if (!draft) return null;
+  return {
+    storyId: params.storyId,
+    storyRevision: params.storyRevision,
+    versionId: active.versionId,
+    platform: active.activePlatform,
+    body: draft.content.body,
+    bodyRevision: getPublishingBodyRevision(draft),
+    draftRevision: draft.revision,
+    versionRevision: active.versionRevision,
+    containerRevision:
+      params.publishing.containerRevision ?? params.publishing.revision,
+    publishingRevision: params.publishing.revision,
+    updatedAt: draft.updatedAt,
+  };
+}
+
+function publishingBodyStateFromStory(
+  storyId: number,
+  story: { body: unknown }
+): {
+  body: Record<string, unknown>;
+  publishing: PublishingDraftState;
+  document: PublishingBodyDocument | null;
+} {
+  const body = storyBodyRecord(story);
+  const normalized = normalizeStoredPublishing(body.publishing);
+  const publishing = projectVersion(
+    normalized,
+    normalized.activeVersionId ?? "v1"
+  );
+  return {
+    body,
+    publishing,
+    document: publishingBodyDocumentFromState({
+      storyId,
+      storyRevision: getStoryRevision(body),
+      publishing,
+    }),
+  };
+}
+
+function bodyConflictForState(params: {
+  storyId: number;
+  publishing: PublishingDraftState;
+  body: Record<string, unknown>;
+  versionId: string;
+  platform: PublishingPlatformId;
+  baseBodyRevision: number;
+}): PublishingBodyConflictError | null {
+  const latestDocument = publishingBodyDocumentFromState({
+    storyId: params.storyId,
+    storyRevision: getStoryRevision(params.body),
+    publishing: params.publishing,
+  });
+  const targetVersion = params.publishing.versions?.find(
+    version => version.versionId === params.versionId
+  );
+  const targetDraft = targetVersion?.drafts[params.platform];
+  if (!targetVersion || !targetDraft) {
+    return new PublishingBodyConflictError("target_missing", latestDocument);
+  }
+  if (
+    params.publishing.activeVersionId !== params.versionId ||
+    params.publishing.activePlatform !== params.platform
+  ) {
+    return new PublishingBodyConflictError("scope_changed", latestDocument);
+  }
+  if (getPublishingBodyRevision(targetDraft) !== params.baseBodyRevision) {
+    return new PublishingBodyConflictError("body_changed", latestDocument);
+  }
+  return null;
+}
+
+function validatePublishingBodyInput(
+  platform: PublishingPlatformId,
+  body: string,
+  draft: PublishingDraftContent
+): void {
+  if (body.length > 20_000) {
+    throw new PublishingBodyValidationError("发布正文不能超过 20000 个字符");
+  }
+  const content = { ...draft, body };
+  const contentError = getPublishingContentError(platform, content);
+  if (contentError) throw new PublishingBodyValidationError(contentError);
+}
+
+export async function getPublishingBodyDocument(
+  storyId: number,
+  userId: number
+): Promise<PublishingBodyDocument> {
+  const result = await getPublishingDraftState(storyId, userId);
+  const document = publishingBodyDocumentFromState(result);
+  if (!document) {
+    const active = resolvePublishingActiveVersion(result.publishing);
+    throw new PublishingBodyUnavailableError(
+      active.versionId,
+      active.activePlatform
+    );
+  }
+  return document;
+}
+
+const PUBLISHING_BODY_CAS_ATTEMPTS = 3;
+
+export async function savePublishingBodyDocument(params: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+  platform: PublishingPlatformId;
+  baseBodyRevision: number;
+  body: string;
+  now?: number;
+}): Promise<PublishingBodyDocument> {
+  if (!Number.isInteger(params.baseBodyRevision) || params.baseBodyRevision < 1) {
+    throw new PublishingBodyValidationError("正文修订号无效");
+  }
+  return withStoryWriteLock(`${params.userId}:${params.storyId}`, async () => {
+    let story = await getStoryById(params.storyId, params.userId);
+    if (!story) throw new PublishingDraftOwnershipError(params.storyId);
+
+    for (let attempt = 0; attempt < PUBLISHING_BODY_CAS_ATTEMPTS; attempt += 1) {
+      const current = publishingBodyStateFromStory(params.storyId, story);
+      const conflict = bodyConflictForState({
+        storyId: params.storyId,
+        publishing: current.publishing,
+        body: current.body,
+        versionId: params.versionId,
+        platform: params.platform,
+        baseBodyRevision: params.baseBodyRevision,
+      });
+      if (conflict) throw conflict;
+      const currentDocument = current.document!;
+      const draft = current.publishing.drafts[params.platform]!;
+      validatePublishingBodyInput(params.platform, params.body, draft.content);
+      if (currentDocument.body === params.body) return currentDocument;
+
+      const now = params.now ?? Date.now();
+      const publishing = canonicalize(
+        applyOperation(
+          current.publishing,
+          {
+            type: "save_body",
+            versionId: params.versionId,
+            platform: params.platform,
+            body: params.body,
+            baseBodyRevision: params.baseBodyRevision,
+            storyId: params.storyId,
+          },
+          now
+        )
+      );
+      inspectPublishingSerializedOutput(publishing);
+      if (!inspectPublishingProjection(publishing).equivalent) {
+        throw new Error("Publishing canonical projection mismatch");
+      }
+      assertPublishingCapacity(publishing);
+      const expectedStoryRevision = getStoryRevision(current.body);
+      const storyRevision = expectedStoryRevision + 1;
+      const bodyWithPublishing = { ...current.body, publishing };
+      const nextBody = prepareStoryBody(
+        bodyWithPublishing,
+        storyRevision,
+        bodyWithPublishing
+      );
+      assertStoryCapacity(nextBody);
+
+      try {
+        await persistPreparedStoryBody({
+          storyId: params.storyId,
+          userId: params.userId,
+          expectedRevision: expectedStoryRevision,
+          body: nextBody,
+        });
+        const document = publishingBodyDocumentFromState({
+          storyId: params.storyId,
+          storyRevision,
+          publishing,
+        });
+        if (!document) {
+          throw new PublishingBodyUnavailableError(
+            params.versionId,
+            params.platform
+          );
+        }
+        return document;
+      } catch (error) {
+        if (!(error instanceof StoryBodyRevisionConflictError)) throw error;
+        const latest = publishingBodyStateFromStory(
+          params.storyId,
+          error.latestStory
+        );
+        const latestConflict = bodyConflictForState({
+          storyId: params.storyId,
+          publishing: latest.publishing,
+          body: latest.body,
+          versionId: params.versionId,
+          platform: params.platform,
+          baseBodyRevision: params.baseBodyRevision,
+        });
+        if (latestConflict) throw latestConflict;
+        if (attempt === PUBLISHING_BODY_CAS_ATTEMPTS - 1) {
+          throw new PublishingBodyConflictError(
+            "retry_exhausted",
+            latest.document
+          );
+        }
+        story = error.latestStory;
+      }
+    }
+
+    throw new PublishingBodyConflictError("retry_exhausted", null);
+  });
 }
 
 export async function writePublishingDraftState(params: {

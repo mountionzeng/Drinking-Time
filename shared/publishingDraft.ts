@@ -307,9 +307,25 @@ export type PublishingPlatformDraft = {
   appliedBaseline: PublishingDraftContent;
   sourceCoreRevision: number;
   revision: number;
+  /**
+   * Monotonic revision for body text only. Legacy payloads omit it and are
+   * normalized from the draft revision before the next write.
+   */
+  bodyRevision?: number;
   needsReview: boolean;
   updatedAt: number;
 };
+
+export function getPublishingBodyRevision(
+  draft: Pick<PublishingPlatformDraft, "bodyRevision" | "revision">
+): number {
+  return Math.max(
+    1,
+    Number.isInteger(draft.bodyRevision) && (draft.bodyRevision ?? 0) > 0
+      ? draft.bodyRevision!
+      : draft.revision
+  );
+}
 
 export type PublishingCoverReference = {
   assetId: number;
@@ -1005,12 +1021,17 @@ function normalizePlatformDraft(
   if (!content) return null;
   const appliedBaseline =
     normalizeDraftContent(obj.appliedBaseline) ?? cloneDraftContent(content);
+  const revision = Math.max(1, finiteNonNegativeInteger(obj.revision, 1));
   return {
     platform,
     content,
     appliedBaseline,
     sourceCoreRevision: finiteNonNegativeInteger(obj.sourceCoreRevision),
-    revision: Math.max(1, finiteNonNegativeInteger(obj.revision, 1)),
+    revision,
+    bodyRevision: Math.max(
+      1,
+      finiteNonNegativeInteger(obj.bodyRevision, revision)
+    ),
     needsReview: obj.needsReview === true,
     updatedAt: timestamp(obj.updatedAt, now),
   };
@@ -1602,6 +1623,10 @@ export function upsertPublishingPlatformDraft(
   const now = params.now ?? Date.now();
   const existing = state.drafts[params.platform];
   const acceptedContent = normalizeAcceptedContent(params.content);
+  const bodyRevision = existing
+    ? getPublishingBodyRevision(existing) +
+      (existing.content.body === acceptedContent.body ? 0 : 1)
+    : 1;
   const selectedPlatforms = state.selectedPlatforms.includes(params.platform)
     ? [...state.selectedPlatforms]
     : [...state.selectedPlatforms, params.platform];
@@ -1618,6 +1643,7 @@ export function upsertPublishingPlatformDraft(
         appliedBaseline: cloneDraftContent(acceptedContent),
         sourceCoreRevision: state.core?.revision ?? 0,
         revision: (existing?.revision ?? 0) + 1,
+        bodyRevision,
         needsReview: false,
         updatedAt: now,
       },
@@ -1668,6 +1694,9 @@ export function confirmPublishingCoreChange(
             appliedBaseline: cloneDraftContent(acceptedContent),
             sourceCoreRevision: nextCoreRevision,
             revision: existing.revision + 1,
+            bodyRevision:
+              getPublishingBodyRevision(existing) +
+              (existing.content.body === acceptedContent.body ? 0 : 1),
             needsReview: false,
             updatedAt: now,
           }
@@ -1681,6 +1710,7 @@ export function confirmPublishingCoreChange(
       appliedBaseline: cloneDraftContent(acceptedContent),
       sourceCoreRevision: nextCoreRevision,
       revision: 1,
+      bodyRevision: 1,
       needsReview: false,
       updatedAt: now,
     };

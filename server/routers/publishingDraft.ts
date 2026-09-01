@@ -52,9 +52,14 @@ import { inspectStaticImageCandidates } from "../services/staticImageQualityGate
 import { storyArtRecipe } from "./_storyShared";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
 import {
+  PublishingBodyConflictError,
+  PublishingBodyUnavailableError,
+  PublishingBodyValidationError,
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
+  getPublishingBodyDocument,
   getPublishingDraftState,
+  savePublishingBodyDocument,
   writePublishingDraftState,
 } from "../services/publishingPersistence";
 import {
@@ -220,6 +225,12 @@ function throwPublishingError(error: unknown): never {
       message: "这份发布稿已经在别处更新，请刷新后再应用",
       cause: error,
     });
+  }
+  if (
+    error instanceof PublishingBodyUnavailableError ||
+    error instanceof PublishingBodyValidationError
+  ) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
   if (error instanceof PublishingDraftModelOutputError) {
     throw new TRPCError({
@@ -804,6 +815,47 @@ function coverArtRecipe(
 }
 
 export const publishingDraftRouter = router({
+  readBody: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getPublishingBodyDocument(input.storyId, ctx.user.id);
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  saveBody: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      platform: platformSchema,
+      baseBodyRevision: z.number().int().positive(),
+      body: z.string().max(20_000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const document = await savePublishingBodyDocument({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          versionId: input.versionId,
+          platform: input.platform,
+          baseBodyRevision: input.baseBodyRevision,
+          body: input.body,
+        });
+        return { status: "saved" as const, document };
+      } catch (error) {
+        if (error instanceof PublishingBodyConflictError) {
+          return {
+            status: "conflict" as const,
+            reason: error.reason,
+            latestDocument: error.latestDocument,
+          };
+        }
+        throwPublishingError(error);
+      }
+    }),
+
   read: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {

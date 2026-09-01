@@ -97,6 +97,28 @@ function procedureBlocks(content: string): Array<[string, string, string]> {
 }
 
 describe("router ownership boundaries", () => {
+  it("keeps mobile publishing-body reads and writes owner-scoped", async () => {
+    const publishingRouter = (await routerSources()).find(
+      source => source.file === "publishingDraft.ts"
+    );
+    expect(publishingRouter).toBeDefined();
+    const procedures = new Map(
+      procedureBlocks(publishingRouter!.content).map(([name, kind, body]) => [
+        name,
+        { kind, body },
+      ])
+    );
+
+    expect(procedures.get("readBody")?.kind).toBe("protectedProcedure");
+    expect(procedures.get("readBody")?.body).toMatch(
+      /getPublishingBodyDocument\(input\.storyId,\s*ctx\.user\.id\)/
+    );
+    expect(procedures.get("saveBody")?.kind).toBe("protectedProcedure");
+    expect(procedures.get("saveBody")?.body).toMatch(
+      /savePublishingBodyDocument\(\{[\s\S]*?storyId:\s*input\.storyId,[\s\S]*?userId:\s*ctx\.user\.id/
+    );
+  });
+
   it("verifies project ownership on every procedure that accepts a projectId", async () => {
     const sources = await routerSources();
     const violations: string[] = [];
