@@ -148,15 +148,15 @@ install_node_if_needed() {
   log "安装 Node.js 22 LTS（当前主版本：${current_major}，最低要求：${NODE_MAJOR_MIN}）。"
   case "$pm" in
     apt)
-      run_bash "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
+      run_bash "curl -fsSL --connect-timeout 10 --max-time 120 https://deb.nodesource.com/setup_22.x | bash -"
       install_packages "$pm" nodejs
       ;;
     dnf)
-      run_bash "curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -"
+      run_bash "curl -fsSL --connect-timeout 10 --max-time 120 https://rpm.nodesource.com/setup_22.x | bash -"
       install_packages "$pm" nodejs
       ;;
     yum)
-      run_bash "curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -"
+      run_bash "curl -fsSL --connect-timeout 10 --max-time 120 https://rpm.nodesource.com/setup_22.x | bash -"
       install_packages "$pm" nodejs
       ;;
     *)
@@ -604,8 +604,8 @@ health_check() {
     echo "[DRY_RUN] 公网仍未发布；下一步先 dry-run switch-www-drinkingtime-after-icp.sh。"
     return
   fi
-  curl -fsS "http://127.0.0.1:$APP_PORT/healthz"
-  curl -fsS "http://127.0.0.1:$APP_PORT/readyz"
+  curl -fsS --connect-timeout 5 --max-time 15 "http://127.0.0.1:$APP_PORT/healthz"
+  curl -fsS --connect-timeout 5 --max-time 15 "http://127.0.0.1:$APP_PORT/readyz"
   log "应用与 MySQL 已就绪，但公网尚未发布。审核 HTTPS 切换 dry-run 后再启用。"
 }
 

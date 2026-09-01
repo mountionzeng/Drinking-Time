@@ -72,10 +72,16 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, meQuery.data?.id, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(
+          "manus-runtime-user-info",
+          JSON.stringify(meQuery.data)
+        );
+      } catch {
+        // Authentication must remain usable when browser storage is denied.
+      }
+    }
     return {
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,

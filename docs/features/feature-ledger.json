@@ -2514,11 +2514,13 @@
         "docs/plans/2026-09-01-001-feat-mobile-cross-device-workspace-plan.md",
         "docs/qa/2026-09-01-mobile-cross-device-acceptance.md",
         "client/src/app/router/AppRouter.test.tsx",
+        "client/src/_core/hooks/useAuth.test.tsx",
         "client/src/features/mobileWorkspace/MobileWorkspace.test.tsx",
         "client/src/features/mobileWorkspace/useMobileConversation.test.tsx",
         "client/src/features/mobileWorkspace/useMobileDocument.test.tsx",
         "server/routers.storyConversation.test.ts",
         "server/services/storyConversation.mobile.test.ts",
+        "server/integration/storyConversation.mysql.test.ts",
         "server/routers.publishingDraft.test.ts",
         "server/services/publishingPersistence.test.ts",
         "server/_core/productionReadiness.test.ts",
@@ -2541,7 +2543,7 @@
       "replaces": [],
       "knownGaps": [
         "尚未获得授权把本分支部署到真实公网 HTTPS，因此 Secure Cookie、登录返回 /m 和不同账号隔离仍缺真实域名证据。",
-        "尚未在一次性/生产 MySQL 上完成两进程正文 CAS 与同 turn generation claim；未设置 TEST_MYSQL_DATABASE_URL 时测试会明确跳过，不能算发布通过。",
+        "尚未在一次性/生产 MySQL 上完成两进程正文 CAS 与同 turn generation claim；未设置 TEST_MYSQL_DATABASE_URL 时命令会失败关闭并拒绝执行，当前未执行，不能算发布通过。",
         "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
         "生产迁移 ledger/schema、备份、expand/dual-read/enforce 和 rollback-safe point 尚未在获批的真实环境核对。"
@@ -2561,6 +2563,11 @@
           "date": "2026-09-01",
           "kind": "verification",
           "summary": "补齐生产 fail-closed 闸门与可审计 HTTPS dry-run：真实 auth、强会话密钥、HTTPS origin、utf8mb4 MySQL、受限 trust proxy、Secure/Lax Cookie、unsafe API Origin、CSP、health/readiness 和 nginx 备份均有自动化约束。代码进入 observing；公网、真实 MySQL race 与 iOS/Android 证据仍按 No-Go 保留。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "Tier 2 代码审查补强跨进程 turn 预留、HTTPS 跳转与发布回滚：MySQL 通过会话行锁事务在模型调用前拒绝跨角色消息 ID 冲突；HTTP 跳转固定到 APP_ORIGIN；健康探针和 NodeSource 下载有超时；nginx reload 结果不确定时恢复、校验并再次 reload 旧配置。退出存储拒绝和聊天 append 失败均有行为测试。功能定向 28 文件 254 项、全量 421 文件 3445 项通过，5 项环境门禁跳过；TEST_MYSQL_DATABASE_URL 缺失时命令失败关闭，因此功能继续保持 observing / 发布 No-Go。"
         }
       ]
     },

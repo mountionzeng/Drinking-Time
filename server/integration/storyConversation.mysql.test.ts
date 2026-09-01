@@ -228,4 +228,105 @@ describeMysql("Story conversation logical turns on MySQL", () => {
       }
     });
   }, 120_000);
+
+  it("atomically rejects a client message ID claimed across opposite roles", async () => {
+    await withMysqlTestDatabase(async database => {
+      const setup = await mysql.createConnection(database.databaseUrl);
+      let userId = 0;
+      let storyId = 0;
+      try {
+        await setup.execute(
+          "CREATE TABLE turn_generation_audit (`id` int AUTO_INCREMENT PRIMARY KEY, `clientTurnId` varchar(128) NOT NULL)"
+        );
+        const [userResult] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO users (`openId`, `name`, `email`, `loginMethod`) VALUES (?, ?, ?, ?)",
+          ["mysql-cross-role-owner", "Owner", "cross-role@example.test", "test"]
+        );
+        userId = userResult.insertId;
+        const [storyResult] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO stories (`userId`, `title`, `body`) VALUES (?, ?, ?)",
+          [userId, "Cross-role race", JSON.stringify({ cards: [], shots: [] })]
+        );
+        storyId = storyResult.insertId;
+        await setup.execute(
+          "INSERT INTO story_prompt_states (`storyId`, `userId`, `version`, `migrationStatus`) VALUES (?, ?, 0, 'migrated')",
+          [storyId, userId]
+        );
+        await setup.execute(
+          "INSERT INTO story_conversations (`storyId`, `userId`) VALUES (?, ?)",
+          [storyId, userId]
+        );
+        // Widen the exact INSERT window so the old precheck-then-insert
+        // implementation deterministically lets both independent workers pass
+        // their collision reads before either new turn is visible. The fixed
+        // implementation holds the conversation row lock, so only its winner
+        // reaches this trigger and the loser conflicts before model audit.
+        await setup.execute(
+          "CREATE TRIGGER story_turn_cross_role_race BEFORE INSERT ON story_conversation_turns FOR EACH ROW SET @story_turn_cross_role_race_delay = SLEEP(1)"
+        );
+      } finally {
+        await setup.end();
+      }
+
+      const sharedMessageId = "mysql-cross-role-shared-message";
+      const startAtMs = Date.now() + 750;
+      const leftIdentity = {
+        storyId,
+        userId,
+        clientTurnId: "mysql-cross-role-left",
+        userClientMessageId: sharedMessageId,
+        assistantClientMessageId: "mysql-cross-role-left-assistant",
+        userContent: "左侧问题",
+      };
+      const rightIdentity = {
+        storyId,
+        userId,
+        clientTurnId: "mysql-cross-role-right",
+        userClientMessageId: "mysql-cross-role-right-user",
+        assistantClientMessageId: sharedMessageId,
+        userContent: "右侧问题",
+      };
+      const workers = [leftIdentity, rightIdentity].map(identity =>
+        startWorker(database.databaseUrl, {
+          action: "generate",
+          ...identity,
+          requestHash: computeStoryConversationTurnRequestHash(identity),
+          startAtMs,
+        })
+      );
+      const results = await Promise.all(
+        workers.map(worker =>
+          workerResult<{
+            ok: boolean;
+            result?: { status: string };
+            error?: { name: string };
+          }>(worker)
+        )
+      );
+
+      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.find(result => result.ok)?.result?.status).toBe(
+        "completed"
+      );
+      expect(results.find(result => !result.ok)?.error?.name).toBe(
+        "StoryConversationIdempotencyConflictError"
+      );
+
+      const verify = await mysql.createConnection(database.databaseUrl);
+      try {
+        const [auditRows] = await verify.execute<mysql.RowDataPacket[]>(
+          "SELECT COUNT(*) AS count FROM turn_generation_audit WHERE clientTurnId IN (?, ?)",
+          [leftIdentity.clientTurnId, rightIdentity.clientTurnId]
+        );
+        expect(Number(auditRows[0]?.count)).toBe(1);
+        const [turnRows] = await verify.execute<mysql.RowDataPacket[]>(
+          "SELECT COUNT(*) AS count FROM story_conversation_turns WHERE storyId = ? AND userId = ? AND (userClientMessageId = ? OR assistantClientMessageId = ?)",
+          [storyId, userId, sharedMessageId, sharedMessageId]
+        );
+        expect(Number(turnRows[0]?.count)).toBe(1);
+      } finally {
+        await verify.end();
+      }
+    });
+  }, 120_000);
 });

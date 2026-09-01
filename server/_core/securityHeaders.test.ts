@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSecurityHeaders } from "./securityHeaders";
+import {
+  buildSecurityHeaders,
+  createHttpsRedirectMiddleware,
+} from "./securityHeaders";
 
 describe("production security headers", () => {
   it("enforces CSP, HSTS and browser hardening on HTTPS", () => {
@@ -53,5 +56,45 @@ describe("production security headers", () => {
       cspMediaOrigins: "",
     });
     expect(headers["Strict-Transport-Security"]).toBeUndefined();
+  });
+});
+
+describe("HTTPS redirect", () => {
+  const redirectTarget = (originalUrl: string) => {
+    let target = "";
+    createHttpsRedirectMiddleware({
+      isProduction: true,
+      appOrigin: "https://www.drinkingtime.top",
+    })(
+      {
+        protocol: "http",
+        path: "/mobile",
+        originalUrl,
+      } as never,
+      {
+        redirect(status: number, location: string) {
+          expect(status).toBe(308);
+          target = location;
+        },
+      } as never,
+      (() => {
+        throw new Error("redirect unexpectedly called next");
+      }) as never
+    );
+    return target;
+  };
+
+  it("preserves a normal path and query on the configured origin", () => {
+    expect(redirectTarget("/m?storyId=42&tab=document")).toBe(
+      "https://www.drinkingtime.top/m?storyId=42&tab=document"
+    );
+  });
+
+  it.each([
+    "//evil.example/steal",
+    "\\\\evil.example/steal",
+    "/\\evil.example/steal",
+  ])("refuses an origin-changing redirect target %s", originalUrl => {
+    expect(redirectTarget(originalUrl)).toBe("https://www.drinkingtime.top/");
   });
 });

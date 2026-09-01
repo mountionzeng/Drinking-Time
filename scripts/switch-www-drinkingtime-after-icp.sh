@@ -72,8 +72,8 @@ if (failures.length) {
 }
 NODE
 
-  curl -fsS "http://127.0.0.1:$APP_PORT/healthz" >/dev/null
-  curl -fsS "http://127.0.0.1:$APP_PORT/readyz" >/dev/null
+  curl -fsS --connect-timeout 5 --max-time 15 "http://127.0.0.1:$APP_PORT/healthz" >/dev/null
+  curl -fsS --connect-timeout 5 --max-time 15 "http://127.0.0.1:$APP_PORT/readyz" >/dev/null
 }
 
 nginx_config() {
@@ -136,13 +136,28 @@ install_nginx_config() {
     fi
     die "nginx -t 失败；已恢复发布前配置。"
   fi
-  systemctl reload nginx
+  if ! systemctl reload nginx; then
+    if [ -n "$backup" ]; then
+      cp -p "$backup" "$NGINX_CONF"
+    else
+      rm -f "$NGINX_CONF"
+    fi
+    if ! nginx -t; then
+      die "nginx reload 失败，且回滚后的 nginx 配置校验失败；请保持服务隔离并人工检查。"
+    fi
+    if systemctl reload nginx; then
+      die "nginx 首次 reload 失败；已恢复、验证并重新加载发布前配置，HTTPS 切换已中止。"
+    fi
+    die "nginx 首次 reload 失败，回滚配置虽已恢复并通过校验，但回滚 reload 也失败，运行态不确定；请保持服务隔离并人工检查。"
+  fi
 }
 
 verify_https() {
-  curl --fail --silent --show-error --resolve "$DOMAIN:443:127.0.0.1" \
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    --resolve "$DOMAIN:443:127.0.0.1" \
     "https://$DOMAIN/healthz" >/dev/null
-  curl --fail --silent --show-error --resolve "$DOMAIN:443:127.0.0.1" \
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    --resolve "$DOMAIN:443:127.0.0.1" \
     "https://$DOMAIN/readyz" >/dev/null
   log "HTTPS 已切换；/healthz 与 /readyz 均通过。"
 }

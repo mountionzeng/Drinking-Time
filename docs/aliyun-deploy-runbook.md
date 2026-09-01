@@ -77,7 +77,7 @@ pnpm build
 pnpm env:check
 ```
 
-`pnpm test:mysql-integration` 必须使用一次性 `TEST_MYSQL_DATABASE_URL`。没有该变量时的本地 skip 只说明“未执行”，不能算生产发布通过。
+`pnpm test:mysql-integration` 必须使用一次性 `TEST_MYSQL_DATABASE_URL`。没有该变量时命令会失败关闭并拒绝执行；这只说明“未执行”，不能算生产发布通过。
 
 ## 2. 生产迁移基线只读预检
 

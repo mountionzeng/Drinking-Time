@@ -285,9 +285,10 @@ async function mobileTurnResult(
 }
 
 type StoryDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type StoryDbExecutor = Pick<StoryDb, "select" | "insert" | "update">;
 
 async function findDbTurn(
-  db: StoryDb,
+  db: StoryDbExecutor,
   owner: ConversationOwner,
   clientTurnId: string,
 ) {
@@ -311,6 +312,17 @@ async function claimDbMobileTurn(
   claimToken: string,
   now: { date: Date; iso: string },
 ): Promise<{ turn: StoryConversationTurn; claimed: boolean }> {
+  return db.transaction(async transaction => {
+    return claimDbMobileTurnInTransaction(transaction, input, claimToken, now);
+  });
+}
+
+async function claimDbMobileTurnInTransaction(
+  db: StoryDbExecutor,
+  input: GenerateMobileStoryConversationTurnInput,
+  claimToken: string,
+  now: { date: Date; iso: string },
+): Promise<{ turn: StoryConversationTurn; claimed: boolean }> {
   const owner = { storyId: input.storyId, userId: input.userId };
   await db
     .insert(storyConversations)
@@ -325,7 +337,8 @@ async function claimDbMobileTurn(
         eq(storyConversations.userId, owner.userId),
       ),
     )
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!conversation) {
     throw new PromptLineageValidationError("无法创建故事会话");
   }

@@ -198,6 +198,22 @@ describe("mobile Story conversation turns", () => {
         { generateReply }
       )
     ).rejects.toBeInstanceOf(StoryConversationIdempotencyConflictError);
+
+    const reusedAcrossRoles = turnInput(story.id, "cross-role", "跨角色复用");
+    await expect(
+      generateMobileStoryConversationTurn(
+        {
+          ...reusedAcrossRoles,
+          userId: 801,
+          assistantClientMessageId: first.userClientMessageId,
+          requestHash: computeStoryConversationTurnRequestHash({
+            ...reusedAcrossRoles,
+            assistantClientMessageId: first.userClientMessageId,
+          }),
+        },
+        { generateReply }
+      )
+    ).rejects.toBeInstanceOf(StoryConversationIdempotencyConflictError);
     expect(generateReply).toHaveBeenCalledTimes(1);
     expect(
       (await caller.storyConversation.list({ storyId: story.id })).messages

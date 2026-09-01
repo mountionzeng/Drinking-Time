@@ -99,6 +99,12 @@ export function createHttpsRedirectMiddleware(input: {
       next();
       return;
     }
-    res.redirect(308, new URL(req.originalUrl || "/", input.appOrigin).toString());
+    const appOrigin = new URL(input.appOrigin);
+    const requestedUrl = new URL(req.originalUrl || "/", appOrigin);
+    const redirectUrl =
+      requestedUrl.origin === appOrigin.origin
+        ? requestedUrl
+        : new URL("/", appOrigin);
+    res.redirect(308, redirectUrl.toString());
   };
 }

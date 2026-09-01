@@ -88,6 +88,84 @@ describe("runMobileConversationTurn", () => {
     expect(api.append).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the assistant answer when append rejects and status is still pending", async () => {
+    const initial = turn();
+    const observed: MobileConversationRecoveryTurn[] = [];
+    const api = {
+      generate: vi.fn(async () => completedServerTurn(initial)),
+      append: vi.fn().mockRejectedValue(new Error("append rejected")),
+      status: vi.fn(async () => ({
+        status: "pending" as const,
+        staleContext: false,
+        turn: {
+          assistantContent: "服务端回答",
+          appendStatus: "pending" as const,
+        },
+      })),
+    };
+
+    const result = await runMobileConversationTurn({
+      turn: initial,
+      api,
+      onTurn: next => observed.push(next),
+    });
+
+    expect(result).toMatchObject({
+      status: "persistence-failed",
+      assistantContent: "服务端回答",
+      error: "append rejected",
+    });
+    expect(observed.map(value => value.status)).toEqual([
+      "persisting",
+      "persistence-failed",
+    ]);
+    expect(observed.every(value => value.status !== "synced")).toBe(true);
+  });
+
+  it("keeps the assistant answer when append and its status recovery both reject", async () => {
+    const initial = turn();
+    const api = {
+      generate: vi.fn(async () => completedServerTurn(initial)),
+      append: vi.fn().mockRejectedValue(new Error("append rejected")),
+      status: vi.fn().mockRejectedValue(new Error("status unavailable")),
+    };
+
+    const result = await runMobileConversationTurn({ turn: initial, api });
+
+    expect(result).toMatchObject({
+      status: "persistence-failed",
+      assistantContent: "服务端回答",
+      error: "append rejected",
+    });
+  });
+
+  it("marks a completed response without assistant content unknown, never synced", async () => {
+    const initial = turn();
+    const observed: string[] = [];
+    const api = {
+      generate: vi.fn(async () => ({
+        status: "completed" as const,
+        staleContext: false,
+        turn: { assistantContent: null, appendStatus: "pending" as const },
+      })),
+      status: vi.fn(),
+      append: vi.fn(),
+    };
+
+    const result = await runMobileConversationTurn({
+      turn: initial,
+      api,
+      onTurn: next => observed.push(next.status),
+    });
+
+    expect(result).toMatchObject({
+      status: "generation-unknown",
+      assistantContent: null,
+    });
+    expect(observed).toEqual(["generation-unknown"]);
+    expect(api.append).not.toHaveBeenCalled();
+  });
+
   it("keeps provider failure retryable with the original identities", async () => {
     const initial = turn();
     const api = {

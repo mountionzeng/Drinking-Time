@@ -17,6 +17,7 @@ type WorkerInput =
       assistantClientMessageId: string;
       userContent: string;
       holdMs?: number;
+      startAtMs?: number;
     }
   | {
       action: "append";
@@ -47,6 +48,11 @@ async function finish(payload: unknown): Promise<never> {
 try {
   const input = decodeInput(process.argv[2]);
   if (input.action === "generate") {
+    if (input.startAtMs) {
+      await new Promise(resolve =>
+        setTimeout(resolve, Math.max(0, input.startAtMs! - Date.now()))
+      );
+    }
     const result = await generateMobileStoryConversationTurn(input, {
       generateReply: async () => {
         const connection = await mysql.createConnection(
