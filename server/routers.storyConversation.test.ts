@@ -96,6 +96,60 @@ describe("storyConversation tRPC router", () => {
     });
   });
 
+  it("rejects reuse of only one message identity instead of forming a mixed turn", async () => {
+    const { caller, story } = await seedStory();
+    await caller.storyConversation.appendTurn({
+      storyId: story.id,
+      userMessage: {
+        clientMessageId: "reused-user-id",
+        content: "原问题",
+      },
+      assistantMessage: {
+        clientMessageId: "original-assistant-id",
+        content: "原回答",
+      },
+    });
+
+    await expect(caller.storyConversation.appendTurn({
+      storyId: story.id,
+      userMessage: {
+        clientMessageId: "reused-user-id",
+        content: "伪造的新问题",
+      },
+      assistantMessage: {
+        clientMessageId: "new-assistant-id",
+        content: "与原问题无关的新回答",
+      },
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const listed = await caller.storyConversation.list({ storyId: story.id });
+    expect(listed.messages.map(message => ({
+      role: message.role,
+      content: message.content,
+      clientMessageId: message.clientMessageId,
+    }))).toEqual([
+      { role: "user", content: "原问题", clientMessageId: "reused-user-id" },
+      { role: "assistant", content: "原回答", clientMessageId: "original-assistant-id" },
+    ]);
+  });
+
+  it("does not expose mobile turn state or append access across owners", async () => {
+    const { story } = await seedStory(701);
+    const otherCaller = appRouter.createCaller(context(702));
+    const identity = {
+      storyId: story.id,
+      clientTurnId: "private-turn",
+      requestHash: "sct1-private",
+    };
+
+    await expect(
+      otherCaller.storyConversation.mobileTurnStatus(identity),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      otherCaller.storyConversation.appendMobileTurn(identity),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("rejects a forged shot reference without storing the turn", async () => {
     const { caller, story } = await seedStory();
 

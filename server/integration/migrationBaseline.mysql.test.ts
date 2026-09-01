@@ -26,6 +26,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         expect(tables.get("stories")).toMatch(/^utf8mb4_/);
         expect(tables.get("story_conversations")).toMatch(/^utf8mb4_/);
         expect(tables.get("story_conversation_messages")).toMatch(/^utf8mb4_/);
+        expect(tables.get("story_conversation_turns")).toMatch(/^utf8mb4_/);
         expect(tables.get("preview_masked_image_operations")).toMatch(
           /^utf8mb4_/,
         );
@@ -34,7 +35,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         const [migrationRows] = await connection.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS count FROM __drizzle_migrations",
         );
-        expect(Number(migrationRows[0]?.count)).toBe(15);
+        expect(Number(migrationRows[0]?.count)).toBe(16);
       } finally {
         await connection.end();
       }

@@ -688,6 +688,72 @@ export const storyConversations = mysqlTable(
 export type StoryConversation = typeof storyConversations.$inferSelect;
 export type InsertStoryConversation = typeof storyConversations.$inferInsert;
 
+export const storyConversationTurns = mysqlTable(
+  "story_conversation_turns",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    conversationId: int("conversationId")
+      .notNull()
+      .references(() => storyConversations.id, { onDelete: "cascade" }),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    clientTurnId: varchar("clientTurnId", { length: 128 }).notNull(),
+    requestHash: varchar("requestHash", { length: 128 }).notNull(),
+    userClientMessageId: varchar("userClientMessageId", { length: 128 }).notNull(),
+    assistantClientMessageId: varchar("assistantClientMessageId", { length: 128 }).notNull(),
+    userContent: text("userContent").notNull(),
+    assistantContent: text("assistantContent"),
+    generationStatus: mysqlEnum("generationStatus", [
+      "pending",
+      "completed",
+      "failed",
+      "unknown",
+    ]).default("pending").notNull(),
+    appendStatus: mysqlEnum("appendStatus", ["pending", "appended"])
+      .default("pending")
+      .notNull(),
+    generationAttempt: int("generationAttempt").default(1).notNull(),
+    contextMessageId: int("contextMessageId"),
+    claimToken: varchar("claimToken", { length: 128 }),
+    failureMessage: text("failureMessage"),
+    claimedAt: timestamp("claimedAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    completedAt: timestamp("completedAt"),
+    appendedAt: timestamp("appendedAt"),
+  },
+  table => ({
+    storyTurn: uniqueIndex("story_conversation_turns_story_turn_unique").on(
+      table.storyId,
+      table.userId,
+      table.clientTurnId
+    ),
+    userMessage: uniqueIndex("story_conversation_turns_user_message_unique").on(
+      table.storyId,
+      table.userId,
+      table.userClientMessageId
+    ),
+    assistantMessage: uniqueIndex(
+      "story_conversation_turns_assistant_message_unique"
+    ).on(
+      table.storyId,
+      table.userId,
+      table.assistantClientMessageId
+    ),
+    conversationOrder: index("story_conversation_turns_order").on(
+      table.conversationId,
+      table.id
+    ),
+  })
+);
+
+export type StoryConversationTurn = typeof storyConversationTurns.$inferSelect;
+export type InsertStoryConversationTurn =
+  typeof storyConversationTurns.$inferInsert;
+
 export const storyConversationMessages = mysqlTable(
   "story_conversation_messages",
   {
@@ -701,6 +767,9 @@ export const storyConversationMessages = mysqlTable(
     userId: int("userId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    turnId: int("turnId").references(() => storyConversationTurns.id, {
+      onDelete: "set null",
+    }),
     role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
     content: text("content").notNull(),
     source: varchar("source", { length: 128 }),
@@ -719,6 +788,10 @@ export const storyConversationMessages = mysqlTable(
     clientMessage: uniqueIndex("story_conversation_messages_client_unique").on(
       table.conversationId,
       table.clientMessageId
+    ),
+    turnRole: uniqueIndex("story_conversation_messages_turn_role_unique").on(
+      table.turnId,
+      table.role
     ),
   })
 );

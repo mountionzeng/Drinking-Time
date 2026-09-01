@@ -1097,6 +1097,7 @@ export async function getLocalPromptLineageStateForStory(
     ),
     compilationHeads: byStory(full.compilationHeads),
     conversations: byStory(full.conversations),
+    turns: byStory(full.turns),
     messages: byStory(full.messages),
     messageReferences: byStory(full.messageReferences),
     artLibraries: [],

@@ -19,6 +19,7 @@ import {
   type PromptMigrationStatus,
   type StoryConversation,
   type StoryConversationMessage,
+  type StoryConversationTurn,
   type StoryMessageReference,
   type StoryArtPromptBinding,
   type StoryPromptAggregate,
@@ -39,6 +40,7 @@ import {
   promptRevisions,
   storyArtPromptBindings,
   storyConversationMessages,
+  storyConversationTurns,
   storyConversations,
   storyMessageReferences,
   storyPromptStates,
@@ -72,6 +74,13 @@ export class PromptLineageValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PromptLineageValidationError";
+  }
+}
+
+export class PromptLineageIdempotencyConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PromptLineageIdempotencyConflictError";
   }
 }
 
@@ -144,6 +153,30 @@ export type AppendConversationTurnResult = {
   references: StoryMessageReference[];
 };
 
+type ReserveConversationTurnInput = {
+  clientTurnId: string;
+  requestHash: string;
+  userClientMessageId: string;
+  assistantClientMessageId: string;
+  userContent: string;
+  claimToken: string;
+  now: string;
+  retryFailed?: boolean;
+  staleAfterMs: number;
+};
+
+type ConversationTurnLookupInput = {
+  clientTurnId: string;
+  requestHash: string;
+  now: string;
+  staleAfterMs: number;
+};
+
+type ConversationTurnClaimResult = {
+  turn: StoryConversationTurn;
+  claimed: boolean;
+};
+
 export type PromptLineageTransaction = {
   setMigrationStatus(status: PromptMigrationStatus): void;
   createNode(input: CreateNodeInput): PromptNode;
@@ -181,6 +214,25 @@ function ownerMatches(
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+let persistentLocalConversationQueue: Promise<void> = Promise.resolve();
+
+/** Serialize local conversation snapshots so concurrent callers cannot overwrite each other. */
+export async function withPersistentLocalConversationLock<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const prior = persistentLocalConversationQueue;
+  let release!: () => void;
+  persistentLocalConversationQueue = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  await prior;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
 }
 
 export function createPromptLineageMemoryStore(
@@ -234,6 +286,7 @@ export function createPromptLineageMemoryStore(
       ),
       conversation:
         state.conversations.find(item => ownerMatches(item, owner)) ?? null,
+      turns: state.turns.filter(item => ownerMatches(item, owner)),
       messages,
       messageReferences: state.messageReferences.filter(
         item => ownerMatches(item, owner) && messageIds.has(item.messageId),
@@ -700,6 +753,336 @@ export function createPromptLineageMemoryStore(
       state = draft;
       return structuredClone({ conversation, messages: appended, references });
     },
+    async reserveConversationTurn(
+      owner: PromptLineageOwner,
+      input: ReserveConversationTurnInput,
+    ): Promise<ConversationTurnClaimResult> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const clientTurnId = input.clientTurnId.trim();
+      const requestHash = input.requestHash.trim();
+      const userClientMessageId = input.userClientMessageId.trim();
+      const assistantClientMessageId = input.assistantClientMessageId.trim();
+      const userContent = input.userContent.trim();
+      if (
+        !clientTurnId ||
+        !requestHash ||
+        !userClientMessageId ||
+        !assistantClientMessageId ||
+        !userContent
+      ) {
+        throw new PromptLineageValidationError("对话轮参数不能为空");
+      }
+      if (userClientMessageId === assistantClientMessageId) {
+        throw new PromptLineageIdempotencyConflictError(
+          "同一轮的用户消息和助手消息必须使用不同标识",
+        );
+      }
+
+      const existing = draft.turns.find(
+        item => ownerMatches(item, owner) && item.clientTurnId === clientTurnId,
+      );
+      if (existing) {
+        if (
+          existing.requestHash !== requestHash ||
+          existing.userClientMessageId !== userClientMessageId ||
+          existing.assistantClientMessageId !== assistantClientMessageId ||
+          existing.userContent !== userContent
+        ) {
+          throw new PromptLineageIdempotencyConflictError(
+            "对话轮标识已被另一组内容使用",
+          );
+        }
+        let changed = false;
+        const age = Date.parse(input.now) - Date.parse(existing.claimedAt);
+        if (
+          existing.generationStatus === "pending" &&
+          Number.isFinite(age) &&
+          age >= input.staleAfterMs
+        ) {
+          existing.generationStatus = "unknown";
+          existing.claimToken = null;
+          existing.failureMessage = "生成结果未知，请复制内容后新建一轮";
+          existing.updatedAt = input.now;
+          changed = true;
+        } else if (
+          existing.generationStatus === "failed" &&
+          input.retryFailed
+        ) {
+          existing.generationStatus = "pending";
+          existing.generationAttempt += 1;
+          existing.claimToken = input.claimToken;
+          existing.failureMessage = null;
+          existing.claimedAt = input.now;
+          existing.updatedAt = input.now;
+          changed = true;
+          await storeOptions.onCommit?.(structuredClone(draft));
+          state = draft;
+          return structuredClone({ turn: existing, claimed: true });
+        }
+        if (changed) {
+          await storeOptions.onCommit?.(structuredClone(draft));
+          state = draft;
+        }
+        return structuredClone({ turn: existing, claimed: false });
+      }
+
+      const identityCollision = draft.turns.some(
+        item =>
+          ownerMatches(item, owner) &&
+          (item.userClientMessageId === userClientMessageId ||
+            item.assistantClientMessageId === assistantClientMessageId ||
+            item.userClientMessageId === assistantClientMessageId ||
+            item.assistantClientMessageId === userClientMessageId),
+      );
+      const legacyMessageCollision = draft.messages.some(
+        item =>
+          ownerMatches(item, owner) &&
+          (item.clientMessageId === userClientMessageId ||
+            item.clientMessageId === assistantClientMessageId),
+      );
+      if (identityCollision || legacyMessageCollision) {
+        throw new PromptLineageIdempotencyConflictError(
+          "对话消息标识已被另一轮内容使用",
+        );
+      }
+
+      let conversation = draft.conversations.find(item =>
+        ownerMatches(item, owner),
+      );
+      if (!conversation) {
+        conversation = {
+          id: draft.nextIds.conversation++,
+          ...owner,
+          createdAt: input.now,
+          updatedAt: input.now,
+        };
+        draft.conversations.push(conversation);
+      }
+      const contextMessageId = draft.messages
+        .filter(item => ownerMatches(item, owner))
+        .reduce<number | null>(
+          (latest, item) => (latest == null || item.id > latest ? item.id : latest),
+          null,
+        );
+      const turn: StoryConversationTurn = {
+        id: draft.nextIds.turn++,
+        ...owner,
+        conversationId: conversation.id,
+        clientTurnId,
+        requestHash,
+        userClientMessageId,
+        assistantClientMessageId,
+        userContent,
+        assistantContent: null,
+        generationStatus: "pending",
+        appendStatus: "pending",
+        generationAttempt: 1,
+        contextMessageId,
+        claimToken: input.claimToken,
+        failureMessage: null,
+        claimedAt: input.now,
+        updatedAt: input.now,
+        completedAt: null,
+        appendedAt: null,
+      };
+      draft.turns.push(turn);
+      await storeOptions.onCommit?.(structuredClone(draft));
+      state = draft;
+      return structuredClone({ turn, claimed: true });
+    },
+    async getConversationTurn(
+      owner: PromptLineageOwner,
+      input: ConversationTurnLookupInput,
+    ): Promise<StoryConversationTurn | null> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const turn = draft.turns.find(
+        item =>
+          ownerMatches(item, owner) &&
+          item.clientTurnId === input.clientTurnId.trim(),
+      );
+      if (!turn) return null;
+      if (turn.requestHash !== input.requestHash.trim()) {
+        throw new PromptLineageIdempotencyConflictError(
+          "对话轮标识已被另一组内容使用",
+        );
+      }
+      const age = Date.parse(input.now) - Date.parse(turn.claimedAt);
+      if (
+        turn.generationStatus === "pending" &&
+        Number.isFinite(age) &&
+        age >= input.staleAfterMs
+      ) {
+        turn.generationStatus = "unknown";
+        turn.claimToken = null;
+        turn.failureMessage = "生成结果未知，请复制内容后新建一轮";
+        turn.updatedAt = input.now;
+        await storeOptions.onCommit?.(structuredClone(draft));
+        state = draft;
+      }
+      return structuredClone(turn);
+    },
+    async completeConversationTurn(
+      owner: PromptLineageOwner,
+      input: {
+        clientTurnId: string;
+        requestHash: string;
+        claimToken: string;
+        assistantContent: string;
+        now: string;
+      },
+    ): Promise<StoryConversationTurn> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const turn = draft.turns.find(
+        item =>
+          ownerMatches(item, owner) &&
+          item.clientTurnId === input.clientTurnId.trim(),
+      );
+      if (!turn || turn.requestHash !== input.requestHash.trim()) {
+        throw new PromptLineageIdempotencyConflictError(
+          "对话轮标识与生成结果不匹配",
+        );
+      }
+      if (
+        turn.generationStatus === "pending" &&
+        turn.claimToken === input.claimToken
+      ) {
+        turn.assistantContent = input.assistantContent;
+        turn.generationStatus = "completed";
+        turn.claimToken = null;
+        turn.failureMessage = null;
+        turn.completedAt = input.now;
+        turn.updatedAt = input.now;
+        await storeOptions.onCommit?.(structuredClone(draft));
+        state = draft;
+      }
+      return structuredClone(turn);
+    },
+    async failConversationTurn(
+      owner: PromptLineageOwner,
+      input: {
+        clientTurnId: string;
+        requestHash: string;
+        claimToken: string;
+        failureMessage: string;
+        now: string;
+      },
+    ): Promise<StoryConversationTurn> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const turn = draft.turns.find(
+        item =>
+          ownerMatches(item, owner) &&
+          item.clientTurnId === input.clientTurnId.trim(),
+      );
+      if (!turn || turn.requestHash !== input.requestHash.trim()) {
+        throw new PromptLineageIdempotencyConflictError(
+          "对话轮标识与失败结果不匹配",
+        );
+      }
+      if (
+        turn.generationStatus === "pending" &&
+        turn.claimToken === input.claimToken
+      ) {
+        turn.generationStatus = "failed";
+        turn.claimToken = null;
+        turn.failureMessage = input.failureMessage;
+        turn.updatedAt = input.now;
+        await storeOptions.onCommit?.(structuredClone(draft));
+        state = draft;
+      }
+      return structuredClone(turn);
+    },
+    async appendReservedConversationTurn(
+      owner: PromptLineageOwner,
+      input: {
+        clientTurnId: string;
+        requestHash: string;
+        now: string;
+      },
+    ): Promise<StoryConversationTurn> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const turn = draft.turns.find(
+        item =>
+          ownerMatches(item, owner) &&
+          item.clientTurnId === input.clientTurnId.trim(),
+      );
+      if (!turn || turn.requestHash !== input.requestHash.trim()) {
+        throw new PromptLineageIdempotencyConflictError(
+          "对话轮标识与追加请求不匹配",
+        );
+      }
+      if (turn.generationStatus !== "completed" || !turn.assistantContent) {
+        throw new PromptLineageValidationError("模型回答尚未完成，不能追加对话");
+      }
+      if (turn.appendStatus === "appended") return structuredClone(turn);
+
+      const existing = [
+        draft.messages.find(
+          item =>
+            ownerMatches(item, owner) &&
+            item.clientMessageId === turn.userClientMessageId,
+        ),
+        draft.messages.find(
+          item =>
+            ownerMatches(item, owner) &&
+            item.clientMessageId === turn.assistantClientMessageId,
+        ),
+      ];
+      if (existing.some(Boolean)) {
+        const exact =
+          existing.every(Boolean) &&
+          existing[0]!.turnId === turn.id &&
+          existing[0]!.role === "user" &&
+          existing[0]!.content === turn.userContent &&
+          existing[1]!.turnId === turn.id &&
+          existing[1]!.role === "assistant" &&
+          existing[1]!.content === turn.assistantContent;
+        if (!exact) {
+          throw new PromptLineageIdempotencyConflictError(
+            "检测到不完整或冲突的历史对话轮",
+          );
+        }
+      } else {
+        const messageBase = {
+          ...owner,
+          conversationId: turn.conversationId,
+          source: "mobile-story-agent",
+          candidateRevisionId: null,
+          turnId: turn.id,
+          createdAt: input.now,
+        };
+        draft.messages.push(
+          {
+            id: draft.nextIds.message++,
+            ...messageBase,
+            role: "user",
+            content: turn.userContent,
+            clientMessageId: turn.userClientMessageId,
+          },
+          {
+            id: draft.nextIds.message++,
+            ...messageBase,
+            role: "assistant",
+            content: turn.assistantContent,
+            clientMessageId: turn.assistantClientMessageId,
+          },
+        );
+      }
+      const conversation = draft.conversations.find(
+        item => item.id === turn.conversationId && ownerMatches(item, owner),
+      );
+      if (conversation) conversation.updatedAt = input.now;
+      turn.appendStatus = "appended";
+      turn.appendedAt = input.now;
+      turn.updatedAt = input.now;
+      await storeOptions.onCommit?.(structuredClone(draft));
+      state = draft;
+      return structuredClone(turn);
+    },
     async clearStory(owner: PromptLineageOwner) {
       const next = structuredClone(state);
       const remainingCompilations = next.compilations.filter(
@@ -730,6 +1113,7 @@ export function createPromptLineageMemoryStore(
       next.conversations = next.conversations.filter(
         item => !ownerMatches(item, owner),
       );
+      next.turns = next.turns.filter(item => !ownerMatches(item, owner));
       next.messages = remainingMessages;
       next.messageReferences = next.messageReferences.filter(item =>
         remainingMessageIds.has(item.messageId),
@@ -824,6 +1208,7 @@ export async function loadStoryPromptAggregate(
     compilationRows,
     headRows,
     conversationRows,
+    turnRows,
     messageRows,
     referenceRows,
     artBindingRows,
@@ -887,6 +1272,16 @@ export async function loadStoryPromptAggregate(
         ),
       )
       .limit(1),
+    db
+      .select()
+      .from(storyConversationTurns)
+      .where(
+        and(
+          eq(storyConversationTurns.storyId, owner.storyId),
+          eq(storyConversationTurns.userId, owner.userId),
+        ),
+      )
+      .orderBy(asc(storyConversationTurns.id)),
     db
       .select()
       .from(storyConversationMessages)
@@ -976,6 +1371,13 @@ export async function loadStoryPromptAggregate(
           updatedAt: iso(conversationRows[0].updatedAt),
         }
       : null,
+    turns: turnRows.map(row => ({
+      ...row,
+      claimedAt: iso(row.claimedAt),
+      updatedAt: iso(row.updatedAt),
+      completedAt: row.completedAt ? iso(row.completedAt) : null,
+      appendedAt: row.appendedAt ? iso(row.appendedAt) : null,
+    })),
     messages: messageRows.map(row => ({
       ...row,
       createdAt: iso(row.createdAt),
@@ -1077,6 +1479,14 @@ export async function clearStoryPromptLineage(
         and(
           eq(storyConversationMessages.storyId, owner.storyId),
           eq(storyConversationMessages.userId, owner.userId),
+        ),
+      );
+    await tx
+      .delete(storyConversationTurns)
+      .where(
+        and(
+          eq(storyConversationTurns.storyId, owner.storyId),
+          eq(storyConversationTurns.userId, owner.userId),
         ),
       );
     await tx

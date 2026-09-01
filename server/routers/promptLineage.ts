@@ -13,8 +13,12 @@ import {
   restorePromptRevisionForStory,
 } from "../services/promptLineage";
 import {
+  appendMobileStoryConversationTurn,
   appendStoryConversationTurn,
+  generateMobileStoryConversationTurn,
+  getMobileStoryConversationTurnStatus,
   listStoryConversation,
+  StoryConversationIdempotencyConflictError,
 } from "../services/storyConversation";
 import {
   bindStoryArtPromptLibraryVersion,
@@ -394,6 +398,94 @@ export const storyConversationRouter = router({
           },
         });
       } catch (error) {
+        if (error instanceof StoryConversationIdempotencyConflictError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
+        throwPromptLineageError(error);
+      }
+    }),
+  generateMobileTurn: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        clientTurnId: z.string().trim().min(1).max(128),
+        requestHash: z.string().trim().min(1).max(128),
+        userClientMessageId: z.string().trim().min(1).max(128),
+        assistantClientMessageId: z.string().trim().min(1).max(128),
+        userContent: z.string().trim().min(1),
+        retryFailed: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+      }
+      if (
+        !(await getStoryPromptProjection({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        }))
+      ) {
+        await ensureStoryPromptLineage(input.storyId, ctx.user.id);
+      }
+      try {
+        return await generateMobileStoryConversationTurn({
+          ...input,
+          userId: ctx.user.id,
+        });
+      } catch (error) {
+        if (error instanceof StoryConversationIdempotencyConflictError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
+        throwPromptLineageError(error);
+      }
+    }),
+  mobileTurnStatus: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        clientTurnId: z.string().trim().min(1).max(128),
+        requestHash: z.string().trim().min(1).max(128),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      if (!(await getStoryById(input.storyId, ctx.user.id))) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+      }
+      try {
+        return await getMobileStoryConversationTurnStatus({
+          ...input,
+          userId: ctx.user.id,
+        });
+      } catch (error) {
+        if (error instanceof StoryConversationIdempotencyConflictError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
+        throwPromptLineageError(error);
+      }
+    }),
+  appendMobileTurn: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        clientTurnId: z.string().trim().min(1).max(128),
+        requestHash: z.string().trim().min(1).max(128),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!(await getStoryById(input.storyId, ctx.user.id))) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+      }
+      try {
+        return await appendMobileStoryConversationTurn({
+          ...input,
+          userId: ctx.user.id,
+        });
+      } catch (error) {
+        if (error instanceof StoryConversationIdempotencyConflictError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
         throwPromptLineageError(error);
       }
     }),
