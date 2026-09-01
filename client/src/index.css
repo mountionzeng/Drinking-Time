@@ -920,6 +920,37 @@
   }
 }
 
+/* Mobile workspace owns one visual viewport and gives its two tasks independent
+ * scroll regions. The JS-updated variable handles browsers whose keyboard does
+ * not immediately recompute dvh; the CSS fallbacks still work without JS. */
+.mobile-workspace-page {
+  width: 100%;
+  height: var(--mobile-viewport-height, 100vh);
+  min-height: 20rem;
+  overflow: hidden;
+  overscroll-behavior: none;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  background: var(--nayin-bg-gradient);
+}
+
+@supports (height: 100dvh) {
+  .mobile-workspace-page {
+    height: var(--mobile-viewport-height, 100dvh);
+  }
+}
+
+.mobile-workspace-composer {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 390px) {
+  .mobile-workspace-page {
+    font-size: 0.975rem;
+  }
+}
+
 /* Custom scrollbar — soft warm gray */
 ::-webkit-scrollbar {
   width: 6px;
