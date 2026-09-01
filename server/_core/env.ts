@@ -141,6 +141,7 @@ export const ENV = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", // Google OAuth Client ID
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "", // Google OAuth Client Secret
   appOrigin: process.env.APP_ORIGIN ?? "", // 应用 origin（如 https://example.com）
+  cspMediaOrigins: process.env.CSP_MEDIA_ORIGINS ?? "", // 生产图片/音视频 HTTPS origin 白名单
 
   // ── Email OTP（Resend）──
   resendApiKey: process.env.RESEND_API_KEY ?? "", // Resend API Key（用于发送 OTP 邮件）

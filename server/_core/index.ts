@@ -4,13 +4,14 @@ import { createServer } from "http";
 import fs from "node:fs";
 import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { sql } from "drizzle-orm";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
-import { getStoryById, getVideoTakeById } from "../db";
+import { getDb, getStoryById, getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
 import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
@@ -24,11 +25,32 @@ import {
   isAllowedStoryAudioUrl,
   storyAudioUrl,
 } from "../services/storyAudioProxy";
+import {
+  assertProductionReadiness,
+  inspectProductionReadiness,
+  productionTrustProxy,
+} from "./productionReadiness";
+import {
+  createHttpsRedirectMiddleware,
+  createSecurityHeadersMiddleware,
+} from "./securityHeaders";
+import { createRequestOriginMiddleware } from "./requestOrigin";
+
+async function verifyProductionDatabaseConnection() {
+  if (process.env.NODE_ENV !== "production") return;
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Production readiness failed: shared MySQL is unavailable");
+  }
+  await db.execute(sql`SELECT 1`);
+}
 
 async function startServer() {
   // 先于任何对外请求配置连接池：外部 API 的耗时几乎全在 TLS 握手上，
   // 连接复用能把一次调用从 3–11s 降到 ~0.6s。详见 httpConnectionPool.ts。
   configureHttpConnectionPool();
+  assertProductionReadiness(process.env);
+  await verifyProductionDatabaseConnection();
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   if (process.env.NODE_ENV === "development") {
@@ -36,13 +58,54 @@ async function startServer() {
   }
 
   const app = express();
-  app.set("trust proxy", true);
+  app.set("trust proxy", productionTrustProxy(process.env));
   const server = createServer(app);
+  app.use(
+    createSecurityHeadersMiddleware({
+      isProduction: process.env.NODE_ENV === "production",
+      cspMediaOrigins: process.env.CSP_MEDIA_ORIGINS ?? "",
+    })
+  );
+  app.use(
+    createHttpsRedirectMiddleware({
+      isProduction: process.env.NODE_ENV === "production",
+      appOrigin: process.env.APP_ORIGIN ?? "",
+    })
+  );
+  app.use(
+    "/api",
+    createRequestOriginMiddleware({
+      isProduction: process.env.NODE_ENV === "production",
+      appOrigin: process.env.APP_ORIGIN ?? "",
+    })
+  );
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/healthz", (_req, res) => {
     res.status(200).send("ok");
+  });
+  app.get("/readyz", async (_req, res) => {
+    const readiness = inspectProductionReadiness(process.env);
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      if (!readiness.ready) throw new Error("invalid production configuration");
+      await verifyProductionDatabaseConnection();
+      res.status(200).json({
+        status: "ready",
+        persistence:
+          process.env.NODE_ENV === "production" ? "mysql" : "local-development",
+        authentication:
+          process.env.NODE_ENV === "production" ? "required" : "development",
+      });
+    } catch {
+      res.status(503).json({
+        status: "not_ready",
+        persistence: "unavailable",
+        authentication:
+          process.env.NODE_ENV === "production" ? "required" : "development",
+      });
+    }
   });
   // ── 生成图的同源稳定出口 ─────────────────────────────────────
   // 架构（2026-06-12）：图片字节落在本机共享资产库（LOCAL_IMAGE_DIR），DB 只存
@@ -256,4 +319,7 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

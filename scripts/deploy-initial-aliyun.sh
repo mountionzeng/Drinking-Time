@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# 初始部署脚本：在阿里云 ECS 上把 Drinking Time 从零部署到公网 IP HTTP。
-# 备案通过后的域名和 HTTPS 切换由 scripts/switch-www-drinkingtime-after-icp.sh 负责。
+# 初始部署脚本：在阿里云 ECS 上准备 Drinking Time 的应用与 MySQL。
+# 这里只做 HTTPS 发布前预置；公网启用由 switch-www-drinkingtime-after-icp.sh 负责。
 
 set -euo pipefail
 
 PUBLIC_IP="${PUBLIC_IP:-8.160.186.193}"
+DOMAIN="${DOMAIN:-www.drinkingtime.top}"
 APP_DIR="${APP_DIR:-/opt/Drinking-Time}"
 APP_PORT="${APP_PORT:-3000}"
 PM2_APP="${PM2_APP:-drinking-time}"
@@ -245,9 +246,10 @@ env_template_content() {
 
 NODE_ENV=production
 PORT=3000
-APP_ORIGIN=http://8.160.186.193
-OAUTH_SERVER_URL=http://8.160.186.193
-DISABLE_AUTH=true
+APP_ORIGIN=https://www.drinkingtime.top
+OAUTH_SERVER_URL=https://auth.drinkingtime.top
+DISABLE_AUTH=false
+CSP_MEDIA_ORIGINS=https://file.302.ai https://d2xsxph8kpxj0f.cloudfront.net
 
 # MySQL：本机自建示例。密码由岱岱自己填；必须保留 charset=utf8mb4。
 DATABASE_URL=mysql://drinking_time_app:请填数据库密码@127.0.0.1:3306/drinking_time?charset=utf8mb4
@@ -363,6 +365,7 @@ const required = [
   "APP_ORIGIN",
   "OAUTH_SERVER_URL",
   "DISABLE_AUTH",
+  "CSP_MEDIA_ORIGINS",
   "DATABASE_URL",
   "JWT_SECRET",
   "BUILT_IN_FORGE_API_URL",
@@ -385,6 +388,32 @@ if (env.get("PORT") !== "3000") {
 if (!String(env.get("DATABASE_URL")).toLowerCase().includes("charset=utf8mb4")) {
   console.error("DATABASE_URL 必须带 charset=utf8mb4。");
   process.exit(4);
+}
+if (env.get("DISABLE_AUTH") !== "false") {
+  console.error("生产环境 DISABLE_AUTH 必须是 false。");
+  process.exit(5);
+}
+for (const key of ["APP_ORIGIN", "OAUTH_SERVER_URL"]) {
+  let url;
+  try { url = new URL(String(env.get(key))); } catch { url = null; }
+  if (!url || url.protocol !== "https:") {
+    console.error(`${key} 必须是 HTTPS URL。`);
+    process.exit(6);
+  }
+}
+if (String(env.get("JWT_SECRET")).length < 32) {
+  console.error("JWT_SECRET 至少需要 32 个字符。");
+  process.exit(7);
+}
+const mediaOrigins = String(env.get("CSP_MEDIA_ORIGINS")).split(/[\s,]+/).filter(Boolean);
+if (!mediaOrigins.length || mediaOrigins.some(value => {
+  try {
+    const url = new URL(value);
+    return url.protocol !== "https:" || url.origin !== value.replace(/\/$/, "");
+  } catch { return true; }
+})) {
+  console.error("CSP_MEDIA_ORIGINS 必须是显式 HTTPS origin 白名单。");
+  process.exit(8);
 }
 NODE
 }
@@ -542,9 +571,9 @@ start_pm2() {
 }
 
 write_nginx_http_config() {
-  log "写入备案前 IP HTTP nginx 配置：${NGINX_CONF}。"
+  log "写入 HTTPS 发布前的 HTTP 跳转占位配置：${NGINX_CONF}。"
   if [ "$DRY_RUN" = "1" ]; then
-    echo "[DRY_RUN] 将备份现有 ${NGINX_CONF}，并写入 server_name ${PUBLIC_IP} 的 HTTP 反代配置。"
+    echo "[DRY_RUN] 将备份现有 ${NGINX_CONF}，HTTP 只跳转到 https://${DOMAIN}，不公开登录或手机入口。"
     return
   fi
   install -d -m 0755 "$(dirname "$NGINX_CONF")"
@@ -555,28 +584,10 @@ write_nginx_http_config() {
 server {
     listen 80;
     listen [::]:80;
-    server_name $PUBLIC_IP;
-
-    client_max_body_size 50m;
-
-    location /healthz {
-        proxy_pass http://127.0.0.1:$APP_PORT/healthz;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
+    server_name $PUBLIC_IP $DOMAIN;
 
     location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        return 308 https://$DOMAIN\$request_uri;
     }
 }
 EOF
@@ -589,12 +600,13 @@ health_check() {
   log "执行健康检查。"
   if [ "$DRY_RUN" = "1" ]; then
     echo "[DRY_RUN] 将检查 http://127.0.0.1:$APP_PORT/healthz"
-    echo "[DRY_RUN] 将检查 http://$PUBLIC_IP/healthz"
+    echo "[DRY_RUN] 将检查 http://127.0.0.1:$APP_PORT/readyz"
+    echo "[DRY_RUN] 公网仍未发布；下一步先 dry-run switch-www-drinkingtime-after-icp.sh。"
     return
   fi
   curl -fsS "http://127.0.0.1:$APP_PORT/healthz"
-  curl -fsS "http://$PUBLIC_IP/healthz"
-  log "初始部署完成：请用 http://$PUBLIC_IP/ 访问。"
+  curl -fsS "http://127.0.0.1:$APP_PORT/readyz"
+  log "应用与 MySQL 已就绪，但公网尚未发布。审核 HTTPS 切换 dry-run 后再启用。"
 }
 
 main() {
