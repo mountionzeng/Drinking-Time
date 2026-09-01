@@ -2501,6 +2501,7 @@
       "owners": [
         "client/src/pages/MobileWorkspacePage.tsx",
         "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "client/src/features/mobileWorkspace/mobileWorkspaceEntry.ts",
         "client/src/features/mobileWorkspace/useMobileConversation.ts",
         "client/src/features/mobileWorkspace/useMobileDocument.ts",
         "server/routers/promptLineage.ts",
@@ -2531,6 +2532,7 @@
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
         "手机入口不得削弱现有 Story 与项目归属校验；同一邮箱只能读取和修改该账号名下的数据。",
+        "原网址根路径只负责按手机或电脑分流；手机进入 /m，电脑继续进入 /editing，显式工作区深链接不得被设备判断改写。",
         "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
         "手机 MVP 只暴露“聊聊”和发布工作台当前版本、当前平台的长文正文；正文保存不得改动标题、标签、当前选择、其他版本或平台，也不得把图片、分镜、预览、素材、时间线或视频能力带入首版。"
@@ -2568,6 +2570,11 @@
           "date": "2026-09-01",
           "kind": "verification",
           "summary": "Tier 2 代码审查补强跨进程 turn 预留、HTTPS 跳转与发布回滚：MySQL 通过会话行锁事务在模型调用前拒绝跨角色消息 ID 冲突；HTTP 跳转固定到 APP_ORIGIN；健康探针和 NodeSource 下载有超时；nginx reload 结果不确定时恢复、校验并再次 reload 旧配置。退出存储拒绝和聊天 append 失败均有行为测试。功能定向 28 文件 254 项、全量 421 文件 3445 项通过，5 项环境门禁跳过；TEST_MYSQL_DATABASE_URL 缺失时命令失败关闭，因此功能继续保持 observing / 发布 No-Go。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "把原网址根路径接入响应式工作区入口：iPhone、Android 手机及窄屏触控设备自动进入 /m，电脑继续进入 /editing；只改根入口，显式 /editing 与其他深链接不受影响，未登录手机仍通过受保护的 returnTo=/m 登录回跳。聚焦审查进一步让明确的 userAgentData.mobile=false 优先保留触屏电脑工作区，并把源码字符串断言升级为运行时信号与挂载路由测试；入口关联定向 6 文件 33 项、全量 421 文件 3450 项通过，5 项环境条件跳过，生产构建与环境门禁通过。"
         }
       ]
     },

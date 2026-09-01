@@ -2,7 +2,7 @@
 
 - 日期：2026-09-01
 - 分支：`codex/mobile-cross-device-workspace`
-- 入口：`/m`
+- 入口：手机打开原网址 `/` 自动进入 `/m`；`/m` 仍是可直接收藏的固定入口
 - 当前结论：**代码可验收，生产发布 No-Go**
 - 授权边界：本轮未部署、未申请/修改证书、未改生产 nginx、未连接或迁移生产 MySQL。
 
@@ -16,17 +16,18 @@
 | U2 聊天本地恢复状态机 | mobile conversation store/hook tests | 本地恢复、append 失败与结果未知回归通过 |
 | U3 正文恢复与冲突状态机 | mobile document store/hook tests | 本地恢复、scope drift 与冲突回归通过 |
 | U4 仅“聊聊/正文”的手机 UI | 四个组件测试、320/360/390px 截图 | 本地视觉通过；真实设备待验证 |
-| U5 `/m` 路由、登录回跳、换账号清理 | router/auth/recovery tests | 本地路由、回跳、缓存与恢复数据清理回归通过 |
+| U5 原网址手机分流、`/m` 路由、登录回跳、换账号清理 | router/auth/recovery tests | iPhone、Android 与窄屏触控入口分流、登录回跳、缓存与恢复数据清理回归通过；电脑根入口仍进 `/editing` |
 | U6 生产配置、Cookie、Origin、CSP、部署 dry-run | U6 定向测试、shell `-n` | 本地门禁、开放重定向、探针超时与 nginx 回滚通过；真实环境待验证 |
 
 本轮最终本地证据：
 
 - 功能定向回归：28 个测试文件、254/254 项通过；
-- 全量回归：421 个测试文件通过、3445 项通过、5 项因未配置 MySQL 等环境条件跳过；全量在沙箱外运行，避免沙箱端口监听 `EPERM` 误报；
+- 全量回归：421 个测试文件通过、3450 项通过、5 项因未配置 MySQL 等环境条件跳过；全量在沙箱外运行，避免沙箱端口监听 `EPERM` 误报；
 - `pnpm migration:verify`：16 个迁移的 SQL、journal 与 snapshot 基线一致；
 - `pnpm check`、`pnpm build`、`pnpm feature:validate`、`pnpm env:check`：通过；
 - `pnpm test:mysql-integration`：因缺少 `TEST_MYSQL_DATABASE_URL` 以退出码 1 失败关闭，没有连接或修改任何 MySQL，不能算发布通过；
 - Tier 2 代码审查修复了跨角色消息 ID 并发预留、HTTPS 开放重定向、部署探针超时、nginx reload 回滚运行态收敛，以及退出/聊天失败恢复行为覆盖；第二轮独立复审未发现新的本地代码问题。
+- 原网址入口增量：根路径按手机/电脑信号分别进入 `/m` 或 `/editing`，明确的 `userAgentData.mobile=false` 优先保留触屏电脑工作区，显式工作区深链接不改写；运行时信号与挂载路由测试 8/8 项、入口关联定向 6 文件 33/33 项通过。
 
 自动化重点断言：
 
@@ -35,6 +36,7 @@
 - target body 或 active scope 漂移失败关闭，手机本地正文与服务器正文都保留；
 - 同一个 `clientTurnId + requestHash` 重试收敛，不重复模型调用或聊天消息；
 - 未同步聊天/正文按账号、Story、版本/平台隔离，同账号续登恢复，换账号/退出清理；
+- 手机打开原网址根路径进入 `/m`，电脑根路径进入 `/editing`；手机登录成功后返回 `/m`；
 - production 缺少真实认证、强密钥、HTTPS、utf8mb4 MySQL 或 CSP 白名单时拒绝启动；
 - 生产 Cookie 为 `Secure`（可信 HTTPS）与 `SameSite=Lax`，unsafe `/api` 拒绝缺失/跨站 Origin；
 - HTTPS 切换 dry-run 不写 nginx、证书、`.env`、PM2 或数据库。
@@ -47,7 +49,7 @@
 | 360px | 两个 tab 可见 | 聊聊 composer 在首屏 | 无（scrollWidth = clientWidth = 360） | `docs/qa/evidence/2026-09-01-mobile-360.png` |
 | 390px | 两个 tab 可见 | 聊聊 composer、正文 textarea/save 均在首屏 | 无（scrollWidth = clientWidth = 390） | `docs/qa/evidence/2026-09-01-mobile-390.png`、`docs/qa/evidence/2026-09-01-mobile-document-390.png` |
 
-本地检查从主仓唯一 `pnpm dev` 服务（端口 3000）执行；页面只呈现 Story 选择、“聊聊”和“正文”，控制台新增 error/warn 为 0。它只能证明布局和开发态交互，不证明真实手机键盘、Secure Cookie 或公网跨设备同步。
+本地检查从主仓唯一 `pnpm dev` 服务（端口 3000）执行；页面只呈现 Story 选择、“聊聊”和“正文”，控制台新增 error/warn 为 0。本轮又用 390px 视口确认 `/m` 的 Story 选择、“聊聊”“正文”和输入框可达，并确认同一窄视口的桌面浏览器从根路径进入 `/editing`。它只能证明布局和开发态交互，不证明真实手机设备信号、软件键盘、Secure Cookie 或公网跨设备同步。
 
 ## 必须在获批环境完成的验收
 

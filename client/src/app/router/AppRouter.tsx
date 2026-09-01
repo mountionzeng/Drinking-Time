@@ -8,12 +8,13 @@ import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { type ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import {
   mobileLoginHref,
   readMobileReturnPath,
   resolvePostLoginDestination,
 } from "@/features/auth/mobileReturnPath";
+import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEntry";
 
 function AuthGuard({
   children,
@@ -45,6 +46,10 @@ function LoginEntry() {
   return <LoginPage />;
 }
 
+function RootEntry() {
+  return <Redirect to={rootWorkspacePath()} />;
+}
+
 function AdminGuard({ children }: { children: ReactNode }) {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return null;
@@ -62,9 +67,9 @@ export default function AppRouter() {
       <Route path="/welcome">
         <WelcomePreviewPage />
       </Route>
-      {/* 站点首页直接进剪辑工作室；未登录会被 AuthGuard 送回 /login */}
+      {/* 原网址按设备进入工作区；手机进入 /m，电脑进入完整剪辑工作室。 */}
       <Route path="/">
-        <Redirect to="/editing" />
+        <RootEntry />
       </Route>
       <Route path="/analysis">
         <Redirect to="/editing" />
