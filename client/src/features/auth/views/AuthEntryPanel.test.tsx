@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AuthEntryPanel from "./AuthEntryPanel";
+import { resolvePostLoginDestination } from "../mobileReturnPath";
 
 vi.stubGlobal("React", React);
 vi.mock("@/_core/hooks/useAuth", () => ({
@@ -57,5 +58,12 @@ describe("AuthEntryPanel", () => {
     expect(html).toContain("换一个邮箱");
     expect(html).toContain('placeholder="邀请码"');
     expect(html).toContain('required=""');
+  });
+
+  it("登录成功目的地只接受规范手机入口", () => {
+    expect(resolvePostLoginDestination("/m")).toBe("/m");
+    expect(resolvePostLoginDestination("//evil.example")).toBe("/editing");
+    expect(resolvePostLoginDestination("/admin/users")).toBe("/editing");
+    expect(resolvePostLoginDestination("%2Fm")).toBe("/editing");
   });
 });

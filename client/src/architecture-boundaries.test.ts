@@ -281,6 +281,47 @@ describe("architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
+  it("orders mobile identity cleanup between login cache reset and navigation", async () => {
+    const authEntryPath = path.join(
+      srcRoot,
+      "features",
+      "auth",
+      "views",
+      "AuthEntryPanel.tsx"
+    );
+    const content = await fs.readFile(authEntryPath, "utf8");
+    const refreshIndex = content.indexOf("await refresh()");
+    const cleanupIndex = content.indexOf(
+      "reconcileMobileRecoveryOwner(",
+      refreshIndex
+    );
+    const navigateIndex = content.indexOf(
+      "navigate(resolvePostLoginDestination"
+    );
+
+    expect(refreshIndex).toBeGreaterThan(-1);
+    expect(cleanupIndex).toBeGreaterThan(refreshIndex);
+    expect(navigateIndex).toBeGreaterThan(cleanupIndex);
+  });
+
+  it("clears scoped mobile recovery as part of explicit logout", async () => {
+    const useAuthPath = path.join(srcRoot, "_core", "hooks", "useAuth.ts");
+    const content = await fs.readFile(useAuthPath, "utf8");
+
+    expect(content).toContain("clearMobileRecoveryForUser");
+    const logoutStart = content.indexOf("const logout = useCallback");
+    const cleanupIndex = content.indexOf(
+      "clearMobileRecoveryForUser(",
+      logoutStart
+    );
+    const mutationIndex = content.indexOf(
+      "logoutMutation.mutateAsync",
+      logoutStart
+    );
+    expect(cleanupIndex).toBeGreaterThan(logoutStart);
+    expect(cleanupIndex).toBeLessThan(mutationIndex);
+  });
+
   // ────────────────────────────────────────────────────────────────────
   // 架构棘轮（2026-08-23 冻结）
   // 只阻止新增债务，不要求偿还历史债务。基线来历、豁免登记与摘除条件见
