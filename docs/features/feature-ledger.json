@@ -2490,6 +2490,43 @@
       ]
     },
     {
+      "id": "mobile-cross-device-chat-document",
+      "name": "手机跨端聊天与正文编辑",
+      "status": "planned",
+      "userValue": "在手机上继续同一 Story 的“聊聊”对话并编辑正文，回到电脑后无需复制粘贴即可接着创作。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
+        "docs/plans/2026-09-01-001-feat-mobile-cross-device-workspace-plan.md"
+      ],
+      "invariants": [
+        "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
+        "手机入口不得削弱现有 Story 与项目归属校验；同一邮箱只能读取和修改该账号名下的数据。",
+        "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
+        "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
+        "手机 MVP 只暴露“聊聊”和发布工作台当前版本、当前平台的长文正文；正文保存不得改动标题、标签、当前选择、其他版本或平台，也不得把图片、分镜、预览、素材、时间线或视频能力带入首版。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "project-ownership",
+        "recent-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "目前只有经过确认的产品需求，没有手机专用入口、双视图布局、目标设备交互验收或跨端端到端测试。",
+        "当前本地数据模式只适用于单机开发；跨设备使用仍需确定并验证手机与电脑共同访问的 HTTPS 部署和持久化后端。",
+        "现有正文版本保护与客户端草稿恢复尚未按手机和电脑同时编辑的冲突场景完成验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-01",
+          "kind": "decision",
+          "summary": "将旧的手机聊天出图设想收缩为最快可用 MVP：手机专用移动 Web 仅提供“聊聊”和发布工作台当前版本、当前平台的长文正文，同一邮箱、同一 Story、同一权威数据；保存后跨端可见，并对并发正文修改失败关闭。"
+        }
+      ]
+    },
+    {
       "id": "family-biography-wechat-text",
       "name": "微信家庭人物传记（文字 V1）",
       "status": "planned",
