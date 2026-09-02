@@ -26,15 +26,12 @@
 
 | 会话 | 分支 / worktree | 正在动 | 状态 | 更新时间 |
 | --- | --- | --- | --- | --- |
-| 视觉资产标准板 | `affectionate-bartik-1d9c06` | 原待办会触达 `server/routers/storyAgent.ts` 的 provider 白名单/估价分支 | **协调暂停、不占用文件**：统一账号线到 U7 时优先接管 `storyAgent.ts`；本线若以后恢复，须等 U7 落地后重新登记并基于最新代码调整，不得并行修改 | 2026-09-02 |
-| 统一账号·赠送卡·算力账本 | `codex/mobile-cross-device-workspace`（主仓，用户裁决直接在主仓工作） | **已完成**：U1 本地全部、U2 本地全部（12 张新表 + `users.sessionVersion`、migration 0016、journal 17 条）；另修好迁移链本身（0007/0008/0009/0013/0014 缺 `--> statement-breakpoint`、0015 两个外键名 65 字符 > MySQL 上限 64、`storyConversation.mysql.test.ts` 的 `execute()`→`query()`），并补三道静态门禁。**U6 核心已完成**：`shared/computeMoney.ts`、`server/services/computeBilling.ts`／`computeLedger.ts`／`computeReconciliation.ts`，`server/db.ts` 增账本落库（热区，只新增）；真实 MySQL 两进程并发 4/4 通过。已按流程在架构棘轮豁免表登记 `computeLedger.ts`。**U4 已完成（本地）**：`accountSecurity.ts`／`accountIdentity.ts`、`server/_core/oauth.ts` 新增统一账号端点、`sdk.ts` 的 JWT 带 `sessionVersion`、`productionReadiness.ts` 要求 `OTP_DIGEST_SECRET`；characterization 测试已锁住旧邀请码登录链路的既有行为。已按流程登记 `accountIdentity.ts` 豁免。**U3 本地来源盘点完成**（`scripts/inventory-account-migration.ts`，只读，报告在 `docs/qa/account-migration-inventory-local.md`）：本地 63 个用户全部无邮箱、无冲突、无近似邮箱；只有 Guest 48 持 18 项目 35 Story，标为「需要人工映射」，未给任何归属建议。**还差旧 MySQL 与 staging 两个来源的只读盘点**，等用户确认后再做。**注意**：共享主仓里带着未提交的 `db.ts` 改动时不要跑 dev server——18:56–19:02 有会话跑了服务，把新增空集合写进了 `.webdev/local-persist.json`（已核对无数据丢失）。**U7 才会动 `server/routers/storyAgent.ts`／`creationAgent.ts`**，届时再登记 | 进行中（纯本地）。远端只做过只读盘点，**未做任何测试库写入**；U1 远端等用户批准 | 2026-09-02 |
-| 微信原生小程序测试壳层 | `codex/wechat-miniprogram-test-shell`（worktree `.worktrees/codex/wechat-miniprogram-test-shell`） | **仅 `miniprogram/**`**（全新目录，与现有任何文件零重叠）。唯一例外：为 U3 门禁在主仓实时 `docs/features/feature-ledger.json` 加一张 `planned` 卡（2026-09-02 用户裁决明确授权，只新增一张卡、不改统一账号线的卡）。不动 `client/**`、`server/**`、`shared/**`、`drizzle/**`、根配置 | **自动化已完成、待人工验收与合并**：U1–U3 已在分支 `codex/wechat-miniprogram-test-shell` 提交（`2ca35f7`，47 文件全在 `miniprogram/**`）；144 测试 + `tsc` 通过；开发者工具已能加载工程，但 GUI 控制权限被拒，可视验收待用户本人执行。**用户 2026-09-02 裁决：先不合并**，分支与 worktree 保留，等唯一 merge owner 接管；可视验收由用户本人执行。本行在合并并完成可视验收前不销号 | 2026-09-02 21:22 |
+| 视觉资产标准板 | `affectionate-bartik-1d9c06` | 原待办会触达 `server/routers/storyAgent.ts` 的 provider 白名单/估价分支 | **协调暂停、不占用文件**：旧统一账号线已随 PR #7 收工；本线若恢复，须基于最新 `main` 重新登记文件所有权 | 2026-09-03 |
 （收工时删掉自己这行。）
 
-> **2026-09-02 用户协调裁决：** 统一账号线是 U1–U9 的唯一实现会话；其他会话不得
-> 并行修改其已登记文件。本线当前只占用 U1/U2 列出的文件；到 U7 前必须再次更新本表，
-> 再接管 `server/routers/storyAgent.ts` / `server/routers/creationAgent.ts`。视觉资产标准板线
-> 保持暂停且不占文件，待 U7 落地后才能重新登记。图生图对话框已经收工，已从“当前在场”移除。
+> **2026-09-03 收敛状态：** 统一账号线和微信测试壳层已随 PR #7 合入 `main`，旧会话、
+> 本地分支与 worktree 已销号，不再占用热区。后续 staging 数据迁移、小程序 live 接入或
+> 视觉资产工作恢复时，都必须基于最新 `main` 重新登记；视觉资产标准板当前仍暂停且不占文件。
 
 > **交叉点已解除**（08-24 02:41）：滚动剪辑修复线已收工，`shared/timelineCommands.ts`
 > 与 `shared/timelineEditing.ts` 交还，架构收敛线 U4–U7 可以正常取用。
@@ -55,6 +52,7 @@
 
 | 时间 | 提交 | 内容 | 归属（判据） | 触达热区 |
 | --- | --- | --- | --- | --- |
+| 09-03 | `3b578c5`（PR #7） | 合并手机跨端聊天与正文、统一账号和算力账本基础、微信原生 mock 壳层、成片版本、抽帧恢复、OpenAI 路由与美术语义；审查后补修历史账号会话归属和对话并发幂等。完整门禁 436 文件、3643 测试通过。测试站只读预检因迁移 ledger 7/17、缺账号表和 `OTP_DIGEST_SECRET` 判定 No-Go，未部署、未迁移、未重启 | **移动端与环境收敛线**（GitHub PR #7 合并；本地功能/staging worktree 与已吸收分支已删除） | `server/db.ts`、`drizzle/**`、`server/_core/oauth.ts`、`server/services/storyConversation.ts`、`client/src/features/mobileWorkspace/**`、`miniprogram/**`、`docs/features/feature-ledger.json` |
 | 08-26 00:01 | `5c9d750` | 统一所有视觉层的对象选择、移动、剪辑、抽帧、复制粘贴、删除、会话撤销与普通镜头生成采用；抽帧资产永久留仓，Story/Timeline/Take 聚合写入原子化；同步保留刷新延迟优化。合并前门禁 380 文件、3193 测试全绿 | **统一视觉图层剪辑线**（reflog 为 `merge codex/feat-unified-visual-clip-operations:`） | `EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx`、`StoryAgentContext.tsx`、`creationAgent.ts`、`storyAgent.ts`、`storyMaterials.ts`、`visualClipEditing.ts`、`server/db.ts` |
 | 08-23 17:43 | `8d19b94` | 删掉图生图链路里没被用上的代码 | **图生图对话框线**（reflog 为 `commit:`，直接在主仓提交；文件全属图生图链路） | `chatImageRefs.ts`、`useChatImageRemix.ts`、`useAssetSwapProposal.ts` |
 | 08-23 17:47 | `f0ce930` / `1f89f5b` | 清掉多轨剪辑重构留下的死代码 | **clip-move 线**（`1f89f5b` 的第二父提交来自 `claude/multitrack-editor-reset`）。该线当日收工，worktree 与分支已按规矩删除 | `visualClipEditing.ts` −27、`visualClipModel.ts`、`creationAgent.ts` −14、`EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx` |
