@@ -230,8 +230,7 @@ export function shouldHandleEditingShortcut(input: {
   altKey: boolean;
   targetKind: EditingShortcutTargetKind;
 }): boolean {
-  const isArrowKey =
-    input.key === "ArrowLeft" || input.key === "ArrowRight";
+  const isArrowKey = input.key === "ArrowLeft" || input.key === "ArrowRight";
   const isSpaceKey = input.key === " " || input.key === "Spacebar";
   return (
     (isArrowKey || isSpaceKey) &&
@@ -1014,8 +1013,9 @@ function ShotPreview({
                   className="h-full w-full object-cover"
                   style={timelineTransformStyle(
                     shot?.imageId != null
-                      ? shot.timelineItem?.imageTransforms?.[String(shot.imageId)] ??
-                          shot.timelineItem?.transform
+                      ? (shot.timelineItem?.imageTransforms?.[
+                          String(shot.imageId)
+                        ] ?? shot.timelineItem?.transform)
                       : shot?.timelineItem?.transform
                   )}
                 />
@@ -1075,9 +1075,7 @@ type TimelineLane = {
 };
 
 /** 字幕、旁白、音乐和原声只属于听觉编辑域，不跟随视觉镜头选中。 */
-export function timelineLaneDomain(
-  laneId: string
-): TimelineLane["domain"] {
+export function timelineLaneDomain(laneId: string): TimelineLane["domain"] {
   return ["captions", "voice", "music", "source-audio"].includes(laneId)
     ? "audio"
     : "visual";
@@ -2014,34 +2012,38 @@ function MultiTrackTimeline({
           {visibleLanes.map(lane => {
             const hidden = hiddenLaneIds.has(lane.id);
             return (
-            <div
-              key={lane.id}
-              className={`group flex items-center gap-1 border-b border-border/70 px-1.5 text-[10px] font-semibold text-muted-foreground ${hidden ? "opacity-40" : ""}`}
-              style={{ height: 27 }}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-1">
-                {laneIcon(lane.icon)}
-                <span className="truncate">{lane.label}</span>
-              </span>
-              <button
-                type="button"
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                onClick={() => toggleLaneVisibility(lane.id)}
-                aria-label={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
-                title={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
+              <div
+                key={lane.id}
+                className={`group flex items-center gap-1 border-b border-border/70 px-1.5 text-[10px] font-semibold text-muted-foreground ${hidden ? "opacity-40" : ""}`}
+                style={{ height: 27 }}
               >
-                {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              </button>
-              <button
-                type="button"
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-                onClick={() => removeLane(lane.id)}
-                aria-label={`删除 ${lane.label}轨道`}
-                title={`删除 ${lane.label}轨道`}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  {laneIcon(lane.icon)}
+                  <span className="truncate">{lane.label}</span>
+                </span>
+                <button
+                  type="button"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => toggleLaneVisibility(lane.id)}
+                  aria-label={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
+                  title={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
+                >
+                  {hidden ? (
+                    <EyeOff className="h-3 w-3" />
+                  ) : (
+                    <Eye className="h-3 w-3" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => removeLane(lane.id)}
+                  aria-label={`删除 ${lane.label}轨道`}
+                  title={`删除 ${lane.label}轨道`}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -2078,251 +2080,260 @@ function MultiTrackTimeline({
             {visibleLanes.map(lane => {
               const hidden = hiddenLaneIds.has(lane.id);
               return (
-              <div
-                key={lane.id}
-                className="relative cursor-crosshair border-b border-border/70 bg-background"
-                style={{ height: 27 }}
-                onPointerDown={seekFromPointer}
-                onDragOver={event => {
-                  if (lane.id !== "primary-video" || !draggedVisualClip) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={event => {
-                  if (lane.id === "primary-video") {
-                    void dropTimelineVisualClip(event);
-                  }
-                }}
-                aria-label={`${lane.label} 轨道`}
-              >
-                {!hidden && lane.id === "primary-video" ? (
-                  <ContextMenu.Root>
-                    <ContextMenu.Trigger asChild>
-                      <button
-                        type="button"
-                        className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
-                        aria-label="主视频轨空白区"
-                        title={
-                          videoClipboardLabel
-                            ? `右键粘贴 ${videoClipboardLabel}`
-                            : "右键可粘贴已复制的视频"
-                        }
-                        onContextMenu={event =>
-                          rememberTimelinePasteTarget(event.clientX)
-                        }
-                      />
-                    </ContextMenu.Trigger>
-                    <ContextMenu.Portal>
-                      <ContextMenu.Content
-                        className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-                        data-testid="timeline-video-paste-menu"
-                      >
-                        <ContextMenu.Item
-                          disabled={
-                            !videoClipboardLabel ||
-                            !timelinePasteTarget ||
-                            pendingAction != null
-                          }
-                          onSelect={() =>
-                            void pasteVideoIntoTimeline("replace")
-                          }
-                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                        >
-                          {pendingAction === "paste" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <ClipboardPaste className="h-3.5 w-3.5" />
-                          )}
-                          <span className="min-w-0 flex-1 truncate">
-                            {videoClipboardLabel
-                              ? "替换主视频"
-                              : "剪贴板没有视频"}
-                          </span>
-                        </ContextMenu.Item>
-                        <ContextMenu.Item
-                          disabled={
-                            !videoClipboardLabel ||
-                            !timelinePasteTarget ||
-                            pendingAction != null
-                          }
-                          onSelect={() => void pasteVideoIntoTimeline("append")}
-                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                        >
-                          <ClipboardPaste className="h-3.5 w-3.5" />
-                          <span className="min-w-0 flex-1 truncate">
-                            插入为新片段
-                          </span>
-                        </ContextMenu.Item>
-                        {videoClipboardLabel ? (
-                          <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
-                            {videoClipboardLabel}
-                          </ContextMenu.Label>
-                        ) : null}
-                      </ContextMenu.Content>
-                    </ContextMenu.Portal>
-                  </ContextMenu.Root>
-                ) : null}
-                {!hidden && lane.clips.map(clip => {
-                  const left = (clip.startMs / 1000) * scale;
-                  const width = Math.max(
-                    4,
-                    ((clip.endMs - clip.startMs) / 1000) * scale
-                  );
-                  const selected =
-                    lane.domain === "visual" && clip.shotNo === selectedShotNo;
-                  const clipButton = (
-                    <button
-                      key={`${lane.id}-${clip.id}`}
-                      type="button"
-                      draggable={Boolean(clip.visualClip)}
-                      onClick={() => {
-                        setPlaybackRunning(false);
-                        commitPlayhead(clip.startMs, {
-                          // 听觉轨道只定位声音播放头，不反向切换视觉镜头。
-                          selectShot: lane.domain === "visual",
-                          playing: false,
-                        });
-                      }}
-                      onDoubleClick={event => {
-                        if (!clip.videoEditTarget && !clip.imageEditTarget)
-                          return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setPlaybackRunning(false);
-                        commitPlayhead(clip.startMs, {
-                          selectShot: true,
-                          playing: false,
-                        });
-                        if (clip.videoEditTarget) {
-                          onEditVideo(clip.videoEditTarget);
-                        } else if (clip.imageEditTarget) {
-                          onEditImage(clip.imageEditTarget);
-                        }
-                      }}
-                      onDragStart={event => {
-                        if (!clip.visualClip || !clip.stableShotId) {
-                          event.preventDefault();
-                          return;
-                        }
-                        setPlaybackRunning(false);
-                        setDraggedVisualClip({
-                          clipId: clip.visualClip.id,
-                          sourceStableShotId: clip.stableShotId,
-                        });
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData(
-                          "text/plain",
-                          clip.visualClip.label
-                        );
-                      }}
-                      onDragEnd={() => setDraggedVisualClip(null)}
-                      onContextMenu={event => {
-                        if (clip.videoEditTarget) event.stopPropagation();
-                      }}
-                      data-timeline-clip="true"
-                      className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
-                        lane.tone
-                      )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
-                      style={{ left, width }}
-                      title={
-                        clip.videoEditTarget
-                          ? `${clip.title} · 双击编辑视频`
-                          : clip.imageEditTarget
-                            ? `${clip.title} · 双击编辑图片`
-                            : clip.title
-                      }
-                      aria-label={clip.title}
-                    >
-                      {clip.imageUrl ? (
-                        <img
-                          src={clip.imageUrl}
-                          alt=""
-                          className="absolute inset-0 h-full w-full object-cover opacity-45"
-                          style={timelineTransformStyle(
-                            clip.videoEditTarget?.transform ??
-                              clip.imageEditTarget?.transform
-                          )}
-                        />
-                      ) : lane.icon === "music" ? (
-                        <span
-                          className="absolute inset-x-0 bottom-1 top-1 opacity-25"
-                          style={{
-                            backgroundImage:
-                              "repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 5px)",
-                          }}
-                        />
-                      ) : null}
-                      <span className="relative block truncate">
-                        {clip.label}
-                      </span>
-                    </button>
-                  );
-                  if (!clip.videoEditTarget) return clipButton;
-                  return (
-                    <ContextMenu.Root key={`${lane.id}-${clip.id}-menu`}>
+                <div
+                  key={lane.id}
+                  className="relative cursor-crosshair border-b border-border/70 bg-background"
+                  style={{ height: 27 }}
+                  onPointerDown={seekFromPointer}
+                  onDragOver={event => {
+                    if (lane.id !== "primary-video" || !draggedVisualClip)
+                      return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={event => {
+                    if (lane.id === "primary-video") {
+                      void dropTimelineVisualClip(event);
+                    }
+                  }}
+                  aria-label={`${lane.label} 轨道`}
+                >
+                  {!hidden && lane.id === "primary-video" ? (
+                    <ContextMenu.Root>
                       <ContextMenu.Trigger asChild>
-                        {clipButton}
+                        <button
+                          type="button"
+                          className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
+                          aria-label="主视频轨空白区"
+                          title={
+                            videoClipboardLabel
+                              ? `右键粘贴 ${videoClipboardLabel}`
+                              : "右键可粘贴已复制的视频"
+                          }
+                          onContextMenu={event =>
+                            rememberTimelinePasteTarget(event.clientX)
+                          }
+                        />
                       </ContextMenu.Trigger>
                       <ContextMenu.Portal>
                         <ContextMenu.Content
-                          className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-                          data-testid={`timeline-video-copy-${clip.id}`}
+                          className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                          data-testid="timeline-video-paste-menu"
                         >
-                          <ContextMenu.Item
-                            onSelect={() => onCopyVideo(clip.videoEditTarget!)}
-                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[highlighted]:bg-accent"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                            复制视频
-                          </ContextMenu.Item>
-                          <ContextMenu.Separator className="my-1 h-px bg-border" />
                           <ContextMenu.Item
                             disabled={
                               !videoClipboardLabel ||
-                              !clip.stableShotId ||
-                              clip.shotNo == null ||
+                              !timelinePasteTarget ||
                               pendingAction != null
                             }
-                            onSelect={() => {
-                              if (!clip.stableShotId || clip.shotNo == null)
-                                return;
-                              const shotNo = clip.shotNo;
-                              const timing = timings.find(
-                                candidate =>
-                                  candidate.stableShotId === clip.stableShotId
-                              );
-                              setPlaybackRunning(false);
-                              setPendingAction("paste");
-                              void onPasteVideo({
-                                stableShotId: clip.stableShotId,
-                                shotNo,
-                                mode: "append",
-                                targetOffsetMs: Math.max(
-                                  0,
-                                  clip.endMs - (timing?.startMs ?? clip.startMs)
-                                ),
-                              })
-                                .then(() => onSelectShot(shotNo))
-                                .catch(error => {
-                                  toast.error(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "视频片段插入失败"
-                                  );
-                                })
-                                .finally(() => setPendingAction(null));
-                            }}
+                            onSelect={() =>
+                              void pasteVideoIntoTimeline("replace")
+                            }
+                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                          >
+                            {pendingAction === "paste" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ClipboardPaste className="h-3.5 w-3.5" />
+                            )}
+                            <span className="min-w-0 flex-1 truncate">
+                              {videoClipboardLabel
+                                ? "替换主视频"
+                                : "剪贴板没有视频"}
+                            </span>
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            disabled={
+                              !videoClipboardLabel ||
+                              !timelinePasteTarget ||
+                              pendingAction != null
+                            }
+                            onSelect={() =>
+                              void pasteVideoIntoTimeline("append")
+                            }
                             className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                           >
                             <ClipboardPaste className="h-3.5 w-3.5" />
-                            插入复制的视频到此片段后
+                            <span className="min-w-0 flex-1 truncate">
+                              插入为新片段
+                            </span>
                           </ContextMenu.Item>
+                          {videoClipboardLabel ? (
+                            <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
+                              {videoClipboardLabel}
+                            </ContextMenu.Label>
+                          ) : null}
                         </ContextMenu.Content>
                       </ContextMenu.Portal>
                     </ContextMenu.Root>
-                  );
-                })}
-              </div>
+                  ) : null}
+                  {!hidden &&
+                    lane.clips.map(clip => {
+                      const left = (clip.startMs / 1000) * scale;
+                      const width = Math.max(
+                        4,
+                        ((clip.endMs - clip.startMs) / 1000) * scale
+                      );
+                      const selected =
+                        lane.domain === "visual" &&
+                        clip.shotNo === selectedShotNo;
+                      const clipButton = (
+                        <button
+                          key={`${lane.id}-${clip.id}`}
+                          type="button"
+                          draggable={Boolean(clip.visualClip)}
+                          onClick={() => {
+                            setPlaybackRunning(false);
+                            commitPlayhead(clip.startMs, {
+                              // 听觉轨道只定位声音播放头，不反向切换视觉镜头。
+                              selectShot: lane.domain === "visual",
+                              playing: false,
+                            });
+                          }}
+                          onDoubleClick={event => {
+                            if (!clip.videoEditTarget && !clip.imageEditTarget)
+                              return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setPlaybackRunning(false);
+                            commitPlayhead(clip.startMs, {
+                              selectShot: true,
+                              playing: false,
+                            });
+                            if (clip.videoEditTarget) {
+                              onEditVideo(clip.videoEditTarget);
+                            } else if (clip.imageEditTarget) {
+                              onEditImage(clip.imageEditTarget);
+                            }
+                          }}
+                          onDragStart={event => {
+                            if (!clip.visualClip || !clip.stableShotId) {
+                              event.preventDefault();
+                              return;
+                            }
+                            setPlaybackRunning(false);
+                            setDraggedVisualClip({
+                              clipId: clip.visualClip.id,
+                              sourceStableShotId: clip.stableShotId,
+                            });
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData(
+                              "text/plain",
+                              clip.visualClip.label
+                            );
+                          }}
+                          onDragEnd={() => setDraggedVisualClip(null)}
+                          onContextMenu={event => {
+                            if (clip.videoEditTarget) event.stopPropagation();
+                          }}
+                          data-timeline-clip="true"
+                          className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
+                            lane.tone
+                          )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
+                          style={{ left, width }}
+                          title={
+                            clip.videoEditTarget
+                              ? `${clip.title} · 双击编辑视频`
+                              : clip.imageEditTarget
+                                ? `${clip.title} · 双击编辑图片`
+                                : clip.title
+                          }
+                          aria-label={clip.title}
+                        >
+                          {clip.imageUrl ? (
+                            <img
+                              src={clip.imageUrl}
+                              alt=""
+                              className="absolute inset-0 h-full w-full object-cover opacity-45"
+                              style={timelineTransformStyle(
+                                clip.videoEditTarget?.transform ??
+                                  clip.imageEditTarget?.transform
+                              )}
+                            />
+                          ) : lane.icon === "music" ? (
+                            <span
+                              className="absolute inset-x-0 bottom-1 top-1 opacity-25"
+                              style={{
+                                backgroundImage:
+                                  "repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 5px)",
+                              }}
+                            />
+                          ) : null}
+                          <span className="relative block truncate">
+                            {clip.label}
+                          </span>
+                        </button>
+                      );
+                      if (!clip.videoEditTarget) return clipButton;
+                      return (
+                        <ContextMenu.Root key={`${lane.id}-${clip.id}-menu`}>
+                          <ContextMenu.Trigger asChild>
+                            {clipButton}
+                          </ContextMenu.Trigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.Content
+                              className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                              data-testid={`timeline-video-copy-${clip.id}`}
+                            >
+                              <ContextMenu.Item
+                                onSelect={() =>
+                                  onCopyVideo(clip.videoEditTarget!)
+                                }
+                                className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[highlighted]:bg-accent"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                复制视频
+                              </ContextMenu.Item>
+                              <ContextMenu.Separator className="my-1 h-px bg-border" />
+                              <ContextMenu.Item
+                                disabled={
+                                  !videoClipboardLabel ||
+                                  !clip.stableShotId ||
+                                  clip.shotNo == null ||
+                                  pendingAction != null
+                                }
+                                onSelect={() => {
+                                  if (!clip.stableShotId || clip.shotNo == null)
+                                    return;
+                                  const shotNo = clip.shotNo;
+                                  const timing = timings.find(
+                                    candidate =>
+                                      candidate.stableShotId ===
+                                      clip.stableShotId
+                                  );
+                                  setPlaybackRunning(false);
+                                  setPendingAction("paste");
+                                  void onPasteVideo({
+                                    stableShotId: clip.stableShotId,
+                                    shotNo,
+                                    mode: "append",
+                                    targetOffsetMs: Math.max(
+                                      0,
+                                      clip.endMs -
+                                        (timing?.startMs ?? clip.startMs)
+                                    ),
+                                  })
+                                    .then(() => onSelectShot(shotNo))
+                                    .catch(error => {
+                                      toast.error(
+                                        error instanceof Error
+                                          ? error.message
+                                          : "视频片段插入失败"
+                                      );
+                                    })
+                                    .finally(() => setPendingAction(null));
+                                }}
+                                className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                              >
+                                <ClipboardPaste className="h-3.5 w-3.5" />
+                                插入复制的视频到此片段后
+                              </ContextMenu.Item>
+                            </ContextMenu.Content>
+                          </ContextMenu.Portal>
+                        </ContextMenu.Root>
+                      );
+                    })}
+                </div>
               );
             })}
             <ContextMenu.Root>
@@ -2668,20 +2679,22 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (!shouldHandleCreationEditorUndoShortcut({
-        key: event.key,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-        targetIsEditable: Boolean(
-          target?.closest(
-            'input, textarea, select, [contenteditable="true"], [role="textbox"]'
-          )
-        ),
-      })) {
+      if (
+        !shouldHandleCreationEditorUndoShortcut({
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          defaultPrevented: event.defaultPrevented,
+          repeat: event.repeat,
+          targetIsEditable: Boolean(
+            target?.closest(
+              'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+            )
+          ),
+        })
+      ) {
         return;
       }
       event.preventDefault();
@@ -2695,7 +2708,8 @@ export default function EditingNleWorkspace({
         });
     };
     window.addEventListener("keydown", handleUndoShortcut, true);
-    return () => window.removeEventListener("keydown", handleUndoShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", handleUndoShortcut, true);
   }, [undoTimeline]);
 
   const openVideoEditor = useCallback(
@@ -2791,11 +2805,20 @@ export default function EditingNleWorkspace({
         await updateTimelineImageTransform({
           stableShotId: target.stableShotId,
           imageId: target.imageId,
-          transform: draft,
+          transform: draft.transform,
+          textOverlay: draft.textOverlay,
         });
-        const nextTarget = { ...target, transform: draft };
+        const nextTarget = {
+          ...target,
+          transform: draft.transform,
+          textOverlay: draft.textOverlay,
+        };
         setImageEditorTarget(nextTarget);
-        toast.success(`${target.label} 构图已保存`);
+        toast.success(
+          draft.textOverlay
+            ? `${target.label} 构图与文字已保存`
+            : `${target.label} 构图已保存`
+        );
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "图片编辑保存失败"
@@ -3110,7 +3133,10 @@ export default function EditingNleWorkspace({
         else if (result.reason) toast.error(result.reason);
         return result;
       },
-      onCreateGapTransition: async ({ beforeStableShotId, afterStableShotId }) => {
+      onCreateGapTransition: async ({
+        beforeStableShotId,
+        afterStableShotId,
+      }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
@@ -3126,18 +3152,36 @@ export default function EditingNleWorkspace({
         }
         return result;
       },
-      onCreateExtractedFrameTransition: async ({ leftImageId, rightImageId }) => {
+      onCreateExtractedFrameTransition: async ({
+        leftImageId,
+        rightImageId,
+      }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
         const extracted = shots.flatMap(shot =>
-          ((shot as typeof shot & {
-            imageVersions?: Array<{ id: number; imageUrl: string; prompt: string | null }>;
-          }).imageVersions ?? []).flatMap(image => {
+          (
+            (
+              shot as typeof shot & {
+                imageVersions?: Array<{
+                  id: number;
+                  imageUrl: string;
+                  prompt: string | null;
+                }>;
+              }
+            ).imageVersions ?? []
+          ).flatMap(image => {
             const atMs = extractedFrameTimeMs(image.prompt);
             return atMs == null
               ? []
-              : [{ id: `image-${image.id}`, imageId: image.id, atMs, imageUrl: image.imageUrl }];
+              : [
+                  {
+                    id: `image-${image.id}`,
+                    imageId: image.id,
+                    atMs,
+                    imageUrl: image.imageUrl,
+                  },
+                ];
           })
         );
         const left = extracted.find(frame => frame.imageId === leftImageId);
@@ -3146,7 +3190,9 @@ export default function EditingNleWorkspace({
           return { applied: false, reason: "抽帧已失效，请重新选择" };
         }
         setExtractedFrameRequirements(
-          left.atMs <= right.atMs ? { left, right } : { left: right, right: left }
+          left.atMs <= right.atMs
+            ? { left, right }
+            : { left: right, right: left }
         );
         return { applied: true };
       },
@@ -3156,7 +3202,8 @@ export default function EditingNleWorkspace({
           toast.success("已删除这张抽帧");
           return { applied: true };
         } catch (error) {
-          const reason = error instanceof Error ? error.message : "删除抽帧失败";
+          const reason =
+            error instanceof Error ? error.message : "删除抽帧失败";
           toast.error(reason);
           return { applied: false, reason };
         }
@@ -3247,7 +3294,11 @@ export default function EditingNleWorkspace({
       // 帧级、锚点安全的裁剪：另一头锚定不动，裁边贴到位置锚点为止。
       // 有它就走它——旧的 onTrimShotDuration 只改 plannedDurationMs，
       // 会被已经写死的 durationFrames 盖掉，松手瞬间又弹回原状。
-      onTrimTimelineEdge: async ({ stableShotId, edge, requestedBoundaryFrame }) => {
+      onTrimTimelineEdge: async ({
+        stableShotId,
+        edge,
+        requestedBoundaryFrame,
+      }) => {
         const result = await trimTimelineItemEdge(
           stableShotId,
           edge,

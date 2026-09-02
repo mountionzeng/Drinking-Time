@@ -49,6 +49,7 @@ import {
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
+  type StoryTimelineImageTextOverlay,
   type StoryTimelineOverlay,
   type TimelineTransform,
   type TimelineVideoEffects,
@@ -461,6 +462,7 @@ type CreationEditorContextValue = {
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
     stableShotId: string;
@@ -967,18 +969,26 @@ export function normalizeStoryImages(
         obj.selectionSource === "none"
           ? obj.selectionSource
           : undefined;
+      const candidateLayout =
+        obj.candidateLayout === "single" ||
+        obj.candidateLayout === "four-up-sheet"
+          ? obj.candidateLayout
+          : undefined;
       return {
         id: id ?? 0,
         shotNo,
         shotIdentity,
         imageUrl,
         prompt: stringValue(obj.prompt) || null,
+        promptCompilationId: numberValue(obj.promptCompilationId),
         status,
         isCurrent:
           typeof obj.isCurrent === "boolean" ? obj.isCurrent : undefined,
         isPrimary:
           typeof obj.isPrimary === "boolean" ? obj.isPrimary : undefined,
         generationType,
+        parentImageId: numberValue(obj.parentImageId),
+        candidateLayout,
         selectionSource,
       } satisfies CreationEditorImage;
     })
@@ -1466,6 +1476,15 @@ export function CreationEditorProvider({
       retry: false,
     }
   );
+  const storyboardCoverReferencesQuery =
+    trpc.publishingDraft.storyboardCoverReferences.useQuery(
+      { storyId: activeId ?? 1 },
+      {
+        enabled: activeId != null && activeId > 0,
+        refetchOnWindowFocus: false,
+        retry: false,
+      }
+    );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
     { storyId: activeId ?? 0 },
     {
@@ -1548,6 +1567,7 @@ export function CreationEditorProvider({
       spinePublishing,
       story: storyQuery.data,
       publishingRead: publishingDraftQuery.data,
+      storyboardCoverRead: storyboardCoverReferencesQuery.data,
     });
     return buildPublishingVideoHandoff({
       storyId: activeId,
@@ -1558,6 +1578,7 @@ export function CreationEditorProvider({
     activeId,
     publishingDraftQuery.data?.coverAsset,
     publishingDraftQuery.data?.publishing,
+    storyboardCoverReferencesQuery.data,
     spinePublishing,
     storyQuery.data?.body,
     storyQuery.data?.id,
@@ -1645,7 +1666,8 @@ export function CreationEditorProvider({
         timelineStartFrame: shots
           .slice(0, position)
           .reduce(
-            (total, previous) => total + timelineMsToFrames(previous.durationMs ?? 3000),
+            (total, previous) =>
+              total + timelineMsToFrames(previous.durationMs ?? 3000),
             0
           ),
         stackOrder: position,
@@ -1870,11 +1892,7 @@ export function CreationEditorProvider({
   );
 
   const moveTimelineShot = useCallback(
-    (
-      stableShotId: string,
-      deltaFrames: number,
-      snapThresholdFrames?: number
-    ) =>
+    (stableShotId: string, deltaFrames: number, snapThresholdFrames?: number) =>
       commitTimelinePlan(
         planTimelineSingleMove({
           items: timelineItems,
@@ -1903,7 +1921,11 @@ export function CreationEditorProvider({
   const removeTimelineAnchorFromShot = useCallback(
     (stableShotId: string, anchorId: string) =>
       commitTimelinePlan(
-        planTimelineAnchorRemove({ items: timelineItems, stableShotId, anchorId }),
+        planTimelineAnchorRemove({
+          items: timelineItems,
+          stableShotId,
+          anchorId,
+        }),
         "取消锚点失败"
       ),
     [commitTimelinePlan, timelineItems]
@@ -1922,7 +1944,8 @@ export function CreationEditorProvider({
           edge,
           requestedBoundaryFrame,
           sourceLimitSec:
-            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ??
+            null,
         }),
         "裁剪失败"
       ),
@@ -1943,9 +1966,11 @@ export function CreationEditorProvider({
           rightStableShotId,
           requestedBoundaryFrame,
           leftSourceLimitSec:
-            timelineResolverShots.get(leftStableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(leftStableShotId)
+              ?.currentVideoDurationSec ?? null,
           rightSourceLimitSec:
-            timelineResolverShots.get(rightStableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(rightStableShotId)
+              ?.currentVideoDurationSec ?? null,
         }),
         "滚动剪辑失败"
       ),
@@ -2746,7 +2771,10 @@ export function CreationEditorProvider({
         : storyVideoAssetsQuery.refetch()
     );
     void storyMaterialQuery.refetch().catch(error => {
-      console.warn("[creation-editor] material refresh after import failed", error);
+      console.warn(
+        "[creation-editor] material refresh after import failed",
+        error
+      );
     });
     if (result.kind === "image") {
       return {
@@ -3309,7 +3337,10 @@ export function CreationEditorProvider({
       body && typeof body === "object" && !Array.isArray(body)
         ? Number((body as Record<string, unknown>)._revision) || 0
         : 0;
-    const requestSplit = (expectedStoryRevision: number, expectedTimelineVersion: number) =>
+    const requestSplit = (
+      expectedStoryRevision: number,
+      expectedTimelineVersion: number
+    ) =>
       splitStoryShotMut.mutateAsync({
         storyId: activeId,
         stableShotId: input.stableShotId,
@@ -3565,22 +3596,32 @@ export function CreationEditorProvider({
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => {
     if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
       throw new Error("当前镜头不在时间线上");
     }
     await saveTimelineItems(
-      timelineItems.map(item =>
-        item.stableShotId === input.stableShotId
-          ? {
-              ...item,
-              imageTransforms: {
-                ...(item.imageTransforms ?? {}),
-                [String(input.imageId)]: input.transform,
-              },
-            }
-          : item
-      ),
+      timelineItems.map(item => {
+        if (item.stableShotId !== input.stableShotId) return item;
+        const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
+        if (input.textOverlay) {
+          imageTextOverlays[String(input.imageId)] = input.textOverlay;
+        } else {
+          delete imageTextOverlays[String(input.imageId)];
+        }
+        return {
+          ...item,
+          imageTransforms: {
+            ...(item.imageTransforms ?? {}),
+            [String(input.imageId)]: input.transform,
+          },
+          imageTextOverlays:
+            Object.keys(imageTextOverlays).length > 0
+              ? imageTextOverlays
+              : undefined,
+        };
+      }),
       { throwOnError: true }
     );
   };
@@ -3763,6 +3804,7 @@ export function CreationEditorProvider({
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
         publishingDraftQuery.isLoading ||
+        storyboardCoverReferencesQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
@@ -3893,6 +3935,7 @@ export function CreationEditorProvider({
       storyListQuery,
       storyQuery,
       publishingDraftQuery,
+      storyboardCoverReferencesQuery,
     ]
   );
 

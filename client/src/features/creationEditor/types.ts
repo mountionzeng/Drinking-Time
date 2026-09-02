@@ -16,10 +16,13 @@ export type CreationEditorImage = {
   shotIdentity?: string | null;
   imageUrl: string;
   prompt?: string | null;
+  promptCompilationId?: number | null;
   status?: "selected" | "pending" | "rejected";
   isCurrent?: boolean;
   isPrimary?: boolean;
   generationType?: "generate" | "initial" | "inpaint";
+  parentImageId?: number | null;
+  candidateLayout?: "single" | "four-up-sheet";
   selectionSource?: "explicit" | "legacy" | "none";
 };
 

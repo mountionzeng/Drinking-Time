@@ -98,7 +98,8 @@ export function storyboardReferenceManifest(
       const role =
         reference.source === "instruction"
           ? "只用来执行用户明确点名的参考要求；不要复制它的人物身份、场景、机位或构图。"
-          : reference.source === "publishing-cover"
+          : reference.source === "publishing-cover" ||
+              reference.source === "publishing-cover-candidate"
             ? "只用来对齐故事的整体风格与配色，不要复制它的构图或人物。"
             : "只借它的颜料质感、笔触语言和人物明度，用来保证前后镜头剪在一起不跳戏。严禁把它的场景、环境、构图、色块分布、背景元素或人物姿势搬进这一镜。";
       return `图${index + 2}＝${label}。${role}`;
@@ -167,6 +168,8 @@ export function storyboardImageReferenceLabel(
   if (reference.source === "previous-last") return `上一镜 ${cue} 尾帧`;
   if (reference.source === "publishing-cover")
     return "文字稿正式封面（故事风格）";
+  if (reference.source === "publishing-cover-candidate")
+    return "用户本次选择的封面候选（仅作故事风格参考）";
   return `下一镜 ${cue} 首帧`;
 }
 

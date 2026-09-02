@@ -1241,6 +1241,7 @@ type StoryboardImageGenerationFrameReference = {
     | "previous-last"
     | "next-first"
     | "publishing-cover"
+    | "publishing-cover-candidate"
     | "instruction";
   cueCode: string | null;
   shotNo: number;
@@ -1410,8 +1411,10 @@ export function storyboardImageGenerationReferences(
       (reference): reference is StoryboardImageGenerationFrameReference =>
         reference != null
     );
+  // Once the user has adopted an earlier frame, later empty shots inherit that
+  // established visual version before looking ahead to a future shot.
   const ordered = (
-    current ? [current, previous, next] : [next, previous]
+    current ? [current, previous, next] : [previous, next]
   ).filter(
     (reference): reference is StoryboardImageGenerationFrameReference =>
       reference != null

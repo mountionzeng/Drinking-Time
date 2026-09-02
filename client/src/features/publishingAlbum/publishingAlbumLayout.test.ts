@@ -47,6 +47,26 @@ describe("publishing album layout", () => {
     }
   });
 
+  it("honors an explicit font size and letter spacing in the shared layout plan", () => {
+    const result = buildPublishingAlbumLayout({
+      text: "调整字距",
+      fontId: "noto-serif-sc",
+      geometry: wideRegion,
+      canvas: { width: 900, height: 1200 },
+      fontSize: 42,
+      letterSpacing: 12,
+      lineSpacing: 1.3,
+      metrics,
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.plan.fontSize).toBe(42);
+      expect(result.plan.letterSpacing).toBe(12);
+      expect(result.plan.graphemes[1]!.x - result.plan.graphemes[0]!.x).toBe(54);
+    }
+  });
+
   it("flows a narrow tall region vertically from right to left", () => {
     const text = "山高水长，后会有期。";
     const result = buildPublishingAlbumLayout({

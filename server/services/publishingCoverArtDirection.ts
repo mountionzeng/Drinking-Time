@@ -1,7 +1,5 @@
-import {
-  normalizePublishingDraftState,
-  resolvePublishingActiveVersion,
-} from "../../shared/publishingDraft";
+import { normalizePublishingDraftState } from "../../shared/publishingDraft";
+import { resolvePublishingStoryboardCoverSource } from "./publishingStoryboardCoverSource";
 
 const REUSABLE_COVER_ART_SECTIONS = [
   "用户持续要求",
@@ -76,12 +74,8 @@ export async function resolvePublishingCoverArtDirection(input: {
   } | null>;
 }): Promise<string> {
   const publishing = normalizePublishingDraftState(input.storyBody.publishing);
-  const versionId =
-    publishing.activeVideoStoryboardVersionId ?? publishing.activeVersionId;
-  const version =
-    publishing.versions?.find(candidate => candidate.versionId === versionId) ??
-    resolvePublishingActiveVersion(publishing);
-  const coverAssetId = version.cover?.assetId ?? publishing.cover?.assetId;
+  const coverAssetId =
+    resolvePublishingStoryboardCoverSource(publishing).cover?.assetId;
   if (!coverAssetId) return "";
   const cover = await input.loadImage(coverAssetId);
   if (!cover || cover.storyId !== input.storyId) return "";

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { CreationEditorShot } from "./types";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  type StoryTimelineImageTextOverlay,
   type TimelineTransform,
 } from "@shared/storyMaterial";
 
@@ -14,9 +15,15 @@ export type ImageClipEditorTarget = {
   imageUrl: string;
   label: string;
   transform: TimelineTransform;
+  textOverlay: StoryTimelineImageTextOverlay | null;
+  /** Shot narration/dialogue offered when this exact image has no saved text layer. */
+  defaultText: string;
 };
 
-export type ImageClipEditDraft = TimelineTransform;
+export type ImageClipEditDraft = {
+  transform: TimelineTransform;
+  textOverlay: StoryTimelineImageTextOverlay | null;
+};
 
 const clamp = (value: number | undefined, min: number, max: number) =>
   Math.min(
@@ -58,8 +65,13 @@ export function imageClipEditorTargetForShot(input: {
     transform: normalizeImageClipEditDraft({
       ...DEFAULT_TIMELINE_TRANSFORM,
       ...(input.shot.timelineItem?.transform ?? {}),
-      ...(input.shot.timelineItem?.imageTransforms?.[String(input.imageId)] ?? {}),
+      ...(input.shot.timelineItem?.imageTransforms?.[String(input.imageId)] ??
+        {}),
     }),
+    textOverlay:
+      input.shot.timelineItem?.imageTextOverlays?.[String(input.imageId)] ??
+      null,
+    defaultText: input.shot.dialogue?.trim() ?? "",
   };
 }
 

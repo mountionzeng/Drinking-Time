@@ -8,59 +8,60 @@ export type FrameCandidateAsset = {
   id: number;
   imageUrl: string;
   prompt?: string | null;
+  promptCompilationId?: number | null;
   generationType?: "generate" | "initial" | "inpaint";
   parentImageId?: number | null;
+  /** Persisted/display contract. A complete image is never inferred to be a sheet from its prompt. */
+  candidateLayout?: "single" | "four-up-sheet";
 };
-
-function hasGeneratedCandidatePrompt(image: FrameCandidateAsset): boolean {
-  const prompt = image.prompt ?? "";
-  return (
-    prompt.includes("USER DIRECT EDIT INSTRUCTION") ||
-    prompt.includes("Single-frame rule:")
-  );
-}
 
 export function isFrameCandidateSheet(
   image: FrameCandidateAsset,
-  promptRunImageId?: number
+  _promptRunImageId?: number
 ): boolean {
   if (image.parentImageId != null) return false;
+  return image.candidateLayout === "four-up-sheet";
+}
 
-  const legacyFinalMjSheet =
-    image.generationType === "generate" &&
-    image.prompt?.includes("Rerender only") &&
-    image.prompt.includes("Create exactly one single cinematic still frame");
-  const generatedSheet =
-    image.generationType === "initial" ||
-    image.generationType === "inpaint" ||
-    legacyFinalMjSheet;
-  if (!generatedSheet) return false;
-  if (legacyFinalMjSheet) return true;
-
-  // The prompt run is authoritative. Storyboard-reference MJ renders are
-  // persisted as inpaint even though the provider returns one four-up sheet.
-  if (image.id === promptRunImageId) return true;
-
-  if (
-    image.prompt?.includes(
-      "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH"
-    )
-  ) {
-    return (
-      image.prompt.includes("图片要求（最高优先级）") &&
-      !image.prompt.includes("本次对话修改（最高优先级") &&
-      !image.prompt.includes("单帧参考编辑保护")
+/**
+ * Split only an asset carrying the explicit four-up display contract. Prompt
+ * wording, generation type and prompt-run ids describe how an image was made;
+ * none of them prove that its pixels contain a 2x2 sheet.
+ */
+export function frameCandidateSheetIds(
+  images: readonly FrameCandidateAsset[],
+  promptRunImageId?: number
+): Set<number> {
+  const compilationCounts = new Map<number, number>();
+  for (const image of images) {
+    if (image.promptCompilationId == null || image.parentImageId != null) {
+      continue;
+    }
+    compilationCounts.set(
+      image.promptCompilationId,
+      (compilationCounts.get(image.promptCompilationId) ?? 0) + 1
     );
   }
-  return hasGeneratedCandidatePrompt(image);
+  return new Set(
+    images
+      .filter(
+        image =>
+          !(
+            image.promptCompilationId != null &&
+            (compilationCounts.get(image.promptCompilationId) ?? 0) > 1
+          ) && isFrameCandidateSheet(image, promptRunImageId)
+      )
+      .map(image => image.id)
+  );
 }
 
 export function latestFrameCandidateSheet(
   images: readonly FrameCandidateAsset[],
   promptRunImageId?: number
 ): FrameCandidateSource | null {
+  const sheetIds = frameCandidateSheetIds(images, promptRunImageId);
   const sheets = images
-    .filter(image => isFrameCandidateSheet(image, promptRunImageId))
+    .filter(image => sheetIds.has(image.id))
     .sort((left, right) => left.id - right.id);
   const latest = sheets.at(-1);
   if (!latest) return null;

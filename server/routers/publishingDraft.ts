@@ -88,6 +88,7 @@ import {
   quotePublishingAlbumBackground,
 } from "../services/publishingAlbumBackgroundGeneration";
 import { publishingAlbumFontTagsFromCoverPrompt } from "../services/publishingAlbumBackgroundPrompt";
+import { resolvePublishingStoryboardCoverSource } from "../services/publishingStoryboardCoverSource";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
 const trendPlatformSchema = z.enum(PUBLISHING_TREND_PLATFORM_IDS);
@@ -121,8 +122,10 @@ const albumTypographySchema = z.discriminatedUnion("kind", [
     shape: z.enum(["rectangle", "ellipse"]),
     direction: z.enum(["horizontal", "vertical"]),
     region: z.object({
-      x: z.number().min(0).max(1), y: z.number().min(0).max(1),
-      width: z.number().positive().max(1), height: z.number().positive().max(1),
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().positive().max(1),
+      height: z.number().positive().max(1),
     }),
   }),
   albumTypographyBaseSchema.extend({
@@ -263,7 +266,8 @@ function assertPublishingPlatformContextScope(params: {
       params.publishing.containerRevision ?? params.publishing.revision
     );
   }
-  const actualContainerRevision = params.publishing.containerRevision ?? params.publishing.revision;
+  const actualContainerRevision =
+    params.publishing.containerRevision ?? params.publishing.revision;
   if (actualContainerRevision !== params.baseContainerRevision) {
     throw new PublishingDraftConflictError(
       "publishing",
@@ -292,7 +296,8 @@ function assertPublishingPlatformContextScope(params: {
       draft.revision
     );
   }
-  const context = version.platformContexts?.[params.platform] ??
+  const context =
+    version.platformContexts?.[params.platform] ??
     emptyPublishingPlatformContextState(params.publishing.updatedAt);
   if (context.revision !== params.baseContextRevision) {
     throw new PublishingDraftConflictError(
@@ -316,17 +321,21 @@ function currentPublishingTextScope(params: {
     versionId: version.versionId,
     platform: params.platform,
     ...(params.sourcePlatform ? { sourcePlatform: params.sourcePlatform } : {}),
-    containerRevision: params.publishing.containerRevision ?? params.publishing.revision,
+    containerRevision:
+      params.publishing.containerRevision ?? params.publishing.revision,
     versionRevision: version.versionRevision,
     coreRevision: version.core?.revision ?? 0,
     draftRevision: version.drafts[params.platform]?.revision ?? 0,
     ...(params.sourcePlatform
-      ? { sourceDraftRevision: version.drafts[params.sourcePlatform]?.revision ?? 0 }
+      ? {
+          sourceDraftRevision:
+            version.drafts[params.sourcePlatform]?.revision ?? 0,
+        }
       : {}),
     intentRevision: version.intentSnapshot?.revision ?? 0,
-    contextRevision: version.platformContexts?.[
-      params.platform as PublishingTrendPlatformId
-    ]?.revision ?? 0,
+    contextRevision:
+      version.platformContexts?.[params.platform as PublishingTrendPlatformId]
+        ?.revision ?? 0,
   };
 }
 
@@ -401,7 +410,10 @@ async function claimPublishingTextOperation(params: {
     payload: params.payload,
   });
   if (params.requestHash && params.requestHash !== requestHash) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "操作校验值与当前请求不一致" });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "操作校验值与当前请求不一致",
+    });
   }
   const version = params.current.publishing.versions?.find(
     candidate => candidate.versionId === params.scope.versionId
@@ -413,7 +425,10 @@ async function claimPublishingTextOperation(params: {
     // projection merely because the token still exists in versions[].
     assertPublishingTextScopeIdentity(params.scope, params.actualScope);
     if (existing.requestHash !== requestHash) {
-      throw new TRPCError({ code: "CONFLICT", message: "这个操作编号已经用于不同的请求" });
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "这个操作编号已经用于不同的请求",
+      });
     }
     if (existing.status === "completed") {
       return {
@@ -427,10 +442,16 @@ async function claimPublishingTextOperation(params: {
       };
     }
     if (existing.status === "failed") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: existing.error || "上次操作失败，请重新发起" });
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: existing.error || "上次操作失败，请重新发起",
+      });
     }
     if (existing.expiresAt > Date.now()) {
-      throw new TRPCError({ code: "CONFLICT", message: "同一文字操作仍在执行，请稍后查看结果" });
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "同一文字操作仍在执行，请稍后查看结果",
+      });
     }
   } else {
     assertPublishingTextScope(params.scope, params.actualScope);
@@ -485,12 +506,15 @@ async function failPublishingTextOperation(
   error: unknown
 ): Promise<void> {
   if (claim.replayed) return;
-  const version = claim.publishing.versions?.find(candidate => candidate.versionId === claim.scope.versionId);
+  const version = claim.publishing.versions?.find(
+    candidate => candidate.versionId === claim.scope.versionId
+  );
   const failed: PublishingTextOperationReceipt = {
     ...claim.receipt,
     status: "failed",
     updatedAt: Date.now(),
-    error: error instanceof Error ? error.message.slice(0, 500) : "文字操作失败",
+    error:
+      error instanceof Error ? error.message.slice(0, 500) : "文字操作失败",
   };
   try {
     await writePublishingDraftState({
@@ -499,7 +523,8 @@ async function failPublishingTextOperation(
       operation: {
         type: "settle_text_operation",
         receipt: failed,
-        baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+        baseContainerRevision:
+          claim.publishing.containerRevision ?? claim.publishing.revision,
         baseVersionRevision: version?.versionRevision ?? 0,
       },
     });
@@ -831,19 +856,50 @@ export const publishingDraftRouter = router({
       }
     }),
 
+  storyboardCoverReferences: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
+        const source = resolvePublishingStoryboardCoverSource(
+          result.publishing
+        );
+        const coverAsset = await loadPublishingCoverAsset({
+          assetId: source.cover?.assetId,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+        return {
+          storyId: input.storyId,
+          versionId: source.versionId,
+          coverAsset,
+        };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
   refreshPlatformContext: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      platform: trendPlatformSchema,
-      baseContainerRevision: z.number().int().nonnegative(),
-      baseVersionRevision: z.number().int().nonnegative(),
-      baseContextRevision: z.number().int().nonnegative(),
-      baseSourceRevision: z.number().int().nonnegative(),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        platform: trendPlatformSchema,
+        baseContainerRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        baseContextRevision: z.number().int().nonnegative(),
+        baseSourceRevision: z.number().int().nonnegative(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
         const { version, draft } = assertPublishingPlatformContextScope({
           publishing: current.publishing,
           versionId: input.versionId,
@@ -864,7 +920,10 @@ export const publishingDraftRouter = router({
             ...(version.core?.facts ?? []),
             draft.content.title,
             draft.content.body,
-          ].filter(Boolean).join("\n").slice(0, 20_000),
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 20_000),
           contentTags: draft.content.tags,
         });
         if (!contextResult.persistable) {
@@ -899,21 +958,26 @@ export const publishingDraftRouter = router({
     }),
 
   selectPlatformContextTags: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      platform: trendPlatformSchema,
-      snapshotId: z.string().trim().min(1).max(160).nullable(),
-      candidateIds: z.array(z.string().trim().min(1).max(160)).max(12),
-      contentTags: z.array(z.string().trim().min(1).max(80)).max(12),
-      baseContainerRevision: z.number().int().nonnegative(),
-      baseVersionRevision: z.number().int().nonnegative(),
-      baseContextRevision: z.number().int().nonnegative(),
-      baseSourceRevision: z.number().int().nonnegative(),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        platform: trendPlatformSchema,
+        snapshotId: z.string().trim().min(1).max(160).nullable(),
+        candidateIds: z.array(z.string().trim().min(1).max(160)).max(12),
+        contentTags: z.array(z.string().trim().min(1).max(80)).max(12),
+        baseContainerRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        baseContextRevision: z.number().int().nonnegative(),
+        baseSourceRevision: z.number().int().nonnegative(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
         assertPublishingPlatformContextScope({
           publishing: current.publishing,
           versionId: input.versionId,
@@ -945,37 +1009,63 @@ export const publishingDraftRouter = router({
     }),
 
   readAlbum: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+      })
+    )
     .query(async ({ ctx, input }) => {
       try {
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
-        const version = current.publishing.versions?.find(candidate => candidate.versionId === input.versionId);
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
+        const version = current.publishing.versions?.find(
+          candidate => candidate.versionId === input.versionId
+        );
         if (!version) throw new Error("发布版本不存在或已经切换");
-        const assetIds = Array.from(new Set(version.album?.pages.flatMap(page =>
-          page.backgroundRounds.flatMap(round => round.assetIds)
-        ) ?? []));
-        const assets = await Promise.all(assetIds.map(async assetId => {
-          const image = await getGeneratedImageById(assetId);
-          if (!image || image.storyId !== input.storyId || image.userId !== ctx.user.id) return null;
-          return { id: image.id, imageUrl: image.imageUrl, imageKey: image.imageKey };
-        }));
+        const assetIds = Array.from(
+          new Set(
+            version.album?.pages.flatMap(page =>
+              page.backgroundRounds.flatMap(round => round.assetIds)
+            ) ?? []
+          )
+        );
+        const assets = await Promise.all(
+          assetIds.map(async assetId => {
+            const image = await getGeneratedImageById(assetId);
+            if (
+              !image ||
+              image.storyId !== input.storyId ||
+              image.userId !== ctx.user.id
+            )
+              return null;
+            return {
+              id: image.id,
+              imageUrl: image.imageUrl,
+              imageKey: image.imageKey,
+            };
+          })
+        );
         const coverImage = version.cover?.assetId
           ? await getGeneratedImageById(version.cover.assetId)
           : null;
-        const artDirectionTags = coverImage &&
-          coverImage.storyId === input.storyId && coverImage.userId === ctx.user.id
-          ? publishingAlbumFontTagsFromCoverPrompt(coverImage.prompt ?? "")
-          : [];
+        const artDirectionTags =
+          coverImage &&
+          coverImage.storyId === input.storyId &&
+          coverImage.userId === ctx.user.id
+            ? publishingAlbumFontTagsFromCoverPrompt(coverImage.prompt ?? "")
+            : [];
         return {
           storyId: input.storyId,
           versionId: version.versionId,
           versionRevision: version.versionRevision,
           album: version.album,
           artDirectionTags,
-          assets: assets.filter((asset): asset is NonNullable<typeof asset> => asset != null),
+          assets: assets.filter(
+            (asset): asset is NonNullable<typeof asset> => asset != null
+          ),
         };
       } catch (error) {
         throwPublishingError(error);
@@ -983,103 +1073,133 @@ export const publishingDraftRouter = router({
     }),
 
   initializeAlbum: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      platform: platformSchema.optional(),
-      baseContainerRevision: z.number().int().nonnegative(),
-      baseVersionRevision: z.number().int().nonnegative(),
-      operationToken: z.string().trim().min(1).max(200),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        platform: platformSchema.optional(),
+        baseContainerRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await initializePublishingAlbum({ ...input, userId: ctx.user.id });
+        return await initializePublishingAlbum({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
     }),
 
   updateAlbumPageText: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      pageId: z.string().trim().min(1).max(120),
-      text: z.string().max(2_000),
-      baseTextRevision: z.number().int().nonnegative(),
-      operationToken: z.string().trim().min(1).max(200),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        pageId: z.string().trim().min(1).max(120),
+        text: z.string().max(2_000),
+        baseTextRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await updatePublishingAlbumPageText({ ...input, userId: ctx.user.id });
+        return await updatePublishingAlbumPageText({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
     }),
 
   saveAlbumPageTypography: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      pageId: z.string().trim().min(1).max(120),
-      typography: albumTypographySchema,
-      baseTextRevision: z.number().int().nonnegative(),
-      baseTypographyRevision: z.number().int().nonnegative(),
-      operationToken: z.string().trim().min(1).max(200),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        pageId: z.string().trim().min(1).max(120),
+        typography: albumTypographySchema,
+        baseTextRevision: z.number().int().nonnegative(),
+        baseTypographyRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await updatePublishingAlbumPageTypography({ ...input, userId: ctx.user.id });
+        return await updatePublishingAlbumPageTypography({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
     }),
 
   quoteAlbumPageBackground: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      pageId: z.string().trim().min(1).max(120),
-      provider: albumBackgroundProviderSchema.optional(),
-      feedback: z.string().trim().max(2_000).optional(),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        pageId: z.string().trim().min(1).max(120),
+        provider: albumBackgroundProviderSchema.optional(),
+        feedback: z.string().trim().max(2_000).optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await quotePublishingAlbumBackground({ ...input, userId: ctx.user.id });
+        return await quotePublishingAlbumBackground({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
     }),
 
   generateAlbumPageBackground: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      pageId: z.string().trim().min(1).max(120),
-      provider: albumBackgroundProviderSchema.optional(),
-      feedback: z.string().trim().max(2_000).optional(),
-      operationToken: z.string().trim().min(1).max(200).optional(),
-      confirmation: albumBackgroundQuoteSchema.optional(),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        pageId: z.string().trim().min(1).max(120),
+        provider: albumBackgroundProviderSchema.optional(),
+        feedback: z.string().trim().max(2_000).optional(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+        confirmation: albumBackgroundQuoteSchema.optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await generatePublishingAlbumBackground({ ...input, userId: ctx.user.id });
+        return await generatePublishingAlbumBackground({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
     }),
 
   adoptAlbumPageBackground: protectedProcedure
-    .input(z.object({
-      storyId: z.number().int().positive(),
-      versionId: z.string().trim().min(1).max(64),
-      pageId: z.string().trim().min(1).max(120),
-      assetId: z.number().int().positive(),
-      baseBackgroundRevision: z.number().int().nonnegative(),
-      operationToken: z.string().trim().min(1).max(200),
-    }))
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        pageId: z.string().trim().min(1).max(120),
+        assetId: z.number().int().positive(),
+        baseBackgroundRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       try {
-        return await adoptPublishingAlbumBackgroundCandidate({ ...input, userId: ctx.user.id });
+        return await adoptPublishingAlbumBackgroundCandidate({
+          ...input,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }
@@ -1113,9 +1233,7 @@ export const publishingDraftRouter = router({
         versionId: z.string().trim().min(1).max(64).optional(),
         operationToken: z.string().trim().min(1).max(160).optional(),
         /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
-        narrativeSpec: z
-          .enum(["video10", "video30", "video50"])
-          .optional(),
+        narrativeSpec: z.enum(["video10", "video30", "video50"]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1307,8 +1425,14 @@ export const publishingDraftRouter = router({
             message: "先在左侧说说你的想法，再生成发布稿",
           });
         }
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
-        if (!input.scope && current.publishing.revision !== input.basePublishingRevision) {
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
+        if (
+          !input.scope &&
+          current.publishing.revision !== input.basePublishingRevision
+        ) {
           throw new PublishingDraftConflictError(
             "publishing",
             input.basePublishingRevision,
@@ -1373,7 +1497,8 @@ export const publishingDraftRouter = router({
             content: generated.content,
             narrativeIntent,
             basePublishingRevision: claim.publishing.revision,
-            baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+            baseContainerRevision:
+              claim.publishing.containerRevision ?? claim.publishing.revision,
             baseVersionRevision: claimedVersion?.versionRevision ?? 0,
             textOperationReceipt: completed,
           },
@@ -1445,7 +1570,10 @@ export const publishingDraftRouter = router({
             storyId: input.storyId,
             storyRevision: claim.storyRevision,
             publishing: claim.publishing,
-            status: claim.receipt.result.status === "candidate" ? "candidate" as const : "created" as const,
+            status:
+              claim.receipt.result.status === "candidate"
+                ? ("candidate" as const)
+                : ("created" as const),
             content: claim.receipt.result.content,
             modelLabel: claim.receipt.result.modelLabel,
             operationScope: scope,
@@ -1476,7 +1604,9 @@ export const publishingDraftRouter = router({
               operation: {
                 type: "settle_text_operation",
                 receipt: completed,
-                baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+                baseContainerRevision:
+                  claim.publishing.containerRevision ??
+                  claim.publishing.revision,
                 baseVersionRevision: claimedVersion?.versionRevision ?? 0,
               },
             })
@@ -1489,14 +1619,16 @@ export const publishingDraftRouter = router({
                 content: converted.content,
                 baseDraftRevision: 0,
                 activate: true,
-                baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+                baseContainerRevision:
+                  claim.publishing.containerRevision ??
+                  claim.publishing.revision,
                 baseVersionRevision: claimedVersion?.versionRevision ?? 0,
                 textOperationReceipt: completed,
               },
             });
         return {
           ...saved,
-          status: existing ? "candidate" as const : "created" as const,
+          status: existing ? ("candidate" as const) : ("created" as const),
           content: converted.content,
           modelLabel: converted.modelLabel,
           operationScope: scope,
@@ -1599,7 +1731,8 @@ export const publishingDraftRouter = router({
           operation: {
             type: "settle_text_operation",
             receipt: completed,
-            baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+            baseContainerRevision:
+              claim.publishing.containerRevision ?? claim.publishing.revision,
             baseVersionRevision: claimedVersion?.versionRevision ?? 0,
           },
         });
@@ -1635,10 +1768,16 @@ export const publishingDraftRouter = router({
       let claim: ClaimedPublishingTextOperation | null = null;
       try {
         assertPublishingContentFitsPlatform(input.platform, input.content);
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
         const draft = current.publishing.drafts[input.platform];
         if (!draft) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "当前平台还没有可修复格式的发布稿" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "当前平台还没有可修复格式的发布稿",
+          });
         }
         if (draft.revision !== input.baseDraftRevision) {
           throw new PublishingDraftConflictError(
@@ -1695,7 +1834,8 @@ export const publishingDraftRouter = router({
           operation: {
             type: "settle_text_operation",
             receipt: completed,
-            baseContainerRevision: claim.publishing.containerRevision ?? claim.publishing.revision,
+            baseContainerRevision:
+              claim.publishing.containerRevision ?? claim.publishing.revision,
             baseVersionRevision: claimedVersion?.versionRevision ?? 0,
           },
         });
@@ -1799,17 +1939,29 @@ export const publishingDraftRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         assertPublishingContentFitsPlatform(input.platform, input.content);
-        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const current = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
         const active = current.publishing.versions?.find(
           version => version.versionId === current.publishing.activeVersionId
         );
         const actualCoreRevision = active?.core?.revision ?? 0;
-        const actualDraftRevision = active?.drafts[input.platform]?.revision ?? 0;
+        const actualDraftRevision =
+          active?.drafts[input.platform]?.revision ?? 0;
         if (actualCoreRevision !== input.baseCoreRevision) {
-          throw new PublishingDraftConflictError("core", input.baseCoreRevision, actualCoreRevision);
+          throw new PublishingDraftConflictError(
+            "core",
+            input.baseCoreRevision,
+            actualCoreRevision
+          );
         }
         if (actualDraftRevision !== input.baseDraftRevision) {
-          throw new PublishingDraftConflictError(input.platform, input.baseDraftRevision, actualDraftRevision);
+          throw new PublishingDraftConflictError(
+            input.platform,
+            input.baseDraftRevision,
+            actualDraftRevision
+          );
         }
         return {
           ...current,

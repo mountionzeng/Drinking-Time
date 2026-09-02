@@ -1,4 +1,5 @@
 import type { ImageAsset } from "./imageAsset";
+import type { PublishingAlbumTypographyLayout } from "./publishingAlbum";
 import type { VideoTakeAsset } from "./videoAsset";
 
 export type TimelineTransform = {
@@ -12,6 +13,12 @@ export type TimelineTransform = {
   rotationDeg?: number;
   flipX?: boolean;
   flipY?: boolean;
+};
+
+/** Editable product text attached to one storyboard image, never burned into source pixels. */
+export type StoryTimelineImageTextOverlay = {
+  text: string;
+  typography: PublishingAlbumTypographyLayout;
 };
 
 export type TimelineVideoEffects = {
@@ -76,7 +83,9 @@ export function timelineOffsetMsToFrames(valueMs: number): number {
 
 export function timelineFramesToMs(frames: number): number {
   if (!Number.isFinite(frames)) return 0;
-  return Math.round((Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS);
+  return Math.round(
+    (Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS
+  );
 }
 
 /**
@@ -127,6 +136,8 @@ export type StoryTimelineItem = {
   transform: TimelineTransform;
   /** Per-storyboard-frame transforms. The legacy item transform remains the fallback. */
   imageTransforms?: Record<string, TimelineTransform>;
+  /** Per-storyboard-frame editable text. Other images remain untouched. */
+  imageTextOverlays?: Record<string, StoryTimelineImageTextOverlay>;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
   visualClipsReplacePrimary?: boolean;

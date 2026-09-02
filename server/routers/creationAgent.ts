@@ -3,6 +3,10 @@ import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
+  normalizePublishingAlbumTypographyLayout,
+  type PublishingAlbumTypographyLayout,
+} from "@shared/publishingAlbum";
+import {
   VIDEO_CROP_ANCHORS,
   VIDEO_CONFORM_MODES,
   VIDEO_TARGET_ASPECT_RATIOS,
@@ -115,6 +119,18 @@ type StoryShotTarget = {
   stableShotId: string;
   durationSec: number;
 };
+
+const timelineImageTypographySchema = z
+  .custom<PublishingAlbumTypographyLayout>(
+    value => normalizePublishingAlbumTypographyLayout(value) != null,
+    "文字排版路径无效，请重新绘制"
+  )
+  .transform(value => normalizePublishingAlbumTypographyLayout(value)!);
+
+const timelineImageTextOverlaySchema = z.object({
+  text: z.string().min(1).max(2_000),
+  typography: timelineImageTypographySchema,
+});
 
 const timelineTransitionImageEndpointInput = z
   .object({
@@ -1261,8 +1277,10 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         leftImageId: z.number().int().positive(),
         rightImageId: z.number().int().positive(),
-        instruction: z.string().trim().max(500).optional(),
-        movementAmplitude: z.enum(["auto", "small", "medium", "large"]).optional(),
+        instruction: z.string().trim().max(2_000).optional(),
+        movementAmplitude: z
+          .enum(["auto", "small", "medium", "large"])
+          .optional(),
       })
     )
     .mutation(({ ctx, input }) =>
@@ -1521,6 +1539,7 @@ export const creationAgentRouter = router({
             durationFrames: z.number().int().min(1).optional(),
             timelineStartFrame: z.number().int().min(0).optional(),
             stackOrder: z.number().int().min(0).optional(),
+            detachedFromPreviousShotId: z.string().min(1).max(160).optional(),
             anchors: z
               .array(
                 z.object({
@@ -1560,6 +1579,9 @@ export const creationAgentRouter = router({
                   flipY: z.boolean().optional(),
                 })
               )
+              .optional(),
+            imageTextOverlays: z
+              .record(z.string(), timelineImageTextOverlaySchema)
               .optional(),
             primaryVideoEdit: z
               .object({
