@@ -1,7 +1,10 @@
 import { z } from "zod";
+import { nanoid } from "nanoid";
+import { isDeepStrictEqual } from "node:util";
 import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
+import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
 import { protectedProcedure, router } from "../_core/trpc";
 import { assertOptionalProjectOwner } from "./_projectAccess";
@@ -19,6 +22,8 @@ import {
   createImageSignal,
   promoteStoryImageToCurrent,
   deleteGeneratedImage,
+  insertTransitionShotAtomic,
+  restoreSplitStoryShotAtomic,
 } from "../db";
 import {
   replyFromStoryAgent,
@@ -76,7 +81,14 @@ import {
 import {
   deleteStoryShotAtIndex,
   insertStoryShotAfter,
+  restoreStoryShotAtIndex,
+  splitStoryShotAtIndex,
 } from "../../shared/storyShotEditing";
+import { splitTimelineItem } from "../../shared/timelineEditing";
+import {
+  DEFAULT_TIMELINE_TRANSFORM,
+  timelineMsToFrames,
+} from "../../shared/storyMaterial";
 import { shotIdentityFromShot } from "../../shared/shotIdentity";
 import {
   initializeStoryboardFieldVersions,
@@ -205,6 +217,109 @@ async function syncStoryPromptLineageAfterMutation(input: {
   } catch (error) {
     console.warn(`${input.warningLabel} prompt lineage sync failed`, error);
   }
+}
+
+function canUndoSplitAfterRevisionOnlyResave(input: {
+  currentBody: unknown;
+  beforeBody: Record<string, unknown>;
+  splitStableShotId: string;
+}): boolean {
+  const currentBody =
+    input.currentBody &&
+    typeof input.currentBody === "object" &&
+    !Array.isArray(input.currentBody)
+      ? (input.currentBody as Record<string, unknown>)
+      : {};
+  const currentShots = Array.isArray(currentBody.shots)
+    ? currentBody.shots.filter((shot): shot is Record<string, unknown> =>
+        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+      )
+    : [];
+  const beforeShots = Array.isArray(input.beforeBody.shots)
+    ? input.beforeBody.shots.filter((shot): shot is Record<string, unknown> =>
+        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+      )
+    : [];
+  const rightIndex = currentShots.findIndex(
+    (shot, index) =>
+      shotIdentityFromShot(shot, index) === input.splitStableShotId
+  );
+  if (rightIndex <= 0 || currentShots.length !== beforeShots.length + 1) {
+    return false;
+  }
+  const leftDurationMs = Number(currentShots[rightIndex - 1]?.durationMs);
+  const rightDurationMs = Number(currentShots[rightIndex]?.durationMs);
+  if (!Number.isFinite(leftDurationMs) || !Number.isFinite(rightDurationMs)) {
+    return false;
+  }
+  const expectedSplit = splitStoryShotAtIndex({
+    shots: beforeShots,
+    index: rightIndex - 1,
+    rightStableShotId: input.splitStableShotId,
+    leftDurationMs,
+    rightDurationMs,
+  });
+  if (!expectedSplit) return false;
+  const expectedBody = prepareStoryBody(
+    { ...input.beforeBody, shots: expectedSplit.shots },
+    getStoryRevision(currentBody),
+    currentBody
+  );
+  const withoutDisplayShotKeys = (body: Record<string, unknown>) => ({
+    ...body,
+    shots: Array.isArray(body.shots)
+      ? body.shots.map(shot => {
+          if (!shot || typeof shot !== "object" || Array.isArray(shot)) {
+            return shot;
+          }
+          const { shotKey: _shotKey, ...rest } = shot as Record<
+            string,
+            unknown
+          >;
+          return rest;
+        })
+      : body.shots,
+  });
+  return isDeepStrictEqual(
+    withoutDisplayShotKeys(expectedBody),
+    withoutDisplayShotKeys(currentBody)
+  );
+}
+
+function canRestoreDeletedAfterRevisionOnlyResave(input: {
+  currentBody: unknown;
+  afterDeleteBody: Record<string, unknown>;
+}): boolean {
+  const currentBody =
+    input.currentBody &&
+    typeof input.currentBody === "object" &&
+    !Array.isArray(input.currentBody)
+      ? (input.currentBody as Record<string, unknown>)
+      : {};
+  const expectedBody = prepareStoryBody(
+    input.afterDeleteBody,
+    getStoryRevision(currentBody),
+    currentBody
+  );
+  const withoutDisplayShotKeys = (body: Record<string, unknown>) => ({
+    ...body,
+    shots: Array.isArray(body.shots)
+      ? body.shots.map(shot => {
+          if (!shot || typeof shot !== "object" || Array.isArray(shot)) {
+            return shot;
+          }
+          const { shotKey: _shotKey, ...rest } = shot as Record<
+            string,
+            unknown
+          >;
+          return rest;
+        })
+      : body.shots,
+  });
+  return isDeepStrictEqual(
+    withoutDisplayShotKeys(expectedBody),
+    withoutDisplayShotKeys(currentBody)
+  );
 }
 
 export const storyAgentRouter = router({
@@ -1247,8 +1362,11 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const story = await getStoryById(input.storyId, ctx.user.id);
-      if (!story) {
+      const [story, material] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getStoryMaterialState(input.storyId, ctx.user.id),
+      ]);
+      if (!story || !material) {
         return { status: "error" as const, error: "故事不存在" };
       }
       const body =
@@ -1291,28 +1409,78 @@ export const storyAgentRouter = router({
         getStoryRevision(story.body) + 1,
         story.body
       );
+      const timelineIndex = material.timeline.items.findIndex(
+        item => item.stableShotId === input.stableShotId
+      );
+      if (timelineIndex < 0) {
+        return { status: "error" as const, error: "镜头不在时间轴中" };
+      }
+      const insertedShot = nextShots[inserted.insertedShotNo - 1] as
+        | Record<string, unknown>
+        | undefined;
+      const durationMs = Math.max(
+        100,
+        typeof insertedShot?.durationMs === "number" &&
+          Number.isFinite(insertedShot.durationMs)
+          ? insertedShot.durationMs
+          : typeof insertedShot?.durationSec === "number" &&
+              Number.isFinite(insertedShot.durationSec)
+            ? insertedShot.durationSec * 1000
+            : 3_000
+      );
+      const anchorTimelineItem = material.timeline.items[timelineIndex];
+      const anchorStartFrame = Math.max(
+        0,
+        anchorTimelineItem.timelineStartFrame ?? 0
+      );
+      const anchorDurationFrames = Math.max(
+        1,
+        anchorTimelineItem.durationFrames ??
+          timelineMsToFrames(anchorTimelineItem.plannedDurationMs)
+      );
+      const stackOrder =
+        Math.max(-1, ...material.timeline.items.map(item => item.stackOrder ?? -1)) +
+        1;
+      const insertedTimelineItem = {
+        stableShotId: inserted.insertedStableShotId,
+        included: true,
+        position: timelineIndex + 1,
+        plannedDurationMs: durationMs,
+        durationFrames: timelineMsToFrames(durationMs),
+        timelineStartFrame: anchorStartFrame + anchorDurationFrames,
+        stackOrder,
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      };
+      const nextTimelineItems = [
+        ...material.timeline.items.slice(0, timelineIndex + 1),
+        insertedTimelineItem,
+        ...material.timeline.items.slice(timelineIndex + 1),
+      ].map((item, position) => ({ ...item, position }));
       let saved;
       try {
-        saved = await persistPreparedStoryBody({
+        saved = await insertTransitionShotAtomic({
           storyId: story.id,
           userId: ctx.user.id,
-          expectedRevision: getStoryRevision(story.body),
-          body: nextBody,
+          stableShotId: inserted.insertedStableShotId,
+          expectedStoryRevision: getStoryRevision(story.body),
+          expectedTimelineVersion: material.timeline.version,
+          nextStoryBody: nextBody,
+          nextTimelineItems,
         });
       } catch (error) {
-        if (error instanceof StoryBodyRevisionConflictError) {
-          return {
-            status: "error" as const,
-            error: "镜头已在别处更新，请刷新后重试",
-          };
-        }
-        throw error;
+        return {
+          status: "error" as const,
+          error:
+            error instanceof Error
+              ? error.message
+              : "镜头已在别处更新，请刷新后重试",
+        };
       }
       if (saved) {
         await syncStoryPromptLineageAfterMutation({
-          storyId: saved.id,
+          storyId: saved.story.id,
           userId: ctx.user.id,
-          body: storyPromptLineageBody(saved),
+          body: storyPromptLineageBody(saved.story),
           warningLabel: "insertStoryShotAfter",
         });
       }
@@ -1320,7 +1488,8 @@ export const storyAgentRouter = router({
         status: "ok" as const,
         insertedShotNo: inserted.insertedShotNo,
         insertedStableShotId: inserted.insertedStableShotId,
-        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
+        timelineVersion: saved.timeline.version,
+        story: await composeStoryWorkspace(saved.story, ctx.user.id),
       };
     }),
 
@@ -1329,6 +1498,181 @@ export const storyAgentRouter = router({
    * 调用方：CreationEditorContext 的 `deletePersistedShot`。
    * 下游：调用 `deleteStoryShotAtIndex` 重排镜头，再以 revision CAS 落库。
    */
+  splitStoryShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        stableShotId: stableShotIdSchema,
+        cutFrame: z.number().int().nonnegative(),
+        expectedStoryRevision: z.number().int().nonnegative(),
+        expectedTimelineVersion: z.number().int().nonnegative(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [story, material] = await Promise.all([
+        getStoryById(input.storyId, ctx.user.id),
+        getStoryMaterialState(input.storyId, ctx.user.id),
+      ]);
+      if (!story || !material) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      const body =
+        story.body && typeof story.body === "object" && !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots)
+        ? body.shots.filter((shot): shot is Record<string, unknown> =>
+            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          )
+        : [];
+      const targetIndex = shots.findIndex(
+        (shot, index) => shotIdentityFromShot(shot, index) === input.stableShotId
+      );
+      const timelineIndex = material.timeline.items.findIndex(
+        item => item.stableShotId === input.stableShotId
+      );
+      if (targetIndex < 0 || timelineIndex < 0) {
+        return { status: "error" as const, error: "镜头不存在或已经更新" };
+      }
+      const splitStableShotId = `split-${nanoid(16)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")}`;
+      const timelineSplit = splitTimelineItem({
+        item: material.timeline.items[timelineIndex],
+        cutFrame: input.cutFrame,
+        leftStableShotId: input.stableShotId,
+        rightStableShotId: splitStableShotId,
+      });
+      if (timelineSplit.kind === "blocked") {
+        return { status: "error" as const, error: timelineSplit.reason };
+      }
+      const storySplit = splitStoryShotAtIndex({
+        shots,
+        index: targetIndex,
+        rightStableShotId: splitStableShotId,
+        leftDurationMs: timelineSplit.left.plannedDurationMs,
+        rightDurationMs: timelineSplit.right.plannedDurationMs,
+      });
+      if (!storySplit) {
+        return { status: "error" as const, error: "镜头拆分失败，请刷新后重试" };
+      }
+      const expandedTimeline = [
+        ...material.timeline.items.slice(0, timelineIndex),
+        timelineSplit.left,
+        timelineSplit.right,
+        ...material.timeline.items.slice(timelineIndex + 1),
+      ];
+      const storyPosition = new Map(
+        storySplit.shots.map((shot, index) => [
+          shotIdentityFromShot(shot, index),
+          index,
+        ])
+      );
+      const nextTimelineItems = expandedTimeline.map((item, index) => ({
+        ...item,
+        position: storyPosition.get(item.stableShotId) ?? index,
+      }));
+      const nextBody = prepareStoryBody(
+        { ...body, shots: storySplit.shots },
+        getStoryRevision(story.body) + 1,
+        story.body
+      );
+      try {
+        const saved = await insertTransitionShotAtomic({
+          storyId: story.id,
+          userId: ctx.user.id,
+          stableShotId: splitStableShotId,
+          expectedStoryRevision: input.expectedStoryRevision,
+          expectedTimelineVersion: input.expectedTimelineVersion,
+          nextStoryBody: nextBody,
+          nextTimelineItems,
+        });
+        await syncStoryPromptLineageAfterMutation({
+          storyId: saved.story.id,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(saved.story),
+          warningLabel: "splitStoryShot",
+        });
+        return {
+          status: "ok" as const,
+          splitStableShotId,
+          rightShotNo: storySplit.rightShotNo,
+          beforeStoryBody: structuredClone(body),
+          beforeTimelineItems: material.timeline.items,
+          expectedStoryRevision: getStoryRevision(saved.story.body),
+          expectedTimelineVersion: saved.timeline.version,
+          story: await composeStoryWorkspace(saved.story, ctx.user.id),
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "镜头拆分失败",
+        };
+      }
+    }),
+
+  undoSplitStoryShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        splitStableShotId: stableShotIdSchema,
+        beforeStoryBody: z.record(z.string(), z.unknown()),
+        beforeTimelineItems: z.array(z.record(z.string(), z.unknown())),
+        expectedStoryRevision: z.number().int().nonnegative(),
+        expectedTimelineVersion: z.number().int().nonnegative(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) return { status: "error" as const, error: "故事不存在" };
+      const currentRevision = getStoryRevision(story.body);
+      if (
+        currentRevision !== input.expectedStoryRevision &&
+        !canUndoSplitAfterRevisionOnlyResave({
+          currentBody: story.body,
+          beforeBody: input.beforeStoryBody,
+          splitStableShotId: input.splitStableShotId,
+        })
+      ) {
+        return {
+          status: "error" as const,
+          error: "故事已在切割后继续编辑，无法安全撤销",
+        };
+      }
+      const nextBody = prepareStoryBody(
+        input.beforeStoryBody,
+        currentRevision + 1,
+        story.body
+      );
+      try {
+        const saved = await restoreSplitStoryShotAtomic({
+          storyId: story.id,
+          userId: ctx.user.id,
+          splitStableShotId: input.splitStableShotId,
+          expectedStoryRevision: currentRevision,
+          expectedTimelineVersion: input.expectedTimelineVersion,
+          nextStoryBody: nextBody,
+          nextTimelineItems: input.beforeTimelineItems,
+        });
+        await syncStoryPromptLineageAfterMutation({
+          storyId: saved.story.id,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(saved.story),
+          warningLabel: "undoSplitStoryShot",
+        });
+        return {
+          status: "ok" as const,
+          story: await composeStoryWorkspace(saved.story, ctx.user.id),
+          timelineVersion: saved.timeline.version,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "撤销镜头拆分失败",
+        };
+      }
+    }),
+
   deleteStoryShot: protectedProcedure
     .input(
       z.object({
@@ -1394,9 +1738,114 @@ export const storyAgentRouter = router({
       }
       return {
         status: "ok" as const,
+        deletedShot: deleted.deletedShot,
+        deletedIndex: deleted.deletedIndex,
+        deletedAtRevision: getStoryRevision(nextBody),
+        afterDeleteBody: structuredClone(nextBody),
         deletedShotNo: deleted.deletedShotNo,
         deletedStableShotId: deleted.deletedStableShotId,
         nextSelectedShotNo: deleted.nextSelectedShotNo,
+        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
+      };
+    }),
+
+  /**
+   * 职责：用删除命令返回的完整镜头快照撤销一次删除。
+   * 安全边界：仅允许故事仍停在删除后的 revision 时恢复，避免覆盖后续编辑。
+   */
+  restoreDeletedStoryShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        deletedShot: z.record(z.string(), z.unknown()),
+        deletedIndex: z.number().int().nonnegative(),
+        deletedStableShotId: stableShotIdSchema,
+        expectedRevision: z.number().int().nonnegative(),
+        afterDeleteBody: z.record(z.string(), z.unknown()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      const currentRevision = getStoryRevision(story.body);
+      if (
+        currentRevision !== input.expectedRevision &&
+        !canRestoreDeletedAfterRevisionOnlyResave({
+          currentBody: story.body,
+          afterDeleteBody: input.afterDeleteBody,
+        })
+      ) {
+        return {
+          status: "error" as const,
+          error: "故事已在删除后继续编辑，无法安全撤销",
+        };
+      }
+      const body =
+        story.body &&
+        typeof story.body === "object" &&
+        !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots)
+        ? body.shots.filter((shot): shot is Record<string, unknown> =>
+            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          )
+        : [];
+      if (
+        shotIdentityFromShot(input.deletedShot, input.deletedIndex) !==
+        input.deletedStableShotId
+      ) {
+        return { status: "error" as const, error: "撤销镜头身份校验失败" };
+      }
+      if (
+        shots.some(
+          (shot, index) =>
+            shotIdentityFromShot(shot, index) === input.deletedStableShotId
+        )
+      ) {
+        return { status: "error" as const, error: "镜头已经恢复，无需重复撤销" };
+      }
+      const restored = restoreStoryShotAtIndex(
+        shots,
+        input.deletedShot,
+        input.deletedIndex
+      );
+      const nextBody = prepareStoryBody(
+        { ...body, shots: restored.shots },
+        currentRevision + 1,
+        story.body
+      );
+      let saved;
+      try {
+        saved = await persistPreparedStoryBody({
+          storyId: story.id,
+          userId: ctx.user.id,
+          expectedRevision: currentRevision,
+          body: nextBody,
+        });
+      } catch (error) {
+        if (error instanceof StoryBodyRevisionConflictError) {
+          return {
+            status: "error" as const,
+            error: "故事已在删除后继续编辑，无法安全撤销",
+          };
+        }
+        throw error;
+      }
+      if (saved) {
+        await syncStoryPromptLineageAfterMutation({
+          storyId: saved.id,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(saved),
+          warningLabel: "restoreDeletedStoryShot",
+        });
+      }
+      return {
+        status: "ok" as const,
+        restoredShotNo: restored.restoredShotNo,
+        restoredStableShotId: input.deletedStableShotId,
         story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
       };
     }),
@@ -2028,6 +2477,12 @@ export const storyAgentRouter = router({
                 : ("preserve-composition" as const)
             : ("none" as const),
           storyboardReferenceTruth: referencePlan.usesStoryboardFrames,
+          // 用户逐字写了这一镜的图片要求，而且有故事板参考帧在手：美术已经由他定了。
+          // 这时再叠加流派、策展库、手作与「艺术跃迁」只会稀释他的要求——0307 那轮
+          // 编译出来 2615 字，用户的 400 字只占 14.1%，八次重渲全被拉回同一个平均值。
+          authoredBrief:
+            Boolean(input.explicitInstruction?.trim()) &&
+            referencePlan.usesStoryboardFrames,
           artDirection: referencePlan.usesStoryboardFrames
             ? explicitStyleRecipe
             : (storyArtRecipe(story) ?? explicitStyleRecipe),
@@ -2143,23 +2598,43 @@ export const storyAgentRouter = router({
             ...(submissionUncertain ? { submissionUncertain: true } : {}),
           };
         }
-        // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）
-        const image = await createGeneratedImage({
-          projectId: story.projectId ?? null,
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          shotNo: canonicalizeShotNo(input.shotNo),
-          shotIdentity,
-          imageKey: result.imageKey ?? null,
-          imageUrl: result.imageUrl,
-          prompt: renderedFinalPrompt,
-          promptCompilationId,
-          generationType: referencePlan.usesStoryboardFrames
-            ? "inpaint"
-            : "initial",
-          parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
-          isCurrent: false,
-        });
+        // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）。
+        //
+        // 一个 MJ turbo 任务原生返回 2×2 四宫格，供应商层已经把四张都下载落盘并放进
+        // result.candidates。这里以前只取 result.imageUrl 建一条记录，另外三张就此蒸发：
+        // 界面写着「渲染 4 张」、按一个 MJ 任务的价钱收了费，最后只看得到一张。
+        // 付过钱的候选必须全部入库。
+        const providerCandidates =
+          result.candidates && result.candidates.length > 0
+            ? result.candidates
+            : [
+                {
+                  imageUrl: result.imageUrl,
+                  ...(result.imageKey ? { imageKey: result.imageKey } : {}),
+                },
+              ];
+        const storedImages = [];
+        for (const candidate of providerCandidates) {
+          storedImages.push(
+            await createGeneratedImage({
+              projectId: story.projectId ?? null,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              shotNo: canonicalizeShotNo(input.shotNo),
+              shotIdentity,
+              imageKey: candidate.imageKey ?? null,
+              imageUrl: candidate.imageUrl,
+              prompt: renderedFinalPrompt,
+              promptCompilationId,
+              generationType: referencePlan.usesStoryboardFrames
+                ? "inpaint"
+                : "initial",
+              parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
+              isCurrent: false,
+            })
+          );
+        }
+        const image = storedImages[0]!;
         // 重渲链路明确要求 autoSelect 时，新图要成为当前版本；旧图仍保留在历史中。
         // 之前这里只保存了新资产但没有执行 promote，导致“生成成功却仍停在旧图”。
         if (input.autoSelect) {
@@ -2177,6 +2652,12 @@ export const storyAgentRouter = router({
           status: "ok" as const,
           imageUrl: result.imageUrl,
           imageId: image.id,
+          // 这一次任务产出的全部候选（含首张）。调用方据此展示真实张数，
+          // 不用再把一张图克隆成四个假候选，也不会把付过钱的三张丢掉。
+          candidates: storedImages.map(stored => ({
+            imageId: stored.id,
+            imageUrl: stored.imageUrl,
+          })),
           prompt: renderedFinalPrompt,
           intent: sceneIntent,
           rationale: sceneRationale,
@@ -2446,6 +2927,31 @@ export const storyAgentRouter = router({
             createdAt: new Date(a.createdAt),
           })),
       };
+    }),
+
+  // 抽帧轨只允许删除由时间线抽帧流程持久化的图片。单独设入口，避免前端
+  // 菜单或被篡改的请求把普通镜头主图当成抽帧删除。
+  deleteExtractedFrame: protectedProcedure
+    .input(z.object({ imageId: z.number().int().positive(), storyId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const [image, story] = await Promise.all([
+        getGeneratedImageById(input.imageId),
+        getStoryById(input.storyId, ctx.user.id),
+      ]);
+      if (
+        !image ||
+        !story ||
+        image.storyId !== input.storyId ||
+        image.userId !== ctx.user.id
+      ) {
+        return { status: "error" as const, error: "抽帧不存在或无权操作" };
+      }
+      if (extractedFrameTimeMs(image.prompt) == null) {
+        return { status: "error" as const, error: "这张图片不是时间线抽帧" };
+      }
+
+      await deleteGeneratedImage(input.imageId, ctx.user.id);
+      return { status: "ok" as const, imageId: input.imageId };
     }),
 
   storyVideoAssets: protectedProcedure

@@ -12,12 +12,42 @@ import { useCreationEditor } from "@/features/creationEditor/CreationEditorConte
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
+import type { StoryShot } from "@/features/storyAgent/types";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
 import type { StoryboardBoardTimeline } from "@/features/creationEditor/views/StoryboardEditRow";
 import { withStoryboardVoiceTextFallbacks } from "./storyboardVoiceText";
+
+export function mergeStoryboardDisplayShots(
+  creationShots: readonly CreationEditorShot[],
+  draftShots: readonly StoryShot[]
+): CreationEditorShot[] {
+  if (creationShots.length === 0 || draftShots.length === 0) {
+    return [...creationShots];
+  }
+  const draftsByIdentity = new Map(
+    draftShots.flatMap((shot, index) => {
+      const identity = shotIdentityFromShot(shot, index);
+      return identity ? [[identity, shot] as const] : [];
+    })
+  );
+  return creationShots.map((shot, index) => {
+    const identity = shotIdentityFromShot(shot, index);
+    const draft = identity ? draftsByIdentity.get(identity) : undefined;
+    if (!draft) return shot;
+    // 草稿可以补充镜头内容，但不能把持久层刚刚插入并重排好的结构顺序覆盖掉。
+    return {
+      ...shot,
+      ...draft,
+      shotNo: shot.shotNo,
+      shotKey: shot.shotKey,
+      stableShotId: shot.stableShotId,
+      shotIdentity: shot.shotIdentity,
+    };
+  });
+}
 
 export function currentStoryboardImages(
   shots: readonly CreationEditorShot[],
@@ -133,20 +163,7 @@ export default function StoryboardPanel({
       : null;
   }, [artDirection.references]);
   const mergedCreationShots = useMemo(() => {
-    if (creationShots.length === 0 || storyShots.length === 0) {
-      return creationShots;
-    }
-    const draftsByIdentity = new Map(
-      storyShots.flatMap((shot, index) => {
-        const identity = shotIdentityFromShot(shot, index);
-        return identity ? [[identity, shot] as const] : [];
-      })
-    );
-    return creationShots.map((shot, index) => {
-      const identity = shotIdentityFromShot(shot, index);
-      const draft = identity ? draftsByIdentity.get(identity) : undefined;
-      return draft ? { ...shot, ...draft, shotKey: shot.shotKey } : shot;
-    });
+    return mergeStoryboardDisplayShots(creationShots, storyShots);
   }, [creationShots, storyShots]);
   const baseDisplayShots =
     mergedCreationShots.length > 0 ? mergedCreationShots : storyShots;

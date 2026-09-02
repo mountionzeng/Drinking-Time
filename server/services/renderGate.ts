@@ -65,6 +65,19 @@ export type RenderContext = {
    * 服装、质感这类写在后面的连续性规格整段丢掉，模型收到的是半句话。
    */
   longPrompt?: boolean;
+  /**
+   * 用户已经逐字写好这一镜要什么，并且有参考帧在手。
+   *
+   * 2026-08-19 SheSelf 0307：用户写了 400 字的镜头美术要求，编译出来是 2615 字，
+   * 他的要求只占 14.1%。剩下 86% 里，【艺术跃迁】命令模型「做一个相机拍不到的
+   * 视觉决定」，【艺术谱系】按关键词自动塞进一个流派，【手作完成度】和
+   * 【私人策展库审美底线】各加一层材质与审美倾向——八轮重渲每次都被拉回
+   * 「暗调、两个女人、油画感」这个平均值，四人红黑构图始终立不住。
+   *
+   * 这些生成性美术块是给「用户没说清楚」准备的。用户说清楚了的时候，它们就是噪声。
+   * 置为 true 时只保留内容主权、用户要求、参考边界、故事板事实与两条硬约束。
+   */
+  authoredBrief?: boolean;
 };
 
 /** 用户明确选中的库风格是覆盖项；自动美术判断走下方的文本艺术谱系。 */
@@ -423,14 +436,18 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     );
   }
   additions.push(...productConstraintBlock(ctx));
-  additions.push(textArtSignalBlock(textSignals));
-  additions.push(
-    ...(await artRepositoryPromptBlocks(
-      `${ctx.prompt}\n${ctx.emotion ?? ""}\n${instructions.join("\n")}`
-    ))
-  );
+  if (!ctx.authoredBrief) {
+    additions.push(textArtSignalBlock(textSignals));
+    additions.push(
+      ...(await artRepositoryPromptBlocks(
+        `${ctx.prompt}\n${ctx.emotion ?? ""}\n${instructions.join("\n")}`
+      ))
+    );
+  }
 
-  if (ctx.artDirection) {
+  if (ctx.authoredBrief) {
+    // 用户自己定了美术，不再叠加流派、谱系与跃迁指令。
+  } else if (ctx.artDirection) {
     const recipe = artRecipePrompt(ctx.artDirection);
     if (recipe) {
       additions.push("【故事视觉配方】", recipe);
@@ -461,7 +478,8 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     if (prefBlock) additions.push(prefBlock);
   }
 
-  additions.push(
+  if (!ctx.authoredBrief)
+    additions.push(
     "【艺术跃迁】避免把内容降格为普通摄影记录或通用“电影感”。至少做出一个相机无法直接拍到、但能让主题更准确的视觉决定：可以是非现实的空间关系、富有表现力的材质行为、象征性尺度、成为实体的光，或可读的情绪抽象。惊喜必须服务内容，不能靠无关奇观、固定暗色或固定配色制造“高级感”。",
     "艺术家与流派只能作为历史谱系、媒介和技法坐标：融合后形成新的视觉判断，不复刻任何单幅作品、标志性角色、签名或现成 IP，也不以在世艺术家的姓名下达直接模仿指令。"
   );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTimelineLanes,
   fitProjectCanvas,
   resolveTimelineVideoSource,
   shouldHandleEditingShortcut,
@@ -26,6 +27,98 @@ describe("editing workspace project canvas", () => {
     expect(timelineLaneDomain("source-audio")).toBe("audio");
     expect(timelineLaneDomain("primary-video")).toBe("visual");
     expect(timelineLaneDomain("video-2")).toBe("visual");
+  });
+
+  it("keeps captions and voice at absolute times when visual shots move, with voice last", () => {
+    const manifest = {
+      projectName: "fixed-audio",
+      sequenceName: "main",
+      fps: 30,
+      width: 1080,
+      height: 1080,
+      durationMs: 8_000,
+      primaryVideoTrackIndex: 1,
+      playbackAudioTrackIndexes: [2],
+      videoTracks: [],
+      audioTracks: [
+        {
+          index: 2,
+          clips: [
+            {
+              id: "music-1",
+              name: "BGM.mp3",
+              mediaKind: "audio",
+              audioUrl: "https://media.example/BGM.mp3",
+              startMs: 0,
+              endMs: 8_000,
+              sourceInMs: 0,
+              sourceOutMs: 8_000,
+            },
+            {
+              id: "voice-1",
+              name: "VO-0101.mp3",
+              mediaKind: "audio",
+              audioUrl: "https://media.example/VO-0101.mp3",
+              startMs: 1_000,
+              endMs: 3_000,
+              sourceInMs: 0,
+              sourceOutMs: 2_000,
+            },
+            {
+              id: "source-audio-1",
+              name: "现场原声.wav",
+              mediaKind: "audio",
+              audioUrl: "https://media.example/source.wav",
+              startMs: 1_500,
+              endMs: 3_500,
+              sourceInMs: 0,
+              sourceOutMs: 2_000,
+            },
+          ],
+        },
+      ],
+      scriptCues: [
+        { code: "0101", text: "固定字幕", startMs: 1_000, endMs: 3_000 },
+      ],
+    } satisfies ChatCutTimelineManifest;
+    const visualShot = (timelineStartFrame: number) =>
+      ({
+        shotNo: 1,
+        shotKey: "SH01",
+        stableShotId: "shot-1",
+        durationMs: 2_000,
+        timelineItem: {
+          stableShotId: "shot-1",
+          position: 0,
+          included: true,
+          plannedDurationMs: 2_000,
+          durationFrames: 60,
+          timelineStartFrame,
+        },
+      }) as CreationEditorShot;
+
+    const before = buildTimelineLanes([visualShot(0)], ["shot-1"], manifest);
+    const after = buildTimelineLanes([visualShot(90)], ["shot-1"], manifest);
+    const audioSnapshot = (lanes: typeof before) =>
+      lanes
+        .filter(lane => lane.domain === "audio")
+        .map(lane => ({
+          id: lane.id,
+          clips: lane.clips.map(clip => ({
+            id: clip.id,
+            startMs: clip.startMs,
+            endMs: clip.endMs,
+          })),
+        }));
+
+    expect(audioSnapshot(after)).toEqual(audioSnapshot(before));
+    expect(after.map(lane => lane.id)).toEqual([
+      "captions",
+      "primary-video",
+      "music",
+      "source-audio",
+      "voice",
+    ]);
   });
 
   it("fits a square project inside the preview stage without changing aspect", () => {
@@ -331,5 +424,110 @@ describe("editing workspace project canvas", () => {
         sourceTimeSec: 4,
       }
     );
+  });
+
+  it("keeps the original take owner when a structural split child uses primary video", () => {
+    const shot = {
+      shotNo: 2,
+      shotKey: "SH02",
+      stableShotId: "split-right",
+      cueCode: "0101",
+      durationMs: 1_000,
+      timelineItem: {
+        stableShotId: "split-right",
+        included: true,
+        position: 1,
+        plannedDurationMs: 1_000,
+        timelineStartFrame: 30,
+        durationFrames: 30,
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+        primaryVideoEdit: {
+          takeId: 22,
+          sourceStartSec: 1,
+          sourceEndSec: 2,
+          effects: { playbackRate: 1, reverse: false, volume: 1, muted: false },
+        },
+      },
+      videoTakes: [
+        {
+          id: 22,
+          stableShotId: "shot-source",
+          status: "available",
+          videoUrl: "/api/videos/22",
+          durationSec: 3,
+        },
+      ],
+    } as CreationEditorShot;
+
+    expect(
+      resolveTimelineVideoSource([shot], ["split-right"], 1_500)
+    ).toMatchObject({
+      stableShotId: "split-right",
+      takeStableShotId: "shot-source",
+      takeId: 22,
+    });
+  });
+
+  it("plays the complete extracted-frame overlay and leaves its uncovered tail blank", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-a",
+      cueCode: "0101",
+      durationMs: 5_000,
+      timelineItem: {
+        stableShotId: "shot-a",
+        included: true,
+        position: 0,
+        plannedDurationMs: 5_000,
+        timelineStartFrame: 0,
+        durationFrames: 150,
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    } as CreationEditorShot;
+    const overlay = {
+      id: "overlay-1",
+      kind: "generated-video" as const,
+      takeId: 99,
+      sourceStableShotId: "shot-a",
+      videoUrl: "/api/videos/99",
+      startFrame: 30,
+      targetEndFrame: 150,
+      mediaEndFrame: 120,
+      endFrame: 150,
+      stackOrder: 1,
+      leftImageId: 1649,
+      rightImageId: 1650,
+      transform: shot.timelineItem!.transform!,
+    };
+
+    expect(
+      resolveTimelineVideoSource([shot], ["shot-a"], 1_500, [overlay])
+    ).toMatchObject({
+      overlayId: "overlay-1",
+      takeId: 99,
+      sourceStartSec: 0,
+      sourceEndSec: 3,
+      sourceTimeSec: 0.5,
+    });
+    expect(
+      resolveTimelineVideoSource([shot], ["shot-a"], 4_500, [overlay])
+    ).toBeNull();
   });
 });

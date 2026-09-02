@@ -3,6 +3,7 @@ import {
   timelineMsToFrames,
   timelineOffsetMsToFrames,
   type StoryTimelineItem,
+  type StoryTimelineOverlay,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "./storyMaterial";
@@ -179,6 +180,22 @@ export function timelineSourceCandidateForPrimary(input: {
     sourceEndSec: edit.sourceEndSec,
     effects: edit.effects ?? null,
     transform: input.item.transform ?? null,
+  };
+}
+
+export function timelineSourceCandidateForOverlay(
+  overlay: StoryTimelineOverlay
+): TimelineSourceCandidate {
+  const durationFrames = Math.max(1, overlay.mediaEndFrame - overlay.startFrame);
+  return {
+    sourceType: "visual-clip",
+    sourceId: `overlay-${overlay.id}`,
+    offsetFrame: 0,
+    durationFrames,
+    sourceStartSec: 0,
+    sourceEndSec: durationFrames / STORY_TIMELINE_FPS,
+    effects: overlay.effects ?? null,
+    transform: overlay.transform,
   };
 }
 

@@ -43,6 +43,11 @@ export type GenerateForMobileResult = {
   status: "ok" | "error";
   imageUrl?: string;
   imageId?: number;
+  /**
+   * 这一次供应商任务产出的全部候选（含首张）。一个 MJ turbo 任务原生出四宫格，
+   * 只读 imageUrl 会把付过钱的另外三张丢掉。
+   */
+  candidates?: Array<{ imageId: number; imageUrl: string }>;
   prompt?: string;
   error?: string;
   /** 已被服务商受理但结果尚未回传的任务收据；禁止盲目重复提交。 */
@@ -233,12 +238,26 @@ export async function rerenderShotImageCandidates(params: {
     costConfirmation: params.costConfirmation,
     generate: params.generate,
   });
+  // The provider may return one complete fallback frame instead of a four-up
+  // grid. Report what actually came back so the board never clones one asset
+  // into four fake candidates — but when the task really did produce four,
+  // surface all four instead of silently dropping the three we paid for.
+  const candidates = result.candidates ?? [];
+  const results =
+    candidates.length > 1
+      ? candidates.map((candidate, index) =>
+          index === 0
+            ? result
+            : {
+                ...result,
+                imageId: candidate.imageId,
+                imageUrl: candidate.imageUrl,
+              }
+        )
+      : [result];
   return {
-    results: [result],
-    // The provider may return one complete fallback frame instead of a
-    // four-up grid. Report what actually came back so the board never clones
-    // one asset into four fake candidates.
-    generatedCount: 1,
+    results,
+    generatedCount: results.length,
     failedCount: 0,
     errors: [],
   };

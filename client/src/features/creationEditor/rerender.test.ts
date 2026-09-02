@@ -161,6 +161,47 @@ describe("creation editor rerender", () => {
     );
   });
 
+  /**
+   * 2026-08-19：一个 MJ turbo 任务原生返回 2×2 四宫格，供应商层已经把四张都落盘。
+   * 但这里以前写死 `results: [result]` / `generatedCount: 1`，另外三张付过钱的候选
+   * 直接蒸发——界面写着「渲染 4 张」，最后只看得到一张。
+   */
+  it("供应商真返回四张候选时全部呈现，不丢掉付过钱的另外三张", async () => {
+    const generate = vi.fn(async () => ({
+      status: "ok" as const,
+      imageUrl: "/api/images/candidate-1.png",
+      imageId: 31,
+      candidates: [
+        { imageId: 31, imageUrl: "/api/images/candidate-1.png" },
+        { imageId: 32, imageUrl: "/api/images/candidate-2.png" },
+        { imageId: 33, imageUrl: "/api/images/candidate-3.png" },
+        { imageId: 34, imageUrl: "/api/images/candidate-4.png" },
+      ],
+    }));
+
+    const result = await rerenderShotImageCandidates({
+      storyId: 7,
+      shot,
+      rows: [row({ value: "水彩", weight: 0.8 })],
+      reference: { imageUrl: "/api/images/current-frame.webp" },
+      explicitInstruction: "保持人物和材质，给我四张独立构图备选。",
+      candidateCount: 4,
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+      generate,
+    });
+
+    // 仍然只提交一次任务：四宫格是一个任务的产物，不是四次付费。
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.generatedCount).toBe(4);
+    expect(result.results.map(item => item.imageId)).toEqual([31, 32, 33, 34]);
+    expect(result.results.map(item => item.imageUrl)).toEqual([
+      "/api/images/candidate-1.png",
+      "/api/images/candidate-2.png",
+      "/api/images/candidate-3.png",
+      "/api/images/candidate-4.png",
+    ]);
+  });
+
   it("reports the one returned provider asset without inventing four results", async () => {
     const generate = vi.fn(async () => ({
       status: "ok" as const,

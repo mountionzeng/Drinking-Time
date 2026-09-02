@@ -4,6 +4,7 @@ import type { StoryTimelineItem } from "../../shared/storyMaterial";
 import type { TimelineTransitionCandidate } from "./timelineEditAgent";
 
 const dbMocks = vi.hoisted(() => ({
+  applyStoryTimelineOverlayAtomic: vi.fn(),
   claimEditingTransitionSubmission: vi.fn(),
   createVideoTakeIdempotently: vi.fn(),
   findVideoTakeByIdempotencyKey: vi.fn(),
@@ -64,6 +65,16 @@ const videoMocks = vi.hoisted(() => {
     uploadFileToVidu: vi.fn(),
     waitForViduTransition: vi.fn(),
     ViduSubmissionError: MockViduSubmissionError,
+    estimateViduQ2TransitionCost: vi.fn(({ durationSec }: { durationSec: number }) => ({
+      credits: durationSec === 1 ? 8 : (durationSec - 1) * 10,
+      videoPtc: 0,
+      uploadPtc: 0,
+      totalPtc: 0,
+    })),
+    estimateViduQ2TransitionCny: vi.fn(({ durationSec }: { durationSec: number }) => ({
+      currency: "CNY",
+      estimatedCny: durationSec === 3 ? 0.69 : 0.35,
+    })),
   };
 });
 
@@ -128,6 +139,29 @@ function candidate(
     estimatedCredits: 10,
     estimatedCny: 0.35,
     expectedTimelineVersion: 3,
+  };
+}
+
+function overlayCandidate(expectedTimelineVersion = 3): TimelineTransitionCandidate {
+  return {
+    ...candidate(),
+    candidateId: "transition-198f9c714db280e1",
+    provisionalStableShotId: "transition-shot-198f9c714db280e1",
+    prompt:
+      "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。",
+    instruction: "用两张时间线抽帧生成上层覆盖视频",
+    durationSec: 3,
+    cutAtSec: null,
+    estimatedCredits: 20,
+    estimatedCny: 0.69,
+    expectedTimelineVersion,
+    placement: {
+      kind: "timeline-overlay",
+      startFrame: 30,
+      targetEndFrame: 132,
+      leftImageId: 101,
+      rightImageId: 102,
+    },
   };
 }
 
@@ -366,8 +400,38 @@ beforeEach(() => {
       items: input.nextTimelineItems,
     },
   }));
+  dbMocks.applyStoryTimelineOverlayAtomic.mockImplementation(async input => ({
+    applied: true,
+    story: {
+      id: STORY_ID,
+      userId: USER_ID,
+      body: input.nextStoryBody,
+    },
+    timeline: { version: input.expectedVersion + 1, items: [], overlays: [input.overlay] },
+    take: storedTake,
+  }));
 
   materialMocks.getStoryMaterialState.mockResolvedValue(materialState());
+  imageMocks.getStoryImageAssets.mockResolvedValue([
+    {
+      id: 101,
+      imageUrl: "https://example.test/a.png",
+      prompt: "时间线抽帧 · 1000ms",
+      assignment: "shot",
+      availability: "available",
+      shotIdentity: "shot-a",
+      canonicalShotNo: "SH01",
+    },
+    {
+      id: 102,
+      imageUrl: "https://example.test/b.png",
+      prompt: "时间线抽帧 · 4400ms",
+      assignment: "shot",
+      availability: "available",
+      shotIdentity: "shot-b",
+      canonicalShotNo: "SH02",
+    },
+  ]);
   conformMocks.probeVideoFileMetadata.mockResolvedValue({
     width: 720,
     height: 720,
@@ -412,6 +476,178 @@ afterEach(() => {
 });
 
 describe("confirmEditingTransition", () => {
+  it("turns an abandoned submission claim into an explicit unknown state instead of waiting forever", async () => {
+    storedTake = videoTake({
+      parameterSnapshot: {
+        candidate: candidate(),
+        submissionState: "submitting",
+        submissionClaimedAt: "2026-07-14T00:00:00.000Z",
+      },
+    });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+
+    const result = await confirmEditingTransition(candidate(), USER_ID);
+
+    expect(result).toMatchObject({
+      status: "error",
+      retryable: false,
+      submissionUnknown: true,
+    });
+    expect(dbMocks.updateVideoTake).toHaveBeenCalledWith(
+      storedTake.id,
+      USER_ID,
+      expect.objectContaining({
+        status: "unfollowable",
+        parameterSnapshot: expect.objectContaining({ submissionState: "unknown" }),
+      })
+    );
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged overlay candidate before creating a paid Take", async () => {
+    const forged = {
+      ...overlayCandidate(),
+      durationSec: 8,
+      estimatedCredits: 70,
+      estimatedCny: 0.35,
+    };
+
+    await expect(confirmEditingTransition(forged, USER_ID)).rejects.toThrow(
+      "覆盖视频参数已经变化，请重新生成确认卡"
+    );
+    expect(dbMocks.createVideoTakeIdempotently).not.toHaveBeenCalled();
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
+  it("reuses a paid image-pair take and adopts an overlay with a persisted storyboard shot column", async () => {
+    const stored = overlayCandidate(3);
+    storedTake = videoTake({
+      stableShotId: stored.provisionalStableShotId,
+      status: "available",
+      videoUrl: "/api/videos/overlay.mp4",
+      videoKey: "overlay.mp4",
+      durationSec: 3.1,
+      parameterSnapshot: { candidate: stored, appliedToTimeline: false },
+    });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...materialState(),
+      timeline: { ...materialState().timeline, version: 4 },
+    });
+
+    const result = await confirmEditingTransition(overlayCandidate(4), USER_ID);
+
+    expect(result.status).toBe("applied");
+    expect(dbMocks.applyStoryTimelineOverlayAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersion: 4,
+        stableShotId: stored.provisionalStableShotId,
+        expectedStoryRevision: 8,
+        nextStoryBody: expect.objectContaining({
+          shots: expect.arrayContaining([
+            expect.objectContaining({
+              stableShotId: stored.provisionalStableShotId,
+              sourceTransition: expect.objectContaining({ takeId: storedTake.id }),
+            }),
+          ]),
+        }),
+        nextTimelineItems: expect.arrayContaining([
+          expect.objectContaining({
+            stableShotId: stored.provisionalStableShotId,
+            timelineStartFrame: 30,
+          }),
+        ]),
+        overlay: expect.objectContaining({
+          sourceStableShotId: stored.provisionalStableShotId,
+          startFrame: 30,
+          targetEndFrame: 132,
+          mediaEndFrame: 123,
+          endFrame: 132,
+          leftImageId: 101,
+          rightImageId: 102,
+        }),
+      })
+    );
+    expect(dbMocks.insertTransitionShotAtomic).not.toHaveBeenCalled();
+    expect(timelineMocks.selectVideoTimelineSegment).toHaveBeenCalledWith(
+      {
+        storyId: STORY_ID,
+        stableShotId: stored.provisionalStableShotId,
+        takeId: storedTake.id,
+        selectionType: "full_take",
+      },
+      USER_ID
+    );
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
+  it("re-enters atomic adoption when the storyboard shot exists so missing overlay pieces can be repaired", async () => {
+    const stored = overlayCandidate(3);
+    storedTake = videoTake({
+      stableShotId: stored.provisionalStableShotId,
+      status: "available",
+      videoUrl: "/api/videos/overlay.mp4",
+      videoKey: "overlay.mp4",
+      durationSec: 3.1,
+      parameterSnapshot: { candidate: stored, appliedToTimeline: false },
+    });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    const bodyWithGeneratedShot = {
+      ...storyBody(),
+      shots: [
+        ...storyBody().shots.slice(0, 1),
+        {
+          stableShotId: stored.provisionalStableShotId,
+          shotIdentity: stored.provisionalStableShotId,
+          shotKey: stored.provisionalStableShotId,
+          shotNo: 2,
+          sceneNo: "SC01",
+          subject: "已生成覆盖镜头",
+        },
+        { ...storyBody().shots[1], shotNo: 3 },
+      ],
+    };
+    dbMocks.getStoryById.mockResolvedValue({
+      id: STORY_ID,
+      userId: USER_ID,
+      body: bodyWithGeneratedShot,
+    });
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...materialState(),
+      timeline: { ...materialState().timeline, version: 4 },
+    });
+    dbMocks.applyStoryTimelineOverlayAtomic.mockImplementationOnce(async input => ({
+      applied: true,
+      story: { id: STORY_ID, userId: USER_ID, body: input.nextStoryBody },
+      timeline: {
+        version: input.expectedVersion + 1,
+        items: input.nextTimelineItems,
+        overlays: [input.overlay],
+      },
+      take: storedTake,
+    }));
+
+    const result = await confirmEditingTransition(overlayCandidate(4), USER_ID);
+
+    expect(result).toMatchObject({ status: "applied", insertedStableShotId: stored.provisionalStableShotId });
+    expect(dbMocks.applyStoryTimelineOverlayAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStoryBody: bodyWithGeneratedShot,
+        nextTimelineItems: expect.arrayContaining([
+          expect.objectContaining({ stableShotId: stored.provisionalStableShotId }),
+        ]),
+      })
+    );
+    const writtenBody = dbMocks.applyStoryTimelineOverlayAtomic.mock.calls.at(-1)?.[0]
+      .nextStoryBody as { shots: Array<{ stableShotId: string }> };
+    expect(
+      writtenBody.shots.filter(
+        shot => shot.stableShotId === stored.provisionalStableShotId
+      )
+    ).toHaveLength(1);
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
   it("首次确认只提交一次，并把生成结果插入两镜之间", async () => {
     const result = await confirmEditingTransition(candidate(), USER_ID);
 

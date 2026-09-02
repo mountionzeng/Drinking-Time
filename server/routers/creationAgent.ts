@@ -47,6 +47,7 @@ import {
 import { segmentAtPoint } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import {
+  proposeExtractedFrameTransition,
   proposeGapTransition,
   runTimelineEditCommand,
 } from "../services/timelineEditAgent";
@@ -152,12 +153,21 @@ const timelineTransitionCandidateInput = z.object({
   target: timelineTransitionEndpointInput,
   instruction: z.string().trim().min(1).max(500),
   prompt: z.string().trim().min(1).max(5_000),
-  durationSec: z.literal(2),
+  durationSec: z.number().int().min(1).max(8),
   resolution: z.literal("720p"),
-  cutAtSec: z.literal(1.4),
-  estimatedCredits: z.literal(10),
-  estimatedCny: z.literal(0.35),
+  cutAtSec: z.union([z.literal(1.4), z.null()]),
+  estimatedCredits: z.number().int().positive(),
+  estimatedCny: z.number().positive(),
   expectedTimelineVersion: z.number().int().min(0),
+  placement: z
+    .object({
+      kind: z.literal("timeline-overlay"),
+      startFrame: z.number().int().min(0),
+      targetEndFrame: z.number().int().positive(),
+      leftImageId: z.number().int().positive(),
+      rightImageId: z.number().int().positive(),
+    })
+    .optional(),
 });
 
 function decodeBase64File(value: string): Buffer {
@@ -1242,6 +1252,24 @@ export const creationAgentRouter = router({
         afterStableShotId: input.afterStableShotId,
       });
     }),
+
+  /** 抽帧轨道空白处：两张真实抽帧只生成待确认的上层覆盖提案。 */
+  proposeExtractedFrameTransition: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        leftImageId: z.number().int().positive(),
+        rightImageId: z.number().int().positive(),
+        instruction: z.string().trim().max(500).optional(),
+        movementAmplitude: z.enum(["auto", "small", "medium", "large"]).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      proposeExtractedFrameTransition({
+        ...input,
+        userId: ctx.user.id,
+      })
+    ),
 
   /** 用户明确确认后才进入的付费衔接生成入口；candidateId 负责续查同一任务。 */
   confirmTimelineTransition: protectedProcedure

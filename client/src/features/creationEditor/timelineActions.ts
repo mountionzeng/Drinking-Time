@@ -1,6 +1,7 @@
 import type {
   StoryTimelineAnchor,
   StoryTimelineItem,
+  StoryTimelineOverlay,
   TimelineTransform,
   TimelineVideoEffects,
 } from "@shared/storyMaterial";
@@ -11,8 +12,10 @@ import {
 } from "@shared/timelineEditing";
 import {
   moveTimelineGroup,
+  resolveTimelineDocumentFrame,
   resolveTimelineFrame,
   selectDirectionalGroup,
+  selectSingleShot,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {
@@ -57,11 +60,39 @@ export type TimelineResolverShot = {
 export function resolveTimelineFrameSource(input: {
   rows: readonly TimelineLayoutRow[];
   shotsById: ReadonlyMap<string, TimelineResolverShot>;
+  overlays?: readonly StoryTimelineOverlay[];
   timelineFrame: number;
 }): CreationTimelineFrameResolution {
   const frame = Math.max(0, Math.round(input.timelineFrame));
-  const resolved = resolveTimelineFrame(input.rows, frame);
+  const resolved = input.overlays
+    ? resolveTimelineDocumentFrame({
+        items: input.rows.map(row => row.item),
+        overlays: input.overlays,
+        frame,
+      })
+    : resolveTimelineFrame(input.rows, frame);
   if (resolved.kind === "gap") return { kind: "gap", timelineFrame: frame };
+  if (resolved.kind === "overlay") {
+    const overlay = resolved.overlay;
+    return {
+      kind: "source",
+      timelineFrame: frame,
+      stableShotId: overlay.sourceStableShotId,
+      startFrame: overlay.startFrame,
+      durationFrames: overlay.mediaEndFrame - overlay.startFrame,
+      localFrame: resolved.localFrame,
+      sourceType: "visual-clip",
+      sourceId: `overlay-${overlay.id}`,
+      sourceTimeSec: resolved.localFrame / 30,
+      rate: 1,
+      sourceWindow: {
+        startSec: 0,
+        endSec: (overlay.mediaEndFrame - overlay.startFrame) / 30,
+      },
+      effects: overlay.effects ?? null,
+      transform: overlay.transform,
+    };
+  }
   const { row, localFrame } = resolved;
   const imageId = input.shotsById.get(row.item.stableShotId)?.currentImageId;
   const source = resolveTimelineItemSource({
@@ -131,6 +162,32 @@ export function planTimelineGroupMove(input: {
     input.sourceShotId,
     input.direction
   );
+  if (selection.kind !== "ok") {
+    return { kind: "blocked", reason: selection.reason };
+  }
+  if (Math.round(input.deltaFrames) === 0) {
+    return { kind: "blocked", reason: "没有移动距离" };
+  }
+  const moved = moveTimelineGroup(input.items, selection, input.deltaFrames);
+  if (moved.kind !== "ok") return { kind: "blocked", reason: moved.reason };
+  if (moved.appliedDeltaFrames === 0) {
+    return { kind: "blocked", reason: "已经到达时间轴起点" };
+  }
+  return { kind: "ok", items: moved.items };
+}
+
+/**
+ * 拖镜头本体：只移动这一镜，邻居原地不动。批量移动是六点抓手的单独手势
+ * （见 planTimelineGroupMove），两者共用同一个 moveTimelineGroup 提交路径，
+ * 差别只在「选中了谁」。
+ */
+export function planTimelineSingleMove(input: {
+  items: readonly StoryTimelineItem[];
+  rows: readonly TimelineLayoutRow[];
+  stableShotId: string;
+  deltaFrames: number;
+}): TimelinePlan {
+  const selection = selectSingleShot(input.rows, input.stableShotId);
   if (selection.kind !== "ok") {
     return { kind: "blocked", reason: selection.reason };
   }

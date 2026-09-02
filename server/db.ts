@@ -21,6 +21,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import type { StoryTimelineOverlay } from "../shared/storyMaterial";
 import {
   InsertUser,
   users,
@@ -4183,6 +4184,7 @@ type EditingTransitionSubmissionSlot = {
   expectedTimelineVersion: number;
   sourceStableShotId: string;
   targetStableShotId: string;
+  placementKey?: string;
 };
 
 export type EditingTransitionSubmissionClaim =
@@ -4208,6 +4210,7 @@ function editingTransitionSubmissionSlot(
   const candidate = jsonRecord(snapshot.candidate);
   const source = jsonRecord(candidate.source);
   const target = jsonRecord(candidate.target);
+  const placement = jsonRecord(candidate.placement);
   if (
     typeof candidate.candidateId !== "string" ||
     candidate.storyId !== take.storyId ||
@@ -4222,6 +4225,20 @@ function editingTransitionSubmissionSlot(
     expectedTimelineVersion: candidate.expectedTimelineVersion,
     sourceStableShotId: source.stableShotId,
     targetStableShotId: target.stableShotId,
+    ...(placement.kind === "timeline-overlay" &&
+    typeof placement.startFrame === "number" &&
+    typeof placement.targetEndFrame === "number" &&
+    typeof placement.leftImageId === "number" &&
+    typeof placement.rightImageId === "number"
+      ? {
+          placementKey: [
+            placement.startFrame,
+            placement.targetEndFrame,
+            placement.leftImageId,
+            placement.rightImageId,
+          ].join(":"),
+        }
+      : {}),
   };
 }
 
@@ -4229,6 +4246,13 @@ function sameEditingTransitionSlot(
   left: EditingTransitionSubmissionSlot,
   right: EditingTransitionSubmissionSlot
 ): boolean {
+  if (left.placementKey || right.placementKey) {
+    return Boolean(
+      left.placementKey &&
+      right.placementKey &&
+      left.placementKey === right.placementKey
+    );
+  }
   return (
     left.expectedTimelineVersion === right.expectedTimelineVersion &&
     left.sourceStableShotId === right.sourceStableShotId &&
@@ -4740,15 +4764,16 @@ export async function clearVideoTimelineSelection(
 export async function getStoryTimeline(
   storyId: number,
   userId: number
-): Promise<StoryTimeline | null> {
+): Promise<(StoryTimeline & { overlays?: unknown }) | null> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    return (
+    const row = (
       memoryState.storyTimelines.find(
         timeline => timeline.storyId === storyId && timeline.userId === userId
       ) ?? null
     );
+    return row ? storyTimelineView(row) : null;
   }
   const [row] = await db
     .select()
@@ -4760,7 +4785,51 @@ export async function getStoryTimeline(
       )
     )
     .limit(1);
-  return row ?? null;
+  return row ? storyTimelineView(row) : null;
+}
+
+type StoryTimelinePayload = { items: unknown; overlays?: unknown };
+
+function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "items" in value
+  ) {
+    const record = value as Record<string, unknown>;
+    return { items: record.items, overlays: record.overlays };
+  }
+  return { items: value };
+}
+
+function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
+  return payload.overlays === undefined
+    ? payload.items
+    : { items: payload.items, overlays: payload.overlays };
+}
+
+function replaceStoryTimelineItemsPreservingOverlays(
+  currentValue: unknown,
+  nextItems: unknown
+): unknown {
+  const current = decodeStoryTimelinePayload(currentValue);
+  const next = decodeStoryTimelinePayload(nextItems);
+  return encodeStoryTimelinePayload({
+    items: next.items,
+    overlays: current.overlays ?? next.overlays,
+  });
+}
+
+function storyTimelineView(
+  row: StoryTimeline
+): StoryTimeline & { overlays?: unknown } {
+  const payload = decodeStoryTimelinePayload(row.items);
+  return {
+    ...row,
+    items: payload.items,
+    ...(payload.overlays === undefined ? {} : { overlays: payload.overlays }),
+  };
 }
 
 export async function updateStoryTimeline(input: {
@@ -4768,7 +4837,8 @@ export async function updateStoryTimeline(input: {
   userId: number;
   expectedVersion: number;
   items: unknown;
-}): Promise<StoryTimeline> {
+  overlays?: unknown;
+}): Promise<StoryTimeline & { overlays?: unknown }> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -4784,22 +4854,29 @@ export async function updateStoryTimeline(input: {
         storyId: input.storyId,
         userId: input.userId,
         version: 1,
-        items: input.items,
+        items: encodeStoryTimelinePayload({
+          items: input.items,
+          ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+        }),
         createdAt: current,
         updatedAt: current,
       };
       memoryState.storyTimelines.push(row);
       await persistMemoryState();
-      return row;
+      return storyTimelineView(row);
     }
     if (existing.version !== input.expectedVersion) {
       throw new Error("时间轴版本已更新");
     }
-    existing.items = input.items;
+    const currentPayload = decodeStoryTimelinePayload(existing.items);
+    existing.items = encodeStoryTimelinePayload({
+      items: input.items,
+      overlays: input.overlays ?? currentPayload.overlays,
+    });
     existing.version += 1;
     existing.updatedAt = now();
     await persistMemoryState();
-    return existing;
+    return storyTimelineView(existing);
   }
 
   return db.transaction(async tx => {
@@ -4820,26 +4897,268 @@ export async function updateStoryTimeline(input: {
         storyId: input.storyId,
         userId: input.userId,
         version: 1,
-        items: input.items,
+        items: encodeStoryTimelinePayload({
+          items: input.items,
+          ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+        }),
       });
       const [created] = await tx
         .select()
         .from(storyTimelines)
         .where(eq(storyTimelines.id, result.insertId));
-      return created;
+      return storyTimelineView(created);
     }
     if (existing.version !== input.expectedVersion) {
       throw new Error("时间轴版本已更新");
     }
+    const currentPayload = decodeStoryTimelinePayload(existing.items);
     await tx
       .update(storyTimelines)
-      .set({ items: input.items, version: existing.version + 1 })
+      .set({
+        items: encodeStoryTimelinePayload({
+          items: input.items,
+          overlays: input.overlays ?? currentPayload.overlays,
+        }),
+        version: existing.version + 1,
+      })
       .where(eq(storyTimelines.id, existing.id));
     const [updated] = await tx
       .select()
       .from(storyTimelines)
       .where(eq(storyTimelines.id, existing.id));
-    return updated;
+    return storyTimelineView(updated);
+  });
+}
+
+export async function applyStoryTimelineOverlayAtomic(input: {
+  storyId: number;
+  userId: number;
+  takeId: number;
+  stableShotId: string;
+  expectedStoryRevision: number;
+  expectedVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+  overlay: StoryTimelineOverlay;
+}): Promise<{
+  applied: boolean;
+  story: Story;
+  timeline: StoryTimeline & { overlays?: unknown };
+  take: VideoTake;
+}> {
+  const snapshotWithApplied = (take: VideoTake) => ({
+    ...(take.parameterSnapshot &&
+    typeof take.parameterSnapshot === "object" &&
+    !Array.isArray(take.parameterSnapshot)
+      ? (take.parameterSnapshot as Record<string, unknown>)
+      : {}),
+    appliedToTimeline: true,
+    overlayId: input.overlay.id,
+  });
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const story = memoryState.stories.find(
+      row => row.id === input.storyId && row.userId === input.userId
+    );
+    const timeline = memoryState.storyTimelines.find(
+      row => row.storyId === input.storyId && row.userId === input.userId
+    );
+    const take = memoryState.videoTakes.find(
+      row =>
+        row.id === input.takeId &&
+        row.storyId === input.storyId &&
+        row.userId === input.userId
+    );
+    if (!story || !timeline || !take) {
+      throw new Error("故事、时间轴或生成视频不存在");
+    }
+    const payload = decodeStoryTimelinePayload(timeline.items);
+    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
+    const overlayExists = overlays.some(
+        value =>
+          value &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          (value as Record<string, unknown>).id === input.overlay.id
+      );
+    const shotExists = storyBodyContainsStableShotId(
+      story.body,
+      input.stableShotId
+    );
+    const timelineItemExists = timelineContainsStableShotId(
+      payload.items,
+      input.stableShotId
+    );
+    if (overlayExists && shotExists && timelineItemExists) {
+      return {
+        applied: false,
+        story,
+        timeline: storyTimelineView(timeline),
+        take,
+      };
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认覆盖位置");
+    }
+    if (timeline.version !== input.expectedVersion) {
+      throw new Error("时间轴已经更新，请重新确认覆盖位置");
+    }
+    const previousStory = { ...story };
+    const previousTimeline = { ...timeline };
+    const previousTake = { ...take };
+    if (!shotExists) {
+      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
+        throw new Error("待写入的故事版缺少生成镜头");
+      }
+      story.body = input.nextStoryBody as StoryBody;
+      story.updatedAt = now();
+    }
+    if (!timelineItemExists || !overlayExists) {
+      if (
+        !timelineItemExists &&
+        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+      ) {
+        throw new Error("待写入的时间轴缺少生成镜头列");
+      }
+      timeline.items = encodeStoryTimelinePayload({
+        items: timelineItemExists ? payload.items : input.nextTimelineItems,
+        overlays: overlayExists ? overlays : [...overlays, input.overlay],
+      });
+      timeline.version += 1;
+      timeline.updatedAt = now();
+    }
+    take.parameterSnapshot = snapshotWithApplied(take);
+    take.errorMessage = null;
+    take.updatedAt = now();
+    try {
+      await persistMemoryState();
+    } catch (error) {
+      Object.assign(story, previousStory);
+      Object.assign(timeline, previousTimeline);
+      Object.assign(take, previousTake);
+      throw error;
+    }
+    return {
+      applied: true,
+      story,
+      timeline: storyTimelineView(timeline),
+      take,
+    };
+  }
+
+  return db.transaction(async tx => {
+    const [[story], [timeline], [take]] = await Promise.all([
+      tx
+        .select()
+        .from(stories)
+        .where(
+          and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+        )
+        .for("update")
+        .limit(1),
+      tx
+        .select()
+        .from(storyTimelines)
+        .where(
+          and(
+            eq(storyTimelines.storyId, input.storyId),
+            eq(storyTimelines.userId, input.userId)
+          )
+        )
+        .for("update")
+        .limit(1),
+      tx
+        .select()
+        .from(videoTakes)
+        .where(
+          and(
+            eq(videoTakes.id, input.takeId),
+            eq(videoTakes.storyId, input.storyId),
+            eq(videoTakes.userId, input.userId)
+          )
+        )
+        .for("update")
+        .limit(1),
+    ]);
+    if (!story || !timeline || !take) {
+      throw new Error("故事、时间轴或生成视频不存在");
+    }
+    const payload = decodeStoryTimelinePayload(timeline.items);
+    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
+    const overlayExists = overlays.some(
+      value =>
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (value as Record<string, unknown>).id === input.overlay.id
+    );
+    const shotExists = storyBodyContainsStableShotId(
+      story.body,
+      input.stableShotId
+    );
+    const timelineItemExists = timelineContainsStableShotId(
+      payload.items,
+      input.stableShotId
+    );
+    if (overlayExists && shotExists && timelineItemExists) {
+      return {
+        applied: false,
+        story,
+        timeline: storyTimelineView(timeline),
+        take,
+      };
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认覆盖位置");
+    }
+    if (timeline.version !== input.expectedVersion) {
+      throw new Error("时间轴已经更新，请重新确认覆盖位置");
+    }
+    if (!shotExists) {
+      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
+        throw new Error("待写入的故事版缺少生成镜头");
+      }
+      await tx
+        .update(stories)
+        .set({ body: input.nextStoryBody as StoryBody })
+        .where(
+          and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+        );
+    }
+    if (!timelineItemExists || !overlayExists) {
+      if (
+        !timelineItemExists &&
+        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+      ) {
+        throw new Error("待写入的时间轴缺少生成镜头列");
+      }
+      await tx
+        .update(storyTimelines)
+        .set({
+          items: encodeStoryTimelinePayload({
+            items: timelineItemExists ? payload.items : input.nextTimelineItems,
+            overlays: overlayExists ? overlays : [...overlays, input.overlay],
+          }),
+          version: timeline.version + 1,
+        })
+        .where(eq(storyTimelines.id, timeline.id));
+    }
+    await tx
+      .update(videoTakes)
+      .set({ parameterSnapshot: snapshotWithApplied(take), errorMessage: null })
+      .where(eq(videoTakes.id, take.id));
+    const [[updatedStory], [updatedTimeline], [updatedTake]] = await Promise.all([
+      tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
+      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
+      tx.select().from(videoTakes).where(eq(videoTakes.id, take.id)).limit(1),
+    ]);
+    return {
+      applied: true,
+      story: updatedStory,
+      timeline: storyTimelineView(updatedTimeline),
+      take: updatedTake,
+    };
   });
 }
 
@@ -4857,6 +5176,20 @@ function storyBodyContainsStableShotId(
       value => value === stableShotId
     );
   });
+}
+
+function timelineContainsStableShotId(
+  items: unknown,
+  stableShotId: string
+): boolean {
+  const timelineItems = decodeStoryTimelinePayload(items).items;
+  return (
+    Array.isArray(timelineItems) &&
+    timelineItems.some(item => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      return (item as Record<string, unknown>).stableShotId === stableShotId;
+    })
+  );
 }
 
 /**
@@ -4902,7 +5235,10 @@ export async function insertTransitionShotAtomic(input: {
     story.updatedAt = now();
     let savedTimeline: StoryTimeline;
     if (timeline) {
-      timeline.items = input.nextTimelineItems;
+      timeline.items = replaceStoryTimelineItemsPreservingOverlays(
+        timeline.items,
+        input.nextTimelineItems
+      );
       timeline.version += 1;
       timeline.updatedAt = now();
       savedTimeline = timeline;
@@ -4968,7 +5304,10 @@ export async function insertTransitionShotAtomic(input: {
       await tx
         .update(storyTimelines)
         .set({
-          items: input.nextTimelineItems,
+          items: replaceStoryTimelineItemsPreservingOverlays(
+            timeline.items,
+            input.nextTimelineItems
+          ),
           version: timeline.version + 1,
         })
         .where(eq(storyTimelines.id, timeline.id));
@@ -4994,6 +5333,107 @@ export async function insertTransitionShotAtomic(input: {
       throw new Error("衔接镜头写入后读取失败");
     }
     return { applied: true, story: savedStory, timeline: savedTimeline };
+  });
+}
+
+/**
+ * Revert a structural split without rewinding either revision counter. The
+ * caller supplies the pre-split documents with a fresh story revision; this
+ * function owns the cross-document CAS and transaction boundary.
+ */
+export async function restoreSplitStoryShotAtomic(input: {
+  storyId: number;
+  userId: number;
+  splitStableShotId: string;
+  expectedStoryRevision: number;
+  expectedTimelineVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+}): Promise<{ story: Story; timeline: StoryTimeline }> {
+  const validate = (story: Story, timeline: StoryTimeline | null) => {
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已在切割后继续编辑，无法安全撤销");
+    }
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已在切割后继续编辑，无法安全撤销");
+    }
+    if (!storyBodyContainsStableShotId(story.body, input.splitStableShotId)) {
+      throw new Error("切割产生的镜头已经不存在，无法撤销");
+    }
+    if (storyBodyContainsStableShotId(input.nextStoryBody, input.splitStableShotId)) {
+      throw new Error("撤销快照仍包含切割镜头");
+    }
+    if (!timeline || !timelineContainsStableShotId(timeline.items, input.splitStableShotId)) {
+      throw new Error("切割产生的时间轴镜头已经不存在，无法撤销");
+    }
+    if (timelineContainsStableShotId(input.nextTimelineItems, input.splitStableShotId)) {
+      throw new Error("撤销时间轴快照仍包含切割镜头");
+    }
+  };
+
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const story = memoryState.stories.find(
+      row => row.id === input.storyId && row.userId === input.userId
+    );
+    const timeline = memoryState.storyTimelines.find(
+      row => row.storyId === input.storyId && row.userId === input.userId
+    ) ?? null;
+    if (!story) throw new Error("故事不存在或无权操作");
+    validate(story, timeline);
+    story.body = input.nextStoryBody as StoryBody;
+    story.updatedAt = now();
+    timeline!.items = replaceStoryTimelineItemsPreservingOverlays(
+      timeline!.items,
+      input.nextTimelineItems
+    );
+    timeline!.version += 1;
+    timeline!.updatedAt = now();
+    await persistMemoryState();
+    return { story, timeline: timeline! };
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)))
+      .for("update")
+      .limit(1);
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+    validate(story, timeline ?? null);
+    await tx
+      .update(stories)
+      .set({ body: input.nextStoryBody as StoryBody })
+      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)));
+    await tx
+      .update(storyTimelines)
+      .set({
+        items: replaceStoryTimelineItemsPreservingOverlays(
+          timeline.items,
+          input.nextTimelineItems
+        ),
+        version: timeline.version + 1,
+      })
+      .where(eq(storyTimelines.id, timeline.id));
+    const [[savedStory], [savedTimeline]] = await Promise.all([
+      tx.select().from(stories).where(eq(stories.id, input.storyId)).limit(1),
+      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
+    ]);
+    if (!savedStory || !savedTimeline) throw new Error("切割撤销后读取失败");
+    return { story: savedStory, timeline: savedTimeline };
   });
 }
 
@@ -5268,7 +5708,10 @@ export async function confirmDerivedShotAtomic(input: {
     });
     let timelineVersion: number;
     if (timeline) {
-      timeline.items = input.nextTimelineItems;
+      timeline.items = replaceStoryTimelineItemsPreservingOverlays(
+        timeline.items,
+        input.nextTimelineItems
+      );
       timeline.version += 1;
       timeline.updatedAt = now();
       timelineVersion = timeline.version;
@@ -5428,7 +5871,13 @@ export async function confirmDerivedShotAtomic(input: {
       timelineVersion = timeline.version + 1;
       await tx
         .update(storyTimelines)
-        .set({ items: input.nextTimelineItems, version: timelineVersion })
+        .set({
+          items: replaceStoryTimelineItemsPreservingOverlays(
+            timeline.items,
+            input.nextTimelineItems
+          ),
+          version: timelineVersion,
+        })
         .where(eq(storyTimelines.id, timeline.id));
     } else {
       timelineVersion = 1;
@@ -5543,7 +5992,10 @@ export async function undoDerivedShotAtomic(
       story.body = before.storyBody;
       story.updatedAt = changedAt;
       if (timeline) {
-        timeline.items = before.timelineItems ?? [];
+        timeline.items = replaceStoryTimelineItemsPreservingOverlays(
+          timeline.items,
+          before.timelineItems ?? []
+        );
         timeline.version += 1;
         timeline.updatedAt = changedAt;
       }

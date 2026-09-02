@@ -351,6 +351,69 @@ describe("normalizeTimelineItems", () => {
 });
 
 describe("getStoryMaterialState", () => {
+  it("projects source image and video assets onto a structurally split child shot", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "切割素材继承",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-source",
+            shotIdentity: "shot-source",
+            shotNo: 1,
+          },
+          {
+            stableShotId: "split-right",
+            shotIdentity: "split-right",
+            splitSourceStableShotId: "shot-source",
+            shotNo: 2,
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-source",
+      imageUrl: "data:image/png;base64,SPLIT",
+      imageKey: null,
+      prompt: "split source",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const take = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-source",
+      sourceImageId: image.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "split source video",
+      durationSec: 3,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/split-source.mp4",
+      extractionCapability: "available",
+    });
+    await selectImage(story.id, image.id);
+    expect(await getStoryById(story.id, 1)).toMatchObject({
+      body: {
+        shots: [
+          {},
+          { splitSourceStableShotId: "shot-source" },
+        ],
+      },
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.shots[1]?.currentImage?.id).toBe(image.id);
+    expect(materials?.shots[1]?.videoTakes.map(item => item.id)).toContain(take.id);
+  });
+
   it("keeps publishing covers out of shots and unassigned materials", async () => {
     const story = await createStory({
       userId: 1,

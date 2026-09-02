@@ -119,7 +119,12 @@ process.env.LOCAL_PERSIST_PATH = path.join(
 const { appRouter } = await import("./routers");
 // Project ownership is enforced on projectId-keyed procedures, so tests that
 // name a projectId must actually own one.
-const { getStoryGeneratedImages, seedProjectForTesting } = await import("./db");
+const {
+  createGeneratedImage,
+  getGeneratedImageById,
+  getStoryGeneratedImages,
+  seedProjectForTesting,
+} = await import("./db");
 
 function createAuthContext(userId = 42): TrpcContext {
   return {
@@ -548,6 +553,16 @@ describe("storyAgent tRPC router", () => {
       },
     });
 
+    const beforeMaterial = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    const persistedTimeline = await caller.creationAgent.updateStoryTimeline({
+      storyId: created!.id,
+      expectedVersion: beforeMaterial!.timeline.version,
+      items: beforeMaterial!.timeline.items,
+    });
+    expect(persistedTimeline).toMatchObject({ status: "ok" });
+
     const inserted = await caller.storyAgent.insertStoryShotAfter({
       storyId: created!.id,
       stableShotId: "shot-a",
@@ -570,6 +585,16 @@ describe("storyAgent tRPC router", () => {
       stableShotId: "shot-b",
       shotNo: 3,
     });
+    const material = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    expect(material?.timeline.items.map(item => item.stableShotId)).toEqual([
+      "shot-a",
+      inserted.status === "ok" ? inserted.insertedStableShotId : "",
+      "shot-b",
+    ]);
+    expect(material?.timeline.items.map(item => item.position)).toEqual([0, 1, 2]);
+    expect(material?.timeline.version).toBe(2);
   });
 
   it("deletes a target shot directly from the persisted story trunk", async () => {
@@ -611,6 +636,13 @@ describe("storyAgent tRPC router", () => {
     expect(deleted).toMatchObject({
       status: "ok",
       deletedShotNo: 2,
+      deletedIndex: 1,
+      deletedAtRevision: expect.any(Number),
+      deletedShot: {
+        stableShotId: "manual-sh02-demo",
+        shotIdentity: "manual-sh02-demo",
+        subject: "手动镜头",
+      },
       nextSelectedShotNo: 2,
     });
 
@@ -620,6 +652,312 @@ describe("storyAgent tRPC router", () => {
       [1, "shot-a"],
       [2, "shot-c"],
     ]);
+
+    if (deleted.status !== "ok") throw new Error("删除测试数据失败");
+    const restored = await caller.storyAgent.restoreDeletedStoryShot({
+      storyId: created!.id,
+      deletedShot: deleted.deletedShot,
+      deletedIndex: deleted.deletedIndex,
+      deletedStableShotId: deleted.deletedStableShotId,
+      expectedRevision: deleted.deletedAtRevision,
+      afterDeleteBody: deleted.afterDeleteBody,
+    });
+
+    expect(restored).toMatchObject({
+      status: "ok",
+      restoredShotNo: 2,
+      restoredStableShotId: "manual-sh02-demo",
+    });
+    const reloaded = await caller.storyAgent.storyGet({ id: created!.id });
+    const restoredBody = reloaded?.body as {
+      shots?: Array<Record<string, unknown>>;
+    };
+    expect(restoredBody.shots).toEqual([
+      expect.objectContaining({ shotNo: 1, stableShotId: "shot-a" }),
+      expect.objectContaining({
+        shotNo: 2,
+        stableShotId: "manual-sh02-demo",
+        shotIdentity: "manual-sh02-demo",
+        subject: "手动镜头",
+      }),
+      expect.objectContaining({ shotNo: 3, stableShotId: "shot-c" }),
+    ]);
+  });
+
+  it("refuses to restore a deleted shot over a newer story revision", async () => {
+    const caller = appRouter.createCaller(createAuthContext(109));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "撤销删除冲突",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "第一镜",
+          },
+          {
+            shotNo: 2,
+            stableShotId: "shot-b",
+            shotIdentity: "shot-b",
+            subject: "第二镜",
+          },
+        ],
+      },
+    });
+    const deleted = await caller.storyAgent.deleteStoryShot({
+      storyId: created!.id,
+      stableShotId: "shot-b",
+    });
+    if (deleted.status !== "ok") throw new Error("删除测试数据失败");
+    await caller.storyAgent.updateStoryShotFields({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      patch: { subject: "删除后又编辑过" },
+    });
+
+    await expect(
+      caller.storyAgent.restoreDeletedStoryShot({
+        storyId: created!.id,
+        deletedShot: deleted.deletedShot,
+        deletedIndex: deleted.deletedIndex,
+        deletedStableShotId: deleted.deletedStableShotId,
+        expectedRevision: deleted.deletedAtRevision,
+        afterDeleteBody: deleted.afterDeleteBody,
+      })
+    ).resolves.toMatchObject({
+      status: "error",
+      error: "故事已在删除后继续编辑，无法安全撤销",
+    });
+  });
+
+  it("restores a deleted shot after the unchanged delete result was resaved", async () => {
+    const caller = appRouter.createCaller(createAuthContext(110));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "删除后重复同步",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "第一镜",
+          },
+          {
+            shotNo: 2,
+            stableShotId: "shot-b",
+            shotIdentity: "shot-b",
+            subject: "第二镜",
+          },
+        ],
+      },
+    });
+    const deleted = await caller.storyAgent.deleteStoryShot({
+      storyId: created!.id,
+      stableShotId: "shot-b",
+    });
+    if (deleted.status !== "ok") throw new Error("删除测试数据失败");
+    const afterDelete = await caller.storyAgent.storyGet({ id: created!.id });
+    await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      title: "删除后重复同步",
+      body: afterDelete!.body as Record<string, unknown>,
+    });
+
+    const restored = await caller.storyAgent.restoreDeletedStoryShot({
+      storyId: created!.id,
+      deletedShot: deleted.deletedShot,
+      deletedIndex: deleted.deletedIndex,
+      deletedStableShotId: deleted.deletedStableShotId,
+      expectedRevision: deleted.deletedAtRevision,
+      afterDeleteBody: deleted.afterDeleteBody,
+    });
+
+    expect(restored, JSON.stringify(restored)).toMatchObject({ status: "ok" });
+  });
+
+  it("splits one persisted shot into two timeline shots and undoes both documents", async () => {
+    const caller = appRouter.createCaller(createAuthContext(111));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "真正切一刀",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "连续画面",
+            durationMs: 3_000,
+          },
+        ],
+      },
+    });
+    const material = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    const story = await caller.storyAgent.storyGet({ id: created!.id });
+    const revision = (story?.body as { _revision?: number })._revision ?? 0;
+
+    const split = await caller.storyAgent.splitStoryShot({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      cutFrame: 30,
+      expectedStoryRevision: revision,
+      expectedTimelineVersion: material!.timeline.version,
+    });
+
+    expect(split).toMatchObject({
+      status: "ok",
+      rightShotNo: 2,
+      expectedStoryRevision: revision + 1,
+      expectedTimelineVersion: 1,
+    });
+    if (split.status !== "ok") throw new Error("切割测试失败");
+    const splitMaterial = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    expect(splitMaterial?.shots).toHaveLength(2);
+    expect(splitMaterial?.timeline.items).toHaveLength(2);
+    expect(splitMaterial?.timeline.items.map(item => item.stableShotId)).toEqual([
+      "shot-a",
+      split.splitStableShotId,
+    ]);
+
+    const undone = await caller.storyAgent.undoSplitStoryShot({
+      storyId: created!.id,
+      splitStableShotId: split.splitStableShotId,
+      beforeStoryBody: split.beforeStoryBody,
+      beforeTimelineItems: split.beforeTimelineItems,
+      expectedStoryRevision: split.expectedStoryRevision,
+      expectedTimelineVersion: split.expectedTimelineVersion,
+    });
+    expect(undone, JSON.stringify(undone)).toMatchObject({ status: "ok" });
+    const restored = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    expect(restored?.shots).toHaveLength(1);
+    expect(restored?.timeline).toMatchObject({
+      version: 2,
+      items: [{ stableShotId: "shot-a" }],
+    });
+  });
+
+  it("undoes a split after the same split body was resaved with a newer revision", async () => {
+    const caller = appRouter.createCaller(createAuthContext(112));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "切割后重复同步",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "连续画面",
+            durationMs: 3_000,
+          },
+        ],
+      },
+    });
+    const material = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    const before = await caller.storyAgent.storyGet({ id: created!.id });
+    const revision = (before?.body as { _revision?: number })._revision ?? 0;
+    const split = await caller.storyAgent.splitStoryShot({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      cutFrame: 30,
+      expectedStoryRevision: revision,
+      expectedTimelineVersion: material!.timeline.version,
+    });
+    if (split.status !== "ok") throw new Error("切割测试失败");
+
+    const afterSplit = await caller.storyAgent.storyGet({ id: created!.id });
+    await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      title: "切割后重复同步",
+      body: afterSplit!.body as Record<string, unknown>,
+    });
+
+    const undone = await caller.storyAgent.undoSplitStoryShot({
+      storyId: created!.id,
+      splitStableShotId: split.splitStableShotId,
+      beforeStoryBody: split.beforeStoryBody,
+      beforeTimelineItems: split.beforeTimelineItems,
+      expectedStoryRevision: split.expectedStoryRevision,
+      expectedTimelineVersion: split.expectedTimelineVersion,
+    });
+    expect(undone, JSON.stringify(undone)).toMatchObject({ status: "ok" });
+    const restored = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    expect(restored?.shots).toHaveLength(1);
+    expect(restored?.timeline.items).toHaveLength(1);
+  });
+
+  it("still rejects split undo when a shot was genuinely edited afterward", async () => {
+    const caller = appRouter.createCaller(createAuthContext(113));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "切割后真实编辑",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "切割前",
+            durationMs: 3_000,
+          },
+        ],
+      },
+    });
+    const material = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    const before = await caller.storyAgent.storyGet({ id: created!.id });
+    const revision = (before?.body as { _revision?: number })._revision ?? 0;
+    const split = await caller.storyAgent.splitStoryShot({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      cutFrame: 30,
+      expectedStoryRevision: revision,
+      expectedTimelineVersion: material!.timeline.version,
+    });
+    if (split.status !== "ok") throw new Error("切割测试失败");
+    await caller.storyAgent.updateStoryShotFields({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      patch: { subject: "切割后改过" },
+    });
+    const genuinelyEdited = await caller.storyAgent.storyGet({ id: created!.id });
+    expect(
+      (genuinelyEdited!.body as { shots: Array<{ subject?: string }> }).shots[0]
+        ?.subject
+    ).toBe("切割后改过");
+
+    await expect(
+      caller.storyAgent.undoSplitStoryShot({
+        storyId: created!.id,
+        splitStableShotId: split.splitStableShotId,
+        beforeStoryBody: split.beforeStoryBody,
+        beforeTimelineItems: split.beforeTimelineItems,
+        expectedStoryRevision: split.expectedStoryRevision,
+        expectedTimelineVersion: split.expectedTimelineVersion,
+      })
+    ).resolves.toMatchObject({
+      status: "error",
+      error: "故事已在切割后继续编辑，无法安全撤销",
+    });
   });
 
   it("keeps at least one shot when deleting from the persisted story trunk", async () => {
@@ -1138,6 +1476,61 @@ describe("storyAgent tRPC router", () => {
       error: expect.stringContaining("请勿重复提交"),
     });
     expect(result.error).toContain("task-0207");
+  });
+
+  /**
+   * 2026-08-19：一个 MJ turbo 任务原生返回 2×2 四宫格，imageGen 已经把四张都下载
+   * 落盘并放进 result.candidates。但这里以前只取 result.imageUrl 建一条记录，
+   * 另外三张付过钱的候选直接蒸发——界面写着「渲染 4 张」，只看得到一张。
+   */
+  it("generateForMobile 把供应商四宫格的每一张都入库，不丢付过钱的候选", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "/api/images/grid-1.png",
+      imageKey: "generated/grid-1.png",
+      candidates: [
+        { imageUrl: "/api/images/grid-1.png", imageKey: "generated/grid-1.png" },
+        { imageUrl: "/api/images/grid-2.png", imageKey: "generated/grid-2.png" },
+        { imageUrl: "/api/images/grid-3.png", imageKey: "generated/grid-3.png" },
+        { imageUrl: "/api/images/grid-4.png", imageKey: "generated/grid-4.png" },
+      ],
+    });
+    const userId = 4211;
+    const projectId = 74211;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    seedProjectForTesting({ id: projectId, userId });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "四宫格候选入库",
+      projectId,
+      body: {
+        cards: [],
+        characters: [{ name: "SheSelf", role: "主角" }],
+        shots: [{ shotNo: 22, cueCode: "0307", subject: "SheSelf" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 22,
+      prompt: "SheSelf 保持原有构图",
+      imageProvider: "midjourney",
+      referenceImageUrl: "data:image/webp;base64,UklGRg==",
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.candidates).toHaveLength(4);
+    expect(result.candidates?.map(c => c.imageUrl)).toEqual([
+      "/api/images/grid-1.png",
+      "/api/images/grid-2.png",
+      "/api/images/grid-3.png",
+      "/api/images/grid-4.png",
+    ]);
+    // 首张仍是对外的主结果，保持既有契约
+    expect(result.imageId).toBe(result.candidates?.[0]?.imageId);
+    // 四条记录都真的进了库：各自拿到独立的 generatedImages 主键
+    const ids = result.candidates?.map(c => c.imageId) ?? [];
+    expect(ids.every(id => typeof id === "number" && id > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(4);
   });
 
   it("generateForMobile 只在 autoSelect 时把新图提升为当前版本", async () => {
@@ -1885,6 +2278,58 @@ describe("storyAgent tRPC router", () => {
       (after?.body as { mobileImages?: Array<{ id: number }> }).mobileImages ??
         []
     ).toEqual([]);
+  });
+
+  it("只按 exact imageId 删除当前故事的时间线抽帧，不接受普通镜头图片", async () => {
+    const caller = appRouter.createCaller(createAuthContext(399));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "删除时间线抽帧",
+      projectId: 7399,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, stableShotId: "delete-frame-shot", subject: "窗边的人" }],
+      },
+    });
+    const extracted = await createGeneratedImage({
+      storyId: story!.id,
+      userId: 399,
+      shotNo: "1",
+      shotIdentity: "delete-frame-shot",
+      imageUrl: "https://storage.example/extracted-delete-me.png",
+      prompt: "时间线抽帧 · 1234ms · 00:01.234 · 来源 Take 9",
+      isCurrent: false,
+    });
+    const ordinary = await createGeneratedImage({
+      storyId: story!.id,
+      userId: 399,
+      shotNo: "1",
+      shotIdentity: "delete-frame-shot",
+      imageUrl: "https://storage.example/ordinary-keep-me.png",
+      prompt: "普通镜头主图",
+      isCurrent: true,
+    });
+
+    await expect(
+      caller.storyAgent.deleteExtractedFrame({
+        storyId: story!.id,
+        imageId: ordinary.id,
+      })
+    ).resolves.toEqual({ status: "error", error: "这张图片不是时间线抽帧" });
+    await expect(
+      caller.storyAgent.deleteExtractedFrame({
+        storyId: story!.id,
+        imageId: extracted.id,
+      })
+    ).resolves.toEqual({ status: "ok", imageId: extracted.id });
+
+    expect(await getGeneratedImageById(extracted.id)).toBeNull();
+    expect(await getGeneratedImageById(ordinary.id)).toMatchObject({
+      id: ordinary.id,
+      prompt: "普通镜头主图",
+    });
+    const after = await caller.storyAgent.storyGet({ id: story!.id });
+    expect((after?.body as { shots?: unknown[] }).shots).toHaveLength(1);
   });
 
   it("recordSignal 拒绝给其他用户的故事图片打信号", async () => {

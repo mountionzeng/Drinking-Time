@@ -24,6 +24,7 @@ export interface EditingTransitionCandidate {
   firstImageUrl: string;
   lastImageUrl: string;
   instruction: string;
+  movementAmplitude?: "auto" | "small" | "medium" | "large";
   prompt: string;
   durationSec: number;
   resolution: string;
@@ -288,6 +289,11 @@ export default function EditingTransitionCandidateCard({
           >
             首尾帧转场
           </span>
+          {candidate.movementAmplitude ? (
+            <span className="rounded border px-1.5 py-0.5" style={{ borderColor: "var(--panel-border)" }}>
+              幅度：{candidate.movementAmplitude === "auto" ? "自动" : candidate.movementAmplitude === "small" ? "小" : candidate.movementAmplitude === "medium" ? "中" : "大"}
+            </span>
+          ) : null}
         </div>
 
         {candidate.prompt.trim() ? (

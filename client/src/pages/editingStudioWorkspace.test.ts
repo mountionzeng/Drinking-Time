@@ -4,7 +4,6 @@ import {
   STUDIO_WORKSPACE_OPTIONS,
   resolveStudioInteractionMode,
   resolveTimelineCommandStoryId,
-  shouldShowPublishingHandoff,
 } from "./editingStudioWorkspace";
 
 describe("resolveStudioInteractionMode", () => {
@@ -40,13 +39,6 @@ describe("resolveStudioInteractionMode", () => {
       "文字",
       "图像和声音",
     ]);
-  });
-
-  it("keeps the publishing handoff visible in every downstream workspace", () => {
-    expect(shouldShowPublishingHandoff("publishing")).toBe(false);
-    for (const option of STUDIO_WORKSPACE_OPTIONS.slice(1)) {
-      expect(shouldShowPublishingHandoff(option.id)).toBe(true);
-    }
   });
 });
 

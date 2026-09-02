@@ -170,8 +170,8 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("<StoryAgentChat");
     expect(editingPage).toContain("interactionMode={interactionMode}");
     expect(editingPage).toContain("<PublishingDraftWorkspace");
-    expect(editingPage).toContain("<PublishingVideoHandoffBanner");
-    expect(editingPage).toContain("shouldShowPublishingHandoff(workspace)");
+    expect(editingPage).not.toContain("PublishingVideoHandoffBanner");
+    expect(editingPage).not.toContain("shouldShowPublishingHandoff");
     expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
     expect(studioWorkspaces).toContain('label: "文字"');
     expect(studioWorkspaces).toContain('label: "图像和声音"');

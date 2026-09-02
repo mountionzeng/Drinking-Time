@@ -409,26 +409,67 @@ function parseDataImageUrl(value: string): {
   };
 }
 
-function referenceIdentityLockPrompt(identityDescription?: string): string {
-  const extracted = identityDescription
-    ? `\nExtracted visible identity traits from the reference frame: ${compactForPrompt(identityDescription, 700)}`
+/**
+ * 参考图里眼睛的三种状态。
+ *
+ * 2026-08-19：这个字段是被一次事故逼出来的。身份锁原先无条件写着「preserve the
+ * covered-eye silhouette, blindfold height, fabric thickness, folds, and tension」，
+ * 对没有蒙眼的人物来说，这等于在提示词里点了一块蒙眼布——Kontext 照单全收，
+ * SheSelf 0307 连出四张都被一道黑带糊住眼睛。同一张参考图、同一段场景提示词，
+ * 只把这两句换成「眼睛可见」正向锁，眼睛立刻正常睁开。
+ *
+ * 所以蒙眼措辞只能在**确认参考图真的遮眼**时出现；确认没遮就反过来禁止它，
+ * 拿不准（视觉分析失败）时两边都不说，让参考图自己说话。
+ */
+type ReferenceEyeState = "covered" | "visible" | "unknown";
+
+type ReferenceIdentity = {
+  description?: string;
+  eyeState: ReferenceEyeState;
+};
+
+function referenceIdentityEyeClause(eyeState: ReferenceEyeState): string {
+  if (eyeState === "covered") {
+    return `Do not invent a new eye identity behind the covering; preserve the covered-eye silhouette, the covering's height, fabric thickness, folds, and tension.
+Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's covering or face.`;
+  }
+  if (eyeState === "visible") {
+    return `The subject's eyes are visible in the reference: keep both eyes fully visible and open, with the same eye shape, eyelid opening, iris tone and gaze direction.
+Do not add a blindfold, cloth band, dark bar, painted shadow, or fringe of hair across the eyes, and do not close the eyes.
+Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's face.`;
+  }
+  return `Reproduce the eye region exactly as the reference shows it: do not add, remove, or reposition anything covering the eyes.
+Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's face.`;
+}
+
+/**
+ * MJ 的 --oref / --sref 要 MJ 服务端自己去拉这个地址，所以只有公网 http(s) 才作数；
+ * data URI 和本机 /api/images/... 一律不生效。
+ */
+function isPublicHttpUrl(value?: string): value is string {
+  return !!value && /^https?:\/\//i.test(value);
+}
+
+function referenceIdentityLockPrompt(identity?: ReferenceIdentity): string {
+  const extracted = identity?.description
+    ? `\nExtracted visible identity traits from the reference frame: ${compactForPrompt(identity.description, 700)}`
     : "";
 
   return `Reference identity lock:
 Use the input image as the primary identity anchor, not merely as a style reference.
+This block describes identity only. It is not a framing instruction: this is an edit of the whole picture, so keep the reference's shot size, camera distance, subject scale and the position of every figure in frame. Never crop in, zoom in, or turn a wide or medium shot into a face close-up, and never drop figures that are present in the reference.
 Preserve the same visible person: face outline and proportions, jaw and chin shape, cheek volume, nose bridge/tip/nostrils, mouth and lip shape, philtrum, skin tone and texture, visible hair silhouette, and any cloth/accessory placement.
 Lower-face continuity is critical: match the reference chin taper, chin length, jaw width, lower-face oval/V shape, lip thickness, cupid's bow, mouth width, philtrum, and nose-to-mouth spacing.
-If the eyes are covered, do not invent a new eye identity; preserve the covered-eye silhouette, blindfold height, fabric thickness, folds, and tension.
-Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's blindfold or face.
+${referenceIdentityEyeClause(identity?.eyeState ?? "unknown")}
 Do not recast the face, beautify into a different person, change age impression, or alter the person's facial structure.
 Avoid common identity drift: do not round, widen, square off, lengthen, or shorten the chin; do not inflate or redesign the lips; do not make the jaw heavier or softer than the reference.${extracted}`;
 }
 
 function kontextPromptWithReferenceIdentity(
   prompt: string,
-  identityDescription?: string
+  identity?: ReferenceIdentity
 ): string {
-  return `${referenceIdentityLockPrompt(identityDescription)}
+  return `${referenceIdentityLockPrompt(identity)}
 
 Scene prompt:
 ${prompt}`;
@@ -442,10 +483,24 @@ function referenceIdentityVisionConfig() {
   });
 }
 
+/** 从视觉分析的首行 `EYES_COVERED: yes|no` 里取出眼睛状态，并把这行从描述中摘掉。 */
+function splitReferenceEyeState(text: string): ReferenceIdentity {
+  const match = text.match(/^\s*EYES_COVERED\s*:\s*(yes|no)\b[^\n]*\n?/i);
+  const description = compactForPrompt(
+    match ? text.slice(match[0].length) : text,
+    700
+  );
+  if (!match) return { description: description || undefined, eyeState: "unknown" };
+  return {
+    description: description || undefined,
+    eyeState: match[1].toLowerCase() === "yes" ? "covered" : "visible",
+  };
+}
+
 async function describeReferenceIdentity(
   imageDataUrl: string,
   fetcher: Fetcher
-): Promise<string | undefined> {
+): Promise<ReferenceIdentity | undefined> {
   const config = referenceIdentityVisionConfig();
   if (!config) return undefined;
 
@@ -463,7 +518,7 @@ async function describeReferenceIdentity(
             {
               role: "system",
               content:
-                "You are a visual continuity supervisor. Describe only stable visible facial identity traits of the human subject needed to keep the same person across generated frames. Ignore background, paintings, frames, props, decorative eye motifs, and scene composition unless they physically touch or obscure the human face. Do not name the person or infer biography. If eyes are covered, identity must come from the lower face. Prioritize lower-face geometry over general beauty words: chin taper, chin length, jaw width, lower-face oval/V shape, cheek-to-chin transition, nose bridge/tip/nostrils, philtrum, mouth width, lip thickness, cupid's bow, hair silhouette, skin/texture, and blindfold placement. Include a short 'must not drift' clause naming the opposite mistakes to avoid. Output one concise English paragraph under 110 words.",
+                "You are a visual continuity supervisor. Describe only stable visible facial identity traits of the human subject needed to keep the same person across generated frames. Ignore background, paintings, frames, props, decorative eye motifs, and scene composition unless they physically touch or obscure the human face. Do not name the person or infer biography. Prioritize lower-face geometry over general beauty words: chin taper, chin length, jaw width, lower-face oval/V shape, cheek-to-chin transition, nose bridge/tip/nostrils, philtrum, mouth width, lip thickness, cupid's bow, hair silhouette, and skin/texture. Include a short 'must not drift' clause naming the opposite mistakes to avoid.\n\nOutput format. First line must be exactly 'EYES_COVERED: yes' if a blindfold, mask, band, hand, hair or any other object actually covers the subject's eyes in this image, or 'EYES_COVERED: no' if both eyes are visible (open or closed). Judge only what is really there — never assume a covering. Then output one concise English paragraph under 110 words. Only describe a covering's placement, fabric and folds when you answered yes; when you answered no, do not mention blindfolds, bands or coverings at all.",
             },
             {
               role: "user",
@@ -495,7 +550,7 @@ async function describeReferenceIdentity(
     const text = completionText(
       (await response.json()) as ChatCompletionResponse
     );
-    return text ? compactForPrompt(text, 700) : undefined;
+    return text ? splitReferenceEyeState(text) : undefined;
   } catch (error) {
     console.warn(
       `[imageGen] reference identity analysis skipped: ${readableError(error, "未知错误")}`
@@ -592,9 +647,7 @@ function midjourneyPromptFor(
   // 角色/风格参考：跨镜头锁人物长相(--oref)/锁画风(--sref)。
   // 仅公网 http(s) URL 生效——MJ 服务端要去拉这个 URL；data URI / 本地路径跳过（走垫图降级）。
   // 放在最前：draft 模式会提前 return，先加保证 draft 也带上。
-  const isPublicUrl = (u?: string): u is string =>
-    !!u && /^https?:\/\//i.test(u);
-  const hasCharacterRef = isPublicUrl(characterRef);
+  const hasCharacterRef = isPublicHttpUrl(characterRef);
   if (hasCharacterRef && !/(?:^|\s)--oref\s/i.test(out)) {
     out = `${out} --oref ${characterRef}`;
     // 人物锁定权重（仅跟随 oref）：100=锁脸+发+衣
@@ -602,7 +655,7 @@ function midjourneyPromptFor(
       out = `${out} --ow ${characterWeight}`;
     }
   }
-  if (isPublicUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
+  if (isPublicHttpUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
     out = `${out} --sref ${styleRef}`;
   }
   // 图像/场景权重（图生图垫图强度）：调用方仅在有垫图时传 imageWeight
@@ -1240,18 +1293,15 @@ async function generate302FluxKontext(
     const identityDataUrl = options.referenceIdentityImageUrl
       ? await imageInputDataUrl(options.referenceIdentityImageUrl, fetcher)
       : dataUrl;
-    const identityDescription = await describeReferenceIdentity(
-      identityDataUrl,
-      fetcher
-    );
+    const identity = await describeReferenceIdentity(identityDataUrl, fetcher);
     const promptWithIdentity = kontextPromptWithReferenceIdentity(
       prompt,
-      identityDescription
+      identity
     );
     console.log(
       `[imageGen] flux-kontext identity-lock=${
-        identityDescription ? "vision" : "prompt"
-      }`
+        identity ? "vision" : "prompt"
+      } eyes=${identity?.eyeState ?? "unknown"}`
     );
 
     const endpoint = new URL(
@@ -1579,6 +1629,27 @@ export async function editImage(
       options,
       fetcher
     );
+  }
+
+  // MJ 锁人物长相靠 --oref，而 --oref 只认公网 http(s) URL：MJ 服务端要自己去拉图。
+  // 故事版的帧一律是本机的 /api/images/...，能产出公网 URL 的远程备份又可能挂着
+  // （2026-08-19 就是 302 存储 503）。这时候 MJ 手里没有任何身份锁定机制，只剩一张
+  // 弱垫图——SheSelf 0307 连着两次付费重渲都换了张脸、换了发型，连「齐眉刘海」这种
+  // 写死在提示词里的硬指令都被无视。
+  //
+  // 同样这一刻，primaryReferenceLock 已经把相邻镜头垫图全丢了，MJ 实际只拿到一张图。
+  // 那就没有理由继续用 MJ：单参考图的 Kontext 在同样输入下能稳住五官和发型。
+  const canLockCharacterOnMidjourney = isPublicHttpUrl(options.characterRef);
+  if (
+    provider === "midjourney" &&
+    ENV.api302Key &&
+    !canLockCharacterOnMidjourney &&
+    options.primaryReferenceLock
+  ) {
+    console.log(
+      "[imageGen] midjourney has no public --oref reference; falling back to flux-kontext-pro to preserve identity"
+    );
+    return generate302FluxKontext(prompt, imageUrl, options, fetcher);
   }
 
   // 默认 provider = midjourney 时，图生图也走 MJ：把用户照片作为 image prompt 放进 base64Array。

@@ -24,6 +24,50 @@ export type StoryboardEditSegment = {
   clip: StoryTimelineVisualClip | null;
 };
 
+/** 剪辑条 filmstrip 所需的最小视频来源；不把整份 Take 数据塞进展示组件。 */
+export type StoryboardEditFrameSource = {
+  takeId: number;
+  rangeId?: number | null;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  reverse?: boolean;
+};
+
+/**
+ * 为一个视频段均匀抽取缩略帧。每秒一格、最多六格，配合图片 lazy-load，
+ * 既能看见段内动作变化，也不会让一条长故事版同时启动几百次抽帧。
+ */
+export function storyboardEditFilmstripFrameUrls(input: {
+  source: StoryboardEditFrameSource | null | undefined;
+  durationMs: number;
+  maxFrames?: number;
+}): string[] {
+  const source = input.source;
+  if (!source || !Number.isInteger(source.takeId) || source.takeId <= 0) {
+    return [];
+  }
+  const sourceStartSec = Math.max(0, source.sourceStartSec);
+  const sourceEndSec = Math.max(sourceStartSec, source.sourceEndSec);
+  if (!(sourceEndSec > sourceStartSec)) return [];
+  const frameCount = Math.min(
+    Math.max(1, Math.round(input.maxFrames ?? 6)),
+    Math.max(1, Math.ceil(Math.max(1, input.durationMs) / 1_000))
+  );
+  const rangeQuery =
+    source.rangeId != null &&
+    Number.isInteger(source.rangeId) &&
+    source.rangeId > 0
+      ? `&rangeId=${source.rangeId}`
+      : "";
+  return Array.from({ length: frameCount }, (_, index) => {
+    const progress = (index + 0.5) / frameCount;
+    const directedProgress = source.reverse ? 1 - progress : progress;
+    const atSec =
+      sourceStartSec + (sourceEndSec - sourceStartSec) * directedProgress;
+    return `/api/video-frames/${source.takeId}?atSec=${atSec.toFixed(3)}${rangeQuery}`;
+  });
+}
+
 export type StoryboardEditRange = {
   startMs: number;
   endMs: number;
@@ -359,6 +403,33 @@ export function storyboardGroupDragDeltaFrames(input: {
   return Math.round((deltaMs * 30) / 1000);
 }
 
+/**
+ * 一次 pointermove 之后这次拖动应该处于什么状态：还没越过阈值就是 null，
+ * 否则给出方向和已经量化好的整数帧位移。
+ *
+ * 关键点是「锁定方向的那一次也要把位移算出来」——快速甩动或触摸板轻扫可能
+ * 只产生一个 pointermove，如果那一次只锁方向不算位移，松手时位移永远是 0，
+ * 整个拖动就白做了。
+ */
+export function storyboardGroupDragStep(input: {
+  lockedDirection: "left" | "right" | null;
+  deltaPx: number;
+  trackWidthPx: number;
+  totalMs: number;
+}): { direction: "left" | "right"; deltaFrames: number } | null {
+  const direction =
+    input.lockedDirection ?? storyboardGroupDragDirection(input.deltaPx);
+  if (!direction) return null;
+  return {
+    direction,
+    deltaFrames: storyboardGroupDragDeltaFrames({
+      deltaPx: input.deltaPx,
+      trackWidthPx: input.trackWidthPx,
+      totalMs: input.totalMs,
+    }),
+  };
+}
+
 /** 拖动过程中念给用户听的一句话：方向、带上了谁、挪多远、被谁挡住。 */
 export function storyboardGroupDragSummary(input: {
   direction: "left" | "right";
@@ -469,7 +540,7 @@ export function storyboardEditMenuItems(input: {
     },
     {
       action: "extract",
-      label: "把这一帧存成画面",
+      label: "抽帧（存成画面）",
       shortcut: "F",
       disabledReason: noVideo,
       danger: false,
@@ -479,38 +550,6 @@ export function storyboardEditMenuItems(input: {
       action: "selectShot",
       label: `选中 ${input.shotLabel} 交给聊聊`,
       shortcut: "X",
-      disabledReason: null,
-      danger: false,
-      groupStart: false,
-    },
-    {
-      action: "trimMinusFrame",
-      label: "时长 −1 帧",
-      shortcut: ",",
-      disabledReason: null,
-      danger: false,
-      groupStart: true,
-    },
-    {
-      action: "trimPlusFrame",
-      label: "时长 +1 帧",
-      shortcut: ".",
-      disabledReason: null,
-      danger: false,
-      groupStart: false,
-    },
-    {
-      action: "trimMinusHalfSec",
-      label: "时长 −0.5 秒",
-      shortcut: "⇧,",
-      disabledReason: null,
-      danger: false,
-      groupStart: false,
-    },
-    {
-      action: "trimPlusHalfSec",
-      label: "时长 +0.5 秒",
-      shortcut: "⇧.",
       disabledReason: null,
       danger: false,
       groupStart: false,
@@ -579,10 +618,15 @@ export function storyboardEditShouldHandleKey(input: {
   isEditableTarget: boolean;
   isButtonTarget: boolean;
   rowVisible: boolean;
+  /** 焦点是否落在时间尺的位置锚点标记上。 */
+  isAnchorTarget?: boolean;
 }): boolean {
   if (!input.rowVisible) return false;
   if (input.defaultPrevented) return false;
   if (input.isEditableTarget) return false;
+  // 焦点在锚点标记上时，删除键属于那个锚点，绝不能落到「删掉整个镜头」上。
+  // 这条监听挂在捕获阶段，早于锚点自己的 onKeyDown，所以必须在这里让路。
+  if (input.isAnchorTarget) return false;
   // 空格在按钮上就是「按下这个按钮」，别抢。
   if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
     return false;
@@ -668,14 +712,6 @@ export function storyboardEditShortcut(event: {
       return { kind: "action", action: "delete" };
     case "Enter":
       return { kind: "action", action: "insertAfter" };
-    case ",":
-      return { kind: "action", action: "trimMinusFrame" };
-    case ".":
-      return { kind: "action", action: "trimPlusFrame" };
-    case "<":
-      return { kind: "action", action: "trimMinusHalfSec" };
-    case ">":
-      return { kind: "action", action: "trimPlusHalfSec" };
     default:
       break;
   }
@@ -711,4 +747,25 @@ export function storyboardEditMarkedRange(
 ): StoryboardEditRange | null {
   if (inMs == null || outMs == null) return null;
   return storyboardEditSelectionRange(inMs, outMs);
+}
+
+/** 从图片 prompt 里恢复它被抽取时的绝对时间，供独立抽帧轨持久显示。 */
+export { extractedFrameTimeMs as storyboardExtractedFrameTimeMs } from "../../../../shared/extractedFrameTransition";
+
+/**
+ * 视觉层是覆盖关系，不是把镜头从主故事线上搬走。
+ *
+ * 主层始终保留完整镜头顺序；额外层只返回被指派到该层的覆盖副本。
+ * 这样把一个镜头放到上层时，下面的镜头不会消失或重新编号。
+ */
+export function storyboardVisualLayerShotIds(input: {
+  stableShotIds: readonly string[];
+  assignments: Readonly<Record<string, string>>;
+  layerId: string;
+  mainLayerId: string;
+}): string[] {
+  if (input.layerId === input.mainLayerId) return [...input.stableShotIds];
+  return input.stableShotIds.filter(
+    stableShotId => input.assignments[stableShotId] === input.layerId
+  );
 }

@@ -1333,6 +1333,89 @@ describe("editImage", () => {
     expect(body.prompt).toContain("Do not recast the face");
   });
 
+  /**
+   * 2026-08-19 SheSelf 0307：身份锁原先无条件带着「blindfold height, fabric
+   * thickness, folds, and tension」，没蒙眼的人物连出四张都被一道黑带糊住眼睛。
+   * 蒙眼措辞只能在参考图真的遮眼时出现。
+   */
+  describe("FLUX 参考图身份锁按眼睛状态分支", () => {
+    async function kontextPromptFor(identityText: string | null) {
+      ENV.openaiNextApiKey = "test-next-key";
+      ENV.vision302ApiKey = "test-vision-key";
+      const b64 = Buffer.from("kontext-image").toString("base64");
+      const fetcher = makeFetcher([
+        identityText === null
+          ? { ok: false, status: 503 }
+          : {
+              ok: true,
+              status: 200,
+              json: { choices: [{ message: { content: identityText } }] },
+            },
+        { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+      ]);
+
+      const result = await editImage(
+        "data:image/png;base64,b2xkLW1haW4taW1hZ2U=",
+        "同一幅油画，黑色根系爬上她的手背",
+        {
+          fetcher,
+          provider: "gpt-image",
+          referenceImageUrl: "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l",
+        }
+      );
+      expect(result.status).toBe("ok");
+      const call = fetcher.mock.calls[fetcher.mock.calls.length - 1];
+      return JSON.parse(call[1].body).prompt as string;
+    }
+
+    it("视觉分析判定眼睛可见时，禁止蒙眼且不得出现蒙眼措辞", async () => {
+      const prompt = await kontextPromptFor(
+        "EYES_COVERED: no\nSmall oval face, narrow pointed chin, softly full lips, short dark bob."
+      );
+
+      expect(prompt).toContain("keep both eyes fully visible and open");
+      expect(prompt).toContain("Do not add a blindfold");
+      expect(prompt).not.toContain("fabric thickness");
+      // 首行的机器标记只用于分支，不该泄进给模型的身份描述里
+      expect(prompt).not.toContain("EYES_COVERED");
+      expect(prompt).toContain("narrow pointed chin");
+    });
+
+    it("视觉分析判定眼睛被遮时，保留遮眼身份条款", async () => {
+      const prompt = await kontextPromptFor(
+        "EYES_COVERED: yes\nWhite blindfold across the eyes with horizontal folds, narrow pointed chin."
+      );
+
+      expect(prompt).toContain("preserve the covered-eye silhouette");
+      expect(prompt).toContain("fabric thickness");
+      expect(prompt).not.toContain("keep both eyes fully visible and open");
+      expect(prompt).not.toContain("EYES_COVERED");
+    });
+
+    /**
+     * 2026-08-19 SheSelf 0307：身份锁整整一百多词全是五官解剖，一句没提构图。
+     * 中景群像被它一路拽成大头照——连着两轮重渲都把四人群像变成单人脸部特写，
+     * 提示词里写「绝对不要推成特写」也压不住。身份锁必须自己声明它不管取景。
+     */
+    it("身份锁声明自己只管身份、不管取景，避免群像被收成特写", async () => {
+      const prompt = await kontextPromptFor(
+        "EYES_COVERED: no\nSmall oval face, narrow pointed chin."
+      );
+
+      expect(prompt).toContain("not a framing instruction");
+      expect(prompt).toContain("shot size");
+      expect(prompt).toContain("never drop figures");
+    });
+
+    it("视觉分析失败时既不承诺露眼也不虚构蒙眼，交给参考图自己说话", async () => {
+      const prompt = await kontextPromptFor(null);
+
+      expect(prompt).toContain("Reproduce the eye region exactly");
+      expect(prompt).not.toContain("fabric thickness");
+      expect(prompt).not.toContain("keep both eyes fully visible and open");
+    });
+  });
+
   it("302 图生图端点失败且没有 Forge 回退时返回中文错误、不抛出", async () => {
     const fetcher = makeFetcher([{ ok: false, status: 502 }]);
 
@@ -1431,6 +1514,8 @@ describe("editImage", () => {
         provider: "midjourney",
         referenceImageUrl: "data:image/png;base64,cHJpbWFyeQ==",
         referenceContextImageUrls: ["data:image/png;base64,bmVpZ2hib3I="],
+        // 有公网人物参考时 MJ 才有身份锁（--oref），这条才该留在 MJ 上。
+        characterRef: "https://file.302.ai/sheself-anchor.png",
         primaryReferenceLock: true,
         requireInputImage: true,
         mjPollIntervalMs: 1,
@@ -1446,6 +1531,52 @@ describe("editImage", () => {
     expect(submitBody.prompt).toContain("保持人物、服装和红黑色彩");
     expect(submitBody.prompt).not.toContain("floor-length gown");
     expect(submitBody.prompt).not.toContain("blue, cyan, or teal cast");
+  });
+
+  /**
+   * 2026-08-19 SheSelf 0307：MJ 锁长相只有 --oref 一条路，而 --oref 只认公网
+   * http(s)（MJ 服务端要自己去拉图）。故事版的帧都是本机 /api/images/...，能产出公网
+   * URL 的远程备份当天还挂着 503，于是 MJ 手里一个身份锁都没有——连着两次付费重渲
+   * 都换了张脸和发型，写死在提示词里的「齐眉刘海」也被无视。
+   *
+   * 而 primaryReferenceLock 这时已经把相邻镜头垫图全丢了，MJ 实际只拿到一张图，
+   * 那就该交给能稳住五官的单参考图 Kontext。
+   */
+  it("没有公网人物参考时故事版改走 Kontext，不再用锁不住脸的 MJ", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    ENV.vision302ApiKey = "test-vision-key";
+    const b64 = Buffer.from("kontext-image").toString("base64");
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: { choices: [{ message: { content: "EYES_COVERED: no\n小脸尖下巴。" } }] },
+      },
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,cHJpbWFyeQ==",
+      "保持人物、服装和红黑色彩，生成候选",
+      {
+        fetcher,
+        provider: "midjourney",
+        referenceImageUrl: "data:image/png;base64,cHJpbWFyeQ==",
+        referenceContextImageUrls: ["data:image/png;base64,bmVpZ2hib3I="],
+        // 本机路径不是公网 URL，--oref 不会生效
+        characterRef: "/api/images/sheself-anchor.webp",
+        primaryReferenceLock: true,
+        requireInputImage: true,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    const submitCall = fetcher.mock.calls[fetcher.mock.calls.length - 1];
+    expect(submitCall[0]).toContain("/v1/images/generations");
+    expect(submitCall[0]).not.toContain("/mj/submit/");
+    const body = JSON.parse(submitCall[1].body);
+    expect(body.model).toBe("flux-kontext-pro");
+    expect(body.prompt).toContain("保持人物、服装和红黑色彩");
   });
 
   it("requireInputImage=true 时 MJ 图生图失败不会回落纯文生图", async () => {

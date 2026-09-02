@@ -26,7 +26,7 @@ import {
 } from "../../shared/storyMaterial";
 import {
   buildTimelineLayout,
-  resolveTimelineFrame,
+  resolveTimelineDocumentFrame,
   timelineTotalFrames,
   type TimelineLayoutRow,
 } from "../../shared/timelineLayout";
@@ -193,12 +193,22 @@ export function buildExportPlan(
     if (shot.currentVideo)
       takesById.set(shot.currentVideo.id, shot.currentVideo);
   }
+  for (const take of [
+    ...(material.unassignedVideoTakes ?? []),
+    ...(material.reusableVideoTakes ?? []),
+  ]) {
+    takesById.set(take.id, take);
+  }
 
   const skipped: ExportPlan["skipped"] = [];
   const rows = buildTimelineLayout(
     material.timeline.items.filter(item => item.included !== false)
   );
-  const totalFrames = timelineTotalFrames(rows);
+  const overlays = material.timeline.overlays ?? [];
+  const totalFrames = Math.max(
+    timelineTotalFrames(rows),
+    ...overlays.map(overlay => overlay.endFrame)
+  );
   const boundaries = Array.from(
     new Set(
       rows
@@ -208,6 +218,13 @@ export function buildExportPlan(
           ...internalBoundaryFrames(row),
         ])
         .filter(frame => frame >= 0 && frame <= totalFrames)
+        .concat(
+          overlays.flatMap(overlay => [
+            overlay.startFrame,
+            overlay.mediaEndFrame,
+            overlay.endFrame,
+          ])
+        )
         .concat(totalFrames > 0 ? [0, totalFrames] : [])
     )
   ).sort((left, right) => left - right);
@@ -221,9 +238,51 @@ export function buildExportPlan(
     if (durationFrames <= 0) continue;
     const durationSec = framesToSec(durationFrames);
 
-    const resolved = resolveTimelineFrame(rows, startFrame);
+    const resolved = resolveTimelineDocumentFrame({
+      items: material.timeline.items,
+      overlays,
+      frame: startFrame,
+    });
     if (resolved.kind === "gap") {
       parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
+      continue;
+    }
+    if (resolved.kind === "overlay") {
+      const overlay = resolved.overlay;
+      const take = takesById.get(overlay.takeId);
+      const shotNo = byIdentity.get(overlay.sourceStableShotId)?.shotNo ?? 0;
+      const file = take
+        ? videoFileName({ id: take.id, videoKey: take.videoKey ?? null })
+        : null;
+      if (!take || take.status !== "available" || !file) {
+        const reason = !take || take.status !== "available"
+          ? "上层覆盖视频不可用"
+          : "上层覆盖视频缺少本地文件";
+        parts.push({
+          kind: "missing",
+          shotNo,
+          stableShotId: overlay.sourceStableShotId,
+          reason,
+          startFrame,
+          durationFrames,
+          durationSec,
+        });
+        skipped.push({ shotNo, reason });
+        continue;
+      }
+      const sourceStartSec = resolved.localFrame / STORY_TIMELINE_FPS;
+      const effects = overlay.effects ?? { ...DEFAULT_TIMELINE_VIDEO_EFFECTS };
+      parts.push({
+        kind: "source",
+        shotNo,
+        stableShotId: overlay.sourceStableShotId,
+        file,
+        startSec: sourceStartSec,
+        sourceDurationSec: durationSec * effects.playbackRate,
+        durationSec,
+        effects,
+        transform: overlay.transform,
+      });
       continue;
     }
     const item = resolved.row.item;

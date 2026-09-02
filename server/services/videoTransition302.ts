@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ENV } from "../_core/env";
+import { probeVideoFileMetadata } from "./videoConform";
 
 type Fetcher = typeof fetch;
 
@@ -704,6 +705,30 @@ export function buildHardCutArgs(input: {
   ];
 }
 
+/**
+ * 硬切要重编码，所以必须先知道源视频多大。
+ *
+ * 2026-08-19：`buildHardCutArgs` 的 `size ?? 720` 兜底原本被两个调用方当成默认值
+ * 显式传了 `size: 720`，于是 viduq2-turbo 实际返回的 1440×1440 每次都被压回 720——
+ * 按 1080p 计了费（65 credits），拿到手的却是 720p 成片。尺寸得跟着源走。
+ */
+async function probeSquareVideoSize(
+  videoPath: string
+): Promise<number | undefined> {
+  try {
+    const { width, height } = await probeVideoFileMetadata(videoPath);
+    const size = Math.min(width, height);
+    return Number.isFinite(size) && size > 0 ? Math.round(size) : undefined;
+  } catch (error) {
+    console.warn(
+      `[videoTransition302] 无法探测源视频尺寸，硬切退回默认值：${
+        error instanceof Error ? error.message : error
+      }`
+    );
+    return undefined;
+  }
+}
+
 export async function hardCutToLastFrame(
   input: Parameters<typeof buildHardCutArgs>[0],
   options: { ffmpegPath?: string; timeoutMs?: number } = {}
@@ -711,7 +736,9 @@ export async function hardCutToLastFrame(
   await fs.promises.mkdir(path.dirname(input.outputPath), { recursive: true });
   const temporaryPath = temporarySiblingPath(input.outputPath);
   const ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg";
-  const args = buildHardCutArgs({ ...input, outputPath: temporaryPath });
+  const size =
+    input.size ?? (await probeSquareVideoSize(input.generatedVideoPath));
+  const args = buildHardCutArgs({ ...input, size, outputPath: temporaryPath });
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(ffmpegPath, args, {

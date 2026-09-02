@@ -7,6 +7,7 @@ import {
   storyboardAudioPeaks,
   storyboardEditBlocks,
   storyboardEditEdgeMs,
+  storyboardEditFilmstripFrameUrls,
   storyboardEditMarkedRange,
   storyboardEditMenuItems,
   storyboardEditNeedsRowFocus,
@@ -25,9 +26,12 @@ import {
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
   storyboardGroupDragDirection,
+  storyboardGroupDragStep,
   storyboardGroupDragSummary,
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
+  storyboardExtractedFrameTimeMs,
+  storyboardVisualLayerShotIds,
 } from "./storyboardEditRow";
 
 function visualClip(
@@ -184,6 +188,61 @@ describe("storyboard edit track", () => {
     expect(segments.map(segment => segment.id)).toEqual(["primary"]);
   });
 
+  it("samples a long video into at most six filmstrip frames", () => {
+    expect(
+      storyboardEditFilmstripFrameUrls({
+        source: {
+          takeId: 77,
+          rangeId: 9,
+          sourceStartSec: 2,
+          sourceEndSec: 10,
+        },
+        durationMs: 20_000,
+      })
+    ).toEqual([
+      "/api/video-frames/77?atSec=2.667&rangeId=9",
+      "/api/video-frames/77?atSec=4.000&rangeId=9",
+      "/api/video-frames/77?atSec=5.333&rangeId=9",
+      "/api/video-frames/77?atSec=6.667&rangeId=9",
+      "/api/video-frames/77?atSec=8.000&rangeId=9",
+      "/api/video-frames/77?atSec=9.333&rangeId=9",
+    ]);
+  });
+
+  it("orders filmstrip frames in the rendered direction for reverse video", () => {
+    expect(
+      storyboardEditFilmstripFrameUrls({
+        source: {
+          takeId: 12,
+          sourceStartSec: 2,
+          sourceEndSec: 5,
+          reverse: true,
+        },
+        durationMs: 3_000,
+      })
+    ).toEqual([
+      "/api/video-frames/12?atSec=4.500",
+      "/api/video-frames/12?atSec=3.500",
+      "/api/video-frames/12?atSec=2.500",
+    ]);
+  });
+
+  it("does not request filmstrip frames for an image or empty video range", () => {
+    expect(
+      storyboardEditFilmstripFrameUrls({ source: null, durationMs: 2_000 })
+    ).toEqual([]);
+    expect(
+      storyboardEditFilmstripFrameUrls({
+        source: {
+          takeId: 12,
+          sourceStartSec: 3,
+          sourceEndSec: 3,
+        },
+        durationMs: 2_000,
+      })
+    ).toEqual([]);
+  });
+
   it("treats a micro drag as a click rather than a range", () => {
     expect(storyboardEditSelectionRange(1_000, 1_040)).toBeNull();
     expect(storyboardEditSelectionRange(1_400, 1_000)).toEqual({
@@ -328,11 +387,11 @@ describe("storyboard edit shortcuts", () => {
     expect(press("ArrowUp", { altKey: true })).toBeNull();
   });
 
-  it("nudges duration with comma and period", () => {
-    expect(press(",")).toEqual({ kind: "action", action: "trimMinusFrame" });
-    expect(press(".")).toEqual({ kind: "action", action: "trimPlusFrame" });
-    expect(press("<")).toEqual({ kind: "action", action: "trimMinusHalfSec" });
-    expect(press(">")).toEqual({ kind: "action", action: "trimPlusHalfSec" });
+  it("leaves the removed duration shortcuts unused", () => {
+    expect(press(",")).toBeNull();
+    expect(press(".")).toBeNull();
+    expect(press("<")).toBeNull();
+    expect(press(">")).toBeNull();
   });
 
   it("leaves other cmd/ctrl chords alone so global undo still works", () => {
@@ -376,6 +435,25 @@ describe("storyboard edit navigation", () => {
   });
 });
 
+describe("时间线抽帧标记", () => {
+  it("reads the durable millisecond marker written by new extractions", () => {
+    expect(
+      storyboardExtractedFrameTimeMs(
+        "时间线抽帧 · 2893ms · 00:02.893 · 来源 Take 1494"
+      )
+    ).toBe(2893);
+  });
+
+  it("keeps older extracted images visible after upgrading", () => {
+    expect(
+      storyboardExtractedFrameTimeMs(
+        "时间线 01:02.345 提取帧，来源 Take 1494"
+      )
+    ).toBe(62_345);
+    expect(storyboardExtractedFrameTimeMs("普通导入素材")).toBeNull();
+  });
+});
+
 describe("storyboard edit context menu", () => {
   const menu = (overrides: Parameters<typeof storyboardEditMenuItems>[0]) =>
     storyboardEditMenuItems(overrides);
@@ -403,6 +481,20 @@ describe("storyboard edit context menu", () => {
     expect(
       items.find(item => item.action === "split")?.disabledReason
     ).toBeNull();
+    expect(items.find(item => item.action === "extract")?.label).toBe(
+      "抽帧（存成画面）"
+    );
+  });
+
+  it("does not show the low-level duration controls in the context menu", () => {
+    expect(menu(base).map(item => item.action)).not.toEqual(
+      expect.arrayContaining([
+        "trimMinusFrame",
+        "trimPlusFrame",
+        "trimMinusHalfSec",
+        "trimPlusHalfSec",
+      ])
+    );
   });
 
   it("greys out the move that would run off the end of the film", () => {
@@ -553,6 +645,40 @@ describe("方向批量移动手势", () => {
     ).toBe(0);
   });
 
+  it("一次 pointermove 就能同时锁方向并算出位移", () => {
+    // 回归：快速甩动/触摸板轻扫可能只产生一个 pointermove。如果锁定方向的
+    // 那一次不算位移，松手时位移永远是 0，整个拖动白做。
+    const step = storyboardGroupDragStep({
+      lockedDirection: null,
+      deltaPx: 50,
+      trackWidthPx: 1000,
+      totalMs: 8000,
+    });
+    expect(step).toEqual({ direction: "right", deltaFrames: 12 });
+  });
+
+  it("没越过阈值就还不算拖动", () => {
+    expect(
+      storyboardGroupDragStep({
+        lockedDirection: null,
+        deltaPx: 3,
+        trackWidthPx: 1000,
+        totalMs: 8000,
+      })
+    ).toBeNull();
+  });
+
+  it("方向锁定之后即使指针划回另一侧也不换方向", () => {
+    const step = storyboardGroupDragStep({
+      lockedDirection: "right",
+      deltaPx: -40,
+      trackWidthPx: 1000,
+      totalMs: 8000,
+    });
+    expect(step).toMatchObject({ direction: "right" });
+    expect(step!.deltaFrames).toBeLessThan(0);
+  });
+
   it("拖动说明里点名方向、范围和挡路的锚定镜头", () => {
     expect(
       storyboardGroupDragSummary({
@@ -588,6 +714,26 @@ describe("位置锚点的快捷键与菜单", () => {
     expect(key({})).toEqual({ kind: "addAnchor" });
     expect(key({ key: "M" })).toEqual({ kind: "addAnchor" });
     expect(key({ metaKey: true })).toBeNull();
+  });
+
+  it("焦点在锚点标记上时，删除键不能落到「删掉整个镜头」上", () => {
+    // 回归：这条监听挂在捕获阶段，早于锚点自己的 onKeyDown。曾经因此在
+    // 锚点上按 Delete 直接删掉了一整个镜头，而且不在时间轴撤销栈里。
+    const base = {
+      defaultPrevented: false,
+      isEditableTarget: false,
+      isButtonTarget: true,
+      rowVisible: true,
+    };
+    for (const key of ["Delete", "Backspace"]) {
+      expect(
+        storyboardEditShouldHandleKey({ ...base, key, isAnchorTarget: true })
+      ).toBe(false);
+      // 不在锚点上时，删除键仍然按老规矩交给剪辑行。
+      expect(
+        storyboardEditShouldHandleKey({ ...base, key, isAnchorTarget: false })
+      ).toBe(true);
+    }
   });
 
   it("没接锚点能力时菜单里不出现打标项", () => {
@@ -723,5 +869,29 @@ describe("裁边换算成锚点安全的绝对帧边界", () => {
         newDurationMs: 1,
       })
     ).toBe(1);
+  });
+});
+
+describe("视觉覆盖层", () => {
+  it("把镜头放到上层时，主层仍保留完整顺序，上层只显示覆盖副本", () => {
+    const stableShotIds = ["shot-a", "shot-b", "shot-c"];
+    const assignments = { "shot-b": "overlay-1" };
+
+    expect(
+      storyboardVisualLayerShotIds({
+        stableShotIds,
+        assignments,
+        layerId: "main",
+        mainLayerId: "main",
+      })
+    ).toEqual(["shot-a", "shot-b", "shot-c"]);
+    expect(
+      storyboardVisualLayerShotIds({
+        stableShotIds,
+        assignments,
+        layerId: "overlay-1",
+        mainLayerId: "main",
+      })
+    ).toEqual(["shot-b"]);
   });
 });

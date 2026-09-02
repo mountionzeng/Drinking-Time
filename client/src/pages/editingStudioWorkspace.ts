@@ -18,12 +18,6 @@ export function isStoryPanelWorkspace(
   return STORY_PANELS.some(panel => panel.id === workspace);
 }
 
-export function shouldShowPublishingHandoff(
-  workspace: StudioWorkspace
-): boolean {
-  return workspace !== "publishing";
-}
-
 export function resolveStudioInteractionMode(
   workspace: StudioWorkspace,
   confirmedIntent: StoryIntent | null

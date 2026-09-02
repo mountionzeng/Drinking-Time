@@ -106,6 +106,8 @@ export function deleteStoryShotAtIndex<T extends StoryShotLike>(
   index: number
 ): {
   shots: T[];
+  deletedShot: T;
+  deletedIndex: number;
   deletedShotNo: number;
   deletedStableShotId: string;
   nextSelectedShotNo: number | null;
@@ -117,6 +119,8 @@ export function deleteStoryShotAtIndex<T extends StoryShotLike>(
     ...shots.slice(index + 1),
   ]);
   return {
+    deletedShot: { ...deleted },
+    deletedIndex: index,
     deletedShotNo:
       typeof deleted.shotNo === "number" && Number.isFinite(deleted.shotNo)
         ? deleted.shotNo
@@ -125,6 +129,68 @@ export function deleteStoryShotAtIndex<T extends StoryShotLike>(
     nextSelectedShotNo:
       remaining[Math.min(index, remaining.length - 1)]?.shotNo ?? null,
     shots: remaining,
+  };
+}
+
+export function restoreStoryShotAtIndex<T extends StoryShotLike>(
+  shots: readonly T[],
+  deletedShot: T,
+  deletedIndex: number
+): { shots: T[]; restoredShotNo: number } {
+  const insertIndex = Math.min(
+    shots.length,
+    Math.max(0, Math.trunc(deletedIndex))
+  );
+  const restored = renumberStoryShots([
+    ...shots.slice(0, insertIndex),
+    { ...deletedShot },
+    ...shots.slice(insertIndex),
+  ]);
+  return { shots: restored, restoredShotNo: insertIndex + 1 };
+}
+
+export function splitStoryShotAtIndex<T extends StoryShotLike>(input: {
+  shots: readonly T[];
+  index: number;
+  rightStableShotId: string;
+  leftDurationMs: number;
+  rightDurationMs: number;
+}): { shots: T[]; rightShotNo: number } | null {
+  const index = Math.trunc(input.index);
+  const rightStableShotId = normalizeShotIdentity(input.rightStableShotId);
+  if (
+    index < 0 ||
+    index >= input.shots.length ||
+    !rightStableShotId ||
+    input.shots.some(
+      (shot, shotIndex) =>
+        storyShotStableId(shot, shotIndex) === rightStableShotId
+    )
+  ) {
+    return null;
+  }
+  const source = input.shots[index];
+  const sourceStableShotId = storyShotStableId(source, index);
+  if (!sourceStableShotId) return null;
+  const leftDurationMs = Math.max(100, Math.round(input.leftDurationMs));
+  const rightDurationMs = Math.max(100, Math.round(input.rightDurationMs));
+  const left = { ...source, durationMs: leftDurationMs } as T;
+  const right = {
+    ...source,
+    stableShotId: rightStableShotId,
+    shotIdentity: rightStableShotId,
+    shotKey: rightStableShotId,
+    splitSourceStableShotId: sourceStableShotId,
+    durationMs: rightDurationMs,
+  } as T;
+  return {
+    rightShotNo: index + 2,
+    shots: renumberStoryShots([
+      ...input.shots.slice(0, index),
+      left,
+      right,
+      ...input.shots.slice(index + 1),
+    ]),
   };
 }
 

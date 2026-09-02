@@ -37,6 +37,7 @@ const { values } = parseArgs({
     duration: { type: "string", default: "2" },
     resolution: { type: "string", default: "720p" },
     "cut-at": { type: "string", default: "1.4" },
+    movement: { type: "string", default: "auto" },
     "task-id": { type: "string" },
     "state-file": { type: "string" },
     "inline-images": { type: "boolean", default: false },
@@ -186,6 +187,7 @@ function submissionFingerprint(input: {
       resolution: input.resolution,
       cutAtSec: input.cutAtSec,
       imageTransport: input.imageTransport,
+      movementAmplitude,
     })
   );
   hash.update("\0first\0");
@@ -216,6 +218,13 @@ const imageTransport = values["inline-images"]
   : values["legacy-302-upload"]
     ? "upload"
     : "vidu-upload";
+const movementAmplitude = (() => {
+  const value = (values.movement ?? "auto").trim();
+  if (value === "auto" || value === "small" || value === "medium" || value === "large") {
+    return value;
+  }
+  throw new Error("--movement 只支持 auto、small、medium 或 large");
+})();
 const prompt = values.prompt?.trim() || DEFAULT_PROMPT;
 if (!Number.isFinite(cutAtSec) || cutAtSec <= 0 || cutAtSec >= durationSec) {
   throw new Error("--cut-at 必须大于 0 且小于总时长");
@@ -453,6 +462,7 @@ try {
         lastImageUrl,
         durationSec,
         resolution,
+        movementAmplitude,
       });
       taskId = submitted.taskId;
       await writeState(statePath, {
@@ -507,7 +517,6 @@ try {
     outputPath,
     totalDurationSec: durationSec,
     cutAtSec,
-    size: 720,
     fps: 30,
   });
   await writeState(statePath, {
