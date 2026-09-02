@@ -16,10 +16,15 @@ export type EvidencePolarity = "positive" | "negative" | "unknown";
 export type SemanticArtEvidence = {
   concept: string;
   weight: number;
-  source: "explicit-direction" | "story" | "shot";
+  source: "explicit-direction" | "current-emotion" | "story" | "shot";
   polarity: EvidencePolarity;
   quoted: boolean;
-  subject: "visual-direction" | "story-subject" | "other-subject" | "unknown";
+  subject:
+    | "visual-direction"
+    | "current-user-state"
+    | "story-subject"
+    | "other-subject"
+    | "unknown";
 };
 
 export type NormalizedSemanticArtEvidence = {
@@ -44,6 +49,12 @@ export type SemanticArtCard = {
 export type SemanticArtSelection = {
   main: SemanticArtCard | null;
   auxiliary: SemanticArtCard | null;
-  reason: "applied" | "no_evidence" | "low_confidence" | "ambiguous" | "purpose_disallowed" | "incompatible_auxiliary";
+  reason:
+    | "applied"
+    | "no_evidence"
+    | "low_confidence"
+    | "ambiguous"
+    | "purpose_disallowed"
+    | "incompatible_auxiliary";
   scores: Record<string, number>;
 };

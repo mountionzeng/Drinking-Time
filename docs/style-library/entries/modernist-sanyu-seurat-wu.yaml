@@ -1,15 +1,26 @@
 id: modernist-sanyu-seurat-wu
 name: 线性色面现代主义融合
+one_liner: 线条轻、色面克制、空白会呼吸，局部点触让空气微微震动
 status: active
+internal_references: [常玉, Georges Seurat, 吴冠中]
 style: [平面化造型, 书法性轮廓, 疏密点触]
 palette: [克制低饱和底色, 局部清亮色点]
 composition: 大面积留白与平面空间
 material: 纸本颜料与可见笔触
+signature: 一根有书写感的轮廓线穿过大片留白，色点只在局部呼吸
 negative: [艺术家姓名堆叠, 复制特定作品]
+selection_context:
+  moods: [清醒, 克制, 轻盈, 安静的亲密]
+  life_experiences: [从繁复中抽离, 重新整理自己, 平静地看待关系]
+  explicit_age_or_stage: []
+  eras: []
+  seasons: []
+  wardrobe: []
+  counter_signals: [高密度信息展示, 强写实产品图]
 automatic_selection:
   version: "2026-08-31.1"
   scope: main
-  concepts: [modernist-lines, sparse-negative-space]
+  concepts: [modernist-lines, sparse-negative-space, quiet-reflection, life-transition]
   provider_fragments: [书法性轮廓与概括色面, 疏密点触组织空气感, 大面积留白]
   allowed_auxiliary_dimensions: [edge-motion]
   forbidden_purposes: [product, standard-view, factual]

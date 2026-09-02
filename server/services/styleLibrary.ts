@@ -36,6 +36,8 @@ const StyleEntrySchema = z.object({
   one_liner: strField,
   // 任何非 draft/active 的值或缺失都收敛为 draft（见 libraryFields.statusField）
   status: statusField,
+  // 艺术家 / 作品传统仅作为内部策展出处，不进入 provider prompt。
+  internal_references: strArrField.optional(),
 
   // 视觉 DNA：注入出图 prompt
   style: strArrField,
@@ -52,24 +54,52 @@ const StyleEntrySchema = z.object({
   theme_fit: strArrField,
   affinity: affinityField,
 
+  // 人工策展时使用的语义背景。v1 选择器不会直接消费这些宽松标签；
+  // 只有经过审核、映射进 automatic_selection.concepts 的证据才会自动触发。
+  selection_context: z
+    .preprocess(
+      value => value ?? {},
+      z.object({
+        moods: strArrField,
+        life_experiences: strArrField,
+        explicit_age_or_stage: strArrField,
+        eras: strArrField,
+        seasons: strArrField,
+        wardrobe: strArrField,
+        counter_signals: strArrField,
+      })
+    )
+    .optional(),
+
   // 校准
   references: strArrField,
   notes: strField,
 
-  automatic_selection: z.object({
-    version: z.string().min(1).default(SEMANTIC_ART_CATALOG_VERSION),
-    scope: z.enum(["main", "auxiliary"]),
-    concepts: z.array(z.string()).default([]),
-    counter_signals: z.array(z.string()).default([]),
-    provider_fragments: z.array(z.string()).default([]),
-    allowed_auxiliary_dimensions: z.array(z.string()).default([]),
-    compatible_main_ids: z.array(z.string()).default([]),
-    forbidden_purposes: z.array(z.enum([
-      "story-frame", "publishing-cover", "publishing-album", "image-edit",
-      "product", "standard-view", "factual",
-    ])).default([]),
-    provenance: z.array(z.string()).default([]),
-  }).optional(),
+  automatic_selection: z
+    .object({
+      version: z.string().min(1).default(SEMANTIC_ART_CATALOG_VERSION),
+      scope: z.enum(["main", "auxiliary"]),
+      concepts: z.array(z.string()).default([]),
+      counter_signals: z.array(z.string()).default([]),
+      provider_fragments: z.array(z.string()).default([]),
+      allowed_auxiliary_dimensions: z.array(z.string()).default([]),
+      compatible_main_ids: z.array(z.string()).default([]),
+      forbidden_purposes: z
+        .array(
+          z.enum([
+            "story-frame",
+            "publishing-cover",
+            "publishing-album",
+            "image-edit",
+            "product",
+            "standard-view",
+            "factual",
+          ])
+        )
+        .default([]),
+      provenance: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 
 export type StyleEntry = z.infer<typeof StyleEntrySchema>;
@@ -91,7 +121,7 @@ const loader = createLibraryLoader<StyleEntry>({
 /** 读取并解析一个 entries 目录。结果按目录缓存；单条失败只告警跳过。 */
 export function loadStyleLibrary(
   dir?: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean } = {}
 ): StyleEntry[] {
   return loader.load(dir, opts);
 }
@@ -125,7 +155,10 @@ export function styleToFragments(entry: StyleEntry): FragmentForPrompt[] {
     if (t) frags.push({ tag, text: t });
   };
   const joinList = (xs: string[]) =>
-    xs.map((x) => x.trim()).filter(Boolean).join(" / ");
+    xs
+      .map(x => x.trim())
+      .filter(Boolean)
+      .join(" / ");
 
   push("风格", joinList(entry.style));
   push("色彩", joinList(entry.palette));
@@ -139,25 +172,32 @@ export function styleToFragments(entry: StyleEntry): FragmentForPrompt[] {
 
 /** 一个流派的负面清单（与正面 DNA 同等重要：这流派最怕变成什么） */
 export function styleNegatives(entry: StyleEntry): string[] {
-  return entry.negative.map((n) => n.trim()).filter(Boolean);
+  return entry.negative.map(n => n.trim()).filter(Boolean);
 }
 
 /** Active, reviewed entries eligible for automatic semantic selection. */
 export function getSemanticArtCards(dir?: string): SemanticArtCard[] {
   return getActiveStyles(dir).flatMap(entry => {
     const metadata = entry.automatic_selection;
-    if (!metadata || metadata.concepts.length === 0 || metadata.provider_fragments.length === 0) return [];
-    return [{
-      id: entry.id,
-      version: metadata.version,
-      scope: metadata.scope,
-      concepts: metadata.concepts,
-      counterSignals: metadata.counter_signals,
-      providerFragments: metadata.provider_fragments,
-      allowedAuxiliaryDimensions: metadata.allowed_auxiliary_dimensions,
-      compatibleMainIds: metadata.compatible_main_ids,
-      forbiddenPurposes: metadata.forbidden_purposes,
-      provenance: metadata.provenance,
-    }];
+    if (
+      !metadata ||
+      metadata.concepts.length === 0 ||
+      metadata.provider_fragments.length === 0
+    )
+      return [];
+    return [
+      {
+        id: entry.id,
+        version: metadata.version,
+        scope: metadata.scope,
+        concepts: metadata.concepts,
+        counterSignals: metadata.counter_signals,
+        providerFragments: metadata.provider_fragments,
+        allowedAuxiliaryDimensions: metadata.allowed_auxiliary_dimensions,
+        compatibleMainIds: metadata.compatible_main_ids,
+        forbiddenPurposes: metadata.forbidden_purposes,
+        provenance: metadata.provenance,
+      },
+    ];
   });
 }

@@ -18,6 +18,8 @@ const coverPrompt = `【封面内容简报】
 生成四个不同方向。
 【文本美术信号】
 主情绪：清醒、冷静；生活质地：技术与系统。
+【时间、季节与服装】
+明确年代：1990年代。使用轻微褪色的暖色与模拟胶片材料关系。
 【私人策展库审美底线】
 使用纸面、笔触、擦除、叠色和不完美边缘，避免商品静物。
 【艺术谱系】
@@ -36,6 +38,8 @@ describe("publishing cover art direction", () => {
     expect(artDirection).toContain("【用户持续要求】");
     expect(artDirection).toContain("画面整体唯美一点，温暖一点");
     expect(artDirection).toContain("【艺术谱系】");
+    expect(artDirection).toContain("【时间、季节与服装】");
+    expect(artDirection).toContain("明确年代：1990年代");
     expect(artDirection).toContain("蛋彩、水粉、铅笔网格与有齿纸面");
     expect(artDirection).toContain("【手作完成度】");
     expect(artDirection).toContain("【风格化硬约束】");

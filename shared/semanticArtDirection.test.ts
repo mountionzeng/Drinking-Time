@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SEMANTIC_ART_CATALOG_VERSION, SEMANTIC_ART_NORMALIZER_VERSION } from "./semanticArtDirection";
+import {
+  SEMANTIC_ART_CATALOG_VERSION,
+  SEMANTIC_ART_NORMALIZER_VERSION,
+} from "./semanticArtDirection";
 
 describe("semantic art contracts", () => {
   it("pins replay identities", () => {

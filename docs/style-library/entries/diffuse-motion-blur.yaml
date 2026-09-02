@@ -1,9 +1,20 @@
 id: diffuse-motion-blur
 name: 动态弥散
+one_liner: 动作已经过去，边缘还在空气里留着一点未散尽的痕迹
 status: active
+internal_references: []
 style: [方向性动态模糊, 边缘弥散]
 material: 局部拖擦与颜料扩散
+signature: 主体身份保持清楚，只有运动方向上的局部边缘被拖开
 negative: [全画面失焦, 覆盖主体身份, 改写主风格色板]
+selection_context:
+  moods: [急切, 失重, 过渡, 消散]
+  life_experiences: [赶路, 离开, 转身, 关系或生活正在变化]
+  explicit_age_or_stage: []
+  eras: []
+  seasons: []
+  wardrobe: []
+  counter_signals: [静态标准视图, 身份必须精确锁定的特写]
 automatic_selection:
   version: "2026-08-31.1"
   scope: auxiliary

@@ -1,11 +1,22 @@
 id: dreamy-colored-pencil-minimal
 name: 朦胧彩铅极简
+one_liner: 像一段正在淡去却仍然柔软的记忆，纸面上留下很轻的颜色
 status: active
+internal_references: []
 style: [朦胧彩铅, 抽象概括]
 palette: [柔和渐变]
 composition: 大面积留白与稀疏主体
 material: 可见纸纹与轻柔彩铅叠色
+signature: 纸纹里一层克制渐变，主体只保留最必要的形和呼吸
 negative: [摄影景深, 塑料渐变, 细节堆积]
+selection_context:
+  moods: [温柔的怅然, 朦胧, 安静思念, 轻微失重]
+  life_experiences: [告别后的回望, 记忆正在变淡, 想留住一件小事]
+  explicit_age_or_stage: []
+  eras: []
+  seasons: []
+  wardrobe: []
+  counter_signals: [要求精确事实复原, 高信息密度说明图]
 automatic_selection:
   version: "2026-08-31.1"
   scope: main
