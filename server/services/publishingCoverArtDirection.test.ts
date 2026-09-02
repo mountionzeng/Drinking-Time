@@ -116,4 +116,52 @@ describe("publishing cover art direction", () => {
     expect(artDirection).toContain("蛋彩、水粉、铅笔网格与有齿纸面");
     expect(artDirection).not.toContain("错误的未采用候选");
   });
+
+  it("inherits the adopted cover through the storyboard version ancestry", async () => {
+    const artDirection = await resolvePublishingCoverArtDirection({
+      storyId: 1176,
+      storyBody: {
+        publishing: {
+          activeVersionId: "v4",
+          activeVideoStoryboardVersionId: "v2",
+          versions: [
+            {
+              versionId: "v1",
+              sequence: 1,
+              displayName: "V1",
+              parentId: null,
+              versionRevision: 1,
+              core: null,
+              drafts: {},
+              activePlatform: "xiaohongshu",
+              selectedPlatforms: ["xiaohongshu"],
+              cover: { assetId: 1480, sourceCoreRevision: 1, createdAt: 1 },
+              coverRounds: [],
+              conversationSnapshot: null,
+              videoStoryboard: null,
+            },
+            {
+              versionId: "v2",
+              sequence: 2,
+              displayName: "V2",
+              parentId: "v1",
+              versionRevision: 2,
+              core: null,
+              drafts: {},
+              activePlatform: "xiaohongshu",
+              selectedPlatforms: ["xiaohongshu"],
+              cover: null,
+              coverRounds: [],
+              conversationSnapshot: null,
+              videoStoryboard: null,
+            },
+          ],
+        },
+      },
+      loadImage: async id =>
+        id === 1480 ? { id, storyId: 1176, prompt: coverPrompt } : null,
+    });
+
+    expect(artDirection).toContain("蛋彩、水粉、铅笔网格与有齿纸面");
+  });
 });

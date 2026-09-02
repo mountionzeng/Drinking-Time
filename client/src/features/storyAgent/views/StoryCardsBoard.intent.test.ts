@@ -510,6 +510,7 @@ describe("StoryCardsBoard intent entry", () => {
             status: "selected",
             isCurrent: true,
             generationType: "inpaint",
+            candidateLayout: "four-up-sheet",
             prompt:
               "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH\n图片要求（最高优先级）：夜市中景",
           },
@@ -572,7 +573,7 @@ describe("StoryCardsBoard intent entry", () => {
     ]);
   });
 
-  it("uses the next established character frame before an establishing previous shot when current is missing", () => {
+  it("inherits the previously selected frame before looking ahead when current is missing", () => {
     const shots = [
       {
         shotNo: 1,
@@ -594,13 +595,13 @@ describe("StoryCardsBoard intent entry", () => {
 
     expect(storyboardImageGenerationReferences(shots[1], shots)).toEqual({
       primary: expect.objectContaining({
-        imageUrl: "/story/character.webp",
-        source: "next-first",
+        imageUrl: "/story/establishing.webp",
+        source: "previous-last",
       }),
       context: [
         expect.objectContaining({
-          imageUrl: "/story/establishing.webp",
-          source: "previous-last",
+          imageUrl: "/story/character.webp",
+          source: "next-first",
         }),
       ],
     });
@@ -1492,8 +1493,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("删除这组候选");
     expect(boardSource).toContain('data-storyboard-hover-preview="image"');
     expect(boardSource).toContain("showImageHoverPreview");
-    expect(boardSource).toContain("document.addEventListener(\"pointerdown\"");
-    expect(boardSource).toContain("window.addEventListener(\"scroll\"");
+    expect(boardSource).toContain('document.addEventListener("pointerdown"');
+    expect(boardSource).toContain('window.addEventListener("scroll"');
     expect(boardSource).toContain('if (event.key !== "Escape") return;');
     expect(boardSource).toContain("从画面移除");
     expect(boardSource).toContain("onRemoveTimelineVideoClip");
