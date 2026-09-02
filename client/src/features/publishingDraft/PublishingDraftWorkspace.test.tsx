@@ -5,6 +5,7 @@ import {
   emptyPublishingDraftState,
   upsertPublishingPlatformDraft,
 } from "@shared/publishingDraft";
+import { emptyFinishedProductState } from "@shared/finishedProductVersion";
 
 vi.stubGlobal("React", React);
 
@@ -23,6 +24,7 @@ const actions = vi.hoisted(() => ({
 
 const api = vi.hoisted(() => ({
   readData: undefined as any,
+  finishedProductData: undefined as any,
   buildVideoStoryboardPending: false,
 }));
 
@@ -64,6 +66,10 @@ vi.mock("@/lib/trpc", () => {
       }),
       publishingDraft: {
         read: { useQuery: () => ({ data: api.readData }) },
+        finishedProduct: {
+          useQuery: () => ({ data: api.finishedProductData, refetch: vi.fn() }),
+        },
+        updateFinishedProduct: { useMutation: mutation },
         generate: { useMutation: mutation },
         convert: { useMutation: mutation },
         rewrite: { useMutation: mutation },
@@ -71,9 +77,6 @@ vi.mock("@/lib/trpc", () => {
         applyEdit: { useMutation: mutation },
         confirmWordingChange: { useMutation: mutation },
         confirmCoreChange: { useMutation: mutation },
-        createVersion: { useMutation: mutation },
-        selectVersion: { useMutation: mutation },
-        renameVersion: { useMutation: mutation },
         refreshPlatformContext: { useMutation: mutation },
         selectPlatformContextTags: { useMutation: mutation },
         generateCover: { useMutation: mutation },
@@ -125,6 +128,12 @@ describe("PublishingDraftWorkspace", () => {
     story.publishing = emptyPublishingDraftState(1);
     story.publishingBuffers = {};
     api.readData = undefined;
+    api.finishedProductData = {
+      storyId: 7,
+      storyRevision: 0,
+      publishing: story.publishing,
+      finishedProduct: emptyFinishedProductState(),
+    };
     api.buildVideoStoryboardPending = false;
   });
 
@@ -205,8 +214,9 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("只修格式");
     expect(html).toContain("复制文案");
     expect(html).toContain("进入视频制作");
-    expect(html).toContain("留存 · 自己");
-    expect(html).toContain("修改用途或观众会创建新版本");
+    expect(html).toContain("成品版本");
+    expect(html).toContain("这次为什么要更新？");
+    expect(html).toContain("保存文字新版");
     expect(html).toContain("四图候选 · 对话修改 · 明确采用");
     expect(html).toContain("一次生成 4 张粗选图");
     expect(html).toContain("本轮补充要求 · 两个生成按钮都会参考");

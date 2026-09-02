@@ -18,6 +18,7 @@ import {
 import { migrateStoryPromptLineage } from "./promptLineageMigration";
 import {
   normalizeTimelineItems,
+  getCurrentFinishedProductSnapshot,
   getStoryMaterialState,
 } from "./storyMaterials";
 import { selectVideoTimelineSegment } from "./videoTimeline";
@@ -563,6 +564,155 @@ describe("Story visual asset material projection", () => {
 });
 
 describe("getStoryMaterialState", () => {
+  it("reads a deterministic finished-product snapshot from adopted Story media only", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "成品组合快照",
+      body: {
+        shots: [
+          { stableShotId: "shot-a", shotIdentity: "shot-a", shotNo: 1 },
+          { stableShotId: "shot-b", shotIdentity: "shot-b", shotNo: 2 },
+        ],
+      },
+    });
+    const adoptedImage = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-a",
+      imageUrl: "data:image/png;base64,ADOPTED",
+      imageKey: null,
+      prompt: "adopted",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-a",
+      imageUrl: "data:image/png;base64,CANDIDATE",
+      imageKey: null,
+      prompt: "candidate",
+      generationType: "variation",
+      isCurrent: false,
+    });
+    await selectImage(story.id, adoptedImage.id);
+    const primary = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-a",
+      sourceImageId: adoptedImage.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "primary",
+      durationSec: 4,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/primary.mp4",
+      extractionCapability: "available",
+    });
+    const overlay = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-a",
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "overlay",
+      durationSec: 3,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/overlay.mp4",
+      extractionCapability: "available",
+    });
+    await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-a",
+      sourceImageId: adoptedImage.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "unadopted",
+      durationSec: 2,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/unadopted.mp4",
+      extractionCapability: "available",
+    });
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [
+        {
+          stableShotId: "shot-a",
+          included: true,
+          position: 0,
+          plannedDurationMs: 4_000,
+          primaryVideoEdit: {
+            takeId: primary.id,
+            sourceStartSec: 0,
+            sourceEndSec: 4,
+            effects: {
+              playbackRate: 1,
+              reverse: false,
+              volume: 1,
+              muted: false,
+            },
+          },
+          visualClips: [],
+        },
+        {
+          stableShotId: "shot-b",
+          included: true,
+          position: 1,
+          plannedDurationMs: 3_000,
+          visualClips: [
+            {
+              id: "clip-b",
+              takeId: overlay.id,
+              rangeId: 7,
+              sourceStableShotId: "shot-b",
+              videoUrl: "/api/videos/overlay.mp4",
+              label: "覆盖层",
+              sourceStartSec: 1,
+              sourceEndSec: 3,
+              offsetMs: 0,
+              durationMs: 2_000,
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(getCurrentFinishedProductSnapshot(story.id, 2)).resolves.toBeNull();
+    await expect(getCurrentFinishedProductSnapshot(story.id, 1)).resolves.toEqual({
+      images: [{ stableShotId: "shot-a", imageId: adoptedImage.id }],
+      videos: [
+        {
+          stableShotId: "shot-a",
+          role: "primary",
+          takeId: primary.id,
+          sourceStartSec: 0,
+          sourceEndSec: 4,
+        },
+        {
+          stableShotId: "shot-b",
+          role: "visual_clip",
+          clipId: "clip-b",
+          takeId: overlay.id,
+          rangeId: 7,
+          sourceStartSec: 1,
+          sourceEndSec: 3,
+        },
+      ],
+    });
+  });
+
   it("keeps a retained timeline segment playable after its source shot is deleted", async () => {
     const sourceStableShotId = "shot-source";
     const retainedStableShotId = "shot-retained";

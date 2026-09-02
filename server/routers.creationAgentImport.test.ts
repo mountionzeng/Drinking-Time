@@ -111,7 +111,6 @@ describe("creationAgent.importStoryMaterial", () => {
       mimeType: "image/png",
       fileBase64: "iVBORw0KGgo=",
       targetStableShotId: "shot-0102",
-      preserveTimelineSelection: true,
     });
     const selections = await getStoryVideoTimelineSelections(story.id, 703);
 
@@ -125,5 +124,57 @@ describe("creationAgent.importStoryMaterial", () => {
       stableShotId: "shot-0102",
       takeId: 88,
     });
+  });
+
+  it("keeps an adopted video selected when an older image is promoted", async () => {
+    const caller = appRouter.createCaller(context(704));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "Independent layers",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-0103",
+            shotIdentity: "shot-0103",
+            shotNo: 1,
+            subject: "人物回头",
+          },
+        ],
+      },
+    });
+    if (!story) throw new Error("story creation failed");
+    const older = await caller.creationAgent.importStoryMaterial({
+      storyId: story.id,
+      fileName: "0103-old.png",
+      mimeType: "image/png",
+      fileBase64: "iVBORw0KGgo=",
+      targetStableShotId: "shot-0103",
+    });
+    await caller.creationAgent.importStoryMaterial({
+      storyId: story.id,
+      fileName: "0103-new.png",
+      mimeType: "image/png",
+      fileBase64: "iVBORw0KGgo=",
+      targetStableShotId: "shot-0103",
+    });
+    if (older.status !== "ok" || older.kind !== "image") {
+      throw new Error("image import failed");
+    }
+    await setVideoTimelineSelection({
+      storyId: story.id,
+      userId: 704,
+      stableShotId: "shot-0103",
+      takeId: 89,
+      rangeId: null,
+      selectionType: "full_take",
+    });
+
+    await caller.creationAgent.promoteStoryImage({
+      storyId: story.id,
+      imageId: older.imageId,
+    });
+
+    expect(await getStoryVideoTimelineSelections(story.id, 704)).toMatchObject([
+      { stableShotId: "shot-0103", takeId: 89 },
+    ]);
   });
 });

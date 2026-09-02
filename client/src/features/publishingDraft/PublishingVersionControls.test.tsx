@@ -1,79 +1,55 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import {
-  defaultPublishingNarrativeIntent,
-  emptyPublishingDraftState,
-  resolvePublishingActiveVersion,
-} from "@shared/publishingDraft";
-import {
-  PublishingVersionControls,
-  publishingVersionLabel,
-  publishingVersionNameError,
-} from "./PublishingVersionControls";
+import type { FinishedProductVersion } from "@shared/finishedProductVersion";
+import { PublishingVersionControls } from "./PublishingVersionControls";
 
 vi.stubGlobal("React", React);
 
+const row = (status: "editing" | "completed"): FinishedProductVersion => ({
+  id: "finished-1",
+  sequence: 1,
+  status,
+  purpose: "缩短开场、提高观看留存",
+  textVersionId: "v4",
+  images: [{ stableShotId: "shot-a", imageId: 11 }],
+  videos: [],
+  imageVersion: status === "completed" ? 2 : null,
+  videoVersion: null,
+  createdAt: 1,
+  updatedAt: 1,
+  completedAt: status === "completed" ? 1 : null,
+});
+
 describe("PublishingVersionControls", () => {
-  it("shows sequence, reason name, intent summary, rename, and create as separate actions", () => {
-    const version = {
-      ...resolvePublishingActiveVersion(emptyPublishingDraftState(1)),
-      displayName: "给招聘者看的版本",
-    };
+  it("shows one compact composition table without rename, switch, or version wizard controls", () => {
     const html = renderToStaticMarkup(
       <PublishingVersionControls
-        versions={[version]}
-        activeVersionId={version.versionId}
-        activeIntent={{
-          ...defaultPublishingNarrativeIntent(),
-          primaryPurpose: "persuade",
-          coreAudience: "招聘者",
-        }}
+        versions={[row("completed"), { ...row("editing"), id: "finished-2", sequence: 2 }]}
+        purpose="统一视觉"
         busy={false}
-        canCreate
-        onSwitch={vi.fn()}
-        onRename={vi.fn()}
-        onCreate={vi.fn()}
-        onEditIntent={vi.fn()}
+        canSaveText
+        canSaveImage
+        canSaveVideo
+        onPurposeChange={vi.fn()}
+        onSaveText={vi.fn()}
+        onSaveImage={vi.fn()}
+        onSaveVideo={vi.fn()}
+        onComplete={vi.fn()}
+        onAbandon={vi.fn()}
       />
     );
 
-    expect(html).toContain("V1 · 给招聘者看的版本");
-    expect(html).toContain("说服 · 招聘者");
-    expect(html).toContain("重命名");
-    expect(html).toContain("新版本名称（可选");
-    expect(html).toContain("新建版本");
-  });
-
-  it("explains scoped loading without rendering the previous version as current", () => {
-    const state = emptyPublishingDraftState(1);
-    const version = resolvePublishingActiveVersion(state);
-    const target = { ...version, versionId: "v2", sequence: 2, displayName: "公开发布" };
-    const html = renderToStaticMarkup(
-      <PublishingVersionControls
-        versions={[version, target]}
-        activeVersionId={version.versionId}
-        activeIntent={defaultPublishingNarrativeIntent()}
-        busy
-        loadingVersionId="v2"
-        canCreate
-        onSwitch={vi.fn()}
-        onRename={vi.fn()}
-        onCreate={vi.fn()}
-        onEditIntent={vi.fn()}
-      />
-    );
-    expect(html).toContain("正在切换到 V2 · 公开发布");
-    expect(html).toContain("旧版本内容不会暂时回显");
-  });
-
-  it("validates manual names while sequence keeps duplicate names distinguishable", () => {
-    expect(publishingVersionNameError("   ")).toBe("版本名称不能为空");
-    expect(publishingVersionNameError("a".repeat(81))).toContain("80");
-    expect(publishingVersionNameError("公开发布")).toBeNull();
-    expect(publishingVersionLabel({
-      sequence: 2,
-      displayName: "公开发布",
-    } as never)).toBe("V2 · 公开发布");
+    expect(html).toContain("成品版本");
+    expect(html).toContain("Text V4");
+    expect(html).toContain("Image V2");
+    expect(html).toContain("Image 新");
+    expect(html).toContain("修改目的");
+    expect(html).toContain("完成版本");
+    expect(html).toContain("保存图像新版");
+    expect(html).toContain("保存视频新版");
+    expect(html).not.toContain("重命名");
+    expect(html).not.toContain("选择发布版本");
+    expect(html).not.toContain("待更新");
   });
 });

@@ -6,9 +6,7 @@ import {
 import {
   publishingOperationScope,
   publishingOperationScopeMatches,
-  publishingSimpleVersionIdentity,
   publishingTrendWriteScope,
-  publishingVersionTransitionIdentity,
 } from "./publishingOperationScope";
 
 describe("publishing operation scope", () => {
@@ -74,39 +72,4 @@ describe("publishing operation scope", () => {
     })).toBe(false);
   });
 
-  it("uses stable request identities so a lost response can retry the same operation", () => {
-    const publishing = emptyPublishingDraftState(1);
-    const scope = publishingOperationScope({ storyId: 7, publishing });
-    const input = {
-      scope,
-      core: {
-        facts: ["事实"],
-        thesis: "观点",
-        emotion: "克制",
-        voiceTraits: ["直接"],
-        visualConcept: "留白",
-      },
-      content: { title: "标题", body: "未应用修改", tags: ["AI"] },
-      bufferDisposition: "carry" as const,
-    };
-    expect(publishingVersionTransitionIdentity(input)).toEqual(
-      publishingVersionTransitionIdentity(input)
-    );
-    expect(publishingVersionTransitionIdentity(input)).toMatchObject({
-      operationToken: expect.stringMatching(/^create:pv2-/),
-      sourceVersionId: "v1",
-      bufferDisposition: "carry",
-      sourceBufferKey: "7:xiaohongshu",
-      sourceBufferHash: expect.stringMatching(/^pb2-/),
-    });
-
-    const select = publishingSimpleVersionIdentity({
-      type: "select_version",
-      storyId: 7,
-      versionId: "v2",
-      baseContainerRevision: 3,
-      baseVersionRevision: 2,
-    });
-    expect(select.operationToken).toContain(select.requestHash);
-  });
 });

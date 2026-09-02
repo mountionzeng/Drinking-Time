@@ -495,7 +495,6 @@ export function StoryboardReviewBoard({
   onMoveStoryImage?: (input: {
     imageId: number;
     targetStableShotId: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<void>;
   onDeleteStoryImage?: (imageId: number) => Promise<void>;
   onMoveVideoTake?: (input: {
@@ -520,7 +519,6 @@ export function StoryboardReviewBoard({
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   onAnalyzeShotVideoDirection?: (input: {
     shotNo: number;
@@ -1377,7 +1375,6 @@ export function StoryboardReviewBoard({
       await onMoveStoryImage({
         imageId: input.imageId,
         targetStableShotId: input.targetStableShotId,
-        preserveTimelineSelection: true,
       });
       setSelectedStoryboardMedia(current => {
         if (
@@ -1982,7 +1979,6 @@ export function StoryboardReviewBoard({
           new File([frameBlob], "neighbor-frame.png", { type: mimeType })
         ),
         targetStableShotId: stableShotId,
-        preserveTimelineSelection: true,
         note: `${displayShotCode(neighbor)} 已采用 Take ${take.id} 的${neighborBoundary === "first" ? "首帧" : "尾帧"}，供相邻镜头连续性生成`,
       });
       if (imported.kind !== "image") return null;

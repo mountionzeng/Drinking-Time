@@ -358,7 +358,6 @@ type CreationEditorContextValue = {
   assignStoryImageToShot: (input: {
     imageId: number;
     targetStableShotId: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<void>;
   deleteStoryImage: (imageId: number) => Promise<void>;
   deleteExtractedFrame: (imageId: number) => Promise<void>;
@@ -368,7 +367,6 @@ type CreationEditorContextValue = {
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   extractPhotoVisualFeatures: (input: {
     imageId: number;
@@ -3077,7 +3075,6 @@ export function CreationEditorProvider({
   const assignStoryImageToShot = async (input: {
     imageId: number;
     targetStableShotId: string;
-    preserveTimelineSelection?: boolean;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法绑定图片");
     const result = await assignStoryImageToShotMut.mutateAsync({
@@ -3143,7 +3140,6 @@ export function CreationEditorProvider({
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
-    preserveTimelineSelection?: boolean;
   }): Promise<ImportedStoryMaterialResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法导入素材");
     const result = await importStoryMaterialMut.mutateAsync({
