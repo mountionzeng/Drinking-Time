@@ -7,10 +7,11 @@ import {
   createInviteCode,
   getUserByOpenId,
   getUserSessionVersion,
+  linkEmailIdentity,
   resetMemoryStateForTesting,
   upsertUser,
 } from "../db";
-import { issueEmailOtp } from "../services/accountIdentity";
+import { issueEmailOtp, setAccountPassword } from "../services/accountIdentity";
 import { hashInviteCode } from "../services/inviteAccess";
 import { ENV } from "./env";
 import { registerOAuthRoutes } from "./oauth";
@@ -19,7 +20,11 @@ import { sdk } from "./sdk";
 let server: Server;
 let baseUrl = "";
 
-async function post(path: string, body: Record<string, unknown>, headers: Record<string, string> = {}) {
+async function post(
+  path: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {}
+) {
   return fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
@@ -84,7 +89,10 @@ describe("现有邀请码登录链路（characterization）", () => {
 
   it("邀请码登录签发 HttpOnly / Path=/ / SameSite=Lax 的会话 Cookie", async () => {
     await seedInvite();
-    const response = await post("/api/auth/email/invite-login", { email, inviteCode });
+    const response = await post("/api/auth/email/invite-login", {
+      email,
+      inviteCode,
+    });
     const raw = response.headers.get("set-cookie") ?? "";
 
     expect(response.status).toBe(200);
@@ -98,7 +106,10 @@ describe("现有邀请码登录链路（characterization）", () => {
 
   it("会话 Cookie 是可验证的 JWT，openId 形如 email:<邮箱>", async () => {
     await seedInvite();
-    const response = await post("/api/auth/email/invite-login", { email, inviteCode });
+    const response = await post("/api/auth/email/invite-login", {
+      email,
+      inviteCode,
+    });
     const token = sessionCookieFrom(response);
 
     expect(token).not.toBeNull();
@@ -109,7 +120,10 @@ describe("现有邀请码登录链路（characterization）", () => {
 
   it("OTP 请求与校验走通后建立会话", async () => {
     await seedInvite();
-    const requested = await post("/api/auth/email/request", { email, inviteCode });
+    const requested = await post("/api/auth/email/request", {
+      email,
+      inviteCode,
+    });
     expect(requested.status).toBe(200);
 
     // 本地模式下 OTP 明文落在 email_otps 里（U4 会用带 secret 的摘要取代它）
@@ -122,7 +136,9 @@ describe("现有邀请码登录链路（characterization）", () => {
   });
 
   it("内测期禁用 Google 登录直达", async () => {
-    const response = await fetch(`${baseUrl}/api/auth/google`, { redirect: "manual" });
+    const response = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
     expect(response.status).toBe(403);
   });
 
@@ -143,14 +159,22 @@ describe("统一账号端点（U4）", () => {
   const NEXT_STRONG = "另一句只有我自己记得住的很长的口令";
 
   async function codeFor(purpose: "login" | "recover" = "login") {
-    const issued = await issueEmailOtp({ email, purpose, requestIp: "127.0.0.1" });
-    if (issued.outcome !== "issued") throw new Error(`签发失败：${issued.outcome}`);
+    const issued = await issueEmailOtp({
+      email,
+      purpose,
+      requestIp: "127.0.0.1",
+    });
+    if (issued.outcome !== "issued")
+      throw new Error(`签发失败：${issued.outcome}`);
     return issued.otp.code;
   }
 
   async function loginWithOtp() {
     const code = await codeFor();
-    const response = await post("/api/auth/account/otp/verify", { email, code });
+    const response = await post("/api/auth/account/otp/verify", {
+      email,
+      code,
+    });
     expect(response.status).toBe(200);
     return sessionCookieFrom(response)!;
   }
@@ -168,7 +192,10 @@ describe("统一账号端点（U4）", () => {
 
   it("验证码登录签发带会话版本的 30 天 Cookie", async () => {
     const code = await codeFor();
-    const response = await post("/api/auth/account/otp/verify", { email, code });
+    const response = await post("/api/auth/account/otp/verify", {
+      email,
+      code,
+    });
     const raw = response.headers.get("set-cookie") ?? "";
 
     expect(response.status).toBe(200);
@@ -184,8 +211,12 @@ describe("统一账号端点（U4）", () => {
 
   it("同一个验证码不能用第二次", async () => {
     const code = await codeFor();
-    expect((await post("/api/auth/account/otp/verify", { email, code })).status).toBe(200);
-    expect((await post("/api/auth/account/otp/verify", { email, code })).status).toBe(401);
+    expect(
+      (await post("/api/auth/account/otp/verify", { email, code })).status
+    ).toBe(200);
+    expect(
+      (await post("/api/auth/account/otp/verify", { email, code })).status
+    ).toBe(401);
   });
 
   it("验证码与密码进入同一个 userId", async () => {
@@ -212,6 +243,52 @@ describe("统一账号端点（U4）", () => {
     expect((await getUserByOpenId(`email:${email}`))?.id).toBe(viaOtp?.id);
   });
 
+  it("验证码登录沿用已经映射的历史账号，不创建平行邮箱账号", async () => {
+    await upsertUser({
+      openId: "legacy:mapped-otp",
+      email,
+      loginMethod: "email",
+    });
+    const historical = await getUserByOpenId("legacy:mapped-otp");
+    await linkEmailIdentity({ userId: historical!.id, email });
+
+    const response = await post("/api/auth/account/otp/verify", {
+      email,
+      code: await codeFor(),
+    });
+    const session = await sdk.verifySession(sessionCookieFrom(response));
+
+    expect(response.status).toBe(200);
+    expect(session?.openId).toBe("legacy:mapped-otp");
+    expect((await getUserByOpenId(session!.openId))?.id).toBe(historical!.id);
+    expect(await getUserByOpenId(`email:${email}`)).toBeUndefined();
+  });
+
+  it("密码登录沿用已经映射的历史账号", async () => {
+    await upsertUser({
+      openId: "legacy:mapped-password",
+      email,
+      loginMethod: "email",
+    });
+    const historical = await getUserByOpenId("legacy:mapped-password");
+    await linkEmailIdentity({ userId: historical!.id, email });
+    expect(
+      (await setAccountPassword({ userId: historical!.id, password: STRONG }))
+        .outcome
+    ).toBe("set");
+
+    const response = await post("/api/auth/account/password/login", {
+      email,
+      password: STRONG,
+    });
+    const session = await sdk.verifySession(sessionCookieFrom(response));
+
+    expect(response.status).toBe(200);
+    expect(session?.openId).toBe("legacy:mapped-password");
+    expect((await getUserByOpenId(session!.openId))?.id).toBe(historical!.id);
+    expect(await getUserByOpenId(`email:${email}`)).toBeUndefined();
+  });
+
   it("防枚举：未知邮箱、密码错误、未设置密码都是同一个 401", async () => {
     await loginWithOtp();
     const noPassword = await post("/api/auth/account/password/login", {
@@ -229,8 +306,10 @@ describe("统一账号端点（U4）", () => {
   });
 
   it("设置密码需要登录态", async () => {
-    expect((await post("/api/auth/account/password/set", { password: STRONG })).status)
-      .toBe(401);
+    expect(
+      (await post("/api/auth/account/password/set", { password: STRONG }))
+        .status
+    ).toBe(401);
   });
 
   it("弱口令被拒绝并给出可读原因", async () => {
@@ -265,7 +344,8 @@ describe("统一账号端点（U4）", () => {
 
     // 旧 Cookie 不再能访问需要登录态的端点
     expect(
-      (await post("/api/auth/account/password/set", { password: STRONG }, auth)).status
+      (await post("/api/auth/account/password/set", { password: STRONG }, auth))
+        .status
     ).toBe(401);
     expect(
       (
@@ -295,19 +375,27 @@ describe("统一账号端点（U4）", () => {
     const raw = recovered.headers.get("set-cookie") ?? "";
     expect(raw).not.toMatch(/app_session_id=[^;]+;/);
     expect(
-      (await post("/api/auth/account/password/set", { password: STRONG }, auth)).status
+      (await post("/api/auth/account/password/set", { password: STRONG }, auth))
+        .status
     ).toBe(401);
     // 新密码可以正常登录
     expect(
-      (await post("/api/auth/account/password/login", { email, password: NEXT_STRONG }))
-        .status
+      (
+        await post("/api/auth/account/password/login", {
+          email,
+          password: NEXT_STRONG,
+        })
+      ).status
     ).toBe(200);
   });
 
   it("历史账号未经人工映射时返回 409 并给出联系邮箱，而不是把故事交出去", async () => {
     await upsertUser({ openId: "legacy:x", email, loginMethod: "email" });
     const code = await codeFor();
-    const response = await post("/api/auth/account/otp/verify", { email, code });
+    const response = await post("/api/auth/account/otp/verify", {
+      email,
+      code,
+    });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({

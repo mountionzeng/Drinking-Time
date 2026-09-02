@@ -51,7 +51,7 @@ async function sendOtpEmail(to: string, code: string): Promise<void> {
       text: `你的验证码是：${code}\n\n10 分钟内有效。`,
       html: `<p style="font-size:24px;font-weight:bold;letter-spacing:8px">${code}</p><p>10 分钟内有效。</p>`,
     },
-    { headers: { Authorization: `Bearer ${ENV.resendApiKey}` } },
+    { headers: { Authorization: `Bearer ${ENV.resendApiKey}` } }
   );
 }
 
@@ -68,8 +68,10 @@ function getOrigin(req: Request): string {
   if (ENV.appOrigin) {
     return normalizeOrigin(ENV.appOrigin);
   }
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
-  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.get("host");
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ?? req.get("host");
   return `${proto}://${host}`;
 }
 
@@ -125,19 +127,37 @@ async function establishAccountSession(
   res: Response,
   input: { email: string; userId: number | null }
 ): Promise<{ userId: number }> {
-  const openId = `email:${input.email}`;
-  await db.upsertUser({
-    openId,
-    email: input.email,
-    loginMethod: "email",
-    lastSignedIn: new Date(),
-  });
-  const user = await db.getUserByOpenId(openId);
+  let user: Awaited<ReturnType<typeof db.getUserById>>;
+  if (input.userId != null) {
+    user = await db.getUserById(input.userId);
+    if (!user) throw new Error("已解析的账号不存在");
+    await db.upsertUser({
+      openId: user.openId,
+      email: input.email,
+      lastSignedIn: new Date(),
+    });
+    user = await db.getUserById(input.userId);
+  } else {
+    const openId = `email:${input.email}`;
+    await db.upsertUser({
+      openId,
+      email: input.email,
+      loginMethod: "email",
+      lastSignedIn: new Date(),
+    });
+    user = await db.getUserByOpenId(openId);
+  }
   if (!user) throw new Error("邮箱用户创建后无法读取");
 
-  await db.linkEmailIdentity({ userId: user.id, email: input.email });
+  const identity = await db.linkEmailIdentity({
+    userId: user.id,
+    email: input.email,
+  });
+  if (identity.kind === "taken" && identity.userId !== user.id) {
+    throw new Error("邮箱身份在登录过程中已绑定到另一个账号");
+  }
 
-  const sessionToken = await sdk.createSessionToken(openId, {
+  const sessionToken = await sdk.createSessionToken(user.openId, {
     name: input.email.split("@")[0],
     expiresInMs: ACCOUNT_SESSION_TTL_MS,
     sessionVersion: Number(user.sessionVersion ?? 1),
@@ -159,173 +179,204 @@ function respondNeedsManualMapping(res: Response) {
 
 export function registerOAuthRoutes(app: Express) {
   // ── 统一账号：邮箱验证码 ────────────────────────────────────────────
-  app.post("/api/auth/account/otp/request", async (req: Request, res: Response) => {
-    const email = getEmail(req);
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      res.status(400).json({ error: "invalid_email" });
-      return;
-    }
-    const purpose = req.body?.purpose === "recover" ? "recover" : "login";
-    const result = await issueEmailOtp({
-      email,
-      purpose,
-      requestIp: clientIp(req),
-    });
+  app.post(
+    "/api/auth/account/otp/request",
+    async (req: Request, res: Response) => {
+      const email = getEmail(req);
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ error: "invalid_email" });
+        return;
+      }
+      const purpose = req.body?.purpose === "recover" ? "recover" : "login";
+      const result = await issueEmailOtp({
+        email,
+        purpose,
+        requestIp: clientIp(req),
+      });
 
-    if (result.outcome === "rate_limited") {
-      res.status(429).json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
-      return;
+      if (result.outcome === "rate_limited") {
+        res
+          .status(429)
+          .json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
+        return;
+      }
+      if (result.outcome === "not_configured") {
+        res.status(503).json({ error: "email_not_configured" });
+        return;
+      }
+      if (result.outcome === "identity_conflict") {
+        respondNeedsManualMapping(res);
+        return;
+      }
+      await sendOtpEmail(email, result.otp.code);
+      // 无论邮箱是否已有账号，响应都一样——响应差异本身就是枚举信道。
+      res.json({ ok: true });
     }
-    if (result.outcome === "not_configured") {
-      res.status(503).json({ error: "email_not_configured" });
-      return;
-    }
-    if (result.outcome === "identity_conflict") {
-      respondNeedsManualMapping(res);
-      return;
-    }
-    await sendOtpEmail(email, result.otp.code);
-    // 无论邮箱是否已有账号，响应都一样——响应差异本身就是枚举信道。
-    res.json({ ok: true });
-  });
+  );
 
-  app.post("/api/auth/account/otp/verify", async (req: Request, res: Response) => {
-    const email = getEmail(req);
-    const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-    if (!email || !code) {
-      res.status(400).json({ error: "invalid_request" });
-      return;
-    }
-    const verified = await verifyEmailOtp({
-      email,
-      purpose: "login",
-      code,
-      requestIp: clientIp(req),
-    });
+  app.post(
+    "/api/auth/account/otp/verify",
+    async (req: Request, res: Response) => {
+      const email = getEmail(req);
+      const code =
+        typeof req.body?.code === "string" ? req.body.code.trim() : "";
+      if (!email || !code) {
+        res.status(400).json({ error: "invalid_request" });
+        return;
+      }
+      const verified = await verifyEmailOtp({
+        email,
+        purpose: "login",
+        code,
+        requestIp: clientIp(req),
+      });
 
-    if (verified.outcome === "rate_limited") {
-      res.status(429).json({ error: "rate_limited", retryAfterMs: verified.retryAfterMs });
-      return;
-    }
-    if (
-      verified.outcome === "identity_conflict" ||
-      verified.outcome === "needs_manual_mapping"
-    ) {
-      respondNeedsManualMapping(res);
-      return;
-    }
-    if (verified.outcome !== "verified") {
-      res.status(401).json({ error: "invalid_or_expired" });
-      return;
-    }
+      if (verified.outcome === "rate_limited") {
+        res
+          .status(429)
+          .json({ error: "rate_limited", retryAfterMs: verified.retryAfterMs });
+        return;
+      }
+      if (
+        verified.outcome === "identity_conflict" ||
+        verified.outcome === "needs_manual_mapping"
+      ) {
+        respondNeedsManualMapping(res);
+        return;
+      }
+      if (verified.outcome !== "verified") {
+        res.status(401).json({ error: "invalid_or_expired" });
+        return;
+      }
 
-    await establishAccountSession(req, res, { email, userId: verified.userId });
-    res.json({ ok: true });
-  });
+      await establishAccountSession(req, res, {
+        email,
+        userId: verified.userId,
+      });
+      res.json({ ok: true });
+    }
+  );
 
   // ── 统一账号：密码 ────────────────────────────────────────────────
-  app.post("/api/auth/account/password/login", async (req: Request, res: Response) => {
-    const email = getEmail(req);
-    const password = typeof req.body?.password === "string" ? req.body.password : "";
-    if (!email || !password) {
-      res.status(400).json({ error: "invalid_request" });
-      return;
-    }
-    const result = await authenticateWithPassword({
-      email,
-      password,
-      requestIp: clientIp(req),
-    });
+  app.post(
+    "/api/auth/account/password/login",
+    async (req: Request, res: Response) => {
+      const email = getEmail(req);
+      const password =
+        typeof req.body?.password === "string" ? req.body.password : "";
+      if (!email || !password) {
+        res.status(400).json({ error: "invalid_request" });
+        return;
+      }
+      const result = await authenticateWithPassword({
+        email,
+        password,
+        requestIp: clientIp(req),
+      });
 
-    if (result.outcome === "rate_limited") {
-      res.status(429).json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
-      return;
-    }
-    if (
-      result.outcome === "identity_conflict" ||
-      result.outcome === "needs_manual_mapping"
-    ) {
-      respondNeedsManualMapping(res);
-      return;
-    }
-    if (result.outcome !== "authenticated") {
-      // 未知邮箱、没设过密码、密码错误一律同一个响应
-      res.status(401).json({ error: "invalid_credentials" });
-      return;
-    }
+      if (result.outcome === "rate_limited") {
+        res
+          .status(429)
+          .json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
+        return;
+      }
+      if (
+        result.outcome === "identity_conflict" ||
+        result.outcome === "needs_manual_mapping"
+      ) {
+        respondNeedsManualMapping(res);
+        return;
+      }
+      if (result.outcome !== "authenticated") {
+        // 未知邮箱、没设过密码、密码错误一律同一个响应
+        res.status(401).json({ error: "invalid_credentials" });
+        return;
+      }
 
-    await establishAccountSession(req, res, { email, userId: result.userId });
-    res.json({ ok: true });
-  });
+      await establishAccountSession(req, res, { email, userId: result.userId });
+      res.json({ ok: true });
+    }
+  );
 
-  app.post("/api/auth/account/password/set", async (req: Request, res: Response) => {
-    const password = typeof req.body?.password === "string" ? req.body.password : "";
-    let userId: number;
-    try {
-      userId = (await sdk.authenticateRequest(req)).id;
-    } catch {
-      res.status(401).json({ error: "unauthenticated" });
-      return;
+  app.post(
+    "/api/auth/account/password/set",
+    async (req: Request, res: Response) => {
+      const password =
+        typeof req.body?.password === "string" ? req.body.password : "";
+      let userId: number;
+      try {
+        userId = (await sdk.authenticateRequest(req)).id;
+      } catch {
+        res.status(401).json({ error: "unauthenticated" });
+        return;
+      }
+      const result = await setAccountPassword({ userId, password });
+      if (result.outcome === "rejected") {
+        res.status(400).json({ error: result.reason, message: result.message });
+        return;
+      }
+      res.json({ ok: true });
     }
-    const result = await setAccountPassword({ userId, password });
-    if (result.outcome === "rejected") {
-      res.status(400).json({ error: result.reason, message: result.message });
-      return;
-    }
-    res.json({ ok: true });
-  });
+  );
 
-  app.post("/api/auth/account/password/change", async (req: Request, res: Response) => {
-    const currentPassword =
-      typeof req.body?.currentPassword === "string" ? req.body.currentPassword : "";
-    const nextPassword =
-      typeof req.body?.nextPassword === "string" ? req.body.nextPassword : "";
-    let user: { id: number; openId: string; email: string | null };
-    try {
-      const authenticated = await sdk.authenticateRequest(req);
-      user = {
-        id: authenticated.id,
-        openId: authenticated.openId,
-        email: authenticated.email,
-      };
-    } catch {
-      res.status(401).json({ error: "unauthenticated" });
-      return;
-    }
+  app.post(
+    "/api/auth/account/password/change",
+    async (req: Request, res: Response) => {
+      const currentPassword =
+        typeof req.body?.currentPassword === "string"
+          ? req.body.currentPassword
+          : "";
+      const nextPassword =
+        typeof req.body?.nextPassword === "string" ? req.body.nextPassword : "";
+      let user: { id: number; openId: string; email: string | null };
+      try {
+        const authenticated = await sdk.authenticateRequest(req);
+        user = {
+          id: authenticated.id,
+          openId: authenticated.openId,
+          email: authenticated.email,
+        };
+      } catch {
+        res.status(401).json({ error: "unauthenticated" });
+        return;
+      }
 
-    const result = await changeAccountPassword({
-      userId: user.id,
-      currentPassword,
-      nextPassword,
-    });
-    if (result.outcome === "invalid_credentials") {
-      res.status(401).json({ error: "invalid_credentials" });
-      return;
-    }
-    if (result.outcome === "rejected") {
-      res.status(400).json({ error: result.reason, message: result.message });
-      return;
-    }
+      const result = await changeAccountPassword({
+        userId: user.id,
+        currentPassword,
+        nextPassword,
+      });
+      if (result.outcome === "invalid_credentials") {
+        res.status(401).json({ error: "invalid_credentials" });
+        return;
+      }
+      if (result.outcome === "rejected") {
+        res.status(400).json({ error: result.reason, message: result.message });
+        return;
+      }
 
-    // 其他设备已被撤销；当前设备换发一张带新版本号的 Cookie，不用重新登录。
-    const sessionToken = await sdk.createSessionToken(user.openId, {
-      name: (user.email ?? "").split("@")[0],
-      expiresInMs: ACCOUNT_SESSION_TTL_MS,
-      sessionVersion: result.sessionVersion,
-    });
-    res.cookie(COOKIE_NAME, sessionToken, {
-      ...getSessionCookieOptions(req),
-      maxAge: ACCOUNT_SESSION_TTL_MS,
-    });
-    res.json({ ok: true });
-  });
+      // 其他设备已被撤销；当前设备换发一张带新版本号的 Cookie，不用重新登录。
+      const sessionToken = await sdk.createSessionToken(user.openId, {
+        name: (user.email ?? "").split("@")[0],
+        expiresInMs: ACCOUNT_SESSION_TTL_MS,
+        sessionVersion: result.sessionVersion,
+      });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...getSessionCookieOptions(req),
+        maxAge: ACCOUNT_SESSION_TTL_MS,
+      });
+      res.json({ ok: true });
+    }
+  );
 
   app.post(
     "/api/auth/account/password/recover",
     async (req: Request, res: Response) => {
       const email = getEmail(req);
-      const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-      const password = typeof req.body?.password === "string" ? req.body.password : "";
+      const code =
+        typeof req.body?.code === "string" ? req.body.code.trim() : "";
+      const password =
+        typeof req.body?.password === "string" ? req.body.password : "";
       if (!email || !code || !password) {
         res.status(400).json({ error: "invalid_request" });
         return;
@@ -338,7 +389,9 @@ export function registerOAuthRoutes(app: Express) {
         requestIp: clientIp(req),
       });
       if (result.outcome === "rate_limited") {
-        res.status(429).json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
+        res
+          .status(429)
+          .json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
         return;
       }
       if (
@@ -379,7 +432,9 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     if (!ENV.googleClientId) {
-      res.status(503).json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
+      res
+        .status(503)
+        .json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
       return;
     }
     const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
@@ -410,7 +465,7 @@ export function registerOAuthRoutes(app: Express) {
           client_secret: ENV.googleClientSecret,
           redirect_uri: redirectUri,
           grant_type: "authorization_code",
-        },
+        }
       );
 
       // Get user info from Google
@@ -444,7 +499,10 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
       res.redirect(302, "/");
     } catch (error) {
       console.error("[Google OAuth] Callback failed", error);
@@ -600,7 +658,10 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
 
       res.redirect(302, "/");
     } catch (error) {
