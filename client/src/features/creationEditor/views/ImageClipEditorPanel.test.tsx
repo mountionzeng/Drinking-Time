@@ -33,7 +33,9 @@ describe("ImageClipEditorPanel", () => {
     expect(markup).toContain("水平位置");
     expect(markup).toContain("垂直位置");
     expect(markup).toContain("旋转与翻转");
+    expect(markup).toContain("倒转 180°");
     expect(markup).toContain("添加文字");
+    expect(markup).toContain("提取文字");
     expect(markup).toContain('aria-label="水平翻转"');
     expect(markup).toContain("应用到这张图");
   });

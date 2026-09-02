@@ -30,6 +30,7 @@ import {
   moveVisualClipForStory,
   pasteVisualImageForStory,
   placeExtractedFrameForStory,
+  replaceVisualImageClipImageForStory,
   removeTimelineAnchorForStory,
   rollingTrimForStory,
   splitOwnedVideoClipForStory,
@@ -1796,6 +1797,150 @@ describe("时长与图片构图命令（U6）", () => {
     // 留个空对象会让导出以为还有文字要画。
     expect(shot?.imageTextOverlays).toBeUndefined();
     expect(shot?.imageTransforms?.["1702"]).toBeTruthy();
+  });
+
+  it("编辑抽帧图片时同步更新独立 imageClip，不改动同镜头其他图片", async () => {
+    const storyId = await seedStory();
+    const transform = {
+      ...TRANSFORM,
+      zoom: 1.6,
+      panX: 0.25,
+      rotationDeg: 180,
+      flipX: true,
+      flipY: false,
+    };
+
+    const result = await patchImageTransformForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      imageId: 1702,
+      transform,
+      textOverlay: null,
+    });
+
+    expect(result.status).toBe("ok");
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const shot = (
+      row?.items as {
+        stableShotId: string;
+        imageTransforms?: Record<string, unknown>;
+        imageClips?: Array<{
+          id: string;
+          imageId: number;
+          transform?: unknown;
+        }>;
+      }[]
+    ).find(item => item.stableShotId === "sh-01");
+    expect(shot?.imageTransforms?.["1702"]).toEqual(transform);
+    expect(
+      shot?.imageClips?.find(clip => clip.id === "img-legacy")?.transform
+    ).toEqual(transform);
+    expect(
+      shot?.imageClips?.find(clip => clip.id === "img-abs")?.transform
+    ).toBeUndefined();
+  });
+
+  it("采用局部修改候选只替换精确 imageClip，并迁移构图与文字引用", async () => {
+    const storyId = await seedStory();
+    const timeline = await getStoryTimeline(storyId, USER_ID);
+    const transform = { ...TRANSFORM, zoom: 1.8, rotationDeg: 90, flipX: true };
+    const textOverlay = {
+      text: "保留标题",
+      anchor: "center",
+      sizeScale: 1,
+      color: "#fff",
+    };
+    await updateStoryTimeline({
+      storyId,
+      userId: USER_ID,
+      expectedVersion: timeline!.version,
+      items: (timeline!.items as VisualEditDocument["items"]).map(item =>
+        item.stableShotId === "sh-01"
+          ? {
+              ...item,
+              imageTransforms: { "1702": transform },
+              imageTextOverlays: { "1702": textOverlay as never },
+              imageClips: [
+                ...(item.imageClips?.map(clip =>
+                  clip.id === "img-legacy" ? { ...clip, transform } : clip
+                ) ?? []),
+                {
+                  ...item.imageClips!.find(clip => clip.id === "img-legacy")!,
+                  id: "img-shared-source",
+                  startFrame: 12,
+                  durationFrames: 8,
+                  visualLayer: 3,
+                },
+              ],
+            }
+          : item
+      ),
+      overlays: timeline!.overlays,
+      visualLayerState: timeline!.visualLayerState,
+    });
+    const replacement = await createGeneratedImage({
+      projectId: null,
+      storyId,
+      userId: USER_ID,
+      shotNo: "0101",
+      shotIdentity: "sh-01",
+      imageKey: "candidate.png",
+      imageUrl: "/candidate.png",
+      prompt: "candidate",
+      promptCompilationId: null,
+      parentImageId: 1702,
+      generationType: "inpaint",
+      maskKey: "mask-edit.png",
+      isCurrent: false,
+    });
+
+    await expect(
+      replaceVisualImageClipImageForStory({
+        storyId,
+        userId: USER_ID,
+        stableShotId: "sh-01",
+        clipId: "img-legacy",
+        expectedImageId: 1702,
+        replacementImageId: replacement.id,
+      })
+    ).resolves.toMatchObject({ status: "ok" });
+
+    const after = await getStoryTimeline(storyId, USER_ID);
+    const owner = (after!.items as VisualEditDocument["items"]).find(
+      item => item.stableShotId === "sh-01"
+    )!;
+    expect(owner.imageClips?.find(clip => clip.id === "img-legacy")).toMatchObject({
+      imageId: replacement.id,
+      imageUrl: replacement.imageUrl,
+      durationFrames: 1,
+      visualLayer: 1,
+      transform,
+    });
+    expect(owner.imageClips?.find(clip => clip.id === "img-shared-source")).toMatchObject({
+      imageId: 1702,
+      startFrame: 12,
+      durationFrames: 8,
+      visualLayer: 3,
+    });
+    expect(owner.imageTransforms).toEqual({
+      "1702": transform,
+      [String(replacement.id)]: transform,
+    });
+    expect(owner.imageTextOverlays).toEqual({
+      "1702": textOverlay,
+      [String(replacement.id)]: textOverlay,
+    });
+    await expect(
+      replaceVisualImageClipImageForStory({
+        storyId,
+        userId: USER_ID,
+        stableShotId: "sh-01",
+        clipId: "img-legacy",
+        expectedImageId: 1702,
+        replacementImageId: replacement.id,
+      })
+    ).resolves.toMatchObject({ status: "error" });
   });
 
   it("镜头不在时间线上时两条命令都返回 invalid", async () => {

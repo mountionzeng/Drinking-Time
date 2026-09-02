@@ -670,6 +670,44 @@ describe("confirmEditingTransition", () => {
     expect(dbMocks.applyStoryTimelineOverlayAtomic).not.toHaveBeenCalled();
   });
 
+  it("recovers a paid image-pair after the candidate prompt schema evolves", async () => {
+    const canonical = await canonicalStoryShotCandidate();
+    const locked = {
+      ...canonical,
+      prompt: "已付费任务锁定的旧版提示词",
+      movementAmplitude: undefined,
+    };
+    storedTake = videoTake({
+      stableShotId: locked.provisionalStableShotId,
+      status: "available",
+      videoUrl: "/api/videos/generated.mp4",
+      videoKey: "generated.mp4",
+      durationSec: 3.1,
+      parameterSnapshot: { candidate: locked, appliedToTimeline: false },
+    });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+
+    const result = await confirmEditingTransition(locked, USER_ID);
+
+    expect(result).toMatchObject({
+      status: "applied",
+      insertedStableShotId: locked.provisionalStableShotId,
+    });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).toHaveBeenCalledOnce();
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
+  it("still rejects a changed image-pair prompt before the first paid submission", async () => {
+    const canonical = await canonicalStoryShotCandidate();
+    const forged = { ...canonical, prompt: "被修改的首次付费提示词" };
+
+    await expect(confirmEditingTransition(forged, USER_ID)).rejects.toThrow(
+      "覆盖视频参数已经变化，请重新生成确认卡"
+    );
+    expect(dbMocks.createVideoTakeIdempotently).not.toHaveBeenCalled();
+    expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
   it("revalidates a partial only-shot recovery and rejects a moved source clip", async () => {
     const stored = await canonicalStoryShotCandidate();
     storedTake = videoTake({ stableShotId: stored.provisionalStableShotId, status: "available", videoUrl: "/api/videos/generated.mp4", videoKey: "generated.mp4", durationSec: 3.1, parameterSnapshot: { candidate: stored, appliedToTimeline: false } });

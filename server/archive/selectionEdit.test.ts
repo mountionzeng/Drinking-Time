@@ -16,7 +16,8 @@ describe("handleSelectionEdit", () => {
     agentMocks.invokeAgent.mockResolvedValueOnce({
       text: JSON.stringify({
         isApprovalOnly: false,
-        modifiedFullText: "把这句话说得更具体",
+        replacementText: "说得更具体",
+        modifiedFullText: "这段恶意整篇返回必须被忽略",
         reply: "我把表达收紧了一点。",
       }),
     });
@@ -38,6 +39,35 @@ describe("handleSelectionEdit", () => {
       isApprovalOnly: false,
       modifiedFullText: "把这句话说得更具体",
     });
+  });
+
+  it("mechanically preserves repeated text outside the exact range", async () => {
+    agentMocks.invokeAgent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        isApprovalOnly: false,
+        replacementText: "更开心地去了公园",
+        modifiedFullText: "模型尝试改写整篇也不会被采用",
+        reply: "只改了中间一句。",
+      }),
+    });
+    const fullText = "我们去了公园。我们去了公园。晚上回家。";
+    const start = fullText.indexOf("我们去了公园", 1);
+    const result = await handleSelectionEdit({
+      fullText,
+      selectedText: "我们去了公园",
+      instruction: "第二句更开心",
+      selectionContext: {
+        sourceType: "card",
+        sourceId: "card-a",
+        selectedText: "我们去了公园",
+        fullText,
+        storyId: 7,
+        selection: { kind: "text", start, end: start + "我们去了公园".length },
+      },
+    });
+    expect(result.modifiedFullText).toBe(
+      "我们去了公园。更开心地去了公园。晚上回家。"
+    );
   });
 
   it("treats image and video regions as advice context instead of text rewrites", async () => {

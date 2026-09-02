@@ -88,5 +88,6 @@ describe("管理员访问看板", () => {
     expect(html).toContain("new@example.com");
     expect(html).toContain("尚无访问记录");
     expect(html).toContain("不保存");
+    expect(html).toContain('href="/admin/invites"');
   });
 });

@@ -299,7 +299,9 @@ async function withVisualEditDocument(
       status: "ok",
       timelineVersion: replay.afterTimelineVersion,
       changed: true,
-      ...(replay.undoEvicted ? {} : { receipt: publicVisualEditReceipt(replay) }),
+      ...(replay.undoEvicted
+        ? {}
+        : { receipt: publicVisualEditReceipt(replay) }),
     };
   }
   for (let attempt = 0; ; attempt += 1) {
@@ -1483,6 +1485,11 @@ export async function patchImageTransformForStory(input: {
                 ...(item.imageTransforms ?? {}),
                 [String(input.imageId)]: input.transform,
               },
+              imageClips: item.imageClips?.map(clip =>
+                clip.imageId === input.imageId
+                  ? { ...clip, transform: input.transform }
+                  : clip
+              ),
               imageTextOverlays:
                 Object.keys(imageTextOverlays).length > 0
                   ? imageTextOverlays
@@ -1493,6 +1500,114 @@ export async function patchImageTransformForStory(input: {
       };
     }
   );
+}
+
+/** Replace the warehouse image behind one exact timeline image clip without
+ * changing the clip's placement, duration, layer, transform, or identity. */
+export async function replaceVisualImageClipImageForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  clipId: string;
+  expectedImageId: number;
+  replacementImageId: number;
+}): Promise<VisualClipEditResult> {
+  const replacement = await loadAuthorizedStoryImage({
+    storyId: input.storyId,
+    userId: input.userId,
+    imageId: input.replacementImageId,
+  });
+  if (!replacement) {
+    return { status: "error", error: "候选图片不存在或无权操作", errorKind: "invalid" };
+  }
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "采用局部修改候选失败",
+    },
+    document => {
+      const owner = document.items.find(item => item.stableShotId === input.stableShotId);
+      const clip = owner?.imageClips?.find(candidate => candidate.id === input.clipId);
+      if (!owner || !clip || clip.imageId !== input.expectedImageId) {
+        return { status: "error", message: "当前图片剪辑已经变化，请重新审阅候选" };
+      }
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: document.items.map(item => {
+            if (item.stableShotId !== input.stableShotId) return item;
+            const imageTransforms = { ...(item.imageTransforms ?? {}) };
+            const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
+            const oldKey = String(input.expectedImageId);
+            const newKey = String(input.replacementImageId);
+            if (imageTransforms[oldKey] && !imageTransforms[newKey]) {
+              imageTransforms[newKey] = imageTransforms[oldKey];
+            }
+            if (imageTextOverlays[oldKey] && !imageTextOverlays[newKey]) {
+              imageTextOverlays[newKey] = imageTextOverlays[oldKey];
+            }
+            const sourceStillUsed = item.imageClips?.some(candidate =>
+              candidate.id !== input.clipId && candidate.imageId === input.expectedImageId
+            );
+            if (!sourceStillUsed) {
+              delete imageTransforms[oldKey];
+              delete imageTextOverlays[oldKey];
+            }
+            return {
+              ...item,
+              imageClips: item.imageClips?.map(candidate =>
+                candidate.id === input.clipId
+                  ? {
+                      ...candidate,
+                      imageId: replacement.id,
+                      imageUrl: replacement.imageUrl,
+                    }
+                  : candidate
+              ),
+              imageTransforms:
+                Object.keys(imageTransforms).length > 0 ? imageTransforms : undefined,
+              imageTextOverlays:
+                Object.keys(imageTextOverlays).length > 0 ? imageTextOverlays : undefined,
+            };
+          }),
+        },
+      };
+    }
+  );
+}
+
+/** Verify the exact immutable Preview target immediately before a paid edit.
+ * This is deliberately separate from adoption's CAS: paying for a target that
+ * has already moved is never useful, even if adoption would later reject it. */
+export async function previewMaskedImageTargetIsCurrent(input: {
+  storyId: number;
+  userId: number;
+  imageId: number;
+  targetKind: "shot-primary" | "timeline-image-clip";
+  stableShotId: string;
+  clipId?: string | null;
+}): Promise<boolean> {
+  if (input.targetKind === "timeline-image-clip") {
+    if (!input.clipId) return false;
+    const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+    if ("error" in loaded) return false;
+    const owner = loaded.document.items.find(
+      item => item.stableShotId === input.stableShotId
+    );
+    return Boolean(
+      owner?.imageClips?.some(
+        clip => clip.id === input.clipId && clip.imageId === input.imageId
+      )
+    );
+  }
+  const image = await loadAuthorizedStoryImage({
+    storyId: input.storyId,
+    userId: input.userId,
+    imageId: input.imageId,
+  });
+  return Boolean(image?.isCurrent && image.shotIdentity === input.stableShotId);
 }
 
 /**
@@ -1585,20 +1700,25 @@ export async function undoVisualEditForStory(input: {
         };
       }
       const body =
-        story.body && typeof story.body === "object" && !Array.isArray(story.body)
+        story.body &&
+        typeof story.body === "object" &&
+        !Array.isArray(story.body)
           ? (story.body as Record<string, unknown>)
           : {};
       const shots = Array.isArray(body.shots)
-        ? body.shots.filter(
-            (shot): shot is Record<string, unknown> =>
-              Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+        ? body.shots.filter((shot): shot is Record<string, unknown> =>
+            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
           )
         : [];
       const currentFingerprint = createHash("sha256")
         .update(
           JSON.stringify({
-            shots: shots.map((shot, index) => shotIdentityFromShot(shot, index)),
-            items: (current.items as StoryTimelineItem[]).map(item => item.stableShotId),
+            shots: shots.map((shot, index) =>
+              shotIdentityFromShot(shot, index)
+            ),
+            items: (current.items as StoryTimelineItem[]).map(
+              item => item.stableShotId
+            ),
           })
         )
         .digest("hex");

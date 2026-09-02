@@ -1,7 +1,7 @@
 import { ENV } from "../_core/env";
 import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
-import { invokeAgent } from "../_core/agentChannel";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import {
   runInference,
   type InferenceCandidate,
@@ -787,10 +787,10 @@ export async function synthesizeShotList(params: {
   /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
   resonanceContext?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
-  if (!ENV.forgeApiKey && !hasScriptStructureAgentConfig()) {
+  if (!hasStoryAgentCompute() && !hasScriptStructureAgentConfig()) {
     return {
       error:
-        "本地未配置 LLM API Key，无法整理创作素材。请配置 BUILT_IN_FORGE_API_KEY 或 SCRIPT_STRUCTURE_AGENT_API_KEY。",
+        "本地未配置 LLM API Key，无法整理创作素材。请配置 OPENAI_NEXT_API_KEY、BUILT_IN_FORGE_API_KEY 或 SCRIPT_STRUCTURE_AGENT_API_KEY。",
       configured: false,
       modelLabel: "未配置 API",
     };

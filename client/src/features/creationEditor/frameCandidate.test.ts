@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { latestFrameCandidateSheet } from "./frameCandidate";
+import {
+  frameCandidateSheetIds,
+  latestFrameCandidateSheet,
+} from "./frameCandidate";
 
 describe("latestFrameCandidateSheet", () => {
   it("finds the four-up parent referenced by the current prompt run", () => {
@@ -17,6 +20,7 @@ describe("latestFrameCandidateSheet", () => {
           prompt: "Single-frame rule: one cinematic frame only.",
           generationType: "initial",
           parentImageId: null,
+          candidateLayout: "four-up-sheet",
         },
         {
           id: 43,
@@ -81,6 +85,7 @@ describe("latestFrameCandidateSheet", () => {
               "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH — HIGHEST PRIORITY:",
             generationType: "inpaint",
             parentImageId: null,
+            candidateLayout: "four-up-sheet",
           },
         ],
         48
@@ -117,6 +122,7 @@ describe("latestFrameCandidateSheet", () => {
             "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH — HIGHEST PRIORITY:\nUSER DIRECT EDIT INSTRUCTION — HIGHEST PRIORITY:\n图片要求（最高优先级）：夜市中景",
           generationType: "inpaint",
           parentImageId: null,
+          candidateLayout: "four-up-sheet",
         },
       ])
     ).toEqual({
@@ -166,6 +172,7 @@ describe("latestFrameCandidateSheet", () => {
             "USER DIRECT EDIT INSTRUCTION — HIGHEST PRIORITY:\nSingle-frame rule: one frame.",
           generationType: "initial",
           parentImageId: null,
+          candidateLayout: "four-up-sheet",
         },
       ])
     ).toEqual({
@@ -185,6 +192,7 @@ describe("latestFrameCandidateSheet", () => {
             "Rerender only SH05. Create exactly one single cinematic still frame.",
           generationType: "generate",
           parentImageId: null,
+          candidateLayout: "four-up-sheet",
         },
       ])
     ).toEqual({
@@ -192,5 +200,38 @@ describe("latestFrameCandidateSheet", () => {
       imageUrl: "/api/images/legacy-final-grid.png",
       label: "候选版本 V1",
     });
+  });
+
+  it("does not split four individually stored provider candidates into quadrants", () => {
+    const images = [54, 55, 56, 57].map(id => ({
+      id,
+      imageUrl: `/api/images/provider-candidate-${id}.png`,
+      prompt:
+        "USER DIRECT EDIT INSTRUCTION — HIGHEST PRIORITY:\nSingle-frame rule: one frame.",
+      promptCompilationId: 901,
+      generationType: "initial" as const,
+      parentImageId: null,
+    }));
+
+    expect(frameCandidateSheetIds(images, 54)).toEqual(new Set());
+  });
+
+  it("does not split one complete prompt-run image without an explicit sheet layout", () => {
+    expect(
+      frameCandidateSheetIds(
+        [
+          {
+            id: 58,
+            imageUrl: "/api/images/complete-frame.png",
+            prompt:
+              "USER DIRECT EDIT INSTRUCTION — HIGHEST PRIORITY:\nSingle-frame rule: one frame.",
+            promptCompilationId: 902,
+            generationType: "initial",
+            parentImageId: null,
+          },
+        ],
+        58
+      )
+    ).toEqual(new Set());
   });
 });

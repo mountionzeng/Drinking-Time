@@ -227,6 +227,7 @@ import {
   buildStoryboardImageRenderPlan,
   buildSheSelf02ImageEditInstruction,
   isSheSelf02ImageEditTemplateEnabled,
+  resolveStoryboardRerenderShotIndex,
   SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL,
   storyboardExactEditConstraint,
   storyboardImageRenderBlockReason,
@@ -494,7 +495,6 @@ export function StoryboardReviewBoard({
   onMoveStoryImage?: (input: {
     imageId: number;
     targetStableShotId: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<void>;
   onDeleteStoryImage?: (imageId: number) => Promise<void>;
   onMoveVideoTake?: (input: {
@@ -519,7 +519,6 @@ export function StoryboardReviewBoard({
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
-    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   onAnalyzeShotVideoDirection?: (input: {
     shotNo: number;
@@ -1376,7 +1375,6 @@ export function StoryboardReviewBoard({
       await onMoveStoryImage({
         imageId: input.imageId,
         targetStableShotId: input.targetStableShotId,
-        preserveTimelineSelection: true,
       });
       setSelectedStoryboardMedia(current => {
         if (
@@ -1731,10 +1729,7 @@ export function StoryboardReviewBoard({
     const alignedWidth = matrixShotEntries.widths[entryIndex] ?? 0;
     if (
       compactShots ||
-      shouldCompactStoryboardMatrixForShot(
-        alignedWidth,
-        matrixShotColumnWidth
-      )
+      shouldCompactStoryboardMatrixForShot(alignedWidth, matrixShotColumnWidth)
     ) {
       setCompactShots(true);
       setCompactExpandedShotNo(shotNo);
@@ -1984,7 +1979,6 @@ export function StoryboardReviewBoard({
           new File([frameBlob], "neighbor-frame.png", { type: mimeType })
         ),
         targetStableShotId: stableShotId,
-        preserveTimelineSelection: true,
         note: `${displayShotCode(neighbor)} 已采用 Take ${take.id} 的${neighborBoundary === "first" ? "首帧" : "尾帧"}，供相邻镜头连续性生成`,
       });
       if (imported.kind !== "image") return null;
@@ -2097,10 +2091,12 @@ export function StoryboardReviewBoard({
       pendingDrafts
     );
     const selectedFrames = storyboardShotFrameImages(creationShot);
-    const selectedFrame =
-      request?.imageId != null
-        ? selectedFrames.find(frame => frame.id === request.imageId)
-        : undefined;
+    const selectedFrame = request?.imageId != null
+      ? selectedFrames.find(frame => frame.id === request.imageId) : undefined;
+    if (request?.imageId != null && !selectedFrame) {
+      const message = `所选图片 #${request.imageId} 已不属于这个镜头，请重新选择；本次不会提交付费生成`;
+      toast.error(message); return { status: "error", message };
+    }
     const selectedFrameRole = selectedFrame
       ? storyboardFrameRoleForImage(
           creationShot.generationParams,
@@ -2108,8 +2104,7 @@ export function StoryboardReviewBoard({
           selectedFrame.id
         )
       : null;
-    const exactEditInstruction = request?.instruction?.trim();
-    const isExactFrameEdit = Boolean(selectedFrame && exactEditInstruction);
+    const exactEditInstruction = request?.instruction?.trim(); const isExactFrameEdit = Boolean(selectedFrame && exactEditInstruction);
     const instructionImageIds = storyboardInstructionImageIds(
       exactEditInstruction ?? ""
     );
@@ -2494,16 +2489,14 @@ export function StoryboardReviewBoard({
   useEffect(() => {
     if (!onRegisterImageRerenderRunner) return;
     const runner: StoryboardImageRerenderRunner = async request => {
-      const shotIndex = shots.findIndex((candidate, index) => {
-        const stableShotId = storyShotInsertIdentity(candidate, index);
-        if (request.stableShotId && stableShotId === request.stableShotId) {
-          return true;
-        }
-        if (request.cueCode && candidate.cueCode === request.cueCode) {
-          return true;
-        }
-        return candidate.shotNo === request.shotNo;
-      });
+      const shotIndex = resolveStoryboardRerenderShotIndex(
+        shots.map((candidate, index) => ({
+          stableShotId: storyShotInsertIdentity(candidate, index),
+          cueCode: candidate.cueCode,
+          shotNo: candidate.shotNo,
+        })),
+        request
+      );
       const shot = shots[shotIndex];
       if (!shot) {
         const message = "这个镜头已经不在当前故事中，请刷新后再试";
@@ -3167,7 +3160,9 @@ export function StoryboardReviewBoard({
             <button
               type="button"
               aria-pressed={compactShots}
-              aria-label={compactShots ? "恢复所有镜头完整宽度" : "缩小所有镜头"}
+              aria-label={
+                compactShots ? "恢复所有镜头完整宽度" : "缩小所有镜头"
+              }
               data-testid="storyboard-compact-shots-toggle"
               onClick={() => {
                 setCompactShots(current => {
@@ -4985,322 +4980,364 @@ export function StoryboardReviewBoard({
                         }}
                       />
                     ) : null}
-                    {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
-                      const index = originalIndex;
-                      const selected = selectedShotNo === shot.shotNo;
-                      const creationShot = creationShotByNo.get(shot.shotNo);
-                      const dropTarget =
-                        matrixDropTarget?.targetIndex === index &&
-                        matrixDropTarget.field === row.field;
-                      const shotLabel = displayShotCode(shot);
-                      const stableShotId = storyShotInsertIdentity(shot, index);
-                      const matrixVideoBlockReason = creationShot
-                        ? storyboardVideoRenderBlockReason(
-                            storyboardRenderShotWithDraft(
-                              creationShot,
-                              shot,
-                              matrixDraftsRef.current.get(
-                                storyShotInsertIdentity(shot, index) ?? ""
-                              )
-                            ),
-                            {
-                              ready: Boolean(shotVideoProviderStatus?.ready),
-                              reason:
-                                shotVideoProviderStatus?.missing
-                                  .filter(Boolean)
-                                  .join("、") || "视频模型状态尚未就绪",
-                            }
-                          )
-                        : "还没有可渲染的镜头记录";
-                      if (row.field === "dialogue") {
+                    {matrixShotEntries.entries.map(
+                      ({ shot, originalIndex }) => {
+                        const index = originalIndex;
+                        const selected = selectedShotNo === shot.shotNo;
+                        const creationShot = creationShotByNo.get(shot.shotNo);
+                        const dropTarget =
+                          matrixDropTarget?.targetIndex === index &&
+                          matrixDropTarget.field === row.field;
+                        const shotLabel = displayShotCode(shot);
+                        const stableShotId = storyShotInsertIdentity(
+                          shot,
+                          index
+                        );
+                        const matrixVideoBlockReason = creationShot
+                          ? storyboardVideoRenderBlockReason(
+                              storyboardRenderShotWithDraft(
+                                creationShot,
+                                shot,
+                                matrixDraftsRef.current.get(
+                                  storyShotInsertIdentity(shot, index) ?? ""
+                                )
+                              ),
+                              {
+                                ready: Boolean(shotVideoProviderStatus?.ready),
+                                reason:
+                                  shotVideoProviderStatus?.missing
+                                    .filter(Boolean)
+                                    .join("、") || "视频模型状态尚未就绪",
+                              }
+                            )
+                          : "还没有可渲染的镜头记录";
+                        if (row.field === "dialogue") {
+                          return (
+                            <StoryboardVoiceCell
+                              key={`matrix-dialogue-${stableShotId ?? shot.shotNo}-${index}`}
+                              shot={shot}
+                              shotLabel={shotLabel}
+                              selected={selected}
+                              editable={Boolean(onUpdateShotField)}
+                              generating={Boolean(
+                                stableShotId &&
+                                  generatingVoiceShotIds.includes(stableShotId)
+                              )}
+                              onFocus={() => onSelectShot?.(shot.shotNo)}
+                              onCommit={(field, value) =>
+                                onUpdateShotField?.(index, field, value)
+                              }
+                              onGenerate={
+                                stableShotId && onGenerateShotVoice
+                                  ? text =>
+                                      onGenerateShotVoice(stableShotId, text)
+                                  : undefined
+                              }
+                            />
+                          );
+                        }
                         return (
-                          <StoryboardVoiceCell
-                            key={`matrix-dialogue-${stableShotId ?? shot.shotNo}-${index}`}
-                            shot={shot}
+                          <StoryboardMatrixFieldCell
+                            key={
+                              "matrix-" +
+                              row.field +
+                              "-" +
+                              (shot.stableShotId ??
+                                shot.shotIdentity ??
+                                shot.shotNo) +
+                              "-" +
+                              index
+                            }
+                            value={shot[row.field]}
+                            row={row}
                             shotLabel={shotLabel}
                             selected={selected}
+                            dropTarget={dropTarget}
                             editable={Boolean(onUpdateShotField)}
-                            generating={Boolean(
-                              stableShotId &&
-                                generatingVoiceShotIds.includes(stableShotId)
-                            )}
                             onFocus={() => onSelectShot?.(shot.shotNo)}
-                            onCommit={(field, value) =>
-                              onUpdateShotField?.(index, field, value)
-                            }
-                            onGenerate={
-                              stableShotId && onGenerateShotVoice
-                                ? text =>
-                                    onGenerateShotVoice(stableShotId, text)
-                                : undefined
+                            onInputValue={value => {
+                              const key = storyShotInsertIdentity(shot, index);
+                              if (!key) return;
+                              const current =
+                                matrixDraftsRef.current.get(key) ?? {};
+                              const next = { ...current, [row.field]: value };
+                              matrixDraftsRef.current.set(key, next);
+                              refreshMatrixDraftGuards(current => current + 1);
+                            }}
+                            onCommit={async value => {
+                              const key = storyShotInsertIdentity(shot, index);
+                              try {
+                                await onUpdateShotField?.(
+                                  index,
+                                  row.field,
+                                  value
+                                );
+                              } finally {
+                                if (!key) return;
+                                const current =
+                                  matrixDraftsRef.current.get(key);
+                                if (current?.[row.field] !== value) return;
+                                const next = { ...current };
+                                delete next[row.field];
+                                if (Object.keys(next).length === 0) {
+                                  matrixDraftsRef.current.delete(key);
+                                } else {
+                                  matrixDraftsRef.current.set(key, next);
+                                }
+                              }
+                            }}
+                            onDragStart={event => {
+                              setDraggedMatrixCell({
+                                sourceIndex: index,
+                                field: row.field,
+                              });
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData(
+                                "text/plain",
+                                shotLabel + " " + row.label
+                              );
+                            }}
+                            onDragEnd={() => {
+                              stopStoryboardDragScroll();
+                              setDraggedMatrixCell(null);
+                              setMatrixDropTarget(null);
+                            }}
+                            onDragOver={event => {
+                              if (
+                                !draggedMatrixCell ||
+                                draggedMatrixCell.field !== row.field
+                              ) {
+                                return;
+                              }
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.dataTransfer.dropEffect = "move";
+                              startStoryboardDragScroll(event.clientY);
+                              autoScrollElementHorizontallyAtPoint(
+                                boardScrollRef.current,
+                                event.clientX
+                              );
+                              setMatrixDropTarget({
+                                targetIndex: index,
+                                field: row.field,
+                              });
+                            }}
+                            onDragLeave={() => {
+                              setMatrixDropTarget(current =>
+                                current?.targetIndex === index &&
+                                current.field === row.field
+                                  ? null
+                                  : current
+                              );
+                            }}
+                            onDrop={event => dropMatrixCell(index, row, event)}
+                            action={
+                              row.field === "promptDraft" &&
+                              onGenerateShotImages ? (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    !creationShot ||
+                                    !imageProviderStatus?.ready ||
+                                    !canStartRenderForShot(shot.shotNo)
+                                  }
+                                  onPointerDown={event =>
+                                    event.stopPropagation()
+                                  }
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    void renderShotImageCandidates(
+                                      shot,
+                                      creationShot,
+                                      index
+                                    );
+                                  }}
+                                  className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                  aria-label={`按图片要求${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "并套用长裙连续性模板" : ""}渲染 ${shotLabel} 的四张候选图`}
+                                  title={
+                                    imageProviderStatus?.ready
+                                      ? shouldUseSingleImageFallback(
+                                          imageProviderStatus
+                                        )
+                                        ? `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用`
+                                        : `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}原文要求优先，生成四张同风格候选图，提交前会显示费用`
+                                      : (imageProviderStatus?.reason ??
+                                        "正在确认图片供应商状态")
+                                  }
+                                >
+                                  {generatingImageShotNos.includes(
+                                    shot.shotNo
+                                  ) ||
+                                  continuityCheckingByShot[shot.shotNo] ===
+                                    "image" ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <ImagePlus className="h-3 w-3" />
+                                  )}
+                                  {continuityCheckingByShot[shot.shotNo] ===
+                                  "image"
+                                    ? "检查人物"
+                                    : shouldUseSingleImageFallback(
+                                          imageProviderStatus
+                                        )
+                                      ? "渲染 1 张"
+                                      : "渲染 4 张"}
+                                  {isSheSelf02ImageEditTemplateEnabled(
+                                    storyTitle,
+                                    shotLabel
+                                  )
+                                    ? " · 长裙模板"
+                                    : ""}
+                                </button>
+                              ) : row.field === "videoPrompt" &&
+                                creationShot &&
+                                (onGenerateShotVideo ||
+                                  (onEstimateStartEndShotVideo &&
+                                    onGenerateStartEndShotVideo)) ? (
+                                <div className="flex w-full flex-col gap-1">
+                                  <div className="flex flex-col gap-1">
+                                    <label
+                                      className="sr-only"
+                                      htmlFor={`shot-${shot.shotNo}-duration`}
+                                    >
+                                      {`${shotLabel} 视频时长（秒）`}
+                                    </label>
+                                    <select
+                                      id={`shot-${shot.shotNo}-duration`}
+                                      value={
+                                        startEndTuningOverrides[
+                                          creationShot.stableShotId ??
+                                            creationShot.shotIdentity ??
+                                            ""
+                                        ]?.durationSec ??
+                                        storyboardStartEndDurationSec(
+                                          creationShot.generationParams,
+                                          creationShot.durationMs
+                                        )
+                                      }
+                                      disabled={!onUpdateShotFields}
+                                      onPointerDown={event =>
+                                        event.stopPropagation()
+                                      }
+                                      onClick={event => event.stopPropagation()}
+                                      onChange={event => {
+                                        event.stopPropagation();
+                                        void updateStartEndTuning(
+                                          creationShot,
+                                          {
+                                            durationSec: Number(
+                                              event.target.value
+                                            ),
+                                          }
+                                        );
+                                      }}
+                                      className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
+                                      title="首尾帧视频时长；Vidu Q2 单次上限 8 秒"
+                                    >
+                                      {STORYBOARD_START_END_DURATION_OPTIONS.map(
+                                        seconds => (
+                                          <option key={seconds} value={seconds}>
+                                            {`${seconds} 秒`}
+                                          </option>
+                                        )
+                                      )}
+                                    </select>
+                                    <label
+                                      className="sr-only"
+                                      htmlFor={`shot-${shot.shotNo}-amplitude`}
+                                    >
+                                      {`${shotLabel} 运动幅度`}
+                                    </label>
+                                    <select
+                                      id={`shot-${shot.shotNo}-amplitude`}
+                                      value={
+                                        startEndTuningOverrides[
+                                          creationShot.stableShotId ??
+                                            creationShot.shotIdentity ??
+                                            ""
+                                        ]?.movementAmplitude ??
+                                        storyboardStartEndAmplitude(
+                                          creationShot.generationParams
+                                        )
+                                      }
+                                      disabled={!onUpdateShotFields}
+                                      onPointerDown={event =>
+                                        event.stopPropagation()
+                                      }
+                                      onClick={event => event.stopPropagation()}
+                                      onChange={event => {
+                                        event.stopPropagation();
+                                        void updateStartEndTuning(
+                                          creationShot,
+                                          {
+                                            movementAmplitude: event.target
+                                              .value as StoryboardStartEndAmplitude,
+                                          }
+                                        );
+                                      }}
+                                      className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
+                                      title="画面运动幅度；变形大的镜头选「大」"
+                                    >
+                                      {STORYBOARD_START_END_AMPLITUDE_OPTIONS.map(
+                                        option => (
+                                          <option
+                                            key={option.value}
+                                            value={option.value}
+                                          >
+                                            {`幅度 ${option.label}`}
+                                          </option>
+                                        )
+                                      )}
+                                    </select>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      Boolean(matrixVideoBlockReason) ||
+                                      !canStartRenderForShot(shot.shotNo)
+                                    }
+                                    onPointerDown={event =>
+                                      event.stopPropagation()
+                                    }
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      void rerenderShotVideo(
+                                        shot,
+                                        creationShot
+                                      );
+                                    }}
+                                    className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                    aria-label={`按视频要求渲染 ${shotLabel} 视频`}
+                                    title={
+                                      matrixVideoBlockReason ??
+                                      "先保存本镜文字并确认人民币费用，再生成候选 Take"
+                                    }
+                                  >
+                                    {continuityCheckingByShot[shot.shotNo] ===
+                                    "video" ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : rerenderingShotNos.includes(
+                                        shot.shotNo
+                                      ) ||
+                                      generatingVideoShotNos.includes(
+                                        shot.shotNo
+                                      ) ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Video className="h-3 w-3" />
+                                    )}
+                                    {continuityCheckingByShot[shot.shotNo] ===
+                                    "video"
+                                      ? "检查人物"
+                                      : "渲染视频"}
+                                  </button>
+                                </div>
+                              ) : null
                             }
                           />
                         );
                       }
-                      return (
-                        <StoryboardMatrixFieldCell
-                          key={
-                            "matrix-" +
-                            row.field +
-                            "-" +
-                            (shot.stableShotId ??
-                              shot.shotIdentity ??
-                              shot.shotNo) +
-                            "-" +
-                            index
-                          }
-                          value={shot[row.field]}
-                          row={row}
-                          shotLabel={shotLabel}
-                          selected={selected}
-                          dropTarget={dropTarget}
-                          editable={Boolean(onUpdateShotField)}
-                          onFocus={() => onSelectShot?.(shot.shotNo)}
-                          onInputValue={value => {
-                            const key = storyShotInsertIdentity(shot, index);
-                            if (!key) return;
-                            const current =
-                              matrixDraftsRef.current.get(key) ?? {};
-                            const next = { ...current, [row.field]: value };
-                            matrixDraftsRef.current.set(key, next);
-                            refreshMatrixDraftGuards(current => current + 1);
-                          }}
-                          onCommit={async value => {
-                            const key = storyShotInsertIdentity(shot, index);
-                            try {
-                              await onUpdateShotField?.(
-                                index,
-                                row.field,
-                                value
-                              );
-                            } finally {
-                              if (!key) return;
-                              const current = matrixDraftsRef.current.get(key);
-                              if (current?.[row.field] !== value) return;
-                              const next = { ...current };
-                              delete next[row.field];
-                              if (Object.keys(next).length === 0) {
-                                matrixDraftsRef.current.delete(key);
-                              } else {
-                                matrixDraftsRef.current.set(key, next);
-                              }
-                            }
-                          }}
-                          onDragStart={event => {
-                            setDraggedMatrixCell({
-                              sourceIndex: index,
-                              field: row.field,
-                            });
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData(
-                              "text/plain",
-                              shotLabel + " " + row.label
-                            );
-                          }}
-                          onDragEnd={() => {
-                            stopStoryboardDragScroll();
-                            setDraggedMatrixCell(null);
-                            setMatrixDropTarget(null);
-                          }}
-                          onDragOver={event => {
-                            if (
-                              !draggedMatrixCell ||
-                              draggedMatrixCell.field !== row.field
-                            ) {
-                              return;
-                            }
-                            event.preventDefault();
-                            event.stopPropagation();
-                            event.dataTransfer.dropEffect = "move";
-                            startStoryboardDragScroll(event.clientY);
-                            autoScrollElementHorizontallyAtPoint(
-                              boardScrollRef.current,
-                              event.clientX
-                            );
-                            setMatrixDropTarget({
-                              targetIndex: index,
-                              field: row.field,
-                            });
-                          }}
-                          onDragLeave={() => {
-                            setMatrixDropTarget(current =>
-                              current?.targetIndex === index &&
-                              current.field === row.field
-                                ? null
-                                : current
-                            );
-                          }}
-                          onDrop={event => dropMatrixCell(index, row, event)}
-                          action={
-                            row.field === "promptDraft" &&
-                            onGenerateShotImages ? (
-                              <button
-                                type="button"
-                                disabled={
-                                  !creationShot ||
-                                  !imageProviderStatus?.ready ||
-                                  !canStartRenderForShot(shot.shotNo)
-                                }
-                                onPointerDown={event => event.stopPropagation()}
-                                onClick={event => {
-                                  event.stopPropagation();
-                                  void renderShotImageCandidates(
-                                    shot,
-                                    creationShot,
-                                    index
-                                  );
-                                }}
-                                className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                aria-label={`按图片要求${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "并套用长裙连续性模板" : ""}渲染 ${shotLabel} 的四张候选图`}
-                                title={
-                                  imageProviderStatus?.ready
-                                    ? shouldUseSingleImageFallback(
-                                        imageProviderStatus
-                                      )
-                                      ? `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用`
-                                      : `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}原文要求优先，生成四张同风格候选图，提交前会显示费用`
-                                    : (imageProviderStatus?.reason ??
-                                      "正在确认图片供应商状态")
-                                }
-                              >
-                                {generatingImageShotNos.includes(shot.shotNo) ||
-                                continuityCheckingByShot[shot.shotNo] ===
-                                  "image" ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <ImagePlus className="h-3 w-3" />
-                                )}
-                                {continuityCheckingByShot[shot.shotNo] ===
-                                "image"
-                                  ? "检查人物"
-                                  : shouldUseSingleImageFallback(
-                                        imageProviderStatus
-                                      )
-                                    ? "渲染 1 张"
-                                    : "渲染 4 张"}
-                                {isSheSelf02ImageEditTemplateEnabled(
-                                  storyTitle,
-                                  shotLabel
-                                )
-                                  ? " · 长裙模板"
-                                  : ""}
-                              </button>
-                            ) : row.field === "videoPrompt" &&
-                              creationShot &&
-                              (onGenerateShotVideo ||
-                                (onEstimateStartEndShotVideo &&
-                                  onGenerateStartEndShotVideo)) ? (
-                              <div className="flex w-full flex-col gap-1">
-                                <div className="flex flex-col gap-1">
-                                  <label className="sr-only" htmlFor={`shot-${shot.shotNo}-duration`}>
-                                    {`${shotLabel} 视频时长（秒）`}
-                                  </label>
-                                  <select
-                                    id={`shot-${shot.shotNo}-duration`}
-                                    value={
-                                      startEndTuningOverrides[
-                                        creationShot.stableShotId ??
-                                          creationShot.shotIdentity ??
-                                          ""
-                                      ]?.durationSec ??
-                                      storyboardStartEndDurationSec(
-                                        creationShot.generationParams,
-                                        creationShot.durationMs
-                                      )
-                                    }
-                                    disabled={!onUpdateShotFields}
-                                    onPointerDown={event => event.stopPropagation()}
-                                    onClick={event => event.stopPropagation()}
-                                    onChange={event => {
-                                      event.stopPropagation();
-                                      void updateStartEndTuning(creationShot, {
-                                        durationSec: Number(event.target.value),
-                                      });
-                                    }}
-                                    className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                    title="首尾帧视频时长；Vidu Q2 单次上限 8 秒"
-                                  >
-                                    {STORYBOARD_START_END_DURATION_OPTIONS.map(seconds => (
-                                      <option key={seconds} value={seconds}>
-                                        {`${seconds} 秒`}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <label className="sr-only" htmlFor={`shot-${shot.shotNo}-amplitude`}>
-                                    {`${shotLabel} 运动幅度`}
-                                  </label>
-                                  <select
-                                    id={`shot-${shot.shotNo}-amplitude`}
-                                    value={
-                                      startEndTuningOverrides[
-                                        creationShot.stableShotId ??
-                                          creationShot.shotIdentity ??
-                                          ""
-                                      ]?.movementAmplitude ??
-                                      storyboardStartEndAmplitude(
-                                        creationShot.generationParams
-                                      )
-                                    }
-                                    disabled={!onUpdateShotFields}
-                                    onPointerDown={event => event.stopPropagation()}
-                                    onClick={event => event.stopPropagation()}
-                                    onChange={event => {
-                                      event.stopPropagation();
-                                      void updateStartEndTuning(creationShot, {
-                                        movementAmplitude: event.target
-                                          .value as StoryboardStartEndAmplitude,
-                                      });
-                                    }}
-                                    className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                    title="画面运动幅度；变形大的镜头选「大」"
-                                  >
-                                    {STORYBOARD_START_END_AMPLITUDE_OPTIONS.map(option => (
-                                      <option key={option.value} value={option.value}>
-                                        {`幅度 ${option.label}`}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              <button
-                                type="button"
-                                disabled={
-                                  Boolean(matrixVideoBlockReason) ||
-                                  !canStartRenderForShot(shot.shotNo)
-                                }
-                                onPointerDown={event => event.stopPropagation()}
-                                onClick={event => {
-                                  event.stopPropagation();
-                                  void rerenderShotVideo(shot, creationShot);
-                                }}
-                                className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                aria-label={`按视频要求渲染 ${shotLabel} 视频`}
-                                title={
-                                  matrixVideoBlockReason ??
-                                  "先保存本镜文字并确认人民币费用，再生成候选 Take"
-                                }
-                              >
-                                {continuityCheckingByShot[shot.shotNo] ===
-                                "video" ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : rerenderingShotNos.includes(shot.shotNo) ||
-                                  generatingVideoShotNos.includes(
-                                    shot.shotNo
-                                  ) ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Video className="h-3 w-3" />
-                                )}
-                                {continuityCheckingByShot[shot.shotNo] ===
-                                "video"
-                                  ? "检查人物"
-                                  : "渲染视频"}
-                              </button>
-                              </div>
-                            ) : null
-                          }
-                        />
-                      );
-                    })}
+                    )}
                   </Fragment>
                 ))}
 
@@ -5427,9 +5464,7 @@ export function StoryboardReviewBoard({
                     type="button"
                     className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-3 text-[11px] font-medium text-background transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
                     disabled={selectedPublishingCoverCandidateId == null}
-                    onClick={() =>
-                      void continueWithPublishingCoverCandidate()
-                    }
+                    onClick={() => void continueWithPublishingCoverCandidate()}
                   >
                     <ImagePlus className="h-3.5 w-3.5" />
                     用作风格参考并继续

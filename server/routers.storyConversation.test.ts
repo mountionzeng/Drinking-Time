@@ -96,6 +96,121 @@ describe("storyConversation tRPC router", () => {
     });
   });
 
+  it("rejects concurrent reuse of one turn identity with a different selection", async () => {
+    const { caller, story } = await seedStory();
+    const baseInput = {
+      storyId: story.id,
+      userMessage: {
+        clientMessageId: "selection-race-user",
+        content: "按这个范围修改",
+      },
+      assistantMessage: {
+        clientMessageId: "selection-race-assistant",
+        content: "我会按选区生成候选。",
+      },
+    };
+    const selection = {
+      sourceType: "shot" as const,
+      sourceId: "0:dialogue",
+      selectedText: "我准备好了",
+      fullText: "我准备好了",
+      storyId: story.id,
+      stableShotId: "shot-01",
+      shotNo: 1,
+      objectVersion: "rev-selection-race",
+      selection: { kind: "text" as const, start: 0, end: 6 },
+    };
+
+    const results = await Promise.allSettled([
+      caller.storyConversation.appendTurn({
+        ...baseInput,
+        userMessage: { ...baseInput.userMessage, selection: null },
+      }),
+      caller.storyConversation.appendTurn({
+        ...baseInput,
+        userMessage: { ...baseInput.userMessage, selection },
+      }),
+    ]);
+
+    expect(
+      results.filter(result => result.status === "fulfilled")
+    ).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(
+      1
+    );
+    expect(results.find(result => result.status === "rejected")).toMatchObject({
+      reason: { code: "CONFLICT" },
+    });
+
+    const listed = await caller.storyConversation.list({ storyId: story.id });
+    expect(listed.messages).toHaveLength(2);
+    expect(listed.references).toHaveLength(
+      results[0]?.status === "fulfilled" ? 0 : 1
+    );
+  });
+
+  it("rejects reuse of only one message identity instead of forming a mixed turn", async () => {
+    const { caller, story } = await seedStory();
+    await caller.storyConversation.appendTurn({
+      storyId: story.id,
+      userMessage: {
+        clientMessageId: "reused-user-id",
+        content: "原问题",
+      },
+      assistantMessage: {
+        clientMessageId: "original-assistant-id",
+        content: "原回答",
+      },
+    });
+
+    await expect(
+      caller.storyConversation.appendTurn({
+        storyId: story.id,
+        userMessage: {
+          clientMessageId: "reused-user-id",
+          content: "伪造的新问题",
+        },
+        assistantMessage: {
+          clientMessageId: "new-assistant-id",
+          content: "与原问题无关的新回答",
+        },
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const listed = await caller.storyConversation.list({ storyId: story.id });
+    expect(
+      listed.messages.map(message => ({
+        role: message.role,
+        content: message.content,
+        clientMessageId: message.clientMessageId,
+      }))
+    ).toEqual([
+      { role: "user", content: "原问题", clientMessageId: "reused-user-id" },
+      {
+        role: "assistant",
+        content: "原回答",
+        clientMessageId: "original-assistant-id",
+      },
+    ]);
+  });
+
+  it("does not expose mobile turn state or append access across owners", async () => {
+    const { story } = await seedStory(701);
+    const otherCaller = appRouter.createCaller(context(702));
+    const identity = {
+      storyId: story.id,
+      clientTurnId: "private-turn",
+      requestHash: "sct1-private",
+    };
+
+    await expect(
+      otherCaller.storyConversation.mobileTurnStatus(identity)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      otherCaller.storyConversation.appendMobileTurn(identity)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("rejects a forged shot reference without storing the turn", async () => {
     const { caller, story } = await seedStory();
 
@@ -118,7 +233,7 @@ describe("storyConversation tRPC router", () => {
           clientMessageId: "forged-assistant",
           content: "不应该保存",
         },
-      }),
+      })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     const listed = await caller.storyConversation.list({
@@ -215,7 +330,7 @@ describe("storyConversation tRPC router", () => {
           clientMessageId: "invalid-image-region-assistant",
           content: "不应该保存",
         },
-      }),
+      })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
@@ -313,7 +428,7 @@ describe("storyConversation tRPC router", () => {
           clientMessageId: "mismatched-range-assistant",
           content: "不应该保存",
         },
-      }),
+      })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
@@ -333,7 +448,7 @@ describe("storyConversation tRPC router", () => {
           content: "不应该保存",
           candidateRevisionId: 999999,
         },
-      }),
+      })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

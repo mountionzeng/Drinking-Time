@@ -1,5 +1,6 @@
 ALTER TABLE `prompt_revisions`
   ADD COLUMN `weight` float NOT NULL DEFAULT 0.3 AFTER `content`;
+--> statement-breakpoint
 
 UPDATE `prompt_revisions` AS `pr`
 INNER JOIN `prompt_nodes` AS `pn` ON `pn`.`id` = `pr`.`nodeId`

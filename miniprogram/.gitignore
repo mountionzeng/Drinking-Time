@@ -1,0 +1,21 @@
+# 微信开发者工具生成的私有配置：含本机路径、编译偏好，可能含个人 AppID 选择。
+project.private.config.json
+
+# 依赖与构建产物
+node_modules/
+miniprogram_npm/
+dist/
+build/
+
+# Secret：AppSecret / session_key / 服务端配置永远只写在服务端秘密存储，
+# 这几条是「万一有人误放」的第二道闸，不是允许放的信号。
+.env
+.env.*
+*.secret
+*.pem
+*.key
+*.p12
+
+# 工具与系统噪音
+*.log
+.DS_Store

@@ -1,5 +1,6 @@
 import GuidedLanding from '@/features/analysis/views/GuidedLanding';
 import AuthEntryPanel from '@/features/auth/views/AuthEntryPanel';
+import type { MobileReturnPath } from '@/features/auth/mobileReturnPath';
 import {
   getOrCreateLocalEmotionGuestId,
   normalizeEmotionAnalysisProfile,
@@ -18,10 +19,12 @@ export function resolveWelcomeEntryPath(isAuthenticated: boolean) {
 
 type WelcomePreviewPageProps = {
   autoFocusAuth?: boolean;
+  returnPath?: MobileReturnPath | null;
 };
 
 export default function WelcomePreviewPage({
   autoFocusAuth = false,
+  returnPath = null,
 }: WelcomePreviewPageProps) {
   const [location, setLocation] = useLocation();
   const { isAuthenticated } = useAuth();
@@ -79,7 +82,10 @@ export default function WelcomePreviewPage({
           authPanel={
             shouldShowAuthPanel ? (
               <div ref={authSectionRef} className="w-full flex justify-center">
-                <AuthEntryPanel autofocus={autoFocusAuth} />
+                <AuthEntryPanel
+                  autofocus={autoFocusAuth}
+                  returnPath={returnPath}
+                />
               </div>
             ) : null
           }

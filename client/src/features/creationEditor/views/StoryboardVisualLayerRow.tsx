@@ -1587,14 +1587,14 @@ export function StoryboardVisualLayerRow({
                 role="button"
                 tabIndex={0}
                 data-pointer-clip-move={clip ? "true" : undefined}
-                className={`absolute bottom-1 z-10 h-7 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`absolute bottom-1 h-7 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   clip
                     ? "touch-none cursor-grab active:cursor-grabbing"
                     : "cursor-pointer"
                 } ${
                   active
-                    ? "border-primary ring-1 ring-primary"
-                    : "border-white/60"
+                    ? "z-30 border-primary ring-1 ring-primary"
+                    : "z-10 border-white/60"
                 }`}
                 style={{
                   left: leftPx,

@@ -9,6 +9,13 @@ export type PersistedStory = NonNullable<
   Awaited<ReturnType<typeof getStoryById>>
 >;
 
+export async function getOwnedStory(
+  storyId: number,
+  userId: number
+): Promise<PersistedStory | null> {
+  return getStoryById(storyId, userId);
+}
+
 export class StoryBodyOwnershipError extends Error {
   constructor(readonly storyId: number) {
     super(`Story ${storyId} was not found for this owner`);

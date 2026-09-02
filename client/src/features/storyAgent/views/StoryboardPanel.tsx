@@ -339,9 +339,8 @@ export default function StoryboardPanel({
         if (!resolvedStableShotId) {
           throw new Error("镜头身份缺失，请刷新故事后重试");
         }
-        const nextSelectedShotNo = await deletePersistedShot(
-          resolvedStableShotId
-        );
+        const nextSelectedShotNo =
+          await deletePersistedShot(resolvedStableShotId);
         if (activeStoryId) {
           await loadStory(activeStoryId);
         }

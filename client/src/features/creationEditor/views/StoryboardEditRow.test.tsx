@@ -564,6 +564,55 @@ describe("StoryboardEditRow", () => {
     expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
   });
 
+  it("raises the playhead image above nearby one-frame thumbnails", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ playheadMs: 1_000 })}
+        shots={[
+          {
+            ...shots[0],
+            timelineItem: {
+              ...shots[0].timelineItem!,
+              imageClips: [
+                {
+                  id: "active-frame",
+                  imageId: 99,
+                  imageUrl: "/active-frame.webp",
+                  label: "当前抽帧",
+                  offsetFrames: 30,
+                  durationFrames: 1,
+                  visualLayer: 1,
+                },
+                {
+                  id: "nearby-frame",
+                  imageId: 100,
+                  imageUrl: "/nearby-frame.webp",
+                  label: "相邻抽帧",
+                  offsetFrames: 33,
+                  durationFrames: 1,
+                  visualLayer: 1,
+                },
+              ],
+            },
+          },
+          shots[1],
+        ]}
+        selectedShotNo={1}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    const activeFrame = html.match(
+      /<div(?=[^>]*data-testid="storyboard-extracted-frame-99")[^>]*>/
+    )?.[0];
+    const nearbyFrame = html.match(
+      /<div(?=[^>]*data-testid="storyboard-extracted-frame-100")[^>]*>/
+    )?.[0];
+
+    expect(activeFrame).toContain("z-30");
+    expect(nearbyFrame).toContain("z-10");
+  });
+
   it("keeps repeated extracted image ids distinct across source shots", () => {
     const repeatedFrame = {
       id: "image-99",

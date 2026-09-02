@@ -1,0 +1,12 @@
+id: spiritual-abstraction
+name: 神秘抽象结构
+status: active
+style: [早期抽象, 结构性想象]
+material: 蛋彩、水粉、铅笔网格与有齿纸面
+automatic_selection:
+  scope: main
+  concepts: [abstract-structure]
+  provider_fragments: [保留测量线、颜色越界与反复覆盖的结构推演]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

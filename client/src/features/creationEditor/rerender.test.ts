@@ -107,18 +107,39 @@ describe("creation editor rerender", () => {
     expect(generate.mock.calls[0][0].prompt).toContain("水彩");
   });
 
-  it("客户端等待超时会解除等待并提醒不要重复提交", async () => {
+  it("keeps waiting for the accepted request past the old 20 second client timeout", async () => {
     vi.useFakeTimers();
     try {
       const pending = rerenderShotImage({
         storyId: 1,
         shot,
         rows: [row({ value: "水彩" })],
-        generate: () => new Promise<GenerateForMobileResult>(() => {}),
+        generate: () =>
+          new Promise<GenerateForMobileResult>(resolve => {
+            setTimeout(
+              () =>
+                resolve({
+                  status: "ok",
+                  imageId: 54,
+                  imageUrl: "/api/images/late-candidate.png",
+                }),
+              25_000
+            );
+          }),
       });
-      const assertion = expect(pending).rejects.toThrow("避免重复付费");
+
+      let settled = false;
+      void pending.finally(() => {
+        settled = true;
+      });
       await vi.advanceTimersByTimeAsync(20_000);
-      await assertion;
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(pending).resolves.toMatchObject({
+        imageId: 54,
+        imageUrl: "/api/images/late-candidate.png",
+      });
     } finally {
       vi.useRealTimers();
     }

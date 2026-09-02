@@ -80,9 +80,8 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("不是内容模板");
     expect(seen).toContain("不得因此固定色调");
     expect(seen).toContain("平台水印");
-    expect(seen).toContain("【艺术谱系】");
-    expect(seen).toContain("【手作完成度】");
-    expect(seen).toContain("历史艺术家");
+    expect(seen).not.toContain("【艺术谱系】");
+    expect(seen).not.toContain("【手作完成度】");
     expect(seen).not.toContain("【美术流派·");
     expect(seen).toContain("【静态图片无字硬约束】");
     expect(seen).toContain("禁止可读文字、伪文字、字母、数字");
@@ -112,8 +111,130 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("主情绪：怀旧里带一点不安");
     expect(seen).toContain("明确年代：1990年代");
     expect(seen).toContain("生活质地：家庭内部");
-    expect(seen).toContain("纳比派");
-    expect(seen).toMatch(/皮埃尔·博纳尔|爱德华·维亚尔/);
+    expect(seen).toContain("【艺术谱系】");
+    expect(seen).toContain("可见叠笔、局部擦洗与轻微失准");
+    expect(seen).not.toMatch(/皮埃尔·博纳尔|爱德华·维亚尔/);
+    expect(seen).toContain("【时间、季节与服装】");
+    expect(seen).toContain("轻微褪色的暖色");
+  });
+
+  it("用本轮情绪与生命体验选择词库卡，不读取长期画像冒充当下", async () => {
+    dbMocks.getRecentEditPreferences.mockResolvedValueOnce([
+      { inferredPreferences: '["长期偏好焦虑压迫的表达"]' },
+    ]);
+    let seen = "";
+
+    await renderViaGate(
+      {
+        prompt: "她刚刚毕业，正在整理旧房间",
+        emotion: "离开校园以后有些释然，想重新开始",
+        projectId: 1,
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toContain("【艺术谱系】");
+    expect(seen).toContain("书法性轮廓与概括色面");
+    expect(seen).not.toContain("木刻刀痕、重压黑线");
+    expect(seen).toContain("【用户创作偏好】");
+  });
+
+  it("普通故事不会因为历史编辑偏好被自动套上情绪画风", async () => {
+    dbMocks.getRecentEditPreferences.mockResolvedValueOnce([
+      { inferredPreferences: '["长期偏好焦虑压迫的表达"]' },
+    ]);
+    let seen = "";
+
+    await renderViaGate(
+      { prompt: "两个人在房间里讨论明天的安排", projectId: 1 },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toContain("【用户创作偏好】");
+    expect(seen).not.toContain("【艺术谱系】");
+  });
+
+  it("否定的情绪不会在文本美术信号里被反写成当前情绪", async () => {
+    let seen = "";
+
+    await renderViaGate(
+      { prompt: "她已经不焦虑了，只是释然地收拾房间" },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toContain("主情绪：清醒与克制");
+    expect(seen).not.toContain("主情绪：焦虑与不安");
+    expect(seen).not.toContain("木刻刀痕、重压黑线");
+  });
+
+  it("明确说当下且画面有人时，按当前季节补日常服装", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "现在，一个女孩走在街边",
+        currentDate: "2026-07-15",
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toContain("【时间、季节与服装】");
+    expect(seen).toContain("轻薄透气的夏季日常服装");
+  });
+
+  it("用户点名艺术参照时内部完成映射，艺术谱系只输出可观察画面特征", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "一个人坐在空旷房间里",
+        userInstructions: ["参考常玉、Georges Seurat 和吴冠中的视觉语言"],
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    const artLine = seen
+      .split("\n")
+      .find(line => line.startsWith("【艺术谱系】"));
+    expect(artLine).toContain("书法性轮廓与概括色面");
+    expect(artLine).toContain("疏密点触组织空气感");
+    expect(artLine).not.toMatch(/常玉|Seurat|吴冠中/);
+  });
+
+  it("同一轮最多应用一张主卡和一个相容动态辅助效果", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "人物奔跑，边缘出现方向性拖影",
+        userInstructions: ["朦胧彩铅、大面积留白、局部动态模糊"],
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    const artLine = seen
+      .split("\n")
+      .find(line => line.startsWith("【艺术谱系】"));
+    expect(artLine).toContain("主风格：柔软彩铅颗粒与纸面阻力");
+    expect(artLine).toContain(
+      "相容辅助效果：仅在运动边缘加入方向性拖擦与局部弥散"
+    );
+    expect(artLine).not.toContain("全画面失焦");
   });
 
   it("render 的返回值原样透传（保留各生成器自己的返回形）", async () => {

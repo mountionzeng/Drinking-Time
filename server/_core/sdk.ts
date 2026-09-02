@@ -22,6 +22,11 @@ export type SessionPayload = {
   openId: string;
   appId: string;
   name: string;
+  /**
+   * 会话版本。改密码撤销其他设备、找回密码撤销全部旧 session 都靠它：
+   * 用户表里的版本一自增，带旧版本的 token 立即失效。
+   */
+  sessionVersion?: number;
 };
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
@@ -166,13 +171,18 @@ class SDKServer {
    */
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string } = {}
+    options: {
+      expiresInMs?: number;
+      name?: string;
+      sessionVersion?: number;
+    } = {}
   ): Promise<string> {
     return this.signSession(
       {
         openId,
         appId: ENV.appId || "drinking-time",
         name: options.name || "",
+        sessionVersion: options.sessionVersion,
       },
       options
     );
@@ -191,6 +201,9 @@ class SDKServer {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
+      ...(payload.sessionVersion === undefined
+        ? {}
+        : { sessionVersion: payload.sessionVersion }),
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setExpirationTime(expirationSeconds)
@@ -199,7 +212,12 @@ class SDKServer {
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{
+    openId: string;
+    appId: string;
+    name: string;
+    sessionVersion: number | null;
+  } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -210,7 +228,10 @@ class SDKServer {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const { openId, appId, name, sessionVersion } = payload as Record<
+        string,
+        unknown
+      >;
 
       if (
         !isNonEmptyString(openId) ||
@@ -225,6 +246,10 @@ class SDKServer {
         openId,
         appId,
         name,
+        sessionVersion:
+          typeof sessionVersion === "number" && Number.isSafeInteger(sessionVersion)
+            ? sessionVersion
+            : null,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
@@ -269,6 +294,18 @@ class SDKServer {
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
+
+    // 会话版本闸门。
+    //
+    // 用户表里的 sessionVersion 还是 1（从没撤销过）时，接受不带该 claim 的旧 token——
+    // 否则一次上线就会把所有人踢下线。一旦发生过撤销（改密码 / 找回密码使其自增），
+    // 不带 claim 的旧 token 就不再被接受，带旧版本号的同理。
+    if (user) {
+      const currentVersion = Number(user.sessionVersion ?? 1);
+      if (currentVersion > 1 && session.sessionVersion !== currentVersion) {
+        throw ForbiddenError("Session revoked, please log in again");
+      }
+    }
 
     // If user not in DB, sync from OAuth server automatically.
     // Google-authed users (openId starts with "google:") cannot be synced via

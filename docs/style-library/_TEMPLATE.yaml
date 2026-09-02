@@ -1,32 +1,48 @@
-# ─────────────────────────────────────────────────────────────
-# 流派库条目模板  ——  复制本文件到 entries/<id>.yaml 开始填
-# 一条目 = 一个美术流派 / 表达形式。库 = 一堆这样的条目。
-# 出 6 草稿时：按「落点」给当前用户排序 → 取 6 条 → 各自注入出图。
-# ─────────────────────────────────────────────────────────────
+# 美术词库条目模板
+# 复制到 entries/<id>.yaml。新增一律从 draft 开始，由人筛选后再转 active。
 
-id:            # 稳定 slug（英文小写连字符），系统引用用，定了别改。例：rembrandt-oil
-name:          # 展示名（中文）。例：伦勃朗光·荷兰黄金时代油画
-one_liner:     # 一句人话气质（给小酌和你自己看）。例：暗调里被一束暖光雕出来的人
-status: draft  # draft = 在养、还没上线 ／ active = 进 6 候选轮换
+id:                         # 稳定英文 slug，定了不要改
+name:                       # 给人看的中文名称
+one_liner:                  # 一句话说明这张卡为什么美、是什么气质
+status: draft               # draft = 候选；active = 允许系统使用
 
-# ── 视觉 DNA：这几栏直接注入出图 prompt（合成缝 shotPromptComposer 认这些槽位）──
-style: []      # 媒介/技法/流派名/"in the manner of X"。最关键、最该点名的一栏
-palette: []    # 色调清单（中文即可）
-light:         # 光的签名（最能定流派的一栏之一）
-composition:   # 画面经营（景别 / 主体位置 / 留白）
-material:      # 表面质感（笔触 / 颗粒 / 纹理）
-era_culture:   # 时空坐标
-signature:     # ★ 一眼签名：低分辨率草稿里也必须认得出的那个点
-negative: []   # 这流派最怕变成什么（和正面一样重要）
+# 内部策展出处：可以写艺术家、作品传统、电影或年代，只供人和选择器理解。
+# 这些名字不会直接发给图片模型；provider 只接收下面的可观察视觉语言。
+internal_references: []
 
-# ── 落点：冷启动排序用。只是先验，用户一开始多选/略过就会覆盖它 ──
-emotion_fit: []   # 适配的情绪
-theme_fit: []     # 适配的题材 / 场景
-affinity:         # 人群亲和权重 0–3（0 = 无关，3 = 强）。宁可少标、别硬标
-  age: {}         # 例：{偏年长: 2, 青年: 0}
-  profession: {}  # 例：{人文/手艺/学术: 2, 创意: 1}
-  wuxing: {}      # 例：{土: 2, 金: 2, 火: 0}
+# 可观察视觉 DNA
+style: []                   # 媒介、技法、造型语言；不要写“很美”“高级感”
+palette: []                 # 可执行色板，少而明确
+light:                      # 光源、方向、软硬、时间感
+composition:                # 景别、主体位置、留白、空间关系
+material:                   # 纸纹、笔触、颗粒、套色偏差等表面证据
+era_culture:                # 画面内部的时代与文化坐标，不等于艺术家出处
+signature:                  # 低分辨率仍能一眼认出的视觉签名
+negative: []                # 最容易翻车成什么
 
-# ── 校准 ──
-references: []    # 1–3 张你认的范例图（放 refs/ 下，相对路径引用）
-notes:            # 给自己的提醒（草稿易翻车的点等）
+# 人工策展线索：方便你筛选和补卡。它们不会单独触发自动套风格。
+selection_context:
+  moods: []                 # 当下情绪；必须能从本轮表达找到证据
+  life_experiences: []      # 离家、毕业、照顾、失去、重启等具体体验
+  explicit_age_or_stage: [] # 只收用户明确提供的信息，而且永远只是弱证据
+  eras: []                  # 用户明确说出的年代或历史语境
+  seasons: []               # 用户明确说出的季节，或明确“当下”语境
+  wardrobe: []              # 人物出现时才用；与时代、季节和场景一致
+  counter_signals: []       # 出现这些信号时不应选择本卡
+
+# 运行时自动选择。没有经过筛选时整段留空；仅 active 卡会被读取。
+# concepts 必须来自语义归一器已支持的概念，不能自造后假装会生效。
+automatic_selection:
+  version: "2026-08-31.1"
+  scope: main               # main 或 auxiliary；一次最多一主一辅
+  concepts: []
+  counter_signals: []
+  provider_fragments: []    # 只写可观察画面特征，不写艺术家姓名
+  allowed_auxiliary_dimensions: []
+  compatible_main_ids: []  # auxiliary 使用；为空表示不额外限定
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: []            # 审核记录与内部出处，不发送给 provider
+
+# 校准
+references: []              # 1–3 张已真实存在的范例图；没有就留空
+notes:                      # 草稿易翻车点、待验证问题

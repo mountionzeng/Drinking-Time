@@ -155,6 +155,27 @@ export function storyboardImageRenderBlockReason(
   );
 }
 
+export function resolveStoryboardRerenderShotIndex(
+  shots: ReadonlyArray<{
+    stableShotId: string | null;
+    cueCode?: string | null;
+    shotNo: number;
+  }>,
+  request: {
+    stableShotId?: string | null;
+    cueCode?: string | null;
+    shotNo: number;
+  }
+): number {
+  if (request.stableShotId) {
+    return shots.findIndex(shot => shot.stableShotId === request.stableShotId);
+  }
+  if (request.cueCode) {
+    return shots.findIndex(shot => shot.cueCode === request.cueCode);
+  }
+  return shots.findIndex(shot => shot.shotNo === request.shotNo);
+}
+
 export function storyboardImageReferenceLabel(
   reference: StoryboardImageGenerationReferences["primary"]
 ): string {

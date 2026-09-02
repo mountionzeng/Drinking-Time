@@ -6,18 +6,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTimelineLanes,
+  canEditCurrentVideoFrame,
   duplicatedTimelineImageClipId,
   extractedFrameTargetVisualLayer,
   fitProjectCanvas,
+  previewMediaLayerPlan,
   resolveTimelineImageClip,
   resolveTimelineVideoSource,
+  selectedShotPlayheadSyncTarget,
   timelineImageWinsVisualOverlap,
   shouldHandleEditingShortcut,
   shouldForwardPreviewPause,
   storyboardAudioClipsFromManifest,
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
-  timelineVideoSourceForSelectedShot,
   timelineLaneDomain,
   timelineClipPointerPlacement,
   timelineClipInteractionWidth,
@@ -28,8 +30,79 @@ import {
 } from "./views/EditingNleWorkspace";
 import type { CreationEditorShot } from "./types";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
+import { playableVideoUrl } from "./previewPlaybackModel";
 
 describe("editing workspace project canvas", () => {
+  it("layers a one-frame image over video without replacing the video node", () => {
+    expect(
+      previewMediaLayerPlan({
+        timelineImageUrl: "/api/images/frame.png",
+        timelineVideoUrl: "/api/videos/take.mp4",
+        posterUrl: "/api/images/poster.png",
+      })
+    ).toEqual({
+      videoUrl: "/api/videos/take.mp4",
+      overlayImageUrl: "/api/images/frame.png",
+      standaloneImageUrl: null,
+      posterUrl: "/api/images/poster.png",
+    });
+  });
+
+  it("only enables current-frame editing for a paused video", () => {
+    expect(
+      canEditCurrentVideoFrame({
+        hasVideo: true,
+        timelinePlaying: false,
+        extracting: false,
+      })
+    ).toBe(true);
+    expect(
+      canEditCurrentVideoFrame({
+        hasVideo: true,
+        timelinePlaying: true,
+        extracting: false,
+      })
+    ).toBe(false);
+    expect(
+      canEditCurrentVideoFrame({
+        hasVideo: false,
+        timelinePlaying: false,
+        extracting: false,
+      })
+    ).toBe(false);
+    expect(
+      canEditCurrentVideoFrame({
+        hasVideo: true,
+        timelinePlaying: false,
+        extracting: true,
+      })
+    ).toBe(false);
+  });
+
+  it("seeks an explicitly selected shot without feeding playhead-driven selection back into the clock", () => {
+    expect(
+      selectedShotPlayheadSyncTarget({
+        selectedShotNo: 7,
+        selectionFromPlayheadShotNo: null,
+        timing: { startMs: 23_000 },
+      })
+    ).toBe(23_000);
+    expect(
+      selectedShotPlayheadSyncTarget({
+        selectedShotNo: 7,
+        selectionFromPlayheadShotNo: 7,
+        timing: { startMs: 23_000 },
+      })
+    ).toBeNull();
+    expect(
+      selectedShotPlayheadSyncTarget({
+        selectedShotNo: null,
+        selectionFromPlayheadShotNo: null,
+        timing: null,
+      })
+    ).toBeNull();
+  });
+
   it("ignores click jitter until a real pointer drag crosses four pixels", () => {
     expect(
       timelinePointerDragExceededThreshold({
@@ -198,12 +271,12 @@ describe("editing workspace project canvas", () => {
         resolved
           ? [
               {
-      stableShotId: "shot-1",
-      included: true,
-      position: 0,
-      plannedDurationMs: 3_000,
-      durationFrames: 90,
-      timelineStartFrame: 60,
+                stableShotId: "shot-1",
+                included: true,
+                position: 0,
+                plannedDurationMs: 3_000,
+                durationFrames: 90,
+                timelineStartFrame: 60,
                 transform: {
                   cropX: 0,
                   cropY: 0,
@@ -213,7 +286,7 @@ describe("editing workspace project canvas", () => {
                   panX: 0,
                   panY: 0,
                 },
-      imageClips: [resolved.clip],
+                imageClips: [resolved.clip],
               },
             ]
           : [],
@@ -542,15 +615,6 @@ describe("editing workspace project canvas", () => {
     ).toBe(false);
   });
 
-  it("uses the active selected take even when it is the primary clip", () => {
-    const source = {
-      shotNo: 9,
-      existingClipId: null,
-    } as never;
-    expect(timelineVideoSourceForSelectedShot(source, 9)).toBe(source);
-    expect(timelineVideoSourceForSelectedShot(source, 10)).toBeNull();
-  });
-
   it("shows the script cue that is actually speaking at the playhead", () => {
     const manifest: ChatCutTimelineManifest = {
       projectName: "SheSelf",
@@ -693,6 +757,130 @@ describe("editing workspace project canvas", () => {
         sourceTimeSec: 4,
       }
     );
+  });
+
+  it("keeps a backing video source alive while a one-frame image wins Preview", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-a",
+      cueCode: "0101",
+      subject: "女主",
+      action: "停留",
+      dialogue: "台词",
+      shotType: "中景",
+      beat: "",
+      cameraAngle: "",
+      cameraMove: "",
+      location: "",
+      timeLight: "",
+      mood: "",
+      sound: "",
+      styleRef: "",
+      note: "",
+      emotion: "",
+      sourceCardContent: "",
+      durationMs: 4_000,
+      timelineItem: {
+        stableShotId: "shot-a",
+        included: true,
+        position: 0,
+        plannedDurationMs: 4_000,
+        durationFrames: 120,
+        timelineStartFrame: 0,
+        visualLayer: 0,
+        imageClips: [
+          {
+            id: "extracted-frame",
+            imageId: 71,
+            imageUrl: "/api/images/frame-71.png",
+            label: "抽帧 1000ms",
+            timelineStartFrame: 30,
+            durationFrames: 1,
+            visualLayer: 1,
+          },
+        ],
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+        visualClipsReplacePrimary: true,
+        visualClips: [
+          {
+            id: "backing-video",
+            takeId: 22,
+            rangeId: 8,
+            sourceStableShotId: "shot-a",
+            videoUrl: "/api/videos/22",
+            label: "0101 · 视频",
+            sourceStartSec: 0,
+            sourceEndSec: 4,
+            offsetMs: 0,
+            durationMs: 4_000,
+          },
+        ],
+      },
+    } as CreationEditorShot;
+
+    expect(resolveTimelineVideoSource([shot], ["shot-a"], 1_000)).toBeNull();
+    expect(
+      resolveTimelineVideoSource([shot], ["shot-a"], 1_000, [], [], {
+        ignoreImageClips: true,
+      })
+    ).toMatchObject({
+      takeId: 22,
+      videoUrl: "/api/videos/22",
+      sourceTimeSec: 1,
+    });
+  });
+
+  it("does not offer frame extraction for an unadopted playable video candidate", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-a",
+      cueCode: "0101",
+      durationMs: 4_000,
+      selectedVideoTake: null,
+      videoTakes: [
+        {
+          id: 22,
+          stableShotId: "shot-a",
+          status: "available",
+          videoUrl: "/api/videos/unadopted.mp4",
+          durationSec: 4,
+        },
+      ],
+      timelineItem: {
+        stableShotId: "shot-a",
+        included: true,
+        position: 0,
+        plannedDurationMs: 4_000,
+        durationFrames: 120,
+        timelineStartFrame: 0,
+        visualLayer: 0,
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+        visualClips: [],
+        imageClips: [],
+        visualClipsReplacePrimary: false,
+      },
+    } as unknown as CreationEditorShot;
+
+    expect(playableVideoUrl(shot)).toBeNull();
+    expect(resolveTimelineVideoSource([shot], ["shot-a"], 1_000)).toBeNull();
   });
 
   it("keeps the original take owner when a structural split child uses primary video", () => {

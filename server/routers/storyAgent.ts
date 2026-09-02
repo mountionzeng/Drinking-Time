@@ -45,6 +45,7 @@ import {
   getStoryImageAssets,
   materializeImageInput,
 } from "../services/imageAssets";
+import { extractImageText } from "../services/imageTextExtraction";
 import { getStoryVideoAssets } from "../services/videoAssets";
 import { getStoryMaterialState } from "../services/storyMaterials";
 import { buildScriptResonanceContextForUser } from "../services/scriptAgent";
@@ -76,9 +77,7 @@ import {
   persistPreparedStoryBody,
   StoryBodyRevisionConflictError,
 } from "../services/storyBodyPersistence";
-import {
-  insertStoryShotAfter,
-} from "../../shared/storyShotEditing";
+import { insertStoryShotAfter } from "../../shared/storyShotEditing";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
@@ -111,6 +110,10 @@ import {
 } from "../../shared/promptContext";
 import { migrateStoryPromptLineage } from "../services/promptLineageMigration";
 import { applyStoryShotFieldPatch } from "../services/storyShotFieldPatch";
+import {
+  persistOwnedSelectionTextReplacement,
+  resolveOwnedSelectionTextSource,
+} from "../services/selectionTextSource";
 import {
   attachChatCutXmlToStory,
   importChatCutXmlStory,
@@ -350,16 +353,108 @@ export const storyAgentRouter = router({
           .optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      return handleSelectionEdit({
-        fullText: input.fullText,
-        selectedText: input.selectedText,
-        instruction: input.instruction,
-        promptRewrite: input.promptRewrite,
-        selectionContext: input.selectionContext,
-        projectId: input.projectId,
-        history: input.history,
-      });
+    .mutation(async ({ ctx, input }) => {
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
+      const selection = input.selectionContext;
+      if (selection?.selection?.kind === "text") {
+        const resolved = await resolveOwnedSelectionTextSource({
+          selection,
+          userId: ctx.user.id,
+        });
+        if (resolved.status === "error") {
+          return {
+            isApprovalOnly: true,
+            modifiedFullText: input.fullText,
+            reply: resolved.error,
+            applied: false,
+            stale: true,
+          };
+        }
+        const edited = await handleSelectionEdit({
+          fullText: resolved.source.currentText,
+          selectedText: selection.selectedText,
+          instruction: input.instruction,
+          selectionContext: {
+            ...selection,
+            fullText: resolved.source.currentText,
+          },
+          projectId: input.projectId,
+          history: input.history,
+        });
+        if (
+          edited.isApprovalOnly ||
+          edited.modifiedFullText === resolved.source.currentText
+        ) {
+          return { ...edited, applied: false, stale: false };
+        }
+        const persisted = await persistOwnedSelectionTextReplacement({
+          selection,
+          userId: ctx.user.id,
+          expected: resolved.source,
+          nextText: edited.modifiedFullText,
+        });
+        if (persisted.status === "error") {
+          return {
+            isApprovalOnly: true,
+            modifiedFullText: resolved.source.currentText,
+            reply: persisted.error,
+            applied: false,
+            stale: true,
+          };
+        }
+        return {
+          ...edited,
+          applied: true,
+          stale: false,
+          storyRevision: persisted.revision,
+        };
+      }
+      if (selection?.storyId != null) {
+        const story = await getStoryById(selection.storyId, ctx.user.id);
+        if (!story) {
+          return {
+            isApprovalOnly: true,
+            modifiedFullText: input.fullText,
+            reply: "故事不存在或无权操作",
+            applied: false,
+            stale: true,
+          };
+        }
+        if (selection.sourceType === "storyboard-image") {
+          const image =
+            selection.imageId != null
+              ? await getGeneratedImageById(selection.imageId)
+              : null;
+          if (
+            !image ||
+            image.storyId !== selection.storyId ||
+            image.userId !== ctx.user.id ||
+            !selection.stableShotId ||
+            image.shotIdentity !== selection.stableShotId
+          ) {
+            return {
+              isApprovalOnly: true,
+              modifiedFullText: input.fullText,
+              reply: "所选图片已经变化或不再属于这个镜头，请重新选择",
+              applied: false,
+              stale: true,
+            };
+          }
+        }
+      }
+      return {
+        ...(await handleSelectionEdit({
+          fullText: input.fullText,
+          selectedText: input.selectedText,
+          instruction: input.instruction,
+          promptRewrite: input.promptRewrite,
+          selectionContext: selection,
+          projectId: input.projectId,
+          history: input.history,
+        })),
+        applied: false,
+        stale: false,
+      };
     }),
 
   /** Synthesize story cards into a shot list */
@@ -2674,6 +2769,18 @@ export const storyAgentRouter = router({
       await deleteGeneratedImage(input.imageId, ctx.user.id);
       return { status: "ok" as const, imageId: input.imageId };
     }),
+
+  extractImageText: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        imageId: z.number().int().positive(),
+        rotationDeg: z.number().finite().min(-3600).max(3600).default(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      extractImageText({ ...input, userId: ctx.user.id })
+    ),
 
   storyVideoAssets: protectedProcedure
     .input(z.object({ storyId: z.number() }))

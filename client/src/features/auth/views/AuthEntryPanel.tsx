@@ -5,9 +5,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { resolvePostLoginDestination } from "../mobileReturnPath";
+import {
+  clearRememberedMobileRecoveryOwner,
+  reconcileMobileRecoveryOwner,
+} from "@/features/mobileWorkspace/mobileRecoveryIdentity";
 
 type AuthEntryPanelProps = {
   autofocus?: boolean;
+  returnPath?: string | null;
 };
 
 const REMEMBERED_EMAIL_KEY = "dt:rememberedLoginEmail";
@@ -22,6 +28,7 @@ function loadRememberedEmail() {
 
 export default function AuthEntryPanel({
   autofocus = false,
+  returnPath = null,
 }: AuthEntryPanelProps) {
   const { refresh } = useAuth();
   const [, navigate] = useLocation();
@@ -68,8 +75,16 @@ export default function AuthEntryPanel({
         setEmailError(messageByError[data.error] ?? "登录失败，请重试");
         return;
       }
-      await refresh();
+      const refreshedIdentity = await refresh();
       if (!isCurrentRequest()) return;
+      const nextUserId = refreshedIdentity.data?.id;
+      if (typeof nextUserId === "number") {
+        try {
+          reconcileMobileRecoveryOwner(window.localStorage, nextUserId);
+        } catch {
+          // Storage denial must not turn a successful login into an error.
+        }
+      }
       const normalizedEmail = email.trim().toLowerCase();
       try {
         window.localStorage?.setItem(REMEMBERED_EMAIL_KEY, normalizedEmail);
@@ -77,7 +92,7 @@ export default function AuthEntryPanel({
         // 浏览器禁止本地存储时仍保持正常登录。
       }
       setRememberedEmail(normalizedEmail);
-      navigate("/editing");
+      navigate(resolvePostLoginDestination(returnPath));
     } catch {
       if (isCurrentRequest()) setEmailError("网络错误，请重试");
     } finally {
@@ -142,6 +157,7 @@ export default function AuthEntryPanel({
                 type="button"
                 onClick={() => {
                   try {
+                    clearRememberedMobileRecoveryOwner(window.localStorage);
                     window.localStorage?.removeItem(REMEMBERED_EMAIL_KEY);
                   } catch {
                     // 浏览器禁止本地存储时只清理当前页面状态。

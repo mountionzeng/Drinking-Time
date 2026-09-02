@@ -11,7 +11,7 @@ import { storyVisualClipboardSizeForTesting } from "./services/storyVisualObject
 
 function context(userId: number): TrpcContext {
   return {
-    user: { id: userId, openId: `visual-${userId}`, email: null, name: "Visual", loginMethod: "test", role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    user: { id: userId, openId: `visual-${userId}`, email: null, name: "Visual", loginMethod: "test", role: "user", sessionVersion: 1, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: { clearCookie: () => {} } as unknown as TrpcContext["res"],
   };

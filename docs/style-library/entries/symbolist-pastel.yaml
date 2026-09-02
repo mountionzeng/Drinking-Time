@@ -1,0 +1,12 @@
+id: symbolist-pastel
+name: 象征主义内心显影
+status: active
+style: [象征主义, 世纪末幻想艺术]
+material: 粉彩浮尘、炭灰与未覆盖底稿
+automatic_selection:
+  scope: main
+  concepts: [dream-dissolve]
+  provider_fragments: [粉彩浮尘、炭灰与未覆盖底稿使心理状态物质化]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

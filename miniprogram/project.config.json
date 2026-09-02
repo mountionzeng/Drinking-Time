@@ -1,0 +1,37 @@
+{
+  "$schema": "https://developers.weixin.qq.com/miniprogram/dev/devtools/projectconfig.html",
+  "appid": "touristappid",
+  "projectname": "shiguang-miniprogram-test-shell",
+  "description": "拾光 · 微信原生小程序测试壳层（mock 模式，未连接真实账号）",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "src/",
+  "setting": {
+    "useCompilerPlugins": [
+      "typescript"
+    ],
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": false,
+    "coverView": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "ignoreDevUnusedFiles": false,
+    "ignoreUploadUnusedFiles": true,
+    "checkSiteMap": true,
+    "uglifyFileName": false,
+    "showShadowRootInWxmlPanel": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "minifyWXML": true
+  },
+  "condition": {
+    "miniprogram": {
+      "list": []
+    }
+  }
+}

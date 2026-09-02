@@ -9,6 +9,7 @@ import {
   computePublishingVersionRequestHash,
   confirmPublishingCoreChange,
   emptyPublishingDraftState,
+  getPublishingBodyRevision,
   getPublishingContentError,
   getXThreadStats,
   numberXThreadPosts,
@@ -1128,6 +1129,42 @@ describe("normalizePublishingDraftState", () => {
 });
 
 describe("publishing draft transitions", () => {
+  it("uses a body-only revision and deterministically upgrades legacy drafts", () => {
+    const normalized = normalizePublishingDraftState({
+      revision: 7,
+      activePlatform: "xiaohongshu",
+      selectedPlatforms: ["xiaohongshu"],
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu",
+          content: content("正文", "旧标题", ["旧标签"]),
+          appliedBaseline: content("正文", "旧标题", ["旧标签"]),
+          sourceCoreRevision: 1,
+          revision: 7,
+          updatedAt: NOW,
+        },
+      },
+      updatedAt: NOW,
+    });
+    const legacyDraft = normalized.drafts.xiaohongshu!;
+    expect(getPublishingBodyRevision(legacyDraft)).toBe(7);
+
+    const titleOnly = upsertPublishingPlatformDraft(normalized, {
+      platform: "xiaohongshu",
+      content: content("正文", "新标题", ["新标签"]),
+      now: NOW + 1,
+    });
+    expect(titleOnly.drafts.xiaohongshu?.revision).toBe(8);
+    expect(titleOnly.drafts.xiaohongshu?.bodyRevision).toBe(7);
+
+    const bodyChanged = upsertPublishingPlatformDraft(titleOnly, {
+      platform: "xiaohongshu",
+      content: content("新正文", "新标题", ["新标签"]),
+      now: NOW + 2,
+    });
+    expect(bodyChanged.drafts.xiaohongshu?.bodyRevision).toBe(8);
+  });
+
   it("adds one converted platform without changing an edited source draft", () => {
     const before = stateWithDrafts();
     const sourceBefore = JSON.stringify(before.drafts.xiaohongshu);

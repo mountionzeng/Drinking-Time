@@ -1,465 +1,274 @@
-# Drinking Time 阿里云 ECS 初始部署 Runbook
+# Drinking Time 阿里云 ECS 发布 Runbook
 
-授权边界（2026-08-05 起）：**常规代码更新**（拉最新 `main`、构建、`pm2 restart`）可以由 agent 直接在 ECS 上执行，不需要岱岱每次在场跑命令。这条边界收窄到：
+> 这份文档描述可审计的生产发布路径。它不是授权：远程部署、证书、域名、系统配置、生产数据库结构或数据变更都必须在执行前再次获得岱岱明确批准。
 
-- **agent 可以做**：`git pull`、装依赖、构建、`pm2 restart`/`reload` 已有应用、只读排查。
-- **仍然需要岱岱本人**：改安全组、动密钥/`.env` 里的密钥字段、数据库结构变更（迁移、建表）、域名/ICP 切换、新增 swap 或改系统级资源配置、任何 `rm -rf`/删数据类操作。这几类出错代价和"重新部署一次"不是一个量级，出错前必须有人确认。
+## 发布结论
 
-如果 agent 在排查中判断需要动上面第二类操作，要先停下来跟岱岱说清楚"为什么需要"，不能自己决定做。
+生产环境只有同时满足以下条件才允许公开 `/m`：
 
-目标分两段：
+- `https://www.drinkingtime.top` 是唯一应用 origin，HTTP 只做 308 跳转；
+- `DISABLE_AUTH=false`，邮箱/Google 登录使用真实账号身份；
+- `JWT_SECRET` 至少 32 字符且不是占位值；
+- `DATABASE_URL` 指向共享 MySQL，并显式带 `charset=utf8mb4`；
+- `CSP_MEDIA_ORIGINS` 是实际媒体来源的 HTTPS origin 白名单；
+- nginx 只把本机 `127.0.0.1:3000` 暴露给应用，覆盖转发协议/IP头；
+- `/healthz` 与 `/readyz` 均通过；后者会校验生产配置和 MySQL 连通性；
+- Drizzle 生产 ledger/schema 与仓库迁移基线已经在只读预检中一致。
 
-1. 备案前：先用公网 IP `http://8.160.186.193/` 跑通，nginx 反代到本机 `127.0.0.1:3000`。
-2. ICP 备案通过后：DNS 指向 `8.160.186.193`，再运行 `scripts/switch-www-drinkingtime-after-icp.sh` 切到 `https://www.drinkingtime.top`。
+不再把公网 IP HTTP、guest 身份或 `.webdev/local-persist.json` 当作“先上线再说”的生产模式。HTTP 预置阶段不公开应用。
 
-固定参数：
+## 固定参数
 
 | 项 | 值 |
 |---|---|
 | ECS 公网 IP | `8.160.186.193` |
-| 服务器项目目录 | `/opt/Drinking-Time` |
-| 远端仓库 | `https://github.com/mountionzeng/Drinking-Time.git` |
+| 正式域名 | `www.drinkingtime.top` |
+| 应用目录 | `/opt/Drinking-Time` |
 | 部署分支 | `main` |
-| 应用端口 | `3000` |
+| Node 端口 | `127.0.0.1:3000`（安全组不得放行） |
 | PM2 应用名 | `drinking-time` |
 | nginx 配置 | `/etc/nginx/conf.d/drinking-time.conf` |
-| MySQL 备份脚本 | `/opt/Drinking-Time/scripts/backup-mysql.sh` |
+| 默认已有证书 | `/etc/letsencrypt/live/www.drinkingtime.top/` |
 
-## 0. 先探明现状（只读，零风险）
+## 授权边界
 
-先 SSH 到 ECS。下面命令只读，不会改任何东西。把输出贴给复核 agent 后，再决定走全新安装还是更新已有。
+无需另批的常规维护仅限已有生产路径上的拉代码、安装锁定依赖、构建、重启已有 PM2 应用和只读排查。以下操作每次都要单独批准：
+
+- 远程首次部署或公开 `/m`；
+- 申请/更新证书、DNS、ICP、安全组和 nginx 系统配置；
+- 修改 `.env` 中的密钥、身份或 origin；
+- MySQL 建库、迁移、导入、回滚、恢复或删数据；
+- 新增 swap、改系统资源或任何破坏性操作。
+
+## 0. 只读盘点
+
+先在 ECS 上采集现状，不修改服务：
 
 ```bash
 whoami
-id
-hostname
-date
 cat /etc/os-release
-
-command -v apt-get || true
-command -v dnf || true
-command -v yum || true
-
 node -v || true
 pnpm -v || true
-pm2 -v || true
+pm2 ls || true
 nginx -v || true
 mysql --version || true
-mysqld --version || true
-mysqldump --version || true
-
-ls -la /opt || true
-ls -la /opt/Drinking-Time || true
 git -C /opt/Drinking-Time status --short --branch || true
-git -C /opt/Drinking-Time remote -v || true
-git -C /opt/Drinking-Time branch --show-current || true
-
-pm2 ls || true
-ls -la /etc/nginx/conf.d || true
+git -C /opt/Drinking-Time log --oneline -5 || true
 test -f /etc/nginx/conf.d/drinking-time.conf && sed -n '1,220p' /etc/nginx/conf.d/drinking-time.conf || true
-
-ss -lntp | grep -E ':(80|3000)\b' || true
+ss -lntp | grep -E ':(80|443|3000)\b' || true
 curl -fsS http://127.0.0.1:3000/healthz || true
-curl -fsS http://8.160.186.193/healthz || true
+curl -fsS http://127.0.0.1:3000/readyz || true
 ```
 
-如果 `/opt/Drinking-Time` 已经存在且不是这个仓库，先停下来，不要直接覆盖。
+不要把 `.env`、数据库 URL、token 或密钥贴进聊天。若目录不是预期仓库、服务来源不明或数据库 ledger 不一致，停止发布。
 
-## 1. 本地前置：确认 main 已经包含要部署的代码
+## 1. 本地代码闸门
 
-这一步在你自己的电脑上做，不在 ECS 上做。
+在主仓库、目标提交上运行：
 
 ```bash
-git checkout main
-git pull origin main
-git merge feat/mobile-chat-image
-git push origin main
+pnpm env:status
+pnpm migration:verify
+pnpm check
+pnpm feature:validate
+pnpm test:mysql-integration
+pnpm test
+pnpm build
+pnpm env:check
 ```
 
-如果你已经手动完成，就跳过。部署脚本只会在服务器上拉 `main`。
+`pnpm test:mysql-integration` 必须使用一次性 `TEST_MYSQL_DATABASE_URL`。没有该变量时命令会失败关闭并拒绝执行；这只说明“未执行”，不能算生产发布通过。
 
-## 2. 常规更新部署（agent 可直接执行；无数据库结构变更时用这条）
+## 2. 生产迁移基线只读预检
 
-前提：`main` 已经推送到 GitHub，且这次改动不涉及数据库结构、密钥、安全组、域名。
+在任何 schema 变更前，先备份，再只读比较：
 
-```bash
-ssh root@8.160.186.193
-cd /opt/Drinking-Time
-git fetch origin main
-git checkout main
-git pull --ff-only origin main
+1. 仓库 `drizzle/meta/_journal.json`、snapshot 和 SQL 文件哈希；
+2. 生产 Drizzle applied ledger 的顺序、哈希和数量；
+3. 生产表、列、索引、约束及默认字符集；
+4. U0 一次性 MySQL 从零迁移的最终结构。
+
+只读结果不一致时，不得运行 `db:push`、手工补 ledger 或跳过 migration。先形成差异报告和恢复方案，再申请单独的数据库变更批准。
+
+## 3. `.env` 发布前条件
+
+生产配置至少包含：
+
+```dotenv
+NODE_ENV=production
+PORT=3000
+APP_ORIGIN=https://www.drinkingtime.top
+OAUTH_SERVER_URL=https://auth.drinkingtime.top
+DISABLE_AUTH=false
+DATABASE_URL=mysql://<user>:<password>@127.0.0.1:3306/drinking_time?charset=utf8mb4
+JWT_SECRET=<至少32字符的随机值>
+CSP_MEDIA_ORIGINS=https://file.302.ai https://d2xsxph8kpxj0f.cloudfront.net
 ```
 
-如果服务器内存充足（`free -h` 里 available 明显大于 1GB），可以直接在服务器上构建：
+白名单必须覆盖权威数据中实际使用的图片/音视频 origin；不要使用 `*`、HTTP 或 CSP 指令片段。应用启动时会再次校验这些条件，因此 PM2 或人工直启也不能绕过。
 
-```bash
-pnpm install --frozen-lockfile
-pnpm run build
-pm2 restart drinking-time --update-env
-```
+## 4. 初始预置演练
 
-**这台 ECS 只有 1.8GB 内存、没有 swap**，`vite build` 处理 2000+ 模块时经常被 OOM killer 杀掉（`exit code 137`）。遇到这个信号，不要在服务器上加 swap 或改内存配置去硬扛——那属于系统级资源变更，需要岱岱本人决定。改用本地构建、只传构建产物这条路：
-
-```bash
-# 本地（不是服务器）：checkout 到跟服务器完全相同的 commit 再构建
-cd /path/to/drinking-time-local
-git fetch origin main && git checkout main && git pull --ff-only origin main
-# 构建前核对一次：本地 .env 里的 VITE_ 开头变量要跟服务器 .env 一致（否则会把错的公开配置打进客户端包）
-grep -E "^VITE_" .env
-ssh root@8.160.186.193 'cd /opt/Drinking-Time && grep -E "^VITE_" .env'
-NODE_ENV=production pnpm run build
-
-# 传到服务器的临时目录，不要直接覆盖正在跑的 dist/
-rsync -az --delete dist/ root@8.160.186.193:/opt/Drinking-Time/dist.new/
-
-# 服务器上原子切换 + 重启
-ssh root@8.160.186.193 '
-  cd /opt/Drinking-Time &&
-  mv dist "dist.bak-$(date +%Y%m%d-%H%M%S)" &&
-  mv dist.new dist &&
-  pm2 restart drinking-time --update-env
-'
-```
-
-部署后验收（两条路径都要做）：
-
-```bash
-curl -fsS http://127.0.0.1:3000/healthz
-pm2 logs drinking-time --lines 30 --nostream
-curl -fsS http://8.160.186.193/login | head -c 200   # 或已切到 HTTPS 后用 https://www.drinkingtime.top/login
-```
-
-`dist.bak-*` 留着，确认线上没问题后再手动清理，不要在部署脚本里自动删——保留一次立即可用的回滚点。
-
-## 3. 阿里云安全组
-
-安全组放行：
-
-- 入方向 TCP `80`：允许公网访问备案前 HTTP。
-- 入方向 TCP `22`：只给你自己的管理 IP。
-
-不要把 `3000` 放给公网。Node 只监听给 nginx 反代用，公网入口是 `80`，备案后是 `443`。
-
-## 4. 第一次上传 / 拉取部署脚本
-
-如果服务器还没有仓库，先用下面任一方式让服务器拿到脚本。
-
-推荐方式：直接从 GitHub 拉 `main`。如果 `/opt/Drinking-Time` 不存在：
-
-```bash
-sudo mkdir -p /opt
-cd /opt
-sudo git clone --branch main https://github.com/mountionzeng/Drinking-Time.git Drinking-Time
-cd /opt/Drinking-Time
-```
-
-如果仓库已经存在：
-
-```bash
-cd /opt/Drinking-Time
-sudo git fetch origin main
-sudo git checkout main
-sudo git pull --ff-only origin main
-```
-
-## 5. 先演练初始部署
-
-演练模式不会安装包、不会写 nginx、不会启动 PM2、不会改数据库。
+初始脚本安装依赖、准备应用/MySQL、构建并写入“HTTP 只跳 HTTPS”的 nginx 占位配置。它不会公开 HTTP 应用。
 
 ```bash
 cd /opt/Drinking-Time
 sudo DRY_RUN=1 bash scripts/deploy-initial-aliyun.sh
 ```
 
-看输出是否符合预期：目录是 `/opt/Drinking-Time`，端口是 `3000`，nginx 配置是 `/etc/nginx/conf.d/drinking-time.conf`，PM2 应用名是 `drinking-time`。
-
-## 6. 生成 .env 模板
-
-真实部署脚本会自动创建 `/opt/Drinking-Time/.env` 模板。如果还没创建，先真实跑一次脚本，它会装基础依赖、拉代码、创建模板，然后在 `.env` 未填完整处停下：
+演练不安装包、不写文件、不启动 PM2、不修改 nginx 或数据库。真实初始部署涉及系统和数据库变更，必须另行批准：
 
 ```bash
-cd /opt/Drinking-Time
 sudo bash scripts/deploy-initial-aliyun.sh
 ```
 
-然后编辑：
+脚本创建 `.env` 模板后会因占位值失败关闭。由岱岱在服务器本地填写真实值再重跑，不得由 agent 编造密钥。
 
-```bash
-sudo nano /opt/Drinking-Time/.env
-sudo chmod 600 /opt/Drinking-Time/.env
-```
+## 5. 数据库 expand / dual-read / enforce
 
-必须由岱岱手动填写的关键项：
+手机聊天 turn 身份采用向前兼容的三段发布：
 
-```bash
-NODE_ENV=production
-PORT=3000
-APP_ORIGIN=http://8.160.186.193
-OAUTH_SERVER_URL=http://8.160.186.193
-DISABLE_AUTH=true
-DATABASE_URL=mysql://drinking_time_app:<岱岱自定数据库密码>@127.0.0.1:3306/drinking_time?charset=utf8mb4
-JWT_SECRET=<岱岱生成的长随机密钥>
-BUILT_IN_FORGE_API_URL=<302 或其它 OpenAI 兼容接口地址>
-BUILT_IN_FORGE_API_KEY=<大模型接口密钥>
-LLM_MODEL=<模型名>
-FAL_KEY=<fal.ai 密钥>
-```
+1. **Expand**：只增加可空 turn 记录、链接和索引；迁移前后核对表、列、索引、字符集及行数。
+2. **Dual-read**：部署兼容代码，旧消息继续读取，新手机写入一律使用 durable turn；检查重复 client ID、孤立链接和异常配对，不替旧数据编造 turn。
+3. **Enforce**：只有数据检查证明安全后，才在新的批准中收紧约束。
 
-可选但建议确认：
+最后一个 rollback-safe point 是“expand 已完成、dual-read 代码已部署、尚未执行不兼容 enforce”。超过该点后，不得把应用或 schema 单独回滚到不兼容版本；优先 forward-fix，并附数据处理方案。
 
-```bash
-LLM_SUPPORTS_IMAGE=true
-LLM_SUPPORTS_RESPONSE_FORMAT=true
-VOICE_TRANSCRIPTION_MODEL=whisper-1
-DROP_ZONE_API_URL=
-DROP_ZONE_MODEL=
-VISION_API_URL=
-VISION_MODEL=
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=noreply@drinking-time.com
-HUANGLI_API_KEY=
-```
+生产结构和数据的任何实际变化都不包含在本次手机 Web 代码交付授权中。
 
-注意：
+## 6. HTTPS 切换演练
 
-- 不要把 `.env` 内容贴到聊天里。
-- `DATABASE_URL` 必须带 `charset=utf8mb4`。
-- 备案前 `APP_ORIGIN` 和 `OAUTH_SERVER_URL` 都用 `http://8.160.186.193`。
-- 登录隔离还没准备好时，保持 `DISABLE_AUTH=true`。
-
-## 7. 正式跑初始部署
-
-如果 MySQL root 没有密码：
-
-```bash
-cd /opt/Drinking-Time
-sudo bash scripts/deploy-initial-aliyun.sh
-```
-
-如果 MySQL root 有密码：
-
-```bash
-cd /opt/Drinking-Time
-sudo -E MYSQL_ROOT_PASSWORD='<只在你的终端里输入，不要贴给 agent>' bash scripts/deploy-initial-aliyun.sh
-```
-
-脚本会做这些事：
-
-1. 安装 Node.js、pnpm、nginx、PM2、MySQL 客户端/服务端。
-2. 拉取或更新 `/opt/Drinking-Time` 的 `main` 分支。
-3. 校验 `.env` 必需键。
-4. 本机 MySQL 建库 `drinking_time`、建账号、授权，字符集 `utf8mb4`。
-5. `pnpm install --frozen-lockfile`。
-6. `pnpm run build`。
-7. `pnpm run db:push` 建表/迁移。
-8. PM2 启动 `dist/index.js`，应用名 `drinking-time`。
-9. 写入 IP HTTP 版 nginx 配置。
-10. 检查 `/healthz`。
-
-## 8. 可选：导入旧 local-persist 数据
-
-如果要把本地 `.webdev/local-persist.json` 搬到生产 MySQL：
-
-1. 先把备份 JSON 安全传到服务器，比如：
-
-   ```bash
-   sudo mkdir -p /opt/Drinking-Time/.webdev
-   sudo chmod 700 /opt/Drinking-Time/.webdev
-   # 用 scp / rsync 上传 local-persist.json 到 /opt/Drinking-Time/.webdev/local-persist.json
-   ```
-
-2. 先演练：
-
-   ```bash
-   cd /opt/Drinking-Time
-   sudo -E LOCAL_PERSIST_PATH=/opt/Drinking-Time/.webdev/local-persist.json pnpm tsx scripts/import-local-persist-to-mysql.ts --dry-run
-   ```
-
-3. 确认计数后真实导入：
-
-   ```bash
-   cd /opt/Drinking-Time
-   sudo -E LOCAL_PERSIST_PATH=/opt/Drinking-Time/.webdev/local-persist.json pnpm tsx scripts/import-local-persist-to-mysql.ts
-   ```
-
-导入脚本是幂等的，已存在主键会跳过，不会 truncate。
-
-如果想让初始部署脚本顺带导入：
-
-```bash
-cd /opt/Drinking-Time
-sudo -E IMPORT_LOCAL_PERSIST=1 LOCAL_PERSIST_PATH=/opt/Drinking-Time/.webdev/local-persist.json bash scripts/deploy-initial-aliyun.sh
-```
-
-## 9. 初始部署验收
-
-在服务器上：
-
-```bash
-pm2 ls
-pm2 logs drinking-time --lines 80
-curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://8.160.186.193/healthz
-nginx -t
-```
-
-在你自己的电脑浏览器打开：
-
-```text
-http://8.160.186.193/
-```
-
-## 10. MySQL 备份
-
-手动跑一次备份：
-
-```bash
-cd /opt/Drinking-Time
-sudo bash scripts/backup-mysql.sh
-sudo ls -lh /opt/Drinking-Time/backups
-```
-
-演练：
-
-```bash
-cd /opt/Drinking-Time
-sudo DRY_RUN=1 bash scripts/backup-mysql.sh
-```
-
-可以后续加 cron，例如每天凌晨 3 点备份：
-
-```bash
-sudo crontab -e
-```
-
-加入：
-
-```cron
-0 3 * * * cd /opt/Drinking-Time && bash scripts/backup-mysql.sh >> /opt/Drinking-Time/backups/backup.log 2>&1
-```
-
-## 11. ICP 备案通过后的域名切换
-
-前置：
-
-1. DNS：`www.drinkingtime.top` 和 `drinkingtime.top` 都解析到 `8.160.186.193`。
-2. 安全组：放行 `80` 和 `443`。
-3. 当前应用已经由 PM2 跑在 `127.0.0.1:3000`。
-4. `/opt/Drinking-Time/scripts/backup-mysql.sh` 存在且可执行。
-
-先演练：
+证书须预先存在；切换脚本不会申请或修改证书，也不会修改 `.env`、PM2 或数据库。
 
 ```bash
 cd /opt/Drinking-Time
 sudo DRY_RUN=1 bash scripts/switch-www-drinkingtime-after-icp.sh
 ```
 
-确认无误后执行：
+检查输出必须明确包含：
+
+- HTTP → HTTPS 308；
+- HTTPS 反代 `127.0.0.1:3000`；
+- nginx 覆盖 `X-Forwarded-Proto $scheme` 和 `X-Forwarded-For $remote_addr`；
+- 证书路径、nginx 备份、`nginx -t`；
+- 明确说明不会修改哪些对象。
+
+获得域名/证书/nginx 变更批准后才可执行：
 
 ```bash
-cd /opt/Drinking-Time
 sudo bash scripts/switch-www-drinkingtime-after-icp.sh
 ```
 
-默认不会打开账号隔离。等旧故事迁移和 OAuth 都准备好后，再明确执行：
+脚本先验证 `.env`、证书、本机 health/readiness，再备份 nginx。`nginx -t` 失败会恢复发布前配置；成功后 reload，并通过本机 `--resolve` 验证 HTTPS。
+
+## 7. 发布后验收
+
+自动化与公网实测必须都完成：
 
 ```bash
-cd /opt/Drinking-Time
-sudo ENABLE_AUTH=1 bash scripts/switch-www-drinkingtime-after-icp.sh
+curl -fsS https://www.drinkingtime.top/healthz
+curl -fsS https://www.drinkingtime.top/readyz
+curl -sSI http://www.drinkingtime.top/m | sed -n '1,12p'
+curl -sSI https://www.drinkingtime.top/m | sed -n '1,20p'
+pm2 logs drinking-time --lines 80 --nostream
 ```
 
-## 12. 回滚
+随后用两个独立设备/浏览器身份完成：
 
-### 回滚应用代码
+- 手机登录返回 `/m`，另一账号不能读取第一账号 Story；
+- 手机聊聊 → 电脑刷新可见，电脑继续 → 手机刷新可见，turn 不重复；
+- 手机正文保存 → 电脑刷新可见，反向亦然；标题、标签、其他平台/版本不变；
+- 两端从同一 revision 修改，只能一个成功，冲突端保留本地和服务器正文；
+- iOS Safari/Android Chrome 的 320–390px、键盘、中文 IME、safe-area、横竖屏和断网恢复。
 
-查看最近提交：
+记录到 `docs/qa/2026-09-01-mobile-cross-device-acceptance.md`。未实测的项目必须写“待验证”，不能凭本地自动化推断通过。
+
+## 8. 备份与旧本地数据
+
+MySQL 变更前先演练并备份：
 
 ```bash
-cd /opt/Drinking-Time
-git log --oneline -5
+sudo DRY_RUN=1 bash scripts/backup-mysql.sh
+sudo bash scripts/backup-mysql.sh
 ```
 
-回到上一个提交并重启：
+`.webdev/local-persist.json` 只能作为受控迁移源，不能作为跨设备后端。若确需导入：先保存源文件哈希和备份，运行导入 dry-run，核对每类计数及 `userId + storyId` 归属，再单独批准真实导入。导入后再次核对，禁止把多台设备的本地 JSON 合并成“云同步”。
 
-```bash
-cd /opt/Drinking-Time
-sudo git checkout <上一个可用commit>
-sudo pnpm install --frozen-lockfile
-sudo pnpm run build
-sudo NODE_ENV=production PORT=3000 pm2 restart drinking-time --update-env
-```
+## 9. 回滚
 
-恢复到 main 最新：
-
-```bash
-cd /opt/Drinking-Time
-sudo git checkout main
-sudo git pull --ff-only origin main
-sudo pnpm install --frozen-lockfile
-sudo pnpm run build
-sudo NODE_ENV=production PORT=3000 pm2 restart drinking-time --update-env
-```
-
-### 回滚 nginx 配置
-
-初始部署脚本覆盖 nginx 前会生成：
+nginx 切换会生成：
 
 ```text
-/etc/nginx/conf.d/drinking-time.conf.before-initial-<时间戳>
+/etc/nginx/conf.d/drinking-time.conf.before-https-<时间戳>
 ```
 
-回滚：
+经批准回滚 nginx：
 
 ```bash
-sudo cp /etc/nginx/conf.d/drinking-time.conf.before-initial-<时间戳> /etc/nginx/conf.d/drinking-time.conf
+sudo cp /etc/nginx/conf.d/drinking-time.conf.before-https-<时间戳> /etc/nginx/conf.d/drinking-time.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 数据库恢复
+应用回滚前先确认目标提交兼容当前 schema。数据库恢复属于独立高风险操作：先停写、另存当前库、确认备份和恢复查询，再执行。跨过 rollback-safe point 后禁止盲目回滚旧应用/旧 schema。
 
-先停应用：
+## 10. No-Go 条件
 
-```bash
-sudo pm2 stop drinking-time
-```
+出现任一项即停止公开 `/m`：
 
-确认要恢复的备份：
+- HTTP 可直接打开应用，或 Secure/Lax Cookie 不成立；
+- `DISABLE_AUTH` 不是严格 `false`；
+- `/readyz` 非 200，MySQL 不可用或字符集不明；
+- 生产迁移 ledger/schema 与基线不一致；
+- CSP 使用 wildcard/HTTP，或正常页面资源被策略意外阻断；
+- 缺少备份、回滚点、iOS/Android 或双设备跨端证据；
+- 账号、Story、版本/平台隔离出现任何异常。
 
-```bash
-sudo ls -lh /opt/Drinking-Time/backups
-```
+## 11. 测试站邀请码摘要修复（受控，仅测试库）
 
-恢复前请先另存当前库；不要直接覆盖生产数据。需要恢复时，把具体备份文件和当前情况交给复核 agent 再操作。
+**适用范围**：测试站 `https://test.drinkingtime.top` 与测试库 `drinking_time_mobile_staging`。正式库 `drinking_time` 被脚本硬性拒绝写入，不在本节范围内。
 
-## 13. 常见问题
+**故障**：那条邀请码的 `codeHash` 是按带横线原码逐字手工 SHA-256 生成的；登录端在验证前一定会先 `normalizeInviteCode`（删空白、删横线、转大写），因此正确原码永远算不出库里的值。合同和端到端复现见 `server/services/inviteAccess.test.ts`「邀请码摘要合同」与 `server/_core/oauth.invite.test.ts`。
 
-### 脚本停在 `.env 还没填完整`
+**唯一权威**：所有摘要都来自 `server/services/inviteAccess.ts`。任何地方都不要再手算 SHA-256 或复制归一化逻辑。
 
-这是预期行为。脚本已经创建模板，但不会替你编密钥。填好 `/opt/Drinking-Time/.env` 后重跑即可。
+### 步骤
 
-### `DATABASE_URL 必须带 charset=utf8mb4`
-
-把连接串末尾改成：
-
-```text
-?charset=utf8mb4
-```
-
-### 80 端口健康检查失败
-
-依次查：
+1. 先只读核对（dry-run 是默认行为，不加 `--apply` 不会写）：
 
 ```bash
-sudo nginx -t
-sudo systemctl status nginx --no-pager
-ss -lntp | grep -E ':(80|3000)\b'
-curl -fsS http://127.0.0.1:3000/healthz
-pm2 logs drinking-time --lines 120
+pnpm invite:repair --database=drinking_time_mobile_staging
 ```
 
-### 3000 被公网直接访问
+脚本会打印连接实际指向的库、命中记录的 id/label/领取状态/过期时间/摘要指纹，以及判定结果。**原码通过不回显的交互输入读取，不接受命令行参数**，也不会出现在输出、日志或 shell history 里。
 
-这是安全组问题。应用可以监听本机 3000，但阿里云安全组不要对公网放行 3000。
+2. 判定为 `repair` 且五个前置条件都成立时，再执行写入：
+
+```bash
+pnpm invite:repair --database=drinking_time_mobile_staging --apply
+```
+
+写入是带条件的单行 UPDATE（`id` + 旧摘要 + 未领取），在事务里完成，并用登录端同一条校验路径自检；影响行数不等于 1 就回滚。
+
+3. 再跑一次第 1 步，应当输出 `no-op`。
+
+### 五个前置条件（任一不成立即拒绝）
+
+1. 连接实际指向的库与 `--database=` 显式确认的一致，且不是受保护的 `drinking_time`；
+2. 记录未领取；
+3. 记录未过期；
+4. 旧摘要正是「按原码逐字生成」的已知故障状态（`unnormalized-legacy`）；
+5. 新摘要由 `inviteAccess.hashInviteCode` 生成。
+
+判定为 `refuse` 且原因是记录已领取或已过期时，**不改旧记录**，保留审计，改用权威创建路径签发替代卡：
+
+```bash
+pnpm invite:create --label=<给谁>
+```
+
+`pnpm invite:create` 现在会在创建后立刻用登录端同一校验路径自检，自检不过就报错，不会把发不出去的码打印给你。原码只显示一次。
+
+### 边界
+
+- 远端测试库的任何写入（含本节 `--apply` 与签发替代卡）都是独立批准边界，每次执行前重新确认目标库、PM2 应用和端口。
+- 管理员 API/UI 不返回原码，也不返回 `codeHash`；本脚本输出的是摘要前 12 位指纹，仅供运维核对。

@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useQueryClient } from "@tanstack/react-query";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
+import { clearMobileRecoveryForUser } from "@/features/mobileWorkspace/mobileRecoveryIdentity";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -46,6 +47,14 @@ export function useAuth(options?: UseAuthOptions) {
   }, [queryClient, meQuery]);
 
   const logout = useCallback(async () => {
+    const currentUserId = meQuery.data?.id;
+    if (typeof currentUserId === "number" && typeof window !== "undefined") {
+      try {
+        clearMobileRecoveryForUser(window.localStorage, currentUserId);
+      } catch {
+        // Storage denial must not block explicit logout.
+      }
+    }
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
@@ -60,13 +69,19 @@ export function useAuth(options?: UseAuthOptions) {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
-  }, [logoutMutation, utils]);
+  }, [logoutMutation, meQuery.data?.id, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(
+          "manus-runtime-user-info",
+          JSON.stringify(meQuery.data)
+        );
+      } catch {
+        // Authentication must remain usable when browser storage is denied.
+      }
+    }
     return {
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,

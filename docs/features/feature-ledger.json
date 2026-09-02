@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-25T23:12:00+08:00",
+  "updatedAt": "2026-09-03T02:04:32+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -43,6 +43,16 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "视觉资产图片不再混入普通『图片』素材分类。根因是镜头图片谱系沿 parentImageId 递归收集子图时，把 kind=visual_asset 的标准板/标准视角加入了 relatedImages；在 Story 素材投影边界按 kind 排除，但仍完整保留在 visualAssets.images、资产卡、大图检查和付费证据中。Story 1187 main:3000 实测图片计数从 17 恢复为 12、资产仍为 3，标准板 #1750 仍可在资产页展开和查看大图。37 项定向测试与 TypeScript 通过。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "资产卡的标准板和每张独立标准视图新增可点击大图检查入口：点击图片以全屏遮罩按原始比例查看，支持 Esc、关闭按钮和点击遮罩返回；只读查看不改变视图状态、锁定状态或产生费用。组件回归测试覆盖标准板与单视图的可访问大图按钮。"
+        },
         {
           "date": "2026-08-22",
           "kind": "refactor",
@@ -92,6 +102,75 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "修复聊天选区跨故事串台：clearCurrentStory 逐个清了 22 个字段却漏了 activeSelection，而 loadStory 压根不走 clearCurrentStory，于是从故事 A 切到 B 后 A 的选区仍挂在输入框上，下方还提示「下一条消息会带着这个选区交给聊聊」。现在切换时真正清除，并在聊天切片选择器和 sendSelectionEdit 两处按 storyId 兜底。"
+        }
+      ]
+    },
+    {
+      "id": "selection-scoped-chat-editing",
+      "name": "聊天选区定向修改",
+      "status": "working",
+      "userValue": "选中文字、图片或图片局部后，只用一句自然语言修改该选区，选区之外保持不变。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/storyAgent/views/StoryCardsBoard.tsx",
+        "client/src/features/analysis/views/ShotTable.tsx",
+        "client/src/features/creationEditor/views/ShotPreview.tsx"
+      ],
+      "owners": [
+        "shared/selectionContext.ts",
+        "client/src/features/storyAgent/hooks/useSelectionCapture.ts",
+        "client/src/features/storyAgent/selectionLifecycle.ts",
+        "client/src/features/storyAgent/selectionSubmissionRouter.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/SelectionContextCard.tsx",
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
+        "client/src/features/creationEditor/previewObjectMaskEditing.ts",
+        "client/src/features/creationEditor/views/ShotPreview.tsx",
+        "server/archive/selectionEdit.ts",
+        "server/services/selectionTextSource.ts",
+        "server/services/storyShotFieldPatch.ts",
+        "server/routers/storyAgent.ts"
+      ],
+      "evidence": [
+        "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
+        "client/src/features/storyAgent/selectionScopedChatEditing.integration.test.ts",
+        "client/src/features/storyAgent/selectionSubmissionRouter.test.ts",
+        "client/src/features/storyAgent/selectionLifecycle.test.ts",
+        "client/src/features/creationEditor/previewObjectMaskEditing.test.ts",
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
+        "server/archive/selectionEdit.test.ts",
+        "server/services/selectionTextSource.test.ts",
+        "server/routers.storyAgentSelectionEdit.test.ts",
+        "server/routers.creationAgentMaskEditing.test.ts",
+        "server/services/imageMaskComposite.test.ts"
+      ],
+      "invariants": [
+        "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
+        "文字选区之外的原文、整图选区之外的图片与镜头、图片局部选区之外的像素必须保持不变。",
+        "目标内容、图片版本、局部蒙版或所属 Story 变化后，旧选区必须失败关闭并要求重新选择。",
+        "三类选区共享交互语义，但不得绕过既有故事归属、图片权限、非破坏性编辑、报价确认和候选采用规则。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "image-preview-local-edit-ocr",
+        "preview-object-mask-editing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "浏览器验收会话中没有可用故事数据，因此未在真实内容上手动走完划词、整图和蒙版三条 UI 链；自动化已覆盖路由、身份、漂移、权限与范围保护。",
+        "尚未执行真实 302 整图重渲或遮罩编辑烟测；两条路径都会产生费用，当前只验证到报价前失败关闭、既有签名报价/幂等收据/候选采用测试与蒙版外像素合成测试。",
+        "v1 不支持多选区、跨对象批量修改或可编辑历史聊天消息。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "decision",
+          "summary": "确认『选区即作用范围』：文字只改所选文字，整图只改目标图片，图片局部只改确认区域；无选区不猜测，目标漂移后失败关闭，并保留各自既有安全与费用流程。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feat",
+          "summary": "统一文字、整图和确认语义蒙版的活动选区身份、范围卡片和提交路由。文字由服务端读取 Story 权威内容并机械保留选区外前后缀后 CAS 写回；整图严格绑定 stableShotId 与 imageId，不再回退其他镜头或当前图；局部聊天只回填仍匹配的 Preview 蒙版会话，报价、付费生成、候选审阅和显式采用仍由原流程负责。"
         }
       ]
     },
@@ -386,7 +465,7 @@
     {
       "id": "publishing-workspace",
       "name": "个人社交发布工作台",
-      "status": "observing",
+      "status": "working",
       "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
@@ -398,7 +477,10 @@
         "server/services/imageGen.ts",
         "server/services/staticImageQualityGate.ts",
         "shared/imageRenderCost.ts",
-        "server/services/renderGate.ts"
+        "server/services/renderGate.ts",
+        "server/services/publishingPersistence.ts",
+        "shared/finishedProductVersion.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -407,7 +489,9 @@
         "server/services/publishingPersistence.test.ts",
         "server/services/imageGen.test.ts",
         "server/services/staticImageQualityGate.test.ts",
-        "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts"
+        "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts",
+        "shared/finishedProductVersion.test.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -429,11 +513,15 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "尚未完成版本、意图、封面和视频故事版统一生命周期的真实 UI 全链路验收。",
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "发布区版本操作收敛为一张成品组合表和一个 mutation；明确保存文字、图像或视频才更新对应层，普通保存、候选生成、图片采用和 Take 生成均不自动建成品版本。删除旧选择、重命名、意图自动建版和 dirty 草稿搬运弹窗。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -528,18 +616,22 @@
     },
     {
       "id": "publishing-versions",
-      "name": "发布文字稿版本",
+      "name": "成品版本组合",
       "status": "observing",
-      "userValue": "核心内容变化创建新版本，旧文字稿、封面和视频交接不会被覆盖。",
+      "userValue": "一眼看清每个成品由哪一版文字、图像和视频组成，并且只替换明确保存的那一层。",
       "entryPoints": [
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
       ],
       "owners": [
+        "shared/finishedProductVersion.ts",
         "shared/publishingDraft.ts",
         "server/services/publishingPersistence.ts",
         "server/routers/publishingDraft.ts"
       ],
       "evidence": [
+        "shared/finishedProductVersion.test.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
         "shared/publishingDraft.test.ts",
         "server/routers.publishingDraft.test.ts",
         "shared/scopedResource.test.ts",
@@ -548,21 +640,31 @@
         "server/services/storyBodyPersistence.test.ts"
       ],
       "invariants": [
-        "V2 写入不得改变 V1。",
-        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。",
-        "versions[] 是发布内容的唯一持久权威，顶层字段只能由活动版本派生。",
-        "核心变化只能提出版本转换，不能原地改写当前版本。"
+        "已完成的成品版本不可修改；新更新只能建立或修改唯一一条 editing 组合行。",
+        "文字、图像、视频三层独立，保存一层不得替换另外两层。",
+        "只有明确保存层级才更新组合；普通保存、候选生成、采用素材和付费生成不得自动建版。",
+        "完成时才分配稳定的成品 Vn、Image Vn 与 Video Vn；空媒体层不得虚构版本号。",
+        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
       ],
       "dependencies": [
         "publishing-workspace"
       ],
       "replaces": [],
       "knownGaps": [
-        "版本重命名已有工作区入口，但真实 main:3000 交互与失败重试仍待验收。",
-        "底层 committed receipt 与本地 buffer 恢复握手已接入 hydrate/loadStory；版本切换带草稿仍是 server select 与 local buffer 两步，尚无跨端原子提交。",
-        "版本转换 CAS 冲突目前仍由调用方重新读取最新 projection，统一冲突响应将在工作区作用域接入时完成。"
+        "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
+        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "validation",
+          "summary": "在主仓唯一 3000 端口加载隔离分支代码并使用真实 Story 验收：完成 V1 三层基线、V2 仅替换文字且沿用 Image V1/Video V1、editing 行放弃、连续三次刷新、跨 Story 切换与返回；未点击任何生成或付费操作。验收后已按哈希校验恢复三份真实数据备份。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "refactor",
+          "summary": "用成品组合版本替代旧发布生命周期：删除 create/select/rename 网络写入口及持久化 select/rename 命令；Text 新版只冻结 core/drafts，不继承封面、候选轮次、对话快照、画册、视频故事板、意图快照或待更新状态。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -835,10 +937,17 @@
       "status": "working",
       "userValue": "把兼容 chat/completions 的文本与视觉分析负载从 302 分流到 OpenAI Next，同时保留媒体生成和故障回退边界。",
       "entryPoints": [
+        "server/_core/llm.ts",
+        "server/_core/agentChannel.ts",
+        "server/routers/index.ts",
         "server/services/textComputeProvider.ts"
       ],
       "owners": [
         "server/_core/env.ts",
+        "server/_core/textComputeProvider.ts",
+        "server/_core/inferenceOrchestrator.ts",
+        "server/_core/llm.ts",
+        "server/_core/agentChannel.ts",
         "server/services/textComputeProvider.ts",
         "server/services/semanticAnnotation.ts",
         "server/services/publishingVideoStoryboard.ts",
@@ -850,6 +959,12 @@
         "server/services/imageGen.ts"
       ],
       "evidence": [
+        "server/_core/textComputeProvider.test.ts",
+        "server/_core/inferenceOrchestrator.test.ts",
+        "server/_core/llm.test.ts",
+        "server/_core/agentChannel.test.ts",
+        "server/archive/shotSynthesis.channel.test.ts",
+        "server/emotionAnalysis.router.test.ts",
         "server/services/textComputeProvider.test.ts",
         "server/services/semanticAnnotation.test.ts",
         "server/services/publishingVideoStoryboard.test.ts",
@@ -866,11 +981,14 @@
         "OpenAI Next 只承接 OpenAI 兼容的文本与多模态 chat/completions。",
         "图片生成与编辑、视频生成与扩展、TTS、转写及其付费任务凭据继续由 302 专用配置承接。",
         "OpenAI Next 未配置时自动回退 302；两个通道都不可用时保持现有本地保底。",
+        "故事 Agent 固定优先使用 OpenAI Next gpt-5.6-terra，仅对可重放瞬时失败回退 302 Claude。",
+        "登录欢迎页访客回信固定使用 OpenAI Next deepseek-v4-flash，失败只用本地模板且不转发 302。",
         "API Key 只允许通过未提交的环境变量注入。"
       ],
       "dependencies": [],
       "replaces": [],
       "knownGaps": [
+        "本次新增的 Story Agent、登录 DeepSeek V4 与视觉统一执行器尚未使用轮换后的低额度 Key 做主仓 3000 真实 smoke；当前只完成 mock/契约回归。",
         "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。"
       ],
       "history": [
@@ -903,6 +1021,21 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "使用真实 OpenAI Next 通道验证 gpt-5.6-terra 返回 HTTP 200，并确认 JSON 输出、max_completion_tokens 与 reasoning_effort 请求参数可用。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "建立核心 provider 能力档位与最多两次请求的推理编排器；故事 Agent 改为 OpenAI Next gpt-5.6-terra 优先、302 Claude 仅作安全回退，Script Structure 不再私建网络通道。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "登录欢迎页访客回信改为 OpenAI Next deepseek-v4-flash 专用路由，失败仅回本地模板并在黄历/模型调用前限制公开 payload。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "verification",
+          "summary": "统一语义标注、发布故事板转写、视觉导演、归档视觉和图片编辑身份提取；付费图片/视频、TTS 与转写 adapter 保持独立。"
         }
       ]
     },
@@ -942,6 +1075,80 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "旁白与声音分栏、TTS 复用和跨 Story 迟到结果隔离通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "semantic-art-prompt-library",
+      "name": "可筛选美术提示词库",
+      "status": "partial",
+      "userValue": "把创作者认可的艺术参照、媒介、色彩、构图、材质及适用语境保存为可筛选、可追加的美术卡片。",
+      "entryPoints": [
+        "docs/style-library/WORD_BANK.md",
+        "server/services/styleLibrary.ts"
+      ],
+      "owners": [
+        "docs/style-library/MANUAL.md",
+        "docs/style-library/_TEMPLATE.yaml",
+        "docs/style-library/entries",
+        "server/services/styleLibrary.ts",
+        "server/services/semanticEvidenceNormalizer.ts",
+        "server/services/semanticArtDirectionCatalog.ts",
+        "server/services/temporalVisualContext.ts",
+        "server/services/renderGate.ts",
+        "shared/semanticArtDirection.ts"
+      ],
+      "evidence": [
+        "server/services/styleLibrary.test.ts",
+        "server/services/styleLibraryWordBank.test.ts",
+        "server/services/semanticEvidenceNormalizer.test.ts",
+        "server/services/semanticArtDirectionCatalog.test.ts",
+        "server/services/temporalVisualContext.test.ts",
+        "server/services/renderGate.test.ts",
+        "server/services/publishingCoverArtDirection.test.ts",
+        "shared/semanticArtDirection.test.ts"
+      ],
+      "invariants": [
+        "新增和大改卡片默认保持 draft；只有用户筛选或校准后才转 active。",
+        "艺术家、电影和作品传统只作内部策展出处；自动选择发给图片模型的片段只描述可观察画面特征。",
+        "当前表达与明确风格要求优先；年龄只能来自用户明确授权且不能单独触发画风，旧情绪不能冒充当下状态。",
+        "没有足够证据、候选并列或用途不相容时不自动套卡；一次最多一张主风格和一张相容辅助效果。",
+        "时间、季节和服装必须有明确语境依据，且不得覆盖用户已说明的人物与穿着事实。",
+        "长期情绪画像继续服务每日回信与剧本共鸣，但不进入美术自动选择；只有本轮明确情绪可作为当前状态证据。",
+        "只有用户明确表达当下语境时才按上海时区当天日期推导季节；参考画面的可见服装始终优先。"
+      ],
+      "dependencies": [
+        "unified-static-image-prompt"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "12 张历史 draft 与 3 张历史手动 active 卡仍等待用户逐项筛选，旧 affinity 字段不参与新的语义自动选择。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "feature",
+          "summary": "建立确定性语义证据归一器、低置信度跳过的主辅卡选择器和 9 张具有自动选择元数据的基础美术卡。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "建立 24 张卡的人工筛选总表、新卡模板和维护规则；补充情绪、生命体验、明确年龄阶段、年代、季节、服装及反向信号槽位。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "自动验证筛选总表与 YAML 条目一一对应、内部艺术出处不进入语义 provider 片段，词库与选择器针对性测试通过。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "用词库语义选择器替换 renderGate 的硬编码艺术家谱系；只使用本轮明确指令、当前情绪和故事文字，并增加显式年代色调、当下季节与服装约束。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "验证低证据不套卡、一主一辅、内部艺术家只转为可观察特征、旧画像不冒充当下、明确年份与年代色调、上海当季服装、参考画面服装优先级，以及被否定的情绪、年代和季节不会反向触发。"
         }
       ]
     },
@@ -1479,6 +1686,7 @@
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
         "Vidu Q2 Turbo 请求时长只能是 1 到 8 秒整数：按两针间隔向下取整并封顶 8 秒；不足 1 秒必须在付费前阻止。",
         "抽帧素材必须同时写入一个 durationFrames=1 的持久 imageClip；界面可以给它最小操作宽度，但结构时长仍严格是一帧。",
+        "Preview 播放经过一帧 imageClip 时，图片作为当前帧覆盖层显示，但不得卸载或重建其下方仍连续的 video 节点；图片结束后必须直接露出同一视频实例和连续媒体时间。",
         "采用成功必须在同一原子事务中创建对应 story shot、时间线项并绑定生成 Take；重复确认按 candidate stableShotId 幂等，不能产生重复镜头列。",
         "抽帧静帧一旦取得即成为图片仓库永久资产；时间线只保存非所有权的一帧引用，删除或撤销引用不得删除仓库备份。",
         "生成视频作为普通 story shot 从首帧图片的绝对时间开始，位于全部来源图片最高层的相邻可见上一层；首尾图片分别对齐视频边界并继续保留，不再新增 legacy overlay。",
@@ -1524,6 +1732,41 @@
         "播放推进依赖 requestAnimationFrame，无法用无头浏览器验证（隐藏页面里浏览器会冻结 rAF）。时钟的算术与「片尾按播放回到开头」有单测覆盖，真实播放需人工在浏览器确认。"
       ],
       "history": [
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "修复候选结构演进后历史付费任务无法采用：恢复时继续核对当前 Story、抽帧归属、镜头身份、绝对落点和锚点冲突，但保留任务已锁定的 candidateId、提示词与参数，只刷新时间轴版本和可信图片 URL；首次付费前仍执行整对象严格校验。24 个相关测试文件 424 项、TypeScript 与账本验证通过。"
+        },
+        {
+          "date": "2026-08-31",
+          "kind": "fix",
+          "summary": "修复抽帧成功但 Storyboard 上层看不见新帧：真实 Story 1186 中 00:05.567 的新图片已持久化在视觉层 4，但与 00:05.667、00:05.933、00:06.500 的既有 40px 缩略图重叠，并因相同 z-index 被后渲染旧图完整遮住。现在播放头命中的抽帧提升到 z-30，结构仍保持 durationFrames=1；回归测试覆盖相邻抽帧缩略图重叠场景，localhost:3000 验证目标 image #1773 为 z-index 30、相邻 image #1769 为 10。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "feature",
+          "summary": "Preview 区域修改复用暂停抽帧的一帧 imageClip：采用候选时只在服务端时间线 CAS 中替换精确 clip 的 imageId/imageUrl，clip 身份、绝对帧、单帧时长、图层和内嵌 transform 保持不变，旧 imageId 的构图与文字索引迁移到候选；持久 video 节点继续留在覆盖层下方，正常播放防闪烁语义不变。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "修复正常播放经过抽帧图片时的闪烁：此前图片赢家会令 videoUrl 变为 null，Preview 在 video→img→同一 video 之间切换；真实连续采样中一帧图片被放大为约 152ms，随后新 video 还需约 270ms 才恢复正确时间。现在单独解析图片下方的连续视频，把 imageClip 渲染为 pointer-events-none 覆盖层；权威可见赢家和抽帧判断仍保持原规则。main:3000 同路径复测时覆盖前后 take-1288 与 take-1603 均保持同一 DOM 实例、readyState=4，媒体时间连续前进。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "verification",
+          "summary": "主仓库 main:3000、真实已登录 Story 只读验收：有视频的 Preview 播放中显示禁用的『暂停后编辑』，中段暂停后原位显示可用的『编辑当前帧』，视频画面保持暂停且 console 无错误。未点击编辑入口、未创建真实抽帧、未应用图片修改。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "Preview 新增暂停态『编辑当前帧』：用户暂停视频后点击，客户端把当前播放头和可见视频的操作层交给既有服务端权威抽帧命令；成功回执直接打开抽帧图片的构图/旋转/文字/OCR 编辑器。抽帧仍永久进入图片仓库并落为一帧独立 imageClip，原视频不改写；播放中按钮明确禁用，重复点击继续共享幂等请求。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "fix",
+          "summary": "图片构图保存现在除 imageTransforms 映射外，还同步更新同镜头内 imageId 匹配的独立 imageClip.transform，避免抽帧编辑提示保存成功但 Preview 仍读取旧 clip.transform；其他图片 clip 保持不变。定向客户端、模型与服务端 5 文件 116 项测试及 pnpm check 通过。"
+        },
         {
           "date": "2026-08-25",
           "kind": "feature",
@@ -1785,11 +2028,14 @@
       "id": "story-visual-assets",
       "name": "Story 锁定式视觉资产",
       "status": "observing",
-      "userValue": "把人物固定造型、场景空间和美术风格锁定为可复用资产，让已关联镜头只展示通过一致性验收的图片候选。",
+      "userValue": "把人物固定造型、宠物固定外观、场景空间和美术风格锁定为可复用资产，让已关联镜头只展示通过一致性验收的图片候选。",
       "entryPoints": [
         "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
         "client/src/features/creationEditor/visualAssets/VisualAssetLibrary.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
         "server/routers/visualAssets.ts",
+        "docs/brainstorms/2026-08-26-visual-asset-production-workflow-requirements.md",
+        "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md",
         "docs/brainstorms/2026-08-21-story-visual-assets-requirements.md",
         "docs/plans/2026-08-21-001-feat-story-visual-assets-plan.md",
         "docs/handoff/2026-08-22-visual-asset-chat-edit-handoff.md",
@@ -1810,29 +2056,37 @@
         "shared/visualAssets.test.ts",
         "server/services/storySync.visual-assets.test.ts",
         "server/services/visualAssetPersistence.test.ts",
+        "server/services/visualAssetReferenceArchitecture.test.ts",
         "server/routers.visualAssets.test.ts",
         "server/services/visualAssetCreation.test.ts",
+        "client/src/features/storyAgent/chatMediaAttachments.test.ts",
+        "client/src/features/storyAgent/assetSwapIntent.test.ts",
         "server/services/visualAssetBoardStructure.test.ts",
         "server/_core/inferenceOrchestrator.test.ts",
         "server/services/visualAssetAssociations.test.ts",
         "server/services/visualAssetGenerationContext.test.ts",
         "server/services/visualAssetConsistencyGate.test.ts",
         "client/src/features/creationEditor/visualAssets/VisualAssetLibrary.test.tsx",
+        "client/src/features/creationEditor/visualAssets/VisualAssetCreationDialog.test.tsx",
         "client/src/features/creationEditor/visualAssets/ShotAssetBindingPanel.test.tsx",
         "docs/brainstorms/2026-08-21-story-visual-assets-requirements.md",
         "docs/plans/2026-08-21-001-feat-story-visual-assets-plan.md",
-        "server/services/publicReferenceHost.test.ts"
+        "server/services/publicReferenceHost.test.ts",
+        "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md"
       ],
       "invariants": [
         "资产严格属于当前 Story；所有读写和图片引用同时校验 storyId 与 userId。",
-        "人物资产版本只代表一套固定脸、发型、服饰和配件；场景与风格分别锁定自己的固定事实。",
-        "人物标准板由三次独立付费生成的正面 / 严格 90° 侧面 / 背面全身视角在服务端合成；构图由代码保证，模型每次只画一个视角。场景与风格同理，四个视角合成 2×2。生成底图必须是真实参考图，禁止用中性占位模板。",
+        "人物资产版本只代表一套固定脸、发型、服饰和配件；宠物是独立 pet 维度，锁定物种、头脸、毛色纹理、体型、标志特征和固定配件，不得伪装成 character；场景与风格分别锁定自己的固定事实。",
+        "聊天上传照片的自动提取结果只能建立待检查版本：人物脸、发型、服饰和配件写入 character，宠物固定外观写入 pet，空间、材质和关键物体写入 scene.fixedProps；人物、宠物主体不清晰或字段不完整时禁止编造对应资产，未锁定和未绑定版本不得进入后续生成。",
+        "每张资产参考必须持久化 imageId 与明确职责：人物使用 character-identity，宠物使用 pet-identity，场景使用 scene-space，风格使用 style-language；不得顺带控制其它资产维度、构图或主体布局。所有新 writer 只接受 references，旧 referenceImageIds 只允许在共享归一化器中读取迁移。",
+        "人物和宠物标准板分别由四次独立付费生成的正面 / 严格 90° 侧面 / 背面全身与正面头部特写在服务端合成；构图由代码保证，模型每次只画一个视角。场景与风格的四个视角合成 2×2。生成底图必须是真实参考图，禁止用中性占位模板。",
         "AI 镜头关联建议在用户确认前不得影响正式生成，确认绑定必须使用 stableShotId 和不可变资产版本。",
         "已绑定资产的 Story 镜头缺少参考、发生固定事实冲突或质检为 fail/unknown 时不得静默付费或进入可采用候选。",
         "自动重试必须预先展示最坏总费用并有硬上限；已受理但状态不明的供应商任务不得自动重提。",
         "生成成功不等于自动采用；历史图片继续指向生成时实际使用的资产版本与验收结论。",
         "标准视图按视角分别计费，报价必须展示所有视角的总额；中途失败重试只补买失败的视角，已付费视角凭回执复用，不得重复购买。",
-        "人物资产的身份锚点必须是正面头部特写（identity-detail），且该视图必须真实生成、不得由全身图裁切派生；全身图里的脸不足以锁住五官，也不足以作为下游出图的身份证据。"
+        "人物和宠物资产的身份锚点必须是正面头部特写（identity-detail），且该视图必须真实生成、不得由全身图裁切派生；全身图里的脸或头部不足以锁住身份，也不足以作为下游出图的身份证据。",
+        "素材仓库必须把 pet 显示为独立的“宠物”类别；同一镜头允许同时绑定一个 character 和一个 pet，生成合同与一致性门禁必须分别核对两者。"
       ],
       "dependencies": [
         "story-ownership",
@@ -1842,6 +2096,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "已用一张真实宠物照片和一张真实人物照片完成自动提取正例验收：宠物只创建 pet+scene，人物只创建 character+scene，职责分别为 pet-identity / character-identity，未发生宠物冒充人物。尚未执行真实负例集、四视角付费生成、锁定、人物+宠物同镜绑定及候选一致性验收；未经用户确认不得提交这些付费任务。",
         "真实图片负例集和经用户确认的三镜付费验收尚未执行，因此不能宣称人物、场景与风格已经达到零 false-accept。",
         "Creation 单图循环已具备三次总费用确认和最多三次自动质检重试；storyAgent.generateForMobile 目前完成付费前资产预检与三职责注入，但生成后重试/候选隔离仍需收敛到同一循环。",
         "旧 setCharacterAnchor 入口仍为未迁移 Story 保留，尚未完成 U8 的交互清理和提示词谱系资产版本记录。",
@@ -1855,9 +2110,85 @@
         "视觉资产图片只有本地单份，且 imageKey 不能当作异地备份存在的证据：storeImageBytes 的远程备份是 void 的发射后不管，函数在备份 promise 落定前就无条件返回确定性算出的 imageKey（该函数顶部注释写的『成功记 imageKey』与实现不符）。/api/images 的兜底只在本地文件丢失时按 key 回源，所以 302 备份 503 期间产出的图一旦本地丢失就彻底没了。项目里没有补传队列或补传脚本。本轮花钱产出的 1712/1715/1718/1724-1728 都在这个风险里。",
         "绑定后的镜头出图硬依赖 302 对象存储，而且是被我自己的闸门逼出来的：resolveVisualAssetGenerationContext 只放行 midjourney（其余 provider 一律 provider-role-unsupported），而 MJ 的 cref/sref 靠 URL 传参考图，于是 character/style 必须走 toPublicImageUrl → storagePut；302 存储 503 时整条绑定→出图链路不可用。gpt-image 多图编辑是直接上传字节的、不需要公网 URL，却被这条限制挡在门外。放开 gpt-image 可以去掉这个外部硬依赖。",
         "整条流程从未在界面上走完，只用 curl 打接口验过：服务端 18 个能力里 UI 只接了 13 个。最严重的是 reviewViews 没有入口——结构质检返回 unknown 时（今天两次：返回格式漂移、置信度 0.75 低于 0.85 门槛）视图卡在 unknown，isVisualAssetVersionLockable 恒为 false，锁定按钮永久置灰，用户拿着一块画对的板子却锁不上、也无处申诉。另缺 amendFixedFacts（改造型）、quoteView/regenerateView（单栏重出 ¥1.49，否则只能整套 ¥5.96）。另外四张标准视图在卡上是 object-cover 小格子，人物全身图里看不清脸，无法支撑「人工核对真实像素」。",
-        "OSS 公网参考托管已实现但未启用：需要 OSS_REGION / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET（可选 OSS_PUBLIC_BASE_URL）写进服务端环境；未配置时仍回落到已失效的 storagePut，绑定→出图依旧不可用。另：参考图对象是 public-read，任何拿到 URL 的人都能匿名访问（MJ 服务端必须匿名拉取），key 带内容哈希只防枚举不防转发。"
+        "OSS 公网参考托管已实现但未启用：需要 OSS_REGION / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET（可选 OSS_PUBLIC_BASE_URL）写进服务端环境；未配置时仍回落到已失效的 storagePut，绑定→出图依旧不可用。另：参考图对象是 public-read，任何拿到 URL 的人都能匿名访问（MJ 服务端必须匿名拉取），key 带内容哈希只防枚举不防转发。",
+        "Story 1187 已用同一张图片 #1680 分别建立人物、场景和美术风格资产并完成刷新读回。人物修复后的 identity-detail #1753 与标准板 #1754 已人工原像素验收通过；场景四视角 #1755-#1758 与标准板 #1759 已人工验收通过。风格任务继续复用 token visual-board-b2f2e4b6…：人物样例 #1761、场景样例 #1762 已生成并人工确认风格一致，object-sample 再次 fetch failed，closeup-sample 尚未开始，未合成标准板。该同步接口的失败是否计费不可确认；按最坏口径当前可能为 ¥22.35，已在用户批准的 ¥23.84 上限内停止。人物、场景与风格版本均保持未锁定。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "feature",
+          "summary": "Preview 图片编辑新增『区域修改』入口：静态图可直接点选物体，视频必须暂停并先抽成独立一帧；蒙版确认、签名费用报价、候选审阅与明确采用均不改变原有旋转、翻转、构图、文字和 OCR 的非破坏语义。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "verification",
+          "summary": "在隔离 Story 1193「人物与宠物识别测试 2026-08-27」用用户授权的真实照片完成正例验收：猫照片 #1763 创建独立 pet 待检查资产 va_5gc2e1zoR5tM（pet-identity）及 scene，未创建 character；人物照片 #1764 创建独立 character 待检查资产 va_Q1TdFJ1zXmOi（character-identity）及 scene，未创建 pet。仓库明确显示“宠物”和“人物”，固定特征可读，两次自动提取回执均 succeeded。未生成标准视图、未锁定或绑定、未提交任何付费图片/视频任务。另观察到通用素材归类建议只成功分析猫图、人物图显示分析失败，但不影响视觉资产提取结果。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "fix",
+          "summary": "宠物能力收尾审查修复三类边界：照片中某一维度固定事实不完整时只跳过该维度，保留同图里可靠的人物/场景并继续通过唯一 Story CAS 保存；宠物资产分析措辞即使包含“生成”也不会误进付费改图；聊天替换某一资产维度会合并镜头已有绑定，只覆盖目标维度，人物与宠物不再互相清除。标准视图读取改为同一资产内并行物化，并补齐 TypeScript 联合类型。未执行真实照片外传或付费生成。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "聊天照片单次视觉分析新增独立 pet 维度，提取物种、头脸、毛色纹理、体型、标志特征和固定配件；宠物不再落入 character，素材仓库显示为“宠物”。同一 Story CAS 可原子创建人物、宠物与场景待检查资产，宠物使用 pet-identity 参考职责；标准视图、结构质检、AI/手动镜头绑定、生成提示词合同、供应商参考和生成后一致性门禁全部扩展到 pet，同一镜头可同时绑定人物和宠物。主体不清晰或固定字段不完整时 fail-closed，不保存猜测。未执行真实付费生成。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "聊天框上传照片后会用一次视觉调用同时提取人物面部/发型/服饰/配件、场景空间/材质和关键物体，并通过唯一 Story CAS 原子创建 character 与 scene 待检查资产；同一图片分别持久化 character-identity 与 scene-space 职责，物体进入 scene.fixedProps。无人脸不创建人物资产，看不清不猜，失败不丢已导入图片也不阻断原图生图确认。资产仍须在素材仓库完成检查、标准视图、锁定和镜头绑定，既有生成上下文才会把这些特征编入提示词合同。定向 66 项与 TypeScript 通过；全量 3218 项中 3216 项通过，2 项仅在全量并发下超时且分别单独重跑通过。未提交付费生成。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "用户接受同步失败的未知计费风险并把上限提高到 ¥23.84 后，再次严格恢复原风格 token visual-board-b2f2e4b6…。本次复用了相同 inputHash 且只推进缺失视角：character-sample #1761 与 scene-sample #1762 成功，两张均为一致的复古纸张拼贴、水彩/水粉底层和松散手绘线条；object-sample 约 78 秒后再次 fetch failed，closeup-sample 未开始，标准板未合成。按约定没有再次重提。已确认成功费用最高 ¥17.88；若此前两次 character 失败和本次 object 失败均被同步端计费，最坏当前总额 ¥22.35，仍在 ¥23.84 上限内。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "用户确认继续后，主仓库 3000 服务已退出，按环境铁律运行 env:status 确认无其它服务后只在主仓库重启。切回 Story 1187 后，风格任务严格复用原 token visual-board-b2f2e4b6… 与同一 inputHash 53c4c033…，没有创建新 board token；character-sample 第二次仍在约 66 秒后报『302 图生图失败：fetch failed』，无风格图片落库。只读诊断确认 api.302.ai 根地址 DNS/TLS/HTTP 200 正常，但实际 /v1/images/edits?async=false 大 multipart 请求连续失败；该同步路径不会调用 onProviderTaskAccepted，因此回执缺少 providerTaskId 不能证明对端未计费。为避免未知费用和突破 ¥20.86 上限，未进行第三次重试。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "用户把全流程上限提高到 ¥20.86 后继续真实付费验收。修复后的 Story 1187 人物 identity-detail #1753 是清晰正面头肩特写，五官、发际线和低丸子头可读，并合成标准板 #1754；场景主视角 #1755、反向 #1756、侧向 #1757、正交俯视 #1758 及标准板 #1759 人工检查通过，拼贴墙、桌面、电脑、笔筒、饮料杯和汉堡在各视角保持。风格任务 token visual-board-b2f2e4b6… 在首个 character-sample 报『302 图生图失败：fetch failed』，providerTaskId 为空、无图片落库，证明供应商未受理；按失败即停规则未重提。按最高报价口径已使用 ¥14.90，剩余 ¥5.96 正好覆盖风格标准板。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "用户授权最高 ¥1.49 重生 Story 1187 的 identity-detail；任务实际成功生成 #1751 并合成标准板 #1752，但人工原像素检查确认它仍是全身图。根因是 viewPrompt 对所有 character 视角无条件追加『从头顶到鞋底完整入画、全身占 80%』模板，直接覆盖了前面的头部特写要求；现按 role 分支，identity-detail 只允许头部、颈部和肩线入画并明确禁止胸部以下、手、腿、脚和全身，前三个视角继续保留全身约束。回归测试先复现失败后通过。为避免重复付费，修复后未再次提交，场景与风格也按顺序门禁保持未提交。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "修复标准板中途失败后的重复付费风险。Story 1187 首次人物任务 token visual-board-96fe6a41… 已买到正面 #1746 后，侧面在供应商提交前 fetch failed；旧 UI 每次点击都会生成新 board token，而服务端仅按 `${boardToken}:view:${role}` 复用成功子结果，新 token 会再次购买正面。新增共享恢复选择器：按报价 inputHash 找回最近的 failed/unknown 整板 token，且必须存在同前缀视角回执；UI 用原 token 恢复。真实恢复确认正面 #1746 未重复生成，只补得侧面 #1747、背面 #1748、identity-detail #1749，并合成标准板 #1750。16 项定向测试与 TypeScript 通过。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "Story 1187 人物标准板 #1750 完成人工原像素检查：正面、严格侧面和背面三栏构图可用，但 identity-detail #1749 仍画成全身人物，不满足『正面头部特写、五官清晰充满画面』的不变量。自动结构质检同时因 openai-next/qwen3-vl-plus network 与 302/gemini-3-pro-preview timeout 按 fail-closed 写为 unknown，人物版本保持 review 且不可锁。重生该视角需新增最高 ¥1.49，未获追加授权前停止；场景与风格未提交。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "付费前真实报价核对发现人物标准板当前实际计费 4 次（identity-detail / front / profile / back，共 ¥5.96），界面仍误写成正面/侧面/背面『三视图』，导致金额虽正确但计费内容少报一张。统一改称人物标准视图，并在确认框逐项列出正面头部特写、正面全身、严格 90° 侧面全身、背面全身；新增纯函数回归测试锁住 4 次、四项内容和总价展示。未提交任何付费生成。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "fix",
+          "summary": "修复底部素材仓库的视觉资产抽屉在窄视口中横向裁切、纵向内容不可达的问题：移除重复的资产标题与使用顺序说明，取消 720px 容器和 430px 卡片硬宽度，资产改为全宽单列摘要卡；人物、场景、风格默认同时可见，点摘要展开完整标准视图、固定事实与原有分析/生成/锁定/版本操作。资产页单独启用纵向滚动且禁止横向溢出，创建资产入口移至列表尾部保留。定向组件测试、TypeScript、feature ledger 校验与 main:3000 真实 Story 1187 布局测量通过。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "main:3000 在真实 Story 1187 完成 R1-R4 保存验收：同一张图片 #1680 经三次明确操作建立「开发者女孩」「灰色拼贴工位」「复古纸张拼贴插画」，刷新后分别持久化 character-identity、scene-space、style-language，schemaVersion=2、Story revision=2157。三项视觉分析均进入待检查且冲突为空；场景第一次返回不完整固定事实时被 fail-closed 拒绝，重试后才保存完整结果。未触发标准视图、图片或视频付费生成。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "refactor",
+          "summary": "按架构精简指南收敛视觉资产制作流程的第一条纵向切片：schema v2 将资产参考从只有 referenceImageIds 改为持久化 imageId + 类型约束职责（character-identity / scene-space / style-language），创建/建新版、Story CAS、tRPC、分析输入和素材仓库 UI 共用同一协议；旧字段只在共享归一化器保留一个读取迁移点，静态棘轮禁止新 writer 复活。类型不匹配在写入前拒绝且不推进 revision。TypeScript 与 10 个定向测试文件共 58 项通过；main:3000 在 Story 1186 选择人物与图片 #1618 后可见“只证明人物身份与固定造型，不控制构图和场景”，未提交测试资产、未调用模型或付费供应商，控制台无错误。"
+        },
         {
           "date": "2026-08-22",
           "kind": "fix",
@@ -2017,9 +2348,11 @@
       "userValue": "在对话框里选中几张已有的图，用一句话说清楚从每张取什么，直接合成一张新图，再拖进剪辑层或镜头设计表。",
       "entryPoints": [
         "client/src/features/storyAgent/views/ChatImageRemixTray.tsx",
-        "client/src/features/storyAgent/views/ImageRefToggleButton.tsx"
+        "client/src/features/storyAgent/views/ImageRefToggleButton.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "client/src/features/storyAgent/chatMediaAttachments.ts",
         "client/src/features/storyAgent/chatImageRefs.ts",
         "client/src/features/storyAgent/chatImageRefsStore.ts",
         "client/src/features/storyAgent/useChatImageRemix.ts",
@@ -2028,6 +2361,7 @@
         "server/routers/storyAgent.ts"
       ],
       "evidence": [
+        "client/src/features/storyAgent/chatMediaAttachments.test.ts",
         "client/src/features/storyAgent/chatImageRefs.test.ts",
         "client/src/features/storyAgent/chatImageRefsStore.test.ts",
         "client/src/features/storyAgent/storyImageDrag.test.ts",
@@ -2054,6 +2388,16 @@
         "改图过程和结果只停在输入框上方的托盘里，不进对话历史，刷新页面后结果卡消失（图本身已在仓库里，不会丢）。"
       ],
       "history": [
+        {
+          "date": "2026-08-26",
+          "kind": "feature",
+          "summary": "聊天框拖入本地照片并附带明确的生成、重绘或改图指令时，导入所得 generated_images 行会直接成为当前 Story 的图生图参考，复用既有费用确认卡与 remixEdit 生成链路；分析类指令和『不要生成』等否定表达继续走普通素材分析，不会触发付费任务。新图仍只进入素材仓库，不自动替换镜头。"
+        },
+        {
+          "date": "2026-08-26",
+          "kind": "verification",
+          "summary": "主仓库 main:3000、Story 1187 真实验收：从聊聊上传本地照片并输入『基于这张照片生成一张雨夜电影感的新图』，临时图片 #1760 成为图1底图，确认卡原样显示指令、预计 ¥1.49 和『确认后才会提交 302』；未点击付费按钮。随后取消确认、通过正式删除入口清除 #1760，刷新后素材图片计数从 13 恢复为 12，参考篮清空且页面无新错误。"
+        },
         {
           "date": "2026-08-22",
           "kind": "fix",
@@ -2115,6 +2459,547 @@
           "date": "2026-08-22",
           "kind": "feature",
           "summary": "新增聊天框内的资产替换链路：选中镜头画面 → 三信号判定意图 → 提案卡（含绑定持续生效说明与费用）→ confirmBindings + 带 shotNo 重渲 → 「用这张」采用。main:3000 实测修掉三处：供应商传 gpt-image 命中 provider-role-unsupported、用户原话进提示词自撞一致性闸门、提案卡把 markdown 星号原样显示给用户。"
+        }
+      ]
+    },
+    {
+      "id": "image-preview-local-edit-ocr",
+      "name": "Preview 图片编辑与文字提取",
+      "status": "observing",
+      "userValue": "选中镜头图片后，可以从 Preview 直接旋转、翻转、调整构图和提取文字，也可以在聊天框用自然语言执行倒转与 OCR。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
+        "client/src/features/creationEditor/views/ImageClipEditorPanel.tsx",
+        "client/src/features/creationEditor/views/ShotPreview.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
+      ],
+      "owners": [
+        "client/src/features/storyAgent/chatImageLocalEdit.ts",
+        "server/services/imageTextExtraction.ts"
+      ],
+      "evidence": [
+        "client/src/features/storyAgent/chatImageLocalEdit.test.ts",
+        "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
+        "client/src/features/creationEditor/imageClipEditorModel.test.ts",
+        "client/src/features/creationEditor/views/ImageClipEditorPanel.test.tsx",
+        "client/src/features/storyAgent/views/SelectionContextCard.test.tsx",
+        "server/services/imageTextExtraction.test.ts",
+        "server/services/visualClipEditing.test.ts"
+      ],
+      "invariants": [
+        "旋转、翻转和构图继续保存为当前镜头、当前 imageId 的非破坏性 TimelineTransform，不改写 generated_images 原图，也不创建重复资产。",
+        "点击 Preview『调整画面』会先停止播放；权威可见赢家为视频时必须先完成服务端抽帧并落为独立一帧 imageClip，所有修改只作用于该静帧，原视频保持不变。",
+        "聊天框只对明确命中倒转或 OCR 的图片选区走本地编辑；人物替换、重绘和其他生成式要求必须继续放行给既有提案或生成链路。",
+        "OCR 必须按 storyId、imageId 和 userId 校验图片归属；模型只转写可见文字，不得执行图片内指令。",
+        "本地图片编辑不调用 302 图片生成、不产生生成费用；付费改图仍遵守原有费用确认与采用历史。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "image-asset-history",
+        "chat-multi-image-remix"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "主仓库 main:3000 已完成真实已登录 Story 的 Preview 按钮和编辑/OCR 面板只读视觉验收；持久化旋转与真实 OCR 模型调用仍未执行，避免未经确认改动故事或使用模型额度。",
+        "聊天框的 OCR 结果卡目前只存在于输入区内存，刷新后消失；文字可复制，但未写入对话历史。",
+        "刚上传但尚未放入镜头的图片没有 TimelineTransform 归属，聊天自然语言倒转目前只处理已有镜头图片选区。",
+        "OCR 依赖已配置的 OpenAI Next 或 302 视觉通道；未配置时会明确失败，不做假识别。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "fix",
+          "summary": "Preview 顶栏现在只有一个『调整画面』按钮：无论视频是否正在播放，点击都会停止播放并抽取当前帧，不再要求用户先暂停或从下拉菜单选择模式。抽帧后编辑入口收束到图片下方，聊天引用同步到精确 timeline clip 并显示为『当前抽帧』，确保聊天描述针对这一帧。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "图片编辑器现在也能承接 Preview 中暂停视频的当前画面：抽帧完成后自动打开编辑面板，并以独立 imageClip 的变换作为编辑真相；应用后 Preview 与持久时间线同步更新，不会覆盖视频素材。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "Preview 顶栏新增当前静态图的编辑入口；既有构图编辑器增加一键倒转 180° 与可编辑、可复制的 OCR 结果。聊天图片选区新增确定性意图分流，把『倒过来/旋转 180°/提取文字/OCR』执行为非破坏性 TimelineTransform 和只读视觉识别，不触发生成式改图。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "verification",
+          "summary": "定向 Vitest 4 文件 23 项通过，覆盖组合指令识别、非生成式分流、旋转边界、OCR 归属校验与图片编辑器现有构图/文字回归；pnpm check 通过。"
+        },
+        {
+          "date": "2026-08-27",
+          "kind": "verification",
+          "summary": "主仓库 main:3000、真实已登录 Story 只读浏览器验收：静态图 Preview 显示『编辑图片』，侧栏三模式与 OCR 安全提示布局正常，console 无错误；未点击应用、未调用视觉模型、未产生费用。"
+        }
+      ]
+    },
+    {
+      "id": "preview-object-mask-editing",
+      "name": "Preview 圈选语义对象局部修改",
+      "status": "observing",
+      "userValue": "在 Preview 里粗略圈住头发等对象，系统识别圈内真正的语义轮廓并只覆盖该对象；视频暂停时会先自动抽取当前帧，候选在明确采用前不会覆盖原画面。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
+        "client/src/features/creationEditor/views/ShotPreview.tsx"
+      ],
+      "owners": [
+        "client/src/features/creationEditor/previewPlaybackModel.ts",
+        "client/src/features/creationEditor/previewObjectMaskEditing.ts",
+        "client/src/features/creationEditor/previewObjectMaskGeometry.ts",
+        "client/src/features/creationEditor/timelineImageClipLocation.ts",
+        "client/src/features/creationEditor/views/ShotPreview.tsx",
+        "server/services/segmentation.ts",
+        "server/services/imageEditMask.ts",
+        "server/services/imageMaskComposite.ts",
+        "server/services/segmentationRequestGuard.ts",
+        "server/services/previewMaskedImageEditing.ts",
+        "server/services/visualClipEditing.ts",
+        "server/routers/creationAgent.ts",
+        "server/db.ts",
+        "drizzle/schema.ts",
+        "drizzle/migrations/0014_preview_masked_image_operations.sql"
+      ],
+      "evidence": [
+        "client/src/features/creationEditor/previewObjectMaskEditing.test.ts",
+        "client/src/features/creationEditor/previewObjectMaskGeometry.test.ts",
+        "client/src/features/creationEditor/timelineImageClipLocation.test.ts",
+        "client/src/features/creationEditor/views/PreviewObjectMaskEditor.test.tsx",
+        "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
+        "server/services/imageEditMask.test.ts",
+        "server/services/imageMaskComposite.test.ts",
+        "server/services/segmentation.test.ts",
+        "server/services/visionChannel.test.ts",
+        "server/services/segmentationRequestGuard.test.ts",
+        "server/services/previewMaskedImageEditing.test.ts",
+        "server/db.previewMaskedImageOperations.test.ts",
+        "server/db.previewMaskedImageAdoption.test.ts",
+        "server/routers.creationAgentMaskEditing.test.ts",
+        "server/services/visualClipEditing.test.ts"
+      ],
+      "invariants": [
+        "分割和生成只接受当前用户、当前 Story 的 imageId 与服务端作用域 mask key；任意 URL 不能作为授权凭据。",
+        "canonical edit mask 与底图同尺寸，alpha=0 才可编辑、非透明像素受保护；空蒙版、整图蒙版、解码或尺寸异常全部失败关闭，绝不回退整图重绘。",
+        "用户圈选路径只用于约束语义对象的搜索范围，不能直接转换成矩形或套索编辑蒙版；没有可验证的语义 provider（SAM 2 或既有视觉通道返回的独立对象轮廓）时必须失败关闭，不能进入付费生成。",
+        "供应商即使返回整帧也必须先按同一二值语义 mask 提取硬边对象层，再覆盖回原图；mask 外像素逐字节保持源图，不做羽化或混合扩散。",
+        "Preview 点击坐标必须反算 object-cover、平移、缩放、旋转与翻转后再传源图像素；预览蒙版与底图使用同一变换。",
+        "蒙版字节必须先落入本地稳定资产库并由同源 URL 读取；302 Storage 只能作为尽力而为的远程备份，其故障不得阻断选区确认或后续遮罩编辑。",
+        "视频播放时不能进入区域修改；点击『调整画面』会自动暂停并先把当前帧持久化为 durationFrames=1 的独立 imageClip，原视频素材和持久 video DOM 不变。",
+        "抽帧成功后，编辑目标必须按 clipId 从刷新后的权威时间线解析其实际持久宿主；不得把产生该帧的视频来源宿主当作图片 clip 身份。",
+        "修改说明与付费入口只在用户确认蒙版后出现；签名报价绑定用户、Story、底图、mask、说明、目标 clip/镜头、模型价格版本与有效期。",
+        "每个 operationToken 在持久收据中最多取得一次付费提交权；未知提交状态不得自动重提，成功结果只保存为 isCurrent=false 的候选。",
+        "候选只有明确采用后才更新画面；主图采用要求 expected source 仍为 current，时间线采用只替换精确 imageClip 并保留身份、位置、时长、图层、构图与文字。",
+        "切换故事、镜头、可见图片、播放头或开始播放会使当前会话和晚到异步响应失效。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "image-asset-history",
+        "image-preview-local-edit-ocr",
+        "extracted-frame-overlay-video"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未执行真实 fal.ai SAM 2 烟测；当前供应商 transport 与 alpha 语义由 fixture/mock 覆盖，真实响应不满足合同会失败关闭。",
+        "无 fal.ai 时会复用既有 OpenAI Next / 302 视觉通道来估计对象轮廓；该模型不是像素级 SAM，头发等细边界的真实精度仍需在用户明确同意把当前图片发送给该模型后做人工验收。",
+        "尚未执行真实 302 遮罩编辑；该步骤会产生费用，必须得到用户单独确认后才能烟测。",
+        "新增 MySQL 收据迁移已有 schema、SQL 与本地持久模式测试，尚未在真实 MySQL 实例运行迁移与竞争验收。",
+        "302 遮罩编辑当前使用同步响应；若进程在供应商已扣费但候选落库前崩溃，持久收据会阻止重复提交，但无法自动找回没有 taskId 的供应商结果，需要人工核查。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "fix",
+          "summary": "无 FAL_KEY 时复用已配置的 OpenAI Next / 302 视觉通道：模型必须返回圈选范围内的独立对象轮廓与内部锚点，服务端再栅格化并经过原有空/整图/范围和 canonical mask 校验；模型输出无效或越界立即失败关闭，用户套索从不直接当编辑蒙版。主仓库 localhost:3000 进入『圈选局部』后显示自由圈选提示、无旧的未配置错误，console 无 warn/error；未发出真实视觉请求、未触发付费修改。定向 5 文件 68 项测试与 pnpm check 通过。"
+        },
+        {
+          "date": "2026-08-31",
+          "kind": "fix",
+          "summary": "取消 Preview 顶栏的『整帧调整 / 圈选局部』下拉选择，改为单击『调整画面』自动暂停并抽当前帧；只有静帧就绪后，图片下方才显示『构图与文字』『圈选局部』『在聊天框修改』。圈选仍只会在真实语义分割后进入付费修改。"
+        },
+        {
+          "date": "2026-08-31",
+          "kind": "fix",
+          "summary": "修复视频暂停后自动抽帧成功、但区域编辑控件立刻消失的问题。根因有二：Preview 所选镜头与全局播放头曾不一致，以及独立 imageClip 的确定性持久宿主可与视频来源宿主不同；后者会让会话把同一 clip 误判成目标替换而重置。现在抽帧回执会先刷新权威时间线、按 clipId 定位实际宿主与 transform，再启动整帧或圈选编辑；重放同一幂等回执也走同一路径。定向 46 项测试与 pnpm check 通过。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "根据真实端口失败替换硬矩形降级：Preview 改为自由套索，圈选路径反算到源图后只作为 SAM 语义分割约束；无 fal.ai 能力时明确失败关闭，绝不把圈选范围直接送入付费生成。canonical mask 与用户圈选取交集，最终候选按二值 mask 提取硬边对象层覆盖回源图，保护区像素不羽化、不混合。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "新增按 Story、源图、稳定镜头、目标类型和 clip 身份恢复最新 succeeded 候选；刷新、切回镜头或重新进入区域修改后仍可继续审阅和明确采用，恢复过程不自动采用、不重复付费。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "verification",
+          "summary": "主仓库 main:3000 真实已登录 Story 只读验收：Preview 显示可用『区域修改』，点击后仅出现『点击画面中的一个物体/退出』，确认前无修改说明与付费生成按钮；退出后 DOM 同时保留 1 个 video 和 1 个一帧图片覆盖层，console 无 warning/error。未点击画面、未调用真实 SAM、未提交 302。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "feature",
+          "summary": "实现 Preview 点选物体局部修改全链路：安全 SAM 2 分割与 canonical mask、组合变换坐标反算、蒙版确认、签名报价、持久一次性付费收据、非当前候选保存，以及主图/时间线精确目标的条件采用。自动化覆盖越权、输入漂移、乱序响应、重复 token、未知状态、防整图蒙版、主图 CAS、clip 构图文字迁移和持久视频节点结构。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "审查加固：远程图片、SAM 轮询结果与蒙版下载均拒绝私网/重定向并在头部和 body 超时中止；蒙版规范化限制像素与进程并发。付费前后二次验证精确目标仍为当前状态，provider 已受理任务只恢复不重提，候选采用绑定成功收据与精确目标；源图片删除不再被审计收据外键阻塞。Preview 目标消失或会话切换会取消晚到抽帧/采用结果。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "修复 Preview 区域修改入口偶发缺失和视频点选后退出：入口现在跟随实际显示的静态图或视频，播放头不在所选镜头时按该镜头可见边界抽帧；选择态增加位于媒体控件上方的独立手势层，避免点选误触视频播放并重置会话。该过渡版本曾允许无 fal.ai 时直接拖框，后续已按语义对象要求废止。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "fix",
+          "summary": "端口实测发现手动矩形蒙版生成后仍同步依赖 302 Storage，代理返回 503 会让界面退回选择态。现在 edit/preview 蒙版先写本地稳定资产库并立即返回同源 URL，远程上传降为后台备份；付费遮罩编辑也优先解析同一份本地蒙版，只有本地副本缺失才回源远程存储。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "verification",
+          "summary": "过渡版本验收记录：无 FAL_KEY 时曾允许拖框形成矩形蒙版。该行为已被后续语义对象约束废止，不再代表当前功能。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "verification",
+          "summary": "主仓库 localhost:3000、真实已登录 Story 最终验收：无 FAL_KEY 时进入『区域修改』只显示语义识别缺失与『不会把圈选范围直接当成修改区域』，点击画面不触发视频、不闪退，说明框和付费按钮均不存在；精确 Story/源图/镜头目标可恢复 succeeded 未采用候选，未自动采用或重提；正常播放跨 take-1288、take-1603 等片段时始终只有 1 个 video DOM，播放头持续前进，console 无 error/warn。未调用真实 SAM、未提交 302。"
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "verification",
+          "summary": "Preview 拆分收敛后再次在主仓库 localhost:3000 验收：区域修改入口稳定，无 FAL_KEY 时画面点击仍失败关闭且不闪退，历史 source #1742 的 succeeded 候选 #1768 可跨刷新恢复但未采用；连续播放 8 秒跨 take-1288 与 take-1603 时 Preview 始终只有一个 video 节点，本轮操作时间窗 console 新增 error/warn 为 0。相关定向测试 17 文件 189 项通过，TypeScript 与架构边界通过；全仓仅沙箱禁止临时 listen 的两组环境测试无法执行。"
+        }
+      ]
+    },
+    {
+      "id": "invite-access-monitoring",
+      "name": "内测邀请状态看板",
+      "status": "working",
+      "userValue": "管理员能看到每个内测邀请是待领取、已领取还是已过期，并核对它绑定的邮箱和用户账号。",
+      "entryPoints": [
+        "client/src/pages/AdminInvitesPage.tsx",
+        "client/src/app/router/AppRouter.tsx",
+        "server/routers/index.ts"
+      ],
+      "owners": [
+        "client/src/pages/AdminInvitesPage.tsx",
+        "server/db.ts"
+      ],
+      "evidence": [
+        "client/src/pages/AdminInvitesPage.test.tsx",
+        "server/inviteAdmin.router.test.ts"
+      ],
+      "invariants": [
+        "邀请名单必须由 adminProcedure 保护；客户端 AdminGuard 只是交互保护，不能代替服务端授权。",
+        "管理界面不得返回或展示 codeHash，更不得持久化邀请码原码；原码仍只在创建时出现一次。",
+        "已绑定邮箱的邀请始终显示为已领取；有效期只把尚未领取的邀请判为已过期。",
+        "看板只展示邀请与账号状态，不读取或暴露测试者的故事、素材和生成内容。"
+      ],
+      "dependencies": [
+        "project-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "旧邀请码原码无法从 SHA-256 哈希恢复；丢失后只能生成新码。",
+        "看板目前是只读的；创建、重发和撤销邀请仍通过受控的服务器脚本执行。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-27",
+          "kind": "feature",
+          "summary": "新增只限管理员的 /admin/invites 页面与 accessAnalytics.invites 查询：按待领取、已领取、已过期统计和筛选邀请，展示标签/邮箱、关联用户、创建、领取和过期时间。数据接口明确排除 codeHash，普通用户调用返回 FORBIDDEN。"
+        }
+      ]
+    },
+    {
+      "id": "account-compute-gift-payments",
+      "name": "统一账号、算力赠送卡与付费体系",
+      "status": "observing",
+      "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
+      "entryPoints": [
+        "server/_core/oauth.ts"
+      ],
+      "owners": [
+        "server/services/accountIdentity.ts",
+        "server/services/accountSecurity.ts",
+        "server/services/computeBilling.ts",
+        "server/services/computeLedger.ts",
+        "server/services/computeReconciliation.ts",
+        "server/db.ts",
+        "drizzle/schema.ts",
+        "drizzle/migrations/0016_account_gift_credit.sql"
+      ],
+      "evidence": [
+        "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
+        "docs/plans/2026-09-02-001-feat-account-gift-credit-plan.md",
+        "docs/qa/account-migration-cutover-rollback-plan.md",
+        "server/_core/oauth.account.test.ts",
+        "server/services/accountIdentity.test.ts",
+        "server/services/accountSecurity.test.ts",
+        "server/services/computeBilling.test.ts",
+        "server/services/computeLedger.test.ts",
+        "server/services/computeReconciliation.test.ts",
+        "server/integration/accountSchema.mysql.test.ts",
+        "server/integration/computeLedger.mysql.test.ts",
+        "scripts/inventory-account-migration.test.ts",
+        "scripts/repair-invite-code.test.ts",
+        "scripts/verify-drizzle-migration-baseline.ts"
+      ],
+      "invariants": [
+        "邮箱验证码、密码和后续微信登录必须进入同一账号、同一份创作数据和同一余额，不得生成平行身份副本。",
+        "赠送卡只负责开通和增加算力，不再作为长期登录凭据；首张卡提供一次 ¥30，旧账号迁移和旧邀请码转换不得重复赠送。",
+        "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
+        "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
+        "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
+        "第一阶段先交付邮箱、密码、赠送卡和透明账本；微信身份绑定与真实支付订阅分别在后续阶段通过独立上线门槛后开放。"
+      ],
+      "dependencies": [
+        "invite-access-monitoring",
+        "mobile-cross-device-chat-document",
+        "project-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "邮箱验证码/密码与算力账本的领域基础已实现，但赠送卡领取、余额与逐笔消费展示、续充申请和管理入口尚未接入用户界面与业务路由。",
+        "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
+        "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
+        "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认把邀请码登录升级为三阶段账户与付费体系：第一阶段邮箱验证码/密码、一次性 ¥30 算力赠送卡、逐笔费用和续充申请；第二阶段微信登录绑定同一账号；第三阶段微信支付、支付宝、银行卡购买与订阅。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "feature",
+          "summary": "实现第一阶段基础：邮箱验证码和密码生命周期、会话版本失效、历史身份人工映射、赠送/预留/结算/释放/调账的幂等算力账本、金额与报价校验、迁移清单和修复工具；代码进入 observing，用户入口接线、真实 MySQL 迁移和付费调用接线仍按缺口保留。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "修复已人工映射历史邮箱账号登录时会话落到新建平行账号的问题：OTP 与密码认证均使用认证层解析出的权威 userId 和原 openId，并在邮箱身份被并发占用时失败关闭；新增两条回归测试覆盖两种登录方式。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-cross-device-chat-document",
+      "name": "手机跨端聊天与正文编辑",
+      "status": "observing",
+      "userValue": "在手机上继续同一 Story 的“聊聊”对话并编辑正文，回到电脑后无需复制粘贴即可接着创作。",
+      "entryPoints": [
+        "client/src/app/router/AppRouter.tsx",
+        "client/src/pages/MobileWorkspacePage.tsx"
+      ],
+      "owners": [
+        "client/src/pages/MobileWorkspacePage.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "client/src/features/mobileWorkspace/mobileWorkspaceEntry.ts",
+        "client/src/features/mobileWorkspace/useMobileConversation.ts",
+        "client/src/features/mobileWorkspace/useMobileDocument.ts",
+        "server/routers/promptLineage.ts",
+        "server/services/storyConversation.ts",
+        "server/routers/publishingDraft.ts",
+        "server/services/publishingPersistence.ts",
+        "server/_core/productionReadiness.ts"
+      ],
+      "evidence": [
+        "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
+        "docs/plans/2026-09-01-001-feat-mobile-cross-device-workspace-plan.md",
+        "docs/qa/2026-09-01-mobile-cross-device-acceptance.md",
+        "client/src/app/router/AppRouter.test.tsx",
+        "client/src/_core/hooks/useAuth.test.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.test.tsx",
+        "client/src/features/mobileWorkspace/useMobileConversation.test.tsx",
+        "client/src/features/mobileWorkspace/useMobileDocument.test.tsx",
+        "server/routers.storyConversation.test.ts",
+        "server/services/storyConversation.mobile.test.ts",
+        "server/integration/storyConversation.mysql.test.ts",
+        "server/routers.publishingDraft.test.ts",
+        "server/services/publishingPersistence.test.ts",
+        "server/_core/productionReadiness.test.ts",
+        "scripts/deploy-mobile-readiness.test.ts",
+        "scripts/verify-drizzle-migration-baseline.ts",
+        "scripts/run-mysql-integration.ts"
+      ],
+      "invariants": [
+        "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
+        "手机入口不得削弱现有 Story 与项目归属校验；同一邮箱只能读取和修改该账号名下的数据。",
+        "原网址根路径只负责按手机或电脑分流；手机进入 /m，电脑继续进入 /editing，显式工作区深链接不得被设备判断改写。",
+        "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
+        "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
+        "手机 MVP 只暴露“聊聊”和发布工作台当前版本、当前平台的长文正文；正文保存不得改动标题、标签、当前选择、其他版本或平台，也不得把图片、分镜、预览、素材、时间线或视频能力带入首版。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "project-ownership",
+        "recent-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未获得授权把本分支部署到真实公网 HTTPS，因此 Secure Cookie、登录返回 /m 和不同账号隔离仍缺真实域名证据。",
+        "尚未在一次性/生产 MySQL 上完成两进程正文 CAS 与同 turn generation claim；未设置 TEST_MYSQL_DATABASE_URL 时命令会失败关闭并拒绝执行，当前未执行，不能算发布通过。",
+        "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
+        "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
+        "生产迁移 ledger/schema、备份、expand/dual-read/enforce 和 rollback-safe point 尚未在获批的真实环境核对。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-01",
+          "kind": "decision",
+          "summary": "将旧的手机聊天出图设想收缩为最快可用 MVP：手机专用移动 Web 仅提供“聊聊”和发布工作台当前版本、当前平台的长文正文，同一邮箱、同一 Story、同一权威数据；保存后跨端可见，并对并发正文修改失败关闭。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "实现受保护的 /m 手机 Web 工作区：复用桌面账号和既有 Story，只挂载聊聊与当前发布版本/平台正文；聊天 turn 按 userId + storyId 持久幂等，正文使用 body-only revision CAS，客户端对网络失败、刷新、换账号与冲突保留可恢复内容。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "补齐生产 fail-closed 闸门与可审计 HTTPS dry-run：真实 auth、强会话密钥、HTTPS origin、utf8mb4 MySQL、受限 trust proxy、Secure/Lax Cookie、unsafe API Origin、CSP、health/readiness 和 nginx 备份均有自动化约束。代码进入 observing；公网、真实 MySQL race 与 iOS/Android 证据仍按 No-Go 保留。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "Tier 2 代码审查补强跨进程 turn 预留、HTTPS 跳转与发布回滚：MySQL 通过会话行锁事务在模型调用前拒绝跨角色消息 ID 冲突；HTTP 跳转固定到 APP_ORIGIN；健康探针和 NodeSource 下载有超时；nginx reload 结果不确定时恢复、校验并再次 reload 旧配置。退出存储拒绝和聊天 append 失败均有行为测试。功能定向 28 文件 254 项、全量 421 文件 3445 项通过，5 项环境门禁跳过；TEST_MYSQL_DATABASE_URL 缺失时命令失败关闭，因此功能继续保持 observing / 发布 No-Go。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "把原网址根路径接入响应式工作区入口：iPhone、Android 手机及窄屏触控设备自动进入 /m，电脑继续进入 /editing；只改根入口，显式 /editing 与其他深链接不受影响，未登录手机仍通过受保护的 returnTo=/m 登录回跳。聚焦审查进一步让明确的 userAgentData.mobile=false 优先保留触屏电脑工作区，并把源码字符串断言升级为运行时信号与挂载路由测试；入口关联定向 6 文件 33 项、全量 421 文件 3450 项通过，5 项环境条件跳过，生产构建与环境门禁通过。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "把旧式对话追加的幂等冲突复核移入本地持久化锁和 MySQL 会话行锁事务，完整比较两条消息、候选 revision、选区引用及 durable mobile turn 预留，避免并发重试以相同消息 ID 静默接受不同内容或选区；本地竞态回归测试通过，MySQL 双进程用例已补齐并等待真实测试库执行。"
+        }
+      ]
+    },
+    {
+      "id": "family-biography-wechat-text",
+      "name": "微信家庭人物传记（文字 V1）",
+      "status": "planned",
+      "userValue": "让老人和有情感连接的亲人通过微信共同补充、核对回忆，并把可信材料持续写成可阅读的章节式人物传记。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-08-28-family-biography-wechat-text-requirements.md"
+      ],
+      "invariants": [
+        "现有 Story 继续只有一个所有者；受邀亲人只能追加投稿，不能获得 Story 共同编辑权，既有 storyId + userId 归属校验不得放宽。",
+        "老人是事实确认者；未确认或被拒绝的投稿不得成为权威事实，冲突版本必须保留来源且不得由 AI 自动抹平。",
+        "微信小程序 V1 只承担投稿、老人确认和传记预览，深度章节编辑继续留在桌面 Web。",
+        "V1 以章节式文字传记为完整成果；封面和少量插花必须由用户显式发起并单独确认，不得自动触发付费图片或视频生成。",
+        "不得复制 Life Motif 受许可保护的采访题库、原文措辞或报告结构。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "publishing-versions"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "目前只有经过确认的产品需求，没有微信小程序、家庭邀请、追加投稿、私密可见性、老人确认、冲突保留、章节增量生成或小程序预览实现。",
+        "微信登录和身份映射、录音与照片上传、转写、隐私同意、撤回删除、内容安全、服务域名和平台审核仍待规划与验证。",
+        "publishing-versions 仍处于 observing，传记章节如何复用其版本权威与跨端恢复能力尚未验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "decision",
+          "summary": "确认 V1 产品边界：在世老人亲自参与确认，亲人通过微信小程序以公开或私密方式追加文字、语音和照片，AI 仅用已确认材料增量写成章节传记；桌面端负责深度编辑，封面和少量插花为可选装饰，不建设画册、视频、数字人或多人 Story 编辑。"
+        }
+      ]
+    },
+    {
+      "id": "wechat-miniprogram-workspace",
+      "name": "微信原生小程序工作区（测试壳层）",
+      "status": "planned",
+      "userValue": "让用户在微信里打开已有 Story，完成「聊聊」并编辑当前版本／平台的正文，与手机 Web 和电脑 Web 共用同一个账号、同一份内容和同一份余额。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/plans/2026-09-02-002-feat-wechat-miniprogram-test-shell-plan.md",
+        "docs/handoff/2026-09-02-wechat-miniprogram-test-shell-execution-handoff.md"
+      ],
+      "invariants": [
+        "小程序、手机 Web、电脑 Web 必须读取同一个 userId、Story、对话、正文和余额权威；不得新增小程序专用业务数据库，也不得把客户端提交的 userId 当作身份。",
+        "wx.login 的短期 code 只能提交给自家 HTTPS 后端；AppSecret、session_key、服务端会话密钥和刷新凭据不得进入小程序包、仓库、聊天或普通日志。",
+        "测试 AppID 与正式 AppID 的 openid、Secret、会话和数据环境完全隔离；测试 openid 不得迁移为正式凭据。",
+        "「聊聊」保留现有 Story 归属、整轮幂等、未知结果查询与余额结算合同；未知结果只能按同一 requestHash 查询，不得重新生成或二次扣费。",
+        "正文保留当前版本／平台作用域与 body revision CAS；冲突时同时保留本机与服务端两份文本，不自动覆盖也不自动合并。",
+        "退出、会话过期或微信账号变化时，上一账号的 Story、余额和恢复草稿必须在新身份渲染前清除；恢复键使用服务端不透明账号作用域，不含邮箱或 openid。",
+        "mock 模式必须始终有可见标识，不得被误认为已连接真实微信登录、真实余额或真实数据库。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document",
+        "recent-story-entry",
+        "story-ownership",
+        "publishing-versions",
+        "account-compute-gift-payments"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前只有 U1–U3 的本地 mock 测试壳层：没有真实微信登录、没有邮箱绑定、没有服务端适配、没有真机联调、没有跨端互通、没有合法域名与内容安全，也不可提审或发布。",
+        "真实测试 AppID 尚未提供；工程使用公开占位 AppID（touristappid），换成真实 AppID 也不会自动进入 live 模式。",
+        "U4–U7（code2Session、Bearer principal、显式邮箱绑定与审计、真实 Story／正文／余额适配、域名隐私内容安全验收）必须等统一账号线收口并重新登记文件所有权后另开阶段。",
+        "小程序自带 miniprogram/tsconfig.json 与 miniprogram/vitest.config.ts；根 pnpm test / pnpm check 不覆盖该目录，不能拿它们当小程序的通过证据。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认第一批采用微信原生 TypeScript 工程（不用 web-view、Taro 或 uni-app），先在独立 miniprogram/ 目录交付明显标识为 mock 的「聊聊 + 正文」双视图测试壳层；真实微信登录与邮箱绑定留到统一账号地基释放后的 U4–U7。"
+        }
+      ]
+    },
+    {
+      "id": "personal-memory-daily-letter",
+      "name": "个人记忆与每日来信互通",
+      "status": "planned",
+      "userValue": "让普通聊天、用户原话和明确采用的文章与图片持续形成可回看的私密个人足迹，并让每日来信结合这些记忆、八字和当天黄历越来越懂用户。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
+        "docs/plans/2026-09-02-003-feat-personal-memory-daily-letter-plan.md"
+      ],
+      "invariants": [
+        "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
+        "系统可自动降权、归档和恢复的是带来源的派生理解；新旧表达冲突时保留变化轨迹并以有依据的最新表达作为当前理解。",
+        "八字属于用户可修改的长期资料；黄历属于目标日期的实时资料，不得保存为用户长期记忆或用其他日期冒充今天。",
+        "每日来信只使用相关、仍有效且数量受控的记忆；不得把全部聊天直接塞入上下文、虚构时间关系或把推断冒充用户事实。",
+        "账号级个人足迹只能引用同一用户拥有的 Story、文章和图片；不得放宽现有项目、Story、版本和素材归属校验。",
+        "个人足迹中的忘记或归档不得删除底层文章、图片或 Story；底层内容仍由各自权威流程管理删除与历史。",
+        "历史来信不得因八字、聊天或系统理解后来变化而被静默重写；同日结合新信息重读必须由用户明确发起并形成可识别的新版本。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "project-ownership",
+        "image-asset-history",
+        "publishing-workspace",
+        "publishing-versions",
+        "mobile-cross-device-chat-document"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "目前只有经过确认的需求与实施计划；普通聊天与采用作品尚未进入账号级个人记忆，头像菜单也没有个人足迹入口。",
+        "现有每日来信只会聚合每日回信中的历史用户留言，并未基于全部普通聊天、采用文章或采用图片形成可纠正的长期理解。",
+        "派生记忆的提炼、冲突识别、时效降权、归档恢复、来源追溯、历史回填和上下文选择仍待规划与评测。",
+        "实时黄历失败降级、同日来信显式版本、跨端一致性和真实账号隔离仍缺实现与主仓库 3000 端口验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认把头像足迹、普通聊天、采用文章与采用图片连接为私密账号级个人记忆：原始经历长期保留，系统只自动管理带来源的派生理解；每日来信结合相关记忆、用户八字与当天实时黄历，用户反馈可纠正、降权、归档或恢复理解。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "plan",
+          "summary": "完成 Deep 实施计划：以账号级经历事件、可追溯派生理解、耐久异步提炼、不可变每日来信版本和统一足迹索引分阶段接通聊天、作品采用、头像与每日来信；功能保持 planned，等待剩余文档审查决策和后续实现。"
         }
       ]
     }

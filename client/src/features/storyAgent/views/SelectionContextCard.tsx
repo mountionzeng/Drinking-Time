@@ -1,5 +1,10 @@
 import { Image, Quote, Timer, Video, X } from "lucide-react";
-import type { SelectionContext } from "@shared/selectionContext";
+import React from "react";
+import {
+  selectionEditKind,
+  type SelectionContext,
+  type SelectionReadiness,
+} from "@shared/selectionContext";
 import { displayShotCode } from "@shared/shotIdentity";
 
 type Props = {
@@ -12,9 +17,12 @@ type Props = {
     | "stableShotId"
     | "shotNo"
     | "cueCode"
+    | "selection"
+    | "confirmedImageRegion"
   >;
   compact?: boolean;
   onClear?: () => void;
+  readiness?: SelectionReadiness;
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -31,7 +39,11 @@ function contextLabel(selection: Props["selection"]): string {
     const shotNo = selection.shotNo ?? Number(rawIndex) + 1;
     return `${displayShotCode({ cueCode: selection.cueCode, shotNo })} · ${FIELD_LABELS[field] ?? field}`;
   }
-  if (selection.sourceType === "storyboard-image") return "故事版主图";
+  if (selection.sourceType === "storyboard-image") {
+    return selection.sourceId.startsWith("timeline-frame:")
+      ? "当前抽帧"
+      : "故事版主图";
+  }
   if (selection.sourceType === "animatic-video") return "动态分镜视频";
   if (selection.sourceType === "timeline-range") return "时间轴片段";
   if (selection.sourceType === "script-scene") {
@@ -44,7 +56,8 @@ function contextLabel(selection: Props["selection"]): string {
 }
 
 function ContextIcon({ sourceType }: Pick<SelectionContext, "sourceType">) {
-  if (sourceType === "storyboard-image") return <Image className="h-3.5 w-3.5" />;
+  if (sourceType === "storyboard-image")
+    return <Image className="h-3.5 w-3.5" />;
   if (sourceType === "animatic-video") return <Video className="h-3.5 w-3.5" />;
   if (sourceType === "timeline-range") return <Timer className="h-3.5 w-3.5" />;
   return <Quote className="h-3.5 w-3.5" />;
@@ -54,7 +67,23 @@ export default function SelectionContextCard({
   selection,
   compact = false,
   onClear,
+  readiness,
 }: Props) {
+  const kind = selectionEditKind(selection as SelectionContext);
+  const scopePromise =
+    readiness && readiness.status !== "executable"
+      ? readiness.reason
+      : selection.sourceType === "chat"
+        ? "仅作为引用，不会改写历史消息"
+        : kind === "text"
+          ? "只会替换这段文字"
+          : kind === "image-region"
+            ? selection.confirmedImageRegion
+              ? "只会修改已确认区域，区域外保持不变"
+              : "局部尚未确认，不会提交修改"
+            : kind === "image"
+              ? "只会修改这张图片"
+              : "作为当前上下文引用";
   const excerpt =
     selection.selectedText.length > (compact ? 32 : 72)
       ? `${selection.selectedText.slice(0, compact ? 32 : 72)}…`
@@ -64,7 +93,7 @@ export default function SelectionContextCard({
       className={`flex min-w-0 items-start gap-2 border-l-2 border-[var(--nayin-accent)] bg-[var(--nayin-glow)] ${
         compact ? "rounded px-2 py-1" : "rounded-md px-2.5 py-2"
       }`}
-      aria-label="当前引用"
+      aria-label="当前选区"
     >
       <span className="mt-0.5 shrink-0 text-nayin-bright">
         <ContextIcon sourceType={selection.sourceType} />
@@ -75,10 +104,25 @@ export default function SelectionContextCard({
           {selection.objectVersion ? (
             <span>· 版本 {selection.objectVersion}</span>
           ) : null}
+          {readiness ? (
+            <span>
+              ·{" "}
+              {readiness.status === "executable"
+                ? "可修改"
+                : readiness.status === "stale"
+                  ? "已失效"
+                  : "不可修改"}
+            </span>
+          ) : null}
         </div>
         <p className="mt-0.5 truncate text-[11px] leading-relaxed text-foreground/80">
           {excerpt}
         </p>
+        {!compact ? (
+          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+            {scopePromise}
+          </p>
+        ) : null}
       </div>
       {onClear ? (
         <button

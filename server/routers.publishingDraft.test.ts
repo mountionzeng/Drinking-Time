@@ -45,7 +45,9 @@ const modelMocks = vi.hoisted(() => ({
   classifyPublishingDraftEdit: vi.fn(),
 }));
 const persistenceMocks = vi.hoisted(() => ({
+  getPublishingBodyDocument: vi.fn(),
   getPublishingDraftState: vi.fn(),
+  savePublishingBodyDocument: vi.fn(),
   writePublishingDraftState: vi.fn(),
 }));
 const platformContextMocks = vi.hoisted(() => ({
@@ -94,6 +96,10 @@ vi.mock(
 
 import { publishingDraftRouter } from "./routers/publishingDraft";
 import {
+  PublishingBodyConflictError,
+  PublishingDraftOwnershipError,
+} from "./services/publishingPersistence";
+import {
   PublishingVideoStoryboardConfirmationError,
   PublishingVideoStoryboardEligibilityError,
 } from "./services/publishingVideoStoryboardPersistence";
@@ -135,6 +141,20 @@ const publishing = {
   cover: null,
   coverRounds: [],
   updatedAt: 1,
+};
+
+const publishingBodyDocument = {
+  storyId: 7,
+  storyRevision: 8,
+  versionId: "v2",
+  platform: "xiaohongshu" as const,
+  body: "服务端正文",
+  bodyRevision: 4,
+  draftRevision: 7,
+  versionRevision: 9,
+  containerRevision: 11,
+  publishingRevision: 10,
+  updatedAt: 20,
 };
 
 function emptyPublishingForGeneration() {
@@ -184,6 +204,19 @@ describe("publishingDraft router", () => {
       storyId: 7,
       storyRevision: 2,
       publishing,
+    });
+    persistenceMocks.getPublishingBodyDocument.mockResolvedValue(
+      publishingBodyDocument
+    );
+    persistenceMocks.savePublishingBodyDocument.mockResolvedValue({
+      ...publishingBodyDocument,
+      storyRevision: 9,
+      body: "手机正文",
+      bodyRevision: 5,
+      draftRevision: 8,
+      versionRevision: 10,
+      containerRevision: 12,
+      publishingRevision: 11,
     });
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: { type: string } }) => ({
@@ -256,7 +289,7 @@ describe("publishingDraft router", () => {
           risks: [],
           evidence: "",
           confidence: 0.99,
-        })),
+      })),
         rejected: [],
         modelLabel: "vision-test",
       })
@@ -326,6 +359,107 @@ describe("publishingDraft router", () => {
       content: { title: "更直接", body: "改写后的正文", tags: [] },
       modelLabel: "mock",
     });
+  });
+
+  it("reads the owned active publishing body through the narrow mobile contract", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await expect(caller.readBody({ storyId: 7 })).resolves.toEqual(
+      publishingBodyDocument
+    );
+    expect(persistenceMocks.getPublishingBodyDocument).toHaveBeenCalledWith(7, 3);
+    expect(persistenceMocks.getPublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it("saves an exact body scope and returns the authoritative document", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+    const result = await caller.saveBody({
+      storyId: 7,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      baseBodyRevision: 4,
+      body: "手机正文",
+    });
+
+    expect(result).toEqual({
+      status: "saved",
+      document: expect.objectContaining({
+        storyRevision: 9,
+        body: "手机正文",
+        bodyRevision: 5,
+      }),
+    });
+    expect(persistenceMocks.savePublishingBodyDocument).toHaveBeenCalledWith({
+      storyId: 7,
+      userId: 3,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      baseBodyRevision: 4,
+      body: "手机正文",
+    });
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed recoverable body conflict with the latest authority", async () => {
+    persistenceMocks.savePublishingBodyDocument.mockRejectedValueOnce(
+      new PublishingBodyConflictError("body_changed", {
+        ...publishingBodyDocument,
+        storyRevision: 9,
+        body: "桌面已修改",
+        bodyRevision: 5,
+      })
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await expect(caller.saveBody({
+      storyId: 7,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      baseBodyRevision: 4,
+      body: "手机未同步正文",
+    })).resolves.toEqual({
+      status: "conflict",
+      reason: "body_changed",
+      latestDocument: expect.objectContaining({
+        body: "桌面已修改",
+        bodyRevision: 5,
+      }),
+    });
+  });
+
+  it("maps unowned body access to NOT_FOUND without exposing another user's document", async () => {
+    persistenceMocks.getPublishingBodyDocument.mockRejectedValueOnce(
+      new PublishingDraftOwnershipError(7)
+    );
+    persistenceMocks.savePublishingBodyDocument.mockRejectedValueOnce(
+      new PublishingDraftOwnershipError(7)
+    );
+    const caller = publishingDraftRouter.createCaller(context(99));
+
+    await expect(caller.readBody({ storyId: 7 })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "故事不存在",
+    });
+    await expect(caller.saveBody({
+      storyId: 7,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      baseBodyRevision: 4,
+      body: "越权",
+    })).rejects.toMatchObject({ code: "NOT_FOUND", message: "故事不存在" });
+  });
+
+  it("rejects oversized mobile body input before calling persistence", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await expect(caller.saveBody({
+      storyId: 7,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      baseBodyRevision: 4,
+      body: "字".repeat(20_001),
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(persistenceMocks.savePublishingBodyDocument).not.toHaveBeenCalled();
   });
 
   it("returns ancestor cover candidates for a legacy storyboard version", async () => {
@@ -744,83 +878,6 @@ describe("publishingDraft router", () => {
             content: expect.stringContaining("我不想再按照别人期待的样子活。"),
           }),
         ]),
-      })
-    );
-  });
-
-  it("creates, selects, and renames a version with explicit revision baselines", async () => {
-    const caller = publishingDraftRouter.createCaller(context());
-    const core = {
-      facts: ["事实"],
-      thesis: "新判断",
-      emotion: "克制",
-      voiceTraits: ["直接"],
-      visualConcept: "画面",
-    };
-
-    await caller.createVersion({
-      storyId: 7,
-      platform: "xiaohongshu",
-      core,
-      content: { title: "V2", body: "V2 正文", tags: [] },
-      baseCoreRevision: 1,
-      baseDraftRevision: 1,
-      baseVersionRevision: 1,
-      baseContainerRevision: 0,
-      displayName: "第二版",
-      operationToken: "version-op-1",
-    });
-    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationToken: "version-op-1",
-        operation: expect.objectContaining({
-          type: "create_version",
-          displayName: "第二版",
-          baseVersionRevision: 1,
-          conversationSnapshot: expect.objectContaining({
-            messages: expect.arrayContaining([
-              expect.objectContaining({ content: "服务端对话里的判断" }),
-            ]),
-          }),
-        }),
-      })
-    );
-
-    await caller.selectVersion({
-      storyId: 7,
-      versionId: "v1",
-      baseContainerRevision: 1,
-      baseVersionRevision: 1,
-      operationToken: "select-v1-1",
-    });
-    await caller.renameVersion({
-      storyId: 7,
-      versionId: "v1",
-      displayName: "第一版整理稿",
-      baseContainerRevision: 2,
-      baseVersionRevision: 2,
-    });
-
-    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationToken: "select-v1-1",
-        operation: {
-          type: "select_version",
-          versionId: "v1",
-          baseContainerRevision: 1,
-          baseVersionRevision: 1,
-        },
-      })
-    );
-    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operation: {
-          type: "rename_version",
-          versionId: "v1",
-          displayName: "第一版整理稿",
-          baseContainerRevision: 2,
-          baseVersionRevision: 2,
-        },
       })
     );
   });

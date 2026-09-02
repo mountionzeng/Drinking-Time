@@ -127,7 +127,6 @@ describe("storyboard local media", () => {
       expect.objectContaining({
         fileName: "0201.webp",
         targetStableShotId: "shot-0201",
-        preserveTimelineSelection: true,
       })
     );
     expect(adoptVideoTake).toHaveBeenCalledWith({

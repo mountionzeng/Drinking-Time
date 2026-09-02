@@ -44,7 +44,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function onlyShotRecords(shots: readonly unknown[]): Record<string, unknown>[] {
   return shots.filter((shot): shot is Record<string, unknown> =>
-    Boolean(asRecord(shot)),
+    Boolean(asRecord(shot))
   );
 }
 
@@ -54,10 +54,18 @@ export async function applyStoryShotFieldPatch(input: {
   stableShotId: string;
   patch?: Record<string, string>;
   metadata?: StoryShotCommandUpdate["metadata"];
+  expectedStoryRevision?: number;
+  expectedValues?: Record<string, string>;
 }): Promise<StoryShotFieldPatchResult> {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) {
     return { status: "error", error: "故事不存在" };
+  }
+  if (
+    input.expectedStoryRevision != null &&
+    getStoryRevision(story.body) !== input.expectedStoryRevision
+  ) {
+    return { status: "error", error: "镜头已在别处更新，请刷新后重试" };
   }
   const body = asRecord(story.body) ?? {};
   const shots = Array.isArray(body.shots) ? body.shots : [];
@@ -67,6 +75,13 @@ export async function applyStoryShotFieldPatch(input: {
     if (!shot) return raw;
     if (shotIdentityFromShot(shot, index) !== input.stableShotId) return raw;
     found = true;
+    if (
+      Object.entries(input.expectedValues ?? {}).some(
+        ([field, expected]) => String(shot[field] ?? "") !== expected
+      )
+    ) {
+      return raw;
+    }
     return applyStoryShotUpdate(shot, {
       patch: input.patch ?? {},
       metadata: input.metadata,
@@ -75,19 +90,25 @@ export async function applyStoryShotFieldPatch(input: {
   if (!found) {
     return { status: "error", error: "镜头不存在或已经更新" };
   }
+  if (
+    input.expectedValues &&
+    nextShots.every((shot, index) => shot === shots[index])
+  ) {
+    return { status: "error", error: "镜头文字已经变化，请重新选择" };
+  }
 
   const versionedFields = STORYBOARD_VERSIONED_FIELDS.filter(
     field =>
       Object.prototype.hasOwnProperty.call(input.patch ?? {}, field) ||
       (field === "dialogue" &&
-        Object.prototype.hasOwnProperty.call(input.patch ?? {}, "sound")),
+        Object.prototype.hasOwnProperty.call(input.patch ?? {}, "sound"))
   );
   const now = Date.now();
   const initializedFieldVersions = initializeStoryboardFieldVersions(
     body.storyboardFieldVersions,
     onlyShotRecords(shots),
     now,
-    "edited",
+    "edited"
   );
   const storyboardFieldVersions =
     versionedFields.length > 0
@@ -108,7 +129,7 @@ export async function applyStoryShotFieldPatch(input: {
       ...(versionedFields.length > 0 ? { storyboardFieldVersions } : {}),
     },
     getStoryRevision(story.body) + 1,
-    story.body,
+    story.body
   );
 
   try {

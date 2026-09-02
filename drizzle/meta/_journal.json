@@ -41,14 +41,84 @@
       "idx": 5,
       "version": "5",
       "when": 1781999834000,
-      "tag": "0005_add_chat_correction",
+      "tag": "migrations/0005_add_chat_correction",
       "breakpoints": true
     },
     {
       "idx": 6,
       "version": "5",
       "when": 1782141240000,
-      "tag": "0006_shot_video_foundation",
+      "tag": "migrations/0006_shot_video_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1782822316000,
+      "tag": "migrations/0007_unified_material_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1782822316001,
+      "tag": "migrations/0008_prompt_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1782822316002,
+      "tag": "migrations/0009_prompt_revision_weights",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1784733593000,
+      "tag": "migrations/0010_invite_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1785385285000,
+      "tag": "migrations/0011_access_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1785385285001,
+      "tag": "migrations/0012_emotion_daily_letters",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1787641679000,
+      "tag": "migrations/0013_timeline_frame_extraction_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1788188683000,
+      "tag": "migrations/0014_preview_masked_image_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1788246486943,
+      "tag": "migrations/0015_mobile_story_conversation_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1788335592587,
+      "tag": "migrations/0016_account_gift_credit",
       "breakpoints": true
     }
   ]

@@ -1,15 +1,7 @@
 import {
-  computePublishingDraftContentHash,
-  computePublishingSimpleVersionRequestHash,
-  computePublishingVersionRequestHash,
-  publishingDraftBufferKey,
   resolvePublishingActiveVersion,
-  type PublishingBufferDisposition,
-  type PublishingDraftContent,
   type PublishingDraftState,
-  type PublishingNarrativeIntent,
   type PublishingPlatformId,
-  type PublishingStoryCoreContent,
 } from "@shared/publishingDraft";
 import type { PublishingTrendPlatformId } from "@shared/publishingPlatformContext";
 
@@ -80,69 +72,5 @@ export function publishingTrendWriteScope(scope: PublishingOperationScope) {
     baseVersionRevision: scope.versionRevision,
     baseContextRevision: scope.contextRevision,
     baseSourceRevision: scope.draftRevision,
-  };
-}
-
-export function publishingVersionTransitionIdentity(input: {
-  scope: PublishingOperationScope;
-  core: PublishingStoryCoreContent;
-  content: PublishingDraftContent;
-  narrativeIntent?: PublishingNarrativeIntent;
-  bufferDisposition: Exclude<PublishingBufferDisposition, "cancel">;
-}): {
-  operationToken: string;
-  requestHash: string;
-  sourceVersionId: string;
-  bufferDisposition: Exclude<PublishingBufferDisposition, "cancel">;
-  sourceBufferKey?: string;
-  sourceBufferHash?: string;
-} {
-  const sourceBufferKey = input.bufferDisposition === "carry"
-    ? publishingDraftBufferKey(
-        input.scope.storyId,
-        input.scope.platform,
-        input.scope.versionId
-      )
-    : undefined;
-  const sourceBufferHash = input.bufferDisposition === "carry"
-    ? computePublishingDraftContentHash(input.content)
-    : undefined;
-  const requestHash = computePublishingVersionRequestHash({
-    storyId: input.scope.storyId,
-    sourceVersionId: input.scope.versionId,
-    platform: input.scope.platform,
-    baseContainerRevision: input.scope.containerRevision,
-    baseVersionRevision: input.scope.versionRevision,
-    baseCoreRevision: input.scope.coreRevision,
-    baseDraftRevision: input.scope.draftRevision,
-    core: input.core,
-    content: input.content,
-    narrativeIntent: input.narrativeIntent,
-    bufferDisposition: input.bufferDisposition,
-    sourceBufferKey,
-    sourceBufferHash,
-  });
-  return {
-    operationToken: `create:${requestHash}`,
-    requestHash,
-    sourceVersionId: input.scope.versionId,
-    bufferDisposition: input.bufferDisposition,
-    ...(sourceBufferKey ? { sourceBufferKey } : {}),
-    ...(sourceBufferHash ? { sourceBufferHash } : {}),
-  };
-}
-
-export function publishingSimpleVersionIdentity(input: {
-  type: "select_version" | "rename_version";
-  storyId: number;
-  versionId: string;
-  displayName?: string;
-  baseContainerRevision: number;
-  baseVersionRevision: number;
-}) {
-  const requestHash = computePublishingSimpleVersionRequestHash(input);
-  return {
-    operationToken: `${input.type}:${requestHash}`,
-    requestHash,
   };
 }

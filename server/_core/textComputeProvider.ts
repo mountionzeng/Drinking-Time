@@ -120,11 +120,11 @@ const MODEL_CAPABILITIES: Readonly<Record<string, CapabilityTier>> = {
     supportsVisionInput: false,
   },
   "deepseek-v4-flash": {
-    tokenLimitField: "max_tokens",
+    tokenLimitField: "max_completion_tokens",
     supportsReasoningEffort: false,
     reasoningEfforts: [],
     supportsTemperature: true,
-    supportsStructuredOutputs: false,
+    supportsStructuredOutputs: true,
     supportsToolCalls: false,
     supportsVisionInput: false,
   },
@@ -246,10 +246,12 @@ export function resolveComputeCandidates(
   useCase: TextComputeUseCase,
   options: ComputeCandidateOptions
 ): TextComputeProvider[] {
-  return [
-    nextCandidate(useCase, options),
-    legacy302Candidate(useCase, options),
-  ].filter((candidate): candidate is TextComputeProvider => candidate !== null);
+  const next = nextCandidate(useCase, options);
+  // 登录前的访客内容不跨供应商转发；Next 不可用时由调用方回到本地模板。
+  if (useCase === "login-guest") return next ? [next] : [];
+  return [next, legacy302Candidate(useCase, options)].filter(
+    (candidate): candidate is TextComputeProvider => candidate !== null
+  );
 }
 
 export function resolveTextComputeProvider(
@@ -273,9 +275,9 @@ export function resolveVisionComputeProvider(input: {
 }
 
 export function resolveLoginGuestComputeProvider(
-  fallback302Model: string
+  _fallback302Model: string
 ): TextComputeProvider | null {
   return (
-    resolveComputeCandidates("login-guest", { fallback302Model })[0] ?? null
+    resolveComputeCandidates("login-guest", { fallback302Model: "" })[0] ?? null
   );
 }

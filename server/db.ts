@@ -64,6 +64,8 @@ import {
   InsertGeneratedImage,
   generatedImages,
   GeneratedImage,
+  previewMaskedImageOperations,
+  PreviewMaskedImageOperation,
   timelineFrameExtractionOperations,
   TimelineFrameExtractionOperation,
   InsertImageSignal,
@@ -102,6 +104,24 @@ import {
   inviteCodes,
   InviteCode,
   InsertInviteCode,
+  creditAccounts,
+  CreditAccount,
+  creditLedgerEntries,
+  CreditLedgerEntry,
+  creditHolds,
+  CreditHold,
+  billingOperations,
+  BillingOperation,
+  providerAttempts,
+  ProviderAttempt,
+  accountIdentities,
+  AccountIdentity,
+  accountCredentials,
+  AccountCredential,
+  accountVerificationChallenges,
+  AccountVerificationChallenge,
+  accountRateLimits,
+  AccountRateLimit,
 } from "../drizzle/schema";
 export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from "./_core/env";
@@ -131,6 +151,7 @@ type MemoryState = {
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
   generatedImages: GeneratedImage[];
+  previewMaskedImageOperations: PreviewMaskedImageOperation[];
   timelineFrameExtractionOperations: TimelineFrameExtractionOperation[];
   imageSignals: ImageSignal[];
   videoTakes: VideoTake[];
@@ -140,6 +161,15 @@ type MemoryState = {
   shotDerivationDrafts: ShotDerivationDraft[];
   storyOperations: StoryOperation[];
   inviteCodes: InviteCode[];
+  creditAccounts: CreditAccount[];
+  creditLedgerEntries: CreditLedgerEntry[];
+  creditHolds: CreditHold[];
+  billingOperations: BillingOperation[];
+  providerAttempts: ProviderAttempt[];
+  accountIdentities: AccountIdentity[];
+  accountCredentials: AccountCredential[];
+  accountVerificationChallenges: AccountVerificationChallenge[];
+  accountRateLimits: AccountRateLimit[];
   promptLineage: PromptLineageLocalState;
   nextIds: {
     user: number;
@@ -154,6 +184,7 @@ type MemoryState = {
     editSnapshot: number;
     semanticAnnotation: number;
     generatedImage: number;
+    previewMaskedImageOperation: number;
     timelineFrameExtractionOperation: number;
     imageSignal: number;
     videoTake: number;
@@ -163,6 +194,15 @@ type MemoryState = {
     shotDerivationDraft: number;
     storyOperation: number;
     inviteCode: number;
+    creditAccount: number;
+    creditLedgerEntry: number;
+    creditHold: number;
+    billingOperation: number;
+    providerAttempt: number;
+    accountIdentity: number;
+    accountCredential: number;
+    accountVerificationChallenge: number;
+    accountRateLimit: number;
   };
 };
 
@@ -179,6 +219,7 @@ const memoryState: MemoryState = {
   editSnapshots: [],
   semanticAnnotations: [],
   generatedImages: [],
+  previewMaskedImageOperations: [],
   timelineFrameExtractionOperations: [],
   imageSignals: [],
   videoTakes: [],
@@ -188,6 +229,15 @@ const memoryState: MemoryState = {
   shotDerivationDrafts: [],
   storyOperations: [],
   inviteCodes: [],
+  creditAccounts: [],
+  creditLedgerEntries: [],
+  creditHolds: [],
+  billingOperations: [],
+  providerAttempts: [],
+  accountIdentities: [],
+  accountCredentials: [],
+  accountVerificationChallenges: [],
+  accountRateLimits: [],
   promptLineage: createEmptyPromptLineageLocalState(),
   nextIds: {
     user: 1,
@@ -202,6 +252,7 @@ const memoryState: MemoryState = {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    previewMaskedImageOperation: 1,
     timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
@@ -211,6 +262,15 @@ const memoryState: MemoryState = {
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
+    creditAccount: 1,
+    creditLedgerEntry: 1,
+    creditHold: 1,
+    billingOperation: 1,
+    providerAttempt: 1,
+    accountIdentity: 1,
+    accountCredential: 1,
+    accountVerificationChallenge: 1,
+    accountRateLimit: 1,
   },
 };
 
@@ -409,6 +469,15 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       null,
     createdAt: toDate(item.createdAt),
   })) as GeneratedImage[];
+  memoryState.previewMaskedImageOperations = (
+    raw.previewMaskedImageOperations ?? []
+  ).map(item => ({
+    ...item,
+    quoteExpiresAt: toDate(item.quoteExpiresAt),
+    leaseUntil: toDate(item.leaseUntil),
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as PreviewMaskedImageOperation[];
   memoryState.timelineFrameExtractionOperations = (
     raw.timelineFrameExtractionOperations ?? []
   ).map(item => ({
@@ -467,6 +536,61 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     redeemedAt: item.redeemedAt ? toDate(item.redeemedAt) : null,
     createdAt: toDate(item.createdAt),
   })) as InviteCode[];
+  memoryState.creditAccounts = (raw.creditAccounts ?? []).map(item => ({
+    ...item,
+    accessEnabledAt: item.accessEnabledAt ? toDate(item.accessEnabledAt) : null,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as CreditAccount[];
+  memoryState.creditLedgerEntries = (raw.creditLedgerEntries ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+  })) as CreditLedgerEntry[];
+  memoryState.creditHolds = (raw.creditHolds ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as CreditHold[];
+  memoryState.billingOperations = (raw.billingOperations ?? []).map(item => ({
+    ...item,
+    quoteExpiresAt: item.quoteExpiresAt ? toDate(item.quoteExpiresAt) : null,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as BillingOperation[];
+  memoryState.providerAttempts = (raw.providerAttempts ?? []).map(item => ({
+    ...item,
+    submittedAt: item.submittedAt ? toDate(item.submittedAt) : null,
+    completedAt: item.completedAt ? toDate(item.completedAt) : null,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as ProviderAttempt[];
+  memoryState.accountIdentities = (raw.accountIdentities ?? []).map(item => ({
+    ...item,
+    verifiedAt: item.verifiedAt ? toDate(item.verifiedAt) : null,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as AccountIdentity[];
+  memoryState.accountCredentials = (raw.accountCredentials ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as AccountCredential[];
+  memoryState.accountVerificationChallenges = (
+    raw.accountVerificationChallenges ?? []
+  ).map(item => ({
+    ...item,
+    sentAt: toDate(item.sentAt),
+    expiresAt: toDate(item.expiresAt),
+    consumedAt: item.consumedAt ? toDate(item.consumedAt) : null,
+    invalidatedAt: item.invalidatedAt ? toDate(item.invalidatedAt) : null,
+    createdAt: toDate(item.createdAt),
+  })) as AccountVerificationChallenge[];
+  memoryState.accountRateLimits = (raw.accountRateLimits ?? []).map(item => ({
+    ...item,
+    windowStartedAt: toDate(item.windowStartedAt),
+    blockedUntil: item.blockedUntil ? toDate(item.blockedUntil) : null,
+    updatedAt: toDate(item.updatedAt),
+  })) as AccountRateLimit[];
   memoryState.promptLineage = normalizePromptLineageLocalState(
     raw.promptLineage
   );
@@ -514,6 +638,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       raw.nextIds?.generatedImage ?? 0,
       nextIdFromRows(memoryState.generatedImages)
     ),
+    previewMaskedImageOperation: Math.max(
+      raw.nextIds?.previewMaskedImageOperation ?? 0,
+      nextIdFromRows(memoryState.previewMaskedImageOperations)
+    ),
     timelineFrameExtractionOperation: Math.max(
       raw.nextIds?.timelineFrameExtractionOperation ?? 0,
       nextIdFromRows(memoryState.timelineFrameExtractionOperations)
@@ -549,6 +677,42 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     inviteCode: Math.max(
       raw.nextIds?.inviteCode ?? 0,
       nextIdFromRows(memoryState.inviteCodes)
+    ),
+    creditAccount: Math.max(
+      raw.nextIds?.creditAccount ?? 0,
+      nextIdFromRows(memoryState.creditAccounts)
+    ),
+    creditLedgerEntry: Math.max(
+      raw.nextIds?.creditLedgerEntry ?? 0,
+      nextIdFromRows(memoryState.creditLedgerEntries)
+    ),
+    creditHold: Math.max(
+      raw.nextIds?.creditHold ?? 0,
+      nextIdFromRows(memoryState.creditHolds)
+    ),
+    billingOperation: Math.max(
+      raw.nextIds?.billingOperation ?? 0,
+      nextIdFromRows(memoryState.billingOperations)
+    ),
+    providerAttempt: Math.max(
+      raw.nextIds?.providerAttempt ?? 0,
+      nextIdFromRows(memoryState.providerAttempts)
+    ),
+    accountIdentity: Math.max(
+      raw.nextIds?.accountIdentity ?? 0,
+      nextIdFromRows(memoryState.accountIdentities)
+    ),
+    accountCredential: Math.max(
+      raw.nextIds?.accountCredential ?? 0,
+      nextIdFromRows(memoryState.accountCredentials)
+    ),
+    accountVerificationChallenge: Math.max(
+      raw.nextIds?.accountVerificationChallenge ?? 0,
+      nextIdFromRows(memoryState.accountVerificationChallenges)
+    ),
+    accountRateLimit: Math.max(
+      raw.nextIds?.accountRateLimit ?? 0,
+      nextIdFromRows(memoryState.accountRateLimits)
     ),
   };
 }
@@ -1078,6 +1242,7 @@ export async function getLocalPromptLineageStateForStory(
     ),
     compilationHeads: byStory(full.compilationHeads),
     conversations: byStory(full.conversations),
+    turns: byStory(full.turns),
     messages: byStory(full.messages),
     messageReferences: byStory(full.messageReferences),
     artLibraries: [],
@@ -1153,6 +1318,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       loginMethod: user.loginMethod ?? null,
       role: (user.role ??
         (user.openId === ENV.ownerOpenId ? "admin" : "user")) as User["role"],
+      sessionVersion: user.sessionVersion ?? 1,
       createdAt: current,
       updatedAt: current,
       lastSignedIn: (user.lastSignedIn as Date | undefined) ?? current,
@@ -2804,6 +2970,12 @@ export async function claimLegacyGuestStories(
       operation.userId = targetUserId;
       operation.updatedAt = current;
     }
+    for (const operation of memoryState.previewMaskedImageOperations) {
+      if (operation.userId !== sourceUser.id) continue;
+      if (!storyIds.has(operation.storyId)) continue;
+      operation.userId = targetUserId;
+      operation.updatedAt = current;
+    }
 
     await ensureLocalPromptLineageLoaded();
     const promptLineage = memoryState.promptLineage;
@@ -2890,6 +3062,15 @@ export async function claimLegacyGuestStories(
             eq(generatedImages.userId, sourceUser.id),
             isNull(generatedImages.userId)
           )
+        )
+      );
+    await tx
+      .update(previewMaskedImageOperations)
+      .set({ userId: targetUserId })
+      .where(
+        storyScope(
+          previewMaskedImageOperations.storyId,
+          previewMaskedImageOperations.userId
         )
       );
     await tx
@@ -3207,13 +3388,13 @@ export async function createImageSignal(
 
 /**
  * Promote a story image and persist the explicit selection as one operation.
- * Changing the main image also deactivates the previously adopted video for
- * that shot; the take itself remains available in history.
+ * Image and video selections are independent layers.
  */
 export async function promoteStoryImageToCurrent(data: {
   imageId: number;
   storyId: number;
   userId: number;
+  expectedCurrentImageId?: number;
   metadata?: InsertImageSignal["metadata"];
 }): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
   const db = await getDb();
@@ -3226,6 +3407,21 @@ export async function promoteStoryImageToCurrent(data: {
         (candidate.userId === data.userId || candidate.userId == null)
     );
     if (!image) return null;
+    if (data.expectedCurrentImageId != null) {
+      const expected = memoryState.generatedImages.find(
+        candidate =>
+          candidate.id === data.expectedCurrentImageId &&
+          candidate.storyId === data.storyId &&
+          (candidate.userId === data.userId || candidate.userId == null)
+      );
+      const sameIdentity =
+        image.shotIdentity != null && expected?.shotIdentity === image.shotIdentity;
+      const sameLegacyShot =
+        image.shotNo != null &&
+        expected?.shotNo === image.shotNo &&
+        (image.shotIdentity == null || expected?.shotIdentity == null);
+      if (!expected?.isCurrent || (!sameIdentity && !sameLegacyShot)) return null;
+    }
 
     for (const candidate of memoryState.generatedImages) {
       if (candidate.storyId !== data.storyId || !candidate.isCurrent) continue;
@@ -3239,20 +3435,6 @@ export async function promoteStoryImageToCurrent(data: {
       if (sameIdentity || sameLegacyShot) candidate.isCurrent = false;
     }
     image.isCurrent = true;
-
-    const stableShotIds = new Set(
-      [
-        image.shotIdentity,
-        image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
-      ].filter((value): value is string => Boolean(value))
-    );
-    memoryState.videoTimelineSelections =
-      memoryState.videoTimelineSelections.filter(
-        selection =>
-          selection.storyId !== data.storyId ||
-          selection.userId !== data.userId ||
-          !stableShotIds.has(selection.stableShotId)
-      );
 
     const signal: ImageSignal = {
       id: nextMemoryId("imageSignal"),
@@ -3300,11 +3482,32 @@ export async function promoteStoryImageToCurrent(data: {
           ? eq(generatedImages.shotNo, image.shotNo)
           : eq(generatedImages.id, image.id);
 
-    await tx
+    const lockedShotImages = await tx
       .select({ id: generatedImages.id })
       .from(generatedImages)
       .where(and(eq(generatedImages.storyId, data.storyId), shotGroup))
       .for("update");
+    if (
+      data.expectedCurrentImageId != null &&
+      !lockedShotImages.some(row => row.id === data.expectedCurrentImageId)
+    ) {
+      return null;
+    }
+    if (data.expectedCurrentImageId != null) {
+      const [expectedCurrent] = await tx
+        .select({ id: generatedImages.id })
+        .from(generatedImages)
+        .where(
+          and(
+            eq(generatedImages.id, data.expectedCurrentImageId),
+            eq(generatedImages.storyId, data.storyId),
+            eq(generatedImages.isCurrent, true),
+            shotGroup
+          )
+        )
+        .limit(1);
+      if (!expectedCurrent) return null;
+    }
     await tx
       .update(generatedImages)
       .set({ isCurrent: false })
@@ -3319,22 +3522,6 @@ export async function promoteStoryImageToCurrent(data: {
       .update(generatedImages)
       .set({ isCurrent: true })
       .where(eq(generatedImages.id, image.id));
-
-    const stableShotIds = [
-      image.shotIdentity,
-      image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
-    ].filter((value): value is string => Boolean(value));
-    if (stableShotIds.length > 0) {
-      await tx
-        .delete(videoTimelineSelections)
-        .where(
-          and(
-            eq(videoTimelineSelections.storyId, data.storyId),
-            eq(videoTimelineSelections.userId, data.userId),
-            inArray(videoTimelineSelections.stableShotId, stableShotIds)
-          )
-        );
-    }
 
     const [result] = await tx.insert(imageSignals).values({
       userId: data.userId,
@@ -3357,7 +3544,6 @@ export async function assignStoryImageToShot(data: {
   userId: number;
   shotNo: string;
   shotIdentity: string;
-  preserveTimelineSelection?: boolean;
   metadata?: InsertImageSignal["metadata"];
 }): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
   const db = await getDb();
@@ -3381,17 +3567,6 @@ export async function assignStoryImageToShot(data: {
     image.shotNo = data.shotNo;
     image.shotIdentity = data.shotIdentity;
     image.isCurrent = true;
-
-    if (!data.preserveTimelineSelection) {
-      const stableShotIds = [data.shotIdentity, `legacy-${data.shotNo}`];
-      memoryState.videoTimelineSelections =
-        memoryState.videoTimelineSelections.filter(
-          selection =>
-            selection.storyId !== data.storyId ||
-            selection.userId !== data.userId ||
-            !stableShotIds.includes(selection.stableShotId)
-        );
-    }
 
     const signal: ImageSignal = {
       id: nextMemoryId("imageSignal"),
@@ -3454,21 +3629,6 @@ export async function assignStoryImageToShot(data: {
         isCurrent: true,
       })
       .where(eq(generatedImages.id, image.id));
-
-    if (!data.preserveTimelineSelection) {
-      await tx
-        .delete(videoTimelineSelections)
-        .where(
-          and(
-            eq(videoTimelineSelections.storyId, data.storyId),
-            eq(videoTimelineSelections.userId, data.userId),
-            inArray(videoTimelineSelections.stableShotId, [
-              data.shotIdentity,
-              `legacy-${data.shotNo}`,
-            ])
-          )
-        );
-    }
 
     const [result] = await tx.insert(imageSignals).values({
       userId: data.userId,
@@ -3841,6 +4001,597 @@ type TimelineFrameExtractionOwner = {
   userId: number;
   requestId: string;
 };
+
+type PreviewMaskedImageOperationOwner = {
+  storyId: number;
+  userId: number;
+  operationToken: string;
+};
+
+const PREVIEW_MASKED_IMAGE_LEASE_MS = 15 * 60 * 1000;
+const previewMaskedImageMemoryLock = createKeyedSerialLock<string>();
+const PREVIEW_MASKED_IMAGE_PROTECTED_STATUSES: PreviewMaskedImageOperation["status"][] = [
+  "claimed",
+  "provider_accepted",
+  "unknown",
+  "succeeded",
+];
+
+function memoryPreviewMaskedImageOperation(
+  owner: PreviewMaskedImageOperationOwner
+): PreviewMaskedImageOperation | null {
+  return (
+    memoryState.previewMaskedImageOperations.find(
+      row =>
+        row.storyId === owner.storyId &&
+        row.userId === owner.userId &&
+        row.operationToken === owner.operationToken
+    ) ?? null
+  );
+}
+
+function assertMatchingPreviewMaskedImageOperation(
+  existing: PreviewMaskedImageOperation,
+  input: {
+    inputHash: string;
+    sourceImageId: number;
+    maskKey: string;
+    targetKind: "shot-primary" | "timeline-image-clip";
+    stableShotId: string;
+    clipId?: string | null;
+    quoteId: string;
+  }
+) {
+  if (
+    existing.inputHash !== input.inputHash ||
+    existing.sourceImageId !== input.sourceImageId ||
+    existing.maskKey !== input.maskKey ||
+    existing.targetKind !== input.targetKind ||
+    existing.stableShotId !== input.stableShotId ||
+    existing.clipId !== (input.clipId ?? null) ||
+    existing.quoteId !== input.quoteId
+  ) {
+    throw new Error("operationToken 已绑定另一组局部图片修改参数");
+  }
+}
+
+export async function getPreviewMaskedImageOperation(
+  owner: PreviewMaskedImageOperationOwner
+): Promise<PreviewMaskedImageOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryPreviewMaskedImageOperation(owner);
+  }
+  const [row] = await db
+    .select()
+    .from(previewMaskedImageOperations)
+    .where(
+      and(
+        eq(previewMaskedImageOperations.storyId, owner.storyId),
+        eq(previewMaskedImageOperations.userId, owner.userId),
+        eq(previewMaskedImageOperations.operationToken, owner.operationToken)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** The receipt is the authoritative binding between a generated candidate and
+ * the exact Preview target it was paid to edit. */
+export async function getSucceededPreviewMaskedImageOperationForCandidate(input: {
+  storyId: number;
+  userId: number;
+  candidateImageId: number;
+}): Promise<PreviewMaskedImageOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.previewMaskedImageOperations.find(
+        row =>
+          row.storyId === input.storyId &&
+          row.userId === input.userId &&
+          row.candidateImageId === input.candidateImageId &&
+          row.status === "succeeded"
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(previewMaskedImageOperations)
+    .where(
+      and(
+        eq(previewMaskedImageOperations.storyId, input.storyId),
+        eq(previewMaskedImageOperations.userId, input.userId),
+        eq(previewMaskedImageOperations.candidateImageId, input.candidateImageId),
+        eq(previewMaskedImageOperations.status, "succeeded")
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Recover the newest paid result for an unchanged Preview target. This keeps
+ * succeeded, unadopted candidates available across reloads without granting
+ * them any automatic adoption authority. */
+export async function getLatestSucceededPreviewMaskedImageOperationForTarget(input: {
+  storyId: number;
+  userId: number;
+  sourceImageId: number;
+  targetKind: "shot-primary" | "timeline-image-clip";
+  stableShotId: string;
+  clipId?: string | null;
+}): Promise<PreviewMaskedImageOperation | null> {
+  const matches = (row: PreviewMaskedImageOperation) =>
+    row.storyId === input.storyId &&
+    row.userId === input.userId &&
+    row.sourceImageId === input.sourceImageId &&
+    row.targetKind === input.targetKind &&
+    row.stableShotId === input.stableShotId &&
+    row.clipId === (input.clipId ?? null) &&
+    row.status === "succeeded" &&
+    row.candidateImageId != null;
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.previewMaskedImageOperations
+        .filter(matches)
+        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0] ??
+      null
+    );
+  }
+  const conditions = [
+    eq(previewMaskedImageOperations.storyId, input.storyId),
+    eq(previewMaskedImageOperations.userId, input.userId),
+    eq(previewMaskedImageOperations.sourceImageId, input.sourceImageId),
+    eq(previewMaskedImageOperations.targetKind, input.targetKind),
+    eq(previewMaskedImageOperations.stableShotId, input.stableShotId),
+    eq(previewMaskedImageOperations.status, "succeeded"),
+    isNotNull(previewMaskedImageOperations.candidateImageId),
+    input.clipId == null
+      ? isNull(previewMaskedImageOperations.clipId)
+      : eq(previewMaskedImageOperations.clipId, input.clipId),
+  ];
+  const [row] = await db
+    .select()
+    .from(previewMaskedImageOperations)
+    .where(and(...conditions))
+    .orderBy(desc(previewMaskedImageOperations.updatedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Durably fences one paid masked-edit submission. Existing receipts are never
+ * automatically reacquired: a worker may have crossed the provider's billing
+ * boundary before it crashed, even when no provider task id was returned.
+ */
+export async function claimPreviewMaskedImageOperation(
+  input: PreviewMaskedImageOperationOwner & {
+    inputHash: string;
+    sourceImageId: number;
+    maskKey: string;
+    targetKind: "shot-primary" | "timeline-image-clip";
+    stableShotId: string;
+    clipId?: string | null;
+    quoteId: string;
+    currency: string;
+    estimatedCny: number;
+    quoteExpiresAt: Date;
+  }
+): Promise<{
+  created: boolean;
+  acquired: boolean;
+  operation: PreviewMaskedImageOperation;
+}> {
+  const operationToken = input.operationToken.trim();
+  if (!operationToken || operationToken.length > 160) {
+    throw new Error("局部图片修改 operationToken 不合法");
+  }
+  const owner = { ...input, operationToken };
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return previewMaskedImageMemoryLock.run(String(input.userId), async () => {
+      const existing = memoryPreviewMaskedImageOperation(owner);
+      if (existing) {
+        assertMatchingPreviewMaskedImageOperation(existing, input);
+        return { created: false, acquired: false, operation: existing };
+      }
+      const protectedReplay = memoryState.previewMaskedImageOperations.find(
+        row =>
+          row.storyId === input.storyId &&
+          row.userId === input.userId &&
+          row.inputHash === input.inputHash &&
+          PREVIEW_MASKED_IMAGE_PROTECTED_STATUSES.includes(row.status)
+      );
+      if (protectedReplay) {
+        return { created: false, acquired: false, operation: protectedReplay };
+      }
+      const story = memoryState.stories.find(
+        row => row.id === input.storyId && row.userId === input.userId
+      );
+      const source = memoryState.generatedImages.find(
+        row =>
+          row.id === input.sourceImageId &&
+          row.storyId === input.storyId &&
+          row.userId === input.userId
+      );
+      if (!story || !source) throw new Error("底图不存在或无权操作");
+      const current = now();
+      const operation: PreviewMaskedImageOperation = {
+        id: nextMemoryId("previewMaskedImageOperation"),
+        storyId: input.storyId,
+        userId: input.userId,
+        operationToken,
+        inputHash: input.inputHash,
+        sourceImageId: input.sourceImageId,
+        maskKey: input.maskKey,
+        targetKind: input.targetKind,
+        stableShotId: input.stableShotId,
+        clipId: input.clipId ?? null,
+        quoteId: input.quoteId,
+        currency: input.currency,
+        estimatedCny: input.estimatedCny,
+        quoteExpiresAt: input.quoteExpiresAt,
+        claimToken: randomUUID(),
+        leaseUntil: new Date(current.getTime() + PREVIEW_MASKED_IMAGE_LEASE_MS),
+        attempt: 1,
+        status: "claimed",
+        providerTaskId: null,
+        candidateImageId: null,
+        errorCode: null,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.previewMaskedImageOperations.push(operation);
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.previewMaskedImageOperations =
+          memoryState.previewMaskedImageOperations.filter(row => row !== operation);
+        throw error;
+      }
+      return { created: true, acquired: true, operation };
+    });
+  }
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("底图不存在或无权操作");
+    const [existing] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.operationToken, operationToken)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (existing) {
+      assertMatchingPreviewMaskedImageOperation(existing, input);
+      return { created: false, acquired: false, operation: existing };
+    }
+    const [protectedReplay] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.inputHash, input.inputHash),
+          inArray(
+            previewMaskedImageOperations.status,
+            PREVIEW_MASKED_IMAGE_PROTECTED_STATUSES
+          )
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (protectedReplay) {
+      return { created: false, acquired: false, operation: protectedReplay };
+    }
+    const [source] = await tx
+      .select({ id: generatedImages.id })
+      .from(generatedImages)
+      .where(
+        and(
+          eq(generatedImages.id, input.sourceImageId),
+          eq(generatedImages.storyId, input.storyId),
+          eq(generatedImages.userId, input.userId)
+        )
+      )
+      .limit(1);
+    if (!source) throw new Error("底图不存在或无权操作");
+    const claimToken = randomUUID();
+    await tx.insert(previewMaskedImageOperations).values({
+      storyId: input.storyId,
+      userId: input.userId,
+      operationToken,
+      inputHash: input.inputHash,
+      sourceImageId: input.sourceImageId,
+      maskKey: input.maskKey,
+      targetKind: input.targetKind,
+      stableShotId: input.stableShotId,
+      clipId: input.clipId ?? null,
+      quoteId: input.quoteId,
+      currency: input.currency,
+      estimatedCny: input.estimatedCny,
+      quoteExpiresAt: input.quoteExpiresAt,
+      claimToken,
+      leaseUntil: new Date(Date.now() + PREVIEW_MASKED_IMAGE_LEASE_MS),
+      attempt: 1,
+      status: "claimed",
+    });
+    const [operation] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.operationToken, operationToken)
+        )
+      )
+      .limit(1);
+    if (!operation) throw new Error("局部图片修改 claim 后无法读取");
+    return { created: true, acquired: true, operation };
+  });
+}
+
+export async function markPreviewMaskedImageOperationAccepted(
+  input: PreviewMaskedImageOperationOwner & {
+    claimToken: string;
+    providerTaskId: string;
+  }
+): Promise<PreviewMaskedImageOperation | null> {
+  const apply = async (
+    current: PreviewMaskedImageOperation,
+    persist: () => Promise<void>
+  ) => {
+    if (current.claimToken !== input.claimToken || current.status !== "claimed") {
+      throw new Error("局部图片修改 claim 已失效");
+    }
+    current.status = "provider_accepted";
+    current.providerTaskId = input.providerTaskId;
+    current.updatedAt = now();
+    await persist();
+    return current;
+  };
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return previewMaskedImageMemoryLock.run(String(input.userId), async () => {
+      const current = memoryPreviewMaskedImageOperation(input);
+      if (!current) return null;
+      const before = { ...current };
+      try {
+        return await apply(current, persistMemoryState);
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.operationToken, input.operationToken)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    return apply(current, async () => {
+      await tx
+        .update(previewMaskedImageOperations)
+        .set({ status: "provider_accepted", providerTaskId: input.providerTaskId })
+        .where(eq(previewMaskedImageOperations.id, current.id));
+    });
+  });
+}
+
+export async function failPreviewMaskedImageOperation(
+  input: PreviewMaskedImageOperationOwner & {
+    claimToken: string;
+    errorCode: string;
+    providerTaskId?: string;
+    submissionUncertain?: boolean;
+  }
+): Promise<PreviewMaskedImageOperation | null> {
+  const status =
+    input.submissionUncertain || input.providerTaskId ? "unknown" : "failed";
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return previewMaskedImageMemoryLock.run(String(input.userId), async () => {
+      const current = memoryPreviewMaskedImageOperation(input);
+      if (!current) return null;
+      if (current.claimToken !== input.claimToken || current.status === "succeeded") {
+        throw new Error("局部图片修改 claim 已失效");
+      }
+      const before = { ...current };
+      current.status = status;
+      current.providerTaskId = input.providerTaskId ?? current.providerTaskId;
+      current.errorCode = input.errorCode.slice(0, 128);
+      current.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.operationToken, input.operationToken)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.claimToken !== input.claimToken || current.status === "succeeded") {
+      throw new Error("局部图片修改 claim 已失效");
+    }
+    await tx
+      .update(previewMaskedImageOperations)
+      .set({
+        status,
+        providerTaskId: input.providerTaskId ?? current.providerTaskId,
+        errorCode: input.errorCode.slice(0, 128),
+      })
+      .where(eq(previewMaskedImageOperations.id, current.id));
+    return { ...current, status, errorCode: input.errorCode.slice(0, 128) };
+  });
+}
+
+export async function settlePreviewMaskedImageOperationSuccess(
+  input: PreviewMaskedImageOperationOwner & {
+    claimToken: string;
+    image: Omit<InsertGeneratedImage, "id" | "createdAt">;
+  }
+): Promise<{
+  operation: PreviewMaskedImageOperation;
+  image: GeneratedImage;
+}> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return previewMaskedImageMemoryLock.run(String(input.userId), async () => {
+      const operation = memoryPreviewMaskedImageOperation(input);
+      if (!operation) throw new Error("局部图片修改操作不存在");
+      if (operation.candidateImageId != null) {
+        const replay = memoryState.generatedImages.find(
+          image => image.id === operation.candidateImageId
+        );
+        if (!replay) throw new Error("局部图片修改候选不存在");
+        return { operation, image: replay };
+      }
+      if (
+        operation.claimToken !== input.claimToken ||
+        !["claimed", "provider_accepted"].includes(operation.status)
+      ) {
+        throw new Error("局部图片修改 claim 已失效");
+      }
+      if (
+        input.image.storyId !== input.storyId ||
+        input.image.userId !== input.userId ||
+        input.image.parentImageId !== operation.sourceImageId ||
+        input.image.maskKey !== operation.maskKey ||
+        input.image.isCurrent !== false
+      ) {
+        throw new Error("局部图片修改候选归属不一致");
+      }
+      const image: GeneratedImage = {
+        id: nextMemoryId("generatedImage"),
+        projectId: input.image.projectId ?? null,
+        storyId: input.image.storyId ?? null,
+        userId: input.image.userId ?? null,
+        shotNo: input.image.shotNo ?? null,
+        shotIdentity: input.image.shotIdentity ?? null,
+        imageKey: input.image.imageKey ?? null,
+        imageUrl: input.image.imageUrl,
+        prompt: input.image.prompt ?? null,
+        promptCompilationId: input.image.promptCompilationId ?? null,
+        parentImageId: input.image.parentImageId ?? null,
+        isCurrent: false,
+        generationType: input.image.generationType ?? "inpaint",
+        maskKey: input.image.maskKey ?? null,
+        createdAt: now(),
+      };
+      const beforeOperation = { ...operation };
+      memoryState.generatedImages.push(image);
+      operation.status = "succeeded";
+      operation.candidateImageId = image.id;
+      operation.errorCode = null;
+      operation.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.generatedImages = memoryState.generatedImages.filter(
+          row => row !== image
+        );
+        Object.assign(operation, beforeOperation);
+        throw error;
+      }
+      return { operation, image };
+    });
+  }
+  return db.transaction(async tx => {
+    const [operation] = await tx
+      .select()
+      .from(previewMaskedImageOperations)
+      .where(
+        and(
+          eq(previewMaskedImageOperations.storyId, input.storyId),
+          eq(previewMaskedImageOperations.userId, input.userId),
+          eq(previewMaskedImageOperations.operationToken, input.operationToken)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation) throw new Error("局部图片修改操作不存在");
+    if (operation.candidateImageId != null) {
+      const [replay] = await tx
+        .select()
+        .from(generatedImages)
+        .where(eq(generatedImages.id, operation.candidateImageId))
+        .limit(1);
+      if (!replay) throw new Error("局部图片修改候选不存在");
+      return { operation, image: replay };
+    }
+    if (
+      operation.claimToken !== input.claimToken ||
+      !["claimed", "provider_accepted"].includes(operation.status) ||
+      input.image.storyId !== input.storyId ||
+      input.image.userId !== input.userId ||
+      input.image.parentImageId !== operation.sourceImageId ||
+      input.image.maskKey !== operation.maskKey ||
+      input.image.isCurrent !== false
+    ) {
+      throw new Error("局部图片修改候选归属不一致或 claim 已失效");
+    }
+    const [result] = await tx.insert(generatedImages).values(input.image);
+    await tx
+      .update(previewMaskedImageOperations)
+      .set({ status: "succeeded", candidateImageId: result.insertId, errorCode: null })
+      .where(eq(previewMaskedImageOperations.id, operation.id));
+    const [image] = await tx
+      .select()
+      .from(generatedImages)
+      .where(eq(generatedImages.id, result.insertId))
+      .limit(1);
+    if (!image) throw new Error("局部图片修改候选保存后无法读取");
+    return {
+      operation: { ...operation, status: "succeeded", candidateImageId: image.id },
+      image,
+    };
+  });
+}
 
 const TIMELINE_FRAME_EXTRACTION_LEASE_MS = 10 * 60 * 1000;
 
@@ -4865,6 +5616,15 @@ export async function deleteGeneratedImage(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
+    if (
+      memoryState.stories.some(
+        story =>
+          story.userId === userId &&
+          finishedProductReferencesImage(story.body, imageId)
+      )
+    ) {
+      throw new Error("该图片已被成品版本引用，不能删除");
+    }
     memoryState.generatedImages = memoryState.generatedImages.filter(
       img => !(img.id === imageId && img.userId === userId)
     );
@@ -4874,12 +5634,49 @@ export async function deleteGeneratedImage(
     await persistMemoryState();
     return;
   }
+  const ownedStories = await db
+    .select({ body: stories.body })
+    .from(stories)
+    .where(eq(stories.userId, userId));
+  if (ownedStories.some(story => finishedProductReferencesImage(story.body, imageId))) {
+    throw new Error("该图片已被成品版本引用，不能删除");
+  }
   await db.delete(imageSignals).where(eq(imageSignals.imageId, imageId));
   await db
     .delete(generatedImages)
     .where(
       and(eq(generatedImages.id, imageId), eq(generatedImages.userId, userId))
     );
+}
+
+function finishedProductReferencesImage(body: unknown, imageId: number): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const finishedProduct = (body as Record<string, unknown>).finishedProduct;
+  if (
+    !finishedProduct ||
+    typeof finishedProduct !== "object" ||
+    Array.isArray(finishedProduct)
+  ) {
+    return false;
+  }
+  const versions = (finishedProduct as Record<string, unknown>).versions;
+  if (!Array.isArray(versions)) return false;
+  return versions.some(version => {
+    if (!version || typeof version !== "object" || Array.isArray(version)) {
+      return false;
+    }
+    const images = (version as Record<string, unknown>).images;
+    return (
+      Array.isArray(images) &&
+      images.some(
+        image =>
+          image != null &&
+          typeof image === "object" &&
+          !Array.isArray(image) &&
+          (image as Record<string, unknown>).imageId === imageId
+      )
+    );
+  });
 }
 
 export async function updateImageCurrent(
@@ -7761,6 +8558,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
   memoryState.generatedImages = [];
+  memoryState.previewMaskedImageOperations = [];
   memoryState.timelineFrameExtractionOperations = [];
   memoryState.imageSignals = [];
   memoryState.videoTakes = [];
@@ -7770,6 +8568,15 @@ export function resetMemoryStateForTesting(): void {
   memoryState.shotDerivationDrafts = [];
   memoryState.storyOperations = [];
   memoryState.inviteCodes = [];
+  memoryState.creditAccounts = [];
+  memoryState.creditLedgerEntries = [];
+  memoryState.creditHolds = [];
+  memoryState.billingOperations = [];
+  memoryState.providerAttempts = [];
+  memoryState.accountIdentities = [];
+  memoryState.accountCredentials = [];
+  memoryState.accountVerificationChallenges = [];
+  memoryState.accountRateLimits = [];
   memoryState.promptLineage = createEmptyPromptLineageLocalState();
   promptLineageLoaded = true;
   promptLineageLoadFallback = undefined;
@@ -7788,6 +8595,7 @@ export function resetMemoryStateForTesting(): void {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    previewMaskedImageOperation: 1,
     timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
@@ -7797,9 +8605,19 @@ export function resetMemoryStateForTesting(): void {
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
+    creditAccount: 1,
+    creditLedgerEntry: 1,
+    creditHold: 1,
+    billingOperation: 1,
+    providerAttempt: 1,
+    accountIdentity: 1,
+    accountCredential: 1,
+    accountVerificationChallenge: 1,
+    accountRateLimit: 1,
   };
   defaultProjectLocks.clear();
   timelineFrameExtractionMemoryLock.clear();
+  previewMaskedImageMemoryLock.clear();
   memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
   memoryInviteClaimQueue = Promise.resolve();
   memoryEmailOtps = [];
@@ -7882,6 +8700,80 @@ export async function markEmailOtpUsed(id: number): Promise<void> {
 }
 
 // ── 内测邀请码相关函数 ──────────────────────────────────────────────
+
+export type InviteOverviewRow = {
+  id: number;
+  label: string | null;
+  status: "pending" | "redeemed" | "expired";
+  redeemedByEmail: string | null;
+  redeemedByUserId: number | null;
+  userName: string | null;
+  userEmail: string | null;
+  expiresAt: Date | null;
+  redeemedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * 管理员邀请概览。只返回可展示的状态字段，不暴露不可逆的邀请码哈希。
+ */
+export async function getInviteOverview(
+  generatedAt = new Date()
+): Promise<InviteOverviewRow[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+  }
+
+  const rows = !db
+    ? memoryState.inviteCodes.map(invite => {
+        const user =
+          invite.redeemedByUserId == null
+            ? undefined
+            : memoryState.users.find(
+                candidate => candidate.id === invite.redeemedByUserId
+              );
+        return {
+          id: invite.id,
+          label: invite.label,
+          redeemedByEmail: invite.redeemedByEmail,
+          redeemedByUserId: invite.redeemedByUserId,
+          userName: user?.name ?? null,
+          userEmail: user?.email ?? null,
+          expiresAt: invite.expiresAt,
+          redeemedAt: invite.redeemedAt,
+          createdAt: invite.createdAt,
+        };
+      })
+    : await db
+        .select({
+          id: inviteCodes.id,
+          label: inviteCodes.label,
+          redeemedByEmail: inviteCodes.redeemedByEmail,
+          redeemedByUserId: inviteCodes.redeemedByUserId,
+          userName: users.name,
+          userEmail: users.email,
+          expiresAt: inviteCodes.expiresAt,
+          redeemedAt: inviteCodes.redeemedAt,
+          createdAt: inviteCodes.createdAt,
+        })
+        .from(inviteCodes)
+        .leftJoin(users, eq(inviteCodes.redeemedByUserId, users.id))
+        .orderBy(desc(inviteCodes.createdAt));
+
+  return rows
+    .map(row => ({
+      ...row,
+      status: row.redeemedAt
+        ? ("redeemed" as const)
+        : row.expiresAt && row.expiresAt < generatedAt
+          ? ("expired" as const)
+          : ("pending" as const),
+    }))
+    .sort(
+      (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+    );
+}
 
 export async function createInviteCode(
   data: Pick<InsertInviteCode, "codeHash" | "label" | "expiresAt">
@@ -8088,4 +8980,1203 @@ export async function bindRedeemedInviteToUser(
         isNotNull(inviteCodes.redeemedAt)
       )
     );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 算力账本：不可改写的逐笔记录 + 事务内预占
+//
+// 事实来源是 append-only 的 credit_ledger_entries；credit_accounts 只是账本在
+// 事务里维护的派生投影，存在的意义是让「检查余额 → 预占」能在一条
+// SELECT ... FOR UPDATE 里原子完成，而不是每次去 SUM 全表。
+//
+// 这里**没有**通用的「直接设置余额」。人工调整也是新增一条 adjustment，
+// 既有消费事实不可 update、不可 delete。
+//
+// 预占与结算是两个独立的短事务：供应商网络调用发生在它们之间，任何路径都不
+// 跨网络持有余额行的锁。
+// ══════════════════════════════════════════════════════════════════════
+
+const memoryCreditAccountLock = createKeyedSerialLock<number>();
+
+export type CreditAccountSummary = {
+  userId: number;
+  /** 已入账余额（微元） */
+  balanceMinor: number;
+  /** 活动预占合计（微元） */
+  reservedMinor: number;
+  /** 累计消费（微元） */
+  lifetimeSpentMinor: number;
+  /** 可用余额 = balanceMinor − reservedMinor */
+  availableMinor: number;
+  accessEnabledAt: Date | null;
+};
+
+function summarizeCreditAccount(
+  userId: number,
+  row: Pick<
+    CreditAccount,
+    "balanceMinor" | "reservedMinor" | "lifetimeSpentMinor" | "accessEnabledAt"
+  > | null
+): CreditAccountSummary {
+  const balanceMinor = Number(row?.balanceMinor ?? 0);
+  const reservedMinor = Number(row?.reservedMinor ?? 0);
+  return {
+    userId,
+    balanceMinor,
+    reservedMinor,
+    lifetimeSpentMinor: Number(row?.lifetimeSpentMinor ?? 0),
+    availableMinor: balanceMinor - reservedMinor,
+    accessEnabledAt: row?.accessEnabledAt ?? null,
+  };
+}
+
+function memoryCreditAccountRow(userId: number): CreditAccount {
+  let row = memoryState.creditAccounts.find(item => item.userId === userId);
+  if (!row) {
+    const current = now();
+    row = {
+      id: nextMemoryId("creditAccount"),
+      userId,
+      balanceMinor: 0,
+      reservedMinor: 0,
+      lifetimeSpentMinor: 0,
+      currency: "CNY",
+      accessEnabledAt: null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.creditAccounts.push(row);
+  }
+  return row;
+}
+
+export async function getCreditAccountSummary(
+  userId: number
+): Promise<CreditAccountSummary> {
+  const db = await getDb();
+  if (!db) {
+    const row =
+      memoryState.creditAccounts.find(item => item.userId === userId) ?? null;
+    return summarizeCreditAccount(userId, row);
+  }
+
+  const [row] = await db
+    .select()
+    .from(creditAccounts)
+    .where(eq(creditAccounts.userId, userId))
+    .limit(1);
+  return summarizeCreditAccount(userId, row ?? null);
+}
+
+export type ReserveComputeCreditInput = {
+  userId: number;
+  operationId: string;
+  operationType: string;
+  requestHash: string;
+  /** 可信最高费用（微元），必须为正 */
+  amountMinor: number;
+  storyId?: number | null;
+  quoteExpiresAt?: Date | null;
+};
+
+export type ReserveComputeCreditResult =
+  | { kind: "reserved"; availableMinor: number }
+  /** 同一 operationId 已存在。调用方比对 requestHash 决定是重放还是冲突 */
+  | { kind: "existing"; status: BillingOperation["status"]; requestHash: string }
+  | { kind: "insufficient"; availableMinor: number; requiredMinor: number };
+
+/**
+ * 在一个短事务里锁定账号余额行、检查可用余额、建立 operation 与 hold。
+ *
+ * 可用余额的比较必须发生在锁内——这是并发两个预占不能同时通过的唯一保证。
+ * 业务侧的重放/冲突/上界/报价判断在 `computeBilling.planReservation` 里，
+ * 这里只做那件必须原子的事。
+ */
+export async function reserveComputeCredit(
+  input: ReserveComputeCreditInput
+): Promise<ReserveComputeCreditResult> {
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new Error(`预占金额必须是正的安全整数微元：${input.amountMinor}`);
+  }
+
+  const db = await getDb();
+  if (!db) {
+    return memoryCreditAccountLock.run(input.userId, async () => {
+      const existing = memoryState.billingOperations.find(
+        item => item.operationId === input.operationId
+      );
+      if (existing) {
+        return {
+          kind: "existing" as const,
+          status: existing.status,
+          requestHash: existing.requestHash,
+        };
+      }
+
+      const account = memoryCreditAccountRow(input.userId);
+      const availableMinor =
+        Number(account.balanceMinor) - Number(account.reservedMinor);
+      if (availableMinor < input.amountMinor) {
+        return {
+          kind: "insufficient" as const,
+          availableMinor,
+          requiredMinor: input.amountMinor,
+        };
+      }
+
+      const current = now();
+      memoryState.billingOperations.push({
+        id: nextMemoryId("billingOperation"),
+        userId: input.userId,
+        operationId: input.operationId,
+        operationType: input.operationType,
+        requestHash: input.requestHash,
+        status: "reserved",
+        maxCostMinor: input.amountMinor,
+        actualCostMinor: null,
+        storyId: input.storyId ?? null,
+        quoteExpiresAt: input.quoteExpiresAt ?? null,
+        createdAt: current,
+        updatedAt: current,
+      });
+      memoryState.creditHolds.push({
+        id: nextMemoryId("creditHold"),
+        userId: input.userId,
+        operationId: input.operationId,
+        amountMinor: input.amountMinor,
+        status: "active",
+        createdAt: current,
+        updatedAt: current,
+      });
+      account.reservedMinor = Number(account.reservedMinor) + input.amountMinor;
+      account.updatedAt = current;
+      await persistMemoryState();
+      return {
+        kind: "reserved" as const,
+        availableMinor: availableMinor - input.amountMinor,
+      };
+    });
+  }
+
+  return db.transaction(async tx => {
+    await tx
+      .insert(creditAccounts)
+      .values({ userId: input.userId })
+      .onDuplicateKeyUpdate({ set: { userId: input.userId } });
+
+    const [account] = await tx
+      .select()
+      .from(creditAccounts)
+      .where(eq(creditAccounts.userId, input.userId))
+      .for("update")
+      .limit(1);
+
+    const [existing] = await tx
+      .select()
+      .from(billingOperations)
+      .where(eq(billingOperations.operationId, input.operationId))
+      .limit(1);
+    if (existing) {
+      return {
+        kind: "existing" as const,
+        status: existing.status,
+        requestHash: existing.requestHash,
+      };
+    }
+
+    const availableMinor =
+      Number(account?.balanceMinor ?? 0) - Number(account?.reservedMinor ?? 0);
+    if (availableMinor < input.amountMinor) {
+      return {
+        kind: "insufficient" as const,
+        availableMinor,
+        requiredMinor: input.amountMinor,
+      };
+    }
+
+    await tx.insert(billingOperations).values({
+      userId: input.userId,
+      operationId: input.operationId,
+      operationType: input.operationType,
+      requestHash: input.requestHash,
+      status: "reserved",
+      maxCostMinor: input.amountMinor,
+      storyId: input.storyId ?? null,
+      quoteExpiresAt: input.quoteExpiresAt ?? null,
+    });
+    await tx.insert(creditHolds).values({
+      userId: input.userId,
+      operationId: input.operationId,
+      amountMinor: input.amountMinor,
+      status: "active",
+    });
+    await tx
+      .update(creditAccounts)
+      .set({
+        reservedMinor: sql`${creditAccounts.reservedMinor} + ${input.amountMinor}`,
+      })
+      .where(eq(creditAccounts.userId, input.userId));
+
+    return {
+      kind: "reserved" as const,
+      availableMinor: availableMinor - input.amountMinor,
+    };
+  });
+}
+
+export type ApplyComputeSettlementInput = {
+  operationId: string;
+  /** 实际扣款（微元），可以是 0 */
+  chargeMinor: number;
+  /** 放回的预占（微元），可以是 0 */
+  releaseMinor: number;
+  nextOperationStatus: BillingOperation["status"];
+  nextHoldStatus: CreditHold["status"];
+  reason?: string | null;
+};
+
+export type ApplyComputeSettlementResult =
+  | {
+      kind: "applied";
+      balanceMinor: number;
+      reservedMinor: number;
+      lifetimeSpentMinor: number;
+      chargeMinor: number;
+    }
+  /** operation 已处于终态：最终结算只发生一次 */
+  | { kind: "already_final"; status: BillingOperation["status"] }
+  | { kind: "missing" };
+
+/**
+ * 结算/释放/冻结：一个独立的短事务，发生在供应商调用之后。
+ *
+ * 幂等靠两层：operation 的终态检查（在锁内）+ 账本 `idempotencyKey` 的唯一约束。
+ * 重放同一次结算只会得到 `already_final`，不会二次扣费。
+ */
+export async function applyComputeSettlement(
+  input: ApplyComputeSettlementInput
+): Promise<ApplyComputeSettlementResult> {
+  const chargeMinor = Number(input.chargeMinor);
+  const releaseMinor = Number(input.releaseMinor);
+  if (
+    !Number.isSafeInteger(chargeMinor) ||
+    !Number.isSafeInteger(releaseMinor) ||
+    chargeMinor < 0 ||
+    releaseMinor < 0
+  ) {
+    throw new Error("结算金额必须是非负的安全整数微元");
+  }
+  const reservedDelta = chargeMinor + releaseMinor;
+  const finalStatuses = new Set(["settled", "released", "exception"]);
+
+  const db = await getDb();
+  if (!db) {
+    const operationPeek = memoryState.billingOperations.find(
+      item => item.operationId === input.operationId
+    );
+    if (!operationPeek) return { kind: "missing" };
+
+    return memoryCreditAccountLock.run(operationPeek.userId, async () => {
+      const operation = memoryState.billingOperations.find(
+        item => item.operationId === input.operationId
+      );
+      if (!operation) return { kind: "missing" as const };
+      if (finalStatuses.has(operation.status)) {
+        return { kind: "already_final" as const, status: operation.status };
+      }
+
+      const account = memoryCreditAccountRow(operation.userId);
+      const current = now();
+      if (chargeMinor > 0 || input.nextOperationStatus === "settled") {
+        memoryState.creditLedgerEntries.push({
+          id: nextMemoryId("creditLedgerEntry"),
+          userId: operation.userId,
+          entryType: "consumption",
+          amountMinor: -chargeMinor,
+          currency: "CNY",
+          idempotencyKey: `consume:${input.operationId}`,
+          operationId: input.operationId,
+          giftCardId: null,
+          actorUserId: null,
+          reason: input.reason ?? null,
+          createdAt: current,
+        });
+        account.balanceMinor = Number(account.balanceMinor) - chargeMinor;
+        account.lifetimeSpentMinor =
+          Number(account.lifetimeSpentMinor) + chargeMinor;
+      }
+      account.reservedMinor = Number(account.reservedMinor) - reservedDelta;
+      account.updatedAt = current;
+
+      operation.status = input.nextOperationStatus;
+      operation.actualCostMinor = finalStatuses.has(input.nextOperationStatus)
+        ? chargeMinor
+        : operation.actualCostMinor;
+      operation.updatedAt = current;
+
+      const hold = memoryState.creditHolds.find(
+        item => item.operationId === input.operationId
+      );
+      if (hold) {
+        hold.status = input.nextHoldStatus;
+        hold.updatedAt = current;
+      }
+      await persistMemoryState();
+      return {
+        kind: "applied" as const,
+        balanceMinor: Number(account.balanceMinor),
+        reservedMinor: Number(account.reservedMinor),
+        lifetimeSpentMinor: Number(account.lifetimeSpentMinor),
+        chargeMinor,
+      };
+    });
+  }
+
+  return db.transaction(async tx => {
+    const [operation] = await tx
+      .select()
+      .from(billingOperations)
+      .where(eq(billingOperations.operationId, input.operationId))
+      .for("update")
+      .limit(1);
+    if (!operation) return { kind: "missing" as const };
+    if (finalStatuses.has(operation.status)) {
+      return { kind: "already_final" as const, status: operation.status };
+    }
+
+    const [account] = await tx
+      .select()
+      .from(creditAccounts)
+      .where(eq(creditAccounts.userId, operation.userId))
+      .for("update")
+      .limit(1);
+
+    if (chargeMinor > 0 || input.nextOperationStatus === "settled") {
+      await tx.insert(creditLedgerEntries).values({
+        userId: operation.userId,
+        entryType: "consumption",
+        amountMinor: -chargeMinor,
+        idempotencyKey: `consume:${input.operationId}`,
+        operationId: input.operationId,
+        reason: input.reason ?? null,
+      });
+    }
+
+    const nextBalance = Number(account?.balanceMinor ?? 0) - chargeMinor;
+    const nextReserved = Number(account?.reservedMinor ?? 0) - reservedDelta;
+    const nextLifetime = Number(account?.lifetimeSpentMinor ?? 0) + chargeMinor;
+    await tx
+      .update(creditAccounts)
+      .set({
+        balanceMinor: nextBalance,
+        reservedMinor: nextReserved,
+        lifetimeSpentMinor: nextLifetime,
+      })
+      .where(eq(creditAccounts.userId, operation.userId));
+
+    await tx
+      .update(billingOperations)
+      .set({
+        status: input.nextOperationStatus,
+        ...(finalStatuses.has(input.nextOperationStatus)
+          ? { actualCostMinor: chargeMinor }
+          : {}),
+      })
+      .where(eq(billingOperations.operationId, input.operationId));
+    await tx
+      .update(creditHolds)
+      .set({ status: input.nextHoldStatus })
+      .where(eq(creditHolds.operationId, input.operationId));
+
+    return {
+      kind: "applied" as const,
+      balanceMinor: nextBalance,
+      reservedMinor: nextReserved,
+      lifetimeSpentMinor: nextLifetime,
+      chargeMinor,
+    };
+  });
+}
+
+export type AppendCreditEntryInput = {
+  userId: number;
+  entryType: CreditLedgerEntry["entryType"];
+  /** 带符号金额（微元）：赠送/退款为正，人工扣减为负 */
+  amountMinor: number;
+  /** 业务幂等键。重复写入被唯一约束挡下 */
+  idempotencyKey: string;
+  giftCardId?: number | null;
+  actorUserId?: number | null;
+  reason?: string | null;
+  /** 领卡开通工作台时一并写入 */
+  enableAccess?: boolean;
+};
+
+export type AppendCreditEntryResult =
+  | { kind: "appended"; balanceMinor: number }
+  /** 同一幂等键已经写过：重复赠送/重复迁移在这里被挡下 */
+  | { kind: "duplicate" };
+
+/**
+ * 往账本追加一条记录（赠送、人工调整、退款），并同步余额投影。
+ *
+ * 这是唯一的入账口径，没有「直接设置余额」的旁路。重复迁移和重复领卡靠
+ * `idempotencyKey` 的唯一约束收敛为零新增。
+ */
+export async function appendCreditLedgerEntry(
+  input: AppendCreditEntryInput
+): Promise<AppendCreditEntryResult> {
+  if (!Number.isSafeInteger(input.amountMinor)) {
+    throw new Error(`账本金额必须是安全整数微元：${input.amountMinor}`);
+  }
+  if (!input.idempotencyKey.trim()) {
+    throw new Error("账本写入必须带幂等键");
+  }
+
+  const db = await getDb();
+  if (!db) {
+    return memoryCreditAccountLock.run(input.userId, async () => {
+      const duplicate = memoryState.creditLedgerEntries.some(
+        item => item.idempotencyKey === input.idempotencyKey
+      );
+      if (duplicate) return { kind: "duplicate" as const };
+
+      const account = memoryCreditAccountRow(input.userId);
+      const current = now();
+      memoryState.creditLedgerEntries.push({
+        id: nextMemoryId("creditLedgerEntry"),
+        userId: input.userId,
+        entryType: input.entryType,
+        amountMinor: input.amountMinor,
+        currency: "CNY",
+        idempotencyKey: input.idempotencyKey,
+        operationId: null,
+        giftCardId: input.giftCardId ?? null,
+        actorUserId: input.actorUserId ?? null,
+        reason: input.reason ?? null,
+        createdAt: current,
+      });
+      account.balanceMinor = Number(account.balanceMinor) + input.amountMinor;
+      if (input.enableAccess && !account.accessEnabledAt) {
+        account.accessEnabledAt = current;
+      }
+      account.updatedAt = current;
+      await persistMemoryState();
+      return { kind: "appended" as const, balanceMinor: Number(account.balanceMinor) };
+    });
+  }
+
+  return db.transaction(async tx => {
+    await tx
+      .insert(creditAccounts)
+      .values({ userId: input.userId })
+      .onDuplicateKeyUpdate({ set: { userId: input.userId } });
+    const [account] = await tx
+      .select()
+      .from(creditAccounts)
+      .where(eq(creditAccounts.userId, input.userId))
+      .for("update")
+      .limit(1);
+
+    const [duplicate] = await tx
+      .select({ id: creditLedgerEntries.id })
+      .from(creditLedgerEntries)
+      .where(eq(creditLedgerEntries.idempotencyKey, input.idempotencyKey))
+      .limit(1);
+    if (duplicate) return { kind: "duplicate" as const };
+
+    await tx.insert(creditLedgerEntries).values({
+      userId: input.userId,
+      entryType: input.entryType,
+      amountMinor: input.amountMinor,
+      idempotencyKey: input.idempotencyKey,
+      giftCardId: input.giftCardId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      reason: input.reason ?? null,
+    });
+
+    const nextBalance = Number(account?.balanceMinor ?? 0) + input.amountMinor;
+    await tx
+      .update(creditAccounts)
+      .set({
+        balanceMinor: nextBalance,
+        ...(input.enableAccess && !account?.accessEnabledAt
+          ? { accessEnabledAt: new Date() }
+          : {}),
+      })
+      .where(eq(creditAccounts.userId, input.userId));
+
+    return { kind: "appended" as const, balanceMinor: nextBalance };
+  });
+}
+
+export async function listCreditLedgerEntries(
+  userId: number,
+  limit = 50
+): Promise<CreditLedgerEntry[]> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.creditLedgerEntries
+      .filter(item => item.userId === userId)
+      .sort((left, right) => right.id - left.id)
+      .slice(0, limit)
+      .map(item => ({ ...item }));
+  }
+
+  return db
+    .select()
+    .from(creditLedgerEntries)
+    .where(eq(creditLedgerEntries.userId, userId))
+    .orderBy(desc(creditLedgerEntries.id))
+    .limit(limit);
+}
+
+export async function findBillingOperation(
+  operationId: string
+): Promise<BillingOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.billingOperations.find(
+        item => item.operationId === operationId
+      ) ?? null
+    );
+  }
+
+  const [operation] = await db
+    .select()
+    .from(billingOperations)
+    .where(eq(billingOperations.operationId, operationId))
+    .limit(1);
+  return operation ?? null;
+}
+
+export async function findActiveCreditHold(
+  operationId: string
+): Promise<CreditHold | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.creditHolds.find(
+        item => item.operationId === operationId && item.status === "active"
+      ) ?? null
+    );
+  }
+
+  const [hold] = await db
+    .select()
+    .from(creditHolds)
+    .where(
+      and(eq(creditHolds.operationId, operationId), eq(creditHolds.status, "active"))
+    )
+    .limit(1);
+  return hold ?? null;
+}
+
+export type RecordProviderAttemptInput = {
+  operationId: string;
+  attemptIndex: number;
+  provider: string;
+  model?: string | null;
+  providerTaskId?: string | null;
+  receiptId?: string | null;
+  status: ProviderAttempt["status"];
+  usage?: unknown;
+  costMinor?: number | null;
+};
+
+/**
+ * 记录一次供应商尝试。
+ *
+ * 供应商层与业务层分开：这里记 fallback、重试和真实用量，但**不动余额**——
+ * 扣费只发生在业务层的一次结算里，避免 adapter 重复扣费。
+ */
+export async function recordProviderAttempt(
+  input: RecordProviderAttemptInput
+): Promise<{ kind: "recorded" } | { kind: "missing_operation" }> {
+  const operation = await findBillingOperation(input.operationId);
+  if (!operation) return { kind: "missing_operation" };
+
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const existing = memoryState.providerAttempts.find(
+      item =>
+        item.billingOperationId === operation.id &&
+        item.attemptIndex === input.attemptIndex
+    );
+    if (existing) {
+      existing.status = input.status;
+      existing.providerTaskId = input.providerTaskId ?? existing.providerTaskId;
+      existing.receiptId = input.receiptId ?? existing.receiptId;
+      existing.usage = (input.usage ?? existing.usage) as ProviderAttempt["usage"];
+      existing.costMinor = input.costMinor ?? existing.costMinor;
+      existing.updatedAt = current;
+      await persistMemoryState();
+      return { kind: "recorded" };
+    }
+    memoryState.providerAttempts.push({
+      id: nextMemoryId("providerAttempt"),
+      billingOperationId: operation.id,
+      attemptIndex: input.attemptIndex,
+      provider: input.provider,
+      model: input.model ?? null,
+      providerTaskId: input.providerTaskId ?? null,
+      receiptId: input.receiptId ?? null,
+      status: input.status,
+      usage: (input.usage ?? null) as ProviderAttempt["usage"],
+      costMinor: input.costMinor ?? null,
+      submittedAt: null,
+      completedAt: null,
+      createdAt: current,
+      updatedAt: current,
+    });
+    await persistMemoryState();
+    return { kind: "recorded" };
+  }
+
+  await db
+    .insert(providerAttempts)
+    .values({
+      billingOperationId: operation.id,
+      attemptIndex: input.attemptIndex,
+      provider: input.provider,
+      model: input.model ?? null,
+      providerTaskId: input.providerTaskId ?? null,
+      receiptId: input.receiptId ?? null,
+      status: input.status,
+      usage: input.usage ?? null,
+      costMinor: input.costMinor ?? null,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        status: input.status,
+        providerTaskId: input.providerTaskId ?? null,
+        receiptId: input.receiptId ?? null,
+        usage: input.usage ?? null,
+        costMinor: input.costMinor ?? null,
+      },
+    });
+  return { kind: "recorded" };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 统一账号：身份解析、密码凭据、验证码挑战、共享持久化限流
+//
+// 「一个标准化邮箱只解析到一个 userId」是整套账号的地基。解析不出唯一答案时
+// **停在冲突状态**，交给人工处理——静默 merge 会把两个人的故事并进一个账号，
+// 那是不可逆的。
+// ══════════════════════════════════════════════════════════════════════
+
+const memoryRateLimitLock = createKeyedSerialLock<string>();
+const memoryChallengeLock = createKeyedSerialLock<string>();
+
+export function normalizeAccountEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export type EmailIdentityResolution =
+  /** account_identities 里已有登记 */
+  | { kind: "resolved"; userId: number }
+  /** 历史 users 表里恰好一个匹配，尚未登记 identity */
+  | { kind: "legacy_single"; userId: number }
+  /** 同一标准化邮箱对应多个历史用户：停下来，不猜 */
+  | { kind: "conflict"; userIds: number[] }
+  | { kind: "absent" };
+
+/**
+ * 把标准化邮箱解析成唯一 userId。
+ *
+ * 先查 identity 表（`(provider, subject)` 唯一，最多一条）；没有再回落到历史
+ * `users.email`。历史表里出现多个匹配时返回 conflict——调用方必须失败关闭，
+ * 等 U3 的映射清单和人工裁决，不允许自动挑一个。
+ */
+export async function resolveEmailIdentity(
+  email: string
+): Promise<EmailIdentityResolution> {
+  const normalized = normalizeAccountEmail(email);
+  if (!normalized) return { kind: "absent" };
+
+  const db = await getDb();
+  if (!db) {
+    const identity = memoryState.accountIdentities.find(
+      item => item.provider === "email" && item.subject === normalized
+    );
+    if (identity) return { kind: "resolved", userId: identity.userId };
+
+    const matches = memoryState.users.filter(
+      item => normalizeAccountEmail(item.email ?? "") === normalized
+    );
+    if (matches.length === 1) return { kind: "legacy_single", userId: matches[0].id };
+    if (matches.length > 1) {
+      return { kind: "conflict", userIds: matches.map(item => item.id).sort() };
+    }
+    return { kind: "absent" };
+  }
+
+  const [identity] = await db
+    .select()
+    .from(accountIdentities)
+    .where(
+      and(
+        eq(accountIdentities.provider, "email"),
+        eq(accountIdentities.subject, normalized)
+      )
+    )
+    .limit(1);
+  if (identity) return { kind: "resolved", userId: identity.userId };
+
+  const matches = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`LOWER(TRIM(${users.email})) = ${normalized}`);
+  if (matches.length === 1) return { kind: "legacy_single", userId: matches[0].id };
+  if (matches.length > 1) {
+    return { kind: "conflict", userIds: matches.map(item => item.id).sort() };
+  }
+  return { kind: "absent" };
+}
+
+export async function linkEmailIdentity(input: {
+  userId: number;
+  email: string;
+  verifiedAt?: Date | null;
+}): Promise<{ kind: "linked" } | { kind: "taken"; userId: number }> {
+  const normalized = normalizeAccountEmail(input.email);
+  const existing = await resolveEmailIdentity(normalized);
+  if (existing.kind === "resolved") {
+    return existing.userId === input.userId
+      ? { kind: "linked" }
+      : { kind: "taken", userId: existing.userId };
+  }
+
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    memoryState.accountIdentities.push({
+      id: nextMemoryId("accountIdentity"),
+      userId: input.userId,
+      provider: "email",
+      subject: normalized,
+      verifiedAt: input.verifiedAt ?? current,
+      createdAt: current,
+      updatedAt: current,
+    });
+    await persistMemoryState();
+    return { kind: "linked" };
+  }
+
+  await db.insert(accountIdentities).values({
+    userId: input.userId,
+    provider: "email",
+    subject: normalized,
+    verifiedAt: input.verifiedAt ?? new Date(),
+  });
+  return { kind: "linked" };
+}
+
+export async function getPasswordCredential(
+  userId: number
+): Promise<AccountCredential | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.accountCredentials.find(
+        item => item.userId === userId && item.kind === "password"
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(accountCredentials)
+    .where(
+      and(
+        eq(accountCredentials.userId, userId),
+        eq(accountCredentials.kind, "password")
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function setPasswordCredential(input: {
+  userId: number;
+  secret: string;
+  algorithmVersion: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const existing = memoryState.accountCredentials.find(
+      item => item.userId === input.userId && item.kind === "password"
+    );
+    if (existing) {
+      existing.secret = input.secret;
+      existing.algorithmVersion = input.algorithmVersion;
+      existing.updatedAt = current;
+    } else {
+      memoryState.accountCredentials.push({
+        id: nextMemoryId("accountCredential"),
+        userId: input.userId,
+        kind: "password",
+        secret: input.secret,
+        algorithmVersion: input.algorithmVersion,
+        createdAt: current,
+        updatedAt: current,
+      });
+    }
+    await persistMemoryState();
+    return;
+  }
+
+  await db
+    .insert(accountCredentials)
+    .values({
+      userId: input.userId,
+      kind: "password",
+      secret: input.secret,
+      algorithmVersion: input.algorithmVersion,
+    })
+    .onDuplicateKeyUpdate({
+      set: { secret: input.secret, algorithmVersion: input.algorithmVersion },
+    });
+}
+
+export async function getUserSessionVersion(
+  userId: number
+): Promise<number | null> {
+  const db = await getDb();
+  if (!db) {
+    const user = memoryState.users.find(item => item.id === userId);
+    return user ? Number(user.sessionVersion ?? 1) : null;
+  }
+  const [row] = await db
+    .select({ sessionVersion: users.sessionVersion })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ? Number(row.sessionVersion) : null;
+}
+
+/** 自增会话版本：改密码撤销其他设备、找回密码撤销全部旧 session 都靠它。 */
+export async function bumpUserSessionVersion(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) {
+    const user = memoryState.users.find(item => item.id === userId);
+    if (!user) throw new Error(`用户不存在：${userId}`);
+    user.sessionVersion = Number(user.sessionVersion ?? 1) + 1;
+    user.updatedAt = now();
+    await persistMemoryState();
+    return user.sessionVersion;
+  }
+
+  await db
+    .update(users)
+    .set({ sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(eq(users.id, userId));
+  return (await getUserSessionVersion(userId)) ?? 1;
+}
+
+export type VerificationChallengeInput = {
+  email: string;
+  purpose: AccountVerificationChallenge["purpose"];
+  codeHash: string;
+  secretVersion: number;
+  expiresAt: Date;
+  maxAttempts?: number;
+};
+
+/**
+ * 签发一个验证码挑战，并让同邮箱同用途的旧挑战立即失效。
+ *
+ * 「连续点两次发送验证码，第一封里的码必须作废」——否则攻击者可以攒一批同时有效的码。
+ */
+export async function issueVerificationChallenge(
+  input: VerificationChallengeInput
+): Promise<{ id: number }> {
+  const normalized = normalizeAccountEmail(input.email);
+  const key = `${normalized}:${input.purpose}`;
+
+  const db = await getDb();
+  if (!db) {
+    return memoryChallengeLock.run(key, async () => {
+      const current = now();
+      for (const challenge of memoryState.accountVerificationChallenges) {
+        if (
+          challenge.normalizedEmail === normalized &&
+          challenge.purpose === input.purpose &&
+          !challenge.consumedAt &&
+          !challenge.invalidatedAt
+        ) {
+          challenge.invalidatedAt = current;
+        }
+      }
+      const id = nextMemoryId("accountVerificationChallenge");
+      memoryState.accountVerificationChallenges.push({
+        id,
+        purpose: input.purpose,
+        normalizedEmail: normalized,
+        codeHash: input.codeHash,
+        secretVersion: input.secretVersion,
+        attemptCount: 0,
+        maxAttempts: input.maxAttempts ?? 5,
+        sentAt: current,
+        expiresAt: input.expiresAt,
+        consumedAt: null,
+        invalidatedAt: null,
+        createdAt: current,
+      });
+      await persistMemoryState();
+      return { id };
+    });
+  }
+
+  return db.transaction(async tx => {
+    await tx
+      .update(accountVerificationChallenges)
+      .set({ invalidatedAt: new Date() })
+      .where(
+        and(
+          eq(accountVerificationChallenges.normalizedEmail, normalized),
+          eq(accountVerificationChallenges.purpose, input.purpose),
+          isNull(accountVerificationChallenges.consumedAt),
+          isNull(accountVerificationChallenges.invalidatedAt)
+        )
+      );
+    const result = await tx.insert(accountVerificationChallenges).values({
+      purpose: input.purpose,
+      normalizedEmail: normalized,
+      codeHash: input.codeHash,
+      secretVersion: input.secretVersion,
+      expiresAt: input.expiresAt,
+      maxAttempts: input.maxAttempts ?? 5,
+    });
+    return { id: result[0].insertId };
+  });
+}
+
+export type ChallengeConsumption =
+  | { kind: "consumed"; challenge: AccountVerificationChallenge }
+  | { kind: "no_active_challenge" }
+  | { kind: "expired" }
+  | { kind: "too_many_attempts" }
+  | { kind: "mismatch"; attemptCount: number };
+
+/**
+ * 原子地消费一个验证码挑战。
+ *
+ * `verify` 是调用方传进来的纯比对函数（`accountSecurity.otpDigestMatches`），
+ * 在锁内执行：比对失败要计数，比对成功要立刻标记已用，这两件事必须和读取同一个事务，
+ * 否则同一个码可以被并发用两次。
+ */
+export async function consumeVerificationChallenge(input: {
+  email: string;
+  purpose: AccountVerificationChallenge["purpose"];
+  verify: (challenge: AccountVerificationChallenge) => boolean;
+  now?: Date;
+}): Promise<ChallengeConsumption> {
+  const normalized = normalizeAccountEmail(input.email);
+  const key = `${normalized}:${input.purpose}`;
+  const current = input.now ?? new Date();
+
+  const evaluate = (
+    challenge: AccountVerificationChallenge | undefined
+  ):
+    | { done: ChallengeConsumption }
+    | { proceed: AccountVerificationChallenge } => {
+    if (!challenge) return { done: { kind: "no_active_challenge" } };
+    if (challenge.expiresAt <= current) return { done: { kind: "expired" } };
+    if (challenge.attemptCount >= challenge.maxAttempts) {
+      return { done: { kind: "too_many_attempts" } };
+    }
+    return { proceed: challenge };
+  };
+
+  const db = await getDb();
+  if (!db) {
+    return memoryChallengeLock.run(key, async () => {
+      const challenge = memoryState.accountVerificationChallenges.find(
+        item =>
+          item.normalizedEmail === normalized &&
+          item.purpose === input.purpose &&
+          !item.consumedAt &&
+          !item.invalidatedAt
+      );
+      const outcome = evaluate(challenge);
+      if ("done" in outcome) return outcome.done;
+
+      if (!input.verify(outcome.proceed)) {
+        outcome.proceed.attemptCount += 1;
+        await persistMemoryState();
+        return {
+          kind: "mismatch" as const,
+          attemptCount: outcome.proceed.attemptCount,
+        };
+      }
+      outcome.proceed.consumedAt = current;
+      await persistMemoryState();
+      return { kind: "consumed" as const, challenge: { ...outcome.proceed } };
+    });
+  }
+
+  return db.transaction(async tx => {
+    const [challenge] = await tx
+      .select()
+      .from(accountVerificationChallenges)
+      .where(
+        and(
+          eq(accountVerificationChallenges.normalizedEmail, normalized),
+          eq(accountVerificationChallenges.purpose, input.purpose),
+          isNull(accountVerificationChallenges.consumedAt),
+          isNull(accountVerificationChallenges.invalidatedAt)
+        )
+      )
+      .orderBy(desc(accountVerificationChallenges.id))
+      .for("update")
+      .limit(1);
+
+    const outcome = evaluate(challenge);
+    if ("done" in outcome) return outcome.done;
+
+    if (!input.verify(outcome.proceed)) {
+      const attemptCount = outcome.proceed.attemptCount + 1;
+      await tx
+        .update(accountVerificationChallenges)
+        .set({ attemptCount })
+        .where(eq(accountVerificationChallenges.id, outcome.proceed.id));
+      return { kind: "mismatch" as const, attemptCount };
+    }
+
+    await tx
+      .update(accountVerificationChallenges)
+      .set({ consumedAt: current })
+      .where(eq(accountVerificationChallenges.id, outcome.proceed.id));
+    return {
+      kind: "consumed" as const,
+      challenge: { ...outcome.proceed, consumedAt: current },
+    };
+  });
+}
+
+export type RateLimitDecision = {
+  allowed: boolean;
+  /** 本窗口内已用掉的次数（含本次） */
+  attemptCount: number;
+  retryAfterMs: number;
+};
+
+/**
+ * 共享持久化限流。
+ *
+ * 必须落库：PM2 重启或多进程时，进程内内存限流形同虚设。窗口用「首次尝试时间 +
+ * windowSeconds」的固定窗口，超限后拒绝并给出还要等多久。
+ */
+export async function consumePersistentRateLimit(input: {
+  scope: string;
+  subject: string;
+  windowSeconds: number;
+  maxAttempts: number;
+  now?: Date;
+}): Promise<RateLimitDecision> {
+  const current = input.now ?? new Date();
+  const windowMs = input.windowSeconds * 1000;
+  const key = `${input.scope}:${input.subject}`;
+
+  const decide = (
+    windowStartedAt: Date,
+    attemptCount: number
+  ): { decision: RateLimitDecision; nextStartedAt: Date; nextCount: number } => {
+    const windowExpired = current.getTime() - windowStartedAt.getTime() >= windowMs;
+    const startedAt = windowExpired ? current : windowStartedAt;
+    const used = windowExpired ? 0 : attemptCount;
+    if (used >= input.maxAttempts) {
+      return {
+        decision: {
+          allowed: false,
+          attemptCount: used,
+          retryAfterMs: Math.max(
+            0,
+            startedAt.getTime() + windowMs - current.getTime()
+          ),
+        },
+        nextStartedAt: startedAt,
+        nextCount: used,
+      };
+    }
+    return {
+      decision: { allowed: true, attemptCount: used + 1, retryAfterMs: 0 },
+      nextStartedAt: startedAt,
+      nextCount: used + 1,
+    };
+  };
+
+  const db = await getDb();
+  if (!db) {
+    return memoryRateLimitLock.run(key, async () => {
+      let row = memoryState.accountRateLimits.find(
+        item => item.scope === input.scope && item.subject === input.subject
+      );
+      if (!row) {
+        row = {
+          id: nextMemoryId("accountRateLimit"),
+          scope: input.scope,
+          subject: input.subject,
+          windowStartedAt: current,
+          windowSeconds: input.windowSeconds,
+          attemptCount: 0,
+          blockedUntil: null,
+          updatedAt: current,
+        };
+        memoryState.accountRateLimits.push(row);
+      }
+      const outcome = decide(row.windowStartedAt, row.attemptCount);
+      row.windowStartedAt = outcome.nextStartedAt;
+      row.attemptCount = outcome.nextCount;
+      row.windowSeconds = input.windowSeconds;
+      row.updatedAt = current;
+      await persistMemoryState();
+      return outcome.decision;
+    });
+  }
+
+  return db.transaction(async tx => {
+    await tx
+      .insert(accountRateLimits)
+      .values({
+        scope: input.scope,
+        subject: input.subject,
+        windowSeconds: input.windowSeconds,
+        windowStartedAt: current,
+        attemptCount: 0,
+      })
+      .onDuplicateKeyUpdate({ set: { windowSeconds: input.windowSeconds } });
+
+    const [row] = await tx
+      .select()
+      .from(accountRateLimits)
+      .where(
+        and(
+          eq(accountRateLimits.scope, input.scope),
+          eq(accountRateLimits.subject, input.subject)
+        )
+      )
+      .for("update")
+      .limit(1);
+
+    const outcome = decide(row?.windowStartedAt ?? current, row?.attemptCount ?? 0);
+    await tx
+      .update(accountRateLimits)
+      .set({
+        windowStartedAt: outcome.nextStartedAt,
+        attemptCount: outcome.nextCount,
+        windowSeconds: input.windowSeconds,
+      })
+      .where(
+        and(
+          eq(accountRateLimits.scope, input.scope),
+          eq(accountRateLimits.subject, input.subject)
+        )
+      );
+    return outcome.decision;
+  });
 }

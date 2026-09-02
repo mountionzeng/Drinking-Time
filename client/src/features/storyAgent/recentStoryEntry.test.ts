@@ -26,6 +26,14 @@ describe("resolveRecentStoryEntry", () => {
   it("keeps an empty story library on the existing empty state", () => {
     expect(resolveRecentStoryEntry([], null)).toBeNull();
   });
+
+  it("preserves server order so a mobile cold entry never re-sorts Stories", () => {
+    const serverOrdered = [
+      { id: 9, shotCount: 0 },
+      { id: 101, shotCount: 8 },
+    ];
+    expect(resolveRecentStoryEntry(serverOrdered, null)?.storyId).toBe(9);
+  });
 });
 
 describe("workspaceForStoryStage", () => {

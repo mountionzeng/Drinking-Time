@@ -2,16 +2,22 @@
  * CreationPage — Creation Engine workspace.
  * ShotTable + the same story-scoped Xiaozhuo conversation used by Analysis.
  */
-import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
-import ShotImageWorkspace from '@/features/creationAgent/views/ShotImageWorkspace';
-import ShotTable from '@/features/analysis/views/ShotTable';
-import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
-import StoryAgentChat from '@/features/storyAgent/views/StoryAgentChat';
-import { useProjectData } from '@/features/analysis/hooks/useProjectData';
-import type { BackendShot } from '@/features/analysis/types';
-import { trpc } from '@/lib/trpc';
-import { useCallback, useEffect, useMemo } from 'react';
-import { toast } from 'sonner';
+import {
+  CreationAgentProvider,
+  useCreationAgent,
+} from "@/features/creationAgent/CreationAgentContext";
+import ShotImageWorkspace from "@/features/creationAgent/views/ShotImageWorkspace";
+import ShotTable from "@/features/analysis/views/ShotTable";
+import {
+  StoryAgentProvider,
+  useStoryAgent,
+} from "@/features/storyAgent/StoryAgentContext";
+import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
+import { useProjectData } from "@/features/analysis/hooks/useProjectData";
+import type { BackendShot } from "@/features/analysis/types";
+import { trpc } from "@/lib/trpc";
+import { useCallback, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 
 function CreationWorkspaceInner({
   projectId,
@@ -39,16 +45,19 @@ function CreationWorkspaceInner({
     storyShots,
     updateShotFragmentRefs,
     activeStoryId,
+    loadStory,
   } = useStoryAgent();
   const utils = trpc.useUtils();
   const updateShotMut = trpc.shot.update.useMutation();
+  const updateStoryShotFieldsMut =
+    trpc.storyAgent.updateStoryShotFields.useMutation();
 
   // Cross-page handoff: pick up focusShotNo from sessionStorage when another view targets a shot.
   useEffect(() => {
-    const stored = sessionStorage.getItem('dt:creation:focusShotNo');
+    const stored = sessionStorage.getItem("dt:creation:focusShotNo");
     if (stored) {
       setFocusShotNo(stored);
-      sessionStorage.removeItem('dt:creation:focusShotNo');
+      sessionStorage.removeItem("dt:creation:focusShotNo");
     }
   }, [setFocusShotNo]);
 
@@ -61,21 +70,24 @@ function CreationWorkspaceInner({
   // Listen for drag-reassign events from ShotTable
   useEffect(() => {
     const handler = (e: Event) => {
-      const { imageId, newShotNo } = (e as CustomEvent).detail as { imageId: number; newShotNo: string };
+      const { imageId, newShotNo } = (e as CustomEvent).detail as {
+        imageId: number;
+        newShotNo: string;
+      };
       if (imageId && newShotNo) reassignImage(imageId, newShotNo);
     };
-    window.addEventListener('dt:reassign-image', handler);
-    return () => window.removeEventListener('dt:reassign-image', handler);
+    window.addEventListener("dt:reassign-image", handler);
+    return () => window.removeEventListener("dt:reassign-image", handler);
   }, [reassignImage]);
 
   // Creation 必须读取真实 shots 表；Story Agent 生成镜头后会同步写入这张表。
   const tableShots = useMemo<BackendShot[]>(() => {
-    return backendShots.map((shot) => {
+    return backendShots.map(shot => {
       const currentImage = projectAssets.find(
         asset =>
           asset.canonicalShotNo === shot.shotNo &&
           asset.isPrimary &&
-          asset.availability !== 'missing',
+          asset.availability !== "missing"
       );
       return {
         ...shot,
@@ -94,13 +106,43 @@ function CreationWorkspaceInner({
         if (activeStoryId !== null) {
           await utils.shot.list.invalidate({ storyId: activeStoryId });
         }
-        toast.success('镜头 prompt 已保存');
+        toast.success("镜头 prompt 已保存");
       } catch (error) {
-        console.error('creation.updateShotPrompt failed', error);
-        toast.error('保存镜头 prompt 失败');
+        console.error("creation.updateShotPrompt failed", error);
+        toast.error("保存镜头 prompt 失败");
       }
     },
-    [projectId, activeStoryId, updateShotMut, utils.shot.list],
+    [projectId, activeStoryId, updateShotMut, utils.shot.list]
+  );
+
+  const handleEditStoryShotField = useCallback(
+    async (
+      index: number,
+      field: "subject" | "action" | "dialogue",
+      value: string
+    ) => {
+      if (activeStoryId == null) return;
+      const shot = storyShots[index];
+      const stableShotId = shot?.stableShotId ?? shot?.shotIdentity;
+      if (!stableShotId) {
+        toast.error("这个镜头缺少稳定身份，无法保存");
+        return;
+      }
+      try {
+        const result = await updateStoryShotFieldsMut.mutateAsync({
+          storyId: activeStoryId,
+          stableShotId,
+          patch: { [field]: value },
+        });
+        if (result.status !== "ok") throw new Error(result.error);
+        await loadStory(activeStoryId, { silent: true });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "保存镜头文字失败"
+        );
+      }
+    },
+    [activeStoryId, loadStory, storyShots, updateStoryShotFieldsMut]
   );
 
   return (
@@ -132,10 +174,12 @@ function CreationWorkspaceInner({
               isActive={!isShotsLoading && tableShots.length > 0}
               shots={tableShots}
               projectId={projectId}
+              storyId={activeStoryId}
               storyShots={storyShots}
+              onEditShotField={handleEditStoryShotField}
               onEditShotPrompt={handleEditShotPrompt}
               focusShotNo={focusShotNo}
-              onShotClick={(shotNo) => setFocusShotNo(shotNo)}
+              onShotClick={shotNo => setFocusShotNo(shotNo)}
               promptPool={promptPool}
               onUpdateFragmentRefs={updateShotFragmentRefs}
             />
@@ -148,15 +192,23 @@ function CreationWorkspaceInner({
 
 export default function CreationPage() {
   // 与 Analysis 共用同一套项目数据：取当前项目 id，让 /creation 显示同一项目的镜头。
-  const { currentProjectId, activeStoryId, setActiveStoryId, shots, shotsQuery } =
-    useProjectData();
+  const {
+    currentProjectId,
+    activeStoryId,
+    setActiveStoryId,
+    shots,
+    shotsQuery,
+  } = useProjectData();
 
   return (
     <StoryAgentProvider
       projectId={currentProjectId}
       onActiveStoryChange={setActiveStoryId}
     >
-      <CreationAgentProvider projectId={currentProjectId} storyId={activeStoryId}>
+      <CreationAgentProvider
+        projectId={currentProjectId}
+        storyId={activeStoryId}
+      >
         <CreationWorkspaceInner
           projectId={currentProjectId}
           backendShots={shots}

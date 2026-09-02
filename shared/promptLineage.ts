@@ -99,8 +99,94 @@ export type StoryConversationMessage = PromptLineageOwner & {
   source: string | null;
   clientMessageId: string | null;
   candidateRevisionId: number | null;
+  /** Null for legacy/desktop messages created before logical turns. */
+  turnId?: number | null;
   createdAt: string;
 };
+
+export type StoryConversationTurnGenerationStatus =
+  | "pending"
+  | "completed"
+  | "failed"
+  | "unknown";
+
+export type StoryConversationTurnAppendStatus = "pending" | "appended";
+
+export type StoryConversationTurn = PromptLineageOwner & {
+  id: number;
+  conversationId: number;
+  clientTurnId: string;
+  requestHash: string;
+  userClientMessageId: string;
+  assistantClientMessageId: string;
+  userContent: string;
+  assistantContent: string | null;
+  generationStatus: StoryConversationTurnGenerationStatus;
+  appendStatus: StoryConversationTurnAppendStatus;
+  generationAttempt: number;
+  contextMessageId: number | null;
+  claimToken: string | null;
+  failureMessage: string | null;
+  claimedAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  appendedAt: string | null;
+};
+
+export type StoryConversationTurnRequestHashInput = {
+  storyId: number;
+  clientTurnId: string;
+  userClientMessageId: string;
+  assistantClientMessageId: string;
+  userContent: string;
+};
+
+function canonicalTurnHashJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalTurnHashJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalTurnHashJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function turnFingerprint128(value: string): string {
+  let h1 = 1_779_033_703;
+  let h2 = 3_144_134_277;
+  let h3 = 1_013_904_242;
+  let h4 = 2_773_480_762;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    h1 = h2 ^ Math.imul(h1 ^ code, 597_399_067);
+    h2 = h3 ^ Math.imul(h2 ^ code, 2_869_860_233);
+    h3 = h4 ^ Math.imul(h3 ^ code, 951_274_213);
+    h4 = h1 ^ Math.imul(h4 ^ code, 2_716_044_179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597_399_067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2_869_860_233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951_274_213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2_716_044_179);
+  return [h1, h2, h3, h4]
+    .map(hash => (hash >>> 0).toString(16).padStart(8, "0"))
+    .join("");
+}
+
+export function computeStoryConversationTurnRequestHash(
+  input: StoryConversationTurnRequestHashInput,
+): string {
+  return `sct1-${turnFingerprint128(canonicalTurnHashJson({
+    storyId: input.storyId,
+    clientTurnId: input.clientTurnId.trim(),
+    userClientMessageId: input.userClientMessageId.trim(),
+    assistantClientMessageId: input.assistantClientMessageId.trim(),
+    userContent: input.userContent.trim(),
+  }))}`;
+}
 
 export type StoryMessageReference = PromptLineageOwner & {
   id: number;
@@ -167,6 +253,7 @@ export type PromptLineageLocalState = {
   compilationInputs: PromptCompilationInput[];
   compilationHeads: PromptCompilationHead[];
   conversations: StoryConversation[];
+  turns: StoryConversationTurn[];
   messages: StoryConversationMessage[];
   messageReferences: StoryMessageReference[];
   artLibraries: ArtPromptLibrary[];
@@ -183,6 +270,7 @@ export type PromptLineageLocalState = {
     compilationInput: number;
     compilationHead: number;
     conversation: number;
+    turn: number;
     message: number;
     messageReference: number;
     artLibrary: number;
@@ -202,6 +290,8 @@ export type StoryPromptAggregate = {
   compilationInputs: PromptCompilationInput[];
   compilationHeads: PromptCompilationHead[];
   conversation: StoryConversation | null;
+  /** Present in persisted aggregates; optional only for legacy/test fixtures. */
+  turns?: StoryConversationTurn[];
   messages: StoryConversationMessage[];
   messageReferences: StoryMessageReference[];
   artBinding: StoryArtPromptBinding | null;
@@ -217,6 +307,7 @@ export function createEmptyPromptLineageLocalState(): PromptLineageLocalState {
     compilationInputs: [],
     compilationHeads: [],
     conversations: [],
+    turns: [],
     messages: [],
     messageReferences: [],
     artLibraries: [],
@@ -233,6 +324,7 @@ export function createEmptyPromptLineageLocalState(): PromptLineageLocalState {
       compilationInput: 1,
       compilationHead: 1,
       conversation: 1,
+      turn: 1,
       message: 1,
       messageReference: 1,
       artLibrary: 1,
@@ -269,6 +361,7 @@ export function normalizePromptLineageLocalState(
     compilationInputs: raw?.compilationInputs ?? [],
     compilationHeads: raw?.compilationHeads ?? [],
     conversations: raw?.conversations ?? [],
+    turns: raw?.turns ?? [],
     messages: raw?.messages ?? [],
     messageReferences: raw?.messageReferences ?? [],
     artLibraries: raw?.artLibraries ?? [],
@@ -305,6 +398,7 @@ export function normalizePromptLineageLocalState(
       normalized.nextIds.conversation,
       nextId(normalized.conversations),
     ),
+    turn: Math.max(normalized.nextIds.turn, nextId(normalized.turns)),
     message: Math.max(normalized.nextIds.message, nextId(normalized.messages)),
     messageReference: Math.max(
       normalized.nextIds.messageReference,

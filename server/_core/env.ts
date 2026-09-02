@@ -113,8 +113,7 @@ export const ENV = {
   openaiNextApiKey: process.env.OPENAI_NEXT_API_KEY ?? "",
   openaiNextBaseUrl:
     process.env.OPENAI_NEXT_BASE_URL ?? "https://api.openai-next.com",
-  openaiNextTextModel:
-    process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
+  openaiNextTextModel: process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
   openaiNextEmotionModel:
     process.env.OPENAI_NEXT_EMOTION_MODEL ?? "deepseek-v3.2",
   openaiNextVisionModel:
@@ -122,7 +121,9 @@ export const ENV = {
   // 登录欢迎页访客回信独立档位：与通用故事 Agent 和登录后每日回信分开，
   // 也不复用任何身份认证配置——模型不参与邀请码、会话或权限决策。
   openaiNextLoginGuestModel:
-    process.env.OPENAI_NEXT_LOGIN_GUEST_MODEL ?? "deepseek-v4-flash",
+    process.env.OPENAI_NEXT_LOGIN_GUEST_MODEL ??
+    process.env.OPENAI_NEXT_LOGIN_MODEL ??
+    "deepseek-v4-flash",
 
   // ── 302.ai 今日回信（复用 API302_KEY；黄历事实仍由天行数据提供）──
   emotion302Model: process.env.EMOTION_302_MODEL ?? "deepseek-v3.2",
@@ -141,9 +142,19 @@ export const ENV = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", // Google OAuth Client ID
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "", // Google OAuth Client Secret
   appOrigin: process.env.APP_ORIGIN ?? "", // 应用 origin（如 https://example.com）
+  cspMediaOrigins: process.env.CSP_MEDIA_ORIGINS ?? "", // 生产图片/音视频 HTTPS origin 白名单
 
   // ── Email OTP（Resend）──
   resendApiKey: process.env.RESEND_API_KEY ?? "", // Resend API Key（用于发送 OTP 邮件）
+  // 验证码摘要的独立 secret。6 位码只有 100 万种可能，裸摘要泄库后一秒就能枚举完，
+  // 所以摘要必须是带 secret 的 HMAC。版本号用于轮换 secret（旧摘要随之失效）。
+  otpDigestSecret: process.env.OTP_DIGEST_SECRET ?? "",
+  otpDigestSecretVersion: Number(process.env.OTP_DIGEST_SECRET_VERSION ?? "1"),
+  // 是否允许把「历史 users 表里的同邮箱账号」自动认作同一身份。
+  // U3 的邮箱冲突报告完成、映射经人工批准之前保持 false：宁可让这类邮箱登不进去，
+  // 也不能自动把某个历史账号的全部故事交给一个刚验证邮箱的人。
+  accountAutoIdentityResolution:
+    process.env.ACCOUNT_AUTO_IDENTITY_RESOLUTION === "true",
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "noreply@drinking-time.com", // 发件人地址
   betaInviteRequired: process.env.BETA_INVITE_REQUIRED !== "false", // 内测期默认要求邀请码；设为 false 才开放自由注册
 };

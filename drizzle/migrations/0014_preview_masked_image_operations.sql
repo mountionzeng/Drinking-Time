@@ -1,0 +1,34 @@
+CREATE TABLE `preview_masked_image_operations` (
+  `id` int AUTO_INCREMENT NOT NULL,
+  `storyId` int NOT NULL,
+  `userId` int NOT NULL,
+  `operationToken` varchar(160) NOT NULL,
+  `inputHash` varchar(64) NOT NULL,
+  `sourceImageId` int NOT NULL,
+  `maskKey` varchar(512) NOT NULL,
+  `targetKind` enum('shot-primary','timeline-image-clip') NOT NULL,
+  `stableShotId` varchar(240) NOT NULL,
+  `clipId` varchar(240),
+  `quoteId` varchar(64) NOT NULL,
+  `currency` varchar(8) NOT NULL DEFAULT 'CNY',
+  `estimatedCny` float NOT NULL,
+  `quoteExpiresAt` timestamp NOT NULL,
+  `claimToken` varchar(64) NOT NULL,
+  `leaseUntil` timestamp NOT NULL,
+  `attempt` int NOT NULL DEFAULT 1,
+  `status` enum('claimed','provider_accepted','succeeded','failed','unknown') NOT NULL,
+  `providerTaskId` varchar(255),
+  `candidateImageId` int,
+  `errorCode` varchar(128),
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `preview_masked_image_operations_id` PRIMARY KEY(`id`),
+  CONSTRAINT `preview_masked_image_owner_token_unique` UNIQUE(`storyId`,`userId`,`operationToken`),
+  CONSTRAINT `preview_masked_image_story_fk` FOREIGN KEY (`storyId`) REFERENCES `stories`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `preview_masked_image_user_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `preview_masked_image_candidate_fk` FOREIGN KEY (`candidateImageId`) REFERENCES `generated_images`(`id`) ON DELETE SET NULL
+);
+--> statement-breakpoint
+CREATE INDEX `preview_masked_image_candidate_index` ON `preview_masked_image_operations` (`candidateImageId`);
+--> statement-breakpoint
+CREATE INDEX `preview_masked_image_input_index` ON `preview_masked_image_operations` (`storyId`,`userId`,`inputHash`);

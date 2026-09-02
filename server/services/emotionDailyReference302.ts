@@ -1,6 +1,10 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveTextComputeProvider } from "./textComputeProvider";
+import {
+  describeModelCapabilities,
+  resolveComputeCandidates,
+} from "../_core/textComputeProvider";
 import type { AlmanacDay } from "./almanac";
 import {
   currentChinaShichenGuidance,
@@ -60,6 +64,7 @@ export interface PersonalizeEmotionDailyReferenceInput {
   baseDailyReference: PayloadRecord;
   analysisSeed: PayloadRecord;
   generationIntent?: "daily-letter" | "conversation-reply";
+  computeUseCase?: "emotion" | "login-guest";
   fetcher?: Fetcher;
   now?: Date;
 }
@@ -241,7 +246,9 @@ function temporalReferenceIssue(
   input: PersonalizeEmotionDailyReferenceInput,
   summary: string
 ) {
-  const currentMessage = currentWordsFromMessage(input.analysisSeed.userMessage);
+  const currentMessage = currentWordsFromMessage(
+    input.analysisSeed.userMessage
+  );
   if (
     input.generationIntent === "daily-letter" &&
     !currentMessage &&
@@ -727,10 +734,15 @@ export async function personalizeEmotionDailyReference302(
   if (!hasAlmanacFacts(input.almanac)) {
     return localFallback(input, "天行黄历事实暂不可用");
   }
-  const provider = resolveTextComputeProvider(
-    ENV.emotion302Model,
-    ENV.openaiNextEmotionModel
-  );
+  const provider =
+    input.computeUseCase === "login-guest"
+      ? (resolveComputeCandidates("login-guest", {
+          fallback302Model: "",
+        })[0] ?? null)
+      : resolveTextComputeProvider(
+          ENV.emotion302Model,
+          ENV.openaiNextEmotionModel
+        );
   if (!provider) {
     return localFallback(
       input,
@@ -738,6 +750,10 @@ export async function personalizeEmotionDailyReference302(
     );
   }
   const source = provider.id === "openai-next" ? "openai-next" : "302-deepseek";
+  const tokenField =
+    input.computeUseCase === "login-guest"
+      ? describeModelCapabilities(provider.model).tokenLimitField
+      : "max_tokens";
   const timeoutValue = Number(ENV.emotion302TimeoutMs);
   const timeoutMs =
     Number.isFinite(timeoutValue) && timeoutValue > 0
@@ -760,7 +776,7 @@ export async function personalizeEmotionDailyReference302(
         model: provider.model,
         stream: false,
         temperature: 0.4,
-        max_tokens: 1_800,
+        [tokenField]: 1_800,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt() },
@@ -800,7 +816,7 @@ export async function personalizeEmotionDailyReference302(
           model: provider.model,
           stream: false,
           temperature: 0.35,
-          max_tokens: 1_800,
+          [tokenField]: 1_800,
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: systemPrompt() },
@@ -845,7 +861,10 @@ export async function personalizeEmotionDailyReference302(
       dailyLetterCoverageIssue(input, selectedSummary) ||
       temporalReferenceIssue(input, selectedSummary);
     if (remainingQualityIssue) {
-      return localFallback(input, `${provider.label} 回信${remainingQualityIssue}`);
+      return localFallback(
+        input,
+        `${provider.label} 回信${remainingQualityIssue}`
+      );
     }
     const summary = includeCurrentTimeAdvice(selectedSummary, guidance);
     const clothing = cleanText(raw.clothing, 180);

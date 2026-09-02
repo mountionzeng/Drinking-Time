@@ -1,16 +1,10 @@
 import type { CookieOptions, Request } from "express";
 
 function isSecureRequest(req: Request) {
-  if (req.protocol === "https") return true;
-
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (!forwardedProto) return false;
-
-  const protoList = Array.isArray(forwardedProto)
-    ? forwardedProto
-    : forwardedProto.split(",");
-
-  return protoList.some(proto => proto.trim().toLowerCase() === "https");
+  // Express derives protocol from X-Forwarded-Proto only when the direct peer
+  // matches the app's restricted trust-proxy policy. Reading the raw header
+  // here would let an untrusted client manufacture a Secure session context.
+  return req.protocol === "https";
 }
 
 export function getSessionCookieOptions(
@@ -21,9 +15,9 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    // SameSite=None is rejected by modern browsers unless Secure is also true.
-    // Public HTTP/IP deployments therefore need Lax so login cookies persist.
-    sameSite: secure ? "none" : "lax",
+    // The mobile flow is same-origin, so Lax is sufficient and adds a CSRF
+    // boundary without breaking normal top-level navigation back to /m.
+    sameSite: "lax",
     secure,
   };
 }
