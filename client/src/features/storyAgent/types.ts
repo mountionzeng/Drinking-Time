@@ -649,15 +649,12 @@ export function displayAssistantName(content: string): string {
   return content.split(LEGACY_ASSISTANT_NAME).join(ASSISTANT_DISPLAY_NAME);
 }
 
-// 桌面端开场「报到 + 人格 + 定位」preamble（U4 / D4：前缀策略，不改 FIRST_QUESTION 文本）。
-// 一句话点到「朋友 + 助手」身份，落点交给 FIRST_QUESTION 的邀请。
-// 精简自原三句版：删掉与 FIRST_QUESTION 重复的「随口说 / 不用大事」，收到约 1/3，避免开场啰嗦（AE1 实测反馈）。
-// 硬约束：保留「你好，我是聊聊 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
-// 不含「收集 / 采样」字样；不含「永久 / 永远记得 / 都会记住」式永久记忆承诺（R6/R13）。
-export const OPENING_PREAMBLE = `你好，我是${ASSISTANT_DISPLAY_NAME}——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。`;
-
-// emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
-export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;
+// 开场只留 FIRST_QUESTION 这一句邀请。
+// 原先前面还有一段自我介绍 preamble（「你好，我是聊聊——会听你说话的朋友，也是帮你把
+// 一件今天的小事做成小短片的助手。」），一进门就先讲自己是谁、能干什么，占掉整屏第一眼，
+// 而这些在页面别处已经说过；开场直接问一句，用户更快开口。
+// 老故事里带 preamble 的开场仍由 isOpeningChatMessage 的兜底分支识别，不影响历史记录。
+export const OPENING_MESSAGE = FIRST_QUESTION;
 
 function compactMessageText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
