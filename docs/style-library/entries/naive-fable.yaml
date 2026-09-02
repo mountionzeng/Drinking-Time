@@ -1,0 +1,12 @@
+id: naive-fable
+name: 朴素主义陌生寓言
+status: active
+style: [朴素主义, 民间寓言绘画]
+material: 手描轮廓、不均匀平涂与纸板
+automatic_selection:
+  scope: main
+  concepts: [mythic-nature]
+  provider_fragments: [不完美透视、手描轮廓与不均匀平涂保留人的判断]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

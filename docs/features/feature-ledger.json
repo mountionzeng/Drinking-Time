@@ -1079,6 +1079,80 @@
       ]
     },
     {
+      "id": "semantic-art-prompt-library",
+      "name": "可筛选美术提示词库",
+      "status": "partial",
+      "userValue": "把创作者认可的艺术参照、媒介、色彩、构图、材质及适用语境保存为可筛选、可追加的美术卡片。",
+      "entryPoints": [
+        "docs/style-library/WORD_BANK.md",
+        "server/services/styleLibrary.ts"
+      ],
+      "owners": [
+        "docs/style-library/MANUAL.md",
+        "docs/style-library/_TEMPLATE.yaml",
+        "docs/style-library/entries",
+        "server/services/styleLibrary.ts",
+        "server/services/semanticEvidenceNormalizer.ts",
+        "server/services/semanticArtDirectionCatalog.ts",
+        "server/services/temporalVisualContext.ts",
+        "server/services/renderGate.ts",
+        "shared/semanticArtDirection.ts"
+      ],
+      "evidence": [
+        "server/services/styleLibrary.test.ts",
+        "server/services/styleLibraryWordBank.test.ts",
+        "server/services/semanticEvidenceNormalizer.test.ts",
+        "server/services/semanticArtDirectionCatalog.test.ts",
+        "server/services/temporalVisualContext.test.ts",
+        "server/services/renderGate.test.ts",
+        "server/services/publishingCoverArtDirection.test.ts",
+        "shared/semanticArtDirection.test.ts"
+      ],
+      "invariants": [
+        "新增和大改卡片默认保持 draft；只有用户筛选或校准后才转 active。",
+        "艺术家、电影和作品传统只作内部策展出处；自动选择发给图片模型的片段只描述可观察画面特征。",
+        "当前表达与明确风格要求优先；年龄只能来自用户明确授权且不能单独触发画风，旧情绪不能冒充当下状态。",
+        "没有足够证据、候选并列或用途不相容时不自动套卡；一次最多一张主风格和一张相容辅助效果。",
+        "时间、季节和服装必须有明确语境依据，且不得覆盖用户已说明的人物与穿着事实。",
+        "长期情绪画像继续服务每日回信与剧本共鸣，但不进入美术自动选择；只有本轮明确情绪可作为当前状态证据。",
+        "只有用户明确表达当下语境时才按上海时区当天日期推导季节；参考画面的可见服装始终优先。"
+      ],
+      "dependencies": [
+        "unified-static-image-prompt"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "12 张历史 draft 与 3 张历史手动 active 卡仍等待用户逐项筛选，旧 affinity 字段不参与新的语义自动选择。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-31",
+          "kind": "feature",
+          "summary": "建立确定性语义证据归一器、低置信度跳过的主辅卡选择器和 9 张具有自动选择元数据的基础美术卡。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "建立 24 张卡的人工筛选总表、新卡模板和维护规则；补充情绪、生命体验、明确年龄阶段、年代、季节、服装及反向信号槽位。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "自动验证筛选总表与 YAML 条目一一对应、内部艺术出处不进入语义 provider 片段，词库与选择器针对性测试通过。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "feature",
+          "summary": "用词库语义选择器替换 renderGate 的硬编码艺术家谱系；只使用本轮明确指令、当前情绪和故事文字，并增加显式年代色调、当下季节与服装约束。"
+        },
+        {
+          "date": "2026-09-01",
+          "kind": "verification",
+          "summary": "验证低证据不套卡、一主一辅、内部艺术家只转为可观察特征、旧画像不冒充当下、明确年份与年代色调、上海当季服装、参考画面服装优先级，以及被否定的情绪、年代和季节不会反向触发。"
+        }
+      ]
+    },
+    {
       "id": "unified-static-image-prompt",
       "name": "统一静态图片提示词工程",
       "status": "working",

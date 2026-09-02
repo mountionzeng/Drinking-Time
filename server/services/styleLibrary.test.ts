@@ -7,6 +7,7 @@ import {
   getActiveStyles,
   styleToFragments,
   styleNegatives,
+  getSemanticArtCards,
   clearStyleLibraryCache,
 } from "./styleLibrary";
 
@@ -43,14 +44,14 @@ describe("styleLibrary loader", () => {
         "signature: 暗部里那束光",
         "negative: [平光, 霓虹]",
         "",
-      ].join("\n"),
+      ].join("\n")
     );
 
     const all = getAllStyles(tmp);
     expect(all).toHaveLength(1);
 
     const frags = styleToFragments(all[0]);
-    const byTag = Object.fromEntries(frags.map((f) => [f.tag, f.text]));
+    const byTag = Object.fromEntries(frags.map(f => [f.tag, f.text]));
     expect(byTag["风格"]).toBe("oil painting / in the manner of X");
     expect(byTag["色彩"]).toBe("暖土 / 赭石");
     expect(byTag["光线"]).toBe("单一侧逆光");
@@ -66,7 +67,11 @@ describe("styleLibrary loader", () => {
     write("b.yaml", "id: b\nname: B\nstatus: draft\nstyle: [y]\n");
     write("c.yaml", "id: c\nname: C\nstatus: active\nstyle: [z]\n");
 
-    expect(getActiveStyles(tmp).map((e) => e.id).sort()).toEqual(["a", "c"]);
+    expect(
+      getActiveStyles(tmp)
+        .map(e => e.id)
+        .sort()
+    ).toEqual(["a", "c"]);
     expect(getAllStyles(tmp)).toHaveLength(3);
   });
 
@@ -78,16 +83,130 @@ describe("styleLibrary loader", () => {
     expect(entry.palette).toEqual([]);
     expect(entry.light).toBe("");
     expect(entry.affinity).toEqual({ age: {}, profession: {}, wuxing: {} });
+    expect(entry.internal_references).toBeUndefined();
+    expect(entry.selection_context).toBeUndefined();
     const frags = styleToFragments(entry);
-    expect(frags.find((f) => f.tag === "风格")?.text).toBe("x");
+    expect(frags.find(f => f.tag === "风格")?.text).toBe("x");
     // 缺的字段不产出片段
-    expect(frags.find((f) => f.tag === "光线")).toBeUndefined();
+    expect(frags.find(f => f.tag === "光线")).toBeUndefined();
+  });
+
+  it("keeps internal references and curation context out of provider fragments", () => {
+    write(
+      "curated.yaml",
+      [
+        "id: curated",
+        "name: 策展卡",
+        "status: draft",
+        "internal_references: [INTERNAL_ARTIST_SENTINEL]",
+        "style: [书法性轮廓, 概括色面]",
+        "selection_context:",
+        "  moods: [MOOD_SENTINEL]",
+        "  life_experiences: [LIFE_EXPERIENCE_SENTINEL]",
+        "  explicit_age_or_stage: [AGE_STAGE_SENTINEL]",
+        "  eras: [ERA_SENTINEL]",
+        "  seasons: [SEASON_SENTINEL]",
+        "  wardrobe: [WARDROBE_SENTINEL]",
+        "  counter_signals: [COUNTER_SIGNAL_SENTINEL]",
+        "",
+      ].join("\n")
+    );
+
+    const [entry] = getAllStyles(tmp);
+    expect(entry.internal_references).toEqual(["INTERNAL_ARTIST_SENTINEL"]);
+    expect(entry.selection_context?.life_experiences).toEqual([
+      "LIFE_EXPERIENCE_SENTINEL",
+    ]);
+    expect(entry.selection_context?.seasons).toEqual(["SEASON_SENTINEL"]);
+
+    const providerText = styleToFragments(entry)
+      .map(fragment => fragment.text)
+      .join(" ");
+    expect(providerText).not.toMatch(
+      /INTERNAL_ARTIST_SENTINEL|MOOD_SENTINEL|LIFE_EXPERIENCE_SENTINEL|AGE_STAGE_SENTINEL|ERA_SENTINEL|SEASON_SENTINEL|WARDROBE_SENTINEL|COUNTER_SIGNAL_SENTINEL/
+    );
+  });
+
+  it("normalizes partial or empty curation context without inventing evidence", () => {
+    write(
+      "partial.yaml",
+      [
+        "id: partial",
+        "name: 部分语境",
+        "status: draft",
+        "style: [x]",
+        "selection_context:",
+        "  moods: [平静]",
+        "",
+      ].join("\n")
+    );
+    write(
+      "empty.yaml",
+      [
+        "id: empty",
+        "name: 空语境",
+        "status: draft",
+        "style: [y]",
+        "selection_context:",
+        "",
+      ].join("\n")
+    );
+
+    const entries = Object.fromEntries(
+      getAllStyles(tmp).map(entry => [entry.id, entry])
+    );
+    expect(entries.partial.selection_context).toEqual({
+      moods: ["平静"],
+      life_experiences: [],
+      explicit_age_or_stage: [],
+      eras: [],
+      seasons: [],
+      wardrobe: [],
+      counter_signals: [],
+    });
+    expect(entries.empty.selection_context).toEqual({
+      moods: [],
+      life_experiences: [],
+      explicit_age_or_stage: [],
+      eras: [],
+      seasons: [],
+      wardrobe: [],
+      counter_signals: [],
+    });
+  });
+
+  it("exposes only reviewed active automatic-selection metadata", () => {
+    write(
+      "auto.yaml",
+      [
+        "id: auto",
+        "name: Auto",
+        "status: active",
+        "style: [x]",
+        "automatic_selection:",
+        "  version: '1'",
+        "  scope: main",
+        "  concepts: [memory]",
+        "  provider_fragments: [soft paper grain]",
+        "  forbidden_purposes: [product]",
+        "  provenance: ['museum:example']",
+        "",
+      ].join("\n")
+    );
+    write("plain.yaml", "id: plain\nname: Plain\nstatus: active\nstyle: [y]\n");
+    expect(getSemanticArtCards(tmp)).toEqual([
+      expect.objectContaining({
+        id: "auto",
+        scope: "main",
+        concepts: ["memory"],
+      }),
+    ]);
   });
 
   it("treats empty scalars (yaml null) as empty strings", () => {
     write(
       "nul.yaml",
-      "id: nul\nname: 空\nstatus: draft\nstyle: [x]\nlight:\ncomposition:\n",
+      "id: nul\nname: 空\nstatus: draft\nstyle: [x]\nlight:\ncomposition:\n"
     );
     const [entry] = getAllStyles(tmp);
     expect(entry.light).toBe("");
@@ -106,7 +225,7 @@ describe("styleLibrary loader", () => {
         "  age: {青年: 2, 中年: 1}",
         "  wuxing: {金: 2}",
         "",
-      ].join("\n"),
+      ].join("\n")
     );
     const [e] = getAllStyles(tmp);
     expect(e.affinity.age["青年"]).toBe(2);
@@ -121,7 +240,7 @@ describe("styleLibrary loader", () => {
     write("missing-id.yaml", "name: 无id\nstatus: active\n"); // zod fails: id required
 
     const all = getAllStyles(tmp);
-    expect(all.map((e) => e.id)).toEqual(["good"]);
+    expect(all.map(e => e.id)).toEqual(["good"]);
   });
 
   it("coerces unknown status to draft (never auto-activates bad data)", () => {
@@ -143,7 +262,7 @@ describe("styleLibrary loader", () => {
 describe("styleLibrary against the real docs/style-library/entries", () => {
   const realDir = path.resolve(
     import.meta.dirname,
-    "../../docs/style-library/entries",
+    "../../docs/style-library/entries"
   );
 
   it("loads every real entry without throwing and exposes the active seeds", () => {
@@ -151,13 +270,13 @@ describe("styleLibrary against the real docs/style-library/entries", () => {
     const all = getAllStyles(realDir);
     expect(all.length).toBeGreaterThanOrEqual(15);
     // 每条都有 id/name
-    expect(all.every((e) => e.id && e.name)).toBe(true);
+    expect(all.every(e => e.id && e.name)).toBe(true);
 
     const active = getActiveStyles(realDir);
     expect(active.length).toBeGreaterThanOrEqual(3);
-    expect(active.every((e) => e.status === "active")).toBe(true);
+    expect(active.every(e => e.status === "active")).toBe(true);
     // 文档化的三颗种子
-    const activeIds = active.map((e) => e.id);
+    const activeIds = active.map(e => e.id);
     expect(activeIds).toContain("rembrandt-oil");
     expect(activeIds).toContain("shinkai-light");
     expect(activeIds).toContain("song-ink");
@@ -165,12 +284,28 @@ describe("styleLibrary against the real docs/style-library/entries", () => {
 
   it("produces non-empty fragments for the rembrandt seed", () => {
     clearStyleLibraryCache();
-    const rembrandt = getAllStyles(realDir).find((e) => e.id === "rembrandt-oil");
+    const rembrandt = getAllStyles(realDir).find(e => e.id === "rembrandt-oil");
     expect(rembrandt).toBeDefined();
     const frags = styleToFragments(rembrandt!);
     expect(frags.length).toBeGreaterThan(0);
-    expect(frags.find((f) => f.tag === "风格")?.text).toContain("Rembrandt");
-    expect(frags.find((f) => f.tag === "签名")).toBeDefined();
+    expect(frags.find(f => f.tag === "风格")?.text).toContain("Rembrandt");
+    expect(frags.find(f => f.tag === "签名")).toBeDefined();
     expect(styleNegatives(rembrandt!).length).toBeGreaterThan(0);
+  });
+
+  it("keeps internal artist references out of semantic provider fragments", () => {
+    clearStyleLibraryCache();
+    const cards = getSemanticArtCards(realDir);
+    expect(cards).toHaveLength(9);
+
+    const modernist = cards.find(
+      card => card.id === "modernist-sanyu-seurat-wu"
+    );
+    expect(modernist?.provenance.join(" ")).toMatch(
+      /Sanyu|Seurat|Wu Guanzhong/
+    );
+    expect(cards.flatMap(card => card.providerFragments).join(" ")).not.toMatch(
+      /常玉|Sanyu|Seurat|吴冠中|Wu Guanzhong/
+    );
   });
 });

@@ -4,6 +4,7 @@ import { resolvePublishingStoryboardCoverSource } from "./publishingStoryboardCo
 const REUSABLE_COVER_ART_SECTIONS = [
   "用户持续要求",
   "文本美术信号",
+  "时间、季节与服装",
   "私人策展库审美底线",
   "艺术谱系",
   "手作完成度",

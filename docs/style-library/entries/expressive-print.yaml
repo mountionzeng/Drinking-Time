@@ -1,0 +1,12 @@
+id: expressive-print
+name: 表现主义版画心理压强
+status: active
+style: [表现主义版画, 社会现实主义]
+material: 木刻刀痕、重压黑线与粗纸纤维
+automatic_selection:
+  scope: main
+  concepts: [anxiety-pressure]
+  provider_fragments: [木刻刀痕、重压黑线与粗纸纤维承担心理压强]
+  allowed_auxiliary_dimensions: [edge-motion]
+  forbidden_purposes: [product, standard-view, factual]
+  provenance: ["migrated: renderGate handmade lineage"]

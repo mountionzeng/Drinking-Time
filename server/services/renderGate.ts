@@ -7,12 +7,19 @@
  */
 import { getActiveStyles, styleToFragments } from "./styleLibrary";
 import { artRecipePrompt, type ArtRecipeDNA } from "../../shared/artDirection";
+import type { SemanticArtSelection } from "../../shared/semanticArtDirection";
 import {
   getRecentRejectionSignals,
   getRecentEditPreferences,
   getRecentChatCorrections,
 } from "../db";
 import { artRepositoryPromptBlocks } from "./artRepository";
+import { selectSemanticArtDirection } from "./semanticArtDirectionCatalog";
+import { normalizeSemanticArtEvidence } from "./semanticEvidenceNormalizer";
+import {
+  explicitEraFromText,
+  temporalVisualPromptBlock,
+} from "./temporalVisualContext";
 
 export type ImageOutputPurpose =
   | "story-frame"
@@ -87,9 +94,11 @@ export type RenderContext = {
   authoredBrief?: boolean;
   /** Immutable user-confirmed asset facts; these outrank inferred art direction. */
   lockedVisualAssets?: LockedVisualAssetPromptContract;
+  /** 测试/重放时固定“当下”的日期；运行时默认使用上海时区当天。 */
+  currentDate?: string;
 };
 
-/** 用户明确选中的库风格是覆盖项；自动美术判断走下方的文本艺术谱系。 */
+/** 用户明确选中的库风格是覆盖项；自动美术判断走语义词库选择器。 */
 function pickStyle(ctx: RenderContext) {
   const styles = getActiveStyles();
   if (styles.length === 0) return null;
@@ -105,140 +114,6 @@ type TextArtSignals = {
   livedTextures: string[];
   narrativeDistance: string;
 };
-
-type ArtLineage = {
-  id: string;
-  label: string;
-  artists: string;
-  movements: string;
-  media: string;
-  making: string;
-  signals: string[];
-};
-
-/**
- * 默认谱系只使用历史艺术家作为技法坐标，并且把“媒介如何留下痕迹”写清楚。
- * 这里不预设色板，避免艺术谱系重新变成全站统一滤镜。
- */
-const HANDMADE_ART_LINEAGES: ArtLineage[] = [
-  {
-    id: "expressive-print",
-    label: "表现主义版画的心理压强",
-    artists: "凯绥·柯勒惠支",
-    movements: "表现主义版画、社会现实主义绘画",
-    media: "木刻、石版、炭笔与粗纸",
-    making: "刀痕、重压黑线、擦除和纸纤维共同承担情绪",
-    signals: [
-      "焦虑",
-      "压迫",
-      "愤怒",
-      "批判",
-      "系统",
-      "规训",
-      "工业",
-      "工具",
-      "信息流",
-    ],
-  },
-  {
-    id: "symbolist-pastel",
-    label: "象征主义的内心显影",
-    artists: "奥迪隆·雷东、古斯塔夫·莫罗",
-    movements: "象征主义、世纪末幻想艺术",
-    media: "粉彩、炭笔、薄层油彩与纸本",
-    making: "让炭灰、粉彩浮尘和未覆盖底稿把不可见的心理变成物质",
-    signals: [
-      "欲望",
-      "梦",
-      "恐惧",
-      "沉默",
-      "孤独",
-      "内心",
-      "秘密",
-      "灵魂",
-      "不安",
-    ],
-  },
-  {
-    id: "nabist-memory",
-    label: "纳比派的私密记忆",
-    artists: "皮埃尔·博纳尔、爱德华·维亚尔",
-    movements: "纳比派、后印象主义室内绘画",
-    media: "不透明水粉、蜡笔、铅笔底稿与吸水纸",
-    making: "可见的叠笔、局部擦洗和轻微失准让记忆像被人反复触摸过",
-    signals: [
-      "记忆",
-      "童年",
-      "怀旧",
-      "家",
-      "厨房",
-      "相册",
-      "旧",
-      "温柔",
-      "亲密",
-      "九十年代",
-      "1990年代",
-    ],
-  },
-  {
-    id: "visionary-romantic",
-    label: "浪漫主义幻视与手工印制",
-    artists: "威廉·布莱克、塞缪尔·帕尔默",
-    movements: "浪漫主义幻视绘画、英国水彩传统",
-    media: "水彩、墨线、浮雕蚀刻与手工套色",
-    making: "让渗色、压印边缘和手工套色偏差构成超现实空间",
-    signals: [
-      "神话",
-      "月亮",
-      "命运",
-      "生长",
-      "死亡",
-      "自然",
-      "森林",
-      "宗教",
-      "星空",
-      "幻觉",
-    ],
-  },
-  {
-    id: "spiritual-abstraction",
-    label: "神秘抽象的结构性想象",
-    artists: "希尔玛·阿夫·克林特、保罗·克利",
-    movements: "早期抽象艺术、神秘主义绘画",
-    media: "蛋彩、水粉、铅笔网格与有齿纸面",
-    making: "保留测量线、颜色越界和反复覆盖，让抽象结构像亲手推演出来",
-    signals: [
-      "机制",
-      "时间",
-      "循环",
-      "关系",
-      "秩序",
-      "意识",
-      "抽象",
-      "宇宙",
-      "结构",
-    ],
-  },
-  {
-    id: "naive-fable",
-    label: "朴素主义的陌生寓言",
-    artists: "亨利·卢梭",
-    movements: "朴素主义、民间绘画与寓言插画",
-    media: "蛋彩、水粉、平涂油彩与纸板",
-    making: "不完美透视、手描轮廓和不均匀平涂保留人的判断",
-    signals: [
-      "寓言",
-      "动物",
-      "植物",
-      "荒诞",
-      "童话",
-      "孩子",
-      "菜市场",
-      "奇遇",
-      "幽默",
-    ],
-  },
-];
 
 const COVER_RESTART_METHODS = [
   "让人物与巨大环境的尺度关系承担主题，以断裂地平线和不可能空间组织画面",
@@ -257,17 +132,30 @@ const STATIC_IMAGE_STYLIZATION_CONSTRAINT =
 const STATIC_IMAGE_TEXT_FREE_CONSTRAINT =
   "【静态图片无字硬约束】这是不可被故事、用户指令、参考图或风格规则覆盖的产品不变量：画面像素中禁止可读文字、伪文字、字母、数字、Logo、品牌标记、签名、水印、标题、字幕、标签、书脊字和界面字符。不要描绘钟表、日历、书页、报纸、招牌、包装、屏幕等通常承载字符的正面；故事确实需要时，只能显示无字背面、被完全遮挡或裁出画外的表面。任何需要的标题或文案只能由产品界面后期叠加，绝不能画进图片像素中。";
 
-const ERA_PATTERNS = [
-  /(?:18|19|20)\d{2}年代/,
-  /(?:六十|七十|八十|九十|零零|一零|二零)年代/,
-  /先秦|汉代|唐代|宋代|元代|明代|清代|民国|改革开放初期|当代|未来/,
+const TEXT_EMOTION_SIGNALS: Array<[RegExp, string]> = [
+  [/怀旧|记忆|童年|过去/, "怀旧"],
+  [/焦虑|窒息|压迫|慌张|不安/, "焦虑与不安"],
+  [/愤怒|批判|反抗/, "愤怒与批判"],
+  [/温柔|亲密|爱|安慰/, "温柔与亲密"],
+  [/孤独|疏离|空虚/, "孤独与疏离"],
+  [/释然|清醒|冷静|克制/, "清醒与克制"],
 ];
+const NEGATED_EMOTION_PREFIX =
+  /(?:不要|并非|不是|不想|不再|并不|没有|避免|拒绝|禁止|不|without|not|no)\s*[^，。！？\n]{0,18}$/i;
+
+function inferUnnegatedEmotion(text: string): string | undefined {
+  for (const [pattern, label] of TEXT_EMOTION_SIGNALS) {
+    const match = pattern.exec(text);
+    if (!match || match.index == null) continue;
+    const prefix = text.slice(Math.max(0, match.index - 28), match.index);
+    if (!NEGATED_EMOTION_PREFIX.test(prefix)) return label;
+  }
+  return undefined;
+}
 
 function inferTextArtSignals(ctx: RenderContext): TextArtSignals {
   const text = `${ctx.prompt}\n${ctx.emotion ?? ""}`;
-  const era = ERA_PATTERNS.map(
-    pattern => text.match(pattern)?.[0] ?? null
-  ).find(Boolean) as string | null | undefined;
+  const era = explicitEraFromText(text);
   const livedTextures = [
     /厨房|卧室|客厅|家里|家庭|母亲|父亲/.test(text) ? "家庭内部" : "",
     /街道|城市|楼房|地铁|霓虹|商场/.test(text) ? "城市日常" : "",
@@ -275,20 +163,11 @@ function inferTextArtSignals(ctx: RenderContext): TextArtSignals {
     /机器|工厂|工业|算法|信息流|屏幕|网络|工具/.test(text) ? "技术与系统" : "",
     /森林|山|河|海|植物|月亮|星空/.test(text) ? "自然世界" : "",
   ].filter(Boolean);
-  const inferredEmotion = [
-    [/怀旧|记忆|童年|过去/, "怀旧"],
-    [/焦虑|窒息|压迫|慌张|不安/, "焦虑与不安"],
-    [/愤怒|批判|反抗/, "愤怒与批判"],
-    [/温柔|亲密|爱|安慰/, "温柔与亲密"],
-    [/孤独|疏离|空虚/, "孤独与疏离"],
-    [/清醒|冷静|克制/, "清醒与克制"],
-  ].find(([pattern]) => (pattern as RegExp).test(text))?.[1] as
-    | string
-    | undefined;
+  const inferredEmotion = inferUnnegatedEmotion(text);
   return {
     emotion:
       ctx.emotion?.trim() || inferredEmotion || "未明示，不套固定情绪滤镜",
-    era: era ?? null,
+    era,
     livedTextures:
       livedTextures.length > 0 ? livedTextures : ["由具体人物关系与动作决定"],
     narrativeDistance: /(^|[，。！？\s])我|自己|我们/.test(text)
@@ -303,34 +182,6 @@ function stableIndex(value: string, length: number): number {
   return length > 0 ? hash % length : 0;
 }
 
-function chooseHandmadeLineage(
-  ctx: RenderContext,
-  signals: TextArtSignals
-): ArtLineage {
-  const text = `${ctx.prompt}\n${signals.emotion}\n${signals.livedTextures.join(" ")}`;
-  const ranked = HANDMADE_ART_LINEAGES.map(lineage => ({
-    lineage,
-    score: lineage.signals.reduce(
-      (score, signal) => score + (text.includes(signal) ? 1 : 0),
-      0
-    ),
-  }));
-  if (ctx.discardPreviousRound && ctx.explorationRound) {
-    const ordered = ranked.slice().sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return left.lineage.id.localeCompare(right.lineage.id);
-    });
-    return ordered[(ctx.explorationRound - 1) % ordered.length]!.lineage;
-  }
-  const bestScore = Math.max(...ranked.map(candidate => candidate.score));
-  const candidates = ranked
-    .filter(candidate => candidate.score === bestScore)
-    .map(candidate => candidate.lineage);
-  return candidates[
-    stableIndex(`${ctx.storyId ?? ""}:${ctx.prompt}`, candidates.length)
-  ]!;
-}
-
 function textArtSignalBlock(signals: TextArtSignals): string {
   return [
     "【文本美术信号】",
@@ -343,9 +194,18 @@ function textArtSignalBlock(signals: TextArtSignals): string {
   ].join("\n");
 }
 
-function handmadeLineageBlocks(lineage: ArtLineage): string[] {
+function semanticArtBlocks(selection: SemanticArtSelection): string[] {
+  const directions = [
+    selection.main?.providerFragments.length
+      ? `主风格：${selection.main.providerFragments.join("；")}`
+      : "",
+    selection.auxiliary?.providerFragments.length
+      ? `相容辅助效果：${selection.auxiliary.providerFragments.join("；")}`
+      : "",
+  ].filter(Boolean);
+  if (directions.length === 0) return [];
   return [
-    `【艺术谱系】以${lineage.movements}为谱系，以历史艺术家${lineage.artists}作为技法坐标；不是复制某一幅作品。媒介：${lineage.media}。制作逻辑：${lineage.making}。`,
+    `【艺术谱系】${directions.join("。")}`,
     "【手作完成度】画面必须像真实创作者经手完成的物件，而不是光滑的 AI 渲染。只选择两三种真正服务内容的制作痕迹，例如底稿、纸纤维、颜料厚薄、干刷、擦除、压印或轻微套色偏差；保留有判断的边缘和局部未完成感。禁止塑料般 3D 光泽、无来源泛光、过度平滑渐变、统一锐化、磨皮与无意义的细节堆积。",
   ];
 }
@@ -457,6 +317,15 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   const lockedStyle = ctx.lockedVisualAssets?.kinds.includes("style") === true;
   if (!ctx.authoredBrief && !lockedStyle) {
     additions.push(textArtSignalBlock(textSignals));
+    const temporalBlock = temporalVisualPromptBlock({
+      text: [ctx.prompt, ...instructions].filter(Boolean).join("\n"),
+      currentDate: ctx.currentDate,
+      preserveVisibleWardrobe:
+        ctx.storyboardReferenceTruth === true ||
+        ctx.referencePolicy === "preserve-identity" ||
+        ctx.referencePolicy === "preserve-composition",
+    });
+    if (temporalBlock) additions.push(temporalBlock);
     additions.push(
       ...(await artRepositoryPromptBlocks(
         `${ctx.prompt}\n${ctx.emotion ?? ""}\n${instructions.join("\n")}`
@@ -479,9 +348,15 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
         .join("；");
       if (dna) additions.push(`【美术流派·${style.name}】${dna}`);
     } else {
-      additions.push(
-        ...handmadeLineageBlocks(chooseHandmadeLineage(ctx, textSignals))
-      );
+      const selection = selectSemanticArtDirection({
+        normalized: normalizeSemanticArtEvidence({
+          explicitDirection: instructions.join("\n"),
+          currentEmotion: ctx.emotion,
+          storyText: ctx.prompt,
+        }),
+        purpose: ctx.outputPurpose ?? "story-frame",
+      });
+      additions.push(...semanticArtBlocks(selection));
     }
   }
 
@@ -499,9 +374,9 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
 
   if (!ctx.authoredBrief && !lockedStyle)
     additions.push(
-    "【艺术跃迁】避免把内容降格为普通摄影记录或通用“电影感”。至少做出一个相机无法直接拍到、但能让主题更准确的视觉决定：可以是非现实的空间关系、富有表现力的材质行为、象征性尺度、成为实体的光，或可读的情绪抽象。惊喜必须服务内容，不能靠无关奇观、固定暗色或固定配色制造“高级感”。",
-    "艺术家与流派只能作为历史谱系、媒介和技法坐标：融合后形成新的视觉判断，不复刻任何单幅作品、标志性角色、签名或现成 IP，也不以在世艺术家的姓名下达直接模仿指令。"
-  );
+      "【艺术跃迁】避免把内容降格为普通摄影记录或通用“电影感”。至少做出一个相机无法直接拍到、但能让主题更准确的视觉决定：可以是非现实的空间关系、富有表现力的材质行为、象征性尺度、成为实体的光，或可读的情绪抽象。惊喜必须服务内容，不能靠无关奇观、固定暗色或固定配色制造“高级感”。",
+      "艺术家与流派只能作为历史谱系、媒介和技法坐标：融合后形成新的视觉判断，不复刻任何单幅作品、标志性角色、签名或现成 IP，也不以在世艺术家的姓名下达直接模仿指令。"
+    );
   const hardConstraints = [
     STATIC_IMAGE_STYLIZATION_CONSTRAINT,
     STATIC_IMAGE_TEXT_FREE_CONSTRAINT,
