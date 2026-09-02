@@ -331,4 +331,90 @@ describeMysql("Story conversation logical turns on MySQL", () => {
       }
     });
   }, 120_000);
+
+  it("serializes legacy turn retries and rejects conflicting payloads", async () => {
+    await withMysqlTestDatabase(async database => {
+      const setup = await mysql.createConnection(database.databaseUrl);
+      let userId = 0;
+      let storyId = 0;
+      try {
+        const [userResult] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO users (`openId`, `name`, `email`, `loginMethod`) VALUES (?, ?, ?, ?)",
+          [
+            "mysql-legacy-turn-owner",
+            "Owner",
+            "legacy-turn@example.test",
+            "test",
+          ]
+        );
+        userId = userResult.insertId;
+        const [storyResult] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO stories (`userId`, `title`, `body`) VALUES (?, ?, ?)",
+          [userId, "Legacy turn race", JSON.stringify({ cards: [], shots: [] })]
+        );
+        storyId = storyResult.insertId;
+        await setup.execute(
+          "INSERT INTO story_prompt_states (`storyId`, `userId`, `version`, `migrationStatus`) VALUES (?, ?, 0, 'migrated')",
+          [storyId, userId]
+        );
+        await setup.execute(
+          "INSERT INTO story_conversations (`storyId`, `userId`) VALUES (?, ?)",
+          [storyId, userId]
+        );
+        await setup.query(
+          "CREATE TRIGGER story_message_payload_race BEFORE INSERT ON story_conversation_messages FOR EACH ROW SET @story_message_payload_race_delay = SLEEP(0.5)"
+        );
+      } finally {
+        await setup.end();
+      }
+
+      const startAtMs = Date.now() + 750;
+      const makeInput = (label: string) => ({
+        action: "appendLegacy" as const,
+        storyId,
+        userId,
+        userMessage: {
+          clientMessageId: "mysql-legacy-shared-user",
+          content: `${label}问题`,
+        },
+        assistantMessage: {
+          clientMessageId: "mysql-legacy-shared-assistant",
+          content: `${label}回答`,
+        },
+        startAtMs,
+      });
+      const workers = [makeInput("左侧"), makeInput("右侧")].map(input =>
+        startWorker(database.databaseUrl, input)
+      );
+      const results = await Promise.all(
+        workers.map(worker =>
+          workerResult<{
+            ok: boolean;
+            error?: { name: string };
+          }>(worker)
+        )
+      );
+
+      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.find(result => !result.ok)?.error?.name).toBe(
+        "StoryConversationIdempotencyConflictError"
+      );
+
+      const verify = await mysql.createConnection(database.databaseUrl);
+      try {
+        const [messages] = await verify.execute<mysql.RowDataPacket[]>(
+          "SELECT role, content FROM story_conversation_messages WHERE storyId = ? AND userId = ? ORDER BY id",
+          [storyId, userId]
+        );
+        expect(messages).toHaveLength(2);
+        expect(messages.map(message => String(message.content))).toEqual(
+          messages[0]?.content === "左侧问题"
+            ? ["左侧问题", "左侧回答"]
+            : ["右侧问题", "右侧回答"]
+        );
+      } finally {
+        await verify.end();
+      }
+    });
+  }, 120_000);
 });

@@ -1,6 +1,7 @@
 import mysql from "mysql2/promise";
 
 import {
+  appendStoryConversationTurn,
   appendMobileStoryConversationTurn,
   generateMobileStoryConversationTurn,
   listStoryConversation,
@@ -17,6 +18,14 @@ type WorkerInput =
       assistantClientMessageId: string;
       userContent: string;
       holdMs?: number;
+      startAtMs?: number;
+    }
+  | {
+      action: "appendLegacy";
+      storyId: number;
+      userId: number;
+      userMessage: { clientMessageId: string; content: string };
+      assistantMessage: { clientMessageId: string; content: string };
       startAtMs?: number;
     }
   | {
@@ -78,6 +87,17 @@ try {
     await finish({
       ok: true,
       result: await appendMobileStoryConversationTurn(input),
+    });
+  }
+  if (input.action === "appendLegacy") {
+    if (input.startAtMs) {
+      await new Promise(resolve =>
+        setTimeout(resolve, Math.max(0, input.startAtMs! - Date.now()))
+      );
+    }
+    await finish({
+      ok: true,
+      result: await appendStoryConversationTurn(input),
     });
   }
   await finish({

@@ -112,7 +112,7 @@ function inputNow(value?: number): { date: Date; iso: string } {
 }
 
 function normalizeMobileTurnInput(
-  input: GenerateMobileStoryConversationTurnInput,
+  input: GenerateMobileStoryConversationTurnInput
 ): GenerateMobileStoryConversationTurnInput {
   const normalized = {
     ...input,
@@ -134,21 +134,19 @@ function normalizeMobileTurnInput(
   const expectedHash = computeStoryConversationTurnRequestHash(normalized);
   if (normalized.requestHash !== expectedHash) {
     throw new StoryConversationIdempotencyConflictError(
-      "对话轮请求哈希与内容不匹配",
+      "对话轮请求哈希与内容不匹配"
     );
   }
-  if (
-    normalized.userClientMessageId === normalized.assistantClientMessageId
-  ) {
+  if (normalized.userClientMessageId === normalized.assistantClientMessageId) {
     throw new StoryConversationIdempotencyConflictError(
-      "同一轮的用户消息和助手消息必须使用不同标识",
+      "同一轮的用户消息和助手消息必须使用不同标识"
     );
   }
   return normalized;
 }
 
 function turnFromDbRow(
-  row: typeof storyConversationTurns.$inferSelect,
+  row: typeof storyConversationTurns.$inferSelect
 ): StoryConversationTurn {
   const iso = (value: Date | string) =>
     value instanceof Date ? value.toISOString() : value;
@@ -163,7 +161,7 @@ function turnFromDbRow(
 
 function assertExactTurnIdentity(
   turn: StoryConversationTurn,
-  input: GenerateMobileStoryConversationTurnInput,
+  input: GenerateMobileStoryConversationTurnInput
 ): void {
   if (
     turn.requestHash !== input.requestHash ||
@@ -172,7 +170,7 @@ function assertExactTurnIdentity(
     turn.userContent !== input.userContent
   ) {
     throw new StoryConversationIdempotencyConflictError(
-      "对话轮标识已被另一组内容使用",
+      "对话轮标识已被另一组内容使用"
     );
   }
 }
@@ -190,7 +188,7 @@ async function assertOwnedConversationAggregate(owner: ConversationOwner) {
 }
 
 function mobileReplyStoryContext(
-  story: NonNullable<Awaited<ReturnType<typeof getStoryById>>>,
+  story: NonNullable<Awaited<ReturnType<typeof getStoryById>>>
 ): Pick<
   MobileReplyInput,
   "summary" | "currentShots" | "storyCards" | "existingCardCount"
@@ -222,7 +220,7 @@ function mobileReplyStoryContext(
             softMembership: card.softMembership,
           },
         ]
-      : [],
+      : []
   );
   const currentShots: ShotDraft[] = shots.map((shot, index) => ({
     shotNo: Number.isFinite(shot.shotNo) ? shot.shotNo : index + 1,
@@ -260,22 +258,20 @@ function mobileReplyStoryContext(
 
 async function isTurnContextStale(
   owner: ConversationOwner,
-  turn: StoryConversationTurn,
+  turn: StoryConversationTurn
 ): Promise<boolean> {
   const aggregate = await loadStoryPromptAggregate(owner);
   const latestOtherMessageId = (aggregate?.messages ?? [])
     .filter(message => message.turnId !== turn.id)
-    .reduce<number | null>(
-      (latest, message) =>
-        latest == null || message.id > latest ? message.id : latest,
-      null,
-    );
+    .reduce<
+      number | null
+    >((latest, message) => (latest == null || message.id > latest ? message.id : latest), null);
   return latestOtherMessageId !== turn.contextMessageId;
 }
 
 async function mobileTurnResult(
   owner: ConversationOwner,
-  turn: StoryConversationTurn,
+  turn: StoryConversationTurn
 ): Promise<MobileTurnGenerationResult> {
   return {
     status: turn.generationStatus,
@@ -290,7 +286,7 @@ type StoryDbExecutor = Pick<StoryDb, "select" | "insert" | "update">;
 async function findDbTurn(
   db: StoryDbExecutor,
   owner: ConversationOwner,
-  clientTurnId: string,
+  clientTurnId: string
 ) {
   const [row] = await db
     .select()
@@ -299,8 +295,8 @@ async function findDbTurn(
       and(
         eq(storyConversationTurns.storyId, owner.storyId),
         eq(storyConversationTurns.userId, owner.userId),
-        eq(storyConversationTurns.clientTurnId, clientTurnId),
-      ),
+        eq(storyConversationTurns.clientTurnId, clientTurnId)
+      )
     )
     .limit(1);
   return row ? turnFromDbRow(row) : null;
@@ -310,7 +306,7 @@ async function claimDbMobileTurn(
   db: StoryDb,
   input: GenerateMobileStoryConversationTurnInput,
   claimToken: string,
-  now: { date: Date; iso: string },
+  now: { date: Date; iso: string }
 ): Promise<{ turn: StoryConversationTurn; claimed: boolean }> {
   return db.transaction(async transaction => {
     return claimDbMobileTurnInTransaction(transaction, input, claimToken, now);
@@ -321,7 +317,7 @@ async function claimDbMobileTurnInTransaction(
   db: StoryDbExecutor,
   input: GenerateMobileStoryConversationTurnInput,
   claimToken: string,
-  now: { date: Date; iso: string },
+  now: { date: Date; iso: string }
 ): Promise<{ turn: StoryConversationTurn; claimed: boolean }> {
   const owner = { storyId: input.storyId, userId: input.userId };
   await db
@@ -334,8 +330,8 @@ async function claimDbMobileTurnInTransaction(
     .where(
       and(
         eq(storyConversations.storyId, owner.storyId),
-        eq(storyConversations.userId, owner.userId),
-      ),
+        eq(storyConversations.userId, owner.userId)
+      )
     )
     .limit(1)
     .for("update");
@@ -360,15 +356,15 @@ async function claimDbMobileTurnInTransaction(
         .where(
           and(
             eq(storyConversationTurns.id, existing.id),
-            eq(storyConversationTurns.generationStatus, "failed"),
-          ),
+            eq(storyConversationTurns.generationStatus, "failed")
+          )
         );
       existing = (await findDbTurn(db, owner, input.clientTurnId))!;
       return { turn: existing, claimed: updated.affectedRows === 1 };
     }
     if (existing.generationStatus === "pending") {
       const staleBefore = new Date(
-        now.date.getTime() - MOBILE_TURN_UNKNOWN_AFTER_MS,
+        now.date.getTime() - MOBILE_TURN_UNKNOWN_AFTER_MS
       );
       await db
         .update(storyConversationTurns)
@@ -382,8 +378,8 @@ async function claimDbMobileTurnInTransaction(
           and(
             eq(storyConversationTurns.id, existing.id),
             eq(storyConversationTurns.generationStatus, "pending"),
-            lt(storyConversationTurns.claimedAt, staleBefore),
-          ),
+            lt(storyConversationTurns.claimedAt, staleBefore)
+          )
         );
       existing = (await findDbTurn(db, owner, input.clientTurnId))!;
     }
@@ -400,22 +396,22 @@ async function claimDbMobileTurnInTransaction(
         or(
           eq(
             storyConversationTurns.userClientMessageId,
-            input.userClientMessageId,
+            input.userClientMessageId
           ),
           eq(
             storyConversationTurns.assistantClientMessageId,
-            input.assistantClientMessageId,
+            input.assistantClientMessageId
           ),
           eq(
             storyConversationTurns.userClientMessageId,
-            input.assistantClientMessageId,
+            input.assistantClientMessageId
           ),
           eq(
             storyConversationTurns.assistantClientMessageId,
-            input.userClientMessageId,
-          ),
-        ),
-      ),
+            input.userClientMessageId
+          )
+        )
+      )
     )
     .limit(1);
   const [legacyMessageCollision] = await db
@@ -428,14 +424,14 @@ async function claimDbMobileTurnInTransaction(
         or(
           eq(
             storyConversationMessages.clientMessageId,
-            input.userClientMessageId,
+            input.userClientMessageId
           ),
           eq(
             storyConversationMessages.clientMessageId,
-            input.assistantClientMessageId,
-          ),
-        ),
-      ),
+            input.assistantClientMessageId
+          )
+        )
+      )
     )
     .limit(1);
   if (turnIdentityCollision || legacyMessageCollision) {
@@ -446,7 +442,7 @@ async function claimDbMobileTurnInTransaction(
   const contextMessageId = (aggregate?.messages ?? []).reduce<number | null>(
     (latest, message) =>
       latest == null || message.id > latest ? message.id : latest,
-    null,
+    null
   );
   try {
     const [inserted] = await db.insert(storyConversationTurns).values({
@@ -492,14 +488,14 @@ async function claimDbMobileTurnInTransaction(
           or(
             eq(
               storyConversationTurns.userClientMessageId,
-              input.userClientMessageId,
+              input.userClientMessageId
             ),
             eq(
               storyConversationTurns.assistantClientMessageId,
-              input.assistantClientMessageId,
-            ),
-          ),
-        ),
+              input.assistantClientMessageId
+            )
+          )
+        )
       )
       .limit(1);
     if (collision) throw new StoryConversationIdempotencyConflictError();
@@ -510,7 +506,7 @@ async function claimDbMobileTurnInTransaction(
 async function claimMobileTurn(
   input: GenerateMobileStoryConversationTurnInput,
   claimToken: string,
-  now: { date: Date; iso: string },
+  now: { date: Date; iso: string }
 ) {
   const db = await getDb();
   if (db) return claimDbMobileTurn(db, input, claimToken, now);
@@ -524,7 +520,7 @@ async function claimMobileTurn(
           claimToken,
           now: now.iso,
           staleAfterMs: MOBILE_TURN_UNKNOWN_AFTER_MS,
-        },
+        }
       );
     });
   } catch (error) {
@@ -533,7 +529,7 @@ async function claimMobileTurn(
 }
 
 async function readMobileTurn(
-  input: MobileTurnIdentity & { now?: number },
+  input: MobileTurnIdentity & { now?: number }
 ): Promise<StoryConversationTurn | null> {
   const now = inputNow(input.now);
   const owner = { storyId: input.storyId, userId: input.userId };
@@ -557,7 +553,7 @@ async function readMobileTurn(
   if (!turn) return null;
   if (turn.requestHash !== input.requestHash.trim()) {
     throw new StoryConversationIdempotencyConflictError(
-      "对话轮标识已被另一组内容使用",
+      "对话轮标识已被另一组内容使用"
     );
   }
   if (turn.generationStatus === "pending") {
@@ -575,9 +571,9 @@ async function readMobileTurn(
           eq(storyConversationTurns.generationStatus, "pending"),
           lt(
             storyConversationTurns.claimedAt,
-            new Date(now.date.getTime() - MOBILE_TURN_UNKNOWN_AFTER_MS),
-          ),
-        ),
+            new Date(now.date.getTime() - MOBILE_TURN_UNKNOWN_AFTER_MS)
+          )
+        )
       );
     turn = (await findDbTurn(db, owner, input.clientTurnId.trim()))!;
   }
@@ -590,7 +586,7 @@ async function settleMobileTurn(
     assistantContent?: string;
     failureMessage?: string;
     now: { date: Date; iso: string };
-  },
+  }
 ): Promise<StoryConversationTurn> {
   const owner = { storyId: input.storyId, userId: input.userId };
   const db = await getDb();
@@ -637,8 +633,8 @@ async function settleMobileTurn(
           eq(storyConversationTurns.clientTurnId, input.clientTurnId),
           eq(storyConversationTurns.requestHash, input.requestHash),
           eq(storyConversationTurns.generationStatus, "pending"),
-          eq(storyConversationTurns.claimToken, input.claimToken),
-        ),
+          eq(storyConversationTurns.claimToken, input.claimToken)
+        )
       );
   } else {
     await db
@@ -656,14 +652,14 @@ async function settleMobileTurn(
           eq(storyConversationTurns.clientTurnId, input.clientTurnId),
           eq(storyConversationTurns.requestHash, input.requestHash),
           eq(storyConversationTurns.generationStatus, "pending"),
-          eq(storyConversationTurns.claimToken, input.claimToken),
-        ),
+          eq(storyConversationTurns.claimToken, input.claimToken)
+        )
       );
   }
   const turn = await findDbTurn(db, owner, input.clientTurnId);
   if (!turn) {
     throw new StoryConversationIdempotencyConflictError(
-      "对话轮在生成过程中消失",
+      "对话轮在生成过程中消失"
     );
   }
   return turn;
@@ -673,7 +669,7 @@ export async function generateMobileStoryConversationTurn(
   rawInput: GenerateMobileStoryConversationTurnInput,
   dependencies: {
     generateReply?: (input: MobileReplyInput) => Promise<MobileReplyResult>;
-  } = {},
+  } = {}
 ): Promise<MobileTurnGenerationResult> {
   const input = normalizeMobileTurnInput(rawInput);
   const owner = { storyId: input.storyId, userId: input.userId };
@@ -689,7 +685,7 @@ export async function generateMobileStoryConversationTurn(
       message =>
         (message.role === "user" || message.role === "assistant") &&
         (claim.turn.contextMessageId == null ||
-          message.id <= claim.turn.contextMessageId),
+          message.id <= claim.turn.contextMessageId)
     )
     .map(message => ({
       role: message.role as "user" | "assistant",
@@ -725,8 +721,7 @@ export async function generateMobileStoryConversationTurn(
       clientTurnId: input.clientTurnId,
       requestHash: input.requestHash,
       claimToken,
-      failureMessage:
-        error instanceof Error ? error.message : "模型生成失败",
+      failureMessage: error instanceof Error ? error.message : "模型生成失败",
       now: inputNow(input.now),
     });
     return mobileTurnResult(owner, turn);
@@ -743,7 +738,7 @@ export async function generateMobileStoryConversationTurn(
 }
 
 export async function getMobileStoryConversationTurnStatus(
-  input: MobileTurnIdentity & { now?: number },
+  input: MobileTurnIdentity & { now?: number }
 ): Promise<MobileTurnStatusResult> {
   const owner = { storyId: input.storyId, userId: input.userId };
   await assertOwnedConversationAggregate(owner);
@@ -753,7 +748,7 @@ export async function getMobileStoryConversationTurnStatus(
 }
 
 export async function appendMobileStoryConversationTurn(
-  input: MobileTurnIdentity & { now?: number },
+  input: MobileTurnIdentity & { now?: number }
 ): Promise<{
   status: "appended";
   turn: StoryConversationTurn;
@@ -785,8 +780,8 @@ export async function appendMobileStoryConversationTurn(
         .where(
           and(
             eq(storyConversations.storyId, owner.storyId),
-            eq(storyConversations.userId, owner.userId),
-          ),
+            eq(storyConversations.userId, owner.userId)
+          )
         )
         .limit(1)
         .for("update");
@@ -800,8 +795,8 @@ export async function appendMobileStoryConversationTurn(
           and(
             eq(storyConversationTurns.storyId, owner.storyId),
             eq(storyConversationTurns.userId, owner.userId),
-            eq(storyConversationTurns.clientTurnId, input.clientTurnId.trim()),
-          ),
+            eq(storyConversationTurns.clientTurnId, input.clientTurnId.trim())
+          )
         )
         .limit(1)
         .for("update");
@@ -811,7 +806,7 @@ export async function appendMobileStoryConversationTurn(
         row.requestHash !== input.requestHash.trim()
       ) {
         throw new StoryConversationIdempotencyConflictError(
-          "对话轮标识与追加请求不匹配",
+          "对话轮标识与追加请求不匹配"
         );
       }
       const current = turnFromDbRow(row);
@@ -819,7 +814,9 @@ export async function appendMobileStoryConversationTurn(
         current.generationStatus !== "completed" ||
         !current.assistantContent
       ) {
-        throw new PromptLineageValidationError("模型回答尚未完成，不能追加对话");
+        throw new PromptLineageValidationError(
+          "模型回答尚未完成，不能追加对话"
+        );
       }
       if (current.appendStatus === "appended") return current;
 
@@ -833,22 +830,22 @@ export async function appendMobileStoryConversationTurn(
             or(
               eq(
                 storyConversationMessages.clientMessageId,
-                current.userClientMessageId,
+                current.userClientMessageId
               ),
               eq(
                 storyConversationMessages.clientMessageId,
-                current.assistantClientMessageId,
-              ),
-            ),
-          ),
+                current.assistantClientMessageId
+              )
+            )
+          )
         );
       if (existing.length > 0) {
         const userMessage = existing.find(
-          message => message.clientMessageId === current.userClientMessageId,
+          message => message.clientMessageId === current.userClientMessageId
         );
         const assistantMessage = existing.find(
           message =>
-            message.clientMessageId === current.assistantClientMessageId,
+            message.clientMessageId === current.assistantClientMessageId
         );
         const exact =
           existing.length === 2 &&
@@ -860,7 +857,7 @@ export async function appendMobileStoryConversationTurn(
           assistantMessage.content === current.assistantContent;
         if (!exact) {
           throw new StoryConversationIdempotencyConflictError(
-            "检测到不完整或冲突的历史对话轮",
+            "检测到不完整或冲突的历史对话轮"
           );
         }
       } else {
@@ -891,7 +888,11 @@ export async function appendMobileStoryConversationTurn(
       }
       await tx
         .update(storyConversationTurns)
-        .set({ appendStatus: "appended", appendedAt: now.date, updatedAt: now.date })
+        .set({
+          appendStatus: "appended",
+          appendedAt: now.date,
+          updatedAt: now.date,
+        })
         .where(eq(storyConversationTurns.id, current.id));
       await tx
         .update(storyConversations)
@@ -921,7 +922,7 @@ function referenceObjectId(selection: SelectionContext): string {
 
 export async function validateStorySelectionContext(
   owner: ConversationOwner,
-  selection: SelectionContext,
+  selection: SelectionContext
 ): Promise<SelectionContext> {
   if (selection.storyId != null && selection.storyId !== owner.storyId) {
     throw new PromptLineageOwnershipError("选择引用不属于当前故事");
@@ -1019,7 +1020,7 @@ export async function listStoryConversation(owner: ConversationOwner) {
     candidates: aggregate.messages.flatMap(message => {
       if (message.candidateRevisionId == null) return [];
       const revision = aggregate.revisions.find(
-        item => item.id === message.candidateRevisionId,
+        item => item.id === message.candidateRevisionId
       );
       const node = revision
         ? aggregate.nodes.find(item => item.id === revision.nodeId)
@@ -1043,7 +1044,7 @@ export async function listStoryConversation(owner: ConversationOwner) {
 }
 
 export async function appendStoryConversationTurn(
-  input: AppendStoryConversationTurnInput,
+  input: AppendStoryConversationTurnInput
 ) {
   const owner = { storyId: input.storyId, userId: input.userId };
   const userContent = input.userMessage.content.trim();
@@ -1058,13 +1059,10 @@ export async function appendStoryConversationTurn(
     const aggregate = await loadStoryPromptAggregate(owner);
     if (
       !aggregate?.revisions.some(
-        revision =>
-          revision.id === input.assistantMessage.candidateRevisionId,
+        revision => revision.id === input.assistantMessage.candidateRevisionId
       )
     ) {
-      throw new PromptLineageOwnershipError(
-        "候选提示词引用不属于当前故事",
-      );
+      throw new PromptLineageOwnershipError("候选提示词引用不属于当前故事");
     }
   }
 
@@ -1073,10 +1071,9 @@ export async function appendStoryConversationTurn(
     input.assistantMessage.clientMessageId.trim()
   ) {
     throw new StoryConversationIdempotencyConflictError(
-      "同一轮的用户消息和助手消息必须使用不同标识",
+      "同一轮的用户消息和助手消息必须使用不同标识"
     );
   }
-  const existingAggregate = await loadStoryPromptAggregate(owner);
   const intended = [
     {
       role: "user" as const,
@@ -1091,62 +1088,26 @@ export async function appendStoryConversationTurn(
       candidateRevisionId: input.assistantMessage.candidateRevisionId ?? null,
     },
   ];
-  const existing = intended.map(item =>
-    existingAggregate?.messages.find(
-      message => message.clientMessageId === item.clientMessageId,
-    ),
-  );
-  if (existing.some(Boolean)) {
-    if (!existing.every(Boolean)) {
-      throw new StoryConversationIdempotencyConflictError(
-        "检测到不完整的历史对话轮，拒绝拼接新的消息",
-      );
-    }
-    intended.forEach((item, index) => {
-      const message = existing[index]!;
-      if (
-        message.role !== item.role ||
-        message.content !== item.content ||
-        message.candidateRevisionId !== item.candidateRevisionId
-      ) {
-        throw new StoryConversationIdempotencyConflictError();
-      }
-    });
-    const existingReference = existingAggregate?.messageReferences.find(
-      reference => reference.messageId === existing[0]!.id,
-    );
-    if (
-      canonicalJsonStringify(existingReference?.selection ?? null) !==
-      canonicalJsonStringify(selection)
-    ) {
-      throw new StoryConversationIdempotencyConflictError(
-        "对话消息标识已绑定到不同选区",
-      );
-    }
-    return listStoryConversation(owner);
-  }
-
-  const reservedTurn = (existingAggregate?.turns ?? []).find(turn =>
-    intended.some(
-      message =>
-        turn.userClientMessageId === message.clientMessageId ||
-        turn.assistantClientMessageId === message.clientMessageId,
-    ),
-  );
-  if (reservedTurn) {
-    throw new StoryConversationIdempotencyConflictError(
-      "对话消息标识已由另一条逻辑轮预留",
-    );
-  }
-
   const db = await getDb();
   if (!db) {
     await withPersistentLocalConversationLock(async () => {
       const latestAggregate = await loadStoryPromptAggregate(owner);
+      const latestReserved = (latestAggregate?.turns ?? []).some(turn =>
+        intended.some(
+          message =>
+            turn.userClientMessageId === message.clientMessageId ||
+            turn.assistantClientMessageId === message.clientMessageId
+        )
+      );
+      if (latestReserved) {
+        throw new StoryConversationIdempotencyConflictError(
+          "对话消息标识已由另一条逻辑轮预留"
+        );
+      }
       const latestExisting = intended.map(item =>
         latestAggregate?.messages.find(
-          message => message.clientMessageId === item.clientMessageId,
-        ),
+          message => message.clientMessageId === item.clientMessageId
+        )
       );
       if (latestExisting.some(Boolean)) {
         const exact =
@@ -1159,24 +1120,24 @@ export async function appendStoryConversationTurn(
               message.candidateRevisionId === item.candidateRevisionId
             );
           });
-        if (!exact) {
+        const messageIds = new Set(
+          latestExisting.flatMap(message => (message ? [message.id] : []))
+        );
+        const references = (latestAggregate?.messageReferences ?? []).filter(
+          reference => messageIds.has(reference.messageId)
+        );
+        const exactReference = selection
+          ? references.length === 1 &&
+            references[0]?.messageId === latestExisting[0]!.id &&
+            canonicalJsonStringify(references[0]?.selection ?? null) ===
+              canonicalJsonStringify(selection)
+          : references.length === 0;
+        if (!exact || !exactReference) {
           throw new StoryConversationIdempotencyConflictError(
-            "检测到不完整或冲突的历史对话轮",
+            "检测到不完整或冲突的历史对话轮"
           );
         }
         return;
-      }
-      const latestReserved = (latestAggregate?.turns ?? []).some(turn =>
-        intended.some(
-          message =>
-            turn.userClientMessageId === message.clientMessageId ||
-            turn.assistantClientMessageId === message.clientMessageId,
-        ),
-      );
-      if (latestReserved) {
-        throw new StoryConversationIdempotencyConflictError(
-          "对话消息标识已由另一条逻辑轮预留",
-        );
       }
       const store = await createPersistentLocalPromptLineageStore();
       await store.appendConversationTurn(owner, {
@@ -1185,7 +1146,7 @@ export async function appendStoryConversationTurn(
             role: "user",
             content: userContent,
             source: "story-agent",
-            clientMessageId: input.userMessage.clientMessageId,
+            clientMessageId: intended[0].clientMessageId,
             reference: selection
               ? {
                   objectType: selection.sourceType,
@@ -1199,7 +1160,7 @@ export async function appendStoryConversationTurn(
             role: "assistant",
             content: assistantContent,
             source: "story-agent",
-            clientMessageId: input.assistantMessage.clientMessageId,
+            clientMessageId: intended[1].clientMessageId,
             candidateRevisionId:
               input.assistantMessage.candidateRevisionId ?? null,
           },
@@ -1222,13 +1183,111 @@ export async function appendStoryConversationTurn(
       .where(
         and(
           eq(storyConversations.storyId, input.storyId),
-          eq(storyConversations.userId, input.userId),
-        ),
+          eq(storyConversations.userId, input.userId)
+        )
       )
       .limit(1)
       .for("update");
     if (!conversation) {
       throw new PromptLineageValidationError("无法创建故事会话");
+    }
+
+    const [reservedTurn] = await tx
+      .select({ id: storyConversationTurns.id })
+      .from(storyConversationTurns)
+      .where(
+        and(
+          eq(storyConversationTurns.storyId, owner.storyId),
+          eq(storyConversationTurns.userId, owner.userId),
+          or(
+            eq(
+              storyConversationTurns.userClientMessageId,
+              intended[0].clientMessageId
+            ),
+            eq(
+              storyConversationTurns.assistantClientMessageId,
+              intended[0].clientMessageId
+            ),
+            eq(
+              storyConversationTurns.userClientMessageId,
+              intended[1].clientMessageId
+            ),
+            eq(
+              storyConversationTurns.assistantClientMessageId,
+              intended[1].clientMessageId
+            )
+          )
+        )
+      )
+      .limit(1);
+    if (reservedTurn) {
+      throw new StoryConversationIdempotencyConflictError(
+        "对话消息标识已由另一条逻辑轮预留"
+      );
+    }
+
+    const existingMessages = await tx
+      .select()
+      .from(storyConversationMessages)
+      .where(
+        and(
+          eq(storyConversationMessages.conversationId, conversation.id),
+          or(
+            eq(
+              storyConversationMessages.clientMessageId,
+              intended[0].clientMessageId
+            ),
+            eq(
+              storyConversationMessages.clientMessageId,
+              intended[1].clientMessageId
+            )
+          )
+        )
+      );
+    if (existingMessages.length > 0) {
+      const existing = intended.map(item =>
+        existingMessages.find(
+          message => message.clientMessageId === item.clientMessageId
+        )
+      );
+      const exact =
+        existingMessages.length === 2 &&
+        existing.every(Boolean) &&
+        intended.every((item, index) => {
+          const message = existing[index]!;
+          return (
+            message.role === item.role &&
+            message.content === item.content &&
+            (message.candidateRevisionId ?? null) === item.candidateRevisionId
+          );
+        });
+      const messageIds = existing.flatMap(message =>
+        message ? [message.id] : []
+      );
+      const references = messageIds.length
+        ? await tx
+            .select()
+            .from(storyMessageReferences)
+            .where(
+              or(
+                ...messageIds.map(messageId =>
+                  eq(storyMessageReferences.messageId, messageId)
+                )
+              )
+            )
+        : [];
+      const exactReference = selection
+        ? references.length === 1 &&
+          references[0]?.messageId === existing[0]!.id &&
+          canonicalJsonStringify(references[0]?.selection ?? null) ===
+            canonicalJsonStringify(selection)
+        : references.length === 0;
+      if (!exact || !exactReference) {
+        throw new StoryConversationIdempotencyConflictError(
+          "检测到不完整或冲突的历史对话轮"
+        );
+      }
+      return;
     }
 
     const append = async (message: {
@@ -1238,20 +1297,6 @@ export async function appendStoryConversationTurn(
       candidateRevisionId?: number | null;
       selection?: SelectionContext | null;
     }) => {
-      const [existing] = await tx
-        .select()
-        .from(storyConversationMessages)
-        .where(
-          and(
-            eq(storyConversationMessages.conversationId, conversation.id),
-            eq(
-              storyConversationMessages.clientMessageId,
-              message.clientMessageId,
-            ),
-          ),
-        )
-        .limit(1);
-      if (existing) return;
       const [inserted] = await tx.insert(storyConversationMessages).values({
         ...owner,
         conversationId: conversation.id,
@@ -1276,13 +1321,13 @@ export async function appendStoryConversationTurn(
     await append({
       role: "user",
       content: userContent,
-      clientMessageId: input.userMessage.clientMessageId,
+      clientMessageId: intended[0].clientMessageId,
       selection,
     });
     await append({
       role: "assistant",
       content: assistantContent,
-      clientMessageId: input.assistantMessage.clientMessageId,
+      clientMessageId: intended[1].clientMessageId,
       candidateRevisionId: input.assistantMessage.candidateRevisionId,
     });
     await tx
