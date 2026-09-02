@@ -1,0 +1,25 @@
+{
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist", "miniprogram_npm"],
+  "compilerOptions": {
+    "noEmit": true,
+    // 微信基础库运行时按 ES2020 口径编译（开发者工具的 TypeScript 插件负责实际转译）。
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "useDefineForClassFields": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    // node 类型只服务 tests/：src/ 不得引用 Node API，由 runtimeIsolation.test.ts 守门。
+    "types": ["node"],
+    "baseUrl": "."
+  }
+}

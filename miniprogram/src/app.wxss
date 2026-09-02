@@ -1,0 +1,118 @@
+/**
+ * 全局样式基线。
+ *
+ * 两条硬约束（见交接文档第五节）：
+ * 1. 触控目标不小于 44×44px（750rpx 设计宽下 = 88rpx）；
+ * 2. 系统字号放大后不能截断关键动作 —— 所以动作按钮一律 min-height + 自动换行，
+ *    不用固定 height，也不用 overflow: hidden 裁文字。
+ */
+
+page {
+  --paper: #f6f1e7;
+  --paper-raised: #fffaf1;
+  --ink: #2c2622;
+  --ink-soft: #6b6259;
+  --line: #e0d6c4;
+  --accent: #9c5f3c;
+  --accent-soft: #f2e3d5;
+  --warn: #a4442c;
+  --warn-soft: #f7e3dd;
+  --ok: #4a6b46;
+
+  background-color: var(--paper);
+  color: var(--ink);
+  font-size: 30rpx;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.safe-bottom {
+  padding-bottom: calc(24rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+}
+
+.safe-top {
+  padding-top: calc(16rpx + constant(safe-area-inset-top));
+  padding-top: calc(16rpx + env(safe-area-inset-top));
+}
+
+.mock-banner {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 16rpx 24rpx;
+  background-color: var(--warn-soft);
+  border-bottom: 2rpx solid var(--warn);
+  color: var(--warn);
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.mock-banner__detail {
+  display: block;
+  margin-top: 6rpx;
+  color: var(--ink-soft);
+  font-weight: 400;
+  font-size: 24rpx;
+}
+
+.card {
+  box-sizing: border-box;
+  margin: 24rpx;
+  padding: 24rpx;
+  background-color: var(--paper-raised);
+  border: 2rpx solid var(--line);
+  border-radius: 20rpx;
+}
+
+.action {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  min-width: 88rpx;
+  padding: 16rpx 28rpx;
+  margin: 0;
+  background-color: var(--accent-soft);
+  border: 2rpx solid var(--accent);
+  border-radius: 16rpx;
+  color: var(--accent);
+  font-size: 30rpx;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  text-align: center;
+}
+
+.action--primary {
+  background-color: var(--accent);
+  color: #fffaf1;
+}
+
+.action--quiet {
+  background-color: transparent;
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
+.action[disabled] {
+  opacity: 0.45;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 8rpx;
+  color: var(--ink-soft);
+  font-size: 26rpx;
+}
+
+.status-line {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 26rpx;
+}
+
+.status-line--warn {
+  color: var(--warn);
+}

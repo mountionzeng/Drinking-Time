@@ -1,0 +1,22 @@
+<view class="page safe-top safe-bottom">
+  <view class="mock-banner">
+    测试模式 · 未绑定真实账号
+    <text class="mock-banner__detail">现在同意与否都不会触发微信登录或任何网络请求；这一步是为以后接真实账号先立好边界。</text>
+  </view>
+
+  <view class="card">
+    <text class="title">隐私说明</text>
+    <text class="version">版本 {{version}} · 当前状态：{{status}}</text>
+  </view>
+
+  <view class="card" wx:for="{{sections}}" wx:key="title">
+    <text class="section-title">{{item.title}}</text>
+    <text class="section-body">{{item.body}}</text>
+  </view>
+
+  <view class="card actions">
+    <button class="action action--primary" bindtap="onAccept">我已看过，同意</button>
+    <button class="action" bindtap="onReject">暂不同意</button>
+    <button class="action action--quiet" wx:if="{{accepted}}" bindtap="onWithdraw">撤回我的同意</button>
+  </view>
+</view>
