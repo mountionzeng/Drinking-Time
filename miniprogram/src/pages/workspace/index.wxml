@@ -1,0 +1,155 @@
+<view class="shell" wx:if="{{ready}}">
+  <view class="mock-banner">
+    {{ui.mockBadge}}
+    <text class="mock-banner__detail">{{ui.mockDetail}}</text>
+  </view>
+
+  <view class="topbar safe-top">
+    <picker
+      class="story-picker"
+      mode="selector"
+      range="{{storyTitles}}"
+      value="{{storyIndex}}"
+      bindchange="onStoryChange"
+      disabled="{{storyTitles.length === 0}}"
+    >
+      <view class="story-picker__value">
+        <text class="story-picker__title">{{ui.story.activeTitle || ui.story.label}}</text>
+        <text class="story-picker__hint">切换 Story</text>
+      </view>
+    </picker>
+  </view>
+
+  <view class="statusbar">
+    <text class="status-line">{{ui.balance.text}}</text>
+    <text class="status-line {{ui.transport.state === 'mock-failure' ? 'status-line--warn' : ''}}">{{ui.transport.label}}</text>
+    <button class="action action--quiet retry" wx:if="{{ui.transport.canRetry}}" bindtap="onRetryTransport">重试</button>
+    <text class="status-line status-line--warn" wx:if="{{ui.balance.blocked}}">{{ui.balance.blockedHint}}</text>
+  </view>
+
+  <view class="tabs" role="tablist">
+    <view
+      class="tab {{ui.view === 'chat' ? 'tab--active' : ''}}"
+      data-view="chat"
+      bindtap="switchView"
+    >聊聊</view>
+    <view
+      class="tab {{ui.view === 'document' ? 'tab--active' : ''}}"
+      data-view="document"
+      bindtap="switchView"
+    >正文</view>
+  </view>
+
+  <!--
+    下面这条 wx:if / wx:elif 链依次是：空态、读取失败、聊聊、正文。
+    中间不能插注释节点，否则条件链会被打断。
+  -->
+  <view class="card" wx:if="{{ui.story.showsEmptyHint}}">
+    <text class="empty">{{ui.story.emptyHint}}</text>
+  </view>
+
+  <view class="card" wx:elif="{{ui.story.phase === 'error'}}">
+    <text class="empty">{{ui.story.label}}</text>
+    <button class="action" bindtap="onRetryTransport">重试</button>
+  </view>
+
+  <view class="pane" wx:elif="{{ui.view === 'chat'}}">
+    <scroll-view class="messages" scroll-y scroll-into-view="{{scrollTarget}}">
+      <view
+        wx:for="{{messages}}"
+        wx:key="id"
+        id="msg-{{item.id}}"
+        class="bubble bubble--{{item.role}}"
+      >
+        <text class="bubble__text">{{item.content}}</text>
+        <text class="bubble__status" wx:if="{{item.turnStatus}}">{{item.turnStatus}}</text>
+      </view>
+    </scroll-view>
+
+    <view class="chat-status">
+      <text class="status-line {{ui.chat.state === 'unknown' || ui.chat.state === 'error' ? 'status-line--warn' : ''}}">{{ui.chat.label}}</text>
+      <button class="action" wx:if="{{ui.chat.canLookupUnknown}}" bindtap="onLookupUnknown">查询这一轮的结果</button>
+      <button class="action" wx:if="{{ui.chat.canRetryTurn}}" bindtap="onRetryTurn">用同一轮重试</button>
+    </view>
+
+    <view class="composer safe-bottom">
+      <textarea
+        class="composer__input"
+        value="{{draft}}"
+        placeholder="说说这件小事"
+        auto-height
+        maxlength="2000"
+        confirm-type="send"
+        show-confirm-bar="{{false}}"
+        adjust-position="{{true}}"
+        bindinput="onDraftInput"
+        bindconfirm="onDraftConfirm"
+        bindfocus="onCompositionStart"
+        bindblur="onCompositionEnd"
+      />
+      <button
+        class="action action--primary composer__send"
+        disabled="{{!ui.chat.canSend}}"
+        bindtap="onSendTap"
+      >发送</button>
+    </view>
+  </view>
+
+  <view class="pane" wx:else>
+    <view class="doc-status">
+      <text class="status-line {{ui.document.state === 'conflict' || ui.document.state === 'error' ? 'status-line--warn' : ''}}">{{ui.document.label}}</text>
+    </view>
+
+    <textarea
+      class="doc-input"
+      value="{{body}}"
+      placeholder="这一版的正文"
+      maxlength="-1"
+      show-confirm-bar="{{false}}"
+      adjust-position="{{true}}"
+      bindinput="onBodyInput"
+    />
+
+    <view class="conflict" wx:if="{{ui.document.state === 'conflict'}}">
+      <text class="conflict__title">两份文本都保留着，请你决定：</text>
+      <text class="field-label">本机这份</text>
+      <text class="conflict__body">{{ui.document.localBody}}</text>
+      <text class="field-label">服务端那份</text>
+      <text class="conflict__body">{{ui.document.serverBody || '（服务端没有这份正文）'}}</text>
+    </view>
+
+    <view class="doc-actions safe-bottom">
+      <button
+        class="action action--primary"
+        disabled="{{!ui.document.canSave}}"
+        bindtap="onSaveBody"
+      >保存正文</button>
+      <button class="action" wx:if="{{ui.document.canCopyBoth}}" bindtap="onCopyBoth">复制两份文本</button>
+      <button class="action action--quiet" wx:if="{{ui.document.canDiscard}}" bindtap="onDiscardDraft">放弃本机这份</button>
+    </view>
+  </view>
+
+  <!-- 脏草稿切 Story：破坏性动作不是默认焦点 -->
+  <view class="sheet" wx:if="{{ui.story.showsSwitchDialog}}">
+    <view class="sheet__panel safe-bottom">
+      <text class="sheet__title">要切到「{{ui.story.pendingTitle}}」，但正文还没保存</text>
+      <text class="sheet__body">先复制一份留底，或者留在当前 Story 把它保存好。</text>
+      <button class="action action--primary" bindtap="onKeepCurrentStory">留在当前 Story</button>
+      <button class="action" bindtap="onCopyBoth">先复制这份正文</button>
+      <button class="action action--quiet" bindtap="onDiscardAndSwitch">放弃修改并切换</button>
+    </view>
+  </view>
+
+  <view class="card demo-switch">
+    <text class="field-label">演示状态开关（仅用于在开发者工具里演示各种状态）</text>
+    <picker
+      mode="selector"
+      range="{{failureModes}}"
+      range-key="label"
+      value="{{failureIndex}}"
+      bindchange="onFailureModeChange"
+    >
+      <view class="action action--quiet">当前：{{failureModes[failureIndex].label}}</view>
+    </picker>
+  </view>
+</view>

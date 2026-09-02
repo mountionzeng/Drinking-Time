@@ -1,0 +1,13 @@
+{
+  "pages": ["pages/start/index", "pages/privacy/index", "pages/workspace/index"],
+  "window": {
+    "navigationBarTitleText": "拾光 · 测试模式",
+    "navigationBarBackgroundColor": "#efe7d9",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f6f1e7",
+    "backgroundTextStyle": "light"
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}
