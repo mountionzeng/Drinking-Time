@@ -1,21 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateAnnotation, isCircuitOpen, resetCircuitBreaker } from './semanticAnnotation';
-import type { EditDiff } from '../_core/editDiff';
-import type { SemanticAnnotation } from '../db';
-import { ENV } from '../_core/env';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  generateAnnotation,
+  isCircuitOpen,
+  resetCircuitBreaker,
+} from "./semanticAnnotation";
+import type { EditDiff } from "../_core/editDiff";
+import type { SemanticAnnotation } from "../db";
+import { ENV } from "../_core/env";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-vi.mock('../_core/llm', () => ({
+vi.mock("../_core/llm", () => ({
   invokeLLM: vi.fn(),
 }));
 
-vi.mock('../db', () => ({
+vi.mock("../db", () => ({
   createSemanticAnnotation: vi.fn(),
 }));
 
-import { invokeLLM } from '../_core/llm';
-import { createSemanticAnnotation } from '../db';
+import { invokeLLM } from "../_core/llm";
+import { createSemanticAnnotation } from "../db";
 
 const mockInvokeLLM = vi.mocked(invokeLLM);
 const mockCreateAnnotation = vi.mocked(createSemanticAnnotation);
@@ -36,46 +40,51 @@ function makeDiff(overrides?: Partial<EditDiff>): EditDiff {
   };
 }
 
-function makeLLMResponse(factualChanges: string[], inferredPreferences: string[]) {
+function makeLLMResponse(
+  factualChanges: string[],
+  inferredPreferences: string[]
+) {
   return {
-    id: 'mock',
+    id: "mock",
     created: 0,
-    model: 'mock',
+    model: "mock",
     choices: [
       {
         index: 0,
         message: {
-          role: 'assistant' as const,
+          role: "assistant" as const,
           content: JSON.stringify({ factualChanges, inferredPreferences }),
         },
-        finish_reason: 'stop',
+        finish_reason: "stop",
       },
     ],
   };
 }
 
-function makeAnnotation(overrides?: Partial<SemanticAnnotation>): SemanticAnnotation {
+function makeAnnotation(
+  overrides?: Partial<SemanticAnnotation>
+): SemanticAnnotation {
   return {
     id: 1,
     snapshotId: 10,
     previousSnapshotId: null,
-    factualChanges: '[]',
-    inferredPreferences: '[]',
+    factualChanges: "[]",
+    inferredPreferences: "[]",
     timestamp: new Date(),
-    status: 'active',
+    status: "active",
     ...overrides,
   };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('generateAnnotation', () => {
+describe("generateAnnotation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetCircuitBreaker();
-    ENV.openaiNextApiKey = '';
-    ENV.openaiNextBaseUrl = 'https://api.openai-next.com';
-    ENV.openaiNextTextModel = 'gpt-5.6-terra';
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextTextModel = "gpt-5.6-terra";
   });
 
   afterEach(() => {
@@ -85,17 +94,14 @@ describe('generateAnnotation', () => {
     vi.unstubAllGlobals();
   });
 
-  it('routes semantic annotation through OpenAI Next when configured', async () => {
-    ENV.openaiNextApiKey = 'test-next-key';
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () =>
-        makeLLMResponse(['修改了故事文字'], ['偏好更克制的表达']),
-      text: async () => '',
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
+  it("routes semantic annotation through OpenAI Next when configured", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    mockInvokeLLM.mockResolvedValueOnce(
+      makeLLMResponse(["修改了故事文字"], ["偏好更克制的表达"])
+    );
+    mockCreateAnnotation.mockResolvedValueOnce(
+      makeAnnotation({ status: "active" })
+    );
 
     const result = await generateAnnotation({
       diff: makeDiff(),
@@ -104,37 +110,36 @@ describe('generateAnnotation', () => {
       previousAnnotations: [],
     });
 
-    expect(result.status).toBe('active');
-    expect(mockInvokeLLM).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://api.openai-next.com/v1/chat/completions',
+    expect(result.status).toBe("active");
+    expect(mockInvokeLLM).toHaveBeenCalledWith(
+      expect.objectContaining({
+        useCase: "general-text",
+        replaySafe: true,
+        maxTokens: 1024,
+        reasoningEffort: "low",
+        response_format: { type: "json_object" },
+      })
     );
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      'Bearer test-next-key',
-    );
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
-    expect(body.model).toBe('gpt-5.6-terra');
-    expect(body.max_completion_tokens).toBe(1024);
-    expect(body.reasoning_effort).toBe('low');
-    expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('returns LLM-generated annotation on success', async () => {
+  it("returns LLM-generated annotation on success", async () => {
     const savedAnnotation = makeAnnotation({
-      factualChanges: JSON.stringify(['删除了 2 张卡片']),
-      inferredPreferences: JSON.stringify(['倾向于克制的情感表达']),
-      status: 'active',
+      factualChanges: JSON.stringify(["删除了 2 张卡片"]),
+      inferredPreferences: JSON.stringify(["倾向于克制的情感表达"]),
+      status: "active",
     });
     mockInvokeLLM.mockResolvedValueOnce(
-      makeLLMResponse(['删除了 2 张卡片'], ['倾向于克制的情感表达']),
+      makeLLMResponse(["删除了 2 张卡片"], ["倾向于克制的情感表达"])
     );
     mockCreateAnnotation.mockResolvedValueOnce(savedAnnotation);
 
     const result = await generateAnnotation({
       diff: makeDiff({
         cards: {
-          deleted: [{ id: '1', title: '伤感' }, { id: '2', title: '思念' }],
+          deleted: [
+            { id: "1", title: "伤感" },
+            { id: "2", title: "思念" },
+          ],
           added: [],
           modified: [],
         },
@@ -144,24 +149,24 @@ describe('generateAnnotation', () => {
       previousAnnotations: [],
     });
 
-    expect(result.status).toBe('active');
+    expect(result.status).toBe("active");
     expect(mockCreateAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         snapshotId: 10,
         previousSnapshotId: 5,
-        status: 'active',
-        factualChanges: JSON.stringify(['删除了 2 张卡片']),
-        inferredPreferences: JSON.stringify(['倾向于克制的情感表达']),
-      }),
+        status: "active",
+        factualChanges: JSON.stringify(["删除了 2 张卡片"]),
+        inferredPreferences: JSON.stringify(["倾向于克制的情感表达"]),
+      })
     );
   });
 
-  it('passes previous annotations to LLM for continuity', async () => {
+  it("passes previous annotations to LLM for continuity", async () => {
     const prevAnnotation = makeAnnotation({
-      factualChanges: JSON.stringify(['修改了对白']),
-      inferredPreferences: JSON.stringify(['偏好简洁对白']),
+      factualChanges: JSON.stringify(["修改了对白"]),
+      inferredPreferences: JSON.stringify(["偏好简洁对白"]),
     });
-    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(['删除了场景'], []));
+    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(["删除了场景"], []));
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation());
 
     await generateAnnotation({
@@ -172,60 +177,65 @@ describe('generateAnnotation', () => {
     });
 
     const callArgs = mockInvokeLLM.mock.calls[0][0];
-    const userMessage = callArgs.messages.find((m) => m.role === 'user');
-    expect(typeof userMessage?.content).toBe('string');
-    expect(userMessage?.content as string).toContain('偏好简洁对白');
+    const userMessage = callArgs.messages.find(m => m.role === "user");
+    expect(typeof userMessage?.content).toBe("string");
+    expect(userMessage?.content as string).toContain("偏好简洁对白");
   });
 
-  it('falls back to raw diff summary on malformed LLM JSON', async () => {
+  it("falls back to raw diff summary on malformed LLM JSON", async () => {
     mockInvokeLLM.mockResolvedValueOnce({
-      id: 'mock',
+      id: "mock",
       created: 0,
-      model: 'mock',
+      model: "mock",
       choices: [
         {
           index: 0,
-          message: { role: 'assistant', content: 'not valid json {{{' },
-          finish_reason: 'stop',
+          message: { role: "assistant", content: "not valid json {{{" },
+          finish_reason: "stop",
         },
       ],
     });
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
-      diff: makeDiff({ cards: { deleted: [{ id: '1' }], added: [], modified: [] } }),
+      diff: makeDiff({
+        cards: { deleted: [{ id: "1" }], added: [], modified: [] },
+      }),
       snapshotId: 10,
       previousSnapshotId: 5,
       previousAnnotations: [],
     });
 
-    expect(result.status).toBe('pending');
+    expect(result.status).toBe("pending");
     expect(mockCreateAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'pending',
+        status: "pending",
         inferredPreferences: JSON.stringify([]),
-      }),
+      })
     );
   });
 
-  it('falls back when LLM response is missing required arrays', async () => {
+  it("falls back when LLM response is missing required arrays", async () => {
     mockInvokeLLM.mockResolvedValueOnce(
       // valid JSON but wrong structure
       {
-        id: 'mock',
+        id: "mock",
         created: 0,
-        model: 'mock',
+        model: "mock",
         choices: [
           {
             index: 0,
-            message: { role: 'assistant', content: JSON.stringify({ result: 'ok' }) },
-            finish_reason: 'stop',
+            message: {
+              role: "assistant",
+              content: JSON.stringify({ result: "ok" }),
+            },
+            finish_reason: "stop",
           },
         ],
-      },
+      }
     );
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
@@ -235,12 +245,12 @@ describe('generateAnnotation', () => {
       previousAnnotations: [],
     });
 
-    expect(result.status).toBe('pending');
+    expect(result.status).toBe("pending");
   });
 
-  it('falls back on LLM call rejection', async () => {
-    mockInvokeLLM.mockRejectedValueOnce(new Error('Network error'));
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
+  it("falls back on LLM call rejection", async () => {
+    mockInvokeLLM.mockRejectedValueOnce(new Error("Network error"));
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
@@ -250,16 +260,20 @@ describe('generateAnnotation', () => {
       previousAnnotations: [],
     });
 
-    expect(result.status).toBe('pending');
+    expect(result.status).toBe("pending");
   });
 
-  it('opens circuit breaker after 3 consecutive failures', async () => {
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+  it("opens circuit breaker after 3 consecutive failures", async () => {
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
+    mockInvokeLLM.mockRejectedValue(new Error("LLM down"));
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = {
+      snapshotId: 10,
+      previousSnapshotId: 5,
+      previousAnnotations: [],
+    };
 
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -269,14 +283,18 @@ describe('generateAnnotation', () => {
     expect(isCircuitOpen()).toBe(true);
   });
 
-  it('skips LLM call when circuit breaker is open', async () => {
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+  it("skips LLM call when circuit breaker is open", async () => {
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
+    mockInvokeLLM.mockRejectedValue(new Error("LLM down"));
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     // Trip the breaker
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = {
+      snapshotId: 10,
+      previousSnapshotId: 5,
+      previousAnnotations: [],
+    };
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -290,18 +308,22 @@ describe('generateAnnotation', () => {
     // LLM should not have been called
     expect(mockInvokeLLM).not.toHaveBeenCalled();
     expect(mockCreateAnnotation).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'pending' }),
+      expect.objectContaining({ status: "pending" })
     );
   });
 
-  it('resets circuit breaker on successful annotation', async () => {
-    const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+  it("resets circuit breaker on successful annotation", async () => {
+    const fallbackAnnotation = makeAnnotation({ status: "pending" });
+    mockInvokeLLM.mockRejectedValue(new Error("LLM down"));
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     // Trip the breaker
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = {
+      snapshotId: 10,
+      previousSnapshotId: 5,
+      previousAnnotations: [],
+    };
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -312,22 +334,32 @@ describe('generateAnnotation', () => {
     expect(isCircuitOpen()).toBe(false);
 
     // Successful call
-    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(['变更'], ['偏好']));
-    mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
+    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(["变更"], ["偏好"]));
+    mockCreateAnnotation.mockResolvedValueOnce(
+      makeAnnotation({ status: "active" })
+    );
 
     const result = await generateAnnotation({ diff, ...base });
-    expect(result.status).toBe('active');
+    expect(result.status).toBe("active");
     expect(isCircuitOpen()).toBe(false);
   });
 
-  it('fallback diff summary lists all change types', async () => {
-    mockInvokeLLM.mockRejectedValueOnce(new Error('fail'));
-    mockCreateAnnotation.mockImplementationOnce(async (data) => makeAnnotation(data as Partial<SemanticAnnotation>));
+  it("fallback diff summary lists all change types", async () => {
+    mockInvokeLLM.mockRejectedValueOnce(new Error("fail"));
+    mockCreateAnnotation.mockImplementationOnce(async data =>
+      makeAnnotation(data as Partial<SemanticAnnotation>)
+    );
 
     await generateAnnotation({
       diff: makeDiff({
-        cards: { deleted: [{ id: '1' }], added: [{ id: '2' }], modified: [] },
-        shots: { deleted: [], added: [], modified: [{ old: { shotNo: 1 }, new: { shotNo: 1, shotType: 'close' } }] },
+        cards: { deleted: [{ id: "1" }], added: [{ id: "2" }], modified: [] },
+        shots: {
+          deleted: [],
+          added: [],
+          modified: [
+            { old: { shotNo: 1 }, new: { shotNo: 1, shotType: "close" } },
+          ],
+        },
       }),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -336,8 +368,8 @@ describe('generateAnnotation', () => {
 
     const call = mockCreateAnnotation.mock.calls[0][0];
     const facts = JSON.parse(call.factualChanges as string) as string[];
-    expect(facts.some((f) => f.includes('删除了 1 张卡片'))).toBe(true);
-    expect(facts.some((f) => f.includes('新增了 1 张卡片'))).toBe(true);
-    expect(facts.some((f) => f.includes('修改了 1 个镜头'))).toBe(true);
+    expect(facts.some(f => f.includes("删除了 1 张卡片"))).toBe(true);
+    expect(facts.some(f => f.includes("新增了 1 张卡片"))).toBe(true);
+    expect(facts.some(f => f.includes("修改了 1 个镜头"))).toBe(true);
   });
 });

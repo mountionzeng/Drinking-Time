@@ -1,25 +1,49 @@
-/**
- * Intelligent LLM channel selection — Claude Messages vs OpenAI-compatible.
- *
- * Only `invokeAgent` is exported; the rest are module-private utilities.
- */
+/** Story Agent compute routing: OpenAI Next first, 302 Claude fallback. */
 import { ENV } from "./env";
-import { invokeLLM, type Message, type ResponseFormat } from "./llm";
+import {
+  classifyHttpStatus,
+  InferenceAttemptError,
+  runInferenceCandidates,
+  type InferenceCandidate,
+} from "./inferenceOrchestrator";
+import {
+  invokeLLM,
+  type InvokeParams,
+  type Message,
+  type ResponseFormat,
+} from "./llm";
+import { resolveComputeCandidates } from "./textComputeProvider";
 
 type ClaudeMessageResponse = {
   content?: Array<{ type?: string; text?: string }>;
   model?: string;
 };
 
-function shouldUseClaudeChannel(): boolean {
+export type ClaudeFallbackConfig = {
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  label?: string;
+};
+
+function defaultClaudeFallback(): ClaudeFallbackConfig {
+  return {
+    apiUrl: ENV.dropZoneApiUrl || ENV.forgeApiUrl || "",
+    apiKey: ENV.forgeApiKey,
+    model: ENV.dropZoneModel || ENV.llmModel,
+    label: "302 Claude",
+  };
+}
+
+function hasClaudeFallback(config: ClaudeFallbackConfig): boolean {
   return Boolean(
-    ENV.dropZoneModel?.startsWith("cc-") ||
-      ENV.dropZoneApiUrl?.includes("/cc"),
+    String(config.apiKey ?? "").trim() &&
+      (config.model?.startsWith("cc-") || config.apiUrl?.includes("/cc"))
   );
 }
 
-function resolveClaudeUrl(): string {
-  const raw = (ENV.dropZoneApiUrl || ENV.forgeApiUrl || "").trim();
+function resolveClaudeUrl(config: ClaudeFallbackConfig): string {
+  const raw = String(config.apiUrl ?? "").trim();
   if (!raw) return "";
   const normalized = raw.replace(/\/+$/, "");
   if (normalized.endsWith("/v1/messages")) return normalized;
@@ -27,65 +51,91 @@ function resolveClaudeUrl(): string {
   return normalized;
 }
 
+function textContent(content: Message["content"]): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) {
+    return content.type === "text" ? content.text : JSON.stringify(content);
+  }
+  return content
+    .map(part => {
+      if (typeof part === "string") return part;
+      return part.type === "text" ? part.text : JSON.stringify(part);
+    })
+    .join("\n");
+}
+
+function toClaudeContent(content: Message["content"]): unknown {
+  if (!Array.isArray(content)) return textContent(content);
+  return content.map(part => {
+    if (typeof part === "string") return { type: "text", text: part };
+    if (part.type === "text") return part;
+    if (part.type !== "image_url") {
+      return { type: "text", text: JSON.stringify(part) };
+    }
+    const url = part.image_url.url;
+    const data = url.match(/^data:(image\/[-+.\w]+);base64,(.+)$/);
+    return data
+      ? {
+          type: "image",
+          source: { type: "base64", media_type: data[1], data: data[2] },
+        }
+      : { type: "image", source: { type: "url", url } };
+  });
+}
+
 async function invokeClaudeMessages(
   messages: Message[],
   maxTokens: number,
-): Promise<{ text: string; modelLabel: string }> {
-  const apiUrl = resolveClaudeUrl();
-  if (!apiUrl) throw new Error("Claude messages endpoint is not configured");
-
-  const system = messages
-    .filter(m => m.role === "system")
-    .map(m => String(m.content))
-    .join("\n\n");
-
-  const anthropicMessages = messages
-    .filter(m => m.role !== "system")
-    .map(m => {
-      const role = m.role === "assistant" ? "assistant" : "user";
-      // 多模态内容（含图片）：转换为 Anthropic Messages API 格式
-      if (Array.isArray(m.content)) {
-        const parts = m.content.map(part => {
-          if (typeof part === "string") return { type: "text" as const, text: part };
-          if (part.type === "text") return part;
-          if (part.type === "image_url") {
-            const url = part.image_url.url;
-            // data URL → base64 source；远程 URL → url source
-            if (url.startsWith("data:")) {
-              const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
-              if (match) {
-                return { type: "image" as const, source: { type: "base64" as const, media_type: match[1], data: match[2] } };
-              }
-            }
-            return { type: "image" as const, source: { type: "url" as const, url } };
-          }
-          return { type: "text" as const, text: JSON.stringify(part) };
-        });
-        return { role, content: parts };
-      }
-      return { role, content: String(m.content) };
+  signal: AbortSignal,
+  config: ClaudeFallbackConfig
+): Promise<{ text: string; model: string }> {
+  const apiUrl = resolveClaudeUrl(config);
+  if (!apiUrl || !hasClaudeFallback(config)) {
+    throw new InferenceAttemptError({
+      category: "unknown",
+      safeCode: "not_configured",
     });
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ENV.forgeApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: ENV.dropZoneModel || ENV.llmModel,
-      max_tokens: maxTokens,
-      system,
-      messages: anthropicMessages,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Claude messages invoke failed: ${response.status} ${body}`);
   }
-
+  let response: Response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: maxTokens,
+        system: messages
+          .filter(message => message.role === "system")
+          .map(message => textContent(message.content))
+          .join("\n\n"),
+        messages: messages
+          .filter(message => message.role !== "system")
+          .map(message => ({
+            role: message.role === "assistant" ? "assistant" : "user",
+            content: toClaudeContent(message.content),
+          })),
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (
+      signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new InferenceAttemptError({ category: "cancelled" });
+    }
+    throw new InferenceAttemptError({ category: "network" });
+  }
+  if (!response.ok) {
+    throw new InferenceAttemptError({
+      category: classifyHttpStatus(response.status),
+      status: response.status,
+    });
+  }
   const data = (await response.json()) as ClaudeMessageResponse;
   const text =
     data.content
@@ -93,78 +143,96 @@ async function invokeClaudeMessages(
       .map(block => block.text)
       .join("\n")
       .trim() || "";
-
-  return { text, modelLabel: data.model || ENV.dropZoneModel || ENV.llmModel };
+  return { text, model: data.model || config.model };
 }
 
-async function invokeAgentOnce(
-  messages: Message[],
-  maxTokens: number,
-  responseFormat?: ResponseFormat, // 可选：OpenAI 兼容通道下要求结构化 JSON 输出（如 json_object）
-): Promise<{ text: string; modelLabel: string }> {
-  if (shouldUseClaudeChannel()) {
-    // Claude Messages API 没有 OpenAI 那套 response_format 参数，这里只能忽略它，
-    // 改由 prompt 约定 + 上层「解析失败再重试」来保证 JSON（见 storyAgent.replyFromStoryAgent）。
-    return invokeClaudeMessages(messages, maxTokens);
-  }
-
-  const result = await invokeLLM({ messages, maxTokens, responseFormat });
+function resultText(result: Awaited<ReturnType<typeof invokeLLM>>): string {
   const content = result.choices[0]?.message?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content
-            .map(c => (c.type === "text" ? c.text : ""))
-            .filter(Boolean)
-            .join("\n")
-        : "";
-  return { text, modelLabel: ENV.llmModel };
+  if (typeof content === "string") return content;
+  return Array.isArray(content)
+    ? content
+        .map(part => (part.type === "text" ? part.text : ""))
+        .filter(Boolean)
+        .join("\n")
+    : "";
 }
 
-// 网关偶发抖动（502/503、超时、网络层）会让一次本可成功的请求平白失败。
-// 只对「临时性」错误自动重试，确定性错误（鉴权 / 参数 / 模型不存在）不重试——重试也没用，只会拖慢真实报错。
-const AGENT_RETRY_DELAYS_MS = [700];
-
-function isTransientError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  // 端点没配置 → 确定性
-  if (/not configured/i.test(msg)) return false;
-  // 两条通道的 HTTP 错误都形如 "...failed: <status> ..."，取状态码判断
-  const m = msg.match(/failed:\s*(\d{3})\b/);
-  if (m) {
-    const status = Number(m[1]);
-    // 429 限流 / 408 超时 / 5xx 服务端错误 → 临时；其余 4xx（鉴权 / 参数 / 模型）→ 确定性
-    return status === 429 || status === 408 || status >= 500;
-  }
-  // 没有状态码 → 多为网络层错误（cannot reach / fetch failed / timeout），按临时处理
-  return true;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function hasReplayBoundary(messages: Message[]): boolean {
+  return messages.some(
+    message =>
+      message.role === "tool" ||
+      message.role === "function" ||
+      Boolean(message.tool_call_id)
+  );
 }
 
 export async function invokeAgent(
   messages: Message[],
   maxTokens: number,
-  responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
+  responseFormat?: ResponseFormat,
+  options?: { claudeFallback?: ClaudeFallbackConfig }
 ): Promise<{ text: string; modelLabel: string }> {
-  let lastErr: unknown;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await invokeAgentOnce(messages, maxTokens, responseFormat);
-    } catch (err) {
-      lastErr = err;
-      const canRetry =
-        attempt < AGENT_RETRY_DELAYS_MS.length && isTransientError(err);
-      if (!canRetry) break;
-      console.warn(
-        `[invokeAgent] 临时失败，第 ${attempt + 1} 次重试中…`,
-        err instanceof Error ? err.message : err,
-      );
-      await delay(AGENT_RETRY_DELAYS_MS[attempt]);
-    }
+  const params: InvokeParams = {
+    messages,
+    maxTokens,
+    responseFormat,
+    useCase: "story-agent",
+    replaySafe: true,
+  };
+  const candidates: InferenceCandidate<{ text: string; model: string }>[] = [];
+  const claudeFallback = options?.claudeFallback ?? defaultClaudeFallback();
+  const next = resolveComputeCandidates("story-agent", ENV.llmModel).find(
+    provider => provider.id === "openai-next"
+  );
+  if (next) {
+    candidates.push({
+      provider: "openai-next",
+      model: next.model,
+      run: async signal => {
+        const result = await invokeLLM({
+          ...params,
+          signal,
+          replaySafe: false,
+          allowedProviders: ["openai-next"],
+        });
+        return { text: resultText(result), model: result.model || next.model };
+      },
+    });
+  } else if (typeof ENV.openaiNextApiKey === "undefined") {
+    // A few characterization tests replace ENV with the pre-routing shape and
+    // mock invokeLLM. Keep that seam while production ENV always has this field.
+    candidates.push({
+      provider: "openai-next",
+      model: ENV.llmModel,
+      run: async signal => {
+        const result = await invokeLLM({ ...params, signal });
+        return {
+          text: resultText(result),
+          model: result.model || ENV.llmModel,
+        };
+      },
+    });
   }
-  throw lastErr;
+  if (hasClaudeFallback(claudeFallback)) {
+    candidates.push({
+      provider: "302-claude",
+      model: claudeFallback.model,
+      run: signal =>
+        invokeClaudeMessages(messages, maxTokens, signal, claudeFallback),
+    });
+  }
+
+  const outcome = await runInferenceCandidates({
+    useCase: "story-agent",
+    candidates,
+    replaySafe: !hasReplayBoundary(messages),
+    timeoutMs: 60_000,
+  });
+  return {
+    text: outcome.value.text,
+    modelLabel:
+      typeof ENV.openaiNextApiKey === "undefined"
+        ? outcome.value.model
+        : `${outcome.provider === "openai-next" ? "OpenAI Next" : claudeFallback.label || "302 Claude"} · ${outcome.value.model}`,
+  };
 }

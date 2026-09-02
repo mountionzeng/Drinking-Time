@@ -1,4 +1,15 @@
 import { ENV } from "./env";
+import {
+  classifyHttpStatus,
+  InferenceAttemptError,
+  runInferenceCandidates,
+} from "./inferenceOrchestrator";
+import {
+  resolveComputeCandidates,
+  type ComputeProviderId,
+  type ComputeUseCase,
+  type TextComputeProvider,
+} from "./textComputeProvider";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -19,7 +30,12 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4" ;
+    mime_type?:
+      | "audio/mpeg"
+      | "audio/wav"
+      | "application/pdf"
+      | "audio/mp4"
+      | "video/mp4";
   };
 };
 
@@ -67,6 +83,17 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  useCase?: ComputeUseCase;
+  replaySafe?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  reasoningEffort?: "low" | "medium" | "high";
+  /** Internal routing constraint used by cross-protocol callers. */
+  allowedProviders?: ComputeProviderId[];
+  fallback302Model?: string;
+  fallback302ApiKey?: string;
+  fallback302BaseUrl?: string;
+  fetcher?: typeof fetch;
 };
 
 export type ToolCall = {
@@ -95,6 +122,12 @@ export type InvokeResult = {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+  };
+  provider?: {
+    id: ComputeProviderId;
+    label: string;
+    model: string;
+    attempt: number;
   };
 };
 
@@ -210,27 +243,6 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  (() => {
-    const baseUrl = ENV.forgeApiUrl?.trim();
-    if (!baseUrl) {
-      return "https://forge.manus.im/v1/chat/completions";
-    }
-
-    const normalizedBase = baseUrl.replace(/\/+$/, "");
-    if (normalizedBase.endsWith("/v1")) {
-      return `${normalizedBase}/chat/completions`;
-    }
-
-    return `${normalizedBase}/v1/chat/completions`;
-  })();
-
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
-  }
-};
-
 const normalizeResponseFormat = ({
   responseFormat,
   response_format,
@@ -280,9 +292,11 @@ const normalizeResponseFormat = ({
 // 统一封装了 OpenAI 兼容格式的 chat/completions 请求
 // 支持：多模态消息、function calling (tools)、structured output (json_schema)
 // 所有 Agent 最终都通过这个函数发请求
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
-
+export async function invokeOpenAICompatible(
+  provider: TextComputeProvider,
+  params: InvokeParams,
+  signal?: AbortSignal
+): Promise<InvokeResult> {
   const {
     messages,
     tools,
@@ -295,14 +309,21 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    reasoningEffort,
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: ENV.llmModel,
+    model: provider.model,
     messages: messages.map(normalizeMessage),
   };
 
   if (tools && tools.length > 0) {
+    if (!provider.capability.supportsTools) {
+      throw new InferenceAttemptError({
+        category: "parameter",
+        safeCode: "tools_unsupported",
+      });
+    }
     payload.tools = tools;
   }
 
@@ -314,15 +335,26 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = maxTokens ?? max_tokens ?? 8192;
+  payload[provider.capability.tokenField] = maxTokens ?? max_tokens ?? 8192;
 
-  if (typeof temperature === "number") {
+  if (
+    typeof temperature === "number" &&
+    provider.capability.supportsTemperature
+  ) {
     payload.temperature = temperature;
+  }
+
+  if (reasoningEffort && provider.capability.supportsReasoningEffort) {
+    payload.reasoning_effort = reasoningEffort;
   }
 
   const thinkingBudgetRaw = process.env.LLM_THINKING_BUDGET;
   const thinkingBudget = thinkingBudgetRaw ? Number(thinkingBudgetRaw) : NaN;
-  if (Number.isFinite(thinkingBudget) && thinkingBudget > 0) {
+  if (
+    provider.id === "302" &&
+    Number.isFinite(thinkingBudget) &&
+    thinkingBudget > 0
+  ) {
     payload.thinking = { budget_tokens: Math.floor(thinkingBudget) };
   }
 
@@ -334,31 +366,101 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   });
 
   if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
+    if (
+      normalizedResponseFormat.type === "json_schema" &&
+      !provider.capability.supportsJsonSchema
+    ) {
+      if (provider.capability.supportsJsonObject) {
+        payload.response_format = { type: "json_object" };
+      }
+    } else if (
+      normalizedResponseFormat.type !== "json_object" ||
+      provider.capability.supportsJsonObject
+    ) {
+      payload.response_format = normalizedResponseFormat;
+    }
   }
 
-  const apiUrl = resolveApiUrl();
   let response: Response;
   try {
-    response = await fetch(apiUrl, {
+    response = await (params.fetcher ?? fetch)(provider.chatCompletionsUrl, {
       method: "POST",
       headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`,
       },
       body: JSON.stringify(payload),
+      signal,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`LLM network error: cannot reach ${apiUrl}. ${message}`);
+    if (
+      signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new InferenceAttemptError({ category: "cancelled" });
+    }
+    throw new InferenceAttemptError({ category: "network" });
   }
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
+    // Deliberately do not propagate the provider body: it may echo prompts,
+    // image URLs, tool arguments or gateway credentials.
+    throw new InferenceAttemptError({
+      category: classifyHttpStatus(response.status),
+      status: response.status,
+    });
   }
 
   return (await response.json()) as InvokeResult;
+}
+
+function hasReplayBoundary(params: InvokeParams): boolean {
+  if (params.tools?.length) return true;
+  return params.messages.some(
+    message =>
+      message.role === "tool" ||
+      message.role === "function" ||
+      Boolean(message.tool_call_id)
+  );
+}
+
+export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  const useCase = params.useCase ?? "general-text";
+  const candidates = resolveComputeCandidates(
+    useCase,
+    params.fallback302Model ?? ENV.llmModel,
+    {
+      fallback302ApiKey:
+        params.fallback302ApiKey ?? (ENV.api302Key || ENV.forgeApiKey),
+      fallback302BaseUrl:
+        params.fallback302BaseUrl ??
+        (ENV.api302Key || !ENV.forgeApiUrl
+          ? ENV.api302BaseUrl
+          : ENV.forgeApiUrl),
+    }
+  ).filter(
+    provider =>
+      !params.allowedProviders || params.allowedProviders.includes(provider.id)
+  );
+  const outcome = await runInferenceCandidates({
+    useCase,
+    replaySafe: Boolean(params.replaySafe) && !hasReplayBoundary(params),
+    timeoutMs: params.timeoutMs,
+    signal: params.signal,
+    candidates: candidates.map(provider => ({
+      provider: provider.id,
+      model: provider.model,
+      run: signal => invokeOpenAICompatible(provider, params, signal),
+    })),
+  });
+  return {
+    ...outcome.value,
+    provider: {
+      id: outcome.provider as ComputeProviderId,
+      label: outcome.provider === "openai-next" ? "OpenAI Next" : "302",
+      model: outcome.model,
+      attempt: outcome.attempt,
+    },
+  };
 }

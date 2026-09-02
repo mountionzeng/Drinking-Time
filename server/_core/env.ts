@@ -105,10 +105,11 @@ export const ENV = {
   openaiNextApiKey: process.env.OPENAI_NEXT_API_KEY ?? "",
   openaiNextBaseUrl:
     process.env.OPENAI_NEXT_BASE_URL ?? "https://api.openai-next.com",
-  openaiNextTextModel:
-    process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
+  openaiNextTextModel: process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
   openaiNextEmotionModel:
     process.env.OPENAI_NEXT_EMOTION_MODEL ?? "deepseek-v3.2",
+  openaiNextLoginModel:
+    process.env.OPENAI_NEXT_LOGIN_MODEL ?? "deepseek-v4-flash",
   openaiNextVisionModel:
     process.env.OPENAI_NEXT_VISION_MODEL ?? "qwen3-vl-plus",
 

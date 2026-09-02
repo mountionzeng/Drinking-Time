@@ -4,7 +4,13 @@ import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { applyShotPromptComposition } from "../services/shotPromptComposer";
 import { annotateScriptShotReasons } from "../services/scriptAgent";
-import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, VisualAnchorPayload } from "./storyAgent.types";
+import type {
+  ShotBeat,
+  ShotCharacter,
+  ShotEntry,
+  ShotListPayload,
+  VisualAnchorPayload,
+} from "./storyAgent.types";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
 
 const VALID_SHOT_TYPES = ["远", "全", "中", "近", "特", "大特"];
@@ -71,20 +77,6 @@ type GenerationProfileInput = {
   } | null;
 };
 
-type ClaudeMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  model?: string;
-};
-
-type OpenAICompatibleMessageResponse = {
-  model?: string;
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-};
-
 function cleanText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -93,176 +85,19 @@ function hasScriptStructureAgentConfig(): boolean {
   return Boolean(ENV.scriptStructureAgentApiKey?.trim());
 }
 
-function shouldUseScriptStructureClaudeChannel(): boolean {
-  return Boolean(
-    ENV.scriptStructureAgentModel?.startsWith("cc-") ||
-      ENV.scriptStructureAgentApiUrl?.includes("/cc")
-  );
-}
-
-function resolveScriptStructureClaudeUrl(): string {
-  const raw = (
-    ENV.scriptStructureAgentApiUrl ||
-    ENV.dropZoneApiUrl ||
-    ENV.forgeApiUrl ||
-    ""
-  ).trim();
-  if (!raw) return "";
-  const normalized = raw.replace(/\/+$/, "");
-  if (normalized.endsWith("/v1/messages")) return normalized;
-  if (normalized.endsWith("/cc")) return `${normalized}/v1/messages`;
-  return normalized;
-}
-
-function resolveScriptStructureChatUrl(): string {
-  const raw = (ENV.scriptStructureAgentApiUrl || ENV.forgeApiUrl || "").trim();
-  if (!raw) return "https://forge.manus.im/v1/chat/completions";
-  const normalized = raw.replace(/\/+$/, "");
-  if (normalized.endsWith("/chat/completions")) return normalized;
-  if (normalized.endsWith("/v1")) return `${normalized}/chat/completions`;
-  return `${normalized}/v1/chat/completions`;
-}
-
-function textFromMessageContent(content: Message["content"]): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) {
-    if (content.type === "text") return content.text;
-    return JSON.stringify(content);
-  }
-  return content
-    .map(part => {
-      if (typeof part === "string") return part;
-      if (part.type === "text") return part.text;
-      return JSON.stringify(part);
-    })
-    .join("\n");
-}
-
-function textFromLLMContent(
-  content: string | Array<{ type?: string; text?: string }> | undefined
-): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map(part => (part.type === "text" ? part.text || "" : ""))
-    .filter(Boolean)
-    .join("\n");
-}
-
-async function invokeScriptStructureClaudeMessages(
-  messages: Message[],
-  maxTokens: number
-): Promise<{ text: string; modelLabel: string }> {
-  const apiUrl = resolveScriptStructureClaudeUrl();
-  const apiKey = ENV.scriptStructureAgentApiKey?.trim();
-  if (!apiUrl) throw new Error("SCRIPT_STRUCTURE_AGENT_API_URL is not configured");
-  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
-
-  const system = messages
-    .filter(message => message.role === "system")
-    .map(message => textFromMessageContent(message.content))
-    .join("\n\n");
-  const anthropicMessages = messages
-    .filter(message => message.role !== "system")
-    .map(message => ({
-      role: message.role === "assistant" ? "assistant" : "user",
-      content: textFromMessageContent(message.content),
-    }));
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model:
-        ENV.scriptStructureAgentModel ||
-        ENV.dropZoneModel ||
-        ENV.llmModel,
-      max_tokens: maxTokens,
-      system,
-      messages: anthropicMessages,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Script structure agent invoke failed: ${response.status} ${body}`
-    );
-  }
-
-  const data = (await response.json()) as ClaudeMessageResponse;
-  const text =
-    data.content
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
-      .join("\n")
-      .trim() || "";
-
-  return {
-    text,
-    modelLabel:
-      data.model ||
-      ENV.scriptStructureAgentModel ||
-      ENV.dropZoneModel ||
-      ENV.llmModel,
-  };
-}
-
-async function invokeScriptStructureOpenAICompatible(
-  messages: Message[],
-  maxTokens: number
-): Promise<{ text: string; modelLabel: string }> {
-  const apiKey = ENV.scriptStructureAgentApiKey?.trim();
-  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
-  const model = ENV.scriptStructureAgentModel || ENV.llmModel;
-  const payload: Record<string, unknown> = {
-    model,
-    messages: messages.map(message => ({
-      role: message.role,
-      content: textFromMessageContent(message.content),
-    })),
-    max_tokens: maxTokens,
-  };
-  if (ENV.llmSupportsResponseFormat) {
-    payload.response_format = { type: "json_object" };
-  }
-
-  const response = await fetch(resolveScriptStructureChatUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Script structure agent invoke failed: ${response.status} ${body}`
-    );
-  }
-
-  const data = (await response.json()) as OpenAICompatibleMessageResponse;
-  const text = textFromLLMContent(data.choices?.[0]?.message?.content).trim();
-  return { text, modelLabel: data.model || model };
-}
-
 async function invokeScriptStructureAgent(
   messages: Message[],
   maxTokens: number
 ): Promise<{ text: string; modelLabel: string }> {
-  if (!hasScriptStructureAgentConfig()) {
-    return invokeAgent(messages, maxTokens);
-  }
-  if (shouldUseScriptStructureClaudeChannel()) {
-    return invokeScriptStructureClaudeMessages(messages, maxTokens);
-  }
-  return invokeScriptStructureOpenAICompatible(messages, maxTokens);
+  if (!hasScriptStructureAgentConfig()) return invokeAgent(messages, maxTokens);
+  return invokeAgent(messages, maxTokens, undefined, {
+    claudeFallback: {
+      apiUrl: ENV.scriptStructureAgentApiUrl,
+      apiKey: ENV.scriptStructureAgentApiKey,
+      model: ENV.scriptStructureAgentModel,
+      label: "302 Script Structure Claude",
+    },
+  });
 }
 
 function cleanList(values: unknown, limit = 8): string[] {
@@ -283,7 +118,9 @@ function formatGenerationProfile(profile?: GenerationProfileInput): string {
       cleanText(script.label) ? `选择：${cleanText(script.label)}` : "",
       cleanText(script.arc) ? `弧线：${cleanText(script.arc)}` : "",
       cleanText(script.logline) ? `一句话：${cleanText(script.logline)}` : "",
-      cleanText(script.treatment) ? `处理方式：${cleanText(script.treatment)}` : "",
+      cleanText(script.treatment)
+        ? `处理方式：${cleanText(script.treatment)}`
+        : "",
     ].filter(Boolean);
     if (parts.length) lines.push(`剧本风格：${parts.join("；")}`);
   }
@@ -291,12 +128,24 @@ function formatGenerationProfile(profile?: GenerationProfileInput): string {
   if (art) {
     const recipe = art.recipe ?? {};
     const recipeParts = [
-      cleanList(recipe.style).length ? `风格=${cleanList(recipe.style).join(" / ")}` : "",
-      cleanList(recipe.palette).length ? `色彩=${cleanList(recipe.palette).join(" / ")}` : "",
-      cleanList(recipe.light).length ? `光线=${cleanList(recipe.light).join(" / ")}` : "",
-      cleanList(recipe.composition).length ? `构图=${cleanList(recipe.composition).join(" / ")}` : "",
-      cleanList(recipe.material).length ? `材质=${cleanList(recipe.material).join(" / ")}` : "",
-      cleanList(recipe.negative).length ? `避免=${cleanList(recipe.negative).join(" / ")}` : "",
+      cleanList(recipe.style).length
+        ? `风格=${cleanList(recipe.style).join(" / ")}`
+        : "",
+      cleanList(recipe.palette).length
+        ? `色彩=${cleanList(recipe.palette).join(" / ")}`
+        : "",
+      cleanList(recipe.light).length
+        ? `光线=${cleanList(recipe.light).join(" / ")}`
+        : "",
+      cleanList(recipe.composition).length
+        ? `构图=${cleanList(recipe.composition).join(" / ")}`
+        : "",
+      cleanList(recipe.material).length
+        ? `材质=${cleanList(recipe.material).join(" / ")}`
+        : "",
+      cleanList(recipe.negative).length
+        ? `避免=${cleanList(recipe.negative).join(" / ")}`
+        : "",
     ].filter(Boolean);
     const itemParts = (art.items ?? [])
       .map(item => {
@@ -330,7 +179,11 @@ function artStyleRefFromProfile(profile?: GenerationProfileInput): string {
     ...cleanList(recipe.palette, 2),
     ...cleanList(recipe.light, 2),
     ...(art.items ?? [])
-      .filter(item => /style|palette|lighting|composition|recipe/i.test(cleanText(item.dimension)))
+      .filter(item =>
+        /style|palette|lighting|composition|recipe/i.test(
+          cleanText(item.dimension)
+        )
+      )
       .map(item => cleanText(item.content))
       .filter(Boolean)
       .slice(0, 4),
@@ -340,7 +193,7 @@ function artStyleRefFromProfile(profile?: GenerationProfileInput): string {
 
 function isJobSearchIntent(
   intent: ShotListIntentInput | null | undefined,
-  resonanceContext?: string,
+  resonanceContext?: string
 ): boolean {
   return (
     intent?.purpose === "linkedin_job_search" ||
@@ -350,9 +203,11 @@ function isJobSearchIntent(
 
 function isFictionIntent(
   intent: ShotListIntentInput | null | undefined,
-  resonanceContext?: string,
+  resonanceContext?: string
 ): boolean {
-  return intent?.purpose === "fiction" || /用途=fiction/.test(resonanceContext ?? "");
+  return (
+    intent?.purpose === "fiction" || /用途=fiction/.test(resonanceContext ?? "")
+  );
 }
 
 function jobTargetRole(intent?: ShotListIntentInput | null): string {
@@ -366,7 +221,11 @@ function jobAudience(intent?: ShotListIntentInput | null): string {
 }
 
 function cardTitle(card: ShotListCardInput, index: number): string {
-  return cleanText(card.title) || cleanText(card.personalTrace) || `优势 ${index + 1}`;
+  return (
+    cleanText(card.title) ||
+    cleanText(card.personalTrace) ||
+    `优势 ${index + 1}`
+  );
 }
 
 function cardEvidence(card: ShotListCardInput): string {
@@ -378,7 +237,11 @@ function cardEvidence(card: ShotListCardInput): string {
   );
 }
 
-function inferJobStrength(card: ShotListCardInput, targetRole: string, index: number): string {
+function inferJobStrength(
+  card: ShotListCardInput,
+  targetRole: string,
+  index: number
+): string {
   const titledStrength = cleanText(card.title);
   if (titledStrength) return titledStrength.slice(0, 16);
   const text = `${cardTitle(card, index)} ${card.content} ${targetRole}`;
@@ -410,7 +273,7 @@ function jobRoleConcern(targetRole: string): string {
 function jobDialogueLine(
   card: ShotListCardInput | undefined,
   targetRole: string,
-  index: number,
+  index: number
 ): string {
   const quote = cleanText(card?.sourceQuote) || cleanText(card?.rawText);
   if (quote) return quote.slice(0, 42);
@@ -422,7 +285,7 @@ function jobDialogueLine(
 
 function findCardForShot(
   cards: ShotListCardInput[],
-  shot: Pick<ShotEntry, "shotNo" | "sourceCardContent">,
+  shot: Pick<ShotEntry, "shotNo" | "sourceCardContent">
 ): ShotListCardInput | undefined {
   const source = cleanText(shot.sourceCardContent);
   if (source) {
@@ -437,7 +300,7 @@ function buildJobSearchFallbackShotList(
   characterHint: string,
   modelLabel: string,
   resonanceContext?: string,
-  confirmedIntent?: ShotListIntentInput | null,
+  confirmedIntent?: ShotListIntentInput | null
 ): ShotListPayload {
   const targetRole = jobTargetRole(confirmedIntent);
   const audience = jobAudience(confirmedIntent);
@@ -455,7 +318,13 @@ function buildJobSearchFallbackShotList(
     const roleConcern = jobRoleConcern(targetRole);
     const isFirst = index === 0;
     const isLast = index === total - 1;
-    const beat: ShotBeat = isFirst ? "开场" : isLast ? "收束" : index === 1 ? "转折" : "起势";
+    const beat: ShotBeat = isFirst
+      ? "开场"
+      : isLast
+        ? "收束"
+        : index === 1
+          ? "转折"
+          : "起势";
     const action =
       beat === "开场"
         ? `把${targetRole}关心的问题摆上桌面`
@@ -487,7 +356,7 @@ function buildJobSearchFallbackShotList(
   const arc = `岗位关切 → 优势证据 → 值得联系`;
   const composedShots = annotateScriptShotReasons(
     applyShotPromptComposition(shots, { arc }),
-    { resonanceContext },
+    { resonanceContext }
   );
 
   return {
@@ -521,7 +390,9 @@ function buildJobSearchFallbackShotList(
       hasConflict: cards.length > 1,
       hasTurn: cards.length > 1,
       hasWish: true,
-      hasCost: cards.some(card => /难|卡|必须|转型|压力|抽象|需求/.test(card.content)),
+      hasCost: cards.some(card =>
+        /难|卡|必须|转型|压力|抽象|需求/.test(card.content)
+      ),
       hasChange: cards.length > 1,
       note: "求职片张力来自岗位关切、优势证据和外部价值之间是否能闭合；证据不足的卡片应继续追问。",
     },
@@ -530,10 +401,17 @@ function buildJobSearchFallbackShotList(
 }
 
 function fictionStoryCore(cards: ShotListCardInput[]): string {
-  return cleanText(cards[0]?.title) || cleanText(cards[0]?.content).slice(0, 30) || "一个新世界";
+  return (
+    cleanText(cards[0]?.title) ||
+    cleanText(cards[0]?.content).slice(0, 30) ||
+    "一个新世界"
+  );
 }
 
-function fictionVisualTone(cards: ShotListCardInput[], intent?: ShotListIntentInput | null): string {
+function fictionVisualTone(
+  cards: ShotListCardInput[],
+  intent?: ShotListIntentInput | null
+): string {
   return (
     cleanText(intent?.tone) ||
     cards.flatMap(card => card.themeHints ?? []).find(Boolean) ||
@@ -547,7 +425,7 @@ function buildFictionFallbackShotList(
   characterHint: string,
   modelLabel: string,
   resonanceContext?: string,
-  confirmedIntent?: ShotListIntentInput | null,
+  confirmedIntent?: ShotListIntentInput | null
 ): ShotListPayload {
   const core = fictionStoryCore(cards);
   const first = cards[0];
@@ -563,7 +441,8 @@ function buildFictionFallbackShotList(
     cleanText(first?.complexity) ||
     "这个世界里突然出现的阻碍";
   const visualTone = fictionVisualTone(cards, confirmedIntent);
-  const sourceFor = (index: number) => cards[Math.min(index, Math.max(cards.length - 1, 0))]?.content ?? "";
+  const sourceFor = (index: number) =>
+    cards[Math.min(index, Math.max(cards.length - 1, 0))]?.content ?? "";
   const desiredCount = Math.min(5, Math.max(4, cards.length + 2));
   const templates: Array<{
     beat: ShotBeat;
@@ -632,16 +511,22 @@ function buildFictionFallbackShotList(
       sourceCardContent: sourceFor(cards.length - 1),
     },
   ];
-  const selected = desiredCount === 5
-    ? [templates[0], templates[1], templates[4], templates[2], templates[3]]
-    : templates.slice(0, 4);
+  const selected =
+    desiredCount === 5
+      ? [templates[0], templates[1], templates[4], templates[2], templates[3]]
+      : templates.slice(0, 4);
   const shots: ShotEntry[] = selected.map((template, index) => ({
     shotNo: index + 1,
     subject: template.subject.slice(0, 16),
     action: template.action.slice(0, 60),
     dialogue: template.dialogue,
     shotType: template.shotType,
-    beat: index === 0 ? "开场" : index === selected.length - 1 ? "收束" : template.beat,
+    beat:
+      index === 0
+        ? "开场"
+        : index === selected.length - 1
+          ? "收束"
+          : template.beat,
     cameraAngle: "",
     cameraMove: "",
     location: template.location.slice(0, 20),
@@ -658,7 +543,7 @@ function buildFictionFallbackShotList(
   const arc = `世界规则显形 → 主角被推动 → 冲突迫近 → 留下余味`;
   const composedShots = annotateScriptShotReasons(
     applyShotPromptComposition(shots, { arc }),
-    { resonanceContext },
+    { resonanceContext }
   );
 
   return {
@@ -672,7 +557,9 @@ function buildFictionFallbackShotList(
       },
     ],
     logline: `${core}里，${protagonist}必须面对一条新规则`,
-    theme: cleanText(confirmedIntent?.desiredEffect).slice(0, 30) || "虚构世界里的选择与余味",
+    theme:
+      cleanText(confirmedIntent?.desiredEffect).slice(0, 30) ||
+      "虚构世界里的选择与余味",
     arc,
     variants: [
       {
@@ -698,7 +585,9 @@ function buildFictionFallbackShotList(
       hasConflict: true,
       hasTurn: true,
       hasWish: true,
-      hasCost: cards.some(card => /阻碍|冲突|代价|必须|不能|失去|选择/.test(card.content)),
+      hasCost: cards.some(card =>
+        /阻碍|冲突|代价|必须|不能|失去|选择/.test(card.content)
+      ),
       hasChange: true,
       note: "虚构短片张力来自世界规则、主角欲望和阻碍是否在 3-5 镜内闭合。",
     },
@@ -711,7 +600,7 @@ function buildFallbackShotList(
   characterHint: string,
   modelLabel: string,
   resonanceContext?: string,
-  confirmedIntent?: ShotListIntentInput | null,
+  confirmedIntent?: ShotListIntentInput | null
 ): ShotListPayload {
   if (isJobSearchIntent(confirmedIntent, resonanceContext)) {
     return buildJobSearchFallbackShotList(
@@ -719,7 +608,7 @@ function buildFallbackShotList(
       characterHint,
       modelLabel,
       resonanceContext,
-      confirmedIntent,
+      confirmedIntent
     );
   }
   if (isFictionIntent(confirmedIntent, resonanceContext)) {
@@ -728,14 +617,15 @@ function buildFallbackShotList(
       characterHint,
       modelLabel,
       resonanceContext,
-      confirmedIntent,
+      confirmedIntent
     );
   }
 
   const sorted = cards
     .map((card, index) => ({ card, index }))
     .sort((a, b) => (b.card.intensity ?? 0) - (a.card.intensity ?? 0));
-  const turnIndex = cards.length > 2 ? sorted[0]?.index ?? Math.floor(cards.length / 2) : -1;
+  const turnIndex =
+    cards.length > 2 ? (sorted[0]?.index ?? Math.floor(cards.length / 2)) : -1;
   const first = cards[0];
   const last = cards[cards.length - 1] ?? first;
   const firstEmotion = first?.emotion || first?.emotionBlend?.[0] || "开始";
@@ -747,8 +637,10 @@ function buildFallbackShotList(
     "一段还在成形的私人经验";
   const conflictCount = cards.filter(card =>
     ["冲突", "转折", "关系裂缝", "阻碍", "逃避"].some(token =>
-      [card.dramaticFunction, card.complexity, card.direction].join(" ").includes(token),
-    ),
+      [card.dramaticFunction, card.complexity, card.direction]
+        .join(" ")
+        .includes(token)
+    )
   ).length;
 
   const characters: ShotCharacter[] = characterHint
@@ -765,7 +657,13 @@ function buildFallbackShotList(
         : index === turnIndex
           ? "转折"
           : "起势";
-    const shotType = isFirst ? "远" : isLast ? "近" : index === turnIndex ? "特" : "中";
+    const shotType = isFirst
+      ? "远"
+      : isLast
+        ? "近"
+        : index === turnIndex
+          ? "特"
+          : "中";
     const subject =
       card.personalTrace ||
       card.trigger ||
@@ -803,14 +701,17 @@ function buildFallbackShotList(
   const arc = `${firstEmotion} → ${conflictCount ? "摩擦" : "停顿"} → ${lastEmotion}`;
   const composedShots = annotateScriptShotReasons(
     applyShotPromptComposition(shots, { arc }),
-    { resonanceContext },
+    { resonanceContext }
   );
 
   return {
     configured: true,
     modelLabel,
     characters,
-    logline: cards.length > 1 ? `一个人从${firstEmotion}走向${lastEmotion}` : first?.content?.slice(0, 30) || "一段故事开始出现",
+    logline:
+      cards.length > 1
+        ? `一个人从${firstEmotion}走向${lastEmotion}`
+        : first?.content?.slice(0, 30) || "一段故事开始出现",
     theme: theme.slice(0, 30),
     arc,
     variants: [
@@ -855,7 +756,9 @@ export async function synthesizeShotList(params: {
   generationProfile?: GenerationProfileInput | null;
   /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
   resonanceContext?: string;
-}): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
+}): Promise<
+  ShotListPayload | { error: string; configured: boolean; modelLabel: string }
+> {
   if (!ENV.forgeApiKey && !hasScriptStructureAgentConfig()) {
     return {
       error:
@@ -902,18 +805,30 @@ export async function synthesizeShotList(params: {
         c.sourceQuote ? `    原话锚点：${c.sourceQuote}` : "",
         c.dialogue ? `    台词：${c.dialogue}` : "",
         meta.length ? `    情绪样本：${meta.join("；")}` : "",
-      ].filter(Boolean).join("\n");
+      ]
+        .filter(Boolean)
+        .join("\n");
     })
     .join("\n\n");
 
   const characterHint = params.characterHint?.trim() || "";
-  const isJobSearch = isJobSearchIntent(params.confirmedIntent, params.resonanceContext);
-  const isFiction = isFictionIntent(params.confirmedIntent, params.resonanceContext);
+  const isJobSearch = isJobSearchIntent(
+    params.confirmedIntent,
+    params.resonanceContext
+  );
+  const isFiction = isFictionIntent(
+    params.confirmedIntent,
+    params.resonanceContext
+  );
   const targetRole = jobTargetRole(params.confirmedIntent);
   const audience = jobAudience(params.confirmedIntent);
   const desiredEffect = cleanText(params.confirmedIntent?.desiredEffect);
-  const generationProfileText = formatGenerationProfile(params.generationProfile ?? undefined);
-  const generationArtStyleRef = artStyleRefFromProfile(params.generationProfile ?? undefined);
+  const generationProfileText = formatGenerationProfile(
+    params.generationProfile ?? undefined
+  );
+  const generationArtStyleRef = artStyleRefFromProfile(
+    params.generationProfile ?? undefined
+  );
   const visualAnchors = Array.isArray(params.visualAnchors)
     ? params.visualAnchors.slice(0, 6)
     : [];
@@ -934,8 +849,10 @@ export async function synthesizeShotList(params: {
               : "",
             anchor.prompt ? `提示词锚：${anchor.prompt.slice(0, 240)}` : "",
           ].filter(Boolean);
-          return [`[V${i + 1}] ${anchor.title}`, ...meta.map(line => `    ${line}`)]
-            .join("\n");
+          return [
+            `[V${i + 1}] ${anchor.title}`,
+            ...meta.map(line => `    ${line}`),
+          ].join("\n");
         })
         .join("\n\n")
     : "";
@@ -945,21 +862,21 @@ export async function synthesizeShotList(params: {
       ? "你是一位求职广告片导演：你要把用户的优势卡、证据卡和定位卡，整理成一支能说服招聘者的短篇广告片镜头表。"
       : isFiction
         ? "你是一位虚构短片导演：你要把用户已确认的故事卡，整理成一支 3-5 镜的虚构短片镜头表。"
-      : "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
+        : "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
     isJobSearch
-      ? `目标观众：${audience}；目标岗位：${targetRole}；${desiredEffect ? `希望效果：${desiredEffect}。` : "希望效果：让观众相信这个人值得联系。" }`
+      ? `目标观众：${audience}；目标岗位：${targetRole}；${desiredEffect ? `希望效果：${desiredEffect}。` : "希望效果：让观众相信这个人值得联系。"}`
       : isFiction
         ? `虚构短片目标：${desiredEffect || "把一个故事世界拍成短片"}。这些卡片不是简历素材，而是故事核心、人物、冲突和视觉风格。`
-      : "对方刚刚跟你聊完一段，他沉淀下来这一组情绪样本——每一份都来自日常对话里的真实反应，不一定是感动，也不一定完整。",
+        : "对方刚刚跟你聊完一段，他沉淀下来这一组情绪样本——每一份都来自日常对话里的真实反应，不一定是感动，也不一定完整。",
     isJobSearch
       ? "现在请把这些卡片整理成**岗位关切 → 用户能力 → 能力来源 → 作用方式 → 可信证据 → 为什么值得联系 → 外部价值**的视觉论证链。不要拍成泛泛情绪短片；每一镜都要说明它在替用户证明什么。"
       : isFiction
         ? "现在请把已确认故事卡整理成**最有张力的短片弧线**。从卡片内容里判断故事结构——可能是三幕、五幕、或者更自由的形式。让弧线服务于故事本身，而不是套用固定模板。不要套用求职、简历、JD、招聘者或个人优势证明语言。"
-      : "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
+        : "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
     generationProfileText,
     "",
     "请做六件事：",
-    '1. 从素材里识别 1-3 个核心人物。每个人物给：name（名字或称呼，如「母亲」）、role（关系/在故事里的位置，如「主视点」、「对照面」）、oneLiner（一句话原型，≤16 字）。',
+    "1. 从素材里识别 1-3 个核心人物。每个人物给：name（名字或称呼，如「母亲」）、role（关系/在故事里的位置，如「主视点」、「对照面」）、oneLiner（一句话原型，≤16 字）。",
     characterHint
       ? `   用户已经告诉了你：他最在意的人是「${characterHint}」——请把这个人物放进 characters 列表，并设为主视点。`
       : "",
@@ -979,7 +896,7 @@ export async function synthesizeShotList(params: {
           "   - 中段镜头必须让冲突、选择和变化逐步显形。",
           "   - 最后一镜必须收束余味，不要继续扩写成长篇世界观。",
           "   - 镜头总数由故事弧线决定，通常 3-8 镜；不要为了凑数而拆分或合并。",
-          "   - sourceCardContent 优先回填最相关的故事卡 content；纯连接镜可以为空字符串「\"\"」。",
+          '   - sourceCardContent 优先回填最相关的故事卡 content；纯连接镜可以为空字符串「""」。',
         ]
       : [
           "6. 把每份素材转化成镜头，**并允许你补 1-2 镜连接镜**让这段故事真正成形——",
@@ -987,7 +904,7 @@ export async function synthesizeShotList(params: {
           "   - 你**可以**在最后补一镜「收束镜」（coda / 留白）让故事有落点，如果原素材里最后一份不足以承担收尾。",
           "   - 这两镜之外的所有镜，必须 1:1 来自原素材，不合并、不拆分、不替对方写他没说过的事。",
           "   - 全表镜头总数 = 原素材数 + 你补的连接镜数（≤2）。",
-          "   - 连接镜的 sourceCardContent 必须是空字符串「\"\"」（这样系统知道是你加的）。",
+          '   - 连接镜的 sourceCardContent 必须是空字符串「""」（这样系统知道是你加的）。',
         ]),
     visualAnchorText
       ? [
@@ -1027,12 +944,12 @@ export async function synthesizeShotList(params: {
             "   - 架构约束：这里只返回镜头表 JSON，不声称生成图片、视频、时间轴或素材库记录。",
           ].join("\n")
         : [
-          "【情绪曲线要求】",
-          "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
-          "   - 情绪浓度要有变化：低浓度铺垫 → 中浓度摩擦 → 高浓度转折 → 低浓度余味。不要每一镜都 0.7。",
-          "   - 如果原样本都很轻，你可以通过镜头顺序制造起伏，但不要编造用户没说过的大事件。",
-          "   - 每个镜头都要尽量保留一个个人痕迹：用户的原词、反复出现的人/物、没说出口的动作、身体反应、回避方式。",
-        ].join("\n"),
+            "【情绪曲线要求】",
+            "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
+            "   - 情绪浓度要有变化：低浓度铺垫 → 中浓度摩擦 → 高浓度转折 → 低浓度余味。不要每一镜都 0.7。",
+            "   - 如果原样本都很轻，你可以通过镜头顺序制造起伏，但不要编造用户没说过的大事件。",
+            "   - 每个镜头都要尽量保留一个个人痕迹：用户的原词、反复出现的人/物、没说出口的动作、身体反应、回避方式。",
+          ].join("\n"),
     "",
     "【固定机制 · 剧本整理】",
     "   - 多版本剧本：额外给出 3 个可选叙事壳：克制版 / 戏剧版 / 诗意版。三版只改变叙事骨架、节奏密度和表达方式，不能改变用户事实。",
@@ -1144,12 +1061,16 @@ export async function synthesizeShotList(params: {
         : []),
       { role: "user", content: cardsText },
     ],
-    2200,
+    2200
   );
 
   try {
     const parsed = parseJsonLoose<{
-      characters?: Array<{ name?: unknown; role?: unknown; oneLiner?: unknown }>;
+      characters?: Array<{
+        name?: unknown;
+        role?: unknown;
+        oneLiner?: unknown;
+      }>;
       arc?: unknown;
       logline?: unknown;
       theme?: unknown;
@@ -1198,7 +1119,7 @@ export async function synthesizeShotList(params: {
         characterHint,
         modelLabel,
         params.resonanceContext,
-        params.confirmedIntent,
+        params.confirmedIntent
       );
     }
 
@@ -1248,9 +1169,7 @@ export async function synthesizeShotList(params: {
           ? shotTypeRaw
           : "中";
         const beatRaw = asString(s.beat) as ShotBeat;
-        const beat: ShotBeat = VALID_BEATS.includes(beatRaw)
-          ? beatRaw
-          : "起势"; // 模型没标的话先一律算「起势」，下面再做开场/收束兜底
+        const beat: ShotBeat = VALID_BEATS.includes(beatRaw) ? beatRaw : "起势"; // 模型没标的话先一律算「起势」，下面再做开场/收束兜底
         return {
           shotNo: typeof s.shotNo === "number" ? s.shotNo : i + 1,
           subject: asString(s.subject),
@@ -1294,18 +1213,20 @@ export async function synthesizeShotList(params: {
         characterHint,
         modelLabel,
         params.resonanceContext,
-        params.confirmedIntent,
+        params.confirmedIntent
       );
     }
 
     if (isFiction && (shots.length < 3 || shots.length > 5)) {
-      console.warn("[storyAgent] fiction 镜头数不在 3-5，按虚构故事卡降级出兜底分镜");
+      console.warn(
+        "[storyAgent] fiction 镜头数不在 3-5，按虚构故事卡降级出兜底分镜"
+      );
       return buildFallbackShotList(
         params.cards,
         characterHint,
         modelLabel,
         params.resonanceContext,
-        params.confirmedIntent,
+        params.confirmedIntent
       );
     }
 
@@ -1334,7 +1255,7 @@ export async function synthesizeShotList(params: {
         arc,
         visualAnchors,
       }),
-      { resonanceContext: params.resonanceContext },
+      { resonanceContext: params.resonanceContext }
     );
 
     return {
@@ -1349,13 +1270,16 @@ export async function synthesizeShotList(params: {
       boringCheck,
     };
   } catch (error) {
-    console.warn("[storyAgent] shot list JSON parse failed; using local fallback.", error);
+    console.warn(
+      "[storyAgent] shot list JSON parse failed; using local fallback.",
+      error
+    );
     return buildFallbackShotList(
       params.cards,
       characterHint,
       modelLabel,
       params.resonanceContext,
-      params.confirmedIntent,
+      params.confirmedIntent
     );
   }
 }

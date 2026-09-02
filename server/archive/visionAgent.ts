@@ -17,15 +17,6 @@ type ClaudeMessageResponse = {
   model?: string;
 };
 
-type OpenAICompatibleVisionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-  model?: string;
-};
-
 export type VisionAnalysisResult = {
   configured: boolean;
   modelLabel: string;
@@ -292,6 +283,12 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
   const result = await invokeLLM({
     messages,
     maxTokens: 1800,
+    useCase: "vision",
+    replaySafe: false,
+    timeoutMs: 45_000,
+    fallback302Model: ENV.vision302Model || ENV.llmModel,
+    fallback302ApiKey: ENV.vision302ApiKey || ENV.forgeApiKey,
+    fallback302BaseUrl: ENV.vision302BaseUrl || ENV.forgeApiUrl,
     response_format: ENV.llmSupportsResponseFormat
       ? { type: "json_object" }
       : undefined,
@@ -308,12 +305,15 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
             .join("\n")
         : "";
 
-  return { text, modelLabel: ENV.llmModel };
+  return {
+    text,
+    modelLabel: result.model || result.provider?.model || ENV.llmModel,
+  };
 }
 
 async function invokeCompatibleVision(
   params: VisionAnalyzeParams,
-  provider: TextComputeProvider,
+  provider: TextComputeProvider
 ) {
   if (params.imageDataUrl) {
     parseImageDataUrl(params.imageDataUrl);
@@ -321,39 +321,25 @@ async function invokeCompatibleVision(
   const imageUrl = params.imageDataUrl || params.imageUrl;
   if (!imageUrl) throw new Error("imageDataUrl or imageUrl is required");
 
-  const response = await fetch(provider.chatCompletionsUrl, {
-    method: "POST",
-    signal: AbortSignal.timeout(45_000),
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${provider.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      stream: false,
-      max_tokens: 1800,
-      messages: [
-        { role: "system", content: buildSystemPrompt() },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildUserText(params) },
-            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
-          ],
-        },
-      ],
-    }),
+  const data = await invokeLLM({
+    useCase: "vision",
+    replaySafe: false,
+    timeoutMs: 45_000,
+    fallback302Model: ENV.vision302Model,
+    fallback302ApiKey: ENV.vision302ApiKey,
+    fallback302BaseUrl: ENV.vision302BaseUrl,
+    maxTokens: 1800,
+    messages: [
+      { role: "system", content: buildSystemPrompt() },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: buildUserText(params) },
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+        ],
+      },
+    ],
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `${provider.label} vision invoke failed: ${response.status} ${body}`
-    );
-  }
-
-  const data = (await response.json()) as OpenAICompatibleVisionResponse;
   const content = data.choices?.[0]?.message?.content;
   const text =
     typeof content === "string"
@@ -367,7 +353,7 @@ async function invokeCompatibleVision(
 
   return {
     text,
-    modelLabel: data.model || provider.model,
+    modelLabel: data.model || data.provider?.model || provider.model,
   };
 }
 

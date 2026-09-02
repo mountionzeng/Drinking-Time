@@ -5,12 +5,10 @@
  * failures (10-minute cooldown).
  */
 
-import { invokeLLM, type InvokeParams, type InvokeResult } from '../_core/llm';
-import { ENV } from '../_core/env';
-import { createSemanticAnnotation } from '../db';
-import type { SemanticAnnotation } from '../db';
-import { type EditDiff } from '../_core/editDiff';
-import { resolveTextComputeProvider } from './textComputeProvider';
+import { invokeLLM, type InvokeParams, type InvokeResult } from "../_core/llm";
+import { createSemanticAnnotation } from "../db";
+import type { SemanticAnnotation } from "../db";
+import { type EditDiff } from "../_core/editDiff";
 
 const ANNOTATION_TIMEOUT_MS = 30_000;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -40,7 +38,7 @@ function recordFailure(): void {
   if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
     circuitBreakerOpenUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
     console.warn(
-      `[semanticAnnotation] Circuit breaker opened after ${consecutiveFailures} consecutive failures`,
+      `[semanticAnnotation] Circuit breaker opened after ${consecutiveFailures} consecutive failures`
     );
   }
 }
@@ -71,34 +69,52 @@ function buildDiffSummary(diff: EditDiff): string[] {
     changes.push(`新增了 ${diff.shots.added.length} 个镜头`);
   if (diff.shots.modified.length > 0)
     changes.push(`修改了 ${diff.shots.modified.length} 个镜头`);
-  return changes.length > 0 ? changes : ['无明显内容变更'];
+  return changes.length > 0 ? changes : ["无明显内容变更"];
 }
 
-function buildUserPrompt(diff: EditDiff, previousAnnotations: SemanticAnnotation[], inlineCorrection?: InlineCorrection): string {
+function buildUserPrompt(
+  diff: EditDiff,
+  previousAnnotations: SemanticAnnotation[],
+  inlineCorrection?: InlineCorrection
+): string {
   // Trim diff to key fields to avoid bloating the prompt
   const diffSummary = {
     cards: {
-      deleted: diff.cards.deleted.map((c) => ({ id: c.id, title: c.title, content: c.content })),
-      added: diff.cards.added.map((c) => ({ id: c.id, title: c.title, content: c.content })),
-      modified: diff.cards.modified.map((m) => ({
+      deleted: diff.cards.deleted.map(c => ({
+        id: c.id,
+        title: c.title,
+        content: c.content,
+      })),
+      added: diff.cards.added.map(c => ({
+        id: c.id,
+        title: c.title,
+        content: c.content,
+      })),
+      modified: diff.cards.modified.map(m => ({
         id: m.old.id,
         from: { title: m.old.title, content: m.old.content },
         to: { title: m.new.title, content: m.new.content },
       })),
     },
     script: {
-      deleted: diff.script.deleted.map((s) => ({ id: s.id, heading: s.heading })),
-      added: diff.script.added.map((s) => ({ id: s.id, heading: s.heading })),
-      modified: diff.script.modified.map((m) => ({
+      deleted: diff.script.deleted.map(s => ({ id: s.id, heading: s.heading })),
+      added: diff.script.added.map(s => ({ id: s.id, heading: s.heading })),
+      modified: diff.script.modified.map(m => ({
         id: m.old.id,
         from: { heading: m.old.heading, dialogue: m.old.dialogue },
         to: { heading: m.new.heading, dialogue: m.new.dialogue },
       })),
     },
     shots: {
-      deleted: diff.shots.deleted.map((s) => ({ shotNo: s.shotNo, shotType: s.shotType })),
-      added: diff.shots.added.map((s) => ({ shotNo: s.shotNo, shotType: s.shotType })),
-      modified: diff.shots.modified.map((m) => ({
+      deleted: diff.shots.deleted.map(s => ({
+        shotNo: s.shotNo,
+        shotType: s.shotType,
+      })),
+      added: diff.shots.added.map(s => ({
+        shotNo: s.shotNo,
+        shotType: s.shotType,
+      })),
+      modified: diff.shots.modified.map(m => ({
         shotNo: m.old.shotNo,
         from: { shotType: m.old.shotType, cameraAngle: m.old.cameraAngle },
         to: { shotType: m.new.shotType, cameraAngle: m.new.cameraAngle },
@@ -143,7 +159,7 @@ function buildUserPrompt(diff: EditDiff, previousAnnotations: SemanticAnnotation
 }
 
 function parseJsonField(field: unknown): unknown {
-  if (typeof field === 'string') {
+  if (typeof field === "string") {
     try {
       return JSON.parse(field);
     } catch {
@@ -168,47 +184,31 @@ export interface GenerateAnnotationParams {
   inlineCorrection?: InlineCorrection;
 }
 
-async function invokeAnnotationLLM(params: InvokeParams): Promise<InvokeResult> {
-  const provider = resolveTextComputeProvider(ENV.llmModel);
-  if (provider?.id !== 'openai-next') {
-    return invokeLLM(params);
-  }
-
-  const response = await fetch(provider.chatCompletionsUrl, {
-    method: 'POST',
-    signal: AbortSignal.timeout(ANNOTATION_TIMEOUT_MS),
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${provider.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      stream: false,
-      max_completion_tokens: params.maxTokens ?? params.max_tokens ?? 1024,
-      reasoning_effort: 'low',
-      response_format: params.responseFormat ?? params.response_format,
-      messages: params.messages,
-    }),
+async function invokeAnnotationLLM(
+  params: InvokeParams
+): Promise<InvokeResult> {
+  return invokeLLM({
+    ...params,
+    useCase: "general-text",
+    replaySafe: true,
+    timeoutMs: ANNOTATION_TIMEOUT_MS,
+    reasoningEffort: "low",
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(
-      `${provider.label} annotation failed: HTTP ${response.status}${body ? ` ${body.slice(0, 240)}` : ''}`,
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
 }
 
 export async function generateAnnotation(
-  params: GenerateAnnotationParams,
+  params: GenerateAnnotationParams
 ): Promise<SemanticAnnotation> {
-  const { diff, snapshotId, previousSnapshotId, previousAnnotations, inlineCorrection } = params;
+  const {
+    diff,
+    snapshotId,
+    previousSnapshotId,
+    previousAnnotations,
+    inlineCorrection,
+  } = params;
 
   if (isCircuitOpen()) {
-    console.warn('[semanticAnnotation] Circuit breaker open, using fallback');
+    console.warn("[semanticAnnotation] Circuit breaker open, using fallback");
     return createFallbackAnnotation(diff, snapshotId, previousSnapshotId);
   }
 
@@ -216,34 +216,41 @@ export async function generateAnnotation(
     const llmPromise = invokeAnnotationLLM({
       messages: [
         {
-          role: 'system',
+          role: "system",
           content:
-            '你是一位创意分析助手。通过分析用户对故事内容的编辑，推断其美学偏好和创作风格。仅返回 JSON。',
+            "你是一位创意分析助手。通过分析用户对故事内容的编辑，推断其美学偏好和创作风格。仅返回 JSON。",
         },
         {
-          role: 'user',
+          role: "user",
           content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
         },
       ],
-      response_format: { type: 'json_object' },
+      response_format: { type: "json_object" },
       maxTokens: 1024,
       temperature: 0.3,
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error('Annotation LLM timeout')),
-        ANNOTATION_TIMEOUT_MS,
-      ),
+        () => reject(new Error("Annotation LLM timeout")),
+        ANNOTATION_TIMEOUT_MS
+      )
     );
 
     const result = await Promise.race([llmPromise, timeoutPromise]);
     const rawContent = result.choices[0]?.message?.content;
-    const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
-    const parsed = JSON.parse(text) as { factualChanges?: unknown; inferredPreferences?: unknown };
+    const text =
+      typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
+    const parsed = JSON.parse(text) as {
+      factualChanges?: unknown;
+      inferredPreferences?: unknown;
+    };
 
-    if (!Array.isArray(parsed.factualChanges) || !Array.isArray(parsed.inferredPreferences)) {
-      throw new Error('Invalid annotation response structure');
+    if (
+      !Array.isArray(parsed.factualChanges) ||
+      !Array.isArray(parsed.inferredPreferences)
+    ) {
+      throw new Error("Invalid annotation response structure");
     }
 
     recordSuccess();
@@ -253,11 +260,14 @@ export async function generateAnnotation(
       previousSnapshotId,
       factualChanges: JSON.stringify(parsed.factualChanges),
       inferredPreferences: JSON.stringify(parsed.inferredPreferences),
-      status: 'active',
+      status: "active",
     });
   } catch (error) {
     recordFailure();
-    console.error('[semanticAnnotation] Annotation generation failed, using fallback:', error);
+    console.error(
+      "[semanticAnnotation] Annotation generation failed, using fallback:",
+      error
+    );
     return createFallbackAnnotation(diff, snapshotId, previousSnapshotId);
   }
 }
@@ -265,13 +275,13 @@ export async function generateAnnotation(
 async function createFallbackAnnotation(
   diff: EditDiff,
   snapshotId: number,
-  previousSnapshotId: number | null,
+  previousSnapshotId: number | null
 ): Promise<SemanticAnnotation> {
   return createSemanticAnnotation({
     snapshotId,
     previousSnapshotId,
     factualChanges: JSON.stringify(buildDiffSummary(diff)),
     inferredPreferences: JSON.stringify([]),
-    status: 'pending',
+    status: "pending",
   });
 }

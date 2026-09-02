@@ -15,6 +15,7 @@ const saved = {
   openaiNextBaseUrl: ENV.openaiNextBaseUrl,
   openaiNextTextModel: ENV.openaiNextTextModel,
   openaiNextEmotionModel: ENV.openaiNextEmotionModel,
+  openaiNextLoginModel: ENV.openaiNextLoginModel,
 };
 
 const almanac: AlmanacDay = {
@@ -770,5 +771,36 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.source).toBe("local-template");
     expect(result.fallbackReason).toContain("黄历事实");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("登录访客回信只请求 OpenAI Next DeepSeek V4", async () => {
+    ENV.openaiNextApiKey = "next-login-test-key";
+    ENV.openaiNextBaseUrl = "https://next-login.test";
+    ENV.openaiNextLoginModel = "deepseek-v4-flash";
+    ENV.api302Key = "302-test-key";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v4-flash",
+        choices: [{ message: { content: "{}" } }],
+      }),
+      text: async () => "",
+    }));
+
+    await personalizeEmotionDailyReference302({
+      ...baseInput,
+      computeUseCase: "login-guest",
+      fetcher,
+    });
+
+    expect(fetcher).toHaveBeenCalled();
+    for (const [url, init] of fetcher.mock.calls) {
+      expect(url).toBe("https://next-login.test/v1/chat/completions");
+      const body = JSON.parse(String(init?.body));
+      expect(body.model).toBe("deepseek-v4-flash");
+      expect(body.max_completion_tokens).toBe(1800);
+      expect(body).not.toHaveProperty("max_tokens");
+    }
   });
 });

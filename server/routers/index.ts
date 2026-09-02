@@ -154,6 +154,35 @@ const emotionProfileTransferSchema = z.object({
   consentText: z.string().max(1000),
 });
 
+function assertGuestEmotionPayloadBounds(value: unknown): void {
+  const encoded = JSON.stringify(value);
+  if (Buffer.byteLength(encoded, "utf8") > 64 * 1024) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "访客回信内容过大" });
+  }
+  let nodes = 0;
+  const visit = (node: unknown, depth: number): void => {
+    nodes += 1;
+    if (nodes > 2_000 || depth > 8) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "访客回信结构过深" });
+    }
+    if (typeof node === "string" && node.length > 4_000) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "访客回信文本过长" });
+    }
+    if (Array.isArray(node)) {
+      if (node.length > 200) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "访客回信条目过多",
+        });
+      }
+      node.forEach(item => visit(item, depth + 1));
+    } else if (node && typeof node === "object") {
+      Object.values(node).forEach(item => visit(item, depth + 1));
+    }
+  };
+  visit(value, 0);
+}
+
 type EmotionPayload = Record<string, unknown>;
 
 function emotionPayload(value: unknown): EmotionPayload {
@@ -853,6 +882,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             )} 分钟后可以继续。`,
           });
         }
+        assertGuestEmotionPayloadBounds(input);
 
         const today = chinaDateString();
         const almanac = await getAlmanacDay(today);
@@ -875,6 +905,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           baseDailyReference: input.dailyReference,
           analysisSeed,
           generationIntent: "conversation-reply",
+          computeUseCase: "login-guest",
         });
 
         // 访客回信只返回浏览器；这里不写画像表，也不写每日信件表。
@@ -886,6 +917,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           consentText: input.consentText,
           savedAt: new Date().toISOString(),
           source: "local" as const,
+          computeSource: personalized.source,
+          computeModel: personalized.model,
         };
       }),
 

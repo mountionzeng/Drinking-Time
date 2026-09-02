@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { invokeLLM } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveVisionComputeProvider } from "./textComputeProvider";
 import { promptShotCode } from "../../shared/shotIdentity";
@@ -100,7 +101,7 @@ function completionText(data: CompletionResponse): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content
-    .map(part => (part.type === "text" ? part.text ?? "" : ""))
+    .map(part => (part.type === "text" ? (part.text ?? "") : ""))
     .filter(Boolean)
     .join("\n")
     .trim();
@@ -172,10 +173,7 @@ function systemPrompt(): string {
 function userContext(input: DirectImagePromptInput): string {
   return JSON.stringify({
     storyTitle: input.storyTitle ?? "",
-    shotNo:
-      input.shotNo == null
-        ? ""
-        : promptShotCode(input),
+    shotNo: input.shotNo == null ? "" : promptShotCode(input),
     referencePurpose: input.referencePurpose,
     narrativePrompt: input.narrativePrompt.slice(0, 1_500),
     existingPrompt: input.fallbackPrompt.slice(0, 1_500),
@@ -194,57 +192,36 @@ export async function directImagePrompt(
     return fallback(input, "OpenAI Next / 302 视觉提示词通道未配置");
   }
   const timeoutMs = Number(ENV.imagePrompt302TimeoutMs);
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? Math.floor(timeoutMs)
-      : 30_000
-  );
-
   try {
-    const response = await fetch(provider.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        stream: false,
-        max_completion_tokens: 900,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt() },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `请分析参考图并生成图片提示词。上下文：${userContext(input)}`,
-              },
-              {
-                type: "image_url",
-                image_url: { url: input.imageInput, detail: "high" },
-              },
-            ],
-          },
-        ],
-      }),
-      signal: controller.signal,
+    const data = await invokeLLM({
+      useCase: "vision",
+      replaySafe: false,
+      timeoutMs:
+        Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? Math.floor(timeoutMs)
+          : 30_000,
+      fallback302Model: ENV.imagePrompt302Model,
+      fallback302ApiKey: ENV.api302Key,
+      fallback302BaseUrl: ENV.api302BaseUrl,
+      maxTokens: 900,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt() },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `请分析参考图并生成图片提示词。上下文：${userContext(input)}`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: input.imageInput, detail: "high" },
+            },
+          ],
+        },
+      ],
     });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return fallback(
-        input,
-        `${provider.label} 图片提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
-        provider.model
-      );
-    }
-
-    const data = (await response.json()) as CompletionResponse;
     const raw = parseJsonLoose<DirectorPayload>(completionText(data));
     const prompt = compilePrompt(raw, input.referencePurpose);
     if (!prompt) {
@@ -258,7 +235,7 @@ export async function directImagePrompt(
     return {
       prompt,
       source:
-        provider.id === "openai-next"
+        (data.provider?.id ?? provider.id) === "openai-next"
           ? "openai-next-vision"
           : "302-vision",
       model: data.model || provider.model,
@@ -272,7 +249,5 @@ export async function directImagePrompt(
         : `${provider.label} 图片提示词分析失败`,
       provider.model
     );
-  } finally {
-    clearTimeout(timeout);
   }
 }

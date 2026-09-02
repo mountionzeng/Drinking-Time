@@ -18,9 +18,8 @@ vi.mock("../services/editContext", () => ({
 }));
 
 vi.mock("../services/recurringEditSignal", async importOriginal => {
-  const actual = await importOriginal<
-    typeof import("../services/recurringEditSignal")
-  >();
+  const actual =
+    await importOriginal<typeof import("../services/recurringEditSignal")>();
   return {
     ...actual,
     getRecurringEditSignalsForProject: vi.fn(),
@@ -56,7 +55,9 @@ import type { ShotDraft } from "./storyAgent";
 import type { SemanticAnnotation } from "../db";
 
 const mockGetRecentAnnotations = vi.mocked(getRecentAnnotations);
-const mockGetRecurringEditSignals = vi.mocked(getRecurringEditSignalsForProject);
+const mockGetRecurringEditSignals = vi.mocked(
+  getRecurringEditSignalsForProject
+);
 const mockInvokeLLM = vi.mocked(invokeLLM);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -222,50 +223,60 @@ describe("storyAgent edit context injection (U6)", () => {
     expect(systemMessage?.content as string).not.toContain("用户编辑偏好");
   });
 
-  it('keeps recurring edit signals when annotation fetch throws', async () => {
-    mockGetRecentAnnotations.mockRejectedValueOnce(new Error('annotation DB error'));
+  it("keeps recurring edit signals when annotation fetch throws", async () => {
+    mockGetRecentAnnotations.mockRejectedValueOnce(
+      new Error("annotation DB error")
+    );
     mockGetRecurringEditSignals.mockResolvedValueOnce([
       {
-        stableShotId: 'SH03',
-        dimension: 'dialogue',
+        stableShotId: "SH03",
+        dimension: "dialogue",
         editCount: 3,
-        latestOld: '说得太长',
-        latestNew: '短一点',
-        firstEditedAt: '2026-08-01T00:00:00.000Z',
-        latestEditedAt: '2026-08-03T00:00:00.000Z',
+        latestOld: "说得太长",
+        latestNew: "短一点",
+        firstEditedAt: "2026-08-01T00:00:00.000Z",
+        latestEditedAt: "2026-08-03T00:00:00.000Z",
       },
     ]);
     mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
 
-    const result = await replyFromStoryAgent({ message: '继续', projectId: 42 });
+    const result = await replyFromStoryAgent({
+      message: "继续",
+      projectId: 42,
+    });
 
     expect(result.reply).toBeDefined();
     const systemMessage = mockInvokeLLM.mock.calls[0][0].messages.find(
-      (m) => m.role === 'system',
+      m => m.role === "system"
     );
     const systemContent = systemMessage?.content as string;
-    expect(systemContent).toContain('镜头 SH03');
-    expect(systemContent).toContain('「dialogue」已改过 3 次');
-    expect(systemContent).toContain('从 「说得太长」 改成 「短一点」');
+    expect(systemContent).toContain("镜头 SH03");
+    expect(systemContent).toContain("「dialogue」已改过 3 次");
+    expect(systemContent).toContain("从 「说得太长」 改成 「短一点」");
   });
 
-  it('keeps annotations when recurring edit signal fetch throws', async () => {
+  it("keeps annotations when recurring edit signal fetch throws", async () => {
     mockGetRecentAnnotations.mockResolvedValueOnce([
-      makeAnnotation(['修改了对白使其简短'], ['偏好简洁对白']),
+      makeAnnotation(["修改了对白使其简短"], ["偏好简洁对白"]),
     ]);
-    mockGetRecurringEditSignals.mockRejectedValueOnce(new Error('snapshot DB error'));
+    mockGetRecurringEditSignals.mockRejectedValueOnce(
+      new Error("snapshot DB error")
+    );
     mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
 
-    const result = await replyFromStoryAgent({ message: '继续', projectId: 42 });
+    const result = await replyFromStoryAgent({
+      message: "继续",
+      projectId: 42,
+    });
 
     expect(result.reply).toBeDefined();
     expect(mockGetRecurringEditSignals).toHaveBeenCalledWith(42);
     const systemMessage = mockInvokeLLM.mock.calls[0][0].messages.find(
-      (m) => m.role === 'system',
+      m => m.role === "system"
     );
     const systemContent = systemMessage?.content as string;
-    expect(systemContent).toContain('修改了对白使其简短');
-    expect(systemContent).toContain('偏好简洁对白');
+    expect(systemContent).toContain("修改了对白使其简短");
+    expect(systemContent).toContain("偏好简洁对白");
   });
 
   it("aggregates facts and preferences from multiple annotations", async () => {
@@ -380,7 +391,9 @@ describe("story title suggestion contract", () => {
 
     expect(prompt).toContain("故事目前仍是未命名占位符");
     expect(prompt).toContain('"suggestedTitleAnchor"');
-    expect(prompt).not.toContain('"suggestedTitle": null, "suggestedTitleAnchor": null');
+    expect(prompt).not.toContain(
+      '"suggestedTitle": null, "suggestedTitleAnchor": null'
+    );
   });
 
   it("returns the first-turn title from the existing extraction call", async () => {
@@ -455,9 +468,11 @@ describe("story title suggestion contract", () => {
   });
 
   it("never suggests another title after the first user turn", async () => {
-    mockInvokeLLM.mockResolvedValue(makeAgentResponse("继续说。", {
-      suggestedTitle: "不应采用的新标题",
-    }));
+    mockInvokeLLM.mockResolvedValue(
+      makeAgentResponse("继续说。", {
+        suggestedTitle: "不应采用的新标题",
+      })
+    );
 
     const result = await replyFromStoryAgent({
       message: "后来天亮了。",
@@ -970,13 +985,11 @@ describe("storyAgent 收尾留线头 (U3：R10-R11)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 网关抖动韧性 · 临时失败自动重试 + 优雅兜底
-// 真实环境里 302 网关偶发 5xx/超时。旧实现把任何失败都抛成前端一句吞掉真实原因的
-// 「Agent 暂时没接上，再试一次？」并断掉对话。现在：通道层对临时错误自动重试一次；
-// 仍失败则 replyFromStoryAgent 优雅兜底（configured:true + 一句聊聊口吻的「没接住」回复，
-// 不抛错、不断对话）。确定性错误（鉴权 401 等）不重试，免得白白拖慢真实报错。
+// 网关抖动韧性 · 统一执行器回退 + 业务优雅兜底
+// provider 切换由 inference orchestrator 测试覆盖；业务层不再原地重试同一请求，
+// 避免重复额度消耗。若通道最终失败，replyFromStoryAgent 仍返回 configured:true。
 // ─────────────────────────────────────────────────────────────────────────────
-describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", () => {
+describe("storyAgent 网关抖动韧性 (统一回退 + 优雅兜底)", () => {
   function isExtractionRequest(
     input: Parameters<typeof invokeLLM>[0]
   ): boolean {
@@ -994,24 +1007,20 @@ describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", ()
     mockInvokeLLM.mockReset();
   });
 
-  it("临时失败（502）自动重试一次后成功，返回真实回复", async () => {
+  it("临时失败（502）不在业务层原地重试", async () => {
     let replyAttempts = 0;
     mockInvokeLLM.mockImplementation(async input => {
       if (isExtractionRequest(input)) return makeAgentResponse();
       replyAttempts += 1;
-      if (replyAttempts === 1) {
-        throw new Error("LLM invoke failed: 502 Bad Gateway – upstream");
-      }
-      return makeAgentResponse("我在，你接着说");
+      throw new Error("LLM invoke failed: 502 Bad Gateway – upstream");
     });
 
     const result = await replyFromStoryAgent({ message: "今天有点累" });
 
-    // B 改造后一轮正常 = 两次调用；这里回话先 502 重试一次才成功，故共 3 次
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(1 失败 + 1 重试) + 抽取(1)
-    expect(replyAttempts).toBe(2);
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
+    expect(replyAttempts).toBe(1);
     expect(result.configured).toBe(true);
-    expect(result.reply).toBe("我在，你接着说");
+    expect(result.reply).toContain("没接住");
   });
 
   it("重试后仍失败 → 优雅兜底，不抛错、不断对话", async () => {
@@ -1024,8 +1033,8 @@ describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", ()
 
     const result = await replyFromStoryAgent({ message: "今天有点累" });
 
-    expect(replyAttempts).toBe(2); // 1 次 + 1 次重试
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(2) + 并行抽取(1)
+    expect(replyAttempts).toBe(1);
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
     // configured 必须是 true：若返回 false 前端会误弹「接口还没配置模型 API」
     expect(result.configured).toBe(true);
     expect(result.modelLabel).toBe("请求失败");

@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { invokeLLM } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveVisionComputeProvider } from "./textComputeProvider";
 import type {
@@ -354,12 +355,6 @@ export async function directVideoPrompt(
       engineering
     );
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    positiveInteger(ENV.videoPrompt302TimeoutMs, 30_000)
-  );
-
   try {
     const visualContent: Array<
       | { type: "text"; text: string }
@@ -434,41 +429,21 @@ export async function directVideoPrompt(
         }
       );
     }
-    const response = await fetch(provider.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        stream: false,
-        max_completion_tokens: 1400,
-        reasoning_effort: "low",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt() },
-          {
-            role: "user",
-            content: visualContent,
-          },
-        ],
-      }),
-      signal: controller.signal,
+    const data = await invokeLLM({
+      useCase: "vision",
+      replaySafe: false,
+      timeoutMs: positiveInteger(ENV.videoPrompt302TimeoutMs, 30_000),
+      fallback302Model: ENV.videoPrompt302Model,
+      fallback302ApiKey: ENV.api302Key,
+      fallback302BaseUrl: ENV.api302BaseUrl,
+      maxTokens: 1400,
+      reasoningEffort: "low",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt() },
+        { role: "user", content: visualContent },
+      ],
     });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return fallback(
-        input,
-        `${provider.label} 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
-        engineering,
-        provider.model
-      );
-    }
-
-    const data = (await response.json()) as CompletionResponse;
     const raw = parseJsonLoose<DirectorPayload>(completionText(data));
     const materialProfile = normalizeVideoMaterialProfile(raw.materialProfile);
     const prompt = compileDirectedPrompt(
@@ -493,7 +468,7 @@ export async function directVideoPrompt(
     return {
       prompt: directedEngineering.finalPrompt,
       source:
-        provider.id === "openai-next"
+        (data.provider?.id ?? provider.id) === "openai-next"
           ? "openai-next-vision"
           : "302-vision",
       model: data.model || provider.model,
@@ -510,7 +485,5 @@ export async function directVideoPrompt(
       engineering,
       provider.model
     );
-  } finally {
-    clearTimeout(timeout);
   }
 }

@@ -88,23 +88,21 @@ describe("analyzeVisionReference compatible vision", () => {
 
   it("calls OpenAI Next vision and keeps VisualCanvasAnalysis structure", async () => {
     ENV.openaiNextApiKey = "test-next-key";
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          model: "qwen3-vl-plus",
-          choices: [
-            {
-              message: {
-                content: JSON.stringify(analysisPayload),
-              },
-            },
-          ],
-        }),
-      text: () => Promise.resolve(""),
+    vi.mocked(invokeLLM).mockResolvedValueOnce({
+      id: "vision-next",
+      created: 1,
+      model: "qwen3-vl-plus",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: JSON.stringify(analysisPayload),
+          },
+          finish_reason: "stop",
+        },
+      ],
     });
-    vi.stubGlobal("fetch", fetchMock);
 
     const result = await analyzeVisionReference({
       imageDataUrl: "data:image/png;base64,AAAA",
@@ -118,23 +116,18 @@ describe("analyzeVisionReference compatible vision", () => {
     expect(result.analysis.mood).toEqual(["怅然", "安静"]);
     expect(result.analysis.confidence).toBe(0.86);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "https://api.openai-next.com/v1/chat/completions"
+    expect(invokeLLM).toHaveBeenCalledWith(
+      expect.objectContaining({ useCase: "vision", replaySafe: false })
     );
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      "Bearer test-next-key"
-    );
-    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.model).toBe("qwen3-vl-plus");
-    expect(body.messages[0].content).toContain("水印、可读文字、作者签名");
-    expect(body.messages[0].content).toContain(
+    const params = vi.mocked(invokeLLM).mock.calls[0][0];
+    expect(params.messages[0].content).toContain("水印、可读文字、作者签名");
+    expect(params.messages[0].content).toContain(
       "不得在 promptDraft 中写成必须复制的内容"
     );
-    expect(body.messages[1].content[1].image_url.url).toBe(
-      "data:image/png;base64,AAAA"
-    );
+    expect(
+      (params.messages[1].content as Array<{ image_url?: { url: string } }>)[1]
+        .image_url?.url
+    ).toBe("data:image/png;base64,AAAA");
   });
 
   it("falls back to the legacy OpenAI-compatible vision channel when 302 is not configured", async () => {
@@ -164,17 +157,18 @@ describe("analyzeVisionReference compatible vision", () => {
   it("视觉模型返回大白话（完全没有 JSON）时降级兜底，不抛错并保留模型原话", async () => {
     const prose =
       "这张图是潮湿的雨夜街角，霓虹灯在湿柏油上反射出蓝紫色，整体很安静、有点怅然。";
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          model: "gemini-3-pro-preview",
-          choices: [{ message: { content: prose } }],
-        }),
-      text: () => Promise.resolve(""),
+    vi.mocked(invokeLLM).mockResolvedValueOnce({
+      id: "vision-prose",
+      created: 1,
+      model: "gemini-3-pro-preview",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: prose },
+          finish_reason: "stop",
+        },
+      ],
     });
-    vi.stubGlobal("fetch", fetchMock);
 
     const result = await analyzeVisionReference({
       imageDataUrl: "data:image/png;base64,AAAA",
@@ -199,17 +193,18 @@ describe("analyzeVisionReference compatible vision", () => {
     // 缺少逗号的非法 JSON：parseJsonLoose 的两条路径（直接 parse + 截花括号再 parse）都会抛。
     const brokenJson =
       '{ "reply": "我看了图" "analysis": { "subject": "雨夜" }';
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          model: "gemini-3-pro-preview",
-          choices: [{ message: { content: brokenJson } }],
-        }),
-      text: () => Promise.resolve(""),
+    vi.mocked(invokeLLM).mockResolvedValueOnce({
+      id: "vision-broken",
+      created: 1,
+      model: "gemini-3-pro-preview",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: brokenJson },
+          finish_reason: "stop",
+        },
+      ],
     });
-    vi.stubGlobal("fetch", fetchMock);
 
     const result = await analyzeVisionReference({
       imageDataUrl: "data:image/png;base64,AAAA",

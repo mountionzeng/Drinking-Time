@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { ENV } from "../_core/env";
+import { invokeLLM } from "../_core/llm";
 import { storagePut } from "../storage";
 import {
   normalizeImageProvider,
@@ -209,7 +210,9 @@ function keepProviderReceipt(
   message: string,
   ...sources: (ImageGenResult | undefined)[]
 ): ImageGenResult {
-  const receipt = sources.find(source => source?.providerTaskId)?.providerTaskId;
+  const receipt = sources.find(
+    source => source?.providerTaskId
+  )?.providerTaskId;
   const uncertain = sources.some(source => source?.submissionUncertain);
   return {
     status: "error",
@@ -304,14 +307,6 @@ function build302Headers(
 function build302MultipartHeaders(): Record<string, string> {
   return {
     Authorization: `Bearer ${ENV.api302Key}`,
-  };
-}
-
-function build302VisionHeaders(apiKey: string): Record<string, string> {
-  return {
-    Accept: "application/json",
-    Authorization: `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
   };
 }
 
@@ -447,51 +442,41 @@ async function describeReferenceIdentity(
   if (!config) return undefined;
 
   try {
-    const response = await withTimeout(
-      fetcher(config.chatCompletionsUrl, {
-        method: "POST",
-        headers: build302VisionHeaders(config.apiKey),
-        body: JSON.stringify({
-          model: config.model,
-          stream: false,
-          temperature: 0.1,
-          max_tokens: 260,
-          messages: [
+    const response = await invokeLLM({
+      useCase: "vision",
+      replaySafe: false,
+      timeoutMs: Math.min(
+        parseNumber(ENV.imagePrompt302TimeoutMs, TIMEOUT_MS),
+        TIMEOUT_MS
+      ),
+      fallback302Model: ENV.vision302Model || ENV.imagePrompt302Model,
+      fallback302ApiKey: ENV.vision302ApiKey || ENV.api302Key,
+      fallback302BaseUrl: ENV.vision302BaseUrl || ENV.api302BaseUrl,
+      fetcher: fetcher as unknown as typeof fetch,
+      temperature: 0.1,
+      maxTokens: 260,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a visual continuity supervisor. Describe only stable visible facial identity traits of the human subject needed to keep the same person across generated frames. Ignore background, paintings, frames, props, decorative eye motifs, and scene composition unless they physically touch or obscure the human face. Do not name the person or infer biography. If eyes are covered, identity must come from the lower face. Prioritize lower-face geometry over general beauty words: chin taper, chin length, jaw width, lower-face oval/V shape, cheek-to-chin transition, nose bridge/tip/nostrils, philtrum, mouth width, lip thickness, cupid's bow, hair silhouette, skin/texture, and blindfold placement. Include a short 'must not drift' clause naming the opposite mistakes to avoid. Output one concise English paragraph under 110 words.",
+        },
+        {
+          role: "user",
+          content: [
             {
-              role: "system",
-              content:
-                "You are a visual continuity supervisor. Describe only stable visible facial identity traits of the human subject needed to keep the same person across generated frames. Ignore background, paintings, frames, props, decorative eye motifs, and scene composition unless they physically touch or obscure the human face. Do not name the person or infer biography. If eyes are covered, identity must come from the lower face. Prioritize lower-face geometry over general beauty words: chin taper, chin length, jaw width, lower-face oval/V shape, cheek-to-chin transition, nose bridge/tip/nostrils, philtrum, mouth width, lip thickness, cupid's bow, hair silhouette, skin/texture, and blindfold placement. Include a short 'must not drift' clause naming the opposite mistakes to avoid. Output one concise English paragraph under 110 words.",
+              type: "text",
+              text: "Extract the human subject's visible identity lock from this reference frame. Be precise about the chin and mouth. If the subject has a narrow, tapered, small, soft, pointed, or rounded chin, say exactly that; if not, say the actual shape. Do the same for lip thickness and mouth shape. Ignore any eye-shaped prop or painting in the scene.",
             },
             {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Extract the human subject's visible identity lock from this reference frame. Be precise about the chin and mouth. If the subject has a narrow, tapered, small, soft, pointed, or rounded chin, say exactly that; if not, say the actual shape. Do the same for lip thickness and mouth shape. Ignore any eye-shaped prop or painting in the scene.",
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: imageDataUrl, detail: "high" },
-                },
-              ],
+              type: "image_url",
+              image_url: { url: imageDataUrl, detail: "high" },
             },
           ],
-        }),
-      }),
-      Math.min(parseNumber(ENV.imagePrompt302TimeoutMs, TIMEOUT_MS), TIMEOUT_MS)
-    );
-
-    if (!response.ok) {
-      const body = (await response.text?.().catch(() => "")) || "";
-      console.warn(
-        `[imageGen] reference identity analysis skipped: HTTP ${response.status}${body ? ` ${body.slice(0, 160)}` : ""}`
-      );
-      return undefined;
-    }
-
-    const text = completionText(
-      (await response.json()) as ChatCompletionResponse
-    );
+        },
+      ],
+    });
+    const text = completionText(response as ChatCompletionResponse);
     return text ? compactForPrompt(text, 700) : undefined;
   } catch (error) {
     console.warn(
@@ -1626,10 +1611,7 @@ async function generate302MidjourneyImage(
       base64Array = await Promise.all(
         inputImageUrls.map(async u => {
           const src = await readImageInput(u, fetcher);
-          return toMidjourneyImagePrompt(
-            src.bytes as Uint8Array,
-            src.mimeType
-          );
+          return toMidjourneyImagePrompt(src.bytes as Uint8Array, src.mimeType);
         })
       );
     } catch (err) {
