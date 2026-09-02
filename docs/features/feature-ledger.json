@@ -2715,12 +2715,36 @@
     {
       "id": "account-compute-gift-payments",
       "name": "统一账号、算力赠送卡与付费体系",
-      "status": "planned",
+      "status": "observing",
       "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "server/_core/oauth.ts"
+      ],
+      "owners": [
+        "server/services/accountIdentity.ts",
+        "server/services/accountSecurity.ts",
+        "server/services/computeBilling.ts",
+        "server/services/computeLedger.ts",
+        "server/services/computeReconciliation.ts",
+        "server/db.ts",
+        "drizzle/schema.ts",
+        "drizzle/migrations/0016_account_gift_credit.sql"
+      ],
       "evidence": [
-        "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md"
+        "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
+        "docs/plans/2026-09-02-001-feat-account-gift-credit-plan.md",
+        "docs/qa/account-migration-cutover-rollback-plan.md",
+        "server/_core/oauth.account.test.ts",
+        "server/services/accountIdentity.test.ts",
+        "server/services/accountSecurity.test.ts",
+        "server/services/computeBilling.test.ts",
+        "server/services/computeLedger.test.ts",
+        "server/services/computeReconciliation.test.ts",
+        "server/integration/accountSchema.mysql.test.ts",
+        "server/integration/computeLedger.mysql.test.ts",
+        "scripts/inventory-account-migration.test.ts",
+        "scripts/repair-invite-code.test.ts",
+        "scripts/verify-drizzle-migration-baseline.ts"
       ],
       "invariants": [
         "邮箱验证码、密码和后续微信登录必须进入同一账号、同一份创作数据和同一余额，不得生成平行身份副本。",
@@ -2737,8 +2761,9 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "目前只有已确认需求；密码生命周期、赠送卡额度、用户余额账本、续充申请、微信绑定、支付和订阅尚未实现。",
-        "正式 MySQL、测试 MySQL 与本地历史数据尚未收敛为一个经过归属核对和可回滚迁移的权威数据源。",
+        "邮箱验证码/密码与算力账本的领域基础已实现，但赠送卡领取、余额与逐笔消费展示、续充申请和管理入口尚未接入用户界面与业务路由。",
+        "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
+        "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。"
       ],
       "history": [
@@ -2746,6 +2771,16 @@
           "date": "2026-09-02",
           "kind": "decision",
           "summary": "确认把邀请码登录升级为三阶段账户与付费体系：第一阶段邮箱验证码/密码、一次性 ¥30 算力赠送卡、逐笔费用和续充申请；第二阶段微信登录绑定同一账号；第三阶段微信支付、支付宝、银行卡购买与订阅。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "feature",
+          "summary": "实现第一阶段基础：邮箱验证码和密码生命周期、会话版本失效、历史身份人工映射、赠送/预留/结算/释放/调账的幂等算力账本、金额与报价校验、迁移清单和修复工具；代码进入 observing，用户入口接线、真实 MySQL 迁移和付费调用接线仍按缺口保留。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "修复已人工映射历史邮箱账号登录时会话落到新建平行账号的问题：OTP 与密码认证均使用认证层解析出的权威 userId 和原 openId，并在邮箱身份被并发占用时失败关闭；新增两条回归测试覆盖两种登录方式。"
         }
       ]
     },
@@ -2835,6 +2870,11 @@
           "date": "2026-09-01",
           "kind": "feature",
           "summary": "把原网址根路径接入响应式工作区入口：iPhone、Android 手机及窄屏触控设备自动进入 /m，电脑继续进入 /editing；只改根入口，显式 /editing 与其他深链接不受影响，未登录手机仍通过受保护的 returnTo=/m 登录回跳。聚焦审查进一步让明确的 userAgentData.mobile=false 优先保留触屏电脑工作区，并把源码字符串断言升级为运行时信号与挂载路由测试；入口关联定向 6 文件 33 项、全量 421 文件 3450 项通过，5 项环境条件跳过，生产构建与环境门禁通过。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "把旧式对话追加的幂等冲突复核移入本地持久化锁和 MySQL 会话行锁事务，完整比较两条消息、候选 revision、选区引用及 durable mobile turn 预留，避免并发重试以相同消息 ID 静默接受不同内容或选区；本地竞态回归测试通过，MySQL 双进程用例已补齐并等待真实测试库执行。"
         }
       ]
     },
