@@ -26,9 +26,15 @@
 
 | 会话 | 分支 / worktree | 正在动 | 状态 | 更新时间 |
 | --- | --- | --- | --- | --- |
-| 视觉资产标准板 | `affectionate-bartik-1d9c06` | 待办：放开 `visualAssetGenerationContext.ts:226` 的 provider 白名单（现只放行 midjourney），会同时动 `server/routers/storyAgent.ts` 的估价分支 | **未动手**，等用户给 OSS 凭据 + 裁决是否放开 gpt-image | 2026-08-23 18:35 |
-| 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
+| 视觉资产标准板 | `affectionate-bartik-1d9c06` | 原待办会触达 `server/routers/storyAgent.ts` 的 provider 白名单/估价分支 | **协调暂停、不占用文件**：统一账号线到 U7 时优先接管 `storyAgent.ts`；本线若以后恢复，须等 U7 落地后重新登记并基于最新代码调整，不得并行修改 | 2026-09-02 |
+| 统一账号·赠送卡·算力账本 | `codex/mobile-cross-device-workspace`（主仓，用户裁决直接在主仓工作） | **已完成**：U1 本地全部、U2 本地全部（12 张新表 + `users.sessionVersion`、migration 0016、journal 17 条）；另修好迁移链本身（0007/0008/0009/0013/0014 缺 `--> statement-breakpoint`、0015 两个外键名 65 字符 > MySQL 上限 64、`storyConversation.mysql.test.ts` 的 `execute()`→`query()`），并补三道静态门禁。**U6 核心已完成**：`shared/computeMoney.ts`、`server/services/computeBilling.ts`／`computeLedger.ts`／`computeReconciliation.ts`，`server/db.ts` 增账本落库（热区，只新增）；真实 MySQL 两进程并发 4/4 通过。已按流程在架构棘轮豁免表登记 `computeLedger.ts`。**U4 已完成（本地）**：`accountSecurity.ts`／`accountIdentity.ts`、`server/_core/oauth.ts` 新增统一账号端点、`sdk.ts` 的 JWT 带 `sessionVersion`、`productionReadiness.ts` 要求 `OTP_DIGEST_SECRET`；characterization 测试已锁住旧邀请码登录链路的既有行为。已按流程登记 `accountIdentity.ts` 豁免。**U3 本地来源盘点完成**（`scripts/inventory-account-migration.ts`，只读，报告在 `docs/qa/account-migration-inventory-local.md`）：本地 63 个用户全部无邮箱、无冲突、无近似邮箱；只有 Guest 48 持 18 项目 35 Story，标为「需要人工映射」，未给任何归属建议。**还差旧 MySQL 与 staging 两个来源的只读盘点**，等用户确认后再做。**注意**：共享主仓里带着未提交的 `db.ts` 改动时不要跑 dev server——18:56–19:02 有会话跑了服务，把新增空集合写进了 `.webdev/local-persist.json`（已核对无数据丢失）。**U7 才会动 `server/routers/storyAgent.ts`／`creationAgent.ts`**，届时再登记 | 进行中（纯本地）。远端只做过只读盘点，**未做任何测试库写入**；U1 远端等用户批准 | 2026-09-02 |
+| 微信原生小程序测试壳层 | `codex/wechat-miniprogram-test-shell`（worktree `.worktrees/codex/wechat-miniprogram-test-shell`） | **仅 `miniprogram/**`**（全新目录，与现有任何文件零重叠）。唯一例外：为 U3 门禁在主仓实时 `docs/features/feature-ledger.json` 加一张 `planned` 卡（2026-09-02 用户裁决明确授权，只新增一张卡、不改统一账号线的卡）。不动 `client/**`、`server/**`、`shared/**`、`drizzle/**`、根配置 | **自动化已完成、待人工验收与合并**：U1–U3 已在分支 `codex/wechat-miniprogram-test-shell` 提交（`2ca35f7`，47 文件全在 `miniprogram/**`）；144 测试 + `tsc` 通过；开发者工具已能加载工程，但 GUI 控制权限被拒，可视验收待用户本人执行。**用户 2026-09-02 裁决：先不合并**，分支与 worktree 保留，等唯一 merge owner 接管；可视验收由用户本人执行。本行在合并并完成可视验收前不销号 | 2026-09-02 21:22 |
 （收工时删掉自己这行。）
+
+> **2026-09-02 用户协调裁决：** 统一账号线是 U1–U9 的唯一实现会话；其他会话不得
+> 并行修改其已登记文件。本线当前只占用 U1/U2 列出的文件；到 U7 前必须再次更新本表，
+> 再接管 `server/routers/storyAgent.ts` / `server/routers/creationAgent.ts`。视觉资产标准板线
+> 保持暂停且不占文件，待 U7 落地后才能重新登记。图生图对话框已经收工，已从“当前在场”移除。
 
 > **交叉点已解除**（08-24 02:41）：滚动剪辑修复线已收工，`shared/timelineCommands.ts`
 > 与 `shared/timelineEditing.ts` 交还，架构收敛线 U4–U7 可以正常取用。

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-31T23:12:00+08:00",
+  "updatedAt": "2026-09-02T21:44:16+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -2490,6 +2490,43 @@
       ]
     },
     {
+      "id": "account-compute-gift-payments",
+      "name": "统一账号、算力赠送卡与付费体系",
+      "status": "planned",
+      "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md"
+      ],
+      "invariants": [
+        "邮箱验证码、密码和后续微信登录必须进入同一账号、同一份创作数据和同一余额，不得生成平行身份副本。",
+        "赠送卡只负责开通和增加算力，不再作为长期登录凭据；首张卡提供一次 ¥30，旧账号迁移和旧邀请码转换不得重复赠送。",
+        "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
+        "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
+        "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
+        "第一阶段先交付邮箱、密码、赠送卡和透明账本；微信身份绑定与真实支付订阅分别在后续阶段通过独立上线门槛后开放。"
+      ],
+      "dependencies": [
+        "invite-access-monitoring",
+        "mobile-cross-device-chat-document",
+        "project-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "目前只有已确认需求；密码生命周期、赠送卡额度、用户余额账本、续充申请、微信绑定、支付和订阅尚未实现。",
+        "正式 MySQL、测试 MySQL 与本地历史数据尚未收敛为一个经过归属核对和可回滚迁移的权威数据源。",
+        "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认把邀请码登录升级为三阶段账户与付费体系：第一阶段邮箱验证码/密码、一次性 ¥30 算力赠送卡、逐笔费用和续充申请；第二阶段微信登录绑定同一账号；第三阶段微信支付、支付宝、银行卡购买与订阅。"
+        }
+      ]
+    },
+    {
       "id": "mobile-cross-device-chat-document",
       "name": "手机跨端聊天与正文编辑",
       "status": "observing",
@@ -2607,6 +2644,96 @@
           "date": "2026-08-28",
           "kind": "decision",
           "summary": "确认 V1 产品边界：在世老人亲自参与确认，亲人通过微信小程序以公开或私密方式追加文字、语音和照片，AI 仅用已确认材料增量写成章节传记；桌面端负责深度编辑，封面和少量插花为可选装饰，不建设画册、视频、数字人或多人 Story 编辑。"
+        }
+      ]
+    },
+    {
+      "id": "wechat-miniprogram-workspace",
+      "name": "微信原生小程序工作区（测试壳层）",
+      "status": "planned",
+      "userValue": "让用户在微信里打开已有 Story，完成「聊聊」并编辑当前版本／平台的正文，与手机 Web 和电脑 Web 共用同一个账号、同一份内容和同一份余额。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/plans/2026-09-02-002-feat-wechat-miniprogram-test-shell-plan.md",
+        "docs/handoff/2026-09-02-wechat-miniprogram-test-shell-execution-handoff.md"
+      ],
+      "invariants": [
+        "小程序、手机 Web、电脑 Web 必须读取同一个 userId、Story、对话、正文和余额权威；不得新增小程序专用业务数据库，也不得把客户端提交的 userId 当作身份。",
+        "wx.login 的短期 code 只能提交给自家 HTTPS 后端；AppSecret、session_key、服务端会话密钥和刷新凭据不得进入小程序包、仓库、聊天或普通日志。",
+        "测试 AppID 与正式 AppID 的 openid、Secret、会话和数据环境完全隔离；测试 openid 不得迁移为正式凭据。",
+        "「聊聊」保留现有 Story 归属、整轮幂等、未知结果查询与余额结算合同；未知结果只能按同一 requestHash 查询，不得重新生成或二次扣费。",
+        "正文保留当前版本／平台作用域与 body revision CAS；冲突时同时保留本机与服务端两份文本，不自动覆盖也不自动合并。",
+        "退出、会话过期或微信账号变化时，上一账号的 Story、余额和恢复草稿必须在新身份渲染前清除；恢复键使用服务端不透明账号作用域，不含邮箱或 openid。",
+        "mock 模式必须始终有可见标识，不得被误认为已连接真实微信登录、真实余额或真实数据库。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document",
+        "recent-story-entry",
+        "story-ownership",
+        "publishing-versions",
+        "account-compute-gift-payments"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前只有 U1–U3 的本地 mock 测试壳层：没有真实微信登录、没有邮箱绑定、没有服务端适配、没有真机联调、没有跨端互通、没有合法域名与内容安全，也不可提审或发布。",
+        "真实测试 AppID 尚未提供；工程使用公开占位 AppID（touristappid），换成真实 AppID 也不会自动进入 live 模式。",
+        "U4–U7（code2Session、Bearer principal、显式邮箱绑定与审计、真实 Story／正文／余额适配、域名隐私内容安全验收）必须等统一账号线收口并重新登记文件所有权后另开阶段。",
+        "小程序自带 miniprogram/tsconfig.json 与 miniprogram/vitest.config.ts；根 pnpm test / pnpm check 不覆盖该目录，不能拿它们当小程序的通过证据。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认第一批采用微信原生 TypeScript 工程（不用 web-view、Taro 或 uni-app），先在独立 miniprogram/ 目录交付明显标识为 mock 的「聊聊 + 正文」双视图测试壳层；真实微信登录与邮箱绑定留到统一账号地基释放后的 U4–U7。"
+        }
+      ]
+    },
+    {
+      "id": "personal-memory-daily-letter",
+      "name": "个人记忆与每日来信互通",
+      "status": "planned",
+      "userValue": "让普通聊天、用户原话和明确采用的文章与图片持续形成可回看的私密个人足迹，并让每日来信结合这些记忆、八字和当天黄历越来越懂用户。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
+        "docs/plans/2026-09-02-003-feat-personal-memory-daily-letter-plan.md"
+      ],
+      "invariants": [
+        "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
+        "系统可自动降权、归档和恢复的是带来源的派生理解；新旧表达冲突时保留变化轨迹并以有依据的最新表达作为当前理解。",
+        "八字属于用户可修改的长期资料；黄历属于目标日期的实时资料，不得保存为用户长期记忆或用其他日期冒充今天。",
+        "每日来信只使用相关、仍有效且数量受控的记忆；不得把全部聊天直接塞入上下文、虚构时间关系或把推断冒充用户事实。",
+        "账号级个人足迹只能引用同一用户拥有的 Story、文章和图片；不得放宽现有项目、Story、版本和素材归属校验。",
+        "个人足迹中的忘记或归档不得删除底层文章、图片或 Story；底层内容仍由各自权威流程管理删除与历史。",
+        "历史来信不得因八字、聊天或系统理解后来变化而被静默重写；同日结合新信息重读必须由用户明确发起并形成可识别的新版本。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "project-ownership",
+        "image-asset-history",
+        "publishing-workspace",
+        "publishing-versions",
+        "mobile-cross-device-chat-document"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "目前只有经过确认的需求与实施计划；普通聊天与采用作品尚未进入账号级个人记忆，头像菜单也没有个人足迹入口。",
+        "现有每日来信只会聚合每日回信中的历史用户留言，并未基于全部普通聊天、采用文章或采用图片形成可纠正的长期理解。",
+        "派生记忆的提炼、冲突识别、时效降权、归档恢复、来源追溯、历史回填和上下文选择仍待规划与评测。",
+        "实时黄历失败降级、同日来信显式版本、跨端一致性和真实账号隔离仍缺实现与主仓库 3000 端口验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-02",
+          "kind": "decision",
+          "summary": "确认把头像足迹、普通聊天、采用文章与采用图片连接为私密账号级个人记忆：原始经历长期保留，系统只自动管理带来源的派生理解；每日来信结合相关记忆、用户八字与当天实时黄历，用户反馈可纠正、降权、归档或恢复理解。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "plan",
+          "summary": "完成 Deep 实施计划：以账号级经历事件、可追溯派生理解、耐久异步提炼、不可变每日来信版本和统一足迹索引分阶段接通聊天、作品采用、头像与每日来信；功能保持 planned，等待剩余文档审查决策和后续实现。"
         }
       ]
     }
