@@ -284,11 +284,24 @@ function overlayCandidateMatchesCanonical(
   canonical: TimelineTransitionCandidate,
   allowTimelineVersionRefresh: boolean
 ): boolean {
+  if (allowTimelineVersionRefresh) {
+    return (
+      requested.storyId === canonical.storyId &&
+      isDeepStrictEqual(requested.placement, canonical.placement) &&
+      requested.source.mediaKind === "image" &&
+      canonical.source.mediaKind === "image" &&
+      requested.source.stableShotId === canonical.source.stableShotId &&
+      requested.source.shotNo === canonical.source.shotNo &&
+      requested.source.imageId === canonical.source.imageId &&
+      requested.target.mediaKind === "image" &&
+      canonical.target.mediaKind === "image" &&
+      requested.target.stableShotId === canonical.target.stableShotId &&
+      requested.target.shotNo === canonical.target.shotNo &&
+      requested.target.imageId === canonical.target.imageId
+    );
+  }
   const requestedWithTrustedFields = {
     ...requested,
-    ...(allowTimelineVersionRefresh
-      ? { expectedTimelineVersion: canonical.expectedTimelineVersion }
-      : {}),
     source: { ...requested.source, imageUrl: canonical.source.imageUrl },
     target: { ...requested.target, imageUrl: canonical.target.imageUrl },
   };
