@@ -87,6 +87,17 @@ describe("resolveComputeCandidates", () => {
     expect(candidates[0]).toMatchObject({ id: "302", model: "deepseek-v3.2" });
   });
 
+  it("does not forward login guest content to the 302 fallback", () => {
+    configureBothGateways();
+    ENV.openaiNextApiKey = "";
+
+    expect(
+      resolveComputeCandidates("login-guest", {
+        fallback302Model: "deepseek-v3.2",
+      })
+    ).toEqual([]);
+  });
+
   it("returns no candidates instead of fabricating configuration when both keys are missing", () => {
     configureBothGateways();
     ENV.openaiNextApiKey = "";
@@ -163,6 +174,13 @@ describe("describeModelCapabilities", () => {
     expect(describeModelCapabilities("gpt-5.6-terra").tokenLimitField).not.toBe(
       legacy.tokenLimitField
     );
+  });
+
+  it("uses the OpenAI Next completion token field for the guest DeepSeek tier", () => {
+    expect(describeModelCapabilities("deepseek-v4-flash")).toMatchObject({
+      tokenLimitField: "max_completion_tokens",
+      supportsStructuredOutputs: true,
+    });
   });
 
   it("marks vision-capable tiers as accepting image input, text-only tiers as not", () => {

@@ -84,7 +84,7 @@ describe("访客回信与账号关联", () => {
     });
     serviceMocks.personalizeEmotionDailyReference302.mockReset();
     serviceMocks.personalizeEmotionDailyReference302.mockImplementation(
-      async ({ baseDailyReference, analysisSeed }) => ({
+      async ({ baseDailyReference, analysisSeed, computeUseCase }) => ({
         dailyReference: {
           ...baseDailyReference,
           todayDate: "2026-07-28",
@@ -93,6 +93,12 @@ describe("访客回信与账号关联", () => {
           interpretationSource: "302-deepseek",
         },
         analysisSeed,
+        source:
+          computeUseCase === "login-guest" ? "openai-next" : "302-deepseek",
+        model:
+          computeUseCase === "login-guest"
+            ? "deepseek-v4-flash"
+            : "deepseek-v3.2",
       })
     );
   });
@@ -104,11 +110,18 @@ describe("访客回信与账号关联", () => {
     expect(result).toMatchObject({
       birthDate: "1994-08-31",
       source: "local",
+      computeSource: "openai-next",
+      computeModel: "deepseek-v4-flash",
       dailyReference: {
         summary: "这是一封真实生成的测试回信。",
         interpretationSource: "302-deepseek",
       },
     });
+    expect(
+      serviceMocks.personalizeEmotionDailyReference302
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ computeUseCase: "login-guest" })
+    );
     await expect(getEmotionAnalysisProfile(1)).resolves.toBeNull();
   });
 
@@ -153,5 +166,20 @@ describe("访客回信与账号关联", () => {
     expect(
       (saved?.analysisSeed as { messageHistory?: unknown[] }).messageHistory
     ).toHaveLength(2);
+  });
+
+  it("过大的访客内容在黄历和模型调用前被拒绝", async () => {
+    const caller = appRouter.createCaller(context());
+    await expect(
+      caller.emotionAnalysis.guestReply(
+        transferInput({
+          analysisSeed: { userMessage: "x".repeat(4_001) },
+        })
+      )
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(serviceMocks.getAlmanacDay).not.toHaveBeenCalled();
+    expect(
+      serviceMocks.personalizeEmotionDailyReference302
+    ).not.toHaveBeenCalled();
   });
 });

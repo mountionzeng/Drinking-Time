@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 
 describe("shot synthesis script structure agent channel", () => {
-  it("keeps the optional dedicated script/dialogue agent wired behind env vars", () => {
+  it("routes the optional script/dialogue Claude channel behind OpenAI Next", () => {
     const envSource = readFileSync(
       resolve(root, "server/_core/env.ts"),
       "utf8"
@@ -20,7 +20,10 @@ describe("shot synthesis script structure agent channel", () => {
     expect(envSource).toContain("SCRIPT_STRUCTURE_AGENT_MODEL");
     expect(source).toContain("invokeScriptStructureAgent");
     expect(source).toContain("hasScriptStructureAgentConfig");
-    expect(source).toContain("SCRIPT_STRUCTURE_AGENT_API_KEY");
-    expect(source).toContain("invokeScriptStructureAgent(");
+    expect(source).toContain("hasStoryAgentCompute");
+    expect(source).toContain("runInference");
+    expect(source).toContain("resolveComputeCandidates");
+    expect(source).not.toContain("invokeScriptStructureClaudeMessages");
+    expect(source).not.toContain("fetch(");
   });
 });

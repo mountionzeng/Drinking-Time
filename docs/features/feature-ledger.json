@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-03T02:01:04+08:00",
+  "updatedAt": "2026-09-03T02:04:32+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -937,10 +937,17 @@
       "status": "working",
       "userValue": "把兼容 chat/completions 的文本与视觉分析负载从 302 分流到 OpenAI Next，同时保留媒体生成和故障回退边界。",
       "entryPoints": [
+        "server/_core/llm.ts",
+        "server/_core/agentChannel.ts",
+        "server/routers/index.ts",
         "server/services/textComputeProvider.ts"
       ],
       "owners": [
         "server/_core/env.ts",
+        "server/_core/textComputeProvider.ts",
+        "server/_core/inferenceOrchestrator.ts",
+        "server/_core/llm.ts",
+        "server/_core/agentChannel.ts",
         "server/services/textComputeProvider.ts",
         "server/services/semanticAnnotation.ts",
         "server/services/publishingVideoStoryboard.ts",
@@ -952,6 +959,12 @@
         "server/services/imageGen.ts"
       ],
       "evidence": [
+        "server/_core/textComputeProvider.test.ts",
+        "server/_core/inferenceOrchestrator.test.ts",
+        "server/_core/llm.test.ts",
+        "server/_core/agentChannel.test.ts",
+        "server/archive/shotSynthesis.channel.test.ts",
+        "server/emotionAnalysis.router.test.ts",
         "server/services/textComputeProvider.test.ts",
         "server/services/semanticAnnotation.test.ts",
         "server/services/publishingVideoStoryboard.test.ts",
@@ -968,11 +981,14 @@
         "OpenAI Next 只承接 OpenAI 兼容的文本与多模态 chat/completions。",
         "图片生成与编辑、视频生成与扩展、TTS、转写及其付费任务凭据继续由 302 专用配置承接。",
         "OpenAI Next 未配置时自动回退 302；两个通道都不可用时保持现有本地保底。",
+        "故事 Agent 固定优先使用 OpenAI Next gpt-5.6-terra，仅对可重放瞬时失败回退 302 Claude。",
+        "登录欢迎页访客回信固定使用 OpenAI Next deepseek-v4-flash，失败只用本地模板且不转发 302。",
         "API Key 只允许通过未提交的环境变量注入。"
       ],
       "dependencies": [],
       "replaces": [],
       "knownGaps": [
+        "本次新增的 Story Agent、登录 DeepSeek V4 与视觉统一执行器尚未使用轮换后的低额度 Key 做主仓 3000 真实 smoke；当前只完成 mock/契约回归。",
         "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。"
       ],
       "history": [
@@ -1005,6 +1021,21 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "使用真实 OpenAI Next 通道验证 gpt-5.6-terra 返回 HTTP 200，并确认 JSON 输出、max_completion_tokens 与 reasoning_effort 请求参数可用。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "建立核心 provider 能力档位与最多两次请求的推理编排器；故事 Agent 改为 OpenAI Next gpt-5.6-terra 优先、302 Claude 仅作安全回退，Script Structure 不再私建网络通道。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "登录欢迎页访客回信改为 OpenAI Next deepseek-v4-flash 专用路由，失败仅回本地模板并在黄历/模型调用前限制公开 payload。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "verification",
+          "summary": "统一语义标注、发布故事板转写、视觉导演、归档视觉和图片编辑身份提取；付费图片/视频、TTS 与转写 adapter 保持独立。"
         }
       ]
     },

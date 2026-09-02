@@ -113,8 +113,7 @@ export const ENV = {
   openaiNextApiKey: process.env.OPENAI_NEXT_API_KEY ?? "",
   openaiNextBaseUrl:
     process.env.OPENAI_NEXT_BASE_URL ?? "https://api.openai-next.com",
-  openaiNextTextModel:
-    process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
+  openaiNextTextModel: process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
   openaiNextEmotionModel:
     process.env.OPENAI_NEXT_EMOTION_MODEL ?? "deepseek-v3.2",
   openaiNextVisionModel:
@@ -122,7 +121,9 @@ export const ENV = {
   // 登录欢迎页访客回信独立档位：与通用故事 Agent 和登录后每日回信分开，
   // 也不复用任何身份认证配置——模型不参与邀请码、会话或权限决策。
   openaiNextLoginGuestModel:
-    process.env.OPENAI_NEXT_LOGIN_GUEST_MODEL ?? "deepseek-v4-flash",
+    process.env.OPENAI_NEXT_LOGIN_GUEST_MODEL ??
+    process.env.OPENAI_NEXT_LOGIN_MODEL ??
+    "deepseek-v4-flash",
 
   // ── 302.ai 今日回信（复用 API302_KEY；黄历事实仍由天行数据提供）──
   emotion302Model: process.env.EMOTION_302_MODEL ?? "deepseek-v3.2",
