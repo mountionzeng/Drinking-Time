@@ -9,6 +9,7 @@ CREATE TABLE `story_timelines` (
   CONSTRAINT `story_timelines_id` PRIMARY KEY(`id`),
   CONSTRAINT `story_timelines_story_owner_unique` UNIQUE(`storyId`,`userId`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `shot_derivation_drafts` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -30,6 +31,7 @@ CREATE TABLE `shot_derivation_drafts` (
   `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT `shot_derivation_drafts_id` PRIMARY KEY(`id`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `story_operations` (
   `id` int AUTO_INCREMENT NOT NULL,

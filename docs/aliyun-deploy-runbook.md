@@ -223,3 +223,52 @@ sudo systemctl reload nginx
 - CSP 使用 wildcard/HTTP，或正常页面资源被策略意外阻断；
 - 缺少备份、回滚点、iOS/Android 或双设备跨端证据；
 - 账号、Story、版本/平台隔离出现任何异常。
+
+## 11. 测试站邀请码摘要修复（受控，仅测试库）
+
+**适用范围**：测试站 `https://test.drinkingtime.top` 与测试库 `drinking_time_mobile_staging`。正式库 `drinking_time` 被脚本硬性拒绝写入，不在本节范围内。
+
+**故障**：那条邀请码的 `codeHash` 是按带横线原码逐字手工 SHA-256 生成的；登录端在验证前一定会先 `normalizeInviteCode`（删空白、删横线、转大写），因此正确原码永远算不出库里的值。合同和端到端复现见 `server/services/inviteAccess.test.ts`「邀请码摘要合同」与 `server/_core/oauth.invite.test.ts`。
+
+**唯一权威**：所有摘要都来自 `server/services/inviteAccess.ts`。任何地方都不要再手算 SHA-256 或复制归一化逻辑。
+
+### 步骤
+
+1. 先只读核对（dry-run 是默认行为，不加 `--apply` 不会写）：
+
+```bash
+pnpm invite:repair --database=drinking_time_mobile_staging
+```
+
+脚本会打印连接实际指向的库、命中记录的 id/label/领取状态/过期时间/摘要指纹，以及判定结果。**原码通过不回显的交互输入读取，不接受命令行参数**，也不会出现在输出、日志或 shell history 里。
+
+2. 判定为 `repair` 且五个前置条件都成立时，再执行写入：
+
+```bash
+pnpm invite:repair --database=drinking_time_mobile_staging --apply
+```
+
+写入是带条件的单行 UPDATE（`id` + 旧摘要 + 未领取），在事务里完成，并用登录端同一条校验路径自检；影响行数不等于 1 就回滚。
+
+3. 再跑一次第 1 步，应当输出 `no-op`。
+
+### 五个前置条件（任一不成立即拒绝）
+
+1. 连接实际指向的库与 `--database=` 显式确认的一致，且不是受保护的 `drinking_time`；
+2. 记录未领取；
+3. 记录未过期；
+4. 旧摘要正是「按原码逐字生成」的已知故障状态（`unnormalized-legacy`）；
+5. 新摘要由 `inviteAccess.hashInviteCode` 生成。
+
+判定为 `refuse` 且原因是记录已领取或已过期时，**不改旧记录**，保留审计，改用权威创建路径签发替代卡：
+
+```bash
+pnpm invite:create --label=<给谁>
+```
+
+`pnpm invite:create` 现在会在创建后立刻用登录端同一校验路径自检，自检不过就报错，不会把发不出去的码打印给你。原码只显示一次。
+
+### 边界
+
+- 远端测试库的任何写入（含本节 `--apply` 与签发替代卡）都是独立批准边界，每次执行前重新确认目标库、PM2 应用和端口。
+- 管理员 API/UI 不返回原码，也不返回 `codeHash`；本脚本输出的是摘要前 12 位指纹，仅供运维核对。

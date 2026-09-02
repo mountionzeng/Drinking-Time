@@ -47,6 +47,7 @@ export function inspectProductionReadiness(
   const oauthServerUrl = env.OAUTH_SERVER_URL?.trim() ?? "";
   const databaseUrl = env.DATABASE_URL?.trim() ?? "";
   const cspMediaOrigins = env.CSP_MEDIA_ORIGINS?.trim() ?? "";
+  const otpDigestSecret = env.OTP_DIGEST_SECRET?.trim() ?? "";
 
   if (env.DISABLE_AUTH !== "false") {
     errors.push("DISABLE_AUTH must be exactly false");
@@ -62,6 +63,13 @@ export function inspectProductionReadiness(
   }
   if (!validMysqlUrl(databaseUrl)) {
     errors.push("DATABASE_URL must use MySQL with charset=utf8mb4");
+  }
+  // 没有这个 secret，验证码摘要就只剩可离线枚举的裸哈希（6 位码只有 100 万种）。
+  // 宁可起不来，也不降级。
+  if (otpDigestSecret.length < 32 || placeholder(otpDigestSecret)) {
+    errors.push(
+      "OTP_DIGEST_SECRET must be a non-placeholder secret of at least 32 characters"
+    );
   }
   try {
     parseCspMediaOrigins(cspMediaOrigins);

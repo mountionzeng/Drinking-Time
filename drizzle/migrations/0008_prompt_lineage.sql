@@ -12,6 +12,7 @@ CREATE TABLE `story_prompt_states` (
   CONSTRAINT `story_prompt_states_story_fk` FOREIGN KEY (`storyId`) REFERENCES `stories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `story_prompt_states_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_nodes` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -30,6 +31,7 @@ CREATE TABLE `prompt_nodes` (
   CONSTRAINT `prompt_nodes_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   INDEX `prompt_nodes_story_lookup` (`storyId`,`userId`,`stableShotId`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_revisions` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -53,10 +55,12 @@ CREATE TABLE `prompt_revisions` (
   INDEX `prompt_revisions_node_history` (`nodeId`,`id`),
   INDEX `prompt_revisions_story_candidates` (`storyId`,`userId`,`status`)
 );
+--> statement-breakpoint
 
 ALTER TABLE `prompt_nodes`
   ADD CONSTRAINT `prompt_nodes_current_revision_fk`
   FOREIGN KEY (`currentRevisionId`) REFERENCES `prompt_revisions` (`id`) ON DELETE SET NULL;
+--> statement-breakpoint
 
 CREATE TABLE `prompt_node_bindings` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -74,6 +78,7 @@ CREATE TABLE `prompt_node_bindings` (
   CONSTRAINT `prompt_node_bindings_node_fk` FOREIGN KEY (`nodeId`) REFERENCES `prompt_nodes` (`id`) ON DELETE CASCADE,
   INDEX `prompt_node_bindings_shot_order` (`storyId`,`userId`,`stableShotId`,`modality`,`sortOrder`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_compilations` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -89,6 +94,7 @@ CREATE TABLE `prompt_compilations` (
   CONSTRAINT `prompt_compilations_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   INDEX `prompt_compilations_shot_modality` (`storyId`,`userId`,`stableShotId`,`modality`,`id`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_compilation_inputs` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -100,6 +106,7 @@ CREATE TABLE `prompt_compilation_inputs` (
   CONSTRAINT `prompt_compilation_inputs_compilation_fk` FOREIGN KEY (`compilationId`) REFERENCES `prompt_compilations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prompt_compilation_inputs_revision_fk` FOREIGN KEY (`revisionId`) REFERENCES `prompt_revisions` (`id`) ON DELETE RESTRICT
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_compilation_heads` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -115,6 +122,7 @@ CREATE TABLE `prompt_compilation_heads` (
   CONSTRAINT `prompt_compilation_heads_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prompt_compilation_heads_compilation_fk` FOREIGN KEY (`currentCompilationId`) REFERENCES `prompt_compilations` (`id`) ON DELETE RESTRICT
 );
+--> statement-breakpoint
 
 CREATE TABLE `story_conversations` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -127,6 +135,7 @@ CREATE TABLE `story_conversations` (
   CONSTRAINT `story_conversations_story_fk` FOREIGN KEY (`storyId`) REFERENCES `stories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `story_conversations_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE
 );
+--> statement-breakpoint
 
 CREATE TABLE `story_conversation_messages` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -147,6 +156,7 @@ CREATE TABLE `story_conversation_messages` (
   CONSTRAINT `story_conversation_messages_revision_fk` FOREIGN KEY (`candidateRevisionId`) REFERENCES `prompt_revisions` (`id`) ON DELETE SET NULL,
   INDEX `story_conversation_messages_order` (`conversationId`,`id`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `story_message_references` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -164,6 +174,7 @@ CREATE TABLE `story_message_references` (
   CONSTRAINT `story_message_references_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   INDEX `story_message_references_message` (`messageId`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `art_prompt_libraries` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -177,6 +188,7 @@ CREATE TABLE `art_prompt_libraries` (
   CONSTRAINT `art_prompt_libraries_owner_fk` FOREIGN KEY (`ownerUserId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   INDEX `art_prompt_libraries_owner_name` (`ownerUserId`,`name`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `art_prompt_library_versions` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -192,6 +204,7 @@ CREATE TABLE `art_prompt_library_versions` (
   CONSTRAINT `art_prompt_library_versions_fingerprint_unique` UNIQUE (`libraryId`,`contentFingerprint`),
   CONSTRAINT `art_prompt_library_versions_library_fk` FOREIGN KEY (`libraryId`) REFERENCES `art_prompt_libraries` (`id`) ON DELETE CASCADE
 );
+--> statement-breakpoint
 
 CREATE TABLE `art_prompt_library_items` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -206,6 +219,7 @@ CREATE TABLE `art_prompt_library_items` (
   CONSTRAINT `art_prompt_library_items_revision_fk` FOREIGN KEY (`sourceRevisionId`) REFERENCES `prompt_revisions` (`id`) ON DELETE SET NULL,
   INDEX `art_prompt_library_items_version_order` (`libraryVersionId`,`sortOrder`)
 );
+--> statement-breakpoint
 
 CREATE TABLE `story_art_prompt_bindings` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -220,6 +234,7 @@ CREATE TABLE `story_art_prompt_bindings` (
   CONSTRAINT `story_art_prompt_bindings_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `story_art_prompt_bindings_version_fk` FOREIGN KEY (`libraryVersionId`) REFERENCES `art_prompt_library_versions` (`id`) ON DELETE RESTRICT
 );
+--> statement-breakpoint
 
 CREATE TABLE `prompt_operation_receipts` (
   `id` int AUTO_INCREMENT NOT NULL,
@@ -234,11 +249,13 @@ CREATE TABLE `prompt_operation_receipts` (
   CONSTRAINT `prompt_operation_receipts_story_fk` FOREIGN KEY (`storyId`) REFERENCES `stories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prompt_operation_receipts_user_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE
 );
+--> statement-breakpoint
 
 ALTER TABLE `generated_images`
   ADD COLUMN `promptCompilationId` int NULL,
   ADD CONSTRAINT `generated_images_prompt_compilation_fk`
     FOREIGN KEY (`promptCompilationId`) REFERENCES `prompt_compilations` (`id`) ON DELETE SET NULL;
+--> statement-breakpoint
 
 ALTER TABLE `video_takes`
   ADD COLUMN `promptCompilationId` int NULL,

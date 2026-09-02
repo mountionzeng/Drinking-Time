@@ -28,5 +28,7 @@ CREATE TABLE `preview_masked_image_operations` (
   CONSTRAINT `preview_masked_image_user_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `preview_masked_image_candidate_fk` FOREIGN KEY (`candidateImageId`) REFERENCES `generated_images`(`id`) ON DELETE SET NULL
 );
+--> statement-breakpoint
 CREATE INDEX `preview_masked_image_candidate_index` ON `preview_masked_image_operations` (`candidateImageId`);
+--> statement-breakpoint
 CREATE INDEX `preview_masked_image_input_index` ON `preview_masked_image_operations` (`storyId`,`userId`,`inputHash`);

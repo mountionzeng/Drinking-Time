@@ -14,6 +14,7 @@ function context(): TrpcContext {
       role: "user",
       createdAt: now,
       updatedAt: now,
+      sessionVersion: 1,
       lastSignedIn: now,
     },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],

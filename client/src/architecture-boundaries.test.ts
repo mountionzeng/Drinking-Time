@@ -355,8 +355,12 @@ describe("architecture boundaries", () => {
     "server/routers/promptLineage.ts",
     "server/routers/publishingDraft.ts",
     "server/routers/storyAgent.ts",
+    // 统一账号的领域 persistence，见基线文档豁免表
+    "server/services/accountIdentity.ts",
     "server/services/artPromptLibrary.ts",
     "server/services/chatCutXml.ts",
+    // 算力账本的领域 persistence，见基线文档豁免表
+    "server/services/computeLedger.ts",
     "server/services/creationAgent.ts",
     "server/services/directorAdvice.ts",
     "server/services/editContext.ts",

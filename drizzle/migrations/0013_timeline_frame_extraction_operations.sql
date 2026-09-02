@@ -24,4 +24,5 @@ CREATE TABLE `timeline_frame_extraction_operations` (
   CONSTRAINT `timeline_frame_extraction_user_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `timeline_frame_extraction_image_fk` FOREIGN KEY (`imageId`) REFERENCES `generated_images`(`id`) ON DELETE SET NULL
 );
+--> statement-breakpoint
 CREATE INDEX `timeline_frame_extraction_image_index` ON `timeline_frame_extraction_operations` (`imageId`);

@@ -1,4 +1,5 @@
 import {
+  bigint,
   int,
   mysqlEnum,
   mysqlTable,
@@ -23,6 +24,11 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  /**
+   * 会话版本。JWT 里带上它，服务端校验时比对；改密码/找回密码时自增即可让旧 session 失效。
+   * 老用户默认 1，不需要回填。
+   */
+  sessionVersion: int("sessionVersion").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -1395,3 +1401,502 @@ export const inviteCodes = mysqlTable(
 
 export type InviteCode = typeof inviteCodes.$inferSelect;
 export type InsertInviteCode = typeof inviteCodes.$inferInsert;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 统一账号、赠送卡与算力账本（U2 地基）
+ *
+ * 金额单位：**微元**，1 元 = 1_000_000 微元。用整数保存，避免浮点累计误差，
+ * 同时保留比一分钱更细的模型用量精度。¥30 = 30_000_000。展示层统一格式化，
+ * 数据库里永远不出现小数金额。
+ *
+ * 这一批表全部是新增的（additive / expand-compatible）：不改旧表语义、不删列、
+ * 不在 migration 里猜历史归属。旧邀请码与历史用户数据由 U3/U5 显式回填。
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * AccountIdentities — 登录身份。
+ *
+ * 一个 `userId` 可以有多条身份（邮箱现在、微信以后），但 (provider, subject) 全局唯一，
+ * 保证同一邮箱只解析到一个用户。冲突时上层必须停下来人工处理，不静默 merge。
+ */
+export const accountIdentities = mysqlTable(
+  "account_identities",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: mysqlEnum("provider", ["email", "wechat"])
+      .default("email")
+      .notNull(),
+    /** 标准化后的身份标识：邮箱走小写 trim，微信以后放 openid */
+    subject: varchar("subject", { length: 320 }).notNull(),
+    verifiedAt: timestamp("verifiedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    providerSubjectUnique: uniqueIndex("account_identities_provider_subject_unique").on(
+      table.provider,
+      table.subject
+    ),
+    userIndex: index("account_identities_user_index").on(table.userId),
+  })
+);
+
+export type AccountIdentity = typeof accountIdentities.$inferSelect;
+export type InsertAccountIdentity = typeof accountIdentities.$inferInsert;
+
+/**
+ * AccountCredentials — 密码等可校验凭据。
+ *
+ * `secret` 存版本化 scrypt record（含算法参数与随机 salt），永远不是裸 SHA-256。
+ * 每个用户每种凭据只有一条。
+ */
+export const accountCredentials = mysqlTable(
+  "account_credentials",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: mysqlEnum("kind", ["password"]).default("password").notNull(),
+    /** 形如 scrypt$v1$N$r$p$<salt>$<hash>，参数升级时提升版本号重算 */
+    secret: varchar("secret", { length: 512 }).notNull(),
+    algorithmVersion: int("algorithmVersion").default(1).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    userKindUnique: uniqueIndex("account_credentials_user_kind_unique").on(
+      table.userId,
+      table.kind
+    ),
+  })
+);
+
+export type AccountCredential = typeof accountCredentials.$inferSelect;
+export type InsertAccountCredential = typeof accountCredentials.$inferInsert;
+
+/**
+ * AccountVerificationChallenges — 邮箱验证码挑战。
+ *
+ * 只保存带独立服务端 secret 和版本的摘要，泄库也不能离线枚举 6 位码。
+ * 按用途隔离：登录、验证、找回互不通用。同邮箱同用途签发新挑战时旧挑战置 invalidatedAt。
+ */
+export const accountVerificationChallenges = mysqlTable(
+  "account_verification_challenges",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    purpose: mysqlEnum("purpose", ["login", "verify", "recover"]).notNull(),
+    normalizedEmail: varchar("normalizedEmail", { length: 320 }).notNull(),
+    codeHash: varchar("codeHash", { length: 64 }).notNull(),
+    secretVersion: int("secretVersion").default(1).notNull(),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    maxAttempts: int("maxAttempts").default(5).notNull(),
+    sentAt: timestamp("sentAt").defaultNow().notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    invalidatedAt: timestamp("invalidatedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    lookupIndex: index("account_verification_challenges_lookup_index").on(
+      table.normalizedEmail,
+      table.purpose,
+      table.expiresAt
+    ),
+  })
+);
+
+export type AccountVerificationChallenge =
+  typeof accountVerificationChallenges.$inferSelect;
+export type InsertAccountVerificationChallenge =
+  typeof accountVerificationChallenges.$inferInsert;
+
+/**
+ * AccountRateLimits — 共享持久化限流。
+ *
+ * 必须落在 MySQL：PM2 重启或多进程时，进程内内存限流形同虚设。
+ * `scope` 是用途（otp:send / otp:verify / gift:redeem…），`subject` 是邮箱、IP 或两者组合。
+ */
+export const accountRateLimits = mysqlTable(
+  "account_rate_limits",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    scope: varchar("scope", { length: 64 }).notNull(),
+    subject: varchar("subject", { length: 320 }).notNull(),
+    windowStartedAt: timestamp("windowStartedAt").defaultNow().notNull(),
+    windowSeconds: int("windowSeconds").notNull(),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    blockedUntil: timestamp("blockedUntil"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    scopeSubjectUnique: uniqueIndex("account_rate_limits_scope_subject_unique").on(
+      table.scope,
+      table.subject
+    ),
+  })
+);
+
+export type AccountRateLimit = typeof accountRateLimits.$inferSelect;
+export type InsertAccountRateLimit = typeof accountRateLimits.$inferInsert;
+
+/**
+ * GiftCards — 一次性算力赠送卡。
+ *
+ * 与登录凭据分离：卡只负责「开通工作台 + 增加算力」，不是密码。
+ * 不预绑邮箱，首个已验证账号原子领取；默认签发后 30 天未领取过期，
+ * **领取后的余额不因卡过期而失效**。原码只在创建时出现一次，库里只有摘要。
+ */
+export const giftCards = mysqlTable(
+  "gift_cards",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    codeHash: varchar("codeHash", { length: 64 }).notNull(),
+    label: varchar("label", { length: 255 }),
+    /** 面额，微元。¥30 = 30_000_000 */
+    amountMinor: bigint("amountMinor", { mode: "number" }).notNull(),
+    currency: varchar("currency", { length: 8 }).default("CNY").notNull(),
+    purpose: mysqlEnum("purpose", ["access_grant", "topup"])
+      .default("access_grant")
+      .notNull(),
+    redeemedByUserId: int("redeemedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    redeemedAt: timestamp("redeemedAt"),
+    revokedAt: timestamp("revokedAt"),
+    expiresAt: timestamp("expiresAt"),
+    /** 由旧邀请码转换而来时指回来源，保证重复迁移不重复赠送 */
+    legacyInviteCodeId: int("legacyInviteCodeId").references(
+      () => inviteCodes.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    codeHashUnique: uniqueIndex("gift_cards_code_hash_unique").on(table.codeHash),
+    legacyInviteUnique: uniqueIndex("gift_cards_legacy_invite_unique").on(
+      table.legacyInviteCodeId
+    ),
+    redeemedUserIndex: index("gift_cards_redeemed_user_index").on(
+      table.redeemedByUserId
+    ),
+  })
+);
+
+export type GiftCard = typeof giftCards.$inferSelect;
+export type InsertGiftCard = typeof giftCards.$inferInsert;
+
+/**
+ * CreditAccounts — 每个用户一行的余额投影，也是并发预占时被锁的那一行。
+ *
+ * **它不是事实来源**：事实来源永远是下面的 append-only 账本。这一行是账本在事务里
+ * 维护的派生投影，存在的意义是让「检查余额 → 预占」能在一条 `SELECT ... FOR UPDATE`
+ * 里原子完成，而不是每次去 SUM 全表。
+ *
+ * 可用余额 = balanceMinor − reservedMinor。
+ */
+export const creditAccounts = mysqlTable(
+  "credit_accounts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** 已入账余额，微元 */
+    balanceMinor: bigint("balanceMinor", { mode: "number" }).default(0).notNull(),
+    /** 活动预占合计，微元 */
+    reservedMinor: bigint("reservedMinor", { mode: "number" }).default(0).notNull(),
+    /** 累计消费，微元，只增不减 */
+    lifetimeSpentMinor: bigint("lifetimeSpentMinor", { mode: "number" })
+      .default(0)
+      .notNull(),
+    currency: varchar("currency", { length: 8 }).default("CNY").notNull(),
+    accessEnabledAt: timestamp("accessEnabledAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    userUnique: uniqueIndex("credit_accounts_user_unique").on(table.userId),
+  })
+);
+
+export type CreditAccount = typeof creditAccounts.$inferSelect;
+export type InsertCreditAccount = typeof creditAccounts.$inferInsert;
+
+/**
+ * CreditLedgerEntries — 不可改写的逐笔账本。只 append，永不 UPDATE、永不 DELETE。
+ *
+ * 人工调整也是新增一条 `adjustment`，不去改旧的消费记录。
+ * `amountMinor` 带符号：赠送/退款/释放为正，消费为负。
+ */
+export const creditLedgerEntries = mysqlTable(
+  "credit_ledger_entries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    entryType: mysqlEnum("entryType", [
+      "gift",
+      "adjustment",
+      "consumption",
+      "refund",
+      "release",
+    ]).notNull(),
+    /** 带符号金额，微元 */
+    amountMinor: bigint("amountMinor", { mode: "number" }).notNull(),
+    currency: varchar("currency", { length: 8 }).default("CNY").notNull(),
+    /** 幂等键：同一笔业务事实重复写入被唯一约束挡下。允许为空（人工调整等） */
+    idempotencyKey: varchar("idempotencyKey", { length: 191 }),
+    operationId: varchar("operationId", { length: 128 }),
+    giftCardId: int("giftCardId").references(() => giftCards.id, {
+      onDelete: "set null",
+    }),
+    /** 人工调整时的操作者，用户自己的消费为空 */
+    actorUserId: int("actorUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reason: varchar("reason", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    idempotencyUnique: uniqueIndex("credit_ledger_entries_idempotency_unique").on(
+      table.idempotencyKey
+    ),
+    userOrderIndex: index("credit_ledger_entries_user_order_index").on(
+      table.userId,
+      table.id
+    ),
+    operationIndex: index("credit_ledger_entries_operation_index").on(
+      table.operationId
+    ),
+  })
+);
+
+export type CreditLedgerEntry = typeof creditLedgerEntries.$inferSelect;
+export type InsertCreditLedgerEntry = typeof creditLedgerEntries.$inferInsert;
+
+/**
+ * BillingOperations — 业务层的一次付费操作。
+ *
+ * 一次 operation 只预占一次、只结算一次。`operationId` 全局唯一：
+ * 同 id + 同 requestHash 重放只返回原状态；同 id 不同参数必须冲突而不是覆盖。
+ * `submission_unknown` 保留 hold 进入对账，既不自动释放也不自动重提。
+ */
+export const billingOperations = mysqlTable(
+  "billing_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationId: varchar("operationId", { length: 128 }).notNull(),
+    operationType: varchar("operationType", { length: 64 }).notNull(),
+    /** 稳定参数的规范化哈希，用于判定「同一次调用」 */
+    requestHash: varchar("requestHash", { length: 128 }).notNull(),
+    status: mysqlEnum("status", [
+      "created",
+      "reserved",
+      "submitted",
+      "submission_unknown",
+      "settled",
+      "released",
+      "exception",
+    ])
+      .default("created")
+      .notNull(),
+    /** 可信最高费用（预占上界），微元。没有可信上界的入口不得提交 */
+    maxCostMinor: bigint("maxCostMinor", { mode: "number" }).notNull(),
+    /** 可核验实际费用，微元。结算前为空 */
+    actualCostMinor: bigint("actualCostMinor", { mode: "number" }),
+    storyId: int("storyId"),
+    /** 高成本媒体报价的过期时间；过期报价必须被拒绝 */
+    quoteExpiresAt: timestamp("quoteExpiresAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    operationUnique: uniqueIndex("billing_operations_operation_unique").on(
+      table.operationId
+    ),
+    userOrderIndex: index("billing_operations_user_order_index").on(
+      table.userId,
+      table.id
+    ),
+    statusIndex: index("billing_operations_status_index").on(table.status),
+  })
+);
+
+export type BillingOperation = typeof billingOperations.$inferSelect;
+export type InsertBillingOperation = typeof billingOperations.$inferInsert;
+
+/**
+ * CreditHolds — 活动预占。一个 operation 最多一个 hold。
+ *
+ * 预占在锁定 credit_accounts 行的短事务里建立，供应商网络调用发生在事务之外，
+ * 结算/释放再用新事务完成。
+ */
+export const creditHolds = mysqlTable(
+  "credit_holds",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationId: varchar("operationId", { length: 128 }).notNull(),
+    /** 预占金额，微元，始终为正 */
+    amountMinor: bigint("amountMinor", { mode: "number" }).notNull(),
+    status: mysqlEnum("status", ["active", "settled", "released", "exception"])
+      .default("active")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    operationUnique: uniqueIndex("credit_holds_operation_unique").on(
+      table.operationId
+    ),
+    userStatusIndex: index("credit_holds_user_status_index").on(
+      table.userId,
+      table.status
+    ),
+  })
+);
+
+export type CreditHold = typeof creditHolds.$inferSelect;
+export type InsertCreditHold = typeof creditHolds.$inferInsert;
+
+/**
+ * ProviderAttempts — 供应商层的每次尝试。
+ *
+ * 与业务 operation 分层：业务层只预占/结算一次，这里记录 fallback、重试和真实用量，
+ * 避免 router 漏算或 adapter 重复扣费。`providerTaskId` 已知时只允许恢复查询，
+ * 没有确定提交结果时不自动重提。
+ */
+export const providerAttempts = mysqlTable(
+  "provider_attempts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    billingOperationId: int("billingOperationId")
+      .notNull()
+      .references(() => billingOperations.id, { onDelete: "cascade" }),
+    attemptIndex: int("attemptIndex").default(1).notNull(),
+    provider: varchar("provider", { length: 64 }).notNull(),
+    model: varchar("model", { length: 128 }),
+    providerTaskId: varchar("providerTaskId", { length: 191 }),
+    receiptId: varchar("receiptId", { length: 191 }),
+    status: mysqlEnum("status", [
+      "prepared",
+      "submitted",
+      "task_known",
+      "succeeded",
+      "charged_failure",
+      "not_charged_failure",
+      "submission_unknown",
+    ])
+      .default("prepared")
+      .notNull(),
+    usage: json("usage"),
+    /** 该次尝试的可核验费用，微元 */
+    costMinor: bigint("costMinor", { mode: "number" }),
+    submittedAt: timestamp("submittedAt"),
+    completedAt: timestamp("completedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    operationAttemptUnique: uniqueIndex("provider_attempts_operation_attempt_unique").on(
+      table.billingOperationId,
+      table.attemptIndex
+    ),
+    providerTaskUnique: uniqueIndex("provider_attempts_provider_task_unique").on(
+      table.provider,
+      table.providerTaskId
+    ),
+    statusIndex: index("provider_attempts_status_index").on(table.status),
+  })
+);
+
+export type ProviderAttempt = typeof providerAttempts.$inferSelect;
+export type InsertProviderAttempt = typeof providerAttempts.$inferInsert;
+
+/**
+ * RechargeRequests — 站内追加测试算力申请。
+ *
+ * 同一账号最多一个待处理申请，靠 `pendingSlot` 实现：pending 时为 'pending'，
+ * 终态时置 NULL。MySQL 唯一索引忽略 NULL，所以历史申请可以有任意多条。
+ * 批准与账本入账在同一事务；终态不可再次审批。
+ */
+export const rechargeRequests = mysqlTable(
+  "recharge_requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** 用户申请金额，微元 */
+    requestedAmountMinor: bigint("requestedAmountMinor", { mode: "number" }).notNull(),
+    /** 管理员实际批准金额，微元；拒绝时为空 */
+    approvedAmountMinor: bigint("approvedAmountMinor", { mode: "number" }),
+    status: mysqlEnum("status", ["pending", "approved", "rejected"])
+      .default("pending")
+      .notNull(),
+    /** pending 时为 'pending'，终态置 NULL —— 每人只允许一个待处理申请 */
+    pendingSlot: varchar("pendingSlot", { length: 16 }),
+    userReason: text("userReason"),
+    decisionReason: varchar("decisionReason", { length: 255 }),
+    decidedByUserId: int("decidedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decidedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    pendingUnique: uniqueIndex("recharge_requests_pending_unique").on(
+      table.userId,
+      table.pendingSlot
+    ),
+    userOrderIndex: index("recharge_requests_user_order_index").on(
+      table.userId,
+      table.id
+    ),
+  })
+);
+
+export type RechargeRequest = typeof rechargeRequests.$inferSelect;
+export type InsertRechargeRequest = typeof rechargeRequests.$inferInsert;
+
+/**
+ * DataMigrationReceipts — 三来源导入的幂等凭据。
+ *
+ * 每个来源 + 批次一条 receipt，重复导入必须零新增、零重复赠送。
+ * `details` 里放 counts、hash 和映射摘要，供 before/after 报告核对。
+ */
+export const dataMigrationReceipts = mysqlTable(
+  "data_migration_receipts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    /** 来源标识：legacy_mysql / staging_mysql / local_persist… */
+    sourceKey: varchar("sourceKey", { length: 128 }).notNull(),
+    batchKey: varchar("batchKey", { length: 128 }).notNull(),
+    /** 来源快照摘要，导入过程中来源发生变化时能发现 */
+    sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
+    recordCount: int("recordCount").default(0).notNull(),
+    details: json("details"),
+    appliedAt: timestamp("appliedAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    sourceBatchUnique: uniqueIndex("data_migration_receipts_source_batch_unique").on(
+      table.sourceKey,
+      table.batchKey
+    ),
+  })
+);
+
+export type DataMigrationReceipt = typeof dataMigrationReceipts.$inferSelect;
+export type InsertDataMigrationReceipt = typeof dataMigrationReceipts.$inferInsert;

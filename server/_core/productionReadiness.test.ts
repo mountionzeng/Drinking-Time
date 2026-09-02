@@ -16,6 +16,8 @@ function validProductionEnv(): NodeJS.ProcessEnv {
     DATABASE_URL:
       "mysql://app:secret@127.0.0.1:3306/drinking_time?charset=utf8mb4",
     CSP_MEDIA_ORIGINS: "https://file.302.ai https://assets.drinkingtime.top",
+    // U4 起新增：验证码摘要的独立 secret，缺失时生产失败关闭
+    OTP_DIGEST_SECRET: "9tK2mQ7wZ4xC1nB8vF5hJ3rL6yP0sDgE",
   };
 }
 
@@ -75,5 +77,39 @@ describe("production readiness", () => {
       errors: [],
     });
     expect(productionTrustProxy({ NODE_ENV: "development" })).toBe(false);
+  });
+});
+
+describe("验证码摘要 secret 的生产门禁", () => {
+  function productionEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+    return {
+      NODE_ENV: "production",
+      DISABLE_AUTH: "false",
+      JWT_SECRET: "a".repeat(48),
+      APP_ORIGIN: "https://www.drinkingtime.top",
+      OAUTH_SERVER_URL: "https://oauth.example.com",
+      DATABASE_URL: "mysql://u:p@db:3306/drinking_time?charset=utf8mb4",
+      CSP_MEDIA_ORIGINS: "https://media.example.com",
+      OTP_DIGEST_SECRET: "b".repeat(48),
+      ...overrides,
+    };
+  }
+
+  it("缺少或过短的 OTP_DIGEST_SECRET 会让生产 readiness 失败关闭", () => {
+    expect(inspectProductionReadiness(productionEnv()).errors).toEqual([]);
+
+    for (const value of [undefined, "", "short", "changeme-changeme-changeme-change"]) {
+      const result = inspectProductionReadiness(
+        productionEnv({ OTP_DIGEST_SECRET: value })
+      );
+      expect(result.ready, String(value)).toBe(false);
+      expect(result.errors.join(" ")).toContain("OTP_DIGEST_SECRET");
+    }
+  });
+
+  it("非生产环境不做这项检查", () => {
+    expect(
+      inspectProductionReadiness({ NODE_ENV: "development" }).ready
+    ).toBe(true);
   });
 });

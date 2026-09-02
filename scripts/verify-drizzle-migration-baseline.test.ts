@@ -4,6 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  countTopLevelStatements,
+  findOverlongIdentifiers,
+  findDestructiveStatements,
   inspectDrizzleMigrationBaseline,
   type DrizzleJournal,
 } from "./verify-drizzle-migration-baseline";
@@ -98,6 +101,147 @@ describe("inspectDrizzleMigrationBaseline", () => {
         expect.stringContaining("0002_missing.sql"),
         expect.stringContaining("0002_snapshot.json"),
       ]),
+    );
+  });
+
+  it("拒绝破坏性或改数据的迁移：expand-compatible 是硬门禁", () => {
+    const root = makeFixture(
+      journal([
+        {
+          idx: 0,
+          version: "5",
+          when: 100,
+          tag: "0000_initial",
+          breakpoints: true,
+        },
+      ]),
+    );
+    fs.writeFileSync(
+      path.join(root, "0000_initial.sql"),
+      [
+        "CREATE TABLE `a` (`id` int);",
+        "ALTER TABLE `a` DROP COLUMN `old`;",
+        "UPDATE `a` SET `ownerId` = 1;",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "meta", "0000_snapshot.json"),
+      JSON.stringify({ dialect: "mysql", id: "latest" }),
+    );
+
+    expect(inspectDrizzleMigrationBaseline(root).errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("DROP COLUMN"),
+        expect.stringContaining("UPDATE"),
+      ]),
+    );
+  });
+
+  it("不把注释里的破坏性字样当成真语句", () => {
+    const root = makeFixture(
+      journal([
+        {
+          idx: 0,
+          version: "5",
+          when: 100,
+          tag: "0000_initial",
+          breakpoints: true,
+        },
+      ]),
+    );
+    fs.writeFileSync(
+      path.join(root, "0000_initial.sql"),
+      "-- 这里刻意不 DROP TABLE，历史数据由导入脚本显式回填\nCREATE TABLE `a` (`id` int);",
+    );
+    fs.writeFileSync(
+      path.join(root, "meta", "0000_snapshot.json"),
+      JSON.stringify({ dialect: "mysql", id: "latest" }),
+    );
+
+    expect(inspectDrizzleMigrationBaseline(root).errors).toEqual([]);
+  });
+
+  it("只对冻结的 0009 放行改数据语句，同样的 SQL 换个文件名就失败", () => {
+    const sql = "UPDATE `prompt_revisions` SET `weight` = 0.3;";
+
+    expect(
+      findDestructiveStatements(sql, "migrations/0009_prompt_revision_weights.sql"),
+    ).toEqual([]);
+    expect(findDestructiveStatements(sql, "migrations/0016_account_gift_credit.sql"))
+      .toEqual(["UPDATE"]);
+    // 破坏性 DDL 没有例外，冻结项也不放行
+    expect(
+      findDestructiveStatements(
+        "DROP TABLE `x`;",
+        "migrations/0009_prompt_revision_weights.sql",
+      ),
+    ).toEqual(["DROP TABLE"]);
+  });
+
+  it("多条语句缺少 --> statement-breakpoint 时失败：drizzle 会把它们当成一条 SQL 发出去", () => {
+    const root = makeFixture(
+      journal([
+        { idx: 0, version: "5", when: 100, tag: "0000_initial", breakpoints: true },
+      ]),
+    );
+    fs.writeFileSync(
+      path.join(root, "0000_initial.sql"),
+      "CREATE TABLE `a` (`id` int);\n\nCREATE TABLE `b` (`id` int);\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "meta", "0000_snapshot.json"),
+      JSON.stringify({ dialect: "mysql", id: "latest" }),
+    );
+
+    expect(inspectDrizzleMigrationBaseline(root).errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("statement-breakpoint")]),
+    );
+
+    // 补上分隔符后通过
+    fs.writeFileSync(
+      path.join(root, "0000_initial.sql"),
+      "CREATE TABLE `a` (`id` int);\n--> statement-breakpoint\nCREATE TABLE `b` (`id` int);\n",
+    );
+    expect(inspectDrizzleMigrationBaseline(root).errors).toEqual([]);
+  });
+
+  it("数语句时忽略注释、字符串和括号里的分号", () => {
+    expect(countTopLevelStatements("CREATE TABLE `a` (`id` int);")).toBe(1);
+    expect(countTopLevelStatements("CREATE TABLE `a` (`id` int)")).toBe(1);
+    expect(
+      countTopLevelStatements("-- 一句注释; 带分号\nCREATE TABLE `a` (`id` int);"),
+    ).toBe(1);
+    expect(
+      countTopLevelStatements("INSERT INTO `a` VALUES ('分号; 在字符串里');"),
+    ).toBe(1);
+    expect(
+      countTopLevelStatements("CREATE TABLE `a` (`id` int);\nCREATE TABLE `b` (`id` int);"),
+    ).toBe(2);
+  });
+
+  it("标识符超过 MySQL 的 64 字符上限时失败", () => {
+    const long = "a".repeat(65);
+    expect(findOverlongIdentifiers("CREATE TABLE `ok` (`id` int);")).toEqual([]);
+    expect(findOverlongIdentifiers(`ALTER TABLE \`t\` ADD CONSTRAINT \`${long}\` FOREIGN KEY (\`x\`);`))
+      .toEqual([long]);
+    // 64 字符正好合法
+    expect(findOverlongIdentifiers(`CREATE TABLE \`${"a".repeat(64)}\` (\`id\` int);`)).toEqual([]);
+
+    const root = makeFixture(
+      journal([
+        { idx: 0, version: "5", when: 100, tag: "0000_initial", breakpoints: true },
+      ]),
+    );
+    fs.writeFileSync(
+      path.join(root, "0000_initial.sql"),
+      `ALTER TABLE \`t\` ADD CONSTRAINT \`${long}\` FOREIGN KEY (\`x\`) REFERENCES \`u\`(\`id\`);`,
+    );
+    fs.writeFileSync(
+      path.join(root, "meta", "0000_snapshot.json"),
+      JSON.stringify({ dialect: "mysql", id: "latest" }),
+    );
+    expect(inspectDrizzleMigrationBaseline(root).errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("64")]),
     );
   });
 

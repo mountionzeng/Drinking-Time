@@ -33,6 +33,7 @@ function context(userId = OWNER): TrpcContext {
       role: "user",
       createdAt: new Date(),
       updatedAt: new Date(),
+      sessionVersion: 1,
       lastSignedIn: new Date(),
     },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],

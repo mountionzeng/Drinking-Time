@@ -28,6 +28,7 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "invite:setup": "tsx scripts/setup-invite-access.ts",
     "invite:create": "tsx scripts/create-invite-code.ts",
+    "invite:repair": "tsx scripts/repair-invite-code.ts",
     "art:import": "tsx scripts/import-art-references.ts",
     "art:analyze": "tsx scripts/analyze-art-references.ts",
     "monitor": "DATABASE_URL=mysql://x knip",

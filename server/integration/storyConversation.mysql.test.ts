@@ -261,7 +261,9 @@ describeMysql("Story conversation logical turns on MySQL", () => {
         // their collision reads before either new turn is visible. The fixed
         // implementation holds the conversation row lock, so only its winner
         // reaches this trigger and the loser conflicts before model audit.
-        await setup.execute(
+        // CREATE TRIGGER 走不了 mysql2 的 prepared statement 协议（execute），
+        // 必须用 query。之前写成 execute，导致这条用例在真实 MySQL 上从没跑起来过。
+        await setup.query(
           "CREATE TRIGGER story_turn_cross_role_race BEFORE INSERT ON story_conversation_turns FOR EACH ROW SET @story_turn_cross_role_race_delay = SLEEP(1)"
         );
       } finally {

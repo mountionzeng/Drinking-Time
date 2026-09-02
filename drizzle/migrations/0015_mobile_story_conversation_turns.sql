@@ -27,8 +27,8 @@ CREATE TABLE `story_conversation_turns` (
 --> statement-breakpoint
 ALTER TABLE `story_conversation_messages` ADD `turnId` int;--> statement-breakpoint
 ALTER TABLE `story_conversation_messages` ADD CONSTRAINT `story_conversation_messages_turn_role_unique` UNIQUE(`turnId`,`role`);--> statement-breakpoint
-ALTER TABLE `story_conversation_turns` ADD CONSTRAINT `story_conversation_turns_conversationId_story_conversations_id_fk` FOREIGN KEY (`conversationId`) REFERENCES `story_conversations`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `story_conversation_turns` ADD CONSTRAINT `story_conversation_turns_conversation_fk` FOREIGN KEY (`conversationId`) REFERENCES `story_conversations`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `story_conversation_turns` ADD CONSTRAINT `story_conversation_turns_storyId_stories_id_fk` FOREIGN KEY (`storyId`) REFERENCES `stories`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `story_conversation_turns` ADD CONSTRAINT `story_conversation_turns_userId_users_id_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `story_conversation_turns_order` ON `story_conversation_turns` (`conversationId`,`id`);--> statement-breakpoint
-ALTER TABLE `story_conversation_messages` ADD CONSTRAINT `story_conversation_messages_turnId_story_conversation_turns_id_fk` FOREIGN KEY (`turnId`) REFERENCES `story_conversation_turns`(`id`) ON DELETE set null ON UPDATE no action;
+ALTER TABLE `story_conversation_messages` ADD CONSTRAINT `story_conversation_messages_turn_fk` FOREIGN KEY (`turnId`) REFERENCES `story_conversation_turns`(`id`) ON DELETE set null ON UPDATE no action;

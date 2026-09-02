@@ -20,7 +20,10 @@ import {
   hasRedeemedInviteForEmail,
   resetMemoryStateForTesting,
 } from "../db";
-import { hashInviteCode } from "../services/inviteAccess";
+import {
+  hashInviteCode,
+  unnormalizedInviteCodeDigest,
+} from "../services/inviteAccess";
 import { ENV } from "./env";
 import { registerOAuthRoutes } from "./oauth";
 
@@ -106,6 +109,43 @@ describe("邮箱邀请码登录", () => {
       inviteCode,
     });
     expect(returningLogin.status).toBe(200);
+  });
+
+  it("摘要按带横线原码逐字生成时，正确原码也进不来——测试站故障的端到端复现", async () => {
+    const email = "handwritten-digest@example.com";
+    const inviteCode = "LH-HAND-MADE";
+    // 记录不是通过 pnpm invite:create 建的，摘要保留了横线。
+    await createInviteCode({
+      codeHash: unnormalizedInviteCodeDigest(inviteCode),
+      label: "手工摘要",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const brokenLogin = await post("/api/auth/email/invite-login", {
+      email,
+      inviteCode,
+    });
+    expect(brokenLogin.status).toBe(403);
+    expect(await brokenLogin.json()).toEqual({ error: "invalid_invite" });
+
+    const brokenOtpRequest = await post("/api/auth/email/request", {
+      email,
+      inviteCode,
+    });
+    expect(brokenOtpRequest.status).toBe(403);
+    expect(await brokenOtpRequest.json()).toEqual({ error: "invalid_invite" });
+
+    // 唯一的差别就是摘要：换成权威摘要后，同一个原码立刻可用。
+    await createInviteCode({
+      codeHash: hashInviteCode(inviteCode),
+      label: "权威摘要",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const repairedLogin = await post("/api/auth/email/invite-login", {
+      email,
+      inviteCode,
+    });
+    expect(repairedLogin.status).toBe(200);
   });
 
   it("内测期禁用 Google 登录直达，不能绕过邀请码", async () => {
