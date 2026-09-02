@@ -397,7 +397,7 @@
     {
       "id": "publishing-workspace",
       "name": "个人社交发布工作台",
-      "status": "observing",
+      "status": "working",
       "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
@@ -584,11 +584,15 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "尚未在 main:3000 完成创建、跨层替换、完成锁定、放弃、连续刷新和旧版本回看的真实验收。",
         "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
         "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。"
       ],
       "history": [
+        {
+          "date": "2026-08-28",
+          "kind": "validation",
+          "summary": "在主仓唯一 3000 端口加载隔离分支代码并使用真实 Story 验收：完成 V1 三层基线、V2 仅替换文字且沿用 Image V1/Video V1、editing 行放弃、连续三次刷新、跨 Story 切换与返回；未点击任何生成或付费操作。验收后已按哈希校验恢复三份真实数据备份。"
+        },
         {
           "date": "2026-08-28",
           "kind": "refactor",
