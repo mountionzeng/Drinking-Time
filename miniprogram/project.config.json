@@ -6,7 +6,9 @@
   "compileType": "miniprogram",
   "miniprogramRoot": "src/",
   "setting": {
-    "useCompilerPlugins": ["typescript"],
+    "useCompilerPlugins": [
+      "typescript"
+    ],
     "urlCheck": true,
     "es6": true,
     "enhance": true,
@@ -24,7 +26,8 @@
       "ignore": [],
       "disablePlugins": [],
       "outputPath": ""
-    }
+    },
+    "minifyWXML": true
   },
   "condition": {
     "miniprogram": {
