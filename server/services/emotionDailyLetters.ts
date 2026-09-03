@@ -3,14 +3,14 @@ import type {
   EmotionDailyLetter,
 } from "../../drizzle/schema";
 import {
-  ensureEmotionDailyLetter,
+  appendEmotionDailyLetterVersion,
   getEmotionAnalysisProfile,
   getEmotionDailyLetter,
   listEmotionDailyLetters,
-  updateEmotionDailyLetterIfRevision,
   upsertEmotionAnalysisProfile,
-  upsertEmotionDailyLetter,
 } from "../db";
+import type { PersonalMemoryLetterPayload } from "../../shared/personalMemory";
+import { dailyLetterMessageCaptureIfEnabled } from "./personalMemoryEvents";
 import { getAlmanacDay } from "./almanac";
 import {
   chinaDateString,
@@ -25,10 +25,43 @@ interface DailyLetterDependencies {
   getProfile?: typeof getEmotionAnalysisProfile;
   getAlmanac?: typeof getAlmanacDay;
   personalize?: typeof personalizeEmotionDailyReference302;
-  updateLetter?: typeof updateEmotionDailyLetterIfRevision;
+  writeLetter?: typeof appendEmotionDailyLetterVersion;
   saveProfile?: typeof upsertEmotionAnalysisProfile;
   now?: Date;
 }
+
+/**
+ * U1 起来信正文只有一个写入口：不可变版本。
+ *
+ * 这个门面把 legacy 的三条写路径（ensure／save／rewrite）统一收进
+ * `appendEmotionDailyLetterVersion`，日期级 `emotion_daily_letters` 降级为
+ * 「当前版本指针 + 可由版本重建的兼容投影」。
+ *
+ * **不要**把任何一条 legacy writer 放回去直接改日期级正文——包括回滚构建。
+ * 一旦放回去，双写和历史漂移当天就会重新出现，而这正是 U1 要一次性关掉的口子。
+ */
+function letterPayloadFrom(data: {
+  userMessage: string | null;
+  dailyReference: unknown;
+  analysisSeed: unknown;
+}): PersonalMemoryLetterPayload {
+  return {
+    dailyReference: data.dailyReference,
+    analysisSeed: data.analysisSeed,
+    userMessage: data.userMessage,
+    // 八字修订、黄历事实与所选证据由 U6 的生成链路填充；
+    // U1 只负责把既有内容搬进版本权威，不伪造它没有的东西。
+    profileRevision: null,
+    almanac: null,
+    selectedEvidence: [],
+  };
+}
+
+const LETTER_WRITER_VERSIONS = {
+  selectorVersion: "u1-legacy",
+  promptVersion: "u1-legacy",
+  modelVersion: "u1-legacy",
+} as const;
 
 export class EmotionDailyLetterNotFoundError extends Error {
   constructor() {
@@ -232,23 +265,49 @@ export function dailyLetterDataFromProfile(profile: EmotionAnalysisProfile) {
 
 export async function ensureDailyLetterFromProfile(
   profile: EmotionAnalysisProfile,
-  ensureLetter = ensureEmotionDailyLetter
-) {
-  const data = dailyLetterDataFromProfile(profile);
-  return data ? ensureLetter(data) : null;
-}
-
-export async function saveDailyLetterFromProfile(
-  profile: EmotionAnalysisProfile,
-  saveLetter = upsertEmotionDailyLetter
+  writeLetter = appendEmotionDailyLetterVersion
 ) {
   const data = dailyLetterDataFromProfile(profile);
   if (!data) return null;
   const existing = await getEmotionDailyLetter(profile.userId, data.letterDate);
-  return saveLetter({
-    ...data,
-    revision: existing ? existing.revision + 1 : 1,
+  if (existing) return existing;
+  // 稳定 action ID：并发标签页同时首次打开只会确认同一个 version 1。
+  const written = await writeLetter({
+    userId: data.userId,
+    letterDate: data.letterDate,
+    actionId: `profile-ensure:${data.letterDate}`,
+    trigger: "generated",
+    ...LETTER_WRITER_VERSIONS,
+    privacyEpoch: 1,
+    payload: letterPayloadFrom(data),
+    userMessageSaidAt: data.userMessageSaidAt,
+    userMessageEditedAt: data.userMessageEditedAt,
   });
+  return written?.letter ?? null;
+}
+
+export async function saveDailyLetterFromProfile(
+  profile: EmotionAnalysisProfile,
+  writeLetter = appendEmotionDailyLetterVersion
+) {
+  const data = dailyLetterDataFromProfile(profile);
+  if (!data) return null;
+  const existing = await getEmotionDailyLetter(profile.userId, data.letterDate);
+  const nextRevision = existing ? existing.revision + 1 : 1;
+  // action ID 绑定目标版本号：两个并发调用算出同一个目标时只落一版，
+  // 而不是像过去那样各自盲写覆盖。
+  const written = await writeLetter({
+    userId: data.userId,
+    letterDate: data.letterDate,
+    actionId: `profile-save:${data.letterDate}:${nextRevision}`,
+    trigger: "generated",
+    ...LETTER_WRITER_VERSIONS,
+    privacyEpoch: 1,
+    payload: letterPayloadFrom(data),
+    userMessageSaidAt: data.userMessageSaidAt,
+    userMessageEditedAt: data.userMessageEditedAt,
+  });
+  return written?.letter ?? null;
 }
 
 export async function rewriteEmotionDailyLetter(
@@ -271,8 +330,7 @@ export async function rewriteEmotionDailyLetter(
   const getAlmanac = dependencies.getAlmanac ?? getAlmanacDay;
   const personalize =
     dependencies.personalize ?? personalizeEmotionDailyReference302;
-  const updateLetter =
-    dependencies.updateLetter ?? updateEmotionDailyLetterIfRevision;
+  const writeLetter = dependencies.writeLetter ?? appendEmotionDailyLetterVersion;
   const saveProfile = dependencies.saveProfile ?? upsertEmotionAnalysisProfile;
   const existing = await getLetter(userId, letterDate);
   if (!existing) throw new EmotionDailyLetterNotFoundError();
@@ -323,20 +381,39 @@ export async function rewriteEmotionDailyLetter(
     analysisSeed: nextSeed,
     generationIntent: "daily-letter",
   });
-  const saved = await updateLetter(
-    {
-      userId,
-      letterDate,
+  // legacy 的 revision CAS 原样保留，只是改由版本权威执行：
+  // expectedCurrentVersionNumber 不匹配时一行都不改，返回冲突。
+  // action ID 绑定这次 CAS 尝试，重试同一次保存返回同一版本而不是追加两版。
+  const written = await writeLetter({
+    userId,
+    letterDate,
+    actionId: `rewrite:${letterDate}:${expectedRevision}`,
+    trigger: "generated",
+    ...LETTER_WRITER_VERSIONS,
+    privacyEpoch: 1,
+    payload: letterPayloadFrom({
       userMessage: message || null,
-      userMessageSaidAt: saidAt,
-      userMessageEditedAt: editedAt,
       dailyReference: refreshed.dailyReference,
       analysisSeed: nextSeed,
-      revision: expectedRevision + 1,
-    },
-    expectedRevision
-  );
-  if (!saved) throw new EmotionDailyLetterConflictError();
+    }),
+    userMessageSaidAt: saidAt,
+    userMessageEditedAt: editedAt,
+    expectedCurrentVersionNumber: expectedRevision,
+    // 用户这次写下／改写／清空的留言，与版本推进同一个短事务（U2）。
+    // 黄历查询和来信生成都在事务之外，它们失败不会回滚已经保存的留言。
+    // 构造器自带 Phase 1 白名单门禁，未列入的账号在这里就是 null。
+    personalMemoryCapture:
+      dailyLetterMessageCaptureIfEnabled({
+        userId,
+        letterDate,
+        revision: expectedRevision + 1,
+        message,
+        previousMessage: existing.userMessage,
+        occurredAt: now,
+      }) ?? undefined,
+  });
+  if (!written) throw new EmotionDailyLetterConflictError();
+  const saved = written.letter;
 
   const writeDate = chinaDateString(dependencies.now ?? new Date());
   const latestProfile = await getProfile(userId);

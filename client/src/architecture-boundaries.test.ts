@@ -382,6 +382,7 @@ describe("architecture boundaries", () => {
     "server/services/shotDerivation.ts",
     "server/services/shotVideoDirection.ts",
     "server/services/startEndShotVideoWorkflow.ts",
+    "server/services/personalMemoryPersistence.ts",
     "server/services/storyBodyPersistence.ts",
     "server/services/storyConversation.ts",
     "server/services/storyMaterials.ts",

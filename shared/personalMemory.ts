@@ -1,0 +1,905 @@
+/**
+ * 个人记忆数据合同（U1）。
+ *
+ * 这里只放**纯合同**：来源身份、动作语义、状态机、本地聚合形状和归一化。
+ * 没有持久化、没有 I/O、没有模型调用——MySQL（drizzle/schema.ts）和本地模式
+ * （server/db.ts）都从这里取同一份语义，避免两条路径各写一套定义后漂移。
+ *
+ * 两个必须一直成立的边界：
+ *
+ * 1. **经历事件的身份由六段组成且全部非空**（见 PersonalMemoryEventIdentity）。
+ *    MySQL 靠复合唯一索引保证幂等；本地模式靠同一段 fingerprint 保证幂等。
+ *    任何一段缺失都必须在写入前被拒绝——不能用 NULL 绕过唯一性，因为 MySQL
+ *    的唯一索引放过任意多行 NULL，那会静默制造重复经历。
+ *
+ * 2. **本地模式不假装跨文件事务**。outbox 写在来源自己所属的聚合里，
+ *    统一足迹索引由幂等 projector 按水位补齐。见 PersonalMemoryOutboxEntry。
+ */
+
+// ─── 来源与动作 ─────────────────────────────────────────────────────────
+
+/** 经历来源类别。每一类在 U1 的 source contract matrix 里有独立的删除策略。 */
+export type PersonalMemorySourceType =
+  /** 普通聊天里用户自己敲下并成功提交的消息（来源：story_conversation_messages）。 */
+  | "chat_message"
+  /** 每日回信里用户写下的留言（来源：日期级当前投影 + 修订号）。 */
+  | "daily_letter_message"
+  /** 明确采用的发布稿版本。 */
+  | "publishing_adoption"
+  /** 明确采用的图片。 */
+  | "image_adoption"
+  /** 派生理解自身的状态变化（纠正／归档／恢复／忘记）。 */
+  | "insight"
+  /** 不可变每日来信版本（首次生成与显式重读）。 */
+  | "daily_letter_version";
+
+export const PERSONAL_MEMORY_SOURCE_TYPES: readonly PersonalMemorySourceType[] =
+  [
+    "chat_message",
+    "daily_letter_message",
+    "publishing_adoption",
+    "image_adoption",
+    "insight",
+    "daily_letter_version",
+  ];
+
+/**
+ * 动作语义。这是「用户当时做了什么」，不是「现在是什么状态」——
+ * 撤销采用不删除历史采用事件，而是追加一条 unadopted。
+ */
+export type PersonalMemoryActionKind =
+  /** 首次提交文字。 */
+  | "submitted"
+  /** 修改已提交的文字（保留旧修订）。 */
+  | "revised"
+  /** 清空已提交的文字（明确编辑／删除语义，不是新感悟）。 */
+  | "cleared"
+  /** 明确采用。 */
+  | "adopted"
+  /** 撤销采用。 */
+  | "unadopted"
+  /** 派生理解的状态变化。 */
+  | "insight_created"
+  | "insight_corrected"
+  | "insight_superseded"
+  | "insight_archived"
+  | "insight_restored"
+  | "insight_forgotten"
+  /** 每日来信当日首版。 */
+  | "letter_generated"
+  /** 用户显式「再读一遍」产生的同日新版本。 */
+  | "letter_reread";
+
+export const PERSONAL_MEMORY_ACTION_KINDS: readonly PersonalMemoryActionKind[] =
+  [
+    "submitted",
+    "revised",
+    "cleared",
+    "adopted",
+    "unadopted",
+    "insight_created",
+    "insight_corrected",
+    "insight_superseded",
+    "insight_archived",
+    "insight_restored",
+    "insight_forgotten",
+    "letter_generated",
+    "letter_reread",
+  ];
+
+/** 每种来源允许出现的动作。捕获前校验，防止把图片采用写成 letter_reread 之类。 */
+const ACTIONS_BY_SOURCE: Record<
+  PersonalMemorySourceType,
+  readonly PersonalMemoryActionKind[]
+> = {
+  chat_message: ["submitted"],
+  daily_letter_message: ["submitted", "revised", "cleared"],
+  publishing_adoption: ["adopted", "unadopted"],
+  image_adoption: ["adopted", "unadopted"],
+  insight: [
+    "insight_created",
+    "insight_corrected",
+    "insight_superseded",
+    "insight_archived",
+    "insight_restored",
+    "insight_forgotten",
+  ],
+  daily_letter_version: ["letter_generated", "letter_reread"],
+};
+
+// ─── 事件身份 ───────────────────────────────────────────────────────────
+
+/**
+ * 经历事件的规范身份。六段全部参与唯一性，全部非空。
+ *
+ * - sourceKey：来源在其权威表里的稳定标识（如 `message:1287`）。不是显示名。
+ * - sourceRevision：同一来源的第几次修订。没有天然修订的来源用 `"1"`，
+ *   **不能用空串**——空串和 NULL 一样会让「改了又改」塌成一条。
+ * - actionId：调用方持有的幂等令牌。同一次用户动作重试多少次都用同一个值。
+ */
+export type PersonalMemoryEventIdentity = {
+  userId: number;
+  sourceType: PersonalMemorySourceType;
+  sourceKey: string;
+  sourceRevision: string;
+  actionKind: PersonalMemoryActionKind;
+  actionId: string;
+};
+
+export const PERSONAL_MEMORY_SOURCE_KEY_MAX = 191;
+export const PERSONAL_MEMORY_SOURCE_REVISION_MAX = 64;
+export const PERSONAL_MEMORY_ACTION_ID_MAX = 191;
+
+export class PersonalMemoryIdentityError extends Error {
+  constructor(
+    readonly field: string,
+    readonly reason: string
+  ) {
+    super(`个人记忆事件身份非法：${field} ${reason}`);
+    this.name = "PersonalMemoryIdentityError";
+  }
+}
+
+function requireIdentitySegment(
+  field: string,
+  value: unknown,
+  maxLength: number
+): string {
+  if (typeof value !== "string") {
+    throw new PersonalMemoryIdentityError(field, "必须是字符串");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new PersonalMemoryIdentityError(
+      field,
+      "不能为空（空串与 NULL 一样会绕过唯一性）"
+    );
+  }
+  if (trimmed.length > maxLength) {
+    throw new PersonalMemoryIdentityError(
+      field,
+      `超过 ${maxLength} 字符上限（实际 ${trimmed.length}）`
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * 校验并归一化事件身份。写入前必须调用——MySQL 的唯一索引和本地模式的
+ * fingerprint 都假设这一步已经做过。
+ */
+export function normalizePersonalMemoryEventIdentity(
+  input: PersonalMemoryEventIdentity
+): PersonalMemoryEventIdentity {
+  if (!Number.isInteger(input.userId) || input.userId <= 0) {
+    throw new PersonalMemoryIdentityError("userId", "必须是正整数");
+  }
+  if (!PERSONAL_MEMORY_SOURCE_TYPES.includes(input.sourceType)) {
+    throw new PersonalMemoryIdentityError("sourceType", "不是已登记的来源类别");
+  }
+  if (!PERSONAL_MEMORY_ACTION_KINDS.includes(input.actionKind)) {
+    throw new PersonalMemoryIdentityError("actionKind", "不是已登记的动作");
+  }
+  if (!ACTIONS_BY_SOURCE[input.sourceType].includes(input.actionKind)) {
+    throw new PersonalMemoryIdentityError(
+      "actionKind",
+      `不属于来源 ${input.sourceType} 允许的动作`
+    );
+  }
+  return {
+    userId: input.userId,
+    sourceType: input.sourceType,
+    sourceKey: requireIdentitySegment(
+      "sourceKey",
+      input.sourceKey,
+      PERSONAL_MEMORY_SOURCE_KEY_MAX
+    ),
+    sourceRevision: requireIdentitySegment(
+      "sourceRevision",
+      input.sourceRevision,
+      PERSONAL_MEMORY_SOURCE_REVISION_MAX
+    ),
+    actionKind: input.actionKind,
+    actionId: requireIdentitySegment(
+      "actionId",
+      input.actionId,
+      PERSONAL_MEMORY_ACTION_ID_MAX
+    ),
+  };
+}
+
+/**
+ * 本地模式的幂等键。与 MySQL 复合唯一索引覆盖的列一一对应，顺序一致。
+ * 用 U+001F（Unit Separator）分隔，因为任何一段都不允许包含它。
+ */
+export function personalMemoryEventFingerprint(
+  identity: PersonalMemoryEventIdentity
+): string {
+  const normalized = normalizePersonalMemoryEventIdentity(identity);
+  return [
+    String(normalized.userId),
+    normalized.sourceType,
+    normalized.sourceKey,
+    normalized.sourceRevision,
+    normalized.actionKind,
+    normalized.actionId,
+  ].join("\u001f");
+}
+
+// ─── 经历事件 ───────────────────────────────────────────────────────────
+
+/**
+ * 事件自有的历史材料。来源有不可变修订时只留引用与哈希；
+ * 缺少不可变修订时才保存**最小必要**摘录。
+ *
+ * contentHash 只用于一致性与变化检测，**不得**当作可恢复正文，
+ * 也不得在删除后当作语义匹配材料。
+ */
+export type PersonalMemoryEventSnapshot = {
+  /** 展示所需的最小摘录；来源被删除时清空。 */
+  excerpt: string | null;
+  /** 内容哈希，仅供一致性校验。 */
+  contentHash: string | null;
+  /** 安全展示元数据（标题、镜头号等），不含图片字节与 prompt 原文。 */
+  display: Record<string, unknown> | null;
+};
+
+export function createEmptyPersonalMemoryEventSnapshot(): PersonalMemoryEventSnapshot {
+  return { excerpt: null, contentHash: null, display: null };
+}
+
+export type PersonalMemoryEventRecord = PersonalMemoryEventIdentity & {
+  id: number;
+  /** 中国时区日期，YYYY-MM-DD。跨日修改不重写旧日期。 */
+  occurredOn: string;
+  /** 精确发生时间（ISO）。 */
+  occurredAt: string;
+  snapshot: PersonalMemoryEventSnapshot;
+  /**
+   * 明确删除来源后置为 true：正文、哈希、摘录全部清除，只留无内容 tombstone
+   * 用于审计与防复活。这是经历账本 append-only 的唯一破例。
+   */
+  contentScrubbed: boolean;
+  createdAt: string;
+};
+
+// ─── 派生理解 ───────────────────────────────────────────────────────────
+
+/**
+ * 派生理解的状态机。与计划里的 stateDiagram 一一对应。
+ *
+ * - active：当前有效，可进入来信召回。
+ * - superseded：被更新且证据更强的表达替代，保留变化轨迹。
+ * - archived：用户归档或时效规则退出个性化，**可恢复**。
+ * - unsupported：最后一个有效来源被删除，退出召回。
+ * - forgotten：用户明确忘记，正文已清除，只留抑制 tombstone。
+ */
+export type PersonalMemoryInsightState =
+  | "active"
+  | "superseded"
+  | "archived"
+  | "unsupported"
+  | "forgotten";
+
+export const PERSONAL_MEMORY_INSIGHT_STATES: readonly PersonalMemoryInsightState[] =
+  ["active", "superseded", "archived", "unsupported", "forgotten"];
+
+/** 允许的状态迁移。恢复只能回到 active，且调用方还需检查有没有更新的冲突理解。 */
+const INSIGHT_TRANSITIONS: Record<
+  PersonalMemoryInsightState,
+  readonly PersonalMemoryInsightState[]
+> = {
+  active: ["superseded", "archived", "unsupported", "forgotten"],
+  superseded: ["forgotten"],
+  archived: ["active", "forgotten"],
+  unsupported: ["forgotten"],
+  forgotten: [],
+};
+
+export function canTransitionInsightState(
+  from: PersonalMemoryInsightState,
+  to: PersonalMemoryInsightState
+): boolean {
+  return INSIGHT_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * 可信级别。用户明确陈述与纠正**永远高于**系统推断——
+ * 一次性项目指令、提问、引用别人的话都不能变成永久人格。
+ */
+export type PersonalMemoryInsightOrigin =
+  | "user_stated"
+  | "user_corrected"
+  | "inferred";
+
+export type PersonalMemoryInsightCategory =
+  | "fact"
+  | "preference"
+  | "relationship"
+  | "goal"
+  | "concern"
+  | "reflection";
+
+export type PersonalMemoryInsightRecord = {
+  id: number;
+  userId: number;
+  /** 同一条理解跨版本的稳定身份；忘记时的抑制绑定在它上面。 */
+  lineageKey: string;
+  /** 同一 lineage 内自增；纠正产生新版本而不是改写旧版本。 */
+  revision: number;
+  state: PersonalMemoryInsightState;
+  origin: PersonalMemoryInsightOrigin;
+  category: PersonalMemoryInsightCategory;
+  /** 理解正文；forgotten 后为 null。 */
+  text: string | null;
+  /** 适用范围：全局，还是限定在某个 Story／项目内。 */
+  scope: Record<string, unknown> | null;
+  confidence: number;
+  /** 是否允许来信主动提及。敏感主题默认 false。 */
+  allowProactiveMention: boolean;
+  /** 被哪个版本替代（superseded 时非空）。 */
+  supersededByInsightId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** 理解与经历之间的多对多证据边。 */
+export type PersonalMemoryEvidenceRecord = {
+  id: number;
+  userId: number;
+  insightId: number;
+  eventId: number;
+  /** 记录建边时看到的来源修订，旧任务不能用过期修订复活理解。 */
+  sourceRevision: string;
+  createdAt: string;
+};
+
+/**
+ * 忘记 tombstone。绑定 `userId + lineageKey + 被禁止的证据`，
+ * 阻止**旧证据**重新生成同一理解。
+ *
+ * 它不承诺对未来的新表达做语义级永久封禁——那需要另一个用户可见的选择，
+ * 不能靠悄悄扩大本次忘记的语义来实现。
+ */
+export type PersonalMemorySuppressionRecord = {
+  id: number;
+  userId: number;
+  lineageKey: string;
+  /** 被禁止再次成为证据的事件 ID。 */
+  suppressedEventIds: number[];
+  createdAt: string;
+};
+
+// ─── 耐久提炼任务 ───────────────────────────────────────────────────────
+
+export type PersonalMemoryJobState =
+  | "pending"
+  | "claimed"
+  | "succeeded"
+  | "failed"
+  | "permanently_failed"
+  | "cancelled";
+
+export const PERSONAL_MEMORY_JOB_STATES: readonly PersonalMemoryJobState[] = [
+  "pending",
+  "claimed",
+  "succeeded",
+  "failed",
+  "permanently_failed",
+  "cancelled",
+];
+
+export type PersonalMemoryJobRecord = {
+  id: number;
+  userId: number;
+  eventId: number;
+  /**
+   * 任务幂等身份 = 算力账本的 operation ID。提炼是计费动作，
+   * 预占／结算／对账都用它，重复不得重复扣费。
+   */
+  operationId: string;
+  /** 提炼器版本；换版本产生新任务而不是复用旧结果。 */
+  extractorVersion: string;
+  state: PersonalMemoryJobState;
+  attempts: number;
+  /** claim 令牌；完成时按它做条件提交，防止过期 lease 覆盖新状态。 */
+  leaseToken: string | null;
+  leaseExpiresAt: string | null;
+  availableAt: string;
+  lastErrorKind: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─── 隐私 epoch ─────────────────────────────────────────────────────────
+
+/**
+ * 用户级隐私 epoch。忘记或删除来源时在同一短事务里递增，
+ * 使在途的来信生成即使已经拿到模型结果也无法提交旧输入。
+ */
+export type PersonalMemoryPrivacyEpochRecord = {
+  userId: number;
+  epoch: number;
+  updatedAt: string;
+};
+
+// ─── 不可变每日来信版本 ─────────────────────────────────────────────────
+
+/**
+ * 版本 envelope：稳定、不含隐私内容、永不清除。
+ * 即使正文因删除请求被隐去，envelope 仍然存在，用户仍能知道「那天有一封信」。
+ */
+export type PersonalMemoryLetterEnvelope = {
+  versionNumber: number;
+  generatedAt: string;
+  /** 触发方式：当日首版还是显式重读。 */
+  trigger: "generated" | "reread";
+  selectorVersion: string;
+  promptVersion: string;
+  modelVersion: string;
+};
+
+/**
+ * 可清除的隐私 payload：正文、八字修订、黄历事实、所选理解／证据修订、
+ * 段落级证据关联。明确删除来源时 scrub 这里，envelope 不动。
+ */
+export type PersonalMemoryLetterPayload = {
+  dailyReference: unknown;
+  analysisSeed: unknown;
+  userMessage: string | null;
+  /** 生成时固定的八字修订。 */
+  profileRevision: string | null;
+  /** 黄历事实与来源；失败降级时为 null（正文里也不得出现黄历断言）。 */
+  almanac: Record<string, unknown> | null;
+  /** 所选理解与证据的修订快照，用于解释「为什么提到」。 */
+  selectedEvidence: Array<{
+    insightId: number;
+    insightRevision: number;
+    eventIds: number[];
+  }>;
+};
+
+export type PersonalMemoryLetterVersionRecord = {
+  id: number;
+  userId: number;
+  /** 中国日期。 */
+  letterDate: string;
+  envelope: PersonalMemoryLetterEnvelope;
+  /** 被 scrub 后为 null；此时前端显示「内容因删除请求不可再显示」。 */
+  payload: PersonalMemoryLetterPayload | null;
+  /** 生成这一版时的隐私 epoch。 */
+  privacyEpoch: number;
+  /** 产生这一版的 attempt 稳定动作 ID。重复提交返回同一版本。 */
+  actionId: string;
+  createdAt: string;
+};
+
+export type PersonalMemoryLetterAttemptState =
+  | "in_flight"
+  | "committed"
+  | "failed"
+  | "rejected_stale";
+
+export type PersonalMemoryLetterAttemptRecord = {
+  id: number;
+  userId: number;
+  letterDate: string;
+  /** 稳定动作 ID：重复提交同一次「再读一遍」返回同一 attempt，不排第二次生成。 */
+  actionId: string;
+  state: PersonalMemoryLetterAttemptState;
+  /** 开始生成时固定的输入截点。 */
+  inputCutoffAt: string;
+  /** 开始生成时的隐私 epoch；提交时不匹配则拒绝。 */
+  privacyEpoch: number;
+  committedVersionId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─── 本地模式：outbox 与幂等投影 ────────────────────────────────────────
+
+/**
+ * outbox 条目。**写在来源自己所属的聚合里**：
+ *
+ * - 普通聊天：与标准化消息一起写进 prompt-lineage 聚合；
+ * - 每日留言／文章采用／图片采用：与各自来源一起写进 local-persist 聚合。
+ *
+ * 两份文件之间没有共同事务，只有下面这套带水位的幂等投影。
+ * MySQL 模式不需要 outbox——那里来源、事件与任务本来就在同一个 SQL 事务里。
+ */
+export type PersonalMemoryOutboxEntry = {
+  /** 聚合内单调递增序号，投影水位就是它。 */
+  seq: number;
+  identity: PersonalMemoryEventIdentity;
+  occurredOn: string;
+  occurredAt: string;
+  snapshot: PersonalMemoryEventSnapshot;
+  /** 需要一并入队的提炼任务；没有则为 null。 */
+  job: {
+    operationId: string;
+    extractorVersion: string;
+  } | null;
+};
+
+/** 各来源聚合的投影水位。key 是聚合名，value 是已投影到的 seq。 */
+export type PersonalMemoryProjectionWatermarks = Record<string, number>;
+
+/** 承载 outbox 的聚合都实现这个形状。 */
+export type PersonalMemoryOutboxCarrier = {
+  outbox: PersonalMemoryOutboxEntry[];
+  nextOutboxSeq: number;
+};
+
+export function createEmptyPersonalMemoryOutbox(): PersonalMemoryOutboxCarrier {
+  return { outbox: [], nextOutboxSeq: 1 };
+}
+
+// ─── 本地模式：统一足迹索引 ─────────────────────────────────────────────
+
+/**
+ * local-persist 聚合里的个人记忆状态。
+ *
+ * 它既是「来源在 local-persist 里的那几类事件」的家，也是**统一足迹索引**——
+ * prompt-lineage 聚合的 outbox 由 projector 幂等投影进来。
+ * 不新建第三份 JSON 文件。
+ */
+export type PersonalMemoryLocalState = {
+  /** 结构版本，用于旧文件兼容加载。 */
+  version: number;
+  events: PersonalMemoryEventRecord[];
+  insights: PersonalMemoryInsightRecord[];
+  evidence: PersonalMemoryEvidenceRecord[];
+  suppressions: PersonalMemorySuppressionRecord[];
+  jobs: PersonalMemoryJobRecord[];
+  privacyEpochs: PersonalMemoryPrivacyEpochRecord[];
+  letterVersions: PersonalMemoryLetterVersionRecord[];
+  letterAttempts: PersonalMemoryLetterAttemptRecord[];
+  /** local-persist 自己那部分来源的 outbox。 */
+  outbox: PersonalMemoryOutboxEntry[];
+  nextOutboxSeq: number;
+  /** 已经投影到的各聚合水位，崩溃后从这里续投。 */
+  projectionWatermarks: PersonalMemoryProjectionWatermarks;
+  nextIds: {
+    event: number;
+    insight: number;
+    evidence: number;
+    suppression: number;
+    job: number;
+    letterVersion: number;
+    letterAttempt: number;
+  };
+};
+
+export const PERSONAL_MEMORY_LOCAL_STATE_VERSION = 1;
+
+export function createEmptyPersonalMemoryLocalState(): PersonalMemoryLocalState {
+  return {
+    version: PERSONAL_MEMORY_LOCAL_STATE_VERSION,
+    events: [],
+    insights: [],
+    evidence: [],
+    suppressions: [],
+    jobs: [],
+    privacyEpochs: [],
+    letterVersions: [],
+    letterAttempts: [],
+    outbox: [],
+    nextOutboxSeq: 1,
+    projectionWatermarks: {},
+    nextIds: {
+      event: 1,
+      insight: 1,
+      evidence: 1,
+      suppression: 1,
+      job: 1,
+      letterVersion: 1,
+      letterAttempt: 1,
+    },
+  };
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function nextIdFrom(rows: Array<{ id: number }>, stored: unknown): number {
+  const fromRows = rows.reduce(
+    (max, row) => (Number.isFinite(row.id) ? Math.max(max, row.id + 1) : max),
+    1
+  );
+  const fromStored =
+    typeof stored === "number" && Number.isFinite(stored) ? stored : 1;
+  return Math.max(fromRows, fromStored);
+}
+
+/**
+ * 旧文件兼容加载：缺字段补默认值，nextId 取「存的值」与「行里最大 id + 1」的较大者。
+ * 这与 db.ts 既有 nextIdFromRows 的做法一致——存的值可能因为一次坏写而落后。
+ */
+export function normalizePersonalMemoryLocalState(
+  raw: unknown
+): PersonalMemoryLocalState {
+  const empty = createEmptyPersonalMemoryLocalState();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return empty;
+  const input = raw as Partial<PersonalMemoryLocalState>;
+
+  const events = asArray<PersonalMemoryEventRecord>(input.events);
+  const insights = asArray<PersonalMemoryInsightRecord>(input.insights);
+  const evidence = asArray<PersonalMemoryEvidenceRecord>(input.evidence);
+  const suppressions = asArray<PersonalMemorySuppressionRecord>(
+    input.suppressions
+  );
+  const jobs = asArray<PersonalMemoryJobRecord>(input.jobs);
+  const letterVersions = asArray<PersonalMemoryLetterVersionRecord>(
+    input.letterVersions
+  );
+  const letterAttempts = asArray<PersonalMemoryLetterAttemptRecord>(
+    input.letterAttempts
+  );
+  const outbox = asArray<PersonalMemoryOutboxEntry>(input.outbox);
+
+  const watermarks: PersonalMemoryProjectionWatermarks = {};
+  if (
+    input.projectionWatermarks &&
+    typeof input.projectionWatermarks === "object" &&
+    !Array.isArray(input.projectionWatermarks)
+  ) {
+    for (const [key, value] of Object.entries(input.projectionWatermarks)) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        watermarks[key] = value;
+      }
+    }
+  }
+
+  const storedSeq =
+    typeof input.nextOutboxSeq === "number" &&
+    Number.isFinite(input.nextOutboxSeq)
+      ? input.nextOutboxSeq
+      : 1;
+
+  return {
+    version: PERSONAL_MEMORY_LOCAL_STATE_VERSION,
+    events,
+    insights,
+    evidence,
+    suppressions,
+    jobs,
+    privacyEpochs: asArray<PersonalMemoryPrivacyEpochRecord>(
+      input.privacyEpochs
+    ),
+    letterVersions,
+    letterAttempts,
+    outbox,
+    nextOutboxSeq: outbox.reduce(
+      (max, entry) =>
+        Number.isFinite(entry.seq) ? Math.max(max, entry.seq + 1) : max,
+      storedSeq
+    ),
+    projectionWatermarks: watermarks,
+    nextIds: {
+      event: nextIdFrom(events, input.nextIds?.event),
+      insight: nextIdFrom(insights, input.nextIds?.insight),
+      evidence: nextIdFrom(evidence, input.nextIds?.evidence),
+      suppression: nextIdFrom(suppressions, input.nextIds?.suppression),
+      job: nextIdFrom(jobs, input.nextIds?.job),
+      letterVersion: nextIdFrom(letterVersions, input.nextIds?.letterVersion),
+      letterAttempt: nextIdFrom(letterAttempts, input.nextIds?.letterAttempt),
+    },
+  };
+}
+
+// ─── 来信版本 → 日期级投影 ──────────────────────────────────────────────
+
+/**
+ * 日期级来信行**只是当前版本的指针和兼容投影**，不是第二个 writer。
+ * 这个函数是「投影可从版本重建」的唯一实现：迁移、回滚构建和对账都用它，
+ * 任何绕过它直接写日期级正文的代码路径都属于必须被拒绝的 pre-U1 行为。
+ */
+export function projectLetterRowFromVersion(version: {
+  userId: number;
+  letterDate: string;
+  envelope: PersonalMemoryLetterEnvelope;
+  payload: PersonalMemoryLetterPayload | null;
+}): {
+  userId: number;
+  letterDate: string;
+  userMessage: string | null;
+  dailyReference: unknown;
+  analysisSeed: unknown;
+  revision: number;
+} {
+  return {
+    userId: version.userId,
+    letterDate: version.letterDate,
+    // payload 被 scrub 后正文不再可见，但 envelope 仍证明这天有过一封信。
+    userMessage: version.payload?.userMessage ?? null,
+    dailyReference: version.payload?.dailyReference ?? {},
+    analysisSeed: version.payload?.analysisSeed ?? {},
+    revision: version.envelope.versionNumber,
+  };
+}
+
+/** 同一天的版本按版本号升序；当前版本是最后一个。 */
+export function currentLetterVersion(
+  versions: PersonalMemoryLetterVersionRecord[]
+): PersonalMemoryLetterVersionRecord | null {
+  let current: PersonalMemoryLetterVersionRecord | null = null;
+  for (const version of versions) {
+    if (
+      !current ||
+      version.envelope.versionNumber > current.envelope.versionNumber
+    ) {
+      current = version;
+    }
+  }
+  return current;
+}
+
+// ─── 捕获、outbox 与幂等投影（纯函数）─────────────────────────────────
+//
+// 这一段是 U1 的心脏：MySQL 和本地两条路径共用同一套幂等语义，所以它必须是
+// 纯的、可反复执行的。projector 崩了重跑、outbox 被重复投递、水位落后，
+// 结果都必须与只执行一次完全一样。
+
+/** 一次捕获需要的全部输入。来源、事件与任务在同一次调用里成立或一起不成立。 */
+export type PersonalMemoryCapture = {
+  identity: PersonalMemoryEventIdentity;
+  occurredOn: string;
+  occurredAt: string;
+  snapshot: PersonalMemoryEventSnapshot;
+  /** 来源所属 Story；每日留言与理解没有 Story，传 null。 */
+  storyId: number | null;
+  /** 需要一并入队的提炼任务；Phase 1 只入队不消费。 */
+  job: { operationId: string; extractorVersion: string } | null;
+};
+
+export type PersonalMemoryApplyResult = {
+  event: PersonalMemoryEventRecord;
+  /** false = 这次是重放，状态没有任何变化。 */
+  changed: boolean;
+};
+
+function findEventByIdentity(
+  state: PersonalMemoryLocalState,
+  fingerprint: string
+): PersonalMemoryEventRecord | null {
+  for (const event of state.events) {
+    if (personalMemoryEventFingerprint(event) === fingerprint) return event;
+  }
+  return null;
+}
+
+/**
+ * 把一次捕获幂等地应用到本地状态。**原地修改** state，调用方负责在外层
+ * 聚合写盘失败时丢弃这份 state（本地模式用 copy-on-write，不做部分回滚）。
+ *
+ * 重放同一动作 ID 时返回既有事件且 changed=false——事件、任务、证据边基数
+ * 都不变。这正是 projector 可以放心重跑的原因。
+ */
+export function applyPersonalMemoryCapture(
+  state: PersonalMemoryLocalState,
+  capture: PersonalMemoryCapture
+): PersonalMemoryApplyResult {
+  const identity = normalizePersonalMemoryEventIdentity(capture.identity);
+  const fingerprint = personalMemoryEventFingerprint(identity);
+  const existing = findEventByIdentity(state, fingerprint);
+  if (existing) return { event: existing, changed: false };
+
+  const event: PersonalMemoryEventRecord = {
+    ...identity,
+    id: state.nextIds.event,
+    occurredOn: capture.occurredOn,
+    occurredAt: capture.occurredAt,
+    snapshot: capture.snapshot,
+    contentScrubbed: false,
+    createdAt: capture.occurredAt,
+  };
+  state.nextIds.event += 1;
+  state.events.push(event);
+
+  if (capture.job) {
+    // 同一事件 + 同一提炼器版本只排一次；换版本才是新任务。
+    const duplicate = state.jobs.some(
+      job =>
+        job.eventId === event.id &&
+        job.extractorVersion === capture.job!.extractorVersion
+    );
+    if (!duplicate) {
+      state.jobs.push({
+        id: state.nextIds.job,
+        userId: identity.userId,
+        eventId: event.id,
+        operationId: capture.job.operationId,
+        extractorVersion: capture.job.extractorVersion,
+        state: "pending",
+        attempts: 0,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        availableAt: capture.occurredAt,
+        lastErrorKind: null,
+        createdAt: capture.occurredAt,
+        updatedAt: capture.occurredAt,
+      });
+      state.nextIds.job += 1;
+    }
+  }
+
+  return { event, changed: true };
+}
+
+/**
+ * 往来源自己所属聚合的 outbox 追加一条。**原地修改** carrier。
+ *
+ * 这是本地模式下「不假装跨文件事务」的具体做法：聊天的 outbox 跟着聊天
+ * 一起落进 prompt-lineage 聚合，采用与留言的 outbox 跟着来源落进 local-persist。
+ */
+export function appendPersonalMemoryOutboxEntry(
+  carrier: PersonalMemoryOutboxCarrier,
+  capture: PersonalMemoryCapture
+): PersonalMemoryOutboxEntry {
+  const identity = normalizePersonalMemoryEventIdentity(capture.identity);
+  const entry: PersonalMemoryOutboxEntry = {
+    seq: carrier.nextOutboxSeq,
+    identity,
+    occurredOn: capture.occurredOn,
+    occurredAt: capture.occurredAt,
+    snapshot: capture.snapshot,
+    job: capture.job,
+  };
+  carrier.nextOutboxSeq += 1;
+  carrier.outbox.push(entry);
+  return entry;
+}
+
+export type PersonalMemoryProjectionResult = {
+  /** 实际新建的事件数。重复投影时为 0。 */
+  applied: number;
+  /** 跳过的条目数（水位之下，或身份已存在）。 */
+  skipped: number;
+  /** 投影后的水位。 */
+  watermark: number;
+};
+
+/**
+ * 把某个来源聚合的 outbox 幂等投影进统一足迹索引。**原地修改** state。
+ *
+ * 崩溃恢复靠两道保险，缺一不可：
+ *  1. **水位**：只处理 seq > 水位的条目，正常路径不必重扫全表；
+ *  2. **身份去重**：即使水位因为一次坏写退回到 0、或同一条被重复投递，
+ *     applyPersonalMemoryCapture 仍然按 fingerprint 拒绝第二次建事件。
+ *
+ * 光有水位不够——水位本身就存在 local-persist 里，它也可能落后于事实。
+ */
+export function projectPersonalMemoryOutbox(
+  state: PersonalMemoryLocalState,
+  aggregateName: string,
+  entries: readonly PersonalMemoryOutboxEntry[]
+): PersonalMemoryProjectionResult {
+  const watermark = state.projectionWatermarks[aggregateName] ?? 0;
+  let applied = 0;
+  let skipped = 0;
+  let highest = watermark;
+
+  // outbox 可能乱序（并发追加后又被合并），按 seq 升序处理，水位才有意义。
+  const ordered = [...entries].sort((left, right) => left.seq - right.seq);
+  for (const entry of ordered) {
+    if (entry.seq <= watermark) {
+      skipped += 1;
+      continue;
+    }
+    const result = applyPersonalMemoryCapture(state, {
+      identity: entry.identity,
+      occurredOn: entry.occurredOn,
+      occurredAt: entry.occurredAt,
+      snapshot: entry.snapshot,
+      storyId: null,
+      job: entry.job,
+    });
+    if (result.changed) applied += 1;
+    else skipped += 1;
+    highest = Math.max(highest, entry.seq);
+  }
+
+  state.projectionWatermarks[aggregateName] = highest;
+  return { applied, skipped, watermark: highest };
+}

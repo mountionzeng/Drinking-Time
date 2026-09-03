@@ -53,7 +53,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         const [migrationRows] = await connection.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS count FROM __drizzle_migrations",
         );
-        expect(Number(migrationRows[0]?.count)).toBe(17);
+        expect(Number(migrationRows[0]?.count)).toBe(18);
       } finally {
         await connection.end();
       }

@@ -3,6 +3,10 @@ import {
   type CompiledPromptTarget,
 } from "../../shared/promptCompiler";
 import {
+  appendPersonalMemoryOutboxEntry,
+  type PersonalMemoryCapture,
+} from "../../shared/personalMemory";
+import {
   createEmptyPromptLineageLocalState,
   normalizePromptLineageLocalState,
   type PromptCompilation,
@@ -145,6 +149,17 @@ export type AppendConversationTurnInput = {
       reference?: Omit<AddMessageReferenceInput, "messageId"> | null;
     }
   >;
+  /**
+   * 个人记忆捕获（U2）。给定时，outbox 条目和消息**写进同一份 draft**，
+   * 由同一次 onCommit 落盘——消息成立则经历一定成立，反之亦然。
+   *
+   * 回调形式是因为经历的稳定来源是消息行 ID，而 ID 要等消息在 draft 里
+   * 建出来才知道。返回 null 表示这一轮不捕获（例如账号不在捕获白名单内，
+   * 或这条消息不是用户自己敲的）。
+   */
+  personalMemoryCapture?: (
+    appended: StoryConversationMessage[]
+  ) => PersonalMemoryCapture | null;
 };
 
 export type AppendConversationTurnResult = {
@@ -193,6 +208,26 @@ export type PromptLineageTransaction = {
     stableShotId: string,
   ): Record<Exclude<PromptModality, "shared">, CompiledPromptTarget>;
 };
+
+/**
+ * 把一条个人记忆 outbox 追加进**调用方正在编辑的那份 draft**。
+ *
+ * 关键是「同一份 draft」：outbox 与消息由同一次 onCommit 落盘，
+ * 不存在「消息存了但经历丢了」的中间态。跨到统一足迹索引那一步是另一个
+ * 聚合、另一次写盘，由带水位的幂等 projector 负责补齐。
+ */
+function stageOutboxEntry(
+  draft: PromptLineageLocalState,
+  capture: PersonalMemoryCapture | null,
+): void {
+  if (!capture) return;
+  const carrier = {
+    outbox: draft.personalMemoryOutbox,
+    nextOutboxSeq: draft.nextPersonalMemoryOutboxSeq,
+  };
+  appendPersonalMemoryOutboxEntry(carrier, capture);
+  draft.nextPersonalMemoryOutboxSeq = carrier.nextOutboxSeq;
+}
 
 function normalizeInitialState(
   initial?: PromptLineageLocalState | string,
@@ -749,6 +784,11 @@ export function createPromptLineageMemoryStore(
         }
       }
       conversation.updatedAt = timestamp;
+
+      // 捕获与消息共用这一份 draft：下面的 onCommit 要么把两者一起落盘，
+      // 要么两者都不落盘。这就是本地模式不需要（也不能）伪造跨文件事务的原因。
+      stageOutboxEntry(draft, input.personalMemoryCapture?.(appended) ?? null);
+
       await storeOptions.onCommit?.(structuredClone(draft));
       state = draft;
       return structuredClone({ conversation, messages: appended, references });
@@ -1001,6 +1041,10 @@ export function createPromptLineageMemoryStore(
         clientTurnId: string;
         requestHash: string;
         now: string;
+        /** 见 AppendConversationTurnInput.personalMemoryCapture。 */
+        personalMemoryCapture?: (
+          appended: StoryConversationMessage[],
+        ) => PersonalMemoryCapture | null;
       },
     ): Promise<StoryConversationTurn> {
       findOwnedStoryState(owner);
@@ -1079,6 +1123,21 @@ export function createPromptLineageMemoryStore(
       turn.appendStatus = "appended";
       turn.appendedAt = input.now;
       turn.updatedAt = input.now;
+
+      // 手机整轮提交与桌面走同一套边界：经历跟着用户消息进同一份 draft。
+      // 上面 `appendStatus === "appended"` 的提前返回保证重复追加不会走到这里。
+      const appendedUserMessage = draft.messages.find(
+        item =>
+          ownerMatches(item, owner) &&
+          item.clientMessageId === turn.userClientMessageId
+      );
+      stageOutboxEntry(
+        draft,
+        appendedUserMessage
+          ? (input.personalMemoryCapture?.([appendedUserMessage]) ?? null)
+          : null
+      );
+
       await storeOptions.onCommit?.(structuredClone(draft));
       state = draft;
       return structuredClone(turn);

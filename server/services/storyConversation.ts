@@ -21,6 +21,11 @@ import {
 } from "../db";
 import { getDb } from "../db";
 import {
+  capturePersonalMemoryInTx,
+  chatMessageCaptureIfEnabled,
+  drainPersonalMemoryOutbox,
+} from "./personalMemoryEvents";
+import {
   createPersistentLocalPromptLineageStore,
   loadStoryPromptAggregate,
   PromptLineageIdempotencyConflictError,
@@ -767,11 +772,27 @@ export async function appendMobileStoryConversationTurn(
           clientTurnId: input.clientTurnId,
           requestHash: input.requestHash,
           now: now.iso,
+          // 手机整轮提交与桌面共用同一个捕获边界（U2）：同一条用户消息
+          // 从哪个端来都只产生一个经历，靠 clientMessageId 做动作 ID 去重。
+          personalMemoryCapture: appended => {
+            const userMessage = appended[0];
+            return userMessage
+              ? chatMessageCaptureIfEnabled({
+                  userId: owner.userId,
+                  storyId: owner.storyId,
+                  messageId: userMessage.id,
+                  content: userMessage.content,
+                  clientMessageId: userMessage.clientMessageId ?? "",
+                  occurredAt: new Date(userMessage.createdAt),
+                })
+              : null;
+          },
         });
       });
     } catch (error) {
       translateIdempotencyError(error);
     }
+    await drainPersonalMemoryOutbox();
   } else {
     turn = await db.transaction(async tx => {
       const [conversation] = await tx
@@ -885,6 +906,36 @@ export async function appendMobileStoryConversationTurn(
             createdAt: now.date,
           },
         ]);
+      }
+      // 在同一个 SQL 事务里捕获。走到这里说明这一轮此前没有被追加过
+      // （上面 appendStatus === "appended" 已经提前返回），所以重复请求
+      // 不会重复捕获；即便走到了，动作 ID 相同也只会命中既有事件。
+      const [appendedUserMessage] = await tx
+        .select({ id: storyConversationMessages.id })
+        .from(storyConversationMessages)
+        .where(
+          and(
+            eq(storyConversationMessages.storyId, owner.storyId),
+            eq(storyConversationMessages.userId, owner.userId),
+            eq(
+              storyConversationMessages.clientMessageId,
+              current.userClientMessageId
+            )
+          )
+        )
+        .limit(1);
+      if (appendedUserMessage) {
+        await capturePersonalMemoryInTx(
+          { mode: "mysql", tx },
+          chatMessageCaptureIfEnabled({
+            userId: owner.userId,
+            storyId: owner.storyId,
+            messageId: appendedUserMessage.id,
+            content: current.userContent,
+            clientMessageId: current.userClientMessageId,
+            occurredAt: now.date,
+          })
+        );
       }
       await tx
         .update(storyConversationTurns)
@@ -1141,6 +1192,25 @@ export async function appendStoryConversationTurn(
       }
       const store = await createPersistentLocalPromptLineageStore();
       await store.appendConversationTurn(owner, {
+        // 经历与这条用户消息写进同一份 draft、同一次落盘（U2）。
+        // 助手那条不捕获——那是模型说的话，不是用户说的。
+        personalMemoryCapture: appended => {
+          const userMessage = appended.find(
+            message =>
+              message.clientMessageId === intended[0].clientMessageId &&
+              message.role === "user"
+          );
+          return userMessage
+            ? chatMessageCaptureIfEnabled({
+                userId: owner.userId,
+                storyId: owner.storyId,
+                messageId: userMessage.id,
+                content: userContent,
+                clientMessageId: intended[0].clientMessageId,
+                occurredAt: new Date(userMessage.createdAt),
+              })
+            : null;
+        },
         messages: [
           {
             role: "user",
@@ -1167,6 +1237,9 @@ export async function appendStoryConversationTurn(
         ],
       });
     });
+    // 跨聚合那一跳：消息与 outbox 已经安全落盘，这里只是把它搬进统一足迹索引。
+    // 失败不影响用户的这次保存——下一次调用会从水位续投。
+    await drainPersonalMemoryOutbox();
     return listStoryConversation(owner);
   }
 
@@ -1315,6 +1388,22 @@ export async function appendStoryConversationTurn(
           objectVersion: message.selection.objectVersion ?? null,
           selection: message.selection,
         });
+      }
+      // 经历与消息在同一个 SQL 事务里成立（U2）。捕获抛错会让整轮保存失败，
+      // 这是有意的：调用方凭原 client ID 重试是安全的，而「消息存了、经历丢了」
+      // 会静默制造再也补不回来的历史缺口。
+      if (message.role === "user") {
+        await capturePersonalMemoryInTx(
+          { mode: "mysql", tx },
+          chatMessageCaptureIfEnabled({
+            userId: owner.userId,
+            storyId: owner.storyId,
+            messageId: inserted.insertId,
+            content: message.content,
+            clientMessageId: message.clientMessageId,
+            occurredAt: new Date(),
+          })
+        );
       }
     };
 
