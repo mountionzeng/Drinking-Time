@@ -10475,6 +10475,24 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 /**
+ * 死锁。InnoDB 会挑一个事务回滚掉，被回滚的那个重试即可。
+ *
+ * 这在并发插入同一段区间时是**正常现象**，不是 bug——除非我们自己去抢间隙锁
+ * 把它变成必然。见 appendEmotionDailyLetterVersion 的说明。
+ */
+function isDeadlockError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const candidate = current as { code?: string; errno?: number; cause?: unknown };
+    if (candidate.code === "ER_LOCK_DEADLOCK" || candidate.errno === 1213) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
+}
+
+/**
  * @param locking true = `FOR UPDATE`，读当前已提交状态而不是事务快照。
  *
  * 这个参数不是性能开关，是正确性开关。MySQL 默认 REPEATABLE READ：事务里
@@ -10775,12 +10793,34 @@ export async function appendEmotionDailyLetterVersion(
     });
   }
 
+  // 有界重试：唯一索引撞车或死锁都意味着「有人抢先提交了」，
+  // 重开一个事务就能看见对方的结果——要么发现这是重放，要么算出下一个版本号。
+  // 不无限重试：真的持续冲突说明有别的问题，应该报出来而不是自己转圈。
+  const MAX_APPEND_ATTEMPTS = 5;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await appendLetterVersionOnce(db, input);
+    } catch (error) {
+      const retryable = isDuplicateKeyError(error) || isDeadlockError(error);
+      if (!retryable || attempt >= MAX_APPEND_ATTEMPTS) throw error;
+    }
+  }
+}
+
+async function appendLetterVersionOnce(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  input: AppendDailyLetterVersionInput
+): Promise<AppendDailyLetterVersionResult | null> {
   return db.transaction(async tx => {
-    // 先在这一天的版本区间上取锁。这一步同时做两件事：
-    //   1. 串行化同一天的并发写入，让版本号不会被两个事务算成同一个；
-    //   2. 它是**当前读**，所以等锁期间对方提交的版本这里看得见——
-    //      而事务快照里的普通读看不见（MySQL 默认 REPEATABLE READ）。
-    // 正因为看得见，幂等复查也一并在这份结果里做，不需要额外一次查询。
+    // 刻意**不**在这里用 SELECT ... FOR UPDATE。
+    //
+    // 当天还没有任何版本时，那是一段空区间；两个事务同时对空区间取锁会各拿到
+    // 一个相容的间隙锁，然后都想往这个间隙插入——必然互相等成死锁
+    // （2026-09-03 在真实 MySQL 上实测到 ER_LOCK_DEADLOCK）。
+    //
+    // 改成乐观策略：普通读算版本号 → 直接插入 → 撞唯一索引或死锁就整笔重试。
+    // 唯一索引 (userId, letterDate, versionNumber) 才是真正的仲裁者，
+    // 重试时是新事务、新快照，看得到对方已经提交的版本。
     const priorVersions = await tx
       .select()
       .from(emotionDailyLetterVersions)
@@ -10789,8 +10829,7 @@ export async function appendEmotionDailyLetterVersion(
           eq(emotionDailyLetterVersions.userId, input.userId),
           eq(emotionDailyLetterVersions.letterDate, input.letterDate)
         )
-      )
-      .for("update");
+      );
     const priorRecords = priorVersions.map(letterVersionRowToRecord);
 
     // 幂等：同一 action ID 已经产生过版本就原样返回，不再追加。

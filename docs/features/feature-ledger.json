@@ -3083,6 +3083,11 @@
           "date": "2026-09-03",
           "kind": "build",
           "summary": "Phase 2 / U4 回填 dry-run 与持续对账：scripts/backfill-personal-memory.ts 把历史分成 deterministic / source_incomplete / ambiguous / rejected_not_adoption 四类并输出带来源高水位与 schema 版本的 manifest，说不清楚的一律不写。关键结论：历史图片采用基本落在 ambiguous——promoteStoryImageToCurrent 被用户点击和被自动路径调用写下的 imageSignals 行形状完全一样，旧数据区分不了；文章采用是唯一自带用户意图凭据的来源（versionOperationReceipts）。apply 由 assertApplyAllowed 硬阻断并写明四条解除条件，因为计划要求它必须等 U5 的 runner、暂停开关与积压指标。personalMemoryReconciliation.ts 为纯函数对账，扫经历无成功提炼、活跃理解失去全部证据、卡死 lease、孤立证据边、来信 payload 残留五类；pending 任务不算漂移（Phase 1 runner 本就未启动），limit 只裁剪列表不影响计数。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "修来信版本追加在真实 MySQL 上的间隙锁死锁：当天还没有版本时那是一段空区间，两个事务同时 SELECT ... FOR UPDATE 会各拿一个相容的间隙锁再都想往里插，必然 ER_LOCK_DEADLOCK（实测到间歇失败）。改为乐观策略——普通读算版本号、直接插入、撞唯一索引或死锁则整笔重试（上限 5 次），由唯一索引 (userId, letterDate, versionNumber) 做仲裁；重试是新事务新快照，看得到对方已提交的版本。并发用例连跑三轮全绿。"
         }
       ]
     }
