@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -2472,6 +2473,15 @@ export const publishingDraftRouter = router({
           storyId: input.storyId,
           userId: ctx.user.id,
           metadata: { source: "publishing_cover" },
+          // 用户采纳这张作为发布封面。
+          adoption: signalId =>
+            imageAdoptionCaptureIfEnabled({
+              userId: ctx.user.id,
+              storyId: input.storyId,
+              imageId: candidate.id,
+              signalId,
+              context: { entry: "adopt_cover_candidate" },
+            }),
         });
         if (!promoted) {
           await writePublishingDraftState({

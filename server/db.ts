@@ -2668,6 +2668,11 @@ export async function updateStoryBodyIfRevision(input: {
   expectedRevision: number;
   body: unknown;
   data?: Omit<Partial<InsertStory>, "body">;
+  /**
+   * 明确采用的经历（U3）。与这次 CAS 共享事务边界：CAS 输了不写，赢了才写。
+   * 见 persistPreparedStoryBody 的说明——不允许 CAS 之后 best-effort 补。
+   */
+  personalMemoryCapture?: PersonalMemoryCapture;
 }): Promise<boolean> {
   const nextRevision = persistedStoryBodyRevision(input.body);
   if (nextRevision !== input.expectedRevision + 1) {
@@ -2701,6 +2706,17 @@ export async function updateStoryBodyIfRevision(input: {
         // still holds exactly the value *this call* set — if something else has
         // since changed it, that's a newer write we must not clobber.
     const previousRow = { ...row };
+    // 经历与 body 进同一次 copy-on-write。落盘失败时下面会把它整份还原——
+    // Story 与足迹索引同属 local-persist 聚合，所以不需要 outbox。
+    const previousPersonalMemory = input.personalMemoryCapture
+      ? structuredClone(memoryState.personalMemory)
+      : null;
+    if (input.personalMemoryCapture) {
+      applyPersonalMemoryCapture(
+        memoryState.personalMemory,
+        input.personalMemoryCapture
+      );
+    }
     const writtenFields: Record<string, unknown> = { body: input.body };
     if (input.data) {
       applyDefinedValues(
@@ -2715,6 +2731,9 @@ export async function updateStoryBodyIfRevision(input: {
     try {
       await persistMemoryState();
     } catch (error) {
+      if (previousPersonalMemory) {
+        memoryState.personalMemory = previousPersonalMemory;
+      }
       const rowRecord = row as unknown as Record<string, unknown>;
       const previousRecord = previousRow as unknown as Record<string, unknown>;
           // Known narrow limitation: for primitive `data` fields this compares by
@@ -2733,17 +2752,28 @@ export async function updateStoryBodyIfRevision(input: {
       return true;
     });
   }
-  const result = await db
-    .update(stories)
-    .set({ ...(input.data ?? {}), body: input.body })
-    .where(
-      and(
-        eq(stories.id, input.id),
-        eq(stories.userId, input.userId),
-        sql`CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${stories.body}, '$._revision')), '0') AS UNSIGNED) = ${input.expectedRevision}`
-      )
-    );
-  return result[0].affectedRows === 1;
+  // 包进事务是为了让采用经历和这次 CAS 同生共死。没有捕获时它只是一条
+  // 单语句事务，行为与过去等价。
+  return db.transaction(async tx => {
+    const result = await tx
+      .update(stories)
+      .set({ ...(input.data ?? {}), body: input.body })
+      .where(
+        and(
+          eq(stories.id, input.id),
+          eq(stories.userId, input.userId),
+          sql`CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${stories.body}, '$._revision')), '0') AS UNSIGNED) = ${input.expectedRevision}`
+        )
+      );
+    if (result[0].affectedRows !== 1) return false;
+    if (input.personalMemoryCapture) {
+      await capturePersonalMemoryEvent(
+        { mode: "mysql", tx },
+        input.personalMemoryCapture
+      );
+    }
+    return true;
+  });
 }
 
 export async function deleteStory(id: number, userId: number): Promise<void> {
@@ -3435,6 +3465,17 @@ export async function promoteStoryImageToCurrent(data: {
   userId: number;
   expectedCurrentImageId?: number;
   metadata?: InsertImageSignal["metadata"];
+  /**
+   * 明确采用上下文（U3）。**只能由 router 边界显式传入。**
+   *
+   * 这个函数同时被用户点击和内部派生路径（生成后自动置为当前、恢复、
+   * 批量迁移）调用，所以不传就是不记采用。特别注意：不要从 `metadata.source`
+   * 反推——那字段是给排查用的，把它当采用凭据就是把自动行为伪造成用户选择。
+   *
+   * 回调形式是因为采用经历要用权威 `imageSignals` 行 ID 做身份，
+   * 而那个 ID 得等 signal 在同一事务里插出来才知道。
+   */
+  adoption?: (signalId: number) => PersonalMemoryCapture | null;
 }): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
   const db = await getDb();
   if (!db) {
@@ -3485,7 +3526,27 @@ export async function promoteStoryImageToCurrent(data: {
       createdAt: now(),
     };
     memoryState.imageSignals.push(signal);
-    await persistMemoryState();
+    // 采用经历与 isCurrent 翻转、signal 一起进这一次 copy-on-write。
+    // 图片与足迹索引同属 local-persist 聚合，所以不需要 outbox。
+    const localAdoption = data.adoption?.(signal.id) ?? null;
+    const previousPersonalMemory = localAdoption
+      ? structuredClone(memoryState.personalMemory)
+      : null;
+    if (localAdoption) {
+      applyPersonalMemoryCapture(memoryState.personalMemory, localAdoption);
+    }
+    try {
+      await persistMemoryState();
+    } catch (error) {
+      // 落盘失败必须撤回这条采用经历。本函数其余内存态变更（isCurrent 翻转、
+      // signal）沿用 db.ts 顶部记录的既有取舍——它们不回滚。但记忆层不能例外：
+      // 留下一条「用户采用过」而实际没落盘的记录，会让来信去引用一个根本不存在
+      // 的选择，事后也无从分辨真假。
+      if (previousPersonalMemory) {
+        memoryState.personalMemory = previousPersonalMemory;
+      }
+      throw error;
+    }
     return { image, signal };
   }
 
@@ -3573,6 +3634,11 @@ export async function promoteStoryImageToCurrent(data: {
       .select()
       .from(imageSignals)
       .where(eq(imageSignals.id, result.insertId));
+    // 采用经历与 isCurrent 翻转、signal 在同一个 SQL 事务里成立。
+    const adoption = data.adoption?.(signal.id) ?? null;
+    if (adoption) {
+      await capturePersonalMemoryEvent({ mode: "mysql", tx }, adoption);
+    }
     return { image: { ...image, isCurrent: true }, signal };
   });
 }

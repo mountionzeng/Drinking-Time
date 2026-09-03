@@ -3004,7 +3004,10 @@
         "server/integration/personalMemory.mysql.test.ts",
         "server/services/personalMemoryEvents.ts",
         "server/services/personalMemoryEvents.test.ts",
-        "server/services/storyConversation.personalMemory.test.ts"
+        "server/services/storyConversation.personalMemory.test.ts",
+        "server/services/personalMemoryAdoption.ts",
+        "server/services/personalMemoryAdoption.test.ts",
+        "server/db.personalMemoryAdoption.test.ts"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -3066,6 +3069,11 @@
           "date": "2026-09-03",
           "kind": "fix",
           "summary": "首次在真实 MySQL 上执行 U1/U2 集成测试（本机 brew MySQL + 一次性测试库），修掉两个只有并发才暴露的快照问题：REPEATABLE READ 下事务首个普通 SELECT 确立快照后，INSERT ... ON DUPLICATE KEY UPDATE 虽是当前读、随后的普通回读却看不到并发事务已提交的行，导致来源登记误报失败；来信版本改为先在当天区间取 FOR UPDATE（当前读）再在同一份结果里做 action ID 幂等复查，消除等锁期间漏看对方提交的 flaky。事件插入改为撞唯一键后当前读回查既有事件（而不是提前 FOR UPDATE 抢间隙锁，避免死锁）。迁移数量棘轮 17→18。26 个 MySQL 集成用例全绿，含 0017 在全新 utf8mb4 库上的完整 journal 重演。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "build",
+          "summary": "Phase 2 / U3 明确采用映射：新增 server/services/personalMemoryAdoption.ts，把七个用户能点到的图片采用入口（选图、四宫格裁切、素材抽屉置为当前、采纳局部重绘、采纳封面、移动端右滑、采纳导演建议）与文章 create_version 映射为采用经历。采用语义只能由 router 边界显式传入：promoteStoryImageToCurrent 新增 adoption 回调，不传即不记；明确禁止从 metadata.source 反推（同一函数也被内部派生路径调用），generateForMobile 的 autoSelect 因用户从未在候选间做过选择而刻意不记。文章采用经由 persistPreparedStoryBody 与 stories.body 的 CAS 共享事务边界（本地同一次 copy-on-write，MySQL 同一个 SQL 事务），杜绝 CAS 成功后 best-effort 补事件。图片采用身份用权威 imageSignals 行 ID，文章用 operationToken（源头自带幂等）。落盘失败时采用经历回滚，不留幽灵采用。"
         }
       ]
     }
