@@ -2994,7 +2994,8 @@
       "owners": [],
       "evidence": [
         "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
-        "docs/plans/2026-09-02-003-feat-personal-memory-daily-letter-plan.md"
+        "docs/plans/2026-09-02-003-feat-personal-memory-daily-letter-plan.md",
+        "docs/handoff/2026-09-03-personal-memory-daily-letter-execution-handoff.md"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -3011,7 +3012,8 @@
         "image-asset-history",
         "publishing-workspace",
         "publishing-versions",
-        "mobile-cross-device-chat-document"
+        "mobile-cross-device-chat-document",
+        "account-compute-gift-payments"
       ],
       "replaces": [],
       "knownGaps": [
@@ -3030,6 +3032,16 @@
           "date": "2026-09-03",
           "kind": "plan",
           "summary": "完成 Deep 实施计划：以账号级经历事件、可追溯派生理解、耐久异步提炼、不可变每日来信版本和统一足迹索引分阶段接通聊天、作品采用、头像与每日来信；功能保持 planned，等待剩余文档审查决策和后续实现。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "plan",
+          "summary": "基于 PR #8 后最新 main 复审计划并建立专用 worktree 交接：明确私密媒体鉴权、本地跨文件原子性、算力账本和来信 writer 回滚为先行门槛；功能仍为 planned，尚未开始产品代码或迁移。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "plan",
+          "summary": "Phase 0 收口：把交接复审的十三条结果与四个承重问题合并回权威计划——本地 source-local outbox 与幂等投影取代伪跨文件事务、文章采用并入 storyBodyPersistence 同事务并裁定 director_advice 为显式采用但禁止从 metadata 反推、提炼与来信纳入算力账本且 Phase 1-2 走平台预算、私密图片改走受保护媒体端点、U7 提前纳入既有来信只读索引、Phase 1 捕获限内部测试账号、U9 补真实环境与脱敏克隆迁移门槛及保留时限与静态数据保护。功能仍为 planned，未写产品代码或迁移。"
         }
       ]
     }

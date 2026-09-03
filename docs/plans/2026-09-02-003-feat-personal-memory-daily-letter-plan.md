@@ -282,7 +282,7 @@ flowchart TB
 
 **Requirements:** R1, R4–R6, R8–R11, R13
 
-**Dependencies:** 当前账号／迁移热区完成并释放；实施前先运行环境状态与 migration baseline 检查，按当时 journal 生成下一个迁移，不能占用本计划撰写时看到的编号。
+**Dependencies:** 统一账号／算力基础与 `0016_account_gift_credit` 已进入当前 `main`，原账号迁移热区已经释放；实施前仍须运行环境状态、会话看板与 migration baseline 检查，从当时 journal 动态生成 `0016` 之后的下一条迁移，并在出现并发迁移时重新编号。2026-09-03 复核：journal 末条确为 `0016_account_gift_credit`，本单元已在主仓会话板认领 `0017_personal_memory_daily_letter_versions` 槽位；若合并前发现他线已占用 `0017`，重新生成编号而不是手工改 journal。
 
 **Files:**
 - Create: `shared/personalMemory.ts`
@@ -301,12 +301,15 @@ flowchart TB
 - 经历使用 `userId + source type + stable source id + source revision + canonical action discriminator/id` 的数据库唯一性；参与唯一性的字段全部非空，避免 MySQL 对 `NULL` 的唯一索引语义放过重复行。
 - 非多态来源优先使用包含 `userId` 的复合外键；多态来源先写入租户来源注册表，事件、证据、任务和来信证据边再通过包含 `userId` 的复合唯一／外键引用它。repository 层仍必须显式带用户条件，形成纵深防御。
 - 提供同时接受 SQL transaction handle 或本地 aggregate draft 的 transaction-scoped event/outbox repository，U2、U3 和 U5 只能在领域事务内调用它，不能自行开启嵌套事务。
+- **本地模式不假装跨文件原子。** MySQL 可以在同一 SQL 事务内写来源、经历与 outbox；本地模式则采用「outbox 写进来源自身所属聚合 + 幂等投影」：普通聊天的标准化消息与其 outbox 一起写进 `.webdev/prompt-lineage-local.json` 聚合，文章采用、图片采用与每日留言的 outbox 与各自来源一起写进 `.webdev/local-persist.json` 聚合。两份文件之间只有投影关系，没有共同事务，实现和文档都不得声称它们同事务。
+- 后台 projector 把各聚合的 outbox 幂等投影到统一个人足迹索引。每条 outbox 携带稳定动作 ID，投影重复执行不增加事件、任务或证据边；投影进度以 per-aggregate 水位记录，崩溃后从水位续投而不是全量重扫。
 - 对于用户要求保留历史但源实体允许删除的关系，删除策略采用“先清敏感内容、再留最小 tombstone”，不依赖 cascade 静默抹除。
 - 来信不可变版本在 U1 即成为唯一内容 writer；`saveDailyLetterFromProfile`、`rewriteEmotionDailyLetter` 等 legacy writer 同步切到统一 write-through 门面。日期级行只保存同事务推进的当前版本指针和可重建兼容字段，不接受独立正文写入。
 - 生成 attempt 保存用户级 privacy epoch、输入 cutoff 与所选资料修订；用户忘记或源删除必须在同一短事务递增 privacy epoch，使在途生成失效。
-- 本地模式同步增加状态数组、next ID、旧文件兼容加载、冻结快照和原子回滚；不创建第二个 JSON 文件或写盘队列。
+- **禁止回滚到仍能独立写日期级正文的旧代码。** 迁移与统一 writer 先以向前兼容方式落地，再切换读路径；任何回滚构建只能关闭提炼与召回，必须继续保留 U1 writer 和新 schema 兼容层。部署流程需显式禁止部署 pre-U1 版本，否则上线当天就会重新制造双写与历史漂移。
+- 本地模式同步增加状态数组、next ID、旧文件兼容加载、冻结快照和原子回滚；outbox 与投影水位落在上述两份既有聚合内，**不新建第三份 JSON 文件，也不引入写盘队列**。
 
-**Execution note:** 先写数据合同、source contract、transaction-scoped repository 与 MySQL／local parity 测试，再生成迁移；合并前重新解析正在进行的账号迁移，避免手工改 journal 冲突。U1 必须完成来信 writer cutover 后才能开放 U2/U3 捕获。
+**Execution note:** 先写数据合同、source contract、transaction-scoped repository 与 MySQL／local parity 测试，再生成迁移；合并前重新解析已落地的 `0016` 以及之后新增的迁移，避免手工改 journal 冲突。U1 必须完成来信 writer cutover 后才能开放 U2/U3 捕获。
 
 **Patterns to follow:**
 - `drizzle/schema.ts` 的复合唯一索引和用户外键。
@@ -321,6 +324,9 @@ flowchart TB
 - **Edge case:** 直接尝试让用户 A 的事件、证据或任务引用用户 B 的来源，数据库复合约束拒绝写入。
 - **Edge case:** canonical identity 的任一必要组成缺失时拒绝捕获，不允许以 `NULL` 绕过唯一性。
 - **Error path:** 本地持久化中途失败时，经历和任务同时回滚，不留下半写状态。
+- **Error path:** 本地模式 source 聚合已落盘但 projector 尚未运行时进程崩溃，重启后投影补齐且不重复。
+- **Error path:** 投影执行到一半崩溃、同一 outbox 被重复投影，或足迹索引损坏后从水位恢复，事件、任务与证据边基数均不变。
+- **Integration:** 回滚构建（关闭提炼／召回但保留 U1 writer 与新 schema 兼容层）写入来信仍经过版本权威；模拟 pre-U1 writer 直接写日期级正文被拒绝，且日期投影可从版本重建。
 - **Integration:** 从完整 Drizzle journal 在 disposable MySQL 重演后，新旧每日来信都能读取，旧日期成为 version 1；日期投影可由版本重建且所有旧 writer 无法单独改正文。
 
 **Verification:**
@@ -348,6 +354,7 @@ flowchart TB
 
 **Approach:**
 - 把标准化 user message 行 ID 作为普通聊天稳定来源；事件插入和待提炼任务加入现有消息事务，流式调用开始或助手生成成功本身不产生用户经历。
+- 本地模式下普通聊天的经历与 outbox 必须与标准化消息写进**同一个 prompt-lineage 聚合的同一次 copy-on-write**，每日回信的经历与 outbox 与留言写进 local-persist 聚合；捕获代码不得跨两份文件伪造同事务，跨聚合的统一足迹一律由 U1 的幂等 projector 完成。
 - 桌面 `appendTurn`、手机整轮提交和恢复路径共用服务端捕获函数；同一 client message／turn 重试命中唯一约束并返回已有事件。
 - 每日回信首次保存和每次编辑通过 U1 的统一短事务，同时推进当前修订、追加带修订号的用户文字经历和任务；黄历查询与来信模型生成在事务之外，不得把外部失败混进留言保存。
 - 日期级行仍可呈现当前文字，但旧修订由不可变事件保存，不再只靠 `analysisSeed.messageHistory`。编辑动作同时生成足迹事件，空白清除则触发证据失效检查。
@@ -382,11 +389,14 @@ flowchart TB
 **Files:**
 - Create: `server/services/personalMemoryAdoption.ts`
 - Modify: `server/services/publishingPersistence.ts`
+- Modify: `server/services/storyBodyPersistence.ts`
+- Modify: `server/services/directorAdvice.ts`
 - Modify: `server/routers/publishingDraft.ts`
 - Modify: `server/db.ts`
 - Modify: `server/routers/storyAgent.ts`
 - Modify: `server/routers/creationAgent.ts`
 - Test: `server/services/personalMemoryAdoption.test.ts`
+- Test: `server/services/storyBodyPersistence.test.ts`
 - Test: `server/routers.publishingDraft.test.ts`
 - Test: `server/routers.storyAgent.test.ts`
 - Test: `server/routers.creationAgentVisualObjects.test.ts`
@@ -397,6 +407,8 @@ flowchart TB
 - 图片采用扩展 `promoteStoryImageToCurrent` 的明确采用上下文；自动迁移、恢复 current 状态和内部派生不传该上下文，因此不会制造用户偏好。
 - 文章事件冻结采用时的版本身份和内容哈希；如果现有版本可继续编辑，保存最小必要采用快照或固定源修订，确保时间线能说明当时采用了什么。
 - 撤销不删除历史采用事件，而是追加动作并使它退出当前偏好证据；再次采用生成新的稳定动作。
+- 文章采用事件必须与 `stories.body.publishing` 的 CAS 写入**共享同一事务边界**：`persistPreparedStoryBody` 扩展为可携带同事务的经历／outbox 写入，`publishingPersistence` 的采用路径经由它提交；CAS 赢了之后再 best-effort 补事件是被禁止的。
+- **`director_advice` 裁决：** `creationAgent.applyImageAdvice` 是用户逐图点击「采纳」的 `protectedProcedure`，语义上属于明确图片采用，应当携带采用上下文。但采用语义只能由 router 边界**显式传入**，**不得**从 `promoteStoryImageToCurrent` 的 `metadata.source === "director_advice"` 反推——同一函数也被内部派生路径调用，反推会把自动行为伪造成用户选择。该入口目前尚无客户端调用点，因此历史 `director_advice` 信号不具备「用户确实点过」的证据，U4 只能把它们计入歧义报告，不得回填为采用。
 
 **Patterns to follow:**
 - `writePublishingDraftState` 的 operation token、revision CAS 和版本作用域。
@@ -409,6 +421,8 @@ flowchart TB
 - **Edge case:** 同一采用请求重试多次只产生一个事件；撤销再采用产生有序的三个行为。
 - **Edge case:** 自动恢复 `isCurrent`、批量迁移和后台生成不产生采用经历。
 - **Error path:** 图片／文章归属、版本 CAS 或采用事务失败时不写事件；另一账号猜 ID 始终失败关闭。
+- **Edge case:** `applyImageAdvice` 采纳一张图恰好产生一个采用事件；内部派生路径以相同 `metadata.source` 调用 `promoteStoryImageToCurrent` 时不产生任何事件。
+- **Error path:** 文章 CAS 冲突时采用事件与 outbox 一并回滚；重试同一操作令牌仍只产生一个事件。
 - **Integration:** 发布封面、普通 Story 图片和编辑候选的所有明确入口共享相同事件语义。
 
 **Verification:**
@@ -473,6 +487,9 @@ flowchart TB
 - Create: `server/services/personalMemoryInsights.ts`
 - Modify: `server/_core/index.ts`
 - Use: `server/_core/inferenceOrchestrator.ts`
+- Use: `server/services/computeBilling.ts`
+- Use: `server/services/computeLedger.ts`
+- Use: `server/services/computeReconciliation.ts`
 - Test: `server/services/personalMemoryExtraction.test.ts`
 - Test: `server/services/personalMemoryJobRunner.test.ts`
 - Test: `server/services/personalMemoryInsights.test.ts`
@@ -488,6 +505,10 @@ flowchart TB
 - 多来源理解删除一个来源时重新计算依据；最后有效来源删除时退出召回并清除派生内容。来源暂时不可访问与已删除分开处理。
 - 自动规则只能调整权重和归档派生理解。忘记清除文本、证据摘要和检索内容，tombstone 只绑定 `userId + insight lineage/key + 被禁止的 evidence IDs/revisions`；它阻止旧证据重建该理解，不承诺对未来新表达做不可解释的语义级永久封禁。
 - 未来新证据按正常流程形成新版本；若产品以后需要“无论未来怎么说都不再提某主题”，必须新增用户可见的独立选择，不能暗中扩大本次忘记语义。
+- **提炼调用是计费动作，不得绕过算力账本。** 每个任务在调用模型前经 `planReservation`／`reserveForOperation` 建立稳定 operation ID（与任务幂等身份同源），调用后按 `planSettlement` 结算实际成本，失败释放预占，未知结果进入 `computeReconciliation` 对账；不允许直接调 `inferenceOrchestrator` 而跳过账本。
+- **Phase 1–2 的捕获、shadow 提炼与历史回填由平台预算承担，不扣用户余额。** 即便由平台承担，也必须完整记录报价、provider attempt、实际成本、失败与未知结果，避免重试失控。将来若要改为扣用户余额，必须另行获得产品确认，并先提供价格告知、余额不足行为与逐笔明细，不能默默切换。
+- 用户级并发上限、单位时间频率上限和回填批量预算是上线硬门槛：超限时任务保持 pending 而不是无界重试；重复 operation ID 不得重复扣费或重复计入成本。
+- **个人记忆提炼使用专用模型供应商 allowlist：** 只有列入清单的供应商与模型可以处理个人记忆内容；未经批准不得跨供应商重放同一 payload（含失败后改投另一家重试）。进入清单前必须书面确认该供应商的数据留存时长、是否用于训练和数据地域，不满足条件者不得使用。
 - 日志只记录任务、来源和错误类别，不记录用户原话、模型 prompt 或可逆内容哈希。
 
 **Patterns to follow:**
@@ -544,6 +565,9 @@ flowchart TB
 - 重读失败不推进当前版本指针，UI 继续显示旧版并允许重试；历史版本永不因八字、记忆或模型更新而后台重算。
 - 归档或忘记只影响未来召回，用户已读的历史信不因理解状态变化而改写。明确删除底层源内容是隐私例外：清除输入摘录和证据资格，并用 deletion overlay 隐去仅由该来源支持的正文段落；无法可靠分段时隐藏该版本正文并显示“内容因删除请求不可再显示”，只保留无内容 envelope。
 - 每个成功的首次生成／重读在版本、当前指针同一事务中追加足迹事件，U7 只凭统一事件索引即可分页来信历史。
+- **来信生成与显式重读同样受算力与费用合同约束：** attempt 的稳定 action ID 即 operation ID。首版与 Phase 3 小流量阶段由平台预算承担；若产品确认改为扣用户余额，必须复用现有预占、结算、失败释放与 reconciliation 合同——重复 action ID 不得重复扣费，余额不足要有明确的用户可见行为，而不是静默失败。
+- **显式「再读一遍」是独立入口，必须覆盖完整状态：** 进行中（禁用重复触发并显示生成中）、失败（保留旧版本可读并可重试）、重复提交（同一 action ID 返回同一 attempt，不排第二次生成）、成功切换（当前指针推进到新版本并说明这是第几版）、同日多版本浏览（可在同日版本间切换，历史版本只读）。
+- **保存每日留言不得自动触发重读。** 留言保存只写当前修订、经历与任务；当天来信是否产生新版本完全由用户显式点击决定。
 
 **Patterns to follow:**
 - `chinaDateString` 的中国日期边界。
@@ -559,6 +583,8 @@ flowchart TB
 - **Error path:** 黄历返回昨天日期、缺字段或超时且无同日可信缓存，来信继续生成但不含黄历断言。
 - **Error path:** 记忆源在选择后、提交前被忘记或删除，条件提交拒绝使用失效快照并安全重选／降级。
 - **Integration:** 重读失败、模型失败或快照写入冲突时仍能读取旧版，且不会留下半成品当前版本。
+- **Edge case:** 保存或编辑每日留言后当天来信版本号不变，只有显式重读才追加新版本。
+- **Edge case:** 重读进行中再次点击不产生第二个 attempt；失败后可重试，且当前指针仍指向旧版本。
 - **Integration:** 删除一个被历史信引用的来源后，版本 envelope 仍存在，但相关摘录和正文段落不再可见；由其他独立来源支持的段落保持可读。
 
 **Verification:**
@@ -572,7 +598,7 @@ flowchart TB
 
 **Requirements:** R1, R4, R6, R10, R16–R18
 
-**Dependencies:** U1, U5；来信版本适配由后续 U6 接入，不阻塞先上线经历／理解足迹。
+**Dependencies:** U1, U5；来信**版本详情与重读导航**由后续 U6 接入，不阻塞先上线经历／理解足迹。但 U7 本身即纳入既有每日来信的**只读索引**（见 Approach），使 Phase 2 能看到完整历史足迹而仍不启用记忆召回。
 
 **Files:**
 - Create: `server/services/personalMemoryTimeline.ts`
@@ -580,7 +606,9 @@ flowchart TB
 - Modify: `server/routers/index.ts`
 - Test: `server/services/personalMemoryTimeline.test.ts`
 - Test: `server/routers.personalMemory.test.ts`
+- Modify: `server/_core/index.ts`（受保护媒体端点；不得沿用不鉴权的 `/api/images/:file` 与 `/local-images` 静态挂载）
 - Test: `server/routers.ownershipBoundaries.test.ts`
+- Test: `server/routers.personalMemoryMedia.test.ts`
 
 **Approach:**
 - tRPC router 只从认证上下文取得 `userId`，不接受客户端用户身份；摘要、分页、来源解析和动作 repository 全部要求租户参数。
@@ -590,6 +618,8 @@ flowchart TB
 - 来源 resolver 对每种 source type 重新验证 Story／消息／文章版本／图片所有权，返回可访问、已删除、当前无权访问或处理中状态。不可访问时不返回正文、缩略图 URL 或可猜测标识。
 - 纠正、归档、恢复和忘记使用 insight revision 条件更新；并发冲突返回可刷新状态。恢复前检查是否存在更新冲突，忘记调用 U5 的清除和抑制流程。
 - 来源深链包含日期和事件锚点；返回时可恢复到原日期段，来源已失效则停留在时间线并显示解释状态。
+- **私密图片一律不得通过公开静态地址交付。** 现有 `/api/images/:file` 与 `/local-images` 静态挂载不鉴权，因此即使足迹 API 校验了 `userId`，把这些地址返回给浏览器仍然等于把图片公开。足迹的缩略图与原图只能经过**逐请求校验账号与 Story／图片归属的受保护媒体端点**，或短时签名 URL 交付；足迹 API 与来源 resolver 不得返回现有公开静态路径、磁盘文件名或可猜测标识。**该安全边界完成前，不得上线图片足迹。**
+- U7 同时把 U1 迁移出的既有每日来信版本以**只读**方式纳入足迹索引：Phase 2 的完整足迹可以按日期看到「这天有一封来信」并跳回既有来信入口，但不启用记忆召回、不提供重读；版本号、使用资料说明与重读导航等到 U6 完成后再补。
 
 **Patterns to follow:**
 - `promptLineage.listRevisionHistory` 的 cursor 查询先例。
@@ -603,6 +633,7 @@ flowchart TB
 - **Error path:** 用户 B 猜用户 A 的 event、insight、Story、version 或 image ID 时，所有列表、动作和解析结果均失败关闭。
 - **Error path:** 两设备同时归档／恢复／纠正时，过期 revision 不能覆盖较新的动作。
 - **Integration:** 时间线动作后每日来信选择器立即反映同一状态，不依赖客户端缓存过期。
+- **Error path:** 未登录、另一账号、来源已删除和签名过期直接请求足迹媒体端点全部失败；任何足迹响应体中都不出现 `/api/images/`、`/local-images` 路径或磁盘文件名。
 - **Integration:** 理解状态变化与来信版本追加后，足迹只查询事件索引也能得到一致顺序，详情再解析到当前可访问内容。
 
 **Verification:**
@@ -644,6 +675,9 @@ flowchart TB
 - 桌面与窄屏明确重排信息层级并保持足够的触控目标；头像 Popover 支持 Tab、Shift+Tab、Escape，打开后进入首个可操作项，关闭和确认操作后把焦点还给触发按钮。
 - 日期标题、事件、来源状态和理解标签使用语义结构与可访问名称；无限加载、局部错误、重试和动作结果通过读屏可感知的状态播报，不只依赖颜色或动画。
 - 深链返回同时恢复滚动锚点与逻辑焦点；窄屏确认层不得遮挡系统键盘或把主要动作推到不可达区域。
+- 图片足迹只渲染 U7 受保护媒体端点返回的内容；在该端点完成前，图片事件一律以文本状态与安全占位呈现。
+- **手机 Web 从工作区进入足迹必须纳入既有未保存正文保护：** 有未保存改动时先走既有保存／放弃确认流程，不得静默丢失；从足迹返回时恢复原 Story、页签、滚动位置与焦点。
+- **微信原生小程序当前只是 mock 测试壳，本阶段不读取、不展示真实个人记忆。** 跨端能力只由桌面 Web 与手机 Web 提供，小程序不计入任何跨端验收证据。
 
 **Patterns to follow:**
 - `TopBar.tsx` 的 Popover、管理员入口和退出流程。
@@ -659,6 +693,7 @@ flowchart TB
 - **Edge case:** 仅用键盘可打开／关闭头像、进入足迹、加载下一页和完成记忆控制；焦点不会掉到页面顶部或被隐藏元素捕获。
 - **Edge case:** 读屏能够获知加载中、成功、冲突、错误、已删除和列表结束，窄屏触控目标与重排后阅读顺序保持可用。
 - **Integration:** 桌面归档一项理解后手机刷新立即反映；手机纠正后桌面和下一封来信使用新状态。
+- **Edge case:** 手机端正文有未保存改动时进入足迹会触发既有保护流程；返回后 Story、页签、滚动与焦点均回到原处。
 - **Integration:** 从足迹进入作品详情再返回，恢复原日期和事件位置。
 
 **Verification:**
@@ -689,6 +724,10 @@ flowchart TB
 - 质量评测覆盖 memory precision、纠正遵从、冲突率、陈旧记忆率、来源多样性、敏感内容主动提及率和重复主题冷却；生成文案按事实与范围结果评分，不锁死措辞。
 - 运行指标覆盖提炼延迟、任务最老等待时间、重试／永久失败、lease 恢复、对账漂移、黄历降级、来信重读失败和时间线分页错误；普通日志只记录 ID 与分类。
 - 在 disposable MySQL 重演完整 journal 和历史回填；本地模式验证持久化重启。真实页面验收前先执行 `pnpm env:status`，只连接主仓库 3000 端口。
+- **上线验收必须在真实环境完成：** 真实 MySQL（非 disposable）、真实公网访问、并由**两台独立物理设备**分别以桌面 Web 与手机 Web 完成同账号跨端一致性验收。微信小程序 mock 壳不构成跨端证据。
+- **迁移门禁不止「空库从完整 journal 重演」：** 还必须从**当前真实环境结构的脱敏克隆**（保留既有漂移）执行 `0016` 之后新迁移的升级与失败恢复演练。空库重演不能代替真实升级演练。
+- **部署前必须明确并记录四类保留时限与销毁证据：** 在线 scrub 的 SLA、备份世代中个人内容的最长留存、删除／忘记账本自身的保留期，以及模型供应商侧副本的留存与删除确认。任一项缺少可执行规则时，不得开放真实用户捕获与记忆召回。
+- **静态数据保护方案在部署前确定并写入 runbook：** 本地 `.webdev` 文件、MySQL 中来信隐私 payload 与事件摘录、迁移备份、删除账本各自的加密／访问控制边界与密钥归属。
 - 更新功能账本的状态、入口、owner、权威文件、自动化证据、依赖和剩余缺口；只有四条 Key Flow 可执行且测试证据完整时才从 `planned` 提升。
 
 **Patterns to follow:**
@@ -703,6 +742,7 @@ flowchart TB
 - **Integration:** 来信生成 attempt 与忘记／删除并发时，旧 privacy epoch 永不成为可见版本；隐私 overlay 在历史版本、摘要和详情使用同一结果。
 - **Error path:** 提炼供应商不可用、黄历失败、服务在任务中重启和回填中断时，用户原始内容保持完整且可恢复／重跑。
 - **Error path:** shadow 或 recall kill switch 切换不改变历史数据，只改变任务执行或来信是否读取记忆。
+- **Integration:** 在脱敏克隆上执行 `0016` 之后的新迁移，升级成功、失败回滚与再次升级均可复现，且既有漂移不被静默覆盖。
 - **Regression:** 账号、管理员、退出、普通聊天、发布版本、图片采用、旧每日来信和 Story 删除行为保持原有合同。
 
 **Verification:**
@@ -748,6 +788,7 @@ flowchart TB
 ### Phase 1 — 数据地基与只捕获不提炼
 
 - 完成 U1–U3，只捕获经历并入队，runner 保持暂停；先证明来源、幂等、MySQL／local parity 和跨账号隔离，避免在提炼器完成前形成不可控积压。
+- **捕获范围限明确列入的内部测试账号。** 向真实用户开启捕获前，必须先提供用户可见的记忆状态说明、暂停后续捕获的开关，以及清除已采集记录的入口——三者缺一不可。
 
 ### Phase 2 — 历史、理解与可解释足迹
 
@@ -777,7 +818,7 @@ flowchart TB
 | 日期级来信投影与版本权威漂移 | Med | High | U1 同步切换全部 writer，投影只在版本事务更新且可从版本重建，架构门禁禁止独立正文写入 |
 | 本地和 MySQL 行为漂移 | Med | High | U1 repository parity、两套集成测试、禁止第二份本地持久化 |
 | 耐久任务拖慢单进程或关闭时丢 claim | Med | Med | 显式 runner 生命周期、非重叠 tick、有界公平 claim、SIGTERM drain、外部调用不持锁和独立开关 |
-| 与正在进行的账号／迁移工作冲突 | High | High | 实施前 `env:status` 与 session board 协调，等待热区释放后生成新迁移，不预占编号或覆盖未提交变更 |
+| 账号能力仍在观察期，真实 MySQL 尚未完成迁移切换，或实施期间又出现并发迁移 | Med | High | 实施前 `env:status`、session board 与 migration baseline 协调；从已含 `0016` 的基线动态编号，真实环境完成归属核对和可回滚切换前不部署个人记忆迁移 |
 
 ---
 
