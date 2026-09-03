@@ -23,6 +23,8 @@ import {
 export type StoryVisualTimelineRecord = StoryTimeline & {
   overlays?: unknown;
   visualLayerState?: unknown;
+  /** Non-visual media slices (subtitles in U3, audio in U9). */
+  extensions?: Record<string, unknown>;
 };
 
 export type OwnedStoryVisualAggregate = {
@@ -143,6 +145,63 @@ export async function loadStoryVideoSources(input: {
   userId: number;
 }): Promise<VideoTake[]> {
   return getStoryVideoTakes(input.storyId, input.userId);
+}
+
+export type OwnedStoryTimelineEnvelope = {
+  version: number;
+  items: unknown;
+  overlays?: unknown;
+  visualLayerState?: unknown;
+  /** Non-visual media slices keyed by name (e.g. `subtitleTracks`). */
+  extensions: Record<string, unknown>;
+};
+
+/**
+ * Load the full timeline envelope for a media narrow command. Returns `null`
+ * when the Story is missing/unauthorized or has no timeline yet — the media
+ * services own the "no timeline" user message.
+ */
+export async function loadOwnedStoryTimelineEnvelope(input: {
+  storyId: number;
+  userId: number;
+}): Promise<OwnedStoryTimelineEnvelope | null> {
+  const [story, timeline] = await Promise.all([
+    getStoryById(input.storyId, input.userId),
+    getStoryTimeline(input.storyId, input.userId),
+  ]);
+  if (!story || !timeline) return null;
+  const record = timeline as StoryVisualTimelineRecord;
+  return {
+    version: record.version,
+    items: record.items,
+    ...(record.overlays === undefined ? {} : { overlays: record.overlays }),
+    ...(record.visualLayerState === undefined
+      ? {}
+      : { visualLayerState: record.visualLayerState }),
+    extensions: record.extensions ?? {},
+  };
+}
+
+/**
+ * Compare-and-swap that replaces only the named non-visual extension slices,
+ * carrying every visual field (and every other slice) through untouched. The
+ * U1 codec does the field-level merge; this wrapper just supplies the
+ * unchanged visual `items` read back in the same command.
+ */
+export async function saveStoryTimelineExtensionCas(input: {
+  storyId: number;
+  userId: number;
+  expectedVersion: number;
+  currentItems: unknown;
+  extensions: Record<string, unknown>;
+}): Promise<StoryVisualTimelineRecord> {
+  return updateStoryTimeline({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedVersion: input.expectedVersion,
+    items: input.currentItems,
+    extensions: input.extensions,
+  });
 }
 
 export async function loadAuthorizedStoryImage(input: {

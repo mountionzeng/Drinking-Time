@@ -228,6 +228,21 @@ export function publicVisualEditReceipt(
     : { ...base, kind: "timeline" };
 }
 
+export function publicTimelineMediaEditReceipt(
+  entry: TimelineMediaEditOperationEntry
+): VisualEditReceipt {
+  return {
+    editorSessionEpoch: entry.editorSessionEpoch,
+    operationId: entry.operationId,
+    storyId: entry.storyId,
+    beforeTimelineVersion: entry.beforeTimelineVersion,
+    afterTimelineVersion: entry.afterTimelineVersion,
+    status: entry.status,
+    order: entry.order,
+    kind: "timeline",
+  };
+}
+
 export function consumeVisualEditUndo(
   entry: VisualEditUndoEntry,
   result: number | { timelineVersion: number; storyRevision?: number }
@@ -293,4 +308,155 @@ export function retireVisualEditUndoScope(input: {
 export function clearVisualEditUndoForTesting(): void {
   journalByScope.clear();
   operationIndexByScope.clear();
+  mediaJournalByScope.clear();
+  mediaOperationIndexByScope.clear();
+}
+
+// ── Timeline media (subtitle U3, audio U9) undo journal ───────────────────
+//
+// The non-visual media commands keep their own server-side journal so a visual
+// Cmd+Z never picks up a subtitle entry and vice versa. Global operation order
+// (a single Cmd+Z stack) is reassembled on the client, which records the order
+// of every command regardless of domain — see client timelineUndoStore.
+
+export type TimelineMediaEditUndoEntry = JournalFields & {
+  kind: "timeline-media";
+  /** Extension slices exactly as stored before this command. */
+  beforeExtensions: Record<string, unknown>;
+  /** Visual items at that moment, so undo re-issues the same CAS shape. */
+  beforeItems: unknown;
+};
+type TimelineMediaEditReplayEntry = Omit<
+  TimelineMediaEditUndoEntry,
+  "beforeExtensions" | "beforeItems"
+> & { replayOnly: true; undoEvicted: true };
+export type TimelineMediaEditOperationEntry =
+  | TimelineMediaEditUndoEntry
+  | TimelineMediaEditReplayEntry;
+
+const mediaJournalByScope = new Map<string, TimelineMediaEditUndoEntry[]>();
+const mediaOperationIndexByScope = new Map<
+  string,
+  Map<string, TimelineMediaEditOperationEntry>
+>();
+
+const mediaStackFor = (input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+}) =>
+  mediaJournalByScope.get(
+    scopeKey(input.storyId, input.userId, input.editorSessionEpoch)
+  ) ?? [];
+
+export function findTimelineMediaEditUndo(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+}): TimelineMediaEditOperationEntry | null {
+  return (
+    mediaOperationIndexByScope
+      .get(
+        scopeKey(
+          input.storyId,
+          input.userId,
+          input.operation.editorSessionEpoch
+        )
+      )
+      ?.get(input.operation.operationId) ?? null
+  );
+}
+
+export function recordTimelineMediaEditUndo(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+  beforeExtensions: Record<string, unknown>;
+  beforeItems: unknown;
+  beforeTimelineVersion: number;
+  afterTimelineVersion: number;
+  commandDigest: string;
+}): TimelineMediaEditUndoEntry {
+  const key = scopeKey(
+    input.storyId,
+    input.userId,
+    input.operation.editorSessionEpoch
+  );
+  const stack = mediaJournalByScope.get(key) ?? [];
+  const recorded: TimelineMediaEditUndoEntry = {
+    kind: "timeline-media",
+    ...input.operation,
+    storyId: input.storyId,
+    userId: input.userId,
+    status: "available",
+    order: (stack.at(-1)?.order ?? 0) + 1,
+    commandDigest: input.commandDigest,
+    identityFingerprint: "",
+    beforeExtensions: structuredClone(input.beforeExtensions),
+    beforeItems: structuredClone(input.beforeItems),
+    beforeTimelineVersion: input.beforeTimelineVersion,
+    afterTimelineVersion: input.afterTimelineVersion,
+  };
+  stack.push(recorded);
+  if (stack.length > MAX_UNDO_STEPS) {
+    for (const evicted of stack.splice(0, stack.length - MAX_UNDO_STEPS)) {
+      const {
+        beforeExtensions: _e,
+        beforeItems: _i,
+        ...withoutSnapshots
+      } = evicted;
+      mediaOperationIndexByScope
+        .get(key)
+        ?.set(evicted.operationId, {
+          ...withoutSnapshots,
+          replayOnly: true,
+          undoEvicted: true,
+        });
+    }
+  }
+  mediaJournalByScope.set(key, stack);
+  const index = mediaOperationIndexByScope.get(key) ?? new Map();
+  index.set(recorded.operationId, recorded);
+  mediaOperationIndexByScope.set(key, index);
+  return recorded;
+}
+
+export function latestAvailableTimelineMediaEditUndo(input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+}): TimelineMediaEditUndoEntry | null {
+  return (
+    [...mediaStackFor(input)]
+      .reverse()
+      .find(entry => entry.status === "available") ?? null
+  );
+}
+
+export function consumeTimelineMediaEditUndo(
+  entry: TimelineMediaEditUndoEntry,
+  undoResultTimelineVersion: number
+): void {
+  entry.status = "consumed";
+  entry.undoResultTimelineVersion = undoResultTimelineVersion;
+}
+
+export function rebaseLatestTimelineMediaEditUndoAfterVersion(input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+  afterTimelineVersion: number;
+}): void {
+  const latest = latestAvailableTimelineMediaEditUndo(input);
+  if (latest) latest.afterTimelineVersion = input.afterTimelineVersion;
+}
+
+export function retireTimelineMediaEditUndoScope(input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+}): void {
+  const key = scopeKey(input.storyId, input.userId, input.editorSessionEpoch);
+  mediaJournalByScope.delete(key);
+  mediaOperationIndexByScope.delete(key);
 }

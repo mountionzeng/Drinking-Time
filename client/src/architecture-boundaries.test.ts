@@ -556,6 +556,11 @@ describe("architecture boundaries", () => {
     // (items + overlays + visualLayerState + non-visual extension slices).
     decodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
     encodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
+    // U3: one subtitle model + resolver; one media-duration function.
+    initializeSubtitleCues: "shared/timelineSubtitleModel.ts",
+    normalizeSubtitleState: "shared/timelineSubtitleModel.ts",
+    resolveSubtitleCuesAtFrame: "shared/timelineSubtitleModel.ts",
+    timelineMediaTotalFrames: "shared/timelineMediaDuration.ts",
   };
 
   it("keeps one authoritative implementation per cross-cutting semantic", async () => {
@@ -619,6 +624,23 @@ describe("architecture boundaries", () => {
     "server/db.ts",
     "server/persistence/storyTimelinePersistence.ts",
   ]);
+
+  it("keeps timelineMedia narrow-command input free of version and full arrays", async () => {
+    const serverSources = await serverSourcesPromise;
+    const routerFile = serverSources.find(({ file }) =>
+      toRepoPath(file).endsWith("server/routers/timelineMedia.ts")
+    );
+    expect(routerFile, "server/routers/timelineMedia.ts should exist").toBeDefined();
+    // Strip comments so the guard checks real code, not the file's own prose.
+    const code = routerFile!.content
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|\s)\/\/.*$/gm, "$1");
+    // R12: the client sends identity + intent only.
+    expect(/\bexpected(?:Version|TimelineVersion)\s*[:,]/.test(code)).toBe(false);
+    expect(/\bsubtitleTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+    expect(/\bitems\s*:\s*z\.array\(/.test(code)).toBe(false);
+    expect(/\baudioTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+  });
 
   it("keeps the persisted-timeline encode behind server/db.ts wiring", async () => {
     const [sharedSources, serverSources, clientSources] = await Promise.all([

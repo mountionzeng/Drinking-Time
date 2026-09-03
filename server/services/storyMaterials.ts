@@ -678,6 +678,7 @@ export function projectStoryTimelineDocument(
     items: unknown;
     overlays?: unknown;
     visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
   } | null
 ): TimelineDocument {
   return {
@@ -688,6 +689,12 @@ export function projectStoryTimelineDocument(
     visualLayerState: normalizePersistedVisualLayerState(
       timelineVisualLayerState(timelineRow?.visualLayerState)
     ),
+    // Non-visual media slices (subtitles in U3, audio in U9) ride along raw;
+    // the client normalizes them with the shared model.
+    ...(timelineRow?.extensions &&
+    Object.keys(timelineRow.extensions).length > 0
+      ? { extensions: timelineRow.extensions }
+      : {}),
   };
 }
 

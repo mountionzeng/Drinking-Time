@@ -63,6 +63,7 @@ import { storyAgentRouter } from "./storyAgent";
 import { creationAgentRouter } from "./creationAgent";
 import { publishingDraftRouter } from "./publishingDraft";
 import { visualAssetsRouter } from "./visualAssets";
+import { timelineMediaRouter } from "./timelineMedia";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -1088,6 +1089,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   storyAgent: storyAgentRouter,
   publishingDraft: publishingDraftRouter,
   visualAssets: visualAssetsRouter,
+
+  // Subtitle + multi-audio-track narrow commands (one write path per U1/U3).
+  timelineMedia: timelineMediaRouter,
 
   // ─── Shot management ────────────────────────────────────────────────
   shot: router({
