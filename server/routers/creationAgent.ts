@@ -1,4 +1,5 @@
 import path from "node:path";
+import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
@@ -699,15 +700,27 @@ export const creationAgentRouter = router({
           reason: "image_not_found" as const,
         };
       }
+      // 上面已经挡掉 storyId 为空的情况；提出来是为了让回调里也拿到窄化后的类型。
+      const assetStoryId = asset.storyId;
       const promoted = await promoteStoryImageToCurrent({
         userId: ctx.user.id,
-        storyId: asset.storyId,
+        storyId: assetStoryId,
         imageId: asset.id,
         metadata: {
           source: "creation",
           projectId: input.projectId,
           shotNo: asset.canonicalShotNo,
         },
+        // 用户在资产面板里点选这张图作为该镜头首帧——包括重新选回旧图，
+        // 那同样是一次新的采用（计划：撤销后再采用产生有序的新动作）。
+        adoption: signalId =>
+          imageAdoptionCaptureIfEnabled({
+            userId: ctx.user.id,
+            storyId: assetStoryId,
+            imageId: asset.id,
+            signalId,
+            context: { entry: "select_image", display: { shotNo: asset.canonicalShotNo } },
+          }),
       });
       return promoted
         ? { success: true as const }
@@ -801,6 +814,15 @@ export const creationAgentRouter = router({
           parentImageId: input.parentImageId ?? null,
           quadrant: input.quadrant ?? null,
         },
+        // 用户从四宫格里裁出这一张并设为首帧：是在候选之间做过选择的。
+        adoption: signalId =>
+          imageAdoptionCaptureIfEnabled({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: image.id,
+            signalId,
+            context: { entry: "promote_frame_crop", display: { shotNo, quadrant: input.quadrant ?? null } },
+          }),
       });
       if (!promoted) {
         return {
@@ -849,6 +871,15 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         imageId: input.imageId,
         metadata: { source: "material_drawer" },
+        // 素材抽屉里直接把这张图设为当前：明确的用户选择。
+        adoption: signalId =>
+          imageAdoptionCaptureIfEnabled({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: input.imageId,
+            signalId,
+            context: { entry: "promote_story_image" },
+          }),
       });
       if (!promoted) {
         return { status: "error" as const, error: "图片不存在或无权操作" };
@@ -1278,6 +1309,18 @@ export const creationAgentRouter = router({
         targetStableShotId: input.targetStableShotId,
         videoDirection: input.videoDirection,
         reason: input.reason,
+        // 用户逐图点「采纳」：采用凭据在这里给出，不由服务层自己造。
+        adoption: signalId =>
+          imageAdoptionCaptureIfEnabled({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: input.imageId,
+            signalId,
+            context: {
+              entry: "director_advice",
+              display: { targetShotNo: input.targetShotNo },
+            },
+          }),
       });
     }),
 
@@ -3387,6 +3430,18 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         imageId: candidate.id,
         expectedCurrentImageId: source.id,
+        // 用户点「采纳」这张局部重绘结果。
+        adoption: signalId =>
+          imageAdoptionCaptureIfEnabled({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: candidate.id,
+            signalId,
+            context: {
+              entry: "adopt_inpaint_candidate",
+              display: { parentImageId: source.id },
+            },
+          }),
         metadata: {
           source: "preview_object_mask_edit",
           parentImageId: source.id,

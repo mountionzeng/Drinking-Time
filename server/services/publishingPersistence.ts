@@ -25,6 +25,7 @@ import {
   hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
+import { articleAdoptionCaptureIfEnabled } from "./personalMemoryAdoption";
 import {
   appendPublishingPlatformContextSnapshot,
   emptyPublishingPlatformContextState,
@@ -2229,12 +2230,37 @@ export async function writePublishingDraftState(params: {
       bodyWithPublishing
     );
     assertStoryCapacity(nextBody);
+    // 明确保存为新的发布版本 = 文章采用（U3）。
+    //
+    // 只有 create_version 且带 operationToken 时才记：token 是这次采用请求的
+    // 真实身份，所以重试多少次都只产生一条经历——这一点比图片采用强，
+    // 因为源头本身就有幂等令牌。其余操作类型（草稿改字、认领后台任务、
+    // 封面轮次等）是编辑过程，不是「用户采用了这一版」。
+    const adoptionCapture =
+      operation.type === "create_version" && params.operationToken
+        ? articleAdoptionCaptureIfEnabled({
+            userId: params.userId,
+            storyId: params.storyId,
+            versionId: publishing.activeVersionId ?? "v1",
+            operationToken: params.operationToken,
+            entry: "create_version",
+            // 只留一个安全的展示用标题：版本名优先，其次正文标题。
+            // 不复制正文——正文权威仍是 stories.body.publishing。
+            title:
+              operation.displayName?.trim() ||
+              operation.content?.title?.trim() ||
+              null,
+            contentHash: incomingHash ?? null,
+            occurredAt: new Date(now),
+          })
+        : null;
     try {
       await persistPreparedStoryBody({
         storyId: params.storyId,
         userId: params.userId,
         expectedRevision: expectedStoryRevision,
         body: nextBody,
+        personalMemoryCapture: adoptionCapture,
       });
     } catch (error) {
       if (error instanceof StoryBodyRevisionConflictError) {

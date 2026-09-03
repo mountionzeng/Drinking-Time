@@ -22,6 +22,7 @@ import {
 import { materializeImageInput } from "./imageAssets";
 import { invokeVisionJson, visionChannelConfigured } from "./visionChannel";
 import { promptShotCode } from "../../shared/shotIdentity";
+import type { PersonalMemoryCapture } from "../../shared/personalMemory";
 
 export type ImageVideoDirection = {
   videoPrompt: string;
@@ -250,6 +251,16 @@ export async function applyImageDirectorAdvice(params: {
   targetStableShotId: string;
   videoDirection: ImageVideoDirection | null;
   reason?: string;
+  /**
+   * 明确采用上下文（U3）。由 router 传入，本函数**不**自己造。
+   *
+   * 「采纳导演建议」是用户逐图点下去的，语义上确实是明确采用；但采用凭据
+   * 只能来自 router 边界。下面调用 `promoteStoryImageToCurrent` 时传的
+   * `metadata.source: "director_advice"` 是给排查用的，**不是**采用凭据——
+   * 同一个函数也被内部派生路径调用，从 metadata 反推就会把自动行为伪造成
+   * 用户选择。
+   */
+  adoption?: (signalId: number) => PersonalMemoryCapture | null;
 }): Promise<ApplyAdviceResult> {
   const story = await getStoryById(params.storyId, params.userId);
   if (!story) return { status: "error", message: "故事不存在或无权访问" };
@@ -275,6 +286,7 @@ export async function applyImageDirectorAdvice(params: {
     storyId: params.storyId,
     imageId: params.imageId,
     metadata: { source: "director_advice" },
+    adoption: params.adoption,
   });
 
   // 视频参数与导演理由写进镜头：镜头设计表/渲染链路直接消费。

@@ -94,3 +94,35 @@ npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
 ## 自动启动说明
 
 旧 launchd 预览任务因 macOS TCC 无法读取 `~/Documents`，已经停用且不得恢复为 KeepAlive；它会与“同一时间一个服务”的规则冲突。需要运行时从主仓显式使用 `pnpm dev`。若未来迁出 `~/Documents`，也仍须遵守单服务、固定 3000 和先运行 `pnpm env:status` 的规则。
+
+## 个人记忆回填与对账（U4，2026-09-03）
+
+```bash
+pnpm memory:backfill      # 只做 dry-run，输出分类报告；不写任何数据
+```
+
+**apply 目前一律被拒绝**，而且这不是「还没写完」——回填会一次性产生大量提炼
+任务，而 U5 的 runner、暂停开关和积压指标还不存在，跑下去没有办法叫停。
+解除条件写在 `scripts/backfill-personal-memory.ts` 的 `assertApplyAllowed`
+注释里，四条要逐条核对，不要只把那个函数删掉。
+
+报告把历史分成四类，**说不清楚的一律不写**：
+
+| 分类 | 含义 |
+| --- | --- |
+| `deterministic` | 能证明来源、归属与时间，可以写 |
+| `source_incomplete` | 缺 `userId`／`storyId`／时间，或跨账号污染 |
+| `ambiguous` | 记录完整，但分不清是用户选择还是系统自动 |
+| `rejected_not_adoption` | 能证明它不是用户采用（自动路径写入） |
+
+一个需要产品裁决的结论：**历史图片采用基本落在 `ambiguous`**。
+`promoteStoryImageToCurrent` 无论被用户点击还是被自动路径调用，写下的
+`imageSignals` 行形状完全一样，历史行区分不了。U3 之后新产生的采用带显式凭据，
+旧数据没有。宁可留一个可解释的缺口，也不拿当前状态倒推用户当年的选择。
+
+文章采用是唯一自带用户意图凭据的历史来源：发布链路持久化了
+`versionOperationReceipts`，一条收据 = 一次带令牌的明确 create_version。
+
+对账（`server/services/personalMemoryReconciliation.ts`）是纯函数，任何时刻都能
+安全地跑，包括召回还关着的现在。它只发现不修复，扫五类：经历没有成功提炼、
+活跃理解失去全部证据、卡死的 lease、孤立证据边、来信 payload 残留。

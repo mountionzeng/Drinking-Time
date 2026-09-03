@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
@@ -2452,6 +2453,9 @@ export const storyAgentRouter = router({
         // 重渲链路明确要求 autoSelect 时，新图要成为当前版本；旧图仍保留在历史中。
         // 之前这里只保存了新资产但没有执行 promote，导致“生成成功却仍停在旧图”。
         if (input.autoSelect) {
+          // 刻意**不**传 adoption：这是生成完自动置为当前，用户从没在候选
+          // 之间做过选择。按计划「生成候选、处理中结果和系统审美判断不算采用」，
+          // 把它记成采用就会让来信引用一个用户其实没挑过的作品。
           await promoteStoryImageToCurrent({
             userId: ctx.user.id,
             storyId: input.storyId,
@@ -2603,6 +2607,15 @@ export const storyAgentRouter = router({
           storyId: input.storyId,
           imageId: input.imageId,
           metadata: input.metadata ?? null,
+          // 移动端右滑选中：`swipe_right` 就是用户选择的语义。
+          adoption: signalId =>
+            imageAdoptionCaptureIfEnabled({
+              userId: ctx.user.id,
+              storyId: input.storyId,
+              imageId: input.imageId!,
+              signalId,
+              context: { entry: "swipe_right" },
+            }),
         });
         if (!promoted) {
           return { status: "error" as const, error: "图片不存在或无权操作" };
