@@ -78,7 +78,7 @@ describe("普通聊天来源身份", () => {
     expect(capture().snapshot.excerpt).toBe("最近在学游泳");
   });
 
-  it("超长内容被截断——事件不做第二份正文权威", () => {
+  it("超长内容被截断——聊天有稳定权威修订，完整正文永远可回源解析", () => {
     const built = capture({ content: "游".repeat(500) });
     expect(built.snapshot.excerpt).toHaveLength(201);
     expect(built.snapshot.excerpt?.endsWith("…")).toBe(true);
@@ -128,6 +128,15 @@ describe("每日留言来源身份", () => {
     expect(capture({ revision: 1 }).identity.actionId).not.toBe(
       capture({ revision: 2 }).identity.actionId
     );
+  });
+
+  // 这是修复过的真实 bug：日期级行只保留当前修订，旧修订一旦被覆盖就
+  // 不存在于任何别的表里。事件是「旧修订的历史权威」，截断等于默默丢历史。
+  it("不截断——事件是旧修订唯一保留全文的地方", () => {
+    const longMessage = "今天想说的话，".repeat(60); // 远超聊天的 200 字上限
+    const built = capture({ message: longMessage });
+    expect(built.snapshot.excerpt).toBe(longMessage);
+    expect(built.snapshot.excerpt?.endsWith("…")).toBe(false);
   });
 
   // 清空是明确的编辑/删除语义，不是一条新感悟。

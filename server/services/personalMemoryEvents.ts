@@ -60,19 +60,39 @@ export function isPersonalMemoryCaptureEnabled(userId: number): boolean {
 // ─── 来源身份构造 ───────────────────────────────────────────────────────
 
 /**
- * 摘录上限。事件只对「当次发生时用户说了什么」负责，不做第二份正文权威——
- * 完整正文永远优先回源解析（聊天消息行、日期级留言）。
+ * 聊天消息的展示摘录上限。**只是展示用**——聊天有稳定的权威修订
+ * （`story_conversation_messages` 那一行永不改写），所以完整正文永远可以
+ * 回源解析。截断这里不会丢失任何东西。
  */
-const EXCERPT_MAX = 200;
+const CHAT_EXCERPT_MAX = 200;
 
-function excerptOf(content: string): string {
+function chatExcerptOf(content: string): string {
   const clean = content.replace(/\s+/g, " ").trim();
-  return clean.length > EXCERPT_MAX ? `${clean.slice(0, EXCERPT_MAX)}…` : clean;
+  return clean.length > CHAT_EXCERPT_MAX
+    ? `${clean.slice(0, CHAT_EXCERPT_MAX)}…`
+    : clean;
 }
 
-function snapshotFor(content: string): PersonalMemoryEventSnapshot {
+function chatSnapshotFor(content: string): PersonalMemoryEventSnapshot {
   if (!content.trim()) return createEmptyPersonalMemoryEventSnapshot();
-  return { ...createEmptyPersonalMemoryEventSnapshot(), excerpt: excerptOf(content) };
+  return {
+    ...createEmptyPersonalMemoryEventSnapshot(),
+    excerpt: chatExcerptOf(content),
+  };
+}
+
+/**
+ * 每日留言的事件快照必须存**完整原文**，不能截断。
+ *
+ * 这不是风格选择：日期级 `emotion_daily_letters` 行只保留当前修订，旧修订
+ * 一旦被覆盖就不存在于任何别的表里。按 Source Contract Matrix，事件是
+ * 「旧修订的历史权威」——截成 200 字等于默默丢掉这一条历史。
+ * 上游 `cleanMessage`（emotionDailyLetters.ts）已经把留言收窄到 800 字，
+ * 这里原样保留即可，不用再截一次。
+ */
+function dailyLetterSnapshotFor(content: string): PersonalMemoryEventSnapshot {
+  if (!content.trim()) return createEmptyPersonalMemoryEventSnapshot();
+  return { ...createEmptyPersonalMemoryEventSnapshot(), excerpt: content };
 }
 
 /**
@@ -102,7 +122,7 @@ export function buildChatMessageCapture(input: {
     },
     occurredOn: chinaDateString(input.occurredAt),
     occurredAt: input.occurredAt.toISOString(),
-    snapshot: snapshotFor(input.content),
+    snapshot: chatSnapshotFor(input.content),
     storyId: input.storyId,
     job: {
       operationId: `pm-chat-${input.userId}-${input.messageId}`,
@@ -146,7 +166,7 @@ export function buildDailyLetterMessageCapture(input: {
     // 留言属于它那一天，不是写下它的那一天——跨日补写不改写旧日期。
     occurredOn: input.letterDate,
     occurredAt: input.occurredAt.toISOString(),
-    snapshot: snapshotFor(message),
+    snapshot: dailyLetterSnapshotFor(message),
     storyId: null,
     // 清空不产生提炼任务：没有内容可提炼，只有删除传播要处理。
     job: message

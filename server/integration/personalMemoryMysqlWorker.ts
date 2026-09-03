@@ -1,11 +1,23 @@
 import {
   appendEmotionDailyLetterVersion,
   capturePersonalMemoryEventStandalone,
+  claimPersonalMemoryJobs,
+  completePersonalMemoryExtractionJob,
+  correctPersonalMemoryInsight,
+  failPersonalMemoryJob,
+  forgetPersonalMemoryInsightLineage,
+  getPersonalMemoryPrivacyEpoch,
+  getPersonalMemorySuppression,
+  isPersonalMemoryEventSuppressed,
+  listActivePersonalMemoryInsightCandidates,
   listEmotionDailyLetterVersions,
   listPersonalMemoryEvents,
+  listPersonalMemoryInsightLineage,
+  scrubPersonalMemoryEventAndRecompute,
 } from "../services/personalMemoryPersistence";
 import type {
   PersonalMemoryEventIdentity,
+  PersonalMemoryInsightMutation,
   PersonalMemoryLetterPayload,
 } from "../../shared/personalMemory";
 
@@ -32,6 +44,36 @@ type WorkerInput = {
       expectedCurrentVersionNumber?: number;
     }
   | { action: "listVersions"; userId: number; letterDate: string }
+  | { action: "claimJobs"; limit: number; leaseMs: number }
+  | {
+      action: "completeExtraction";
+      jobId: number;
+      leaseToken: string;
+      userId: number;
+      eventId: number;
+      mutations: PersonalMemoryInsightMutation[];
+    }
+  | {
+      action: "failJob";
+      jobId: number;
+      leaseToken: string;
+      errorKind: string;
+      permanent: boolean;
+      nextAvailableAtMs?: number;
+    }
+  | {
+      action: "correctInsight";
+      userId: number;
+      lineageKey: string | null;
+      text: string;
+    }
+  | { action: "forgetInsight"; userId: number; lineageKey: string }
+  | { action: "scrubEvent"; userId: number; eventId: number }
+  | { action: "listInsightCandidates"; userId: number; limit: number }
+  | { action: "listInsightLineage"; userId: number; lineageKey: string }
+  | { action: "getSuppression"; userId: number; lineageKey: string }
+  | { action: "isEventSuppressed"; userId: number; eventId: number }
+  | { action: "getPrivacyEpoch"; userId: number }
 );
 
 function decodeInput(value: string | undefined): WorkerInput {
@@ -125,6 +167,138 @@ try {
       count: versions.length,
       versionNumbers: versions.map(version => version.envelope.versionNumber),
     });
+  }
+
+  if (input.action === "claimJobs") {
+    const jobs = await claimPersonalMemoryJobs({
+      limit: input.limit,
+      leaseMs: input.leaseMs,
+    });
+    await finish({
+      count: jobs.length,
+      jobs: jobs.map(job => ({
+        id: job.id,
+        leaseToken: job.leaseToken,
+        attempts: job.attempts,
+      })),
+    });
+  }
+
+  if (input.action === "completeExtraction") {
+    const result = await completePersonalMemoryExtractionJob({
+      jobId: input.jobId,
+      leaseToken: input.leaseToken,
+      userId: input.userId,
+      eventId: input.eventId,
+      mutations: input.mutations,
+    });
+    await finish({
+      jobClaimValid: result.jobClaimValid,
+      discarded: result.discarded,
+      applied: result.applied.map(a => ({
+        outcome: a.outcome,
+        insightId: a.insightId,
+        lineageKey: a.lineageKey,
+      })),
+    });
+  }
+
+  if (input.action === "failJob") {
+    const ok = await failPersonalMemoryJob({
+      jobId: input.jobId,
+      leaseToken: input.leaseToken,
+      errorKind: input.errorKind,
+      permanent: input.permanent,
+      ...(input.nextAvailableAtMs === undefined
+        ? {}
+        : { nextAvailableAt: new Date(input.nextAvailableAtMs) }),
+    });
+    await finish({ ok });
+  }
+
+  if (input.action === "correctInsight") {
+    const result = await correctPersonalMemoryInsight({
+      userId: input.userId,
+      lineageKey: input.lineageKey,
+      category: "preference",
+      text: input.text,
+      scope: null,
+      allowProactiveMention: false,
+    });
+    await finish(result);
+  }
+
+  if (input.action === "forgetInsight") {
+    const result = await forgetPersonalMemoryInsightLineage(
+      input.userId,
+      input.lineageKey
+    );
+    await finish(result);
+  }
+
+  if (input.action === "scrubEvent") {
+    const result = await scrubPersonalMemoryEventAndRecompute(
+      input.userId,
+      input.eventId
+    );
+    await finish(result);
+  }
+
+  if (input.action === "listInsightCandidates") {
+    const rows = await listActivePersonalMemoryInsightCandidates(
+      input.userId,
+      input.limit
+    );
+    await finish({
+      count: rows.length,
+      rows: rows.map(row => ({
+        id: row.id,
+        lineageKey: row.lineageKey,
+        revision: row.revision,
+        state: row.state,
+        text: row.text,
+        confidence: row.confidence,
+      })),
+    });
+  }
+
+  if (input.action === "listInsightLineage") {
+    const rows = await listPersonalMemoryInsightLineage(
+      input.userId,
+      input.lineageKey
+    );
+    await finish({
+      count: rows.length,
+      rows: rows.map(row => ({
+        id: row.id,
+        revision: row.revision,
+        state: row.state,
+        text: row.text,
+        origin: row.origin,
+        supersededByInsightId: row.supersededByInsightId,
+      })),
+    });
+  }
+
+  if (input.action === "getSuppression") {
+    const row = await getPersonalMemorySuppression(
+      input.userId,
+      input.lineageKey
+    );
+    await finish({ exists: row !== null, suppressedEventIds: row?.suppressedEventIds ?? [] });
+  }
+
+  if (input.action === "isEventSuppressed") {
+    const suppressed = await isPersonalMemoryEventSuppressed(
+      input.userId,
+      input.eventId
+    );
+    await finish({ suppressed });
+  }
+
+  if (input.action === "getPrivacyEpoch") {
+    const epoch = await getPersonalMemoryPrivacyEpoch(input.userId);
+    await finish({ epoch });
   }
 
   await finish({ error: "unknown action" }, 1);

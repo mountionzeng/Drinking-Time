@@ -903,3 +903,173 @@ export function projectPersonalMemoryOutbox(
   state.projectionWatermarks[aggregateName] = highest;
   return { applied, skipped, watermark: highest };
 }
+
+// ─── 提炼与理解状态机（纯函数）──────────────────────────────────────────
+//
+// 这一段是 U5 的核心规则，两条持久化路径都必须遵守同一套判定：
+// MySQL 事务与本地 copy-on-write 各自负责「读取相关切片、调用这里的纯函数
+// 算出结果、写回」，规则本身只在这里定义一次。
+
+/**
+ * 模型对一条经历的结构化陈述类型判定。**由模型给出，但不被信任**——
+ * 系统仍会依据这个类型强制约束能否产生理解、以及产生的理解归到什么可信级别。
+ */
+export type PersonalMemoryStatementType =
+  | "direct_statement"
+  | "question"
+  | "quotation"
+  | "hypothesis"
+  | "project_scoped_instruction"
+  | "inferred_behavior";
+
+/** 这些陈述类型结构上不可能产生理解——不管模型说了什么，硬性清零。 */
+export const STATEMENT_TYPES_WITHOUT_INSIGHTS: ReadonlySet<PersonalMemoryStatementType> =
+  new Set(["question", "quotation", "hypothesis"]);
+
+export type PersonalMemoryInsightActionKind = "new" | "reinforce" | "supersede";
+
+/**
+ * 根据陈述类型与动作种类推导可信级别。**这条规则不接受模型覆盖**——
+ * 「用户明确陈述与纠正的可信级别高于系统推断」是产品不变量，不是模型的建议。
+ */
+export function deriveInsightOrigin(
+  statementType: PersonalMemoryStatementType,
+  action: PersonalMemoryInsightActionKind
+): PersonalMemoryInsightOrigin {
+  if (statementType === "inferred_behavior") return "inferred";
+  // direct_statement 与 project_scoped_instruction 都是用户真实说过的话；
+  // supersede 属于「用新表达替换旧结论」，这正是纠正的定义。
+  return action === "supersede" ? "user_corrected" : "user_stated";
+}
+
+/** 置信度增量：重复表达或持续采用可以强化依据，但永远不会超过 1。 */
+export function reinforceInsightConfidence(current: number): number {
+  const REINFORCE_STEP = 0.1;
+  return Math.min(1, Math.round((current + REINFORCE_STEP) * 100) / 100);
+}
+
+export type ExtractedInsightProposal = {
+  /**
+   * 由调用方（提炼层／手动纠正入口）通过 deriveInsightOrigin 算好再传入。
+   * 这里不重新推导——mutation 只是「写什么」，不该再决定「有多可信」。
+   */
+  origin: PersonalMemoryInsightOrigin;
+  category: PersonalMemoryInsightCategory;
+  text: string;
+  scope: Record<string, unknown> | null;
+  confidence: number;
+  allowProactiveMention: boolean;
+};
+
+export type PersonalMemoryInsightMutation =
+  | ({ action: "new" } & ExtractedInsightProposal)
+  | {
+      action: "reinforce";
+      lineageKey: string;
+      /**
+       * lineage 的 tip revision——调用方决定「这条证据要强化这条理解」时
+       * 看到的那个版本号，不是「随便哪个 active」。
+       *
+       * 没有这个检查，一个在纠正之前就已经决定要 reinforce 的旧任务，会在
+       * 纠正之后才完成，把新证据错挂到用户刚纠正出来的、内容完全不同的
+       * 新版本上——tip 恰好还是 active，只是换了内容。「检查源状态和序列」
+       * 里的「序列」指的就是这个。
+       */
+      expectedRevision: number;
+    }
+  | ({ action: "supersede"; lineageKey: string; expectedRevision: number } & ExtractedInsightProposal);
+
+/**
+ * 一条 lineage 的完整视图：当前 tip（最高 revision 的那一行）与它的历史。
+ * 两条持久化路径都把各自读到的切片整理成这个形状，再交给下面的纯函数判定。
+ */
+export type PersonalMemoryInsightLineageView = {
+  /** 按 revision 升序；为空表示这个 lineageKey 从未存在过。 */
+  revisions: PersonalMemoryInsightRecord[];
+};
+
+/** 取 revision 最大的那一行，与数组顺序无关——调用方不保证已排序。 */
+export function insightLineageTip(
+  view: PersonalMemoryInsightLineageView
+): PersonalMemoryInsightRecord | null {
+  let tip: PersonalMemoryInsightRecord | null = null;
+  for (const revision of view.revisions) {
+    if (!tip || revision.revision > tip.revision) tip = revision;
+  }
+  return tip;
+}
+
+/**
+ * 判定一次提炼动作现在能不能生效，以及为什么不能。
+ *
+ * 这是「旧任务在调用前后都检查源状态和序列，不能覆盖新纠正、归档、忘记或
+ * 删除」的具体实现：reinforce／supersede 都要求目标当前恰好是 active——
+ * 任何用户动作（纠正、归档、忘记）或另一个提炼任务抢先完成，都会让这里判定
+ * 「过期，丢弃」而不是覆盖过去。
+ */
+export type InsightMutationDecision =
+  | { kind: "create"; lineageKey: string }
+  | { kind: "reinforce"; target: PersonalMemoryInsightRecord }
+  | { kind: "supersede"; target: PersonalMemoryInsightRecord }
+  | { kind: "stale"; reason: string };
+
+export function decideInsightMutation(
+  mutation: PersonalMemoryInsightMutation,
+  lineageKey: string,
+  view: PersonalMemoryInsightLineageView
+): InsightMutationDecision {
+  if (mutation.action === "new") return { kind: "create", lineageKey };
+
+  const tip = insightLineageTip(view);
+  if (!tip) {
+    return { kind: "stale", reason: `lineage ${lineageKey} 不存在` };
+  }
+  if (tip.state !== "active") {
+    return {
+      kind: "stale",
+      reason: `lineage ${lineageKey} 当前状态是 ${tip.state}，不是 active——` +
+        "已被用户纠正、归档或忘记，提炼结果丢弃而不覆盖",
+    };
+  }
+  if (tip.revision !== mutation.expectedRevision) {
+    return {
+      kind: "stale",
+      reason: `lineage ${lineageKey} 当前是 revision ${tip.revision}，` +
+        `不是这条 mutation 决定时看到的 revision ${mutation.expectedRevision}——` +
+        "tip 虽然仍是 active，但内容已经被别的动作换过，不能把新证据挂上去",
+    };
+  }
+  return mutation.action === "reinforce"
+    ? { kind: "reinforce", target: tip }
+    : { kind: "supersede", target: tip };
+}
+
+/** 归档／恢复只需要检查 tip 的当前状态是否允许该迁移。 */
+export function decideLineageStateChange(
+  view: PersonalMemoryInsightLineageView,
+  to: "archived" | "active" | "forgotten"
+): { kind: "apply"; target: PersonalMemoryInsightRecord } | { kind: "invalid"; reason: string } {
+  const tip = insightLineageTip(view);
+  if (!tip) return { kind: "invalid", reason: "lineage 不存在" };
+  if (!canTransitionInsightState(tip.state, to)) {
+    return {
+      kind: "invalid",
+      reason: `无法从 ${tip.state} 迁移到 ${to}`,
+    };
+  }
+  return { kind: "apply", target: tip };
+}
+
+/**
+ * 一个来源事件被清空内容（scrub）后，重新计算受影响理解是否还有依据。
+ *
+ * 只看**当前 tip**：历史 superseded 行不参与召回，不需要重算。
+ * 多来源理解删掉其中一个仍然有效，只有最后一个有效来源没了才退出召回。
+ */
+export function decideEvidenceLossOutcome(
+  tip: PersonalMemoryInsightRecord,
+  remainingValidEvidenceCount: number
+): "unaffected" | "unsupported" {
+  if (tip.state !== "active") return "unaffected"; // 非活跃理解不参与召回判定
+  return remainingValidEvidenceCount > 0 ? "unaffected" : "unsupported";
+}
