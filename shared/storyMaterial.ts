@@ -227,12 +227,29 @@ export type StoryTimelineVisualLayerState = {
   hidden: number[];
 };
 
+/**
+ * Forward-compatible slot for timeline media the visual model does not own.
+ * Subtitles land here in U3, audio tracks in U9. U1 defines only the carrier:
+ * every codec, writer, aggregate save and undo path must round-trip unknown
+ * keys here byte-for-byte, so a visual-only save can never drop a subtitle or
+ * audio slice. Absent whenever the stored document has no non-visual slice.
+ *
+ * Keys are namespaced slices (e.g. `subtitleTracks`, `audioTracks`), each
+ * merged independently on write — a writer that sets one slice leaves the
+ * others untouched.
+ */
+export type TimelineDocumentExtensions = {
+  [slice: string]: unknown;
+};
+
 export type TimelineDocument = {
   storyId: number;
   version: number;
   items: StoryTimelineItem[];
   overlays?: StoryTimelineOverlay[];
   visualLayerState?: StoryTimelineVisualLayerState;
+  /** Non-visual media slices. See {@link TimelineDocumentExtensions}. */
+  extensions?: TimelineDocumentExtensions;
 };
 
 export type ShotMaterialState = {

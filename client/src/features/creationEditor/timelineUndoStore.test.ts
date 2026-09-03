@@ -34,6 +34,31 @@ function timeline(durationMs: number): StoryTimelineItem[] {
 beforeEach(clearTimelineUndoForTesting);
 
 describe("timelineUndoStore", () => {
+  // U1: the client-side snapshot is visual-only. Subtitle/audio undo lives in
+  // the server journal, never here — a round trip must not invent or carry a
+  // non-visual slice.
+  it("round-trips a timeline snapshot with only visual keys", () => {
+    activateTimelineUndoSession(3, "tab-a");
+    recordTimelineUndoSnapshot(3, timeline(1_000), {
+      visualLayerState: { count: 2, hidden: [1] },
+      overlays: [
+        {
+          id: "overlay-a",
+          transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+        } as never,
+      ],
+    });
+
+    const entry = takeCreationEditorUndoEntry(3);
+    expect(entry?.kind).toBe("timeline");
+    expect(Object.keys(entry ?? {}).sort()).toEqual([
+      "items",
+      "kind",
+      "overlays",
+      "visualLayerState",
+    ]);
+  });
+
   it("keeps the concrete server receipt on a command undo entry", () => {
     activateTimelineUndoSession(7, "tab-a");
     recordTimelineCommandUndo(7, {

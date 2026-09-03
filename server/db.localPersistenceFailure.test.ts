@@ -311,6 +311,39 @@ describe("local persistence write-failure semantics", () => {
     });
   });
 
+  it("rolls back both visual and extension slices when a slice write fails", async () => {
+    await db.updateStoryTimeline({
+      storyId: 142,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-before" }],
+      extensions: {
+        subtitleTracks: [{ id: "sub-1", startFrame: 0, durationFrames: 30 }],
+      },
+    });
+    vi.mocked(fs.rename).mockRejectedValueOnce(new Error("rename failed"));
+
+    await expect(
+      db.updateStoryTimeline({
+        storyId: 142,
+        userId: 1,
+        expectedVersion: 1,
+        items: [{ stableShotId: "shot-should-not-land" }],
+        extensions: {
+          subtitleTracks: [{ id: "sub-2", startFrame: 90, durationFrames: 30 }],
+        },
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
+
+    expect(await db.getStoryTimeline(142, 1)).toMatchObject({
+      version: 1,
+      items: [{ stableShotId: "shot-before" }],
+      extensions: {
+        subtitleTracks: [{ id: "sub-1", startFrame: 0, durationFrames: 30 }],
+      },
+    });
+  });
+
   it("rolls back a failed timeline write before the next same-story CAS begins", async () => {
     await db.updateStoryTimeline({
       storyId: 103,

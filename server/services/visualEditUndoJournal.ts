@@ -4,6 +4,15 @@ import type {
   VisualEditReceipt,
 } from "../../shared/visualEditReceipt";
 
+/**
+ * This journal snapshots the VISUAL document only. Subtitle (U3) and audio
+ * (U9) edits get their own entries in this same unified stack. When a visual
+ * undo replays its `before` document through the aggregate/timeline CAS, the
+ * canonical codec preserves whatever non-visual slices are stored at that
+ * moment (see server/persistence/storyTimelinePersistence.ts) — a visual undo
+ * never reverts, and never drops, a subtitle or audio slice.
+ */
+
 type JournalFields = {
   editorSessionEpoch: string;
   operationId: string;

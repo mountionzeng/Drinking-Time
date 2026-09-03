@@ -26,6 +26,11 @@ import { createKeyedSerialLock } from "./utils/keyedSerialLock";
 import { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
 export { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
 import type { StoryTimelineOverlay } from "../shared/storyMaterial";
+import {
+  decodeStoredStoryTimeline,
+  encodeStoredStoryTimeline,
+  mergeStoredStoryTimelineExtensions,
+} from "./persistence/storyTimelinePersistence";
 import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
   InsertUser,
@@ -6805,38 +6810,23 @@ type StoryTimelinePayload = {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
+  /**
+   * Non-visual media slices (subtitles in U3, audio in U9). A visual writer
+   * never sets this and must never drop it; it is preserved from the stored
+   * document by the canonical codec on every save.
+   */
+  extensions?: Record<string, unknown>;
 };
 
+// Thin wrappers over the one canonical codec in
+// server/persistence/storyTimelinePersistence.ts. Do not reimplement envelope
+// decode/encode here — the architecture guard forbids a second codec.
 function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "items" in value
-  ) {
-    const record = value as Record<string, unknown>;
-    return {
-      items: record.items,
-      overlays: record.overlays,
-      visualLayerState: record.visualLayerState,
-    };
-  }
-  return { items: value };
+  return decodeStoredStoryTimeline(value);
 }
 
 function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
-  return payload.overlays === undefined &&
-    payload.visualLayerState === undefined
-    ? payload.items
-    : {
-        items: payload.items,
-        ...(payload.overlays === undefined
-          ? {}
-          : { overlays: payload.overlays }),
-        ...(payload.visualLayerState === undefined
-          ? {}
-          : { visualLayerState: payload.visualLayerState }),
-      };
+  return encodeStoredStoryTimeline(payload);
 }
 
 function replaceStoryTimelineItemsPreservingOverlays(
@@ -6849,12 +6839,20 @@ function replaceStoryTimelineItemsPreservingOverlays(
     items: next.items,
     overlays: current.overlays ?? next.overlays,
     visualLayerState: current.visualLayerState ?? next.visualLayerState,
+    // The replacement `nextItems` is a bare visual document; extension slices
+    // only ever live on the stored row, so carry them straight through.
+    extensions: mergeStoredStoryTimelineExtensions(
+      currentValue,
+      next.extensions
+    ),
   });
 }
 
-function storyTimelineView(
-  row: StoryTimeline
-): StoryTimeline & { overlays?: unknown; visualLayerState?: unknown } {
+function storyTimelineView(row: StoryTimeline): StoryTimeline & {
+  overlays?: unknown;
+  visualLayerState?: unknown;
+  extensions?: Record<string, unknown>;
+} {
   const payload = decodeStoryTimelinePayload(row.items);
   return {
     ...row,
@@ -6863,6 +6861,11 @@ function storyTimelineView(
     ...(payload.visualLayerState === undefined
       ? {}
       : { visualLayerState: payload.visualLayerState }),
+    // Non-visual slices ride along in a namespaced bag; nothing in U1 reads
+    // them, but the view must not be where they get dropped.
+    ...(payload.extensions === undefined
+      ? {}
+      : { extensions: payload.extensions }),
   };
 }
 
@@ -6873,8 +6876,18 @@ export async function updateStoryTimeline(input: {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
+  /**
+   * Non-visual media slices to merge per key (subtitles in U3, audio in U9).
+   * A key set here replaces only that slice; every other stored slice is
+   * preserved. Visual writers never pass this.
+   */
+  extensions?: Record<string, unknown>;
 }): Promise<
-  StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }
+  StoryTimeline & {
+    overlays?: unknown;
+    visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
+  }
 > {
   const db = await getDb();
   if (!db) {
@@ -6897,6 +6910,10 @@ export async function updateStoryTimeline(input: {
             ...(input.visualLayerState === undefined
               ? {}
               : { visualLayerState: input.visualLayerState }),
+            extensions: mergeStoredStoryTimelineExtensions(
+              undefined,
+              input.extensions
+            ),
           });
           const row: StoryTimeline = {
             id: nextMemoryId("storyTimeline"),
@@ -6934,6 +6951,10 @@ export async function updateStoryTimeline(input: {
           overlays: input.overlays ?? currentPayload.overlays,
           visualLayerState:
             input.visualLayerState ?? currentPayload.visualLayerState,
+          extensions: mergeStoredStoryTimelineExtensions(
+            existing.items,
+            input.extensions
+          ),
         });
         const nextVersion = previousVersion + 1;
         const nextUpdatedAt = now();
@@ -6984,6 +7005,10 @@ export async function updateStoryTimeline(input: {
           ...(input.visualLayerState === undefined
             ? {}
             : { visualLayerState: input.visualLayerState }),
+          extensions: mergeStoredStoryTimelineExtensions(
+            undefined,
+            input.extensions
+          ),
         }),
       });
       const [created] = await tx
@@ -7004,6 +7029,10 @@ export async function updateStoryTimeline(input: {
           overlays: input.overlays ?? currentPayload.overlays,
           visualLayerState:
             input.visualLayerState ?? currentPayload.visualLayerState,
+          extensions: mergeStoredStoryTimelineExtensions(
+            existing.items,
+            input.extensions
+          ),
         }),
         version: existing.version + 1,
       })
@@ -7019,9 +7048,14 @@ export async function updateStoryTimeline(input: {
 /**
  * Service-only aggregate compare-and-swap for commands that must replace the
  * Story body and the complete Timeline document as one fact. `nextTimeline`
- * is replacement data: an empty overlays array clears overlays, while an
- * omitted overlays/visualLayerState field remains omitted. It never inherits
- * fields from the previous document.
+ * is replacement data for the visual fields: an empty overlays array clears
+ * overlays, while an omitted overlays/visualLayerState field remains omitted.
+ * It never inherits visual fields from the previous document.
+ *
+ * Non-visual extension slices (subtitles, audio) are the exception: they are
+ * preserved from the stored document per key unless `nextTimeline.extensions`
+ * explicitly overrides one. A visual-only aggregate command therefore cannot
+ * drop a subtitle or audio slice.
  *
  * Local mode takes locks in the fixed Story -> Timeline order and persists an
  * isolated next state before publishing either row to shared memory. SQL mode
@@ -7039,6 +7073,7 @@ export async function updateStoryAndTimelineAtomic(input: {
   timeline: StoryTimeline & {
     overlays?: unknown;
     visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
   };
 }> {
   const nextStoryRevision = persistedStoryBodyRevision(input.nextStoryBody);
@@ -7047,15 +7082,23 @@ export async function updateStoryAndTimelineAtomic(input: {
       `Story CAS body revision ${nextStoryRevision} must follow expected revision ${input.expectedStoryRevision}`
     );
   }
-  const nextTimelinePayload = encodeStoryTimelinePayload({
-    items: input.nextTimeline.items,
-    ...(input.nextTimeline.overlays === undefined
-      ? {}
-      : { overlays: input.nextTimeline.overlays }),
-    ...(input.nextTimeline.visualLayerState === undefined
-      ? {}
-      : { visualLayerState: input.nextTimeline.visualLayerState }),
-  });
+  // Extension slices ride on the stored row, so the payload can only be
+  // finalized once the current row is under lock. `currentValue` is the
+  // stored `items` column of the row being replaced (undefined for insert).
+  const buildNextTimelinePayload = (currentValue: unknown) =>
+    encodeStoryTimelinePayload({
+      items: input.nextTimeline.items,
+      ...(input.nextTimeline.overlays === undefined
+        ? {}
+        : { overlays: input.nextTimeline.overlays }),
+      ...(input.nextTimeline.visualLayerState === undefined
+        ? {}
+        : { visualLayerState: input.nextTimeline.visualLayerState }),
+      extensions: mergeStoredStoryTimelineExtensions(
+        currentValue,
+        input.nextTimeline.extensions
+      ),
+    });
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -7091,7 +7134,7 @@ export async function updateStoryAndTimelineAtomic(input: {
           const nextTimeline: StoryTimeline = timeline
             ? {
                 ...timeline,
-                items: nextTimelinePayload,
+                items: buildNextTimelinePayload(timeline.items),
                 version: timeline.version + 1,
                 updatedAt: current,
               }
@@ -7099,7 +7142,7 @@ export async function updateStoryAndTimelineAtomic(input: {
                 id: nextIds.storyTimeline++,
                 storyId: input.storyId,
                 userId: input.userId,
-                items: nextTimelinePayload,
+                items: buildNextTimelinePayload(undefined),
                 version: 1,
                 createdAt: current,
                 updatedAt: current,
@@ -7180,13 +7223,16 @@ export async function updateStoryAndTimelineAtomic(input: {
       timelineId = timeline.id;
       await tx
         .update(storyTimelines)
-        .set({ items: nextTimelinePayload, version: timeline.version + 1 })
+        .set({
+          items: buildNextTimelinePayload(timeline.items),
+          version: timeline.version + 1,
+        })
         .where(eq(storyTimelines.id, timeline.id));
     } else {
       const [inserted] = await tx.insert(storyTimelines).values({
         storyId: input.storyId,
         userId: input.userId,
-        items: nextTimelinePayload,
+        items: buildNextTimelinePayload(undefined),
         version: 1,
       });
       timelineId = inserted.insertId;
@@ -7335,6 +7381,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
                         : [...overlays, input.overlay!]),
                     visualLayerState:
                       input.nextVisualLayerState ?? payload.visualLayerState,
+                    extensions: payload.extensions,
                   }),
                   version: timeline.version + 1,
                   updatedAt: current,
@@ -7486,6 +7533,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
               (overlayExists ? overlays : [...overlays, input.overlay!]),
             visualLayerState:
               input.nextVisualLayerState ?? payload.visualLayerState,
+            extensions: payload.extensions,
           }),
           version: timeline.version + 1,
         })

@@ -15,6 +15,10 @@ export type InsertedStoryShotUndoEntry = {
  * 一次时间线撤销要还原的全部东西。只存 items 不够：图层顺序、图层数量和显隐
  * 都在 `visualLayerState` 里，遗留 overlay 的兼容层在 `overlays` 里，
  * 少存一样就会出现「Cmd+Z 之后素材回来了、图层还留在改过的状态」。
+ *
+ * 这是**视觉专用**快照。字幕（U3）和音轨（U9）的撤销走服务端撤销日志，不进
+ * 这个客户端结构——服务端 CAS 会在回放时无损保留非视觉切片。绝不要把
+ * subtitleTracks / audioTracks 塞进这里。
  */
 export type TimelineUndoSnapshot = {
   items: StoryTimelineItem[];

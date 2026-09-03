@@ -552,6 +552,10 @@ describe("architecture boundaries", () => {
     hiddenVisualLayerSet: "shared/timelineVisualPriority.ts",
     normalizeShotIdentity: "shared/shotIdentity.ts",
     isRecoverablePublishingCoverGeneration: "shared/publishingDraft.ts",
+    // U1: exactly one codec understands the persisted Story Timeline envelope
+    // (items + overlays + visualLayerState + non-visual extension slices).
+    decodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
+    encodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
   };
 
   it("keeps one authoritative implementation per cross-cutting semantic", async () => {
@@ -604,6 +608,32 @@ describe("architecture boundaries", () => {
     for (const sample of shouldNotMatch) {
       expect([sample, exportPattern.test(sample)]).toEqual([sample, false]);
     }
+  });
+
+  // U1: the persisted-timeline encode is the one place a stored envelope is
+  // built. Only server/db.ts's thin wiring may call it; a service that reaches
+  // for it is hand-writing a save object and can silently drop a subtitle or
+  // audio slice — exactly what the single codec exists to prevent. Decode is
+  // safe to reuse widely (it never drops anything), so it is not restricted.
+  const storedTimelineEncodeImporterAllowlist = new Set([
+    "server/db.ts",
+    "server/persistence/storyTimelinePersistence.ts",
+  ]);
+
+  it("keeps the persisted-timeline encode behind server/db.ts wiring", async () => {
+    const [sharedSources, serverSources, clientSources] = await Promise.all([
+      sharedSourcesPromise,
+      serverSourcesPromise,
+      activeSourcesPromise,
+    ]);
+    const encodeReferencePattern = /\bencodeStoredStoryTimeline\b/;
+    const violations = [...sharedSources, ...serverSources, ...clientSources]
+      .filter(({ content }) => encodeReferencePattern.test(content))
+      .map(({ file }) => toRepoPath(file))
+      .filter(repoPath => !storedTimelineEncodeImporterAllowlist.has(repoPath))
+      .sort();
+
+    expect(violations).toEqual([]);
   });
 
 });

@@ -342,4 +342,64 @@ describe("runStoryTimelineCommand", () => {
       errorKind: "conflict",
     });
   });
+
+  // U1: the visual aggregate command path (also the path a visual undo replays
+  // through) must carry unknown non-visual slices through untouched.
+  it("carries subtitle/audio extension slices through a visual aggregate command", async () => {
+    const story = await createStory({
+      userId: USER_ID,
+      title: "extension passthrough",
+      body: { _revision: 0, shots: [{ stableShotId: "shot-a", shotNo: 1 }] },
+    });
+    const subtitleSentinel = [
+      { id: "sub-1", startFrame: 0, durationFrames: 45, text: "第一句" },
+    ];
+    const audioSentinel = [{ kind: "music", clips: [{ id: "a1", assetId: 7 }] }];
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: USER_ID,
+      expectedVersion: 0,
+      items: [
+        {
+          stableShotId: "shot-a",
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+          durationFrames: 60,
+          timelineStartFrame: 0,
+          transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+        },
+      ],
+      visualLayerState: { count: 1, hidden: [] },
+      extensions: {
+        subtitleTracks: subtitleSentinel,
+        audioTracks: audioSentinel,
+      },
+    });
+
+    const result = await runStoryTimelineCommand(
+      { storyId: story.id, userId: USER_ID, failureMessage: "编辑失败" },
+      context => ({
+        status: "ok" as const,
+        value: null,
+        storyBody: context.storyBody,
+        document: {
+          ...context.document,
+          items: context.document.items.map(item => ({
+            ...item,
+            timelineStartFrame: (item.timelineStartFrame ?? 0) + 5,
+          })),
+        },
+      })
+    );
+
+    expect(result).toMatchObject({ status: "ok", changed: true });
+    expect(await getStoryTimeline(story.id, USER_ID)).toMatchObject({
+      version: 2,
+      extensions: {
+        subtitleTracks: subtitleSentinel,
+        audioTracks: audioSentinel,
+      },
+    });
+  });
 });

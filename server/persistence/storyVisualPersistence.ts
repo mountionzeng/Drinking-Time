@@ -67,6 +67,13 @@ export async function loadOwnedStoryVisualAggregate(input: {
   return { story, timeline, videoTakes };
 }
 
+/**
+ * Projects the stored timeline to the visual-only editing document. Non-visual
+ * slices (subtitles in U3, audio in U9) are intentionally NOT surfaced here —
+ * `updateStoryTimeline` / `updateStoryAndTimelineAtomic` preserve them from the
+ * stored row on every save, so a visual writer never needs to see or thread
+ * them. See server/persistence/storyTimelinePersistence.ts.
+ */
 export function visualDocumentFromTimeline(
   timeline: StoryVisualTimelineRecord
 ): VisualEditDocument | null {
