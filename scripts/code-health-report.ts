@@ -26,7 +26,6 @@ const DEFAULT_TRACKED_DIRS = [
   "art-repository",
   "client/src/assets",
   "client/public",
-  "client/public/archive",
   "drinking-time-vision",
   ".worktrees",
 ];

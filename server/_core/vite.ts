@@ -6,14 +6,6 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
 
-function registerArchivedAnalysisPage(app: Express, htmlFilePath: string) {
-  // Keep the old single-file workshop available for comparison without
-  // shadowing the React /analysis route.
-  app.get(["/analysis-archive", "/analysis-archive/"], (_req, res) => {
-    res.sendFile(htmlFilePath);
-  });
-}
-
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
@@ -28,17 +20,6 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
-  const archiveHtmlPath = path.resolve(
-    import.meta.dirname,
-    "../..",
-    "client",
-    "public",
-    "archive",
-    "drinking-time-workshop-ledger",
-    "index.html"
-  );
-
-  registerArchivedAnalysisPage(app, archiveHtmlPath);
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
@@ -71,19 +52,12 @@ export function serveStatic(app: Express) {
     process.env.NODE_ENV === "development"
       ? path.resolve(import.meta.dirname, "../..", "dist", "public")
       : path.resolve(import.meta.dirname, "public");
-  const archiveHtmlPath = path.resolve(
-    distPath,
-    "archive",
-    "drinking-time-workshop-ledger",
-    "index.html"
-  );
   if (!fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
 
-  registerArchivedAnalysisPage(app, archiveHtmlPath);
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
