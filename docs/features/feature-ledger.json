@@ -3061,6 +3061,11 @@
           "date": "2026-09-03",
           "kind": "build",
           "summary": "Phase 1 / U2 服务端捕获边界：新增 server/services/personalMemoryEvents.ts（聊天以标准化消息行 ID 为稳定来源、客户端 ID 作动作 ID；每日留言按修订号成条，清空记为 cleared 且不入队提炼）。桌面与手机两条聊天路径共用同一捕获边界——MySQL 走同一 SQL 事务，本地把 outbox 与消息写进 prompt-lineage 聚合的同一次 copy-on-write，再由带水位的幂等 projector 投进统一足迹索引（积压超阈值才裁剪，避免 outbox 无限长大）。每日留言因来源与索引同聚合，直接进来信版本的同一短事务。Phase 1 捕获由 PERSONAL_MEMORY_CAPTURE_USER_IDS 白名单控制，留空即谁都不捕获。助手消息、草稿与重复重试均不产生经历。runner 仍未启动、未回填。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "首次在真实 MySQL 上执行 U1/U2 集成测试（本机 brew MySQL + 一次性测试库），修掉两个只有并发才暴露的快照问题：REPEATABLE READ 下事务首个普通 SELECT 确立快照后，INSERT ... ON DUPLICATE KEY UPDATE 虽是当前读、随后的普通回读却看不到并发事务已提交的行，导致来源登记误报失败；来信版本改为先在当天区间取 FOR UPDATE（当前读）再在同一份结果里做 action ID 幂等复查，消除等锁期间漏看对方提交的 flaky。事件插入改为撞唯一键后当前读回查既有事件（而不是提前 FOR UPDATE 抢间隙锁，避免死锁）。迁移数量棘轮 17→18。26 个 MySQL 集成用例全绿，含 0017 在全新 utf8mb4 库上的完整 journal 重演。"
         }
       ]
     }

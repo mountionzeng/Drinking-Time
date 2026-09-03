@@ -129,8 +129,16 @@ try {
 
   await finish({ error: "unknown action" }, 1);
 } catch (error) {
-  await finish(
-    { error: error instanceof Error ? error.message : String(error) },
-    1
-  );
+  // 顺着 cause 链吐完整错误，而不是只报最外层 message。
+  // drizzle 会把 mysql2 的错误包一层，只看外层就只能看到「Failed query: ...」，
+  // 看不到 ER_DUP_ENTRY 这类真正有用的 code——2026-09-03 排查并发快照问题时，
+  // 正是因为看不到它多花了一轮。
+  const chain: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const e = current as { name?: string; code?: string; sqlMessage?: string; message?: string; cause?: unknown };
+    chain.push(`${e.name ?? ""}|${e.code ?? ""}|${e.sqlMessage ?? e.message ?? ""}`);
+    current = e.cause;
+  }
+  await finish({ error: chain.join(" << ") }, 1);
 }

@@ -10324,6 +10324,9 @@ export async function capturePersonalMemoryEvent(
       storyId: capture.storyId,
     })
     .onDuplicateKeyUpdate({ set: { sourceKey: identity.sourceKey } });
+  // FOR UPDATE：见 findPersonalMemoryEventInTx 的说明。上面这条
+  // INSERT ... ON DUPLICATE KEY UPDATE 是当前读，能看到并发事务刚提交的来源行；
+  // 但如果这里用普通读，就会退回本事务开始时的快照、把那一行读成不存在。
   const [source] = await tx
     .select({ id: personalMemorySources.id })
     .from(personalMemorySources)
@@ -10334,29 +10337,47 @@ export async function capturePersonalMemoryEvent(
         eq(personalMemorySources.sourceKey, identity.sourceKey)
       )
     )
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!source) throw new Error("个人记忆来源登记失败");
 
   const occurredAt = new Date(capture.occurredAt);
-  await tx.insert(personalMemoryEvents).values({
-    userId: identity.userId,
-    sourceId: source.id,
-    sourceType: identity.sourceType,
-    sourceKey: identity.sourceKey,
-    sourceRevision: identity.sourceRevision,
-    actionKind: identity.actionKind,
-    actionId: identity.actionId,
-    occurredOn: capture.occurredOn,
-    occurredAt,
-    excerpt: capture.snapshot.excerpt,
-    contentHash: capture.snapshot.contentHash,
-    display: capture.snapshot.display,
-  });
+  try {
+    await tx.insert(personalMemoryEvents).values({
+      userId: identity.userId,
+      sourceId: source.id,
+      sourceType: identity.sourceType,
+      sourceKey: identity.sourceKey,
+      sourceRevision: identity.sourceRevision,
+      actionKind: identity.actionKind,
+      actionId: identity.actionId,
+      occurredOn: capture.occurredOn,
+      occurredAt,
+      excerpt: capture.snapshot.excerpt,
+      contentHash: capture.snapshot.contentHash,
+      display: capture.snapshot.display,
+    });
+  } catch (error) {
+    // 并发重放：另一个事务抢先写了同一身份。唯一索引挡住了重复，
+    // 这里把既有事件当前读回来，语义与「一开始就发现已存在」完全一致。
+    // 不用 SELECT ... FOR UPDATE 抢在插入之前做，是为了避免两个事务
+    // 同时在缺失行上持有间隙锁然后互相等成死锁。
+    if (!isDuplicateKeyError(error)) throw error;
+    const existingAfterRace = await findPersonalMemoryEventInTx(
+      tx,
+      identity,
+      true
+    );
+    if (!existingAfterRace) throw error;
+    return { event: existingAfterRace, changed: false };
+  }
   const event = await findPersonalMemoryEventInTx(tx, identity);
   if (!event) throw new Error("个人记忆事件写入后读不回");
 
   if (capture.job) {
     // 同一事件 + 同一提炼器版本只排一次，靠唯一索引兜住并发重复投递。
+    // operationId 也有全局唯一索引，所以这里用 ON DUPLICATE KEY UPDATE
+    // 而不是让并发投递炸出来。
     await tx
       .insert(personalMemoryJobs)
       .values({
@@ -10374,11 +10395,33 @@ export async function capturePersonalMemoryEvent(
   return { event, changed: true };
 }
 
+/**
+ * 认出「唯一键冲突」。drizzle 会把 mysql2 的错误包一层，所以要顺着 cause 找。
+ */
+function isDuplicateKeyError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const candidate = current as { code?: string; errno?: number; cause?: unknown };
+    if (candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062) return true;
+    current = candidate.cause;
+  }
+  return false;
+}
+
+/**
+ * @param locking true = `FOR UPDATE`，读当前已提交状态而不是事务快照。
+ *
+ * 这个参数不是性能开关，是正确性开关。MySQL 默认 REPEATABLE READ：事务里
+ * 第一次普通 SELECT 就确立了快照，之后再普通读**看不到**别的事务在这期间
+ * 提交的行——哪怕自己刚刚被那一行的唯一键挡了一下。所以「插入撞了唯一键、
+ * 回头把既有行读出来」这一步必须是当前读，否则会读回空、然后误报写入失败。
+ */
 async function findPersonalMemoryEventInTx(
   tx: PersonalMemoryMysqlTx,
-  identity: PersonalMemoryEventIdentity
+  identity: PersonalMemoryEventIdentity,
+  locking = false
 ): Promise<PersonalMemoryEventRecord | null> {
-  const [row] = await tx
+  const query = tx
     .select()
     .from(personalMemoryEvents)
     .where(
@@ -10392,6 +10435,7 @@ async function findPersonalMemoryEventInTx(
       )
     )
     .limit(1);
+  const [row] = await (locking ? query.for("update") : query);
   return row ? rowToPersonalMemoryEvent(row) : null;
 }
 
@@ -10666,30 +10710,11 @@ export async function appendEmotionDailyLetterVersion(
   }
 
   return db.transaction(async tx => {
-    // 幂等：同一 action ID 已经产生过版本就原样返回，不再追加。
-    const [existing] = await tx
-      .select()
-      .from(emotionDailyLetterVersions)
-      .where(
-        and(
-          eq(emotionDailyLetterVersions.userId, input.userId),
-          eq(emotionDailyLetterVersions.letterDate, input.letterDate),
-          eq(emotionDailyLetterVersions.actionId, input.actionId)
-        )
-      )
-      .for("update")
-      .limit(1);
-    if (existing) {
-      const version = letterVersionRowToRecord(existing);
-      const letter = await readDailyLetterRowInTx(
-        tx,
-        input.userId,
-        input.letterDate
-      );
-      if (!letter) throw new Error("来信版本存在但日期级投影缺失");
-      return { version, letter, created: false };
-    }
-
+    // 先在这一天的版本区间上取锁。这一步同时做两件事：
+    //   1. 串行化同一天的并发写入，让版本号不会被两个事务算成同一个；
+    //   2. 它是**当前读**，所以等锁期间对方提交的版本这里看得见——
+    //      而事务快照里的普通读看不见（MySQL 默认 REPEATABLE READ）。
+    // 正因为看得见，幂等复查也一并在这份结果里做，不需要额外一次查询。
     const priorVersions = await tx
       .select()
       .from(emotionDailyLetterVersions)
@@ -10700,9 +10725,23 @@ export async function appendEmotionDailyLetterVersion(
         )
       )
       .for("update");
-    const current = currentLetterVersion(
-      priorVersions.map(letterVersionRowToRecord)
+    const priorRecords = priorVersions.map(letterVersionRowToRecord);
+
+    // 幂等：同一 action ID 已经产生过版本就原样返回，不再追加。
+    const replay = priorRecords.find(
+      version => version.actionId === input.actionId
     );
+    if (replay) {
+      const letter = await readDailyLetterRowInTx(
+        tx,
+        input.userId,
+        input.letterDate
+      );
+      if (!letter) throw new Error("来信版本存在但日期级投影缺失");
+      return { version: replay, letter, created: false };
+    }
+
+    const current = currentLetterVersion(priorRecords);
     // 向前兼容：U1 之前写下的日期级行没有任何版本，但它的 revision 是真的。
     // 从它起算，否则第一次经过版本权威的写入会把 revision 从 3 打回 1，
     // 而 legacy 的 CAS 调用方正拿着 3 在等。
