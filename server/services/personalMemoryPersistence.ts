@@ -12,6 +12,7 @@ export {
   appendEmotionDailyLetterVersion,
   capturePersonalMemoryEvent,
   capturePersonalMemoryEventStandalone,
+  drainLocalPersonalMemoryOutbox,
   getPersonalMemoryEventByIdentity,
   getPersonalMemoryPrivacyEpoch,
   bumpPersonalMemoryPrivacyEpoch,

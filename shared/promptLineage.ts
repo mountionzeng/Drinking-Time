@@ -2,6 +2,7 @@ import {
   normalizePromptWeight,
   promptDimensionWeight,
 } from "./promptDimensionWeights";
+import type { PersonalMemoryOutboxEntry } from "./personalMemory";
 
 export type PromptScope = "story" | "shot" | "modality";
 export type PromptModality = "shared" | "dialogue" | "image" | "video";
@@ -261,6 +262,16 @@ export type PromptLineageLocalState = {
   artLibraryItems: ArtPromptLibraryItem[];
   storyArtBindings: StoryArtPromptBinding[];
   operationReceipts: PromptOperationReceipt[];
+  /**
+   * 个人记忆 outbox（U2）。
+   *
+   * 普通聊天的经历必须和它的标准化消息**同生共死**，所以 outbox 就住在这个
+   * 聚合里，跟消息走同一次 copy-on-write——而不是写进 local-persist 再假装
+   * 两份文件同事务。统一足迹索引由带水位的幂等 projector 补齐，
+   * 见 shared/personalMemory.ts 的 projectPersonalMemoryOutbox。
+   */
+  personalMemoryOutbox: PersonalMemoryOutboxEntry[];
+  nextPersonalMemoryOutboxSeq: number;
   nextIds: {
     storyState: number;
     node: number;
@@ -315,6 +326,8 @@ export function createEmptyPromptLineageLocalState(): PromptLineageLocalState {
     artLibraryItems: [],
     storyArtBindings: [],
     operationReceipts: [],
+    personalMemoryOutbox: [],
+    nextPersonalMemoryOutboxSeq: 1,
     nextIds: {
       storyState: 1,
       node: 1,
@@ -369,6 +382,13 @@ export function normalizePromptLineageLocalState(
     artLibraryItems: raw?.artLibraryItems ?? [],
     storyArtBindings: raw?.storyArtBindings ?? [],
     operationReceipts: raw?.operationReceipts ?? [],
+    personalMemoryOutbox: raw?.personalMemoryOutbox ?? [],
+    // 水位不能退回到已用过的 seq：一次坏写可能让存下来的值落后于实际条目。
+    nextPersonalMemoryOutboxSeq: (raw?.personalMemoryOutbox ?? []).reduce(
+      (maximum, entry) =>
+        Number.isFinite(entry.seq) ? Math.max(maximum, entry.seq + 1) : maximum,
+      raw?.nextPersonalMemoryOutboxSeq ?? 1,
+    ),
     nextIds: { ...empty.nextIds, ...(raw?.nextIds ?? {}) },
   };
   normalized.nextIds = {

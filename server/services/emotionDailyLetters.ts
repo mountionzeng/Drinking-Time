@@ -10,6 +10,7 @@ import {
   upsertEmotionAnalysisProfile,
 } from "../db";
 import type { PersonalMemoryLetterPayload } from "../../shared/personalMemory";
+import { dailyLetterMessageCaptureIfEnabled } from "./personalMemoryEvents";
 import { getAlmanacDay } from "./almanac";
 import {
   chinaDateString,
@@ -398,6 +399,18 @@ export async function rewriteEmotionDailyLetter(
     userMessageSaidAt: saidAt,
     userMessageEditedAt: editedAt,
     expectedCurrentVersionNumber: expectedRevision,
+    // 用户这次写下／改写／清空的留言，与版本推进同一个短事务（U2）。
+    // 黄历查询和来信生成都在事务之外，它们失败不会回滚已经保存的留言。
+    // 构造器自带 Phase 1 白名单门禁，未列入的账号在这里就是 null。
+    personalMemoryCapture:
+      dailyLetterMessageCaptureIfEnabled({
+        userId,
+        letterDate,
+        revision: expectedRevision + 1,
+        message,
+        previousMessage: existing.userMessage,
+        occurredAt: now,
+      }) ?? undefined,
   });
   if (!written) throw new EmotionDailyLetterConflictError();
   const saved = written.letter;

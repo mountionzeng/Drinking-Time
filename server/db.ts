@@ -1283,6 +1283,11 @@ export async function getLocalPromptLineageStateForStory(
     artLibraryItems: [],
     storyArtBindings: byStory(full.storyArtBindings),
     operationReceipts: byStory(full.operationReceipts),
+    // 这是只读切片，不是写入路径：outbox 属于整份聚合、按 seq 排队，
+    // 按 Story 切开没有意义，展开了也是白拷贝。写入走
+    // createPersistentLocalPromptLineageStore 那条持有全量的路径。
+    personalMemoryOutbox: [],
+    nextPersonalMemoryOutboxSeq: full.nextPersonalMemoryOutboxSeq,
     nextIds: full.nextIds,
   });
 }
@@ -10588,6 +10593,16 @@ export type AppendDailyLetterVersionInput = {
    * 而不是悄悄追加一版覆盖别人刚写的内容。
    */
   expectedCurrentVersionNumber?: number;
+  /**
+   * 每日留言的经历捕获（U2）。与版本、日期级指针写在**同一个短事务**里。
+   *
+   * 这里不需要 outbox：留言的来源（日期级行）和统一足迹索引本来就同在
+   * local-persist 聚合里，MySQL 那边也在同一个 SQL 事务里。需要 outbox 的
+   * 只有跨聚合的普通聊天。
+   *
+   * 是否捕获由调用方（Phase 1 白名单）决定；不传就是不捕获。
+   */
+  personalMemoryCapture?: PersonalMemoryCapture;
 };
 
 export type AppendDailyLetterVersionResult = {
@@ -10768,6 +10783,12 @@ export async function appendEmotionDailyLetterVersion(
       input.letterDate
     );
     if (!letter) throw new Error("日期级投影写入后读不回");
+    if (input.personalMemoryCapture) {
+      await capturePersonalMemoryEvent(
+        { mode: "mysql", tx },
+        input.personalMemoryCapture
+      );
+    }
     return { version, letter, created: true };
   });
 }
@@ -10860,6 +10881,7 @@ function appendLetterVersionToLocalState(
     existing.revision = projected.revision;
     existing.currentVersionId = version.id;
     existing.updatedAt = current;
+    captureLetterMessageLocally(input);
     return { version, letter: existing, created: true };
   }
   const letter: EmotionDailyLetter = {
@@ -10877,7 +10899,19 @@ function appendLetterVersionToLocalState(
     updatedAt: current,
   };
   memoryState.emotionDailyLetters.push(letter);
+  captureLetterMessageLocally(input);
   return { version, letter, created: true };
+}
+
+/** 见 AppendDailyLetterVersionInput.personalMemoryCapture：同聚合，无需 outbox。 */
+function captureLetterMessageLocally(
+  input: AppendDailyLetterVersionInput
+): void {
+  if (!input.personalMemoryCapture) return;
+  applyPersonalMemoryCapture(
+    memoryState.personalMemory,
+    input.personalMemoryCapture
+  );
 }
 
 /** 列出某天的全部版本，按版本号升序。历史版本只读。 */
@@ -10907,4 +10941,44 @@ export async function listEmotionDailyLetterVersions(
     )
     .orderBy(emotionDailyLetterVersions.versionNumber);
   return rows.map(letterVersionRowToRecord);
+}
+
+/**
+ * 把 prompt-lineage 聚合积压的个人记忆 outbox 投影进统一足迹索引（仅本地模式）。
+ *
+ * 这是跨聚合那一跳：聊天与 outbox 已经在 prompt-lineage 里安全落盘了，
+ * 这里只负责把它搬进 local-persist 的足迹索引。中途崩溃是安全的——
+ * 下一次调用会从水位续投，重复投递也不会翻倍（见 projectPersonalMemoryOutbox）。
+ *
+ * 已投影的条目不立刻删：删一次就要多写一遍整份 prompt-lineage 文件，
+ * 而那份文件在一次对话里本来就要写好几遍。改成积压超过阈值才裁剪一次，
+ * 既不让 outbox 无限长大（2026-07-08 的 383MB 事故就是这么来的），
+ * 也不给每一轮对话增加一次全量重写。
+ */
+const PERSONAL_MEMORY_OUTBOX_PRUNE_THRESHOLD = 200;
+
+export async function drainLocalPersonalMemoryOutbox(): Promise<{
+  applied: number;
+  pruned: number;
+}> {
+  const db = await getDb();
+  if (db) return { applied: 0, pruned: 0 };
+  await ensureLocalPromptLineageLoaded();
+  const entries = memoryState.promptLineage.personalMemoryOutbox;
+  if (entries.length === 0) return { applied: 0, pruned: 0 };
+
+  const result = await projectPersonalMemoryOutboxIntoIndex(
+    "promptLineage",
+    entries
+  );
+
+  const projected = entries.filter(entry => entry.seq <= result.watermark);
+  if (projected.length < PERSONAL_MEMORY_OUTBOX_PRUNE_THRESHOLD) {
+    return { applied: result.applied, pruned: 0 };
+  }
+  // 只裁剪水位之下的条目：水位之上的还没投影，删了就真丢了。
+  const remaining = entries.filter(entry => entry.seq > result.watermark);
+  memoryState.promptLineage.personalMemoryOutbox = remaining;
+  await persistLocalPromptLineageStateToDisk(memoryState.promptLineage);
+  return { applied: result.applied, pruned: projected.length };
 }

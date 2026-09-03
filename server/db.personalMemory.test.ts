@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppendDailyLetterVersionInput } from "./db";
+import { buildDailyLetterMessageCapture } from "./services/personalMemoryEvents";
 import {
   appendPersonalMemoryOutboxEntry,
   createEmptyPersonalMemoryEventSnapshot,
@@ -89,6 +90,96 @@ function letterInput(
     ...overrides,
   };
 }
+
+describe("每日留言捕获与来信版本同事务（U2）", () => {
+  beforeEach(() => {
+    db.resetMemoryStateForTesting();
+  });
+
+  function letterCapture(
+    overrides: Partial<Parameters<typeof buildDailyLetterMessageCapture>[0]> = {}
+  ) {
+    return buildDailyLetterMessageCapture({
+      userId: 7,
+      letterDate: "2026-09-03",
+      revision: 1,
+      message: "今天想说点别的",
+      previousMessage: null,
+      occurredAt: new Date("2026-09-03T02:00:00.000Z"),
+      ...overrides,
+    });
+  }
+
+  it("留言经历与来信版本在同一次写入里成立", async () => {
+    const written = (await db.appendEmotionDailyLetterVersion(
+      letterInput({ personalMemoryCapture: letterCapture() })
+    ))!;
+    expect(written.version.envelope.versionNumber).toBe(1);
+
+    const events = await db.listPersonalMemoryEvents(7);
+    expect(events).toHaveLength(1);
+    expect(events[0].sourceType).toBe("daily_letter_message");
+    expect(events[0].occurredOn).toBe("2026-09-03");
+  });
+
+  // 版本写不进去时，经历也不能留下——否则时间线上会出现一条
+  // 指向根本不存在的留言修订的经历。
+  it("落盘失败时留言经历与版本一起消失", async () => {
+    vi.mocked(fs.writeFile).mockRejectedValueOnce(new Error("disk full"));
+    await expect(
+      db.appendEmotionDailyLetterVersion(
+        letterInput({ personalMemoryCapture: letterCapture() })
+      )
+    ).rejects.toThrow();
+
+    expect(await db.listPersonalMemoryEvents(7)).toHaveLength(0);
+    expect(
+      await db.listEmotionDailyLetterVersions(7, "2026-09-03")
+    ).toHaveLength(0);
+  });
+
+  it("每次编辑留下一条新经历，旧修订不被改写", async () => {
+    await db.appendEmotionDailyLetterVersion(
+      letterInput({ personalMemoryCapture: letterCapture() })
+    );
+    await db.appendEmotionDailyLetterVersion(
+      letterInput({
+        actionId: "letter-second",
+        payload: payload("改了一版"),
+        personalMemoryCapture: letterCapture({
+          revision: 2,
+          message: "改了一版",
+          previousMessage: "今天想说点别的",
+        }),
+      })
+    );
+
+    const events = await db.listPersonalMemoryEvents(7);
+    expect(events).toHaveLength(2);
+    expect(events.map(event => event.actionKind).sort()).toEqual([
+      "revised",
+      "submitted",
+    ]);
+    expect(
+      events.find(event => event.actionKind === "submitted")?.snapshot.excerpt
+    ).toBe("今天想说点别的");
+  });
+
+  it("重复提交同一 action ID 不重复捕获", async () => {
+    const input = letterInput({ personalMemoryCapture: letterCapture() });
+    await db.appendEmotionDailyLetterVersion(input);
+    await db.appendEmotionDailyLetterVersion(input);
+    expect(await db.listPersonalMemoryEvents(7)).toHaveLength(1);
+  });
+
+  it("不传捕获时只写版本，不产生经历", async () => {
+    await db.appendEmotionDailyLetterVersion(letterInput());
+    expect(await db.listPersonalMemoryEvents(7)).toHaveLength(0);
+    expect(
+      await db.listEmotionDailyLetterVersions(7, "2026-09-03")
+    ).toHaveLength(1);
+  });
+});
 
 describe("个人记忆本地持久化", () => {
   beforeEach(() => {

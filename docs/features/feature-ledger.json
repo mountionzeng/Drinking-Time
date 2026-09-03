@@ -3001,7 +3001,10 @@
         "drizzle/migrations/0017_personal_memory_daily_letter_versions.sql",
         "server/db.personalMemory.test.ts",
         "server/services/personalMemoryPersistence.ts",
-        "server/integration/personalMemory.mysql.test.ts"
+        "server/integration/personalMemory.mysql.test.ts",
+        "server/services/personalMemoryEvents.ts",
+        "server/services/personalMemoryEvents.test.ts",
+        "server/services/storyConversation.personalMemory.test.ts"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -3053,6 +3056,11 @@
           "date": "2026-09-03",
           "kind": "build",
           "summary": "Phase 1 / U1 数据合同落地：新增 shared/personalMemory.ts（六段非空事件身份、理解状态机、outbox 与带水位的幂等投影、来信版本→日期级投影）、drizzle 0017 迁移（经历/来源注册/理解/证据/抑制/任务/隐私 epoch/来信版本/attempt 九张表，跨租户引用由含 userId 的复合外键在库层拒绝）、server/db.ts 双持久化仓储与 server/services/personalMemoryPersistence.ts seam；每日来信三条 legacy writer（ensure/save/rewrite）全部切到不可变版本权威，日期级 emotion_daily_letters 降级为当前版本指针+可重建投影，并加门禁测试禁止任何生产代码绕过它直接写正文。存量无版本行的 revision 被接续而不是打回 1。功能仍为 planned：runner 未启动、未回填、未向真实用户捕获。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "build",
+          "summary": "Phase 1 / U2 服务端捕获边界：新增 server/services/personalMemoryEvents.ts（聊天以标准化消息行 ID 为稳定来源、客户端 ID 作动作 ID；每日留言按修订号成条，清空记为 cleared 且不入队提炼）。桌面与手机两条聊天路径共用同一捕获边界——MySQL 走同一 SQL 事务，本地把 outbox 与消息写进 prompt-lineage 聚合的同一次 copy-on-write，再由带水位的幂等 projector 投进统一足迹索引（积压超阈值才裁剪，避免 outbox 无限长大）。每日留言因来源与索引同聚合，直接进来信版本的同一短事务。Phase 1 捕获由 PERSONAL_MEMORY_CAPTURE_USER_IDS 白名单控制，留空即谁都不捕获。助手消息、草稿与重复重试均不产生经历。runner 仍未启动、未回填。"
         }
       ]
     }
