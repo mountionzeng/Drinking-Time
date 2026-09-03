@@ -30,6 +30,17 @@
   font-size: 26rpx;
 }
 
+.story-title-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88rpx;
+  padding: 16rpx 20rpx;
+  background-color: var(--paper);
+  border: 2rpx solid var(--line);
+  border-radius: 16rpx;
+  font-size: 30rpx;
+}
+
 .statusbar {
   display: flex;
   flex-direction: column;

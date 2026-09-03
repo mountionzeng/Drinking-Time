@@ -115,7 +115,7 @@ describe("正文状态可见", () => {
 });
 
 describe("Story 与 transport 状态", () => {
-  it("没有 Story 时给出「先到电脑创建」的空态", async () => {
+  it("没有 Story 时给出可在手机创建的空态", async () => {
     const transport = createMockTransport();
     transport.setFailureMode("list-stories");
     const store = createWorkspaceStore({
@@ -129,6 +129,13 @@ describe("Story 与 transport 状态", () => {
     expect(view.transport.state).toBe("mock-failure");
     expect(view.transport.canRetry).toBe(true);
     expect(view.transport.label).toContain("演示 transport 失败");
+  });
+
+  it("空态和已有 Story 状态都提供创建入口", async () => {
+    const { store, ui } = setup();
+    await store.start();
+    expect(ui().story.canCreate).toBe(true);
+    expect(ui().story.emptyHint).toContain("创建");
   });
 
   it("脏正文切 Story 时弹出裁决面板", async () => {
@@ -151,6 +158,14 @@ describe("Story 与 transport 状态", () => {
     expect(view.chat.canSend).toBe(false);
     store.editDocument("余额不足也能改正文");
     expect(ui().document.canSave).toBe(true);
+  });
+
+  it("一轮结算后同时展示本轮费用和最近扣费", async () => {
+    const { store, ui } = setup();
+    await store.start();
+    await store.sendMessage("这一轮会结算");
+    expect(ui().balance.text).toContain("上一次调用 ¥0.12");
+    expect(ui().balance.recentCharges[0]?.text).toContain("-¥0.12");
   });
 });
 
@@ -210,13 +225,13 @@ function pageFiles(extension: string): string[] {
 }
 
 describe("页面范围", () => {
-  it("页面里没有图片、素材、分镜、时间线、预览、视频或 Story 创建入口", () => {
+  it("页面允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口", () => {
     const forbidden = [
       /<image\b/,
       /<video\b/,
       /<camera\b/,
       /chooseImage|chooseMedia|chooseVideo|uploadFile/,
-      /素材|分镜|时间线|时间轴|预览视频|新建\s*Story|创建\s*Story|新建故事/,
+      /素材|分镜|时间线|时间轴|预览视频/,
     ];
     const offenders: string[] = [];
     for (const file of [...pageFiles(".wxml"), ...pageFiles(".ts")]) {
@@ -228,6 +243,9 @@ describe("页面范围", () => {
       }
     }
     expect(offenders).toEqual([]);
+    expect(
+      readFileSync(path.join(PAGES_ROOT, "workspace", "index.wxml"), "utf8"),
+    ).toMatch(/创建 Story/);
   });
 
   it("所有动作按钮的触控目标不小于 88rpx（= 44px）", () => {

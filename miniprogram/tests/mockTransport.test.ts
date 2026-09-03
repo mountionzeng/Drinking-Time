@@ -6,6 +6,7 @@ import {
   DEMO_STORIES,
 } from "../src/services/mockTransport";
 import { isRecoveryScope } from "../src/core/types";
+import { transportFail } from "../src/services/transport";
 
 function submitRequest(overrides: Record<string, unknown> = {}) {
   return {
@@ -20,6 +21,35 @@ function submitRequest(overrides: Record<string, unknown> = {}) {
 }
 
 describe("演示数据", () => {
+  it("同一创建操作与相同标题返回同一个 Story，标题不同则冲突", async () => {
+    const transport = createMockTransport();
+    const request = {
+      clientOperationId: "create-story-1",
+      title: "  新故事  ",
+    };
+    const first = await transport.createStory(request);
+    const repeated = await transport.createStory(request);
+    const conflict = await transport.createStory({ ...request, title: "另一个故事" });
+
+    expect(first.ok && repeated.ok).toBe(true);
+    if (first.ok && repeated.ok) {
+      expect(repeated.data.receipt.story).toEqual(first.data.receipt.story);
+      const opened = await transport.openStory(first.data.receipt.story.id);
+      expect(opened.ok && opened.data.document.body).toContain("小红书");
+    }
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.error.kind).toBe("explicit-failure");
+  });
+
+  it("创建标题 trim 后为空时使用“未命名”", async () => {
+    const transport = createMockTransport();
+    const result = await transport.createStory({
+      clientOperationId: "create-story-empty",
+      title: "   ",
+    });
+    expect(result.ok && result.data.receipt.story.title).toBe("未命名");
+  });
+
   it("演示作用域是合法的不透明 scope，明确只属于 mock", () => {
     expect(isRecoveryScope(DEMO_RECOVERY_SCOPE)).toBe(true);
     expect(DEMO_RECOVERY_SCOPE).toContain("mock");
@@ -66,8 +96,12 @@ describe("整轮幂等", () => {
     const first = await transport.submitTurn(submitRequest());
     const second = await transport.submitTurn(submitRequest());
     if (first.ok && second.ok) {
-      expect(second.data.balance.availableCents).toBe(
-        first.data.balance.availableCents,
+      expect(second.data.balance.availableMinor).toBe(
+        first.data.balance.availableMinor,
+      );
+      expect(first.data.balance.recentSettledCharges).toHaveLength(1);
+      expect(first.data.balance.recentSettledCharges[0]?.amountMinor).toBe(
+        120_000,
       );
     }
   });
@@ -144,13 +178,36 @@ describe("正文 CAS", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.kind).toBe("conflict");
+      expect(result.error.kind).toBe("document-conflict");
       expect(result.error.latestDocument?.body).toContain("演示正文");
     }
   });
 });
 
 describe("演示失败状态", () => {
+  it("鉴权、身份冲突、内容拒绝和结果未知使用互不混淆的错误种类", () => {
+    const kinds = [
+      "unauthorized",
+      "identity-conflict",
+      "content-rejected",
+      "unknown-result",
+    ] as const;
+    expect(new Set(kinds).size).toBe(4);
+    for (const kind of kinds.slice(0, 3)) {
+      const failed = transportFail({ kind, message: kind });
+      expect(failed.ok).toBe(false);
+      if (!failed.ok) {
+        expect(failed.error.kind).toBe(kind);
+        expect(failed.error.resultUnknown).toBe(false);
+        expect(failed.error.retryable).toBe(false);
+      }
+    }
+    const unknown = transportFail({
+      kind: "unknown-result",
+      message: "unknown",
+    });
+    if (!unknown.ok) expect(unknown.error.resultUnknown).toBe(true);
+  });
   it("失败是显式切换出来的，不会静默恢复成看起来真实的成功", async () => {
     const transport = createMockTransport();
     transport.setFailureMode("list-stories");
@@ -190,5 +247,22 @@ describe("演示失败状态", () => {
       expect(result.error.retryable).toBe(false);
     }
     expect(transport.generationCount).toBe(0);
+  });
+
+  it("离开余额不足演示状态后恢复切换前的余额", async () => {
+    const transport = createMockTransport();
+    const before = await transport.openStory(9001);
+    transport.setFailureMode("insufficient-balance");
+    const blocked = await transport.openStory(9001);
+    transport.setFailureMode("none");
+    const restored = await transport.openStory(9001);
+
+    expect(before.ok && blocked.ok && restored.ok).toBe(true);
+    if (before.ok && blocked.ok && restored.ok) {
+      expect(blocked.data.balance.availableMinor).toBe(0);
+      expect(restored.data.balance.availableMinor).toBe(
+        before.data.balance.availableMinor,
+      );
+    }
   });
 });

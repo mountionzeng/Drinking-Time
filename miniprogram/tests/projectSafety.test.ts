@@ -35,6 +35,10 @@ function commitCandidates(): string[] {
     "--exclude-standard",
     "--",
     "miniprogram",
+    "shared/miniprogramWorkspace.schema.json",
+    "shared/miniprogramWorkspace.ts",
+    "scripts/generate-miniprogram-contract.ts",
+    "scripts/generate-miniprogram-contract.test.ts",
   ])
     .split("\n")
     .map(line => line.trim())
@@ -77,6 +81,19 @@ function textCandidates(): string[] {
 describe("小程序提交候选的 Secret 边界", () => {
   it("候选集合非空，否则扫描是假通过", () => {
     expect(textCandidates().length).toBeGreaterThan(0);
+  });
+
+  it("扫描覆盖合同 schema、两端生成物和生成器，而不只扫 miniprogram 目录", () => {
+    const candidates = commitCandidates();
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        "shared/miniprogramWorkspace.schema.json",
+        "shared/miniprogramWorkspace.ts",
+        "miniprogram/src/contracts/workspace.ts",
+        "scripts/generate-miniprogram-contract.ts",
+        "scripts/generate-miniprogram-contract.test.ts",
+      ]),
+    );
   });
 
   it("没有任何候选文件包含 Secret 赋值、私钥、高熵凭据或微信服务端接口", () => {
@@ -169,6 +186,23 @@ describe("原生工程配置", () => {
     expect(config.setting.useCompilerPlugins).toContain("typescript");
     // urlCheck 关掉只会让开发者工具「看起来能联网」，那是 U7 真机验收的伪证据。
     expect(config.setting.urlCheck).toBe(true);
+  });
+
+  it("公开配置、说明和小程序源码只使用‘聊会儿’产品语境", () => {
+    const candidates = [
+      "miniprogram/project.config.json",
+      "miniprogram/README.md",
+      ...textCandidates().filter(file => file.startsWith("miniprogram/src/")),
+    ];
+    const offenders = candidates.filter(file =>
+      /拾光|家庭传记|亲属协作|人物纪念/.test(readCandidate(file)),
+    );
+    expect(offenders).toEqual([]);
+
+    const projectConfig = JSON.parse(readFileSync(projectConfigPath, "utf8"));
+    const appConfig = JSON.parse(readFileSync(appJsonPath, "utf8"));
+    expect(projectConfig.description).toContain("聊会儿");
+    expect(appConfig.window.navigationBarTitleText).toContain("聊会儿");
   });
 
   it("tracked AppID 是公开占位值或经确认的测试 AppID", () => {

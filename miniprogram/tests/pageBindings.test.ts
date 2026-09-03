@@ -133,3 +133,14 @@ describe("条件链完整性", () => {
     }
   });
 });
+
+describe("关键 Story 动作", () => {
+  it("创建与保存后切换都绑定到真实 Page 处理函数", () => {
+    const source = wxml("workspace");
+    expect(source).toContain('bindtap="onConfirmCreateStory"');
+    expect(source).toContain('bindtap="onSaveAndSwitch"');
+    const page = pages.get("workspace");
+    expect(typeof page?.onConfirmCreateStory).toBe("function");
+    expect(typeof page?.onSaveAndSwitch).toBe("function");
+  });
+});

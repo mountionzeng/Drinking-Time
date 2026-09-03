@@ -7,6 +7,8 @@ import type {
 import {
   transportFail,
   transportOk,
+  type CreateStoryRequest,
+  type CreateStoryResponse,
   type LookupTurnRequest,
   type LookupTurnResponse,
   type SaveDocumentBodyRequest,
@@ -35,12 +37,16 @@ export function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-export function balance(availableCents = 3000): BalanceSummary {
+export function balance(availableMinor = 30_000_000): BalanceSummary {
   return {
-    availableCents,
-    lastCostCents: null,
     currency: "CNY",
+    minorPerMajor: 1_000_000,
+    ledgerMinor: availableMinor,
+    reservedMinor: 0,
+    availableMinor,
+    lastSettledCostMinor: null,
     demo: true,
+    recentSettledCharges: [],
   };
 }
 
@@ -67,6 +73,7 @@ export type FakeTransportOptions = {
 export type FakeTransport = WorkspaceTransport & {
   calls: {
     listStories: number;
+    createStory: CreateStoryRequest[];
     openStory: number[];
     submitTurn: SubmitTurnRequest[];
     lookupTurn: LookupTurnRequest[];
@@ -81,16 +88,16 @@ export type FakeTransport = WorkspaceTransport & {
   nextSaveError: TransportError | null;
   lookupResponse: LookupTurnResponse;
   documents: Map<number, PublishingBodyDocument>;
-  balanceCents: number;
+  balanceMinor: number;
 };
 
 export function createFakeTransport(
   options: FakeTransportOptions = {},
 ): FakeTransport {
-  const stories = options.stories ?? [
+  const stories = [...(options.stories ?? [
     { id: 1, title: "演示 Story 一", updatedAt: 1_760_000_000_000 },
     { id: 2, title: "演示 Story 二", updatedAt: 1_759_000_000_000 },
-  ];
+  ])];
   const documents = new Map<number, PublishingBodyDocument>(
     stories.map(story => [
       story.id,
@@ -102,6 +109,7 @@ export function createFakeTransport(
     kind: "mock",
     calls: {
       listStories: 0,
+      createStory: [],
       openStory: [],
       submitTurn: [],
       lookupTurn: [],
@@ -114,7 +122,7 @@ export function createFakeTransport(
     nextSaveError: null,
     lookupResponse: { status: "missing", assistantContent: null, balance: null },
     documents,
-    balanceCents: 3000,
+    balanceMinor: 30_000_000,
 
     holdNextSubmit() {
       const control = deferred<TransportResult<SubmitTurnResponse>>();
@@ -132,6 +140,30 @@ export function createFakeTransport(
       return transportOk(stories);
     },
 
+    async createStory(
+      request,
+    ): Promise<TransportResult<CreateStoryResponse>> {
+      fake.calls.createStory.push(request);
+      const title = request.title.trim() || "未命名";
+      const id = Math.max(0, ...stories.map(story => story.id)) + 1;
+      const story = { id, title, updatedAt: 1_760_000_000_001 };
+      const created = document({
+        storyId: id,
+        body: "小红书正文：从这里开始写下这个故事。",
+      });
+      stories.unshift(story);
+      documents.set(id, created);
+      return transportOk({
+        receipt: {
+          clientOperationId: request.clientOperationId,
+          requestHash: `scr1-${"a".repeat(32)}`,
+          status: "complete",
+          story,
+        },
+        document: created,
+      });
+    },
+
     async openStory(storyId): Promise<TransportResult<StoryWorkspaceSnapshot>> {
       fake.calls.openStory.push(storyId);
       if (fake.nextOpenStoryError) {
@@ -147,7 +179,7 @@ export function createFakeTransport(
         story,
         messages: options.messages ?? [],
         document: documents.get(storyId) ?? document({ storyId }),
-        balance: balance(fake.balanceCents),
+        balance: balance(fake.balanceMinor),
       });
     },
 
@@ -166,7 +198,7 @@ export function createFakeTransport(
       return transportOk({
         assistantContent: `对「${request.userContent}」的演示回答`,
         persisted: true,
-        balance: balance(fake.balanceCents),
+        balance: balance(fake.balanceMinor),
       });
     },
 
@@ -189,7 +221,7 @@ export function createFakeTransport(
         return {
           ok: false,
           error: {
-            kind: "conflict",
+            kind: "document-conflict",
             message: "正文已在别处更新",
             retryable: false,
             resultUnknown: false,

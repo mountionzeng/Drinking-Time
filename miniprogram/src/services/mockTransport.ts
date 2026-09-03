@@ -7,6 +7,8 @@ import type {
 import {
   transportFail,
   transportOk,
+  type CreateStoryRequest,
+  type CreateStoryResponse,
   type LookupTurnRequest,
   type LookupTurnResponse,
   type SaveDocumentBodyRequest,
@@ -36,8 +38,9 @@ import {
  */
 export const DEMO_RECOVERY_SCOPE = "mock-demo-scope-v1";
 
-const DEMO_BALANCE_START_CENTS = 3000;
-const DEMO_TURN_COST_CENTS = 12;
+const MINOR_PER_YUAN = 1_000_000 as const;
+const DEMO_BALANCE_START_MINOR = 30 * MINOR_PER_YUAN;
+const DEMO_TURN_COST_MINOR = 120_000;
 
 export const DEMO_STORIES: readonly StorySummary[] = [
   { id: 9001, title: "演示 · 一杯温热的黄酒", updatedAt: 1_759_900_000_000 },
@@ -69,26 +72,40 @@ export type MockFailureMode =
   | "submit-turn-unknown"
   | "submit-turn-failed"
   | "save-conflict"
-  | "insufficient-balance";
+  | "insufficient-balance"
+  | "create-story-unknown";
 
 export type MockTransport = WorkspaceTransport & {
   /** 「生成」发生的次数。重复提交同一 requestHash 不得让它增加。 */
   readonly generationCount: number;
   failureMode: MockFailureMode;
   setFailureMode(mode: MockFailureMode): void;
-  reset(): void;
+  createStory(request: CreateStoryRequest): Promise<TransportResult<CreateStoryResponse>>;
+  reset(options?: { empty?: boolean }): void;
 };
 
-export function createMockTransport(): MockTransport {
+export function createMockTransport(options: { empty?: boolean } = {}): MockTransport {
   let generationCount = 0;
-  let balanceCents = DEMO_BALANCE_START_CENTS;
-  let lastCostCents: number | null = null;
+  let balanceMinor = DEMO_BALANCE_START_MINOR;
+  let balanceBeforeInsufficient: number | null = null;
+  let lastCostMinor: number | null = null;
   const answersByHash = new Map<string, string>();
   const documents = new Map<number, PublishingBodyDocument>();
+  const stories: StorySummary[] = [];
+  const storyCreates = new Map<
+    string,
+    { request: CreateStoryRequest; response: CreateStoryResponse }
+  >();
+  const charges: NonNullable<BalanceSummary["recentSettledCharges"]> = [];
 
-  function seed(): void {
+  function seed(empty = false): void {
+    stories.splice(
+      0,
+      stories.length,
+      ...(empty ? [] : DEMO_STORIES.map(story => ({ ...story }))),
+    );
     documents.clear();
-    for (const story of DEMO_STORIES) {
+    for (const story of stories) {
       documents.set(story.id, {
         storyId: story.id,
         storyRevision: 1,
@@ -100,14 +117,18 @@ export function createMockTransport(): MockTransport {
       });
     }
   }
-  seed();
+  seed(options.empty ?? false);
 
   function balance(): BalanceSummary {
     return {
-      availableCents: balanceCents,
-      lastCostCents,
       currency: "CNY",
+      minorPerMajor: MINOR_PER_YUAN,
+      ledgerMinor: balanceMinor,
+      reservedMinor: 0,
+      availableMinor: balanceMinor,
+      lastSettledCostMinor: lastCostMinor,
       demo: true,
+      recentSettledCharges: charges.slice(),
     };
   }
 
@@ -116,6 +137,23 @@ export function createMockTransport(): MockTransport {
     const trimmed = userContent.trim();
     const shape = trimmed.length <= 12 ? "短" : "长";
     return `（演示回答，未调用任何模型）我听到的是「${trimmed}」。这是一句${shape}的话，接下来可以说说当时的声音或温度。`;
+  }
+
+  /** mock receipt 只需稳定且符合 wire 形状；真实权威哈希由 U4 服务端生成。 */
+  function storyCreateRequestHash(request: CreateStoryRequest): string {
+    const value = JSON.stringify({ title: request.title.trim() || "未命名" });
+    const seeds = [2_166_136_261, 2_166_136_261 ^ 0x9e3779b9, 5381, 0x85ebca6b];
+    const digest = seeds
+      .map(seed => {
+        let hash = seed;
+        for (let index = 0; index < value.length; index += 1) {
+          hash ^= value.charCodeAt(index);
+          hash = Math.imul(hash, 16_777_619);
+        }
+        return (hash >>> 0).toString(16).padStart(8, "0");
+      })
+      .join("");
+    return `scr1-${digest}`;
   }
 
   const transport: MockTransport = {
@@ -127,17 +165,32 @@ export function createMockTransport(): MockTransport {
     },
 
     setFailureMode(mode) {
+      if (
+        mode === "insufficient-balance" &&
+        transport.failureMode !== "insufficient-balance"
+      ) {
+        balanceBeforeInsufficient = balanceMinor;
+        balanceMinor = 0;
+      } else if (
+        mode !== "insufficient-balance" &&
+        transport.failureMode === "insufficient-balance"
+      ) {
+        balanceMinor = balanceBeforeInsufficient ?? DEMO_BALANCE_START_MINOR;
+        balanceBeforeInsufficient = null;
+      }
       transport.failureMode = mode;
-      if (mode === "insufficient-balance") balanceCents = 0;
     },
 
-    reset() {
+    reset(resetOptions = options) {
       generationCount = 0;
-      balanceCents = DEMO_BALANCE_START_CENTS;
-      lastCostCents = null;
+      balanceMinor = DEMO_BALANCE_START_MINOR;
+      balanceBeforeInsufficient = null;
+      lastCostMinor = null;
       answersByHash.clear();
+      storyCreates.clear();
+      charges.splice(0);
       transport.failureMode = "none";
-      seed();
+      seed(resetOptions.empty ?? false);
     },
 
     async listStories(): Promise<TransportResult<StorySummary[]>> {
@@ -147,7 +200,54 @@ export function createMockTransport(): MockTransport {
           message: "演示：故意让 transport 失败，用来验证空态与重试。",
         });
       }
-      return transportOk(DEMO_STORIES.slice());
+      return transportOk(stories.map(story => ({ ...story })));
+    },
+
+    async createStory(request): Promise<TransportResult<CreateStoryResponse>> {
+      const previous = storyCreates.get(request.clientOperationId);
+      if (previous) {
+        if (previous.request.title.trim() !== request.title.trim()) {
+          return transportFail({
+            kind: "explicit-failure",
+            message: "演示：同一个创建操作不能改成另一份内容。",
+          });
+        }
+        return transportOk(previous.response);
+      }
+      const title = request.title.trim() || "未命名";
+      const id = Math.max(9000, ...stories.map(story => story.id)) + 1;
+      const story: StorySummary = { id, title, updatedAt: Date.now() };
+      const document: PublishingBodyDocument = {
+        storyId: id,
+        storyRevision: 1,
+        versionId: `demo-version-${id}`,
+        platform: "xiaohongshu",
+        body: "小红书正文：从这里开始写下这个故事。",
+        bodyRevision: 1,
+        updatedAt: story.updatedAt,
+      };
+      stories.unshift(story);
+      documents.set(id, document);
+      const response: CreateStoryResponse = {
+        receipt: {
+          clientOperationId: request.clientOperationId,
+          requestHash: storyCreateRequestHash(request),
+          status: "complete",
+          story,
+        },
+        document,
+      };
+      storyCreates.set(request.clientOperationId, {
+        request: { ...request },
+        response,
+      });
+      if (transport.failureMode === "create-story-unknown") {
+        return transportFail({
+          kind: "unknown-result",
+          message: "演示：Story 已提交，但创建结果未知。请重试同一次创建操作。",
+        });
+      }
+      return transportOk(response);
     },
 
     async openStory(storyId): Promise<TransportResult<StoryWorkspaceSnapshot>> {
@@ -157,7 +257,7 @@ export function createMockTransport(): MockTransport {
           message: "演示：打开 Story 失败，用来验证重试路径。",
         });
       }
-      const story = DEMO_STORIES.find(item => item.id === storyId);
+      const story = stories.find(item => item.id === storyId);
       const document = documents.get(storyId);
       if (!story || !document) {
         return transportFail({
@@ -178,7 +278,7 @@ export function createMockTransport(): MockTransport {
     ): Promise<TransportResult<SubmitTurnResponse>> {
       if (transport.failureMode === "submit-turn-unknown") {
         return transportFail({
-          kind: "timeout",
+          kind: "unknown-result",
           message: "演示：这一轮结果未知。请用「查询结果」，不要重发。",
         });
       }
@@ -188,7 +288,7 @@ export function createMockTransport(): MockTransport {
           message: "演示：这一轮明确失败，可以用同一轮重试。",
         });
       }
-      if (transport.failureMode === "insufficient-balance" || balanceCents <= 0) {
+      if (transport.failureMode === "insufficient-balance" || balanceMinor <= 0) {
         return transportFail({
           kind: "insufficient-balance",
           message: "演示：余额不足，无法发起新的付费调用；正文仍可继续编辑。",
@@ -207,8 +307,19 @@ export function createMockTransport(): MockTransport {
       generationCount += 1;
       const answer = demoAnswer(request.userContent);
       answersByHash.set(request.requestHash, answer);
-      lastCostCents = DEMO_TURN_COST_CENTS;
-      balanceCents = Math.max(0, balanceCents - DEMO_TURN_COST_CENTS);
+      lastCostMinor = DEMO_TURN_COST_MINOR;
+      balanceMinor = Math.max(0, balanceMinor - DEMO_TURN_COST_MINOR);
+      charges.unshift({
+        ledgerEntryId: `demo-charge-${request.clientTurnId}`,
+        storyId: request.storyId,
+        clientTurnId: request.clientTurnId,
+        receiptId: `demo-receipt-${request.clientTurnId}`,
+        amountMinor: DEMO_TURN_COST_MINOR,
+        currency: "CNY",
+        minorPerMajor: MINOR_PER_YUAN,
+        settledAt: Date.now(),
+        label: "聊聊 · 一轮",
+      });
       return transportOk({
         assistantContent: answer,
         persisted: true,
@@ -253,14 +364,14 @@ export function createMockTransport(): MockTransport {
         };
         documents.set(request.storyId, moved);
         return transportFail({
-          kind: "conflict",
+          kind: "document-conflict",
           message: "演示：正文已在别处更新，两份文本都保留。",
           latestDocument: moved,
         });
       }
       if (current.bodyRevision !== request.baseBodyRevision) {
         return transportFail({
-          kind: "conflict",
+          kind: "document-conflict",
           message: "演示：本次保存基于过期的版本，两份文本都保留。",
           latestDocument: current,
         });

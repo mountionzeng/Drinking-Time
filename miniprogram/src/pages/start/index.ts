@@ -1,4 +1,5 @@
 import { workspaceApp } from "../../app";
+import { canEnterWorkspaceInRuntime } from "../../core/runtimeMode";
 import {
   loadPrivacyConsent,
   PRIVACY_NOTICE_VERSION,
@@ -21,6 +22,7 @@ Page({
     consentLabel: STATUS_LABEL.unseen,
     consentVersion: PRIVACY_NOTICE_VERSION,
     canEnterWorkspace: false,
+    runtimeBlocked: false,
   },
 
   onShow() {
@@ -32,7 +34,11 @@ Page({
       consentStatus: consent.status,
       consentLabel: STATUS_LABEL[consent.status],
       consentVersion: consent.currentVersion,
-      canEnterWorkspace: consent.allowsIdentityFlow,
+      canEnterWorkspace: canEnterWorkspaceInRuntime(
+        app.globalData.runtimeMode,
+        consent.allowsIdentityFlow,
+      ),
+      runtimeBlocked: app.globalData.runtimeMode === "configuration-error",
     });
   },
 
@@ -41,6 +47,10 @@ Page({
   },
 
   enterWorkspace() {
+    if (this.data.runtimeBlocked) {
+      wx.showToast({ title: "请先修复小程序运行配置", icon: "none" });
+      return;
+    }
     if (!this.data.canEnterWorkspace) {
       wx.showToast({ title: "请先看完并同意隐私说明", icon: "none" });
       return;

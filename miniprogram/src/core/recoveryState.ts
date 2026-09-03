@@ -6,7 +6,7 @@ import { isRecoveryScope, type RecoveryScope } from "./types";
  *
  * 对齐手机 Web 的现有合同：7 天 TTL、每类最多 8 条、256KB 上限。
  * 三条硬约束：
- * 1. 键按**不透明账号作用域** + Story + 类别隔离，不含邮箱／openid／昵称；
+ * 1. 键按**不透明账号作用域** + Story／待创建操作 + 类别隔离，不含邮箱／openid／昵称；
  * 2. 畸形、过期、超量数据一律安全清除，绝不阻断启动；
  * 3. 账号作用域变化时先清旧作用域，再渲染新数据。
  */
@@ -18,7 +18,7 @@ export const RECOVERY_MAX_BYTES = 256_000;
 const KEY_NAMESPACE = "dt:mp:";
 const OWNER_KEY = `${KEY_NAMESPACE}recovery-owner:v1`;
 
-export const RECOVERY_KINDS = ["conversation", "document"] as const;
+export const RECOVERY_KINDS = ["conversation", "document", "story-create"] as const;
 export type RecoveryKind = (typeof RECOVERY_KINDS)[number];
 
 export type RecoveryRecordBase = {
@@ -49,7 +49,10 @@ export function parseRecoveryKey(key: string): {
   if (!isRecoveryScope(scope)) return null;
   if (!/^\d+$/.test(storyIdRaw ?? "")) return null;
   const storyId = Number(storyIdRaw);
-  if (!Number.isSafeInteger(storyId) || storyId <= 0) return null;
+  const validStoryId =
+    Number.isSafeInteger(storyId) &&
+    (kind === "story-create" ? storyId === 0 : storyId > 0);
+  if (!validStoryId) return null;
   return { kind: kind as RecoveryKind, scope, storyId };
 }
 

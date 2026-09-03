@@ -3,13 +3,26 @@ import { describe, expect, it } from "vitest";
 import { recoveryKey } from "../src/core/recoveryState";
 import { createWorkspaceStore } from "../src/core/workspaceState";
 import { createMemoryStorage } from "../src/services/storage";
+import { createMockTransport } from "../src/services/mockTransport";
 import { transportOk } from "../src/services/transport";
+import type { WorkspaceTransport } from "../src/services/transport";
 import { balance, createFakeTransport } from "./support/fakeTransport";
+import type { FakeTransport } from "./support/fakeTransport";
 
 const SCOPE = "demo-scope-aaaa";
 const NOW = 1_760_000_000_000;
 
-function setup(transport = createFakeTransport()) {
+type SetupResult<T extends WorkspaceTransport> = {
+  store: ReturnType<typeof createWorkspaceStore>;
+  storage: ReturnType<typeof createMemoryStorage>;
+  transport: T;
+};
+
+function setup(): SetupResult<FakeTransport>;
+function setup<T extends WorkspaceTransport>(transport: T): SetupResult<T>;
+function setup(
+  transport: WorkspaceTransport = createFakeTransport(),
+): SetupResult<WorkspaceTransport> {
   const storage = createMemoryStorage();
   let counter = 0;
   const store = createWorkspaceStore({
@@ -56,6 +69,52 @@ describe("启动与 Story 选择", () => {
     expect(store.getState().messages).toEqual([]);
   });
 
+  it("空态可以创建 Story，并立即打开带默认正文的新 Story", async () => {
+    const transport = createMockTransport();
+    transport.reset({ empty: true });
+    const { store } = setup(transport);
+    await store.start();
+
+    expect(store.getState().storyPhase).toBe("empty");
+    await store.createStory("  手机新故事  ");
+
+    expect(store.getState().storyPhase).toBe("selected");
+    expect(store.getState().stories[0]?.title).toBe("手机新故事");
+    expect(store.getState().document.body).toContain("小红书");
+  });
+
+  it("创建结果未知并重启后复用持久化 operation，不重复创建 Story", async () => {
+    const transport = createMockTransport({ empty: true });
+    const storage = createMemoryStorage();
+    transport.setFailureMode("create-story-unknown");
+    const first = createWorkspaceStore({
+      scope: SCOPE,
+      runtimeMode: "mock",
+      transport,
+      storage,
+      now: () => NOW,
+      idFactory: () => "original-operation",
+    });
+    await first.start();
+    await first.createStory("断线时创建的故事");
+    expect(first.getState().storyError).toContain("结果未知");
+
+    const restarted = createWorkspaceStore({
+      scope: SCOPE,
+      runtimeMode: "mock",
+      transport,
+      storage,
+      now: () => NOW + 1,
+      idFactory: () => "must-not-be-used",
+    });
+    await restarted.start();
+    await restarted.createStory("断线时创建的故事");
+
+    const stories = await transport.listStories();
+    expect(stories.ok && stories.data).toHaveLength(1);
+    expect(restarted.getState().stories[0]?.title).toBe("断线时创建的故事");
+  });
+
   it("transport 失败时进入 error 并可重试", async () => {
     const transport = createFakeTransport();
     transport.nextListStoriesError = {
@@ -73,6 +132,28 @@ describe("启动与 Story 选择", () => {
     await store.retryTransport();
     expect(store.getState().storyPhase).toBe("selected");
     expect(store.getState().transportStatus).toBe("ready");
+  });
+
+  it("配置错误直接停在无数据状态，不读取或清除既有恢复内容", async () => {
+    const storage = createMemoryStorage({
+      "dt:mp:document:v1:another-scope-aaaa:1": "必须保留",
+    });
+    const transport = createMockTransport();
+    const store = createWorkspaceStore({
+      scope: SCOPE,
+      runtimeMode: "configuration-error",
+      transport,
+      storage,
+      now: () => NOW,
+    });
+
+    await store.start();
+
+    expect(store.getState().storyPhase).toBe("error");
+    expect(store.getState().stories).toEqual([]);
+    expect(storage.getItem("dt:mp:document:v1:another-scope-aaaa:1")).toBe(
+      "必须保留",
+    );
   });
 });
 
@@ -104,7 +185,7 @@ describe("聊天幂等", () => {
   it("未知结果只能查询，查询用同一个 requestHash，不会二次生成", async () => {
     const transport = createFakeTransport();
     transport.nextSubmitError = {
-      kind: "timeout",
+      kind: "unknown-result",
       message: "请求超时，结果未知",
       retryable: true,
       resultUnknown: true,
@@ -225,6 +306,43 @@ describe("Story 隔离", () => {
     expect(store.getState().document.body).toBe("Story 2 的服务端正文");
     expect(storage.getItem(recoveryKey("document", SCOPE, 1))).toBeNull();
   });
+
+  it("保存并切换只有保存成功后才切走", async () => {
+    const { store } = setup();
+    await store.start();
+    store.editDocument("先保存再切换");
+    await store.selectStory(2);
+    await store.resolveStorySwitch("save-and-switch");
+    expect(store.getState().activeStoryId).toBe(2);
+  });
+
+  it("保存失败或冲突时不切换 Story", async () => {
+    for (const error of [
+      {
+        kind: "unavailable" as const,
+        message: "保存失败",
+        retryable: true,
+        resultUnknown: false,
+      },
+      {
+        kind: "document-conflict" as const,
+        message: "正文冲突",
+        retryable: false,
+        resultUnknown: false,
+        latestDocument: null,
+      },
+    ]) {
+      const transport = createFakeTransport();
+      const { store } = setup(transport);
+      await store.start();
+      store.editDocument("不能丢的正文");
+      await store.selectStory(2);
+      transport.nextSaveError = error;
+      await store.resolveStorySwitch("save-and-switch");
+      expect(store.getState().activeStoryId).toBe(1);
+      expect(store.getState().pendingStoryId).toBe(2);
+    }
+  });
 });
 
 describe("生命周期", () => {
@@ -300,6 +418,43 @@ describe("生命周期", () => {
     expect(store.getState().activeStoryId).toBeNull();
   });
 
+  it("创建结果未知后退出，不复用旧账号的待创建 operation", async () => {
+    const transport = createMockTransport({ empty: true });
+    const createOperations: string[] = [];
+    const createStory = transport.createStory.bind(transport);
+    transport.createStory = async request => {
+      createOperations.push(request.clientOperationId);
+      return createStory(request);
+    };
+    transport.setFailureMode("create-story-unknown");
+    const storage = createMemoryStorage();
+    const operationIds = ["first-operation", "second-operation"];
+    const store = createWorkspaceStore({
+      scope: SCOPE,
+      runtimeMode: "mock",
+      transport,
+      storage,
+      now: () => NOW,
+      idFactory: () => operationIds.shift() ?? "unexpected-operation",
+    });
+
+    await store.start();
+    await store.createStory("不能串到下个账号的故事");
+    expect(createOperations).toEqual(["story-first-operation"]);
+    expect(storage.getItem(recoveryKey("story-create", SCOPE, 0))).not.toBeNull();
+
+    store.signOut();
+    expect(storage.getItem(recoveryKey("story-create", SCOPE, 0))).toBeNull();
+
+    transport.setFailureMode("none");
+    await store.createStory("不能串到下个账号的故事");
+
+    expect(createOperations).toEqual([
+      "story-first-operation",
+      "story-second-operation",
+    ]);
+  });
+
   it("换账号作用域后，新作用域读不到上一个作用域的草稿", async () => {
     const storage = createMemoryStorage();
     const transport = createFakeTransport();
@@ -360,7 +515,7 @@ describe("正文冲突与余额", () => {
 
   it("余额不足挡住新的付费调用，但不挡正文编辑", async () => {
     const transport = createFakeTransport();
-    transport.balanceCents = 0;
+    transport.balanceMinor = 0;
     const { store } = setup(transport);
     await store.start();
     expect(store.getState().balanceBlocked).toBe(true);

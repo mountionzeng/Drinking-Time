@@ -2945,14 +2945,27 @@
     },
     {
       "id": "wechat-miniprogram-workspace",
-      "name": "微信原生小程序工作区（测试壳层）",
+      "name": "聊会儿微信原生小程序工作区",
       "status": "planned",
       "userValue": "让用户在微信里打开已有 Story，完成「聊聊」并编辑当前版本／平台的正文，与手机 Web 和电脑 Web 共用同一个账号、同一份内容和同一份余额。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "miniprogram/src/app.ts",
+        "miniprogram/src/pages/workspace/index.ts"
+      ],
+      "owners": [
+        "shared/miniprogramWorkspace.schema.json",
+        "miniprogram/src/core/workspaceState.ts",
+        "miniprogram/src/services/transport.ts",
+        "miniprogram/src/services/mockTransport.ts"
+      ],
       "evidence": [
         "docs/plans/2026-09-02-002-feat-wechat-miniprogram-test-shell-plan.md",
-        "docs/handoff/2026-09-02-wechat-miniprogram-test-shell-execution-handoff.md"
+        "docs/handoff/2026-09-02-wechat-miniprogram-test-shell-execution-handoff.md",
+        "docs/plans/2026-09-03-001-feat-liaohuier-wechat-workspace-plan.md",
+        "scripts/generate-miniprogram-contract.test.ts",
+        "miniprogram/tests/transportContract.test.ts",
+        "miniprogram/tests/workspaceState.test.ts",
+        "miniprogram/tests/projectSafety.test.ts"
       ],
       "invariants": [
         "小程序、手机 Web、电脑 Web 必须读取同一个 userId、Story、对话、正文和余额权威；不得新增小程序专用业务数据库，也不得把客户端提交的 userId 当作身份。",
@@ -2972,16 +2985,21 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "当前只有 U1–U3 的本地 mock 测试壳层：没有真实微信登录、没有邮箱绑定、没有服务端适配、没有真机联调、没有跨端互通、没有合法域名与内容安全，也不可提审或发布。",
+        "当前只有显式 mock 工作区与 U1 版本化合同：没有真实微信登录、没有邮箱绑定、没有服务端适配、没有真机联调、没有跨端互通、没有合法域名与内容安全，也不可提审或发布。",
         "真实测试 AppID 尚未提供；工程使用公开占位 AppID（touristappid），换成真实 AppID 也不会自动进入 live 模式。",
-        "U4–U7（code2Session、Bearer principal、显式邮箱绑定与审计、真实 Story／正文／余额适配、域名隐私内容安全验收）必须等统一账号线收口并重新登记文件所有权后另开阶段。",
-        "小程序自带 miniprogram/tsconfig.json 与 miniprogram/vitest.config.ts；根 pnpm test / pnpm check 不覆盖该目录，不能拿它们当小程序的通过证据。"
+        "U2–U8 仍需完成 code2Session、可撤销设备会话、Bearer principal、显式邮箱绑定、合并数据库、真实 Story／正文／余额适配以及域名、隐私、内容安全与发布验收。",
+        "小程序使用独立 TypeScript 与 Vitest 门禁；pnpm miniprogram:check 已加入 verify:merge，但开发者工具和真机证据仍须单独取得。"
       ],
       "history": [
         {
           "date": "2026-09-02",
           "kind": "decision",
           "summary": "确认第一批采用微信原生 TypeScript 工程（不用 web-view、Taro 或 uni-app），先在独立 miniprogram/ 目录交付明显标识为 mock 的「聊聊 + 正文」双视图测试壳层；真实微信登录与邮箱绑定留到统一账号地基释放后的 U4–U7。"
+        },
+        {
+          "date": "2026-09-03",
+          "kind": "feature",
+          "summary": "完成“聊会儿”工作区 U1：冻结账号、Story 创建、聊天、正文 CAS、余额与费用的版本化 JSON 合同及两端生成物；mock 支持创建／切换 Story、持久化创建幂等键、脏正文裁决和微元金额展示，配置不完整时以零数据 blocked transport 失败关闭。独立小程序 TypeScript、177 项 Vitest、合同漂移和 Secret 扫描通过，功能保持 planned。"
         }
       ]
     },

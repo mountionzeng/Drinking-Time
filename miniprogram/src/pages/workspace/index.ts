@@ -22,6 +22,7 @@ const FAILURE_MODES: ReadonlyArray<{ value: MockFailureMode; label: string }> = 
   { value: "submit-turn-failed", label: "聊天明确失败" },
   { value: "save-conflict", label: "正文冲突" },
   { value: "insufficient-balance", label: "余额不足" },
+  { value: "create-story-unknown", label: "创建 Story 结果未知" },
 ];
 
 Page({
@@ -37,6 +38,9 @@ Page({
     failureModes: FAILURE_MODES,
     failureIndex: 0,
     scrollTarget: "",
+    showCreateStory: false,
+    newStoryTitle: "",
+    showDemoControls: false,
   },
 
   unsubscribe: null as null | (() => void),
@@ -82,6 +86,7 @@ Page({
       storyTitles: snapshot.stories.map(story => story.title),
       storyIndex,
       scrollTarget: last ? `msg-${last.id}` : "",
+      showDemoControls: snapshot.transportKind === "mock",
     };
     // 正文输入框只在非编辑态跟随权威，避免打字时被 setData 打断。
     if (snapshot.document.status !== "dirty" && snapshot.document.status !== "saving") {
@@ -98,6 +103,24 @@ Page({
     const snapshot = workspaceApp().globalData.store.getState();
     const story = snapshot.stories[Number(event.detail.value)];
     if (story) void workspaceApp().globalData.store.selectStory(story.id);
+  },
+
+  onOpenCreateStory() {
+    this.setData({ showCreateStory: true, newStoryTitle: "" });
+  },
+
+  onNewStoryTitleInput(event: { detail: { value: string } }) {
+    this.setData({ newStoryTitle: event.detail.value });
+  },
+
+  onCancelCreateStory() {
+    this.setData({ showCreateStory: false });
+  },
+
+  onConfirmCreateStory() {
+    const title = this.data.newStoryTitle;
+    this.setData({ showCreateStory: false, newStoryTitle: "" });
+    void workspaceApp().globalData.store.createStory(title);
   },
 
   onDraftInput(event: { detail: { value: string } }) {
@@ -192,12 +215,20 @@ Page({
     void workspaceApp().globalData.store.resolveStorySwitch("discard");
   },
 
+  onSaveAndSwitch() {
+    void workspaceApp().globalData.store.resolveStorySwitch("save-and-switch");
+  },
+
   onFailureModeChange(event: { detail: { value: string | number } }) {
     const index = Number(event.detail.value);
     const mode = FAILURE_MODES[index];
     if (!mode) return;
     this.setData({ failureIndex: index });
-    workspaceApp().globalData.transport.setFailureMode(mode.value);
+    const transport = workspaceApp().globalData.transport;
+    if (transport.kind !== "mock" || !("setFailureMode" in transport)) return;
+    (transport as { setFailureMode(value: MockFailureMode): void }).setFailureMode(
+      mode.value,
+    );
     wx.showToast({ title: `演示状态：${mode.label}`, icon: "none" });
   },
 });

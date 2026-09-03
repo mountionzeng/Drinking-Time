@@ -5,7 +5,7 @@
   </view>
 
   <view class="card">
-    <text class="title">拾光 · 微信原生测试壳层</text>
+    <text class="title">聊会儿 · 微信原生测试壳层</text>
     <text class="body">这一版只用来验证界面、状态和接口形状。它没有连接微信登录、没有绑定邮箱账号、没有服务器，也不会产生任何费用。</text>
   </view>
 
@@ -17,9 +17,11 @@
 
   <view class="card">
     <text class="field-label">演示工作区</text>
-    <text class="body" wx:if="{{!canEnterWorkspace}}">同意隐私说明后才能进入。进入后看到的仍然全部是本机演示数据。</text>
+    <text class="body" wx:if="{{runtimeBlocked}}">当前构建的 AppID、HTTPS 服务地址或后端能力不完整。修复配置前不会展示演示数据，也不能进入工作区。</text>
+    <text class="body" wx:elif="{{!canEnterWorkspace}}">同意隐私说明后才能进入。进入后看到的仍然全部是本机演示数据。</text>
     <text class="body" wx:else>进入后可以选演示 Story、做演示聊天、编辑演示正文。</text>
     <button
+      wx:if="{{!runtimeBlocked}}"
       class="action action--primary"
       disabled="{{!canEnterWorkspace}}"
       bindtap="enterWorkspace"
