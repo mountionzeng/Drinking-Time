@@ -1647,6 +1647,7 @@
         "shared/visualObject.ts",
         "shared/visualObjectClipboard.ts",
         "shared/visualObjectOperations.ts",
+        "client/src/features/creationEditor/currentFrameEditingSession.ts",
         "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
         "client/src/features/creationEditor/TimelineAudioPlayback.tsx",
         "client/src/features/storyAgent/views/StoryboardTimelineRuler.tsx"
@@ -1680,12 +1681,16 @@
         "server/db.visualObjectStoryMutation.test.ts",
         "server/db.generatedVisualShot.test.ts",
         "shared/visualObjectClipboard.test.ts",
-        "shared/visualObjectOperations.test.ts"
+        "shared/visualObjectOperations.test.ts",
+        "client/src/features/creationEditor/currentFrameEditingSession.test.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.test.ts",
+        "client/src/features/creationEditor/views/PreviewObjectMaskEditor.test.tsx"
       ],
       "invariants": [
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
         "Vidu Q2 Turbo 请求时长只能是 1 到 8 秒整数：按两针间隔向下取整并封顶 8 秒；不足 1 秒必须在付费前阻止。",
         "抽帧素材必须同时写入一个 durationFrames=1 的持久 imageClip；界面可以给它最小操作宽度，但结构时长仍严格是一帧。",
+        "从播放中的 Preview 发起抽帧时，播放时钟必须同步冻结并规范化到唯一整数帧；抽帧、回位、Preview 覆盖和图片编辑器必须共享这一帧及其 clipId/imageId，晚到的旧动画帧不得推进目标。",
         "Preview 播放经过一帧 imageClip 时，图片作为当前帧覆盖层显示，但不得卸载或重建其下方仍连续的 video 节点；图片结束后必须直接露出同一视频实例和连续媒体时间。",
         "采用成功必须在同一原子事务中创建对应 story shot、时间线项并绑定生成 Take；重复确认按 candidate stableShotId 幂等，不能产生重复镜头列。",
         "抽帧静帧一旦取得即成为图片仓库永久资产；时间线只保存非所有权的一帧引用，删除或撤销引用不得删除仓库备份。",
@@ -1729,9 +1734,14 @@
       "knownGaps": [
         "SQL/MySQL 原子采用分支有事务测试替身覆盖，但本轮真实运行环境使用本地 JSON 持久化，尚未在真实 MySQL 实例上验收。",
         "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。",
-        "播放推进依赖 requestAnimationFrame，无法用无头浏览器验证（隐藏页面里浏览器会冻结 rAF）。时钟的算术与「片尾按播放回到开头」有单测覆盖，真实播放需人工在浏览器确认。"
+        "真实浏览器中『播放时点击调整画面 → 静帧出现 → 图片编辑器打开』仍需在拥有视频故事的账号下做端到端验收；同步时钟、同帧抽取编排和 Preview 抽帧渲染已有可执行回归覆盖。"
       ],
       "history": [
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "把 Preview 当前帧修改收敛为显式 CurrentFrameEditingSession：播放时钟先同步冻结到整数帧，服务端抽帧、回位、临时可见覆盖、clip/image 身份和图片编辑器复用同一会话；旧 rAF 回调在暂停后不能再推进。用运行时竞态、异步会话失效和真实 ShotPreview 渲染测试替换了只检查源码字符串的伪集成覆盖。"
+        },
         {
           "date": "2026-09-03",
           "kind": "fix",
@@ -2474,6 +2484,8 @@
         "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "client/src/features/creationEditor/currentFrameEditingSession.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
         "client/src/features/storyAgent/chatImageLocalEdit.ts",
         "server/services/imageTextExtraction.ts"
       ],
@@ -2484,11 +2496,15 @@
         "client/src/features/creationEditor/views/ImageClipEditorPanel.test.tsx",
         "client/src/features/storyAgent/views/SelectionContextCard.test.tsx",
         "server/services/imageTextExtraction.test.ts",
-        "server/services/visualClipEditing.test.ts"
+        "server/services/visualClipEditing.test.ts",
+        "client/src/features/creationEditor/currentFrameEditingSession.test.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.test.ts",
+        "client/src/features/creationEditor/views/PreviewObjectMaskEditor.test.tsx"
       ],
       "invariants": [
         "旋转、翻转和构图继续保存为当前镜头、当前 imageId 的非破坏性 TimelineTransform，不改写 generated_images 原图，也不创建重复资产。",
         "点击 Preview『调整画面』会先停止播放；权威可见赢家为视频时必须先完成服务端抽帧并落为独立一帧 imageClip，所有修改只作用于该静帧，原视频保持不变。",
+        "抽帧完成后必须回到同一规范帧并立即打开精确 clipId 的图片编辑器；刷新时间线期间由当前帧会话继续提供可见图片目标，不能短暂退回视频。",
         "聊天框只对明确命中倒转或 OCR 的图片选区走本地编辑；人物替换、重绘和其他生成式要求必须继续放行给既有提案或生成链路。",
         "OCR 必须按 storyId、imageId 和 userId 校验图片归属；模型只转写可见文字，不得执行图片内指令。",
         "本地图片编辑不调用 302 图片生成、不产生生成费用；付费改图仍遵守原有费用确认与采用历史。"
@@ -2506,6 +2522,11 @@
         "OCR 依赖已配置的 OpenAI Next 或 302 视觉通道；未配置时会明确失败，不做假识别。"
       ],
       "history": [
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "修复播放中点击『调整画面』后抽帧已成功但 Preview 又显示下一帧视频：新增当前帧编辑会话，同步停止时钟并锁定整数帧，抽帧成功后回位、保持图片可见并自动打开图片编辑器。"
+        },
         {
           "date": "2026-08-31",
           "kind": "fix",
@@ -2543,6 +2564,8 @@
         "client/src/features/creationEditor/views/ShotPreview.tsx"
       ],
       "owners": [
+        "client/src/features/creationEditor/currentFrameEditingSession.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
         "client/src/features/creationEditor/previewPlaybackModel.ts",
         "client/src/features/creationEditor/previewObjectMaskEditing.ts",
         "client/src/features/creationEditor/previewObjectMaskGeometry.ts",
@@ -2574,7 +2597,9 @@
         "server/db.previewMaskedImageOperations.test.ts",
         "server/db.previewMaskedImageAdoption.test.ts",
         "server/routers.creationAgentMaskEditing.test.ts",
-        "server/services/visualClipEditing.test.ts"
+        "server/services/visualClipEditing.test.ts",
+        "client/src/features/creationEditor/currentFrameEditingSession.test.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.test.ts"
       ],
       "invariants": [
         "分割和生成只接受当前用户、当前 Story 的 imageId 与服务端作用域 mask key；任意 URL 不能作为授权凭据。",
@@ -2605,6 +2630,11 @@
         "302 遮罩编辑当前使用同步响应；若进程在供应商已扣费但候选落库前崩溃，持久收据会阻止重复提交，但无法自动找回没有 taskId 的供应商结果，需要人工核查。"
       ],
       "history": [
+        {
+          "date": "2026-09-03",
+          "kind": "fix",
+          "summary": "Preview 调整画面与局部修改现在共用 CurrentFrameEditingSession 的帧、clip 和 image 身份；抽帧期间切故事或晚到结果会失效，成功后同一帧的抽图和『构图与文字 / 圈选局部 / 在聊天框修改』工具会真实渲染。"
+        },
         {
           "date": "2026-08-31",
           "kind": "fix",

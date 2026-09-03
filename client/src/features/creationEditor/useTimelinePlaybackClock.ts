@@ -3,6 +3,10 @@ import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
 } from "./timelinePlayhead";
+import {
+  timelineFramesToMs,
+  timelineOffsetMsToFrames,
+} from "@shared/storyMaterial";
 
 /**
  * 时间线的播放时钟。
@@ -27,6 +31,11 @@ export type TimelinePlaybackClockState = {
   isPlaying: boolean;
 };
 
+export type FrozenTimelineFrame = {
+  timelineFrame: number;
+  playheadMs: number;
+};
+
 /**
  * 按下播放/暂停之后，时钟该处于什么状态。
  *
@@ -45,80 +54,177 @@ export function resolvePlayRequest(
   return { ...current, isPlaying };
 }
 
+/**
+ * 播放状态的同步事实层。React 只负责把这份状态投影到界面；暂停、定位和旧 rAF
+ * 回调是否还能推进播放头，都先在这里裁决。这样用户发起“编辑当前帧”时，不必
+ * 等下一次 React 提交才能真正停住时钟。
+ */
+export function createTimelinePlaybackRuntime(input: {
+  totalMs: number;
+  onPlayheadCommit?: (playheadMs: number) => void;
+}) {
+  const normalizeTotalMs = (value: number) =>
+    Number.isFinite(value) ? Math.max(0, value) : 0;
+  let totalMs = normalizeTotalMs(input.totalMs);
+  let onPlayheadCommit = input.onPlayheadCommit;
+  let state: TimelinePlaybackClockState = {
+    playheadMs: 0,
+    isPlaying: false,
+  };
+
+  const commit = (next: TimelinePlaybackClockState) => {
+    state = next;
+    return state;
+  };
+
+  return {
+    getState: () => state,
+    setTotalMs: (nextTotalMs: number) => {
+      totalMs = normalizeTotalMs(nextTotalMs);
+    },
+    setOnPlayheadCommit: (
+      nextOnPlayheadCommit?: (playheadMs: number) => void
+    ) => {
+      onPlayheadCommit = nextOnPlayheadCommit;
+    },
+    seek: (requestedMs: number) => {
+      const playheadMs = clampTimelinePlayheadMs(requestedMs, totalMs);
+      const next = commit({ ...state, playheadMs });
+      onPlayheadCommit?.(playheadMs);
+      return next;
+    },
+    setPlaying: (isPlaying: boolean) =>
+      commit(resolvePlayRequest(state, isPlaying, totalMs)),
+    togglePlaying: () =>
+      commit(resolvePlayRequest(state, !state.isPlaying, totalMs)),
+    advance: (deltaMs: number) => {
+      if (!state.isPlaying) return state;
+      const nextPlayhead = advanceTimelinePlayhead(
+        state.playheadMs,
+        deltaMs,
+        totalMs
+      );
+      const next = commit({
+        playheadMs: nextPlayhead.timeMs,
+        isPlaying: !nextPlayhead.ended,
+      });
+      onPlayheadCommit?.(next.playheadMs);
+      return next;
+    },
+    pauseAtCurrentFrame: (): FrozenTimelineFrame => {
+      const currentMs = clampTimelinePlayheadMs(state.playheadMs, totalMs);
+      const timelineFrame = timelineOffsetMsToFrames(currentMs);
+      const playheadMs = clampTimelinePlayheadMs(
+        timelineFramesToMs(timelineFrame),
+        totalMs
+      );
+      commit({ playheadMs, isPlaying: false });
+      onPlayheadCommit?.(playheadMs);
+      return { timelineFrame, playheadMs };
+    },
+  };
+}
+
 export function useTimelinePlaybackClock(input: {
   totalMs: number;
   /** 播放头跨进新镜头时通知外部（用来同步选中态）。 */
   onPlayheadCommit?: (playheadMs: number) => void;
 }) {
   const { totalMs, onPlayheadCommit } = input;
-  const [state, setState] = useState<TimelinePlaybackClockState>({
-    playheadMs: 0,
-    isPlaying: false,
-  });
-
-  // 循环内部要读最新值，但不能因为它变化就重建循环。
-  const playheadRef = useRef(0);
-  const totalRef = useRef(totalMs);
-  const commitRef = useRef(onPlayheadCommit);
-  useEffect(() => {
-    totalRef.current = totalMs;
-  }, [totalMs]);
-  useEffect(() => {
-    commitRef.current = onPlayheadCommit;
-  }, [onPlayheadCommit]);
-
-  const seek = useCallback((requestedMs: number) => {
-    const next = clampTimelinePlayheadMs(requestedMs, totalRef.current);
-    playheadRef.current = next;
-    setState(current => ({ ...current, playheadMs: next }));
-    commitRef.current?.(next);
-  }, []);
-
-  const setPlaying = useCallback((isPlaying: boolean) => {
-    setState(current => {
-      const next = resolvePlayRequest(current, isPlaying, totalRef.current);
-      playheadRef.current = next.playheadMs;
-      return next;
+  const runtimeRef = useRef<ReturnType<
+    typeof createTimelinePlaybackRuntime
+  > | null>(null);
+  if (!runtimeRef.current) {
+    runtimeRef.current = createTimelinePlaybackRuntime({
+      totalMs,
+      onPlayheadCommit,
     });
-  }, []);
+  }
+  const runtime = runtimeRef.current;
+  runtime.setTotalMs(totalMs);
+  runtime.setOnPlayheadCommit(onPlayheadCommit);
+  const [state, setState] = useState<TimelinePlaybackClockState>(() =>
+    runtime.getState()
+  );
+  const [playbackRunId, setPlaybackRunId] = useState(0);
+  const scheduledFrameRef = useRef<number | null>(null);
 
-  const togglePlaying = useCallback(
-    () => setState(current => ({ ...current, isPlaying: !current.isPlaying })),
-    []
+  const seek = useCallback(
+    (requestedMs: number) => {
+      setState(runtime.seek(requestedMs));
+    },
+    [runtime]
   );
 
-  // 循环只依赖 isPlaying：时长和回调都走 ref，避免每次变化都重建循环。
+  const setPlaying = useCallback(
+    (isPlaying: boolean) => {
+      const next = runtime.setPlaying(isPlaying);
+      if (!next.isPlaying && scheduledFrameRef.current != null) {
+        cancelAnimationFrame(scheduledFrameRef.current);
+        scheduledFrameRef.current = null;
+      } else if (next.isPlaying && scheduledFrameRef.current == null) {
+        // 暂停和恢复可能被 React 合成一次提交，最终 isPlaying 仍为 true。
+        // 单独递增运行轮次，确保已取消的 rAF 一定会重新建立。
+        setPlaybackRunId(current => current + 1);
+      }
+      setState(next);
+    },
+    [runtime]
+  );
+
+  const togglePlaying = useCallback(() => {
+    const next = runtime.togglePlaying();
+    if (!next.isPlaying && scheduledFrameRef.current != null) {
+      cancelAnimationFrame(scheduledFrameRef.current);
+      scheduledFrameRef.current = null;
+    } else if (next.isPlaying && scheduledFrameRef.current == null) {
+      setPlaybackRunId(current => current + 1);
+    }
+    setState(next);
+  }, [runtime]);
+
+  const pauseAtCurrentFrame = useCallback(() => {
+    if (scheduledFrameRef.current != null) {
+      cancelAnimationFrame(scheduledFrameRef.current);
+      scheduledFrameRef.current = null;
+    }
+    const position = runtime.pauseAtCurrentFrame();
+    setState(runtime.getState());
+    return position;
+  }, [runtime]);
+
+  // 时长和回调都走 runtime，避免它们变化时重建循环。playbackRunId 处理
+  // “一次 React 提交内先暂停再恢复”的情况，此时 isPlaying 本身不会变化。
   useEffect(() => {
     if (!state.isPlaying) return;
-    let frame = 0;
     let previous = performance.now();
     let cancelled = false;
 
     const tick = (now: number) => {
       if (cancelled) return;
-      const next = advanceTimelinePlayhead(
-        playheadRef.current,
-        now - previous,
-        totalRef.current
-      );
+      const wasPlaying = runtime.getState().isPlaying;
+      const next = runtime.advance(now - previous);
+      if (!wasPlaying) return;
       previous = now;
-      playheadRef.current = next.timeMs;
 
       // 先预约下一帧，再提交状态——顺序见文件头注释。
-      if (!next.ended) frame = requestAnimationFrame(tick);
-      setState(current => ({
-        playheadMs: next.timeMs,
-        isPlaying: next.ended ? false : current.isPlaying,
-      }));
-      commitRef.current?.(next.timeMs);
+      if (next.isPlaying) {
+        scheduledFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        scheduledFrameRef.current = null;
+      }
+      setState(next);
     };
 
-    frame = requestAnimationFrame(tick);
+    scheduledFrameRef.current = requestAnimationFrame(tick);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
+      if (scheduledFrameRef.current != null) {
+        cancelAnimationFrame(scheduledFrameRef.current);
+        scheduledFrameRef.current = null;
+      }
     };
-  }, [state.isPlaying]);
+  }, [playbackRunId, runtime, state.isPlaying]);
 
   return {
     playheadMs: state.playheadMs,
@@ -126,5 +232,6 @@ export function useTimelinePlaybackClock(input: {
     seek,
     setPlaying,
     togglePlaying,
+    pauseAtCurrentFrame,
   };
 }

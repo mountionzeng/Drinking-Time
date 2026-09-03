@@ -362,7 +362,7 @@ describe("creation editor spine boundary", () => {
     expect(shotPreview).toContain('aria-label="调整 Preview 当前画面"');
     expect(editingWorkspace).toContain("editCurrentVideoFrame");
     expect(editingWorkspace).toContain(
-      "当前帧已抽取；可在下方调整或在左侧聊天框描述修改"
+      "当前帧已抽取并打开图片编辑器"
     );
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");
     expect(editingWorkspace).toContain(

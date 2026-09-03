@@ -3,11 +3,14 @@ import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
 } from "./timelinePlayhead";
-import { resolvePlayRequest } from "./useTimelinePlaybackClock";
+import {
+  createTimelinePlaybackRuntime,
+  resolvePlayRequest,
+} from "./useTimelinePlaybackClock";
 
 /**
- * 时钟 hook 本身要 React 渲染环境才能测，这里守的是它依赖的两条算术，
- * 以及「从片尾按播放要回到开头」这个 hook 里显式处理的分支。
+ * 时钟的同步事实在 runtime 中直接测试；这里同时守住它依赖的算术，
+ * 以及「从片尾按播放要回到开头」这条显式分支。
  */
 describe("播放时钟的算术", () => {
   it("推进不会越过片尾，并在到尾时报告 ended", () => {
@@ -78,5 +81,42 @@ describe("按下播放时的状态解析", () => {
       isPlaying: true,
     });
     expect(advanceTimelinePlayhead(0, 16, 0).ended).toBe(true);
+  });
+});
+
+describe("播放时钟运行边界", () => {
+  it("同步冻结后，即使旧的动画帧回调抵达也不能继续推进播放头", () => {
+    const committed: number[] = [];
+    const runtime = createTimelinePlaybackRuntime({
+      totalMs: 5_000,
+      onPlayheadCommit: playheadMs => committed.push(playheadMs),
+    });
+
+    runtime.seek(1_000);
+    runtime.setPlaying(true);
+    runtime.advance(20);
+
+    const frozen = runtime.pauseAtCurrentFrame();
+    const stateAfterStaleTick = runtime.advance(20);
+
+    expect(frozen).toEqual({ timelineFrame: 31, playheadMs: 1_033 });
+    expect(stateAfterStaleTick).toEqual({
+      playheadMs: 1_033,
+      isPlaying: false,
+    });
+    expect(committed.at(-1)).toBe(1_033);
+  });
+
+  it("冻结后立即恢复时可以从同一规范帧继续推进", () => {
+    const runtime = createTimelinePlaybackRuntime({ totalMs: 5_000 });
+    runtime.seek(1_000);
+    runtime.setPlaying(true);
+
+    const frozen = runtime.pauseAtCurrentFrame();
+    runtime.setPlaying(true);
+    const resumed = runtime.advance(20);
+
+    expect(frozen).toEqual({ timelineFrame: 30, playheadMs: 1_000 });
+    expect(resumed).toEqual({ playheadMs: 1_020, isPlaying: true });
   });
 });
