@@ -3011,7 +3011,14 @@
         "scripts/backfill-personal-memory.ts",
         "scripts/backfill-personal-memory.test.ts",
         "server/services/personalMemoryReconciliation.ts",
-        "server/services/personalMemoryReconciliation.test.ts"
+        "server/services/personalMemoryReconciliation.test.ts",
+        "server/services/personalMemoryExtraction.ts",
+        "server/services/personalMemoryExtraction.test.ts",
+        "server/services/personalMemoryJobRunner.ts",
+        "server/services/personalMemoryJobRunner.test.ts",
+        "server/services/personalMemoryJobRunner.integration.test.ts",
+        "server/db.personalMemoryInsights.test.ts",
+        "server/integration/personalMemoryExtraction.mysql.test.ts"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -3088,6 +3095,11 @@
           "date": "2026-09-03",
           "kind": "fix",
           "summary": "修来信版本追加在真实 MySQL 上的间隙锁死锁：当天还没有版本时那是一段空区间，两个事务同时 SELECT ... FOR UPDATE 会各拿一个相容的间隙锁再都想往里插，必然 ER_LOCK_DEADLOCK（实测到间歇失败）。改为乐观策略——普通读算版本号、直接插入、撞唯一索引或死锁则整笔重试（上限 5 次），由唯一索引 (userId, letterDate, versionNumber) 做仲裁；重试是新事务新快照，看得到对方已提交的版本。并发用例连跑三轮全绿。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "build",
+          "summary": "Phase 3 / U5 可追溯提炼、冲突处理与反馈状态机：新增 server/services/{personalMemoryExtraction,personalMemoryJobRunner}.ts 与 server/db.ts 的任务/理解仓储层。提炼输入只含单个经历+最多6条候选理解，模型判定 statementType（direct_statement/question/quotation/hypothesis/project_scoped_instruction/inferred_behavior），question/quotation/hypothesis 结构性清零、project_scoped_instruction 强制 scope=project、行为信号来源（图片/文章采用）强制 origin=inferred——全部服务端硬校验，不信任模型自报。reinforce/supersede 要求目标 lineage 当前 state=active 且 revision 匹配调用方决定时看到的版本（新增 expectedRevision 序列检查，真实 MySQL 并发测试才发现只查 state 不够）；命中即判 stale 丢弃不覆盖，这是「旧任务不能覆盖新纠正」的落地。归档/恢复/忘记/来源清空重算/手动纠正全部实现，忘记同事务递增隐私 epoch、建立 JSON 抑制记录、清除整条 lineage 全部修订正文；忘记/归档/恢复/纠正自身也生成 sourceType=insight 的经历（复用 U1 已设计的动作枚举）。runner 可显式 start/stop（数据库就绪后由 server/_core/index.ts 挂载，import 不自启动）、单 tick 不重叠、定时器 unref、单用户份额限制（超额立即放回 pending 不占 lease）、独立 kill switch（PERSONAL_MEMORY_RUNNER_PAUSED）、SIGTERM/SIGINT 优雅关闭。提炼调用走算力账本（reserveForOperation/settleOperation），预占对象是新增的平台系统账户而非真实用户——账户默认零余额、不自动充值，余额不足时 billing_rejected 且永远退避重试不占永久失败名额；模型供应商 allowlist 默认空（PERSONAL_MEMORY_PROVIDER_ALLOWLIST），空时 not_configured 同样永远重试；两者都不计入 model_failed 的次数上限，避免配置就绪前把任务全部烧成永久失败。settle 用 token 用量估算实际成本（PERSONAL_MEMORY_EXTRACTION_COST_PER_1K_TOKENS_YUAN），不再硬编码 0。聊天消息完整正文按 messageId+userId 直接回源（story_conversation_messages 行自带 userId，不需要 storyId），不占用 200 字展示摘录。真实 MySQL 上发现并修复第四个死锁：job claim 的 UPDATE...WHERE id=(SELECT...LIMIT1) 即使只有一行数据也会因 range 扫描的 next-key lock 死锁，改为有界重试。同时修复 U2 遗留 bug：每日留言事件快照曾截断到 200 字，而它是旧修订唯一的历史权威，现改为存完整原文。端到端接线测试证明捕获→claim→提炼→完成→理解可见全链路真实打通（只 mock 模型调用）。回填 apply 仍然保持阻断——runner 基础设施就绪不等于产品决定开放批量回填。门禁：本地 449 文件/3884 用例、MySQL 集成 33/33、feature:validate 全绿。"
         }
       ]
     }

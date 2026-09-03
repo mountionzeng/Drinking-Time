@@ -16,6 +16,14 @@ import {
   type PersonalMemoryCapture,
   type PersonalMemoryEventIdentity,
   type PersonalMemoryLetterVersionRecord,
+  STATEMENT_TYPES_WITHOUT_INSIGHTS,
+  deriveInsightOrigin,
+  reinforceInsightConfidence,
+  decideInsightMutation,
+  decideLineageStateChange,
+  decideEvidenceLossOutcome,
+  insightLineageTip,
+  type PersonalMemoryInsightRecord,
 } from "./personalMemory";
 
 function identity(
@@ -467,5 +475,255 @@ describe("捕获与幂等投影", () => {
       });
       expect(state.events).toHaveLength(2);
     });
+  });
+});
+
+describe("提炼来源判定", () => {
+  it.each(["question", "quotation", "hypothesis"] as const)(
+    "%s 类型结构上不产生理解",
+    statementType => {
+      expect(STATEMENT_TYPES_WITHOUT_INSIGHTS.has(statementType)).toBe(true);
+    }
+  );
+
+  it("direct_statement 和 project_scoped_instruction 结构上可以产生理解", () => {
+    expect(STATEMENT_TYPES_WITHOUT_INSIGHTS.has("direct_statement")).toBe(false);
+    expect(STATEMENT_TYPES_WITHOUT_INSIGHTS.has("project_scoped_instruction")).toBe(
+      false
+    );
+  });
+});
+
+describe("可信级别推导（不接受模型覆盖）", () => {
+  it("推断行为永远是 inferred，即使动作是 supersede", () => {
+    expect(deriveInsightOrigin("inferred_behavior", "supersede")).toBe("inferred");
+    expect(deriveInsightOrigin("inferred_behavior", "new")).toBe("inferred");
+  });
+
+  it("直接陈述的新建/强化是 user_stated", () => {
+    expect(deriveInsightOrigin("direct_statement", "new")).toBe("user_stated");
+    expect(deriveInsightOrigin("direct_statement", "reinforce")).toBe("user_stated");
+  });
+
+  // supersede = 用新表达替换旧结论，这正是纠正的定义。
+  it("直接陈述的 supersede 是 user_corrected", () => {
+    expect(deriveInsightOrigin("direct_statement", "supersede")).toBe(
+      "user_corrected"
+    );
+  });
+
+  it("项目限定指令同样是 user_stated（用户确实说过），但不影响它必须被限定作用域", () => {
+    expect(deriveInsightOrigin("project_scoped_instruction", "new")).toBe(
+      "user_stated"
+    );
+  });
+});
+
+describe("强化置信度", () => {
+  it("每次强化增加但不超过 1", () => {
+    expect(reinforceInsightConfidence(0.5)).toBeCloseTo(0.6);
+    expect(reinforceInsightConfidence(0.95)).toBe(1);
+    expect(reinforceInsightConfidence(1)).toBe(1);
+  });
+});
+
+describe("提炼动作判定：不能覆盖新纠正/归档/忘记", () => {
+  function insight(
+    overrides: Partial<PersonalMemoryInsightRecord> = {}
+  ): PersonalMemoryInsightRecord {
+    return {
+      id: 1,
+      userId: 7,
+      lineageKey: "L1",
+      revision: 1,
+      state: "active",
+      origin: "inferred",
+      category: "preference",
+      text: "喜欢暖色调",
+      scope: null,
+      confidence: 0.5,
+      allowProactiveMention: false,
+      supersededByInsightId: null,
+      createdAt: "2026-09-03T00:00:00.000Z",
+      updatedAt: "2026-09-03T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("new 动作总是产生 create，不看 lineage 是否存在", () => {
+    const decision = decideInsightMutation(
+      {
+        action: "new",
+        origin: "inferred",
+        category: "preference",
+        text: "喜欢暖色调",
+        scope: null,
+        confidence: 0.5,
+        allowProactiveMention: false,
+      },
+      "L1",
+      { revisions: [] }
+    );
+    expect(decision).toEqual({ kind: "create", lineageKey: "L1" });
+  });
+
+  it("reinforce 在 lineage 不存在时判为 stale", () => {
+    const decision = decideInsightMutation(
+      { action: "reinforce", lineageKey: "L1", expectedRevision: 1 },
+      "L1",
+      { revisions: [] }
+    );
+    expect(decision.kind).toBe("stale");
+  });
+
+  it("reinforce 在 tip 是 active 时正常生效", () => {
+    const tip = insight();
+    const decision = decideInsightMutation(
+      { action: "reinforce", lineageKey: "L1", expectedRevision: 1 },
+      "L1",
+      { revisions: [tip] }
+    );
+    expect(decision).toEqual({ kind: "reinforce", target: tip });
+  });
+
+  // 这是承重约束：用户刚纠正过，旧任务的提炼结果绝不能覆盖它。
+  it.each(["superseded", "archived", "unsupported", "forgotten"] as const)(
+    "tip 状态是 %s 时，reinforce 和 supersede 都判为 stale 而不是覆盖",
+    state => {
+      const tip = insight({ state });
+      const reinforce = decideInsightMutation(
+        { action: "reinforce", lineageKey: "L1", expectedRevision: 1 },
+        "L1",
+        { revisions: [tip] }
+      );
+      const supersede = decideInsightMutation(
+        {
+          action: "supersede",
+          lineageKey: "L1",
+          expectedRevision: 1,
+          origin: "user_corrected",
+          category: "preference",
+          text: "喜欢冷色调",
+          scope: null,
+          confidence: 0.6,
+          allowProactiveMention: false,
+        },
+        "L1",
+        { revisions: [tip] }
+      );
+      expect(reinforce.kind).toBe("stale");
+      expect(supersede.kind).toBe("stale");
+    }
+  );
+
+  // 这条是发现于 U5 的真实漏洞：只查 state=active 不够。用户纠正之后 tip 仍然
+  // 是 active，只是内容换了；一个在纠正之前就决定要 reinforce 的旧任务，会把
+  // 新证据错挂到内容完全不同的新版本上。序列号（revision）才是那道门。
+  it("tip 仍是 active 但 revision 已经变了——判 stale，不把证据挂到新内容上", () => {
+    const corrected = insight({ id: 2, revision: 2, state: "active" });
+    const decision = decideInsightMutation(
+      { action: "reinforce", lineageKey: "L1", expectedRevision: 1 },
+      "L1",
+      { revisions: [insight({ id: 1, revision: 1, state: "superseded" }), corrected] }
+    );
+    expect(decision.kind).toBe("stale");
+    expect(decision.kind === "stale" && decision.reason).toContain("revision");
+  });
+
+  it("supersede 在 tip 是 active 时正常生效", () => {
+    const tip = insight();
+    const decision = decideInsightMutation(
+      {
+        action: "supersede",
+        lineageKey: "L1",
+        expectedRevision: 1,
+        origin: "user_corrected",
+        category: "preference",
+        text: "喜欢冷色调",
+        scope: null,
+        confidence: 0.6,
+        allowProactiveMention: false,
+      },
+      "L1",
+      { revisions: [tip] }
+    );
+    expect(decision).toEqual({ kind: "supersede", target: tip });
+  });
+
+  it("tip 取最高 revision 那一行，与数组顺序无关", () => {
+    const r1 = insight({ id: 1, revision: 1, state: "superseded" });
+    const r2 = insight({ id: 2, revision: 2, state: "active" });
+    expect(insightLineageTip({ revisions: [r2, r1] })?.id).toBe(2);
+    expect(insightLineageTip({ revisions: [r1, r2] })?.id).toBe(2);
+    expect(insightLineageTip({ revisions: [] })).toBeNull();
+  });
+});
+
+describe("归档/恢复状态迁移", () => {
+  function insight(state: PersonalMemoryInsightRecord["state"]): PersonalMemoryInsightRecord {
+    return {
+      id: 1, userId: 7, lineageKey: "L1", revision: 1, state,
+      origin: "inferred", category: "preference", text: "x", scope: null,
+      confidence: 0.5, allowProactiveMention: false, supersededByInsightId: null,
+      createdAt: "x", updatedAt: "x",
+    };
+  }
+
+  it("active 可以归档", () => {
+    const decision = decideLineageStateChange({ revisions: [insight("active")] }, "archived");
+    expect(decision.kind).toBe("apply");
+  });
+
+  it("archived 可以恢复到 active", () => {
+    const decision = decideLineageStateChange({ revisions: [insight("archived")] }, "active");
+    expect(decision.kind).toBe("apply");
+  });
+
+  // 归档后恢复不覆盖更新的冲突理解：由于 restore 只操作这一个 lineage 自己的
+  // tip，不触碰其它 lineage，这条约束天然成立——这里验证的是迁移表本身没开口子。
+  it("superseded 不能直接恢复到 active", () => {
+    const decision = decideLineageStateChange({ revisions: [insight("superseded")] }, "active");
+    expect(decision.kind).toBe("invalid");
+  });
+
+  it("forgotten 是终态，不能恢复", () => {
+    const decision = decideLineageStateChange({ revisions: [insight("forgotten")] }, "active");
+    expect(decision.kind).toBe("invalid");
+  });
+
+  it("任何状态都可以走向 forgotten（忘记整条 lineage）", () => {
+    for (const state of ["active", "superseded", "archived", "unsupported"] as const) {
+      expect(
+        decideLineageStateChange({ revisions: [insight(state)] }, "forgotten").kind
+      ).toBe("apply");
+    }
+  });
+
+  it("lineage 不存在时判为 invalid", () => {
+    expect(decideLineageStateChange({ revisions: [] }, "active").kind).toBe("invalid");
+  });
+});
+
+describe("来源被清空内容后重新计算依据", () => {
+  function tip(state: PersonalMemoryInsightRecord["state"] = "active") {
+    return {
+      id: 1, userId: 7, lineageKey: "L1", revision: 1, state,
+      origin: "inferred" as const, category: "preference" as const, text: "x",
+      scope: null, confidence: 0.5, allowProactiveMention: false,
+      supersededByInsightId: null, createdAt: "x", updatedAt: "x",
+    };
+  }
+
+  it("多来源理解删掉其中一个仍保留依据", () => {
+    expect(decideEvidenceLossOutcome(tip(), 1)).toBe("unaffected");
+  });
+
+  it("最后一个有效来源没了后退出召回", () => {
+    expect(decideEvidenceLossOutcome(tip(), 0)).toBe("unsupported");
+  });
+
+  it("非活跃理解不参与召回判定，即使证据清零", () => {
+    expect(decideEvidenceLossOutcome(tip("archived"), 0)).toBe("unaffected");
+    expect(decideEvidenceLossOutcome(tip("forgotten"), 0)).toBe("unaffected");
   });
 });

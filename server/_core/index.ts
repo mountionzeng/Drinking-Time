@@ -35,6 +35,10 @@ import {
   createSecurityHeadersMiddleware,
 } from "./securityHeaders";
 import { createRequestOriginMiddleware } from "./requestOrigin";
+import {
+  startPersonalMemoryJobRunner,
+  stopPersonalMemoryJobRunner,
+} from "../services/personalMemoryJobRunner";
 
 async function verifyProductionDatabaseConnection() {
   if (process.env.NODE_ENV !== "production") return;
@@ -51,6 +55,29 @@ async function startServer() {
   configureHttpConnectionPool();
   assertProductionReadiness(process.env);
   await verifyProductionDatabaseConnection();
+
+  // 数据库就绪之后才启动提炼 runner——import 这条依赖链的任何脚本、测试、
+  // 迁移工具都不应该意外开始消费任务。独立 kill switch：
+  // PERSONAL_MEMORY_RUNNER_PAUSED=true 时启动即暂停，不 claim 任何任务，
+  // 但已经 pending 的任务原样留着，不受影响。
+  const personalMemoryJobRunner = startPersonalMemoryJobRunner();
+  if (process.env.PERSONAL_MEMORY_RUNNER_PAUSED === "true") {
+    personalMemoryJobRunner.pause();
+  }
+  // 进程终止信号：先停止新 claim，再在有界时间内等在途 tick 收尾——
+  // 见 PersonalMemoryJobRunner.stop() 的说明。这是这个进程里第一个
+  // SIGTERM/SIGINT 处理器，只负责这一件事，不影响其它退出路径。
+  let shuttingDown = false;
+  const handleShutdownSignal = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Server] 收到 ${signal}，停止提炼 runner...`);
+    stopPersonalMemoryJobRunner()
+      .catch(error => console.error("[Server] 停止提炼 runner 失败：", error))
+      .finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", handleShutdownSignal);
+  process.on("SIGINT", handleShutdownSignal);
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   if (process.env.NODE_ENV === "development") {
