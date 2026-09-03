@@ -45,6 +45,7 @@ import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag"
 import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import { useCurrentFrameEditingSession } from "../currentFrameEditingSession";
 import { useVisualObjectEditingSession } from "../useVisualObjectEditingSession";
 import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
@@ -69,6 +70,7 @@ import {
 import {
   creationTimelineShotId,
   resolveTimelineShots,
+  type ExtractedTimelineFrameResult,
   useCreationEditor,
 } from "../CreationEditorContext";
 import { timelineMagneticJoins } from "@shared/timelineCommands";
@@ -1008,8 +1010,6 @@ export default function EditingNleWorkspace({
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
-  const [extractingCurrentVideoFrame, setExtractingCurrentVideoFrame] =
-    useState(false);
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
    *
@@ -1282,6 +1282,7 @@ export default function EditingNleWorkspace({
     isEditingStorySessionCurrent,
     hasVisualClipboard,
     splitAtPlayhead,
+    extractFrameAtTimelineFrame,
     extractFrameAtPlayhead,
     pasteVisualObject,
     isVisualObjectCommandAvailable,
@@ -1498,6 +1499,67 @@ export default function EditingNleWorkspace({
     [selectImageForChat]
   );
 
+  const buildCurrentFrameEditorTarget = useCallback(
+    (
+      result: ExtractedTimelineFrameResult,
+      position: { timelineFrame: number; playheadMs: number }
+    ): ImageClipEditorTarget => {
+      const targetOwnerShot = shots.find(
+        shot => creationTimelineShotId(shot) === result.stableShotId
+      );
+      if (!targetOwnerShot) {
+        throw new Error("当前帧已抽取，但找不到它在时间线中的位置");
+      }
+      return imageClipEditorTargetForTimelineImage({
+        shot: targetOwnerShot,
+        stableShotId: result.stableShotId,
+        imageId: result.imageId,
+        imageUrl: result.imageUrl,
+        label: `${shotLabel(targetOwnerShot)} · 当前帧 ${formatStoryboardTimestamp(position.playheadMs)}`,
+        clipTransform: result.transform,
+        clipId: result.clipId,
+      });
+    },
+    [shots]
+  );
+
+  const extractCurrentTimelineFrame = useCallback(
+    (input: { timelineFrame: number; operationLayer: number }) =>
+      extractFrameAtTimelineFrame(input.timelineFrame, input.operationLayer),
+    [extractFrameAtTimelineFrame]
+  );
+
+  const { state: currentFrameEditingState, start: startCurrentFrameEditing } =
+    useCurrentFrameEditingSession({
+      sessionKey: editingStorySessionKey,
+      playheadMs: previewPlayheadMs,
+      timelinePlaying: playbackClock.isPlaying,
+      pauseAtCurrentFrame: playbackClock.pauseAtCurrentFrame,
+      resolveVideoSource: resolveActiveVideoSource,
+      extractFrame: extractCurrentTimelineFrame,
+      isStorySessionCurrent: isEditingStorySessionCurrent,
+      buildTarget: buildCurrentFrameEditorTarget,
+      seekTimeline: playbackClock.seek,
+      openImageEditor,
+    });
+
+  const currentFrameSessionTarget =
+    currentFrameEditingState.phase === "ready" &&
+    !playbackClock.isPlaying &&
+    timelineOffsetMsToFrames(previewPlayheadMs) ===
+      currentFrameEditingState.position.timelineFrame
+      ? currentFrameEditingState.target
+      : null;
+  const previewTimelineImageSource = currentFrameSessionTarget?.clipId
+    ? {
+        imageUrl: currentFrameSessionTarget.imageUrl,
+        transform: currentFrameSessionTarget.transform,
+        imageId: currentFrameSessionTarget.imageId,
+        clipId: currentFrameSessionTarget.clipId,
+        stableShotId: currentFrameSessionTarget.stableShotId,
+      }
+    : activeTimelineImageSource;
+
   const previewImageEditTarget = useMemo(() => {
     if (!previewShot?.imageId) return null;
     const imageUrl = shotImageUrl(previewShot);
@@ -1514,26 +1576,28 @@ export default function EditingNleWorkspace({
   }, [previewShot]);
 
   const previewObjectMaskTarget = useMemo(() => {
-    if (activeTimelineImageSource) {
+    if (previewTimelineImageSource) {
       const ownerShot = shots.find(
-        shot => creationTimelineShotId(shot) === activeTimelineImageSource.stableShotId
+        shot =>
+          creationTimelineShotId(shot) ===
+          previewTimelineImageSource.stableShotId
       );
       if (!ownerShot) return null;
       return imageClipEditorTargetForTimelineImage({
         shot: ownerShot,
-        stableShotId: activeTimelineImageSource.stableShotId,
-        imageId: activeTimelineImageSource.imageId,
-        imageUrl: activeTimelineImageSource.imageUrl,
+        stableShotId: previewTimelineImageSource.stableShotId,
+        imageId: previewTimelineImageSource.imageId,
+        imageUrl: previewTimelineImageSource.imageUrl,
         label: `${shotLabel(ownerShot)} · 时间线图片`,
-        clipTransform: activeTimelineImageSource.transform,
-        clipId: activeTimelineImageSource.clipId,
+        clipTransform: previewTimelineImageSource.transform,
+        clipId: previewTimelineImageSource.clipId,
       });
     }
     return activeTimelineVideoSource ? null : previewImageEditTarget;
   }, [
-    activeTimelineImageSource,
     activeTimelineVideoSource,
     previewImageEditTarget,
+    previewTimelineImageSource,
     shots,
   ]);
 
@@ -1544,63 +1608,18 @@ export default function EditingNleWorkspace({
       ? null
       : previewImageEditTarget;
 
-  const prepareCurrentVideoFrameForImageEdit = useCallback(async () => {
-    playbackClock.setPlaying(false);
-    const source = resolveActiveVideoSource(previewPlayheadMs);
-    if (!source) {
-      throw new Error("当前播放头没有可编辑的视频画面");
-    }
-    setExtractingCurrentVideoFrame(true);
-    try {
-      const result = await extractFrameAtPlayhead(
-        previewPlayheadMs,
-        source.visualLayer
-      );
-      if (!isEditingStorySessionCurrent()) return null;
-      const targetOwnerShot = shots.find(
-        shot => creationTimelineShotId(shot) === result.stableShotId
-      );
-      if (!targetOwnerShot) {
-        throw new Error("当前帧已抽取，但找不到它在时间线中的位置");
-      }
-      const target = imageClipEditorTargetForTimelineImage({
-        shot: targetOwnerShot,
-        stableShotId: result.stableShotId,
-        imageId: result.imageId,
-        imageUrl: result.imageUrl,
-        label: `${shotLabel(targetOwnerShot)} · 当前帧 ${formatStoryboardTimestamp(previewPlayheadMs)}`,
-        clipTransform: result.transform,
-        clipId: result.clipId,
-      });
-      // 图片 clip 的持久宿主可能是当前帧下方的另一个镜头。这里只是在聊天里
-      // 引用刚抽出的精确 clip，不能把播放镜头切成存储宿主，否则这一帧会立刻
-      // 从 Preview 消失，看起来像“抽取成功但图层里没有”。
-      selectImageForChat(target, { preservePlayhead: true });
-      return target;
-    } catch (error) {
-      if (isEditingStorySessionCurrent()) throw error;
-      return null;
-    } finally {
-      setExtractingCurrentVideoFrame(false);
-    }
-  }, [
-    extractFrameAtPlayhead,
-    isEditingStorySessionCurrent,
-    previewPlayheadMs,
-    resolveActiveVideoSource,
-    selectImageForChat,
-    shots,
-  ]);
-
   const editCurrentVideoFrame = useCallback(async () => {
     try {
-      const target = await prepareCurrentVideoFrameForImageEdit();
+      const target = await startCurrentFrameEditing();
       if (!target) return;
-      toast.success("当前帧已抽取；可在下方调整或在左侧聊天框描述修改");
+      toast.success("当前帧已抽取并打开图片编辑器");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "当前帧编辑失败");
     }
-  }, [prepareCurrentVideoFrameForImageEdit]);
+  }, [startCurrentFrameEditing]);
+
+  const extractingCurrentVideoFrame =
+    currentFrameEditingState.phase === "extracting";
 
   const applyImageEdit = useCallback(
     async (draft: ImageClipEditDraft) => {
@@ -2428,7 +2447,7 @@ export default function EditingNleWorkspace({
             timing={previewShotTiming ?? undefined}
             sourceClip={previewSourceClip}
             timelineVideoSource={activeTimelineVideoSource}
-            timelineImageSource={activeTimelineImageSource}
+            timelineImageSource={previewTimelineImageSource}
             maskEditTarget={previewObjectMaskTarget}
             editorPreview={
               videoEditorTarget && videoEditorPreviewDraft

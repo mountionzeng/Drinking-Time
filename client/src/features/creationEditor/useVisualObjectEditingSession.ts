@@ -281,14 +281,18 @@ export function useVisualObjectEditingSession(input: {
     ]
   );
 
-  const extractFrameAtPlayhead = useCallback(
-    async (playheadMs: number, operationLayer: number) => {
-      return extractTimelineFrame({
-        timelineFrame: timelineOffsetMsToFrames(playheadMs),
-        operationLayer,
-      });
-    },
+  const extractFrameAtTimelineFrame = useCallback(
+    async (timelineFrame: number, operationLayer: number) =>
+      extractTimelineFrame({ timelineFrame, operationLayer }),
     [extractTimelineFrame]
+  );
+  const extractFrameAtPlayhead = useCallback(
+    async (playheadMs: number, operationLayer: number) =>
+      extractFrameAtTimelineFrame(
+        timelineOffsetMsToFrames(playheadMs),
+        operationLayer
+      ),
+    [extractFrameAtTimelineFrame]
   );
 
   const canonicalVisualDocument = useMemo<VisualEditDocument>(
@@ -729,6 +733,7 @@ export function useVisualObjectEditingSession(input: {
     visualClipboard,
     hasVisualClipboard,
     splitAtPlayhead,
+    extractFrameAtTimelineFrame,
     extractFrameAtPlayhead,
     copyVisualObject,
     pasteVisualObject,
