@@ -120,6 +120,13 @@
       "when": 1788335592587,
       "tag": "migrations/0016_account_gift_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1788426026547,
+      "tag": "migrations/0017_personal_memory_daily_letter_versions",
+      "breakpoints": true
     }
   ]
 }

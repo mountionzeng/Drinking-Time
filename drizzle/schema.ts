@@ -11,6 +11,7 @@ import {
   json,
   uniqueIndex,
   index,
+  foreignKey,
 } from "drizzle-orm/mysql-core";
 import type { PublishingDraftState } from "../shared/publishingDraft";
 
@@ -252,6 +253,15 @@ export const emotionDailyLetters = mysqlTable(
     dailyReference: json("dailyReference").notNull(),
     analysisSeed: json("analysisSeed").notNull(),
     revision: int("revision").default(1).notNull(),
+    /**
+     * 当前版本指针（U1 起）。正文权威是 emotion_daily_letter_versions；
+     * 这一行只在追加版本的同一事务里推进指针，并保留可由版本重建的兼容字段。
+     *
+     * 这里刻意不建外键：versions 表定义在本表之后，drizzle 的 extra config 是
+     * 立即求值的，往回引用会在模块加载期炸 TDZ。跨租户在这里也不可能——
+     * (userId, letterDate) 本来就唯一，指针只由同事务的版本写入方推进。
+     */
+    currentVersionId: int("currentVersionId"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1900,3 +1910,433 @@ export const dataMigrationReceipts = mysqlTable(
 
 export type DataMigrationReceipt = typeof dataMigrationReceipts.$inferSelect;
 export type InsertDataMigrationReceipt = typeof dataMigrationReceipts.$inferInsert;
+
+// ─── 个人记忆（U1 数据合同）────────────────────────────────────────────
+//
+// 语义定义在 shared/personalMemory.ts，本地模式（server/db.ts）读同一份。
+// 这里只负责把两条不变量落到数据库自己能强制的层面：
+//
+// 1. 参与事件唯一性的六列**全部 NOT NULL**。MySQL 的唯一索引会放过任意多行
+//    NULL，任何一列可空都等于把幂等保证悄悄取消掉。
+// 2. 跨账号引用由**包含 userId 的复合外键**挡住，而不是只靠 repository 记得
+//    带 where。repository 仍然必须显式带用户条件——那是纵深防御的第二层，
+//    不是第一层。
+
+/**
+ * PersonalMemorySources — 租户来源注册表。
+ *
+ * 聊天消息、发布版本、图片、理解……来源是多态的，没法各自建外键。
+ * 先把「这个用户拥有这个来源」登记在这里，事件／证据／任务再用
+ * (id, userId) 复合外键指过来，跨租户引用在数据库层就写不进去。
+ */
+export const personalMemorySources = mysqlTable(
+  "personal_memory_sources",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: varchar("sourceType", { length: 32 }).notNull(),
+    sourceKey: varchar("sourceKey", { length: 191 }).notNull(),
+    /** 来源所属 Story（可空：每日留言与理解不属于任何 Story）。 */
+    storyId: int("storyId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    userSourceUnique: uniqueIndex("personal_memory_sources_user_unique").on(
+      table.userId,
+      table.sourceType,
+      table.sourceKey
+    ),
+    // 复合外键的落点。没有它，下面几张表的 (xxxId, userId) 引用无处可指。
+    idUserUnique: uniqueIndex("personal_memory_sources_id_user_unique").on(
+      table.id,
+      table.userId
+    ),
+  })
+);
+
+export type PersonalMemorySource = typeof personalMemorySources.$inferSelect;
+export type InsertPersonalMemorySource =
+  typeof personalMemorySources.$inferInsert;
+
+/**
+ * PersonalMemoryEvents — 账号级不可变经历事件。
+ *
+ * 正文仍归来源权威所有；这里只对「当次发生时用户说了／采用了什么」负责，
+ * 不反向覆盖来源当前状态。
+ */
+export const personalMemoryEvents = mysqlTable(
+  "personal_memory_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceId: int("sourceId").notNull(),
+    // 下面六列构成规范身份，全部 NOT NULL。
+    sourceType: varchar("sourceType", { length: 32 }).notNull(),
+    sourceKey: varchar("sourceKey", { length: 191 }).notNull(),
+    sourceRevision: varchar("sourceRevision", { length: 64 }).notNull(),
+    actionKind: varchar("actionKind", { length: 32 }).notNull(),
+    actionId: varchar("actionId", { length: 191 }).notNull(),
+    /** 中国时区日期。跨日修改不重写旧日期。 */
+    occurredOn: varchar("occurredOn", { length: 10 }).notNull(),
+    occurredAt: timestamp("occurredAt").notNull(),
+    /** 最小必要摘录；来源删除后清空。 */
+    excerpt: text("excerpt"),
+    /** 仅供一致性校验，不得当作可恢复正文或删除后的语义匹配材料。 */
+    contentHash: varchar("contentHash", { length: 128 }),
+    display: json("display"),
+    /** 来源被明确删除后置真：内容已清除，只留无内容 tombstone。 */
+    contentScrubbed: mysqlBoolean("contentScrubbed").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    identityUnique: uniqueIndex("personal_memory_events_identity_unique").on(
+      table.userId,
+      table.sourceType,
+      table.sourceKey,
+      table.sourceRevision,
+      table.actionKind,
+      table.actionId
+    ),
+    idUserUnique: uniqueIndex("personal_memory_events_id_user_unique").on(
+      table.id,
+      table.userId
+    ),
+    // 足迹按 occurredAt DESC, id DESC 做 keyset 分页，这条索引就是它的支撑。
+    timelineIndex: index("personal_memory_events_timeline_index").on(
+      table.userId,
+      table.occurredAt,
+      table.id
+    ),
+    sourceFk: foreignKey({
+      columns: [table.sourceId, table.userId],
+      foreignColumns: [personalMemorySources.id, personalMemorySources.userId],
+      name: "personal_memory_events_source_fk",
+    }),
+  })
+);
+
+export type PersonalMemoryEvent = typeof personalMemoryEvents.$inferSelect;
+export type InsertPersonalMemoryEvent =
+  typeof personalMemoryEvents.$inferInsert;
+
+/**
+ * PersonalMemoryInsights — 派生理解的版本化状态机。
+ *
+ * 纠正产生新版本并 supersede 旧版本，旧话不被改写成新结论。
+ */
+export const personalMemoryInsights = mysqlTable(
+  "personal_memory_insights",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** 同一条理解跨版本的稳定身份；忘记抑制绑定在它上面。 */
+    lineageKey: varchar("lineageKey", { length: 191 }).notNull(),
+    revision: int("revision").notNull(),
+    state: mysqlEnum("state", [
+      "active",
+      "superseded",
+      "archived",
+      "unsupported",
+      "forgotten",
+    ])
+      .default("active")
+      .notNull(),
+    /** 用户明确陈述与纠正的可信级别高于系统推断。 */
+    origin: mysqlEnum("origin", [
+      "user_stated",
+      "user_corrected",
+      "inferred",
+    ]).notNull(),
+    category: mysqlEnum("category", [
+      "fact",
+      "preference",
+      "relationship",
+      "goal",
+      "concern",
+      "reflection",
+    ]).notNull(),
+    /** forgotten 后为 NULL：正文已清除。 */
+    text: text("text"),
+    scope: json("scope"),
+    confidence: float("confidence").default(0).notNull(),
+    /** 敏感主题默认不允许来信主动提及。 */
+    allowProactiveMention: mysqlBoolean("allowProactiveMention")
+      .default(false)
+      .notNull(),
+    supersededByInsightId: int("supersededByInsightId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    lineageRevisionUnique: uniqueIndex(
+      "personal_memory_insights_lineage_unique"
+    ).on(table.userId, table.lineageKey, table.revision),
+    idUserUnique: uniqueIndex("personal_memory_insights_id_user_unique").on(
+      table.id,
+      table.userId
+    ),
+    userStateIndex: index("personal_memory_insights_user_state_index").on(
+      table.userId,
+      table.state
+    ),
+  })
+);
+
+export type PersonalMemoryInsight = typeof personalMemoryInsights.$inferSelect;
+export type InsertPersonalMemoryInsight =
+  typeof personalMemoryInsights.$inferInsert;
+
+/** PersonalMemoryEvidence — 理解与经历之间的多对多证据边。 */
+export const personalMemoryEvidence = mysqlTable(
+  "personal_memory_evidence",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    insightId: int("insightId").notNull(),
+    eventId: int("eventId").notNull(),
+    /** 建边时看到的来源修订；旧任务不能拿过期修订复活理解。 */
+    sourceRevision: varchar("sourceRevision", { length: 64 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    edgeUnique: uniqueIndex("personal_memory_evidence_edge_unique").on(
+      table.insightId,
+      table.eventId
+    ),
+    insightFk: foreignKey({
+      columns: [table.insightId, table.userId],
+      foreignColumns: [personalMemoryInsights.id, personalMemoryInsights.userId],
+      name: "personal_memory_evidence_insight_fk",
+    }),
+    eventFk: foreignKey({
+      columns: [table.eventId, table.userId],
+      foreignColumns: [personalMemoryEvents.id, personalMemoryEvents.userId],
+      name: "personal_memory_evidence_event_fk",
+    }),
+  })
+);
+
+export type PersonalMemoryEvidenceEdge =
+  typeof personalMemoryEvidence.$inferSelect;
+export type InsertPersonalMemoryEvidenceEdge =
+  typeof personalMemoryEvidence.$inferInsert;
+
+/**
+ * PersonalMemorySuppressions — 忘记 tombstone。
+ *
+ * 只阻止**旧证据**重新生成同一理解，不承诺对未来新表达做语义级永久封禁。
+ * 里面不存原文。
+ */
+export const personalMemorySuppressions = mysqlTable(
+  "personal_memory_suppressions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lineageKey: varchar("lineageKey", { length: 191 }).notNull(),
+    /** 被禁止再次成为证据的事件 ID 列表。 */
+    suppressedEventIds: json("suppressedEventIds").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    lineageUnique: uniqueIndex(
+      "personal_memory_suppressions_lineage_unique"
+    ).on(table.userId, table.lineageKey),
+  })
+);
+
+export type PersonalMemorySuppression =
+  typeof personalMemorySuppressions.$inferSelect;
+export type InsertPersonalMemorySuppression =
+  typeof personalMemorySuppressions.$inferInsert;
+
+/**
+ * PersonalMemoryJobs — 耐久提炼任务。
+ *
+ * `operationId` 同时是算力账本的 operation ID：提炼是计费动作，
+ * 预占／结算／对账都用它，重复投递不得重复扣费。
+ */
+export const personalMemoryJobs = mysqlTable(
+  "personal_memory_jobs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: int("eventId").notNull(),
+    operationId: varchar("operationId", { length: 128 }).notNull(),
+    extractorVersion: varchar("extractorVersion", { length: 64 }).notNull(),
+    state: mysqlEnum("state", [
+      "pending",
+      "claimed",
+      "succeeded",
+      "failed",
+      "permanently_failed",
+      "cancelled",
+    ])
+      .default("pending")
+      .notNull(),
+    attempts: int("attempts").default(0).notNull(),
+    /** claim 令牌；完成时按它条件提交，过期 lease 不能覆盖新状态。 */
+    leaseToken: varchar("leaseToken", { length: 64 }),
+    leaseExpiresAt: timestamp("leaseExpiresAt"),
+    availableAt: timestamp("availableAt").notNull(),
+    /** 只记错误类别，不记原话与 prompt。 */
+    lastErrorKind: varchar("lastErrorKind", { length: 64 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    operationUnique: uniqueIndex("personal_memory_jobs_operation_unique").on(
+      table.operationId
+    ),
+    // 同一事件 + 同一提炼器版本只排一次；换版本才产生新任务。
+    eventExtractorUnique: uniqueIndex("personal_memory_jobs_event_unique").on(
+      table.eventId,
+      table.extractorVersion
+    ),
+    claimIndex: index("personal_memory_jobs_claim_index").on(
+      table.state,
+      table.availableAt
+    ),
+    eventFk: foreignKey({
+      columns: [table.eventId, table.userId],
+      foreignColumns: [personalMemoryEvents.id, personalMemoryEvents.userId],
+      name: "personal_memory_jobs_event_fk",
+    }),
+  })
+);
+
+export type PersonalMemoryJob = typeof personalMemoryJobs.$inferSelect;
+export type InsertPersonalMemoryJob = typeof personalMemoryJobs.$inferInsert;
+
+/**
+ * PersonalMemoryPrivacyEpochs — 用户级隐私 epoch，每个用户一行。
+ *
+ * 忘记或删除来源时在同一短事务里递增，使在途的来信生成即使已经拿到模型结果
+ * 也无法提交旧输入。
+ */
+export const personalMemoryPrivacyEpochs = mysqlTable(
+  "personal_memory_privacy_epochs",
+  {
+    userId: int("userId")
+      .notNull()
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    epoch: int("epoch").default(1).notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  }
+);
+
+export type PersonalMemoryPrivacyEpoch =
+  typeof personalMemoryPrivacyEpochs.$inferSelect;
+export type InsertPersonalMemoryPrivacyEpoch =
+  typeof personalMemoryPrivacyEpochs.$inferInsert;
+
+/**
+ * EmotionDailyLetterVersions — 不可变每日来信版本。
+ *
+ * **这是来信正文的唯一权威**。`emotion_daily_letters` 从 U1 起降级为
+ * 「当前版本指针 + 可重建兼容投影」，不接受独立正文写入。
+ *
+ * envelope 永不清除（用户仍能知道那天有过一封信）；payload 可在明确删除
+ * 来源时整体 scrub。
+ */
+export const emotionDailyLetterVersions = mysqlTable(
+  "emotion_daily_letter_versions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    letterDate: varchar("letterDate", { length: 10 }).notNull(),
+    versionNumber: int("versionNumber").notNull(),
+    /** 版本号、生成时间、触发方式与 selector／prompt／model 版本。 */
+    envelope: json("envelope").notNull(),
+    /** 可清除的隐私 payload；被 scrub 后为 NULL。 */
+    payload: json("payload"),
+    privacyEpoch: int("privacyEpoch").notNull(),
+    /** 产生这一版的稳定动作 ID；重复提交同一次重读返回同一版本。 */
+    actionId: varchar("actionId", { length: 191 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    versionUnique: uniqueIndex(
+      "emotion_daily_letter_versions_version_unique"
+    ).on(table.userId, table.letterDate, table.versionNumber),
+    actionUnique: uniqueIndex("emotion_daily_letter_versions_action_unique").on(
+      table.userId,
+      table.letterDate,
+      table.actionId
+    ),
+    idUserUnique: uniqueIndex(
+      "emotion_daily_letter_versions_id_user_unique"
+    ).on(table.id, table.userId),
+  })
+);
+
+export type EmotionDailyLetterVersion =
+  typeof emotionDailyLetterVersions.$inferSelect;
+export type InsertEmotionDailyLetterVersion =
+  typeof emotionDailyLetterVersions.$inferInsert;
+
+/**
+ * EmotionDailyLetterAttempts — 来信生成 attempt。
+ *
+ * 开始生成的短事务里创建，固定输入截点与当时的 privacy epoch；
+ * 外部生成结束后用同一 attempt 做条件提交。重复提交同一 action ID
+ * 返回同一 attempt，不排第二次生成。
+ */
+export const emotionDailyLetterAttempts = mysqlTable(
+  "emotion_daily_letter_attempts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    letterDate: varchar("letterDate", { length: 10 }).notNull(),
+    actionId: varchar("actionId", { length: 191 }).notNull(),
+    state: mysqlEnum("state", [
+      "in_flight",
+      "committed",
+      "failed",
+      "rejected_stale",
+    ])
+      .default("in_flight")
+      .notNull(),
+    inputCutoffAt: timestamp("inputCutoffAt").notNull(),
+    privacyEpoch: int("privacyEpoch").notNull(),
+    committedVersionId: int("committedVersionId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    actionUnique: uniqueIndex("emotion_daily_letter_attempts_action_unique").on(
+      table.userId,
+      table.letterDate,
+      table.actionId
+    ),
+    versionFk: foreignKey({
+      columns: [table.committedVersionId, table.userId],
+      foreignColumns: [
+        emotionDailyLetterVersions.id,
+        emotionDailyLetterVersions.userId,
+      ],
+      name: "emotion_daily_letter_attempts_version_fk",
+    }),
+  })
+);
+
+export type EmotionDailyLetterAttempt =
+  typeof emotionDailyLetterAttempts.$inferSelect;
+export type InsertEmotionDailyLetterAttempt =
+  typeof emotionDailyLetterAttempts.$inferInsert;

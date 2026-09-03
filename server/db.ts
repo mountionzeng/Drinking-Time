@@ -51,6 +51,11 @@ import {
   InsertEmotionDailyLetter,
   emotionDailyLetters,
   EmotionDailyLetter,
+  personalMemorySources,
+  personalMemoryEvents,
+  personalMemoryJobs,
+  personalMemoryPrivacyEpochs,
+  emotionDailyLetterVersions,
   InsertStory,
   stories,
   Story,
@@ -131,6 +136,24 @@ import {
   type PromptLineageLocalState,
   type PromptCompilationHead,
 } from "../shared/promptLineage";
+import {
+  applyPersonalMemoryCapture,
+  createEmptyPersonalMemoryLocalState,
+  currentLetterVersion,
+  normalizePersonalMemoryEventIdentity,
+  normalizePersonalMemoryLocalState,
+  personalMemoryEventFingerprint,
+  projectLetterRowFromVersion,
+  projectPersonalMemoryOutbox,
+  type PersonalMemoryCapture,
+  type PersonalMemoryEventIdentity,
+  type PersonalMemoryEventRecord,
+  type PersonalMemoryLetterEnvelope,
+  type PersonalMemoryLetterPayload,
+  type PersonalMemoryLetterVersionRecord,
+  type PersonalMemoryLocalState,
+  type PersonalMemoryOutboxEntry,
+} from "../shared/personalMemory";
 import { isUntitledStoryTitle } from "../shared/storyTitle";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -171,6 +194,12 @@ type MemoryState = {
   accountVerificationChallenges: AccountVerificationChallenge[];
   accountRateLimits: AccountRateLimit[];
   promptLineage: PromptLineageLocalState;
+  /**
+   * 个人记忆（U1）。它同时是 local-persist 自己那部分来源的家，
+   * 和**统一足迹索引**——prompt-lineage 聚合的 outbox 由 projector 投影进来。
+   * 刻意不新建第三份 JSON 文件：跟着 memoryState 一起原子落盘。
+   */
+  personalMemory: PersonalMemoryLocalState;
   nextIds: {
     user: number;
     accessSession: number;
@@ -239,6 +268,7 @@ const memoryState: MemoryState = {
   accountVerificationChallenges: [],
   accountRateLimits: [],
   promptLineage: createEmptyPromptLineageLocalState(),
+  personalMemory: createEmptyPersonalMemoryLocalState(),
   nextIds: {
     user: 1,
     accessSession: 1,
@@ -593,6 +623,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
   })) as AccountRateLimit[];
   memoryState.promptLineage = normalizePromptLineageLocalState(
     raw.promptLineage
+  );
+  memoryState.personalMemory = normalizePersonalMemoryLocalState(
+    (raw as { personalMemory?: unknown }).personalMemory
   );
 
   memoryState.nextIds = {
@@ -2289,6 +2322,7 @@ export async function upsertEmotionDailyLetter(
       dailyReference: data.dailyReference,
       analysisSeed: data.analysisSeed,
       revision: data.revision ?? 1,
+      currentVersionId: data.currentVersionId ?? null,
       createdAt: current,
       updatedAt: current,
     };
@@ -8578,6 +8612,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.accountVerificationChallenges = [];
   memoryState.accountRateLimits = [];
   memoryState.promptLineage = createEmptyPromptLineageLocalState();
+  memoryState.personalMemory = createEmptyPersonalMemoryLocalState();
   promptLineageLoaded = true;
   promptLineageLoadFallback = undefined;
   editSnapshotsLoaded = true;
@@ -10179,4 +10214,697 @@ export async function consumePersistentRateLimit(input: {
       );
     return outcome.decision;
   });
+}
+
+// ─── 个人记忆（U1）─────────────────────────────────────────────────────
+//
+// 语义在 shared/personalMemory.ts，这里只负责把它落到两条持久化路径上，
+// 并保证两条路径对外可观察的结果一致。
+//
+// 两种模式的耐久机制**不同**，这是有意的，不要试图抹平：
+//
+//   MySQL：来源、事件与任务写在同一个 SQL 事务里，本来就原子。
+//   本地：  outbox 写进来源自己所属的聚合，跨聚合靠带水位的幂等投影。
+//          两份 JSON 之间没有共同事务，代码里也不许假装有。
+
+export type PersonalMemoryEventRow = PersonalMemoryEventRecord;
+
+/**
+ * MySQL 事务句柄。U2／U3／U5 在自己的领域事务里把它传进来，
+ * 让经历与来源写入搭上同一趟车，而不是各自另开一个嵌套事务。
+ */
+type DrizzleDatabase = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+export type PersonalMemoryMysqlTx = Parameters<
+  Parameters<DrizzleDatabase["transaction"]>[0]
+>[0];
+
+/** 事务作用域。调用方必须已经在自己的领域事务／聚合写入里。 */
+export type PersonalMemoryTxScope =
+  | { mode: "mysql"; tx: PersonalMemoryMysqlTx }
+  /**
+   * 本地模式：直接作用在传入的状态上。调用方负责把这份状态和自己的来源
+   * 一起落盘——失败就整份丢弃，不做部分回滚。
+   */
+  | { mode: "local"; state: PersonalMemoryLocalState };
+
+function rowToPersonalMemoryEvent(row: {
+  id: number;
+  userId: number;
+  sourceType: string;
+  sourceKey: string;
+  sourceRevision: string;
+  actionKind: string;
+  actionId: string;
+  occurredOn: string;
+  occurredAt: Date;
+  excerpt: string | null;
+  contentHash: string | null;
+  display: unknown;
+  contentScrubbed: boolean;
+  createdAt: Date;
+}): PersonalMemoryEventRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    sourceType: row.sourceType as PersonalMemoryEventIdentity["sourceType"],
+    sourceKey: row.sourceKey,
+    sourceRevision: row.sourceRevision,
+    actionKind: row.actionKind as PersonalMemoryEventIdentity["actionKind"],
+    actionId: row.actionId,
+    occurredOn: row.occurredOn,
+    occurredAt: row.occurredAt.toISOString(),
+    snapshot: {
+      excerpt: row.excerpt,
+      contentHash: row.contentHash,
+      display: (row.display as Record<string, unknown> | null) ?? null,
+    },
+    contentScrubbed: row.contentScrubbed,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * 事务作用域内幂等捕获一次经历。
+ *
+ * 重放同一动作 ID 时返回既有事件、`changed: false`，事件／任务基数不变。
+ * 身份非法（任何一段为空）会抛错——**在写任何一行之前**，因为空串在 MySQL
+ * 唯一索引里等价于 NULL，放过去就是静默重复。
+ */
+export async function capturePersonalMemoryEvent(
+  scope: PersonalMemoryTxScope,
+  capture: PersonalMemoryCapture
+): Promise<{ event: PersonalMemoryEventRecord; changed: boolean }> {
+  // 先校验再动手：两条路径都不允许「写了一半才发现身份不合法」。
+  const identity = normalizePersonalMemoryEventIdentity(capture.identity);
+
+  if (scope.mode === "local") {
+    return applyPersonalMemoryCapture(scope.state, {
+      ...capture,
+      identity,
+    });
+  }
+
+  const { tx } = scope;
+  const existing = await findPersonalMemoryEventInTx(tx, identity);
+  if (existing) return { event: existing, changed: false };
+
+  // 多态来源先登记进租户注册表；事件再用 (sourceId, userId) 复合外键指过来，
+  // 这样跨账号引用在数据库层就写不进去。
+  await tx
+    .insert(personalMemorySources)
+    .values({
+      userId: identity.userId,
+      sourceType: identity.sourceType,
+      sourceKey: identity.sourceKey,
+      storyId: capture.storyId,
+    })
+    .onDuplicateKeyUpdate({ set: { sourceKey: identity.sourceKey } });
+  const [source] = await tx
+    .select({ id: personalMemorySources.id })
+    .from(personalMemorySources)
+    .where(
+      and(
+        eq(personalMemorySources.userId, identity.userId),
+        eq(personalMemorySources.sourceType, identity.sourceType),
+        eq(personalMemorySources.sourceKey, identity.sourceKey)
+      )
+    )
+    .limit(1);
+  if (!source) throw new Error("个人记忆来源登记失败");
+
+  const occurredAt = new Date(capture.occurredAt);
+  await tx.insert(personalMemoryEvents).values({
+    userId: identity.userId,
+    sourceId: source.id,
+    sourceType: identity.sourceType,
+    sourceKey: identity.sourceKey,
+    sourceRevision: identity.sourceRevision,
+    actionKind: identity.actionKind,
+    actionId: identity.actionId,
+    occurredOn: capture.occurredOn,
+    occurredAt,
+    excerpt: capture.snapshot.excerpt,
+    contentHash: capture.snapshot.contentHash,
+    display: capture.snapshot.display,
+  });
+  const event = await findPersonalMemoryEventInTx(tx, identity);
+  if (!event) throw new Error("个人记忆事件写入后读不回");
+
+  if (capture.job) {
+    // 同一事件 + 同一提炼器版本只排一次，靠唯一索引兜住并发重复投递。
+    await tx
+      .insert(personalMemoryJobs)
+      .values({
+        userId: identity.userId,
+        eventId: event.id,
+        operationId: capture.job.operationId,
+        extractorVersion: capture.job.extractorVersion,
+        availableAt: occurredAt,
+      })
+      .onDuplicateKeyUpdate({
+        set: { extractorVersion: capture.job.extractorVersion },
+      });
+  }
+
+  return { event, changed: true };
+}
+
+async function findPersonalMemoryEventInTx(
+  tx: PersonalMemoryMysqlTx,
+  identity: PersonalMemoryEventIdentity
+): Promise<PersonalMemoryEventRecord | null> {
+  const [row] = await tx
+    .select()
+    .from(personalMemoryEvents)
+    .where(
+      and(
+        eq(personalMemoryEvents.userId, identity.userId),
+        eq(personalMemoryEvents.sourceType, identity.sourceType),
+        eq(personalMemoryEvents.sourceKey, identity.sourceKey),
+        eq(personalMemoryEvents.sourceRevision, identity.sourceRevision),
+        eq(personalMemoryEvents.actionKind, identity.actionKind),
+        eq(personalMemoryEvents.actionId, identity.actionId)
+      )
+    )
+    .limit(1);
+  return row ? rowToPersonalMemoryEvent(row) : null;
+}
+
+/**
+ * 自带事务的捕获入口。只给「没有更大领域事务可搭车」的调用方用；
+ * U2／U3／U5 必须走 capturePersonalMemoryEvent + 自己的事务。
+ */
+export async function capturePersonalMemoryEventStandalone(
+  capture: PersonalMemoryCapture
+): Promise<{ event: PersonalMemoryEventRecord; changed: boolean }> {
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const before = structuredClone(memoryState.personalMemory);
+      const result = capturePersonalMemoryEvent(
+        { mode: "local", state: memoryState.personalMemory },
+        capture
+      );
+      const resolved = await result;
+      if (!resolved.changed) return resolved;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        // 落盘失败就整份还原：本地聚合是 copy-on-write，不留半写状态。
+        memoryState.personalMemory = before;
+        throw error;
+      }
+      return resolved;
+    });
+  }
+  return db.transaction(async tx =>
+    capturePersonalMemoryEvent({ mode: "mysql", tx }, capture)
+  );
+}
+
+export async function getPersonalMemoryEventByIdentity(
+  identity: PersonalMemoryEventIdentity
+): Promise<PersonalMemoryEventRecord | null> {
+  const normalized = normalizePersonalMemoryEventIdentity(identity);
+  const db = await getDb();
+  if (!db) {
+    const fingerprint = personalMemoryEventFingerprint(normalized);
+    return (
+      memoryState.personalMemory.events.find(
+        event => personalMemoryEventFingerprint(event) === fingerprint
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(personalMemoryEvents)
+    .where(
+      and(
+        eq(personalMemoryEvents.userId, normalized.userId),
+        eq(personalMemoryEvents.sourceType, normalized.sourceType),
+        eq(personalMemoryEvents.sourceKey, normalized.sourceKey),
+        eq(personalMemoryEvents.sourceRevision, normalized.sourceRevision),
+        eq(personalMemoryEvents.actionKind, normalized.actionKind),
+        eq(personalMemoryEvents.actionId, normalized.actionId)
+      )
+    )
+    .limit(1);
+  return row ? rowToPersonalMemoryEvent(row) : null;
+}
+
+/**
+ * 按 `occurredAt DESC, id DESC` 列出经历。
+ * 两条路径排序必须一致，否则 U7 的 keyset 分页会在切换模式后错位。
+ */
+export async function listPersonalMemoryEvents(
+  userId: number,
+  limit = 50
+): Promise<PersonalMemoryEventRecord[]> {
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.events
+      .filter(event => event.userId === userId)
+      .sort((left, right) => {
+        const byTime = right.occurredAt.localeCompare(left.occurredAt);
+        return byTime !== 0 ? byTime : right.id - left.id;
+      })
+      .slice(0, safeLimit);
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryEvents)
+    .where(eq(personalMemoryEvents.userId, userId))
+    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id))
+    .limit(safeLimit);
+  return rows.map(rowToPersonalMemoryEvent);
+}
+
+/**
+ * 把某个来源聚合的 outbox 投影进统一足迹索引（**仅本地模式**）。
+ *
+ * MySQL 不需要它——那里事件本来就和来源同事务落库。
+ */
+export async function projectPersonalMemoryOutboxIntoIndex(
+  aggregateName: string,
+  entries: readonly PersonalMemoryOutboxEntry[]
+): Promise<{ applied: number; skipped: number; watermark: number }> {
+  const db = await getDb();
+  if (db) return { applied: 0, skipped: entries.length, watermark: 0 };
+  return withLocalAggregateMutationLock(async () => {
+    const before = structuredClone(memoryState.personalMemory);
+    const result = projectPersonalMemoryOutbox(
+      memoryState.personalMemory,
+      aggregateName,
+      entries
+    );
+    if (result.applied === 0 && result.watermark === before.projectionWatermarks[aggregateName]) {
+      return result;
+    }
+    try {
+      await persistMemoryState();
+    } catch (error) {
+      memoryState.personalMemory = before;
+      throw error;
+    }
+    return result;
+  });
+}
+
+/**
+ * 读取用户当前隐私 epoch。没有记录时是 1（不写行，读多写少）。
+ */
+export async function getPersonalMemoryPrivacyEpoch(
+  userId: number
+): Promise<number> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.personalMemory.privacyEpochs.find(
+        row => row.userId === userId
+      )?.epoch ?? 1
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(personalMemoryPrivacyEpochs)
+    .where(eq(personalMemoryPrivacyEpochs.userId, userId))
+    .limit(1);
+  return row?.epoch ?? 1;
+}
+
+/**
+ * 递增隐私 epoch。忘记或删除来源时**必须**在同一短事务里调用，
+ * 让在途的来信生成即使已经拿到模型结果也无法提交旧输入。
+ */
+export async function bumpPersonalMemoryPrivacyEpoch(
+  userId: number
+): Promise<number> {
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const rows = memoryState.personalMemory.privacyEpochs;
+      const existing = rows.find(row => row.userId === userId);
+      const next = (existing?.epoch ?? 1) + 1;
+      const stamp = now().toISOString();
+      if (existing) {
+        existing.epoch = next;
+        existing.updatedAt = stamp;
+      } else {
+        rows.push({ userId, epoch: next, updatedAt: stamp });
+      }
+      await persistMemoryState();
+      return next;
+    });
+  }
+  await db
+    .insert(personalMemoryPrivacyEpochs)
+    .values({ userId, epoch: 2 })
+    .onDuplicateKeyUpdate({
+      set: { epoch: sql`${personalMemoryPrivacyEpochs.epoch} + 1` },
+    });
+  return getPersonalMemoryPrivacyEpoch(userId);
+}
+
+// ─── 每日来信：不可变版本是唯一正文权威 ────────────────────────────────
+
+export type AppendDailyLetterVersionInput = {
+  userId: number;
+  letterDate: string;
+  /** 稳定动作 ID。重复提交同一次生成／重读返回同一版本，不排第二次。 */
+  actionId: string;
+  trigger: PersonalMemoryLetterEnvelope["trigger"];
+  selectorVersion: string;
+  promptVersion: string;
+  modelVersion: string;
+  privacyEpoch: number;
+  payload: PersonalMemoryLetterPayload;
+  /** 兼容投影需要的字段；日期级行不接受独立正文写入。 */
+  userMessageSaidAt?: Date | null;
+  userMessageEditedAt?: Date | null;
+  /**
+   * 条件提交：给定时，只有当天当前版本号恰好等于它才追加。
+   * legacy 的 revision CAS 就是通过它继续成立的——冲突返回 null，
+   * 而不是悄悄追加一版覆盖别人刚写的内容。
+   */
+  expectedCurrentVersionNumber?: number;
+};
+
+export type AppendDailyLetterVersionResult = {
+  version: PersonalMemoryLetterVersionRecord;
+  letter: EmotionDailyLetter;
+  /** false = 这次是重复提交，返回的是既有版本。 */
+  created: boolean;
+};
+
+function letterVersionRowToRecord(row: {
+  id: number;
+  userId: number;
+  letterDate: string;
+  envelope: unknown;
+  payload: unknown;
+  privacyEpoch: number;
+  actionId: string;
+  createdAt: Date;
+}): PersonalMemoryLetterVersionRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    letterDate: row.letterDate,
+    envelope: row.envelope as PersonalMemoryLetterEnvelope,
+    payload: (row.payload as PersonalMemoryLetterPayload | null) ?? null,
+    privacyEpoch: row.privacyEpoch,
+    actionId: row.actionId,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * **来信正文的唯一写入口。**
+ *
+ * 追加一个不可变版本，并在同一事务里把日期级行推进为该版本的投影 + 指针。
+ * `emotion_daily_letters` 从 U1 起不再接受独立正文写入——任何绕过这里直接改
+ * 日期级正文的代码路径都是必须被拒绝的 pre-U1 行为，回滚构建也不许放回去。
+ */
+export async function appendEmotionDailyLetterVersion(
+  input: AppendDailyLetterVersionInput
+): Promise<AppendDailyLetterVersionResult | null> {
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const before = structuredClone(memoryState.personalMemory);
+      const beforeLetters = memoryState.emotionDailyLetters.map(row => ({
+        ...row,
+      }));
+      const result = appendLetterVersionToLocalState(input);
+      // CAS 冲突：一行都没改，直接把 null 交回给调用方。
+      if (!result || !result.created) return result;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.personalMemory = before;
+        memoryState.emotionDailyLetters = beforeLetters;
+        throw error;
+      }
+      return result;
+    });
+  }
+
+  return db.transaction(async tx => {
+    // 幂等：同一 action ID 已经产生过版本就原样返回，不再追加。
+    const [existing] = await tx
+      .select()
+      .from(emotionDailyLetterVersions)
+      .where(
+        and(
+          eq(emotionDailyLetterVersions.userId, input.userId),
+          eq(emotionDailyLetterVersions.letterDate, input.letterDate),
+          eq(emotionDailyLetterVersions.actionId, input.actionId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (existing) {
+      const version = letterVersionRowToRecord(existing);
+      const letter = await readDailyLetterRowInTx(
+        tx,
+        input.userId,
+        input.letterDate
+      );
+      if (!letter) throw new Error("来信版本存在但日期级投影缺失");
+      return { version, letter, created: false };
+    }
+
+    const priorVersions = await tx
+      .select()
+      .from(emotionDailyLetterVersions)
+      .where(
+        and(
+          eq(emotionDailyLetterVersions.userId, input.userId),
+          eq(emotionDailyLetterVersions.letterDate, input.letterDate)
+        )
+      )
+      .for("update");
+    const current = currentLetterVersion(
+      priorVersions.map(letterVersionRowToRecord)
+    );
+    // 向前兼容：U1 之前写下的日期级行没有任何版本，但它的 revision 是真的。
+    // 从它起算，否则第一次经过版本权威的写入会把 revision 从 3 打回 1，
+    // 而 legacy 的 CAS 调用方正拿着 3 在等。
+    const legacyRow = current
+      ? null
+      : await readDailyLetterRowInTx(tx, input.userId, input.letterDate);
+    const currentNumber =
+      current?.envelope.versionNumber ?? legacyRow?.revision ?? 0;
+    if (
+      input.expectedCurrentVersionNumber !== undefined &&
+      input.expectedCurrentVersionNumber !== currentNumber
+    ) {
+      return null;
+    }
+    const versionNumber = currentNumber + 1;
+    const envelope: PersonalMemoryLetterEnvelope = {
+      versionNumber,
+      generatedAt: now().toISOString(),
+      trigger: input.trigger,
+      selectorVersion: input.selectorVersion,
+      promptVersion: input.promptVersion,
+      modelVersion: input.modelVersion,
+    };
+
+    await tx.insert(emotionDailyLetterVersions).values({
+      userId: input.userId,
+      letterDate: input.letterDate,
+      versionNumber,
+      envelope,
+      payload: input.payload,
+      privacyEpoch: input.privacyEpoch,
+      actionId: input.actionId,
+    });
+    const [inserted] = await tx
+      .select()
+      .from(emotionDailyLetterVersions)
+      .where(
+        and(
+          eq(emotionDailyLetterVersions.userId, input.userId),
+          eq(emotionDailyLetterVersions.letterDate, input.letterDate),
+          eq(emotionDailyLetterVersions.versionNumber, versionNumber)
+        )
+      )
+      .limit(1);
+    if (!inserted) throw new Error("来信版本写入后读不回");
+    const version = letterVersionRowToRecord(inserted);
+
+    // 同一事务里推进日期级指针与兼容投影。投影完全由版本重建。
+    const projected = projectLetterRowFromVersion(version);
+    await tx
+      .insert(emotionDailyLetters)
+      .values({
+        userId: projected.userId,
+        letterDate: projected.letterDate,
+        userMessage: projected.userMessage,
+        userMessageSaidAt: input.userMessageSaidAt ?? null,
+        userMessageEditedAt: input.userMessageEditedAt ?? null,
+        dailyReference: projected.dailyReference,
+        analysisSeed: projected.analysisSeed,
+        revision: projected.revision,
+        currentVersionId: version.id,
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          userMessage: projected.userMessage,
+          userMessageSaidAt: input.userMessageSaidAt ?? null,
+          userMessageEditedAt: input.userMessageEditedAt ?? null,
+          dailyReference: projected.dailyReference,
+          analysisSeed: projected.analysisSeed,
+          revision: projected.revision,
+          currentVersionId: version.id,
+          updatedAt: new Date(),
+        },
+      });
+    const letter = await readDailyLetterRowInTx(
+      tx,
+      input.userId,
+      input.letterDate
+    );
+    if (!letter) throw new Error("日期级投影写入后读不回");
+    return { version, letter, created: true };
+  });
+}
+
+async function readDailyLetterRowInTx(
+  tx: PersonalMemoryMysqlTx,
+  userId: number,
+  letterDate: string
+): Promise<EmotionDailyLetter | null> {
+  const [row] = await tx
+    .select()
+    .from(emotionDailyLetters)
+    .where(
+      and(
+        eq(emotionDailyLetters.userId, userId),
+        eq(emotionDailyLetters.letterDate, letterDate)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** 本地模式的版本追加。调用方已持有聚合锁，这里只改内存。 */
+function appendLetterVersionToLocalState(
+  input: AppendDailyLetterVersionInput
+): AppendDailyLetterVersionResult | null {
+  const state = memoryState.personalMemory;
+  const sameDay = state.letterVersions.filter(
+    version =>
+      version.userId === input.userId && version.letterDate === input.letterDate
+  );
+  const replay = sameDay.find(version => version.actionId === input.actionId);
+  if (replay) {
+    const letter = memoryState.emotionDailyLetters.find(
+      row => row.userId === input.userId && row.letterDate === input.letterDate
+    );
+    if (!letter) throw new Error("来信版本存在但日期级投影缺失");
+    return { version: replay, letter, created: false };
+  }
+
+  const currentVersion = currentLetterVersion(sameDay);
+  const legacyRow = currentVersion
+    ? null
+    : memoryState.emotionDailyLetters.find(
+        row =>
+          row.userId === input.userId && row.letterDate === input.letterDate
+      );
+  // 见 MySQL 分支的同名注释：存量行的 revision 必须被继承，不能从 1 重来。
+  const currentNumber =
+    currentVersion?.envelope.versionNumber ?? legacyRow?.revision ?? 0;
+  if (
+    input.expectedCurrentVersionNumber !== undefined &&
+    input.expectedCurrentVersionNumber !== currentNumber
+  ) {
+    return null;
+  }
+  const versionNumber = currentNumber + 1;
+  const stamp = now().toISOString();
+  const version: PersonalMemoryLetterVersionRecord = {
+    id: state.nextIds.letterVersion,
+    userId: input.userId,
+    letterDate: input.letterDate,
+    envelope: {
+      versionNumber,
+      generatedAt: stamp,
+      trigger: input.trigger,
+      selectorVersion: input.selectorVersion,
+      promptVersion: input.promptVersion,
+      modelVersion: input.modelVersion,
+    },
+    payload: input.payload,
+    privacyEpoch: input.privacyEpoch,
+    actionId: input.actionId,
+    createdAt: stamp,
+  };
+  state.nextIds.letterVersion += 1;
+  state.letterVersions.push(version);
+
+  const projected = projectLetterRowFromVersion(version);
+  const current = now();
+  const existing = memoryState.emotionDailyLetters.find(
+    row => row.userId === input.userId && row.letterDate === input.letterDate
+  );
+  if (existing) {
+    existing.userMessage = projected.userMessage;
+    existing.userMessageSaidAt = input.userMessageSaidAt ?? null;
+    existing.userMessageEditedAt = input.userMessageEditedAt ?? null;
+    existing.dailyReference = projected.dailyReference;
+    existing.analysisSeed = projected.analysisSeed;
+    existing.revision = projected.revision;
+    existing.currentVersionId = version.id;
+    existing.updatedAt = current;
+    return { version, letter: existing, created: true };
+  }
+  const letter: EmotionDailyLetter = {
+    id: nextMemoryId("emotionDailyLetter"),
+    userId: input.userId,
+    letterDate: input.letterDate,
+    userMessage: projected.userMessage,
+    userMessageSaidAt: input.userMessageSaidAt ?? null,
+    userMessageEditedAt: input.userMessageEditedAt ?? null,
+    dailyReference: projected.dailyReference,
+    analysisSeed: projected.analysisSeed,
+    revision: projected.revision,
+    currentVersionId: version.id,
+    createdAt: current,
+    updatedAt: current,
+  };
+  memoryState.emotionDailyLetters.push(letter);
+  return { version, letter, created: true };
+}
+
+/** 列出某天的全部版本，按版本号升序。历史版本只读。 */
+export async function listEmotionDailyLetterVersions(
+  userId: number,
+  letterDate: string
+): Promise<PersonalMemoryLetterVersionRecord[]> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.letterVersions
+      .filter(
+        version => version.userId === userId && version.letterDate === letterDate
+      )
+      .sort(
+        (left, right) =>
+          left.envelope.versionNumber - right.envelope.versionNumber
+      );
+  }
+  const rows = await db
+    .select()
+    .from(emotionDailyLetterVersions)
+    .where(
+      and(
+        eq(emotionDailyLetterVersions.userId, userId),
+        eq(emotionDailyLetterVersions.letterDate, letterDate)
+      )
+    )
+    .orderBy(emotionDailyLetterVersions.versionNumber);
+  return rows.map(letterVersionRowToRecord);
 }

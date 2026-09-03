@@ -1,14 +1,65 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type {
   EmotionAnalysisProfile,
   EmotionDailyLetter,
 } from "../../drizzle/schema";
 import type { AlmanacDay } from "./almanac";
+import type { AppendDailyLetterVersionInput } from "../db";
 import {
   buildPriorMessageHistory,
   EmotionDailyLetterConflictError,
   rewriteEmotionDailyLetter,
 } from "./emotionDailyLetters";
+
+/**
+ * 模拟 U1 的版本 writer：追加一版并把日期级行投影出来。
+ * `expectedCurrentVersionNumber` 不匹配时返回 null，对应 CAS 冲突。
+ */
+function fakeLetterWriter(existing: EmotionDailyLetter) {
+  return vi.fn(async (input: AppendDailyLetterVersionInput) => {
+    const currentNumber = existing.revision;
+    if (
+      input.expectedCurrentVersionNumber !== undefined &&
+      input.expectedCurrentVersionNumber !== currentNumber
+    ) {
+      return null;
+    }
+    const versionNumber = currentNumber + 1;
+    return {
+      created: true,
+      version: {
+        id: 99,
+        userId: input.userId,
+        letterDate: input.letterDate,
+        envelope: {
+          versionNumber,
+          generatedAt: "2026-07-27T10:00:00.000Z",
+          trigger: input.trigger,
+          selectorVersion: input.selectorVersion,
+          promptVersion: input.promptVersion,
+          modelVersion: input.modelVersion,
+        },
+        payload: input.payload,
+        privacyEpoch: input.privacyEpoch,
+        actionId: input.actionId,
+        createdAt: "2026-07-27T10:00:00.000Z",
+      },
+      letter: {
+        ...existing,
+        userMessage: input.payload.userMessage,
+        userMessageSaidAt: input.userMessageSaidAt ?? null,
+        userMessageEditedAt: input.userMessageEditedAt ?? null,
+        dailyReference: input.payload.dailyReference,
+        analysisSeed: input.payload.analysisSeed,
+        revision: versionNumber,
+        currentVersionId: 99,
+        updatedAt: new Date("2026-07-27T10:00:00.000Z"),
+      },
+    };
+  });
+}
+
 
 const almanac: AlmanacDay = {
   date: "2026-07-26",
@@ -48,6 +99,7 @@ function archivedLetter(letterDate: string): EmotionDailyLetter {
     id: 8,
     userId: 12,
     letterDate,
+    currentVersionId: null,
     userMessage: "原来那句话",
     userMessageSaidAt: new Date("2026-07-26T08:00:00.000Z"),
     userMessageEditedAt: null,
@@ -110,12 +162,7 @@ describe("重写每日回信", () => {
       userMessageSaidAt: new Date("2026-07-27T08:00:00.000Z"),
     };
     const saveProfile = vi.fn();
-    const updateLetter = vi.fn(async (input, expectedRevision) => ({
-      ...existing,
-      ...input,
-      revision: expectedRevision + 1,
-      updatedAt: new Date("2026-07-27T10:00:00.000Z"),
-    }));
+    const writeLetter = fakeLetterWriter(existing);
     const personalize = vi.fn(async input => ({
       source: "302-deepseek" as const,
       model: "deepseek-v3.2",
@@ -138,7 +185,7 @@ describe("重写每日回信", () => {
         getProfile: vi.fn(async () => profile()),
         getAlmanac: vi.fn(async () => almanac),
         personalize,
-        updateLetter,
+        writeLetter,
         saveProfile,
         now: new Date("2026-07-27T10:00:00.000Z"),
       }
@@ -212,12 +259,7 @@ describe("重写每日回信", () => {
             summary: "今天重写后的回信",
           },
         })),
-        updateLetter: vi.fn(async (input, expectedRevision) => ({
-          ...existing,
-          ...input,
-          revision: expectedRevision + 1,
-          updatedAt: new Date("2026-07-27T10:00:00.000Z"),
-        })),
+        writeLetter: fakeLetterWriter(existing),
         saveProfile,
         now: new Date("2026-07-27T10:00:00.000Z"),
       }
@@ -254,5 +296,43 @@ describe("重写每日回信", () => {
         }
       )
     ).rejects.toBeInstanceOf(EmotionDailyLetterConflictError);
+  });
+});
+
+describe("来信正文只有一个写入口（U1 门禁）", () => {
+  // 这条不是风格检查，是承重约束。U1 把日期级 emotion_daily_letters 降级成
+  // 「当前版本指针 + 可重建投影」；只要还有第二处能独立写它的正文，双写和
+  // 历史漂移当天就会回来。回滚构建也必须保留这条边界——它只能关掉提炼与召回。
+  const DATE_ROW_WRITERS = [
+    "upsertEmotionDailyLetter",
+    "updateEmotionDailyLetterIfRevision",
+    "ensureEmotionDailyLetter",
+  ];
+
+  it("除 db.ts 自身外，没有生产代码直接调用日期级 writer", async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const run = promisify(execFile);
+    const root = path.resolve(import.meta.dirname, "..", "..");
+
+    const { stdout } = await run(
+      "git",
+      ["grep", "-n", "-E", DATE_ROW_WRITERS.join("|"), "--", "server", "client", "shared"],
+      { cwd: root }
+    ).catch((error: { stdout?: string; code?: number }) =>
+      // git grep 没有命中时退出码为 1，那对我们是「干净」而不是失败。
+      error.code === 1 ? { stdout: "" } : Promise.reject(error)
+    );
+
+    const offenders = stdout
+      .split("\n")
+      .filter(Boolean)
+      .filter(line => {
+        const file = line.split(":")[0];
+        // db.ts 是这些函数的定义处；本文件是这条门禁自身。
+        return file !== "server/db.ts" && !file.endsWith(".test.ts");
+      });
+
+    expect(offenders).toEqual([]);
   });
 });
