@@ -583,6 +583,11 @@ describe("architecture boundaries", () => {
     resolveAudioClipsAtFrame: "shared/timelineAudioModel.ts",
     bindSpeech: "shared/timelineSpeechBinding.ts",
     moveBoundSpeech: "shared/timelineSpeechBinding.ts",
+    // U10: one subtitle render plan, one audio mix plan, one media controller.
+    buildSubtitleRenderPlan: "shared/timelineSubtitleModel.ts",
+    buildAudioMixPlan: "shared/timelineAudioModel.ts",
+    useTimelineMediaController:
+      "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts",
   };
 
   it("keeps one authoritative implementation per cross-cutting semantic", async () => {
@@ -669,6 +674,28 @@ describe("architecture boundaries", () => {
     expect(/\bsubtitleTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
     expect(/\bitems\s*:\s*z\.array\(/.test(code)).toBe(false);
     expect(/\baudioTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+  });
+
+  // U10: the legacy Story-body shapes stay READABLE (the audit shows 3 Stories
+  // still depend on them) but must never become a write target again. The
+  // formal Timeline extension slices are the only production write truth.
+  it("never writes subtitle or audio truth back into the legacy Story body", async () => {
+    const serverSources = await serverSourcesPromise;
+    const mediaWritePaths = new Set([
+      "server/services/timelineSubtitleEditing.ts",
+      "server/services/timelineAudioEditing.ts",
+      "server/routers/timelineMedia.ts",
+    ]);
+    // Assigning into chatCutImport / voiceAudio* would recreate the second
+    // source of truth this whole plan exists to remove.
+    const legacyWritePattern =
+      /\b(?:chatCutImport|voiceAudio[A-Za-z]*)\s*[:=]/;
+    const violations = serverSources
+      .filter(({ file }) => mediaWritePaths.has(toRepoPath(file)))
+      .filter(({ content }) => legacyWritePattern.test(content))
+      .map(({ file }) => toRepoPath(file));
+
+    expect(violations).toEqual([]);
   });
 
   // U9: audio selection is by explicit id + track kind only. The audio model

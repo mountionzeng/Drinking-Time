@@ -1064,7 +1064,9 @@
         "stable-shot-identity"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "旧 voiceAudio* 字段仍可被读取以兼容历史 Story；退役时间由 timeline-subtitle-audio-editing 的数据门禁决定。"
+      ],
       "history": [
         {
           "date": "2026-08-09",
@@ -1075,6 +1077,120 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "旁白与声音分栏、TTS 复用和跨 Story 迟到结果隔离通过全量测试。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "investigation",
+          "summary": "字幕与多音轨剪辑上线后，正式旁白改由 Timeline narration clip + StoryAudioAsset 承载；本卡的镜头 voiceAudio* 字段转为兼容读取，不再是新写入真相。「朗读文本不混环境声」与 Story/镜头作用域两条不变量继续有效。"
+        }
+      ]
+    },
+    {
+      "id": "timeline-subtitle-audio-editing",
+      "name": "字幕与多音轨剪辑",
+      "status": "observing",
+      "userValue": "在同一条 Storyboard 时间线上，从现有台词一键生成字幕后可直接点块改字、拖动、裁剪、拆分合并；旁白、音乐、环境声、音效、原声按固定语义轨排列，可导入、裁剪、调音量、淡入淡出与静音；重叠的声音一起混音，Preview 与导出用同一份计划。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
+        "client/src/features/creationEditor/views/ShotPreview.tsx"
+      ],
+      "owners": [
+        "shared/timelineSubtitleModel.ts",
+        "shared/timelineAudioModel.ts",
+        "shared/timelineSpeechBinding.ts",
+        "shared/timelineMediaDuration.ts",
+        "server/persistence/storyTimelinePersistence.ts",
+        "server/services/timelineSubtitleEditing.ts",
+        "server/services/timelineAudioEditing.ts",
+        "server/services/storyAudioAssets.ts",
+        "server/services/storyAudioImport.ts",
+        "server/services/audioMedia.ts",
+        "server/services/timelineMediaExport.ts",
+        "server/routers/timelineMedia.ts",
+        "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts",
+        "client/src/features/creationEditor/timelineMedia/SubtitleTrackRow.tsx",
+        "client/src/features/creationEditor/timelineMedia/AudioTrackRow.tsx",
+        "client/src/features/creationEditor/timelineMedia/timelineMediaCapabilities.ts"
+      ],
+      "evidence": [
+        "shared/timelineSubtitleModel.test.ts",
+        "shared/timelineAudioModel.test.ts",
+        "shared/timelineSpeechBinding.test.ts",
+        "shared/timelineMediaDuration.test.ts",
+        "server/persistence/storyTimelinePersistence.test.ts",
+        "server/db.storyTimelineOverlay.test.ts",
+        "server/services/timelineSubtitleEditing.test.ts",
+        "server/services/timelineAudioEditing.test.ts",
+        "server/services/storyAudioAssets.test.ts",
+        "server/services/storyAudioImport.test.ts",
+        "server/services/audioMedia.test.ts",
+        "server/services/timelineMediaExport.test.ts",
+        "server/services/timelineMediaParity.test.ts",
+        "server/routers.timelineMedia.test.ts",
+        "scripts/audit-timeline-media-legacy.test.ts",
+        "scripts/backup-local-media.test.ts"
+      ],
+      "invariants": [
+        "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
+        "字幕 cue 拥有最终文字与时间。镜头 dialogue 与 ChatCut scriptCues 只产生初始候选，刷新、正文变化或重新附加都不得覆盖人工稿。",
+        "所有字幕与音频写入都必须经 timelineMedia 窄命令：客户端只发对象身份与意图，不上传整份切片、不持有 expectedVersion、不提交 userId 或价格。",
+        "任一视觉写入或撤销之后字幕/音频切片零丢失；任一媒体写入或撤销之后视觉 items、overlays、visualLayerState 零漂移。",
+        "Timeline 音频 clip 只非所有权引用 ready 的 StoryAudioAsset；删除 clip 或撤销从不删除资产行、受管字节或生成回执。",
+        "受管音频字节只经 audioMedia.ts 的单一解析器定位；客户端路径、文件名或 URL 不参与路径拼接。",
+        "音频导入是可恢复状态机：崩溃后只可能得到一个 ready 资产或一个可解释的 failed operation，不会出现 Timeline 引用不存在的文件。",
+        "远程音频只由可信服务端 provenance 触发，每一跳都重新校验 HTTPS 白名单并重解析 DNS，拒绝非公网地址。",
+        "改字只增加 textRevision 并把绑定旁白标记 text-stale，绝不触发付费 TTS；只有明确确认的生成动作能提交一次请求。",
+        "字幕—旁白绑定是关系而非嵌套：移动任一方原子地对两端应用同一帧差，一端缺失或越界则整条命令失败，不留半移动。",
+        "无变速不变量：音频 clip 的 durationFrames 恒等于 sourceOutFrame - sourceInFrame；move 只改 timelineStartFrame。",
+        "重叠且未静音的声音全部进入混音，轨道上下顺序不参与选择；视觉赢家算法不得参与音频。",
+        "视觉 master 严格无音频，成片只由一个 mix pass 产声；只有显式 linked visual source 身份才抑制重复原声。",
+        "Preview 与导出消费同一份 SubtitleRenderPlan / AudioMixPlan；时间边界误差不超过一个 30fps 帧，增益/fade 误差不超过 0.5dB。",
+        "所有 Timeline、音频资产与生成任务同时按 storyId + userId 校验；跨 Story 的 assetId、storageKey 或路径穿越都读不到。",
+        "生产读取顺序固定为：正式 Timeline → legacy 只读 adapter → 无内容。写入永远只进正式 Timeline，绝不回写 chatCutImport 或 voiceAudio*。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "storyboard-position-anchors",
+        "extracted-frame-overlay-video",
+        "storyboard-voice-lane"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未在主仓 main:3000 完成浏览器人工验收（本轮分支未合并，:3000 服务的仍是 main）。因此状态保持 observing，不是 working。",
+        "尚未完成「不看说明的端到端可用性任务」（生成并改字幕 → 生成/替换旁白 → 加入并裁剪音乐 → Preview → Export）。",
+        "真实付费 TTS smoke 未获授权、未执行；U5 的全链路以 fake/cached candidate 验证。",
+        "legacy 读取按 U10 数据门禁保留：只读统计显示 36 个故事中有 3 个只能靠 ChatCut adapter 才有字幕/声音（0 个已迁移到正式 Timeline），因此本轮不删除任何旧读取。",
+        "镜头 voiceAudio* 在本地真实数据中为 0 条，但只统计了本地环境；删除该读取前需要再看生产/MySQL 侧数据。",
+        "音乐生成供应商、多语言字幕、逐字卡拉OK、自动 ducking 与响度标准化均不在本轮范围。",
+        "孤立音频资产的用户级 GC 尚未定义保留策略。",
+        "组件交互（真实指针拖拽、中文输入法、完整键盘路径）以导出的纯函数锁定；本仓库 vitest 运行在 node 环境，无 jsdom/testing-library。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-04",
+          "kind": "feature",
+          "summary": "U1 完整 Timeline envelope 与跨 writer 扩展切片保留；U3 字幕纯模型与 timelineMedia 窄命令；U4 字幕初始化、内联改字与 Preview resolver。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "feature",
+          "summary": "U2 StoryAudioAsset 受管存储与可恢复 staged import（SSRF/probe 防护、崩溃补偿、备份脚本）；U9 五类音轨、speech binding 纯模型与窄命令。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "feature",
+          "summary": "U6 固定音轨与直接剪辑；U5 旁白候选、持久计费与显式采用；U7 统一字幕计划与浏览器混音。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "verification",
+          "summary": "U8 静音视觉 master 与 FFmpeg 字幕/混音落地；频域 parity 以参照混音器对照，增益差 ≤0.5dB、边界 ≤1 帧；linked source 不双播；跨 Story/未就绪资产导出被拒；strict/relaxed 缺素材分别失败与静音补位。"
+        },
+        {
+          "date": "2026-09-04",
+          "kind": "investigation",
+          "summary": "U10 只读退役门禁：36 个故事中 0 个已迁移到正式 Timeline，3 个只能靠 ChatCut legacy adapter 才有内容，159 个 ChatCut 音频片段全部可物化，voiceAudio* 本地为 0。据此本轮保留全部 legacy 读取，不标 working。"
         }
       ]
     },
