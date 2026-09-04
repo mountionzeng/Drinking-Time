@@ -10,13 +10,11 @@ import {
 import { toast } from "sonner";
 import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
 import type { TimelineTransform } from "@shared/storyMaterial";
-import type { TimelineSubtitleState } from "@shared/timelineSubtitleModel";
+import type { SubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 
 import { trpc } from "@/lib/trpc";
 import { formatStoryboardTimestamp } from "@/features/storyAgent/storyboardTiming";
-import {
-  useStoryAgentActions,
-} from "@/features/storyAgent/StoryAgentContext";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import type { ImageRegionEditHandoffRunner } from "@/features/storyAgent/imageRegionEditHandoff";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type {
@@ -66,9 +64,11 @@ export default function ShotPreview({
   editorPreview,
   suppressDefaultVideo,
   playheadMs,
+  playheadFrame,
   timelinePlaying,
   format,
-  subtitleState,
+  subtitlePlan,
+  muteVisualSourceAudio = false,
   onRequestTimelinePlaying,
   keyboardShortcutZoneRef,
   onEditImage,
@@ -90,13 +90,16 @@ export default function ShotPreview({
   editorPreview?: VideoEditorPreview | null;
   suppressDefaultVideo?: boolean;
   playheadMs: number;
+  playheadFrame?: number;
   timelinePlaying: boolean;
   format: ChatCutTimelineManifest | null;
   /**
    * 正式字幕轨。有 cue 时 Preview 只显示它；没有时才回落到 `format`/dialogue
    * 算出的只读候选，并在界面上标出来。
    */
-  subtitleState?: TimelineSubtitleState | null;
+  subtitlePlan?: SubtitleRenderPlan | null;
+  /** True when Web Audio owns all video/source sound for this Story. */
+  muteVisualSourceAudio?: boolean;
   onRequestTimelinePlaying: (isPlaying: boolean) => void;
   keyboardShortcutZoneRef: { current: boolean };
   onEditImage?: () => void;
@@ -288,9 +291,10 @@ export default function ShotPreview({
     timelineVideoSource?.effects.volume ??
     1;
   const sourceMuted =
-    normalizedEditorDraft?.effects.muted ??
-    timelineVideoSource?.effects.muted ??
-    false;
+    muteVisualSourceAudio ||
+    (normalizedEditorDraft?.effects.muted ??
+      timelineVideoSource?.effects.muted ??
+      false);
   const videoTransform =
     normalizedEditorDraft?.transform ?? timelineVideoSource?.transform;
   const videoMotionStyle = timelineVideoMotionStyle(
@@ -323,7 +327,9 @@ export default function ShotPreview({
     reverse,
   });
   const subtitleLines = previewSubtitleLines({
-    subtitleState: subtitleState ?? null,
+    subtitlePlan: subtitlePlan ?? null,
+    playheadFrame:
+      playheadFrame ?? Math.max(0, Math.round((playheadMs * 30) / 1_000)),
     playheadMs,
     legacyManifest: format,
     fallbackDialogue: shot?.dialogue,

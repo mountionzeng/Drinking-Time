@@ -4,8 +4,8 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import {
-  resolveSubtitleCuesAtFrame,
-  type TimelineSubtitleState,
+  resolveSubtitleRenderPlanAtFrame,
+  type SubtitleRenderPlan,
 } from "@shared/timelineSubtitleModel";
 
 import {
@@ -86,7 +86,9 @@ export function adoptedVideoTake(
     : null;
 }
 
-export function playableVideoUrl(shot: CreationEditorShot | null): string | null {
+export function playableVideoUrl(
+  shot: CreationEditorShot | null
+): string | null {
   return adoptedVideoTake(shot)?.videoUrl ?? null;
 }
 
@@ -267,17 +269,20 @@ export type PreviewSubtitleLine = {
  * 标成 candidate。U8 的导出会消费同一份 resolver 结果。
  */
 export function previewSubtitleLines(input: {
-  subtitleState: TimelineSubtitleState | null;
+  subtitlePlan: SubtitleRenderPlan | null;
+  playheadFrame: number;
   playheadMs: number;
   legacyManifest: ChatCutTimelineManifest | null;
   fallbackDialogue?: string | null;
 }): PreviewSubtitleLine[] {
   const hasFormalTrack = Boolean(
-    input.subtitleState && input.subtitleState.tracks[0]?.cues.length
+    input.subtitlePlan && input.subtitlePlan.cues.length
   );
   if (hasFormalTrack) {
-    const frame = Math.max(0, Math.round((input.playheadMs * 30) / 1_000));
-    return resolveSubtitleCuesAtFrame(input.subtitleState!, frame).map(cue => ({
+    return resolveSubtitleRenderPlanAtFrame(
+      input.subtitlePlan!,
+      input.playheadFrame
+    ).map(cue => ({
       id: cue.id,
       text: cue.text,
       source: "timeline" as const,

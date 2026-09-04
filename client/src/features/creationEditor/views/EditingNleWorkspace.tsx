@@ -70,6 +70,11 @@ import {
 } from "../CreationEditorContext";
 import { timelineMagneticJoins } from "@shared/timelineCommands";
 import { timelineMediaTotalFrames } from "@shared/timelineMediaDuration";
+import {
+  buildAudioMixPlan,
+  type AudioMixPlanInput,
+} from "@shared/timelineAudioModel";
+import { buildSubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 import type { CreationEditorShot } from "../types";
 import { stepTimelinePlayheadByFrames } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
@@ -97,6 +102,8 @@ import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransiti
 import ShotPreview from "./ShotPreview";
 import { useTimelineMediaController } from "../timelineMedia/useTimelineMediaController";
 import { buildSubtitleCandidates } from "../timelineMedia/subtitleCandidates";
+import { TimelineAudioEngine } from "../timelineMedia/TimelineAudioEngine";
+import { buildBrowserVisualAudioSources } from "../timelineMedia/visualAudioSources";
 import type { SubtitleTrackBinding } from "../timelineMedia/SubtitleTrackRow";
 import type { AddTimelineMediaAction } from "../timelineMedia/AddTimelineMediaMenu";
 import {
@@ -1199,6 +1206,58 @@ export default function EditingNleWorkspace({
     totalMs: boardTimelineTotalMs,
     onPlayheadCommit: selectShotFromPlayhead,
   });
+  const subtitleRenderPlan = useMemo(
+    () => buildSubtitleRenderPlan(timelineMedia.subtitleState),
+    [timelineMedia.subtitleState]
+  );
+  const browserVisualAudioSources = useMemo(
+    () =>
+      buildBrowserVisualAudioSources({
+        shots,
+        timings,
+        overlays: timelineOverlays,
+      }),
+    [shots, timelineOverlays, timings]
+  );
+  const audioMixPlan = useMemo(
+    () =>
+      buildAudioMixPlan({
+        audioState: timelineMedia.audioState,
+        visualSources: browserVisualAudioSources,
+      }),
+    [browserVisualAudioSources, timelineMedia.audioState]
+  );
+  const formalAudioEnabled = timelineMedia.audioState.tracks.some(
+    track => track.clips.length > 0
+  );
+  const visualAudioUrlById = useMemo(
+    () =>
+      new Map(
+        browserVisualAudioSources.map(source => [source.id, source.sourceUrl])
+      ),
+    [browserVisualAudioSources]
+  );
+  const resolveTimelineAudioSourceUrl = useCallback(
+    (planned: AudioMixPlanInput) => {
+      if (planned.source.kind === "visual-source") {
+        return visualAudioUrlById.get(planned.source.visualSourceId) ?? null;
+      }
+      return activeStoryId == null
+        ? null
+        : `/api/story-audio-asset/${activeStoryId}/${planned.source.assetId}`;
+    },
+    [activeStoryId, visualAudioUrlById]
+  );
+  const reportTimelineAudioInputError = useCallback(
+    (planned: AudioMixPlanInput) => {
+      toast.error(
+        planned.kind === "visual-source"
+          ? "当前视频原声无法读取，其他声音会继续播放"
+          : "一段时间线声音无法读取，请重新导入或删除引用"
+      );
+    },
+    []
+  );
   const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
   useEffect(() => {
     if (playbackClock.isPlaying) return;
@@ -2093,8 +2152,7 @@ export default function EditingNleWorkspace({
               onReclassify: timelineMedia.reclassifyAudioClip,
               narrationCandidates: timelineMedia.narrationCandidates,
               onGenerateNarration: timelineMedia.generateNarration,
-              onAdoptNarrationCandidate:
-                timelineMedia.adoptNarrationCandidate,
+              onAdoptNarrationCandidate: timelineMedia.adoptNarrationCandidate,
               onDiscardNarrationCandidate:
                 timelineMedia.discardNarrationCandidate,
             },
@@ -2106,10 +2164,7 @@ export default function EditingNleWorkspace({
             : []),
           ...(timelineMedia.selectedCueId ||
           timelineMedia.activeCuesAtFrame(
-            Math.max(
-              0,
-              Math.round((playbackClock.playheadMs * 30) / 1_000)
-            )
+            Math.max(0, Math.round((playbackClock.playheadMs * 30) / 1_000))
           )[0]
             ? (["narration-from-subtitle"] as const)
             : []),
@@ -2692,9 +2747,11 @@ export default function EditingNleWorkspace({
             }
             suppressDefaultVideo
             playheadMs={previewPlayheadMs}
+            playheadFrame={playbackClock.playheadFrame}
             timelinePlaying={playbackClock.isPlaying}
             format={chatCutTimeline}
-            subtitleState={timelineMedia.subtitleState}
+            subtitlePlan={subtitleRenderPlan}
+            muteVisualSourceAudio={formalAudioEnabled}
             onRequestTimelinePlaying={isPlaying =>
               playbackClock.setPlaying(isPlaying)
             }
@@ -2740,11 +2797,22 @@ export default function EditingNleWorkspace({
         data-testid="timeline-local-audio-input"
         onChange={event => void importLocalTimelineAudio(event)}
       />
-      <TimelineAudioPlayback
-        manifest={chatCutTimeline}
-        playheadMs={playbackClock.playheadMs}
-        isPlaying={playbackClock.isPlaying}
-      />
+      {formalAudioEnabled && activeStoryId != null ? (
+        <TimelineAudioEngine
+          storySessionKey={editingStorySessionKey}
+          plan={audioMixPlan}
+          playheadFrame={playbackClock.playheadFrame}
+          isPlaying={playbackClock.isPlaying}
+          resolveSourceUrl={resolveTimelineAudioSourceUrl}
+          onInputError={reportTimelineAudioInputError}
+        />
+      ) : (
+        <TimelineAudioPlayback
+          manifest={chatCutTimeline}
+          playheadMs={playbackClock.playheadMs}
+          isPlaying={playbackClock.isPlaying}
+        />
+      )}
       {videoEditorTarget ? (
         <VideoClipEditorPanel
           target={videoEditorTarget}

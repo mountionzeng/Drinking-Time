@@ -128,8 +128,7 @@ function normalizeClip(raw: unknown): AudioClip | null {
     sourceInFrame,
     sourceOutFrame,
     durationFrames: sourceOutFrame - sourceInFrame,
-    gain:
-      typeof record.gain === "number" ? clampGain(record.gain) : 1,
+    gain: typeof record.gain === "number" ? clampGain(record.gain) : 1,
     muted: record.muted === true,
     fadeInFrames:
       typeof record.fadeInFrames === "number"
@@ -521,10 +520,7 @@ export function resolveAudioClipsAtFrame(
   const active: ActiveAudioClip[] = [];
   for (const t of state.tracks) {
     for (const clip of t.clips) {
-      if (
-        frame >= clip.timelineStartFrame &&
-        frame < audioClipEndFrame(clip)
-      ) {
+      if (frame >= clip.timelineStartFrame && frame < audioClipEndFrame(clip)) {
         active.push({
           kind: t.kind,
           clip,
@@ -556,4 +552,207 @@ export function audioStateSpeedInvariantHolds(
       clip => clip.durationFrames === clip.sourceOutFrame - clip.sourceInFrame
     )
   );
+}
+
+// ── Shared preview / export plan ─────────────────────────────────────────
+
+/**
+ * A video's embedded audio projected into timeline coordinates by the visual
+ * adapter. `checksum` is diagnostic metadata only: it must never cause
+ * implicit de-duplication. Only `AudioClip.linkedVisualSourceId` may replace
+ * one of these inputs.
+ */
+export type TimelineVisualAudioSource = {
+  id: string;
+  timelineStartFrame: number;
+  sourceInFrame: number;
+  sourceOutFrame: number;
+  durationFrames: number;
+  gain: number;
+  muted: boolean;
+  checksum?: string;
+  playbackRate?: number;
+  reverse?: boolean;
+};
+
+export type AudioMixPlanSource =
+  | { kind: "asset"; assetId: number }
+  | { kind: "visual-source"; visualSourceId: string };
+
+export type AudioMixPlanInput = {
+  /** Stable within one plan. Visual sources use the `visual:` namespace. */
+  id: string;
+  kind: AudioTrackKind | "visual-source";
+  source: AudioMixPlanSource;
+  timelineStartFrame: number;
+  sourceInFrame: number;
+  sourceOutFrame: number;
+  durationFrames: number;
+  /** Track gain × clip gain, before mute and fades. */
+  baseGain: number;
+  muted: boolean;
+  fadeInFrames: number;
+  fadeOutFrames: number;
+  playbackRate: number;
+  reverse: boolean;
+  linkedVisualSourceId?: string;
+};
+
+export type AudioMixPlan = {
+  inputs: AudioMixPlanInput[];
+  suppressedVisualSourceIds: string[];
+  endFrame: number;
+};
+
+function normalizedPlanRate(value: number | undefined): number {
+  if (!Number.isFinite(value) || (value ?? 0) <= 0) return 1;
+  return Math.min(4, Math.max(0.25, value!));
+}
+
+function normalizeVisualAudioSource(
+  source: TimelineVisualAudioSource
+): TimelineVisualAudioSource | null {
+  if (!source.id) return null;
+  const timelineStartFrame = Math.max(0, Math.round(source.timelineStartFrame));
+  const sourceInFrame = Math.max(0, Math.round(source.sourceInFrame));
+  const sourceOutFrame = Math.max(
+    sourceInFrame + 1,
+    Math.round(source.sourceOutFrame)
+  );
+  const durationFrames = Math.max(1, Math.round(source.durationFrames));
+  return {
+    ...source,
+    timelineStartFrame,
+    sourceInFrame,
+    sourceOutFrame,
+    durationFrames,
+    gain: clampGain(source.gain),
+    muted: source.muted === true,
+    playbackRate: normalizedPlanRate(source.playbackRate),
+    reverse: source.reverse === true,
+  };
+}
+
+/** Build the only semantic audio plan used by realtime and export executors. */
+export function buildAudioMixPlan(input: {
+  audioState: TimelineAudioState;
+  visualSources?: readonly TimelineVisualAudioSource[];
+}): AudioMixPlan {
+  const audioState = normalizeAudioState(input.audioState);
+  const linkedVisualSourceIds = new Set<string>();
+  for (const audioTrack of audioState.tracks) {
+    if (audioTrack.kind !== "source") continue;
+    for (const clip of audioTrack.clips) {
+      if (clip.linkedVisualSourceId) {
+        linkedVisualSourceIds.add(clip.linkedVisualSourceId);
+      }
+    }
+  }
+
+  const suppressedVisualSourceIds = [...linkedVisualSourceIds].sort();
+  const visualInputs = (input.visualSources ?? [])
+    .map(normalizeVisualAudioSource)
+    .filter((source): source is TimelineVisualAudioSource => source !== null)
+    .filter(source => !linkedVisualSourceIds.has(source.id))
+    .sort(
+      (left, right) =>
+        left.timelineStartFrame - right.timelineStartFrame ||
+        left.id.localeCompare(right.id)
+    )
+    .map<AudioMixPlanInput>(source => ({
+      id: `visual:${source.id}`,
+      kind: "visual-source",
+      source: { kind: "visual-source", visualSourceId: source.id },
+      timelineStartFrame: source.timelineStartFrame,
+      sourceInFrame: source.sourceInFrame,
+      sourceOutFrame: source.sourceOutFrame,
+      durationFrames: source.durationFrames,
+      baseGain: source.gain,
+      muted: source.muted,
+      fadeInFrames: 0,
+      fadeOutFrames: 0,
+      playbackRate: normalizedPlanRate(source.playbackRate),
+      reverse: source.reverse === true,
+    }));
+
+  const formalInputs: AudioMixPlanInput[] = [];
+  for (const audioTrack of audioState.tracks) {
+    for (const clip of audioTrack.clips) {
+      formalInputs.push({
+        id: clip.id,
+        kind: audioTrack.kind,
+        source: { kind: "asset", assetId: clip.assetId },
+        timelineStartFrame: clip.timelineStartFrame,
+        sourceInFrame: clip.sourceInFrame,
+        sourceOutFrame: clip.sourceOutFrame,
+        durationFrames: clip.durationFrames,
+        baseGain: clampGain(audioTrack.defaultGain * clip.gain),
+        muted: audioTrack.muted || clip.muted,
+        fadeInFrames: Math.min(clip.durationFrames, clip.fadeInFrames),
+        fadeOutFrames: Math.min(clip.durationFrames, clip.fadeOutFrames),
+        playbackRate: 1,
+        reverse: false,
+        ...(clip.linkedVisualSourceId
+          ? { linkedVisualSourceId: clip.linkedVisualSourceId }
+          : {}),
+      });
+    }
+  }
+  const inputs = [...visualInputs, ...formalInputs];
+  return {
+    inputs,
+    suppressedVisualSourceIds,
+    endFrame: inputs.reduce(
+      (maximum, planned) =>
+        Math.max(maximum, planned.timelineStartFrame + planned.durationFrames),
+      0
+    ),
+  };
+}
+
+export function resolveAudioMixPlanAtFrame(
+  plan: AudioMixPlan,
+  frame: number
+): AudioMixPlanInput[] {
+  const normalizedFrame = Math.max(0, Math.round(frame));
+  return plan.inputs.filter(
+    input =>
+      normalizedFrame >= input.timelineStartFrame &&
+      normalizedFrame < input.timelineStartFrame + input.durationFrames
+  );
+}
+
+/** Deterministic linear gain envelope at one canonical timeline frame. */
+export function audioMixInputGainAtFrame(
+  input: AudioMixPlanInput,
+  frame: number
+): number {
+  const normalizedFrame = Math.max(0, Math.round(frame));
+  const localFrame = normalizedFrame - input.timelineStartFrame;
+  if (localFrame < 0 || localFrame >= input.durationFrames || input.muted) {
+    return 0;
+  }
+  const fadeIn =
+    input.fadeInFrames > 0 ? Math.min(1, localFrame / input.fadeInFrames) : 1;
+  const framesUntilEnd = input.durationFrames - localFrame;
+  const fadeOut =
+    input.fadeOutFrames > 0
+      ? Math.min(1, framesUntilEnd / input.fadeOutFrames)
+      : 1;
+  return input.baseGain * Math.min(fadeIn, fadeOut);
+}
+
+/** Source position (30fps frame) corresponding to a timeline frame. */
+export function audioMixInputSourceFrameAt(
+  input: AudioMixPlanInput,
+  frame: number
+): number {
+  const localFrame = Math.max(
+    0,
+    Math.min(input.durationFrames, Math.round(frame) - input.timelineStartFrame)
+  );
+  const sourceDelta = localFrame * input.playbackRate;
+  return input.reverse
+    ? Math.max(input.sourceInFrame, input.sourceOutFrame - sourceDelta)
+    : Math.min(input.sourceOutFrame, input.sourceInFrame + sourceDelta);
 }

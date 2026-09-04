@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { previewSubtitleLines } from "../previewPlaybackModel";
 import {
   SUBTITLE_TRACK_ID,
+  buildSubtitleRenderPlan,
   emptySubtitleState,
   type SubtitleCue,
   type TimelineSubtitleState,
@@ -41,7 +42,8 @@ describe("previewSubtitleLines", () => {
     // 头帧 = 30 → 1000ms
     expect(
       previewSubtitleLines({
-        subtitleState,
+        subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+        playheadFrame: 30,
         playheadMs: 1_000,
         legacyManifest: null,
       })
@@ -49,14 +51,16 @@ describe("previewSubtitleLines", () => {
     // endFrame = 60 → 2000ms，同一 tick 退出
     expect(
       previewSubtitleLines({
-        subtitleState,
+        subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+        playheadFrame: 60,
         playheadMs: 2_000,
         legacyManifest: null,
       })
     ).toEqual([]);
     expect(
       previewSubtitleLines({
-        subtitleState,
+        subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+        playheadFrame: 27,
         playheadMs: 900,
         legacyManifest: null,
       })
@@ -70,7 +74,8 @@ describe("previewSubtitleLines", () => {
     ]);
     expect(
       previewSubtitleLines({
-        subtitleState,
+        subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+        playheadFrame: 9,
         playheadMs: 300,
         legacyManifest: null,
       }).map(line => line.id)
@@ -83,7 +88,8 @@ describe("previewSubtitleLines", () => {
     ]);
     expect(
       previewSubtitleLines({
-        subtitleState,
+        subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+        playheadFrame: 15,
         playheadMs: 500,
         legacyManifest: null,
         fallbackDialogue: "镜头里的旧对白",
@@ -94,7 +100,8 @@ describe("previewSubtitleLines", () => {
   it("falls back to a clearly-labelled read-only candidate when there is no formal track", () => {
     expect(
       previewSubtitleLines({
-        subtitleState: emptySubtitleState(),
+        subtitlePlan: buildSubtitleRenderPlan(emptySubtitleState()),
+        playheadFrame: 15,
         playheadMs: 500,
         legacyManifest: null,
         fallbackDialogue: "镜头里的旧对白",
@@ -104,7 +111,8 @@ describe("previewSubtitleLines", () => {
     ]);
     expect(
       previewSubtitleLines({
-        subtitleState: null,
+        subtitlePlan: null,
+        playheadFrame: 15,
         playheadMs: 500,
         legacyManifest: null,
         fallbackDialogue: "镜头里的旧对白",
@@ -117,7 +125,8 @@ describe("previewSubtitleLines", () => {
   it("shows nothing when there is neither a track nor any candidate text", () => {
     expect(
       previewSubtitleLines({
-        subtitleState: emptySubtitleState(),
+        subtitlePlan: buildSubtitleRenderPlan(emptySubtitleState()),
+        playheadFrame: 0,
         playheadMs: 0,
         legacyManifest: null,
       })

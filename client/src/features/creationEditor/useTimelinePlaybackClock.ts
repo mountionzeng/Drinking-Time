@@ -36,6 +36,11 @@ export type FrozenTimelineFrame = {
   playheadMs: number;
 };
 
+/** One frame normalization shared by Preview subtitles and the audio engine. */
+export function timelinePlaybackFrame(playheadMs: number): number {
+  return timelineOffsetMsToFrames(Math.max(0, playheadMs));
+}
+
 /**
  * 按下播放/暂停之后，时钟该处于什么状态。
  *
@@ -228,6 +233,7 @@ export function useTimelinePlaybackClock(input: {
 
   return {
     playheadMs: state.playheadMs,
+    playheadFrame: timelinePlaybackFrame(state.playheadMs),
     isPlaying: state.isPlaying,
     seek,
     setPlaying,

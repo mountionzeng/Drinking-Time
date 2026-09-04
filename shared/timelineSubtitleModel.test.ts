@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SUBTITLE_TRACK_ID,
+  buildSubtitleRenderPlan,
   deleteSubtitleCue,
   editSubtitleText,
   emptySubtitleState,
@@ -9,6 +10,7 @@ import {
   moveSubtitleCue,
   normalizeSubtitleState,
   resolveSubtitleCuesAtFrame,
+  resolveSubtitleRenderPlanAtFrame,
   splitSubtitleCue,
   subtitleMergeAvailability,
   subtitleSplitAvailability,
@@ -88,18 +90,21 @@ describe("timelineSubtitleModel planner", () => {
     });
 
     it("is a no-op once the track already has cues", () => {
-      const result = initializeSubtitleCues(seed([{ id: "x", startFrame: 0, durationFrames: 30, text: "已有" }]), {
-        candidates: [
-          {
-            id: "new",
-            startFrame: 0,
-            durationFrames: 30,
-            text: "候选",
-            provenance: { kind: "manual" },
-            sourceTextRevision: 0,
-          },
-        ],
-      });
+      const result = initializeSubtitleCues(
+        seed([{ id: "x", startFrame: 0, durationFrames: 30, text: "已有" }]),
+        {
+          candidates: [
+            {
+              id: "new",
+              startFrame: 0,
+              durationFrames: 30,
+              text: "候选",
+              provenance: { kind: "manual" },
+              sourceTextRevision: 0,
+            },
+          ],
+        }
+      );
       expect(result).toMatchObject({ status: "ok", changed: false });
     });
 
@@ -123,7 +128,15 @@ describe("timelineSubtitleModel planner", () => {
   describe("editSubtitleText", () => {
     it("bumps textRevision and marks textEdited, normalizing CRLF", () => {
       const result = editSubtitleText(
-        seed([{ id: "a", startFrame: 0, durationFrames: 30, text: "旧", textRevision: 4 }]),
+        seed([
+          {
+            id: "a",
+            startFrame: 0,
+            durationFrames: 30,
+            text: "旧",
+            textRevision: 4,
+          },
+        ]),
         { cueId: "a", text: "新\r\n行", expectedTextRevision: 4 }
       );
       expect(result.status).toBe("ok");
@@ -137,16 +150,44 @@ describe("timelineSubtitleModel planner", () => {
 
     it("is a no-op when the text is unchanged", () => {
       const result = editSubtitleText(
-        seed([{ id: "a", startFrame: 0, durationFrames: 30, text: "同", textRevision: 2 }]),
+        seed([
+          {
+            id: "a",
+            startFrame: 0,
+            durationFrames: 30,
+            text: "同",
+            textRevision: 2,
+          },
+        ]),
         { cueId: "a", text: "同", expectedTextRevision: 2 }
       );
       expect(result).toMatchObject({ status: "ok", changed: false });
     });
 
     it("rejects a stale textRevision and empty text", () => {
-      const base = seed([{ id: "a", startFrame: 0, durationFrames: 30, text: "x", textRevision: 2 }]);
-      expect(editSubtitleText(base, { cueId: "a", text: "y", expectedTextRevision: 1 }).status).toBe("error");
-      expect(editSubtitleText(base, { cueId: "a", text: "   ", expectedTextRevision: 2 }).status).toBe("error");
+      const base = seed([
+        {
+          id: "a",
+          startFrame: 0,
+          durationFrames: 30,
+          text: "x",
+          textRevision: 2,
+        },
+      ]);
+      expect(
+        editSubtitleText(base, {
+          cueId: "a",
+          text: "y",
+          expectedTextRevision: 1,
+        }).status
+      ).toBe("error");
+      expect(
+        editSubtitleText(base, {
+          cueId: "a",
+          text: "   ",
+          expectedTextRevision: 2,
+        }).status
+      ).toBe("error");
     });
   });
 
@@ -158,56 +199,129 @@ describe("timelineSubtitleModel planner", () => {
       );
       expect(moved.status).toBe("ok");
       if (moved.status !== "ok") return;
-      expect(firstCue(moved.state)).toMatchObject({ startFrame: 40, timingEdited: true, durationFrames: 30 });
+      expect(firstCue(moved.state)).toMatchObject({
+        startFrame: 40,
+        timingEdited: true,
+        durationFrames: 30,
+      });
       expect(
-        moveSubtitleCue(seed([{ id: "a", startFrame: 10, durationFrames: 30, text: "x" }]), {
-          cueId: "a",
-          toStartFrame: -1,
-        }).status
+        moveSubtitleCue(
+          seed([{ id: "a", startFrame: 10, durationFrames: 30, text: "x" }]),
+          {
+            cueId: "a",
+            toStartFrame: -1,
+          }
+        ).status
       ).toBe("error");
     });
 
     it("trim start keeps the tail fixed; trim end keeps the head fixed; both enforce >= 1 frame", () => {
-      const base = seed([{ id: "a", startFrame: 10, durationFrames: 30, text: "x" }]);
-      const start = trimSubtitleCueStart(base, { cueId: "a", toStartFrame: 20 });
+      const base = seed([
+        { id: "a", startFrame: 10, durationFrames: 30, text: "x" },
+      ]);
+      const start = trimSubtitleCueStart(base, {
+        cueId: "a",
+        toStartFrame: 20,
+      });
       expect(start.status).toBe("ok");
       if (start.status === "ok") {
-        expect(firstCue(start.state)).toMatchObject({ startFrame: 20, durationFrames: 20 });
+        expect(firstCue(start.state)).toMatchObject({
+          startFrame: 20,
+          durationFrames: 20,
+        });
       }
       const end = trimSubtitleCueEnd(base, { cueId: "a", toEndFrame: 25 });
       expect(end.status).toBe("ok");
       if (end.status === "ok") {
-        expect(firstCue(end.state)).toMatchObject({ startFrame: 10, durationFrames: 15 });
+        expect(firstCue(end.state)).toMatchObject({
+          startFrame: 10,
+          durationFrames: 15,
+        });
       }
-      expect(trimSubtitleCueStart(base, { cueId: "a", toStartFrame: 40 }).status).toBe("error");
-      expect(trimSubtitleCueEnd(base, { cueId: "a", toEndFrame: 10 }).status).toBe("error");
+      expect(
+        trimSubtitleCueStart(base, { cueId: "a", toStartFrame: 40 }).status
+      ).toBe("error");
+      expect(
+        trimSubtitleCueEnd(base, { cueId: "a", toEndFrame: 10 }).status
+      ).toBe("error");
     });
   });
 
   describe("splitSubtitleCue", () => {
     it("splits text at the caret and time at the playhead; keeps the earlier id", () => {
       const result = splitSubtitleCue(
-        seed([{ id: "a", startFrame: 0, durationFrames: 60, text: "前半后半", textRevision: 3 }]),
-        { cueId: "a", splitFrame: 30, caretIndex: 2, expectedTextRevision: 3, newCueId: "b" }
+        seed([
+          {
+            id: "a",
+            startFrame: 0,
+            durationFrames: 60,
+            text: "前半后半",
+            textRevision: 3,
+          },
+        ]),
+        {
+          cueId: "a",
+          splitFrame: 30,
+          caretIndex: 2,
+          expectedTextRevision: 3,
+          newCueId: "b",
+        }
       );
       expect(result.status).toBe("ok");
       if (result.status !== "ok") return;
       const cues = result.state.tracks[0].cues;
       expect(cues).toHaveLength(2);
-      expect(cues[0]).toMatchObject({ id: "a", text: "前半", startFrame: 0, durationFrames: 30 });
-      expect(cues[1]).toMatchObject({ id: "b", text: "后半", startFrame: 30, durationFrames: 30, textRevision: 1 });
+      expect(cues[0]).toMatchObject({
+        id: "a",
+        text: "前半",
+        startFrame: 0,
+        durationFrames: 30,
+      });
+      expect(cues[1]).toMatchObject({
+        id: "b",
+        text: "后半",
+        startFrame: 30,
+        durationFrames: 30,
+        textRevision: 1,
+      });
     });
 
     it("rejects an empty side or a sub-frame segment or a stale revision", () => {
-      const base = seed([{ id: "a", startFrame: 0, durationFrames: 60, text: "abc", textRevision: 1 }]);
+      const base = seed([
+        {
+          id: "a",
+          startFrame: 0,
+          durationFrames: 60,
+          text: "abc",
+          textRevision: 1,
+        },
+      ]);
       expect(
-        splitSubtitleCue(base, { cueId: "a", splitFrame: 30, caretIndex: 0, expectedTextRevision: 1, newCueId: "b" }).status
+        splitSubtitleCue(base, {
+          cueId: "a",
+          splitFrame: 30,
+          caretIndex: 0,
+          expectedTextRevision: 1,
+          newCueId: "b",
+        }).status
       ).toBe("error");
       expect(
-        splitSubtitleCue(base, { cueId: "a", splitFrame: 0, caretIndex: 1, expectedTextRevision: 1, newCueId: "b" }).status
+        splitSubtitleCue(base, {
+          cueId: "a",
+          splitFrame: 0,
+          caretIndex: 1,
+          expectedTextRevision: 1,
+          newCueId: "b",
+        }).status
       ).toBe("error");
       expect(
-        splitSubtitleCue(base, { cueId: "a", splitFrame: 30, caretIndex: 1, expectedTextRevision: 9, newCueId: "b" }).status
+        splitSubtitleCue(base, {
+          cueId: "a",
+          splitFrame: 30,
+          caretIndex: 1,
+          expectedTextRevision: 9,
+          newCueId: "b",
+        }).status
       ).toBe("error");
     });
   });
@@ -264,14 +378,21 @@ describe("timelineSubtitleModel planner", () => {
           },
         ],
       };
-      expect(mergeSubtitleCue(state, { cueId: "a", direction: "previous" }).status).toBe("error");
-      expect(mergeSubtitleCue(state, { cueId: "a", direction: "next" }).status).toBe("error");
+      expect(
+        mergeSubtitleCue(state, { cueId: "a", direction: "previous" }).status
+      ).toBe("error");
+      expect(
+        mergeSubtitleCue(state, { cueId: "a", direction: "next" }).status
+      ).toBe("error");
     });
   });
 
   it("delete is a no-op when the cue is already gone", () => {
     expect(
-      deleteSubtitleCue(seed([{ id: "a", startFrame: 0, durationFrames: 30, text: "x" }]), { cueId: "ghost" })
+      deleteSubtitleCue(
+        seed([{ id: "a", startFrame: 0, durationFrames: 30, text: "x" }]),
+        { cueId: "ghost" }
+      )
     ).toMatchObject({ status: "ok", changed: false });
   });
 
@@ -280,9 +401,39 @@ describe("timelineSubtitleModel planner", () => {
       { id: "b", startFrame: 0, durationFrames: 90, text: "长" },
       { id: "a", startFrame: 0, durationFrames: 45, text: "短" },
     ]);
-    expect(resolveSubtitleCuesAtFrame(state, 10).map(cue => cue.id)).toEqual(["a", "b"]);
-    expect(resolveSubtitleCuesAtFrame(state, 45).map(cue => cue.id)).toEqual(["b"]);
+    expect(resolveSubtitleCuesAtFrame(state, 10).map(cue => cue.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(resolveSubtitleCuesAtFrame(state, 45).map(cue => cue.id)).toEqual([
+      "b",
+    ]);
     expect(resolveSubtitleCuesAtFrame(state, 90)).toHaveLength(0);
+  });
+
+  it("builds the one render plan used by preview and export, with head-inclusive/end-exclusive frame bounds", () => {
+    const plan = buildSubtitleRenderPlan(
+      seed([
+        { id: "b", startFrame: 30, durationFrames: 60, text: "长" },
+        { id: "a", startFrame: 30, durationFrames: 30, text: "短" },
+      ])
+    );
+
+    expect(plan).toEqual({
+      cues: [
+        { id: "a", text: "短", startFrame: 30, endFrame: 60 },
+        { id: "b", text: "长", startFrame: 30, endFrame: 90 },
+      ],
+      endFrame: 90,
+    });
+    expect(resolveSubtitleRenderPlanAtFrame(plan, 29)).toEqual([]);
+    expect(
+      resolveSubtitleRenderPlanAtFrame(plan, 30).map(cue => cue.id)
+    ).toEqual(["a", "b"]);
+    expect(
+      resolveSubtitleRenderPlanAtFrame(plan, 60).map(cue => cue.id)
+    ).toEqual(["b"]);
+    expect(resolveSubtitleRenderPlanAtFrame(plan, 90)).toEqual([]);
   });
 
   it("subtitleStateEndFrame is the max end across cues", () => {
@@ -298,22 +449,44 @@ describe("timelineSubtitleModel planner", () => {
 
   describe("action availability drives the same rules as the planner", () => {
     const base = seed([
-      { id: "a", startFrame: 0, durationFrames: 60, text: "前半后半", textRevision: 2 },
+      {
+        id: "a",
+        startFrame: 0,
+        durationFrames: 60,
+        text: "前半后半",
+        textRevision: 2,
+      },
       { id: "b", startFrame: 60, durationFrames: 60, text: "第二条" },
     ]);
 
     it("split is enabled only when both sides keep text and at least one frame", () => {
       expect(
-        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 2 })
+        subtitleSplitAvailability(base, {
+          cueId: "a",
+          splitFrame: 30,
+          caretIndex: 2,
+        })
       ).toEqual({ enabled: true, reason: null });
       expect(
-        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 0 })
+        subtitleSplitAvailability(base, {
+          cueId: "a",
+          splitFrame: 30,
+          caretIndex: 0,
+        })
       ).toMatchObject({ enabled: false, reason: "拆分后两段文字都不能为空" });
       expect(
-        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 0, caretIndex: 2 })
+        subtitleSplitAvailability(base, {
+          cueId: "a",
+          splitFrame: 0,
+          caretIndex: 2,
+        })
       ).toMatchObject({ enabled: false, reason: "拆分点两侧都至少要有一帧" });
       expect(
-        subtitleSplitAvailability(base, { cueId: "ghost", splitFrame: 30, caretIndex: 1 })
+        subtitleSplitAvailability(base, {
+          cueId: "ghost",
+          splitFrame: 30,
+          caretIndex: 1,
+        })
       ).toMatchObject({ enabled: false, reason: "字幕块不存在" });
     });
 
@@ -331,7 +504,11 @@ describe("timelineSubtitleModel planner", () => {
 
     it("availability probing never mutates the state it inspects", () => {
       const snapshot = JSON.stringify(base);
-      subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 2 });
+      subtitleSplitAvailability(base, {
+        cueId: "a",
+        splitFrame: 30,
+        caretIndex: 2,
+      });
       subtitleMergeAvailability(base, { cueId: "b", direction: "previous" });
       expect(JSON.stringify(base)).toBe(snapshot);
     });
@@ -339,7 +516,9 @@ describe("timelineSubtitleModel planner", () => {
 
   it("normalizeSubtitleState preserves well-formed (even overlapping) cues and degrades junk to an empty track", () => {
     expect(normalizeSubtitleState(undefined).tracks[0].cues).toEqual([]);
-    expect(normalizeSubtitleState({ tracks: "nope" }).tracks[0].cues).toEqual([]);
+    expect(normalizeSubtitleState({ tracks: "nope" }).tracks[0].cues).toEqual(
+      []
+    );
     const normalized = normalizeSubtitleState({
       tracks: [
         {

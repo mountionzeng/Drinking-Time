@@ -91,7 +91,8 @@ function isInteger(value: number): boolean {
 function sortCues(cues: SubtitleCue[]): SubtitleCue[] {
   return [...cues].sort(
     (left, right) =>
-      left.startFrame - right.startFrame || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+      left.startFrame - right.startFrame ||
+      (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
   );
 }
 
@@ -159,7 +160,10 @@ export function normalizeSubtitleState(value: unknown): TimelineSubtitleState {
 function normalizeProvenance(value: unknown): SubtitleProvenance {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    if (record.kind === "shot-dialogue" && typeof record.stableShotId === "string") {
+    if (
+      record.kind === "shot-dialogue" &&
+      typeof record.stableShotId === "string"
+    ) {
       return { kind: "shot-dialogue", stableShotId: record.stableShotId };
     }
     if (record.kind === "chatcut-cue" && typeof record.cueCode === "string") {
@@ -429,8 +433,7 @@ export function mergeSubtitleCue(
   const cues = track(state).cues;
   const index = cues.findIndex(candidate => candidate.id === input.cueId);
   if (index < 0) return err("字幕块不存在");
-  const neighbourIndex =
-    input.direction === "previous" ? index - 1 : index + 1;
+  const neighbourIndex = input.direction === "previous" ? index - 1 : index + 1;
   const neighbour = cues[neighbourIndex];
   if (!neighbour) {
     return err(
@@ -523,9 +526,7 @@ export function deleteSubtitleCue(
     return ok(state, false);
   }
   return ok(
-    withCues(
-      cues.filter(candidate => candidate.id !== input.cueId)
-    ),
+    withCues(cues.filter(candidate => candidate.id !== input.cueId)),
     true
   );
 }
@@ -539,6 +540,49 @@ export function resolveSubtitleCuesAtFrame(
     track(state).cues.filter(
       cue => frame >= cue.startFrame && frame < subtitleCueEndFrame(cue)
     )
+  );
+}
+
+/**
+ * Environment-neutral subtitle instructions consumed by both Preview and the
+ * FFmpeg adapter. The plan deliberately contains no Story body, DOM or pixel
+ * information: one inclusive head and one exclusive tail are the whole timing
+ * contract.
+ */
+export type SubtitleRenderPlanCue = {
+  id: string;
+  text: string;
+  startFrame: number;
+  endFrame: number;
+};
+
+export type SubtitleRenderPlan = {
+  cues: SubtitleRenderPlanCue[];
+  endFrame: number;
+};
+
+export function buildSubtitleRenderPlan(
+  state: TimelineSubtitleState
+): SubtitleRenderPlan {
+  const cues = sortCues(track(state).cues).map(cue => ({
+    id: cue.id,
+    text: cue.text,
+    startFrame: cue.startFrame,
+    endFrame: subtitleCueEndFrame(cue),
+  }));
+  return {
+    cues,
+    endFrame: cues.reduce((maximum, cue) => Math.max(maximum, cue.endFrame), 0),
+  };
+}
+
+export function resolveSubtitleRenderPlanAtFrame(
+  plan: SubtitleRenderPlan,
+  frame: number
+): SubtitleRenderPlanCue[] {
+  const normalizedFrame = Math.max(0, Math.round(frame));
+  return plan.cues.filter(
+    cue => normalizedFrame >= cue.startFrame && normalizedFrame < cue.endFrame
   );
 }
 

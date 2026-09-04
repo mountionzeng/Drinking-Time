@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIO_TRACK_KINDS,
+  audioMixInputGainAtFrame,
   audioStateEndFrame,
   audioStateSpeedInvariantHolds,
+  buildAudioMixPlan,
   deleteAudioClip,
   emptyAudioState,
   insertAudioClip,
@@ -10,6 +12,7 @@ import {
   normalizeAudioState,
   reclassifyAudioClip,
   resolveAudioClipsAtFrame,
+  resolveAudioMixPlanAtFrame,
   setAudioClipFade,
   setAudioClipGain,
   setAudioClipMuted,
@@ -136,10 +139,12 @@ describe("timelineAudioModel", () => {
     });
     expect(moved.status).toBe("ok");
     if (moved.status === "ok") {
-      expect(moved.state.tracks.find(t => t.kind === "music")!.clips).toHaveLength(0);
-      expect(moved.state.tracks.find(t => t.kind === "ambience")!.clips[0].id).toBe(
-        "clip-1"
-      );
+      expect(
+        moved.state.tracks.find(t => t.kind === "music")!.clips
+      ).toHaveLength(0);
+      expect(
+        moved.state.tracks.find(t => t.kind === "ambience")!.clips[0].id
+      ).toBe("clip-1");
     }
     const bound: TimelineAudioState = {
       tracks: state.tracks.map(t =>
@@ -158,15 +163,21 @@ describe("timelineAudioModel", () => {
 
   it("gain / mute / fade / track-level changes each report changed and no-op correctly", () => {
     const state = withMusicClip();
-    expect(setAudioClipGain(state, { clipId: "clip-1", gain: 0.5 })).toMatchObject({
+    expect(
+      setAudioClipGain(state, { clipId: "clip-1", gain: 0.5 })
+    ).toMatchObject({
       status: "ok",
       changed: true,
     });
-    expect(setAudioClipGain(state, { clipId: "clip-1", gain: 1 })).toMatchObject({
+    expect(
+      setAudioClipGain(state, { clipId: "clip-1", gain: 1 })
+    ).toMatchObject({
       status: "ok",
       changed: false,
     });
-    expect(setAudioClipGain(state, { clipId: "clip-1", gain: 99 })).toMatchObject({
+    expect(
+      setAudioClipGain(state, { clipId: "clip-1", gain: 99 })
+    ).toMatchObject({
       status: "ok",
       changed: true,
     });
@@ -223,7 +234,13 @@ describe("timelineAudioModel", () => {
           muted: true,
           defaultGain: 0.5,
           clips: [
-            { id: "ok", assetId: 1, timelineStartFrame: 0, sourceInFrame: 0, sourceOutFrame: 90 },
+            {
+              id: "ok",
+              assetId: 1,
+              timelineStartFrame: 0,
+              sourceInFrame: 0,
+              sourceOutFrame: 90,
+            },
             { id: "bad-no-asset", timelineStartFrame: 0 },
           ],
         },
@@ -235,5 +252,103 @@ describe("timelineAudioModel", () => {
     expect(music.muted).toBe(true);
     expect(music.clips.map(c => c.id)).toEqual(["ok"]);
     expect(music.clips[0].durationFrames).toBe(90);
+  });
+
+  it("builds one deterministic mix plan for overlapping tracks, mute, gain, fade and source offsets", () => {
+    let state = emptyAudioState();
+    for (const input of [
+      { id: "voice", kind: "narration" as const, assetId: 1, gain: 0.5 },
+      { id: "music", kind: "music" as const, assetId: 2, gain: 0.8 },
+      { id: "room", kind: "ambience" as const, assetId: 3, gain: 1 },
+      { id: "hit", kind: "sfx" as const, assetId: 4, gain: 1 },
+    ]) {
+      const inserted = insertAudioClip(state, {
+        ...input,
+        timelineStartFrame: 30,
+        sourceInFrame: 60,
+        sourceOutFrame: 180,
+      });
+      if (inserted.status !== "ok") throw new Error(inserted.message);
+      state = inserted.state;
+    }
+    const trackGain = setAudioTrackGain(state, { kind: "music", gain: 0.25 });
+    if (trackGain.status !== "ok") throw new Error(trackGain.message);
+    state = trackGain.state;
+    const faded = setAudioClipFade(state, {
+      clipId: "music",
+      fadeInFrames: 30,
+      fadeOutFrames: 30,
+    });
+    if (faded.status !== "ok") throw new Error(faded.message);
+    state = faded.state;
+    const muted = setAudioClipMuted(state, { clipId: "hit", muted: true });
+    if (muted.status !== "ok") throw new Error(muted.message);
+    state = muted.state;
+
+    const plan = buildAudioMixPlan({ audioState: state });
+    expect(resolveAudioMixPlanAtFrame(plan, 45).map(input => input.id)).toEqual(
+      ["voice", "music", "room", "hit"]
+    );
+    const music = plan.inputs.find(input => input.id === "music")!;
+    expect(music.source).toEqual({ kind: "asset", assetId: 2 });
+    expect(music.sourceInFrame).toBe(60);
+    expect(music.baseGain).toBeCloseTo(0.2);
+    expect(audioMixInputGainAtFrame(music, 30)).toBe(0);
+    expect(audioMixInputGainAtFrame(music, 45)).toBeCloseTo(0.1);
+    expect(audioMixInputGainAtFrame(music, 75)).toBeCloseTo(0.2);
+    expect(audioMixInputGainAtFrame(music, 135)).toBeCloseTo(0.1);
+    expect(audioMixInputGainAtFrame(music, 150)).toBe(0);
+    expect(
+      audioMixInputGainAtFrame(
+        plan.inputs.find(input => input.id === "hit")!,
+        60
+      )
+    ).toBe(0);
+  });
+
+  it("only an explicit linked visual identity replaces a visual source, never a matching checksum", () => {
+    let state = emptyAudioState();
+    const linked = insertAudioClip(state, {
+      id: "imported-source",
+      kind: "source",
+      assetId: 9,
+      timelineStartFrame: 0,
+      sourceOutFrame: 90,
+      linkedVisualSourceId: "visual-a",
+    });
+    if (linked.status !== "ok") throw new Error(linked.message);
+    state = linked.state;
+
+    const plan = buildAudioMixPlan({
+      audioState: state,
+      visualSources: [
+        {
+          id: "visual-a",
+          timelineStartFrame: 0,
+          sourceInFrame: 0,
+          sourceOutFrame: 90,
+          durationFrames: 90,
+          gain: 1,
+          muted: false,
+          checksum: "same-bytes",
+        },
+        {
+          id: "visual-b",
+          timelineStartFrame: 0,
+          sourceInFrame: 0,
+          sourceOutFrame: 90,
+          durationFrames: 90,
+          gain: 1,
+          muted: false,
+          checksum: "same-bytes",
+        },
+      ],
+    });
+
+    expect(plan.inputs.map(input => input.id)).toEqual([
+      "visual:visual-b",
+      "imported-source",
+    ]);
+    expect(plan.suppressedVisualSourceIds).toEqual(["visual-a"]);
   });
 });

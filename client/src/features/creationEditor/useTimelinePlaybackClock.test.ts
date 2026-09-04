@@ -6,6 +6,7 @@ import {
 import {
   createTimelinePlaybackRuntime,
   resolvePlayRequest,
+  timelinePlaybackFrame,
 } from "./useTimelinePlaybackClock";
 
 /**
@@ -13,6 +14,12 @@ import {
  * 以及「从片尾按播放要回到开头」这条显式分支。
  */
 describe("播放时钟的算术", () => {
+  it("normalizes milliseconds to one canonical 30fps frame for subtitle and audio", () => {
+    expect(timelinePlaybackFrame(-50)).toBe(0);
+    expect(timelinePlaybackFrame(999)).toBe(30);
+    expect(timelinePlaybackFrame(2_000)).toBe(60);
+  });
+
   it("推进不会越过片尾，并在到尾时报告 ended", () => {
     expect(advanceTimelinePlayhead(0, 1000, 5000)).toEqual({
       timeMs: 1000,

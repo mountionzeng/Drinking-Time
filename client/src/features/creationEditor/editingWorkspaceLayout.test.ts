@@ -1016,4 +1016,20 @@ describe("storyboard track order", () => {
     expect(audioHeaderIndex).toBeGreaterThan(subtitleIndex);
     expect(audioTrackIndex).toBeGreaterThan(audioHeaderIndex);
   });
+
+  it("uses the formal shared audio engine while keeping legacy playback as fallback only", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const source = await fs.readFile(
+      path.join(import.meta.dirname, "views", "EditingNleWorkspace.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain("buildAudioMixPlan");
+    expect(source).toContain("<TimelineAudioEngine");
+    expect(source).toContain("muteVisualSourceAudio={formalAudioEnabled}");
+    expect(source).toMatch(
+      /formalAudioEnabled[\s\S]*?<TimelineAudioEngine[\s\S]*?:[\s\S]*?<TimelineAudioPlayback/
+    );
+  });
 });
