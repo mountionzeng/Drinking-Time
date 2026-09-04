@@ -6,6 +6,7 @@
  * 让用户看得到能力边界，也让我们不会为它们造一个万能弹窗。
  */
 import { useEffect, useRef, useState } from "react";
+import { timelineMediaKindProfile } from "./timelineMediaCapabilities";
 
 export type AddTimelineMediaAction =
   | "subtitle-from-text"
@@ -15,21 +16,47 @@ export type AddTimelineMediaAction =
   | "import-sfx"
   | "import-source-from-chatcut";
 
+export type AddTimelineMediaMenuBinding = {
+  availableActions: readonly AddTimelineMediaAction[];
+  disabledReasons?: Partial<Record<AddTimelineMediaAction, string>>;
+  pending?: boolean;
+  onPick: (action: AddTimelineMediaAction) => void;
+};
+
 type MenuItem = {
   action: AddTimelineMediaAction;
   label: string;
   hint?: string;
 };
 
-const ITEMS: readonly MenuItem[] = [
-  { action: "subtitle-from-text", label: "从当前文字生成字幕" },
-  { action: "narration-from-subtitle", label: "从字幕生成旁白", hint: "即将支持" },
-  { action: "import-music", label: "导入音乐", hint: "即将支持" },
-  { action: "import-ambience", label: "导入环境声", hint: "即将支持" },
-  { action: "import-sfx", label: "导入音效", hint: "即将支持" },
+export const TIMELINE_MEDIA_ADD_ITEMS: readonly MenuItem[] = [
+  {
+    action: "subtitle-from-text",
+    label: timelineMediaKindProfile("subtitle").addLabel!,
+  },
+  {
+    action: "narration-from-subtitle",
+    label: timelineMediaKindProfile("narration").addLabel!,
+    hint: "即将支持",
+  },
+  {
+    action: "import-music",
+    label: timelineMediaKindProfile("music").addLabel!,
+    hint: "即将支持",
+  },
+  {
+    action: "import-ambience",
+    label: timelineMediaKindProfile("ambience").addLabel!,
+    hint: "即将支持",
+  },
+  {
+    action: "import-sfx",
+    label: timelineMediaKindProfile("sfx").addLabel!,
+    hint: "即将支持",
+  },
   {
     action: "import-source-from-chatcut",
-    label: "从 ChatCut 导入原声",
+    label: timelineMediaKindProfile("source").addLabel!,
     hint: "即将支持",
   },
 ];
@@ -38,13 +65,11 @@ export function AddTimelineMediaMenu({
   availableActions,
   disabledReasons = {},
   pending = false,
+  triggerLabel = "添加",
   onPick,
-}: {
+}: AddTimelineMediaMenuBinding & {
   /** 本轮真正可用的动作；其余以禁用项显示。 */
-  availableActions: readonly AddTimelineMediaAction[];
-  disabledReasons?: Partial<Record<AddTimelineMediaAction, string>>;
-  pending?: boolean;
-  onPick: (action: AddTimelineMediaAction) => void;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -76,7 +101,7 @@ export function AddTimelineMediaMenu({
         onClick={() => setOpen(value => !value)}
         className="rounded-sm border border-border px-2 py-0.5 text-[10px] font-medium transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
       >
-        添加
+        {triggerLabel}
       </button>
       {open ? (
         <div
@@ -85,7 +110,7 @@ export function AddTimelineMediaMenu({
           data-testid="add-timeline-media-menu"
           className="absolute right-0 z-[100] mt-1 min-w-[200px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg"
         >
-          {ITEMS.map(item => {
+          {TIMELINE_MEDIA_ADD_ITEMS.map(item => {
             const enabled = available.has(item.action) && !pending;
             const reason = disabledReasons[item.action] ?? item.hint;
             return (

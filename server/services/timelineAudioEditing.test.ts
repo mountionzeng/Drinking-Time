@@ -260,6 +260,21 @@ describe("timelineAudioEditing", () => {
       durationFrames: 260,
       timelineStartFrame: 200,
     });
+
+    const beforeRejectedTrim = await version(storyId);
+    const beyondAsset = await trimAudioClipForStory({
+      storyId,
+      userId: USER_ID,
+      operation: nextOp(),
+      clipId,
+      edge: "end",
+      deltaFrames: 1,
+    });
+    expect(beyondAsset).toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await version(storyId)).toBe(beforeRejectedTrim);
+    expect(
+      (await audioState(storyId))!.tracks.find(t => t.kind === "music")!.clips[0]
+    ).toMatchObject({ sourceOutFrame: 300, durationFrames: 260 });
   });
 
   it("binding: bind then move-bound shifts both cue and narration by the same delta; a partner out of bounds fails whole", async () => {

@@ -8,7 +8,7 @@
  * the CAS. On a real change it records one client undo slot (tagged `media`) so
  * a single Cmd+Z stack interleaves visual and media edits in operation order.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   normalizeSubtitleState as normalizeSubtitleStateModel,
@@ -25,10 +25,18 @@ import {
   type AudioTrackKind as AudioTrackKindModel,
   type TimelineAudioState as TimelineAudioStateModel,
 } from "@shared/timelineAudioModel";
-import { recordTimelineCommandUndo, trackCreationEditorOperation } from "../timelineUndoStore";
+import {
+  recordTimelineCommandUndo,
+  trackCreationEditorOperation,
+} from "../timelineUndoStore";
 
 export type MediaCommandResult =
-  | { status: "ok"; changed: boolean; timelineVersion: number; receipt?: unknown }
+  | {
+      status: "ok";
+      changed: boolean;
+      timelineVersion: number;
+      receipt?: unknown;
+    }
   | { status: "error"; error: string; errorKind: "conflict" | "invalid" };
 
 /**
@@ -82,7 +90,10 @@ export type TimelineMediaController = {
     text: string;
     expectedTextRevision: number;
   }) => Promise<void>;
-  moveSubtitleCue: (input: { cueId: string; toStartFrame: number }) => Promise<void>;
+  moveSubtitleCue: (input: {
+    cueId: string;
+    toStartFrame: number;
+  }) => Promise<void>;
   trimSubtitleCue: (input: {
     cueId: string;
     edge: "start" | "end";
@@ -105,6 +116,11 @@ export type TimelineMediaController = {
   selectedAudioClipId: string | null;
   selectAudioClip: (clipId: string | null) => void;
   activeAudioAtFrame: (frame: number) => ActiveAudioClipModel[];
+  importLocalAudio: (input: {
+    kind: "music" | "ambience" | "sfx";
+    file: File;
+    timelineStartFrame: number;
+  }) => Promise<boolean>;
   insertAudioClip: (input: {
     kind: AudioTrackKindModel;
     assetId: number;
@@ -114,7 +130,10 @@ export type TimelineMediaController = {
     gain?: number;
     linkedVisualSourceId?: string;
   }) => Promise<void>;
-  moveAudioClip: (input: { clipId: string; toStartFrame: number }) => Promise<void>;
+  moveAudioClip: (input: {
+    clipId: string;
+    toStartFrame: number;
+  }) => Promise<void>;
   trimAudioClip: (input: {
     clipId: string;
     edge: "start" | "end";
@@ -126,7 +145,10 @@ export type TimelineMediaController = {
     toKind: AudioTrackKindModel;
   }) => Promise<void>;
   setAudioClipGain: (input: { clipId: string; gain: number }) => Promise<void>;
-  setAudioClipMuted: (input: { clipId: string; muted: boolean }) => Promise<void>;
+  setAudioClipMuted: (input: {
+    clipId: string;
+    muted: boolean;
+  }) => Promise<void>;
   setAudioClipFade: (input: {
     clipId: string;
     fadeInFrames?: number;
@@ -157,6 +179,20 @@ function newOperationId(): string {
     : `op-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+export function readAudioFileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("读取音频失败"));
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      const separator = value.indexOf(",");
+      if (separator < 0) reject(new Error("音频编码失败"));
+      else resolve(value.slice(separator + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function useTimelineMediaController(
   input: TimelineMediaControllerInput
 ): TimelineMediaController {
@@ -166,7 +202,10 @@ export function useTimelineMediaController(
     () => normalizeSubtitleStateModel(extensions?.subtitleTracks),
     [extensions]
   );
-  const cues = useMemo(() => subtitleState.tracks[0]?.cues ?? [], [subtitleState]);
+  const cues = useMemo(
+    () => subtitleState.tracks[0]?.cues ?? [],
+    [subtitleState]
+  );
   const audioState = useMemo<TimelineAudioStateModel>(
     () => normalizeAudioStateModel(extensions?.audioTracks),
     [extensions]
@@ -178,6 +217,15 @@ export function useTimelineMediaController(
   );
   const [pendingCount, setPendingCount] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
+  const renderedSessionKey = `${storyId ?? "none"}:${editorSessionEpoch}`;
+  const sessionKeyRef = useRef(renderedSessionKey);
+  sessionKeyRef.current = renderedSessionKey;
+
+  useEffect(() => {
+    setSelectedCueId(null);
+    setSelectedAudioClipId(null);
+    setLastError(null);
+  }, [renderedSessionKey]);
 
   const initMut = trpc.timelineMedia.initializeSubtitles.useMutation();
   const editMut = trpc.timelineMedia.editSubtitleText.useMutation();
@@ -187,14 +235,17 @@ export function useTimelineMediaController(
   const mergeMut = trpc.timelineMedia.mergeSubtitleCue.useMutation();
   const deleteMut = trpc.timelineMedia.deleteSubtitleCue.useMutation();
   const audioInsertMut = trpc.timelineMedia.insertAudioClip.useMutation();
+  const audioImportMut = trpc.timelineMedia.importLocalAudio.useMutation();
   const audioMoveMut = trpc.timelineMedia.moveAudioClip.useMutation();
   const audioTrimMut = trpc.timelineMedia.trimAudioClip.useMutation();
   const audioDeleteMut = trpc.timelineMedia.deleteAudioClip.useMutation();
-  const audioReclassifyMut = trpc.timelineMedia.reclassifyAudioClip.useMutation();
+  const audioReclassifyMut =
+    trpc.timelineMedia.reclassifyAudioClip.useMutation();
   const audioGainMut = trpc.timelineMedia.setAudioClipGain.useMutation();
   const audioMutedMut = trpc.timelineMedia.setAudioClipMuted.useMutation();
   const audioFadeMut = trpc.timelineMedia.setAudioClipFade.useMutation();
-  const audioTrackMutedMut = trpc.timelineMedia.setAudioTrackMuted.useMutation();
+  const audioTrackMutedMut =
+    trpc.timelineMedia.setAudioTrackMuted.useMutation();
   const audioTrackGainMut = trpc.timelineMedia.setAudioTrackGain.useMutation();
   const bindSpeechMut = trpc.timelineMedia.bindSpeech.useMutation();
   const unbindSpeechMut = trpc.timelineMedia.unbindSpeech.useMutation();
@@ -203,13 +254,15 @@ export function useTimelineMediaController(
   const run = useCallback(
     async (call: () => Promise<MediaCommandResult>): Promise<void> => {
       if (storyId == null) {
-        setLastError("故事尚未加载，无法编辑字幕");
+        setLastError("故事尚未加载，无法编辑时间线媒体");
         return;
       }
       setPendingCount(count => count + 1);
       setLastError(null);
+      const commandSessionKey = renderedSessionKey;
       try {
         const result = await trackCreationEditorOperation(storyId, call());
+        if (sessionKeyRef.current !== commandSessionKey) return;
         await handleMediaCommandResult(storyId, result, {
           recordUndo: (id, receipt) =>
             recordTimelineCommandUndo(
@@ -221,12 +274,13 @@ export function useTimelineMediaController(
           setError: setLastError,
         });
       } catch (error) {
-        setLastError(error instanceof Error ? error.message : "字幕操作失败");
+        if (sessionKeyRef.current !== commandSessionKey) return;
+        setLastError(error instanceof Error ? error.message : "媒体操作失败");
       } finally {
         setPendingCount(count => Math.max(0, count - 1));
       }
     },
-    [storyId, onChanged]
+    [storyId, onChanged, renderedSessionKey]
   );
 
   const operation = useCallback(
@@ -238,7 +292,10 @@ export function useTimelineMediaController(
     subtitleState,
     cues,
     selectedCueId,
-    selectCue: setSelectedCueId,
+    selectCue: useCallback((cueId: string | null) => {
+      setSelectedCueId(cueId);
+      if (cueId) setSelectedAudioClipId(null);
+    }, []),
     activeCuesAtFrame: useCallback(
       (frame: number) => resolveSubtitleCuesAtFrameModel(subtitleState, frame),
       [subtitleState]
@@ -326,10 +383,76 @@ export function useTimelineMediaController(
 
     audioState,
     selectedAudioClipId,
-    selectAudioClip: setSelectedAudioClipId,
+    selectAudioClip: useCallback((clipId: string | null) => {
+      setSelectedAudioClipId(clipId);
+      if (clipId) setSelectedCueId(null);
+    }, []),
     activeAudioAtFrame: useCallback(
       (frame: number) => resolveAudioClipsAtFrameModel(audioState, frame),
       [audioState]
+    ),
+    importLocalAudio: useCallback(
+      async inputArgs => {
+        if (storyId == null) {
+          setLastError("故事尚未加载，无法导入音频");
+          return false;
+        }
+        setPendingCount(count => count + 1);
+        setLastError(null);
+        const commandSessionKey = renderedSessionKey;
+        try {
+          const imported = await audioImportMut.mutateAsync({
+            storyId,
+            operation: operation(),
+            fileName: inputArgs.file.name,
+            mimeType: inputArgs.file.type || undefined,
+            fileBase64: await readAudioFileBase64(inputArgs.file),
+            mediaKind: inputArgs.kind,
+          });
+          if (imported.status !== "ok") {
+            if (sessionKeyRef.current === commandSessionKey) {
+              setLastError(imported.error);
+            }
+            return false;
+          }
+          const result = await trackCreationEditorOperation(
+            storyId,
+            audioInsertMut.mutateAsync({
+              storyId,
+              operation: operation(),
+              kind: inputArgs.kind,
+              assetId: imported.assetId,
+              timelineStartFrame: inputArgs.timelineStartFrame,
+            })
+          );
+          if (sessionKeyRef.current !== commandSessionKey) return false;
+          const outcome = await handleMediaCommandResult(storyId, result, {
+            recordUndo: (id, receipt) =>
+              recordTimelineCommandUndo(
+                id,
+                receipt as Parameters<typeof recordTimelineCommandUndo>[1],
+                "media"
+              ),
+            onChanged,
+            setError: setLastError,
+          });
+          return outcome.error == null;
+        } catch (error) {
+          if (sessionKeyRef.current !== commandSessionKey) return false;
+          setLastError(error instanceof Error ? error.message : "音频导入失败");
+          return false;
+        } finally {
+          setPendingCount(count => Math.max(0, count - 1));
+        }
+      },
+      [
+        audioImportMut,
+        audioInsertMut,
+        onChanged,
+        operation,
+        renderedSessionKey,
+        storyId,
+      ]
     ),
     insertAudioClip: useCallback(
       inputArgs =>

@@ -1,8 +1,4 @@
-import {
-  GripVertical,
-  Loader2,
-  Magnet,
-} from "lucide-react";
+import { GripVertical, Loader2, Magnet } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -15,11 +11,7 @@ import {
 import { toast } from "sonner";
 
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
-import {
-  imageClipId,
-  shotClipId,
-  videoClipId,
-} from "@shared/visualClipModel";
+import { imageClipId, shotClipId, videoClipId } from "@shared/visualClipModel";
 import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
 import {
   createVisualObjectPendingGuard,
@@ -110,6 +102,9 @@ import {
   SubtitleRowHeader,
   SubtitleTrackRow,
 } from "../timelineMedia/SubtitleTrackRow";
+import { AudioTrackSection } from "../timelineMedia/AudioTrackRow";
+import { AddTimelineMediaMenu } from "../timelineMedia/AddTimelineMediaMenu";
+import { TimelineMediaInspector } from "../timelineMedia/TimelineMediaInspector";
 import { storyboardVisualClipArrowMove } from "../storyboardVisualObjectInteraction";
 import {
   STORYBOARD_IMAGE_CLIP_DRAG_MIME,
@@ -135,7 +130,7 @@ export {
  * 左键拖选一段交给聊聊、拖右边缘改时长、拖左边把手换顺序；
  * 右键出剪辑菜单，键盘走主流剪辑软件那一套快捷键。
  */
-function StoryboardAudioRowHeader() {
+function StoryboardAudioRowHeader({ legacy = false }: { legacy?: boolean }) {
   return (
     <div
       role="rowheader"
@@ -145,9 +140,9 @@ function StoryboardAudioRowHeader() {
         background: "var(--background)",
       }}
     >
-      <span>听觉 · 音轨</span>
+      <span>{legacy ? "旧音频 · 只读" : "听觉 · 音轨"}</span>
       <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
-        强弱 · 停顿
+        {legacy ? "显式导入后可剪辑" : "强弱 · 停顿"}
       </span>
     </div>
   );
@@ -1423,9 +1418,7 @@ function StoryboardEditTrack({
             !event.dataTransfer.types.includes(
               STORYBOARD_IMAGE_CLIP_DRAG_MIME
             ) &&
-            !event.dataTransfer.types.includes(
-              STORYBOARD_VIDEO_CLIP_DRAG_MIME
-            )
+            !event.dataTransfer.types.includes(STORYBOARD_VIDEO_CLIP_DRAG_MIME)
           )
             return;
           event.preventDefault();
@@ -1884,9 +1877,7 @@ function StoryboardEditTrack({
                   return;
                 }
                 if (
-                  !event.dataTransfer.types.includes(
-                    STORYBOARD_SHOT_DRAG_MIME
-                  )
+                  !event.dataTransfer.types.includes(STORYBOARD_SHOT_DRAG_MIME)
                 )
                   return;
                 event.preventDefault();
@@ -1929,8 +1920,9 @@ function StoryboardEditTrack({
                   });
                   return;
                 }
-                const sourceStableShotId =
-                  event.dataTransfer.getData(STORYBOARD_SHOT_DRAG_MIME);
+                const sourceStableShotId = event.dataTransfer.getData(
+                  STORYBOARD_SHOT_DRAG_MIME
+                );
                 if (
                   !sourceStableShotId ||
                   sourceStableShotId === shot.stableShotId
@@ -3366,6 +3358,19 @@ export function StoryboardEditRow({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+  const selectedSubtitleCue =
+    timeline.subtitle?.cues.find(
+      cue => cue.id === timeline.subtitle?.selectedCueId
+    ) ?? null;
+  const formalAudioClipCount =
+    timeline.audio?.audioState.tracks.reduce(
+      (count, track) => count + track.clips.length,
+      0
+    ) ?? 0;
+  const showMediaInspector = Boolean(
+    selectedSubtitleCue || timeline.audio?.selectedClipId
+  );
+
   return (
     <>
       {Array.from(
@@ -3450,10 +3455,16 @@ export function StoryboardEditRow({
           />
         </div>
       </div>
-      {/* 固定语义顺序：视觉层 → 主画面 → 字幕 → 声音。 */}
+      {/* 固定语义顺序：视觉层 → 主画面 → 字幕 → 五类声音。 */}
       {timeline.subtitle ? (
         <>
-          <SubtitleRowHeader />
+          <SubtitleRowHeader
+            actions={
+              timeline.addMedia ? (
+                <AddTimelineMediaMenu {...timeline.addMedia} />
+              ) : undefined
+            }
+          />
           <div
             role="cell"
             style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
@@ -3467,17 +3478,106 @@ export function StoryboardEditRow({
           </div>
         </>
       ) : null}
-      <StoryboardAudioRowHeader />
-      <div
-        role="cell"
-        style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
-      >
-        <StoryboardAudioTrack
-          clips={timeline.audioClips}
+      {timeline.audio ? (
+        <AudioTrackSection
+          storyId={timeline.audio.storyId}
+          audioState={timeline.audio.audioState}
           viewport={viewport}
           playheadMs={timeline.playheadMs}
+          selectedClipId={timeline.audio.selectedClipId}
+          pending={timeline.audio.pending}
+          error={timeline.audio.error}
+          onSelectClip={timeline.audio.onSelectClip}
+          onMove={timeline.audio.onMove}
+          onTrim={timeline.audio.onTrim}
+          onDelete={timeline.audio.onDelete}
+          onRequestAdd={() => undefined}
+          addControl={
+            timeline.addMedia ? (
+              <AddTimelineMediaMenu
+                {...timeline.addMedia}
+                triggerLabel="添加声音"
+              />
+            ) : undefined
+          }
+          columnSpan={columnSpan}
         />
-      </div>
+      ) : (
+        <>
+          <StoryboardAudioRowHeader />
+          <div
+            role="cell"
+            style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+          >
+            <StoryboardAudioTrack
+              clips={timeline.audioClips}
+              viewport={viewport}
+              playheadMs={timeline.playheadMs}
+            />
+          </div>
+        </>
+      )}
+      {timeline.audio &&
+      formalAudioClipCount === 0 &&
+      timeline.audioClips.length > 0 ? (
+        <>
+          <StoryboardAudioRowHeader legacy />
+          <div
+            role="cell"
+            style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+          >
+            <StoryboardAudioTrack
+              clips={timeline.audioClips}
+              viewport={viewport}
+              playheadMs={timeline.playheadMs}
+            />
+          </div>
+        </>
+      ) : null}
+      {timeline.subtitle && showMediaInspector ? (
+        <>
+          <div
+            role="rowheader"
+            className="sticky left-0 z-20 flex items-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+            style={{
+              borderColor:
+                "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+              background: "var(--background)",
+            }}
+          >
+            属性
+          </div>
+          <div
+            role="cell"
+            className="border-b border-r p-1"
+            style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+          >
+            <TimelineMediaInspector
+              subtitleState={{
+                tracks: [
+                  { id: "subtitle-main", cues: [...timeline.subtitle.cues] },
+                ],
+              }}
+              selectedCue={selectedSubtitleCue}
+              audioState={timeline.audio?.audioState}
+              selectedAudioClipId={timeline.audio?.selectedClipId}
+              playheadFrame={Math.max(
+                0,
+                Math.round((timeline.playheadMs * 30) / 1_000)
+              )}
+              pending={timeline.audio?.pending ?? timeline.subtitle.pending}
+              onSplit={timeline.subtitle.onSplit}
+              onMerge={timeline.subtitle.onMerge}
+              onDelete={timeline.subtitle.onDelete}
+              onSetAudioGain={timeline.audio?.onSetGain}
+              onSetAudioMuted={timeline.audio?.onSetMuted}
+              onSetAudioFade={timeline.audio?.onSetFade}
+              onReclassifyAudio={timeline.audio?.onReclassify}
+              onDeleteAudio={timeline.audio?.onDelete}
+            />
+          </div>
+        </>
+      ) : null}
       {gapMenu ? (
         <StoryboardEditGapMenu
           menu={gapMenu}

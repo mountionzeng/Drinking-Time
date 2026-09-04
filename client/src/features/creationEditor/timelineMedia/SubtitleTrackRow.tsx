@@ -39,7 +39,10 @@ export type SubtitleTrackBinding = {
     text: string;
     expectedTextRevision: number;
   }) => Promise<void> | void;
-  onMove: (input: { cueId: string; toStartFrame: number }) => Promise<void> | void;
+  onMove: (input: {
+    cueId: string;
+    toStartFrame: number;
+  }) => Promise<void> | void;
   onTrim: (input: {
     cueId: string;
     edge: "start" | "end";
@@ -58,7 +61,7 @@ export type SubtitleTrackBinding = {
   onDelete: (cueId: string) => Promise<void> | void;
 };
 
-export function SubtitleRowHeader() {
+export function SubtitleRowHeader({ actions }: { actions?: React.ReactNode }) {
   return (
     <div
       role="rowheader"
@@ -69,7 +72,10 @@ export function SubtitleRowHeader() {
       }}
       data-testid="storyboard-subtitle-row-header"
     >
-      <span>字幕</span>
+      <div className="flex items-center justify-between gap-1">
+        <span>字幕</span>
+        {actions}
+      </div>
       <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
         点块改字
       </span>
@@ -114,7 +120,10 @@ export function subtitleDragGhost(
   if (!drag || !drag.passedThreshold || drag.deltaFrames === 0) return cue;
   const end = subtitleCueEndFrame(cue);
   if (drag.kind === "move") {
-    return { ...cue, startFrame: Math.max(0, cue.startFrame + drag.deltaFrames) };
+    return {
+      ...cue,
+      startFrame: Math.max(0, cue.startFrame + drag.deltaFrames),
+    };
   }
   if (drag.kind === "trim-start") {
     const startFrame = Math.max(
@@ -390,7 +399,9 @@ export function SubtitleTrackRow({
           <span>还没有字幕</span>
           <button
             type="button"
-            disabled={disabled || binding.pending || binding.candidates.length === 0}
+            disabled={
+              disabled || binding.pending || binding.candidates.length === 0
+            }
             onClick={() => void binding.onGenerateFromText()}
             data-testid="storyboard-subtitle-generate"
             className="rounded-sm border border-primary/40 px-2 py-0.5 text-[9px] font-medium text-primary transition enabled:hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
@@ -467,7 +478,9 @@ export function SubtitleTrackRow({
                   aria-label="字幕入点"
                   aria-valuenow={cue.startFrame}
                   aria-valuemin={0}
-                  aria-valuemax={subtitleCueEndFrame(cue) - MIN_SUBTITLE_CUE_FRAMES}
+                  aria-valuemax={
+                    subtitleCueEndFrame(cue) - MIN_SUBTITLE_CUE_FRAMES
+                  }
                   data-testid={`storyboard-subtitle-handle-start-${cue.id}`}
                   className="absolute bottom-0 left-0 top-0 w-1.5 cursor-ew-resize bg-primary/50 opacity-0 focus:opacity-100 group-hover:opacity-100 data-[selected=true]:opacity-100"
                   data-selected={selected ? "true" : "false"}

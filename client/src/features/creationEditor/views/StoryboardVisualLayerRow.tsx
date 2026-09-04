@@ -34,6 +34,8 @@ import {
   visualTrackId,
 } from "@shared/visualClipModel";
 import type { SubtitleTrackBinding } from "../timelineMedia/SubtitleTrackRow";
+import type { AudioTrackBinding } from "../timelineMedia/AudioTrackRow";
+import type { AddTimelineMediaMenuBinding } from "../timelineMedia/AddTimelineMediaMenu";
 import type { VisualObjectRef } from "@shared/visualObject";
 import type { VisualObjectCommand } from "@shared/visualObjectCapabilities";
 import {
@@ -101,6 +103,10 @@ export type StoryboardBoardTimeline = {
    * 字幕行不渲染 —— 视觉行为完全不变。
    */
   subtitle?: SubtitleTrackBinding;
+  /** Formal five-track Timeline audio. Legacy manifest audio remains fallback-only. */
+  audio?: AudioTrackBinding;
+  /** The one explicit media-add menu shared by the sticky header and empty audio row. */
+  addMedia?: AddTimelineMediaMenuBinding;
   /** 全片绝对毫秒 */
   onSeek: (ms: number) => void;
   onTogglePlay: (playing: boolean) => void;

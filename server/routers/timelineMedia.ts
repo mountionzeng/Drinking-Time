@@ -22,6 +22,7 @@ import {
   undoLatestTimelineMediaEditForStory,
 } from "../services/timelineSubtitleEditing";
 import { AUDIO_TRACK_KINDS } from "../../shared/timelineAudioModel";
+import { importAudioBytes } from "../services/storyAudioImport";
 import {
   bindSpeechForStory,
   deleteAudioClipForStory,
@@ -239,6 +240,54 @@ export const timelineMediaRouter = router({
           : { linkedVisualSourceId: input.linkedVisualSourceId }),
       })
     ),
+
+  /**
+   * Import local audio bytes into a managed `ready` asset (U2 staged import).
+   * base64 is capped well under the Express body limit; the client never sends
+   * a path or URL. Returns the asset id for a follow-up insertAudioClip.
+   */
+  importLocalAudio: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        operation: operationInput,
+        fileName: z.string().min(1).max(200),
+        mimeType: z.string().max(120).optional(),
+        // ~48 MB of base64 ≈ a ~36 MB source file.
+        fileBase64: z
+          .string()
+          .min(1)
+          .max(48 * 1024 * 1024),
+        mediaKind: z.enum(["music", "ambience", "sfx"]).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const bytes = Buffer.from(input.fileBase64, "base64");
+      const result = await importAudioBytes({
+        scope: { storyId: input.storyId, userId: ctx.user.id },
+        operationId: input.operation.operationId,
+        sourceKind: "local-upload",
+        displayName: input.fileName,
+        bytes,
+        mediaKind: input.mediaKind ?? "unknown",
+        provenance: {
+          fileName: input.fileName,
+          mimeType: input.mimeType ?? null,
+        },
+      });
+      return result.status === "ready"
+        ? {
+            status: "ok" as const,
+            assetId: result.asset.id,
+            durationFrames: result.asset.durationFrames,
+            reused: result.reused,
+          }
+        : {
+            status: "error" as const,
+            error: result.reason,
+            failureCode: result.failureCode,
+          };
+    }),
 
   moveAudioClip: protectedProcedure
     .input(

@@ -136,6 +136,14 @@ async function runMediaCommand(
         nextExtensions: Record<string, unknown>;
       }
     | { status: "error"; message: string }
+    | Promise<
+        | {
+            status: "ok";
+            changed: boolean;
+            nextExtensions: Record<string, unknown>;
+          }
+        | { status: "error"; message: string }
+      >
 ): Promise<TimelineMediaCommandResult> {
   return withVisualEditServiceLock(input.storyId, input.userId, async () => {
     const session = guardSession(input);
@@ -186,7 +194,7 @@ async function runMediaCommand(
           errorKind: "invalid",
         };
       }
-      const planned = planner(
+      const planned = await planner(
         {
           audio: audioStateOf(envelope.extensions),
           subtitle: subtitleStateOf(envelope.extensions),
@@ -408,8 +416,8 @@ export function trimAudioClipForStory(
         deltaFrames: input.deltaFrames,
       },
     },
-    ({ audio }) =>
-      audioOnly(
+    async ({ audio }) => {
+      const result =
         input.edge === "start"
           ? trimAudioClipStart(audio, {
               clipId: input.clipId,
@@ -418,9 +426,26 @@ export function trimAudioClipForStory(
           : trimAudioClipEnd(audio, {
               clipId: input.clipId,
               deltaFrames: input.deltaFrames,
-            }),
-        {}
-      )
+            });
+      if (result.status === "error" || !result.changed) {
+        return audioOnly(result, {});
+      }
+      const nextClip = result.state.tracks
+        .flatMap(track => track.clips)
+        .find(clip => clip.id === input.clipId);
+      if (!nextClip) return { status: "error", message: "音频片段不存在" };
+      const asset = await loadReadyStoryAudioAsset({
+        scope: { storyId: input.storyId, userId: input.userId },
+        assetId: nextClip.assetId,
+      });
+      if (!asset || asset.durationFrames == null) {
+        return { status: "error", message: "音频资产不存在或时长不可用" };
+      }
+      if (nextClip.sourceOutFrame > asset.durationFrames) {
+        return { status: "error", message: "裁剪越过素材结尾" };
+      }
+      return audioOnly(result, {});
+    }
   );
 }
 

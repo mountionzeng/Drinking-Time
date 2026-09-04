@@ -1,10 +1,14 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { TrpcContext } from "./_core/context";
 import { ENV } from "./_core/env";
 import {
   createStory,
   createStoryAudioAssetRow,
   getStoryTimeline,
+  listStoryAudioAssetRows,
   resetMemoryStateForTesting,
   updateStoryTimeline,
 } from "./db";
@@ -50,9 +54,36 @@ async function seedStory(userId: number): Promise<number> {
 
 async function cues(storyId: number, userId: number) {
   const row = (await getStoryTimeline(storyId, userId)) as {
-    extensions?: { subtitleTracks?: { tracks: { cues: Array<{ id: string; text: string; textRevision: number }> }[] } };
+    extensions?: {
+      subtitleTracks?: {
+        tracks: {
+          cues: Array<{ id: string; text: string; textRevision: number }>;
+        }[];
+      };
+    };
   } | null;
   return row?.extensions?.subtitleTracks?.tracks?.[0]?.cues ?? [];
+}
+
+function silentWavBase64(): string {
+  const sampleRate = 8_000;
+  const sampleCount = 800;
+  const dataSize = sampleCount * 2;
+  const bytes = Buffer.alloc(44 + dataSize);
+  bytes.write("RIFF", 0);
+  bytes.writeUInt32LE(36 + dataSize, 4);
+  bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(sampleRate, 24);
+  bytes.writeUInt32LE(sampleRate * 2, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36);
+  bytes.writeUInt32LE(dataSize, 40);
+  return bytes.toString("base64");
 }
 
 beforeEach(() => {
@@ -221,7 +252,9 @@ describe("timelineMedia router", () => {
 
     const row = (await getStoryTimeline(storyId, 710)) as {
       extensions?: {
-        audioTracks?: { tracks: { kind: string; clips: Array<{ id: string }> }[] };
+        audioTracks?: {
+          tracks: { kind: string; clips: Array<{ id: string }> }[];
+        };
       };
     } | null;
     const clipId = row!.extensions!.audioTracks!.tracks.find(
@@ -260,6 +293,56 @@ describe("timelineMedia router", () => {
       timelineStartFrame: 0,
     });
     expect(stolen).toMatchObject({ status: "error" });
+  });
+
+  it("imports local bytes into the selected media kind without accepting a path or cross-Story scope", async () => {
+    const audioDir = await mkdtemp(
+      path.join(os.tmpdir(), "timeline-router-audio-")
+    );
+    const previousAudioDir = process.env.LOCAL_AUDIO_DIR;
+    process.env.LOCAL_AUDIO_DIR = audioDir;
+    try {
+      const owner = appRouter.createCaller(context(713));
+      const intruder = appRouter.createCaller(context(714));
+      const storyId = await seedStory(713);
+      const imported = await owner.timelineMedia.importLocalAudio({
+        storyId,
+        operation: { editorSessionEpoch: "tab-a", operationId: "op-upload" },
+        fileName: "forest.wav",
+        mimeType: "audio/wav",
+        fileBase64: silentWavBase64(),
+        mediaKind: "ambience",
+      });
+      expect(imported).toMatchObject({ status: "ok", reused: false });
+      expect(
+        await listStoryAudioAssetRows({ storyId, userId: 713 })
+      ).toMatchObject([
+        {
+          id: (imported as { assetId: number }).assetId,
+          mediaKind: "ambience",
+          status: "ready",
+        },
+      ]);
+
+      const forged = await intruder.timelineMedia.importLocalAudio({
+        storyId,
+        operation: { editorSessionEpoch: "tab-b", operationId: "op-forged" },
+        fileName: "forged.wav",
+        fileBase64: silentWavBase64(),
+        mediaKind: "music",
+      });
+      expect(forged).toMatchObject({
+        status: "error",
+        failureCode: "story-not-found",
+      });
+      expect(await listStoryAudioAssetRows({ storyId, userId: 714 })).toEqual(
+        []
+      );
+    } finally {
+      if (previousAudioDir === undefined) delete process.env.LOCAL_AUDIO_DIR;
+      else process.env.LOCAL_AUDIO_DIR = previousAudioDir;
+      await rm(audioDir, { recursive: true, force: true });
+    }
   });
 });
 

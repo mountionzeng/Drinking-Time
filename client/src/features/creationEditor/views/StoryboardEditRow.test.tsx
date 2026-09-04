@@ -13,6 +13,7 @@ import {
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
 import { createTimelineViewport } from "@shared/timelineViewport";
+import { emptyAudioState } from "@shared/timelineAudioModel";
 
 vi.stubGlobal("React", React);
 
@@ -98,6 +99,85 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
+  it("keeps subtitle above formal audio lanes and mounts one explicit Add menu", () => {
+    const audioState = emptyAudioState();
+    audioState.tracks
+      .find(track => track.kind === "music")!
+      .clips.push({
+        id: "music-1",
+        assetId: 41,
+        timelineStartFrame: 0,
+        sourceInFrame: 0,
+        sourceOutFrame: 90,
+        durationFrames: 90,
+        gain: 1,
+        muted: false,
+        fadeInFrames: 0,
+        fadeOutFrames: 0,
+      });
+    audioState.tracks
+      .find(track => track.kind === "ambience")!
+      .clips.push({
+        id: "ambience-1",
+        assetId: 42,
+        timelineStartFrame: 30,
+        sourceInFrame: 0,
+        sourceOutFrame: 60,
+        durationFrames: 60,
+        gain: 1,
+        muted: false,
+        fadeInFrames: 0,
+        fadeOutFrames: 0,
+      });
+    const html = renderRow(
+      boardTimeline({
+        subtitle: {
+          cues: [],
+          selectedCueId: null,
+          onSelectCue: vi.fn(),
+          pending: false,
+          error: null,
+          candidates: [],
+          onGenerateFromText: vi.fn(),
+          onEditText: vi.fn(),
+          onMove: vi.fn(),
+          onTrim: vi.fn(),
+          onSplit: vi.fn(),
+          onMerge: vi.fn(),
+          onDelete: vi.fn(),
+        },
+        audio: {
+          storyId: 12,
+          audioState,
+          selectedClipId: null,
+          pending: false,
+          error: null,
+          onSelectClip: vi.fn(),
+          onMove: vi.fn(),
+          onTrim: vi.fn(),
+          onDelete: vi.fn(),
+          onSetGain: vi.fn(),
+          onSetMuted: vi.fn(),
+          onSetFade: vi.fn(),
+          onReclassify: vi.fn(),
+        },
+        addMedia: {
+          availableActions: ["import-music", "import-ambience", "import-sfx"],
+          onPick: vi.fn(),
+        },
+      })
+    );
+    const subtitle = html.indexOf('data-testid="storyboard-subtitle-track"');
+    const music = html.indexOf('data-testid="storyboard-audio-track-music"');
+    const ambience = html.indexOf(
+      'data-testid="storyboard-audio-track-ambience"'
+    );
+    expect(subtitle).toBeGreaterThan(-1);
+    expect(music).toBeGreaterThan(subtitle);
+    expect(ambience).toBeGreaterThan(music);
+    expect(html).toContain('data-testid="add-timeline-media-trigger"');
+  });
+
   it("ignores an old Story completion after a new Story starts work", async () => {
     const storyAToken = Symbol("story-a");
     const guard = createStoryboardAsyncSessionGuard(storyAToken);
