@@ -11,6 +11,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 
 const execFileP = promisify(execFile);
@@ -197,6 +198,44 @@ describe("fetchTrustedAudioBytes", () => {
 });
 
 describe("importAudioBytes state machine", () => {
+  it("rejects a forged Story scope before creating metadata or touching remote bytes", async () => {
+    const storyId = await seedStory(1);
+    const { importAudioBytes, materializeRemoteAudio } = await importSvc();
+    const { listStoryAudioAssetRows } = await db();
+
+    await expect(
+      importAudioBytes({
+        scope: { storyId, userId: 2 },
+        operationId: "op-forged-local",
+        sourceKind: "local-upload",
+        displayName: "forged.wav",
+        bytes: goodWavBytes,
+      })
+    ).resolves.toMatchObject({
+      status: "failed",
+      failureCode: "story-not-found",
+    });
+
+    const fetchImpl = vi.fn();
+    await expect(
+      materializeRemoteAudio({
+        scope: { storyId, userId: 2 },
+        operationId: "op-forged-remote",
+        sourceKind: "chatcut",
+        sourceKey: "chatcut:forged",
+        displayName: "forged.wav",
+        url: "https://bucket.s3.amazonaws.com/forged.wav",
+        download: { fetchImpl: fetchImpl as never },
+      })
+    ).resolves.toMatchObject({
+      status: "failed",
+      failureCode: "story-not-found",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await listStoryAudioAssetRows({ storyId, userId: 2 })).toEqual([]);
+    expect(await listStoryAudioAssetRows({ storyId, userId: 1 })).toEqual([]);
+  });
+
   it("happy path: pending -> staged -> probed -> ready with trustworthy facts", async () => {
     const storyId = await seedStory();
     const { importAudioBytes } = await importSvc();

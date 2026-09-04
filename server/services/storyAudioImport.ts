@@ -20,6 +20,7 @@ import path from "node:path";
 import {
   createStoryAudioImportOperationRow,
   getStoryAudioImportOperationRow,
+  getStoryById,
   listUnsettledStoryAudioImportOperationRows,
   removeManagedAudioFiles,
   updateStoryAudioImportOperationRow,
@@ -325,6 +326,18 @@ export async function importAudioBytes(
 ): Promise<StoryAudioImportResult> {
   const { scope, operationId } = input;
 
+  // The asset row's compound ownership is not enough in local-memory mode:
+  // unlike MySQL, the in-memory store has no foreign-key enforcement. Close
+  // the boundary here before creating an operation, writing staging bytes, or
+  // probing a caller-selected Story id.
+  if (!(await getStoryById(scope.storyId, scope.userId))) {
+    return {
+      status: "failed",
+      reason: "故事不存在或无权访问",
+      failureCode: "story-not-found",
+    };
+  }
+
   const existing = await getStoryAudioImportOperationRow({
     storyId: scope.storyId,
     userId: scope.userId,
@@ -506,6 +519,17 @@ export type MaterializeRemoteAudioInput = {
 export async function materializeRemoteAudio(
   input: MaterializeRemoteAudioInput
 ): Promise<StoryAudioImportResult> {
+  // Fail closed before DNS/network work. `importAudioBytes` repeats this check
+  // immediately before persistence so the local and remote entry points keep
+  // the same ownership contract even if they are called independently.
+  if (!(await getStoryById(input.scope.storyId, input.scope.userId))) {
+    return {
+      status: "failed",
+      reason: "故事不存在或无权访问",
+      failureCode: "story-not-found",
+    };
+  }
+
   // Short-circuit reuse before we touch the network.
   const reusable = await findReusableReadyStoryAudioAsset({
     scope: input.scope,
