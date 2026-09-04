@@ -24,6 +24,12 @@ import {
   decideEvidenceLossOutcome,
   insightLineageTip,
   type PersonalMemoryInsightRecord,
+  decodePersonalMemoryTimelineCursor,
+  encodePersonalMemoryTimelineCursor,
+  parsePersonalMemorySourceRef,
+  summarizePersonalMemoryDays,
+  toPersonalMemoryTimelineItem,
+  type PersonalMemoryEventRecord,
 } from "./personalMemory";
 
 function identity(
@@ -725,5 +731,161 @@ describe("来源被清空内容后重新计算依据", () => {
   it("非活跃理解不参与召回判定，即使证据清零", () => {
     expect(decideEvidenceLossOutcome(tip("archived"), 0)).toBe("unaffected");
     expect(decideEvidenceLossOutcome(tip("forgotten"), 0)).toBe("unaffected");
+  });
+});
+
+describe("足迹时间线契约（U7）", () => {
+  describe("游标编解码", () => {
+    it("往返保真", () => {
+      const cursor = { occurredAt: "2026-09-03T10:00:00.000Z", id: 42 };
+      const encoded = encodePersonalMemoryTimelineCursor(cursor);
+      expect(decodePersonalMemoryTimelineCursor(encoded)).toEqual(cursor);
+    });
+
+    it("是不透明的：编码结果里不出现可读的时间戳", () => {
+      const encoded = encodePersonalMemoryTimelineCursor({
+        occurredAt: "2026-09-03T10:00:00.000Z",
+        id: 42,
+      });
+      expect(encoded).not.toContain("2026");
+    });
+
+    it.each([
+      ["空字符串", ""],
+      ["不是 base64", "!!!!"],
+      ["解出来不是数组", Buffer.from('{"a":1}').toString("base64url")],
+      ["长度不对", Buffer.from('["2026-09-03T10:00:00Z"]').toString("base64url")],
+      ["时间不合法", Buffer.from('["nope",1]').toString("base64url")],
+      ["id 是小数", Buffer.from('["2026-09-03T10:00:00Z",1.5]').toString("base64url")],
+      ["id 是负数", Buffer.from('["2026-09-03T10:00:00Z",-1]').toString("base64url")],
+      ["id 是字符串", Buffer.from('["2026-09-03T10:00:00Z","1"]').toString("base64url")],
+    ])("伪造的游标（%s）解析成 null 而不是抛错", (_label, raw) => {
+      expect(decodePersonalMemoryTimelineCursor(raw)).toBeNull();
+    });
+
+    it("null / undefined 都当作从头开始", () => {
+      expect(decodePersonalMemoryTimelineCursor(null)).toBeNull();
+      expect(decodePersonalMemoryTimelineCursor(undefined)).toBeNull();
+    });
+
+    it("超长输入直接拒绝，不进 JSON.parse", () => {
+      expect(decodePersonalMemoryTimelineCursor("a".repeat(513))).toBeNull();
+    });
+  });
+
+  describe("sourceKey 解析", () => {
+    it.each([
+      ["chat_message", "message:12", { kind: "chat_message", messageId: 12 }],
+      [
+        "daily_letter_message",
+        "daily-letter:2026-09-03",
+        { kind: "daily_letter", letterDate: "2026-09-03" },
+      ],
+      [
+        "daily_letter_version",
+        "daily-letter:2026-09-03",
+        { kind: "daily_letter", letterDate: "2026-09-03" },
+      ],
+      ["image_adoption", "image:7", { kind: "image", imageId: 7 }],
+      [
+        "publishing_adoption",
+        "publishing:3:v2",
+        { kind: "publishing", storyId: 3, versionId: "v2" },
+      ],
+      ["insight", "lineage-abc", { kind: "insight", lineageKey: "lineage-abc" }],
+    ] as const)("解析 %s", (sourceType, sourceKey, expected) => {
+      expect(parsePersonalMemorySourceRef(sourceType, sourceKey)).toEqual(
+        expected
+      );
+    });
+
+    it("发布版本号是不透明字符串（v1），不是数字主键", () => {
+      // 这条锁住一个真实踩过的坑：`versionId = \`v${nextSequence}\`` 不是数字，
+      // 用 \\d+ 去匹配会让所有文章采用的来源解析静默失败、全部显示成「已删除」。
+      expect(
+        parsePersonalMemorySourceRef("publishing_adoption", "publishing:3:v10")
+      ).toEqual({ kind: "publishing", storyId: 3, versionId: "v10" });
+    });
+
+    it.each([
+      ["类型对不上格式", "chat_message", "image:1"],
+      ["消息 ID 不是数字", "chat_message", "message:abc"],
+      ["消息 ID 是 0", "chat_message", "message:0"],
+      ["日期格式不对", "daily_letter_message", "daily-letter:2026-9-3"],
+      ["图片 ID 为负", "image_adoption", "image:-1"],
+      ["发布缺版本", "publishing_adoption", "publishing:3"],
+      ["发布版本含路径分隔符", "publishing_adoption", "publishing:3:../x"],
+      ["空 lineageKey", "insight", ""],
+    ] as const)("解析不出来就返回 null（%s），绝不猜", (_label, type, key) => {
+      expect(parsePersonalMemorySourceRef(type, key)).toBeNull();
+    });
+  });
+
+  describe("时间线投影", () => {
+    function eventAt(
+      overrides: Partial<PersonalMemoryEventRecord> = {}
+    ): PersonalMemoryEventRecord {
+      return {
+        id: 1,
+        userId: 1,
+        sourceType: "chat_message",
+        sourceKey: "message:1",
+        sourceRevision: "1",
+        actionKind: "submitted",
+        actionId: "a1",
+        occurredOn: "2026-09-03",
+        occurredAt: "2026-09-03T10:00:00.000Z",
+        snapshot: { excerpt: "原话", contentHash: null, display: null },
+        contentScrubbed: false,
+        createdAt: "2026-09-03T10:00:00.000Z",
+        ...overrides,
+      };
+    }
+
+    it("被 scrub 的事件不再暴露摘录", () => {
+      const item = toPersonalMemoryTimelineItem(
+        eventAt({ contentScrubbed: true, snapshot: { excerpt: "残留", contentHash: null, display: null } })
+      );
+      // 即使快照里还留着字符串，投影层也必须挡住——删除后不能靠"上游会清"。
+      expect(item.excerpt).toBeNull();
+      expect(item.contentScrubbed).toBe(true);
+    });
+
+    it("锚点带日期，返回时能恢复到原日期段", () => {
+      expect(toPersonalMemoryTimelineItem(eventAt({ id: 9 })).anchor).toBe(
+        "2026-09-03#event-9"
+      );
+    });
+
+    it("摘要按有活动的日期取，不制造空自然日", () => {
+      const days = summarizePersonalMemoryDays(
+        [
+          eventAt({ id: 1, occurredOn: "2026-09-03" }),
+          eventAt({ id: 2, occurredOn: "2026-09-03", sourceType: "image_adoption" }),
+          // 中间的 09-02 完全没有事件，不该出现在结果里。
+          eventAt({ id: 3, occurredOn: "2026-09-01" }),
+        ],
+        5
+      );
+      expect(days.map(day => day.occurredOn)).toEqual([
+        "2026-09-03",
+        "2026-09-01",
+      ]);
+      expect(days[0].eventCount).toBe(2);
+      expect(days[0].sourceTypes).toEqual(["chat_message", "image_adoption"]);
+    });
+
+    it("摘要按日期降序截断到 maxDays", () => {
+      const days = summarizePersonalMemoryDays(
+        ["2026-09-05", "2026-09-04", "2026-09-03", "2026-09-02"].map(
+          (occurredOn, index) => eventAt({ id: index + 1, occurredOn })
+        ),
+        2
+      );
+      expect(days.map(day => day.occurredOn)).toEqual([
+        "2026-09-05",
+        "2026-09-04",
+      ]);
+    });
   });
 });

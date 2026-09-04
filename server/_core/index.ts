@@ -15,6 +15,7 @@ import { getDb, getStoryById, getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
 import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
+import { registerPersonalMemoryMediaRoute } from "./personalMemoryMediaRoute";
 import {
   findAvailablePort,
 } from "./portPolicy";
@@ -174,6 +175,8 @@ async function startServer() {
     }
     res.status(404).end();
   });
+  // 足迹私密媒体端点（U7）。实现与逐请求归属校验见该模块。
+  registerPersonalMemoryMediaRoute(app);
   // 旧路由兼容：历史数据里存过 /local-images/<file>，继续可用，同样指向共享资产库。
   app.use(
     "/local-images",

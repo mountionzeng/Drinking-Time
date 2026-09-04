@@ -1073,3 +1073,207 @@ export function decideEvidenceLossOutcome(
   if (tip.state !== "active") return "unaffected"; // 非活跃理解不参与召回判定
   return remainingValidEvidenceCount > 0 ? "unaffected" : "unsupported";
 }
+
+// ─── 足迹时间线（U7） ─────────────────────────────────────────────────
+
+/**
+ * 时间线游标。
+ *
+ * 语义是 keyset：「继续读 (occurredAt, id) 严格小于这一对的事件」。
+ * 不用 offset —— 翻页途中插入新事件会让 offset 分页漏掉或重复整行。
+ *
+ * 它是**不透明**的：调用方只负责原样回传。之所以还要严格校验解析结果，
+ * 是因为伪造的游标不能变成 SQL 注入或越权——但即使伪造成功，服务端始终
+ * 用认证上下文的 userId 过滤，所以最坏情况也只是在**自己**的数据里跳位置。
+ */
+export type PersonalMemoryTimelineCursor = {
+  occurredAt: string;
+  id: number;
+};
+
+export function encodePersonalMemoryTimelineCursor(
+  cursor: PersonalMemoryTimelineCursor
+): string {
+  const raw = JSON.stringify([cursor.occurredAt, cursor.id]);
+  return Buffer.from(raw, "utf8").toString("base64url");
+}
+
+/** 解析失败一律返回 null——由调用方当作「从头开始」，绝不抛给用户看。 */
+export function decodePersonalMemoryTimelineCursor(
+  raw: string | null | undefined
+): PersonalMemoryTimelineCursor | null {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 512) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  const [occurredAt, id] = parsed;
+  if (typeof occurredAt !== "string" || occurredAt.length === 0) return null;
+  if (Number.isNaN(Date.parse(occurredAt))) return null;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
+    return null;
+  }
+  return { occurredAt, id };
+}
+
+/**
+ * 来源当前的可达状态。
+ *
+ * 关键是把「已删除」和「当前无权访问」分成两种：它们对用户的解释完全不同
+ * （一个是自己删掉了，一个是协作关系变了），而对攻击者又都不泄露内容。
+ */
+export type PersonalMemorySourceAvailability =
+  /** 来源仍在，且当前账号有权访问。 */
+  | "accessible"
+  /** 来源已被删除（或内容已被 scrub）。 */
+  | "deleted"
+  /** 来源存在，但当前账号无权访问。 */
+  | "forbidden"
+  /** 来源还在生成／处理中，暂时没有可展示内容。 */
+  | "processing";
+
+/**
+ * 时间线上的一条经历。
+ *
+ * 这是**索引投影**，不含来源正文——正文要另外走 resolver 逐条重新校验归属。
+ * 之所以分成两步：列表一次几十条，不可能每条都去业务表验一遍归属；
+ * 而只要列表本身泄露了摘录，验不验归属就都晚了。所以列表只放事件自己那份
+ * 最小摘录（捕获时就已经按展示需要裁剪过，且来源删除时会被 scrub 清空）。
+ */
+export type PersonalMemoryTimelineItem = {
+  id: number;
+  occurredOn: string;
+  occurredAt: string;
+  sourceType: PersonalMemorySourceType;
+  actionKind: PersonalMemoryActionKind;
+  /** 来源删除后为 null。 */
+  excerpt: string | null;
+  display: Record<string, unknown> | null;
+  contentScrubbed: boolean;
+  /** 深链锚点：`<occurredOn>#event-<id>`，返回时可恢复到原日期段。 */
+  anchor: string;
+};
+
+export type PersonalMemoryTimelinePage = {
+  items: PersonalMemoryTimelineItem[];
+  nextCursor: string | null;
+};
+
+export function personalMemoryEventAnchor(event: {
+  occurredOn: string;
+  id: number;
+}): string {
+  return `${event.occurredOn}#event-${event.id}`;
+}
+
+export function toPersonalMemoryTimelineItem(
+  event: PersonalMemoryEventRecord
+): PersonalMemoryTimelineItem {
+  return {
+    id: event.id,
+    occurredOn: event.occurredOn,
+    occurredAt: event.occurredAt,
+    sourceType: event.sourceType,
+    actionKind: event.actionKind,
+    excerpt: event.contentScrubbed ? null : event.snapshot.excerpt,
+    display: event.snapshot.display,
+    contentScrubbed: event.contentScrubbed,
+    anchor: personalMemoryEventAnchor(event),
+  };
+}
+
+/**
+ * 摘要里的「最近有活动的日期」。
+ *
+ * 刻意按**有事件的日期**取前 N 个，而不是取最近 N 个自然日——后者会造出一串
+ * 空日期，让用户以为系统那天记了什么却显示不出来。
+ */
+export type PersonalMemorySummaryDay = {
+  occurredOn: string;
+  eventCount: number;
+  sourceTypes: PersonalMemorySourceType[];
+};
+
+export function summarizePersonalMemoryDays(
+  events: readonly PersonalMemoryEventRecord[],
+  maxDays: number
+): PersonalMemorySummaryDay[] {
+  const byDate = new Map<string, PersonalMemorySummaryDay>();
+  for (const event of events) {
+    let day = byDate.get(event.occurredOn);
+    if (!day) {
+      day = { occurredOn: event.occurredOn, eventCount: 0, sourceTypes: [] };
+      byDate.set(event.occurredOn, day);
+    }
+    day.eventCount += 1;
+    if (!day.sourceTypes.includes(event.sourceType)) {
+      day.sourceTypes.push(event.sourceType);
+    }
+  }
+  return [...byDate.values()]
+    .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn))
+    .slice(0, Math.max(0, maxDays));
+}
+
+/**
+ * 从 sourceKey 解析出来源标识。
+ *
+ * 解析失败返回 null，调用方据此判 deleted/unknown，**绝不**猜测——
+ * 猜错的后果是把别人的资源当成这条经历的来源展示出去。
+ */
+export type PersonalMemorySourceRef =
+  | { kind: "chat_message"; messageId: number }
+  | { kind: "daily_letter"; letterDate: string }
+  | { kind: "image"; imageId: number }
+  | { kind: "publishing"; storyId: number; versionId: string }
+  | { kind: "insight"; lineageKey: string };
+
+export function parsePersonalMemorySourceRef(
+  sourceType: PersonalMemorySourceType,
+  sourceKey: string
+): PersonalMemorySourceRef | null {
+  switch (sourceType) {
+    case "chat_message": {
+      const match = /^message:(\d+)$/.exec(sourceKey);
+      if (!match) return null;
+      const messageId = Number(match[1]);
+      return Number.isSafeInteger(messageId) && messageId > 0
+        ? { kind: "chat_message", messageId }
+        : null;
+    }
+    case "daily_letter_message":
+    case "daily_letter_version": {
+      const match = /^daily-letter:(\d{4}-\d{2}-\d{2})$/.exec(sourceKey);
+      return match ? { kind: "daily_letter", letterDate: match[1] } : null;
+    }
+    case "image_adoption": {
+      const match = /^image:(\d+)$/.exec(sourceKey);
+      if (!match) return null;
+      const imageId = Number(match[1]);
+      return Number.isSafeInteger(imageId) && imageId > 0
+        ? { kind: "image", imageId }
+        : null;
+    }
+    case "publishing_adoption": {
+      // versionId 是发布侧自己发的不透明序号（`v1`、`v2`…），不是数字主键——
+      // 这里只做长度与字符集校验，语义仍由发布侧权威解释。
+      const match = /^publishing:(\d+):([A-Za-z0-9_-]{1,64})$/.exec(sourceKey);
+      if (!match) return null;
+      const storyId = Number(match[1]);
+      return Number.isSafeInteger(storyId) && storyId > 0
+        ? { kind: "publishing", storyId, versionId: match[2] }
+        : null;
+    }
+    case "insight":
+      return sourceKey.length > 0
+        ? { kind: "insight", lineageKey: sourceKey }
+        : null;
+    default:
+      return null;
+  }
+}

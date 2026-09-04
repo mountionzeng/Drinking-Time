@@ -192,4 +192,45 @@ describe("router ownership boundaries", () => {
     // routerSources() so the ownership guard above covers it.
     expect(unscanned).toEqual([]);
   });
+
+  /**
+   * 个人记忆足迹的租户边界（U7）。
+   *
+   * 足迹里全是用户最私密的原话。projectId 那条护栏在这里救不了场：这个
+   * router 用的访问键是 eventId 和 lineageKey，而且**根本不该**接受任何
+   * 客户端声明的用户身份——userId 只能来自 `ctx.user.id`。
+   *
+   * 所以这条护栏失败关闭：只要有人给足迹入口加了 userId／openId 这类字段，
+   * 或者写了一个不从 ctx 取身份的 procedure，构建就红，而不是等上线之后
+   * 由某个猜 ID 的人来告诉我们。
+   */
+  it("never lets the personal-memory API accept a client-supplied identity", async () => {
+    const source = (await routerSources()).find(
+      entry => entry.file === "personalMemory.ts"
+    );
+    expect(source).toBeDefined();
+
+    const blocks = procedureBlocks(source!.content);
+    expect(blocks.length).toBeGreaterThan(0);
+
+    const violations: string[] = [];
+    for (const [name, kind, body] of blocks) {
+      // 未登录就没有可校验的归属，足迹不存在"公开"这个选项。
+      if (kind !== "protectedProcedure") {
+        violations.push(`${name} (${kind})`);
+        continue;
+      }
+      // input schema 里出现任何身份字段都是违规：一旦接受，
+      // 后面所有归属校验都失去意义。
+      if (/(userId|openId|accountId|ownerId):\s*z\./.test(body)) {
+        violations.push(`${name} (accepts identity in input)`);
+        continue;
+      }
+      // 身份必须真的从会话上下文取。
+      if (!/ctx\.user\.id/.test(body)) {
+        violations.push(`${name} (does not read ctx.user.id)`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
 });
