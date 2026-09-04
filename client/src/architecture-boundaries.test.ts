@@ -345,6 +345,11 @@ describe("architecture boundaries", () => {
     // Story+Timeline CAS。到期条件是这些能力下沉到独立 repository package，
     // 届时整体迁移本条，不得重新散回 editing services。
     "server/persistence/storyVisualPersistence.ts",
+    // U2：受管音频资产与 staged import 的领域 persistence。到期条件是这两条
+    // 能力下沉到独立 repository package（与 storyVisualPersistence 一并迁出），
+    // 届时整体迁移本组，不得散回各 editing/import 调用点。
+    "server/services/storyAudioAssets.ts",
+    "server/services/storyAudioImport.ts",
     // 抽帧 durable receipt 状态机的持久化 owner。到期条件是 receipt SQL/本地
     // 状态物理迁出 db.ts；迁移只能收窄这一条，不能让 workflow 直接 import db。
     "server/persistence/timelineFrameExtractionPersistence.ts",

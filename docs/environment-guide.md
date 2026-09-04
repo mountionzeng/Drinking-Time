@@ -22,6 +22,8 @@
 
 图片目录即使通过 `LOCAL_IMAGE_DIR` 共享，也不会让业务 JSON 自动共享。
 
+受管音频字节（旁白 / 音乐 / 环境声 / 原声）落在 `.webdev/audio`，可用 `LOCAL_AUDIO_DIR` 覆盖；暂存目录是它下面的 `.staging`。这份字节没有自动安全网 —— 备份和恢复用 `pnpm backup:media backup` / `pnpm backup:media restore --in <dir>`，恢复顺序固定为「先字节、后元数据」，缺文件的资产会被标成 `failed` 而不是静默当成 ready。删除故事会连带清掉它的资产行、导入操作和受管字节。服务启动时的恢复器会把中断的导入补偿为 `failed`，并清扫超过 24 小时、无操作引用的暂存文件。
+
 ## 两个环境命令
 
 ### `pnpm env:status`：只读诊断

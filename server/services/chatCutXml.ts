@@ -574,6 +574,44 @@ export function parseChatCutXml(xml: string): ChatCutImportPlan {
   };
 }
 
+/**
+ * The audio clips a later *explicit* import can materialize into managed
+ * StoryAudioAssets (U2). This is read-only inventory: nothing is fetched or
+ * written here, and the client never supplies these URLs — they come only from
+ * a manifest the user already attached to their own Story.
+ */
+export type ChatCutMaterializableAudioClip = {
+  clipId: string;
+  trackIndex: number;
+  name: string;
+  audioUrl: string;
+  startFrame: number;
+  endFrame: number;
+};
+
+export function chatCutMaterializableAudioClips(
+  plan: ChatCutImportPlan
+): ChatCutMaterializableAudioClip[] {
+  return plan.audioTracks.flatMap(track =>
+    track.clips.flatMap(clip => {
+      const audioUrl =
+        typeof clip.audioUrl === "string" ? clip.audioUrl.trim() : "";
+      return audioUrl
+        ? [
+            {
+              clipId: clip.id,
+              trackIndex: clip.trackIndex,
+              name: clip.name,
+              audioUrl,
+              startFrame: clip.startFrame,
+              endFrame: clip.endFrame,
+            },
+          ]
+        : [];
+    })
+  );
+}
+
 export function summarizeChatCutImport(
   plan: ChatCutImportPlan
 ): ChatCutImportSummary {

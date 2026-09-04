@@ -11,6 +11,7 @@ import {
   importChatCutXmlStory,
   parseChatCutXml,
   summarizeChatCutImport,
+  chatCutMaterializableAudioClips,
 } from "./chatCutXml";
 import { createStory } from "../db";
 
@@ -133,6 +134,20 @@ describe("parseChatCutXml", () => {
       reverse: true,
     });
     expect(plan.audioTracks[0].clips[0].pathUrl).toBe("file://./first.mp4");
+  });
+
+  it("lists ChatCut audio clips that could be materialized into managed assets", () => {
+    const plan = parseChatCutXml(FIXTURE);
+    const clips = chatCutMaterializableAudioClips(plan);
+    // Only clips that carry a resolvable audio URL are offered.
+    for (const clip of clips) {
+      expect(clip.audioUrl).toMatch(/^https?:/);
+      expect(clip.clipId).toBeTruthy();
+      expect(clip.endFrame).toBeGreaterThan(clip.startFrame);
+    }
+    expect(clips.length).toBeLessThanOrEqual(
+      plan.audioTracks.reduce((n, t) => n + t.clips.length, 0)
+    );
   });
 
   it("rejects entity declarations and non-XMEML files", () => {

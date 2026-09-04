@@ -11,7 +11,14 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
-import { getDb, getStoryById, getVideoTakeById } from "../db";
+import {
+  getDb,
+  getStoryAudioAssetRow,
+  getStoryById,
+  getVideoTakeById,
+} from "../db";
+import { resolveManagedAudioPath } from "../services/audioMedia";
+import { recoverStaleAudioImports } from "../services/storyAudioImport";
 import { localVideoDir } from "../services/videoMedia";
 import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
@@ -245,6 +252,52 @@ async function startServer() {
       res.status(502).end();
     }
   });
+  // 受管音频资产（U2）：只按 storyId + assetId 服务，userId 从 session 注入，
+  // 服务端重新校验资产属于该 Story 和用户，且已 ready；支持 Range。
+  app.get("/api/story-audio-asset/:storyId/:assetId", async (req, res) => {
+    const storyId = Number(req.params.storyId);
+    const assetId = Number(req.params.assetId);
+    if (
+      !Number.isInteger(storyId) ||
+      storyId <= 0 ||
+      !Number.isInteger(assetId) ||
+      assetId <= 0
+    ) {
+      res.status(400).end();
+      return;
+    }
+    let userId: number | null = null;
+    try {
+      userId = await resolveMediaRouteUserId(req);
+    } catch {
+      res.status(401).end();
+      return;
+    }
+    if (userId == null) {
+      res.status(401).end();
+      return;
+    }
+    const asset = await getStoryAudioAssetRow({ assetId, storyId, userId });
+    if (!asset || asset.status !== "ready") {
+      res.status(404).end();
+      return;
+    }
+    let full: string;
+    try {
+      full = resolveManagedAudioPath(asset.storageKey);
+    } catch {
+      res.status(404).end();
+      return;
+    }
+    if (!fs.existsSync(full)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("Accept-Ranges", "bytes");
+    // express handles the Range header itself for sendFile.
+    res.sendFile(full);
+  });
   // 聊聊衔接确认卡：从用户有权访问的当前 Take 中抽取精确端点帧。
   // URL 里的时间只用于预览；真正付费提交前会按当前时间轴重新推导并校验。
   app.get("/api/video-frames/:takeId", async (req, res) => {
@@ -317,6 +370,23 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Best-effort: compensate any audio imports interrupted by a previous crash
+  // and sweep stale staging files. Never blocks startup.
+  void recoverStaleAudioImports()
+    .then(report => {
+      if (report.compensatedOperations || report.removedStagingFiles) {
+        console.log(
+          `[audio-import] 恢复：补偿 ${report.compensatedOperations} 个中断导入，清理 ${report.removedStagingFiles} 个暂存文件`
+        );
+      }
+    })
+    .catch(error => {
+      console.warn(
+        "[audio-import] 启动恢复失败：",
+        error instanceof Error ? error.message : String(error)
+      );
+    });
 }
 
 startServer().catch(error => {

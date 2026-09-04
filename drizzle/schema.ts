@@ -1148,6 +1148,137 @@ export type InsertTimelineFrameExtractionOperation =
   typeof timelineFrameExtractionOperations.$inferInsert;
 
 /**
+ * StoryAudioAsset (U2) — the managed audio bytes boundary. A Timeline audio
+ * clip only ever holds a non-owning `assetId`; deleting/undoing a clip must
+ * never touch the row or the file here. `storageKey` is opaque and minted
+ * server-side (see server/services/audioMedia.ts); `checksum` + `sourceKey`
+ * give per-Story idempotent reuse of a `ready` asset.
+ */
+export const storyAudioAssets = mysqlTable(
+  "story_audio_assets",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storageKey: varchar("storageKey", { length: 64 }).notNull(),
+    displayName: varchar("displayName", { length: 200 }).notNull(),
+    /** Semantic role hint recorded at import; the Timeline track owns the real kind. */
+    mediaKind: mysqlEnum("mediaKind", [
+      "narration",
+      "music",
+      "ambience",
+      "sfx",
+      "source",
+      "unknown",
+    ])
+      .notNull()
+      .default("unknown"),
+    sourceKind: mysqlEnum("sourceKind", [
+      "local-upload",
+      "chatcut",
+      "tts",
+    ]).notNull(),
+    /** Stable identity of the upstream bytes, for idempotent reuse within a Story. */
+    sourceKey: varchar("sourceKey", { length: 255 }),
+    checksum: varchar("checksum", { length: 64 }),
+    status: mysqlEnum("status", ["pending", "ready", "failed"])
+      .notNull()
+      .default("pending"),
+    failureReason: varchar("failureReason", { length: 255 }),
+    durationFrames: int("durationFrames"),
+    durationSeconds: float("durationSeconds"),
+    sampleRate: int("sampleRate"),
+    channels: int("channels"),
+    codecName: varchar("codecName", { length: 64 }),
+    formatName: varchar("formatName", { length: 128 }),
+    /** Source-kind specific provenance (TTS operation, ChatCut clip id, upload name). */
+    provenance: json("provenance"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyLookup: index("story_audio_assets_story_index").on(
+      table.storyId,
+      table.userId
+    ),
+    storageKeyUnique: uniqueIndex("story_audio_assets_storage_key_unique").on(
+      table.storageKey
+    ),
+    reuseLookup: index("story_audio_assets_reuse_index").on(
+      table.storyId,
+      table.userId,
+      table.sourceKind,
+      table.sourceKey
+    ),
+    idUserUnique: uniqueIndex("story_audio_assets_id_user_unique").on(
+      table.id,
+      table.userId
+    ),
+  })
+);
+
+export type StoryAudioAsset = typeof storyAudioAssets.$inferSelect;
+export type InsertStoryAudioAsset = typeof storyAudioAssets.$inferInsert;
+
+/**
+ * The recoverable staged-import state machine for one set of audio bytes. The
+ * filesystem and the DB never pretend to share a transaction: this row is the
+ * single source of truth a crash recovery pass reads to replay, compensate, or
+ * clean up.
+ */
+export const storyAudioImportOperations = mysqlTable(
+  "story_audio_import_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationId: varchar("operationId", { length: 128 }).notNull(),
+    assetId: int("assetId"),
+    sourceKind: mysqlEnum("sourceKind", [
+      "local-upload",
+      "chatcut",
+      "tts",
+    ]).notNull(),
+    /** pending -> staged -> probed -> ready | failed */
+    status: mysqlEnum("status", [
+      "pending",
+      "staged",
+      "probed",
+      "ready",
+      "failed",
+    ])
+      .notNull()
+      .default("pending"),
+    failureCode: varchar("failureCode", { length: 128 }),
+    stagingKey: varchar("stagingKey", { length: 128 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerOperationUnique: uniqueIndex(
+      "story_audio_import_owner_operation_unique"
+    ).on(table.storyId, table.userId, table.operationId),
+    recoveryLookup: index("story_audio_import_recovery_index").on(
+      table.status,
+      table.updatedAt
+    ),
+  })
+);
+
+export type StoryAudioImportOperation =
+  typeof storyAudioImportOperations.$inferSelect;
+export type InsertStoryAudioImportOperation =
+  typeof storyAudioImportOperations.$inferInsert;
+
+/**
  * VideoTakes — 单镜头图生视频产物。storyId + stableShotId 是唯一业务归属；
  * taskId 只是供应商任务句柄，videoKey 是后续托管素材库的对象 key。
  */

@@ -31,6 +31,10 @@ import {
   encodeStoredStoryTimeline,
   mergeStoredStoryTimelineExtensions,
 } from "./persistence/storyTimelinePersistence";
+import {
+  isValidAudioStorageKey,
+  resolveManagedAudioPath,
+} from "./services/audioMedia";
 import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
   InsertUser,
@@ -78,6 +82,12 @@ import {
   PreviewMaskedImageOperation,
   timelineFrameExtractionOperations,
   TimelineFrameExtractionOperation,
+  storyAudioAssets,
+  StoryAudioAsset,
+  InsertStoryAudioAsset,
+  storyAudioImportOperations,
+  StoryAudioImportOperation,
+  InsertStoryAudioImportOperation,
   InsertImageSignal,
   imageSignals,
   ImageSignal,
@@ -186,6 +196,8 @@ type MemoryState = {
   videoTakeRanges: VideoTakeRange[];
   videoTimelineSelections: VideoTimelineSelection[];
   storyTimelines: StoryTimeline[];
+  storyAudioAssets: StoryAudioAsset[];
+  storyAudioImportOperations: StoryAudioImportOperation[];
   shotDerivationDrafts: ShotDerivationDraft[];
   storyOperations: StoryOperation[];
   inviteCodes: InviteCode[];
@@ -225,6 +237,8 @@ type MemoryState = {
     videoTakeRange: number;
     videoTimelineSelection: number;
     storyTimeline: number;
+    storyAudioAsset: number;
+    storyAudioImportOperation: number;
     shotDerivationDraft: number;
     storyOperation: number;
     inviteCode: number;
@@ -260,6 +274,8 @@ const memoryState: MemoryState = {
   videoTakeRanges: [],
   videoTimelineSelections: [],
   storyTimelines: [],
+  storyAudioAssets: [],
+  storyAudioImportOperations: [],
   shotDerivationDrafts: [],
   storyOperations: [],
   inviteCodes: [],
@@ -294,6 +310,8 @@ const memoryState: MemoryState = {
     videoTakeRange: 1,
     videoTimelineSelection: 1,
     storyTimeline: 1,
+    storyAudioAsset: 1,
+    storyAudioImportOperation: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
@@ -553,6 +571,18 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as StoryTimeline[];
+  memoryState.storyAudioAssets = (raw.storyAudioAssets ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryAudioAsset[];
+  memoryState.storyAudioImportOperations = (
+    raw.storyAudioImportOperations ?? []
+  ).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryAudioImportOperation[];
   memoryState.shotDerivationDrafts = (raw.shotDerivationDrafts ?? []).map(
     item => ({
       ...item,
@@ -703,6 +733,14 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     storyTimeline: Math.max(
       raw.nextIds?.storyTimeline ?? 0,
       nextIdFromRows(memoryState.storyTimelines)
+    ),
+    storyAudioAsset: Math.max(
+      raw.nextIds?.storyAudioAsset ?? 0,
+      nextIdFromRows(memoryState.storyAudioAssets)
+    ),
+    storyAudioImportOperation: Math.max(
+      raw.nextIds?.storyAudioImportOperation ?? 0,
+      nextIdFromRows(memoryState.storyAudioImportOperations)
     ),
     shotDerivationDraft: Math.max(
       raw.nextIds?.shotDerivationDraft ?? 0,
@@ -2783,12 +2821,26 @@ export async function updateStoryBodyIfRevision(input: {
 
 export async function deleteStory(id: number, userId: number): Promise<void> {
   const db = await getDb();
+  // Managed audio bytes live on local disk in every mode; capture the storage
+  // keys before the rows go so the files can be removed after (best effort —
+  // an FK cascade only takes the metadata).
+  const audioStorageKeys = await listStoryAudioStorageKeysForStory({
+    storyId: id,
+    userId,
+  });
   if (!db) {
     const idx = memoryState.stories.findIndex(
       s => s.id === id && s.userId === userId
     );
     if (idx >= 0) {
       memoryState.stories.splice(idx, 1);
+      memoryState.storyAudioAssets = memoryState.storyAudioAssets.filter(
+        asset => !(asset.storyId === id && asset.userId === userId)
+      );
+      memoryState.storyAudioImportOperations =
+        memoryState.storyAudioImportOperations.filter(
+          op => !(op.storyId === id && op.userId === userId)
+        );
       // 级联删除该故事的镜头（评审 P1）：故事是唯一单位，删故事后其镜头按
       // storyId 再也取不到、永不清理，会成孤儿。同删避免悬挂数据。
       memoryState.shots = memoryState.shots.filter(
@@ -2870,6 +2922,7 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
       await persistLocalPromptLineageStateToDisk(promptLineage);
       await persistMemoryState();
     }
+    await removeManagedAudioFiles(audioStorageKeys);
     return;
   }
   await db
@@ -2918,8 +2971,25 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
     .delete(shots)
     .where(and(eq(shots.storyId, id), eq(shots.userId, userId)));
   await db
+    .delete(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.storyId, id),
+        eq(storyAudioAssets.userId, userId)
+      )
+    );
+  await db
+    .delete(storyAudioImportOperations)
+    .where(
+      and(
+        eq(storyAudioImportOperations.storyId, id),
+        eq(storyAudioImportOperations.userId, userId)
+      )
+    );
+  await db
     .delete(stories)
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
+  await removeManagedAudioFiles(audioStorageKeys);
 }
 
 export type LegacyGuestClaimResult = {
@@ -7946,6 +8016,354 @@ export async function restoreSplitStoryShotAtomic(input: {
   });
 }
 
+
+// ─── Story audio assets & staged import operations (U2) ─────────────────
+
+/**
+ * Best-effort removal of managed audio bytes for a set of storage keys. Never
+ * throws — a missing file or a bad key is fine; the metadata rows are already
+ * gone by the time this runs.
+ */
+export async function removeManagedAudioFiles(
+  storageKeys: readonly string[]
+): Promise<void> {
+  for (const key of storageKeys) {
+    if (!isValidAudioStorageKey(key)) continue;
+    try {
+      await unlink(resolveManagedAudioPath(key));
+    } catch {
+      // best effort
+    }
+  }
+}
+
+
+export type StoryAudioAssetPatch = Partial<
+  Pick<
+    InsertStoryAudioAsset,
+    | "status"
+    | "failureReason"
+    | "durationFrames"
+    | "durationSeconds"
+    | "sampleRate"
+    | "channels"
+    | "codecName"
+    | "formatName"
+    | "checksum"
+    | "sourceKey"
+    | "mediaKind"
+    | "displayName"
+    | "provenance"
+  >
+>;
+
+export async function createStoryAudioAssetRow(
+  data: Omit<
+    InsertStoryAudioAsset,
+    "id" | "createdAt" | "updatedAt"
+  >
+): Promise<StoryAudioAsset> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: StoryAudioAsset = {
+      id: nextMemoryId("storyAudioAsset"),
+      storyId: data.storyId,
+      userId: data.userId,
+      storageKey: data.storageKey,
+      displayName: data.displayName,
+      mediaKind: data.mediaKind ?? "unknown",
+      sourceKind: data.sourceKind,
+      sourceKey: data.sourceKey ?? null,
+      checksum: data.checksum ?? null,
+      status: data.status ?? "pending",
+      failureReason: data.failureReason ?? null,
+      durationFrames: data.durationFrames ?? null,
+      durationSeconds: data.durationSeconds ?? null,
+      sampleRate: data.sampleRate ?? null,
+      channels: data.channels ?? null,
+      codecName: data.codecName ?? null,
+      formatName: data.formatName ?? null,
+      provenance: data.provenance ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.storyAudioAssets.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(storyAudioAssets).values(data);
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(eq(storyAudioAssets.id, result.insertId));
+  return row;
+}
+
+export async function updateStoryAudioAssetRow(
+  assetId: number,
+  userId: number,
+  patch: StoryAudioAssetPatch
+): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.storyAudioAssets.find(
+      asset => asset.id === assetId && asset.userId === userId
+    );
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(storyAudioAssets)
+    .set(patch)
+    .where(
+      and(
+        eq(storyAudioAssets.id, assetId),
+        eq(storyAudioAssets.userId, userId)
+      )
+    );
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(eq(storyAudioAssets.id, assetId));
+  return row ?? null;
+}
+
+/** Ownership-checked read. Never trusts a bare assetId. */
+export async function getStoryAudioAssetRow(input: {
+  assetId: number;
+  storyId: number;
+  userId: number;
+}): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioAssets.find(
+        asset =>
+          asset.id === input.assetId &&
+          asset.storyId === input.storyId &&
+          asset.userId === input.userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.id, input.assetId),
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId)
+      )
+    );
+  return row ?? null;
+}
+
+export async function listStoryAudioAssetRows(input: {
+  storyId: number;
+  userId: number;
+}): Promise<StoryAudioAsset[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.storyAudioAssets
+      .filter(
+        asset =>
+          asset.storyId === input.storyId && asset.userId === input.userId
+      )
+      .map(asset => ({ ...asset }));
+  }
+  return db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId)
+      )
+    );
+}
+
+/** A `ready` asset with the same upstream identity in the same Story, for idempotent reuse. */
+export async function findReusableStoryAudioAssetRow(input: {
+  storyId: number;
+  userId: number;
+  sourceKind: StoryAudioAsset["sourceKind"];
+  sourceKey: string;
+}): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioAssets.find(
+        asset =>
+          asset.storyId === input.storyId &&
+          asset.userId === input.userId &&
+          asset.sourceKind === input.sourceKind &&
+          asset.sourceKey === input.sourceKey &&
+          asset.status === "ready"
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId),
+        eq(storyAudioAssets.sourceKind, input.sourceKind),
+        eq(storyAudioAssets.sourceKey, input.sourceKey),
+        eq(storyAudioAssets.status, "ready")
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export type StoryAudioImportOperationPatch = Partial<
+  Pick<
+    InsertStoryAudioImportOperation,
+    "status" | "failureCode" | "stagingKey" | "assetId"
+  >
+>;
+
+export async function createStoryAudioImportOperationRow(
+  data: Omit<
+    InsertStoryAudioImportOperation,
+    "id" | "createdAt" | "updatedAt"
+  >
+): Promise<StoryAudioImportOperation> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: StoryAudioImportOperation = {
+      id: nextMemoryId("storyAudioImportOperation"),
+      storyId: data.storyId,
+      userId: data.userId,
+      operationId: data.operationId,
+      assetId: data.assetId ?? null,
+      sourceKind: data.sourceKind,
+      status: data.status ?? "pending",
+      failureCode: data.failureCode ?? null,
+      stagingKey: data.stagingKey ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.storyAudioImportOperations.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(storyAudioImportOperations).values(data);
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(eq(storyAudioImportOperations.id, result.insertId));
+  return row;
+}
+
+export async function getStoryAudioImportOperationRow(input: {
+  storyId: number;
+  userId: number;
+  operationId: string;
+}): Promise<StoryAudioImportOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioImportOperations.find(
+        op =>
+          op.storyId === input.storyId &&
+          op.userId === input.userId &&
+          op.operationId === input.operationId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(
+      and(
+        eq(storyAudioImportOperations.storyId, input.storyId),
+        eq(storyAudioImportOperations.userId, input.userId),
+        eq(storyAudioImportOperations.operationId, input.operationId)
+      )
+    );
+  return row ?? null;
+}
+
+export async function updateStoryAudioImportOperationRow(
+  id: number,
+  patch: StoryAudioImportOperationPatch
+): Promise<StoryAudioImportOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.storyAudioImportOperations.find(op => op.id === id);
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(storyAudioImportOperations)
+    .set(patch)
+    .where(eq(storyAudioImportOperations.id, id));
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(eq(storyAudioImportOperations.id, id));
+  return row ?? null;
+}
+
+/** Operations still mid-flight, for the crash-recovery pass. */
+export async function listUnsettledStoryAudioImportOperationRows(): Promise<
+  StoryAudioImportOperation[]
+> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.storyAudioImportOperations
+      .filter(op => op.status !== "ready" && op.status !== "failed")
+      .map(op => ({ ...op }));
+  }
+  return db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(
+      and(
+        ne(storyAudioImportOperations.status, "ready"),
+        ne(storyAudioImportOperations.status, "failed")
+      )
+    );
+}
+
+/**
+ * Managed audio storage keys still referenced by a Story's asset rows —
+ * used by the backup script and by Story deletion to clean the real bytes.
+ */
+export async function listStoryAudioStorageKeysForStory(input: {
+  storyId: number;
+  userId: number;
+}): Promise<string[]> {
+  const rows = await listStoryAudioAssetRows(input);
+  return rows.map(row => row.storageKey);
+}
+
 export async function createShotDerivationDraft(
   data: Omit<InsertShotDerivationDraft, "id" | "createdAt" | "updatedAt">
 ): Promise<ShotDerivationDraft> {
@@ -8718,6 +9136,8 @@ export function resetMemoryStateForTesting(): void {
   memoryState.videoTakeRanges = [];
   memoryState.videoTimelineSelections = [];
   memoryState.storyTimelines = [];
+  memoryState.storyAudioAssets = [];
+  memoryState.storyAudioImportOperations = [];
   memoryState.shotDerivationDrafts = [];
   memoryState.storyOperations = [];
   memoryState.inviteCodes = [];
@@ -8756,6 +9176,8 @@ export function resetMemoryStateForTesting(): void {
     videoTakeRange: 1,
     videoTimelineSelection: 1,
     storyTimeline: 1,
+    storyAudioAsset: 1,
+    storyAudioImportOperation: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
