@@ -16,6 +16,7 @@ import {
   findReusableStoryAudioAssetRow,
   getStoryAudioAssetRow,
   listStoryAudioAssetRows,
+  removeManagedAudioFiles,
   updateStoryAudioAssetRow,
 } from "../db";
 import type { AudioProbeFacts } from "./audioMedia";
@@ -135,4 +136,29 @@ export async function findReusableReadyStoryAudioAsset(input: {
     sourceKind: input.sourceKind,
     sourceKey: input.sourceKey,
   });
+}
+
+/**
+ * Explicitly discard unreferenced candidate bytes while retaining the failed
+ * metadata row as provenance/audit. Callers must verify Timeline references
+ * before reaching this asset-owned operation.
+ */
+export async function discardReadyStoryAudioAsset(input: {
+  scope: StoryAudioAssetScope;
+  assetId: number;
+  reason: string;
+}): Promise<boolean> {
+  const asset = await loadReadyStoryAudioAsset({
+    scope: input.scope,
+    assetId: input.assetId,
+  });
+  if (!asset) return false;
+  const failed = await markStoryAudioAssetFailed({
+    scope: input.scope,
+    assetId: input.assetId,
+    reason: input.reason,
+  });
+  if (!failed) return false;
+  await removeManagedAudioFiles([asset.storageKey]);
+  return true;
 }

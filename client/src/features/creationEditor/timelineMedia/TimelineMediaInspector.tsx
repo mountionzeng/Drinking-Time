@@ -21,6 +21,7 @@ import {
   type TimelineAudioState,
 } from "@shared/timelineAudioModel";
 import { timelineMediaKindProfile } from "./timelineMediaCapabilities";
+import type { TimelineNarrationCandidate } from "./useTimelineMediaController";
 
 function timecode(frame: number): string {
   const ms = timelineFramesToMs(frame);
@@ -46,6 +47,10 @@ export function TimelineMediaInspector({
   onSetAudioFade,
   onReclassifyAudio,
   onDeleteAudio,
+  narrationCandidates = [],
+  onGenerateNarration,
+  onAdoptNarrationCandidate,
+  onDiscardNarrationCandidate,
 }: {
   subtitleState: TimelineSubtitleState;
   selectedCue: SubtitleCue | null;
@@ -82,6 +87,16 @@ export function TimelineMediaInspector({
     toKind: AudioTrackKind;
   }) => Promise<void> | void;
   onDeleteAudio?: (clipId: string) => Promise<void> | void;
+  narrationCandidates?: TimelineNarrationCandidate[];
+  onGenerateNarration?: (subtitleCueId: string) => Promise<boolean> | boolean;
+  onAdoptNarrationCandidate?: (input: {
+    subtitleCueId: string;
+    candidateAssetId: number;
+    expectedTextRevision: number;
+  }) => Promise<void> | void;
+  onDiscardNarrationCandidate?: (
+    candidateAssetId: number
+  ) => Promise<boolean> | boolean;
 }) {
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const [caretIndex, setCaretIndex] = useState(0);
@@ -93,6 +108,94 @@ export function TimelineMediaInspector({
     }
     return null;
   }, [audioState, selectedAudioClipId]);
+  const narrationCue = useMemo(() => {
+    const bindingId = selectedAudio?.clip.speechBindingId;
+    if (!bindingId) return selectedCue;
+    return (
+      subtitleState.tracks[0]?.cues.find(
+        cue => cue.speechBindingId === bindingId
+      ) ?? null
+    );
+  }, [selectedAudio, selectedCue, subtitleState]);
+  const renderNarrationCandidates = (cue: SubtitleCue) => {
+    const candidates = narrationCandidates.filter(
+      candidate => candidate.subtitleCueId === cue.id
+    );
+    return (
+      <div
+        className="flex flex-col gap-1 rounded-sm border border-border/50 p-1.5"
+        data-testid="timeline-media-inspector-narration-candidates"
+      >
+        <button
+          type="button"
+          disabled={pending || !onGenerateNarration}
+          onClick={() => void onGenerateNarration?.(cue.id)}
+          className="self-start rounded-sm border border-border px-2 py-0.5 text-[10px] enabled:hover:bg-muted disabled:opacity-40"
+          data-testid="timeline-media-inspector-generate-narration"
+        >
+          {cue.speechBindingId ? "重新生成旁白" : "从这条字幕生成旁白"}
+        </button>
+        {candidates.length === 0 ? (
+          <span className="text-[9px] text-muted-foreground">
+            生成后会先留在这里试听，不会自动替换时间线。
+          </span>
+        ) : (
+          candidates.map(candidate => (
+            <div
+              key={candidate.assetId}
+              className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1"
+              data-testid={`timeline-narration-candidate-${candidate.assetId}`}
+            >
+              <audio
+                controls
+                preload="none"
+                src={candidate.audioUrl}
+                className="h-7 min-w-[180px] flex-1"
+                aria-label={`试听旁白候选 ${candidate.assetId}`}
+              />
+              <button
+                type="button"
+                disabled={
+                  pending ||
+                  candidate.adopted ||
+                  !candidate.adoptable ||
+                  !onAdoptNarrationCandidate
+                }
+                title={candidate.unavailableReason}
+                onClick={() =>
+                  void onAdoptNarrationCandidate?.({
+                    subtitleCueId: cue.id,
+                    candidateAssetId: candidate.assetId,
+                    expectedTextRevision: cue.textRevision,
+                  })
+                }
+                className="rounded-sm border border-primary/50 px-1.5 py-0.5 text-[9px] disabled:opacity-40"
+              >
+                {candidate.adopted ? "使用中" : "采用"}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  pending || candidate.adopted || !onDiscardNarrationCandidate
+                }
+                onClick={() =>
+                  void onDiscardNarrationCandidate?.(candidate.assetId)
+                }
+                className="rounded-sm border border-destructive/40 px-1.5 py-0.5 text-[9px] text-destructive disabled:opacity-40"
+              >
+                删除候选
+              </button>
+              {candidate.unavailableReason ? (
+                <span className="w-full text-[9px] text-amber-600">
+                  {candidate.unavailableReason}
+                </span>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
+    );
+  };
 
   const split = useMemo(
     () =>
@@ -263,16 +366,19 @@ export function TimelineMediaInspector({
         </div>
 
         {kind === "narration" ? (
-          <p
-            className="m-0 text-[9px] text-muted-foreground"
-            data-testid="timeline-media-inspector-narration-state"
-          >
-            {clip.textStale
-              ? "字幕文字已变化，可试听旧旁白；重新生成不会自动发生。"
-              : clip.speechBindingId
-                ? "已与字幕绑定"
-                : "尚未与字幕绑定"}
-          </p>
+          <>
+            <p
+              className="m-0 text-[9px] text-muted-foreground"
+              data-testid="timeline-media-inspector-narration-state"
+            >
+              {clip.textStale
+                ? "字幕文字已变化，可试听旧旁白；重新生成不会自动发生。"
+                : clip.speechBindingId
+                  ? "已与字幕绑定"
+                  : "尚未与字幕绑定"}
+            </p>
+            {narrationCue ? renderNarrationCandidates(narrationCue) : null}
+          </>
         ) : null}
 
         <button
@@ -326,6 +432,8 @@ export function TimelineMediaInspector({
           onKeyUp={() => setCaretIndex(textRef.current?.selectionStart ?? 0)}
         />
       </label>
+
+      {renderNarrationCandidates(selectedCue)}
 
       <div className="flex flex-wrap gap-1">
         <button

@@ -75,6 +75,21 @@ export type TimelineMediaControllerInput = {
   onChanged: () => Promise<unknown> | unknown;
 };
 
+export type TimelineNarrationCandidate = {
+  assetId: number;
+  subtitleCueId: string;
+  textRevision: number;
+  bindingId: string;
+  provider: string;
+  voice: string;
+  durationFrames: number;
+  audioUrl: string;
+  requestedAt: number;
+  adopted: boolean;
+  adoptable: boolean;
+  unavailableReason?: string;
+};
+
 export type TimelineMediaController = {
   subtitleState: TimelineSubtitleStateModel;
   cues: SubtitleCueModel[];
@@ -171,6 +186,16 @@ export type TimelineMediaController = {
     bindingId: string;
     deltaFrames: number;
   }) => Promise<void>;
+
+  // ── Narration candidates (U5) ─────────────────────────────────────
+  narrationCandidates: TimelineNarrationCandidate[];
+  generateNarration: (subtitleCueId: string) => Promise<boolean>;
+  adoptNarrationCandidate: (input: {
+    subtitleCueId: string;
+    candidateAssetId: number;
+    expectedTextRevision: number;
+  }) => Promise<void>;
+  discardNarrationCandidate: (candidateAssetId: number) => Promise<boolean>;
 };
 
 function newOperationId(): string {
@@ -250,6 +275,18 @@ export function useTimelineMediaController(
   const bindSpeechMut = trpc.timelineMedia.bindSpeech.useMutation();
   const unbindSpeechMut = trpc.timelineMedia.unbindSpeech.useMutation();
   const moveBoundSpeechMut = trpc.timelineMedia.moveBoundSpeech.useMutation();
+  const quoteNarrationMut = trpc.timelineMedia.quoteNarration.useMutation();
+  const generateNarrationMut =
+    trpc.timelineMedia.generateNarrationCandidate.useMutation();
+  const adoptNarrationMut =
+    trpc.timelineMedia.adoptNarrationCandidate.useMutation();
+  const discardNarrationMut =
+    trpc.timelineMedia.discardNarrationCandidate.useMutation();
+  const narrationCandidatesQuery =
+    trpc.timelineMedia.narrationCandidates.useQuery(
+      { storyId: storyId ?? 0 },
+      { enabled: storyId != null }
+    );
 
   const run = useCallback(
     async (call: () => Promise<MediaCommandResult>): Promise<void> => {
@@ -596,6 +633,98 @@ export function useTimelineMediaController(
           })
         ),
       [run, moveBoundSpeechMut, storyId, operation]
+    ),
+    narrationCandidates: narrationCandidatesQuery.data ?? [],
+    generateNarration: useCallback(
+      async (subtitleCueId: string) => {
+        if (storyId == null) {
+          setLastError("故事尚未加载，无法生成旁白");
+          return false;
+        }
+        setPendingCount(count => count + 1);
+        setLastError(null);
+        const commandSessionKey = renderedSessionKey;
+        try {
+          const quote = await quoteNarrationMut.mutateAsync({
+            storyId,
+            subtitleCueId,
+          });
+          if (sessionKeyRef.current !== commandSessionKey) return false;
+          const accepted = window.confirm(
+            `将按当前字幕生成一份旁白候选，预计最高 ¥${quote.estimatedCny.toFixed(2)}。候选不会自动替换时间线，是否继续？`
+          );
+          if (!accepted) return false;
+          const result = await generateNarrationMut.mutateAsync({
+            storyId,
+            subtitleCueId,
+            operation: operation(),
+            quoteToken: quote.quoteToken,
+          });
+          if (sessionKeyRef.current !== commandSessionKey) return false;
+          if (result.status !== "candidate-ready") {
+            setLastError(result.message);
+            return false;
+          }
+          await narrationCandidatesQuery.refetch();
+          return true;
+        } catch (error) {
+          if (sessionKeyRef.current !== commandSessionKey) return false;
+          setLastError(
+            error instanceof Error ? error.message : "旁白生成失败"
+          );
+          return false;
+        } finally {
+          setPendingCount(count => Math.max(0, count - 1));
+        }
+      },
+      [
+        generateNarrationMut,
+        narrationCandidatesQuery,
+        operation,
+        quoteNarrationMut,
+        renderedSessionKey,
+        storyId,
+      ]
+    ),
+    adoptNarrationCandidate: useCallback(
+      async inputArgs => {
+        await run(() =>
+          adoptNarrationMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        );
+        await narrationCandidatesQuery.refetch();
+      },
+      [run, adoptNarrationMut, storyId, operation, narrationCandidatesQuery]
+    ),
+    discardNarrationCandidate: useCallback(
+      async candidateAssetId => {
+        if (storyId == null) return false;
+        setPendingCount(count => count + 1);
+        setLastError(null);
+        try {
+          const result = await discardNarrationMut.mutateAsync({
+            storyId,
+            candidateAssetId,
+          });
+          if (result.status !== "ok") {
+            setLastError(result.message);
+            return false;
+          }
+          await narrationCandidatesQuery.refetch();
+          return true;
+        } catch (error) {
+          setLastError(
+            error instanceof Error ? error.message : "删除旁白候选失败"
+          );
+          return false;
+        } finally {
+          setPendingCount(count => Math.max(0, count - 1));
+        }
+      },
+      [discardNarrationMut, narrationCandidatesQuery, storyId]
     ),
   };
 }

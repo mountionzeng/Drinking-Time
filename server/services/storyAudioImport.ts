@@ -50,6 +50,7 @@ import {
 // ── SSRF guard (pure, exported for the security matrix) ───────────────────
 
 const DEFAULT_ALLOWED_HOSTS = [
+  /^file\.302\.ai$/,
   /^s3\.amazonaws\.com$/,
   /\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/,
 ];

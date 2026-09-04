@@ -3574,6 +3574,14 @@ export function StoryboardEditRow({
               onSetAudioFade={timeline.audio?.onSetFade}
               onReclassifyAudio={timeline.audio?.onReclassify}
               onDeleteAudio={timeline.audio?.onDelete}
+              narrationCandidates={timeline.audio?.narrationCandidates}
+              onGenerateNarration={timeline.audio?.onGenerateNarration}
+              onAdoptNarrationCandidate={
+                timeline.audio?.onAdoptNarrationCandidate
+              }
+              onDiscardNarrationCandidate={
+                timeline.audio?.onDiscardNarrationCandidate
+              }
             />
           </div>
         </>

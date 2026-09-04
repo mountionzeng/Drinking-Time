@@ -25,6 +25,7 @@ import {
   AUDIO_KIND_ORDER,
   timelineMediaKindProfile,
 } from "./timelineMediaCapabilities";
+import type { TimelineNarrationCandidate } from "./useTimelineMediaController";
 
 const DRAG_THRESHOLD_PX = 4;
 
@@ -74,6 +75,16 @@ export type AudioTrackBinding = AudioTrackRowCallbacks & {
     clipId: string;
     toKind: AudioTrack["kind"];
   }) => Promise<void> | void;
+  narrationCandidates?: TimelineNarrationCandidate[];
+  onGenerateNarration?: (subtitleCueId: string) => Promise<boolean>;
+  onAdoptNarrationCandidate?: (input: {
+    subtitleCueId: string;
+    candidateAssetId: number;
+    expectedTextRevision: number;
+  }) => Promise<void> | void;
+  onDiscardNarrationCandidate?: (
+    candidateAssetId: number
+  ) => Promise<boolean>;
 };
 
 export function audioAssetUrl(storyId: number, assetId: number): string {

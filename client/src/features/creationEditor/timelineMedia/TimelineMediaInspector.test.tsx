@@ -88,4 +88,51 @@ describe("TimelineMediaInspector", () => {
     expect(html).toContain("字幕文字已变化");
     expect(html).toContain("重新生成不会自动发生");
   });
+
+  it("keeps generated narration as an explicit listen-then-adopt candidate", () => {
+    const subtitleState = emptySubtitleState();
+    const cue = {
+      id: "cue-1",
+      startFrame: 0,
+      durationFrames: 60,
+      text: "请先试听。",
+      provenance: { kind: "manual" as const },
+      sourceTextRevision: 0,
+      textRevision: 2,
+      textEdited: true,
+      timingEdited: false,
+    };
+    subtitleState.tracks[0].cues.push(cue);
+    const html = renderToStaticMarkup(
+      <TimelineMediaInspector
+        subtitleState={subtitleState}
+        selectedCue={cue}
+        playheadFrame={0}
+        pending={false}
+        {...subtitleCallbacks}
+        narrationCandidates={[
+          {
+            assetId: 88,
+            subtitleCueId: cue.id,
+            textRevision: cue.textRevision,
+            bindingId: "binding-1",
+            provider: "openai",
+            voice: "alloy",
+            durationFrames: 75,
+            audioUrl: "/api/story-audio-asset/1/88",
+            requestedAt: 1,
+            adopted: false,
+            adoptable: true,
+          },
+        ]}
+        onGenerateNarration={vi.fn()}
+        onAdoptNarrationCandidate={vi.fn()}
+        onDiscardNarrationCandidate={vi.fn()}
+      />
+    );
+    expect(html).toContain("从这条字幕生成旁白");
+    expect(html).toContain('aria-label="试听旁白候选 88"');
+    expect(html).toContain(">采用<");
+    expect(html).toContain("删除候选");
+  });
 });

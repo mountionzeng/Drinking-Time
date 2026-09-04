@@ -1993,6 +1993,24 @@ export default function EditingNleWorkspace({
         void timelineMedia.initializeSubtitles([...subtitleCandidates]);
         return;
       }
+      if (action === "narration-from-subtitle") {
+        const frame = Math.max(
+          0,
+          Math.round((playbackClock.playheadMs * 30) / 1_000)
+        );
+        const cue =
+          timelineMedia.cues.find(
+            candidate => candidate.id === timelineMedia.selectedCueId
+          ) ?? timelineMedia.activeCuesAtFrame(frame)[0];
+        if (!cue) {
+          toast.error("请先选中一条字幕，或把播放头放在字幕上");
+          return;
+        }
+        void timelineMedia.generateNarration(cue.id).then(generated => {
+          if (generated) toast.success("旁白候选已生成，请试听后采用");
+        });
+        return;
+      }
       const kind =
         action === "import-music"
           ? "music"
@@ -2006,7 +2024,7 @@ export default function EditingNleWorkspace({
         localAudioInputRef.current?.click();
       }
     },
-    [subtitleCandidates, timelineMedia]
+    [playbackClock.playheadMs, subtitleCandidates, timelineMedia]
   );
 
   const importLocalTimelineAudio = useCallback(
@@ -2073,6 +2091,12 @@ export default function EditingNleWorkspace({
               onSetMuted: timelineMedia.setAudioClipMuted,
               onSetFade: timelineMedia.setAudioClipFade,
               onReclassify: timelineMedia.reclassifyAudioClip,
+              narrationCandidates: timelineMedia.narrationCandidates,
+              onGenerateNarration: timelineMedia.generateNarration,
+              onAdoptNarrationCandidate:
+                timelineMedia.adoptNarrationCandidate,
+              onDiscardNarrationCandidate:
+                timelineMedia.discardNarrationCandidate,
             },
           }),
       addMedia: {
@@ -2080,13 +2104,22 @@ export default function EditingNleWorkspace({
           ...(subtitleCandidates.length > 0
             ? (["subtitle-from-text"] as const)
             : []),
+          ...(timelineMedia.selectedCueId ||
+          timelineMedia.activeCuesAtFrame(
+            Math.max(
+              0,
+              Math.round((playbackClock.playheadMs * 30) / 1_000)
+            )
+          )[0]
+            ? (["narration-from-subtitle"] as const)
+            : []),
           "import-music",
           "import-ambience",
           "import-sfx",
         ],
         disabledReasons: {
           "subtitle-from-text": "镜头里还没有可用文字",
-          "narration-from-subtitle": "旁白生成将在下一步接通",
+          "narration-from-subtitle": "请先选中一条字幕，或把播放头放在字幕上",
           "import-source-from-chatcut": chatCutTimeline
             ? "当前原声仍以只读方式保留，显式导入尚未完成"
             : "请先附加 ChatCut XML 并关联原声",

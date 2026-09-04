@@ -11,6 +11,25 @@ export type StoryVoice302Result = {
   voice: string;
 };
 
+export class StoryVoice302Error extends Error {
+  readonly outcome:
+    | "not_charged_failure"
+    | "charged_failure"
+    | "submission_unknown";
+
+  constructor(
+    outcome:
+      | "not_charged_failure"
+      | "charged_failure"
+      | "submission_unknown",
+    message: string
+  ) {
+    super(message);
+    this.name = "StoryVoice302Error";
+    this.outcome = outcome;
+  }
+}
+
 function positiveInteger(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
@@ -69,7 +88,10 @@ export async function generateStoryVoice302(input: {
       }
     );
     if (!response.ok) {
-      throw new Error(`302 语音生成失败（HTTP ${response.status}）`);
+      throw new StoryVoice302Error(
+        "not_charged_failure",
+        `302 语音生成失败（HTTP ${response.status}）`
+      );
     }
     const payload = (await response.json()) as { audio_url?: unknown };
     const audioUrl =
@@ -78,15 +100,31 @@ export async function generateStoryVoice302(input: {
     try {
       parsedUrl = new URL(audioUrl);
     } catch {
-      throw new Error("302 没有返回可播放的音频地址");
+      throw new StoryVoice302Error(
+        "charged_failure",
+        "302 没有返回可播放的音频地址"
+      );
     }
-    if (!/^https?:$/.test(parsedUrl.protocol)) {
-      throw new Error("302 没有返回可播放的音频地址");
+    if (parsedUrl.protocol !== "https:") {
+      throw new StoryVoice302Error(
+        "charged_failure",
+        "302 没有返回可播放的音频地址"
+      );
     }
     return { audioUrl, provider, voice };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("302 语音生成超时，请稍后重试");
+      throw new StoryVoice302Error(
+        "submission_unknown",
+        "302 语音生成超时；请求结果未知，不会自动重试"
+      );
+    }
+    if (error instanceof StoryVoice302Error) throw error;
+    if (error instanceof TypeError) {
+      throw new StoryVoice302Error(
+        "submission_unknown",
+        "302 语音请求连接中断；结果未知，不会自动重试"
+      );
     }
     throw error;
   } finally {

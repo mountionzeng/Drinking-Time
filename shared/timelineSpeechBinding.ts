@@ -14,6 +14,7 @@
  */
 import {
   audioClipEndFrame,
+  type AudioClip,
   type TimelineAudioState,
 } from "./timelineAudioModel";
 import { type TimelineSubtitleState } from "./timelineSubtitleModel";
@@ -210,6 +211,130 @@ export function markBoundNarrationTextStale(
     },
     changed: true,
   };
+}
+
+/**
+ * Adopt one immutable TTS candidate as the narration for a subtitle cue.
+ *
+ * The candidate asset itself remains outside the Timeline. Replacing a clip
+ * only swaps its non-owning asset reference and source range; existing gain,
+ * mute, fades, and the user's chosen Timeline start are preserved. A first
+ * adoption starts with the cue. Subtitles that have never been timing-edited
+ * follow the real media duration, while hand-timed subtitles stay untouched.
+ */
+export function adoptNarrationCandidate(
+  subtitleState: TimelineSubtitleState,
+  audioState: TimelineAudioState,
+  input: {
+    subtitleCueId: string;
+    expectedTextRevision: number;
+    bindingId: string;
+    narrationClipId: string;
+    assetId: number;
+    assetDurationFrames: number;
+  }
+): SpeechBindingResult {
+  const cue = subtitleCues(subtitleState).find(
+    candidate => candidate.id === input.subtitleCueId
+  );
+  if (!cue) return err("字幕块不存在或已被删除");
+  if (cue.textRevision !== input.expectedTextRevision) {
+    return err("字幕文字已经更新，请重新生成旁白");
+  }
+  if (!Number.isInteger(input.assetDurationFrames) || input.assetDurationFrames < 1) {
+    return err("旁白音频时长不可用");
+  }
+  if (cue.speechBindingId && cue.speechBindingId !== input.bindingId) {
+    return err("字幕绑定已经更新，请重新生成旁白");
+  }
+
+  const narration = audioState.tracks.find(track => track.kind === "narration");
+  if (!narration) return err("旁白轨不存在");
+  const existing = cue.speechBindingId
+    ? narration.clips.find(clip => clip.speechBindingId === cue.speechBindingId)
+    : undefined;
+  if (cue.speechBindingId && !existing) {
+    return err("字幕绑定的旁白已经不存在，请先解除绑定");
+  }
+  if (
+    !cue.speechBindingId &&
+    narration.clips.some(clip => clip.speechBindingId === input.bindingId)
+  ) {
+    return err("这条旁白绑定已经被其它字幕使用");
+  }
+
+  const nextClip: AudioClip = existing
+    ? {
+        ...existing,
+        assetId: input.assetId,
+        sourceInFrame: 0,
+        sourceOutFrame: input.assetDurationFrames,
+        durationFrames: input.assetDurationFrames,
+        speechBindingId: input.bindingId,
+        textStale: false,
+      }
+    : {
+        id: input.narrationClipId,
+        assetId: input.assetId,
+        timelineStartFrame: cue.startFrame,
+        sourceInFrame: 0,
+        sourceOutFrame: input.assetDurationFrames,
+        durationFrames: input.assetDurationFrames,
+        gain: 1,
+        muted: false,
+        fadeInFrames: 0,
+        fadeOutFrames: 0,
+        speechBindingId: input.bindingId,
+        textStale: false,
+      };
+  const unchanged =
+    existing?.assetId === input.assetId &&
+    existing.sourceInFrame === 0 &&
+    existing.sourceOutFrame === input.assetDurationFrames &&
+    existing.durationFrames === input.assetDurationFrames &&
+    existing.textStale !== true &&
+    cue.speechBindingId === input.bindingId &&
+    (cue.timingEdited || cue.durationFrames === input.assetDurationFrames);
+  if (unchanged) return ok(subtitleState, audioState, false);
+
+  return ok(
+    {
+      tracks: [
+        {
+          ...subtitleState.tracks[0],
+          cues: subtitleCues(subtitleState).map(candidate =>
+            candidate.id === cue.id
+              ? {
+                  ...candidate,
+                  speechBindingId: input.bindingId,
+                  ...(candidate.timingEdited
+                    ? {}
+                    : { durationFrames: input.assetDurationFrames }),
+                }
+              : candidate
+          ),
+        },
+      ],
+    },
+    {
+      tracks: audioState.tracks.map(track =>
+        track.kind === "narration"
+          ? {
+              ...track,
+              clips: existing
+                ? track.clips.map(clip =>
+                    clip.id === existing.id ? nextClip : clip
+                  )
+                : [...track.clips, nextClip].sort(
+                    (left, right) =>
+                      left.timelineStartFrame - right.timelineStartFrame
+                  ),
+            }
+          : track
+      ),
+    },
+    true
+  );
 }
 
 export function speechBindingSummary(

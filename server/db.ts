@@ -10236,6 +10236,25 @@ export async function recordProviderAttempt(
   return { kind: "recorded" };
 }
 
+export async function listProviderAttemptsForOperation(
+  operationId: string
+): Promise<ProviderAttempt[]> {
+  const operation = await findBillingOperation(operationId);
+  if (!operation) return [];
+  const db = await getDb();
+  if (!db) {
+    return memoryState.providerAttempts
+      .filter(item => item.billingOperationId === operation.id)
+      .sort((left, right) => left.attemptIndex - right.attemptIndex)
+      .map(item => ({ ...item }));
+  }
+  return db
+    .select()
+    .from(providerAttempts)
+    .where(eq(providerAttempts.billingOperationId, operation.id))
+    .orderBy(providerAttempts.attemptIndex);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // 统一账号：身份解析、密码凭据、验证码挑战、共享持久化限流
 //

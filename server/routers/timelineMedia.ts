@@ -38,6 +38,13 @@ import {
   trimAudioClipForStory,
   unbindSpeechForStory,
 } from "../services/timelineAudioEditing";
+import {
+  adoptStoryNarrationCandidate,
+  discardStoryNarrationCandidate,
+  generateStoryNarrationCandidate,
+  listStoryNarrationCandidates,
+  quoteStoryNarration,
+} from "../services/storyNarration";
 
 const operationInput = z.object({
   editorSessionEpoch: z.string().min(1).max(80),
@@ -508,6 +515,84 @@ export const timelineMediaRouter = router({
         operation: input.operation,
         bindingId: input.bindingId,
         deltaFrames: input.deltaFrames,
+      })
+    ),
+
+  // ── Narration generation/candidates (U5) ─────────────────────────────
+  quoteNarration: protectedProcedure
+    .input(z.object({ storyId, subtitleCueId: cueId }))
+    .mutation(({ ctx, input }) =>
+      quoteStoryNarration({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        subtitleCueId: input.subtitleCueId,
+      })
+    ),
+
+  generateNarrationCandidate: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        operation: operationInput,
+        subtitleCueId: cueId,
+        quoteToken: z.string().min(40).max(4096),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      generateStoryNarrationCandidate({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        subtitleCueId: input.subtitleCueId,
+        operationId: input.operation.operationId,
+        quoteToken: input.quoteToken,
+      })
+    ),
+
+  narrationCandidates: protectedProcedure
+    .input(z.object({ storyId, subtitleCueId: cueId.optional() }))
+    .query(({ ctx, input }) =>
+      listStoryNarrationCandidates({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        ...(input.subtitleCueId
+          ? { subtitleCueId: input.subtitleCueId }
+          : {}),
+      })
+    ),
+
+  adoptNarrationCandidate: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        operation: operationInput,
+        subtitleCueId: cueId,
+        candidateAssetId: z.number().int().positive(),
+        expectedTextRevision: z.number().int().min(0),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      adoptStoryNarrationCandidate({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        subtitleCueId: input.subtitleCueId,
+        candidateAssetId: input.candidateAssetId,
+        expectedTextRevision: input.expectedTextRevision,
+        operation: input.operation,
+      })
+    ),
+
+  discardNarrationCandidate: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        candidateAssetId: z.number().int().positive(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      discardStoryNarrationCandidate({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        candidateAssetId: input.candidateAssetId,
       })
     ),
 

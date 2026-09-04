@@ -36,6 +36,7 @@ import {
   type TimelineAudioState,
 } from "../../shared/timelineAudioModel";
 import {
+  adoptNarrationCandidate,
   bindSpeech,
   moveBoundSpeech,
   unbindSpeech,
@@ -695,6 +696,60 @@ export function moveBoundSpeechForStory(input: {
         moveBoundSpeech(subtitle, audio, {
           bindingId: input.bindingId,
           deltaFrames: input.deltaFrames,
+        }),
+        {}
+      )
+  );
+}
+
+/**
+ * Adopt is the only command allowed to turn a ready TTS candidate into a
+ * formal narration clip. Candidate provenance is checked by storyNarration;
+ * this writer repeats the ready/ownership gate and applies both media slices
+ * in one CAS/undo entry.
+ */
+export async function adoptNarrationCandidateForStory(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+  subtitleCueId: string;
+  expectedTextRevision: number;
+  bindingId: string;
+  candidateAssetId: number;
+}): Promise<TimelineMediaCommandResult> {
+  const asset = await loadReadyStoryAudioAsset({
+    scope: { storyId: input.storyId, userId: input.userId },
+    assetId: input.candidateAssetId,
+  });
+  if (!asset || asset.sourceKind !== "tts" || !asset.durationFrames) {
+    return {
+      status: "error",
+      error: "旁白候选不存在、不属于本故事，或还没准备好",
+      errorKind: "invalid",
+    };
+  }
+  return runMediaCommand(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      operation: input.operation,
+      commandPayload: {
+        kind: "narration-adopt",
+        subtitleCueId: input.subtitleCueId,
+        expectedTextRevision: input.expectedTextRevision,
+        bindingId: input.bindingId,
+        candidateAssetId: input.candidateAssetId,
+      },
+    },
+    ({ audio, subtitle }, ids) =>
+      bindingResult(
+        adoptNarrationCandidate(subtitle, audio, {
+          subtitleCueId: input.subtitleCueId,
+          expectedTextRevision: input.expectedTextRevision,
+          bindingId: input.bindingId,
+          narrationClipId: ids.next(),
+          assetId: input.candidateAssetId,
+          assetDurationFrames: asset.durationFrames!,
         }),
         {}
       )
