@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   ne,
   or,
   sql,
@@ -161,13 +162,16 @@ import {
   type PersonalMemoryInsightLineageView,
   type PersonalMemoryInsightMutation,
   type PersonalMemoryInsightRecord,
+  type PersonalMemoryInsightState,
   type PersonalMemoryJobRecord,
   type PersonalMemoryLetterEnvelope,
   type PersonalMemoryLetterPayload,
   type PersonalMemoryLetterVersionRecord,
   type PersonalMemoryLocalState,
   type PersonalMemoryOutboxEntry,
+  type PersonalMemorySourceType,
   type PersonalMemorySuppressionRecord,
+  type PersonalMemoryTimelineCursor,
 } from "../shared/personalMemory";
 import { isUntitledStoryTitle } from "../shared/storyTitle";
 
@@ -10626,6 +10630,190 @@ export async function listPersonalMemoryEvents(
     .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id))
     .limit(safeLimit);
   return rows.map(rowToPersonalMemoryEvent);
+}
+
+/**
+ * 足迹时间线的 keyset 分页。
+ *
+ * 按 `(occurredAt DESC, id DESC)` 取 `limit + 1` 行：多出来那一行只用来判断
+ * 「还有没有下一页」，不返回给调用方。用 keyset 而不是 OFFSET，是因为翻页
+ * 期间随时会插入新事件——OFFSET 会让分页边界整体错位，用户会看到重复行，
+ * 或者更糟：漏掉一整条经历还毫无察觉。
+ *
+ * `(userId, occurredAt, id)` 上有专门的复合索引支撑这个顺序。
+ */
+export async function listPersonalMemoryEventsPage(input: {
+  userId: number;
+  cursor?: PersonalMemoryTimelineCursor | null;
+  limit?: number;
+  sourceTypes?: readonly PersonalMemorySourceType[] | null;
+}): Promise<{ events: PersonalMemoryEventRecord[]; hasMore: boolean }> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 20)));
+  const cursor = input.cursor ?? null;
+  const sourceTypes =
+    input.sourceTypes && input.sourceTypes.length > 0
+      ? [...input.sourceTypes]
+      : null;
+  const db = await getDb();
+
+  if (!db) {
+    const cursorAt = cursor ? Date.parse(cursor.occurredAt) : null;
+    const filtered = memoryState.personalMemory.events
+      .filter(event => {
+        if (event.userId !== input.userId) return false;
+        if (sourceTypes && !sourceTypes.includes(event.sourceType)) {
+          return false;
+        }
+        if (!cursor || cursorAt == null) return true;
+        // 和 SQL 侧同一条 keyset 谓词：时间更早，或同一时刻但 id 更小。
+        const eventAt = Date.parse(event.occurredAt);
+        if (eventAt < cursorAt) return true;
+        return eventAt === cursorAt && event.id < cursor.id;
+      })
+      .sort((left, right) => {
+        const byTime =
+          Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
+        return byTime !== 0 ? byTime : right.id - left.id;
+      });
+    return {
+      events: filtered.slice(0, safeLimit),
+      hasMore: filtered.length > safeLimit,
+    };
+  }
+
+  const conditions = [eq(personalMemoryEvents.userId, input.userId)];
+  if (sourceTypes) {
+    conditions.push(inArray(personalMemoryEvents.sourceType, sourceTypes));
+  }
+  if (cursor) {
+    const cursorAt = new Date(cursor.occurredAt);
+    conditions.push(
+      or(
+        lt(personalMemoryEvents.occurredAt, cursorAt),
+        and(
+          eq(personalMemoryEvents.occurredAt, cursorAt),
+          lt(personalMemoryEvents.id, cursor.id)
+        )
+      )!
+    );
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryEvents)
+    .where(and(...conditions))
+    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id))
+    .limit(safeLimit + 1);
+  return {
+    events: rows.slice(0, safeLimit).map(rowToPersonalMemoryEvent),
+    hasMore: rows.length > safeLimit,
+  };
+}
+
+/**
+ * 按 ID 批量取事件（仍然按 userId 过滤）。
+ *
+ * 存在的理由是理解卡要显示「依据 X 月 X 日起的 N 条记录」：证据行只存
+ * eventId，日期在事件上。一张卡逐条查会变成 N×M 次往返，所以这里一次取回。
+ */
+export async function listPersonalMemoryEventsByIds(
+  userId: number,
+  eventIds: readonly number[]
+): Promise<PersonalMemoryEventRecord[]> {
+  const ids = [...new Set(eventIds)].filter(
+    id => Number.isSafeInteger(id) && id > 0
+  );
+  if (ids.length === 0) return [];
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.events.filter(
+      event => event.userId === userId && ids.includes(event.id)
+    );
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryEvents)
+    .where(
+      and(
+        eq(personalMemoryEvents.userId, userId),
+        inArray(personalMemoryEvents.id, ids)
+      )
+    );
+  return rows.map(rowToPersonalMemoryEvent);
+}
+
+/**
+ * 某一天的全部事件（不分页——一天的量天然有限，不需要 keyset）。
+ *
+ * 这条查询单独存在的理由：`listPersonalMemoryEventsPage` 是给"滚动浏览"用的
+ * keyset 分页，只保证「最近 N 条」；日期详情页要的是「**这一天**的全部事件」，
+ * 用户越活跃、要翻的天数越靠前，这两者的语义差距就越大——用最近 N 条做
+ * 日期详情，翻旧日期会静默返回空，而不是报错，最容易被漏测。
+ */
+export async function listPersonalMemoryEventsForDay(
+  userId: number,
+  occurredOn: string
+): Promise<PersonalMemoryEventRecord[]> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.events
+      .filter(event => event.userId === userId && event.occurredOn === occurredOn)
+      .sort((left, right) => {
+        const byTime = right.occurredAt.localeCompare(left.occurredAt);
+        return byTime !== 0 ? byTime : right.id - left.id;
+      });
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryEvents)
+    .where(
+      and(
+        eq(personalMemoryEvents.userId, userId),
+        eq(personalMemoryEvents.occurredOn, occurredOn)
+      )
+    )
+    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id));
+  return rows.map(rowToPersonalMemoryEvent);
+}
+
+/**
+ * 列出某账号的派生理解。
+ *
+ * 只按 userId 过滤——所有调用方都必须从认证上下文拿这个值，绝不接受
+ * 客户端传入的用户身份。
+ */
+export async function listPersonalMemoryInsightsForUser(input: {
+  userId: number;
+  states?: readonly PersonalMemoryInsightState[] | null;
+  limit?: number;
+}): Promise<PersonalMemoryInsightRecord[]> {
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 50)));
+  const states =
+    input.states && input.states.length > 0 ? [...input.states] : null;
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.insights
+      .filter(
+        insight =>
+          insight.userId === input.userId &&
+          (!states || states.includes(insight.state))
+      )
+      .sort((left, right) => {
+        const byTime = right.updatedAt.localeCompare(left.updatedAt);
+        return byTime !== 0 ? byTime : right.id - left.id;
+      })
+      .slice(0, safeLimit);
+  }
+  const conditions = [eq(personalMemoryInsights.userId, input.userId)];
+  if (states) {
+    conditions.push(inArray(personalMemoryInsights.state, states));
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryInsights)
+    .where(and(...conditions))
+    .orderBy(desc(personalMemoryInsights.updatedAt), desc(personalMemoryInsights.id))
+    .limit(safeLimit);
+  return rows.map(rowToPersonalMemoryInsight);
 }
 
 /**

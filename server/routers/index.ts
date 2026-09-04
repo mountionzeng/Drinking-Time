@@ -61,6 +61,7 @@ import {
 } from "./promptLineage";
 import { storyAgentRouter } from "./storyAgent";
 import { creationAgentRouter } from "./creationAgent";
+import { personalMemoryRouter } from "./personalMemory";
 import { publishingDraftRouter } from "./publishingDraft";
 import { visualAssetsRouter } from "./visualAssets";
 
@@ -317,6 +318,8 @@ export const appRouter = router({
       };
     }),
   }),
+
+  personalMemory: personalMemoryRouter,
 
   promptLineage: promptLineageRouter,
 

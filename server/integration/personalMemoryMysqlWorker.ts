@@ -35,6 +35,14 @@ type WorkerInput = {
     }
   | { action: "listEvents"; userId: number }
   | {
+      action: "timelinePage";
+      userId: number;
+      cursor: string | null;
+      limit: number;
+    }
+  | { action: "resolveSource"; userId: number; eventId: number }
+  | { action: "dayDetail"; userId: number; occurredOn: string }
+  | {
       action: "appendLetter";
       userId: number;
       letterDate: string;
@@ -129,6 +137,44 @@ try {
       count: events.length,
       actionIds: events.map(event => event.actionId),
     });
+  }
+
+  if (input.action === "timelinePage") {
+    const { getPersonalMemoryTimelinePage } = await import(
+      "../services/personalMemoryTimeline"
+    );
+    const page = await getPersonalMemoryTimelinePage({
+      userId: input.userId,
+      cursor: input.cursor,
+      limit: input.limit,
+    });
+    await finish({
+      ids: page.items.map(item => item.id),
+      excerpts: page.items.map(item => item.excerpt),
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  if (input.action === "resolveSource") {
+    const { resolvePersonalMemoryEventSource } = await import(
+      "../services/personalMemoryTimeline"
+    );
+    const resolved = await resolvePersonalMemoryEventSource({
+      userId: input.userId,
+      eventId: input.eventId,
+    });
+    await finish({ resolved });
+  }
+
+  if (input.action === "dayDetail") {
+    const { getPersonalMemoryDayDetail } = await import(
+      "../services/personalMemoryTimeline"
+    );
+    const detail = await getPersonalMemoryDayDetail({
+      userId: input.userId,
+      occurredOn: input.occurredOn,
+    });
+    await finish({ ids: detail.items.map(item => item.id) });
   }
 
   if (input.action === "appendLetter") {
