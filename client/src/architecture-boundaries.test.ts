@@ -642,6 +642,24 @@ describe("architecture boundaries", () => {
     expect(/\baudioTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
   });
 
+  // R8: 改字是零付费路径。字幕写入口一旦碰到 provider / 计费账本，就说明打字或
+  // 保存可能触发付费生成 —— U5 的旁白生成必须是**另一条**明确的命令。
+  it("keeps the subtitle write path free of provider and billing imports", async () => {
+    const serverSources = await serverSourcesPromise;
+    const subtitleWritePaths = new Set([
+      "server/services/timelineSubtitleEditing.ts",
+      "server/routers/timelineMedia.ts",
+    ]);
+    const paidDependencyPattern =
+      /from\s+["'][^"']*(?:computeLedger|storyVoice302|billing|creditHold|provider(?:Attempts|Routing))/i;
+    const violations = serverSources
+      .filter(({ file }) => subtitleWritePaths.has(toRepoPath(file)))
+      .filter(({ content }) => paidDependencyPattern.test(content))
+      .map(({ file }) => toRepoPath(file));
+
+    expect(violations).toEqual([]);
+  });
+
   it("keeps the persisted-timeline encode behind server/db.ts wiring", async () => {
     const [sharedSources, serverSources, clientSources] = await Promise.all([
       sharedSourcesPromise,

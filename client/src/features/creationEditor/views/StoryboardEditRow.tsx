@@ -106,6 +106,10 @@ import {
   type VisualPasteMenuState,
 } from "./StoryboardVisualLayerRow";
 import { StoryboardEditFilmstrip } from "./StoryboardEditFilmstrip";
+import {
+  SubtitleRowHeader,
+  SubtitleTrackRow,
+} from "../timelineMedia/SubtitleTrackRow";
 import { storyboardVisualClipArrowMove } from "../storyboardVisualObjectInteraction";
 import {
   STORYBOARD_IMAGE_CLIP_DRAG_MIME,
@@ -3446,6 +3450,23 @@ export function StoryboardEditRow({
           />
         </div>
       </div>
+      {/* 固定语义顺序：视觉层 → 主画面 → 字幕 → 声音。 */}
+      {timeline.subtitle ? (
+        <>
+          <SubtitleRowHeader />
+          <div
+            role="cell"
+            style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+          >
+            <SubtitleTrackRow
+              binding={timeline.subtitle}
+              viewport={viewport}
+              playheadMs={timeline.playheadMs}
+              disabled={timeline.writePending === true}
+            />
+          </div>
+        </>
+      ) : null}
       <StoryboardAudioRowHeader />
       <div
         role="cell"

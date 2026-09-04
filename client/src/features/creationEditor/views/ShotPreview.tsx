@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
 import type { TimelineTransform } from "@shared/storyMaterial";
+import type { TimelineSubtitleState } from "@shared/timelineSubtitleModel";
 
 import { trpc } from "@/lib/trpc";
 import { formatStoryboardTimestamp } from "@/features/storyAgent/storyboardTiming";
@@ -49,7 +50,7 @@ import {
   shotImageUrl,
   shotLabel,
   shouldForwardPreviewPause,
-  timelineSubtitleText,
+  previewSubtitleLines,
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
   type TimelineVideoSource,
@@ -67,6 +68,7 @@ export default function ShotPreview({
   playheadMs,
   timelinePlaying,
   format,
+  subtitleState,
   onRequestTimelinePlaying,
   keyboardShortcutZoneRef,
   onEditImage,
@@ -90,6 +92,11 @@ export default function ShotPreview({
   playheadMs: number;
   timelinePlaying: boolean;
   format: ChatCutTimelineManifest | null;
+  /**
+   * 正式字幕轨。有 cue 时 Preview 只显示它；没有时才回落到 `format`/dialogue
+   * 算出的只读候选，并在界面上标出来。
+   */
+  subtitleState?: TimelineSubtitleState | null;
   onRequestTimelinePlaying: (isPlaying: boolean) => void;
   keyboardShortcutZoneRef: { current: boolean };
   onEditImage?: () => void;
@@ -315,7 +322,12 @@ export default function ShotPreview({
     sourceEndSec: sourceEndSeconds,
     reverse,
   });
-  const subtitleText = timelineSubtitleText(format, playheadMs, shot?.dialogue);
+  const subtitleLines = previewSubtitleLines({
+    subtitleState: subtitleState ?? null,
+    playheadMs,
+    legacyManifest: format,
+    fallbackDialogue: shot?.dialogue,
+  });
   const frameAdjustmentAvailable = Boolean(
     onEditImage || onSelectImageForChat || onEditCurrentVideoFrame
   );
@@ -1260,13 +1272,31 @@ export default function ShotPreview({
           aria-live="polite"
           data-testid="editing-preview-subtitle-rail"
         >
-          {subtitleText ? (
-            <p
-              className="m-0 line-clamp-2 max-w-[92%] text-[13px] font-medium leading-5 text-foreground"
-              data-testid="editing-preview-subtitle"
-            >
-              {subtitleText}
-            </p>
+          {subtitleLines.length > 0 ? (
+            <div className="flex max-w-[92%] flex-col items-center gap-0.5">
+              {subtitleLines.map(line => (
+                <p
+                  key={line.id}
+                  className={`m-0 line-clamp-2 whitespace-pre-line text-[13px] font-medium leading-5 ${
+                    line.source === "candidate"
+                      ? "text-muted-foreground"
+                      : "text-foreground"
+                  }`}
+                  data-testid="editing-preview-subtitle"
+                  data-subtitle-source={line.source}
+                >
+                  {line.source === "candidate" ? (
+                    <span
+                      className="mr-1 rounded-sm bg-muted px-1 text-[9px] align-middle"
+                      data-testid="editing-preview-subtitle-candidate-badge"
+                    >
+                      候选
+                    </span>
+                  ) : null}
+                  {line.text}
+                </p>
+              ))}
+            </div>
           ) : null}
         </div>
       </div>

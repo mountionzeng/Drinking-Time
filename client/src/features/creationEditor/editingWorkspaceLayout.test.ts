@@ -988,3 +988,32 @@ describe("editing workspace project canvas", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * 固定语义顺序：视觉层 → 主画面 → 字幕 → 声音。
+ *
+ * 这是源码顺序断言而不是 DOM 断言 —— 本仓库 vitest 跑在 node 环境，没有渲染器。
+ * 它能挡住的正是真实会犯的错：把字幕行插到音轨之后，或插到主画面之前。
+ */
+describe("storyboard track order", () => {
+  it("renders the subtitle row between the main visual track and the audio row", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const source = await fs.readFile(
+      path.join(import.meta.dirname, "views", "StoryboardEditRow.tsx"),
+      "utf8"
+    );
+
+    const mainVisualIndex = source.indexOf("main-visual-track");
+    const subtitleIndex = source.indexOf("<SubtitleTrackRow");
+    const subtitleHeaderIndex = source.indexOf("<SubtitleRowHeader");
+    const audioHeaderIndex = source.indexOf("<StoryboardAudioRowHeader");
+    const audioTrackIndex = source.indexOf("<StoryboardAudioTrack");
+
+    expect(mainVisualIndex).toBeGreaterThan(-1);
+    expect(subtitleHeaderIndex).toBeGreaterThan(mainVisualIndex);
+    expect(subtitleIndex).toBeGreaterThan(subtitleHeaderIndex);
+    expect(audioHeaderIndex).toBeGreaterThan(subtitleIndex);
+    expect(audioTrackIndex).toBeGreaterThan(audioHeaderIndex);
+  });
+});

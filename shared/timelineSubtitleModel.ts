@@ -474,6 +474,46 @@ export function mergeSubtitleCue(
   );
 }
 
+export type SubtitleActionAvailability = {
+  enabled: boolean;
+  /** User-facing reason when disabled; null when enabled. */
+  reason: string | null;
+};
+
+/**
+ * Can this split run right now? Shares the planner's rules so a button is
+ * never enabled for an operation the server would reject — and the disabled
+ * reason is the same sentence the user would have seen on failure.
+ */
+export function subtitleSplitAvailability(
+  state: TimelineSubtitleState,
+  input: { cueId: string; splitFrame: number; caretIndex: number }
+): SubtitleActionAvailability {
+  const cue = findCue(state, input.cueId);
+  if (!cue) return { enabled: false, reason: "字幕块不存在" };
+  const result = splitSubtitleCue(state, {
+    cueId: input.cueId,
+    splitFrame: input.splitFrame,
+    caretIndex: input.caretIndex,
+    expectedTextRevision: cue.textRevision,
+    newCueId: "__availability_probe__",
+  });
+  return result.status === "ok"
+    ? { enabled: true, reason: null }
+    : { enabled: false, reason: result.message };
+}
+
+/** Same idea for merge: one rule set drives both the button and the command. */
+export function subtitleMergeAvailability(
+  state: TimelineSubtitleState,
+  input: { cueId: string; direction: SubtitleMergeDirection }
+): SubtitleActionAvailability {
+  const result = mergeSubtitleCue(state, input);
+  return result.status === "ok"
+    ? { enabled: true, reason: null }
+    : { enabled: false, reason: result.message };
+}
+
 export function deleteSubtitleCue(
   state: TimelineSubtitleState,
   input: { cueId: string }

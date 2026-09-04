@@ -10,6 +10,8 @@ import {
   normalizeSubtitleState,
   resolveSubtitleCuesAtFrame,
   splitSubtitleCue,
+  subtitleMergeAvailability,
+  subtitleSplitAvailability,
   subtitleStateEndFrame,
   trimSubtitleCueEnd,
   trimSubtitleCueStart,
@@ -292,6 +294,47 @@ describe("timelineSubtitleModel planner", () => {
         ])
       )
     ).toBe(120);
+  });
+
+  describe("action availability drives the same rules as the planner", () => {
+    const base = seed([
+      { id: "a", startFrame: 0, durationFrames: 60, text: "前半后半", textRevision: 2 },
+      { id: "b", startFrame: 60, durationFrames: 60, text: "第二条" },
+    ]);
+
+    it("split is enabled only when both sides keep text and at least one frame", () => {
+      expect(
+        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 2 })
+      ).toEqual({ enabled: true, reason: null });
+      expect(
+        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 0 })
+      ).toMatchObject({ enabled: false, reason: "拆分后两段文字都不能为空" });
+      expect(
+        subtitleSplitAvailability(base, { cueId: "a", splitFrame: 0, caretIndex: 2 })
+      ).toMatchObject({ enabled: false, reason: "拆分点两侧都至少要有一帧" });
+      expect(
+        subtitleSplitAvailability(base, { cueId: "ghost", splitFrame: 30, caretIndex: 1 })
+      ).toMatchObject({ enabled: false, reason: "字幕块不存在" });
+    });
+
+    it("merge reports which neighbour is missing", () => {
+      expect(
+        subtitleMergeAvailability(base, { cueId: "b", direction: "previous" })
+      ).toEqual({ enabled: true, reason: null });
+      expect(
+        subtitleMergeAvailability(base, { cueId: "a", direction: "previous" })
+      ).toMatchObject({ enabled: false, reason: "前面没有可合并的字幕" });
+      expect(
+        subtitleMergeAvailability(base, { cueId: "b", direction: "next" })
+      ).toMatchObject({ enabled: false, reason: "后面没有可合并的字幕" });
+    });
+
+    it("availability probing never mutates the state it inspects", () => {
+      const snapshot = JSON.stringify(base);
+      subtitleSplitAvailability(base, { cueId: "a", splitFrame: 30, caretIndex: 2 });
+      subtitleMergeAvailability(base, { cueId: "b", direction: "previous" });
+      expect(JSON.stringify(base)).toBe(snapshot);
+    });
   });
 
   it("normalizeSubtitleState preserves well-formed (even overlapping) cues and degrades junk to an empty track", () => {

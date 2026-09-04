@@ -99,6 +99,9 @@ import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
 import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransitionRequirementsDialog";
 import ShotPreview from "./ShotPreview";
+import { useTimelineMediaController } from "../timelineMedia/useTimelineMediaController";
+import { buildSubtitleCandidates } from "../timelineMedia/subtitleCandidates";
+import type { SubtitleTrackBinding } from "../timelineMedia/SubtitleTrackRow";
 import {
   storyboardEditSelectionSummary,
   storyboardEditShouldFollowSelectionToShot,
@@ -1055,6 +1058,81 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     timingRowsRef.current = timings;
   }, [timings]);
+
+  /**
+   * 字幕轨（U3 窄命令的界面投影）。控制器挂在这一层而不是 CreationEditorContext：
+   * 需要的三样东西 —— extensions、会话 epoch、refetch —— 都已经在 context value 上，
+   * 而这里离故事版更近，也不让那个热点文件继续长领域逻辑。
+   */
+  const timelineMedia = useTimelineMediaController({
+    storyId: activeStoryId,
+    editorSessionEpoch: creationEditor.editorSessionEpoch,
+    extensions: creationEditor.materialState?.timeline.extensions,
+    onChanged: () => creationEditor.refetch(),
+  });
+  /**
+   * 「从当前文字生成字幕」的候选。只在用户点 CTA 时才落库 —— 这里算出来只用于
+   * 显示可不可用，页面加载与刷新不产生任何写入。
+   */
+  const subtitleCandidates = useMemo(() => {
+    const cueTexts = new Map(
+      (chatCutTimeline?.scriptCues ?? []).map(cue => [cue.code, cue.text])
+    );
+    const chatCutCues = chatCutTimeline
+      ? chatCutPlaybackAudioTracks(chatCutTimeline)
+          .flatMap(track => track.clips)
+          .flatMap(clip => {
+            const code = chatCutCueCode(clip.name);
+            const text = code ? cueTexts.get(code) : undefined;
+            return code && text
+              ? [{ code, text, startMs: clip.startMs, endMs: clip.endMs }]
+              : [];
+          })
+      : [];
+    return buildSubtitleCandidates({
+      chatCutCues,
+      shotDialogues: timings.flatMap(row => {
+        const dialogue = shots.find(
+          shot => shot.stableShotId === row.stableShotId
+        )?.dialogue;
+        return dialogue
+          ? [
+              {
+                stableShotId: row.stableShotId,
+                dialogue,
+                startMs: row.startMs,
+                endMs: row.endMs,
+              },
+            ]
+          : [];
+      }),
+      sourceTextRevision: creationEditor.materialState?.timeline.version ?? 0,
+    });
+  }, [
+    chatCutTimeline,
+    creationEditor.materialState?.timeline.version,
+    shots,
+    timings,
+  ]);
+  const subtitleBinding = useMemo<SubtitleTrackBinding>(
+    () => ({
+      cues: timelineMedia.cues,
+      selectedCueId: timelineMedia.selectedCueId,
+      onSelectCue: timelineMedia.selectCue,
+      pending: timelineMedia.pending,
+      error: timelineMedia.lastError,
+      candidates: subtitleCandidates,
+      onGenerateFromText: () =>
+        timelineMedia.initializeSubtitles([...subtitleCandidates]),
+      onEditText: timelineMedia.editSubtitleText,
+      onMove: timelineMedia.moveSubtitleCue,
+      onTrim: timelineMedia.trimSubtitleCue,
+      onSplit: timelineMedia.splitSubtitleCue,
+      onMerge: timelineMedia.mergeSubtitleCue,
+      onDelete: timelineMedia.deleteSubtitleCue,
+    }),
+    [subtitleCandidates, timelineMedia]
+  );
   /** 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。 */
   const boardTimelineTotalMs = useMemo(
     () => storyboardTimingTotalMs(timings),
@@ -1899,6 +1977,7 @@ export default function EditingNleWorkspace({
       totalMs: boardTimelineTotalMs,
       audioClips: storyboardAudioClips,
       audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
+      subtitle: subtitleBinding,
       anchors: timelineAnchors,
       overlays: timelineOverlays,
       visualLayerState: timelineVisualLayerState,
@@ -2242,6 +2321,7 @@ export default function EditingNleWorkspace({
       setActiveSelection,
       shots,
       storyboardAudioClips,
+      subtitleBinding,
       splitAtPlayhead,
       timelineAnchors,
       playbackClock,
@@ -2461,6 +2541,7 @@ export default function EditingNleWorkspace({
             playheadMs={previewPlayheadMs}
             timelinePlaying={playbackClock.isPlaying}
             format={chatCutTimeline}
+            subtitleState={timelineMedia.subtitleState}
             onRequestTimelinePlaying={isPlaying =>
               playbackClock.setPlaying(isPlaying)
             }
