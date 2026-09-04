@@ -18,6 +18,13 @@ import {
   type SubtitleMergeDirection as SubtitleMergeDirectionModel,
   type TimelineSubtitleState as TimelineSubtitleStateModel,
 } from "@shared/timelineSubtitleModel";
+import {
+  normalizeAudioState as normalizeAudioStateModel,
+  resolveAudioClipsAtFrame as resolveAudioClipsAtFrameModel,
+  type ActiveAudioClip as ActiveAudioClipModel,
+  type AudioTrackKind as AudioTrackKindModel,
+  type TimelineAudioState as TimelineAudioStateModel,
+} from "@shared/timelineAudioModel";
 import { recordTimelineCommandUndo, trackCreationEditorOperation } from "../timelineUndoStore";
 
 export type MediaCommandResult =
@@ -92,6 +99,56 @@ export type TimelineMediaController = {
     direction: SubtitleMergeDirectionModel;
   }) => Promise<void>;
   deleteSubtitleCue: (cueId: string) => Promise<void>;
+
+  // ── Audio (U9) ──────────────────────────────────────────────────────
+  audioState: TimelineAudioStateModel;
+  selectedAudioClipId: string | null;
+  selectAudioClip: (clipId: string | null) => void;
+  activeAudioAtFrame: (frame: number) => ActiveAudioClipModel[];
+  insertAudioClip: (input: {
+    kind: AudioTrackKindModel;
+    assetId: number;
+    timelineStartFrame: number;
+    sourceInFrame?: number;
+    sourceOutFrame?: number;
+    gain?: number;
+    linkedVisualSourceId?: string;
+  }) => Promise<void>;
+  moveAudioClip: (input: { clipId: string; toStartFrame: number }) => Promise<void>;
+  trimAudioClip: (input: {
+    clipId: string;
+    edge: "start" | "end";
+    deltaFrames: number;
+  }) => Promise<void>;
+  deleteAudioClip: (clipId: string) => Promise<void>;
+  reclassifyAudioClip: (input: {
+    clipId: string;
+    toKind: AudioTrackKindModel;
+  }) => Promise<void>;
+  setAudioClipGain: (input: { clipId: string; gain: number }) => Promise<void>;
+  setAudioClipMuted: (input: { clipId: string; muted: boolean }) => Promise<void>;
+  setAudioClipFade: (input: {
+    clipId: string;
+    fadeInFrames?: number;
+    fadeOutFrames?: number;
+  }) => Promise<void>;
+  setAudioTrackMuted: (input: {
+    kind: AudioTrackKindModel;
+    muted: boolean;
+  }) => Promise<void>;
+  setAudioTrackGain: (input: {
+    kind: AudioTrackKindModel;
+    gain: number;
+  }) => Promise<void>;
+  bindSpeech: (input: {
+    subtitleCueId: string;
+    narrationClipId: string;
+  }) => Promise<void>;
+  unbindSpeech: (bindingId: string) => Promise<void>;
+  moveBoundSpeech: (input: {
+    bindingId: string;
+    deltaFrames: number;
+  }) => Promise<void>;
 };
 
 function newOperationId(): string {
@@ -110,8 +167,15 @@ export function useTimelineMediaController(
     [extensions]
   );
   const cues = useMemo(() => subtitleState.tracks[0]?.cues ?? [], [subtitleState]);
+  const audioState = useMemo<TimelineAudioStateModel>(
+    () => normalizeAudioStateModel(extensions?.audioTracks),
+    [extensions]
+  );
 
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
+  const [selectedAudioClipId, setSelectedAudioClipId] = useState<string | null>(
+    null
+  );
   const [pendingCount, setPendingCount] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -122,6 +186,19 @@ export function useTimelineMediaController(
   const splitMut = trpc.timelineMedia.splitSubtitleCue.useMutation();
   const mergeMut = trpc.timelineMedia.mergeSubtitleCue.useMutation();
   const deleteMut = trpc.timelineMedia.deleteSubtitleCue.useMutation();
+  const audioInsertMut = trpc.timelineMedia.insertAudioClip.useMutation();
+  const audioMoveMut = trpc.timelineMedia.moveAudioClip.useMutation();
+  const audioTrimMut = trpc.timelineMedia.trimAudioClip.useMutation();
+  const audioDeleteMut = trpc.timelineMedia.deleteAudioClip.useMutation();
+  const audioReclassifyMut = trpc.timelineMedia.reclassifyAudioClip.useMutation();
+  const audioGainMut = trpc.timelineMedia.setAudioClipGain.useMutation();
+  const audioMutedMut = trpc.timelineMedia.setAudioClipMuted.useMutation();
+  const audioFadeMut = trpc.timelineMedia.setAudioClipFade.useMutation();
+  const audioTrackMutedMut = trpc.timelineMedia.setAudioTrackMuted.useMutation();
+  const audioTrackGainMut = trpc.timelineMedia.setAudioTrackGain.useMutation();
+  const bindSpeechMut = trpc.timelineMedia.bindSpeech.useMutation();
+  const unbindSpeechMut = trpc.timelineMedia.unbindSpeech.useMutation();
+  const moveBoundSpeechMut = trpc.timelineMedia.moveBoundSpeech.useMutation();
 
   const run = useCallback(
     async (call: () => Promise<MediaCommandResult>): Promise<void> => {
@@ -245,6 +322,157 @@ export function useTimelineMediaController(
           })
         ),
       [run, deleteMut, storyId, operation]
+    ),
+
+    audioState,
+    selectedAudioClipId,
+    selectAudioClip: setSelectedAudioClipId,
+    activeAudioAtFrame: useCallback(
+      (frame: number) => resolveAudioClipsAtFrameModel(audioState, frame),
+      [audioState]
+    ),
+    insertAudioClip: useCallback(
+      inputArgs =>
+        run(() =>
+          audioInsertMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioInsertMut, storyId, operation]
+    ),
+    moveAudioClip: useCallback(
+      inputArgs =>
+        run(() =>
+          audioMoveMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioMoveMut, storyId, operation]
+    ),
+    trimAudioClip: useCallback(
+      inputArgs =>
+        run(() =>
+          audioTrimMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioTrimMut, storyId, operation]
+    ),
+    deleteAudioClip: useCallback(
+      (clipId: string) =>
+        run(() =>
+          audioDeleteMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            clipId,
+          })
+        ),
+      [run, audioDeleteMut, storyId, operation]
+    ),
+    reclassifyAudioClip: useCallback(
+      inputArgs =>
+        run(() =>
+          audioReclassifyMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioReclassifyMut, storyId, operation]
+    ),
+    setAudioClipGain: useCallback(
+      inputArgs =>
+        run(() =>
+          audioGainMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioGainMut, storyId, operation]
+    ),
+    setAudioClipMuted: useCallback(
+      inputArgs =>
+        run(() =>
+          audioMutedMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioMutedMut, storyId, operation]
+    ),
+    setAudioClipFade: useCallback(
+      inputArgs =>
+        run(() =>
+          audioFadeMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioFadeMut, storyId, operation]
+    ),
+    setAudioTrackMuted: useCallback(
+      inputArgs =>
+        run(() =>
+          audioTrackMutedMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioTrackMutedMut, storyId, operation]
+    ),
+    setAudioTrackGain: useCallback(
+      inputArgs =>
+        run(() =>
+          audioTrackGainMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, audioTrackGainMut, storyId, operation]
+    ),
+    bindSpeech: useCallback(
+      inputArgs =>
+        run(() =>
+          bindSpeechMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, bindSpeechMut, storyId, operation]
+    ),
+    unbindSpeech: useCallback(
+      (bindingId: string) =>
+        run(() =>
+          unbindSpeechMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            bindingId,
+          })
+        ),
+      [run, unbindSpeechMut, storyId, operation]
+    ),
+    moveBoundSpeech: useCallback(
+      inputArgs =>
+        run(() =>
+          moveBoundSpeechMut.mutateAsync({
+            storyId: storyId as number,
+            operation: operation(),
+            ...inputArgs,
+          })
+        ),
+      [run, moveBoundSpeechMut, storyId, operation]
     ),
   };
 }

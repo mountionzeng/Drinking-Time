@@ -10,12 +10,18 @@ import {
   subtitleStateEndFrame,
   type TimelineSubtitleState,
 } from "./timelineSubtitleModel";
+import {
+  audioStateEndFrame,
+  type TimelineAudioState,
+} from "./timelineAudioModel";
 
 export type TimelineMediaDurationInput = {
   /** Highest end frame of the resolved visual layout (0 when there is none). */
   visualEndFrame: number;
   /** Subtitle slice, if the document has one. */
   subtitleState?: TimelineSubtitleState | null;
+  /** Audio slice, if the document has one (U9). */
+  audioState?: TimelineAudioState | null;
 };
 
 /** Highest end frame across every media kind, as a non-negative integer. */
@@ -28,5 +34,6 @@ export function timelineMediaTotalFrames(
   const subtitle = input.subtitleState
     ? subtitleStateEndFrame(input.subtitleState)
     : 0;
-  return Math.max(visual, subtitle);
+  const audio = input.audioState ? audioStateEndFrame(input.audioState) : 0;
+  return Math.max(visual, subtitle, audio);
 }

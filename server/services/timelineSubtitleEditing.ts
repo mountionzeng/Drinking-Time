@@ -25,10 +25,13 @@ import {
   trimSubtitleCueEnd,
   trimSubtitleCueStart,
   type SubtitleCandidate,
+  type SubtitleCue,
   type SubtitleMergeDirection,
   type SubtitlePlannerResult,
   type TimelineSubtitleState,
 } from "../../shared/timelineSubtitleModel";
+import { normalizeAudioState } from "../../shared/timelineAudioModel";
+import { markBoundNarrationTextStale } from "../../shared/timelineSpeechBinding";
 import {
   loadOwnedStoryTimelineEnvelope,
   saveStoryTimelineExtensionCas,
@@ -45,6 +48,7 @@ import { withVisualEditServiceLock } from "./visualClipEditing";
 import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
 
 const SUBTITLE_SLICE_KEY = "subtitleTracks";
+const AUDIO_SLICE_KEY = "audioTracks";
 const CONFLICT_RETRY_LIMIT = 1;
 
 export type TimelineMediaCommandResult =
@@ -59,6 +63,24 @@ export type TimelineMediaCommandResult =
 function isVersionConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /时间轴版本已更新|时间轴已经更新|故事已经更新/.test(message);
+}
+
+function staleBindingIdsFromTextChange(
+  before: TimelineSubtitleState,
+  after: TimelineSubtitleState
+): string[] {
+  const beforeById = new Map<string, SubtitleCue>(
+    (before.tracks[0]?.cues ?? []).map(cue => [cue.id, cue])
+  );
+  const ids: string[] = [];
+  for (const cue of after.tracks[0]?.cues ?? []) {
+    if (!cue.speechBindingId) continue;
+    const prior = beforeById.get(cue.id);
+    if (!prior || cue.textRevision > prior.textRevision) {
+      ids.push(cue.speechBindingId);
+    }
+  }
+  return ids;
 }
 
 function subtitleStateFromExtensions(
@@ -79,7 +101,8 @@ async function runSubtitleCommand(
     operation: VisualEditOperationRef;
     commandPayload: unknown;
   },
-  planner: SubtitlePlanner
+  planner: SubtitlePlanner,
+  options: { markBoundNarrationStale?: boolean } = {}
 ): Promise<TimelineMediaCommandResult> {
   return withVisualEditServiceLock(input.storyId, input.userId, async () => {
     if (
@@ -154,13 +177,39 @@ async function runSubtitleCommand(
         };
       }
 
+      // R8: a text change on a bound cue marks its narration `text-stale` in the
+      // SAME CAS — never a TTS call, never an audio delete.
+      const nextExtensions: Record<string, unknown> = {
+        [SUBTITLE_SLICE_KEY]: result.state,
+      };
+      if (options.markBoundNarrationStale) {
+        const bindingIds = staleBindingIdsFromTextChange(
+          beforeState,
+          result.state
+        );
+        if (bindingIds.length > 0) {
+          let audioState = normalizeAudioState(
+            envelope.extensions[AUDIO_SLICE_KEY]
+          );
+          let audioChanged = false;
+          for (const bindingId of bindingIds) {
+            const marked = markBoundNarrationTextStale(audioState, {
+              bindingId,
+            });
+            audioState = marked.state;
+            audioChanged ||= marked.changed;
+          }
+          if (audioChanged) nextExtensions[AUDIO_SLICE_KEY] = audioState;
+        }
+      }
+
       try {
         const saved = await saveStoryTimelineExtensionCas({
           storyId: input.storyId,
           userId: input.userId,
           expectedVersion: envelope.version,
           currentItems: envelope.items,
-          extensions: { [SUBTITLE_SLICE_KEY]: result.state },
+          extensions: nextExtensions,
         });
         const receipt = recordTimelineMediaEditUndo({
           storyId: input.storyId,
@@ -252,7 +301,8 @@ export function editSubtitleTextForStory(input: {
         cueId: input.cueId,
         text: input.text,
         expectedTextRevision: input.expectedTextRevision,
-      })
+      }),
+    { markBoundNarrationStale: true }
   );
 }
 
@@ -344,7 +394,8 @@ export function splitSubtitleCueForStory(input: {
         caretIndex: input.caretIndex,
         expectedTextRevision: input.expectedTextRevision,
         newCueId: ids.next(),
-      })
+      }),
+    { markBoundNarrationStale: true }
   );
 }
 
@@ -475,9 +526,14 @@ export async function undoLatestTimelineMediaEditForStory(input: {
       };
     }
     try {
+      // A media command can touch the subtitle slice, the audio slice, or both
+      // (a speech-binding command). Restore every media slice from the
+      // pre-command snapshot; a key absent from `beforeExtensions` clears.
       const restoredSlices: Record<string, unknown> = {
         [SUBTITLE_SLICE_KEY]:
           entry.beforeExtensions[SUBTITLE_SLICE_KEY] ?? undefined,
+        [AUDIO_SLICE_KEY]:
+          entry.beforeExtensions[AUDIO_SLICE_KEY] ?? undefined,
       };
       const saved = await saveStoryTimelineExtensionCas({
         storyId: input.storyId,

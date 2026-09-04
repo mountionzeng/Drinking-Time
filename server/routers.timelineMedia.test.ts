@@ -3,6 +3,7 @@ import type { TrpcContext } from "./_core/context";
 import { ENV } from "./_core/env";
 import {
   createStory,
+  createStoryAudioAssetRow,
   getStoryTimeline,
   resetMemoryStateForTesting,
   updateStoryTimeline,
@@ -195,6 +196,70 @@ describe("timelineMedia router", () => {
       status: "ok",
       timelineVersion: (first as { timelineVersion: number }).timelineVersion,
     });
+  });
+  it("inserts + moves an audio clip through narrow input, and rejects a full-array field at the type level", async () => {
+    const caller = appRouter.createCaller(context(710));
+    const storyId = await seedStory(710);
+    const asset = await createStoryAudioAssetRow({
+      storyId,
+      userId: 710,
+      storageKey: "a".repeat(32),
+      displayName: "bg.mp3",
+      sourceKind: "local-upload",
+      status: "ready",
+      durationFrames: 300,
+    });
+
+    const inserted = await caller.timelineMedia.insertAudioClip({
+      storyId,
+      operation: { editorSessionEpoch: "tab-a", operationId: "op-ins" },
+      kind: "music",
+      assetId: asset.id,
+      timelineStartFrame: 30,
+    });
+    expect(inserted).toMatchObject({ status: "ok", changed: true });
+
+    const row = (await getStoryTimeline(storyId, 710)) as {
+      extensions?: {
+        audioTracks?: { tracks: { kind: string; clips: Array<{ id: string }> }[] };
+      };
+    } | null;
+    const clipId = row!.extensions!.audioTracks!.tracks.find(
+      t => t.kind === "music"
+    )!.clips[0].id;
+
+    const moved = await caller.timelineMedia.moveAudioClip({
+      storyId,
+      operation: { editorSessionEpoch: "tab-a", operationId: "op-mv" },
+      clipId,
+      toStartFrame: 90,
+    });
+    expect(moved).toMatchObject({ status: "ok", changed: true });
+  });
+
+  it("rejects inserting a clip that points at another Story's asset", async () => {
+    const a = appRouter.createCaller(context(711));
+    const b = appRouter.createCaller(context(712));
+    const storyA = await seedStory(711);
+    const storyB = await seedStory(712);
+    const assetInA = await createStoryAudioAssetRow({
+      storyId: storyA,
+      userId: 711,
+      storageKey: "b".repeat(32),
+      displayName: "a.mp3",
+      sourceKind: "local-upload",
+      status: "ready",
+      durationFrames: 100,
+    });
+    void a;
+    const stolen = await b.timelineMedia.insertAudioClip({
+      storyId: storyB,
+      operation: { editorSessionEpoch: "tab-a", operationId: "op-steal" },
+      kind: "music",
+      assetId: assetInA.id,
+      timelineStartFrame: 0,
+    });
+    expect(stolen).toMatchObject({ status: "error" });
   });
 });
 

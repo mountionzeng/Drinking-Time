@@ -566,6 +566,11 @@ describe("architecture boundaries", () => {
     normalizeSubtitleState: "shared/timelineSubtitleModel.ts",
     resolveSubtitleCuesAtFrame: "shared/timelineSubtitleModel.ts",
     timelineMediaTotalFrames: "shared/timelineMediaDuration.ts",
+    // U9: one audio model + resolver; one speech-binding model.
+    normalizeAudioState: "shared/timelineAudioModel.ts",
+    resolveAudioClipsAtFrame: "shared/timelineAudioModel.ts",
+    bindSpeech: "shared/timelineSpeechBinding.ts",
+    moveBoundSpeech: "shared/timelineSpeechBinding.ts",
   };
 
   it("keeps one authoritative implementation per cross-cutting semantic", async () => {
@@ -645,6 +650,35 @@ describe("architecture boundaries", () => {
     expect(/\bsubtitleTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
     expect(/\bitems\s*:\s*z\.array\(/.test(code)).toBe(false);
     expect(/\baudioTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+  });
+
+  // U9: audio selection is by explicit id + track kind only. The audio model
+  // and its writer must never classify by filename, and must never pull in the
+  // visual winner comparator — overlapping sounds all mix, they don't "win".
+  it("keeps the audio write path free of filename classification and visual-winner logic", async () => {
+    const serverSources = await serverSourcesPromise;
+    const sharedSources = await sharedSourcesPromise;
+    const audioPaths = new Set([
+      "shared/timelineAudioModel.ts",
+      "shared/timelineSpeechBinding.ts",
+      "server/services/timelineAudioEditing.ts",
+    ]);
+    const filenameClassificationPattern =
+      /\b(?:endsWith\(["'`]\.mp3|\.wav\b|classifyByName|guess(?:Music|Kind)FromName|fileName\s*\.\s*includes)\b/i;
+    const visualWinnerImportPattern =
+      /from\s+["'][^"']*timelineVisualPriority["']|\bpickVisualWinner\b|\bcompareVisualPriority\b/;
+    const violations: string[] = [];
+    for (const { file, content } of [...serverSources, ...sharedSources]) {
+      const repoPath = toRepoPath(file);
+      if (!audioPaths.has(repoPath)) continue;
+      if (filenameClassificationPattern.test(content)) {
+        violations.push(`${repoPath}: filename classification`);
+      }
+      if (visualWinnerImportPattern.test(content)) {
+        violations.push(`${repoPath}: visual-winner logic`);
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   // R8: 改字是零付费路径。字幕写入口一旦碰到 provider / 计费账本，就说明打字或

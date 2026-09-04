@@ -49,6 +49,27 @@ describe("timelineMediaTotalFrames", () => {
     ).toBe(600);
   });
 
+  it("extends past visual + subtitle when audio runs longest", async () => {
+    const { emptyAudioState, insertAudioClip } = await import(
+      "./timelineAudioModel"
+    );
+    const inserted = insertAudioClip(emptyAudioState(), {
+      id: "a",
+      kind: "music",
+      assetId: 1,
+      timelineStartFrame: 300,
+      sourceOutFrame: 600,
+    });
+    if (inserted.status !== "ok") throw new Error("setup");
+    expect(
+      timelineMediaTotalFrames({
+        visualEndFrame: 300,
+        subtitleState: subtitleState(450),
+        audioState: inserted.state,
+      })
+    ).toBe(900);
+  });
+
   it("clamps a non-finite visual end to 0", () => {
     expect(
       timelineMediaTotalFrames({ visualEndFrame: Number.NaN, subtitleState: subtitleState(90) })
