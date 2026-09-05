@@ -666,6 +666,83 @@
       box-shadow: 0 1px 4px rgba(80, 64, 22, .1);
     }
 
+
+    /* ==========================================================================
+       工作区：正文常驻，聊聊是桌上那只杯子
+
+       正文在上面一直看得见；聊聊平时缩成一只茶杯蹲在底部动作栏右边，
+       点一下从下面升起一块小面板浮在正文上，聊完收起来还是一只杯子。
+       在正文里打字时杯子会自动变小让位。
+       ========================================================================== */
+
+    .work-dock { display: flex; align-items: center; gap: 10px; }
+    .work-dock .doc-actions { flex: 1 1 auto; }
+
+    .cup-fab {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      transition: transform .2s ease, opacity .2s ease;
+    }
+
+    .cup-fab svg { width: 44px; height: 49px; }
+    .cup-fab:active { transform: scale(.92); }
+
+    /* 正在改正文：杯子退到一边，别抢注意力 */
+    .device.editing .cup-fab { transform: scale(.66); opacity: .5; }
+
+    .chat-veil {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 24;
+      display: none;
+      background: rgba(38, 35, 28, .16);
+    }
+
+    .chat-veil.on { display: block; animation: brew-in .18s ease-out both; }
+
+    .chat-sheet {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 82px;                 /* 桌子 64 + 底部横条 18 */
+      z-index: 25;
+      display: none;
+      flex-direction: column;
+      max-height: 62%;
+      border-radius: 20px 20px 0 0;
+      background: var(--paper);
+      box-shadow: 0 -10px 30px -12px rgba(76, 60, 20, .3);
+    }
+
+    .chat-sheet.open { display: flex; animation: sheet-up .26s cubic-bezier(.2,.9,.3,1) both; }
+    @keyframes sheet-up { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    .sheet-grab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+      width: 100%;
+      min-height: 46px;
+      padding: 6px 16px 2px;
+    }
+
+    .grab-cup { display: block; width: 26px; height: 29px; }
+    .grab-cup svg { width: 26px; height: 29px; }
+    .grab-name { font-family: var(--font-brand); font-size: 17px; color: var(--gold-deep); letter-spacing: .05em; }
+    .grab-hint { margin-left: auto; color: var(--faint); font-size: 12px; }
+
+    .chat-sheet .msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
+    .sheet-foot { flex: 0 0 auto; padding: 0 16px 12px; }
+    .chat-sheet .meter { padding: 0; }
+    .chat-sheet .file-bar { margin: 0 16px 6px; }
+
     /* ---------- 聊聊 ---------- */
 
     /* ==========================================================================
@@ -683,7 +760,7 @@
        手机上按 14px（28rpx）走，不然一屏字太小。其余 1:1。
        ========================================================================== */
 
-    .msgs { display: grid; gap: 12px; padding: 4px 16px 12px; }
+    .msgs { display: grid; gap: 12px; padding: 4px 16px 10px; }
     .msg { display: flex; }
     .msg.me { justify-content: flex-end; }
 
@@ -926,8 +1003,9 @@
 
     .doc-body {
       display: block;
+      flex: 1 1 auto;
       width: calc(100% - 32px);
-      min-height: 300px;
+      min-height: 240px;
       margin: 0 16px;
       padding: 0;
       border: 0;
@@ -1302,6 +1380,17 @@
     </div>
 
     <div class="note-block">
+      <h2>工作区：正文常驻，聊聊是桌上那只杯子</h2>
+      <ul>
+        <li>正文一直在上面看得见。聊聊平时缩成一只茶杯蹲在底部动作栏右边，点一下从下面升起一块面板浮在正文上，聊完收起来还是一只杯子。</li>
+        <li><strong>「聊聊 / 正文」那个分段切换器删掉了</strong> —— 两边现在同屏，不用再来回切。这一条推翻了之前「保留这三个功能」里的第三项，另外两项（共 N 个 Story ＋ 切换、加入正文）都还在。</li>
+        <li>在正文里打字时，杯子自动缩小并变淡（<code>.device.editing</code>），不抢注意力。</li>
+        <li><strong>新的一段还没有正文</strong>：版本 / 平台 / 修订号三个胶囊会整体隐藏，保存键禁用。<code>PublishingBodyDocument</code> 是按 storyId 存的，没有 story 就没有这份东西，不能拿上一个故事的糊弄。</li>
+        <li>底部页签是一张手绘桌子：书（故事）、杯（来聊会儿）、人（我）摆在同一张桌面上。桌沿是画的曲线加两条桌腿，不是 CSS 的 border。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
       <h2>「来聊会儿」</h2>
       <ul>
         <li><strong>五套外框各不相同</strong>，按传统五行形：金圆（双圈像枚币）、木生发（圈上抽两片叶）、水曲（起伏的圈）、火尖（带尖角的圈）、土方（圆角方）。杯子还是那五张线稿，外框是新加的一层。</li>
@@ -1472,59 +1561,16 @@
       </section>
 
       <!-- ---------- 聊聊 ---------- -->
-      <section class="page" id="page-chat">
+      <!-- ---------- 工作区：正文常驻，聊聊是桌上那只杯子 ---------- -->
+      <section class="page" id="page-work">
         <div class="ws-head">
           <button class="ws-story" data-act="switch-story">
             <span class="js-ws-hint">共 2 个 Story</span>
             <span class="switch">切换</span>
           </button>
-          <div class="segmented">
-            <button class="on" data-view="chat">聊聊</button>
-            <button data-view="doc">正文</button>
-          </div>
         </div>
 
-        <div class="msgs" id="msgs"></div>
-
-        <div class="dock">
-          <div class="file-bar" id="fileBar" hidden>
-            <span>这段还没放进故事</span>
-            <button data-act="file-into">放进故事</button>
-          </div>
-          <div id="chatState"></div>
-          <div class="meter">
-            <span id="chatMeter">演示余额 ¥30.00　上一次调用 ¥0.08</span>
-            <span class="demo-tag">演示数据</span>
-          </div>
-          <div class="composer">
-            <button class="icon-btn" data-act="attach" aria-label="添加图片或视频">
-              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>
-            </button>
-            <button class="icon-btn" data-act="voice" aria-label="语音输入">
-              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></span>
-            </button>
-            <textarea id="composerInput" rows="1" placeholder="说说这一版哪里需要推进…"></textarea>
-            <button class="send-btn" id="sendBtn" data-act="send" aria-label="发送">
-              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <!-- ---------- 正文 ---------- -->
-      <section class="page" id="page-doc">
-        <div class="ws-head">
-          <button class="ws-story" data-act="switch-story">
-            <span class="js-ws-hint">共 2 个 Story</span>
-            <span class="switch">切换</span>
-          </button>
-          <div class="segmented">
-            <button data-view="chat">聊聊</button>
-            <button class="on" data-view="doc">正文</button>
-          </div>
-        </div>
-
-        <div class="doc-meta">
+        <div class="doc-meta" id="docMeta">
           <span class="chip">版本 <b>v3</b></span>
           <span class="chip">平台 <b>微信朋友圈</b></span>
           <span class="chip">修订号 <b>#12</b></span>
@@ -1550,8 +1596,11 @@
         </div>
 
         <div class="dock">
-          <div class="doc-actions" id="docActions">
-            <button class="btn primary" id="saveBtn" data-act="save">保存正文</button>
+          <div class="work-dock">
+            <div class="doc-actions" id="docActions">
+              <button class="btn primary" id="saveBtn" data-act="save">保存正文</button>
+            </div>
+            <button class="cup-fab" id="cupFab" data-act="chat-open" aria-label="来聊会儿"></button>
           </div>
         </div>
       </section>
@@ -1624,6 +1673,42 @@
         <span>我</span>
       </button>
     </nav>
+
+    <div class="chat-veil" id="chatVeil" data-act="chat-close"></div>
+    <div class="chat-sheet" id="chatSheet">
+      <button class="sheet-grab" data-act="chat-close">
+        <span class="grab-cup" id="grabCup"></span>
+        <span class="grab-name">聊聊</span>
+        <span class="grab-hint">收起 ⌄</span>
+      </button>
+
+      <div class="file-bar" id="fileBar" hidden>
+        <span>这段还没放进故事</span>
+        <button data-act="file-into">放进故事</button>
+      </div>
+
+      <div class="msgs" id="msgs"></div>
+
+      <div class="sheet-foot">
+        <div id="chatState"></div>
+        <div class="meter">
+          <span id="chatMeter">演示余额 ¥30.00　上一次调用 ¥0.08</span>
+          <span class="demo-tag">演示数据</span>
+        </div>
+        <div class="composer">
+          <button class="icon-btn" data-act="attach" aria-label="添加图片或视频">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>
+          </button>
+          <button class="icon-btn" data-act="voice" aria-label="语音输入">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></span>
+          </button>
+          <textarea id="composerInput" rows="1" placeholder="说说这一版哪里需要推进…"></textarea>
+          <button class="send-btn" id="sendBtn" data-act="send" aria-label="发送">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div class="brew-stage" id="brewStage">
       <div class="brew-figure">
@@ -1716,7 +1801,8 @@ const SCENARIOS = [
 ];
 
 const S = {
-  tab: 'home', view: 'chat', page: 'home',
+  tab: 'home', page: 'home',
+  chatOpen: false,       // 聊聊抽屉开着没有；关着的时候它就是一只杯子
   element: 'metal',   // 开机时由 TODAY.element 覆盖
   scenario: 'ok',
   storyPhase: 'selected',
@@ -1769,14 +1855,18 @@ function render() {
   $$('.page').forEach(p => p.classList.toggle('on', p.id === 'page-' + S.page));
   $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
   // 已经在聊聊/正文里，中间那颗收成常规大小
-  $('#tabbar').classList.toggle('brew-mini', S.page === 'chat' || S.page === 'doc');
-  $$('.segmented button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
+  $('#tabbar').classList.toggle('brew-mini', S.page === 'work');
+  const sheetOn = S.chatOpen && S.page === 'work';
+  $('#chatSheet').classList.toggle('open', sheetOn);
+  $('#chatVeil').classList.toggle('on', sheetOn);
+  $('#cupFab').hidden = sheetOn;
 
   const st = activeStory();
   const wsTitle = st ? st.title : '新的一段';
-  const titles = { home: '碎碎念', chat: wsTitle, doc: wsTitle, me: '我', privacy: '隐私说明' };
+  const titles = { home: '碎碎念', work: wsTitle, me: '我', privacy: '隐私说明' };
   $('#navTitle').textContent = titles[S.page] || '碎碎念';
   $('#navBack').hidden = (S.page === 'home' || S.page === 'me');
+  document.querySelector('.device').classList.toggle('editing', S.editing === true);
 
   /* 黄历 */
   $('#almanacOk').hidden = !S.almanacOk;
@@ -1808,12 +1898,19 @@ function render() {
   $('#meBalance').textContent = S.chat === 'blocked' ? '¥0.00' : '¥30.00';
 
   /* 正文 */
-  $('#docState').innerHTML = stateBlock(DOC[S.doc]);
+  const noDoc = S.storyId === null;      // 还没放进故事 = 还没有 PublishingBodyDocument
+  $('#docMeta').hidden = noDoc;
+  $('#docBody').placeholder = noDoc ? '这一段还没有正文' : '这一版的正文';
+  if (noDoc && !S.draftBody) $('#docBody').value = '';
+  $('#docState').innerHTML = noDoc
+    ? `<div class="state"><span class="headline" style="color:var(--muted)">还没有正文</span>
+         <span class="body">先聊几句，聊出来的段落可以「加入正文」；放进某个故事之后才会有版本和修订号。</span></div>`
+    : stateBlock(DOC[S.doc]);
   $('#docConflict').hidden = S.doc !== 'conflict';
   $('#docBody').hidden = S.doc === 'conflict';
 
   const acts = ['<button class="btn primary" id="saveBtn" data-act="save"'
-    + ((S.doc === 'dirty' || S.doc === 'failed') ? '' : ' disabled')
+    + ((!noDoc && (S.doc === 'dirty' || S.doc === 'failed')) ? '' : ' disabled')
     + '>保存正文</button>'];
   if (S.doc === 'conflict') {
     acts.length = 0;
@@ -1835,7 +1932,7 @@ function render() {
 function go(page) {
   S.page = page;
   if (page === 'home' || page === 'me') S.tab = page;
-  if (page === 'chat' || page === 'doc') { S.tab = 'chat'; S.view = page; }
+  if (page === 'work') S.tab = 'chat';
   $('#pages').scrollTop = 0;
   render();
 }
@@ -1857,21 +1954,21 @@ document.addEventListener('click', e => {
     // 中间那颗：从别处进来放一遍小动画；在正文里就直接切回聊聊，不重放
     if (tab.dataset.tab === 'chat') {
       // 每次点它都是新开一段；已经在新的一段里就不重开
-      if (S.page === 'chat' && S.storyId === null) return;
+      if (S.page === 'work' && S.storyId === null && S.chatOpen) return;
       startNewChat();
-      return S.page === 'doc' ? go('chat') : playBrew();
+      S.chatOpen = true;
+      return S.page === 'work' ? go('work') : playBrew();
     }
     return go(tab.dataset.tab);
   }
-
-  const seg = e.target.closest('.segmented button');
-  if (seg) return go(seg.dataset.view);
 
   const row = e.target.closest('.story-row');
   if (row) {
     S.storyId = Number(row.dataset.story);
     S.chat = 'synced';
-    return go('chat');
+    $('#docBody').value = DEMO_BODY;
+    S.chatOpen = false;          // 从故事进来先看正文
+    return go('work');
   }
 
   const btn = e.target.closest('[data-act]');
@@ -1888,6 +1985,10 @@ document.addEventListener('click', e => {
       if (S.doc === 'dirty' || S.doc === 'conflict') $('#switchSheet').classList.add('on');
       else openStorySheet('switch');
       break;
+    case 'chat-open':
+      S.chatOpen = true; render(); break;
+    case 'chat-close':
+      S.chatOpen = false; render(); break;
     case 'file-into':
       openStorySheet('file'); break;
     case 'sheet-close':
@@ -1922,7 +2023,7 @@ document.addEventListener('click', e => {
     case 'retry-transport':
       applyScenario('ok'); toast('已重连'); break;
     case 'append':
-      go('doc'); S.doc = 'dirty'; render(); toast('加到正文末尾了，记得保存'); break;
+      S.chatOpen = false; S.doc = 'dirty'; go('work'); toast('加到正文末尾了，记得保存'); break;
     case 'privacy': go('privacy'); break;
     case 'agree': go('home'); break;
     case 'disagree': toast('不同意就先看不了工作区'); break;
@@ -1934,6 +2035,8 @@ $('#navBack').addEventListener('click', () => go(S.page === 'privacy' ? 'me' : '
 $('#docBody').addEventListener('input', () => {
   if (S.doc === 'clean') { S.doc = 'dirty'; render(); }
 });
+$('#docBody').addEventListener('focus', () => { S.editing = true;  render(); });
+$('#docBody').addEventListener('blur',  () => { S.editing = false; render(); });
 
 $('#composerInput').addEventListener('input', e => {
   e.target.style.height = 'auto';
@@ -1951,8 +2054,8 @@ $('#scenarios').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   applyScenario(b.dataset.s);
-  if (['pending','unknown','turnfail','nobalance'].includes(b.dataset.s)) go('chat');
-  if (['dirty','conflict','savefail'].includes(b.dataset.s)) go('doc');
+  if (['pending','unknown','turnfail','nobalance'].includes(b.dataset.s)) { S.chatOpen = true; go('work'); }
+  if (['dirty','conflict','savefail'].includes(b.dataset.s)) { S.chatOpen = false; go('work'); }
   if (['loading','empty','storyfail','almanac','ok'].includes(b.dataset.s)) go('home');
 });
 
@@ -2256,6 +2359,12 @@ function bubbleHtml(m) {
       <p>${m.t}</p></div></div>`;
 }
 
+const DEMO_BODY = `那年秋天，他第一次独自离开家。
+
+清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话。父亲后来回忆，那一刻他不敢回头，只怕看见母亲的眼睛，就再也迈不开脚步。
+
+去车站的土路很长。他把那张写着地址的纸折了三遍，贴身放进口袋里。车开动以后，村庄一点点退到山后，他才第一次真正明白，离开并不只是走远。`;
+
 function renderChat() {
   const msgs = activeMsgs();
   const last = msgs[msgs.length - 1];
@@ -2277,6 +2386,10 @@ function renderChat() {
   const avatar = drinkSvg(S.element, 'dt-avatar', true);
   $$('#msgs .dt-avatar').forEach(slot => slot.outerHTML = avatar);
 
+  // 抽屉是从下面升起来的，打开时该看到最新一条，不是从头读
+  const box = $('#msgs');
+  requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+
   // 未归档提示条
   $('#fileBar').hidden = S.storyId !== null;
   const st = activeStory();
@@ -2290,7 +2403,7 @@ let brewTimer = null;
 function playBrew() {
   const stage = $('#brewStage');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduced) return go('chat');
+  if (reduced) return go('work');
 
   $('#brewChar').innerHTML = characterSvg(S.element);
   $('#brewSay').textContent = `来，聊会儿`;
@@ -2308,7 +2421,7 @@ function endBrew() {
   stage.classList.add('out');
   setTimeout(() => {
     stage.classList.remove('on', 'out');
-    go('chat');
+    go('work');
   }, 200);
 }
 
@@ -2348,11 +2461,13 @@ function pickStory(raw) {
     st.updated = '刚刚更新';
     S.draftMsgs = [];
     S.storyId = id;
+    $('#docBody').value = DEMO_BODY;   // 归档之后就该看到那个故事的正文
     render();
     toast(`已放进「${st.title}」`);
   } else {
     S.storyId = id;
     S.chat = 'synced';
+    $('#docBody').value = DEMO_BODY;
     render();
   }
 }
@@ -2381,6 +2496,8 @@ function renderVersion() {
   device.dataset.motion = t.motion;
 
   $('#brewCup').innerHTML = drinkSvg(el, 'brew-cup-art', false);
+  $('#cupFab').innerHTML = drinkSvg(el, 'fab-art', false);
+  $('#grabCup').innerHTML = drinkSvg(el, 'grab-art', true);
   const avatar = drinkSvg(el, 'dt-avatar', true);
   $$('.dt-avatar').forEach(slot => slot.outerHTML = avatar);
 
