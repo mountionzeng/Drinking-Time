@@ -1,0 +1,15 @@
+<meta charset="utf-8"><title>雪碧图逐格</title>
+<style>
+body{margin:0;padding:16px;background:#f6f9f2;font:11px/1.4 -apple-system,PingFang SC,sans-serif;color:#5a5446}
+.strip{display:flex;flex-wrap:wrap;gap:6px}
+.f{width:104px;height:121px;background-size:104px auto;background-repeat:no-repeat;
+   border:1px solid #dfe6d8;border-radius:6px;position:relative;background-color:#fff}
+.f span{position:absolute;left:3px;top:2px;font-size:9px;color:#9a9384}
+</style>
+<div class="strip" id="s"></div>
+<script>
+// 每格半尺寸展示：frame 高 121px（242/2），第 k 格 offset = -121k
+document.getElementById('s').innerHTML =
+  Array.from({length:15},(_,k)=>
+    `<div class="f" style="background-image:url(char-limbs-wood.png);background-position:0 ${-121*k}px"><span>${k}</span></div>`).join('');
+</script>

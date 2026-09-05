@@ -1,0 +1,36 @@
+<meta charset="utf-8"><title>动画还原对照</title>
+<style>
+body{margin:0;padding:24px;background:#f6f9f2;font:12px/1.6 -apple-system,PingFang SC,sans-serif;color:#3a352b}
+.row{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+.pane{text-align:center}
+h3{font-size:12px;letter-spacing:.08em;color:#7a7264;margin:0 0 10px}
+
+/* ↓↓↓ 这一段就是将来 WXSS 里的写法，逐字可搬 ↓↓↓ */
+.char{position:relative;width:208px;height:242px;animation:rise .5s cubic-bezier(.2,.9,.3,1.2) both}
+.char i{position:absolute;left:0;top:0;width:208px;height:242px;background-repeat:no-repeat;display:block}
+.l-body{background-size:208px 242px}
+.l-face{background-size:208px 242px;opacity:0;animation:faceIn .3s ease-out .34s both}
+.l-limbs{background-size:208px auto;background-position:0 0;animation:limbs .58s steps(14) .42s both}
+@keyframes rise{from{opacity:0;transform:translateY(16px) scale(.72)}to{opacity:1;transform:none}}
+@keyframes faceIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1}}
+@keyframes limbs{to{background-position:0 -3388px}}   /* 242 × 14 */
+.wave{animation:wave 1s ease-in-out .8s both;transform-origin:104px 222px}
+@keyframes wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-3.5deg)}65%{transform:rotate(2.5deg)}}
+/* ↑↑↑ */
+
+button{margin:0 0 18px;padding:8px 16px;border:1px solid #cbb;border-radius:8px;background:#fff;font:inherit}
+</style>
+<button onclick="location.reload()">重放</button>
+<div class="row" id="row"></div>
+<script>
+const ELS=['metal','wood','water','fire','earth'];
+document.getElementById('row').innerHTML=ELS.map(el=>`
+  <div class="pane">
+    <div class="char"><div class="wave" style="width:208px;height:242px;position:relative">
+      <i class="l-body"  style="background-image:url(char-body-${el}.png)"></i>
+      <i class="l-face"  style="background-image:url(char-face-${el}.png)"></i>
+      <i class="l-limbs" style="background-image:url(char-limbs-${el}.png)"></i>
+    </div></div>
+    <h3>${el} · 三层 PNG</h3>
+  </div>`).join('');
+</script>
