@@ -7,7 +7,7 @@
  * 身体上原来几处装饰（杯身反光点、壶身那道弧线）与放大后的五官打架，
  * 已按设计稿去掉——它们本来就是被误读成「眼睛和嘴」的那几笔。
  */
-import type React from "react";
+import React from "react";
 import type { NayinElement } from "@/features/nayin/nayin";
 
 interface Props {

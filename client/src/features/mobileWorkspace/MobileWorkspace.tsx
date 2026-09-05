@@ -1,4 +1,4 @@
-import { BookOpenText, Loader2, MessageCircle, RefreshCw } from "lucide-react";
+import { BookOpenText, Loader2, RefreshCw, UserRound } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -17,6 +17,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useNayin } from "@/features/nayin/NayinContext";
+import type { NayinElement } from "@/features/nayin/nayin";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -63,18 +67,58 @@ export async function resolveMobileDirtyStorySwitch(
     : "stay";
 }
 
+/**
+ * 手机工作区外壳 —— 对齐 docs/prototypes/liaohuier-miniapp 的设计。
+ *
+ * 正文常驻在上面；聊聊是底部那位「杯子小人」，平时只露出一条输入区，
+ * 往上拖或点它就升成半屏／全屏浮在正文之上。
+ *
+ * 刻意**不新增状态机**：上游那套 activeView（chat｜document）原样保留，
+ * 这里只把它映射成面板的开合——document = 收起，chat = 展开。
+ * 这样切换 Story、脏正文裁决那些既有流程和测试都不受影响。
+ */
+type SheetStop = "peek" | "half" | "full";
+
+const SHEET_PEEK_PX = 104;
+
+function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
+  if (stop === "peek") return SHEET_PEEK_PX;
+  return Math.round(shellHeight * (stop === "half" ? 0.5 : 0.88));
+}
+
 export function MobileWorkspaceFrame({
   activeView,
   onViewChange,
   storyPicker,
+  documentView,
+  chatView,
   children,
+  onOpenStories,
+  onOpenAccount,
+  element = "metal",
 }: {
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
   storyPicker: ReactNode;
-  children: ReactNode;
+  /** 正文常驻区；加载／空／错误态用 children 兜底 */
+  documentView?: ReactNode;
+  /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
+  chatView?: ReactNode;
+  children?: ReactNode;
+  onOpenStories?: () => void;
+  onOpenAccount?: () => void;
+  /** 当天的纳音五行。由调用方从 useNayin() 取好传进来，
+      外壳本身不碰 context，才能脱离 NayinProvider 单测。 */
+  element?: NayinElement;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ y: number; h: number } | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
+
+  const stop: SheetStop =
+    activeView === "document" ? "peek" : expanded ? "full" : "half";
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -94,78 +138,219 @@ export function MobileWorkspaceFrame({
     };
   }, []);
 
+  const shellHeight = () =>
+    shellRef.current?.getBoundingClientRect().height ?? 0;
+
+  const settle = (height: number) => {
+    const full = shellHeight();
+    const candidates: SheetStop[] = ["peek", "half", "full"];
+    const nearest = candidates.reduce((best, candidate) =>
+      Math.abs(height - sheetStopHeight(candidate, full)) <
+      Math.abs(height - sheetStopHeight(best, full))
+        ? candidate
+        : best
+    );
+    setDragHeight(null);
+    setExpanded(nearest === "full");
+    onViewChange(nearest === "peek" ? "document" : "chat");
+  };
+
+  const sheetHeight =
+    dragHeight ?? (sheetStopHeight(stop, shellHeight()) || SHEET_PEEK_PX);
+
   return (
     <div
       ref={shellRef}
       className="mobile-workspace-page"
       style={{ "--mobile-viewport-height": "100dvh" } as CSSProperties}
     >
-      <div className="mx-auto grid h-full w-full max-w-3xl grid-rows-[auto_auto_minmax(0,1fr)] bg-background/75 shadow-[0_0_44px_-32px_rgba(0,0,0,0.5)] backdrop-blur-sm">
-        <header className="flex min-w-0 items-center gap-3 border-b border-border/65 px-3 py-2.5">
+      <div className="relative mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden bg-background">
+        <header className="flex min-w-0 items-center gap-3 px-4 pt-3 pb-1">
           <span
-            aria-label="拾光 AI 手机工作区"
+            aria-label="碎碎念手机工作区"
             className="font-chat-brand shrink-0 text-xl leading-none text-foreground"
           >
-            拾光
+            碎碎念
           </span>
           {storyPicker}
         </header>
 
-        <nav
-          aria-label="手机工作区"
-          className="grid grid-cols-2 border-b border-border/65 bg-background/78 px-3"
-          role="tablist"
-        >
-          <button
-            id="mobile-workspace-tab-chat"
-            type="button"
-            role="tab"
-            aria-controls="mobile-workspace-panel"
-            aria-selected={activeView === "chat"}
-            className={cn(
-              "relative flex min-h-12 items-center justify-center gap-2 px-3 text-sm font-semibold outline-none transition focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-ring/30",
-              activeView === "chat"
-                ? "text-foreground after:absolute after:inset-x-5 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            onClick={() => onViewChange("chat")}
-          >
-            <MessageCircle aria-hidden="true" className="size-4" />
-            聊聊
-          </button>
-          <button
-            id="mobile-workspace-tab-document"
-            type="button"
-            role="tab"
-            aria-controls="mobile-workspace-panel"
-            aria-selected={activeView === "document"}
-            className={cn(
-              "relative flex min-h-12 items-center justify-center gap-2 px-3 text-sm font-semibold outline-none transition focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-ring/30",
-              activeView === "document"
-                ? "text-foreground after:absolute after:inset-x-5 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            onClick={() => onViewChange("document")}
-          >
-            <BookOpenText aria-hidden="true" className="size-4" />
-            正文
-          </button>
-        </nav>
+        {/* 正文常驻 */}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {documentView ?? children}
+        </div>
 
-        <main
-          id="mobile-workspace-panel"
-          role="tabpanel"
-          aria-labelledby={
-            activeView === "chat"
-              ? "mobile-workspace-tab-chat"
-              : "mobile-workspace-tab-document"
-          }
-          className="min-h-0 overflow-hidden"
+        {/* 聊聊：常驻输入条 / 半屏 / 全屏 */}
+        {chatView && activeView === "chat" && (
+          <button
+            type="button"
+            aria-label="收起聊聊"
+            className="absolute inset-0 z-20 bg-foreground/15"
+            onClick={() => onViewChange("document")}
+          />
+        )}
+        {chatView && (
+        <div
+          ref={sheetRef}
+          className={cn(
+            "absolute inset-x-0 bottom-[64px] z-30 flex flex-col rounded-t-[20px] bg-background",
+            "shadow-[0_-10px_30px_-12px_rgba(76,60,20,0.3)]",
+            dragRef.current ? "" : "transition-[height] duration-200 ease-out"
+          )}
+          style={{ height: sheetHeight }}
         >
-          {children}
-        </main>
+          <div
+            className="shrink-0 cursor-grab touch-none px-4 pt-2"
+            onPointerDown={event => {
+              if ((event.target as HTMLElement).closest("[data-sheet-action]"))
+                return;
+              dragRef.current = {
+                y: event.clientY,
+                h: sheetRef.current?.getBoundingClientRect().height ?? 0,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={event => {
+              const drag = dragRef.current;
+              if (!drag) return;
+              const next = Math.max(
+                SHEET_PEEK_PX,
+                Math.min(
+                  sheetStopHeight("full", shellHeight()),
+                  drag.h + (drag.y - event.clientY)
+                )
+              );
+              setDragHeight(next);
+            }}
+            onPointerUp={() => {
+              const drag = dragRef.current;
+              if (!drag) return;
+              dragRef.current = null;
+              settle(
+                sheetRef.current?.getBoundingClientRect().height ?? SHEET_PEEK_PX
+              );
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+              setDragHeight(null);
+            }}
+          >
+            <span className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-border" />
+            <div className="flex min-h-9 items-center gap-2">
+              <EmotiveWuxingIcon
+                element={element}
+                size={stop === "peek" ? 34 : 28}
+                animated={false}
+              />
+              {stop !== "peek" && (
+                <span className="font-chat-brand text-[17px] leading-none text-primary">
+                  聊聊
+                </span>
+              )}
+              <button
+                type="button"
+                data-sheet-action="toggle"
+                className="ml-auto min-h-9 px-1.5 text-xs text-muted-foreground"
+                onClick={() =>
+                  onViewChange(activeView === "document" ? "chat" : "document")
+                }
+              >
+                {stop === "peek" ? "拉开看全部 ⌃" : "收起 ⌄"}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">{chatView}</div>
+        </div>
+        )}
+
+        {/* 底部：一张手绘桌子，书（故事）、杯（聊聊）、人（我）都摆在上面 */}
+        <MobileTableBar
+          element={element}
+          onOpenChat={() => onViewChange("chat")}
+          onOpenStories={onOpenStories ?? (() => {})}
+          onOpenAccount={onOpenAccount}
+        />
       </div>
     </div>
+  );
+}
+
+
+/**
+ * 底部那张手绘桌子：书（故事）、杯子小人（聊聊）、人（我）都摆在同一张桌面上。
+ * 桌沿是画出来的曲线加两条桌腿，不是 1px 的 border —— 设计上刻意不要那根直线。
+ */
+function MobileTableBar({
+  element,
+  onOpenChat,
+  onOpenStories,
+  onOpenAccount,
+}: {
+  element: NayinElement;
+  onOpenChat: () => void;
+  onOpenStories: () => void;
+  /** 没传就不画「我」——外壳不直接碰 useAuth，保持可独立测试 */
+  onOpenAccount?: () => void;
+}) {
+  return (
+    <>
+      <nav
+        aria-label="手机工作区"
+        className="relative z-40 grid h-16 shrink-0 grid-cols-[1fr_96px_1fr] items-center bg-background"
+      >
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-16 w-full text-border"
+          fill="none"
+          preserveAspectRatio="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          viewBox="0 0 375 64"
+        >
+          <path d="M14,30.5 q92,-2.2 184,-.8 q90,1.4 163,2.6" strokeWidth="1.7" vectorEffect="non-scaling-stroke" />
+          <path d="M17,34.2 q92,-2.2 184,-.8 q88,1.4 158,2.4" strokeWidth="1.1" opacity=".5" vectorEffect="non-scaling-stroke" />
+          <path d="M31,36 q-1.6,10 -2.6,17" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+          <path d="M345,36.5 q1.6,10 2.6,17" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+        </svg>
+
+        <button
+          type="button"
+          className="relative z-10 flex h-full flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground"
+          onClick={onOpenStories}
+        >
+          <BookOpenText aria-hidden="true" className="size-5" />
+          故事
+        </button>
+
+        <button
+          type="button"
+          aria-label="来聊会儿"
+          className="relative z-10 flex h-full flex-col items-center justify-end gap-0.5 pb-1.5"
+          onClick={onOpenChat}
+        >
+          <span className="absolute -top-6 left-1/2 -ml-7">
+            <EmotiveWuxingIcon element={element} size={56} animated={false} />
+          </span>
+          <span className="font-chat-brand text-[15px] leading-none text-primary">
+            来聊会儿
+          </span>
+        </button>
+
+        {onOpenAccount ? (
+          <button
+            type="button"
+            className="relative z-10 flex h-full flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground"
+            onClick={onOpenAccount}
+          >
+            <UserRound aria-hidden="true" className="size-5" />
+            我
+          </button>
+        ) : (
+          <span />
+        )}
+      </nav>
+
+    </>
   );
 }
 
@@ -227,6 +412,9 @@ function MobileSelectedStoryWorkspace({
   onStoryChange: (storyId: number) => void;
 }) {
   const story = stories.find(candidate => candidate.id === activeStoryId);
+  const { element } = useNayin();
+  const { user, logout } = useAuth();
+  const [accountOpen, setAccountOpen] = useState(false);
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const pickerRef = useRef<HTMLSelectElement>(null);
@@ -284,16 +472,44 @@ function MobileSelectedStoryWorkspace({
       activeView={activeView}
       onViewChange={onViewChange}
       storyPicker={picker}
-    >
-      {activeView === "chat" ? (
-        <MobileChatView controller={conversation} storyTitle={story.title} />
-      ) : (
+      element={element}
+      onOpenStories={() => pickerRef.current?.focus()}
+      onOpenAccount={() => setAccountOpen(true)}
+      documentView={
         <MobileDocumentView
           controller={document}
           storyTitle={story.title}
           suppressConflictDialog={pendingStoryId !== null}
         />
-      )}
+      }
+      chatView={
+        <MobileChatView controller={conversation} storyTitle={story.title} />
+      }
+    >
+
+      <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
+        <DialogContent className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-sm">
+          <DialogHeader className="text-left">
+            <DialogTitle>我</DialogTitle>
+            <DialogDescription>{user?.email ?? "未登录"}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm leading-6 text-muted-foreground">
+            手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
+          </p>
+          <DialogFooter className="flex-row justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAccountOpen(false)}
+            >
+              返回
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => void logout()}>
+              退出登录
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={pendingStoryId !== null}

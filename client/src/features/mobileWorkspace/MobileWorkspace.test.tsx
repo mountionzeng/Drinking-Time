@@ -21,20 +21,39 @@ describe("MobileWorkspace", () => {
     expect(resolveMobileInitialStoryId([])).toBeNull();
   });
 
-  it("offers only 聊聊 and 正文 in the primary navigation", () => {
+  // 范围护栏：手机端只做聊和改字。正文常驻、聊聊是底部那位小人，
+  // 时间线／预览／素材／分镜这些重活一律留在电脑上。
+  it("keeps the phone scope to the document and 聊聊", () => {
     const html = renderToStaticMarkup(
       <MobileWorkspaceFrame
         activeView="chat"
         onViewChange={vi.fn()}
         storyPicker={<div>Story 选择器</div>}
+        documentView={<p>正文内容</p>}
+        chatView={<p>对话内容</p>}
+      />
+    );
+
+    // 正文常驻，不再是需要切换才看得到的一个页签
+    expect(html).toContain("正文内容");
+    expect(html).toContain("对话内容");
+    expect(html).toContain("聊聊");
+    expect(html).toContain("来聊会儿");
+    expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
+  });
+
+  it("still renders the document when there is no conversation to attach", () => {
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyPicker={<div>Story 选择器</div>}
       >
-        <p>当前内容</p>
+        <p>加载中</p>
       </MobileWorkspaceFrame>
     );
 
-    expect(html).toContain("聊聊");
-    expect(html).toContain("正文");
-    expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
+    expect(html).toContain("加载中");
   });
 
   it("does not import desktop workspace providers or panels", () => {

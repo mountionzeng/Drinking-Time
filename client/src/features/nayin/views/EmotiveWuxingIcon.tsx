@@ -7,6 +7,7 @@
  * 聊聊的 Logo 用 resolveEmotionMood 归类到 9 大情绪之一并做出回应；
  * 另有 neutral（待机呼吸）和 thinking（回复中）两个系统姿势。
  */
+import React from "react";
 import {
   motion,
   useReducedMotion,
