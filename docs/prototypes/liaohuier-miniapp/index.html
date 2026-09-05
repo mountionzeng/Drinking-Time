@@ -767,9 +767,11 @@
       z-index: 5;
       /* 下边多留 30px：中间那颗杯子会凸进来 32px。 */
       padding: 9px 16px 30px;
-      border-top: 1px solid var(--line);
-      background: rgba(251, 248, 238, .97);
-      backdrop-filter: blur(12px);
+      /* 不描上边线：消息滚到底下由这块不透明底色挡住就够了。
+         底色用 var(--paper) 而不是写死的 rgba —— 原来那个是金那套的纸色，
+         切到木/水/火/土 时和页面差一点点。顺便去掉 backdrop-filter：
+         安卓小程序上本来就不生效，改成实心反而两端一致。 */
+      background: var(--paper);
     }
 
     .meter {
