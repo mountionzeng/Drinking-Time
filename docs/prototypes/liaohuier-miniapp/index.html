@@ -613,11 +613,20 @@
       position: sticky;
       top: 0;
       z-index: 4;
-      padding: 10px 16px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px 0;
       background: var(--paper);
     }
 
+    .ws-head .ws-story { flex: 1 1 auto; }
+
     /* Story 名已经在原生导航栏上了，这里只留切换入口，不重复 */
+    .head-actions { flex: 0 0 auto; }
+    .btn.small.primary { min-height: 34px; padding: 0 13px; font-size: 12.5px; }
+    .ws-head-row { display: flex; align-items: center; gap: 10px; }
+
     .ws-story {
       display: flex;
       align-items: center;
@@ -675,23 +684,9 @@
        在正文里打字时杯子会自动变小让位。
        ========================================================================== */
 
-    .work-dock { display: flex; align-items: center; gap: 10px; }
-    .work-dock .doc-actions { flex: 1 1 auto; }
-
-    .cup-fab {
-      flex: 0 0 auto;
-      display: grid;
-      place-items: center;
-      width: 52px;
-      height: 52px;
-      transition: transform .2s ease, opacity .2s ease;
-    }
-
-    .cup-fab svg { width: 44px; height: 49px; }
-    .cup-fab:active { transform: scale(.92); }
-
-    /* 正在改正文：杯子退到一边，别抢注意力 */
-    .device.editing .cup-fab { transform: scale(.66); opacity: .5; }
+    /* 正在改正文时，聊聊那位缩小让位 */
+    .device.editing .chat-sheet.peek .grab-cup { transform: scale(.7); opacity: .55; }
+    .chat-sheet .grab-cup { transition: transform .2s ease, opacity .2s ease; }
 
     .chat-veil {
       position: absolute;
@@ -706,6 +701,8 @@
 
     .chat-veil.on { display: block; animation: brew-in .18s ease-out both; }
 
+    /* 可拖的半屏：默认 50%，往上拖到 88%，往下拖过 28% 就收起。
+       上线换成 bindtouchstart/move/end，算法一样。 */
     .chat-sheet {
       position: absolute;
       left: 0;
@@ -714,29 +711,83 @@
       z-index: 25;
       display: none;
       flex-direction: column;
-      max-height: 62%;
+      height: var(--sheet-h, 50%);
+      max-height: 88%;
       border-radius: 20px 20px 0 0;
       background: var(--paper);
       box-shadow: 0 -10px 30px -12px rgba(76, 60, 20, .3);
+      transition: height .26s cubic-bezier(.2,.9,.3,1);
     }
 
-    .chat-sheet.open { display: flex; animation: sheet-up .26s cubic-bezier(.2,.9,.3,1) both; }
-    @keyframes sheet-up { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .chat-sheet.dragging { transition: none; }
+
+    .chat-sheet.open { display: flex; }
+
+    /* 常驻档（peek）：只露出把手和输入条，消息区被 flex 压成 0 —— 
+       所以不用为三档各写一套布局，同一套自然缩放。 */
+    .chat-sheet.peek { box-shadow: 0 -8px 22px -14px rgba(76, 60, 20, .28); }
+    .chat-sheet.peek .grab-name,
+    .chat-sheet.peek .msgs,
+    .chat-sheet.peek #chatState,
+    .chat-sheet.peek .meter { display: none; }
+    .chat-sheet.peek .grab-row { min-height: 0; }
+    .chat-sheet.peek .grab-cup { width: 34px; height: 39px; }
+    .chat-sheet.peek .grab-cup svg.grab-art { width: 34px; height: 39px; }
+
+    /* 有新回复时从常驻条上面冒出来，几秒后自己收 */
+    .peek-pop {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      z-index: 26;
+      padding: 10px 13px;
+      border: 1px solid var(--line);
+      border-radius: 14px 14px 14px 4px;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13.5px;
+      line-height: 1.6;
+      box-shadow: 0 8px 22px -12px rgba(76, 60, 20, .4);
+      animation: pop-in .26s cubic-bezier(.2,.9,.3,1.1) both;
+    }
+
+    .peek-pop::after {
+      display: block;
+      margin-top: 6px;
+      color: var(--faint);
+      font-size: 11px;
+      content: "点一下看全部";
+    }
+
+    @keyframes pop-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .peek-pop.out { animation: pop-out .2s ease-in both; }
+    @keyframes pop-out { to { opacity: 0; transform: translateY(6px); } }
 
     .sheet-grab {
-      display: flex;
-      align-items: center;
-      gap: 8px;
       flex: 0 0 auto;
       width: 100%;
-      min-height: 46px;
-      padding: 6px 16px 2px;
+      padding: 8px 16px 2px;
+      cursor: grab;
+      touch-action: none;
     }
 
-    .grab-cup { display: block; width: 26px; height: 29px; }
-    .grab-cup svg { width: 26px; height: 29px; }
+    .sheet-grab:active { cursor: grabbing; }
+
+    .grab-bar {
+      display: block;
+      width: 38px;
+      height: 4px;
+      margin: 0 auto 6px;
+      border-radius: 999px;
+      background: var(--line);
+    }
+
+    .grab-row { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+
+    .grab-cup { display: block; width: 28px; height: 32px; }
+    .grab-cup svg.grab-art { width: 28px; height: 32px; }
     .grab-name { font-family: var(--font-brand); font-size: 17px; color: var(--gold-deep); letter-spacing: .05em; }
-    .grab-hint { margin-left: auto; color: var(--faint); font-size: 12px; }
+    .grab-hint { margin-left: auto; min-height: 36px; padding: 0 6px; color: var(--faint); font-size: 12px; }
 
     .chat-sheet .msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
     .sheet-foot { flex: 0 0 auto; padding: 0 16px 12px; }
@@ -1568,6 +1619,9 @@
             <span class="js-ws-hint">共 2 个 Story</span>
             <span class="switch">切换</span>
           </button>
+          <div class="head-actions" id="docActions">
+            <button class="btn primary small" id="saveBtn" data-act="save">保存正文</button>
+          </div>
         </div>
 
         <div class="doc-meta" id="docMeta">
@@ -1595,14 +1649,6 @@
           </div>
         </div>
 
-        <div class="dock">
-          <div class="work-dock">
-            <div class="doc-actions" id="docActions">
-              <button class="btn primary" id="saveBtn" data-act="save">保存正文</button>
-            </div>
-            <button class="cup-fab" id="cupFab" data-act="chat-open" aria-label="来聊会儿"></button>
-          </div>
-        </div>
       </section>
 
       <!-- ---------- 我的 ---------- -->
@@ -1675,12 +1721,16 @@
     </nav>
 
     <div class="chat-veil" id="chatVeil" data-act="chat-close"></div>
+    <div class="peek-pop" id="peekPop" hidden></div>
     <div class="chat-sheet" id="chatSheet">
-      <button class="sheet-grab" data-act="chat-close">
-        <span class="grab-cup" id="grabCup"></span>
-        <span class="grab-name">聊聊</span>
-        <span class="grab-hint">收起 ⌄</span>
-      </button>
+      <div class="sheet-grab" id="sheetGrab">
+        <span class="grab-bar"></span>
+        <div class="grab-row">
+          <span class="grab-cup" id="grabCup"></span>
+          <span class="grab-name">聊聊</span>
+          <button class="grab-hint" id="snapToggle" data-act="snap-toggle">拉开看全部 ⌃</button>
+        </div>
+      </div>
 
       <div class="file-bar" id="fileBar" hidden>
         <span>这段还没放进故事</span>
@@ -1802,7 +1852,7 @@ const SCENARIOS = [
 
 const S = {
   tab: 'home', page: 'home',
-  chatOpen: false,       // 聊聊抽屉开着没有；关着的时候它就是一只杯子
+  snap: 'peek',          // peek 常驻输入条 / half 半屏 / full 全屏
   element: 'metal',   // 开机时由 TODAY.element 覆盖
   scenario: 'ok',
   storyPhase: 'selected',
@@ -1856,10 +1906,15 @@ function render() {
   $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
   // 已经在聊聊/正文里，中间那颗收成常规大小
   $('#tabbar').classList.toggle('brew-mini', S.page === 'work');
-  const sheetOn = S.chatOpen && S.page === 'work';
-  $('#chatSheet').classList.toggle('open', sheetOn);
-  $('#chatVeil').classList.toggle('on', sheetOn);
-  $('#cupFab').hidden = sheetOn;
+  const onWork = S.page === 'work';
+  const sheet = $('#chatSheet');
+  sheet.classList.toggle('open', onWork);
+  sheet.classList.toggle('peek', S.snap === 'peek');
+  $('#chatVeil').classList.toggle('on', onWork && S.snap !== 'peek');
+  if (onWork && !sheetDrag) applySnap();
+  if (!onWork) $('#peekPop').hidden = true;
+  const snapBtn = $('#snapToggle');
+  if (snapBtn) snapBtn.textContent = S.snap === 'peek' ? '拉开看全部 ⌃' : '收起 ⌄';
 
   const st = activeStory();
   const wsTitle = st ? st.title : '新的一段';
@@ -1954,9 +2009,9 @@ document.addEventListener('click', e => {
     // 中间那颗：从别处进来放一遍小动画；在正文里就直接切回聊聊，不重放
     if (tab.dataset.tab === 'chat') {
       // 每次点它都是新开一段；已经在新的一段里就不重开
-      if (S.page === 'work' && S.storyId === null && S.chatOpen) return;
+      if (S.page === 'work' && S.storyId === null && S.snap !== 'peek') return;
       startNewChat();
-      S.chatOpen = true;
+      S.snap = 'half';
       return S.page === 'work' ? go('work') : playBrew();
     }
     return go(tab.dataset.tab);
@@ -1967,7 +2022,7 @@ document.addEventListener('click', e => {
     S.storyId = Number(row.dataset.story);
     S.chat = 'synced';
     $('#docBody').value = DEMO_BODY;
-    S.chatOpen = false;          // 从故事进来先看正文
+    S.snap = 'peek';             // 从故事进来先看正文，输入条常驻着
     return go('work');
   }
 
@@ -1985,10 +2040,10 @@ document.addEventListener('click', e => {
       if (S.doc === 'dirty' || S.doc === 'conflict') $('#switchSheet').classList.add('on');
       else openStorySheet('switch');
       break;
-    case 'chat-open':
-      S.chatOpen = true; render(); break;
+    case 'snap-toggle':
+      S.snap = S.snap === 'peek' ? 'half' : 'peek'; render(); break;
     case 'chat-close':
-      S.chatOpen = false; render(); break;
+      S.snap = 'peek'; render(); break;
     case 'file-into':
       openStorySheet('file'); break;
     case 'sheet-close':
@@ -2012,7 +2067,11 @@ document.addEventListener('click', e => {
       if (!$('#composerInput').value.trim()) return;
       $('#composerInput').value = '';
       S.chat = 'pending'; render();
-      setTimeout(() => { S.chat = 'synced'; render(); }, 1100);
+      setTimeout(() => {
+        S.chat = 'synced'; render();
+        const last = activeMsgs()[activeMsgs().length - 1];
+        if (last && last.r === 'a') popNewReply(last.t);
+      }, 1100);
       break;
     case 'lookup':
       toast('按同一轮查询中…');
@@ -2023,7 +2082,7 @@ document.addEventListener('click', e => {
     case 'retry-transport':
       applyScenario('ok'); toast('已重连'); break;
     case 'append':
-      S.chatOpen = false; S.doc = 'dirty'; go('work'); toast('加到正文末尾了，记得保存'); break;
+      S.snap = 'peek'; S.doc = 'dirty'; go('work'); toast('加到正文末尾了，记得保存'); break;
     case 'privacy': go('privacy'); break;
     case 'agree': go('home'); break;
     case 'disagree': toast('不同意就先看不了工作区'); break;
@@ -2054,8 +2113,8 @@ $('#scenarios').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   applyScenario(b.dataset.s);
-  if (['pending','unknown','turnfail','nobalance'].includes(b.dataset.s)) { S.chatOpen = true; go('work'); }
-  if (['dirty','conflict','savefail'].includes(b.dataset.s)) { S.chatOpen = false; go('work'); }
+  if (['pending','unknown','turnfail','nobalance'].includes(b.dataset.s)) { S.snap = 'half'; go('work'); }
+  if (['dirty','conflict','savefail'].includes(b.dataset.s)) { S.snap = 'peek'; go('work'); }
   if (['loading','empty','storyfail','almanac','ok'].includes(b.dataset.s)) go('home');
 });
 
@@ -2291,7 +2350,7 @@ function limb(rig, spec, side, kind, order) {
   return `<path class="ch-limb l${order}" d="M${start.x},${start.y} Q${cx},${cy} ${ex},${ey}"/>${tail}`;
 }
 
-function characterSvg(el) {
+function characterSvg(el, cls) {
   const t = THEMES[el], rig = RIGS[el];
   const limbs = [
     limb(rig, POSE_NEUTRAL.armL, -1, 'arm', 1),
@@ -2300,7 +2359,7 @@ function characterSvg(el) {
     limb(rig, POSE_NEUTRAL.legR,  1, 'leg', 4)
   ].join('');
   // viewBox 比杯子那版高一点，不然脚和热气会被裁掉
-  return `<svg class="brew-char" viewBox="-6 -8 102 118" fill="none" stroke="${t.ink}" color="${t.ink}"
+  return `<svg class="${cls || 'brew-char'}" viewBox="-6 -8 102 118" fill="none" stroke="${t.ink}" color="${t.ink}"
        stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="${t.beverageCn}小人">
     <g class="ch-body">
       ${DRINK_ART[el]}
@@ -2479,6 +2538,86 @@ function startNewChat() {
   S.chat = 'idle';
 }
 
+/* ---------------------------------------------------------------------------
+   聊聊面板：可拖的半屏
+
+   三个停靠点：收起 / 半屏 50% / 高 88%。
+   松手时就近吸附；拖到 28% 以下直接收起（回到一只小人）。
+   小程序上把 pointer* 换成 bindtouchstart/move/end 即可，算法一样；
+   注意那边要在 wxml 上写 catchtouchmove 防止顺带滚了底下的正文。
+   --------------------------------------------------------------------------- */
+
+const SNAP = { peek: 98, half: 50, full: 88 };   // peek 是 px，half/full 是百分比
+
+function deviceH() { return document.querySelector('.device').getBoundingClientRect().height; }
+function snapPx(name) { return name === 'peek' ? SNAP.peek : deviceH() * SNAP[name] / 100; }
+function applySnap() { $('#chatSheet').style.setProperty('--sheet-h', snapPx(S.snap) + 'px'); }
+
+/* ---------------------------------------------------------------------------
+   聊聊面板三档：常驻输入条 / 半屏 / 全屏
+
+   输入框一直在，随时能打字；有新回复时从常驻条上面冒一个泡。
+   想看全部就把把手往上拖，或者点「拉开看全部」。松手就近吸附。
+
+   小程序上把 pointer* 换成 bindtouchstart/move/end，算法一样；
+   wxml 那边记得 catchtouchmove，别顺带把底下的正文也滚了。
+   --------------------------------------------------------------------------- */
+
+let sheetDrag = null;
+
+(function () {
+  const grab = $('#sheetGrab');
+  const sheet = $('#chatSheet');
+
+  grab.addEventListener('pointerdown', e => {
+    if (e.target.closest('[data-act]')) return;      // 「拉开／收起」是按钮，不当拖动
+    sheetDrag = { y: e.clientY, h: sheet.getBoundingClientRect().height };
+    sheet.classList.add('dragging');
+    grab.setPointerCapture(e.pointerId);
+  });
+
+  grab.addEventListener('pointermove', e => {
+    if (!sheetDrag) return;
+    const h = Math.max(SNAP.peek, Math.min(snapPx('full'), sheetDrag.h + (sheetDrag.y - e.clientY)));
+    sheet.style.setProperty('--sheet-h', h + 'px');
+  });
+
+  const end = () => {
+    if (!sheetDrag) return;
+    const h = sheet.getBoundingClientRect().height;
+    sheet.classList.remove('dragging');
+    sheetDrag = null;
+    // 就近吸附到三档
+    const best = ['peek', 'half', 'full']
+      .map(n => [n, Math.abs(h - snapPx(n))])
+      .sort((a, b) => a[1] - b[1])[0][0];
+    S.snap = best;
+    render();
+  };
+  grab.addEventListener('pointerup', end);
+  grab.addEventListener('pointercancel', end);
+})();
+
+/** 常驻档下来了新回复，冒个泡 */
+let popTimer = null;
+function popNewReply(text) {
+  if (S.snap !== 'peek') return;
+  const pop = $('#peekPop');
+  pop.textContent = text.length > 46 ? text.slice(0, 46) + '…' : text;
+  pop.hidden = false;
+  pop.classList.remove('out');
+  pop.style.bottom = (82 + SNAP.peek + 8) + 'px';
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => {
+    pop.classList.add('out');
+    setTimeout(() => { pop.hidden = true; }, 200);
+  }, 4200);
+}
+$('#peekPop').addEventListener('click', () => {
+  $('#peekPop').hidden = true;
+  S.snap = 'half'; render();
+});
+
 $('#storySheet').addEventListener('click', e => {
   if (e.target.id === 'storySheet') return closeStorySheet();
   const b = e.target.closest('[data-story-id]');
@@ -2496,8 +2635,7 @@ function renderVersion() {
   device.dataset.motion = t.motion;
 
   $('#brewCup').innerHTML = drinkSvg(el, 'brew-cup-art', false);
-  $('#cupFab').innerHTML = drinkSvg(el, 'fab-art', false);
-  $('#grabCup').innerHTML = drinkSvg(el, 'grab-art', true);
+  $('#grabCup').innerHTML = characterSvg(el, 'grab-art');
   const avatar = drinkSvg(el, 'dt-avatar', true);
   $$('.dt-avatar').forEach(slot => slot.outerHTML = avatar);
 
