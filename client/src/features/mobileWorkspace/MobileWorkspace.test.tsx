@@ -30,7 +30,7 @@ describe("MobileWorkspace", () => {
         onViewChange={vi.fn()}
         storyPicker={<div>Story 选择器</div>}
         documentView={<p>正文内容</p>}
-        chatView={<p>对话内容</p>}
+        chatView={() => <p>对话内容</p>}
       />
     );
 

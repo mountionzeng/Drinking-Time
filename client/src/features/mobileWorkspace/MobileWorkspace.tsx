@@ -79,7 +79,7 @@ export async function resolveMobileDirtyStorySwitch(
  */
 type SheetStop = "peek" | "half" | "full";
 
-const SHEET_PEEK_PX = 104;
+const SHEET_PEEK_PX = 128;
 
 function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
   if (stop === "peek") return SHEET_PEEK_PX;
@@ -103,7 +103,8 @@ export function MobileWorkspaceFrame({
   /** 正文常驻区；加载／空／错误态用 children 兜底 */
   documentView?: ReactNode;
   /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
-  chatView?: ReactNode;
+  /** 收到 stop 决定要不要紧凑显示，所以用函数而不是现成节点 */
+  chatView?: (options: { dense: boolean }) => ReactNode;
   children?: ReactNode;
   onOpenStories?: () => void;
   onOpenAccount?: () => void;
@@ -116,6 +117,9 @@ export function MobileWorkspaceFrame({
   const dragRef = useRef<{ y: number; h: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [dragHeight, setDragHeight] = useState<number | null>(null);
+  // 外壳高度必须存进 state：render 期间读 ref 首帧拿到 0，
+  // 半屏/全屏会被算成 0 再回退到常驻档的高度。
+  const [shellH, setShellH] = useState(0);
 
   const stop: SheetStop =
     activeView === "document" ? "peek" : expanded ? "full" : "half";
@@ -128,6 +132,7 @@ export function MobileWorkspaceFrame({
         "--mobile-viewport-height",
         `${viewport.height}px`
       );
+      setShellH(shellRef.current?.getBoundingClientRect().height ?? 0);
     };
     updateHeight();
     viewport.addEventListener("resize", updateHeight);
@@ -138,8 +143,14 @@ export function MobileWorkspaceFrame({
     };
   }, []);
 
+  // visualViewport 缺席时（桌面浏览器、SSR 测试）也要量一次
+  useEffect(() => {
+    if (window.visualViewport) return;
+    setShellH(shellRef.current?.getBoundingClientRect().height ?? 0);
+  }, []);
+
   const shellHeight = () =>
-    shellRef.current?.getBoundingClientRect().height ?? 0;
+    shellH || shellRef.current?.getBoundingClientRect().height || 0;
 
   const settle = (height: number) => {
     const full = shellHeight();
@@ -165,7 +176,17 @@ export function MobileWorkspaceFrame({
       style={{ "--mobile-viewport-height": "100dvh" } as CSSProperties}
     >
       <div className="relative mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden bg-background">
-        <header className="flex min-w-0 items-center gap-3 px-4 pt-3 pb-1">
+        {/* 聊聊拉开时把这行收掉，正文多露一截；收起面板它自己回来 */}
+        <header
+          aria-hidden={activeView === "chat"}
+          className={cn(
+            "flex min-w-0 items-center gap-3 overflow-hidden px-4",
+            "transition-[max-height,opacity,padding] duration-200 ease-out",
+            activeView === "chat"
+              ? "pointer-events-none max-h-0 pt-0 pb-0 opacity-0"
+              : "max-h-16 pt-3 pb-1 opacity-100"
+          )}
+        >
           <span
             aria-label="碎碎念手机工作区"
             className="font-chat-brand shrink-0 text-xl leading-none text-foreground"
@@ -185,7 +206,9 @@ export function MobileWorkspaceFrame({
           <button
             type="button"
             aria-label="收起聊聊"
-            className="absolute inset-0 z-20 bg-foreground/15"
+            // 不压暗：拉开面板正是为了同时读正文，压暗等于把要读的东西盖住。
+            // 这层只用来「点空白处收起」。
+            className="absolute inset-0 z-20"
             onClick={() => onViewChange("document")}
           />
         )}
@@ -259,7 +282,9 @@ export function MobileWorkspaceFrame({
               </button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">{chatView}</div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {chatView({ dense: stop === "peek" })}
+          </div>
         </div>
         )}
 
@@ -482,9 +507,13 @@ function MobileSelectedStoryWorkspace({
           suppressConflictDialog={pendingStoryId !== null}
         />
       }
-      chatView={
-        <MobileChatView controller={conversation} storyTitle={story.title} />
-      }
+      chatView={({ dense }) => (
+        <MobileChatView
+          controller={conversation}
+          storyTitle={story.title}
+          dense={dense}
+        />
+      )}
     >
 
       <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
@@ -582,7 +611,7 @@ export function MobileWorkspace({ userId }: { userId: number }) {
     refetchOnWindowFocus: false,
   });
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
-  const [activeView, setActiveView] = useState<MobileWorkspaceView>("chat");
+  const [activeView, setActiveView] = useState<MobileWorkspaceView>("document");
   const coldEntryResolvedRef = useRef(false);
   const stories = (storyListQuery.data?.stories ?? []) as MobileStorySummary[];
 

@@ -124,9 +124,12 @@ function MobileTurnRecovery({
 export function MobileChatView({
   controller,
   storyTitle,
+  dense = false,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
+  /** 常驻输入条那一档：只留输入行，消息区收起来（连它的内距一起）。 */
+  dense?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [announcement, setAnnouncement] = useState("");
@@ -172,7 +175,10 @@ export function MobileChatView({
         role="log"
         aria-live="polite"
         aria-relevant="additions text"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5"
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto overscroll-contain px-3",
+          dense ? "hidden" : "py-5"
+        )}
       >
         {controller.historyState === "loading" ? (
           <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
