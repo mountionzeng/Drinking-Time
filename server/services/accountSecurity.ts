@@ -245,6 +245,53 @@ export function hashOtpCode(input: {
   return createHmac("sha256", input.secret).update(payload, "utf8").digest("hex");
 }
 
+/**
+ * 配对码字母表：去掉了 0/O/1/I/L 这些手抄会认错的字形，也不含符号
+ * （手机上切符号键很烦）。31 个字符 × 6 位 ≈ 8.9 亿种，
+ * 比 6 位纯数字（100 万）强近三个数量级；配对码是**一步换取完整账号会话**、
+ * 没有第二道关，所以熵要给够。
+ */
+const PAIRING_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+export const PAIRING_CODE_LENGTH = 6;
+
+/** 均匀取样；randomInt 是拒绝采样的，不会有取模偏斜。 */
+export function generatePairingCode(): string {
+  let code = "";
+  for (let index = 0; index < PAIRING_CODE_LENGTH; index += 1) {
+    code += PAIRING_ALPHABET[randomInt(0, PAIRING_ALPHABET.length)];
+  }
+  return code;
+}
+
+/** 手抄容错：大小写不敏感，去掉空格和连字符。 */
+export function normalizePairingCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[\s-]/g, "");
+}
+
+/**
+ * 配对码摘要。
+ *
+ * 和验证码同样用带 secret 的 HMAC，但**不绑定邮箱或用途**——
+ * 兑换的那一刻还不知道是谁，码本身就是身份，所以只能按摘要唯一索引反查。
+ * 正因为反查即命中，这里没有按行重试计数可言，防爆破全靠来源地址限流。
+ */
+export function hashPairingCode(input: {
+  code: string;
+  secret: string;
+  version: number;
+}): string {
+  if (!input.secret.trim()) {
+    // 与验证码同样失败关闭，绝不退化成无密钥哈希。
+    throw new Error(
+      "缺少配对码摘要 secret：没有它就只剩可离线枚举的裸哈希，宁可不可用也不降级。"
+    );
+  }
+  const payload = ["pair", input.version, normalizePairingCode(input.code)].join(
+    ":"
+  );
+  return createHmac("sha256", input.secret).update(payload, "utf8").digest("hex");
+}
+
 export function otpDigestMatches(input: {
   code: string;
   email: string;

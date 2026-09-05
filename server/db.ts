@@ -143,6 +143,8 @@ import {
   accountCredentials,
   AccountCredential,
   accountVerificationChallenges,
+  devicePairingCodes,
+  DevicePairingCode,
   AccountVerificationChallenge,
   accountRateLimits,
   AccountRateLimit,
@@ -228,6 +230,7 @@ type MemoryState = {
   accountIdentities: AccountIdentity[];
   accountCredentials: AccountCredential[];
   accountVerificationChallenges: AccountVerificationChallenge[];
+  devicePairingCodes: DevicePairingCode[];
   accountRateLimits: AccountRateLimit[];
   promptLineage: PromptLineageLocalState;
   /**
@@ -269,6 +272,7 @@ type MemoryState = {
     accountIdentity: number;
     accountCredential: number;
     accountVerificationChallenge: number;
+    devicePairingCode: number;
     accountRateLimit: number;
   };
 };
@@ -306,6 +310,7 @@ const memoryState: MemoryState = {
   accountIdentities: [],
   accountCredentials: [],
   accountVerificationChallenges: [],
+  devicePairingCodes: [],
   accountRateLimits: [],
   promptLineage: createEmptyPromptLineageLocalState(),
   personalMemory: createEmptyPersonalMemoryLocalState(),
@@ -342,6 +347,7 @@ const memoryState: MemoryState = {
     accountIdentity: 1,
     accountCredential: 1,
     accountVerificationChallenge: 1,
+    devicePairingCode: 1,
     accountRateLimit: 1,
   },
 };
@@ -671,6 +677,13 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     invalidatedAt: item.invalidatedAt ? toDate(item.invalidatedAt) : null,
     createdAt: toDate(item.createdAt),
   })) as AccountVerificationChallenge[];
+  memoryState.devicePairingCodes = (raw.devicePairingCodes ?? []).map(item => ({
+    ...item,
+    expiresAt: toDate(item.expiresAt),
+    consumedAt: item.consumedAt ? toDate(item.consumedAt) : null,
+    invalidatedAt: item.invalidatedAt ? toDate(item.invalidatedAt) : null,
+    createdAt: toDate(item.createdAt),
+  })) as DevicePairingCode[];
   memoryState.accountRateLimits = (raw.accountRateLimits ?? []).map(item => ({
     ...item,
     windowStartedAt: toDate(item.windowStartedAt),
@@ -806,6 +819,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     accountVerificationChallenge: Math.max(
       raw.nextIds?.accountVerificationChallenge ?? 0,
       nextIdFromRows(memoryState.accountVerificationChallenges)
+    ),
+    devicePairingCode: Math.max(
+      raw.nextIds?.devicePairingCode ?? 0,
+      nextIdFromRows(memoryState.devicePairingCodes)
     ),
     accountRateLimit: Math.max(
       raw.nextIds?.accountRateLimit ?? 0,
@@ -9336,6 +9353,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.accountIdentities = [];
   memoryState.accountCredentials = [];
   memoryState.accountVerificationChallenges = [];
+  memoryState.devicePairingCodes = [];
   memoryState.accountRateLimits = [];
   memoryState.promptLineage = createEmptyPromptLineageLocalState();
   memoryState.personalMemory = createEmptyPersonalMemoryLocalState();
@@ -9376,6 +9394,7 @@ export function resetMemoryStateForTesting(): void {
     accountIdentity: 1,
     accountCredential: 1,
     accountVerificationChallenge: 1,
+    devicePairingCode: 1,
     accountRateLimit: 1,
   };
   defaultProjectLocks.clear();
@@ -10866,6 +10885,129 @@ export type RateLimitDecision = {
  * 必须落库：PM2 重启或多进程时，进程内内存限流形同虚设。窗口用「首次尝试时间 +
  * windowSeconds」的固定窗口，超限后拒绝并给出还要等多久。
  */
+/* ── 设备配对码 ───────────────────────────────────────────────────────────
+   已登录的设备签发一个短命的码，另一台设备拿它换同一个账号的会话。
+   语义就是「让这台手机进入我电脑上那个账号」，所以天然不会分裂身份。
+   ─────────────────────────────────────────────────────────────────────── */
+
+export type PairingRedemption =
+  | { kind: "redeemed"; userId: number }
+  | { kind: "not_found" }
+  | { kind: "expired" };
+
+/**
+ * 签发配对码，并作废该用户此前所有未兑换的码。
+ *
+ * 一人同时只留一个有效码：否则电脑上多点几次「生成」，
+ * 之前那些码会一直飘在外面，每一个都是一把完整账号的钥匙。
+ */
+export async function issueDevicePairingCode(input: {
+  userId: number;
+  codeHash: string;
+  secretVersion: number;
+  expiresAt: Date;
+}): Promise<{ id: number }> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    for (const row of memoryState.devicePairingCodes) {
+      if (row.userId === input.userId && !row.consumedAt && !row.invalidatedAt) {
+        row.invalidatedAt = current;
+      }
+    }
+    const id = nextMemoryId("devicePairingCode");
+    memoryState.devicePairingCodes.push({
+      id,
+      userId: input.userId,
+      codeHash: input.codeHash,
+      secretVersion: input.secretVersion,
+      expiresAt: input.expiresAt,
+      consumedAt: null,
+      invalidatedAt: null,
+      createdAt: current,
+    });
+    await persistMemoryState();
+    return { id };
+  }
+
+  return db.transaction(async tx => {
+    await tx
+      .update(devicePairingCodes)
+      .set({ invalidatedAt: new Date() })
+      .where(
+        and(
+          eq(devicePairingCodes.userId, input.userId),
+          isNull(devicePairingCodes.consumedAt),
+          isNull(devicePairingCodes.invalidatedAt)
+        )
+      );
+    const result = await tx.insert(devicePairingCodes).values({
+      userId: input.userId,
+      codeHash: input.codeHash,
+      secretVersion: input.secretVersion,
+      expiresAt: input.expiresAt,
+    });
+    return { id: result[0].insertId };
+  });
+}
+
+/**
+ * 兑换配对码：按摘要唯一索引直接命中，命中即一次性作废。
+ *
+ * 过期和不存在**返回不同 kind 仅供服务端记账**，端点必须把两者压成同一个响应，
+ * 否则「这个码存在但过期了」本身就是一条枚举信道。
+ */
+export async function consumeDevicePairingCode(input: {
+  codeHash: string;
+  now?: Date;
+}): Promise<PairingRedemption> {
+  const current = input.now ?? new Date();
+  const db = await getDb();
+
+  if (!db) {
+    const row = memoryState.devicePairingCodes.find(
+      item =>
+        item.codeHash === input.codeHash &&
+        !item.consumedAt &&
+        !item.invalidatedAt
+    );
+    if (!row) return { kind: "not_found" };
+    if (row.expiresAt <= current) return { kind: "expired" };
+    row.consumedAt = current;
+    await persistMemoryState();
+    return { kind: "redeemed", userId: row.userId };
+  }
+
+  return db.transaction(async tx => {
+    const rows = await tx
+      .select()
+      .from(devicePairingCodes)
+      .where(
+        and(
+          eq(devicePairingCodes.codeHash, input.codeHash),
+          isNull(devicePairingCodes.consumedAt),
+          isNull(devicePairingCodes.invalidatedAt)
+        )
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) return { kind: "not_found" as const };
+    if (row.expiresAt <= current) return { kind: "expired" as const };
+    // 带上 consumedAt IS NULL 条件，两个请求同时兑换只有一个能改到行
+    const updated = await tx
+      .update(devicePairingCodes)
+      .set({ consumedAt: current })
+      .where(
+        and(
+          eq(devicePairingCodes.id, row.id),
+          isNull(devicePairingCodes.consumedAt)
+        )
+      );
+    if (!updated[0].affectedRows) return { kind: "not_found" as const };
+    return { kind: "redeemed" as const, userId: row.userId };
+  });
+}
+
 export async function consumePersistentRateLimit(input: {
   scope: string;
   subject: string;

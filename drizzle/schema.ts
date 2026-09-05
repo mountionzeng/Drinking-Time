@@ -1683,6 +1683,40 @@ export type InsertAccountVerificationChallenge =
  * 必须落在 MySQL：PM2 重启或多进程时，进程内内存限流形同虚设。
  * `scope` 是用途（otp:send / otp:verify / gift:redeem…），`subject` 是邮箱、IP 或两者组合。
  */
+/**
+ * DevicePairingCodes — 用已登录的设备把另一台设备拉进同一个账号。
+ *
+ * 为什么不复用 account_verification_challenges：那张表以邮箱为键（normalizedEmail
+ * 是 notNull），而配对码在兑换时**还不知道是谁**——码本身就是身份。
+ * 所以这里按 codeHash 唯一索引直接命中一行，兑换是一次索引查找，
+ * 不需要遍历，也就没有按行计数的爆破面；防爆破交给来源地址限流。
+ */
+export const devicePairingCodes = mysqlTable(
+  "device_pairing_codes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** HMAC(secret, version:code)，明文不落库 */
+    codeHash: varchar("codeHash", { length: 64 }).notNull(),
+    secretVersion: int("secretVersion").default(1).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    invalidatedAt: timestamp("invalidatedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    codeHashUnique: uniqueIndex("device_pairing_codes_code_hash_unique").on(
+      table.codeHash
+    ),
+    userIndex: index("device_pairing_codes_user_index").on(table.userId),
+  })
+);
+
+export type DevicePairingCode = typeof devicePairingCodes.$inferSelect;
+export type InsertDevicePairingCode = typeof devicePairingCodes.$inferInsert;
+
 export const accountRateLimits = mysqlTable(
   "account_rate_limits",
   {

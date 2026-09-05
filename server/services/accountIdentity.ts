@@ -11,17 +11,23 @@
 import { ENV } from "../_core/env";
 import {
   bumpUserSessionVersion,
+  consumeDevicePairingCode,
   consumePersistentRateLimit,
   consumeVerificationChallenge,
   getPasswordCredential,
+  issueDevicePairingCode,
   issueVerificationChallenge,
   normalizeAccountEmail,
   resolveEmailIdentity,
   setPasswordCredential,
 } from "../db";
 import {
+  PAIRING_CODE_LENGTH,
   checkPasswordPolicy,
   generateOtpCode,
+  generatePairingCode,
+  hashPairingCode,
+  normalizePairingCode,
   hashOtpCode,
   otpDigestMatches,
   hashPassword,
@@ -375,4 +381,112 @@ export async function completePasswordRecovery(input: {
     userId: verified.userId,
     sessionVersion: await bumpUserSessionVersion(verified.userId),
   };
+}
+
+/* ── 设备配对 ─────────────────────────────────────────────────────────────
+   用已登录的设备把另一台设备拉进**同一个账号**。
+
+   手机上敲邮箱和邀请码很痛，而且邀请码是哈希存的、忘了找不回来。
+   配对码把这件事翻译成它本来的语义——「让这台手机进入我电脑上那个账号」——
+   所以它天生不会像「手机上另外注册一次」那样把故事分裂成两个 userId。
+
+   放在本文件而不是另开一个 devicePairing.ts：架构棘轮的豁免表写明
+   「若出现第二个直接导入 db 的账号文件，必须合并回本文件」。
+   ─────────────────────────────────────────────────────────────────────── */
+
+/** 五分钟：够走到另一台设备上抄一遍，又短到来不及被扫。 */
+export const PAIRING_TTL_MS = 5 * 60_000;
+/** 一个账号十分钟最多签发 10 次 */
+export const PAIRING_ISSUE_LIMIT = { windowSeconds: 600, maxAttempts: 10 };
+/**
+ * 同一来源地址十分钟最多兑换 10 次。
+ * 这是唯一的防爆破手段——配对码按摘要唯一索引反查，猜错只是查不到行，
+ * 没有「这一行又错了一次」可记。8.9 亿的码空间配上这个窗口，
+ * 猜中的期望时间以万年计。
+ */
+export const PAIRING_REDEEM_IP_LIMIT = { windowSeconds: 600, maxAttempts: 10 };
+
+function pairingSecret(): string {
+  return ENV.otpDigestSecret;
+}
+
+function pairingSecretVersion(): number {
+  const version = Number(ENV.otpDigestSecretVersion);
+  return Number.isSafeInteger(version) && version > 0 ? version : 1;
+}
+
+export type IssuePairingResult =
+  | { outcome: "issued"; code: string; expiresAt: Date }
+  | { outcome: "rate_limited"; retryAfterMs: number }
+  | { outcome: "not_configured" };
+
+export async function issuePairingCode(input: {
+  userId: number;
+  now?: Date;
+}): Promise<IssuePairingResult> {
+  if (!pairingSecret().trim()) return { outcome: "not_configured" };
+
+  const limit = await consumePersistentRateLimit({
+    scope: "pairing:issue",
+    subject: String(input.userId),
+    ...PAIRING_ISSUE_LIMIT,
+  });
+  if (!limit.allowed) {
+    return { outcome: "rate_limited", retryAfterMs: limit.retryAfterMs };
+  }
+
+  const current = input.now ?? new Date();
+  const code = generatePairingCode();
+  const expiresAt = new Date(current.getTime() + PAIRING_TTL_MS);
+  await issueDevicePairingCode({
+    userId: input.userId,
+    codeHash: hashPairingCode({
+      code,
+      secret: pairingSecret(),
+      version: pairingSecretVersion(),
+    }),
+    secretVersion: pairingSecretVersion(),
+    expiresAt,
+  });
+  return { outcome: "issued", code, expiresAt };
+}
+
+export type RedeemPairingResult =
+  | { outcome: "paired"; userId: number }
+  | { outcome: "invalid" }
+  | { outcome: "rate_limited"; retryAfterMs: number }
+  | { outcome: "not_configured" };
+
+export async function redeemPairingCode(input: {
+  code: string;
+  requestIp: string;
+  now?: Date;
+}): Promise<RedeemPairingResult> {
+  if (!pairingSecret().trim()) return { outcome: "not_configured" };
+
+  const normalized = normalizePairingCode(input.code);
+  // 长度不对连限流额度都不消耗，免得畸形输入把正常用户挤下去
+  if (normalized.length !== PAIRING_CODE_LENGTH) return { outcome: "invalid" };
+
+  const limit = await consumePersistentRateLimit({
+    scope: "pairing:redeem",
+    subject: input.requestIp || "unknown",
+    ...PAIRING_REDEEM_IP_LIMIT,
+  });
+  if (!limit.allowed) {
+    return { outcome: "rate_limited", retryAfterMs: limit.retryAfterMs };
+  }
+
+  const redemption = await consumeDevicePairingCode({
+    codeHash: hashPairingCode({
+      code: normalized,
+      secret: pairingSecret(),
+      version: pairingSecretVersion(),
+    }),
+    now: input.now,
+  });
+
+  // not_found 和 expired 在这里合流：对外只有一种失败。
+  if (redemption.kind !== "redeemed") return { outcome: "invalid" };
+  return { outcome: "paired", userId: redemption.userId };
 }

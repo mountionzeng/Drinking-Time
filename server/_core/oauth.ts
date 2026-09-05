@@ -3,6 +3,10 @@ import type { Express, Request, Response } from "express";
 import axios from "axios";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
+import {
+  issuePairingCode,
+  redeemPairingCode,
+} from "../services/accountIdentity";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { hashInviteCode } from "../services/inviteAccess";
@@ -167,6 +171,34 @@ async function establishAccountSession(
     maxAge: ACCOUNT_SESSION_TTL_MS,
   });
   return { userId: user.id };
+}
+
+/**
+ * 配对成功后建立会话。
+ *
+ * 刻意不走 establishAccountSession：那条路要邮箱、还会 linkEmailIdentity。
+ * 配对的身份在签发那一刻就已经确定了（码是从某个登录态上签出来的），
+ * 这里只是把同一个 userId 的会话发给第二台设备，不该顺带改任何身份数据。
+ */
+async function establishPairedSession(
+  req: Request,
+  res: Response,
+  userId: number
+): Promise<void> {
+  const user = await db.getUserById(userId);
+  if (!user) throw new Error("配对码指向的账号不存在");
+  await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+
+  const sessionToken = await sdk.createSessionToken(user.openId, {
+    name: user.name ?? user.email?.split("@")[0] ?? "",
+    expiresInMs: ACCOUNT_SESSION_TTL_MS,
+    // 带上会话版本：改密码/找回密码时自增，配对出去的设备一并失效
+    sessionVersion: Number(user.sessionVersion ?? 1),
+  });
+  res.cookie(COOKIE_NAME, sessionToken, {
+    ...getSessionCookieOptions(req),
+    maxAge: ACCOUNT_SESSION_TTL_MS,
+  });
 }
 
 /** 需要人工映射时的统一响应：告诉用户找谁，而不是让他对着一个死循环重试。 */
@@ -544,6 +576,62 @@ export function registerOAuthRoutes(app: Express) {
   );
 
   // ── Email OTP ────────────────────────────────────────────────────────
+  /** 已登录的设备签发配对码，给另一台设备抄。 */
+  app.post("/api/auth/pair/create", async (req: Request, res: Response) => {
+    let userId: number;
+    try {
+      userId = (await sdk.authenticateRequest(req)).id;
+    } catch {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+
+    const result = await issuePairingCode({ userId });
+    if (result.outcome === "rate_limited") {
+      res
+        .status(429)
+        .json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
+      return;
+    }
+    if (result.outcome === "not_configured") {
+      res.status(503).json({ error: "not_configured" });
+      return;
+    }
+    res.json({
+      code: result.code,
+      expiresAt: result.expiresAt.toISOString(),
+    });
+  });
+
+  /** 另一台设备拿配对码换同一个账号的会话。 */
+  app.post("/api/auth/pair/redeem", async (req: Request, res: Response) => {
+    const code = typeof req.body?.code === "string" ? req.body.code : "";
+    if (!code) {
+      res.status(400).json({ error: "invalid_request" });
+      return;
+    }
+
+    const result = await redeemPairingCode({ code, requestIp: clientIp(req) });
+    if (result.outcome === "rate_limited") {
+      res
+        .status(429)
+        .json({ error: "rate_limited", retryAfterMs: result.retryAfterMs });
+      return;
+    }
+    if (result.outcome === "not_configured") {
+      res.status(503).json({ error: "not_configured" });
+      return;
+    }
+    if (result.outcome !== "paired") {
+      // 不存在、过期、已用过：对外只有这一种失败
+      res.status(401).json({ error: "invalid_code" });
+      return;
+    }
+
+    await establishPairedSession(req, res, result.userId);
+    res.json({ ok: true });
+  });
+
   app.post("/api/auth/email/request", async (req: Request, res: Response) => {
     const email = getEmail(req);
     const inviteCode = getInviteCode(req);
