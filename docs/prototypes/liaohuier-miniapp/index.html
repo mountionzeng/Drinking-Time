@@ -994,10 +994,10 @@
 
     .scope-list { margin: 0; padding-left: 17px; color: var(--muted); font-size: 12px; line-height: 1.8; }
 
-    /* ---------- 底部 tabBar ----------
-       中间「来聊会儿」是抬起来的大按钮，杯子跟着当天五行走。
-       ⚠️ 微信原生 tabBar 做不出凸起的中间键：上线要 app.json 里 "custom": true
-       再写一个 custom-tab-bar 组件。这是官方支持的做法，但得单独排。 */
+    /* ---------- 底部：一张桌子 ----------
+       书（故事）、杯（来聊会儿）、人（我）都摆在同一张手绘桌子上。
+       桌沿是画出来的曲线，不是 CSS 的 border —— 之前那条 1px 直线就是被嫌弃的那根。
+       ⚠️ 上线仍要 app.json "custom": true + custom-tab-bar 组件。 */
 
     .tabbar {
       position: relative;
@@ -1006,11 +1006,27 @@
       grid-template-columns: 1fr 96px 1fr;
       align-items: center;
       flex: 0 0 auto;
-      height: 56px;
+      height: 64px;
       background: var(--paper);
     }
 
+    /* 桌面那条线：整条铺在三个页签底下。
+       ⚠️ 选择器必须带 .tabbar：下面的 `.tabbar svg { width:22px }` 权重 0,1,1，
+       只写 `.table-top`（0,1,0）会被压成 22px 缩到角落。同一个坑踩过两次了。 */
+    .tabbar .table-top {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      z-index: 0;
+      width: 100%;
+      height: 64px;
+      pointer-events: none;
+      color: #c3b79c;
+    }
+
     .tabbar > button {
+      position: relative;
+      z-index: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -1024,21 +1040,19 @@
     }
 
     .tabbar > button.on { color: var(--gold-deep); font-weight: 600; }
-    .tabbar svg { width: 22px; height: 22px; }
+    .tabbar > button svg { width: 22px; height: 22px; }
 
-    /* 中间那颗 */
+    /* 杯子坐在桌面上 */
     .tab-brew {
       position: relative;
       justify-content: flex-end !important;
-      padding-bottom: 4px;
+      padding-bottom: 6px;
       overflow: visible;
     }
 
-    /* 杯子直接落在纸上：没有圆底、没有外框、上面也没有横线。
-       36×40 → 54×60，放大 1.5 倍。 */
     .brew-cup {
       position: absolute;
-      top: -32px;
+      top: -28px;
       left: 50%;
       display: grid;
       place-items: center;
@@ -1051,16 +1065,16 @@
     .brew-cup svg.brew-cup-art { width: 54px; height: 60px; transition: width .22s ease, height .22s ease; }
     .tab-brew:active .brew-cup { transform: scale(.93); }
 
-    /* 已经在聊聊里就收成常规大小 */
+    /* 已经在工作区里就收成常规大小，和左右两件东西一样高 */
     .tabbar.brew-mini .brew-cup {
-      top: -2px;
+      top: 4px;
       width: 27px;
       height: 30px;
       margin-left: -13.5px;
     }
 
     .tabbar.brew-mini .brew-cup svg.brew-cup-art { width: 27px; height: 30px; }
-    .tabbar.brew-mini .tab-brew { padding-bottom: 4px; }
+    .tabbar.brew-mini .tab-brew { padding-bottom: 6px; }
 
     .brew-label {
       color: var(--gold-deep);
@@ -1580,6 +1594,15 @@
     </div>
 
     <nav class="tabbar" id="tabbar">
+      <svg class="table-top" viewBox="0 0 375 64" fill="none" stroke="currentColor"
+           stroke-linecap="round" stroke-linejoin="round" preserveAspectRatio="none" aria-hidden="true">
+        <!-- 桌沿：两条都带一点起伏，手画的感觉 -->
+        <path d="M14,30.5 q92,-2.2 184,-.8 q90,1.4 163,2.6" stroke-width="1.7" vector-effect="non-scaling-stroke"/>
+        <path d="M17,34.2 q92,-2.2 184,-.8 q88,1.4 158,2.4" stroke-width="1.1" opacity=".5" vector-effect="non-scaling-stroke"/>
+        <!-- 两条桌腿，只在最外侧，不挡文字 -->
+        <path d="M31,36 q-1.6,10 -2.6,17" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+        <path d="M345,36.5 q1.6,10 2.6,17" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
       <button class="on" data-tab="home">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2.9 6.5q4-1.9 8.7.5 4.8-2.5 9.5-.4.5.2.4.8l-.7 10.6q0 .6-.6.4-3.7-1.2-8.2.9-4.3-2.2-8.1-.7-.6.2-.6-.4L2.5 7.3q-.1-.6.4-.8z"/>
