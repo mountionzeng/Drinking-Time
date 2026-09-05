@@ -1194,3 +1194,103 @@ select option {
     filter: blur(50px);
   }
 }
+
+/* ─── 顶栏 Logo：hover 时「这个小家伙注意到你了」 ───────────────
+   抬头 → 晃一下 → 眨眼 → 热气飘起来，四件事错开跑；
+   离开时只有一次 220ms 的沉降。没有缩放、没有投影。
+   （数值来自设计交付「5 · hover 动效分解」） */
+@keyframes dt-lift {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes dt-sway {
+  0% {
+    transform: rotate(0deg);
+  }
+  35% {
+    transform: rotate(-3.2deg);
+  }
+  70% {
+    transform: rotate(2.4deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+@keyframes dt-blink {
+  0%,
+  62% {
+    transform: scaleY(1);
+  }
+  72% {
+    transform: scaleY(0.08);
+  }
+  84%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+@keyframes dt-steam-drift {
+  0% {
+    transform: translateY(0);
+    opacity: 0.75;
+  }
+  70% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+}
+
+.dt-lift {
+  animation:
+    dt-lift 180ms cubic-bezier(0.34, 1.42, 0.64, 1) forwards,
+    dt-sway 460ms cubic-bezier(0.37, 0, 0.63, 1) 200ms 1;
+}
+.dt-rest {
+  transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform: translateY(0) rotate(0deg);
+}
+.dt-lift .dt-eyes {
+  animation: dt-blink 1900ms cubic-bezier(0.4, 0, 0.2, 1) 90ms infinite;
+}
+.dt-lift .dt-steam {
+  animation: dt-steam-drift 2600ms linear infinite;
+}
+
+/* 降低动效偏好下只保留抬头，眨眼和晃动关掉。 */
+@media (prefers-reduced-motion: reduce) {
+  .dt-lift {
+    animation: dt-lift 120ms linear forwards;
+  }
+  .dt-lift .dt-eyes,
+  .dt-lift .dt-steam {
+    animation: none;
+  }
+}
+
+/* Logo 菜单展开：160ms 上浮 6px 淡入。 */
+@keyframes dt-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.dt-panel {
+  animation: dt-panel-in 160ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dt-panel {
+    animation: none;
+  }
+}

@@ -5,16 +5,13 @@
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
 import {
-  BookOpen,
   Clapperboard,
-  Info,
   LibraryBig,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import {
@@ -25,11 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import type { StoryPanel } from "@/features/analysis/storyPanels";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
@@ -46,6 +38,9 @@ import {
   recordTimelineUndoSnapshot,
 } from "@/features/creationEditor/timelineUndoStore";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
+import WuxingMotifIcon, {
+  WUXING_MOTIF_NAME,
+} from "@/features/nayin/views/WuxingMotifIcon";
 import {
   StoryAgentProvider,
   useStoryAgent,
@@ -90,7 +85,7 @@ import {
 
 function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
   const { user } = useAuth();
-  const { today } = useNayin();
+  const { today, element } = useNayin();
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
     enabled: Boolean(user?.id),
     retry: false,
@@ -102,27 +97,29 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
 
   return (
     <div
-      className="relative z-10 flex h-9 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-4 text-xs backdrop-blur"
+      className="relative z-10 flex h-7 shrink-0 items-center gap-1.5 pb-1.5 text-[11px]"
       aria-label="今日来信"
     >
-      <Info className="h-3.5 w-3.5 shrink-0 text-nayin" />
-      <span className="font-chat-brand shrink-0 text-sm text-foreground">
-        今日来信
-      </span>
+      {/* 小物 + 「今日来信」本身就是读信入口，跟着当天的五行走：
+          木是茶叶、土是咖啡豆……和左边那颗 Logo 是同一套东西。 */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`读信 · 今日来信（${WUXING_MOTIF_NAME[element]}）`}
+        title="读信"
+        className="group -ml-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <WuxingMotifIcon element={element} size={15} />
+        <span className="font-chat-brand text-xs text-foreground">
+          今日来信
+        </span>
+      </button>
       <span
         className="min-w-0 truncate text-muted-foreground"
         title={attention}
       >
         {attention}
       </span>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <BookOpen className="h-3.5 w-3.5" />
-        读信
-      </button>
     </div>
   );
 }
@@ -229,7 +226,6 @@ function EditingStudioBody({
     setConfirmedIntent,
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [storyMenuOpen, setStoryMenuOpen] = useState(false);
   const [pendingStoryAction, setPendingStoryAction] = useState<
     "back" | "new" | null
   >(null);
@@ -243,9 +239,7 @@ function EditingStudioBody({
   useEffect(() => {
     const previousStoryId = previousStoryIdRef.current;
     previousStoryIdRef.current = activeStoryId;
-    if (
-      !shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId)
-    )
+    if (!shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId))
       return;
     onWorkspaceChange(workspaceForStoryStage(storyShotCount));
   }, [activeStoryId, onWorkspaceChange, storyShotCount]);
@@ -299,12 +293,17 @@ function EditingStudioBody({
       setChatCollapsed(false);
       void loadStory(storyId);
     };
+    // 日签和顶栏 Logo 菜单都从这里进某篇故事。TopBar 渲染在 StoryAgentProvider
+    // 外面（拿不到 loadStory），所以走 window 事件跨过这层边界。
     window.addEventListener("dt:open-daily-letter-story", openDailyLetterStory);
-    return () =>
+    window.addEventListener("dt:open-story", openDailyLetterStory);
+    return () => {
       window.removeEventListener(
         "dt:open-daily-letter-story",
         openDailyLetterStory
       );
+      window.removeEventListener("dt:open-story", openDailyLetterStory);
+    };
   }, [loadStory]);
 
   const runStoryAction = (action: "back" | "new") => {
@@ -313,13 +312,24 @@ function EditingStudioBody({
   };
 
   const requestStoryAction = (action: "back" | "new") => {
-    setStoryMenuOpen(false);
     if (dirtyBuffers.length > 0) {
       setPendingStoryAction(action);
       return;
     }
     runStoryAction(action);
   };
+
+  useEffect(() => {
+    const onStoryMenuAction = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: "back" | "new" }>).detail
+        ?.action;
+      if (action !== "back" && action !== "new") return;
+      requestStoryAction(action);
+    };
+    window.addEventListener("dt:story-menu-action", onStoryMenuAction);
+    return () =>
+      window.removeEventListener("dt:story-menu-action", onStoryMenuAction);
+  });
 
   const leaveWithDrafts = () => {
     if (!pendingStoryAction) return;
@@ -360,52 +370,6 @@ function EditingStudioBody({
           }}
         >
           <div className="absolute right-2 top-2 z-20 flex flex-col gap-2">
-            <Popover open={storyMenuOpen} onOpenChange={setStoryMenuOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                  aria-label="切换或新建故事"
-                  title="切换或新建故事"
-                >
-                  <LibraryBig className="h-4 w-4" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="right"
-                align="start"
-                sideOffset={10}
-                className="w-48 p-1.5"
-                style={{
-                  background: "var(--panel-bg)",
-                  borderColor: "var(--nayin-border)",
-                }}
-              >
-                <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Stories
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    requestStoryAction("back");
-                  }}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                >
-                  <BookOpen className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
-                  回到以前的故事
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    requestStoryAction("new");
-                  }}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                >
-                  <Plus className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
-                  开启新故事
-                </button>
-              </PopoverContent>
-            </Popover>
             <button
               type="button"
               onClick={() => setChatCollapsed(value => !value)}
@@ -552,6 +516,36 @@ export default function EditingStudioPage() {
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
   const storyList = useStorySpine(state => state.storyList);
+  // 顶栏 Logo 菜单只露最近三条，这里先按最后修改时间排一次。
+  const recentStories = useMemo(
+    () =>
+      [...storyList].sort(
+        (a, b) =>
+          new Date(b.updatedAt ?? b.createdAt ?? 0).getTime() -
+          new Date(a.updatedAt ?? a.createdAt ?? 0).getTime()
+      ),
+    [storyList]
+  );
+  const storyMenu = useMemo(
+    () => ({
+      stories: recentStories,
+      onNewStory: () =>
+        window.dispatchEvent(
+          new CustomEvent("dt:story-menu-action", { detail: { action: "new" } })
+        ),
+      onBrowseAll: () =>
+        window.dispatchEvent(
+          new CustomEvent("dt:story-menu-action", {
+            detail: { action: "back" },
+          })
+        ),
+      onOpenStory: (storyId: number) =>
+        window.dispatchEvent(
+          new CustomEvent("dt:open-story", { detail: { storyId } })
+        ),
+    }),
+    [recentStories]
+  );
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
@@ -647,6 +641,7 @@ export default function EditingStudioPage() {
       <BeverageAmbience />
       <TopBar
         showStoryPanelNav={false}
+        storyMenu={storyMenu}
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
           label: option.label,
           active: workspace === option.id,
@@ -700,8 +695,10 @@ export default function EditingStudioPage() {
             </div>
           ) : null
         }
+        secondaryRow={
+          <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
+        }
       />
-      <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
       <DailyLetterWelcome
         forceOpen={dailyLetterOpen}
         onRequestClose={() => setDailyLetterOpen(false)}

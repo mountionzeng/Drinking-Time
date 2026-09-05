@@ -25,6 +25,12 @@ vi.mock("@/features/nayin/NayinContext", () => ({
 
 vi.mock("@/features/nayin/views/WuxingDrinkIcon", () => ({
   default: () => <span data-testid="drink-icon" />,
+  WUXING_DRINK_INK: { water: "#4A7A8A" },
+  WUXING_FACE_INK: { water: "#3E6D7D" },
+}));
+
+vi.mock("@/features/nayin/views/EmotiveWuxingIcon", () => ({
+  default: () => <span data-testid="emotive-icon" />,
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({
@@ -59,9 +65,13 @@ describe("TopBar story panel controls", () => {
   it("uses the left top area for the five story panel buttons", () => {
     const html = renderToStaticMarkup(<TopBar />);
 
-    expect(html).toContain('aria-label="纳音五行"');
-    expect(html).toContain("w-[250px]");
+    // 最左边那颗 Logo 现在是故事菜单，纳音五行搬进了右上角用户菜单。
+    expect(html).toContain('aria-label="聊聊 · 故事菜单"');
+    expect(html).not.toContain('aria-label="纳音五行"');
     expect(html).toContain("Nayin Five Elements / 纳音五行");
+    expect(html.indexOf("退出登录")).toBeGreaterThan(
+      html.indexOf("Nayin Five Elements")
+    );
     expect(html).toContain("素材仓库");
     expect(html).toContain("故事卡片");
     expect(html).toContain("故事版看板");
@@ -78,7 +88,7 @@ describe("TopBar story panel controls", () => {
   it("can hide story panel buttons on the welcome page", () => {
     const html = renderToStaticMarkup(<TopBar showStoryPanelNav={false} />);
 
-    expect(html).toContain('aria-label="纳音五行"');
+    expect(html).toContain('aria-label="聊聊 · 故事菜单"');
     expect(html).not.toContain("素材仓库");
     expect(html).not.toContain("故事卡片");
     expect(html).not.toContain("故事版看板");

@@ -320,11 +320,17 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("<AnimaticPanel />");
     expect(editingPage).toContain("<PromptTablePanel />");
     expect(editingPage).toContain("<StoryCardsBoard />");
-    expect(editingPage).toContain('aria-label="切换或新建故事"');
-    expect(editingPage).toContain("回到以前的故事");
-    expect(editingPage).toContain("开启新故事");
+    // 故事入口从聊天栏那颗小书本按钮搬到了顶栏最左边的五行 Logo 上：
+    // 页面只负责喂数据 + 转发动作，菜单本身在 StoryLogoMenu 里。
+    const storyLogoMenu = source("client/src/app/shell/StoryLogoMenu.tsx");
+    expect(editingPage).not.toContain('aria-label="切换或新建故事"');
+    expect(editingPage).toContain("storyMenu={storyMenu}");
+    expect(editingPage).toContain('"dt:story-menu-action"');
+    expect(editingPage).toContain('"dt:open-story"');
     expect(editingPage).toContain("backToList();");
     expect(editingPage).toContain("createNewStory();");
+    expect(storyLogoMenu).toContain("回到以前的故事");
+    expect(storyLogoMenu).toContain("开启新故事");
     expect(editingPage).toContain("素材仓库");
     expect(editingPage).toContain("Timeline");
     expect(editingPage).toContain("if (next) setTimelineVisible(false)");
@@ -361,9 +367,7 @@ describe("creation editor spine boundary", () => {
     expect(shotPreview).toContain("Preview");
     expect(shotPreview).toContain('aria-label="调整 Preview 当前画面"');
     expect(editingWorkspace).toContain("editCurrentVideoFrame");
-    expect(editingWorkspace).toContain(
-      "当前帧已抽取并打开图片编辑器"
-    );
+    expect(editingWorkspace).toContain("当前帧已抽取并打开图片编辑器");
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");
     expect(editingWorkspace).toContain(
       "onPreviewChange={setVideoEditorPreviewDraft}"
@@ -378,21 +382,15 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).not.toContain(
       'aria-label="调整预览页面与导演面板宽度"'
     );
-    expect(shotPreview).toContain(
-      'className="h-full w-full object-cover"'
-    );
+    expect(shotPreview).toContain('className="h-full w-full object-cover"');
     expect(shotPreview).toContain(
       'data-testid="editing-preview-subtitle-rail"'
     );
     expect(shotPreview).toContain(
       'className="flex h-12 shrink-0 items-center justify-center overflow-hidden'
     );
-    expect(shotPreview).toContain(
-      'data-testid="editing-preview-subtitle"'
-    );
-    expect(shotPreview).not.toContain(
-      "pointer-events-none absolute inset-x-3"
-    );
+    expect(shotPreview).toContain('data-testid="editing-preview-subtitle"');
+    expect(shotPreview).not.toContain("pointer-events-none absolute inset-x-3");
     // 底部时间线（MultiTrackTimeline）已于 2026-08-24 删除：它和上方 Storyboard
     // 是同一份数据的两个可编辑投影，标尺、缩放、图层操作各做了一遍，而用户
     // 只要留 Storyboard。这三条从「它必须在」翻成「它不许回来」——再出现一个

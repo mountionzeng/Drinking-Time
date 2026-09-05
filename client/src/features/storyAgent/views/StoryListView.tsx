@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { formatStoryTimestamp as formatDate } from '@/features/storyAgent/storyTimestamp';
 import { trpc } from '@/lib/trpc';
 
 type ChatCutImportPreview = {
@@ -49,19 +50,6 @@ type ChatCutImportPreview = {
     mediaFiles: string[];
   };
 };
-
-function formatDate(value: string | Date | null | undefined): string {
-  if (!value) return '';
-  const d = typeof value === 'string' ? new Date(value) : value;
-  if (Number.isNaN(d.getTime())) return '';
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)} 天前`;
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-}
 
 export default function StoryListView() {
   const {
