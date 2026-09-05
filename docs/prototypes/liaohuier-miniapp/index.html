@@ -398,7 +398,7 @@
        滚到底时 padding 不占位，最后一张卡还是会被杯子压住。 */
     #page-home::after, #page-me::after {
       flex: 0 0 auto;
-      height: 46px;
+      height: 42px;
       content: "";
     }
     .dock { margin-top: auto; }
@@ -765,9 +765,8 @@
       position: sticky;
       bottom: 0;
       z-index: 5;
-      /* 下边多留 32px：中间那颗抬起来的杯子会凸进来 36px，
-         不留的话它正好压在输入框和保存按钮上。 */
-      padding: 9px 16px 32px;
+      /* 下边多留 30px：中间那颗杯子会凸进来 32px。 */
+      padding: 9px 16px 30px;
       border-top: 1px solid var(--line);
       background: rgba(251, 248, 238, .97);
       backdrop-filter: blur(12px);
@@ -1006,8 +1005,7 @@
       align-items: center;
       flex: 0 0 auto;
       height: 56px;
-      border-top: 1px solid var(--line);
-      background: var(--surface);
+      background: var(--paper);
     }
 
     .tabbar > button {
@@ -1034,44 +1032,33 @@
       overflow: visible;
     }
 
+    /* 杯子直接落在纸上：没有圆底、没有外框、上面也没有横线。
+       36×40 → 54×60，放大 1.5 倍。 */
     .brew-cup {
       position: absolute;
-      top: -36px;
+      top: -32px;
       left: 50%;
       display: grid;
       place-items: center;
-      width: 64px;
-      height: 64px;
-      margin-left: -32px;
-      border-radius: 50%;
-      background: var(--surface);
-      box-shadow: 0 6px 18px -6px var(--glow), 0 0 0 5px var(--paper);
-      transition: width .22s ease, height .22s ease, top .22s ease,
-                  margin-left .22s ease, box-shadow .22s ease;
+      width: 54px;
+      height: 60px;
+      margin-left: -27px;
+      transition: width .22s ease, height .22s ease, top .22s ease, margin-left .22s ease;
     }
 
-    /* 外框是每套自己的简笔画，画在 SVG 里，所以容器本身不描边。
-       选择器必须带上 .brew-cup：`.tabbar svg { width:22px }` 权重是 0,1,1，
-       只写 `.brew-frame`（0,1,0）会被它压成 22px 缩到左上角。 */
-    .brew-cup .brew-frame { position: absolute; inset: 0; width: 100%; height: 100%; }
-    .brew-cup svg.brew-cup-art { position: relative; width: 36px; height: 40px; transition: width .22s ease, height .22s ease; }
+    .brew-cup svg.brew-cup-art { width: 54px; height: 60px; transition: width .22s ease, height .22s ease; }
     .tab-brew:active .brew-cup { transform: scale(.93); }
 
-    /* 已经在聊聊里就不用再摆这么大一颗：收成和左右两个一样的常规尺寸 */
+    /* 已经在聊聊里就收成常规大小 */
     .tabbar.brew-mini .brew-cup {
-      top: 2px;
-      width: 25px;
-      height: 25px;
-      margin-left: -12.5px;
-      background: transparent;
-      box-shadow: none;
+      top: -2px;
+      width: 27px;
+      height: 30px;
+      margin-left: -13.5px;
     }
 
-    .tabbar.brew-mini .brew-cup svg.brew-cup-art { width: 17px; height: 19px; }
-    .tabbar.brew-mini .brew-cup .brew-frame { opacity: .5; }
-    /* 收起后杯子只占上半截，文字照常落在底下，别叠在一起 */
+    .tabbar.brew-mini .brew-cup svg.brew-cup-art { width: 27px; height: 30px; }
     .tabbar.brew-mini .tab-brew { padding-bottom: 4px; }
-    .tabbar.brew-mini .brew-label { font-size: 16px; }
 
     .brew-label {
       color: var(--gold-deep);
@@ -1162,7 +1149,7 @@
       .brew-char, .brew-char *, .brew-say { animation: none !important; opacity: 1 !important; stroke-dashoffset: 0 !important; }
     }
 
-    .home-indicator { flex: 0 0 auto; height: 18px; background: var(--surface); }
+    .home-indicator { flex: 0 0 auto; height: 18px; background: var(--paper); }
     .home-indicator::after {
       display: block;
       width: 130px;
@@ -2196,60 +2183,6 @@ function characterSvg(el) {
 }
 
 /* ---------------------------------------------------------------------------
-   五套按钮外框 —— 按传统五行形：金圆、木长(生发)、水曲、火尖、土方。
-   每套一张简笔画，画在杯子后面，所以五个版本的按钮一眼能分出来。
-   --------------------------------------------------------------------------- */
-
-const f1 = n => (Math.round(n * 10) / 10);
-
-/** 波浪圈：n 个起伏，amp 振幅，sharp=true 出尖角（火），false 走圆滑（水） */
-function scallopPath(cx, cy, r, n, amp, sharp) {
-  const pts = [];
-  for (let i = 0; i < n * 2; i++) {
-    const a = (Math.PI * i) / n - Math.PI / 2;
-    const rr = r + (i % 2 === 0 ? amp : -amp);
-    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
-  }
-  const P = q => `${f1(q[0])},${f1(q[1])}`;
-  if (sharp) return 'M' + pts.map(P).join('L') + 'Z';
-  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  let d = `M${P(mid(pts[pts.length - 1], pts[0]))}`;
-  for (let i = 0; i < pts.length; i++) {
-    d += `Q${P(pts[i])} ${P(mid(pts[i], pts[(i + 1) % pts.length]))}`;
-  }
-  return d + 'Z';
-}
-
-const BREW_FRAME = {
-  // 金 · 圆：双圈，像一枚币
-  metal: () => `<circle cx="50" cy="50" r="46" stroke-width="3"/>
-                <circle cx="50" cy="50" r="38.5" stroke-width="1.5" opacity=".45"/>`,
-  // 木 · 生发：圆圈上抽两片叶子
-  wood: () => {
-    // 叶子画大一点，尖头收出来，叶脉也走曲线（别再糊成一个圆点）
-    const leaf = (x, y, rot) =>
-      `<g transform="translate(${x},${y}) rotate(${rot})">
-         <path d="M0,0 Q5,-9 18,-2 Q9,6 0,0Z" stroke-width="2.4"/>
-         <path d="M2,-.6 Q8,-2.4 15.5,-2.2" stroke-width="1.3" opacity=".5"/>
-       </g>`;
-    return `<circle cx="50" cy="50" r="45" stroke-width="3"/>
-            ${leaf(70, 16, -46)}${leaf(30, 16, -134)}`;
-  },
-  // 水 · 曲：起伏的圈
-  water: () => `<path d="${scallopPath(50, 50, 44, 11, 2.8, false)}" stroke-width="2.8"/>`,
-  // 火 · 尖：带尖角的圈
-  fire: () => `<path d="${scallopPath(50, 50, 43.5, 9, 3.4, true)}" stroke-width="2.6" stroke-linejoin="round"/>`,
-  // 土 · 方：圆角方
-  earth: () => `<rect x="5.5" y="5.5" width="89" height="89" rx="27" stroke-width="3"/>
-                <rect x="13" y="13" width="74" height="74" rx="21" stroke-width="1.4" opacity=".4"/>`
-};
-
-function brewFrameSvg(el) {
-  return `<svg class="brew-frame" viewBox="0 0 100 100" fill="none"
-       stroke="${THEMES[el].hex}" stroke-linecap="round" aria-hidden="true">${BREW_FRAME[el]()}</svg>`;
-}
-
-/* ---------------------------------------------------------------------------
    故事与会话
 
    storyId === null 表示「新的一段，还没放进任何故事」。
@@ -2422,7 +2355,7 @@ function renderVersion() {
   device.dataset.nayin = el;
   device.dataset.motion = t.motion;
 
-  $('#brewCup').innerHTML = brewFrameSvg(el) + drinkSvg(el, 'brew-cup-art', false);
+  $('#brewCup').innerHTML = drinkSvg(el, 'brew-cup-art', false);
   const avatar = drinkSvg(el, 'dt-avatar', true);
   $$('.dt-avatar').forEach(slot => slot.outerHTML = avatar);
 

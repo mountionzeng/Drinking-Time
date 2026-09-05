@@ -1,23 +1,29 @@
 # assets — 从原型导出的位图
 
 为了让小程序上的界面和原型**逐像素一致**，把矢量 art 全部导成了 PNG。
-所有图都由 `_export/*.js` 从 `../index.html` 里**直接切出艺术函数运行**再光栅化，
+所有图都由 `_export/*.cjs` 从 `../index.html` 里**直接切出艺术函数运行**再光栅化，
 不是另抄一遍路径，所以不会和页面渲染分叉。改了原型重跑脚本即可。
+（切源码按锚点定位，不写死行号——原型一改行号就漂。）
+
+底部页签**没有顶边横线、杯子也没有圆底和外框**，整条并进纸色，
+所以这里不需要任何「按钮外框」类的图。
 
 ```
-cd <仓库根> && node docs/prototypes/liaohuier-miniapp/assets/_export/export.js
-                node docs/prototypes/liaohuier-miniapp/assets/_export/icons.js
-                node docs/prototypes/liaohuier-miniapp/assets/_export/anim.js
+cd <仓库根>
+node docs/prototypes/liaohuier-miniapp/assets/_export/export.cjs
+node docs/prototypes/liaohuier-miniapp/assets/_export/icons.cjs
+node docs/prototypes/liaohuier-miniapp/assets/_export/anim.cjs
 ```
 
-**54 张，299 KB**（小程序主包上限 2MB）。静态图 @3x，动画帧 @2x。
+（必须是 `.cjs`：仓库 `package.json` 是 `"type": "module"`，`.js` 会被当 ESM。）
+
+**49 张，284 KB**（小程序主包上限 2MB）。静态图 @3x，动画帧 @2x。
 
 ## 对照表
 
 | 文件 | 显示尺寸 | 用在哪 |
 | --- | --- | --- |
-| `cup-<五行>.png` | 36×40 | 底部「来聊会儿」按钮里的饮品 |
-| `frame-<五行>.png` | 64×64 | 那颗按钮的外框（金圆/木生发/水曲/火尖/土方）|
+| `cup-<五行>.png` | 54×60 | 底部「来聊会儿」的饮品（收起态同图缩到 27×30）|
 | `avatar-<五行>.png` | 26×29 | 聊天里助手气泡的抬头 |
 | `char-body-<五行>.png` | 208×242 | 杯子变小人 · 杯子层 |
 | `char-face-<五行>.png` | 208×242 | 杯子变小人 · 五官层（WXSS 淡入）|

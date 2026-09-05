@@ -10,14 +10,16 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const lines = html.split('\n');
-// 1997..2251（1-indexed）= THEMES 到 brewFrameSvg，纯函数区
-const artSrc = lines.slice(1996, 2251).join('\n');
+// 按锚点切纯函数区（THEMES → characterSvg），行号会随原型变动，别写死
+const _a = html.indexOf('const THEMES = {');
+const _b = html.indexOf('/* ---------------------------------------------------------------------------\n   故事与会话');
+const artSrc = html.slice(_a, _b);
 
 const sandbox = {};
 new Function('exports', artSrc + `
-  Object.assign(exports, { THEMES, ELEMENT_ORDER, DRINK_ART, drinkSvg, characterSvg, brewFrameSvg });
+  Object.assign(exports, { THEMES, ELEMENT_ORDER, DRINK_ART, drinkSvg, characterSvg });
 `)(sandbox);
-const { THEMES, ELEMENT_ORDER, drinkSvg, characterSvg, brewFrameSvg } = sandbox;
+const { THEMES, ELEMENT_ORDER, drinkSvg, characterSvg } = sandbox;
 
 const SCALE = 3;                       // @3x，覆盖 iPhone 三倍屏
 function fixSvg(svg, w, h) {
@@ -26,9 +28,8 @@ function fixSvg(svg, w, h) {
 
 const jobs = [];
 for (const el of ELEMENT_ORDER) {
-  jobs.push(['cup-'    + el, fixSvg(drinkSvg(el, 'a', false),  36 * SCALE,  40 * SCALE)]);
+  jobs.push(['cup-'    + el, fixSvg(drinkSvg(el, 'a', false),  54 * SCALE,  60 * SCALE)]);
   jobs.push(['avatar-' + el, fixSvg(drinkSvg(el, 'a', true),   26 * SCALE,  29 * SCALE)]);
-  jobs.push(['frame-'  + el, fixSvg(brewFrameSvg(el),          64 * SCALE,  64 * SCALE)]);
   jobs.push(['char-'   + el, fixSvg(characterSvg(el),         208 * SCALE, 242 * SCALE)]);
 }
 

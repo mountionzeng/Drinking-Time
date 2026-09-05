@@ -10,7 +10,10 @@ const sharp=require('/Users/yuandai/Documents/New project/drinking-time-local/no
 const ROOT='/Users/yuandai/Documents/New project/drinking-time-local/docs/prototypes/liaohuier-miniapp';
 const OUT=path.join(ROOT,'assets');
 const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');
-const art=html.split('\n').slice(1996,2251).join('\n');
+// 按锚点切纯函数区，别写死行号（原型一改行号就漂）
+const _a=html.indexOf('const THEMES = {');
+const _b=html.indexOf('/* ---------------------------------------------------------------------------\n   故事与会话');
+const art=html.slice(_a,_b);
 const box={};
 new Function('e', art+`Object.assign(e,{THEMES,ELEMENT_ORDER,DRINK_ART,neutralFace,RIGS,POSE_NEUTRAL,LIMB_SW,HAND_R,limb});`)(box);
 const {THEMES,ELEMENT_ORDER,DRINK_ART,neutralFace,RIGS,POSE_NEUTRAL,LIMB_SW,limb}=box;
