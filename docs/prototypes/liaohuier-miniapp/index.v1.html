@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>聊会儿 · 小程序界面原型</title>
+  <style>
+    @font-face {
+      font-family: "Honglei Zhuoshu";
+      src: url("./honglei-zhuoshu-brand.ttf") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --paper: #fbf8ee;
+      --paper-deep: #f2ead5;
+      --surface: #fffdf7;
+      --ink: #29261f;
+      --muted: #7d7566;
+      --line: #e7dcc3;
+      --gold: #d9ad2f;
+      --gold-deep: #9a7211;
+      --green: #56705a;
+      --danger: #a55646;
+      --shadow: 0 22px 60px rgba(88, 70, 24, 0.12);
+      --font-brand: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
+      --font-sans: "Space Grotesk", "PingFang SC", system-ui, sans-serif;
+      --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 14% 14%, rgba(217, 173, 47, 0.10), transparent 28rem),
+        #efe9da;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-feature-settings: "ss01", "cv11";
+      letter-spacing: -0.005em;
+    }
+
+    button, textarea, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .prototype-note {
+      position: fixed;
+      top: 22px;
+      left: 24px;
+      max-width: 270px;
+      color: #6d6558;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .prototype-note strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 19px;
+    }
+
+    .phone {
+      width: min(100%, 430px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 6px 16px;
+      background: #f6ecd0;
+      color: var(--gold-deep);
+      font-size: 11px;
+      letter-spacing: .05em;
+    }
+
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      height: 56px;
+      padding: 0 20px;
+      background: rgba(251, 248, 238, .94);
+      backdrop-filter: blur(16px);
+    }
+
+    .balance-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .balance-chip b { color: var(--ink); font-size: 14px; }
+
+    main {
+      min-height: calc(100vh - 56px - 30px);
+      padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    }
+
+    .screen { display: none; animation: enter .28s ease-out both; }
+    .screen.active { display: block; }
+    .home-hero { padding: 0; }
+    .eyebrow { margin: 0 0 8px; color: var(--gold-deep); font-size: 12px; letter-spacing: .14em; }
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 280px;
+      margin-bottom: 10px;
+      font-family: var(--font-sans);
+      font-size: 30px;
+      line-height: 1.35;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+
+    .home-copy {
+      max-width: 275px;
+      margin-bottom: 24px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .existing-daily-entry {
+      display: block;
+      width: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      line-height: 0;
+    }
+
+    .existing-daily-entry img,
+    .existing-almanac img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .existing-daily-entry:focus-visible {
+      outline: 3px solid rgba(217, 173, 47, .45);
+      outline-offset: -3px;
+    }
+
+    .existing-daily-entry:active { opacity: .94; }
+    .existing-almanac { overflow: hidden; background: #fffdf7; }
+    .section { padding: 18px 20px 26px; }
+
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 13px;
+    }
+
+    .section-heading h2 { margin: 0; font-family: var(--font-sans); font-size: 20px; }
+    .section-heading span { color: var(--muted); font-size: 12px; }
+    .story-list { display: grid; gap: 11px; }
+
+    .story-row {
+      display: grid;
+      grid-template-columns: 6px 1fr auto;
+      gap: 13px;
+      align-items: center;
+      width: 100%;
+      padding: 17px 15px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      color: inherit;
+      text-align: left;
+      transition: transform .18s ease, border-color .18s ease;
+    }
+
+    .story-row:active { transform: scale(.985); }
+    .story-row:hover { border-color: #cfb65f; }
+    .story-mark { width: 6px; height: 43px; border-radius: 999px; background: var(--gold); }
+    .story-row:nth-child(2) .story-mark { background: #9ba487; }
+    .story-title { display: block; margin-bottom: 5px; font-family: var(--font-sans); font-size: 17px; font-weight: 650; }
+    .story-meta { display: block; color: var(--muted); font-size: 12px; }
+    .story-arrow { color: #b7aa8d; font-size: 22px; }
+
+    .workspace-head {
+      padding: 20px 20px 15px;
+      background: linear-gradient(180deg, #f5ecd7 0%, rgba(251, 248, 238, 0) 100%);
+    }
+
+    .back-row { display: flex; align-items: center; gap: 10px; margin-bottom: 17px; }
+
+    .back-button {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 20px;
+    }
+
+    .story-context { min-width: 0; }
+    .story-context strong {
+      display: block;
+      font-family: var(--font-sans);
+      font-size: 18px;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .story-context small { color: var(--muted); font-size: 11px; }
+
+    .view-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(255,255,255,.55);
+    }
+
+    .view-tab {
+      min-height: 40px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .view-tab.active {
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 4px 15px rgba(87, 70, 26, .08);
+      font-weight: 600;
+    }
+
+    .chat-area { padding: 10px 18px 165px; }
+    .day-label { margin: 2px 0 18px; color: #9c9486; font-size: 11px; text-align: center; }
+    .message { display: flex; gap: 9px; margin-bottom: 17px; align-items: flex-end; }
+    .message.me { justify-content: flex-end; }
+
+    .avatar {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #f1df99;
+      color: #6c5111;
+      font-family: var(--font-brand);
+      font-size: 19px;
+    }
+
+    .bubble {
+      max-width: 79%;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 7px 17px 17px 17px;
+      background: var(--surface);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .message.me .bubble {
+      border: 0;
+      border-radius: 17px 7px 17px 17px;
+      background: #e8c75e;
+    }
+
+    .draft-card {
+      margin: 3px 0 18px 41px;
+      padding: 16px;
+      border: 1px solid #dac78f;
+      border-radius: 17px;
+      background: #fffaf0;
+    }
+
+    .draft-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      color: var(--gold-deep);
+      font-size: 12px;
+    }
+    .draft-card p { margin-bottom: 14px; font-family: var(--font-sans); font-size: 15px; line-height: 1.8; }
+    .draft-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .draft-actions button {
+      min-height: 39px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+    }
+    .draft-actions .accept { border-color: var(--gold); background: var(--gold); font-weight: 600; }
+
+    .composer {
+      position: fixed;
+      z-index: 12;
+      left: 50%;
+      bottom: calc(68px + env(safe-area-inset-bottom));
+      width: min(100%, 430px);
+      transform: translateX(-50%);
+      padding: 10px 14px 11px;
+      border-top: 1px solid var(--line);
+      background: rgba(251, 248, 238, .96);
+      backdrop-filter: blur(16px);
+    }
+
+    .cost-line { margin-bottom: 7px; color: var(--muted); font-size: 10px; text-align: right; }
+    .composer-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .composer input {
+      min-width: 0;
+      min-height: 45px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      outline: none;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .composer input:focus { border-color: #c69b29; box-shadow: 0 0 0 3px rgba(217,173,47,.14); }
+    .send {
+      min-width: 64px;
+      border: 0;
+      border-radius: 14px;
+      background: var(--gold);
+      color: #3f310b;
+      font-weight: 650;
+    }
+
+    .editor { padding: 0 18px 112px; }
+    .editor-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 3px 2px 14px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .saved { display: flex; align-items: center; gap: 5px; color: var(--green); }
+    .saved::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #6f9073; }
+
+    .title-input {
+      width: 100%;
+      margin-bottom: 12px;
+      padding: 0 3px 12px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      outline: none;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 25px;
+      font-weight: 600;
+    }
+
+    .body-editor {
+      width: 100%;
+      min-height: 470px;
+      resize: none;
+      padding: 10px 3px;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: #403b32;
+      font-family: var(--font-serif);
+      font-size: 16px;
+      line-height: 2;
+    }
+
+    .editor-actions {
+      position: fixed;
+      z-index: 12;
+      left: 50%;
+      bottom: calc(68px + env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: .8fr 1.2fr;
+      gap: 9px;
+      width: min(100%, 430px);
+      padding: 12px 16px;
+      transform: translateX(-50%);
+      border-top: 1px solid var(--line);
+      background: rgba(251,248,238,.97);
+    }
+
+    .editor-actions button { min-height: 46px; border-radius: 14px; font-weight: 600; }
+    .save-button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+    .ai-button { border: 0; background: var(--gold); color: #382d0d; }
+
+    .profile { padding: 22px 20px 100px; }
+    .account-card { padding: 19px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+    .credit { display: flex; align-items: flex-end; justify-content: space-between; }
+    .credit span { color: var(--muted); font-size: 12px; }
+    .credit b { font-size: 25px; }
+
+    /* 仅保留用户截图中的新版底部导航。 */
+    .bottom-nav {
+      position: fixed;
+      z-index: 20;
+      left: 50%;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      width: min(100%, 430px);
+      height: calc(70px + env(safe-area-inset-bottom));
+      padding: 0 20px env(safe-area-inset-bottom);
+      transform: translateX(-50%);
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .nav-item {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+      color: #a29988;
+      font-size: 10px;
+    }
+
+    .nav-icon { position: relative; display: block; width: 21px; height: 21px; }
+    .icon-story {
+      border: 1.5px solid currentColor;
+      border-radius: 3px 7px 7px 3px;
+      box-shadow: inset 3px 0 currentColor;
+    }
+    .icon-chat { border: 1.5px solid currentColor; border-radius: 50%; }
+    .icon-chat::after {
+      position: absolute;
+      right: 1px;
+      bottom: -1px;
+      width: 6px;
+      height: 6px;
+      border-right: 1.5px solid currentColor;
+      transform: rotate(32deg);
+      content: "";
+    }
+    .icon-me { border: 1.5px solid currentColor; border-radius: 50%; }
+    .icon-me::before {
+      position: absolute;
+      top: 4px;
+      left: 7px;
+      width: 5px;
+      height: 5px;
+      border: 1.5px solid currentColor;
+      border-radius: 50%;
+      content: "";
+    }
+    .icon-me::after {
+      position: absolute;
+      left: 4px;
+      bottom: 3px;
+      width: 10px;
+      height: 5px;
+      border: 1.5px solid currentColor;
+      border-bottom: 0;
+      border-radius: 7px 7px 0 0;
+      content: "";
+    }
+    .nav-item.active { color: var(--ink); font-weight: 650; }
+    .nav-item.active::before {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 22px;
+      height: 3px;
+      border-radius: 0 0 3px 3px;
+      transform: translateX(-50%);
+      background: var(--gold);
+      content: "";
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 50;
+      left: 50%;
+      bottom: 92px;
+      padding: 10px 15px;
+      transform: translate(-50%, 18px);
+      border-radius: 999px;
+      background: rgba(39,36,30,.9);
+      color: white;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: .22s ease;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .nav-item:active { transform: scale(.985); opacity: .92; }
+    @keyframes enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 760px) {
+      .prototype-note { display: none; }
+      .phone { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="prototype-note">
+    <strong>聊会儿 · 小程序前端原型</strong>
+    可点击 Story、切换“聊聊／正文”、编辑和保存。只演示界面，不连接真实账号或数据。
+  </aside>
+
+  <div class="phone">
+    <div class="status">界面原型 · 不连接真实账号</div>
+    <header class="app-header">
+      <button class="balance-chip" data-go="profile"><span>余额</span><b>¥29.92</b></button>
+    </header>
+
+    <main>
+      <section class="screen active" id="screen-home">
+        <div class="home-hero">
+          <div class="existing-almanac">
+            <img src="existing-almanac-top.png" alt="宜：祭祀、求财、签约、嫁娶、订盟。忌：开市、安床、安葬、入宅、破土" />
+          </div>
+          <button class="existing-daily-entry" id="new-story" aria-label="新建故事">
+            <img src="existing-daily-hero.png" alt="聊会儿 Drinking Time，倒一杯看看。2026-09-04，农历丙午年七月廿三，辛巳日，白蜡金" />
+          </button>
+        </div>
+
+        <div class="section">
+          <div class="story-list">
+            <button class="story-row" data-story="父亲的年轻岁月">
+              <span class="story-mark"></span>
+              <span><span class="story-title">父亲的年轻岁月</span><span class="story-meta">刚刚保存 · 3,284 字</span></span>
+              <span class="story-arrow">›</span>
+            </button>
+            <button class="story-row" data-story="第一次离开家">
+              <span class="story-mark"></span>
+              <span><span class="story-title">第一次离开家</span><span class="story-meta">昨天更新 · 1,706 字</span></span>
+              <span class="story-arrow">›</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" id="screen-chat">
+        <div class="workspace-head">
+          <div class="back-row">
+            <button class="back-button" data-go="home" aria-label="返回">‹</button>
+            <div class="story-context"><strong class="current-story">父亲的年轻岁月</strong><small>当前 Story · 手机</small></div>
+          </div>
+          <div class="view-tabs">
+            <button class="view-tab active" data-view="chat">聊聊</button>
+            <button class="view-tab" data-view="editor">正文</button>
+          </div>
+        </div>
+
+        <div class="chat-area">
+          <div class="day-label">今天</div>
+          <div class="message"><div class="avatar">聊</div><div class="bubble">我们从哪段记忆开始写？你可以像聊天一样慢慢说。</div></div>
+          <div class="message me"><div class="bubble">先写他第一次离开家的那天。</div></div>
+          <div class="message"><div class="avatar">聊</div><div class="bubble">好。你还记得当时的季节、车站，或者他带走了什么吗？</div></div>
+          <div class="draft-card">
+            <div class="draft-label"><span>故事草稿</span><span>约 186 字</span></div>
+            <p>那年秋天，他第一次独自离开家。清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话……</p>
+            <div class="draft-actions"><button class="accept">加入正文</button><button>继续聊</button></div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="cost-line">本次约 ¥0.08 · 余额 ¥29.92</div>
+          <div class="composer-row"><input placeholder="说说你想补充的细节…" /><button class="send">发送</button></div>
+        </div>
+      </section>
+
+      <section class="screen" id="screen-editor">
+        <div class="workspace-head">
+          <div class="back-row">
+            <button class="back-button" data-go="home" aria-label="返回">‹</button>
+            <div class="story-context"><strong class="current-story">父亲的年轻岁月</strong><small>当前 Story · 手机</small></div>
+          </div>
+          <div class="view-tabs">
+            <button class="view-tab" data-view="chat">聊聊</button>
+            <button class="view-tab active" data-view="editor">正文</button>
+          </div>
+        </div>
+
+        <div class="editor">
+          <div class="editor-meta"><span>当前版本 · 手机</span><span class="saved" id="save-status">已保存</span></div>
+          <input class="title-input" value="第一次离开家" aria-label="标题" />
+          <textarea class="body-editor" aria-label="正文">那年秋天，他第一次独自离开家。
+
+清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话。父亲后来回忆，那一刻他不敢回头，只怕看见母亲的眼睛，就再也迈不开脚步。
+
+去车站的土路很长。他把那张写着地址的纸折了三遍，贴身放进口袋里。车开动以后，村庄一点点退到山后，他才第一次真正明白，离开并不只是走远。</textarea>
+        </div>
+
+        <div class="editor-actions"><button class="save-button" id="save">保存</button><button class="ai-button">让聊聊帮我改</button></div>
+      </section>
+
+      <section class="screen" id="screen-profile">
+        <div class="profile">
+          <div class="account-card">
+            <div class="credit"><span>剩余算力</span><b>¥29.92</b></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item active" data-screen="home"><span class="nav-icon icon-story"></span><span>故事</span></button>
+      <button class="nav-item" data-screen="chat"><span class="nav-icon icon-chat"></span><span>聊聊</span></button>
+      <button class="nav-item" data-screen="profile"><span class="nav-icon icon-me"></span><span>我的</span></button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast">已保存</div>
+
+  <script>
+    const screens = [...document.querySelectorAll('.screen')];
+    const navItems = [...document.querySelectorAll('.nav-item')];
+    const storyTitles = [...document.querySelectorAll('.current-story')];
+    const composer = document.querySelector('.composer');
+    const editorActions = document.querySelector('.editor-actions');
+    let currentStory = '父亲的年轻岁月';
+
+    function showScreen(name) {
+      screens.forEach(screen => screen.classList.toggle('active', screen.id === `screen-${name}`));
+      navItems.forEach(item => item.classList.toggle('active', item.dataset.screen === (name === 'editor' ? 'chat' : name)));
+      composer.style.display = name === 'chat' ? '' : 'none';
+      editorActions.style.display = name === 'editor' ? '' : 'none';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => showScreen(button.dataset.go)));
+    navItems.forEach(button => button.addEventListener('click', () => showScreen(button.dataset.screen)));
+    document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => showScreen(button.dataset.view)));
+    document.querySelectorAll('[data-story]').forEach(button => button.addEventListener('click', () => {
+      currentStory = button.dataset.story;
+      storyTitles.forEach(title => title.textContent = currentStory);
+      showScreen('chat');
+    }));
+
+    const toast = document.getElementById('toast');
+    function notify(text) {
+      toast.textContent = text;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 1200);
+    }
+
+    document.getElementById('save').addEventListener('click', () => {
+      document.getElementById('save-status').textContent = '已保存';
+      notify('正文已保存');
+    });
+    document.querySelector('.body-editor').addEventListener('input', () => {
+      document.getElementById('save-status').textContent = '有未保存修改';
+    });
+    document.querySelector('.send').addEventListener('click', () => notify('原型：消息已发送'));
+    document.querySelector('.accept').addEventListener('click', () => notify('草稿已加入正文'));
+    document.getElementById('new-story').addEventListener('click', () => notify('这里将打开新建 Story'));
+
+    showScreen('home');
+  </script>
+</body>
+</html>

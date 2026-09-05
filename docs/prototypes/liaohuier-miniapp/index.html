@@ -1,0 +1,2471 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>碎碎念 · 小程序界面原型 v2</title>
+  <style>
+    /* ==========================================================================
+       碎碎念 · 微信小程序前端原型 v2
+
+       尺寸口径：设计宽度 375px = 750rpx。本文件里所有 px 值 × 2 就是 WXSS 的 rpx。
+                 动作类触控目标 ≥ 44px（88rpx），与 miniprogram/tests 的门禁一致。
+
+       品牌字 honglei-zhuoshu-brand.ttf 只有 15 个字形：
+       「D T e g i k m n r 会 儿 小 聊 酌」和空格。
+       改名「碎碎念」之后，碎和念都不在里面 —— 中文标题现在走衬线体，
+       只有 .brand-en 的「Drinking Time」还用得上品牌字。
+       小程序里 WXSS 的 @font-face 不认包内相对路径，13KB 直接 base64 内联，
+       或者 wx.loadFontFace 走 https。
+
+       状态口径全部照抄 miniprogram/src/core/workspacePresentation.ts 的可见文案，
+       设计和实现共用同一批字符串，改文案只改一处。
+       ========================================================================== */
+
+    /* 界面用子集：从 client/src/assets/fonts/honglei-zhuoshu.ttf（完整版 7734 字，11MB）
+       切出界面真正会用到的 40 个字，21KB。原来那份 15 字的 brand 子集缺「来/故/事/我/的/碎/念」，
+       套上去会逐字回退宋体，所以标签一直只能用系统字。现在全都在。 */
+    @font-face {
+      font-family: "Honglei UI";
+      src: url("./honglei-zhuoshu-ui.ttf") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      /* 纸与墨 */
+      --paper: #fbf8ee;
+      --paper-deep: #f3ecda;
+      --surface: #fffdf7;
+      --ink: #26231c;
+      --ink-2: #4a4438;
+      --muted: #7a7264;
+      --faint: #a49b89;
+      --line: #e8dec7;
+      --line-soft: #f0e8d6;
+
+      /* 品牌 */
+      --gold: #d9ad2f;
+      --gold-deep: #8f6a0e;
+      --gold-wash: #fdf5db;
+
+      /* 状态色：刻意不复用品牌金，否则「主要动作」和「出问题了」看起来一样 */
+      --calm: #55637a;          /* 进行中 / 结果未知：没坏，只是还不知道 */
+      --calm-wash: #eef1f6;
+      --warn: #8a6516;          /* 余额不足：挡住的是付费调用，不是事故 */
+      --warn-wash: #f8f0dc;
+      --alarm: #a2483c;         /* 明确失败 / 冲突 */
+      --alarm-wash: #f9ebe7;
+      --ok: #4f6b54;
+      --ok-wash: #ecf1ea;
+
+      --glow: rgba(201,160,60,.22);
+      --radius-card: 14px;
+      --radius-field: 10px;
+
+      --font-brand: "Honglei UI", "Songti SC", serif;
+      --font-sans: -apple-system, "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+      --font-serif: "Songti SC", "Noto Serif SC", Georgia, serif;
+    }
+
+
+    /* ==========================================================================
+       纳音五行 · 五套版本
+
+       口径完全照抄 client/src/features/nayin/nayin.ts 的 BEVERAGE_THEMES 和
+       client/src/index.css 的 [data-nayin] 主题，不另起一套。
+       纳音每 2 天换一次（一个干支对共用一个纳音名），同一个五行平均 10 天回来一次。
+
+       只有品牌色和纸色跟着五行走；**状态色不跟着走** —— 出事的颜色每 10 天
+       换一次的话，用户每次都得重新学一遍「什么颜色代表失败」。
+       唯一的例外是火，见下面 [data-nayin="fire"] 里的 --alarm 说明。
+       ========================================================================== */
+
+    /* 聊天里「实心底 + 白字」的填充色。默认 = 当套的品牌色，和电脑端一致。
+       对比度不够的那几套改这一行就行（建议值见批注栏）。
+       注意必须写在 .device 上：自定义属性里的 var() 按声明处的元素求值，
+       写在 :root 会拿到根上的默认金色，五套就全变成同一个颜色。 */
+    .device {
+      --accent-solid: var(--gold);
+      --accent-solid-ink: var(--paper);
+    }
+
+    .device[data-nayin="metal"] {
+      --gold: #c9a03c; --gold-deep: #8a6b2a; --gold-wash: #fdf5db;
+      --accent-fill: #f4e2a8; --accent-line: #e3ce8f; --on-accent: #4a3a08;
+      --paper: #fbf8ee; --paper-deep: #f3ecda; --surface: #fffdf7;
+      --line: #e8dec7; --line-soft: #f0e8d6;
+      --drink-ink: #7a5b1f;
+      --glow: rgba(201,160,60,.22);
+    }
+
+    .device[data-nayin="wood"] {
+      --gold: #5d9b6a; --gold-deep: #3d6b48; --gold-wash: #edf5e8;
+      --accent-fill: #cfe6d2; --accent-line: #b5d6bb; --on-accent: #12301b;
+      --paper: #f6f9f2; --paper-deep: #e8f0e2; --surface: #fdfffb;
+      --line: #d9e6d4; --line-soft: #e7f0e3;
+      --drink-ink: #33532b;
+      --glow: rgba(93,155,106,.22);
+    }
+
+    .device[data-nayin="water"] {
+      --gold: #5a8e9a; --gold-deep: #40707c; --gold-wash: #e9f3f6;
+      --accent-fill: #cfe4ea; --accent-line: #b2d2db; --on-accent: #0e2b32;
+      --paper: #f4f8fa; --paper-deep: #e5eef1; --surface: #fcfeff;
+      --line: #d6e4e9; --line-soft: #e6eff2;
+      --drink-ink: #4a7a8a;
+      --glow: rgba(90,142,154,.22);
+    }
+
+    /* 火的品牌红和 --alarm 撞得太近，只有这一套把 --alarm 挪到偏冷的绛色。
+       其余四套 --alarm 都保持默认。 */
+    .device[data-nayin="fire"] {
+      --gold: #a83a2a; --gold-deep: #6b2a22; --gold-wash: #f9ebe6;
+      --accent-fill: #f2cfc6; --accent-line: #e6b3a7; --on-accent: #fffaf8;
+      --paper: #fdf6f3; --paper-deep: #f6e6e0; --surface: #fffcfa;
+      --line: #ecd8d1; --line-soft: #f4e6e1;
+      --drink-ink: #6b2a22;
+      --glow: rgba(168,58,42,.22);
+      --alarm: #8e2f4a; --alarm-wash: #f7e8ec;
+    }
+
+    .device[data-nayin="earth"] {
+      --gold: #7a6048; --gold-deep: #4a3228; --gold-wash: #f4ece0;
+      --accent-fill: #e2d3bf; --accent-line: #d0bda3; --on-accent: #fffaf4;
+      --paper: #faf6f0; --paper-deep: #efe6d9; --surface: #fffdf9;
+      --line: #e4d8c8; --line-soft: #f0e8dc;
+      --drink-ink: #4a2e1b;
+      --glow: rgba(122,96,72,.22);
+    }
+
+    /* ---------- 饮品动效：对应 dailyPresentation.ts 的 motionHint ---------- */
+    /* 网页端是 WuxingParticles 五套粒子系统，这里只留每套一个代表性动作。 */
+
+    .dt-steam > * { transform-origin: 50% 100%; }
+
+    [data-motion="bubble"] .dt-steam > * { animation: dt-bubble 2.6s ease-in-out infinite; }
+    [data-motion="bubble"] .dt-steam > *:nth-child(2) { animation-delay: .6s; }
+    [data-motion="bubble"] .dt-steam > *:nth-child(3) { animation-delay: 1.2s; }
+    @keyframes dt-bubble {
+      0%   { opacity: 0; transform: translateY(6px) scale(.6); }
+      35%  { opacity: .8; }
+      100% { opacity: 0; transform: translateY(-8px) scale(1.1); }
+    }
+
+    [data-motion="steam"] .dt-steam > *,
+    [data-motion="ripple"] .dt-steam > *,
+    [data-motion="swirl"] .dt-steam > * { animation: dt-steam 3.4s ease-in-out infinite; }
+    [data-motion="steam"] .dt-steam > *:nth-child(2),
+    [data-motion="ripple"] .dt-steam > *:nth-child(2),
+    [data-motion="swirl"] .dt-steam > *:nth-child(2) { animation-delay: .9s; }
+    [data-motion="steam"] .dt-steam > *:nth-child(3),
+    [data-motion="ripple"] .dt-steam > *:nth-child(3) { animation-delay: 1.8s; }
+    @keyframes dt-steam {
+      0%   { opacity: .15; transform: translateY(4px) skewX(0deg); }
+      45%  { opacity: .75; transform: translateY(-2px) skewX(5deg); }
+      100% { opacity: .15; transform: translateY(-7px) skewX(-3deg); }
+    }
+
+    [data-motion="ripple"] .brew-cup-art { animation: dt-ripple 4.2s ease-in-out infinite; }
+    @keyframes dt-ripple { 50% { transform: scale(1.025); } }
+
+    [data-motion="tide"] .dt-tide { animation: dt-tide 4.6s ease-in-out infinite; }
+    @keyframes dt-tide { 50% { transform: translateX(3px) translateY(-1.5px); } }
+
+    [data-motion="swirl"] .dt-swirl { transform-origin: 45px 32px; animation: dt-swirl 9s linear infinite; }
+    @keyframes dt-swirl { to { transform: rotate(360deg); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .brew-cup-art, .brew-cup-art *, .dt-avatar, .dt-avatar * { animation: none !important; }
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    [hidden] { display: none !important; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #ded8ca;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    button, textarea, input { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 0; background: none; }
+
+    /* ---------- 桌面批注栏（小程序里不存在，只给评审看） ---------- */
+
+    .stage {
+      display: flex;
+      gap: 34px;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 34px 26px 60px;
+    }
+
+    .notes {
+      position: sticky;
+      top: 34px;
+      width: 340px;
+      flex: 0 0 340px;
+      color: #4c4638;
+      font-size: 12.5px;
+      line-height: 1.72;
+    }
+
+    .notes h1 {
+      margin: 0 0 4px;
+      font-size: 19px;
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+    }
+
+    .notes .sub { margin: 0 0 18px; color: #6e6656; font-size: 12.5px; }
+
+    .note-block {
+      margin-bottom: 12px;
+      padding: 13px 14px;
+      border: 1px solid #cfc6b2;
+      border-radius: 12px;
+      background: rgba(255, 253, 247, .78);
+    }
+
+    .note-block h2 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+
+    .note-block ul { margin: 0; padding-left: 16px; }
+    .note-block li { margin-bottom: 5px; }
+    .note-block li:last-child { margin-bottom: 0; }
+    .note-block code {
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: #ece4d2;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+    }
+
+    .api-row { padding: 8px 0; border-bottom: 1px solid #ded4bf; }
+    .api-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .api-row b { display: block; margin-bottom: 2px; font-size: 12px; }
+    .api-row .line { display: block; font-size: 11.5px; line-height: 1.6; }
+    .api-row .line::before { color: var(--faint); content: attr(data-side) " "; }
+    .api-row .gap { color: var(--alarm); }
+    .api-row .fine { color: var(--ok); }
+
+    /* ---------- 手机 ---------- */
+
+    .device {
+      position: relative;
+      width: 375px;
+      flex: 0 0 375px;
+      height: 812px;
+      overflow: hidden;
+      border-radius: 30px;
+      background: var(--paper);
+      box-shadow: 0 30px 70px rgba(76, 60, 20, .22), 0 0 0 1px rgba(0, 0, 0, .06);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 微信状态栏 + 原生导航栏：这 88px 是系统的，我们只能改标题和底色 */
+    .sysbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 0 0 auto;
+      height: 44px;
+      padding: 0 18px 0 22px;
+      background: var(--paper-deep);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+
+    .sysbar-right { display: flex; align-items: center; gap: 5px; }
+    .sysbar-right i {
+      display: block;
+      width: 15px;
+      height: 9px;
+      border: 1px solid currentColor;
+      border-radius: 2px;
+      opacity: .75;
+    }
+    .sysbar-right i.sig {
+      width: 14px;
+      border: 0;
+      background: linear-gradient(to top right, currentColor 48%, transparent 48%);
+    }
+
+    .navbar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      height: 44px;
+      background: var(--paper-deep);
+    }
+
+    .navbar .nav-title { font-size: 16px; font-weight: 600; letter-spacing: .01em; }
+
+    .navbar .nav-back {
+      position: absolute;
+      left: 4px;
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      color: var(--ink);
+      font-size: 21px;
+    }
+
+    .navbar .nav-back[hidden] { display: none; }
+
+    .capsule {
+      position: absolute;
+      right: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      width: 87px;
+      height: 32px;
+      border: 1px solid rgba(0, 0, 0, .1);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .5);
+      color: #5b5445;
+    }
+
+    .capsule::before { content: "•••"; font-size: 12px; letter-spacing: 1px; }
+    .capsule::after {
+      width: 13px;
+      height: 13px;
+      border: 1.4px solid currentColor;
+      border-radius: 50%;
+      content: "";
+    }
+    .capsule i {
+      width: 1px;
+      height: 17px;
+      background: rgba(0, 0, 0, .1);
+    }
+
+    /* 测试模式横幅：常驻、不可关。mock 永远不许假装成真账号 */
+    .mock-banner {
+      flex: 0 0 auto;
+      padding: 8px 16px 9px 20px;
+      border-left: 4px solid #b9a67c;
+      background: repeating-linear-gradient(
+        135deg,
+        #efe7d3, #efe7d3 6px,
+        #eae1cb 6px, #eae1cb 12px
+      );
+      color: #5c5445;
+    }
+
+    .mock-banner b { display: block; font-size: 12px; letter-spacing: .01em; }
+    .mock-banner span { display: block; color: #6d6555; font-size: 10.5px; line-height: 1.55; }
+
+    /* ---------- 页面主体 ---------- */
+
+    .pages {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .pages::-webkit-scrollbar { width: 0; }
+
+    .page { display: none; padding-bottom: 18px; animation: rise .24s ease-out both; }
+    /* 底部 dock 永远压在页面最下面，内容短的时候也不会浮在半空 */
+    .page.on { display: flex; flex-direction: column; min-height: 100%; }
+
+    /* 故事页和我的页没有 dock，得自己给凸出来的杯子让出 36px + 余量。
+       用实体占位而不是 padding-bottom：这两页是 flex 列 + 滚动容器，
+       滚到底时 padding 不占位，最后一张卡还是会被杯子压住。 */
+    #page-home::after, #page-me::after {
+      flex: 0 0 auto;
+      height: 46px;
+      content: "";
+    }
+    .dock { margin-top: auto; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .pad { padding-left: 16px; padding-right: 16px; }
+
+    /* ---------- 黄历条（数据来自 almanac.today，不再是一张图） ---------- */
+
+    /* 黄历只占一小行：去掉胶囊边框，宜忌各取前 3 条，中点分隔。
+       取 3 条是跟 dailyPresentation.ts 的 getDailyActivityAdvice 一致（yi.slice(0, 3)）。 */
+    .almanac {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+
+    .almanac-group { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+    .almanac-group + .almanac-group { margin-left: 12px; }
+
+    .almanac-key {
+      flex: 0 0 auto;
+      font-family: var(--font-serif);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .almanac-key.yi { color: var(--gold-deep); }
+    .almanac-key.ji { color: var(--faint); }
+
+    .almanac-items { overflow: hidden; text-overflow: ellipsis; }
+    .almanac-items.yi { color: var(--ink-2); }
+    .almanac-items.ji { color: var(--faint); }
+
+    .almanac-degraded { color: var(--faint); font-size: 11.5px; }
+
+    /* ---------- 品牌头图（全 DOM + SVG，日期不再被烤进图片） ---------- */
+
+    /* ---------- 今日 ----------
+       整页去框：卡片边框、饮品胶囊、故事行的框全撤了。
+       现在只靠字号、颜色和一条发丝线分层，页面安静得多。 */
+
+    .today { padding: 14px 16px 12px; }
+
+    .today-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .today-date { color: var(--ink-2); font-size: 13px; letter-spacing: .02em; }
+    .today-date.preview { color: var(--gold-deep); }
+
+    .today-drink {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--gold-deep);
+      font-size: 12px;
+      letter-spacing: .04em;
+    }
+
+    .today-drink::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      content: "";
+    }
+
+    .today-almanac { margin-top: 8px; }
+
+    /* ---------- 分区 ---------- */
+
+    .sec-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 18px 16px 4px;
+      border-top: 1px solid var(--line-soft);
+      margin-top: 6px;
+    }
+
+    .sec-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .01em; }
+    .sec-head .count { color: var(--faint); font-size: 11.5px; }
+
+    /* ---------- Story 列表 ---------- */
+
+    .story-list { padding: 0 16px; }
+
+    .story-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 14px;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      min-height: 62px;
+      padding: 11px 0;
+      border: 0;
+      border-top: 1px solid var(--line-soft);
+      background: transparent;
+      text-align: left;
+    }
+
+    .story-row:first-child { border-top: 0; }
+    .story-row:active { background: var(--gold-wash); }
+
+    .story-row .t {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+
+    .story-row .m { display: block; color: var(--muted); font-size: 11.5px; }
+    .story-row .chev { color: #cabfa6; font-size: 16px; text-align: right; }
+
+    /* 「当前」原来是个填色小标签，也是一个框；改成标题前一个点 */
+    .story-row.current .t::before {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      vertical-align: 2px;
+      content: "";
+    }
+
+    .skeleton {
+      min-height: 64px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-card);
+      background: linear-gradient(100deg, #f7f2e4 30%, #fdfaf1 50%, #f7f2e4 70%) 0 0 / 300% 100%;
+      animation: shimmer 1.3s linear infinite;
+    }
+
+    @keyframes shimmer { to { background-position: -300% 0; } }
+
+    /* ---------- 状态块：全部状态共用一套外观 ---------- */
+
+    .state {
+      display: grid;
+      gap: 8px;
+      margin: 0 16px;
+      padding: 12px 13px;
+      border: 1px solid var(--line);
+      border-left-width: 3px;
+      border-radius: var(--radius-field);
+      background: var(--surface);
+      font-size: 12.5px;
+      line-height: 1.62;
+    }
+
+    /* dock 里的状态块贴着撰写框，不再另外留左右边距 */
+    .dock .state { margin: 0 0 8px; }
+
+    .state .headline { display: flex; gap: 7px; align-items: flex-start; font-weight: 600; }
+    .state .headline::before {
+      flex: 0 0 auto;
+      margin-top: 5px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+    .state .why { color: var(--muted); font-size: 11.5px; }
+    .state .row { display: flex; flex-wrap: wrap; gap: 7px; }
+
+    .state.calm  { border-left-color: var(--calm);  background: var(--calm-wash);  color: var(--calm); }
+    .state.warn  { border-left-color: var(--warn);  background: var(--warn-wash);  color: var(--warn); }
+    .state.alarm { border-left-color: var(--alarm); background: var(--alarm-wash); color: var(--alarm); }
+    .state.ok    { border-left-color: var(--ok);    background: var(--ok-wash);    color: var(--ok); }
+    .state .why, .state .body { color: var(--ink-2); }
+
+    .state.calm .headline::before { animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .25; } }
+
+    /* ---------- 按钮 ---------- */
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-field);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { border-color: var(--gold); background: var(--gold); color: var(--on-accent); }
+    .btn.quiet { border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; }
+    .btn.small { min-height: 36px; padding: 0 12px; font-size: 12.5px; }
+    .btn[disabled] { opacity: .45; pointer-events: none; }
+
+    /* ---------- 工作区头 ---------- */
+
+    .ws-head {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      padding: 10px 16px 0;
+      background: var(--paper);
+    }
+
+    /* Story 名已经在原生导航栏上了，这里只留切换入口，不重复 */
+    .ws-story {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-height: 40px;
+      width: 100%;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .ws-story .switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--gold-deep);
+      font-weight: 600;
+    }
+    .ws-story .switch::after { content: "▾"; }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      margin: 6px 0 10px;
+      padding: 3px;
+      border-radius: 11px;
+      background: var(--paper-deep);
+    }
+
+    .segmented button {
+      min-height: 36px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13.5px;
+    }
+
+    .segmented button.on {
+      background: var(--surface);
+      color: var(--ink);
+      font-weight: 700;
+      box-shadow: 0 1px 4px rgba(80, 64, 22, .1);
+    }
+
+    /* ---------- 聊聊 ---------- */
+
+    /* ==========================================================================
+       聊天区 —— 还原电脑端 client/src/features/storyAgent/views/StoryAgentChat.tsx
+
+       对照（Tailwind → px）：
+         气泡    max-w-[85%] rounded-2xl(16) px-3(12) py-2(8) leading-relaxed(1.625)
+         尖角    助手 rounded-tl-sm(2)，用户 rounded-tr-sm(2)
+         助手底  var(--card) + var(--panel-border) 描边
+         用户底  var(--nayin-accent)，字 var(--background)，投影 0 1px 8px -2px glow
+         抬头    26px 饮品头像 + gap-1.5(6) + 「聊聊」10px tracking-[0.16em] opacity-.8
+         间距    space-y-3(12)
+
+       一处**故意不照抄**：电脑端正文是 12.5px，那是编辑器侧栏的密度；
+       手机上按 14px（28rpx）走，不然一屏字太小。其余 1:1。
+       ========================================================================== */
+
+    .msgs { display: grid; gap: 12px; padding: 4px 16px 12px; }
+    .msg { display: flex; }
+    .msg.me { justify-content: flex-end; }
+
+    .bubble {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 16px 16px 16px 16px;
+      border-top-left-radius: 2px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.625;
+    }
+
+    .msg.me .bubble {
+      border: 0;
+      border-radius: 16px 16px 16px 16px;
+      border-top-right-radius: 2px;
+      background: var(--accent-solid);
+      color: var(--accent-solid-ink);
+      box-shadow: 0 1px 8px -2px var(--glow);
+    }
+
+    .bubble-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+
+    .dt-avatar { display: block; width: 26px; height: 26px; }
+
+    .bubble-head .who {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: .16em;
+      opacity: .8;
+    }
+
+    .bubble p { margin: 0; white-space: pre-wrap; }
+
+    /* 回复中：电脑端是三颗 bg-nayin animate-pulse 的点 */
+    .typing { display: flex; align-items: center; gap: 6px; padding-top: 2px; }
+    .typing i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      animation: dt-pulse 1.4s ease-in-out infinite;
+    }
+    .typing i:nth-child(2) { animation-delay: .2s; }
+    .typing i:nth-child(3) { animation-delay: .4s; }
+    @keyframes dt-pulse { 50% { opacity: .3; } }
+
+    /* 「加入正文」保留。头像挪进气泡里了，所以不再留 38px 让位 */
+    .to-doc {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: -4px;
+      padding: 9px 12px;
+      border: 1px dashed var(--accent-line);
+      border-radius: 11px;
+      background: var(--gold-wash);
+      font-size: 12px;
+      color: var(--gold-deep);
+    }
+
+    .to-doc button {
+      min-height: 32px;
+      padding: 0 11px;
+      border-radius: 8px;
+      background: var(--accent-solid);
+      color: var(--accent-solid-ink);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    /* ---------- 底部固定区（撰写 / 正文动作） ---------- */
+
+    .dock {
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      /* 下边多留 32px：中间那颗抬起来的杯子会凸进来 36px，
+         不留的话它正好压在输入框和保存按钮上。 */
+      padding: 9px 16px 32px;
+      border-top: 1px solid var(--line);
+      background: rgba(251, 248, 238, .97);
+      backdrop-filter: blur(12px);
+    }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .meter .demo-tag {
+      padding: 1px 6px;
+      border: 1px solid var(--accent-line);
+      border-radius: 4px;
+      color: #6d6555;
+      font-size: 10px;
+    }
+
+    /* 撰写区：回形针 / 麦克风 / 输入框 / 圆形发送，逐个对齐电脑端。
+       电脑端图标按钮是 w-9 h-9（36px），小程序门禁要求触控目标 ≥ 44px，
+       所以按钮本体 44px、里面的圆圈画 36px —— 看起来一样，手指够得着。 */
+    .composer { display: flex; align-items: flex-end; gap: 8px; }
+
+    .icon-btn {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      color: var(--muted);
+    }
+
+    .icon-btn span {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+    }
+
+    .icon-btn:active span { background: var(--gold-wash); }
+    .icon-btn svg { width: 16px; height: 16px; }
+
+    .composer textarea {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 36px;
+      max-height: 96px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: none;
+      background: transparent;
+      font-size: 13px;
+      line-height: 1.625;
+      resize: none;
+    }
+
+    .composer textarea:focus { box-shadow: 0 0 0 2px var(--gold); border-color: transparent; }
+    .composer textarea[disabled] { opacity: .6; }
+
+    .send-btn {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+    }
+
+    .send-btn span {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent-solid);
+      color: var(--accent-solid-ink);
+      box-shadow: 0 2px 12px -4px var(--glow);
+    }
+
+    .send-btn svg { width: 16px; height: 16px; }
+    .send-btn[disabled] { opacity: .4; pointer-events: none; }
+
+    .file-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      padding: 8px 10px 8px 12px;
+      border: 1px dashed var(--accent-line);
+      border-radius: 10px;
+      background: var(--gold-wash);
+      color: var(--gold-deep);
+      font-size: 12px;
+    }
+
+    .file-bar button {
+      min-height: 32px;
+      padding: 0 12px;
+      border-radius: 8px;
+      background: var(--accent-solid);
+      color: var(--accent-solid-ink);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .sheet-story {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      min-height: 56px;
+      margin-bottom: 8px;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-card);
+      background: var(--surface);
+      text-align: left;
+    }
+
+    .sheet-story.current { border-color: var(--accent-line); background: var(--gold-wash); }
+    .sheet-story b { display: block; font-size: 14.5px; font-weight: 600; }
+    .sheet-story small { color: var(--muted); font-size: 11.5px; }
+    .sheet-story .tick { color: var(--gold-deep); font-size: 15px; }
+    .sheet-story.new { border-style: dashed; color: var(--gold-deep); justify-content: center; font-weight: 600; }
+
+    .doc-actions { display: flex; gap: 8px; }
+    .doc-actions .btn { flex: 1 1 auto; }
+
+    /* ---------- 正文 ---------- */
+
+    .doc-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding: 0 16px 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .chip {
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+    }
+    .chip b { color: var(--ink); font-weight: 600; }
+
+    .doc-body {
+      display: block;
+      width: calc(100% - 32px);
+      min-height: 300px;
+      margin: 0 16px;
+      padding: 0;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--ink-2);
+      font-family: var(--font-serif);
+      font-size: 15.5px;
+      line-height: 2.05;
+      resize: none;
+    }
+
+    .conflict { display: grid; gap: 9px; margin: 12px 16px 0; }
+
+    .conflict-copy {
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-field);
+      background: var(--surface);
+    }
+
+    .conflict-copy .label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .conflict-copy .label em { font-style: normal; color: var(--faint); font-weight: 400; }
+    .conflict-copy p {
+      margin: 0;
+      max-height: 92px;
+      overflow: hidden;
+      color: var(--ink-2);
+      font-family: var(--font-serif);
+      font-size: 13px;
+      line-height: 1.85;
+    }
+    .conflict-copy.mine { border-left: 3px solid var(--gold); }
+    .conflict-copy.theirs { border-left: 3px solid var(--calm); }
+
+    /* ---------- 我的 ---------- */
+
+    .card {
+      margin: 0 16px 10px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-card);
+      background: var(--surface);
+    }
+
+    .card h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+
+    .balance-big { display: flex; align-items: baseline; gap: 8px; }
+    .balance-big b { font-size: 27px; letter-spacing: -0.02em; }
+    .balance-big span { color: var(--muted); font-size: 11.5px; }
+
+    .kv { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+    .kv:first-of-type { border-top: 0; }
+    .kv span { color: var(--muted); font-size: 12px; }
+
+    .scope-list { margin: 0; padding-left: 17px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+
+    /* ---------- 底部 tabBar ----------
+       中间「来聊会儿」是抬起来的大按钮，杯子跟着当天五行走。
+       ⚠️ 微信原生 tabBar 做不出凸起的中间键：上线要 app.json 里 "custom": true
+       再写一个 custom-tab-bar 组件。这是官方支持的做法，但得单独排。 */
+
+    .tabbar {
+      position: relative;
+      z-index: 12;
+      display: grid;
+      grid-template-columns: 1fr 96px 1fr;
+      align-items: center;
+      flex: 0 0 auto;
+      height: 56px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .tabbar > button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      height: 100%;
+      color: #9a8f7c;
+      font-family: var(--font-brand);
+      font-size: 16px;
+      letter-spacing: .05em;
+    }
+
+    .tabbar > button.on { color: var(--gold-deep); font-weight: 600; }
+    .tabbar svg { width: 22px; height: 22px; }
+
+    /* 中间那颗 */
+    .tab-brew {
+      position: relative;
+      justify-content: flex-end !important;
+      padding-bottom: 4px;
+      overflow: visible;
+    }
+
+    .brew-cup {
+      position: absolute;
+      top: -36px;
+      left: 50%;
+      display: grid;
+      place-items: center;
+      width: 64px;
+      height: 64px;
+      margin-left: -32px;
+      border-radius: 50%;
+      background: var(--surface);
+      box-shadow: 0 6px 18px -6px var(--glow), 0 0 0 5px var(--paper);
+      transition: width .22s ease, height .22s ease, top .22s ease,
+                  margin-left .22s ease, box-shadow .22s ease;
+    }
+
+    /* 外框是每套自己的简笔画，画在 SVG 里，所以容器本身不描边。
+       选择器必须带上 .brew-cup：`.tabbar svg { width:22px }` 权重是 0,1,1，
+       只写 `.brew-frame`（0,1,0）会被它压成 22px 缩到左上角。 */
+    .brew-cup .brew-frame { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .brew-cup svg.brew-cup-art { position: relative; width: 36px; height: 40px; transition: width .22s ease, height .22s ease; }
+    .tab-brew:active .brew-cup { transform: scale(.93); }
+
+    /* 已经在聊聊里就不用再摆这么大一颗：收成和左右两个一样的常规尺寸 */
+    .tabbar.brew-mini .brew-cup {
+      top: 2px;
+      width: 25px;
+      height: 25px;
+      margin-left: -12.5px;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .tabbar.brew-mini .brew-cup svg.brew-cup-art { width: 17px; height: 19px; }
+    .tabbar.brew-mini .brew-cup .brew-frame { opacity: .5; }
+    /* 收起后杯子只占上半截，文字照常落在底下，别叠在一起 */
+    .tabbar.brew-mini .tab-brew { padding-bottom: 4px; }
+    .tabbar.brew-mini .brew-label { font-size: 16px; }
+
+    .brew-label {
+      color: var(--gold-deep);
+      font-family: var(--font-brand);
+      font-size: 16px;
+      letter-spacing: .05em;
+      line-height: 1.5;
+      transition: font-size .2s ease;
+    }
+
+    /* ---------- 杯子变小人 ----------
+       手脚和五官用的是 EmotiveWuxingIcon 的 neutral 姿势与骨架（RIGS / POSES），
+       不是另画的。杯子先长出脸，再长出手脚，站起来打个招呼。 */
+
+    .brew-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      display: none;
+      place-items: center;
+      background: var(--paper);
+    }
+
+    .brew-stage.on { display: grid; animation: brew-in .18s ease-out both; }
+    @keyframes brew-in { from { opacity: 0; } to { opacity: 1; } }
+    .brew-stage.out { animation: brew-out .22s ease-in both; }
+    @keyframes brew-out { to { opacity: 0; } }
+
+    /* 往上挪一点：视觉中心比几何中心高，正好落在人看东西的位置 */
+    .brew-figure { display: grid; justify-items: center; gap: 18px; margin-bottom: 56px; }
+
+    .brew-char {
+      width: 208px;
+      height: 242px;
+      animation: brew-rise .5s cubic-bezier(.2,.9,.3,1.2) both;
+    }
+
+    @keyframes brew-rise {
+      from { opacity: 0; transform: translateY(16px) scale(.72); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* 五官后长出来 */
+    .brew-char .ch-face { opacity: 0; animation: brew-face .3s ease-out .34s both; }
+    @keyframes brew-face { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; } }
+
+    /* 手脚一笔一笔画出来 */
+    .brew-char .ch-limb {
+      stroke-dasharray: 34;
+      stroke-dashoffset: 34;
+      animation: brew-limb .34s ease-out both;
+    }
+    .brew-char .ch-limb.l1 { animation-delay: .44s; }
+    .brew-char .ch-limb.l2 { animation-delay: .52s; }
+    .brew-char .ch-limb.l3 { animation-delay: .60s; }
+    .brew-char .ch-limb.l4 { animation-delay: .66s; }
+    @keyframes brew-limb { to { stroke-dashoffset: 0; } }
+
+    .brew-char .ch-hand, .brew-char .ch-foot { opacity: 0; animation: brew-face .2s ease-out .74s both; }
+
+    /* 站稳之后轻轻晃一下，像在打招呼 */
+    .brew-char .ch-body { animation: brew-wave 1s ease-in-out .8s both; transform-origin: 45px 92px; }
+    @keyframes brew-wave {
+      0%, 100% { transform: rotate(0deg); }
+      30% { transform: rotate(-3.5deg); }
+      65% { transform: rotate(2.5deg); }
+    }
+
+    .brew-say {
+      opacity: 0;
+      color: var(--gold-deep);
+      font-family: var(--font-brand);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      animation: brew-face .3s ease-out .86s both;
+    }
+
+    .brew-skip {
+      position: absolute;
+      right: 16px;
+      bottom: 18px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .brew-char, .brew-char *, .brew-say { animation: none !important; opacity: 1 !important; stroke-dashoffset: 0 !important; }
+    }
+
+    .home-indicator { flex: 0 0 auto; height: 18px; background: var(--surface); }
+    .home-indicator::after {
+      display: block;
+      width: 130px;
+      height: 4px;
+      margin: 5px auto 0;
+      border-radius: 999px;
+      background: #d3cab5;
+      content: "";
+    }
+
+    /* ---------- 切 Story 裁决面板 ---------- */
+
+    .sheet-mask {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: flex-end;
+      background: rgba(38, 35, 28, .42);
+    }
+    .sheet-mask.on { display: flex; }
+
+    .sheet {
+      width: 100%;
+      padding: 18px 16px 20px;
+      border-radius: 18px 18px 0 0;
+      background: var(--paper);
+      animation: slideup .22s ease-out both;
+    }
+    @keyframes slideup { from { transform: translateY(24px); } to { transform: none; } }
+
+    .sheet h3 { margin: 0 0 6px; font-size: 15.5px; line-height: 1.5; }
+    .sheet p { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
+    .sheet .btn { width: 100%; margin-bottom: 8px; }
+    .sheet .btn:last-child { margin-bottom: 0; }
+
+    /* ---------- 状态演练开关 ---------- */
+
+    .rehearse {
+      position: sticky;
+      top: 34px;
+      width: 210px;
+      flex: 0 0 210px;
+      padding: 13px 13px 14px;
+      border: 1px solid #cfc6b2;
+      border-radius: 12px;
+      background: rgba(255, 253, 247, .78);
+    }
+
+    .rehearse h2 { margin: 0 0 3px; font-size: 12px; letter-spacing: .06em; }
+    .rehearse p { margin: 0 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+    .rehearse button {
+      display: block;
+      width: 100%;
+      margin-bottom: 5px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink-2);
+      font-size: 11.5px;
+      text-align: left;
+    }
+
+    .rehearse button.on { border-color: #a89a76; background: #f2ead6; font-weight: 700; }
+    .rehearse code { padding: 0 3px; border-radius: 3px; background: #ece4d2; font-size: 10.5px; }
+
+    .ver-btn { display: flex; align-items: center; gap: 7px; }
+    .ver-btn .sw { flex: 0 0 auto; width: 13px; height: 13px; border-radius: 4px; }
+    .ver-btn .today {
+      margin-left: auto;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: #e5dcc6;
+      color: #5c5445;
+      font-size: 9.5px;
+      font-weight: 600;
+    }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 96px;
+      z-index: 40;
+      padding: 9px 15px;
+      border-radius: 999px;
+      background: rgba(38, 35, 28, .9);
+      color: #fff;
+      font-size: 12px;
+      opacity: 0;
+      transform: translate(-50%, 12px);
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 1080px) {
+      .notes, .rehearse { display: none; }
+      .stage { padding: 0; }
+      .device { width: 100%; flex: 1 1 auto; height: 100vh; border-radius: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- ============ 批注栏 ============ -->
+  <aside class="notes">
+    <h1>碎碎念 · 小程序前端原型 v2</h1>
+    <p class="sub">五套纳音版本 × 全部合同状态。设计宽度 375px（750rpx），文件里所有 px × 2 = WXSS 的 rpx。</p>
+
+    <div class="note-block">
+      <h2>五个版本 = 纳音五行</h2>
+      <ul>
+        <li>金/啤酒、木/龙井、水/椰汁、火/大红袍、土/咖啡。配色、饮品线稿、文案全部取自网页端的 <code>BEVERAGE_THEMES</code>、<code>WuxingDrinkIcon.tsx</code> 和 <code>dailyPresentation.ts</code>，没有另起一套。</li>
+        <li><strong>轮换节奏是 2 天，不是 5 天。</strong>一个纳音名覆盖相邻两个干支日，所以版本每 2 天换一次；同一个五行平均 10 天才回来一次（每 60 天里占 12 天）。</li>
+        <li><strong>纳音不需要接口</strong>：60 甲子是纯算术，`2000-01-07 = 甲子日` 起推，小程序本地算就行。要走网络的只有黄历宜忌（<code>almanac.today</code>）。</li>
+        <li><strong>状态色不跟着五行走。</strong>版本每 10 天换一轮，失败／未知／冲突的颜色要是也跟着换，用户每轮都得重学一遍。只有火那一套把 <code>--alarm</code> 挪到偏冷的绛色，因为品牌朱红和报错红撞得太近。</li>
+        <li>切到非当天的版本时，日期行会明说「预览 · 今天其实是 X」，避免拿预览截图当成当天的样子。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
+      <h2>这一版改了什么</h2>
+      <ul>
+        <li>黄历、日期全部改成 DOM + SVG。原来三张 PNG 共 264KB，日期被烤死在图里，接口降级时也没法退化。</li>
+        <li>饮品接上了纳音：原来是啤酒配「杨柳木」，图和日期各说各的。现在饮品、配色、纳音名由同一个 <code>todayNayin()</code> 决定，对不上就是 bug。</li>
+        <li>Story 行不再显示「3,284 字」——<code>StorySummary</code> 只有 <code>id / title / updatedAt</code>，字数没有来源。</li>
+        <li>正文编辑器去掉了标题输入框：<code>PublishingBodyDocument</code> 没有标题字段，标题属于 Story。改成显示 <code>versionId</code> 和 <code>platform</code>，这两个才是正文的身份。</li>
+        <li>补齐了 transport 合同里全部的状态：结果未知、明确失败、正文冲突、余额不足、Story 空/失败、transport 失败。原版只有顺利那一条路。</li>
+        <li>状态色和品牌金分开。原版拿金色同时表示「主按钮」和「注意」，出事的时候看不出来。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
+      <h2>「来聊会儿」</h2>
+      <ul>
+        <li><strong>五套外框各不相同</strong>，按传统五行形：金圆（双圈像枚币）、木生发（圈上抽两片叶）、水曲（起伏的圈）、火尖（带尖角的圈）、土方（圆角方）。杯子还是那五张线稿，外框是新加的一层。</li>
+        <li><strong>在聊聊页里它会收起来</strong>：64px 抬起 30px 的大颗 → 25px 平放，和左右两个一样高。已经在聊天了就不用再举着招牌。</li>
+        <li><strong>每次点它 = 新开一段</strong>，不接着上一个故事。聊到一半或聊完，底部「这段还没放进故事」→「放进故事」可以并进任意一个。</li>
+        <li>头上那行「切换」现在是真的：选中哪个故事就载入那个故事的聊天记录。</li>
+        <li>杯子变小人的动画只在从别处进来时放；已经在新的一段里再点不重放。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
+      <h2>⚠️ 这一版新增了三个合同缺口</h2>
+      <ul>
+        <li><strong>没有创建接口。</strong>「新开一段」要立刻拿到一个 storyId，但 transport 合同和网页端 tRPC 都没有建 Story 的口子（<code>project.create</code> 建的是 project，不是 story）。面板里「新建一个故事」现在如实提示。</li>
+        <li><strong>未归档的会话发不出去。</strong><code>submitTurn</code> 要求 <code>storyId: number</code>，null 根本调不了。<strong>建议：点开「来聊会儿」时就先建一个草稿 Story</strong>，从第一轮起就有 id，<code>submitTurn</code> 的合同一个字都不用改；「放进故事」再退化成把草稿并进目标故事。比起另造一套「无主会话」，这条改动面小得多。</li>
+        <li><strong>合并两个故事的会话，合同里没有。</strong>需要一个 <code>mergeStory</code> 或 <code>moveMessages</code>，还要想清楚正文（<code>PublishingBodyDocument</code> 是按 storyId 存的）跟不跟着走——现在演示里正文不动，只并聊天。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
+      <h2>聊聊窗口 = 还原电脑端</h2>
+      <ul>
+        <li>气泡圆角、尖角、内距、抬头、间距、撰写区四件套（回形针 / 麦克风 / 输入框 / 圆形发送）逐项对齐 <code>StoryAgentChat.tsx</code>。头像是 <code>EmotiveWuxingIcon</code> 的 neutral 脸（arch 眉 + dot 眼 + smile 嘴），九种情绪姿势没搬过来。</li>
+        <li>只有一处故意没照抄：电脑端正文 12.5px，那是编辑器侧栏的密度；手机改成 14px（28rpx）。</li>
+        <li>图标按钮电脑端是 36px，小程序门禁要 ≥ 44px；这里按钮本体 44px、圆圈画 36px，看起来一样，手指够得着。</li>
+        <li><strong>回形针和麦克风目前没有接口</strong>：transport 合同里既没有上传也没有转写，点了会说实话。真要做，还会撞上壳层「不出现图片/素材入口」的门禁测试。</li>
+        <li><strong>白字对比度实测</strong>（14px 需要 4.5:1）：火 6.3 ✅、土 5.8 ✅、木 3.3 ⚠️、水 3.6 ⚠️、<strong>金 2.3 ❌ 明显糊</strong>。改 <code>--accent-solid</code> 一行即可：金→<code>#8a6b2a</code> 得 5.0，木→<code>#3d6b48</code> 得 6.3，水→<code>#40707c</code> 得 5.6，用的都是网页端自己的 <code>hexDim</code>。现在先保持和电脑端一模一样，等你定。</li>
+      </ul>
+    </div>
+
+    <div class="note-block">
+      <h2>接口对照</h2>
+      <div class="api-row"><b>故事列表</b>
+        <span class="line" data-side="小程序">listStories()</span>
+        <span class="line fine" data-side="网页">storyAgent.storyList</span></div>
+      <div class="api-row"><b>打开故事</b>
+        <span class="line" data-side="小程序">openStory(id) — 一次拿齐 story / messages / document / balance</span>
+        <span class="line" data-side="网页">storyGet + storyConversation.list + publishingDraft.readBody，要在服务端合成一次返回</span></div>
+      <div class="api-row"><b>发一轮</b>
+        <span class="line" data-side="小程序">submitTurn({ clientTurnId, requestHash })</span>
+        <span class="line gap" data-side="网页">storyAgent.chat 没有整轮幂等键，得补</span></div>
+      <div class="api-row"><b>查未知结果</b>
+        <span class="line" data-side="小程序">lookupTurn()</span>
+        <span class="line gap" data-side="网页">没有对应接口</span></div>
+      <div class="api-row"><b>保存正文</b>
+        <span class="line" data-side="小程序">saveDocumentBody({ baseBodyRevision })</span>
+        <span class="line fine" data-side="网页">publishingDraft.saveBody — CAS 语义一致，冲突同样带回 latestDocument</span></div>
+      <div class="api-row"><b>余额</b>
+        <span class="line" data-side="小程序">BalanceSummary</span>
+        <span class="line gap" data-side="网页">后端还没有余额接口</span></div>
+      <div class="api-row"><b>黄历</b>
+        <span class="line gap" data-side="小程序">transport 合同里没有，要补</span>
+        <span class="line" data-side="网页">almanac.today + nayin.today</span></div>
+      <div class="api-row"><b>纳音五行</b>
+        <span class="line fine" data-side="小程序">本地算，不用接口 — 抄 nayin.ts 的 60 甲子表即可</span>
+        <span class="line" data-side="网页">nayin.ts 同样是客户端算的；nayin.today 只是给服务端场景备用</span></div>
+      <div class="api-row"><b>登录</b>
+        <span class="line" data-side="小程序">mock，不调 wx.login</span>
+        <span class="line gap" data-side="网页">auth.me 是 cookie 会话，小程序要走 code2Session → Bearer</span></div>
+    </div>
+
+    <div class="note-block">
+      <h2>小程序侧要注意</h2>
+      <ul>
+        <li><strong>品牌字已经重切。</strong>原来那份 <code>honglei-zhuoshu-brand.ttf</code> 只有 15 个字形，缺「来/故/事/我/的/碎/念」，标签只能用系统字。现在从仓库里的完整版 <code>client/src/assets/fonts/honglei-zhuoshu.ttf</code>（7734 字，11MB）切了一份界面子集 <code>honglei-zhuoshu-ui.ttf</code>：40 个字，21KB，标签、按钮、品牌名全都用得上。WXSS 的 <code>@font-face</code> 不认包内路径，21KB 直接 base64 内联，或走 <code>wx.loadFontFace</code>。<strong>以后加新文案要先回去重切子集</strong>，不然照样逐字回退。</li>
+        <li>顶上 88px 是微信原生导航栏，只能改标题文字和底色，胶囊按钮位置动不了。</li>
+        <li>底部三个页签走原生 <code>tabBar</code>，图标要出 81×81 的 PNG，这里的 SVG 只是形状稿。</li>
+        <li>所有动作按钮 ≥ 44px（88rpx），和 <code>workspacePresentation.test.ts</code> 的门禁对齐。</li>
+        <li>中文输入法组合中回车不发送——两层保护都在 <code>resolveSendIntent</code> 里，界面不用再管。</li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- ============ 手机 ============ -->
+  <div class="device">
+
+    <div class="sysbar">
+      <span id="clock">9:41</span>
+      <span class="sysbar-right"><i class="sig"></i><i></i></span>
+    </div>
+
+    <div class="navbar">
+      <button class="nav-back" id="navBack" hidden aria-label="返回">‹</button>
+      <span class="nav-title" id="navTitle">碎碎念</span>
+      <span class="capsule"><i></i></span>
+    </div>
+
+    <div class="mock-banner">
+      <b>测试模式 · 未绑定真实账号</b>
+      <span>这里的 Story、聊天、正文和余额都是本机演示数据，没有连接微信登录、服务器或数据库，也不会产生任何费用。</span>
+    </div>
+
+    <div class="pages" id="pages">
+
+      <!-- ---------- 隐私说明 ---------- -->
+      <section class="page" id="page-privacy">
+        <div class="pad" style="padding-top:16px">
+          <h2 style="margin:0 0 10px;font-size:19px">先说清楚这一版会用到什么</h2>
+          <div class="card" style="margin-left:0;margin-right:0">
+            <div class="kv"><span>会读</span><b>你已有的 Story 标题、聊天记录、正文</b></div>
+            <div class="kv"><span>会写</span><b>你在这里发的消息、你保存的正文</b></div>
+            <div class="kv"><span>不会碰</span><b>通讯录、位置、相册、剪贴板</b></div>
+            <div class="kv"><span>这一版</span><b>全是本机演示数据，不出手机</b></div>
+          </div>
+          <p style="color:var(--muted);font-size:12.5px;margin:0 0 14px">
+            接上真实账号之后，这一页会换成正式的隐私说明，并且要你同意之后才能进工作区。
+          </p>
+          <button class="btn primary" style="width:100%" data-act="agree">我已看过，同意</button>
+          <button class="btn quiet" style="width:100%;margin-top:6px" data-act="disagree">暂不同意</button>
+        </div>
+      </section>
+
+      <!-- ---------- 故事 ---------- -->
+      <section class="page on" id="page-home">
+
+        <section class="today">
+          <div class="today-top">
+            <span class="today-date" id="heroDate"></span>
+            <span class="today-drink" id="drinkNote">龙井 · 木</span>
+          </div>
+
+          <div class="today-almanac">
+            <div class="almanac" id="almanacOk">
+              <span class="almanac-group"><span class="almanac-key yi">宜</span><span class="almanac-items yi">祭祀·求财·签约</span></span>
+              <span class="almanac-group"><span class="almanac-key ji">忌</span><span class="almanac-items ji">开市·安床·安葬</span></span>
+            </div>
+            <div class="almanac-degraded" id="almanacBad" hidden>黄历今天没取到 · 先不看宜忌，照样可以聊</div>
+          </div>
+        </section>
+
+        <div class="sec-head">
+          <h2>我的故事</h2>
+          <span class="count" id="storyCount">2 个</span>
+        </div>
+
+        <div id="homeLoading" hidden>
+          <div class="story-list">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        </div>
+
+        <div id="homeEmpty" hidden>
+          <div class="state">
+            <span class="headline" style="color:var(--muted)">还没有 Story</span>
+            <span class="body">还没有 Story。请先到电脑上创建，这里只做已有 Story 的续写。</span>
+          </div>
+        </div>
+
+        <div id="homeError" hidden>
+          <div class="state alarm">
+            <span class="headline">读取 Story 失败</span>
+            <span class="why">演示 transport 失败：本机模拟的读取错误</span>
+            <span class="row"><button class="btn small" data-act="retry-transport">重试</button></span>
+          </div>
+        </div>
+
+        <div class="story-list" id="homeList">
+          <button class="story-row current" data-story="1">
+            <span><span class="t">父亲的年轻岁月</span><span class="m">15 分钟前更新</span></span>
+            <span class="chev">›</span>
+          </button>
+          <button class="story-row" data-story="2">
+            <span><span class="t">第一次离开家</span><span class="m">昨天 21:04 更新</span></span>
+            <span class="chev">›</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ---------- 聊聊 ---------- -->
+      <section class="page" id="page-chat">
+        <div class="ws-head">
+          <button class="ws-story" data-act="switch-story">
+            <span class="js-ws-hint">共 2 个 Story</span>
+            <span class="switch">切换</span>
+          </button>
+          <div class="segmented">
+            <button class="on" data-view="chat">聊聊</button>
+            <button data-view="doc">正文</button>
+          </div>
+        </div>
+
+        <div class="msgs" id="msgs"></div>
+
+        <div class="dock">
+          <div class="file-bar" id="fileBar" hidden>
+            <span>这段还没放进故事</span>
+            <button data-act="file-into">放进故事</button>
+          </div>
+          <div id="chatState"></div>
+          <div class="meter">
+            <span id="chatMeter">演示余额 ¥30.00　上一次调用 ¥0.08</span>
+            <span class="demo-tag">演示数据</span>
+          </div>
+          <div class="composer">
+            <button class="icon-btn" data-act="attach" aria-label="添加图片或视频">
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>
+            </button>
+            <button class="icon-btn" data-act="voice" aria-label="语音输入">
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></span>
+            </button>
+            <textarea id="composerInput" rows="1" placeholder="说说这一版哪里需要推进…"></textarea>
+            <button class="send-btn" id="sendBtn" data-act="send" aria-label="发送">
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 正文 ---------- -->
+      <section class="page" id="page-doc">
+        <div class="ws-head">
+          <button class="ws-story" data-act="switch-story">
+            <span class="js-ws-hint">共 2 个 Story</span>
+            <span class="switch">切换</span>
+          </button>
+          <div class="segmented">
+            <button data-view="chat">聊聊</button>
+            <button class="on" data-view="doc">正文</button>
+          </div>
+        </div>
+
+        <div class="doc-meta">
+          <span class="chip">版本 <b>v3</b></span>
+          <span class="chip">平台 <b>微信朋友圈</b></span>
+          <span class="chip">修订号 <b>#12</b></span>
+        </div>
+
+        <div id="docState"></div>
+
+        <textarea class="doc-body" id="docBody">那年秋天，他第一次独自离开家。
+
+清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话。父亲后来回忆，那一刻他不敢回头，只怕看见母亲的眼睛，就再也迈不开脚步。
+
+去车站的土路很长。他把那张写着地址的纸折了三遍，贴身放进口袋里。车开动以后，村庄一点点退到山后，他才第一次真正明白，离开并不只是走远。</textarea>
+
+        <div class="conflict" id="docConflict" hidden>
+          <div class="conflict-copy mine">
+            <div class="label"><span>本机这份</span><em>你刚改的</em></div>
+            <p>那年秋天，他第一次独自离开家。清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话。父亲后来回忆，那一刻他不敢回头……</p>
+          </div>
+          <div class="conflict-copy theirs">
+            <div class="label"><span>服务端那份</span><em>修订号 #13 · 电脑上改的</em></div>
+            <p>那年秋天，他一个人离开了家。天还没亮，雾压在村口的土路上。母亲把连夜缝好的布包塞进他怀里，一句话也没说……</p>
+          </div>
+        </div>
+
+        <div class="dock">
+          <div class="doc-actions" id="docActions">
+            <button class="btn primary" id="saveBtn" data-act="save">保存正文</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 我的 ---------- -->
+      <section class="page" id="page-me">
+        <div style="height:14px"></div>
+
+        <div class="card">
+          <h3>账号</h3>
+          <div class="kv"><span>状态</span><b>测试模式 · 未绑定真实账号</b></div>
+          <div class="kv"><span>接上之后</span><b>微信登录 + 邮箱，与电脑端同一个账号</b></div>
+        </div>
+
+        <div class="card">
+          <h3>余额</h3>
+          <div class="balance-big"><b id="meBalance">¥30.00</b><span>演示余额</span></div>
+          <div class="kv" style="margin-top:8px"><span>上一次调用</span><b>¥0.08</b></div>
+          <div class="kv"><span>充值</span><b style="color:var(--muted);font-weight:400">暂无入口，后端还没有余额接口</b></div>
+        </div>
+
+        <div class="card">
+          <h3>连接</h3>
+          <div class="kv"><span id="meTransport">演示 transport 正常（本机数据，无网络）</span><button class="btn small" id="meRetry" hidden data-act="retry-transport">重试</button></div>
+        </div>
+
+        <div class="card">
+          <h3>这里刻意没有</h3>
+          <ul class="scope-list">
+            <li>图片、素材、分镜、时间线、预览、视频</li>
+            <li>新建 Story（等后端补创建接口）</li>
+          </ul>
+          <p style="margin:8px 0 0;color:var(--muted);font-size:12px">手机负责聊和改字，重活留在电脑上。</p>
+        </div>
+
+        <div class="card" style="text-align:center">
+          <button class="btn quiet" data-act="privacy">隐私说明</button>
+        </div>
+      </section>
+    </div>
+
+    <nav class="tabbar" id="tabbar">
+      <button class="on" data-tab="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2.9 6.5q4-1.9 8.7.5 4.8-2.5 9.5-.4.5.2.4.8l-.7 10.6q0 .6-.6.4-3.7-1.2-8.2.9-4.3-2.2-8.1-.7-.6.2-.6-.4L2.5 7.3q-.1-.6.4-.8z"/>
+          <path d="M11.6 7q.5 5.6.1 11.3" opacity=".5"/>
+          <path d="M5.4 10.2q1.7-.5 3.4.1" opacity=".65"/>
+          <path d="M14.6 10q1.7-.6 3.4 0" opacity=".65"/>
+        </svg>
+        <span>故事</span>
+      </button>
+      <button class="tab-brew" data-tab="chat" aria-label="来聊会儿">
+        <span class="brew-cup" id="brewCup"></span>
+        <span class="brew-label">来聊会儿</span>
+      </button>
+      <button data-tab="me">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12.1 4.4q3.3.1 3.3 3.4t-3.4 3.3q-3.2-.1-3.2-3.4t3.3-3.3z"/>
+          <path d="M4.9 19.8q.4-4.5 4.2-5.6 3-.8 6 .1 3.4 1.2 3.9 5.4" opacity=".95"/>
+        </svg>
+        <span>我</span>
+      </button>
+    </nav>
+
+    <div class="brew-stage" id="brewStage">
+      <div class="brew-figure">
+        <div id="brewChar"></div>
+        <div class="brew-say" id="brewSay">来，聊会儿</div>
+      </div>
+      <span class="brew-skip">点一下跳过</span>
+    </div>
+
+    <div class="home-indicator"></div>
+
+    <div class="sheet-mask" id="storySheet">
+      <div class="sheet">
+        <h3 id="storySheetTitle">切换到哪个故事</h3>
+        <p id="storySheetHint">选中之后，聊聊会打开那个故事的聊天记录。</p>
+        <div id="storySheetList"></div>
+        <button class="btn quiet" data-act="sheet-close">先不选</button>
+      </div>
+    </div>
+
+    <div class="sheet-mask" id="switchSheet">
+      <div class="sheet">
+        <h3>要切到「第一次离开家」，但正文还没保存</h3>
+        <p>先复制一份留底，或者留在当前 Story 把它保存好。</p>
+        <button class="btn primary" data-act="keep">留在当前 Story</button>
+        <button class="btn" data-act="copy-both">先复制这份正文</button>
+        <button class="btn quiet" data-act="discard-switch">放弃修改并切换</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- ============ 状态演练 ============ -->
+  <aside class="rehearse">
+    <h2>版本 · 纳音五行</h2>
+    <p>纳音每 2 天换一次，同一个五行平均 10 天回来一次。默认跟当天走，点别的是预览，对应网页端的 <code>?drink=</code>。</p>
+    <div id="versions"></div>
+
+    <h2 style="margin-top:16px">状态演练</h2>
+    <p>照着 transport 合同逐个看一遍。每一条都必须有可读的状态和出路。</p>
+    <div id="scenarios"></div>
+  </aside>
+
+</div>
+
+<script>
+/* =============================================================================
+   状态模型直接对应 miniprogram/src/core/workspacePresentation.ts。
+   文案是抄过来的，不是重写的：改文案改那边一处。
+   ============================================================================= */
+
+const CHAT = {
+  idle:    { cls: '',      label: '可以发消息' },
+  pending: { cls: 'calm',  label: '正在回答，请稍候', why: '这一轮已经发出去了，不要再发一次。' },
+  unknown: { cls: 'calm',  label: '上一轮结果未知：请查询结果，不要重复发送',
+             why: '未知不等于失败。重发会真的生成第二次、真的再扣一次钱。',
+             actions: [{ t: '查询这一轮的结果', a: 'lookup' }] },
+  error:   { cls: 'alarm', label: '上一轮失败：可以用同一轮重试',
+             why: '同一个 requestHash 重试，不会产生第二次生成。',
+             actions: [{ t: '用同一轮重试', a: 'retry-turn' }] },
+  synced:  { cls: 'ok',    label: '已同步' },
+  blocked: { cls: 'warn',  label: '余额不足，无法发起新的调用',
+             why: '余额不足只会挡住新的付费调用，浏览和正文编辑不受影响。需要续充请联系负责人。' }
+};
+
+const DOC = {
+  clean:     { cls: 'ok',    label: '已保存' },
+  dirty:     { cls: '',      label: '有未保存的修改' },
+  saving:    { cls: 'calm',  label: '正在保存' },
+  conflict:  { cls: 'alarm', label: '正文有冲突：两份文本都保留了，请你决定',
+               why: '电脑上有人改过同一段。两份都在，先复制留底再决定用哪份。' },
+  failed:    { cls: 'alarm', label: '保存失败，文字仍在本机' },
+  uncertain: { cls: 'calm',  label: '保存结果不确定，文字仍在本机' }
+};
+
+const SCENARIOS = [
+  { id: 'ok',        name: '一切正常' },
+  { id: 'loading',   name: 'Story 读取中' },
+  { id: 'empty',     name: '一个 Story 都没有' },
+  { id: 'storyfail', name: '打开 Story 失败' },
+  { id: 'pending',   name: '正在回答' },
+  { id: 'unknown',   name: '这一轮结果未知' },
+  { id: 'turnfail',  name: '这一轮明确失败' },
+  { id: 'nobalance', name: '余额不足' },
+  { id: 'dirty',     name: '正文有未保存的修改' },
+  { id: 'conflict',  name: '正文冲突' },
+  { id: 'savefail',  name: '保存失败' },
+  { id: 'almanac',   name: '黄历降级' }
+];
+
+const S = {
+  tab: 'home', view: 'chat', page: 'home',
+  element: 'metal',   // 开机时由 TODAY.element 覆盖
+  scenario: 'ok',
+  storyPhase: 'selected',
+  chat: 'synced',
+  doc: 'clean',
+  almanacOk: true,
+  transportFail: false,
+  storyId: 1,            // null = 新的一段，还没放进任何故事
+  draftMsgs: []
+};
+
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+function applyScenario(id) {
+  S.scenario = id;
+  S.storyPhase = 'selected';
+  S.chat = 'synced';
+  S.doc = 'clean';
+  S.almanacOk = true;
+  S.transportFail = false;
+
+  if (id === 'loading')   S.storyPhase = 'loading';
+  if (id === 'empty')     S.storyPhase = 'empty';
+  if (id === 'storyfail') { S.storyPhase = 'error'; S.transportFail = true; }
+  if (id === 'pending')   S.chat = 'pending';
+  if (id === 'unknown')   S.chat = 'unknown';
+  if (id === 'turnfail')  S.chat = 'error';
+  if (id === 'nobalance') S.chat = 'blocked';
+  if (id === 'dirty')     S.doc = 'dirty';
+  if (id === 'conflict')  S.doc = 'conflict';
+  if (id === 'savefail')  S.doc = 'failed';
+  if (id === 'almanac')   S.almanacOk = false;
+
+  render();
+}
+
+function stateBlock(def, extraActions) {
+  if (!def) return '';
+  const actions = [...(def.actions || []), ...(extraActions || [])];
+  return `<div class="state ${def.cls}">
+    <span class="headline">${def.label}</span>
+    ${def.why ? `<span class="why">${def.why}</span>` : ''}
+    ${actions.length ? `<span class="row">${actions.map(x => `<button class="btn small" data-act="${x.a}">${x.t}</button>`).join('')}</span>` : ''}
+  </div>`;
+}
+
+function render() {
+  /* 页面切换 */
+  $$('.page').forEach(p => p.classList.toggle('on', p.id === 'page-' + S.page));
+  $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
+  // 已经在聊聊/正文里，中间那颗收成常规大小
+  $('#tabbar').classList.toggle('brew-mini', S.page === 'chat' || S.page === 'doc');
+  $$('.segmented button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
+
+  const st = activeStory();
+  const wsTitle = st ? st.title : '新的一段';
+  const titles = { home: '碎碎念', chat: wsTitle, doc: wsTitle, me: '我', privacy: '隐私说明' };
+  $('#navTitle').textContent = titles[S.page] || '碎碎念';
+  $('#navBack').hidden = (S.page === 'home' || S.page === 'me');
+
+  /* 黄历 */
+  $('#almanacOk').hidden = !S.almanacOk;
+  $('#almanacBad').hidden = S.almanacOk;
+
+  /* Story 列表四态 */
+  $('#homeLoading').hidden = S.storyPhase !== 'loading';
+  $('#homeEmpty').hidden   = S.storyPhase !== 'empty';
+  $('#homeError').hidden   = S.storyPhase !== 'error';
+  $('#homeList').hidden    = S.storyPhase !== 'selected';
+  $('#storyCount').textContent = S.storyPhase === 'selected' ? '2 个' : '';
+
+  /* 聊聊 */
+  renderChat();
+  $('#chatState').innerHTML = S.chat === 'idle' ? '' : stateBlock(CHAT[S.chat]);
+
+  const canSend = (S.chat === 'synced' || S.chat === 'idle');
+  $('#sendBtn').disabled = !canSend;
+  $('#composerInput').disabled = !canSend;
+  $('#composerInput').placeholder =
+    S.chat === 'pending'  ? '上一轮还在进行' :
+    S.chat === 'unknown'  ? '上一轮结果未知，请先查询结果' :
+    S.chat === 'error'    ? '先用同一轮重试' :
+    S.chat === 'blocked'  ? '余额不足，无法发起新的调用' : '说说这一版哪里需要推进…';
+
+  $('#chatMeter').textContent = S.chat === 'blocked'
+    ? '演示余额 ¥0.00　上一次调用 ¥0.08'
+    : '演示余额 ¥30.00　上一次调用 ¥0.08';
+  $('#meBalance').textContent = S.chat === 'blocked' ? '¥0.00' : '¥30.00';
+
+  /* 正文 */
+  $('#docState').innerHTML = stateBlock(DOC[S.doc]);
+  $('#docConflict').hidden = S.doc !== 'conflict';
+  $('#docBody').hidden = S.doc === 'conflict';
+
+  const acts = ['<button class="btn primary" id="saveBtn" data-act="save"'
+    + ((S.doc === 'dirty' || S.doc === 'failed') ? '' : ' disabled')
+    + '>保存正文</button>'];
+  if (S.doc === 'conflict') {
+    acts.length = 0;
+    acts.push('<button class="btn primary" data-act="copy-both">复制两份文本</button>');
+    acts.push('<button class="btn" data-act="discard-local">放弃本机这份</button>');
+  }
+  $('#docActions').innerHTML = acts.join('');
+
+  /* 我的 */
+  $('#meTransport').textContent = S.transportFail
+    ? '演示 transport 失败：本机模拟的读取错误'
+    : '演示 transport 正常（本机数据，无网络）';
+  $('#meRetry').hidden = !S.transportFail;
+
+  /* 演练面板 */
+  $$('#scenarios button').forEach(b => b.classList.toggle('on', b.dataset.s === S.scenario));
+}
+
+function go(page) {
+  S.page = page;
+  if (page === 'home' || page === 'me') S.tab = page;
+  if (page === 'chat' || page === 'doc') { S.tab = 'chat'; S.view = page; }
+  $('#pages').scrollTop = 0;
+  render();
+}
+
+let toastTimer;
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 1500);
+}
+
+/* ---- 事件 ---- */
+
+document.addEventListener('click', e => {
+  const tab = e.target.closest('#tabbar button');
+  if (tab) {
+    // 中间那颗：从别处进来放一遍小动画；在正文里就直接切回聊聊，不重放
+    if (tab.dataset.tab === 'chat') {
+      // 每次点它都是新开一段；已经在新的一段里就不重开
+      if (S.page === 'chat' && S.storyId === null) return;
+      startNewChat();
+      return S.page === 'doc' ? go('chat') : playBrew();
+    }
+    return go(tab.dataset.tab);
+  }
+
+  const seg = e.target.closest('.segmented button');
+  if (seg) return go(seg.dataset.view);
+
+  const row = e.target.closest('.story-row');
+  if (row) {
+    S.storyId = Number(row.dataset.story);
+    S.chat = 'synced';
+    return go('chat');
+  }
+
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+
+  switch (btn.dataset.act) {
+    case 'attach':
+      toast('合同里还没有上传接口 · 图片素材留在电脑上'); break;
+    case 'voice':
+      toast('合同里还没有转写接口 · U4 之后再接'); break;
+    case 'new-story':
+      toast('后端还没有创建接口 · 先到电脑上新建'); break;
+    case 'switch-story':
+      if (S.doc === 'dirty' || S.doc === 'conflict') $('#switchSheet').classList.add('on');
+      else openStorySheet('switch');
+      break;
+    case 'file-into':
+      openStorySheet('file'); break;
+    case 'sheet-close':
+      closeStorySheet(); break;
+    case 'keep':
+      $('#switchSheet').classList.remove('on'); break;
+    case 'copy-both':
+      $('#switchSheet').classList.remove('on');
+      toast('两份文本都进剪贴板了'); break;
+    case 'discard-switch':
+      $('#switchSheet').classList.remove('on');
+      S.doc = 'clean'; S.storyId = 2; render();
+      toast('已切换'); break;
+    case 'discard-local':
+      S.doc = 'clean'; render(); toast('留服务端那份'); break;
+    case 'save':
+      S.doc = 'saving'; render();
+      setTimeout(() => { S.doc = 'clean'; render(); toast('正文已保存'); }, 700);
+      break;
+    case 'send':
+      if (!$('#composerInput').value.trim()) return;
+      $('#composerInput').value = '';
+      S.chat = 'pending'; render();
+      setTimeout(() => { S.chat = 'synced'; render(); }, 1100);
+      break;
+    case 'lookup':
+      toast('按同一轮查询中…');
+      setTimeout(() => { S.chat = 'synced'; render(); }, 800); break;
+    case 'retry-turn':
+      S.chat = 'pending'; render();
+      setTimeout(() => { S.chat = 'synced'; render(); }, 900); break;
+    case 'retry-transport':
+      applyScenario('ok'); toast('已重连'); break;
+    case 'append':
+      go('doc'); S.doc = 'dirty'; render(); toast('加到正文末尾了，记得保存'); break;
+    case 'privacy': go('privacy'); break;
+    case 'agree': go('home'); break;
+    case 'disagree': toast('不同意就先看不了工作区'); break;
+  }
+});
+
+$('#navBack').addEventListener('click', () => go(S.page === 'privacy' ? 'me' : 'home'));
+
+$('#docBody').addEventListener('input', () => {
+  if (S.doc === 'clean') { S.doc = 'dirty'; render(); }
+});
+
+$('#composerInput').addEventListener('input', e => {
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(e.target.scrollHeight, 96) + 'px';
+});
+
+$('#switchSheet').addEventListener('click', e => {
+  if (e.target.id === 'switchSheet') $('#switchSheet').classList.remove('on');
+});
+
+/* 演练面板 */
+$('#scenarios').innerHTML = SCENARIOS
+  .map(s => `<button data-s="${s.id}">${s.name}</button>`).join('');
+$('#scenarios').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  applyScenario(b.dataset.s);
+  if (['pending','unknown','turnfail','nobalance'].includes(b.dataset.s)) go('chat');
+  if (['dirty','conflict','savefail'].includes(b.dataset.s)) go('doc');
+  if (['loading','empty','storyfail','almanac','ok'].includes(b.dataset.s)) go('home');
+});
+
+/* =============================================================================
+   纳音五行 · 五套版本
+
+   算法逐行对应 client/src/features/nayin/nayin.ts：
+   2000-01-07 是甲子日（60 甲子里的 index 0），每两个相邻干支共用一个纳音，
+   所以版本每 2 天换一次，同一个五行平均 10 天回来一次。
+
+   主题色 = BEVERAGE_THEMES；饮品线稿 = WuxingDrinkIcon.tsx（viewBox 0 0 90 100）；
+   饮品标注和动效口径 = dailyPresentation.ts 的 drinkNote / motionHint。
+   ============================================================================= */
+
+const STEMS = ['甲','乙','丙','丁','戊','己','庚','辛','壬','癸'];
+const BRANCHES = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+
+const NAYIN_PAIR_NAMES = [
+  '海中金','炉中火','大林木','路旁土','剑锋金','山头火','涧下水','城头土','白蜡金','杨柳木',
+  '井泉水','屋上土','霹雳火','松柏木','长流水','沙中金','山下火','平地木','壁上土','金箔金',
+  '覆灯火','天河水','大驿土','钗钏金','桑柘木','大溪水','沙中土','天上火','石榴木','大海水'
+];
+
+const NAYIN_PAIR_ELEMENTS = [
+  'metal','fire','wood','earth','metal','fire','water','earth','metal','wood',
+  'water','earth','fire','wood','water','metal','fire','wood','earth','metal',
+  'fire','water','earth','metal','wood','water','earth','fire','wood','water'
+];
+
+/** 北京时间的日历日期。纳音按 CST 算，不跟设备时区走。 */
+function cstDate(now) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now || new Date());
+  const get = t => Number(parts.find(x => x.type === t).value);
+  return { y: get('year'), m: get('month'), d: get('day') };
+}
+
+function todayNayin(now) {
+  const { y, m, d } = cstDate(now);
+  const diff = Math.floor((Date.UTC(y, m - 1, d) - Date.UTC(2000, 0, 7)) / 86400000);
+  const idx = ((diff % 60) + 60) % 60;
+  const pair = Math.floor(idx / 2);
+  const p = n => String(n).padStart(2, '0');
+  return {
+    element: NAYIN_PAIR_ELEMENTS[pair],
+    nayinName: NAYIN_PAIR_NAMES[pair],
+    ganzhi: STEMS[idx % 10] + BRANCHES[idx % 12],
+    dateStr: `${y}-${p(m)}-${p(d)}`
+  };
+}
+
+/** BEVERAGE_THEMES + DAILY_DRINK_PRESENTATION 的合并视图。 */
+const THEMES = {
+  metal: { cn: '金', beverageCn: '啤酒', beverage: 'Beer',      hex: '#c9a03c', ink: '#7a5b1f', motion: 'bubble' },
+  wood:  { cn: '木', beverageCn: '龙井', beverage: 'Longjing',  hex: '#5d9b6a', ink: '#33532b', motion: 'steam'  },
+  water: { cn: '水', beverageCn: '椰汁', beverage: 'Coconut',   hex: '#5a8e9a', ink: '#4a7a8a', motion: 'tide'   },
+  fire:  { cn: '火', beverageCn: '大红袍', beverage: 'Dahongpao', hex: '#a83a2a', ink: '#6b2a22', motion: 'ripple' },
+  earth: { cn: '土', beverageCn: '咖啡', beverage: 'Coffee',    hex: '#7a6048', ink: '#4a2e1b', motion: 'swirl'  }
+};
+
+const ELEMENT_ORDER = ['metal', 'wood', 'water', 'fire', 'earth'];
+
+/* 线稿逐笔照抄 WuxingDrinkIcon.tsx。唯一的改动：给需要动的那几笔套了
+   .dt-tide / .dt-swirl 分组，好挂 CSS 动画（网页端是 WuxingParticles 另外一层）。 */
+const DRINK_ART = {
+  metal: `
+    <path d="M22,20 C25,12 35,9 42,14 C46,8 56,8 60,15 C68,13 73,20 70,28 L22,30 Z" fill="#F6E29C" stroke-width="1.4"/>
+    <path d="M28,18 c2,-3 6,-3 7,1" stroke-width="1" opacity=".6"/>
+    <path d="M50,14 c2,-2 5,-1 5,2" stroke-width="1" opacity=".6"/>
+    <path d="M22,30 L24,82 C24,86 26,89 30,89 L62,89 C66,89 68,86 68,82 L70,30" fill="#F2D86A" stroke-width="1.6"/>
+    <path d="M70,42 C82,44 82,68 70,72" stroke-width="1.4" fill="none"/>
+    <path d="M70,48 C76,50 76,66 70,68" stroke-width="0.9" fill="none" opacity=".5"/>
+    <circle cx="34" cy="48" r="2" fill="#fff7d2" stroke-width=".8"/>
+    <circle cx="56" cy="44" r="1.6" fill="#fff7d2" stroke-width=".8"/>
+    <circle cx="40" cy="70" r="1.2" fill="#fff7d2" stroke-width=".7"/>
+    <circle cx="52" cy="68" r="1" fill="#fff7d2" stroke-width=".7"/>
+    <path d="M30,40 L32,75" stroke-width=".8" opacity=".5"/>
+    <g class="dt-steam">
+      <circle cx="46" cy="6" r="1.6" stroke-width=".9" opacity=".7"/>
+      <circle cx="56" cy="3" r="1.1" stroke-width=".7" opacity=".5"/>
+      <circle cx="38" cy="2" r="1" stroke-width=".7" opacity=".5"/>
+    </g>`,
+
+  wood: `
+    <ellipse cx="45" cy="38" rx="28" ry="6" fill="#fff" stroke-width="1.5"/>
+    <path d="M17,38 C18,60 30,80 45,80 C60,80 72,60 73,38" fill="#E5EFD3" stroke-width="1.6"/>
+    <ellipse cx="45" cy="84" rx="34" ry="5" fill="#fff" stroke-width="1.4"/>
+    <path d="M11,84 C13,90 30,93 45,93 C60,93 77,90 79,84" stroke-width="1.4" fill="none"/>
+    <ellipse cx="45" cy="38" rx="24" ry="4" fill="#A9C66B" stroke-width=".8" opacity=".7"/>
+    <path d="M38,38 q3,-3 7,0 q-3,3 -7,0" fill="#5D8A4A" stroke-width=".8"/>
+    <path d="M50,40 q2,-2 5,0 q-2,2 -5,0" fill="#5D8A4A" stroke-width=".7"/>
+    <path d="M73,40 q8,-4 6,-12 q-3,-3 -6,2" stroke-width="1.2" fill="none"/>
+    <ellipse cx="80" cy="29" rx="3" ry="1.6" fill="#A9C66B" stroke-width=".8" transform="rotate(-30 80 29)"/>
+    <g class="dt-steam">
+      <path d="M30,18 c-3,-6 4,-8 1,-14" stroke-width="1.1" opacity=".7"/>
+      <path d="M44,14 c-3,-5 3,-7 0,-12" stroke-width="1.1" opacity=".7"/>
+      <path d="M58,18 c-3,-6 4,-8 1,-14" stroke-width="1.1" opacity=".7"/>
+    </g>`,
+
+  water: `
+    <path d="M22,52 C22,30 38,20 50,22 C62,24 72,38 70,58 C68,78 50,86 38,82 C26,78 22,68 22,52 Z" fill="#D8E8F0" stroke-width="1.6"/>
+    <path d="M30,40 c4,4 8,4 14,0" stroke-width=".6" opacity=".5"/>
+    <path d="M32,64 c4,3 12,3 18,0" stroke-width=".6" opacity=".5"/>
+    <path d="M40,30 c4,2 10,2 14,-2" stroke-width=".6" opacity=".5"/>
+    <path d="M52,8 L60,30" stroke-width="1.6"/>
+    <path d="M50,12 L58,32" stroke-width="1.6"/>
+    <path d="M51,11 L59,31" stroke="#EAF2F6" stroke-width="1"/>
+    <path d="M55,4 c-2,3 -2,6 1,6 c3,0 3,-3 1,-6 z" fill="#9AC5D6" stroke-width=".8"/>
+    <g class="dt-tide">
+      <path d="M16,84 q6,-6 14,-2 q4,-6 12,-3 q5,-5 14,0 q6,-3 12,2" stroke-width="1.4" fill="none"/>
+      <path d="M22,90 q4,-3 8,-1" stroke-width="1" opacity=".6"/>
+      <path d="M58,92 q4,-3 8,0" stroke-width="1" opacity=".6"/>
+      <circle cx="14" cy="78" r="1" fill="#9AC5D6" stroke-width=".5"/>
+      <circle cx="78" cy="80" r="1.2" fill="#9AC5D6" stroke-width=".5"/>
+      <circle cx="82" cy="72" r=".8" fill="#9AC5D6" stroke-width=".5"/>
+    </g>`,
+
+  fire: `
+    <circle cx="42" cy="22" r="3" fill="#C0473A" stroke-width="1.2"/>
+    <path d="M42,25 L42,30" stroke-width="1.2"/>
+    <path d="M22,30 C22,26 30,24 42,24 C54,24 62,26 62,30 Z" fill="#E08775" stroke-width="1.5"/>
+    <path d="M16,32 C14,52 18,72 32,80 C46,86 60,84 70,72 C78,62 78,46 74,32 Z" fill="#D6604A" stroke-width="1.6"/>
+    <path d="M14,40 C6,38 2,46 6,52 C10,52 14,50 16,46 Z" fill="#D6604A" stroke-width="1.4"/>
+    <path d="M74,38 C84,40 86,58 76,62" stroke-width="1.5" fill="none"/>
+    <path d="M44,90 c-2,-4 2,-6 0,-10 c4,4 6,2 4,8 c-1,4 -3,5 -4,2 z" fill="#E89373" stroke-width=".9" opacity=".7"/>
+    <g class="dt-steam">
+      <path d="M28,16 c-4,-7 4,-9 0,-16" stroke-width="1.2" opacity=".7"/>
+      <path d="M42,13 c-4,-7 4,-9 0,-15" stroke-width="1.2" opacity=".7"/>
+      <path d="M56,16 c-4,-7 4,-9 0,-16" stroke-width="1.2" opacity=".7"/>
+    </g>`,
+
+  earth: `
+    <ellipse cx="45" cy="86" rx="34" ry="5" fill="#D9C8AC" stroke-width="1.4"/>
+    <path d="M11,86 C13,92 30,95 45,95 C60,95 77,92 79,86" stroke-width="1.4" fill="none"/>
+    <path d="M20,32 L18,76 C18,82 24,86 30,86 L60,86 C66,86 72,82 72,76 L70,32 Z" fill="#B58968" stroke-width="1.7"/>
+    <path d="M22,46 L68,46" stroke-width=".7" opacity=".4"/>
+    <path d="M22,72 L68,72" stroke-width=".7" opacity=".4"/>
+    <ellipse cx="45" cy="32" rx="25" ry="4" fill="#D9C8AC" stroke-width="1.4"/>
+    <ellipse cx="45" cy="32" rx="22" ry="3" fill="#3E2516" stroke-width=".6"/>
+    <path class="dt-swirl" d="M30,32 c4,-2 8,2 14,0 c5,-2 9,1 12,0" stroke="#A87858" stroke-width=".8" fill="none" opacity=".8"/>
+    <path d="M70,42 C84,46 86,68 70,72" stroke-width="1.6" fill="none"/>
+    <path d="M70,48 C78,50 80,64 70,66" stroke-width=".8" opacity=".5" fill="none"/>
+    <ellipse cx="20" cy="92" rx="3" ry="1.6" fill="#4A2E1B" stroke-width=".6" transform="rotate(-20 20 92)"/>
+    <path d="M17,92 q3,-1 6,0" stroke="#F0E6D6" stroke-width=".6" fill="none"/>
+    <g class="dt-steam">
+      <path d="M34,16 c-3,-6 3,-8 0,-14" stroke-width="1.1" opacity=".6"/>
+      <path d="M50,13 c-3,-6 3,-8 0,-13" stroke-width="1.1" opacity=".6"/>
+    </g>`
+};
+
+/* ---------------------------------------------------------------------------
+   聊聊头像 = 饮品线稿 + neutral 五官。
+
+   抄自 EmotiveWuxingIcon.tsx：neutral 是 { brow:"arch", eyes:"dot", mouth:"smile" }。
+   RIGS 的脸锚点、FACE 的五官参数、WUXING_FACE_INK 的墨色都按原值。
+   电脑端那套九种情绪姿势（手脚 + 表情）没往这边搬，原型只要待机这一张脸。
+   --------------------------------------------------------------------------- */
+
+const FACE_RIG = {
+  metal: { x: 45, y: 54, ink: '#7a5b1f' },
+  wood:  { x: 45, y: 56, ink: '#33532b' },
+  water: { x: 46, y: 52, ink: '#3e6d7d' },
+  fire:  { x: 45, y: 52, ink: '#5a211a' },
+  earth: { x: 45, y: 58, ink: '#3e2516' }
+};
+
+const FACE = { eyeR: 3.2, eyeDx: 7.5, eyeDy: -2, browDy: -9.5, browHalf: 3.5,
+               browSW: 3, mouthDy: 7, mouthHalf: 5.5, mouthSW: 3.2 };
+
+function neutralFace(el) {
+  const { x: cx, y: cy, ink } = FACE_RIG[el];
+  const by = cy + FACE.browDy, h = FACE.browHalf;
+  const ey = cy + FACE.eyeDy;
+  const my = cy + FACE.mouthDy, mw = FACE.mouthHalf;
+  const arch = x => `M${x - h},${by + 0.6} Q${x},${by - 1.4} ${x + h},${by + 0.6}`;
+  return `<g stroke="${ink}" fill="none" stroke-linecap="round">
+    <path d="${arch(cx - FACE.eyeDx)}" stroke-width="${FACE.browSW}"/>
+    <path d="${arch(cx + FACE.eyeDx)}" stroke-width="${FACE.browSW}"/>
+    <circle cx="${cx - FACE.eyeDx}" cy="${ey}" r="${FACE.eyeR}" fill="${ink}" stroke="none"/>
+    <circle cx="${cx + FACE.eyeDx}" cy="${ey}" r="${FACE.eyeR}" fill="${ink}" stroke="none"/>
+    <path d="M${cx - mw},${my - 1.2} Q${cx},${my + 4.4} ${cx + mw},${my - 1.2}" stroke-width="${FACE.mouthSW}"/>
+  </g>`;
+}
+
+function drinkSvg(el, cls, withFace) {
+  const t = THEMES[el];
+  return `<svg class="${cls}" viewBox="0 0 90 100" fill="none" stroke="${t.ink}" color="${t.ink}"
+       stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="${t.beverageCn}"
+       >${DRINK_ART[el]}${withFace ? neutralFace(el) : ''}</svg>`;
+}
+
+/* ---------------------------------------------------------------------------
+   杯子 → 小人
+
+   骨架 RIGS（肩 / 胯 / 脸）和 neutral 姿势 POSES.neutral 逐值抄自
+   EmotiveWuxingIcon.tsx，肢体几何也照它的算法：
+     start  = 手取肩、脚取胯
+     end    = (start.x + side*dx, start.y + dy)
+     控制点 = 两端中点 + (side*bx, by)
+     手是末端一个 r=1.6 的实心点，脚是末端一小段横线
+   --------------------------------------------------------------------------- */
+
+const RIGS = {
+  metal: { face:{x:45,y:54}, shoulderL:{x:23,y:42}, shoulderR:{x:69,y:42}, hipL:{x:35,y:88}, hipR:{x:55,y:88} },
+  wood:  { face:{x:45,y:56}, shoulderL:{x:21,y:50}, shoulderR:{x:69,y:50}, hipL:{x:38,y:90}, hipR:{x:52,y:90} },
+  water: { face:{x:46,y:52}, shoulderL:{x:23,y:50}, shoulderR:{x:69,y:52}, hipL:{x:37,y:83}, hipR:{x:53,y:84} },
+  fire:  { face:{x:45,y:52}, shoulderL:{x:19,y:58}, shoulderR:{x:72,y:64}, hipL:{x:32,y:82}, hipR:{x:57,y:82} },
+  earth: { face:{x:45,y:58}, shoulderL:{x:19,y:50}, shoulderR:{x:71,y:44}, hipL:{x:36,y:90}, hipR:{x:54,y:90} }
+};
+
+/** POSES.neutral：手脚自然下垂 */
+const POSE_NEUTRAL = {
+  armL: { dx: 7, dy: 11, bx: 2, by: 1 },
+  armR: { dx: 7, dy: 11, bx: 2, by: 1 },
+  legL: { dx: 1, dy: 9, by: 1 },
+  legR: { dx: 1, dy: 9, by: 1 }
+};
+
+const LIMB_SW = 3, HAND_R = 1.6;
+
+function limb(rig, spec, side, kind, order) {
+  const start = kind === 'arm'
+    ? (side === -1 ? rig.shoulderL : rig.shoulderR)
+    : (side === -1 ? rig.hipL : rig.hipR);
+  const ex = start.x + side * spec.dx;
+  const ey = start.y + spec.dy;
+  const cx = (start.x + ex) / 2 + side * (spec.bx || 0);
+  const cy = (start.y + ey) / 2 + (spec.by || 0);
+  const tail = kind === 'arm'
+    ? `<circle class="ch-hand" cx="${ex}" cy="${ey}" r="${HAND_R}" fill="currentColor" stroke="none"/>`
+    : `<path class="ch-foot" d="M${ex},${ey} L${ex + side * 2.8},${ey}"/>`;
+  return `<path class="ch-limb l${order}" d="M${start.x},${start.y} Q${cx},${cy} ${ex},${ey}"/>${tail}`;
+}
+
+function characterSvg(el) {
+  const t = THEMES[el], rig = RIGS[el];
+  const limbs = [
+    limb(rig, POSE_NEUTRAL.armL, -1, 'arm', 1),
+    limb(rig, POSE_NEUTRAL.armR,  1, 'arm', 2),
+    limb(rig, POSE_NEUTRAL.legL, -1, 'leg', 3),
+    limb(rig, POSE_NEUTRAL.legR,  1, 'leg', 4)
+  ].join('');
+  // viewBox 比杯子那版高一点，不然脚和热气会被裁掉
+  return `<svg class="brew-char" viewBox="-6 -8 102 118" fill="none" stroke="${t.ink}" color="${t.ink}"
+       stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="${t.beverageCn}小人">
+    <g class="ch-body">
+      ${DRINK_ART[el]}
+      <g stroke-width="${LIMB_SW}">${limbs}</g>
+      <g class="ch-face">${neutralFace(el)}</g>
+    </g>
+  </svg>`;
+}
+
+/* ---------------------------------------------------------------------------
+   五套按钮外框 —— 按传统五行形：金圆、木长(生发)、水曲、火尖、土方。
+   每套一张简笔画，画在杯子后面，所以五个版本的按钮一眼能分出来。
+   --------------------------------------------------------------------------- */
+
+const f1 = n => (Math.round(n * 10) / 10);
+
+/** 波浪圈：n 个起伏，amp 振幅，sharp=true 出尖角（火），false 走圆滑（水） */
+function scallopPath(cx, cy, r, n, amp, sharp) {
+  const pts = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    const rr = r + (i % 2 === 0 ? amp : -amp);
+    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+  }
+  const P = q => `${f1(q[0])},${f1(q[1])}`;
+  if (sharp) return 'M' + pts.map(P).join('L') + 'Z';
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  let d = `M${P(mid(pts[pts.length - 1], pts[0]))}`;
+  for (let i = 0; i < pts.length; i++) {
+    d += `Q${P(pts[i])} ${P(mid(pts[i], pts[(i + 1) % pts.length]))}`;
+  }
+  return d + 'Z';
+}
+
+const BREW_FRAME = {
+  // 金 · 圆：双圈，像一枚币
+  metal: () => `<circle cx="50" cy="50" r="46" stroke-width="3"/>
+                <circle cx="50" cy="50" r="38.5" stroke-width="1.5" opacity=".45"/>`,
+  // 木 · 生发：圆圈上抽两片叶子
+  wood: () => {
+    // 叶子画大一点，尖头收出来，叶脉也走曲线（别再糊成一个圆点）
+    const leaf = (x, y, rot) =>
+      `<g transform="translate(${x},${y}) rotate(${rot})">
+         <path d="M0,0 Q5,-9 18,-2 Q9,6 0,0Z" stroke-width="2.4"/>
+         <path d="M2,-.6 Q8,-2.4 15.5,-2.2" stroke-width="1.3" opacity=".5"/>
+       </g>`;
+    return `<circle cx="50" cy="50" r="45" stroke-width="3"/>
+            ${leaf(70, 16, -46)}${leaf(30, 16, -134)}`;
+  },
+  // 水 · 曲：起伏的圈
+  water: () => `<path d="${scallopPath(50, 50, 44, 11, 2.8, false)}" stroke-width="2.8"/>`,
+  // 火 · 尖：带尖角的圈
+  fire: () => `<path d="${scallopPath(50, 50, 43.5, 9, 3.4, true)}" stroke-width="2.6" stroke-linejoin="round"/>`,
+  // 土 · 方：圆角方
+  earth: () => `<rect x="5.5" y="5.5" width="89" height="89" rx="27" stroke-width="3"/>
+                <rect x="13" y="13" width="74" height="74" rx="21" stroke-width="1.4" opacity=".4"/>`
+};
+
+function brewFrameSvg(el) {
+  return `<svg class="brew-frame" viewBox="0 0 100 100" fill="none"
+       stroke="${THEMES[el].hex}" stroke-linecap="round" aria-hidden="true">${BREW_FRAME[el]()}</svg>`;
+}
+
+/* ---------------------------------------------------------------------------
+   故事与会话
+
+   storyId === null 表示「新的一段，还没放进任何故事」。
+   ⚠️ 合同上这是新东西：submitTurn 要求 storyId: number，未归档的会话根本发不出去。
+      落地方案见批注栏（点开就先建一个草稿 Story，拿到 id 再聊）。
+   --------------------------------------------------------------------------- */
+
+const STORY_DATA = [
+  {
+    id: 1, title: '父亲的年轻岁月', updated: '15 分钟前更新',
+    msgs: [
+      { r: 'a', t: '我们从哪段记忆开始写？你可以像聊天一样慢慢说。' },
+      { r: 'u', t: '先写他第一次离开家的那天。' },
+      { r: 'a', t: '好。你还记得当时的季节、车站，或者他带走了什么吗？' },
+      { r: 'u', t: '秋天，天没亮就走了。我奶奶给他缝了个布包。' },
+      { r: 'a', t: '那年秋天，他第一次独自离开家。清晨的雾还没有散，母亲把缝好的布包递到他手里，站在门口一直没有说话。', doc: true }
+    ]
+  },
+  {
+    id: 2, title: '第一次离开家', updated: '昨天 21:04 更新',
+    msgs: [
+      { r: 'a', t: '这一段你想从哪儿起？是出门那一刻，还是到了以后？' },
+      { r: 'u', t: '到了以后。第一晚睡不着。' },
+      { r: 'a', t: '第一晚睡不着——是屋里太吵，还是太静了？' }
+    ]
+  }
+];
+
+const NEW_CHAT_MSGS = [
+  { r: 'a', t: '在呢。今天想说点什么？一件小事就行，不用想好了再开口。' }
+];
+
+function activeStory() {
+  return STORY_DATA.find(x => x.id === S.storyId) || null;
+}
+
+function activeMsgs() {
+  const st = activeStory();
+  return st ? st.msgs : S.draftMsgs;
+}
+
+function bubbleHtml(m) {
+  if (m.r === 'u') return `<div class="msg me"><div class="bubble"><p>${m.t}</p></div></div>`;
+  return `<div class="msg"><div class="bubble">
+      <div class="bubble-head"><span class="dt-avatar"></span><span class="who">聊聊</span></div>
+      <p>${m.t}</p></div></div>`;
+}
+
+function renderChat() {
+  const msgs = activeMsgs();
+  const last = msgs[msgs.length - 1];
+  // 结果未知 / 明确失败时，最后那条助手回复还不算数，先不显示
+  const hideLast = (S.chat === 'unknown' || S.chat === 'error') && last && last.r === 'a';
+  const shown = hideLast ? msgs.slice(0, -1) : msgs;
+
+  let html = shown.map(bubbleHtml).join('');
+  if (!hideLast && last && last.doc && S.chat === 'synced') {
+    html += `<div class="to-doc"><span>这段可以直接进正文</span><button data-act="append">加入正文</button></div>`;
+  }
+  if (S.chat === 'pending') {
+    html += `<div class="msg"><div class="bubble">
+      <div class="bubble-head"><span class="dt-avatar"></span><span class="who">聊聊</span></div>
+      <div class="typing"><i></i><i></i><i></i></div></div></div>`;
+  }
+  $('#msgs').innerHTML = html;
+
+  const avatar = drinkSvg(S.element, 'dt-avatar', true);
+  $$('#msgs .dt-avatar').forEach(slot => slot.outerHTML = avatar);
+
+  // 未归档提示条
+  $('#fileBar').hidden = S.storyId !== null;
+  const st = activeStory();
+  $$('.js-ws-hint').forEach(el => {
+    el.textContent = st ? `共 ${STORY_DATA.length} 个 Story` : '新的一段 · 还没放进故事';
+  });
+}
+
+let brewTimer = null;
+
+function playBrew() {
+  const stage = $('#brewStage');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) return go('chat');
+
+  $('#brewChar').innerHTML = characterSvg(S.element);
+  $('#brewSay').textContent = `来，聊会儿`;
+  stage.classList.remove('out');
+  stage.classList.add('on');
+
+  clearTimeout(brewTimer);
+  brewTimer = setTimeout(endBrew, 1450);
+}
+
+function endBrew() {
+  const stage = $('#brewStage');
+  if (!stage.classList.contains('on')) return;
+  clearTimeout(brewTimer);
+  stage.classList.add('out');
+  setTimeout(() => {
+    stage.classList.remove('on', 'out');
+    go('chat');
+  }, 200);
+}
+
+$('#brewStage').addEventListener('click', endBrew);
+
+/* 故事选择面板。mode = 'switch' 切故事，'file' 把当前这段放进某个故事。 */
+let sheetMode = 'switch';
+
+function openStorySheet(mode) {
+  sheetMode = mode;
+  $('#storySheetTitle').textContent = mode === 'file' ? '放进哪个故事' : '切换到哪个故事';
+  $('#storySheetHint').textContent = mode === 'file'
+    ? '这段聊天会并进你选的故事里，正文不动。'
+    : '选中之后，聊聊会打开那个故事的聊天记录。';
+  $('#storySheetList').innerHTML = STORY_DATA.map(st => `
+    <button class="sheet-story ${st.id === S.storyId ? 'current' : ''}" data-story-id="${st.id}">
+      <span><b>${st.title}</b><small>${st.updated}</small></span>
+      ${st.id === S.storyId ? '<span class="tick">✓</span>' : ''}
+    </button>`).join('')
+    + `<button class="sheet-story new" data-story-id="new">新建一个故事</button>`;
+  $('#storySheet').classList.add('on');
+}
+
+function closeStorySheet() { $('#storySheet').classList.remove('on'); }
+
+function pickStory(raw) {
+  closeStorySheet();
+  if (raw === 'new') {
+    // 合同里没有创建接口，如实说
+    toast('后端还没有创建接口 · 先到电脑上新建');
+    return;
+  }
+  const id = Number(raw);
+  if (sheetMode === 'file') {
+    const st = STORY_DATA.find(x => x.id === id);
+    st.msgs = st.msgs.concat(S.draftMsgs);   // 演示：把这段并进去
+    st.updated = '刚刚更新';
+    S.draftMsgs = [];
+    S.storyId = id;
+    render();
+    toast(`已放进「${st.title}」`);
+  } else {
+    S.storyId = id;
+    S.chat = 'synced';
+    render();
+  }
+}
+
+/** 每次点中间那颗 = 新开一段，不接着上一个故事 */
+function startNewChat() {
+  S.storyId = null;
+  S.draftMsgs = NEW_CHAT_MSGS.map(m => ({ ...m }));
+  S.chat = 'idle';
+}
+
+$('#storySheet').addEventListener('click', e => {
+  if (e.target.id === 'storySheet') return closeStorySheet();
+  const b = e.target.closest('[data-story-id]');
+  if (b) pickStory(b.dataset.storyId);
+});
+
+
+const TODAY = todayNayin();
+
+function renderVersion() {
+  const el = S.element;
+  const t = THEMES[el];
+  const device = document.querySelector('.device');
+  device.dataset.nayin = el;
+  device.dataset.motion = t.motion;
+
+  $('#brewCup').innerHTML = brewFrameSvg(el) + drinkSvg(el, 'brew-cup-art', false);
+  const avatar = drinkSvg(el, 'dt-avatar', true);
+  $$('.dt-avatar').forEach(slot => slot.outerHTML = avatar);
+
+  $('#drinkNote').textContent = `${t.beverageCn} · ${t.cn}`;
+
+  // 上线的那行是 formatTodayIdentity()，中间还有一段农历，
+  // 农历要 solarToLunar / almanac.meta.lunarDate 下发，原型里不编。
+  const preview = el !== TODAY.element;
+  $('#heroDate').textContent = preview
+    ? `预览 ${t.beverageCn} · ${t.cn}（今天其实是 ${TODAY.nayinName}）`
+    : `${TODAY.dateStr} · ${TODAY.ganzhi}日 · ${TODAY.nayinName}`;
+  $('#heroDate').classList.toggle('preview', preview);
+
+  $$('#versions button').forEach(b => b.classList.toggle('on', b.dataset.el === el));
+}
+
+$('#versions').innerHTML = ELEMENT_ORDER.map(el => {
+  const t = THEMES[el];
+  return `<button class="ver-btn" data-el="${el}">
+    <span class="sw" style="background:${t.hex}"></span>
+    <span>${t.cn} · ${t.beverageCn}</span>
+    ${el === TODAY.element ? '<span class="today">今天</span>' : ''}
+  </button>`;
+}).join('');
+
+$('#versions').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  S.element = b.dataset.el;
+  renderVersion();
+  go('home');
+});
+
+S.element = TODAY.element;
+renderVersion();
+
+/* 状态栏时钟 */
+(function () {
+  const d = new Date();
+  $('#clock').textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+})();
+
+render();
+</script>
+</body>
+</html>
