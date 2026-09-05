@@ -684,6 +684,43 @@
        在正文里打字时杯子会自动变小让位。
        ========================================================================== */
 
+    /* ---------- 拉开聊聊时，把正文上方的东西让出来 ----------
+       面板一升起来正文就只剩一小截，头上那几行 chrome 就没必要占着。
+       切换/保存、版本胶囊、以及「已保存」这种平安无事的状态整条收掉，
+       正文能多露五行左右。
+
+       两个例外，不收：
+       · 测试模式横幅只压成一行，不整条藏 —— mock 任何时候都不许假装成真账号；
+       · 正文状态只在「已保存」时收，脏了 / 保存失败 / 冲突照常显示，
+         那几种正是你需要看见的。 */
+
+    .ws-head, #docMeta, #docState, .mock-banner span {
+      transition: opacity .2s ease, max-height .24s ease, margin .24s ease, padding .24s ease;
+    }
+
+    .device.sheet-up .ws-head,
+    .device.sheet-up #docMeta,
+    .device.sheet-up #docState.calm-hidden {
+      overflow: hidden;
+      max-height: 0;
+      margin: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .device.sheet-up .mock-banner {
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+
+    .device.sheet-up .mock-banner span {
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+    }
+
     /* 正在改正文时，聊聊那位缩小让位 */
     .device.editing .chat-sheet.peek .grab-cup { transform: scale(.7); opacity: .55; }
     .chat-sheet .grab-cup { transition: transform .2s ease, opacity .2s ease; }
@@ -696,7 +733,9 @@
       bottom: 0;
       z-index: 24;
       display: none;
-      background: rgba(38, 35, 28, .16);
+      /* 不压暗：拉开面板正是为了同时读正文，压暗就把要读的东西盖住了。
+         这层只用来「点空白处收起」。 */
+      background: transparent;
     }
 
     .chat-veil.on { display: block; animation: brew-in .18s ease-out both; }
@@ -1900,6 +1939,9 @@ function stateBlock(def, extraActions) {
   </div>`;
 }
 
+/** 还没放进故事 = 还没有 PublishingBodyDocument */
+function noDocFlag() { return S.storyId === null; }
+
 function render() {
   /* 页面切换 */
   $$('.page').forEach(p => p.classList.toggle('on', p.id === 'page-' + S.page));
@@ -1913,6 +1955,10 @@ function render() {
   $('#chatVeil').classList.toggle('on', onWork && S.snap !== 'peek');
   if (onWork && !sheetDrag) applySnap();
   if (!onWork) $('#peekPop').hidden = true;
+  document.querySelector('.device').classList.toggle('sheet-up', onWork && S.snap !== 'peek');
+  // 「已保存」是平安无事，拉开时可以收；其余状态留着
+  $('#docState').classList.toggle('calm-hidden', S.doc === 'clean' && !noDocFlag());
+
   const snapBtn = $('#snapToggle');
   if (snapBtn) snapBtn.textContent = S.snap === 'peek' ? '拉开看全部 ⌃' : '收起 ⌄';
 
