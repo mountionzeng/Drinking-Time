@@ -1,6 +1,6 @@
 # 环境指南：单一服务、单一数据源与安全排查
 
-> 给项目所有者的一页说明。AI 会话的硬规则见根目录 `AGENTS.md`。最后更新：2026-09-01。
+> 给项目所有者的一页说明。AI 会话的硬规则见根目录 `AGENTS.md`。最后更新：2026-09-05。
 
 ## 本地开发唯一允许的运行方式
 
@@ -21,6 +21,12 @@
 - 所有 Story 读写继续按 `userId + storyId`，禁止 latest Story 写回退。
 
 图片目录即使通过 `LOCAL_IMAGE_DIR` 共享，也不会让业务 JSON 自动共享。
+
+受管音频字节（旁白 / 音乐 / 环境声 / 原声）落在 `.webdev/audio`，可用 `LOCAL_AUDIO_DIR` 覆盖；暂存目录是它下面的 `.staging`。这份字节没有自动安全网 —— 备份和恢复用 `pnpm backup:media backup` / `pnpm backup:media restore --in <dir>`，恢复顺序固定为「先字节、后元数据」，缺文件的资产会被标成 `failed` 而不是静默当成 ready。删除故事会连带清掉它的资产行、导入操作和受管字节。服务启动时的恢复器会把中断的导入补偿为 `failed`，并清扫超过 24 小时、无操作引用的暂存文件。
+
+302 场景声音复用 `API302_KEY` / `API302_BASE_URL`。音乐模型由 `AUDIO_302_MUSIC_MODEL` 配置（默认 `music_v1`），环境声和音效由 `AUDIO_302_SOUND_MODEL` 配置（默认 `eleven_text_to_sound_v2`），请求超时由 `AUDIO_302_TIMEOUT_MS` 配置（默认 180000ms）。音乐供应商最短生成 10 秒，但写入 Timeline 时只保留当前镜头范围；环境声按可循环声音生成，音效按单次事件生成。页面只在用户点击生成后报价，仍须再次明确确认才提交 302，加载、刷新和打开面板都不会产生付费请求。
+
+要判断旧的 ChatCut / `voiceAudio*` 读取还能不能退役，用只读审计：`pnpm tsx scripts/audit-timeline-media-legacy.ts`。它只读 `.webdev/local-persist.json`，不写故事、不做批量迁移，输出「有多少故事只能靠 legacy adapter 才有内容」——只要这个数不为 0，就不许删对应的旧读取。
 
 ## 两个环境命令
 
@@ -83,11 +89,11 @@ npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
 
 ## 事故史与安全网
 
-| 日期 | 事故 | 现有保护 |
-|---|---|---|
-| 2026-06-01 | 测试覆盖真实本地数据 | `server/db.ts` 测试防误写与 `.webdev/backups/` |
-| 2026-06-12 | 6 个 worktree 各自产生数据并冲突 | 主仓单服务、`env:status`、`env:check` |
-| 2026-08-14 | 旧 predev 依赖宽泛进程名 | 二次身份核验后才终止精确进程组 |
+| 日期       | 事故                             | 现有保护                                       |
+| ---------- | -------------------------------- | ---------------------------------------------- |
+| 2026-06-01 | 测试覆盖真实本地数据             | `server/db.ts` 测试防误写与 `.webdev/backups/` |
+| 2026-06-12 | 6 个 worktree 各自产生数据并冲突 | 主仓单服务、`env:status`、`env:check`          |
+| 2026-08-14 | 旧 predev 依赖宽泛进程名         | 二次身份核验后才终止精确进程组                 |
 
 环境工具只发现风险和安全拒绝，不会自动删除 worktree、业务数据或备份。
 
@@ -108,12 +114,12 @@ pnpm memory:backfill      # 只做 dry-run，输出分类报告；不写任何�
 
 报告把历史分成四类，**说不清楚的一律不写**：
 
-| 分类 | 含义 |
-| --- | --- |
-| `deterministic` | 能证明来源、归属与时间，可以写 |
-| `source_incomplete` | 缺 `userId`／`storyId`／时间，或跨账号污染 |
-| `ambiguous` | 记录完整，但分不清是用户选择还是系统自动 |
-| `rejected_not_adoption` | 能证明它不是用户采用（自动路径写入） |
+| 分类                    | 含义                                       |
+| ----------------------- | ------------------------------------------ |
+| `deterministic`         | 能证明来源、归属与时间，可以写             |
+| `source_incomplete`     | 缺 `userId`／`storyId`／时间，或跨账号污染 |
+| `ambiguous`             | 记录完整，但分不清是用户选择还是系统自动   |
+| `rejected_not_adoption` | 能证明它不是用户采用（自动路径写入）       |
 
 一个需要产品裁决的结论：**历史图片采用基本落在 `ambiguous`**。
 `promoteStoryImageToCurrent` 无论被用户点击还是被自动路径调用，写下的

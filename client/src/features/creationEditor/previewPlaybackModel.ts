@@ -3,6 +3,10 @@ import {
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import {
+  resolveSubtitleRenderPlanAtFrame,
+  type SubtitleRenderPlan,
+} from "@shared/timelineSubtitleModel";
 
 import {
   chatCutCueCode,
@@ -82,7 +86,9 @@ export function adoptedVideoTake(
     : null;
 }
 
-export function playableVideoUrl(shot: CreationEditorShot | null): string | null {
+export function playableVideoUrl(
+  shot: CreationEditorShot | null
+): string | null {
   return adoptedVideoTake(shot)?.videoUrl ?? null;
 }
 
@@ -243,6 +249,50 @@ export function timelineVideoShouldHoldLastFrame(input: {
         input.sourceStartSec + VIDEO_END_HOLD_EPSILON_SECONDS
     : input.targetTimeSec >=
         input.sourceEndSec - VIDEO_END_HOLD_EPSILON_SECONDS;
+}
+
+export type PreviewSubtitleLine = {
+  id: string;
+  text: string;
+  /**
+   * `timeline` 是已落库的正式字幕（用户改过的就是这个）；`candidate` 是还没
+   * 生成字幕时按来源文字算出的只读预览，界面必须标出来，不能让人以为改得动。
+   */
+  source: "timeline" | "candidate";
+};
+
+/**
+ * Preview 的唯一字幕来源。
+ *
+ * 有正式字幕轨时只消费 shared resolver 的结果（重叠 cue 按稳定顺序同时显示），
+ * 不再自己解释 ChatCut 或镜头 dialogue；没有正式轨时才回落到旧候选，并明确
+ * 标成 candidate。U8 的导出会消费同一份 resolver 结果。
+ */
+export function previewSubtitleLines(input: {
+  subtitlePlan: SubtitleRenderPlan | null;
+  /** Presence, not cue count, decides whether the formal slice owns playback. */
+  formalSubtitlePresent: boolean;
+  playheadFrame: number;
+  playheadMs: number;
+  legacyManifest: ChatCutTimelineManifest | null;
+  fallbackDialogue?: string | null;
+}): PreviewSubtitleLine[] {
+  if (input.formalSubtitlePresent) {
+    return resolveSubtitleRenderPlanAtFrame(
+      input.subtitlePlan ?? { cues: [], endFrame: 0 },
+      input.playheadFrame
+    ).map(cue => ({
+      id: cue.id,
+      text: cue.text,
+      source: "timeline" as const,
+    }));
+  }
+  const legacy = timelineSubtitleText(
+    input.legacyManifest,
+    input.playheadMs,
+    input.fallbackDialogue
+  );
+  return legacy ? [{ id: "candidate", text: legacy, source: "candidate" }] : [];
 }
 
 export function timelineSubtitleText(

@@ -37,6 +37,14 @@ import {
 } from "./promptMaterialProjection";
 import { getStoryVideoAssets } from "./videoAssets";
 
+/** Ownership-scoped Story body read for services that must project legacy fields. */
+export async function getOwnedStoryBody(
+  storyId: number,
+  userId: number
+): Promise<unknown | null> {
+  return (await getStoryById(storyId, userId))?.body ?? null;
+}
+
 type StoryShotFact = {
   stableShotId: string;
   splitSourceStableShotId: string | null;
@@ -678,6 +686,7 @@ export function projectStoryTimelineDocument(
     items: unknown;
     overlays?: unknown;
     visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
   } | null
 ): TimelineDocument {
   return {
@@ -688,6 +697,12 @@ export function projectStoryTimelineDocument(
     visualLayerState: normalizePersistedVisualLayerState(
       timelineVisualLayerState(timelineRow?.visualLayerState)
     ),
+    // Non-visual media slices (subtitles in U3, audio in U9) ride along raw;
+    // the client normalizes them with the shared model.
+    ...(timelineRow?.extensions &&
+    Object.keys(timelineRow.extensions).length > 0
+      ? { extensions: timelineRow.extensions }
+      : {}),
   };
 }
 

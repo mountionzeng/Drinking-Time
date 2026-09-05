@@ -25,15 +25,40 @@ import {
   type TimelineVideoEffects,
 } from "../../shared/storyMaterial";
 import {
+  buildAudioMixPlan,
+  normalizeAudioState,
+  type AudioMixPlan,
+  type TimelineAudioState,
+  type TimelineVisualAudioSource,
+} from "../../shared/timelineAudioModel";
+import { timelineMediaTotalFrames } from "../../shared/timelineMediaDuration";
+import {
+  buildSubtitleRenderPlan,
+  normalizeSubtitleState,
+  type TimelineSubtitleState,
+} from "../../shared/timelineSubtitleModel";
+import {
   buildTimelineLayout,
   resolveTimelineDocumentFrame,
   timelineTotalFrames,
   type TimelineLayoutRow,
 } from "../../shared/timelineLayout";
 import { resolveTimelineItemSource } from "../../shared/timelineSource";
-import { getStoryMaterialState } from "./storyMaterials";
+import { getOwnedStoryBody, getStoryMaterialState } from "./storyMaterials";
+import { resolveManagedAudioPath } from "./audioMedia";
+import { loadReadyStoryAudioAsset } from "./storyAudioAssets";
+import {
+  composeTimelineMedia,
+  mediaFileHasAudioStream,
+  type ResolvedAudioMixInput,
+} from "./timelineMediaExport";
 import { videoFileName } from "./videoConform";
 import { localVideoDir } from "./videoMedia";
+import { fetchTrustedAudioBytes } from "./storyAudioImport";
+import {
+  projectLegacyTimelineMedia,
+  type LegacyExportAudioSource,
+} from "./legacyTimelineMedia";
 
 export type ExportSegment = {
   shotNo: number;
@@ -76,6 +101,7 @@ export type ExportPlan = {
   parts: ExportPart[];
   /** 解析出来的成片长度 = 最大结束时间。 */
   totalSec: number;
+  totalFrames: number;
   skipped: Array<{ shotNo: number; reason: string }>;
 };
 
@@ -87,6 +113,8 @@ export type ExportResult =
       durationSec: number;
       segmentCount: number;
       skipped: Array<{ shotNo: number; reason: string }>;
+      /** 缺失但在 relaxed 模式下被等长静音替代的媒体。 */
+      mediaDiagnostics?: string[];
     }
   | { status: "error"; error: string };
 
@@ -157,6 +185,196 @@ function framesToSec(frames: number): number {
   return frames / STORY_TIMELINE_FPS;
 }
 
+function secondsToFrames(seconds: number): number {
+  return Math.max(0, Math.round(seconds * STORY_TIMELINE_FPS));
+}
+
+function audibleTimelineFrames(input: {
+  sourceInFrame: number;
+  sourceOutFrame: number;
+  timelineFrames: number;
+  playbackRate: number;
+}): number {
+  const sourceFrames = Math.max(1, input.sourceOutFrame - input.sourceInFrame);
+  const rate = clamp(input.playbackRate, 0.25, 4);
+  return Math.max(
+    1,
+    Math.min(input.timelineFrames, Math.ceil(sourceFrames / rate))
+  );
+}
+
+export type ExportVisualAudioSource = TimelineVisualAudioSource & {
+  file: string;
+};
+
+/**
+ * Server projection of the same persisted visual-source identities used by the
+ * browser mixer. Visual winner order is deliberately irrelevant to audio;
+ * explicit `linkedVisualSourceId` is the only de-duplication signal.
+ */
+export function buildExportVisualAudioSources(
+  material: StoryMaterialState
+): ExportVisualAudioSource[] {
+  const rows = buildTimelineLayout(
+    material.timeline.items.filter(item => item.included !== false)
+  );
+  const shotsById = new Map(
+    material.shots.map(shot => [shot.stableShotId, shot] as const)
+  );
+  const takesById = new Map<number, ShotVideoLike>();
+  for (const shot of material.shots) {
+    for (const take of shot.videoTakes ?? []) takesById.set(take.id, take);
+    if (shot.currentVideo)
+      takesById.set(shot.currentVideo.id, shot.currentVideo);
+  }
+  for (const take of [
+    ...(material.unassignedVideoTakes ?? []),
+    ...(material.reusableVideoTakes ?? []),
+  ]) {
+    takesById.set(take.id, take);
+  }
+
+  const sources: ExportVisualAudioSource[] = [];
+  for (const row of rows) {
+    const item = row.item;
+    const shot = shotsById.get(item.stableShotId);
+    if (!shot) continue;
+
+    if (!item.visualClipsReplacePrimary) {
+      const persistedTakeId = item.primaryVideoEdit?.takeId;
+      const take =
+        shot.currentVideo ??
+        (persistedTakeId == null
+          ? null
+          : (takesById.get(persistedTakeId) ?? null));
+      const file = take
+        ? videoFileName({ id: take.id, videoKey: take.videoKey ?? null })
+        : null;
+      if (take?.status === "available" && take.videoUrl && file) {
+        const selectedRange =
+          take.selectedSelectionType === "range" && take.selectedRangeId != null
+            ? take.ranges.find(range => range.id === take.selectedRangeId)
+            : null;
+        const edit =
+          item.primaryVideoEdit?.takeId === take.id
+            ? item.primaryVideoEdit
+            : null;
+        const sourceStartSec = Math.max(
+          0,
+          edit?.sourceStartSec ?? selectedRange?.startSec ?? 0
+        );
+        const mediaDurationSec = Math.max(
+          sourceStartSec + 1 / STORY_TIMELINE_FPS,
+          take.durationSec ?? selectedRange?.endSec ?? sourceStartSec + 3
+        );
+        const sourceEndSec = clamp(
+          edit?.sourceEndSec ?? selectedRange?.endSec ?? mediaDurationSec,
+          sourceStartSec + 1 / STORY_TIMELINE_FPS,
+          mediaDurationSec
+        );
+        const effects =
+          edit?.effects ??
+          inferredEffects({
+            sourceStartSec,
+            sourceEndSec,
+            durationMs: item.plannedDurationMs,
+          });
+        const sourceInFrame = secondsToFrames(sourceStartSec);
+        const sourceOutFrame = secondsToFrames(sourceEndSec);
+        sources.push({
+          id: `primary:${item.stableShotId}:take-${take.id}`,
+          timelineStartFrame: row.startFrame,
+          sourceInFrame,
+          sourceOutFrame,
+          durationFrames: audibleTimelineFrames({
+            sourceInFrame,
+            sourceOutFrame,
+            timelineFrames: row.durationFrames,
+            playbackRate: effects.playbackRate,
+          }),
+          gain: effects.volume,
+          muted: effects.muted,
+          playbackRate: effects.playbackRate,
+          reverse: effects.reverse,
+          file,
+        });
+      }
+    }
+
+    for (const clip of item.visualClips ?? []) {
+      const take = takesById.get(clip.takeId);
+      const file = take
+        ? videoFileName({ id: take.id, videoKey: take.videoKey ?? null })
+        : null;
+      if (!take || take.status !== "available" || !file) continue;
+      const effects = inferredEffects({
+        sourceStartSec: clip.sourceStartSec,
+        sourceEndSec: clip.sourceEndSec,
+        durationMs: clip.durationMs,
+        effects: clip.effects,
+      });
+      const sourceInFrame = secondsToFrames(clip.sourceStartSec);
+      const sourceOutFrame = secondsToFrames(clip.sourceEndSec);
+      const timelineFrames = timelineOffsetMsToFrames(clip.durationMs);
+      sources.push({
+        id: `clip:${clip.id}`,
+        timelineStartFrame:
+          row.startFrame + timelineOffsetMsToFrames(clip.offsetMs),
+        sourceInFrame,
+        sourceOutFrame,
+        durationFrames: audibleTimelineFrames({
+          sourceInFrame,
+          sourceOutFrame,
+          timelineFrames,
+          playbackRate: effects.playbackRate,
+        }),
+        gain: effects.volume,
+        muted: effects.muted,
+        playbackRate: effects.playbackRate,
+        reverse: effects.reverse,
+        file,
+      });
+    }
+  }
+
+  for (const overlay of material.timeline.overlays ?? []) {
+    const take = takesById.get(overlay.takeId);
+    const file = take
+      ? videoFileName({ id: take.id, videoKey: take.videoKey ?? null })
+      : null;
+    if (!take || take.status !== "available" || !file) continue;
+    const effects = overlay.effects ?? DEFAULT_TIMELINE_VIDEO_EFFECTS;
+    const sourceInFrame = 0;
+    const sourceOutFrame = Math.max(
+      1,
+      overlay.mediaEndFrame - overlay.startFrame
+    );
+    sources.push({
+      id: `overlay:${overlay.id}`,
+      timelineStartFrame: overlay.startFrame,
+      sourceInFrame,
+      sourceOutFrame,
+      durationFrames: audibleTimelineFrames({
+        sourceInFrame,
+        sourceOutFrame,
+        timelineFrames: sourceOutFrame,
+        playbackRate: effects.playbackRate,
+      }),
+      gain: effects.volume,
+      muted: effects.muted,
+      playbackRate: effects.playbackRate,
+      reverse: effects.reverse,
+      file,
+    });
+  }
+
+  return sources.sort(
+    (left, right) =>
+      left.timelineStartFrame - right.timelineStartFrame ||
+      left.id.localeCompare(right.id)
+  );
+}
+
 /** 两段能不能合成一段：同一个源、而且源时间接得上。 */
 function continuous(previous: ExportSegment, next: ExportSegment): boolean {
   if (previous.file !== next.file) return false;
@@ -182,6 +400,9 @@ export function buildExportPlan(
     fallbackToLatestTake?: boolean;
     /** strict 时缺素材直接失败，不出半成品。 */
     missingSourceMode?: "strict" | "relaxed";
+    /** Resolved authority; callers may supply a legacy projection only when the slice is absent. */
+    subtitleState?: TimelineSubtitleState;
+    audioState?: TimelineAudioState;
   } = {}
 ): ExportPlan {
   const byIdentity = new Map(
@@ -205,10 +426,19 @@ export function buildExportPlan(
     material.timeline.items.filter(item => item.included !== false)
   );
   const overlays = material.timeline.overlays ?? [];
-  const totalFrames = Math.max(
+  const visualEndFrame = Math.max(
     timelineTotalFrames(rows),
     ...overlays.map(overlay => overlay.endFrame)
   );
+  const totalFrames = timelineMediaTotalFrames({
+    visualEndFrame,
+    subtitleState:
+      opts.subtitleState ??
+      normalizeSubtitleState(material.timeline.extensions?.subtitleTracks),
+    audioState:
+      opts.audioState ??
+      normalizeAudioState(material.timeline.extensions?.audioTracks),
+  });
   const boundaries = Array.from(
     new Set(
       rows
@@ -256,9 +486,10 @@ export function buildExportPlan(
         ? videoFileName({ id: take.id, videoKey: take.videoKey ?? null })
         : null;
       if (!take || take.status !== "available" || !file) {
-        const reason = !take || take.status !== "available"
-          ? "上层覆盖视频不可用"
-          : "上层覆盖视频缺少本地文件";
+        const reason =
+          !take || take.status !== "available"
+            ? "上层覆盖视频不可用"
+            : "上层覆盖视频缺少本地文件";
         parts.push({
           kind: "missing",
           shotNo,
@@ -358,7 +589,8 @@ export function buildExportPlan(
       (source.sourceType === "primary-video"
         ? (item.primaryVideoEdit?.takeId ?? currentVideo?.id)
         : null);
-    const video = (takeId != null ? takesById.get(takeId) : null) ?? currentVideo;
+    const video =
+      (takeId != null ? takesById.get(takeId) : null) ?? currentVideo;
     if (!video || video.status !== "available") {
       missing("没有可用的当前视频");
       continue;
@@ -412,7 +644,8 @@ export function buildExportPlan(
       sourceDurationSec: spanSec,
       durationSec,
       effects,
-      transform: clip?.transform ?? item.transform ?? DEFAULT_TIMELINE_TRANSFORM,
+      transform:
+        clip?.transform ?? item.transform ?? DEFAULT_TIMELINE_TRANSFORM,
     });
   }
 
@@ -465,6 +698,7 @@ export function buildExportPlan(
       part.kind === "source" ? [stripKind(part)] : []
     ),
     totalSec: framesToSec(totalFrames),
+    totalFrames,
     skipped,
   };
 }
@@ -474,20 +708,9 @@ function stripKind(part: { kind: "source" } & ExportSegment): ExportSegment {
   return segment;
 }
 
-function atempoFilters(rate: number): string[] {
-  const filters: string[] = [];
-  let remaining = clamp(rate, 0.25, 4);
-  while (remaining < 0.5) {
-    filters.push("atempo=0.5");
-    remaining /= 0.5;
-  }
-  while (remaining > 2) {
-    filters.push("atempo=2");
-    remaining /= 2;
-  }
-  filters.push(`atempo=${remaining.toFixed(5)}`);
-  return filters;
-}
+// NOTE: audio retiming moved to timelineMediaExport.ts with the rest of the
+// mix graph (U8). The visual master is muxed with `-an`, so this file no longer
+// builds any audio filter.
 
 function videoFilters(
   segment: ExportSegment,
@@ -529,19 +752,8 @@ function videoFilters(
     .join(",");
 }
 
-function audioFilters(segment: ExportSegment): string {
-  return [
-    segment.effects.reverse ? "areverse" : null,
-    ...atempoFilters(segment.effects.playbackRate),
-    `volume=${segment.effects.muted ? 0 : segment.effects.volume.toFixed(5)}`,
-    "aresample=48000",
-  ]
-    .filter(Boolean)
-    .join(",");
-}
-
-/** 等长黑画面 + 静音，规格与真实片段完全一致，供空档和缺素材占位使用。 */
-function blackSilenceArgs(input: {
+/** 等长黑画面，无音轨。最终声音只允许由统一 mix pass 产生。 */
+function blackVideoArgs(input: {
   durationSec: number;
   dims: { width: number; height: number };
   output: string;
@@ -555,12 +767,6 @@ function blackSilenceArgs(input: {
     duration,
     "-i",
     `color=c=black:s=${input.dims.width}x${input.dims.height}:r=30`,
-    "-f",
-    "lavfi",
-    "-t",
-    duration,
-    "-i",
-    "anullsrc=channel_layout=stereo:sample_rate=48000",
     "-c:v",
     "libx264",
     "-preset",
@@ -569,8 +775,7 @@ function blackSilenceArgs(input: {
     "19",
     "-pix_fmt",
     "yuv420p",
-    "-c:a",
-    "aac",
+    "-an",
     "-t",
     duration,
     input.output,
@@ -602,6 +807,191 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   });
 }
 
+/**
+ * Resolve every planned mix input to a real file path, enforcing Story
+ * ownership + `ready` before any byte is read. Exported for the U8 ownership /
+ * strict-vs-relaxed contract tests.
+ */
+export async function resolveExportAudioInputs(input: {
+  storyId: number;
+  userId: number;
+  audioPlan: AudioMixPlan;
+  visualSources: readonly ExportVisualAudioSource[];
+  videoDirectory: string;
+  missingSourceMode: "strict" | "relaxed";
+  diagnostics: string[];
+  /** Ephemeral paths for read-only legacy audio; formal assets still resolve through ownership checks. */
+  assetFilePaths?: ReadonlyMap<number, string>;
+  projectedAssetIds?: ReadonlySet<number>;
+}): Promise<ResolvedAudioMixInput[]> {
+  const visualById = new Map(
+    input.visualSources.map(source => [source.id, source] as const)
+  );
+  const resolved: ResolvedAudioMixInput[] = [];
+
+  for (const planned of input.audioPlan.inputs) {
+    if (planned.muted || planned.baseGain <= 0) continue;
+    if (planned.source.kind === "asset") {
+      const projectedPath = input.assetFilePaths?.get(planned.source.assetId);
+      if (projectedPath) {
+        resolved.push({ input: planned, filePath: projectedPath });
+        continue;
+      }
+      if (input.projectedAssetIds?.has(planned.source.assetId)) continue;
+      // A missing row is deliberately indistinguishable from cross-Story or
+      // cross-user access. All three are contract failures in both modes;
+      // relaxed mode applies only after an owned ready row resolves safely.
+      const asset = await loadReadyStoryAudioAsset({
+        scope: { storyId: input.storyId, userId: input.userId },
+        assetId: planned.source.assetId,
+      });
+      if (!asset) {
+        throw new Error(
+          `声音 ${planned.id} 的资产不存在、未就绪或不属于当前故事`
+        );
+      }
+      const filePath = resolveManagedAudioPath(asset.storageKey);
+      if (!fs.existsSync(filePath)) {
+        const diagnostic = `声音 ${planned.id} 的受管文件缺失`;
+        if (input.missingSourceMode === "strict") throw new Error(diagnostic);
+        input.diagnostics.push(`${diagnostic}，已保留时长并以静音替代`);
+        continue;
+      }
+      resolved.push({ input: planned, filePath });
+      continue;
+    }
+
+    const source = visualById.get(planned.source.visualSourceId);
+    if (!source) {
+      throw new Error(`视频原声 ${planned.source.visualSourceId} 无法解析`);
+    }
+    const filePath = path.join(input.videoDirectory, source.file);
+    if (!fs.existsSync(filePath)) {
+      const diagnostic = `视频原声 ${source.id} 的本地文件缺失`;
+      if (input.missingSourceMode === "strict") throw new Error(diagnostic);
+      input.diagnostics.push(`${diagnostic}，已保留时长并以静音替代`);
+      continue;
+    }
+    if (!(await mediaFileHasAudioStream(filePath))) {
+      input.diagnostics.push(`视频 ${source.id} 本身没有音轨，已安全跳过原声`);
+      continue;
+    }
+    resolved.push({ input: planned, filePath });
+  }
+
+  return resolved;
+}
+
+export const MAX_LEGACY_EXPORT_AUDIO_SOURCES = 32;
+export const MAX_LEGACY_EXPORT_AUDIO_BYTES = 256 * 1024 * 1024;
+export const MAX_LEGACY_EXPORT_AUDIO_DOWNLOAD_MS = 60_000;
+const MAX_LEGACY_EXPORT_AUDIO_FILE_BYTES = 36 * 1024 * 1024;
+
+type LegacyAudioDownloadOutcome =
+  | { status: "ready"; filePath: string }
+  | { status: "unavailable"; diagnostic: string };
+
+/**
+ * Materialize only-legacy audio under one request-wide resource budget.
+ * Results include failures so duplicate URLs are attempted at most once.
+ */
+export async function downloadLegacyAudioForExport(
+  input: {
+    sources: readonly LegacyExportAudioSource[];
+    workDir: string;
+    missingSourceMode: "strict" | "relaxed";
+    diagnostics: string[];
+  },
+  dependencies: {
+    fetchBytes?: typeof fetchTrustedAudioBytes;
+    now?: () => number;
+    limits?: {
+      maxSources?: number;
+      maxBytes?: number;
+      maxDownloadMs?: number;
+      maxFileBytes?: number;
+    };
+  } = {}
+): Promise<Map<number, string>> {
+  const fetchBytes = dependencies.fetchBytes ?? fetchTrustedAudioBytes;
+  const now = dependencies.now ?? Date.now;
+  const limits = {
+    maxSources:
+      dependencies.limits?.maxSources ?? MAX_LEGACY_EXPORT_AUDIO_SOURCES,
+    maxBytes: dependencies.limits?.maxBytes ?? MAX_LEGACY_EXPORT_AUDIO_BYTES,
+    maxDownloadMs:
+      dependencies.limits?.maxDownloadMs ?? MAX_LEGACY_EXPORT_AUDIO_DOWNLOAD_MS,
+    maxFileBytes:
+      dependencies.limits?.maxFileBytes ?? MAX_LEGACY_EXPORT_AUDIO_FILE_BYTES,
+  };
+  const paths = new Map<number, string>();
+  const outcomeByUrl = new Map<string, LegacyAudioDownloadOutcome>();
+  const startedAt = now();
+  let downloadedBytes = 0;
+
+  const unavailable = (
+    source: LegacyExportAudioSource,
+    reason: string
+  ): LegacyAudioDownloadOutcome => {
+    const diagnostic = `旧音频 ${source.displayName || source.clipId} ${reason}`;
+    if (input.missingSourceMode === "strict") throw new Error(diagnostic);
+    input.diagnostics.push(`${diagnostic}，已保留时长并以静音替代`);
+    return { status: "unavailable", diagnostic };
+  };
+
+  for (const [index, source] of input.sources.entries()) {
+    let outcome = outcomeByUrl.get(source.url);
+    if (!outcome) {
+      if (outcomeByUrl.size >= limits.maxSources) {
+        outcome = unavailable(source, "超过单次导出的来源数量上限");
+        outcomeByUrl.set(source.url, outcome);
+      } else {
+        const remainingMs = limits.maxDownloadMs - (now() - startedAt);
+        const remainingBytes = limits.maxBytes - downloadedBytes;
+        if (remainingMs <= 0) {
+          outcome = unavailable(source, "超过单次导出的下载时间上限");
+          outcomeByUrl.set(source.url, outcome);
+        } else if (remainingBytes <= 0) {
+          outcome = unavailable(source, "超过单次导出的下载容量上限");
+          outcomeByUrl.set(source.url, outcome);
+        } else {
+          const filePath = path.join(
+            input.workDir,
+            `legacy-audio-${String(index).padStart(4, "0")}.media`
+          );
+          try {
+            const bytes = await fetchBytes(source.url, {
+              maxBytes: Math.min(limits.maxFileBytes, remainingBytes),
+              totalTimeoutMs: Math.min(30_000, remainingMs),
+            });
+            if (bytes.byteLength > remainingBytes) {
+              outcome = unavailable(source, "超过单次导出的下载容量上限");
+            } else {
+              await fs.promises.writeFile(filePath, bytes, { flag: "wx" });
+              downloadedBytes += bytes.byteLength;
+              outcome = { status: "ready", filePath };
+            }
+          } catch (error) {
+            if (
+              input.missingSourceMode === "strict" &&
+              error instanceof Error &&
+              error.message.startsWith("旧音频 ")
+            ) {
+              throw error;
+            }
+            outcome = unavailable(source, "无法下载");
+          }
+          outcomeByUrl.set(source.url, outcome);
+        }
+      }
+    }
+    if (outcome.status === "ready") {
+      paths.set(source.assetId, outcome.filePath);
+    }
+  }
+  return paths;
+}
+
 export async function exportStoryTimeline(params: {
   storyId: number;
   userId: number;
@@ -613,15 +1003,36 @@ export async function exportStoryTimeline(params: {
   const material = await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { status: "error", error: "故事不存在或无权访问" };
 
+  const storyBody = await getOwnedStoryBody(params.storyId, params.userId);
+  if (!storyBody) return { status: "error", error: "故事不存在或无权访问" };
+  const extensions = material.timeline.extensions;
+  const hasFormalSubtitles = Object.prototype.hasOwnProperty.call(
+    extensions ?? {},
+    "subtitleTracks"
+  );
+  const hasFormalAudio = Object.prototype.hasOwnProperty.call(
+    extensions ?? {},
+    "audioTracks"
+  );
+  const legacyMedia = projectLegacyTimelineMedia(storyBody);
+  const subtitleState = hasFormalSubtitles
+    ? normalizeSubtitleState(extensions?.subtitleTracks)
+    : legacyMedia.subtitleState;
+  const audioState = hasFormalAudio
+    ? normalizeAudioState(extensions?.audioTracks)
+    : legacyMedia.audioState;
+
   const missingSourceMode = params.missingSourceMode ?? "relaxed";
   const plan = buildExportPlan(material, {
     fallbackToLatestTake: params.fallbackToLatestTake,
     missingSourceMode,
+    subtitleState,
+    audioState,
   });
-  if (plan.segments.length === 0) {
+  if (plan.totalFrames <= 0) {
     return {
       status: "error",
-      error: "时间轴上没有可导出的镜头（每个镜头需要有可用的当前视频）",
+      error: "时间轴上没有可导出的画面、字幕或声音",
     };
   }
   const missingParts = plan.parts.filter(part => part.kind === "missing");
@@ -658,6 +1069,8 @@ export async function exportStoryTimeline(params: {
   await fs.promises.mkdir(workDir, { recursive: true });
   const key = `export-${params.storyId}-${stamp}.mp4`;
   const outputPath = path.join(dir, key);
+  const visualMasterPath = path.join(workDir, "visual-master.mp4");
+  const mediaDiagnostics: string[] = [];
 
   try {
     const parts: string[] = [];
@@ -671,7 +1084,7 @@ export async function exportStoryTimeline(params: {
       // 规格和真实片段完全一致，concat 时才不会串流失败。
       if (planned.kind !== "source") {
         await runFfmpeg(
-          blackSilenceArgs({
+          blackVideoArgs({
             durationSec: planned.durationSec,
             dims,
             output: part,
@@ -689,7 +1102,7 @@ export async function exportStoryTimeline(params: {
           throw new Error(`镜头 ${seg.shotNo} 的本地文件缺失`);
         }
         await runFfmpeg(
-          blackSilenceArgs({
+          blackVideoArgs({
             durationSec: seg.durationSec,
             dims,
             output: part,
@@ -699,7 +1112,8 @@ export async function exportStoryTimeline(params: {
         parts.push(part);
         continue;
       }
-      // 归一化：统一分辨率（等比缩放+补边）、30fps、yuv420p、48k 立体声（缺音补静音）。
+      // 视觉 master 必须严格无音轨。视频原声会在 shared AudioMixPlan
+      // 中作为 visual-source 进入最后一次 mix，不能在这里先带一份。
       await runFfmpeg(
         [
           "-y",
@@ -709,74 +1123,23 @@ export async function exportStoryTimeline(params: {
           seg.sourceDurationSec.toFixed(3),
           "-i",
           src,
-          "-f",
-          "lavfi",
-          "-t",
-          seg.durationSec.toFixed(3),
-          "-i",
-          "anullsrc=channel_layout=stereo:sample_rate=48000",
           "-filter_complex",
-          `[0:v]${videoFilters(seg, dims)}[outv];` +
-            `[0:a]${audioFilters(seg)}[a0]`,
+          `[0:v]${videoFilters(seg, dims)}[outv]`,
           "-map",
           "[outv]",
-          "-map",
-          "[a0]?",
-          "-map",
-          "[a0]",
           "-c:v",
           "libx264",
           "-preset",
           "veryfast",
           "-crf",
           "19",
-          "-c:a",
-          "aac",
+          "-an",
           "-t",
           seg.durationSec.toFixed(3),
           part,
         ],
         120_000
-      ).catch(async err => {
-        // 音频滤镜对无音轨文件会失败：回退成纯静音配乐的简化命令。
-        await runFfmpeg(
-          [
-            "-y",
-            "-ss",
-            seg.startSec.toFixed(3),
-            "-t",
-            seg.sourceDurationSec.toFixed(3),
-            "-i",
-            src,
-            "-f",
-            "lavfi",
-            "-t",
-            seg.durationSec.toFixed(3),
-            "-i",
-            "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-filter_complex",
-            `[0:v]${videoFilters(seg, dims)}[outv]`,
-            "-map",
-            "[outv]",
-            "-map",
-            "1:a",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "19",
-            "-c:a",
-            "aac",
-            "-t",
-            seg.durationSec.toFixed(3),
-            part,
-          ],
-          120_000
-        ).catch(() => {
-          throw err;
-        });
-      });
+      );
       parts.push(part);
     }
     if (parts.length === 0) {
@@ -799,10 +1162,45 @@ export async function exportStoryTimeline(params: {
         listPath,
         "-c",
         "copy",
-        outputPath,
+        "-an",
+        visualMasterPath,
       ],
       120_000
     );
+
+    const visualSources = buildExportVisualAudioSources(material);
+    const audioPlan = buildAudioMixPlan({ audioState, visualSources });
+    const legacyAudioPaths = hasFormalAudio
+      ? undefined
+      : await downloadLegacyAudioForExport({
+          sources: legacyMedia.audioSources,
+          workDir,
+          missingSourceMode,
+          diagnostics: mediaDiagnostics,
+        });
+    const resolvedAudioInputs = await resolveExportAudioInputs({
+      storyId: params.storyId,
+      userId: params.userId,
+      audioPlan,
+      visualSources,
+      videoDirectory: dir,
+      missingSourceMode,
+      diagnostics: mediaDiagnostics,
+      assetFilePaths: legacyAudioPaths,
+      projectedAssetIds: hasFormalAudio
+        ? undefined
+        : new Set(legacyMedia.audioSources.map(source => source.assetId)),
+    });
+    await composeTimelineMedia({
+      visualMasterPath,
+      outputPath,
+      workDir,
+      totalFrames: plan.totalFrames,
+      dimensions: dims,
+      subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+      audioPlan,
+      resolvedAudioInputs,
+    });
 
     // 成片长度就是解析出来的最大结束时间——空档和占位都占满了它们那份时间。
     const totalSec = plan.totalSec;
@@ -813,8 +1211,10 @@ export async function exportStoryTimeline(params: {
       durationSec: Math.round(totalSec * 10) / 10,
       segmentCount: parts.length,
       skipped: plan.skipped,
+      ...(mediaDiagnostics.length > 0 ? { mediaDiagnostics } : {}),
     };
   } catch (error) {
+    await fs.promises.rm(outputPath, { force: true }).catch(() => {});
     return {
       status: "error",
       error: error instanceof Error ? error.message : "导出失败",

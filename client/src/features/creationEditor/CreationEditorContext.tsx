@@ -1683,6 +1683,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.undoStoryOperation.useMutation();
   const undoVisualEditReceiptMut =
     trpc.creationAgent.undoVisualEditReceipt.useMutation();
+  const undoMediaEditMut =
+    trpc.timelineMedia.undoLatestMediaEdit.useMutation();
   const activateVisualEditSessionMut =
     trpc.creationAgent.activateVisualEditSession.useMutation();
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
@@ -3576,9 +3578,14 @@ export function CreationEditorProvider({
         try {
           if (entry.kind === "timeline-command") {
             // 回退由服务端完成：客户端这一格只是占位，用来保住撤销顺序。
+            // 字幕/音轨命令走各自的媒体撤销日志，视觉命令走视觉日志。
+            const undoMutation =
+              entry.domain === "media"
+                ? undoMediaEditMut
+                : undoVisualEditReceiptMut;
             const ok = entry.receipt
               ? (
-                  await undoVisualEditReceiptMut.mutateAsync({
+                  await undoMutation.mutateAsync({
                     storyId: activeId,
                     operation: {
                       editorSessionEpoch: entry.receipt.editorSessionEpoch,
@@ -3626,6 +3633,7 @@ export function CreationEditorProvider({
   }, [
     activeId,
     undoVisualEditReceiptMut,
+    undoMediaEditMut,
     undoVisualEdit,
     saveTimelineItems,
     storyMaterialQuery,

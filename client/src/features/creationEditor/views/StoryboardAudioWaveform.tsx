@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  msToPx,
-  type TimelineViewport,
-} from "@shared/timelineViewport";
+import { msToPx, type TimelineViewport } from "@shared/timelineViewport";
 
 import {
   storyboardAudioPeaks,
@@ -27,6 +24,8 @@ export function storyboardAudioTimelineTotalMs(
 }
 
 const decodedAudioCache = new Map<string, Promise<AudioBuffer>>();
+const MAX_DECODED_AUDIO_CACHE_ENTRIES = 16;
+const bufferPeakCache = new WeakMap<AudioBuffer, Float32Array>();
 let audioDecodeContext: AudioContext | null = null;
 
 function sharedAudioDecodeContext(): AudioContext {
@@ -36,7 +35,11 @@ function sharedAudioDecodeContext(): AudioContext {
 
 function decodedAudio(url: string): Promise<AudioBuffer> {
   const cached = decodedAudioCache.get(url);
-  if (cached) return cached;
+  if (cached) {
+    decodedAudioCache.delete(url);
+    decodedAudioCache.set(url, cached);
+    return cached;
+  }
   const pending = fetch(url)
     .then(response => {
       if (!response.ok) throw new Error(`Audio ${response.status}`);
@@ -48,7 +51,28 @@ function decodedAudio(url: string): Promise<AudioBuffer> {
       throw error;
     });
   decodedAudioCache.set(url, pending);
+  while (decodedAudioCache.size > MAX_DECODED_AUDIO_CACHE_ENTRIES) {
+    const oldest = decodedAudioCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    decodedAudioCache.delete(oldest);
+  }
   return pending;
+}
+
+function fullBufferPeaks(buffer: AudioBuffer): Float32Array {
+  const cached = bufferPeakCache.get(buffer);
+  if (cached) return cached;
+  const buckets = Math.min(4_096, Math.max(96, buffer.length));
+  const channelPeaks = Array.from(
+    { length: Math.max(1, buffer.numberOfChannels) },
+    (_, channel) =>
+      storyboardAudioPeaks(buffer.getChannelData(channel), buckets)
+  );
+  const combined = Float32Array.from(channelPeaks[0], (_, index) =>
+    Math.max(...channelPeaks.map(peaks => peaks[index] ?? 0))
+  );
+  bufferPeakCache.set(buffer, combined);
+  return combined;
 }
 
 function clipPeaks(buffer: AudioBuffer, clip: StoryboardAudioClip): number[] {
@@ -58,28 +82,23 @@ function clipPeaks(buffer: AudioBuffer, clip: StoryboardAudioClip): number[] {
       ? clip.sourceOutMs
       : sourceStart + Math.max(0, clip.endMs - clip.startMs);
   const sourceEnd = Math.min(buffer.duration * 1000, requestedEnd);
-  const startSample = Math.min(
-    buffer.length,
-    Math.floor((sourceStart / 1000) * buffer.sampleRate)
-  );
-  const endSample = Math.max(
-    startSample,
-    Math.min(
-      buffer.length,
-      Math.ceil((sourceEnd / 1000) * buffer.sampleRate)
+  const fullPeaks = fullBufferPeaks(buffer);
+  const startBucket = Math.min(
+    Math.max(0, fullPeaks.length - 1),
+    Math.floor(
+      (sourceStart / Math.max(1, buffer.duration * 1_000)) * fullPeaks.length
     )
   );
-  const channelPeaks = Array.from(
-    { length: Math.max(1, buffer.numberOfChannels) },
-    (_, channel) =>
-      storyboardAudioPeaks(
-        buffer.getChannelData(channel).subarray(startSample, endSample),
-        96
+  const endBucket = Math.max(
+    startBucket + 1,
+    Math.min(
+      fullPeaks.length,
+      Math.ceil(
+        (sourceEnd / Math.max(1, buffer.duration * 1_000)) * fullPeaks.length
       )
+    )
   );
-  return channelPeaks[0].map((_, index) =>
-    Math.max(...channelPeaks.map(peaks => peaks[index] ?? 0))
-  );
+  return storyboardAudioPeaks(fullPeaks.subarray(startBucket, endBucket), 96);
 }
 
 function useStoryboardAudioPeaks(clip: StoryboardAudioClip): number[] | null {
@@ -110,6 +129,47 @@ function useStoryboardAudioPeaks(clip: StoryboardAudioClip): number[] | null {
   return peaks;
 }
 
+/**
+ * Waveform pixels only. Timeline placement, selection and edit handles belong
+ * to the caller so both the legacy read-only row and formal U6 audio clips can
+ * reuse one decode/cache implementation without sharing write semantics.
+ */
+export function StoryboardAudioWaveformFill({
+  clip,
+}: {
+  clip: StoryboardAudioClip;
+}) {
+  const peaks = useStoryboardAudioPeaks(clip);
+  return (
+    <>
+      <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-current opacity-20" />
+      {peaks && peaks.length > 0 ? (
+        <svg
+          viewBox={`0 0 ${peaks.length * 2} 32`}
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-80"
+          aria-hidden="true"
+        >
+          {peaks.map((peak, index) => {
+            const height = Math.max(1, peak * 28);
+            return (
+              <rect
+                key={index}
+                x={index * 2 + 0.35}
+                y={16 - height / 2}
+                width="1.3"
+                height={height}
+                rx="0.65"
+                fill="currentColor"
+              />
+            );
+          })}
+        </svg>
+      ) : null}
+    </>
+  );
+}
+
 function clipTone(kind: StoryboardAudioClip["kind"]): string {
   if (kind === "voice") {
     return "border-emerald-500/45 bg-emerald-500/10 text-emerald-600";
@@ -133,7 +193,6 @@ function AudioClipWaveform({
   clip: StoryboardAudioClip;
   viewport: TimelineViewport;
 }) {
-  const peaks = useStoryboardAudioPeaks(clip);
   const placement = useMemo(() => {
     const totalMs = viewport.totalMs;
     if (!(totalMs > 0)) return null;
@@ -157,30 +216,7 @@ function AudioClipWaveform({
       title={`${clipKindLabel(clip.kind)} · ${clip.name}`}
       data-testid={`storyboard-audio-clip-${clip.id}`}
     >
-      <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-current opacity-20" />
-      {peaks && peaks.length > 0 ? (
-        <svg
-          viewBox={`0 0 ${peaks.length * 2} 32`}
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full opacity-80"
-          aria-hidden="true"
-        >
-          {peaks.map((peak, index) => {
-            const height = Math.max(1, peak * 28);
-            return (
-              <rect
-                key={index}
-                x={index * 2 + 0.35}
-                y={16 - height / 2}
-                width="1.3"
-                height={height}
-                rx="0.65"
-                fill="currentColor"
-              />
-            );
-          })}
-        </svg>
-      ) : null}
+      <StoryboardAudioWaveformFill clip={clip} />
       <span className="pointer-events-none absolute bottom-0 left-1 max-w-full truncate bg-[var(--background)]/70 px-1 font-mono text-[7px] leading-3">
         {clipKindLabel(clip.kind)} · {clip.name.replace(/\.[^.]+$/, "")}
       </span>
@@ -202,8 +238,7 @@ export function StoryboardAudioTrack({
     <div
       className="relative h-12 min-w-0 overflow-hidden border-b border-r bg-muted/15"
       style={{
-        borderColor:
-          "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+        borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
       aria-label="声音强弱与停顿波形"
       data-testid="storyboard-audio-track"

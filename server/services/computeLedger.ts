@@ -11,6 +11,8 @@ import {
   findActiveCreditHold,
   findBillingOperation,
   getCreditAccountSummary,
+  listProviderAttemptsForOperation,
+  recordProviderAttempt,
   reserveComputeCredit,
   type CreditAccountSummary,
 } from "../db";
@@ -20,6 +22,10 @@ import {
   type BillingOperationStatus,
   type ProviderOutcome,
 } from "./computeBilling";
+
+/** Provider-attempt persistence remains behind the compute-ledger seam. */
+export const recordOperationProviderAttempt = recordProviderAttempt;
+export const listOperationProviderAttempts = listProviderAttemptsForOperation;
 
 export type ReserveForOperationInput = {
   userId: number;

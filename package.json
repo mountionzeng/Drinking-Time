@@ -22,6 +22,7 @@
     "feature:validate": "tsx scripts/validate-feature-ledger.ts",
     "memory:backfill": "tsx scripts/backfill-personal-memory.ts",
     "migration:verify": "tsx scripts/verify-drizzle-migration-baseline.ts",
+    "backup:media": "tsx scripts/backup-local-media.ts",
     "test:mysql-integration": "tsx scripts/run-mysql-integration.ts",
     "fonts:verify:album": "tsx scripts/verify-publishing-album-fonts.ts",
     "format": "prettier --write .",

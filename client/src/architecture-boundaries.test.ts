@@ -68,8 +68,7 @@ const serverSourcesPromise = listFiles(serverRoot)
   .then(files =>
     files.filter(
       file =>
-        sourceExtensions.has(path.extname(file)) &&
-        !file.endsWith(".test.ts")
+        sourceExtensions.has(path.extname(file)) && !file.endsWith(".test.ts")
     )
   )
   .then(readSources);
@@ -246,16 +245,16 @@ describe("architecture boundaries", () => {
     ];
 
     for (const sample of shouldMatch) {
-      expect([sample, new RegExp(unnarrowedInvalidatePattern.source).test(sample)]).toEqual([
+      expect([
         sample,
-        true,
-      ]);
+        new RegExp(unnarrowedInvalidatePattern.source).test(sample),
+      ]).toEqual([sample, true]);
     }
     for (const sample of shouldNotMatch) {
-      expect([sample, new RegExp(unnarrowedInvalidatePattern.source).test(sample)]).toEqual([
+      expect([
         sample,
-        false,
-      ]);
+        new RegExp(unnarrowedInvalidatePattern.source).test(sample),
+      ]).toEqual([sample, false]);
     }
   });
 
@@ -268,7 +267,8 @@ describe("architecture boundaries", () => {
     // whole query cache first. A new login path that skips it silently
     // reintroduces cross-identity reads, so require the two to travel together.
     const sources = await activeSourcesPromise;
-    const loginEndpointPattern = /["'`][^"'`]*\/api\/auth\/[^"'`]*login[^"'`]*["'`]/;
+    const loginEndpointPattern =
+      /["'`][^"'`]*\/api\/auth\/[^"'`]*login[^"'`]*["'`]/;
     const violations: string[] = [];
 
     for (const { file, content } of sources) {
@@ -345,6 +345,11 @@ describe("architecture boundaries", () => {
     // Story+Timeline CAS。到期条件是这些能力下沉到独立 repository package，
     // 届时整体迁移本条，不得重新散回 editing services。
     "server/persistence/storyVisualPersistence.ts",
+    // U2：受管音频资产与 staged import 的领域 persistence。到期条件是这两条
+    // 能力下沉到独立 repository package（与 storyVisualPersistence 一并迁出），
+    // 届时整体迁移本组，不得散回各 editing/import 调用点。
+    "server/services/storyAudioAssets.ts",
+    "server/services/storyAudioImport.ts",
     // 抽帧 durable receipt 状态机的持久化 owner。到期条件是 receipt SQL/本地
     // 状态物理迁出 db.ts；迁移只能收窄这一条，不能让 workflow 直接 import db。
     "server/persistence/timelineFrameExtractionPersistence.ts",
@@ -418,7 +423,9 @@ describe("architecture boundaries", () => {
 
   it("does not leave stale entries in the direct-db baseline", async () => {
     const current = new Set(await currentDirectDbImporters());
-    const stale = [...directDbImportBaseline].filter(file => !current.has(file)).sort();
+    const stale = [...directDbImportBaseline]
+      .filter(file => !current.has(file))
+      .sort();
 
     // 这条失败是好消息：某个文件不再直接摸 db 了。请在同一个提交里把它从
     // 基线集合删掉——否则清单会烂掉，几个月后没人知道它还准不准。
@@ -439,10 +446,16 @@ describe("architecture boundaries", () => {
     ];
 
     for (const sample of shouldMatch) {
-      expect([sample, directDbImportPattern.test(sample)]).toEqual([sample, true]);
+      expect([sample, directDbImportPattern.test(sample)]).toEqual([
+        sample,
+        true,
+      ]);
     }
     for (const sample of shouldNotMatch) {
-      expect([sample, directDbImportPattern.test(sample)]).toEqual([sample, false]);
+      expect([sample, directDbImportPattern.test(sample)]).toEqual([
+        sample,
+        false,
+      ]);
     }
   });
 
@@ -469,7 +482,9 @@ describe("architecture boundaries", () => {
         if (!timelineItemsArrayPattern.test(line)) return;
         // 一个 items 数组的 zod 结构在本仓库里通常几十行；取 80 行窗口足够
         // 覆盖它，又不会跨到下一个 procedure 去误报。
-        const window = lines.slice(index, Math.min(lines.length, index + 80)).join("\n");
+        const window = lines
+          .slice(index, Math.min(lines.length, index + 80))
+          .join("\n");
         if (clientComputedPositionField.test(window)) {
           violations.push(`${repoPath}:${index + 1}`);
         }
@@ -506,21 +521,21 @@ describe("architecture boundaries", () => {
   // 行数是代理指标不是目标——把行搬到没有语义的 helper 里不算改善。
   const hotspotLineCeilings: Record<string, number> = {
     // 2026-08-24：上调 20 行。这不是「文件又长了」，是接线的最小成本——
-  // 时间标尺、缩放控件和时间视口都已抽到 StoryboardTimelineRuler.tsx，
-  // 留在本文件里的只有「调用两个组件 + 一个 hook」这 20 行，压不下去。
-  //
-  // 记在这里而不是默默改掉：这条守卫数的是原始行数，分不清 20 行接线和
-  // 200 行新职责。它拦住我两次都是对的（第一次 4337 行、第二次 5715 行，
-  // 两次都靠把代码放回该在的地方解决），这一次是它的口径不够细。
-  //
-  // 到期条件：底部时间线（EditingNleWorkspace，4425 行）删除后，本文件会
-  // 接手它的部分职责或一并瘦身，届时重新丈量并把基线压回去。
-  "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx": 5632,
+    // 时间标尺、缩放控件和时间视口都已抽到 StoryboardTimelineRuler.tsx，
+    // 留在本文件里的只有「调用两个组件 + 一个 hook」这 20 行，压不下去。
+    //
+    // 记在这里而不是默默改掉：这条守卫数的是原始行数，分不清 20 行接线和
+    // 200 行新职责。它拦住我两次都是对的（第一次 4337 行、第二次 5715 行，
+    // 两次都靠把代码放回该在的地方解决），这一次是它的口径不够细。
+    //
+    // 到期条件：底部时间线（EditingNleWorkspace，4425 行）删除后，本文件会
+    // 接手它的部分职责或一并瘦身，届时重新丈量并把基线压回去。
+    "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx": 5632,
     "client/src/features/storyAgent/StoryAgentContext.tsx": 4528,
     // 2026-08-24：4425 → 3014。删除 MultiTrackTimeline（1282 行）后的实测值。
-  // 上一版曾临时上调到 4464 放行时钟接线，到期条件就是这次删除——现在兑现，
-  // 直接压到实际行数，不许退回 4425。
-  "client/src/features/creationEditor/views/EditingNleWorkspace.tsx": 3014,
+    // 上一版曾临时上调到 4464 放行时钟接线，到期条件就是这次删除——现在兑现，
+    // 直接压到实际行数，不许退回 4425。
+    "client/src/features/creationEditor/views/EditingNleWorkspace.tsx": 3014,
     "client/src/features/creationEditor/CreationEditorContext.tsx": 4329,
     "client/src/features/creationEditor/views/StoryboardEditRow.tsx": 3992,
     "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx": 3305,
@@ -535,7 +550,9 @@ describe("architecture boundaries", () => {
       // 数出来的，差一会让人以为文件凭空长了一行。
       const lines = content.replace(/\n$/, "").split("\n").length;
       if (lines > ceiling) {
-        overflows.push(`${repoPath}: ${lines} 行 > 基线 ${ceiling}（+${lines - ceiling}）`);
+        overflows.push(
+          `${repoPath}: ${lines} 行 > 基线 ${ceiling}（+${lines - ceiling}）`
+        );
       }
     }
 
@@ -552,6 +569,25 @@ describe("architecture boundaries", () => {
     hiddenVisualLayerSet: "shared/timelineVisualPriority.ts",
     normalizeShotIdentity: "shared/shotIdentity.ts",
     isRecoverablePublishingCoverGeneration: "shared/publishingDraft.ts",
+    // U1: exactly one codec understands the persisted Story Timeline envelope
+    // (items + overlays + visualLayerState + non-visual extension slices).
+    decodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
+    encodeStoredStoryTimeline: "server/persistence/storyTimelinePersistence.ts",
+    // U3: one subtitle model + resolver; one media-duration function.
+    initializeSubtitleCues: "shared/timelineSubtitleModel.ts",
+    normalizeSubtitleState: "shared/timelineSubtitleModel.ts",
+    resolveSubtitleCuesAtFrame: "shared/timelineSubtitleModel.ts",
+    timelineMediaTotalFrames: "shared/timelineMediaDuration.ts",
+    // U9: one audio model + resolver; one speech-binding model.
+    normalizeAudioState: "shared/timelineAudioModel.ts",
+    resolveAudioClipsAtFrame: "shared/timelineAudioModel.ts",
+    bindSpeech: "shared/timelineSpeechBinding.ts",
+    moveBoundSpeech: "shared/timelineSpeechBinding.ts",
+    // U10: one subtitle render plan, one audio mix plan, one media controller.
+    buildSubtitleRenderPlan: "shared/timelineSubtitleModel.ts",
+    buildAudioMixPlan: "shared/timelineAudioModel.ts",
+    useTimelineMediaController:
+      "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts",
   };
 
   it("keeps one authoritative implementation per cross-cutting semantic", async () => {
@@ -574,7 +610,9 @@ describe("architecture boundaries", () => {
         .sort();
 
       if (owners.length !== 1 || owners[0] !== owner) {
-        violations.push(`${symbol}: 期望只由 ${owner} 导出，实际 ${JSON.stringify(owners)}`);
+        violations.push(
+          `${symbol}: 期望只由 ${owner} 导出，实际 ${JSON.stringify(owners)}`
+        );
       }
     }
 
@@ -606,4 +644,144 @@ describe("architecture boundaries", () => {
     }
   });
 
+  // U1: the persisted-timeline encode is the one place a stored envelope is
+  // built. Only server/db.ts's thin wiring may call it; a service that reaches
+  // for it is hand-writing a save object and can silently drop a subtitle or
+  // audio slice — exactly what the single codec exists to prevent. Decode is
+  // safe to reuse widely (it never drops anything), so it is not restricted.
+  const storedTimelineEncodeImporterAllowlist = new Set([
+    "server/db.ts",
+    "server/persistence/storyTimelinePersistence.ts",
+  ]);
+
+  it("keeps timelineMedia narrow-command input free of version and full arrays", async () => {
+    const serverSources = await serverSourcesPromise;
+    const routerFile = serverSources.find(({ file }) =>
+      toRepoPath(file).endsWith("server/routers/timelineMedia.ts")
+    );
+    expect(
+      routerFile,
+      "server/routers/timelineMedia.ts should exist"
+    ).toBeDefined();
+    // Strip comments so the guard checks real code, not the file's own prose.
+    const code = routerFile!.content
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|\s)\/\/.*$/gm, "$1");
+    // R12: the client sends identity + intent only.
+    expect(/\bexpected(?:Version|TimelineVersion)\s*[:,]/.test(code)).toBe(
+      false
+    );
+    expect(/\bsubtitleTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+    expect(/\bitems\s*:\s*z\.array\(/.test(code)).toBe(false);
+    expect(/\baudioTracks\s*:\s*z\.array\(/.test(code)).toBe(false);
+  });
+
+  // U10: the legacy Story-body shapes stay READABLE (the audit shows 3 Stories
+  // still depend on them) but must never become a write target again. The
+  // formal Timeline extension slices are the only production write truth.
+  it("never writes subtitle or audio truth back into the legacy Story body", async () => {
+    const serverSources = await serverSourcesPromise;
+    const mediaWritePaths = new Set([
+      "server/services/timelineSubtitleEditing.ts",
+      "server/services/timelineAudioEditing.ts",
+      "server/routers/timelineMedia.ts",
+    ]);
+    // Assigning into chatCutImport / voiceAudio* would recreate the second
+    // source of truth this whole plan exists to remove.
+    const legacyWritePattern =
+      /\b(?:chatCutImport|voiceAudio[A-Za-z]*)\s*[:=]/;
+    const violations = serverSources
+      .filter(({ file }) => mediaWritePaths.has(toRepoPath(file)))
+      .filter(({ content }) => legacyWritePattern.test(content))
+      .map(({ file }) => toRepoPath(file));
+
+    expect(violations).toEqual([]);
+  });
+
+  // U9: audio selection is by explicit id + track kind only. The audio model
+  // and its writer must never classify by filename, and must never pull in the
+  // visual winner comparator — overlapping sounds all mix, they don't "win".
+  it("keeps the audio write path free of filename classification and visual-winner logic", async () => {
+    const serverSources = await serverSourcesPromise;
+    const sharedSources = await sharedSourcesPromise;
+    const audioPaths = new Set([
+      "shared/timelineAudioModel.ts",
+      "shared/timelineSpeechBinding.ts",
+      "server/services/timelineAudioEditing.ts",
+    ]);
+    const filenameClassificationPattern =
+      /\b(?:endsWith\(["'`]\.mp3|\.wav\b|classifyByName|guess(?:Music|Kind)FromName|fileName\s*\.\s*includes)\b/i;
+    const visualWinnerImportPattern =
+      /from\s+["'][^"']*timelineVisualPriority["']|\bpickVisualWinner\b|\bcompareVisualPriority\b/;
+    const violations: string[] = [];
+    for (const { file, content } of [...serverSources, ...sharedSources]) {
+      const repoPath = toRepoPath(file);
+      if (!audioPaths.has(repoPath)) continue;
+      if (filenameClassificationPattern.test(content)) {
+        violations.push(`${repoPath}: filename classification`);
+      }
+      if (visualWinnerImportPattern.test(content)) {
+        violations.push(`${repoPath}: visual-winner logic`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // U6: rows and inspectors only collect intents. Kind-specific fields and
+  // add labels must come from the capability registry, while tRPC and full
+  // document writes stay inside the controller/server boundary.
+  it("keeps timeline-media UI on the capability registry and out of persistence", async () => {
+    const clientSources = await activeSourcesPromise;
+    const uiPaths = new Set([
+      "client/src/features/creationEditor/timelineMedia/AddTimelineMediaMenu.tsx",
+      "client/src/features/creationEditor/timelineMedia/AudioTrackRow.tsx",
+      "client/src/features/creationEditor/timelineMedia/TimelineMediaInspector.tsx",
+    ]);
+    const violations: string[] = [];
+    for (const { file, content } of clientSources) {
+      const repoPath = toRepoPath(file);
+      if (!uiPaths.has(repoPath)) continue;
+      if (!content.includes("timelineMediaCapabilities")) {
+        violations.push(`${repoPath}: bypasses capability registry`);
+      }
+      if (/\btrpc\.|\bexpectedVersion\b|\baudioTracks\s*:/.test(content)) {
+        violations.push(`${repoPath}: owns persistence`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // R8: 改字是零付费路径。字幕写入口一旦碰到 provider / 计费账本，就说明打字或
+  // 保存可能触发付费生成 —— U5 的旁白生成必须是**另一条**明确的命令。
+  it("keeps the subtitle write path free of provider and billing imports", async () => {
+    const serverSources = await serverSourcesPromise;
+    const subtitleWritePaths = new Set([
+      "server/services/timelineSubtitleEditing.ts",
+      "server/routers/timelineMedia.ts",
+    ]);
+    const paidDependencyPattern =
+      /from\s+["'][^"']*(?:computeLedger|storyVoice302|billing|creditHold|provider(?:Attempts|Routing))/i;
+    const violations = serverSources
+      .filter(({ file }) => subtitleWritePaths.has(toRepoPath(file)))
+      .filter(({ content }) => paidDependencyPattern.test(content))
+      .map(({ file }) => toRepoPath(file));
+
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps the persisted-timeline encode behind server/db.ts wiring", async () => {
+    const [sharedSources, serverSources, clientSources] = await Promise.all([
+      sharedSourcesPromise,
+      serverSourcesPromise,
+      activeSourcesPromise,
+    ]);
+    const encodeReferencePattern = /\bencodeStoredStoryTimeline\b/;
+    const violations = [...sharedSources, ...serverSources, ...clientSources]
+      .filter(({ content }) => encodeReferencePattern.test(content))
+      .map(({ file }) => toRepoPath(file))
+      .filter(repoPath => !storedTimelineEncodeImporterAllowlist.has(repoPath))
+      .sort();
+
+    expect(violations).toEqual([]);
+  });
 });

@@ -127,6 +127,13 @@
       "when": 1788426026547,
       "tag": "migrations/0017_personal_memory_daily_letter_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1788517075980,
+      "tag": "migrations/0018_story_audio_assets",
+      "breakpoints": true
     }
   ]
 }

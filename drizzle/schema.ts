@@ -719,8 +719,12 @@ export const storyConversationTurns = mysqlTable(
       .references(() => users.id, { onDelete: "cascade" }),
     clientTurnId: varchar("clientTurnId", { length: 128 }).notNull(),
     requestHash: varchar("requestHash", { length: 128 }).notNull(),
-    userClientMessageId: varchar("userClientMessageId", { length: 128 }).notNull(),
-    assistantClientMessageId: varchar("assistantClientMessageId", { length: 128 }).notNull(),
+    userClientMessageId: varchar("userClientMessageId", {
+      length: 128,
+    }).notNull(),
+    assistantClientMessageId: varchar("assistantClientMessageId", {
+      length: 128,
+    }).notNull(),
     userContent: text("userContent").notNull(),
     assistantContent: text("assistantContent"),
     generationStatus: mysqlEnum("generationStatus", [
@@ -728,7 +732,9 @@ export const storyConversationTurns = mysqlTable(
       "completed",
       "failed",
       "unknown",
-    ]).default("pending").notNull(),
+    ])
+      .default("pending")
+      .notNull(),
     appendStatus: mysqlEnum("appendStatus", ["pending", "appended"])
       .default("pending")
       .notNull(),
@@ -754,11 +760,7 @@ export const storyConversationTurns = mysqlTable(
     ),
     assistantMessage: uniqueIndex(
       "story_conversation_turns_assistant_message_unique"
-    ).on(
-      table.storyId,
-      table.userId,
-      table.assistantClientMessageId
-    ),
+    ).on(table.storyId, table.userId, table.assistantClientMessageId),
     conversationOrder: index("story_conversation_turns_order").on(
       table.conversationId,
       table.id
@@ -1148,6 +1150,158 @@ export type InsertTimelineFrameExtractionOperation =
   typeof timelineFrameExtractionOperations.$inferInsert;
 
 /**
+ * StoryAudioAsset (U2) — the managed audio bytes boundary. A Timeline audio
+ * clip only ever holds a non-owning `assetId`; deleting/undoing a clip must
+ * never touch the row or the file here. `storageKey` is opaque and minted
+ * server-side (see server/services/audioMedia.ts); `checksum` + `sourceKey`
+ * give per-Story idempotent reuse of a `ready` asset.
+ */
+export const storyAudioAssets = mysqlTable(
+  "story_audio_assets",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storageKey: varchar("storageKey", { length: 64 }).notNull(),
+    displayName: varchar("displayName", { length: 200 }).notNull(),
+    /** Semantic role hint recorded at import; the Timeline track owns the real kind. */
+    mediaKind: mysqlEnum("mediaKind", [
+      "narration",
+      "music",
+      "ambience",
+      "sfx",
+      "source",
+      "unknown",
+    ])
+      .notNull()
+      .default("unknown"),
+    sourceKind: mysqlEnum("sourceKind", [
+      "local-upload",
+      "chatcut",
+      "tts",
+    ]).notNull(),
+    /** Stable identity of the upstream bytes, for idempotent reuse within a Story. */
+    sourceKey: varchar("sourceKey", { length: 255 }),
+    checksum: varchar("checksum", { length: 64 }),
+    status: mysqlEnum("status", ["pending", "ready", "failed"])
+      .notNull()
+      .default("pending"),
+    failureReason: varchar("failureReason", { length: 255 }),
+    durationFrames: int("durationFrames"),
+    durationSeconds: float("durationSeconds"),
+    sampleRate: int("sampleRate"),
+    channels: int("channels"),
+    codecName: varchar("codecName", { length: 64 }),
+    formatName: varchar("formatName", { length: 128 }),
+    /** Source-kind specific provenance (TTS operation, ChatCut clip id, upload name). */
+    provenance: json("provenance"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyLookup: index("story_audio_assets_story_index").on(
+      table.storyId,
+      table.userId
+    ),
+    storageKeyUnique: uniqueIndex("story_audio_assets_storage_key_unique").on(
+      table.storageKey
+    ),
+    reuseLookup: index("story_audio_assets_reuse_index").on(
+      table.storyId,
+      table.userId,
+      table.sourceKind,
+      table.sourceKey
+    ),
+    idUserUnique: uniqueIndex("story_audio_assets_id_user_unique").on(
+      table.id,
+      table.userId
+    ),
+    idOwnerUnique: uniqueIndex("story_audio_assets_id_owner_unique").on(
+      table.id,
+      table.userId,
+      table.storyId
+    ),
+  })
+);
+
+export type StoryAudioAsset = typeof storyAudioAssets.$inferSelect;
+export type InsertStoryAudioAsset = typeof storyAudioAssets.$inferInsert;
+
+/**
+ * The recoverable staged-import state machine for one set of audio bytes. The
+ * filesystem and the DB never pretend to share a transaction: this row is the
+ * single source of truth a crash recovery pass reads to replay, compensate, or
+ * clean up.
+ */
+export const storyAudioImportOperations = mysqlTable(
+  "story_audio_import_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationId: varchar("operationId", { length: 128 }).notNull(),
+    /** Immutable digest of the request represented by operationId. */
+    requestDigest: varchar("requestDigest", { length: 64 }).notNull(),
+    assetId: int("assetId"),
+    sourceKind: mysqlEnum("sourceKind", [
+      "local-upload",
+      "chatcut",
+      "tts",
+    ]).notNull(),
+    /** pending -> staged -> probed -> ready | failed */
+    status: mysqlEnum("status", [
+      "pending",
+      "staged",
+      "probed",
+      "ready",
+      "failed",
+    ])
+      .notNull()
+      .default("pending"),
+    failureCode: varchar("failureCode", { length: 128 }),
+    stagingKey: varchar("stagingKey", { length: 128 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerOperationUnique: uniqueIndex(
+      "story_audio_import_owner_operation_unique"
+    ).on(table.storyId, table.userId, table.operationId),
+    recoveryLookup: index("story_audio_import_recovery_index").on(
+      table.status,
+      table.updatedAt
+    ),
+    assetOwnerLookup: index("story_audio_import_asset_owner_index").on(
+      table.assetId,
+      table.userId,
+      table.storyId
+    ),
+    assetOwnerFk: foreignKey({
+      columns: [table.assetId, table.userId, table.storyId],
+      foreignColumns: [
+        storyAudioAssets.id,
+        storyAudioAssets.userId,
+        storyAudioAssets.storyId,
+      ],
+      name: "story_audio_import_asset_owner_fk",
+    }).onDelete("cascade"),
+  })
+);
+
+export type StoryAudioImportOperation =
+  typeof storyAudioImportOperations.$inferSelect;
+export type InsertStoryAudioImportOperation =
+  typeof storyAudioImportOperations.$inferInsert;
+
+/**
  * VideoTakes — 单镜头图生视频产物。storyId + stableShotId 是唯一业务归属；
  * taskId 只是供应商任务句柄，videoKey 是后续托管素材库的对象 key。
  */
@@ -1446,10 +1600,9 @@ export const accountIdentities = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => ({
-    providerSubjectUnique: uniqueIndex("account_identities_provider_subject_unique").on(
-      table.provider,
-      table.subject
-    ),
+    providerSubjectUnique: uniqueIndex(
+      "account_identities_provider_subject_unique"
+    ).on(table.provider, table.subject),
     userIndex: index("account_identities_user_index").on(table.userId),
   })
 );
@@ -1543,10 +1696,9 @@ export const accountRateLimits = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => ({
-    scopeSubjectUnique: uniqueIndex("account_rate_limits_scope_subject_unique").on(
-      table.scope,
-      table.subject
-    ),
+    scopeSubjectUnique: uniqueIndex(
+      "account_rate_limits_scope_subject_unique"
+    ).on(table.scope, table.subject),
   })
 );
 
@@ -1586,7 +1738,9 @@ export const giftCards = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
-    codeHashUnique: uniqueIndex("gift_cards_code_hash_unique").on(table.codeHash),
+    codeHashUnique: uniqueIndex("gift_cards_code_hash_unique").on(
+      table.codeHash
+    ),
     legacyInviteUnique: uniqueIndex("gift_cards_legacy_invite_unique").on(
       table.legacyInviteCodeId
     ),
@@ -1616,9 +1770,13 @@ export const creditAccounts = mysqlTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     /** 已入账余额，微元 */
-    balanceMinor: bigint("balanceMinor", { mode: "number" }).default(0).notNull(),
+    balanceMinor: bigint("balanceMinor", { mode: "number" })
+      .default(0)
+      .notNull(),
     /** 活动预占合计，微元 */
-    reservedMinor: bigint("reservedMinor", { mode: "number" }).default(0).notNull(),
+    reservedMinor: bigint("reservedMinor", { mode: "number" })
+      .default(0)
+      .notNull(),
     /** 累计消费，微元，只增不减 */
     lifetimeSpentMinor: bigint("lifetimeSpentMinor", { mode: "number" })
       .default(0)
@@ -1673,9 +1831,9 @@ export const creditLedgerEntries = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
-    idempotencyUnique: uniqueIndex("credit_ledger_entries_idempotency_unique").on(
-      table.idempotencyKey
-    ),
+    idempotencyUnique: uniqueIndex(
+      "credit_ledger_entries_idempotency_unique"
+    ).on(table.idempotencyKey),
     userOrderIndex: index("credit_ledger_entries_user_order_index").on(
       table.userId,
       table.id
@@ -1818,14 +1976,12 @@ export const providerAttempts = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => ({
-    operationAttemptUnique: uniqueIndex("provider_attempts_operation_attempt_unique").on(
-      table.billingOperationId,
-      table.attemptIndex
-    ),
-    providerTaskUnique: uniqueIndex("provider_attempts_provider_task_unique").on(
-      table.provider,
-      table.providerTaskId
-    ),
+    operationAttemptUnique: uniqueIndex(
+      "provider_attempts_operation_attempt_unique"
+    ).on(table.billingOperationId, table.attemptIndex),
+    providerTaskUnique: uniqueIndex(
+      "provider_attempts_provider_task_unique"
+    ).on(table.provider, table.providerTaskId),
     statusIndex: index("provider_attempts_status_index").on(table.status),
   })
 );
@@ -1848,7 +2004,9 @@ export const rechargeRequests = mysqlTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     /** 用户申请金额，微元 */
-    requestedAmountMinor: bigint("requestedAmountMinor", { mode: "number" }).notNull(),
+    requestedAmountMinor: bigint("requestedAmountMinor", {
+      mode: "number",
+    }).notNull(),
     /** 管理员实际批准金额，微元；拒绝时为空 */
     approvedAmountMinor: bigint("approvedAmountMinor", { mode: "number" }),
     status: mysqlEnum("status", ["pending", "approved", "rejected"])
@@ -1901,15 +2059,15 @@ export const dataMigrationReceipts = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
-    sourceBatchUnique: uniqueIndex("data_migration_receipts_source_batch_unique").on(
-      table.sourceKey,
-      table.batchKey
-    ),
+    sourceBatchUnique: uniqueIndex(
+      "data_migration_receipts_source_batch_unique"
+    ).on(table.sourceKey, table.batchKey),
   })
 );
 
 export type DataMigrationReceipt = typeof dataMigrationReceipts.$inferSelect;
-export type InsertDataMigrationReceipt = typeof dataMigrationReceipts.$inferInsert;
+export type InsertDataMigrationReceipt =
+  typeof dataMigrationReceipts.$inferInsert;
 
 // ─── 个人记忆（U1 数据合同）────────────────────────────────────────────
 //
@@ -2113,7 +2271,10 @@ export const personalMemoryEvidence = mysqlTable(
     ),
     insightFk: foreignKey({
       columns: [table.insightId, table.userId],
-      foreignColumns: [personalMemoryInsights.id, personalMemoryInsights.userId],
+      foreignColumns: [
+        personalMemoryInsights.id,
+        personalMemoryInsights.userId,
+      ],
       name: "personal_memory_evidence_insight_fk",
     }),
     eventFk: foreignKey({

@@ -34,6 +34,31 @@ function timeline(durationMs: number): StoryTimelineItem[] {
 beforeEach(clearTimelineUndoForTesting);
 
 describe("timelineUndoStore", () => {
+  // U1: the client-side snapshot is visual-only. Subtitle/audio undo lives in
+  // the server journal, never here — a round trip must not invent or carry a
+  // non-visual slice.
+  it("round-trips a timeline snapshot with only visual keys", () => {
+    activateTimelineUndoSession(3, "tab-a");
+    recordTimelineUndoSnapshot(3, timeline(1_000), {
+      visualLayerState: { count: 2, hidden: [1] },
+      overlays: [
+        {
+          id: "overlay-a",
+          transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+        } as never,
+      ],
+    });
+
+    const entry = takeCreationEditorUndoEntry(3);
+    expect(entry?.kind).toBe("timeline");
+    expect(Object.keys(entry ?? {}).sort()).toEqual([
+      "items",
+      "kind",
+      "overlays",
+      "visualLayerState",
+    ]);
+  });
+
   it("keeps the concrete server receipt on a command undo entry", () => {
     activateTimelineUndoSession(7, "tab-a");
     recordTimelineCommandUndo(7, {
@@ -48,6 +73,7 @@ describe("timelineUndoStore", () => {
 
     expect(takeCreationEditorUndoEntry(7)).toEqual({
       kind: "timeline-command",
+      domain: "visual",
       receipt: {
         editorSessionEpoch: "tab-a",
         operationId: "paste-a",
@@ -57,6 +83,28 @@ describe("timelineUndoStore", () => {
         status: "available",
         order: 9,
       },
+    });
+  });
+
+  it("tags a media command undo entry so Cmd+Z can route it to the media journal", () => {
+    activateTimelineUndoSession(8, "tab-a");
+    recordTimelineCommandUndo(
+      8,
+      {
+        editorSessionEpoch: "tab-a",
+        operationId: "subtitle-edit",
+        storyId: 8,
+        beforeTimelineVersion: 1,
+        afterTimelineVersion: 2,
+        status: "available",
+        order: 1,
+      },
+      "media"
+    );
+    expect(takeCreationEditorUndoEntry(8)).toMatchObject({
+      kind: "timeline-command",
+      domain: "media",
+      receipt: { operationId: "subtitle-edit" },
     });
   });
 

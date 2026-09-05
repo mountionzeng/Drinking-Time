@@ -769,3 +769,252 @@ describe("Story and Timeline aggregate CAS", () => {
     ).toMatchObject({ marker: "successful-after-legacy-failure" });
   });
 });
+
+// U1: no subtitle or audio business model exists yet. These sentinel slices
+// stand in for the real ones (U3 subtitles, U9 audio) and prove that every
+// existing writer round-trips unknown top-level slices instead of silently
+// dropping them the way the hand-picked three-field codec used to.
+describe("timeline extension slices survive every visual writer (U1 sentinels)", () => {
+  const SUBTITLE_SENTINEL = [
+    { id: "sub-1", startFrame: 0, durationFrames: 45, text: "第一句" },
+  ];
+  const AUDIO_SENTINEL = [
+    { kind: "music", clips: [{ id: "audio-clip-1", assetId: 42 }] },
+  ];
+
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+    vi.mocked(writeFile).mockClear();
+  });
+
+  async function seedTimelineWithSentinels(title: string) {
+    const story = await createStory({
+      userId: 1,
+      title,
+      body: { _revision: 1, shots: [{ shotNo: 1, stableShotId: "shot-a" }] },
+    });
+    const timeline = await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-a", included: true, position: 0 }],
+      overlays: [{ id: "overlay-a" }],
+      visualLayerState: { count: 3, hidden: [1] },
+      extensions: {
+        subtitleTracks: SUBTITLE_SENTINEL,
+        audioTracks: AUDIO_SENTINEL,
+      },
+    });
+    expect(timeline).toMatchObject({
+      version: 1,
+      extensions: {
+        subtitleTracks: SUBTITLE_SENTINEL,
+        audioTracks: AUDIO_SENTINEL,
+      },
+    });
+    return { storyId: story.id, timeline };
+  }
+
+  async function storedExtensions(storyId: number) {
+    const row = (await getStoryTimeline(storyId, 1)) as {
+      extensions?: Record<string, unknown>;
+    } | null;
+    return row?.extensions;
+  }
+
+  it("updateStoryTimeline visual-only edit keeps both sentinel slices", async () => {
+    const { storyId } = await seedTimelineWithSentinels("visual-only");
+
+    const updated = await updateStoryTimeline({
+      storyId,
+      userId: 1,
+      expectedVersion: 1,
+      items: [
+        { stableShotId: "shot-a", included: true, position: 0, stackOrder: 9 },
+      ],
+    });
+
+    expect(updated).toMatchObject({
+      version: 2,
+      overlays: [{ id: "overlay-a" }],
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    expect(await storedExtensions(storyId)).toEqual({
+      subtitleTracks: SUBTITLE_SENTINEL,
+      audioTracks: AUDIO_SENTINEL,
+    });
+  });
+
+  it("updateStoryTimeline replaces only the named slice and inherits the rest", async () => {
+    const { storyId } = await seedTimelineWithSentinels("slice-write");
+    const nextSubtitles = [
+      { id: "sub-2", startFrame: 90, durationFrames: 30, text: "改过的字幕" },
+    ];
+
+    await updateStoryTimeline({
+      storyId,
+      userId: 1,
+      expectedVersion: 1,
+      items: [{ stableShotId: "shot-a", included: true, position: 0 }],
+      extensions: { subtitleTracks: nextSubtitles },
+    });
+
+    expect(await storedExtensions(storyId)).toEqual({
+      subtitleTracks: nextSubtitles,
+      audioTracks: AUDIO_SENTINEL,
+    });
+  });
+
+  it("updateStoryAndTimelineAtomic visual replacement keeps sentinels even as it drops visualLayerState", async () => {
+    const { storyId } = await seedTimelineWithSentinels("aggregate-visual");
+
+    const result = await updateStoryAndTimelineAtomic({
+      storyId,
+      userId: 1,
+      expectedStoryRevision: 1,
+      expectedTimelineVersion: 1,
+      nextStoryBody: { _revision: 2, shots: [{ stableShotId: "shot-a" }] },
+      nextTimeline: {
+        items: [{ stableShotId: "shot-a", position: 0 }],
+        overlays: [],
+      },
+    });
+
+    // Existing contract: an omitted visualLayerState is not inherited.
+    expect(result.timeline).not.toHaveProperty("visualLayerState");
+    // U1 contract: extension slices ARE inherited by a visual-only write.
+    expect(result.timeline).toMatchObject({
+      extensions: {
+        subtitleTracks: SUBTITLE_SENTINEL,
+        audioTracks: AUDIO_SENTINEL,
+      },
+    });
+    expect(await storedExtensions(storyId)).toEqual({
+      subtitleTracks: SUBTITLE_SENTINEL,
+      audioTracks: AUDIO_SENTINEL,
+    });
+  });
+
+  it("applyStoryTimelineOverlayAtomic keeps sentinels while appending an overlay", async () => {
+    const { storyId, timeline } = await seedTimelineWithSentinels("apply-overlay");
+    const take = await createVideoTake({
+      storyId,
+      userId: 1,
+      stableShotId: "transition-shot",
+      sourceImageId: 1,
+      status: "available",
+      provider: "302",
+      model: "viduq2-turbo",
+      prompt: "overlay",
+      durationSec: 3,
+      aspectRatio: "1:1",
+      videoUrl: "/api/videos/take.mp4",
+      extractionCapability: "available",
+      parameterSnapshot: { appliedToTimeline: false },
+    });
+    const overlay = {
+      id: "overlay-b",
+      kind: "generated-video" as const,
+      takeId: take.id,
+      sourceStableShotId: "shot-a",
+      videoUrl: take.videoUrl!,
+      startFrame: 0,
+      targetEndFrame: 90,
+      mediaEndFrame: 80,
+      endFrame: 90,
+      stackOrder: 2,
+      leftImageId: 1,
+      rightImageId: 2,
+      transform: {},
+    };
+
+    const applied = await applyStoryTimelineOverlayAtomic({
+      storyId,
+      userId: 1,
+      takeId: take.id,
+      stableShotId: "transition-shot",
+      expectedStoryRevision: 1,
+      expectedVersion: timeline.version,
+      nextStoryBody: {
+        _revision: 2,
+        shots: [
+          { shotNo: 1, stableShotId: "shot-a" },
+          { shotNo: 2, stableShotId: "transition-shot" },
+        ],
+      },
+      nextTimelineItems: [
+        { stableShotId: "shot-a", included: true, position: 0 },
+        { stableShotId: "transition-shot", included: true, position: 1 },
+      ],
+      overlay,
+    });
+
+    expect(applied.applied).toBe(true);
+    expect(await storedExtensions(storyId)).toEqual({
+      subtitleTracks: SUBTITLE_SENTINEL,
+      audioTracks: AUDIO_SENTINEL,
+    });
+  });
+
+  it("restoreSplitStoryShotAtomic keeps sentinels through the preserving-items helper", async () => {
+    const story = await createStory({
+      userId: 1,
+      title: "split restore sentinels",
+      body: {
+        _revision: 2,
+        shots: [{ stableShotId: "left" }, { stableShotId: "split-right" }],
+      },
+    });
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [
+        { stableShotId: "left", position: 0 },
+        { stableShotId: "split-right", position: 1 },
+      ],
+      overlays: [{ id: "keep-me" }],
+      extensions: {
+        subtitleTracks: SUBTITLE_SENTINEL,
+        audioTracks: AUDIO_SENTINEL,
+      },
+    });
+
+    await restoreSplitStoryShotAtomic({
+      storyId: story.id,
+      userId: 1,
+      splitStableShotId: "split-right",
+      expectedStoryRevision: 2,
+      expectedTimelineVersion: 1,
+      nextStoryBody: { _revision: 3, shots: [{ stableShotId: "left" }] },
+      nextTimelineItems: [{ stableShotId: "left", position: 0 }],
+    });
+
+    const row = await getStoryTimeline(story.id, 1);
+    expect(row).toMatchObject({
+      overlays: [{ id: "keep-me" }],
+      items: [{ stableShotId: "left", position: 0 }],
+    });
+    expect(await storedExtensions(story.id)).toEqual({
+      subtitleTracks: SUBTITLE_SENTINEL,
+      audioTracks: AUDIO_SENTINEL,
+    });
+  });
+
+  it("a fresh timeline with no sentinels still stores the legacy bare shape", async () => {
+    const story = await createStory({
+      userId: 1,
+      title: "legacy bare",
+      body: { _revision: 1, shots: [{ stableShotId: "shot-a" }] },
+    });
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [{ stableShotId: "shot-a", position: 0 }],
+    });
+    const row = (await getStoryTimeline(story.id, 1)) as { items: unknown };
+    expect(Array.isArray(row.items)).toBe(true);
+    expect(await storedExtensions(story.id)).toBeUndefined();
+  });
+});

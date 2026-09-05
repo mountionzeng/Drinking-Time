@@ -1,9 +1,4 @@
-import {
-  Clapperboard,
-  FileUp,
-  Loader2,
-  Upload,
-} from "lucide-react";
+import { Clapperboard, FileUp, Loader2, Upload } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -74,6 +69,12 @@ import {
   useCreationEditor,
 } from "../CreationEditorContext";
 import { timelineMagneticJoins } from "@shared/timelineCommands";
+import { timelineMediaTotalFrames } from "@shared/timelineMediaDuration";
+import {
+  buildAudioMixPlan,
+  type AudioMixPlanInput,
+} from "@shared/timelineAudioModel";
+import { buildSubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 import type { CreationEditorShot } from "../types";
 import { stepTimelinePlayheadByFrames } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
@@ -99,6 +100,16 @@ import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
 import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransitionRequirementsDialog";
 import ShotPreview from "./ShotPreview";
+import { useTimelineMediaController } from "../timelineMedia/useTimelineMediaController";
+import { buildSubtitleCandidates } from "../timelineMedia/subtitleCandidates";
+import { TimelineAudioEngine } from "../timelineMedia/TimelineAudioEngine";
+import { buildBrowserVisualAudioSources } from "../timelineMedia/visualAudioSources";
+import type { SubtitleTrackBinding } from "../timelineMedia/SubtitleTrackRow";
+import type { AddTimelineMediaAction } from "../timelineMedia/AddTimelineMediaMenu";
+import {
+  TimelineAudioCreationDialog,
+  type TimelineAudioCreationRequest,
+} from "../timelineMedia/TimelineAudioCreationDialog";
 import {
   storyboardEditSelectionSummary,
   storyboardEditShouldFollowSelectionToShot,
@@ -380,7 +391,6 @@ function isVisualFile(file: File) {
   return /^(image|video)\//.test(mediaMime(file));
 }
 
-
 function EditingStoryboardPanel({
   onRelink,
   relinkProgress,
@@ -491,7 +501,6 @@ function EditingStoryboardPanel({
     </aside>
   );
 }
-
 
 type TimelineClipMoveTarget =
   | { kind: "shot"; stableShotId: string }
@@ -1055,11 +1064,119 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     timingRowsRef.current = timings;
   }, [timings]);
-  /** 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。 */
-  const boardTimelineTotalMs = useMemo(
-    () => storyboardTimingTotalMs(timings),
-    [timings]
+
+  /**
+   * 字幕轨（U3 窄命令的界面投影）。控制器挂在这一层而不是 CreationEditorContext：
+   * 需要的三样东西 —— extensions、会话 epoch、refetch —— 都已经在 context value 上，
+   * 而这里离故事版更近，也不让那个热点文件继续长领域逻辑。
+   */
+  const timelineMedia = useTimelineMediaController({
+    storyId: activeStoryId,
+    editorSessionEpoch: creationEditor.editorSessionEpoch,
+    extensions: creationEditor.materialState?.timeline.extensions,
+    onChanged: () => creationEditor.refetch(),
+  });
+  const localAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const [localAudioKind, setLocalAudioKind] = useState<
+    "music" | "ambience" | "sfx" | null
+  >(null);
+  const [audioCreationRequest, setAudioCreationRequest] =
+    useState<TimelineAudioCreationRequest | null>(null);
+  /**
+   * 「从当前文字生成字幕」的候选。只在用户点 CTA 时才落库 —— 这里算出来只用于
+   * 显示可不可用，页面加载与刷新不产生任何写入。
+   */
+  const subtitleCandidates = useMemo(() => {
+    const cueTexts = new Map(
+      (chatCutTimeline?.scriptCues ?? []).map(cue => [cue.code, cue.text])
+    );
+    const chatCutCues = chatCutTimeline
+      ? chatCutPlaybackAudioTracks(chatCutTimeline)
+          .flatMap(track => track.clips)
+          .flatMap(clip => {
+            const code = chatCutCueCode(clip.name);
+            const text = code ? cueTexts.get(code) : undefined;
+            return code && text
+              ? [{ code, text, startMs: clip.startMs, endMs: clip.endMs }]
+              : [];
+          })
+      : [];
+    return buildSubtitleCandidates({
+      chatCutCues,
+      shotDialogues: timings.flatMap(row => {
+        const dialogue = shots.find(
+          shot => shot.stableShotId === row.stableShotId
+        )?.dialogue;
+        return dialogue
+          ? [
+              {
+                stableShotId: row.stableShotId,
+                dialogue,
+                startMs: row.startMs,
+                endMs: row.endMs,
+              },
+            ]
+          : [];
+      }),
+      sourceTextRevision: creationEditor.materialState?.timeline.version ?? 0,
+    });
+  }, [
+    chatCutTimeline,
+    creationEditor.materialState?.timeline.version,
+    shots,
+    timings,
+  ]);
+  const subtitleBinding = useMemo<SubtitleTrackBinding>(
+    () => ({
+      cues: timelineMedia.cues,
+      selectedCueId: timelineMedia.selectedCueId,
+      onSelectCue: timelineMedia.selectCue,
+      pending: timelineMedia.pending,
+      error: timelineMedia.lastError,
+      candidates: subtitleCandidates,
+      onGenerateFromText: () =>
+        timelineMedia.initializeSubtitles([...subtitleCandidates]),
+      onEditText: timelineMedia.editSubtitleText,
+      onMove: timelineMedia.moveSubtitleCue,
+      onTrim: timelineMedia.trimSubtitleCue,
+      onSplit: timelineMedia.splitSubtitleCue,
+      onMerge: timelineMedia.mergeSubtitleCue,
+      onDelete: timelineMedia.deleteSubtitleCue,
+    }),
+    [subtitleCandidates, timelineMedia]
   );
+  const storyboardAudioClips = useMemo(
+    () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
+    [activeStoryId, chatCutTimeline]
+  );
+  /**
+   * 视觉、正式字幕、正式音频和 legacy fallback 共用一个最大尾点。
+   * 音频晚于最后画面时播放头仍能走完整段，不会被视觉时长截断。
+   */
+  const boardTimelineTotalMs = useMemo(() => {
+    const visualMs = storyboardTimingTotalMs(timings);
+    const visualEndFrame = Math.max(
+      0,
+      ...timings.map(row => Math.round((row.endMs * 30) / 1_000))
+    );
+    const formalMediaMs = timelineFramesToMs(
+      timelineMediaTotalFrames({
+        visualEndFrame,
+        subtitleState: timelineMedia.subtitleState,
+        audioState: timelineMedia.audioState,
+      })
+    );
+    const legacyAudioMs = timelineMedia.audioSlicePresent
+      ? 0
+      : storyboardAudioTimelineTotalMs(storyboardAudioClips);
+    return Math.max(visualMs, formalMediaMs, legacyAudioMs);
+  }, [
+    storyboardAudioClips,
+    timelineMedia.audioSlicePresent,
+    timelineMedia.audioState,
+    timelineMedia.subtitleState,
+    timings,
+  ]);
   /**
    * 播放时钟提到这一层。以前它长在底部时间线里，故事版的播放键只能隔着
    * playbackRequest 这层 id 握手去「请求」它——2026-08-24 实测这条链路是断的：
@@ -1095,6 +1212,56 @@ export default function EditingNleWorkspace({
     totalMs: boardTimelineTotalMs,
     onPlayheadCommit: selectShotFromPlayhead,
   });
+  const subtitleRenderPlan = useMemo(
+    () => buildSubtitleRenderPlan(timelineMedia.subtitleState),
+    [timelineMedia.subtitleState]
+  );
+  const browserVisualAudioSources = useMemo(
+    () =>
+      buildBrowserVisualAudioSources({
+        shots,
+        timings,
+        overlays: timelineOverlays,
+      }),
+    [shots, timelineOverlays, timings]
+  );
+  const audioMixPlan = useMemo(
+    () =>
+      buildAudioMixPlan({
+        audioState: timelineMedia.audioState,
+        visualSources: browserVisualAudioSources,
+      }),
+    [browserVisualAudioSources, timelineMedia.audioState]
+  );
+  const formalAudioEnabled = timelineMedia.audioSlicePresent;
+  const visualAudioUrlById = useMemo(
+    () =>
+      new Map(
+        browserVisualAudioSources.map(source => [source.id, source.sourceUrl])
+      ),
+    [browserVisualAudioSources]
+  );
+  const resolveTimelineAudioSourceUrl = useCallback(
+    (planned: AudioMixPlanInput) => {
+      if (planned.source.kind === "visual-source") {
+        return visualAudioUrlById.get(planned.source.visualSourceId) ?? null;
+      }
+      return activeStoryId == null
+        ? null
+        : `/api/story-audio-asset/${activeStoryId}/${planned.source.assetId}`;
+    },
+    [activeStoryId, visualAudioUrlById]
+  );
+  const reportTimelineAudioInputError = useCallback(
+    (planned: AudioMixPlanInput) => {
+      toast.error(
+        planned.kind === "visual-source"
+          ? "当前视频原声无法读取，其他声音会继续播放"
+          : "一段时间线声音无法读取，请重新导入或删除引用"
+      );
+    },
+    []
+  );
   const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
   useEffect(() => {
     if (playbackClock.isPlaying) return;
@@ -1219,21 +1386,16 @@ export default function EditingNleWorkspace({
   const activeTimelineImageSource = useMemo(
     () =>
       activeTimelineVisualFrame.kind === "image"
-      ? {
-          imageUrl: activeTimelineVisualFrame.placement.clip.imageUrl,
-          transform: activeTimelineVisualFrame.placement.clip.transform,
-          imageId: activeTimelineVisualFrame.placement.clip.imageId,
-          clipId: activeTimelineVisualFrame.placement.clip.id,
-          stableShotId: activeTimelineVisualFrame.placement.stableShotId,
-        }
-      : null,
+        ? {
+            imageUrl: activeTimelineVisualFrame.placement.clip.imageUrl,
+            transform: activeTimelineVisualFrame.placement.clip.transform,
+            imageId: activeTimelineVisualFrame.placement.clip.imageId,
+            clipId: activeTimelineVisualFrame.placement.clip.id,
+            stableShotId: activeTimelineVisualFrame.placement.stableShotId,
+          }
+        : null,
     [activeTimelineVisualFrame]
   );
-  const storyboardAudioClips = useMemo(
-    () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
-    [activeStoryId, chatCutTimeline]
-  );
-
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
       setSelectedShotNo(selectedShot.shotNo);
@@ -1295,6 +1457,10 @@ export default function EditingNleWorkspace({
     seekTimeline: playbackClock.seek,
     resolveVideoSource: resolveActiveVideoSource,
   });
+
+  useEffect(() => {
+    setAudioCreationRequest(null);
+  }, [editingStorySessionKey]);
 
   const copyVideo = useCallback((target: VideoClipEditorTarget) => {
     const payload = videoClipboardPayloadFromTarget(target);
@@ -1888,6 +2054,102 @@ export default function EditingNleWorkspace({
     }
   };
 
+  const pickTimelineMedia = useCallback(
+    (action: AddTimelineMediaAction) => {
+      if (action === "subtitle-from-text") {
+        void timelineMedia.initializeSubtitles([...subtitleCandidates]);
+        return;
+      }
+      const frame = Math.max(
+        0,
+        Math.round((playbackClock.playheadMs * 30) / 1_000)
+      );
+      if (action === "narration-from-subtitle") {
+        const cue =
+          timelineMedia.cues.find(
+            candidate => candidate.id === timelineMedia.selectedCueId
+          ) ?? timelineMedia.activeCuesAtFrame(frame)[0];
+        if (!cue) {
+          toast.error("请先选中一条字幕，或把播放头放在字幕上");
+          return;
+        }
+        timelineMedia.clearError();
+        setAudioCreationRequest({
+          kind: "narration",
+          subtitleCueId: cue.id,
+          targetFrame: frame,
+        });
+        return;
+      }
+      const kind =
+        action === "import-music"
+          ? "music"
+          : action === "import-ambience"
+            ? "ambience"
+            : action === "import-sfx"
+              ? "sfx"
+              : null;
+      if (kind) {
+        timelineMedia.clearError();
+        setAudioCreationRequest({ kind, targetFrame: frame });
+      }
+    },
+    [playbackClock.playheadMs, subtitleCandidates, timelineMedia]
+  );
+
+  const audioCreationCue = useMemo(() => {
+    if (audioCreationRequest?.kind !== "narration") return null;
+    return (
+      timelineMedia.cues.find(
+        cue => cue.id === audioCreationRequest.subtitleCueId
+      ) ?? null
+    );
+  }, [audioCreationRequest, timelineMedia.cues]);
+
+  const openLocalAudioImport = useCallback(
+    (kind: "music" | "ambience" | "sfx") => {
+      setAudioCreationRequest(null);
+      setLocalAudioKind(kind);
+      localAudioInputRef.current?.click();
+    },
+    []
+  );
+
+  const importLocalTimelineAudio = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0] ?? null;
+      event.currentTarget.value = "";
+      const kind = localAudioKind;
+      if (!file || !kind) return;
+      if (file.size > 16 * 1024 * 1024) {
+        toast.error("音频文件不能超过 16MB");
+        setLocalAudioKind(null);
+        return;
+      }
+      const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (
+        !file.type.startsWith("audio/") &&
+        !["mp3", "wav", "m4a", "aac", "ogg", "flac"].includes(extension)
+      ) {
+        toast.error("请选择 MP3、WAV、M4A、AAC、OGG 或 FLAC 音频");
+        setLocalAudioKind(null);
+        return;
+      }
+      const imported = await timelineMedia.importLocalAudio({
+        kind,
+        file,
+        timelineStartFrame: Math.max(
+          0,
+          Math.round((playbackClock.playheadMs * 30) / 1_000)
+        ),
+      });
+      setLocalAudioKind(null);
+      if (imported) toast.success("声音已加入当前播放头位置");
+      else toast.error("音频未加入，请按提示重试");
+    },
+    [localAudioKind, playbackClock.playheadMs, timelineMedia]
+  );
+
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
@@ -1898,7 +2160,58 @@ export default function EditingNleWorkspace({
       isPlaying: playbackClock.isPlaying,
       totalMs: boardTimelineTotalMs,
       audioClips: storyboardAudioClips,
+      formalAudioPresent: timelineMedia.audioSlicePresent,
       audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
+      subtitle: subtitleBinding,
+      ...(activeStoryId == null
+        ? {}
+        : {
+            audio: {
+              storyId: activeStoryId,
+              audioState: timelineMedia.audioState,
+              selectedClipId: timelineMedia.selectedAudioClipId,
+              onSelectClip: timelineMedia.selectAudioClip,
+              pending: timelineMedia.pending,
+              error: timelineMedia.lastError,
+              onMove: timelineMedia.moveAudioClip,
+              onTrim: timelineMedia.trimAudioClip,
+              onDelete: timelineMedia.deleteAudioClip,
+              onSetGain: timelineMedia.setAudioClipGain,
+              onSetMuted: timelineMedia.setAudioClipMuted,
+              onSetFade: timelineMedia.setAudioClipFade,
+              onReclassify: timelineMedia.reclassifyAudioClip,
+              narrationCandidates: timelineMedia.narrationCandidates,
+              onGenerateNarration: timelineMedia.generateNarration,
+              onAdoptNarrationCandidate: timelineMedia.adoptNarrationCandidate,
+              onDiscardNarrationCandidate:
+                timelineMedia.discardNarrationCandidate,
+            },
+          }),
+      addMedia: {
+        availableActions: [
+          ...(subtitleCandidates.length > 0
+            ? (["subtitle-from-text"] as const)
+            : []),
+          ...(timelineMedia.selectedCueId ||
+          timelineMedia.activeCuesAtFrame(
+            Math.max(0, Math.round((playbackClock.playheadMs * 30) / 1_000))
+          )[0]
+            ? (["narration-from-subtitle"] as const)
+            : []),
+          "import-music",
+          "import-ambience",
+          "import-sfx",
+        ],
+        disabledReasons: {
+          "subtitle-from-text": "镜头里还没有可用文字",
+          "narration-from-subtitle": "请先选中一条字幕，或把播放头放在字幕上",
+          "import-source-from-chatcut": chatCutTimeline
+            ? "当前原声仍以只读方式保留，显式导入尚未完成"
+            : "请先附加 ChatCut XML 并关联原声",
+        },
+        pending: timelineMedia.pending,
+        onPick: pickTimelineMedia,
+      },
       anchors: timelineAnchors,
       overlays: timelineOverlays,
       visualLayerState: timelineVisualLayerState,
@@ -2242,6 +2555,11 @@ export default function EditingNleWorkspace({
       setActiveSelection,
       shots,
       storyboardAudioClips,
+      subtitleBinding,
+      subtitleCandidates.length,
+      timelineMedia,
+      pickTimelineMedia,
+      chatCutTimeline,
       splitAtPlayhead,
       timelineAnchors,
       playbackClock,
@@ -2459,8 +2777,12 @@ export default function EditingNleWorkspace({
             }
             suppressDefaultVideo
             playheadMs={previewPlayheadMs}
+            playheadFrame={playbackClock.playheadFrame}
             timelinePlaying={playbackClock.isPlaying}
             format={chatCutTimeline}
+            subtitlePlan={subtitleRenderPlan}
+            formalSubtitlePresent={timelineMedia.subtitleSlicePresent}
+            muteVisualSourceAudio={formalAudioEnabled}
             onRequestTimelinePlaying={isPlaying =>
               playbackClock.setPlaying(isPlaying)
             }
@@ -2498,11 +2820,51 @@ export default function EditingNleWorkspace({
 
         声音留在这一层：它不属于任何一个界面，跟着播放时钟走。
       */}
-      <TimelineAudioPlayback
-        manifest={chatCutTimeline}
-        playheadMs={playbackClock.playheadMs}
-        isPlaying={playbackClock.isPlaying}
+      <input
+        ref={localAudioInputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+        className="hidden"
+        data-testid="timeline-local-audio-input"
+        onChange={event => void importLocalTimelineAudio(event)}
       />
+      <TimelineAudioCreationDialog
+        request={audioCreationRequest}
+        cue={audioCreationCue}
+        pending={timelineMedia.pending}
+        error={timelineMedia.lastError}
+        onClose={() => {
+          setAudioCreationRequest(null);
+          timelineMedia.clearError();
+        }}
+        onGenerateNarration={async cueId => {
+          const generated = await timelineMedia.generateNarration(cueId);
+          if (generated) toast.success("旁白候选已生成，请试听后采用");
+          return generated;
+        }}
+        onGenerateSceneAudio={async input => {
+          const generated = await timelineMedia.generateSceneAudio(input);
+          if (generated) toast.success("声音已按当前镜头范围加入时间线");
+          return generated;
+        }}
+        onImport={openLocalAudioImport}
+      />
+      {formalAudioEnabled && activeStoryId != null ? (
+        <TimelineAudioEngine
+          storySessionKey={editingStorySessionKey}
+          plan={audioMixPlan}
+          playheadFrame={playbackClock.playheadFrame}
+          isPlaying={playbackClock.isPlaying}
+          resolveSourceUrl={resolveTimelineAudioSourceUrl}
+          onInputError={reportTimelineAudioInputError}
+        />
+      ) : (
+        <TimelineAudioPlayback
+          manifest={chatCutTimeline}
+          playheadMs={playbackClock.playheadMs}
+          isPlaying={playbackClock.isPlaying}
+        />
+      )}
       {videoEditorTarget ? (
         <VideoClipEditorPanel
           target={videoEditorTarget}

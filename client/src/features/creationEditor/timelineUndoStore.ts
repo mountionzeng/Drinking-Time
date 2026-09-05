@@ -15,6 +15,10 @@ export type InsertedStoryShotUndoEntry = {
  * 一次时间线撤销要还原的全部东西。只存 items 不够：图层顺序、图层数量和显隐
  * 都在 `visualLayerState` 里，遗留 overlay 的兼容层在 `overlays` 里，
  * 少存一样就会出现「Cmd+Z 之后素材回来了、图层还留在改过的状态」。
+ *
+ * 这是**视觉专用**快照。字幕（U3）和音轨（U9）的撤销走服务端撤销日志，不进
+ * 这个客户端结构——服务端 CAS 会在回放时无损保留非视觉切片。绝不要把
+ * subtitleTracks / audioTracks 塞进这里。
  */
 export type TimelineUndoSnapshot = {
   items: StoryTimelineItem[];
@@ -34,6 +38,13 @@ export type TimelineUndoSnapshot = {
 export type TimelineCommandUndoEntry = {
   kind: "timeline-command";
   receipt?: VisualEditReceipt;
+  /**
+   * Which server undo path this receipt belongs to. `visual` (default) replays
+   * through the visual edit journal; `media` replays through the timeline-media
+   * journal (subtitles in U3, audio in U9). The single client stack keeps the
+   * global Cmd+Z order across both.
+   */
+  domain?: "visual" | "media";
 };
 
 export type CreationEditorUndoEntry =
@@ -138,7 +149,8 @@ export function recordTimelineUndoSnapshot(
 /** 记一格服务端命令；真正的回退内容在服务端。 */
 export function recordTimelineCommandUndo(
   storyId: number,
-  receipt?: VisualEditReceipt
+  receipt?: VisualEditReceipt,
+  domain: "visual" | "media" = "visual"
 ): void {
   if (
     receipt &&
@@ -160,6 +172,7 @@ export function recordTimelineCommandUndo(
     return;
   stack.push({
     kind: "timeline-command",
+    domain,
     ...(receipt ? { receipt: { ...receipt } } : {}),
   });
   if (stack.length > MAX_UNDO_STEPS) {
@@ -219,6 +232,7 @@ export function takeCreationEditorUndoEntry(
   if (entry.kind === "timeline-command") {
     return {
       kind: "timeline-command",
+      domain: entry.domain ?? "visual",
       ...(entry.receipt ? { receipt: { ...entry.receipt } } : {}),
     };
   }

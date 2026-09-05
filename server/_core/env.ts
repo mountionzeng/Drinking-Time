@@ -104,6 +104,10 @@ export const ENV = {
   tts302Provider: process.env.TTS_302_PROVIDER ?? "openai",
   tts302Voice: process.env.TTS_302_VOICE ?? "alloy",
   tts302TimeoutMs: process.env.TTS_302_TIMEOUT_MS ?? "60000",
+  audio302MusicModel: process.env.AUDIO_302_MUSIC_MODEL ?? "music_v1",
+  audio302SoundModel:
+    process.env.AUDIO_302_SOUND_MODEL ?? "eleven_text_to_sound_v2",
+  audio302TimeoutMs: process.env.AUDIO_302_TIMEOUT_MS ?? "180000",
   imagePrompt302Model:
     process.env.IMAGE_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
   imagePrompt302TimeoutMs: process.env.IMAGE_PROMPT_302_TIMEOUT_MS ?? "30000",

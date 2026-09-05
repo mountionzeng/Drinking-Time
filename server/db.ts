@@ -27,6 +27,15 @@ import { createKeyedSerialLock } from "./utils/keyedSerialLock";
 import { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
 export { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./persistence/timelineFrameExtractionErrors";
 import type { StoryTimelineOverlay } from "../shared/storyMaterial";
+import {
+  decodeStoredStoryTimeline,
+  encodeStoredStoryTimeline,
+  mergeStoredStoryTimelineExtensions,
+} from "./persistence/storyTimelinePersistence";
+import {
+  isValidAudioStorageKey,
+  resolveManagedAudioPath,
+} from "./services/audioMedia";
 import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
   InsertUser,
@@ -77,6 +86,12 @@ import {
   PreviewMaskedImageOperation,
   timelineFrameExtractionOperations,
   TimelineFrameExtractionOperation,
+  storyAudioAssets,
+  StoryAudioAsset,
+  InsertStoryAudioAsset,
+  storyAudioImportOperations,
+  StoryAudioImportOperation,
+  InsertStoryAudioImportOperation,
   InsertImageSignal,
   imageSignals,
   ImageSignal,
@@ -200,6 +215,8 @@ type MemoryState = {
   videoTakeRanges: VideoTakeRange[];
   videoTimelineSelections: VideoTimelineSelection[];
   storyTimelines: StoryTimeline[];
+  storyAudioAssets: StoryAudioAsset[];
+  storyAudioImportOperations: StoryAudioImportOperation[];
   shotDerivationDrafts: ShotDerivationDraft[];
   storyOperations: StoryOperation[];
   inviteCodes: InviteCode[];
@@ -239,6 +256,8 @@ type MemoryState = {
     videoTakeRange: number;
     videoTimelineSelection: number;
     storyTimeline: number;
+    storyAudioAsset: number;
+    storyAudioImportOperation: number;
     shotDerivationDraft: number;
     storyOperation: number;
     inviteCode: number;
@@ -274,6 +293,8 @@ const memoryState: MemoryState = {
   videoTakeRanges: [],
   videoTimelineSelections: [],
   storyTimelines: [],
+  storyAudioAssets: [],
+  storyAudioImportOperations: [],
   shotDerivationDrafts: [],
   storyOperations: [],
   inviteCodes: [],
@@ -308,6 +329,8 @@ const memoryState: MemoryState = {
     videoTakeRange: 1,
     videoTimelineSelection: 1,
     storyTimeline: 1,
+    storyAudioAsset: 1,
+    storyAudioImportOperation: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
@@ -567,6 +590,18 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as StoryTimeline[];
+  memoryState.storyAudioAssets = (raw.storyAudioAssets ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryAudioAsset[];
+  memoryState.storyAudioImportOperations = (
+    raw.storyAudioImportOperations ?? []
+  ).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryAudioImportOperation[];
   memoryState.shotDerivationDrafts = (raw.shotDerivationDrafts ?? []).map(
     item => ({
       ...item,
@@ -591,10 +626,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as CreditAccount[];
-  memoryState.creditLedgerEntries = (raw.creditLedgerEntries ?? []).map(item => ({
-    ...item,
-    createdAt: toDate(item.createdAt),
-  })) as CreditLedgerEntry[];
+  memoryState.creditLedgerEntries = (raw.creditLedgerEntries ?? []).map(
+    item => ({
+      ...item,
+      createdAt: toDate(item.createdAt),
+    })
+  ) as CreditLedgerEntry[];
   memoryState.creditHolds = (raw.creditHolds ?? []).map(item => ({
     ...item,
     createdAt: toDate(item.createdAt),
@@ -717,6 +754,14 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     storyTimeline: Math.max(
       raw.nextIds?.storyTimeline ?? 0,
       nextIdFromRows(memoryState.storyTimelines)
+    ),
+    storyAudioAsset: Math.max(
+      raw.nextIds?.storyAudioAsset ?? 0,
+      nextIdFromRows(memoryState.storyAudioAssets)
+    ),
+    storyAudioImportOperation: Math.max(
+      raw.nextIds?.storyAudioImportOperation ?? 0,
+      nextIdFromRows(memoryState.storyAudioImportOperations)
     ),
     shotDerivationDraft: Math.max(
       raw.nextIds?.shotDerivationDraft ?? 0,
@@ -2711,63 +2756,66 @@ export async function updateStoryBodyIfRevision(input: {
       ) {
         return false;
       }
-        // Copy-on-write snapshot: mutate optimistically, but if the disk flush
-        // fails, restore this row to what it was before this call so a failed
-        // write never leaves memoryState in a "succeeded in RAM, lost on disk"
-        // state. This restore must be per-field, not a blanket
-        // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
-        // between our mutation and the disk flush settling, a concurrent writer
-        // (another CAS call once this call's optimistic revision makes it look
-        // like a legal base, or an unrelated writer like writeStoryTitle
-        // touching only `title`) can legitimately mutate a *different* field on
-        // the same object and already succeed. A blanket restore would silently
-        // erase that already-committed change. So: only roll back a field if it
-        // still holds exactly the value *this call* set — if something else has
-        // since changed it, that's a newer write we must not clobber.
-    const previousRow = { ...row };
-    // 经历与 body 进同一次 copy-on-write。落盘失败时下面会把它整份还原——
-    // Story 与足迹索引同属 local-persist 聚合，所以不需要 outbox。
-    const previousPersonalMemory = input.personalMemoryCapture
-      ? structuredClone(memoryState.personalMemory)
-      : null;
-    if (input.personalMemoryCapture) {
-      applyPersonalMemoryCapture(
-        memoryState.personalMemory,
-        input.personalMemoryCapture
-      );
-    }
-    const writtenFields: Record<string, unknown> = { body: input.body };
-    if (input.data) {
-      applyDefinedValues(
-        row as unknown as Record<string, unknown>,
-        input.data as unknown as Record<string, unknown>
-      );
-      Object.assign(writtenFields, input.data);
-    }
-    row.body = input.body;
-    row.updatedAt = now();
-    writtenFields.updatedAt = row.updatedAt;
-    try {
-      await persistMemoryState();
-    } catch (error) {
-      if (previousPersonalMemory) {
-        memoryState.personalMemory = previousPersonalMemory;
+      // Copy-on-write snapshot: mutate optimistically, but if the disk flush
+      // fails, restore this row to what it was before this call so a failed
+      // write never leaves memoryState in a "succeeded in RAM, lost on disk"
+      // state. This restore must be per-field, not a blanket
+      // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
+      // between our mutation and the disk flush settling, a concurrent writer
+      // (another CAS call once this call's optimistic revision makes it look
+      // like a legal base, or an unrelated writer like writeStoryTitle
+      // touching only `title`) can legitimately mutate a *different* field on
+      // the same object and already succeed. A blanket restore would silently
+      // erase that already-committed change. So: only roll back a field if it
+      // still holds exactly the value *this call* set — if something else has
+      // since changed it, that's a newer write we must not clobber.
+      const previousRow = { ...row };
+      // 经历与 body 进同一次 copy-on-write。落盘失败时下面会把它整份还原——
+      // Story 与足迹索引同属 local-persist 聚合，所以不需要 outbox。
+      const previousPersonalMemory = input.personalMemoryCapture
+        ? structuredClone(memoryState.personalMemory)
+        : null;
+      if (input.personalMemoryCapture) {
+        applyPersonalMemoryCapture(
+          memoryState.personalMemory,
+          input.personalMemoryCapture
+        );
       }
-      const rowRecord = row as unknown as Record<string, unknown>;
-      const previousRecord = previousRow as unknown as Record<string, unknown>;
-          // Known narrow limitation: for primitive `data` fields this compares by
-          // value, so a concurrent writer that legitimately set the same field to
-          // an identical value would still be rolled back here. `body` and
-          // `updatedAt` are immune (always freshly constructed per call, so this
-          // is a reference comparison). Accepted for now — closing it needs
-          // per-field write tokens, which is out of scope for this unit.
-      for (const key of Object.keys(writtenFields)) {
-        if (rowRecord[key] === writtenFields[key]) {
-          rowRecord[key] = previousRecord[key];
+      const writtenFields: Record<string, unknown> = { body: input.body };
+      if (input.data) {
+        applyDefinedValues(
+          row as unknown as Record<string, unknown>,
+          input.data as unknown as Record<string, unknown>
+        );
+        Object.assign(writtenFields, input.data);
+      }
+      row.body = input.body;
+      row.updatedAt = now();
+      writtenFields.updatedAt = row.updatedAt;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        if (previousPersonalMemory) {
+          memoryState.personalMemory = previousPersonalMemory;
         }
+        const rowRecord = row as unknown as Record<string, unknown>;
+        const previousRecord = previousRow as unknown as Record<
+          string,
+          unknown
+        >;
+        // Known narrow limitation: for primitive `data` fields this compares by
+        // value, so a concurrent writer that legitimately set the same field to
+        // an identical value would still be rolled back here. `body` and
+        // `updatedAt` are immune (always freshly constructed per call, so this
+        // is a reference comparison). Accepted for now — closing it needs
+        // per-field write tokens, which is out of scope for this unit.
+        for (const key of Object.keys(writtenFields)) {
+          if (rowRecord[key] === writtenFields[key]) {
+            rowRecord[key] = previousRecord[key];
+          }
+        }
+        throw error;
       }
-      throw error;
-    }
       return true;
     });
   }
@@ -2797,12 +2845,26 @@ export async function updateStoryBodyIfRevision(input: {
 
 export async function deleteStory(id: number, userId: number): Promise<void> {
   const db = await getDb();
+  // Managed audio bytes live on local disk in every mode; capture the storage
+  // keys before the rows go so the files can be removed after (best effort —
+  // an FK cascade only takes the metadata).
+  const audioStorageKeys = await listStoryAudioStorageKeysForStory({
+    storyId: id,
+    userId,
+  });
   if (!db) {
     const idx = memoryState.stories.findIndex(
       s => s.id === id && s.userId === userId
     );
     if (idx >= 0) {
       memoryState.stories.splice(idx, 1);
+      memoryState.storyAudioAssets = memoryState.storyAudioAssets.filter(
+        asset => !(asset.storyId === id && asset.userId === userId)
+      );
+      memoryState.storyAudioImportOperations =
+        memoryState.storyAudioImportOperations.filter(
+          op => !(op.storyId === id && op.userId === userId)
+        );
       // 级联删除该故事的镜头（评审 P1）：故事是唯一单位，删故事后其镜头按
       // storyId 再也取不到、永不清理，会成孤儿。同删避免悬挂数据。
       memoryState.shots = memoryState.shots.filter(
@@ -2884,6 +2946,7 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
       await persistLocalPromptLineageStateToDisk(promptLineage);
       await persistMemoryState();
     }
+    await removeManagedAudioFiles(audioStorageKeys);
     return;
   }
   await db
@@ -2932,8 +2995,22 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
     .delete(shots)
     .where(and(eq(shots.storyId, id), eq(shots.userId, userId)));
   await db
+    .delete(storyAudioAssets)
+    .where(
+      and(eq(storyAudioAssets.storyId, id), eq(storyAudioAssets.userId, userId))
+    );
+  await db
+    .delete(storyAudioImportOperations)
+    .where(
+      and(
+        eq(storyAudioImportOperations.storyId, id),
+        eq(storyAudioImportOperations.userId, userId)
+      )
+    );
+  await db
     .delete(stories)
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
+  await removeManagedAudioFiles(audioStorageKeys);
 }
 
 export type LegacyGuestClaimResult = {
@@ -3514,12 +3591,14 @@ export async function promoteStoryImageToCurrent(data: {
           (candidate.userId === data.userId || candidate.userId == null)
       );
       const sameIdentity =
-        image.shotIdentity != null && expected?.shotIdentity === image.shotIdentity;
+        image.shotIdentity != null &&
+        expected?.shotIdentity === image.shotIdentity;
       const sameLegacyShot =
         image.shotNo != null &&
         expected?.shotNo === image.shotNo &&
         (image.shotIdentity == null || expected?.shotIdentity == null);
-      if (!expected?.isCurrent || (!sameIdentity && !sameLegacyShot)) return null;
+      if (!expected?.isCurrent || (!sameIdentity && !sameLegacyShot))
+        return null;
     }
 
     for (const candidate of memoryState.generatedImages) {
@@ -4134,12 +4213,8 @@ type PreviewMaskedImageOperationOwner = {
 
 const PREVIEW_MASKED_IMAGE_LEASE_MS = 15 * 60 * 1000;
 const previewMaskedImageMemoryLock = createKeyedSerialLock<string>();
-const PREVIEW_MASKED_IMAGE_PROTECTED_STATUSES: PreviewMaskedImageOperation["status"][] = [
-  "claimed",
-  "provider_accepted",
-  "unknown",
-  "succeeded",
-];
+const PREVIEW_MASKED_IMAGE_PROTECTED_STATUSES: PreviewMaskedImageOperation["status"][] =
+  ["claimed", "provider_accepted", "unknown", "succeeded"];
 
 function memoryPreviewMaskedImageOperation(
   owner: PreviewMaskedImageOperationOwner
@@ -4228,7 +4303,10 @@ export async function getSucceededPreviewMaskedImageOperationForCandidate(input:
       and(
         eq(previewMaskedImageOperations.storyId, input.storyId),
         eq(previewMaskedImageOperations.userId, input.userId),
-        eq(previewMaskedImageOperations.candidateImageId, input.candidateImageId),
+        eq(
+          previewMaskedImageOperations.candidateImageId,
+          input.candidateImageId
+        ),
         eq(previewMaskedImageOperations.status, "succeeded")
       )
     )
@@ -4262,8 +4340,9 @@ export async function getLatestSucceededPreviewMaskedImageOperationForTarget(inp
     return (
       memoryState.previewMaskedImageOperations
         .filter(matches)
-        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0] ??
-      null
+        .sort(
+          (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()
+        )[0] ?? null
     );
   }
   const conditions = [
@@ -4375,7 +4454,9 @@ export async function claimPreviewMaskedImageOperation(
         await persistMemoryState();
       } catch (error) {
         memoryState.previewMaskedImageOperations =
-          memoryState.previewMaskedImageOperations.filter(row => row !== operation);
+          memoryState.previewMaskedImageOperations.filter(
+            row => row !== operation
+          );
         throw error;
       }
       return { created: true, acquired: true, operation };
@@ -4484,7 +4565,10 @@ export async function markPreviewMaskedImageOperationAccepted(
     current: PreviewMaskedImageOperation,
     persist: () => Promise<void>
   ) => {
-    if (current.claimToken !== input.claimToken || current.status !== "claimed") {
+    if (
+      current.claimToken !== input.claimToken ||
+      current.status !== "claimed"
+    ) {
       throw new Error("局部图片修改 claim 已失效");
     }
     current.status = "provider_accepted";
@@ -4525,7 +4609,10 @@ export async function markPreviewMaskedImageOperationAccepted(
     return apply(current, async () => {
       await tx
         .update(previewMaskedImageOperations)
-        .set({ status: "provider_accepted", providerTaskId: input.providerTaskId })
+        .set({
+          status: "provider_accepted",
+          providerTaskId: input.providerTaskId,
+        })
         .where(eq(previewMaskedImageOperations.id, current.id));
     });
   });
@@ -4547,7 +4634,10 @@ export async function failPreviewMaskedImageOperation(
     return previewMaskedImageMemoryLock.run(String(input.userId), async () => {
       const current = memoryPreviewMaskedImageOperation(input);
       if (!current) return null;
-      if (current.claimToken !== input.claimToken || current.status === "succeeded") {
+      if (
+        current.claimToken !== input.claimToken ||
+        current.status === "succeeded"
+      ) {
         throw new Error("局部图片修改 claim 已失效");
       }
       const before = { ...current };
@@ -4578,7 +4668,10 @@ export async function failPreviewMaskedImageOperation(
       .for("update")
       .limit(1);
     if (!current) return null;
-    if (current.claimToken !== input.claimToken || current.status === "succeeded") {
+    if (
+      current.claimToken !== input.claimToken ||
+      current.status === "succeeded"
+    ) {
       throw new Error("局部图片修改 claim 已失效");
     }
     await tx
@@ -4702,7 +4795,11 @@ export async function settlePreviewMaskedImageOperationSuccess(
     const [result] = await tx.insert(generatedImages).values(input.image);
     await tx
       .update(previewMaskedImageOperations)
-      .set({ status: "succeeded", candidateImageId: result.insertId, errorCode: null })
+      .set({
+        status: "succeeded",
+        candidateImageId: result.insertId,
+        errorCode: null,
+      })
       .where(eq(previewMaskedImageOperations.id, operation.id));
     const [image] = await tx
       .select()
@@ -4711,7 +4808,11 @@ export async function settlePreviewMaskedImageOperationSuccess(
       .limit(1);
     if (!image) throw new Error("局部图片修改候选保存后无法读取");
     return {
-      operation: { ...operation, status: "succeeded", candidateImageId: image.id },
+      operation: {
+        ...operation,
+        status: "succeeded",
+        candidateImageId: image.id,
+      },
       image,
     };
   });
@@ -5762,7 +5863,11 @@ export async function deleteGeneratedImage(
     .select({ body: stories.body })
     .from(stories)
     .where(eq(stories.userId, userId));
-  if (ownedStories.some(story => finishedProductReferencesImage(story.body, imageId))) {
+  if (
+    ownedStories.some(story =>
+      finishedProductReferencesImage(story.body, imageId)
+    )
+  ) {
     throw new Error("该图片已被成品版本引用，不能删除");
   }
   await db.delete(imageSignals).where(eq(imageSignals.imageId, imageId));
@@ -5773,7 +5878,10 @@ export async function deleteGeneratedImage(
     );
 }
 
-function finishedProductReferencesImage(body: unknown, imageId: number): boolean {
+function finishedProductReferencesImage(
+  body: unknown,
+  imageId: number
+): boolean {
   if (!body || typeof body !== "object" || Array.isArray(body)) return false;
   const finishedProduct = (body as Record<string, unknown>).finishedProduct;
   if (
@@ -6824,38 +6932,23 @@ type StoryTimelinePayload = {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
+  /**
+   * Non-visual media slices (subtitles in U3, audio in U9). A visual writer
+   * never sets this and must never drop it; it is preserved from the stored
+   * document by the canonical codec on every save.
+   */
+  extensions?: Record<string, unknown>;
 };
 
+// Thin wrappers over the one canonical codec in
+// server/persistence/storyTimelinePersistence.ts. Do not reimplement envelope
+// decode/encode here — the architecture guard forbids a second codec.
 function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "items" in value
-  ) {
-    const record = value as Record<string, unknown>;
-    return {
-      items: record.items,
-      overlays: record.overlays,
-      visualLayerState: record.visualLayerState,
-    };
-  }
-  return { items: value };
+  return decodeStoredStoryTimeline(value);
 }
 
 function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
-  return payload.overlays === undefined &&
-    payload.visualLayerState === undefined
-    ? payload.items
-    : {
-        items: payload.items,
-        ...(payload.overlays === undefined
-          ? {}
-          : { overlays: payload.overlays }),
-        ...(payload.visualLayerState === undefined
-          ? {}
-          : { visualLayerState: payload.visualLayerState }),
-      };
+  return encodeStoredStoryTimeline(payload);
 }
 
 function replaceStoryTimelineItemsPreservingOverlays(
@@ -6868,12 +6961,20 @@ function replaceStoryTimelineItemsPreservingOverlays(
     items: next.items,
     overlays: current.overlays ?? next.overlays,
     visualLayerState: current.visualLayerState ?? next.visualLayerState,
+    // The replacement `nextItems` is a bare visual document; extension slices
+    // only ever live on the stored row, so carry them straight through.
+    extensions: mergeStoredStoryTimelineExtensions(
+      currentValue,
+      next.extensions
+    ),
   });
 }
 
-function storyTimelineView(
-  row: StoryTimeline
-): StoryTimeline & { overlays?: unknown; visualLayerState?: unknown } {
+function storyTimelineView(row: StoryTimeline): StoryTimeline & {
+  overlays?: unknown;
+  visualLayerState?: unknown;
+  extensions?: Record<string, unknown>;
+} {
   const payload = decodeStoryTimelinePayload(row.items);
   return {
     ...row,
@@ -6882,6 +6983,11 @@ function storyTimelineView(
     ...(payload.visualLayerState === undefined
       ? {}
       : { visualLayerState: payload.visualLayerState }),
+    // Non-visual slices ride along in a namespaced bag; nothing in U1 reads
+    // them, but the view must not be where they get dropped.
+    ...(payload.extensions === undefined
+      ? {}
+      : { extensions: payload.extensions }),
   };
 }
 
@@ -6892,8 +6998,18 @@ export async function updateStoryTimeline(input: {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
+  /**
+   * Non-visual media slices to merge per key (subtitles in U3, audio in U9).
+   * A key set here replaces only that slice; every other stored slice is
+   * preserved. Visual writers never pass this.
+   */
+  extensions?: Record<string, unknown>;
 }): Promise<
-  StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }
+  StoryTimeline & {
+    overlays?: unknown;
+    visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
+  }
 > {
   const db = await getDb();
   if (!db) {
@@ -6916,6 +7032,10 @@ export async function updateStoryTimeline(input: {
             ...(input.visualLayerState === undefined
               ? {}
               : { visualLayerState: input.visualLayerState }),
+            extensions: mergeStoredStoryTimelineExtensions(
+              undefined,
+              input.extensions
+            ),
           });
           const row: StoryTimeline = {
             id: nextMemoryId("storyTimeline"),
@@ -6953,6 +7073,10 @@ export async function updateStoryTimeline(input: {
           overlays: input.overlays ?? currentPayload.overlays,
           visualLayerState:
             input.visualLayerState ?? currentPayload.visualLayerState,
+          extensions: mergeStoredStoryTimelineExtensions(
+            existing.items,
+            input.extensions
+          ),
         });
         const nextVersion = previousVersion + 1;
         const nextUpdatedAt = now();
@@ -7003,6 +7127,10 @@ export async function updateStoryTimeline(input: {
           ...(input.visualLayerState === undefined
             ? {}
             : { visualLayerState: input.visualLayerState }),
+          extensions: mergeStoredStoryTimelineExtensions(
+            undefined,
+            input.extensions
+          ),
         }),
       });
       const [created] = await tx
@@ -7023,6 +7151,10 @@ export async function updateStoryTimeline(input: {
           overlays: input.overlays ?? currentPayload.overlays,
           visualLayerState:
             input.visualLayerState ?? currentPayload.visualLayerState,
+          extensions: mergeStoredStoryTimelineExtensions(
+            existing.items,
+            input.extensions
+          ),
         }),
         version: existing.version + 1,
       })
@@ -7038,9 +7170,14 @@ export async function updateStoryTimeline(input: {
 /**
  * Service-only aggregate compare-and-swap for commands that must replace the
  * Story body and the complete Timeline document as one fact. `nextTimeline`
- * is replacement data: an empty overlays array clears overlays, while an
- * omitted overlays/visualLayerState field remains omitted. It never inherits
- * fields from the previous document.
+ * is replacement data for the visual fields: an empty overlays array clears
+ * overlays, while an omitted overlays/visualLayerState field remains omitted.
+ * It never inherits visual fields from the previous document.
+ *
+ * Non-visual extension slices (subtitles, audio) are the exception: they are
+ * preserved from the stored document per key unless `nextTimeline.extensions`
+ * explicitly overrides one. A visual-only aggregate command therefore cannot
+ * drop a subtitle or audio slice.
  *
  * Local mode takes locks in the fixed Story -> Timeline order and persists an
  * isolated next state before publishing either row to shared memory. SQL mode
@@ -7058,6 +7195,7 @@ export async function updateStoryAndTimelineAtomic(input: {
   timeline: StoryTimeline & {
     overlays?: unknown;
     visualLayerState?: unknown;
+    extensions?: Record<string, unknown>;
   };
 }> {
   const nextStoryRevision = persistedStoryBodyRevision(input.nextStoryBody);
@@ -7066,15 +7204,23 @@ export async function updateStoryAndTimelineAtomic(input: {
       `Story CAS body revision ${nextStoryRevision} must follow expected revision ${input.expectedStoryRevision}`
     );
   }
-  const nextTimelinePayload = encodeStoryTimelinePayload({
-    items: input.nextTimeline.items,
-    ...(input.nextTimeline.overlays === undefined
-      ? {}
-      : { overlays: input.nextTimeline.overlays }),
-    ...(input.nextTimeline.visualLayerState === undefined
-      ? {}
-      : { visualLayerState: input.nextTimeline.visualLayerState }),
-  });
+  // Extension slices ride on the stored row, so the payload can only be
+  // finalized once the current row is under lock. `currentValue` is the
+  // stored `items` column of the row being replaced (undefined for insert).
+  const buildNextTimelinePayload = (currentValue: unknown) =>
+    encodeStoryTimelinePayload({
+      items: input.nextTimeline.items,
+      ...(input.nextTimeline.overlays === undefined
+        ? {}
+        : { overlays: input.nextTimeline.overlays }),
+      ...(input.nextTimeline.visualLayerState === undefined
+        ? {}
+        : { visualLayerState: input.nextTimeline.visualLayerState }),
+      extensions: mergeStoredStoryTimelineExtensions(
+        currentValue,
+        input.nextTimeline.extensions
+      ),
+    });
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -7110,7 +7256,7 @@ export async function updateStoryAndTimelineAtomic(input: {
           const nextTimeline: StoryTimeline = timeline
             ? {
                 ...timeline,
-                items: nextTimelinePayload,
+                items: buildNextTimelinePayload(timeline.items),
                 version: timeline.version + 1,
                 updatedAt: current,
               }
@@ -7118,7 +7264,7 @@ export async function updateStoryAndTimelineAtomic(input: {
                 id: nextIds.storyTimeline++,
                 storyId: input.storyId,
                 userId: input.userId,
-                items: nextTimelinePayload,
+                items: buildNextTimelinePayload(undefined),
                 version: 1,
                 createdAt: current,
                 updatedAt: current,
@@ -7199,13 +7345,16 @@ export async function updateStoryAndTimelineAtomic(input: {
       timelineId = timeline.id;
       await tx
         .update(storyTimelines)
-        .set({ items: nextTimelinePayload, version: timeline.version + 1 })
+        .set({
+          items: buildNextTimelinePayload(timeline.items),
+          version: timeline.version + 1,
+        })
         .where(eq(storyTimelines.id, timeline.id));
     } else {
       const [inserted] = await tx.insert(storyTimelines).values({
         storyId: input.storyId,
         userId: input.userId,
-        items: nextTimelinePayload,
+        items: buildNextTimelinePayload(undefined),
         version: 1,
       });
       timelineId = inserted.insertId;
@@ -7354,6 +7503,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
                         : [...overlays, input.overlay!]),
                     visualLayerState:
                       input.nextVisualLayerState ?? payload.visualLayerState,
+                    extensions: payload.extensions,
                   }),
                   version: timeline.version + 1,
                   updatedAt: current,
@@ -7505,6 +7655,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
               (overlayExists ? overlays : [...overlays, input.overlay!]),
             visualLayerState:
               input.nextVisualLayerState ?? payload.visualLayerState,
+            extensions: payload.extensions,
           }),
           version: timeline.version + 1,
         })
@@ -7915,6 +8066,489 @@ export async function restoreSplitStoryShotAtomic(input: {
     if (!savedStory || !savedTimeline) throw new Error("切割撤销后读取失败");
     return { story: savedStory, timeline: savedTimeline };
   });
+}
+
+// ─── Story audio assets & staged import operations (U2) ─────────────────
+
+/**
+ * Best-effort removal of managed audio bytes for a set of storage keys. Never
+ * throws — a missing file or a bad key is fine; the metadata rows are already
+ * gone by the time this runs.
+ */
+export async function removeManagedAudioFiles(
+  storageKeys: readonly string[]
+): Promise<void> {
+  for (const key of storageKeys) {
+    if (!isValidAudioStorageKey(key)) continue;
+    try {
+      await unlink(resolveManagedAudioPath(key));
+    } catch {
+      // best effort
+    }
+  }
+}
+
+export type StoryAudioAssetPatch = Partial<
+  Pick<
+    InsertStoryAudioAsset,
+    | "status"
+    | "failureReason"
+    | "durationFrames"
+    | "durationSeconds"
+    | "sampleRate"
+    | "channels"
+    | "codecName"
+    | "formatName"
+    | "checksum"
+    | "sourceKey"
+    | "mediaKind"
+    | "displayName"
+    | "provenance"
+  >
+>;
+
+export async function createStoryAudioAssetRow(
+  data: Omit<InsertStoryAudioAsset, "id" | "createdAt" | "updatedAt">
+): Promise<StoryAudioAsset> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: StoryAudioAsset = {
+      id: nextMemoryId("storyAudioAsset"),
+      storyId: data.storyId,
+      userId: data.userId,
+      storageKey: data.storageKey,
+      displayName: data.displayName,
+      mediaKind: data.mediaKind ?? "unknown",
+      sourceKind: data.sourceKind,
+      sourceKey: data.sourceKey ?? null,
+      checksum: data.checksum ?? null,
+      status: data.status ?? "pending",
+      failureReason: data.failureReason ?? null,
+      durationFrames: data.durationFrames ?? null,
+      durationSeconds: data.durationSeconds ?? null,
+      sampleRate: data.sampleRate ?? null,
+      channels: data.channels ?? null,
+      codecName: data.codecName ?? null,
+      formatName: data.formatName ?? null,
+      provenance: data.provenance ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.storyAudioAssets.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(storyAudioAssets).values(data);
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(eq(storyAudioAssets.id, result.insertId));
+  return row;
+}
+
+export async function updateStoryAudioAssetRow(
+  assetId: number,
+  userId: number,
+  patch: StoryAudioAssetPatch
+): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.storyAudioAssets.find(
+      asset => asset.id === assetId && asset.userId === userId
+    );
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(storyAudioAssets)
+    .set(patch)
+    .where(
+      and(eq(storyAudioAssets.id, assetId), eq(storyAudioAssets.userId, userId))
+    );
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(eq(storyAudioAssets.id, assetId));
+  return row ?? null;
+}
+
+/** Ownership-checked read. Never trusts a bare assetId. */
+export async function getStoryAudioAssetRow(input: {
+  assetId: number;
+  storyId: number;
+  userId: number;
+}): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioAssets.find(
+        asset =>
+          asset.id === input.assetId &&
+          asset.storyId === input.storyId &&
+          asset.userId === input.userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.id, input.assetId),
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId)
+      )
+    );
+  return row ?? null;
+}
+
+export async function listStoryAudioAssetRows(input: {
+  storyId: number;
+  userId: number;
+}): Promise<StoryAudioAsset[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.storyAudioAssets
+      .filter(
+        asset =>
+          asset.storyId === input.storyId && asset.userId === input.userId
+      )
+      .map(asset => ({ ...asset }));
+  }
+  return db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId)
+      )
+    );
+}
+
+export async function listStoryAudioAssetRowsForUser(
+  userId: number
+): Promise<StoryAudioAsset[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.storyAudioAssets
+      .filter(asset => asset.userId === userId)
+      .map(asset => ({ ...asset }));
+  }
+  return db
+    .select()
+    .from(storyAudioAssets)
+    .where(eq(storyAudioAssets.userId, userId));
+}
+
+/** A `ready` asset with the same upstream identity in the same Story, for idempotent reuse. */
+export async function findReusableStoryAudioAssetRow(input: {
+  storyId: number;
+  userId: number;
+  sourceKind: StoryAudioAsset["sourceKind"];
+  sourceKey: string;
+}): Promise<StoryAudioAsset | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioAssets.find(
+        asset =>
+          asset.storyId === input.storyId &&
+          asset.userId === input.userId &&
+          asset.sourceKind === input.sourceKind &&
+          asset.sourceKey === input.sourceKey &&
+          asset.status === "ready"
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioAssets)
+    .where(
+      and(
+        eq(storyAudioAssets.storyId, input.storyId),
+        eq(storyAudioAssets.userId, input.userId),
+        eq(storyAudioAssets.sourceKind, input.sourceKind),
+        eq(storyAudioAssets.sourceKey, input.sourceKey),
+        eq(storyAudioAssets.status, "ready")
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export type StoryAudioImportOperationPatch = Partial<
+  Pick<
+    InsertStoryAudioImportOperation,
+    "status" | "failureCode" | "stagingKey" | "assetId"
+  >
+>;
+
+const storyAudioImportMemoryLock = createKeyedSerialLock<string>();
+
+export type StoryAudioImportBundleResult =
+  | {
+      created: true;
+      asset: StoryAudioAsset;
+      operation: StoryAudioImportOperation;
+    }
+  | { created: false; operation: StoryAudioImportOperation };
+
+/** Atomically creates the pending asset and its recovery source-of-truth row. */
+export async function createStoryAudioImportBundle(input: {
+  asset: Omit<InsertStoryAudioAsset, "id" | "createdAt" | "updatedAt">;
+  operation: Omit<
+    InsertStoryAudioImportOperation,
+    "id" | "assetId" | "createdAt" | "updatedAt"
+  >;
+}): Promise<StoryAudioImportBundleResult> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const key = `${input.operation.storyId}:${input.operation.userId}:${input.operation.operationId}`;
+    return storyAudioImportMemoryLock.run(key, async () => {
+      const existing = memoryState.storyAudioImportOperations.find(
+        op =>
+          op.storyId === input.operation.storyId &&
+          op.userId === input.operation.userId &&
+          op.operationId === input.operation.operationId
+      );
+      if (existing) return { created: false, operation: { ...existing } };
+
+      const previousAssetId = memoryState.nextIds.storyAudioAsset;
+      const previousOperationId = memoryState.nextIds.storyAudioImportOperation;
+      const current = now();
+      const asset: StoryAudioAsset = {
+        id: nextMemoryId("storyAudioAsset"),
+        storyId: input.asset.storyId,
+        userId: input.asset.userId,
+        storageKey: input.asset.storageKey,
+        displayName: input.asset.displayName,
+        mediaKind: input.asset.mediaKind ?? "unknown",
+        sourceKind: input.asset.sourceKind,
+        sourceKey: input.asset.sourceKey ?? null,
+        checksum: input.asset.checksum ?? null,
+        status: input.asset.status ?? "pending",
+        failureReason: input.asset.failureReason ?? null,
+        durationFrames: input.asset.durationFrames ?? null,
+        durationSeconds: input.asset.durationSeconds ?? null,
+        sampleRate: input.asset.sampleRate ?? null,
+        channels: input.asset.channels ?? null,
+        codecName: input.asset.codecName ?? null,
+        formatName: input.asset.formatName ?? null,
+        provenance: input.asset.provenance ?? null,
+        createdAt: current,
+        updatedAt: current,
+      };
+      const operation: StoryAudioImportOperation = {
+        id: nextMemoryId("storyAudioImportOperation"),
+        storyId: input.operation.storyId,
+        userId: input.operation.userId,
+        operationId: input.operation.operationId,
+        requestDigest: input.operation.requestDigest,
+        assetId: asset.id,
+        sourceKind: input.operation.sourceKind,
+        status: input.operation.status ?? "pending",
+        failureCode: input.operation.failureCode ?? null,
+        stagingKey: input.operation.stagingKey ?? null,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.storyAudioAssets.push(asset);
+      memoryState.storyAudioImportOperations.push(operation);
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.storyAudioAssets.pop();
+        memoryState.storyAudioImportOperations.pop();
+        memoryState.nextIds.storyAudioAsset = previousAssetId;
+        memoryState.nextIds.storyAudioImportOperation = previousOperationId;
+        throw error;
+      }
+      return { created: true, asset, operation };
+    });
+  }
+
+  try {
+    return await db.transaction(async tx => {
+      const [existing] = await tx
+        .select()
+        .from(storyAudioImportOperations)
+        .where(
+          and(
+            eq(storyAudioImportOperations.storyId, input.operation.storyId),
+            eq(storyAudioImportOperations.userId, input.operation.userId),
+            eq(
+              storyAudioImportOperations.operationId,
+              input.operation.operationId
+            )
+          )
+        );
+      if (existing) return { created: false as const, operation: existing };
+
+      const [assetInsert] = await tx
+        .insert(storyAudioAssets)
+        .values(input.asset);
+      const [asset] = await tx
+        .select()
+        .from(storyAudioAssets)
+        .where(eq(storyAudioAssets.id, assetInsert.insertId));
+      const [operationInsert] = await tx
+        .insert(storyAudioImportOperations)
+        .values({ ...input.operation, assetId: asset.id });
+      const [operation] = await tx
+        .select()
+        .from(storyAudioImportOperations)
+        .where(eq(storyAudioImportOperations.id, operationInsert.insertId));
+      return { created: true as const, asset, operation };
+    });
+  } catch (error) {
+    const existing = await getStoryAudioImportOperationRow({
+      storyId: input.operation.storyId,
+      userId: input.operation.userId,
+      operationId: input.operation.operationId,
+    });
+    if (existing) return { created: false, operation: existing };
+    throw error;
+  }
+}
+
+export async function createStoryAudioImportOperationRow(
+  data: Omit<InsertStoryAudioImportOperation, "id" | "createdAt" | "updatedAt">
+): Promise<StoryAudioImportOperation> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: StoryAudioImportOperation = {
+      id: nextMemoryId("storyAudioImportOperation"),
+      storyId: data.storyId,
+      userId: data.userId,
+      operationId: data.operationId,
+      requestDigest: data.requestDigest,
+      assetId: data.assetId ?? null,
+      sourceKind: data.sourceKind,
+      status: data.status ?? "pending",
+      failureCode: data.failureCode ?? null,
+      stagingKey: data.stagingKey ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.storyAudioImportOperations.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(storyAudioImportOperations).values(data);
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(eq(storyAudioImportOperations.id, result.insertId));
+  return row;
+}
+
+export async function getStoryAudioImportOperationRow(input: {
+  storyId: number;
+  userId: number;
+  operationId: string;
+}): Promise<StoryAudioImportOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyAudioImportOperations.find(
+        op =>
+          op.storyId === input.storyId &&
+          op.userId === input.userId &&
+          op.operationId === input.operationId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(
+      and(
+        eq(storyAudioImportOperations.storyId, input.storyId),
+        eq(storyAudioImportOperations.userId, input.userId),
+        eq(storyAudioImportOperations.operationId, input.operationId)
+      )
+    );
+  return row ?? null;
+}
+
+export async function updateStoryAudioImportOperationRow(
+  id: number,
+  patch: StoryAudioImportOperationPatch
+): Promise<StoryAudioImportOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.storyAudioImportOperations.find(op => op.id === id);
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(storyAudioImportOperations)
+    .set(patch)
+    .where(eq(storyAudioImportOperations.id, id));
+  const [row] = await db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(eq(storyAudioImportOperations.id, id));
+  return row ?? null;
+}
+
+/** Operations still mid-flight, for the crash-recovery pass. */
+export async function listUnsettledStoryAudioImportOperationRows(): Promise<
+  StoryAudioImportOperation[]
+> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.storyAudioImportOperations
+      .filter(op => op.status !== "ready" && op.status !== "failed")
+      .map(op => ({ ...op }));
+  }
+  return db
+    .select()
+    .from(storyAudioImportOperations)
+    .where(
+      and(
+        ne(storyAudioImportOperations.status, "ready"),
+        ne(storyAudioImportOperations.status, "failed")
+      )
+    );
+}
+
+/**
+ * Managed audio storage keys still referenced by a Story's asset rows —
+ * used by the backup script and by Story deletion to clean the real bytes.
+ */
+export async function listStoryAudioStorageKeysForStory(input: {
+  storyId: number;
+  userId: number;
+}): Promise<string[]> {
+  const rows = await listStoryAudioAssetRows(input);
+  return rows.map(row => row.storageKey);
 }
 
 export async function createShotDerivationDraft(
@@ -8689,6 +9323,8 @@ export function resetMemoryStateForTesting(): void {
   memoryState.videoTakeRanges = [];
   memoryState.videoTimelineSelections = [];
   memoryState.storyTimelines = [];
+  memoryState.storyAudioAssets = [];
+  memoryState.storyAudioImportOperations = [];
   memoryState.shotDerivationDrafts = [];
   memoryState.storyOperations = [];
   memoryState.inviteCodes = [];
@@ -8727,6 +9363,8 @@ export function resetMemoryStateForTesting(): void {
     videoTakeRange: 1,
     videoTimelineSelection: 1,
     storyTimeline: 1,
+    storyAudioAsset: 1,
+    storyAudioImportOperation: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
     inviteCode: 1,
@@ -9207,7 +9845,11 @@ export type ReserveComputeCreditInput = {
 export type ReserveComputeCreditResult =
   | { kind: "reserved"; availableMinor: number }
   /** 同一 operationId 已存在。调用方比对 requestHash 决定是重放还是冲突 */
-  | { kind: "existing"; status: BillingOperation["status"]; requestHash: string }
+  | {
+      kind: "existing";
+      status: BillingOperation["status"];
+      requestHash: string;
+    }
   | { kind: "insufficient"; availableMinor: number; requiredMinor: number };
 
 /**
@@ -9587,7 +10229,10 @@ export async function appendCreditLedgerEntry(
       }
       account.updatedAt = current;
       await persistMemoryState();
-      return { kind: "appended" as const, balanceMinor: Number(account.balanceMinor) };
+      return {
+        kind: "appended" as const,
+        balanceMinor: Number(account.balanceMinor),
+      };
     });
   }
 
@@ -9692,7 +10337,10 @@ export async function findActiveCreditHold(
     .select()
     .from(creditHolds)
     .where(
-      and(eq(creditHolds.operationId, operationId), eq(creditHolds.status, "active"))
+      and(
+        eq(creditHolds.operationId, operationId),
+        eq(creditHolds.status, "active")
+      )
     )
     .limit(1);
   return hold ?? null;
@@ -9734,7 +10382,8 @@ export async function recordProviderAttempt(
       existing.status = input.status;
       existing.providerTaskId = input.providerTaskId ?? existing.providerTaskId;
       existing.receiptId = input.receiptId ?? existing.receiptId;
-      existing.usage = (input.usage ?? existing.usage) as ProviderAttempt["usage"];
+      existing.usage = (input.usage ??
+        existing.usage) as ProviderAttempt["usage"];
       existing.costMinor = input.costMinor ?? existing.costMinor;
       existing.updatedAt = current;
       await persistMemoryState();
@@ -9785,6 +10434,25 @@ export async function recordProviderAttempt(
   return { kind: "recorded" };
 }
 
+export async function listProviderAttemptsForOperation(
+  operationId: string
+): Promise<ProviderAttempt[]> {
+  const operation = await findBillingOperation(operationId);
+  if (!operation) return [];
+  const db = await getDb();
+  if (!db) {
+    return memoryState.providerAttempts
+      .filter(item => item.billingOperationId === operation.id)
+      .sort((left, right) => left.attemptIndex - right.attemptIndex)
+      .map(item => ({ ...item }));
+  }
+  return db
+    .select()
+    .from(providerAttempts)
+    .where(eq(providerAttempts.billingOperationId, operation.id))
+    .orderBy(providerAttempts.attemptIndex);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // 统一账号：身份解析、密码凭据、验证码挑战、共享持久化限流
 //
@@ -9832,7 +10500,8 @@ export async function resolveEmailIdentity(
     const matches = memoryState.users.filter(
       item => normalizeAccountEmail(item.email ?? "") === normalized
     );
-    if (matches.length === 1) return { kind: "legacy_single", userId: matches[0].id };
+    if (matches.length === 1)
+      return { kind: "legacy_single", userId: matches[0].id };
     if (matches.length > 1) {
       return { kind: "conflict", userIds: matches.map(item => item.id).sort() };
     }
@@ -9855,7 +10524,8 @@ export async function resolveEmailIdentity(
     .select({ id: users.id })
     .from(users)
     .where(sql`LOWER(TRIM(${users.email})) = ${normalized}`);
-  if (matches.length === 1) return { kind: "legacy_single", userId: matches[0].id };
+  if (matches.length === 1)
+    return { kind: "legacy_single", userId: matches[0].id };
   if (matches.length > 1) {
     return { kind: "conflict", userIds: matches.map(item => item.id).sort() };
   }
@@ -10210,8 +10880,13 @@ export async function consumePersistentRateLimit(input: {
   const decide = (
     windowStartedAt: Date,
     attemptCount: number
-  ): { decision: RateLimitDecision; nextStartedAt: Date; nextCount: number } => {
-    const windowExpired = current.getTime() - windowStartedAt.getTime() >= windowMs;
+  ): {
+    decision: RateLimitDecision;
+    nextStartedAt: Date;
+    nextCount: number;
+  } => {
+    const windowExpired =
+      current.getTime() - windowStartedAt.getTime() >= windowMs;
     const startedAt = windowExpired ? current : windowStartedAt;
     const used = windowExpired ? 0 : attemptCount;
     if (used >= input.maxAttempts) {
@@ -10288,7 +10963,10 @@ export async function consumePersistentRateLimit(input: {
       .for("update")
       .limit(1);
 
-    const outcome = decide(row?.windowStartedAt ?? current, row?.attemptCount ?? 0);
+    const outcome = decide(
+      row?.windowStartedAt ?? current,
+      row?.attemptCount ?? 0
+    );
     await tx
       .update(accountRateLimits)
       .set({
@@ -10486,8 +11164,13 @@ export async function capturePersonalMemoryEvent(
 function isDuplicateKeyError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current && depth < 5; depth += 1) {
-    const candidate = current as { code?: string; errno?: number; cause?: unknown };
-    if (candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062) return true;
+    const candidate = current as {
+      code?: string;
+      errno?: number;
+      cause?: unknown;
+    };
+    if (candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062)
+      return true;
     current = candidate.cause;
   }
   return false;
@@ -10502,7 +11185,11 @@ function isDuplicateKeyError(error: unknown): boolean {
 function isDeadlockError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current && depth < 5; depth += 1) {
-    const candidate = current as { code?: string; errno?: number; cause?: unknown };
+    const candidate = current as {
+      code?: string;
+      errno?: number;
+      cause?: unknown;
+    };
     if (candidate.code === "ER_LOCK_DEADLOCK" || candidate.errno === 1213) {
       return true;
     }
@@ -10627,7 +11314,10 @@ export async function listPersonalMemoryEvents(
     .select()
     .from(personalMemoryEvents)
     .where(eq(personalMemoryEvents.userId, userId))
-    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id))
+    .orderBy(
+      desc(personalMemoryEvents.occurredAt),
+      desc(personalMemoryEvents.id)
+    )
     .limit(safeLimit);
   return rows.map(rowToPersonalMemoryEvent);
 }
@@ -10834,7 +11524,10 @@ export async function projectPersonalMemoryOutboxIntoIndex(
       aggregateName,
       entries
     );
-    if (result.applied === 0 && result.watermark === before.projectionWatermarks[aggregateName]) {
+    if (
+      result.applied === 0 &&
+      result.watermark === before.projectionWatermarks[aggregateName]
+    ) {
       return result;
     }
     try {
@@ -11270,7 +11963,8 @@ export async function listEmotionDailyLetterVersions(
   if (!db) {
     return memoryState.personalMemory.letterVersions
       .filter(
-        version => version.userId === userId && version.letterDate === letterDate
+        version =>
+          version.userId === userId && version.letterDate === letterDate
       )
       .sort(
         (left, right) =>
