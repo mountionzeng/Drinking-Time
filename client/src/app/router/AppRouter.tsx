@@ -41,7 +41,9 @@ function LoginEntry() {
       typeof window === "undefined"
         ? null
         : readMobileReturnPath(window.location.search);
-    return <Redirect to={resolvePostLoginDestination(returnPath)} />;
+    return (
+      <Redirect to={resolvePostLoginDestination(returnPath, rootWorkspacePath())} />
+    );
   }
   return <LoginPage />;
 }

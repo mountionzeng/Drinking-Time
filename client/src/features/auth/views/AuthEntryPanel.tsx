@@ -10,6 +10,7 @@ import {
   clearRememberedMobileRecoveryOwner,
   reconcileMobileRecoveryOwner,
 } from "@/features/mobileWorkspace/mobileRecoveryIdentity";
+import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEntry";
 
 type AuthEntryPanelProps = {
   autofocus?: boolean;
@@ -92,7 +93,7 @@ export default function AuthEntryPanel({
         // 浏览器禁止本地存储时仍保持正常登录。
       }
       setRememberedEmail(normalizedEmail);
-      navigate(resolvePostLoginDestination(returnPath));
+      navigate(resolvePostLoginDestination(returnPath, rootWorkspacePath()));
     } catch {
       if (isCurrentRequest()) setEmailError("网络错误，请重试");
     } finally {

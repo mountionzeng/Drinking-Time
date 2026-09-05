@@ -177,6 +177,16 @@ describe("mobile route and login return", () => {
     expect(resolvePostLoginDestination(null)).toBe("/editing");
   });
 
+  // 直接打开 /login 是没有 returnTo 的（分享出去的就是这个地址）。
+  // 这时落点必须回到设备判断，否则手机登录完会掉进电脑版工作室。
+  it("falls back to the device workspace when /login is opened directly", () => {
+    expect(resolvePostLoginDestination(null, "/m")).toBe("/m");
+    expect(resolvePostLoginDestination(undefined, "/m")).toBe("/m");
+    expect(resolvePostLoginDestination(null, "/editing")).toBe("/editing");
+    // 白名单仍然优先，fallback 不能被用来绕过校验
+    expect(resolvePostLoginDestination("//evil.example", "/m")).toBe("/m");
+  });
+
   it("rejects open redirects and encoded normalization bypasses", () => {
     const unsafeSearches = [
       "?returnTo=https%3A%2F%2Fevil.example",

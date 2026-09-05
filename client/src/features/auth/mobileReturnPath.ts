@@ -34,8 +34,17 @@ export function mobileLoginHref(candidate: string): string {
   return `/login?${RETURN_PARAMETER}=${encodeURIComponent(returnPath)}`;
 }
 
+/**
+ * 登录后去哪。
+ *
+ * `returnTo` 只认唯一的白名单值 `/m`；没有它时用调用方给的 fallback。
+ * fallback 默认 `/editing` 是为了让这个函数保持纯粹、可单测；
+ * 真正的调用方传的是 `rootWorkspacePath()`，这样直接打开 /login 的手机
+ * 登录完会落到 /m，而不是掉进电脑版工作室。
+ */
 export function resolvePostLoginDestination(
-  candidate: string | null | undefined
+  candidate: string | null | undefined,
+  fallback: MobileReturnPath | "/editing" = "/editing"
 ): MobileReturnPath | "/editing" {
-  return normalizeMobileReturnPath(candidate) ?? "/editing";
+  return normalizeMobileReturnPath(candidate) ?? fallback;
 }
