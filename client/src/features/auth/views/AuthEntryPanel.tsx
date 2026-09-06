@@ -41,6 +41,9 @@ export default function AuthEntryPanel({
   const [inviteCode, setInviteCode] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [pairingCode, setPairingCode] = useState("");
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState("");
   const betaWechatId = import.meta.env.VITE_BETA_WECHAT_ID?.trim();
   const params = new URLSearchParams(window.location.search);
   const oauthError = params.get("error");
@@ -98,6 +101,53 @@ export default function AuthEntryPanel({
       if (isCurrentRequest()) setEmailError("网络错误，请重试");
     } finally {
       if (isCurrentRequest()) setEmailLoading(false);
+    }
+  }
+
+  /**
+   * 配对码登录：不需要邮箱，也不需要邀请码。
+   * 码是从另一台已登录设备上签出来的，所以这里进的一定是同一个账号。
+   */
+  async function handlePairingLogin(e: React.FormEvent) {
+    e.preventDefault();
+    const requestId = ++latestRequestRef.current;
+    const isCurrentRequest = () =>
+      mountedRef.current && latestRequestRef.current === requestId;
+    setPairingError("");
+    setPairingLoading(true);
+    try {
+      const res = await fetch("/api/auth/pair/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: pairingCode }),
+      });
+      if (!isCurrentRequest()) return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPairingError(
+          data.error === "rate_limited"
+            ? "试得太频繁了，过一会儿再来"
+            : data.error === "not_configured"
+              ? "服务端还没配好配对码"
+              : "配对码无效或已过期，去电脑上重新生成一个"
+        );
+        return;
+      }
+      const refreshedIdentity = await refresh();
+      if (!isCurrentRequest()) return;
+      const nextUserId = refreshedIdentity.data?.id;
+      if (typeof nextUserId === "number") {
+        try {
+          reconcileMobileRecoveryOwner(window.localStorage, nextUserId);
+        } catch {
+          // 同上：存储被禁不该把成功登录变成错误。
+        }
+      }
+      navigate(resolvePostLoginDestination(returnPath, rootWorkspacePath()));
+    } catch {
+      if (isCurrentRequest()) setPairingError("网络错误，请重试");
+    } finally {
+      if (isCurrentRequest()) setPairingLoading(false);
     }
   }
 
@@ -214,6 +264,54 @@ export default function AuthEntryPanel({
             {betaWechatId
               ? `申请内测微信：${betaWechatId}`
               : "还没有邀请码，请联系邀请你来测试的人。"}
+          </p>
+
+          <div className="flex items-center gap-3 pt-1">
+            <span className="h-px flex-1 bg-border/70" />
+            <span className="text-[10px] text-muted-foreground">或</span>
+            <span className="h-px flex-1 bg-border/70" />
+          </div>
+
+          <form onSubmit={handlePairingLogin} className="flex flex-col gap-2.5">
+            <input
+              inputMode="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="配对码"
+              value={pairingCode}
+              onChange={e =>
+                setPairingCode(
+                  e.target.value.toUpperCase().replace(/[^0-9A-Z-]/g, "")
+                )
+              }
+              maxLength={8}
+              className="h-10 w-full rounded-md border bg-background px-3 text-center text-base tracking-[0.35em] outline-none transition placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
+            />
+            {pairingError && (
+              <p
+                className="text-center text-xs"
+                style={{ color: "oklch(0.7 0.15 25)" }}
+              >
+                {pairingError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={pairingLoading || !pairingCode.trim()}
+              className="h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                background: "var(--nayin-surface)",
+                color: "var(--foreground)",
+                borderColor: "var(--nayin-border)",
+              }}
+            >
+              {pairingLoading ? "配对中…" : "用配对码登录"}
+            </button>
+          </form>
+
+          <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
+            在已登录的电脑上点右上角头像 →「手机登录」生成，五分钟内有效。
           </p>
 
         </div>

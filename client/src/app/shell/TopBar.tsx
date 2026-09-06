@@ -6,6 +6,7 @@
  * 主题切换挪进右上角的用户菜单。
  */
 import { useNayin } from "@/features/nayin/NayinContext";
+import PairingCodeButton from "@/features/auth/views/PairingCodeButton";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import StoryLogoMenu, {
   type StoryLogoMenuStory,
@@ -304,6 +305,7 @@ export default function TopBar({
                       )}
                     </div>
                     <div className="p-1.5">
+                      <PairingCodeButton />
                       {user?.role === "admin" ? (
                         <button
                           className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
