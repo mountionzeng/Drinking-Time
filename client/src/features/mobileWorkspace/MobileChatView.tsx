@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
+import type { NayinElement } from "@/features/nayin/nayin";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -124,10 +126,17 @@ function MobileTurnRecovery({
 export function MobileChatView({
   controller,
   storyTitle,
+  element,
   dense = false,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
+  /**
+   * 当天的纳音五行，用来画助手气泡抬头那位小人。
+   * 由调用方从 useNayin() 取好传进来 —— 组件内不调，
+   * 否则脱离 NayinProvider 单渲（本组件的测试就是）会直接抛错。
+   */
+  element?: NayinElement;
   /** 常驻输入条那一档：只留输入行，消息区收起来（连它的内距一起）。 */
   dense?: boolean;
 }) {
@@ -218,12 +227,26 @@ export function MobileChatView({
               <li
                 key={message.id}
                 className={cn(
-                  "max-w-[88%] whitespace-pre-wrap break-words px-4 py-3 text-[15px] leading-6 shadow-sm",
+                  "max-w-[85%] whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed shadow-sm",
                   message.role === "user"
-                    ? "ml-auto rounded-2xl rounded-br-md bg-primary text-primary-foreground"
-                    : "mr-auto rounded-2xl rounded-bl-md border border-border/70 bg-background/90 text-foreground"
+                    ? "ml-auto rounded-2xl rounded-tr-sm bg-primary text-primary-foreground"
+                    : "mr-auto rounded-2xl rounded-tl-sm border border-border/70 bg-background/90 text-foreground"
                 )}
               >
+                {message.role === "user" ? null : (
+                  <span className="mb-1 flex items-center gap-1.5">
+                    {element ? (
+                      <EmotiveWuxingIcon
+                        animated={false}
+                        element={element}
+                        size={26}
+                      />
+                    ) : null}
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
+                      聊聊
+                    </span>
+                  </span>
+                )}
                 {message.content}
               </li>
             ))}

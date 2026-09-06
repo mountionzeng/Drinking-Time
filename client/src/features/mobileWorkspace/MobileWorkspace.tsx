@@ -515,6 +515,7 @@ function MobileSelectedStoryWorkspace({
       chatView={({ dense }) => (
         <MobileChatView
           controller={conversation}
+          element={element}
           storyTitle={story.title}
           dense={dense}
         />
