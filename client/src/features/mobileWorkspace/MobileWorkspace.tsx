@@ -379,14 +379,40 @@ function MobileTableBar({
   );
 }
 
-export function MobileEmptyState() {
+export function MobileEmptyState({
+  onCreateStory,
+  creating = false,
+  error = null,
+}: {
+  onCreateStory?: () => void;
+  creating?: boolean;
+  error?: string | null;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-7 text-center">
       <BookOpenText aria-hidden="true" className="size-9 text-primary" />
-      <h1 className="mt-4 text-lg font-semibold">请先在电脑上创建 Story</h1>
+      <h1 className="mt-4 text-lg font-semibold">还没有故事</h1>
       <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-        手机端会打开你已有的 Story。创建完成后，回到这里刷新即可继续聊天和正文。
+        新建一个，就从这里开始聊。电脑上也能接着写同一个故事。
       </p>
+      {onCreateStory ? (
+        <Button
+          type="button"
+          className="mt-5 min-h-11 rounded-xl px-6"
+          disabled={creating}
+          onClick={onCreateStory}
+        >
+          {creating ? (
+            <Loader2 aria-hidden="true" className="animate-spin" />
+          ) : null}
+          {creating ? "正在新建…" : "新建一个故事"}
+        </Button>
+      ) : null}
+      {error ? (
+        <p className="mt-3 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -428,6 +454,8 @@ function MobileSelectedStoryWorkspace({
   activeView,
   onViewChange,
   onStoryChange,
+  onCreateStory,
+  creatingStory = false,
 }: {
   userId: number;
   activeStoryId: number;
@@ -435,6 +463,8 @@ function MobileSelectedStoryWorkspace({
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
   onStoryChange: (storyId: number) => void;
+  onCreateStory?: () => void;
+  creatingStory?: boolean;
 }) {
   const story = stories.find(candidate => candidate.id === activeStoryId);
   const { element } = useNayin();
@@ -486,8 +516,9 @@ function MobileSelectedStoryWorkspace({
     <MobileStoryPicker
       ref={pickerRef}
       activeStoryId={activeStoryId}
-      disabled={resolvingSwitch}
+      disabled={resolvingSwitch || creatingStory}
       stories={stories}
+      onCreateStory={onCreateStory}
       onRequestStoryChange={requestStoryChange}
     />
   );
@@ -627,6 +658,29 @@ export function MobileWorkspace({ userId }: { userId: number }) {
     setActiveStoryId(resolveMobileInitialStoryId(storyListQuery.data.stories));
   }, [storyListQuery.data]);
 
+  /**
+   * 手机上直接新建故事。
+   * storyAgent.storyUpsert 不带 id 就是插入，本来就是 protectedProcedure，
+   * 不需要为手机端另开端点 —— 建完把列表拉一次，再把新故事设为当前。
+   */
+  const storyUpsert = trpc.storyAgent.storyUpsert.useMutation();
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const createStory = async () => {
+    if (storyUpsert.isPending) return;
+    setCreateError(null);
+    try {
+      const created = await storyUpsert.mutateAsync({ title: "新的故事" });
+      const newId = created?.id ?? null;
+      await storyListQuery.refetch();
+      if (newId !== null) setActiveStoryId(newId);
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : "新建失败，请重试"
+      );
+    }
+  };
+
   const emptyPicker = <div aria-hidden="true" className="h-11 min-w-0 flex-1" />;
 
   if (storyListQuery.isError) {
@@ -663,7 +717,11 @@ export function MobileWorkspace({ userId }: { userId: number }) {
         onViewChange={setActiveView}
         storyPicker={emptyPicker}
       >
-        <MobileEmptyState />
+        <MobileEmptyState
+          creating={storyUpsert.isPending}
+          error={createError}
+          onCreateStory={() => void createStory()}
+        />
       </MobileWorkspaceFrame>
     );
   }
@@ -687,6 +745,8 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       activeView={activeView}
       stories={stories}
       userId={userId}
+      onCreateStory={() => void createStory()}
+      creatingStory={storyUpsert.isPending}
       onStoryChange={setActiveStoryId}
       onViewChange={setActiveView}
     />

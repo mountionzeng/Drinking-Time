@@ -94,8 +94,25 @@ describe("MobileWorkspace", () => {
     }
   });
 
-  it("directs empty accounts to create their first Story on desktop", () => {
+  it("lets an empty account create its first Story from the phone", () => {
+    const html = renderToStaticMarkup(
+      <MobileEmptyState onCreateStory={() => {}} />
+    );
+    expect(html).toContain("还没有故事");
+    expect(html).toContain("新建一个故事");
+    // 不再把人推去电脑：手机上就能建
+    expect(html).not.toContain("请先在电脑上创建");
+  });
+
+  it("hides the create action when the caller cannot create", () => {
     const html = renderToStaticMarkup(<MobileEmptyState />);
-    expect(html).toContain("请先在电脑上创建 Story");
+    expect(html).not.toContain("新建一个故事");
+  });
+
+  it("surfaces a create failure instead of failing silently", () => {
+    const html = renderToStaticMarkup(
+      <MobileEmptyState error="新建失败，请重试" onCreateStory={() => {}} />
+    );
+    expect(html).toContain("新建失败，请重试");
   });
 });
