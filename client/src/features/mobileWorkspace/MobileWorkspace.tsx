@@ -498,7 +498,12 @@ function MobileSelectedStoryWorkspace({
       onViewChange={onViewChange}
       storyPicker={picker}
       element={element}
-      onOpenStories={() => pickerRef.current?.focus()}
+      onOpenStories={() => {
+        // header 收起时 select 是 max-h-0 / pointer-events-none，
+        // 直接 focus 会落到一个看不见的控件上。先回常驻档再聚焦。
+        onViewChange("document");
+        requestAnimationFrame(() => pickerRef.current?.focus());
+      }}
       onOpenAccount={() => setAccountOpen(true)}
       documentView={
         <MobileDocumentView
