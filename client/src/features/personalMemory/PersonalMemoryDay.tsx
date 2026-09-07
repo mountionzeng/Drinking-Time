@@ -115,7 +115,7 @@ export default function PersonalMemoryDay({
           >
             <div className="flex items-center gap-2 text-xs font-medium">
               <Mail className="h-4 w-4" aria-hidden="true" />
-              这一天的每日来信 · 第 {group.letter.revision} 版
+              这一天的每日来信
             </div>
             <button
               type="button"
