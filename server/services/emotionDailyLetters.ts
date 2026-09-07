@@ -4,20 +4,72 @@ import type {
 } from "../../drizzle/schema";
 import {
   appendEmotionDailyLetterVersion,
+  beginPersonalMemoryLetterAttempt,
+  commitPersonalMemoryLetterAttempt,
+  failPersonalMemoryLetterAttempt,
   getEmotionAnalysisProfile,
   getEmotionDailyLetter,
   listEmotionDailyLetters,
+  listEmotionDailyLetterVersions,
+  saveEmotionDailyLetterMessageIfRevision,
   upsertEmotionAnalysisProfile,
 } from "../db";
-import type { PersonalMemoryLetterPayload } from "../../shared/personalMemory";
-import { dailyLetterMessageCaptureIfEnabled } from "./personalMemoryEvents";
-import { getAlmanacDay } from "./almanac";
+import type {
+  PersonalMemoryCapture,
+  PersonalMemoryLetterPayload,
+} from "../../shared/personalMemory";
 import {
+  dailyLetterMessageCaptureIfEnabled,
+  isPersonalMemoryCaptureEnabled,
+} from "./personalMemoryEvents";
+import {
+  PERSONAL_MEMORY_SELECTOR_VERSION,
+  selectPersonalMemoryContextForDailyLetter,
+} from "./personalMemorySelection";
+import { getAlmanacDay, type AlmanacDay } from "./almanac";
+import {
+  EMOTION_DAILY_LETTER_VERSION,
   chinaDateString,
   personalizeEmotionDailyReference302,
 } from "./emotionDailyReference302";
 
 type PayloadRecord = Record<string, unknown>;
+
+/**
+ * 黄历事实是否可信到能进入来信 payload（R15）。
+ *
+ * `getAlmanacDay(date)` 内部总是把返回对象的 `date` 字段设成调用方传入的
+ * 那个 `date` 参数——它并不能替我们证实供应商真的返回了那一天的数据。
+ * 这里的 `almanac.date !== targetDate` 检查因此更像一份**意图声明**：万一
+ * 未来这层实现变了、开始诚实回传供应商的真实日期，这里立刻就能生效，
+ * 不需要回头找这一处调用点。`status` 才是当前唯一能实际判定可信度的信号：
+ * 非 ok/partial（超时、限流、未配置、解析失败）一律不可信。
+ */
+export function trustedAlmanacFacts(
+  almanac: AlmanacDay,
+  targetDate: string
+): Record<string, unknown> | null {
+  if (almanac.date !== targetDate) return null;
+  if (almanac.status !== "ok" && almanac.status !== "partial") return null;
+  const hasFacts =
+    almanac.yi.length > 0 ||
+    almanac.ji.length > 0 ||
+    almanac.luckyHours.length > 0 ||
+    almanac.directions.length > 0 ||
+    Object.keys(almanac.meta).length > 0;
+  if (!hasFacts) return null;
+  return {
+    provider: almanac.provider,
+    source: almanac.sourceLabel,
+    status: almanac.status,
+    fetchedAt: almanac.fetchedAt,
+    yi: almanac.yi,
+    ji: almanac.ji,
+    luckyHours: almanac.luckyHours,
+    directions: almanac.directions,
+    meta: almanac.meta,
+  };
+}
 
 interface DailyLetterDependencies {
   getLetter?: typeof getEmotionDailyLetter;
@@ -25,6 +77,9 @@ interface DailyLetterDependencies {
   getProfile?: typeof getEmotionAnalysisProfile;
   getAlmanac?: typeof getAlmanacDay;
   personalize?: typeof personalizeEmotionDailyReference302;
+  generateAttempt?: typeof generateDailyLetterViaAttempt;
+  listVersions?: typeof listEmotionDailyLetterVersions;
+  saveMessage?: typeof saveEmotionDailyLetterMessageIfRevision;
   writeLetter?: typeof appendEmotionDailyLetterVersion;
   saveProfile?: typeof upsertEmotionAnalysisProfile;
   now?: Date;
@@ -44,16 +99,18 @@ function letterPayloadFrom(data: {
   userMessage: string | null;
   dailyReference: unknown;
   analysisSeed: unknown;
+  /** 生成时固定的资料快照；不传入即保持 U1 的空占位（尚未经过 U6 生成链路的调用点）。 */
+  profileRevision?: string | null;
+  almanac?: Record<string, unknown> | null;
+  selectedEvidence?: PersonalMemoryLetterPayload["selectedEvidence"];
 }): PersonalMemoryLetterPayload {
   return {
     dailyReference: data.dailyReference,
     analysisSeed: data.analysisSeed,
     userMessage: data.userMessage,
-    // 八字修订、黄历事实与所选证据由 U6 的生成链路填充；
-    // U1 只负责把既有内容搬进版本权威，不伪造它没有的东西。
-    profileRevision: null,
-    almanac: null,
-    selectedEvidence: [],
+    profileRevision: data.profileRevision ?? null,
+    almanac: data.almanac ?? null,
+    selectedEvidence: data.selectedEvidence ?? [],
   };
 }
 
@@ -74,6 +131,173 @@ export class EmotionDailyLetterConflictError extends Error {
   constructor() {
     super("这封信刚刚在别处改过，请刷新后再写一次");
     this.name = "EmotionDailyLetterConflictError";
+  }
+}
+
+// ─── 生成 attempt：选材 → 黄历 → 模型 → 条件提交（U6） ────────────────────
+
+/**
+ * 一次生成 attempt 的结果。**这不是异常通道**——in_flight／failed 都是
+ * 正常、预期内的分支，调用方（router）负责把它们映射成用户能看懂的状态，
+ * 而不是让 UI 收到一个五百错误。
+ */
+export type DailyLetterAttemptOutcome =
+  | {
+      status: "committed";
+      letter: EmotionDailyLetter;
+      refreshedDailyReference: PayloadRecord;
+    }
+  /** 同一个 action ID 之前已经成功过；重复提交／重放直接拿旧结果。 */
+  | { status: "already_committed"; letter: EmotionDailyLetter }
+  /** 另一个真正在跑的请求还没完成，不应该并发再触发一次生成。 */
+  | { status: "in_flight" }
+  /** 失败：黄历/模型出错，或选材依据在生成期间被撤走。旧版本仍然可读。 */
+  | { status: "failed"; reason: string };
+
+interface DailyLetterGenerationDependencies {
+  beginAttempt?: typeof beginPersonalMemoryLetterAttempt;
+  commitAttempt?: typeof commitPersonalMemoryLetterAttempt;
+  failAttempt?: typeof failPersonalMemoryLetterAttempt;
+  selectMemory?: typeof selectPersonalMemoryContextForDailyLetter;
+  getAlmanac?: typeof getAlmanacDay;
+  personalize?: typeof personalizeEmotionDailyReference302;
+  getLetter?: typeof getEmotionDailyLetter;
+}
+
+/**
+ * 首次打开与显式重读共用的生成入口。
+ *
+ * 调用方负责准备好 `analysisSeed`（含 messageHistory／conversationMode 等
+ * 已经算好的字段）——这个函数只管"选材 → 查黄历 → 调模型 → 条件提交"这一段，
+ * 不重新推导用户留言的历史拼装逻辑，那部分在两个调用点已经不一样
+ * （首次打开是"重置今天留言"，重读是"CAS 更新今天留言"）。
+ */
+export async function generateDailyLetterViaAttempt(
+  input: {
+    userId: number;
+    letterDate: string;
+    actionId: string;
+    trigger: "generated" | "reread";
+    generationIntent: "daily-letter" | "conversation-reply";
+    baseDailyReference: PayloadRecord;
+    analysisSeed: PayloadRecord;
+    userMessage: string | null;
+    userMessageSaidAt: Date | null;
+    userMessageEditedAt: Date | null;
+    /** 生成时固定的资料快照标识（这里用 profile.updatedAt，见调用点）。 */
+    profileRevision: string | null;
+    expectedCurrentVersionNumber?: number;
+    personalMemoryCapture?: PersonalMemoryCapture;
+  },
+  dependencies: DailyLetterGenerationDependencies = {}
+): Promise<DailyLetterAttemptOutcome> {
+  const beginAttempt =
+    dependencies.beginAttempt ?? beginPersonalMemoryLetterAttempt;
+  const commitAttempt =
+    dependencies.commitAttempt ?? commitPersonalMemoryLetterAttempt;
+  const failAttempt =
+    dependencies.failAttempt ?? failPersonalMemoryLetterAttempt;
+  const selectMemory =
+    dependencies.selectMemory ?? selectPersonalMemoryContextForDailyLetter;
+  const getAlmanac = dependencies.getAlmanac ?? getAlmanacDay;
+  const personalize =
+    dependencies.personalize ?? personalizeEmotionDailyReference302;
+  const getLetter = dependencies.getLetter ?? getEmotionDailyLetter;
+
+  const begun = await beginAttempt({
+    userId: input.userId,
+    letterDate: input.letterDate,
+    actionId: input.actionId,
+  });
+  if (begun.status === "already_committed") {
+    const letter = await getLetter(input.userId, input.letterDate);
+    if (!letter) return { status: "failed", reason: "已提交但读不到来信" };
+    return { status: "already_committed", letter };
+  }
+  if (begun.status === "in_flight") {
+    return { status: "in_flight" };
+  }
+
+  try {
+    const selection = await selectMemory({
+      userId: input.userId,
+      targetDate: input.letterDate,
+    });
+    const almanac = await getAlmanac(input.letterDate);
+    const refreshed = await personalize({
+      date: input.letterDate,
+      almanac,
+      baseDailyReference: input.baseDailyReference,
+      analysisSeed: input.analysisSeed,
+      generationIntent: input.generationIntent,
+      personalMemoryContext: selection.promptContext,
+    });
+
+    const committed = await commitAttempt({
+      attemptId: begun.attempt.id,
+      userId: input.userId,
+      letterDate: input.letterDate,
+      actionId: input.actionId,
+      trigger: input.trigger,
+      selectorVersion: PERSONAL_MEMORY_SELECTOR_VERSION,
+      promptVersion: EMOTION_DAILY_LETTER_VERSION,
+      modelVersion: refreshed.model,
+      privacyEpoch: begun.attempt.privacyEpoch,
+      payload: letterPayloadFrom({
+        userMessage: input.userMessage,
+        dailyReference: refreshed.dailyReference,
+        analysisSeed: input.analysisSeed,
+        profileRevision: input.profileRevision,
+        almanac: trustedAlmanacFacts(almanac, input.letterDate),
+        selectedEvidence: selection.selected.map(item => ({
+          insightId: item.insightId,
+          insightRevision: item.revision,
+          eventIds: item.evidenceEventIds,
+        })),
+      }),
+      userMessageSaidAt: input.userMessageSaidAt,
+      userMessageEditedAt: input.userMessageEditedAt,
+      expectedCurrentVersionNumber: input.expectedCurrentVersionNumber,
+      personalMemoryCapture: input.personalMemoryCapture,
+      captureLetterVersionEvent: isPersonalMemoryCaptureEnabled(input.userId),
+    });
+
+    if (committed.outcome === "committed") {
+      return {
+        status: "committed",
+        letter: committed.letter,
+        refreshedDailyReference: refreshed.dailyReference,
+      };
+    }
+    if (committed.outcome === "epoch_conflict") {
+      // attempt 已经在 db 层被标记 rejected_stale。这里不在原地无限重试——
+      // "安全重选或降级"落在调用方：它可以决定要不要发起新一次 attempt
+      // （新 action ID），这里只诚实报告"这次没能提交，原因是什么"。
+      return {
+        status: "failed",
+        reason: "记忆状态已更新，请重试",
+      };
+    }
+    // revision_conflict：正常路径下先 begin 才能 commit，同一 attempt
+    // 不会有两次提交竞争；出现只可能是极端并发下的兜底分支。
+    await failAttempt({
+      attemptId: begun.attempt.id,
+      userId: input.userId,
+      outcome: "failed",
+    });
+    return { status: "failed", reason: "版本已被并发更新，请刷新后重试" };
+  } catch (error) {
+    // 黄历超时、模型报错等：标记失败，旧版本继续可读，调用方可以安全重试
+    // （同一 action ID 会把这个失败的 attempt 重新拉回 in_flight）。
+    await failAttempt({
+      attemptId: begun.attempt.id,
+      userId: input.userId,
+      outcome: "failed",
+    }).catch(() => {});
+    return {
+      status: "failed",
+      reason: error instanceof Error ? error.message : "生成失败",
+    };
   }
 }
 
@@ -316,21 +540,31 @@ export async function rewriteEmotionDailyLetter(
     letterDate,
     userMessage,
     expectedRevision,
+    actionId,
   }: {
     userId: number;
     letterDate: string;
     userMessage: string;
     expectedRevision: number;
+    actionId?: string;
   },
   dependencies: DailyLetterDependencies = {}
 ): Promise<EmotionDailyLetter> {
   const getLetter = dependencies.getLetter ?? getEmotionDailyLetter;
   const listLetters = dependencies.listLetters ?? listEmotionDailyLetters;
+  const listVersions =
+    dependencies.listVersions ?? listEmotionDailyLetterVersions;
   const getProfile = dependencies.getProfile ?? getEmotionAnalysisProfile;
   const getAlmanac = dependencies.getAlmanac ?? getAlmanacDay;
   const personalize =
     dependencies.personalize ?? personalizeEmotionDailyReference302;
-  const writeLetter = dependencies.writeLetter ?? appendEmotionDailyLetterVersion;
+  const generateAttempt =
+    dependencies.generateAttempt ??
+    (input =>
+      generateDailyLetterViaAttempt(input, {
+        getAlmanac,
+        personalize,
+      }));
   const saveProfile = dependencies.saveProfile ?? upsertEmotionAnalysisProfile;
   const existing = await getLetter(userId, letterDate);
   if (!existing) throw new EmotionDailyLetterNotFoundError();
@@ -365,55 +599,52 @@ export async function rewriteEmotionDailyLetter(
       editedAt,
     }),
   };
-  const almanac = await getAlmanac(letterDate);
   const dailyReference = payloadRecord(existing.dailyReference);
-  const refreshed = await personalize({
-    date: letterDate,
-    almanac,
+  const versions = await listVersions(userId, letterDate);
+  const currentVersion =
+    versions.find(version => version.id === existing.currentVersionId) ??
+    versions.at(-1);
+  const generated = await generateAttempt({
+    userId,
+    letterDate,
+    actionId: actionId ?? `reread:${letterDate}:${expectedRevision}`,
+    trigger: "reread",
+    generationIntent: "daily-letter",
     baseDailyReference: {
       ...dailyReference,
       todayDate: letterDate,
-      lunarLabel:
-        almanac.meta.lunarDate?.trim() || dailyReference.lunarLabel || "",
       personalizedYi: [],
       personalizedJi: [],
     },
     analysisSeed: nextSeed,
-    generationIntent: "daily-letter",
-  });
-  // legacy 的 revision CAS 原样保留，只是改由版本权威执行：
-  // expectedCurrentVersionNumber 不匹配时一行都不改，返回冲突。
-  // action ID 绑定这次 CAS 尝试，重试同一次保存返回同一版本而不是追加两版。
-  const written = await writeLetter({
-    userId,
-    letterDate,
-    actionId: `rewrite:${letterDate}:${expectedRevision}`,
-    trigger: "generated",
-    ...LETTER_WRITER_VERSIONS,
-    privacyEpoch: 1,
-    payload: letterPayloadFrom({
-      userMessage: message || null,
-      dailyReference: refreshed.dailyReference,
-      analysisSeed: nextSeed,
-    }),
+    userMessage: message || null,
     userMessageSaidAt: saidAt,
     userMessageEditedAt: editedAt,
-    expectedCurrentVersionNumber: expectedRevision,
+    profileRevision: profile.updatedAt.toISOString(),
+    expectedCurrentVersionNumber:
+      currentVersion?.envelope.versionNumber ?? expectedRevision,
     // 用户这次写下／改写／清空的留言，与版本推进同一个短事务（U2）。
     // 黄历查询和来信生成都在事务之外，它们失败不会回滚已经保存的留言。
     // 构造器自带 Phase 1 白名单门禁，未列入的账号在这里就是 null。
     personalMemoryCapture:
-      dailyLetterMessageCaptureIfEnabled({
-        userId,
-        letterDate,
-        revision: expectedRevision + 1,
-        message,
-        previousMessage: existing.userMessage,
-        occurredAt: now,
-      }) ?? undefined,
+      previousMessage !== message
+        ? (dailyLetterMessageCaptureIfEnabled({
+            userId,
+            letterDate,
+            revision: expectedRevision + 1,
+            message,
+            previousMessage: existing.userMessage,
+            occurredAt: now,
+          }) ?? undefined)
+        : undefined,
   });
-  if (!written) throw new EmotionDailyLetterConflictError();
-  const saved = written.letter;
+  if (generated.status === "in_flight") {
+    throw new EmotionDailyLetterConflictError();
+  }
+  if (generated.status === "failed") {
+    throw new Error(generated.reason);
+  }
+  const saved = generated.letter;
 
   const writeDate = chinaDateString(dependencies.now ?? new Date());
   const latestProfile = await getProfile(userId);
@@ -429,7 +660,100 @@ export async function rewriteEmotionDailyLetter(
       birthDate: latestProfile.birthDate,
       consentVersion: latestProfile.consentVersion,
       consentText: latestProfile.consentText,
-      dailyReference: refreshed.dailyReference,
+      dailyReference: saved.dailyReference,
+      analysisSeed: nextSeed,
+    });
+  }
+  return saved;
+}
+
+/** 保存每日留言本身，不生成新来信版本。显式“再读一遍”由独立入口负责。 */
+export async function saveEmotionDailyLetterMessage(
+  {
+    userId,
+    letterDate,
+    userMessage,
+    expectedRevision,
+  }: {
+    userId: number;
+    letterDate: string;
+    userMessage: string;
+    expectedRevision: number;
+  },
+  dependencies: DailyLetterDependencies = {}
+): Promise<EmotionDailyLetter> {
+  const getLetter = dependencies.getLetter ?? getEmotionDailyLetter;
+  const listLetters = dependencies.listLetters ?? listEmotionDailyLetters;
+  const saveMessage =
+    dependencies.saveMessage ?? saveEmotionDailyLetterMessageIfRevision;
+  const saveProfile = dependencies.saveProfile ?? upsertEmotionAnalysisProfile;
+  const existing = await getLetter(userId, letterDate);
+  if (!existing) throw new EmotionDailyLetterNotFoundError();
+  if (existing.revision !== expectedRevision) {
+    throw new EmotionDailyLetterConflictError();
+  }
+  const now = dependencies.now ?? new Date();
+  const message = cleanMessage(userMessage);
+  const previousMessage = cleanMessage(existing.userMessage ?? "");
+  const saidAt = existing.userMessageSaidAt ?? (message ? now : null);
+  const editedAt =
+    previousMessage !== message && existing.userMessageSaidAt ? now : null;
+  const analysisSeed = payloadRecord(existing.analysisSeed);
+  const priorHistory = buildPriorMessageHistory({
+    seed: analysisSeed,
+    letters: await listLetters(userId, 365),
+    beforeDate: letterDate,
+  });
+  const nextSeed = {
+    ...analysisSeed,
+    userMessage: message,
+    conversationMode: priorHistory.length ? "history" : "today",
+    messageHistory: nextMessageHistory({
+      seed: { ...analysisSeed, messageHistory: priorHistory },
+      date: letterDate,
+      message,
+      saidAt,
+      editedAt,
+    }),
+  };
+  const saved = await saveMessage({
+    userId,
+    letterDate,
+    expectedRevision,
+    userMessage: message || null,
+    userMessageSaidAt: saidAt,
+    userMessageEditedAt: editedAt,
+    analysisSeed: nextSeed,
+    personalMemoryCapture:
+      previousMessage !== message
+        ? (dailyLetterMessageCaptureIfEnabled({
+            userId,
+            letterDate,
+            revision: expectedRevision + 1,
+            message,
+            previousMessage: existing.userMessage,
+            occurredAt: now,
+          }) ?? undefined)
+        : undefined,
+  });
+  if (!saved) throw new EmotionDailyLetterConflictError();
+
+  const latestProfile = await (
+    dependencies.getProfile ?? getEmotionAnalysisProfile
+  )(userId);
+  const latestReference = payloadRecord(latestProfile?.dailyReference);
+  if (
+    latestProfile &&
+    letterDate === chinaDateString(now) &&
+    latestReference.todayDate === letterDate
+  ) {
+    await saveProfile({
+      userId: latestProfile.userId,
+      projectId: latestProfile.projectId,
+      birthDate: latestProfile.birthDate,
+      consentVersion: latestProfile.consentVersion,
+      consentText: latestProfile.consentText,
+      dailyReference: latestProfile.dailyReference,
       analysisSeed: nextSeed,
     });
   }

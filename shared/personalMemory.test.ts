@@ -30,6 +30,11 @@ import {
   summarizePersonalMemoryDays,
   toPersonalMemoryTimelineItem,
   type PersonalMemoryEventRecord,
+  selectPersonalMemoryForDailyLetter,
+  collectRecentlyMentionedLineageKeys,
+  toPersonalMemoryPromptContext,
+  type PersonalMemorySelectionCandidate,
+  type PersonalMemoryLetterPayload,
 } from "./personalMemory";
 
 function identity(
@@ -885,6 +890,265 @@ describe("足迹时间线契约（U7）", () => {
       expect(days.map(day => day.occurredOn)).toEqual([
         "2026-09-05",
         "2026-09-04",
+      ]);
+    });
+  });
+});
+
+describe("每日来信记忆选材（U6）", () => {
+  function candidate(
+    overrides: Partial<PersonalMemorySelectionCandidate> = {}
+  ): PersonalMemorySelectionCandidate {
+    return {
+      insightId: 1,
+      lineageKey: "lineage-1",
+      revision: 1,
+      category: "preference",
+      origin: "user_stated",
+      text: "喜欢暖色调的画面",
+      scope: null,
+      confidence: 0.6,
+      updatedAt: "2026-09-03T00:00:00.000Z",
+      evidenceEventIds: [1],
+      earliestEvidenceOn: "2026-09-01",
+      ...overrides,
+    };
+  }
+
+  describe("selectPersonalMemoryForDailyLetter", () => {
+    it("没有证据的候选一律不选，即使 DB 层理论上不该出现", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [candidate({ evidenceEventIds: [] })],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+      });
+      expect(selected).toEqual([]);
+    });
+
+    it("冷却期内的 lineageKey 硬排除，不是降权", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [
+          candidate({ lineageKey: "cooling", confidence: 0.99 }),
+          candidate({
+            insightId: 2,
+            lineageKey: "fresh",
+            confidence: 0.1,
+            updatedAt: "2026-09-02T00:00:00.000Z",
+          }),
+        ],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(["cooling"]),
+      });
+      expect(selected.map(item => item.lineageKey)).toEqual(["fresh"]);
+    });
+
+    it("按最近强化时间排序，同分按置信度排序", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [
+          candidate({
+            insightId: 1,
+            lineageKey: "old",
+            updatedAt: "2026-09-01T00:00:00.000Z",
+            confidence: 0.9,
+          }),
+          candidate({
+            insightId: 2,
+            lineageKey: "new",
+            updatedAt: "2026-09-03T00:00:00.000Z",
+            confidence: 0.5,
+          }),
+          candidate({
+            insightId: 3,
+            lineageKey: "same-time-low-confidence",
+            category: "goal",
+            updatedAt: "2026-09-03T00:00:00.000Z",
+            confidence: 0.2,
+          }),
+        ],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+      });
+      expect(selected.map(item => item.lineageKey)).toEqual([
+        "new",
+        "same-time-low-confidence",
+        "old",
+      ]);
+    });
+
+    it("单个类别最多入选 maxPerCategory 条，不被同一类别垄断", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [
+          candidate({ insightId: 1, lineageKey: "p1", category: "preference" }),
+          candidate({ insightId: 2, lineageKey: "p2", category: "preference" }),
+          candidate({ insightId: 3, lineageKey: "p3", category: "preference" }),
+          candidate({ insightId: 4, lineageKey: "g1", category: "goal" }),
+        ],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+        maxPerCategory: 2,
+        maxSelected: 4,
+      });
+      const categories = selected.map(item => item.category);
+      expect(categories.filter(c => c === "preference")).toHaveLength(2);
+      expect(categories).toContain("goal");
+    });
+
+    it("maxSelected 封顶总数", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: Array.from({ length: 10 }, (_, index) =>
+          candidate({
+            insightId: index + 1,
+            lineageKey: `l${index}`,
+            category: index % 2 === 0 ? "preference" : "goal",
+          })
+        ),
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+        maxSelected: 3,
+        maxPerCategory: 10,
+      });
+      expect(selected).toHaveLength(3);
+    });
+
+    it("maxSelected 为 0 时不选任何内容", () => {
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [candidate()],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+        maxSelected: 0,
+      });
+      expect(selected).toEqual([]);
+    });
+
+    it("空候选列表返回空结果，不抛错", () => {
+      expect(
+        selectPersonalMemoryForDailyLetter({
+          candidates: [],
+          targetDate: "2026-09-04",
+          cooldownLineageKeys: new Set(),
+        })
+      ).toEqual([]);
+    });
+
+    it("scope.projectScoped 的理解一律不选——每日来信没有 storyId 可以匹配", () => {
+      // 这条锁住 U5/U7 遗留的已知限制第一次真正生效的地方：project scope
+      // 只是粗粒度标记，没有精确 storyId，唯一站得住的处理是整类排除。
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [
+          candidate({
+            lineageKey: "project-scoped",
+            scope: { projectScoped: true },
+          }),
+          candidate({
+            insightId: 2,
+            lineageKey: "global",
+            scope: null,
+          }),
+        ],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+      });
+      expect(selected.map(item => item.lineageKey)).toEqual(["global"]);
+    });
+
+    it("选中项携带 origin 与 scope，供 prompt 层区分用户原话与系统推断", () => {
+      // scope 特意不用 projectScoped——那个形状被专门的排除规则挡在外面，
+      // 这里测的是"非项目限定的 scope 会原样透传"这件独立的事。
+      const selected = selectPersonalMemoryForDailyLetter({
+        candidates: [
+          candidate({
+            origin: "inferred",
+            scope: { someOtherDimension: "x" },
+          }),
+        ],
+        targetDate: "2026-09-04",
+        cooldownLineageKeys: new Set(),
+      });
+      expect(selected[0].origin).toBe("inferred");
+      expect(selected[0].scope).toEqual({ someOtherDimension: "x" });
+    });
+  });
+
+  describe("collectRecentlyMentionedLineageKeys", () => {
+    it("从近期 payload 的 selectedEvidence 提取 lineageKey", () => {
+      const payload: PersonalMemoryLetterPayload = {
+        dailyReference: {},
+        analysisSeed: {},
+        userMessage: null,
+        profileRevision: null,
+        almanac: null,
+        selectedEvidence: [{ insightId: 1, insightRevision: 1, eventIds: [10] }],
+      };
+      const keys = collectRecentlyMentionedLineageKeys(
+        [payload],
+        new Map([[1, "lineage-1"]])
+      );
+      expect(keys).toEqual(new Set(["lineage-1"]));
+    });
+
+    it("null payload（比如被 scrub 过）安全跳过", () => {
+      const keys = collectRecentlyMentionedLineageKeys(
+        [null],
+        new Map([[1, "lineage-1"]])
+      );
+      expect(keys).toEqual(new Set());
+    });
+
+    it("insightId 在映射表里找不到（理解后来被彻底删除数据）时安全跳过，不抛错", () => {
+      const payload: PersonalMemoryLetterPayload = {
+        dailyReference: {},
+        analysisSeed: {},
+        userMessage: null,
+        profileRevision: null,
+        almanac: null,
+        selectedEvidence: [{ insightId: 999, insightRevision: 1, eventIds: [] }],
+      };
+      const keys = collectRecentlyMentionedLineageKeys([payload], new Map());
+      expect(keys).toEqual(new Set());
+    });
+  });
+
+  describe("toPersonalMemoryPromptContext", () => {
+    it("projectScoped 从 scope.projectScoped 派生为布尔值", () => {
+      const context = toPersonalMemoryPromptContext([
+        {
+          insightId: 1,
+          lineageKey: "l1",
+          revision: 1,
+          category: "goal",
+          origin: "user_stated",
+          text: "想学游泳",
+          scope: { projectScoped: true },
+          evidenceEventIds: [1],
+          earliestEvidenceOn: "2026-09-01",
+        },
+        {
+          insightId: 2,
+          lineageKey: "l2",
+          revision: 1,
+          category: "preference",
+          origin: "inferred",
+          text: "喜欢暖色调",
+          scope: null,
+          evidenceEventIds: [2],
+          earliestEvidenceOn: null,
+        },
+      ]);
+      expect(context).toEqual([
+        {
+          category: "goal",
+          origin: "user_stated",
+          text: "想学游泳",
+          projectScoped: true,
+          earliestEvidenceOn: "2026-09-01",
+        },
+        {
+          category: "preference",
+          origin: "inferred",
+          text: "喜欢暖色调",
+          projectScoped: false,
+          earliestEvidenceOn: null,
+        },
       ]);
     });
   });

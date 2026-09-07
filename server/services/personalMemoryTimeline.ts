@@ -34,6 +34,7 @@ import {
   getGeneratedImageById,
   getPersonalMemoryEventById,
   getStoryById,
+  listEmotionDailyLetters,
   listEmotionDailyLetterVersions,
   listPersonalMemoryEventsByIds,
   listPersonalMemoryEventsForDay,
@@ -56,7 +57,10 @@ export async function getPersonalMemoryTimelinePage(input: {
   limit?: number;
   sourceTypes?: readonly PersonalMemorySourceType[] | null;
 }): Promise<PersonalMemoryTimelinePage> {
-  const limit = Math.max(1, Math.min(100, input.limit ?? DEFAULT_TIMELINE_LIMIT));
+  const limit = Math.max(
+    1,
+    Math.min(100, input.limit ?? DEFAULT_TIMELINE_LIMIT)
+  );
   // 游标解析失败当作「从头开始」，不报错：伪造的游标最坏也只是在自己的
   // 数据里跳位置（服务端始终用认证 userId 过滤），没必要变成一个错误弹窗。
   const cursor = decodePersonalMemoryTimelineCursor(input.cursor);
@@ -90,15 +94,46 @@ export async function getPersonalMemorySummary(input: {
   userId: number;
   maxDays?: number;
 }): Promise<PersonalMemorySummary> {
-  const { events } = await listPersonalMemoryEventsPage({
-    userId: input.userId,
-    limit: SUMMARY_SCAN_LIMIT,
-  });
-  const days = summarizePersonalMemoryDays(
-    events,
-    Math.max(1, Math.min(30, input.maxDays ?? SUMMARY_MAX_DAYS))
+  const [{ events }, letters] = await Promise.all([
+    listPersonalMemoryEventsPage({
+      userId: input.userId,
+      limit: SUMMARY_SCAN_LIMIT,
+    }),
+    // U7 对既有来信的只读索引：旧版本在统一事件 writer 上线前已经存在，
+    // 不能因为没有 daily_letter_version 事件就从头像摘要里消失。
+    listEmotionDailyLetters(input.userId, 365),
+  ]);
+  const byDate = new Map(
+    summarizePersonalMemoryDays(events, 30).map(day => [day.occurredOn, day])
   );
-  return { days, lastActivityAt: events[0]?.occurredAt ?? null };
+  for (const letter of letters) {
+    const existing = byDate.get(letter.letterDate);
+    if (existing) {
+      if (!existing.sourceTypes.includes("daily_letter_version")) {
+        existing.sourceTypes.push("daily_letter_version");
+        existing.eventCount += 1;
+      }
+      continue;
+    }
+    byDate.set(letter.letterDate, {
+      occurredOn: letter.letterDate,
+      eventCount: 1,
+      sourceTypes: ["daily_letter_version"],
+    });
+  }
+  const maxDays = Math.max(1, Math.min(30, input.maxDays ?? SUMMARY_MAX_DAYS));
+  const days = [...byDate.values()]
+    .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn))
+    .slice(0, maxDays);
+  const latestLetterAt = letters[0]?.updatedAt.toISOString() ?? null;
+  const latestEventAt = events[0]?.occurredAt ?? null;
+  return {
+    days,
+    lastActivityAt:
+      [latestEventAt, latestLetterAt]
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => right.localeCompare(left))[0] ?? null,
+  };
 }
 
 // ─── 来源解析 ───────────────────────────────────────────────────────────
@@ -271,7 +306,8 @@ async function resolvePersonalMemoryImage(input: {
   imageId: number;
 }): Promise<ResolvedImage> {
   const image = await getGeneratedImageById(input.imageId);
-  if (!image) return { availability: "deleted", storyId: null, localPath: null };
+  if (!image)
+    return { availability: "deleted", storyId: null, localPath: null };
   if (image.storyId == null) {
     // 无 Story 的图片无法证明归属，一律拒绝，不回退到 userId 列。
     return { availability: "forbidden", storyId: null, localPath: null };
@@ -283,10 +319,18 @@ async function resolvePersonalMemoryImage(input: {
   const localPath = localImagePathForUrl(image.imageUrl);
   if (!localPath) {
     // 还在远端／还没落盘：给「处理中」而不是「已删除」，两者对用户含义不同。
-    return { availability: "processing", storyId: image.storyId, localPath: null };
+    return {
+      availability: "processing",
+      storyId: image.storyId,
+      localPath: null,
+    };
   }
   if (!fs.existsSync(localPath)) {
-    return { availability: "processing", storyId: image.storyId, localPath: null };
+    return {
+      availability: "processing",
+      storyId: image.storyId,
+      localPath: null,
+    };
   }
   return { availability: "accessible", storyId: image.storyId, localPath };
 }

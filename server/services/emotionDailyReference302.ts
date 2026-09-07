@@ -6,6 +6,7 @@ import {
   resolveComputeCandidates,
 } from "../_core/textComputeProvider";
 import type { AlmanacDay } from "./almanac";
+import type { PersonalMemoryPromptContextItem } from "@shared/personalMemory";
 import {
   currentChinaShichenGuidance,
   type ShichenGuidance,
@@ -65,6 +66,12 @@ export interface PersonalizeEmotionDailyReferenceInput {
   analysisSeed: PayloadRecord;
   generationIntent?: "daily-letter" | "conversation-reply";
   computeUseCase?: "emotion" | "login-guest";
+  /**
+   * 选材器（U6）挑出的记忆上下文。只用于这一次生成——**不写进 analysisSeed
+   * 或 profile**：这批条目每天都会重新选，混进长期字段会像 previousWords
+   * 一样在天与天之间累积漂移，而它本该是一次性的、可复现的生成输入。
+   */
+  personalMemoryContext?: PersonalMemoryPromptContextItem[];
   fetcher?: Fetcher;
   now?: Date;
 }
@@ -528,6 +535,7 @@ function systemPrompt() {
     "文字要温和、具体、克制，承认不确定性，不夸大转折，不替用户下结论。",
     "currentWords 是用户在目标日期写下的原话；previousWords 只包含这一天之前由同一用户留下的文字。两者必须严格区分，旧话不能写成今天刚说的话。previousWords 每条都带有按 Asia/Shanghai 计算的 relativeDate；提到旧话时只能使用这个字段，不能自行猜测“昨天/前天”。",
     "currentWords 已去掉产品自动添加的“接着某天说的……我现在想说”导航句。回信只引用用户真正新写的内容；需要联系旧话时，从 previousWords 取，并标明日期。",
+    "personalMemory 是系统从用户账号历史里精选出的少量长期记忆，每条都带 origin：user_stated／user_corrected 是用户自己说过或亲自确认过的话，可以像 previousWords 一样谨慎引用并标明大致时间（用 earliestDate，不写成“最近”以外的相对时间措辞）；origin 为 inferred 的条目是系统从用户行为（比如反复选中某种风格的图片）推断出来的，**置信度更低，绝不能写成用户自己说过的话或认领过的事实**，最多只能用一句不确定、可撤回的语气侧面带一笔（例如“感觉你这阵子偏爱……”），完全不用也可以。personalMemory 每封信最多自然提及一到两条，不得逐条罗列，不得把它们当成本次生成的主线——它们只是让回信更懂用户的辅助线索，currentWords 和 previousWords 才是主体。",
     "先在内部比较 currentWords 与 previousWords：判断它更像过去感受的延续、变化、新出现的关注，还是证据还不够。只有文字本身有清楚证据时，才把这个判断自然写进回信；不得贴心理标签，也不得猜测用户没有说出的动机。",
     "generationIntent 为 daily-letter 时，这是新一天首次打开页面看到的信。结合 previousWords 中长期、重复出现的生活节奏与偏好来理解用户，但不得复述、引用或追问某一次旧事件，也不得把旧情绪写成用户今天的状态；existingReference.summary 只用于避免重复。",
     "generationIntent 为 conversation-reply 时，以 currentWords 为主，最多联系两条确实相关的 previousWords，并用“你在M月D日写过”标明来源；严禁把旧话写成“你昨天说”“前天你写过”这类自行推断的相对日期。不要翻旧账，不要为了显得懂用户而牵强关联。",
@@ -625,6 +633,15 @@ function userContext(input: PersonalizeEmotionDailyReferenceInput) {
     },
     currentShichenContext: guidance,
     traditionalTimeContext: buildTraditionalTimeContext(almanac, analysisSeed),
+    // 选材器（U6）挑出的记忆上下文；每条都带 origin，供 systemPrompt 里的
+    // 约束区分"用户自己说的/纠正过的"与"系统从行为推断的"——后者置信度更低，
+    // 不得被写成用户认领过的事实。
+    personalMemory: (input.personalMemoryContext ?? []).map(item => ({
+      category: item.category,
+      origin: item.origin,
+      text: cleanText(item.text, 200),
+      earliestDate: item.earliestEvidenceOn,
+    })),
     existingReference: {
       summary: blankDailyLetter
         ? ""

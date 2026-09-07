@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EmotionAnalysisProfile } from "../../drizzle/schema";
 import type { AlmanacDay } from "./almanac";
+import { generateDailyLetterViaAttempt } from "./emotionDailyLetters";
 import { getFreshEmotionAnalysisProfile } from "./emotionProfileDailyRefresh";
 
 function profile(todayDate: string): EmotionAnalysisProfile {
@@ -45,6 +46,40 @@ const almanac: AlmanacDay = {
   fetchedAt: "2026-07-27T00:00:00.000Z",
 };
 
+function fakeGenerateLetter(
+  summary: string,
+  letterVersion = "daily-letter-v12"
+) {
+  return vi.fn(
+    async (input: Parameters<typeof generateDailyLetterViaAttempt>[0]) => {
+      const dailyReference = {
+        ...input.baseDailyReference,
+        summary,
+        letterVersion,
+        interpretationSource: "302-deepseek",
+      };
+      return {
+        status: "committed" as const,
+        letter: {
+          id: 99,
+          userId: input.userId,
+          letterDate: input.letterDate,
+          currentVersionId: 99,
+          userMessage: input.userMessage,
+          userMessageSaidAt: input.userMessageSaidAt,
+          userMessageEditedAt: input.userMessageEditedAt,
+          dailyReference,
+          analysisSeed: input.analysisSeed,
+          revision: 1,
+          createdAt: new Date("2026-07-27T04:00:00.000Z"),
+          updatedAt: new Date("2026-07-27T04:00:00.000Z"),
+        },
+        refreshedDailyReference: dailyReference,
+      };
+    }
+  );
+}
+
 describe("getFreshEmotionAnalysisProfile", () => {
   it("当天已有回信时直接复用，不重复调用模型", async () => {
     const current = profile("2026-07-27");
@@ -77,15 +112,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
       ...input,
       updatedAt: new Date("2026-07-27T04:00:00.000Z"),
     }));
-    const personalize = vi.fn(async input => ({
-      source: "302-deepseek" as const,
-      model: "deepseek-v3.2",
-      dailyReference: {
-        ...input.baseDailyReference,
-        summary: "302 重新写出的回信",
-        interpretationSource: "302-deepseek",
-      },
-    }));
+    const generateLetter = fakeGenerateLetter("302 重新写出的回信");
 
     await getFreshEmotionAnalysisProfile(12, {
       getProfile: vi.fn(async () => local),
@@ -95,12 +122,12 @@ describe("getFreshEmotionAnalysisProfile", () => {
       getArchive: vi.fn(async () => null),
       listArchive: vi.fn(async () => []),
       getAlmanac: vi.fn(async () => almanac),
-      personalize,
+      generateLetter,
       preferAi: true,
       now: new Date("2026-07-27T04:00:00.000Z"),
     });
 
-    expect(personalize).toHaveBeenCalled();
+    expect(generateLetter).toHaveBeenCalled();
     expect(saveProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         dailyReference: expect.objectContaining({
@@ -118,15 +145,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
       ...input,
       updatedAt: new Date("2026-07-27T04:00:00.000Z"),
     }));
-    const personalize = vi.fn(async input => ({
-      source: "302-deepseek" as const,
-      model: "deepseek-v3.2",
-      dailyReference: {
-        ...input.baseDailyReference,
-        summary: "今天的新回信",
-        avoid: "今天不要急着下结论。",
-      },
-    }));
+    const generateLetter = fakeGenerateLetter("今天的新回信");
     const ensureArchive = vi.fn(async () => null);
     const archivedEarlier = {
       id: 5,
@@ -157,13 +176,13 @@ describe("getFreshEmotionAnalysisProfile", () => {
       getArchive: vi.fn(async () => null),
       listArchive: vi.fn(async () => [archivedEarlier]),
       getAlmanac: vi.fn(async () => almanac),
-      personalize,
+      generateLetter,
       now: new Date("2026-07-27T04:00:00.000Z"),
     });
 
-    expect(personalize).toHaveBeenCalledWith(
+    expect(generateLetter).toHaveBeenCalledWith(
       expect.objectContaining({
-        date: "2026-07-27",
+        letterDate: "2026-07-27",
         baseDailyReference: expect.objectContaining({
           todayDate: "2026-07-27",
           lunarLabel: "农历六月十四",
@@ -185,7 +204,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
     );
     expect(ensureArchive).toHaveBeenCalledWith(stale);
     expect(ensureArchive.mock.invocationCallOrder[0]).toBeLessThan(
-      personalize.mock.invocationCallOrder[0]
+      generateLetter.mock.invocationCallOrder[0]
     );
     expect(saveProfile).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -209,15 +228,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
       ...input,
       updatedAt: new Date("2026-07-27T04:00:00.000Z"),
     }));
-    const personalize = vi.fn(async input => ({
-      source: "302-deepseek" as const,
-      model: "deepseek-v3.2",
-      dailyReference: {
-        ...input.baseDailyReference,
-        summary: "升级后的完整回信",
-        letterVersion: "daily-letter-v12",
-      },
-    }));
+    const generateLetter = fakeGenerateLetter("升级后的完整回信");
 
     await getFreshEmotionAnalysisProfile(12, {
       getProfile: vi.fn(async () => legacy),
@@ -227,11 +238,11 @@ describe("getFreshEmotionAnalysisProfile", () => {
       getArchive: vi.fn(async () => null),
       listArchive: vi.fn(async () => []),
       getAlmanac: vi.fn(async () => almanac),
-      personalize,
+      generateLetter,
       now: new Date("2026-07-27T04:00:00.000Z"),
     });
 
-    expect(personalize).toHaveBeenCalled();
+    expect(generateLetter).toHaveBeenCalled();
     expect(saveProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisSeed: expect.objectContaining({
@@ -258,15 +269,10 @@ describe("getFreshEmotionAnalysisProfile", () => {
       ...input,
       updatedAt: new Date("2026-07-27T04:00:00.000Z"),
     }));
-    const personalize = vi.fn(async input => ({
-      source: "302-deepseek" as const,
-      model: "deepseek-v3.2",
-      dailyReference: {
-        ...input.baseDailyReference,
-        summary: "补入四柱后的今日回信",
-        letterVersion: "daily-letter-v2",
-      },
-    }));
+    const generateLetter = fakeGenerateLetter(
+      "补入四柱后的今日回信",
+      "daily-letter-v2"
+    );
 
     await getFreshEmotionAnalysisProfile(12, {
       getProfile: vi.fn(async () => legacy),
@@ -276,11 +282,11 @@ describe("getFreshEmotionAnalysisProfile", () => {
       getArchive: vi.fn(async () => null),
       listArchive: vi.fn(async () => []),
       getAlmanac: vi.fn(async () => almanac),
-      personalize,
+      generateLetter,
       now: new Date("2026-07-27T04:00:00.000Z"),
     });
 
-    expect(personalize).toHaveBeenCalledWith(
+    expect(generateLetter).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisSeed: expect.objectContaining({
           birthBazi: "甲戌年 · 壬申月 · 己丑日 · 丙子时",

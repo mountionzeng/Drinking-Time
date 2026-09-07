@@ -4,76 +4,44 @@ import type {
   EmotionAnalysisProfile,
   EmotionDailyLetter,
 } from "../../drizzle/schema";
-import type { AlmanacDay } from "./almanac";
-import type { AppendDailyLetterVersionInput } from "../db";
 import {
   buildPriorMessageHistory,
   EmotionDailyLetterConflictError,
+  generateDailyLetterViaAttempt,
   rewriteEmotionDailyLetter,
 } from "./emotionDailyLetters";
 
 /**
- * 模拟 U1 的版本 writer：追加一版并把日期级行投影出来。
- * `expectedCurrentVersionNumber` 不匹配时返回 null，对应 CAS 冲突。
+ * 模拟 U6 的 generation attempt：测试重写层如何准备输入，以及只有
+ * committed 结果才会同步日期级投影。选材、黄历和条件提交由 attempt 自己的
+ * 独立测试覆盖，这里不再把旧 U1 writer 注回生产路径。
  */
-function fakeLetterWriter(existing: EmotionDailyLetter) {
-  return vi.fn(async (input: AppendDailyLetterVersionInput) => {
-    const currentNumber = existing.revision;
-    if (
-      input.expectedCurrentVersionNumber !== undefined &&
-      input.expectedCurrentVersionNumber !== currentNumber
-    ) {
-      return null;
-    }
-    const versionNumber = currentNumber + 1;
-    return {
-      created: true,
-      version: {
-        id: 99,
-        userId: input.userId,
-        letterDate: input.letterDate,
-        envelope: {
-          versionNumber,
-          generatedAt: "2026-07-27T10:00:00.000Z",
-          trigger: input.trigger,
-          selectorVersion: input.selectorVersion,
-          promptVersion: input.promptVersion,
-          modelVersion: input.modelVersion,
+function fakeGenerateAttempt(existing: EmotionDailyLetter, summary: string) {
+  return vi.fn(
+    async (input: Parameters<typeof generateDailyLetterViaAttempt>[0]) => {
+      const versionNumber = existing.revision + 1;
+      const dailyReference = {
+        ...input.baseDailyReference,
+        summary,
+      };
+      return {
+        status: "committed" as const,
+        letter: {
+          ...existing,
+          userMessage: input.userMessage,
+          userMessageSaidAt: input.userMessageSaidAt ?? null,
+          userMessageEditedAt: input.userMessageEditedAt ?? null,
+          dailyReference,
+          analysisSeed: input.analysisSeed,
+          revision: versionNumber,
+          currentVersionId: 99,
+          updatedAt: new Date("2026-07-27T10:00:00.000Z"),
         },
-        payload: input.payload,
-        privacyEpoch: input.privacyEpoch,
-        actionId: input.actionId,
-        createdAt: "2026-07-27T10:00:00.000Z",
-      },
-      letter: {
-        ...existing,
-        userMessage: input.payload.userMessage,
-        userMessageSaidAt: input.userMessageSaidAt ?? null,
-        userMessageEditedAt: input.userMessageEditedAt ?? null,
-        dailyReference: input.payload.dailyReference,
-        analysisSeed: input.payload.analysisSeed,
-        revision: versionNumber,
-        currentVersionId: 99,
-        updatedAt: new Date("2026-07-27T10:00:00.000Z"),
-      },
-    };
-  });
+        refreshedDailyReference: dailyReference,
+      };
+    }
+  );
 }
-
-
-const almanac: AlmanacDay = {
-  date: "2026-07-26",
-  provider: "tianapi",
-  sourceLabel: "天行数据老黄历",
-  status: "ok",
-  message: null,
-  yi: ["会友"],
-  ji: ["动土"],
-  luckyHours: [],
-  directions: [],
-  meta: { lunarDate: "农历六月十三" },
-  fetchedAt: "2026-07-26T00:00:00.000Z",
-};
 
 function profile(): EmotionAnalysisProfile {
   return {
@@ -162,15 +130,10 @@ describe("重写每日回信", () => {
       userMessageSaidAt: new Date("2026-07-27T08:00:00.000Z"),
     };
     const saveProfile = vi.fn();
-    const writeLetter = fakeLetterWriter(existing);
-    const personalize = vi.fn(async input => ({
-      source: "302-deepseek" as const,
-      model: "deepseek-v3.2",
-      dailyReference: {
-        ...input.baseDailyReference,
-        summary: `新回信：${String(input.analysisSeed.userMessage)}`,
-      },
-    }));
+    const generateAttempt = fakeGenerateAttempt(
+      existing,
+      "新回信：后来我想换一种说法"
+    );
 
     const result = await rewriteEmotionDailyLetter(
       {
@@ -183,9 +146,7 @@ describe("重写每日回信", () => {
         getLetter: vi.fn(async () => existing),
         listLetters: vi.fn(async () => [future, existing, earlier]),
         getProfile: vi.fn(async () => profile()),
-        getAlmanac: vi.fn(async () => almanac),
-        personalize,
-        writeLetter,
+        generateAttempt,
         saveProfile,
         now: new Date("2026-07-27T10:00:00.000Z"),
       }
@@ -199,9 +160,10 @@ describe("重写每日回信", () => {
     expect(result.userMessageEditedAt).toEqual(
       new Date("2026-07-27T10:00:00.000Z")
     );
-    expect(personalize).toHaveBeenCalledWith(
+    expect(generateAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
-        date: "2026-07-26",
+        letterDate: "2026-07-26",
+        trigger: "reread",
         generationIntent: "daily-letter",
         baseDailyReference: expect.objectContaining({
           personalizedYi: [],
@@ -223,8 +185,8 @@ describe("重写每日回信", () => {
         }),
       })
     );
-    const personalizeInput = personalize.mock.calls[0][0];
-    expect(personalizeInput.analysisSeed.messageHistory).not.toEqual(
+    const generationInput = generateAttempt.mock.calls[0][0];
+    expect(generationInput.analysisSeed.messageHistory).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ dailyLetterDate: "2026-07-27" }),
       ])
@@ -247,19 +209,7 @@ describe("重写每日回信", () => {
         getLetter: vi.fn(async () => existing),
         listLetters: vi.fn(async () => []),
         getProfile: vi.fn(async () => profile()),
-        getAlmanac: vi.fn(async () => ({
-          ...almanac,
-          date: "2026-07-27",
-        })),
-        personalize: vi.fn(async input => ({
-          source: "302-deepseek" as const,
-          model: "deepseek-v3.2",
-          dailyReference: {
-            ...input.baseDailyReference,
-            summary: "今天重写后的回信",
-          },
-        })),
-        writeLetter: fakeLetterWriter(existing),
+        generateAttempt: fakeGenerateAttempt(existing, "今天重写后的回信"),
         saveProfile,
         now: new Date("2026-07-27T10:00:00.000Z"),
       }
@@ -317,7 +267,16 @@ describe("来信正文只有一个写入口（U1 门禁）", () => {
 
     const { stdout } = await run(
       "git",
-      ["grep", "-n", "-E", DATE_ROW_WRITERS.join("|"), "--", "server", "client", "shared"],
+      [
+        "grep",
+        "-n",
+        "-E",
+        DATE_ROW_WRITERS.join("|"),
+        "--",
+        "server",
+        "client",
+        "shared",
+      ],
       { cwd: root }
     ).catch((error: { stdout?: string; code?: number }) =>
       // git grep 没有命中时退出码为 1，那对我们是「干净」而不是失败。

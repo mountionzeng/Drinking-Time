@@ -69,6 +69,7 @@ import {
   personalMemoryEvidence,
   personalMemorySuppressions,
   emotionDailyLetterVersions,
+  emotionDailyLetterAttempts,
   InsertStory,
   stories,
   Story,
@@ -181,6 +182,8 @@ import {
   type PersonalMemoryInsightRecord,
   type PersonalMemoryInsightState,
   type PersonalMemoryJobRecord,
+  type PersonalMemoryLetterAttemptRecord,
+  type PersonalMemoryLetterAttemptState,
   type PersonalMemoryLetterEnvelope,
   type PersonalMemoryLetterPayload,
   type PersonalMemoryLetterVersionRecord,
@@ -10911,7 +10914,11 @@ export async function issueDevicePairingCode(input: {
   if (!db) {
     const current = now();
     for (const row of memoryState.devicePairingCodes) {
-      if (row.userId === input.userId && !row.consumedAt && !row.invalidatedAt) {
+      if (
+        row.userId === input.userId &&
+        !row.consumedAt &&
+        !row.invalidatedAt
+      ) {
         row.invalidatedAt = current;
       }
     }
@@ -11533,7 +11540,10 @@ export async function listPersonalMemoryEventsPage(input: {
     .select()
     .from(personalMemoryEvents)
     .where(and(...conditions))
-    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id))
+    .orderBy(
+      desc(personalMemoryEvents.occurredAt),
+      desc(personalMemoryEvents.id)
+    )
     .limit(safeLimit + 1);
   return {
     events: rows.slice(0, safeLimit).map(rowToPersonalMemoryEvent),
@@ -11588,7 +11598,9 @@ export async function listPersonalMemoryEventsForDay(
   const db = await getDb();
   if (!db) {
     return memoryState.personalMemory.events
-      .filter(event => event.userId === userId && event.occurredOn === occurredOn)
+      .filter(
+        event => event.userId === userId && event.occurredOn === occurredOn
+      )
       .sort((left, right) => {
         const byTime = right.occurredAt.localeCompare(left.occurredAt);
         return byTime !== 0 ? byTime : right.id - left.id;
@@ -11603,7 +11615,10 @@ export async function listPersonalMemoryEventsForDay(
         eq(personalMemoryEvents.occurredOn, occurredOn)
       )
     )
-    .orderBy(desc(personalMemoryEvents.occurredAt), desc(personalMemoryEvents.id));
+    .orderBy(
+      desc(personalMemoryEvents.occurredAt),
+      desc(personalMemoryEvents.id)
+    );
   return rows.map(rowToPersonalMemoryEvent);
 }
 
@@ -11643,8 +11658,46 @@ export async function listPersonalMemoryInsightsForUser(input: {
     .select()
     .from(personalMemoryInsights)
     .where(and(...conditions))
-    .orderBy(desc(personalMemoryInsights.updatedAt), desc(personalMemoryInsights.id))
+    .orderBy(
+      desc(personalMemoryInsights.updatedAt),
+      desc(personalMemoryInsights.id)
+    )
     .limit(safeLimit);
+  return rows.map(rowToPersonalMemoryInsight);
+}
+
+/**
+ * 按 ID 批量取理解修订（仍按 userId 过滤）。
+ *
+ * 选材器算冷却期要把"过去某个 attemptId 提交时选中的 insightId"翻回
+ * lineageKey——那条 insightId 可能是某个**特定修订**，纠正之后已经不在
+ * 当前 active 候选池里了，但它的 lineageKey 仍然代表同一件事，冷却期
+ * 必须认得出来，不能因为查不到当前候选就悄悄漏掉。理解修订是 append-only
+ * 的（纠正产生新行，不改写旧行），所以按 ID 直接查旧修订总能查到。
+ */
+export async function listPersonalMemoryInsightsByIds(
+  userId: number,
+  insightIds: readonly number[]
+): Promise<PersonalMemoryInsightRecord[]> {
+  const ids = [...new Set(insightIds)].filter(
+    id => Number.isSafeInteger(id) && id > 0
+  );
+  if (ids.length === 0) return [];
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.insights.filter(
+      insight => insight.userId === userId && ids.includes(insight.id)
+    );
+  }
+  const rows = await db
+    .select()
+    .from(personalMemoryInsights)
+    .where(
+      and(
+        eq(personalMemoryInsights.userId, userId),
+        inArray(personalMemoryInsights.id, ids)
+      )
+    );
   return rows.map(rowToPersonalMemoryInsight);
 }
 
@@ -11760,6 +11813,17 @@ export type AppendDailyLetterVersionInput = {
    */
   expectedCurrentVersionNumber?: number;
   /**
+   * 条件提交的第二维（U6）：给定时，只有当前隐私 epoch 恰好等于它才追加。
+   *
+   * 忘记或删除来源会原子递增用户的隐私 epoch；一次生成在选材开始时固定了
+   * 它，如果提交前 epoch 已经变了，说明选材依据的某条理解或来源在生成
+   * 期间被撤走了——即使模型已经把结果算出来了，也不能把基于旧输入的
+   * 内容提交为新版本。命中不匹配与版本号 CAS 未命中一样返回 null；
+   * 调用方（`commitPersonalMemoryLetterAttempt`）事后用一次追加读区分
+   * 「是版本冲突还是 epoch 冲突」，不需要在这里扩出第二种返回形状。
+   */
+  requiredPrivacyEpoch?: number;
+  /**
    * 每日留言的经历捕获（U2）。与版本、日期级指针写在**同一个短事务**里。
    *
    * 这里不需要 outbox：留言的来源（日期级行）和统一足迹索引本来就同在
@@ -11769,6 +11833,14 @@ export type AppendDailyLetterVersionInput = {
    * 是否捕获由调用方（Phase 1 白名单）决定；不传就是不捕获。
    */
   personalMemoryCapture?: PersonalMemoryCapture;
+  /**
+   * U6 生成 attempt。传入后，版本追加与 attempt 标记 committed 必须在同一个
+   * 本地 copy-on-write / MySQL 事务里完成，不能留下“版本写成了但 attempt 还
+   * 是 in_flight”的断网窗口。
+   */
+  letterAttemptId?: number;
+  /** 成功的新版本是否同时写入统一足迹。由调用方的捕获门禁决定。 */
+  captureLetterVersionEvent?: boolean;
 };
 
 export type AppendDailyLetterVersionResult = {
@@ -11850,6 +11922,12 @@ async function appendLetterVersionOnce(
   input: AppendDailyLetterVersionInput
 ): Promise<AppendDailyLetterVersionResult | null> {
   return db.transaction(async tx => {
+    const attemptRow = input.letterAttemptId
+      ? await readMatchingLetterAttemptInTx(tx, input)
+      : null;
+    if (input.letterAttemptId && !attemptRow) {
+      throw new Error("来信 attempt 与用户、日期或动作不匹配");
+    }
     // 刻意**不**在这里用 SELECT ... FOR UPDATE。
     //
     // 当天还没有任何版本时，那是一段空区间；两个事务同时对空区间取锁会各拿到
@@ -11881,7 +11959,22 @@ async function appendLetterVersionOnce(
         input.letterDate
       );
       if (!letter) throw new Error("来信版本存在但日期级投影缺失");
+      await markLetterAttemptCommittedInTx(tx, input, replay.id);
       return { version: replay, letter, created: false };
+    }
+
+    // epoch 检查放在真正新写之前、replay 判定之后：已经成功过的
+    // action 重放是历史事实，不因为 epoch 后来变了而反悔；但一次
+    // **新**写入必须证明它引用的隐私状态仍然成立。点查主键，不涉及
+    // 范围扫描，不会重演这个文件里其他地方记录过的 gap-lock 死锁。
+    if (input.requiredPrivacyEpoch !== undefined) {
+      const [epochRow] = await tx
+        .select()
+        .from(personalMemoryPrivacyEpochs)
+        .where(eq(personalMemoryPrivacyEpochs.userId, input.userId))
+        .limit(1);
+      const currentEpoch = epochRow?.epoch ?? 1;
+      if (currentEpoch !== input.requiredPrivacyEpoch) return null;
     }
 
     const current = currentLetterVersion(priorRecords);
@@ -11944,7 +12037,7 @@ async function appendLetterVersionOnce(
         userMessageEditedAt: input.userMessageEditedAt ?? null,
         dailyReference: projected.dailyReference,
         analysisSeed: projected.analysisSeed,
-        revision: projected.revision,
+        revision: 1,
         currentVersionId: version.id,
       })
       .onDuplicateKeyUpdate({
@@ -11954,7 +12047,7 @@ async function appendLetterVersionOnce(
           userMessageEditedAt: input.userMessageEditedAt ?? null,
           dailyReference: projected.dailyReference,
           analysisSeed: projected.analysisSeed,
-          revision: projected.revision,
+          revision: sql`${emotionDailyLetters.revision} + 1`,
           currentVersionId: version.id,
           updatedAt: new Date(),
         },
@@ -11971,8 +12064,61 @@ async function appendLetterVersionOnce(
         input.personalMemoryCapture
       );
     }
+    if (input.captureLetterVersionEvent) {
+      await capturePersonalMemoryEvent(
+        { mode: "mysql", tx },
+        letterVersionEventCapture(input, version)
+      );
+    }
+    await markLetterAttemptCommittedInTx(tx, input, version.id);
     return { version, letter, created: true };
   });
+}
+
+async function readMatchingLetterAttemptInTx(
+  tx: PersonalMemoryMysqlTx,
+  input: AppendDailyLetterVersionInput
+) {
+  if (!input.letterAttemptId) return null;
+  const [row] = await tx
+    .select()
+    .from(emotionDailyLetterAttempts)
+    .where(
+      and(
+        eq(emotionDailyLetterAttempts.id, input.letterAttemptId),
+        eq(emotionDailyLetterAttempts.userId, input.userId),
+        eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
+        eq(emotionDailyLetterAttempts.actionId, input.actionId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+async function markLetterAttemptCommittedInTx(
+  tx: PersonalMemoryMysqlTx,
+  input: AppendDailyLetterVersionInput,
+  committedVersionId: number
+): Promise<void> {
+  if (!input.letterAttemptId) return;
+  const updated = await tx
+    .update(emotionDailyLetterAttempts)
+    .set({
+      state: "committed",
+      committedVersionId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emotionDailyLetterAttempts.id, input.letterAttemptId),
+        eq(emotionDailyLetterAttempts.userId, input.userId),
+        eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
+        eq(emotionDailyLetterAttempts.actionId, input.actionId)
+      )
+    );
+  if (updated[0].affectedRows !== 1) {
+    throw new Error("来信 attempt 提交状态更新失败");
+  }
 }
 
 async function readDailyLetterRowInTx(
@@ -11998,6 +12144,18 @@ function appendLetterVersionToLocalState(
   input: AppendDailyLetterVersionInput
 ): AppendDailyLetterVersionResult | null {
   const state = memoryState.personalMemory;
+  const attempt = input.letterAttemptId
+    ? (state.letterAttempts.find(
+        row =>
+          row.id === input.letterAttemptId &&
+          row.userId === input.userId &&
+          row.letterDate === input.letterDate &&
+          row.actionId === input.actionId
+      ) ?? null)
+    : null;
+  if (input.letterAttemptId && !attempt) {
+    throw new Error("来信 attempt 与用户、日期或动作不匹配");
+  }
   const sameDay = state.letterVersions.filter(
     version =>
       version.userId === input.userId && version.letterDate === input.letterDate
@@ -12008,7 +12166,16 @@ function appendLetterVersionToLocalState(
       row => row.userId === input.userId && row.letterDate === input.letterDate
     );
     if (!letter) throw new Error("来信版本存在但日期级投影缺失");
+    markLetterAttemptCommittedLocally(attempt, replay.id);
     return { version: replay, letter, created: false };
+  }
+
+  // 见 MySQL 分支的同名注释：replay 是历史事实不受后来 epoch 变化影响，
+  // 但新写入必须证明它引用的隐私状态仍然成立。
+  if (input.requiredPrivacyEpoch !== undefined) {
+    const currentEpoch =
+      state.privacyEpochs.find(row => row.userId === input.userId)?.epoch ?? 1;
+    if (currentEpoch !== input.requiredPrivacyEpoch) return null;
   }
 
   const currentVersion = currentLetterVersion(sameDay);
@@ -12060,10 +12227,12 @@ function appendLetterVersionToLocalState(
     existing.userMessageEditedAt = input.userMessageEditedAt ?? null;
     existing.dailyReference = projected.dailyReference;
     existing.analysisSeed = projected.analysisSeed;
-    existing.revision = projected.revision;
+    existing.revision += 1;
     existing.currentVersionId = version.id;
     existing.updatedAt = current;
     captureLetterMessageLocally(input);
+    captureLetterVersionLocally(input, version);
+    markLetterAttemptCommittedLocally(attempt, version.id);
     return { version, letter: existing, created: true };
   }
   const letter: EmotionDailyLetter = {
@@ -12082,7 +12251,19 @@ function appendLetterVersionToLocalState(
   };
   memoryState.emotionDailyLetters.push(letter);
   captureLetterMessageLocally(input);
+  captureLetterVersionLocally(input, version);
+  markLetterAttemptCommittedLocally(attempt, version.id);
   return { version, letter, created: true };
+}
+
+function markLetterAttemptCommittedLocally(
+  attempt: PersonalMemoryLetterAttemptRecord | null,
+  committedVersionId: number
+): void {
+  if (!attempt) return;
+  attempt.state = "committed";
+  attempt.committedVersionId = committedVersionId;
+  attempt.updatedAt = now().toISOString();
 }
 
 /** 见 AppendDailyLetterVersionInput.personalMemoryCapture：同聚合，无需 outbox。 */
@@ -12094,6 +12275,116 @@ function captureLetterMessageLocally(
     memoryState.personalMemory,
     input.personalMemoryCapture
   );
+}
+
+function captureLetterVersionLocally(
+  input: AppendDailyLetterVersionInput,
+  version: PersonalMemoryLetterVersionRecord
+): void {
+  if (!input.captureLetterVersionEvent) return;
+  applyPersonalMemoryCapture(
+    memoryState.personalMemory,
+    letterVersionEventCapture(input, version)
+  );
+}
+
+function letterVersionEventCapture(
+  input: AppendDailyLetterVersionInput,
+  version: PersonalMemoryLetterVersionRecord
+): PersonalMemoryCapture {
+  return {
+    identity: {
+      userId: input.userId,
+      sourceType: "daily_letter_version",
+      sourceKey: `daily-letter:${input.letterDate}`,
+      sourceRevision: String(version.envelope.versionNumber),
+      actionKind:
+        input.trigger === "reread" ? "letter_reread" : "letter_generated",
+      actionId: input.actionId,
+    },
+    occurredOn: input.letterDate,
+    occurredAt: version.envelope.generatedAt,
+    snapshot: {
+      ...createEmptyPersonalMemoryEventSnapshot(),
+      display: {
+        versionNumber: version.envelope.versionNumber,
+        trigger: input.trigger,
+      },
+    },
+    storyId: null,
+    job: null,
+  };
+}
+
+export async function saveEmotionDailyLetterMessageIfRevision(input: {
+  userId: number;
+  letterDate: string;
+  expectedRevision: number;
+  userMessage: string | null;
+  userMessageSaidAt: Date | null;
+  userMessageEditedAt: Date | null;
+  analysisSeed: unknown;
+  personalMemoryCapture?: PersonalMemoryCapture;
+}): Promise<EmotionDailyLetter | null> {
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const before = structuredClone(memoryState.personalMemory);
+      const row = memoryState.emotionDailyLetters.find(
+        item =>
+          item.userId === input.userId && item.letterDate === input.letterDate
+      );
+      if (!row || row.revision !== input.expectedRevision) return null;
+      const previous = { ...row };
+      row.userMessage = input.userMessage;
+      row.userMessageSaidAt = input.userMessageSaidAt;
+      row.userMessageEditedAt = input.userMessageEditedAt;
+      row.analysisSeed = input.analysisSeed;
+      row.revision += 1;
+      row.updatedAt = now();
+      if (input.personalMemoryCapture) {
+        applyPersonalMemoryCapture(
+          memoryState.personalMemory,
+          input.personalMemoryCapture
+        );
+      }
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(row, previous);
+        memoryState.personalMemory = before;
+        throw error;
+      }
+      return row;
+    });
+  }
+  return db.transaction(async tx => {
+    const updated = await tx
+      .update(emotionDailyLetters)
+      .set({
+        userMessage: input.userMessage,
+        userMessageSaidAt: input.userMessageSaidAt,
+        userMessageEditedAt: input.userMessageEditedAt,
+        analysisSeed: input.analysisSeed,
+        revision: input.expectedRevision + 1,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(emotionDailyLetters.userId, input.userId),
+          eq(emotionDailyLetters.letterDate, input.letterDate),
+          eq(emotionDailyLetters.revision, input.expectedRevision)
+        )
+      );
+    if (updated[0].affectedRows !== 1) return null;
+    if (input.personalMemoryCapture) {
+      await capturePersonalMemoryEvent(
+        { mode: "mysql", tx },
+        input.personalMemoryCapture
+      );
+    }
+    return readDailyLetterRowInTx(tx, input.userId, input.letterDate);
+  });
 }
 
 /** 列出某天的全部版本，按版本号升序。历史版本只读。 */
@@ -12124,6 +12415,429 @@ export async function listEmotionDailyLetterVersions(
     )
     .orderBy(emotionDailyLetterVersions.versionNumber);
   return rows.map(letterVersionRowToRecord);
+}
+
+/**
+ * 按 ID 批量取来信版本（仍按 userId 过滤）。
+ *
+ * 选材器算冷却期要看"最近 N 天各自当前版本引用了哪些理解"：`EmotionDailyLetter`
+ * 每行只有 `currentVersionId`，逐天单独查版本会是 N 次往返，这里一次取回。
+ */
+export async function listPersonalMemoryLetterVersionsByIds(
+  userId: number,
+  versionIds: readonly number[]
+): Promise<PersonalMemoryLetterVersionRecord[]> {
+  const ids = [...new Set(versionIds)].filter(
+    id => Number.isSafeInteger(id) && id > 0
+  );
+  if (ids.length === 0) return [];
+  const db = await getDb();
+  if (!db) {
+    return memoryState.personalMemory.letterVersions.filter(
+      version => version.userId === userId && ids.includes(version.id)
+    );
+  }
+  const rows = await db
+    .select()
+    .from(emotionDailyLetterVersions)
+    .where(
+      and(
+        eq(emotionDailyLetterVersions.userId, userId),
+        inArray(emotionDailyLetterVersions.id, ids)
+      )
+    );
+  return rows.map(letterVersionRowToRecord);
+}
+
+// ─── 来信生成 attempt 状态机（U6） ───────────────────────────────────────
+//
+// 表在 Phase 0（0017 迁移）就建好了，U6 才真正接线。设计目标：
+//
+// - 首次打开用 `profile-ensure:<date>` 这类稳定 action ID；并发标签页同时
+//   首次打开只应该确认同一个 attempt、同一个 version 1。
+// - 显式重读用绑定「这次点击」的稳定 action ID；重复提交（网络重试、
+//   手抖连点）返回同一 attempt，不重复生成、不重复计费。
+// - 失败可重试：同一个 action ID 的失败 attempt 可以被重新拉回 in_flight，
+//   不会因为失败一次就永久卡死，也不会因为重试就换一个新 action ID
+//   （换了就不是「重试同一次」而是「发起新一次」，语义不对）。
+// - 提交是短事务里的条件写：privacyEpoch 必须仍等于开始生成时看到的那个，
+//   否则视为「选材期间被忘记/删除撤走了依据」，拒绝提交旧输入。
+
+const PERSONAL_MEMORY_LETTER_ATTEMPT_STALE_MS = 2 * 60 * 1000;
+const MAX_BEGIN_ATTEMPT_RETRIES = 5;
+
+export type BeginPersonalMemoryLetterAttemptInput = {
+  userId: number;
+  letterDate: string;
+  actionId: string;
+  now?: Date;
+};
+
+export type BeginPersonalMemoryLetterAttemptResult =
+  /** 全新开始，调用方现在可以去选材、算八字/黄历、调模型。 */
+  | { status: "started"; attempt: PersonalMemoryLetterAttemptRecord }
+  /** 同一 action ID 已经提交成功过；重复点击直接拿旧结果，不再生成。 */
+  | {
+      status: "already_committed";
+      attempt: PersonalMemoryLetterAttemptRecord;
+      committedVersionId: number;
+    }
+  /** 另一个真正在跑的请求还没完成；调用方应该提示「生成中」而不是并发再跑一次。 */
+  | { status: "in_flight"; attempt: PersonalMemoryLetterAttemptRecord };
+
+function isAttemptStale(attempt: { updatedAt: string }, now: Date): boolean {
+  return (
+    now.getTime() - Date.parse(attempt.updatedAt) >
+    PERSONAL_MEMORY_LETTER_ATTEMPT_STALE_MS
+  );
+}
+
+/**
+ * 开始一次来信生成（首次打开或显式重读，由调用方决定 action ID 的构造方式）。
+ *
+ * 幂等于 (userId, letterDate, actionId)；这是稳定动作 ID 的落点，不是
+ * 版本号——两次点同一个「再读一遍」按钮如果算出同一个目标 action ID，
+ * 只会有一个 attempt 真正跑起来。
+ */
+export async function beginPersonalMemoryLetterAttempt(
+  input: BeginPersonalMemoryLetterAttemptInput
+): Promise<BeginPersonalMemoryLetterAttemptResult> {
+  const nowAt = input.now ?? now();
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const before = structuredClone(memoryState.personalMemory);
+      try {
+        const result = beginLetterAttemptLocally(input, nowAt);
+        if (result.status === "started") await persistMemoryState();
+        return result;
+      } catch (error) {
+        memoryState.personalMemory = before;
+        throw error;
+      }
+    });
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await beginPersonalMemoryLetterAttemptOnce(db, input, nowAt);
+    } catch (error) {
+      const retryable =
+        isDuplicateKeyError(error) ||
+        isDeadlockError(error) ||
+        error instanceof LetterAttemptRestartRaceError;
+      if (!retryable || attempt >= MAX_BEGIN_ATTEMPT_RETRIES) throw error;
+    }
+  }
+}
+
+function beginLetterAttemptLocally(
+  input: BeginPersonalMemoryLetterAttemptInput,
+  nowAt: Date
+): BeginPersonalMemoryLetterAttemptResult {
+  const state = memoryState.personalMemory;
+  const epoch =
+    state.privacyEpochs.find(row => row.userId === input.userId)?.epoch ?? 1;
+  const existing = state.letterAttempts.find(
+    row =>
+      row.userId === input.userId &&
+      row.letterDate === input.letterDate &&
+      row.actionId === input.actionId
+  );
+  if (!existing) {
+    const created: PersonalMemoryLetterAttemptRecord = {
+      id: state.nextIds.letterAttempt,
+      userId: input.userId,
+      letterDate: input.letterDate,
+      actionId: input.actionId,
+      state: "in_flight",
+      inputCutoffAt: nowAt.toISOString(),
+      privacyEpoch: epoch,
+      committedVersionId: null,
+      createdAt: nowAt.toISOString(),
+      updatedAt: nowAt.toISOString(),
+    };
+    state.nextIds.letterAttempt += 1;
+    state.letterAttempts.push(created);
+    return { status: "started", attempt: created };
+  }
+  if (existing.state === "committed") {
+    return {
+      status: "already_committed",
+      attempt: existing,
+      committedVersionId: existing.committedVersionId!,
+    };
+  }
+  if (existing.state === "in_flight" && !isAttemptStale(existing, nowAt)) {
+    return { status: "in_flight", attempt: existing };
+  }
+  // failed / rejected_stale / 卡死的陈旧 in_flight：重新拉回 in_flight，
+  // 用当前时刻和当前 epoch 重新起算——这是"同一次重试"，不是新的一次。
+  existing.state = "in_flight";
+  existing.inputCutoffAt = nowAt.toISOString();
+  existing.privacyEpoch = epoch;
+  existing.committedVersionId = null;
+  existing.updatedAt = nowAt.toISOString();
+  return { status: "started", attempt: existing };
+}
+
+/**
+ * 内部信号，代表"重启失败 attempt"这个分支的乐观 CAS 没抢到——不是真的
+ * 数据库错误。外层 `beginPersonalMemoryLetterAttempt` 的有界重试把它当作
+ * 可重试信号，用新事务、新快照重新判断一次。
+ */
+class LetterAttemptRestartRaceError extends Error {}
+
+async function beginPersonalMemoryLetterAttemptOnce(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  input: BeginPersonalMemoryLetterAttemptInput,
+  nowAt: Date
+): Promise<BeginPersonalMemoryLetterAttemptResult> {
+  return db.transaction(async tx => {
+    const [epochRow] = await tx
+      .select()
+      .from(personalMemoryPrivacyEpochs)
+      .where(eq(personalMemoryPrivacyEpochs.userId, input.userId))
+      .limit(1);
+    const epoch = epochRow?.epoch ?? 1;
+
+    // 刻意用不加锁的普通 SELECT，而不是 SELECT ... FOR UPDATE。
+    //
+    // 这条 (userId, letterDate, actionId) 组合在首次开始时天然可能不存在，
+    // 而 FOR UPDATE 打在一段可能为空的区间上会取间隙锁——这正是这个文件
+    // 别处已经记录过两次的死锁根因（来信版本追加、job claim）。改成乐观
+    // 策略：先读、按读到的内容决定插入还是更新，插入撞唯一索引或更新的
+    // CAS 没对上都只是"有人抢先了"，交给外层有界重试重新走一遍，不是死锁。
+    const [existingRow] = await tx
+      .select()
+      .from(emotionDailyLetterAttempts)
+      .where(
+        and(
+          eq(emotionDailyLetterAttempts.userId, input.userId),
+          eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
+          eq(emotionDailyLetterAttempts.actionId, input.actionId)
+        )
+      )
+      .limit(1);
+
+    if (!existingRow) {
+      await tx.insert(emotionDailyLetterAttempts).values({
+        userId: input.userId,
+        letterDate: input.letterDate,
+        actionId: input.actionId,
+        state: "in_flight",
+        inputCutoffAt: nowAt,
+        privacyEpoch: epoch,
+        committedVersionId: null,
+      });
+      const [inserted] = await tx
+        .select()
+        .from(emotionDailyLetterAttempts)
+        .where(
+          and(
+            eq(emotionDailyLetterAttempts.userId, input.userId),
+            eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
+            eq(emotionDailyLetterAttempts.actionId, input.actionId)
+          )
+        )
+        .limit(1);
+      if (!inserted) throw new Error("来信 attempt 写入后读不回");
+      return {
+        status: "started",
+        attempt: rowToPersonalMemoryLetterAttempt(inserted),
+      };
+    }
+
+    if (existingRow.state === "committed") {
+      return {
+        status: "already_committed",
+        attempt: rowToPersonalMemoryLetterAttempt(existingRow),
+        committedVersionId: existingRow.committedVersionId!,
+      };
+    }
+    if (
+      existingRow.state === "in_flight" &&
+      !isAttemptStale({ updatedAt: existingRow.updatedAt.toISOString() }, nowAt)
+    ) {
+      return {
+        status: "in_flight",
+        attempt: rowToPersonalMemoryLetterAttempt(existingRow),
+      };
+    }
+    // failed / rejected_stale / 卡死的陈旧 in_flight：重启为新一轮 in_flight。
+    // CAS 在刚刚观测到的 state 上；命中 0 行说明有人在这两步之间抢先动过它
+    // （比如另一个并发调用同时把它标成了 committed），不能无条件覆盖。
+    const restart = await tx
+      .update(emotionDailyLetterAttempts)
+      .set({
+        state: "in_flight",
+        inputCutoffAt: nowAt,
+        privacyEpoch: epoch,
+        committedVersionId: null,
+        updatedAt: nowAt,
+      })
+      .where(
+        and(
+          eq(emotionDailyLetterAttempts.id, existingRow.id),
+          eq(emotionDailyLetterAttempts.state, existingRow.state)
+        )
+      );
+    if (restart[0].affectedRows !== 1) {
+      throw new LetterAttemptRestartRaceError();
+    }
+    const [refreshed] = await tx
+      .select()
+      .from(emotionDailyLetterAttempts)
+      .where(eq(emotionDailyLetterAttempts.id, existingRow.id))
+      .limit(1);
+    if (!refreshed) throw new Error("来信 attempt 重启后读不回");
+    return {
+      status: "started",
+      attempt: rowToPersonalMemoryLetterAttempt(refreshed),
+    };
+  });
+}
+
+function rowToPersonalMemoryLetterAttempt(row: {
+  id: number;
+  userId: number;
+  letterDate: string;
+  actionId: string;
+  state: PersonalMemoryLetterAttemptState;
+  inputCutoffAt: Date;
+  privacyEpoch: number;
+  committedVersionId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): PersonalMemoryLetterAttemptRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    letterDate: row.letterDate,
+    actionId: row.actionId,
+    state: row.state,
+    inputCutoffAt: row.inputCutoffAt.toISOString(),
+    privacyEpoch: row.privacyEpoch,
+    committedVersionId: row.committedVersionId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export type CommitPersonalMemoryLetterAttemptInput = Omit<
+  AppendDailyLetterVersionInput,
+  "requiredPrivacyEpoch"
+> & {
+  attemptId: number;
+};
+
+export type CommitPersonalMemoryLetterAttemptResult =
+  | {
+      outcome: "committed";
+      version: PersonalMemoryLetterVersionRecord;
+      letter: EmotionDailyLetter;
+    }
+  /** 版本号已经被别的提交推进；这是极端并发下才会出现的兜底分支
+   *  （正常路径下先 begin 才能 commit，同一 attempt 不会有两次提交竞争）。 */
+  | { outcome: "revision_conflict" }
+  /** 选材依据在生成期间被撤走：忘记、归档或删除了某条被引用的理解／来源。
+   *  attempt 已经被标记 rejected_stale；调用方应该提示"记忆状态已更新，
+   *  已为你重新生成"而不是当成一次普通失败。 */
+  | { outcome: "epoch_conflict"; currentEpoch: number };
+
+/**
+ * 提交一次生成结果，把它写成正式版本。
+ *
+ * `attemptId` 必须是 `beginPersonalMemoryLetterAttempt` 返回的那个 in_flight
+ * attempt；提交时用它开始时记录的 `requiredPrivacyEpoch` 做条件写——这就是
+ * "黄历与模型在事务外运行，完成时才做条件提交"这条 Approach 的落地：
+ * 模型调用可能耗时数秒，这几秒里用户完全可能在另一个标签页忘记了某条理解，
+ * 提交这一刻必须重新证明前提仍然成立。
+ */
+export async function commitPersonalMemoryLetterAttempt(
+  input: CommitPersonalMemoryLetterAttemptInput
+): Promise<CommitPersonalMemoryLetterAttemptResult> {
+  const attemptRow = await getPersonalMemoryLetterAttemptById(input.attemptId);
+  if (
+    !attemptRow ||
+    attemptRow.userId !== input.userId ||
+    attemptRow.letterDate !== input.letterDate ||
+    attemptRow.actionId !== input.actionId
+  ) {
+    throw new Error("来信 attempt 不存在，或与用户、日期、动作不匹配");
+  }
+  const written = await appendEmotionDailyLetterVersion({
+    ...input,
+    letterAttemptId: attemptRow.id,
+    requiredPrivacyEpoch: attemptRow.privacyEpoch,
+  });
+  if (!written) {
+    const currentEpoch = await getPersonalMemoryPrivacyEpoch(input.userId);
+    if (currentEpoch !== attemptRow.privacyEpoch) {
+      await failPersonalMemoryLetterAttempt({
+        attemptId: input.attemptId,
+        userId: input.userId,
+        outcome: "rejected_stale",
+      });
+      return { outcome: "epoch_conflict", currentEpoch };
+    }
+    // epoch 没变，那就是版本号 CAS 没对上——真正的并发提交竞争。
+    return { outcome: "revision_conflict" };
+  }
+  return {
+    outcome: "committed",
+    version: written.version,
+    letter: written.letter,
+  };
+}
+
+export async function failPersonalMemoryLetterAttempt(input: {
+  attemptId: number;
+  userId: number;
+  outcome: "failed" | "rejected_stale";
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const row = memoryState.personalMemory.letterAttempts.find(
+        item => item.id === input.attemptId && item.userId === input.userId
+      );
+      // 已经提交成功的 attempt 不允许被失败覆盖——那是过期的失败通知
+      // （比如生成成功了但客户端超时重发了失败上报），提交结果优先。
+      if (!row || row.state === "committed") return;
+      row.state = input.outcome;
+      row.updatedAt = now().toISOString();
+      await persistMemoryState();
+    });
+  }
+  await db
+    .update(emotionDailyLetterAttempts)
+    .set({ state: input.outcome, updatedAt: new Date() })
+    .where(
+      and(
+        eq(emotionDailyLetterAttempts.id, input.attemptId),
+        eq(emotionDailyLetterAttempts.userId, input.userId),
+        ne(emotionDailyLetterAttempts.state, "committed")
+      )
+    );
+}
+
+export async function getPersonalMemoryLetterAttemptById(
+  attemptId: number
+): Promise<PersonalMemoryLetterAttemptRecord | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.personalMemory.letterAttempts.find(
+        row => row.id === attemptId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(emotionDailyLetterAttempts)
+    .where(eq(emotionDailyLetterAttempts.id, attemptId))
+    .limit(1);
+  return row ? rowToPersonalMemoryLetterAttempt(row) : null;
 }
 
 /**
@@ -12256,7 +12970,9 @@ function rowToPersonalMemoryJob(row: {
     state: row.state as PersonalMemoryJobRecord["state"],
     attempts: row.attempts,
     leaseToken: row.leaseToken,
-    leaseExpiresAt: row.leaseExpiresAt ? row.leaseExpiresAt.toISOString() : null,
+    leaseExpiresAt: row.leaseExpiresAt
+      ? row.leaseExpiresAt.toISOString()
+      : null,
     availableAt: row.availableAt.toISOString(),
     lastErrorKind: row.lastErrorKind,
     createdAt: row.createdAt.toISOString(),
@@ -12307,7 +13023,9 @@ export async function claimPersonalMemoryJobs(
               job.leaseExpiresAt !== null &&
               new Date(job.leaseExpiresAt).getTime() < now.getTime())
         )
-        .sort((a, b) => a.availableAt.localeCompare(b.availableAt) || a.id - b.id)
+        .sort(
+          (a, b) => a.availableAt.localeCompare(b.availableAt) || a.id - b.id
+        )
         .filter(job => new Date(job.availableAt).getTime() <= now.getTime());
       for (const job of eligible.slice(0, limit)) {
         job.state = "claimed";
@@ -12347,24 +13065,21 @@ async function claimOnePersonalMemoryJobRow(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   now: Date,
   leaseExpiresAt: Date
-): Promise<
-  | {
-      id: number;
-      userId: number;
-      eventId: number;
-      operationId: string;
-      extractorVersion: string;
-      state: string;
-      attempts: number;
-      leaseToken: string | null;
-      leaseExpiresAt: Date | null;
-      availableAt: Date;
-      lastErrorKind: string | null;
-      createdAt: Date;
-      updatedAt: Date;
-    }
-  | null
-> {
+): Promise<{
+  id: number;
+  userId: number;
+  eventId: number;
+  operationId: string;
+  extractorVersion: string;
+  state: string;
+  attempts: number;
+  leaseToken: string | null;
+  leaseExpiresAt: Date | null;
+  availableAt: Date;
+  lastErrorKind: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+} | null> {
   const MAX_CLAIM_ATTEMPTS = 5;
   for (let attempt = 1; ; attempt += 1) {
     const leaseToken = randomUUID();
@@ -12533,7 +13248,11 @@ function applyInsightMutationLocally(
   };
   const decision = decideInsightMutation(mutation, lineageKey, view);
   if (decision.kind === "stale") {
-    return { outcome: `stale: ${decision.reason}`, insightId: null, lineageKey: null };
+    return {
+      outcome: `stale: ${decision.reason}`,
+      insightId: null,
+      lineageKey: null,
+    };
   }
 
   if (mutation.action === "new") {
@@ -12555,13 +13274,21 @@ function applyInsightMutationLocally(
     };
     state.nextIds.insight += 1;
     state.insights.push(insight);
-    addEvidenceLocally(state, userId, insight.id, event.id, event.sourceRevision);
+    addEvidenceLocally(
+      state,
+      userId,
+      insight.id,
+      event.id,
+      event.sourceRevision
+    );
     return { outcome: "created", insightId: insight.id, lineageKey };
   }
 
   if (mutation.action === "reinforce") {
     if (decision.kind !== "reinforce") {
-      throw new Error(`internal invariant: reinforce mutation produced ${decision.kind} decision`);
+      throw new Error(
+        `internal invariant: reinforce mutation produced ${decision.kind} decision`
+      );
     }
     decision.target.confidence = reinforceInsightConfidence(
       decision.target.confidence
@@ -12583,7 +13310,9 @@ function applyInsightMutationLocally(
 
   // supersede
   if (decision.kind !== "supersede") {
-    throw new Error(`internal invariant: supersede mutation produced ${decision.kind} decision`);
+    throw new Error(
+      `internal invariant: supersede mutation produced ${decision.kind} decision`
+    );
   }
   decision.target.state = "superseded";
   decision.target.updatedAt = now;
@@ -12672,7 +13401,9 @@ async function applyExtractionCompletionMysql(
   const event = rowToPersonalMemoryEvent(eventRow);
 
   const [suppressionRow] = await tx
-    .select({ suppressedEventIds: personalMemorySuppressions.suppressedEventIds })
+    .select({
+      suppressedEventIds: personalMemorySuppressions.suppressedEventIds,
+    })
     .from(personalMemorySuppressions)
     .where(
       and(
@@ -12719,7 +13450,11 @@ async function applyInsightMutationMysql(
   const revisions = rows.map(rowToPersonalMemoryInsight);
   const decision = decideInsightMutation(mutation, lineageKey, { revisions });
   if (decision.kind === "stale") {
-    return { outcome: `stale: ${decision.reason}`, insightId: null, lineageKey: null };
+    return {
+      outcome: `stale: ${decision.reason}`,
+      insightId: null,
+      lineageKey: null,
+    };
   }
 
   if (mutation.action === "new") {
@@ -12747,14 +13482,22 @@ async function applyInsightMutationMysql(
       )
       .limit(1);
     if (created) {
-      await addEvidenceMysql(tx, userId, created.id, event.id, event.sourceRevision);
+      await addEvidenceMysql(
+        tx,
+        userId,
+        created.id,
+        event.id,
+        event.sourceRevision
+      );
     }
     return { outcome: "created", insightId: created?.id ?? null, lineageKey };
   }
 
   if (mutation.action === "reinforce") {
     if (decision.kind !== "reinforce") {
-      throw new Error(`internal invariant: reinforce mutation produced ${decision.kind} decision`);
+      throw new Error(
+        `internal invariant: reinforce mutation produced ${decision.kind} decision`
+      );
     }
     await tx
       .update(personalMemoryInsights)
@@ -12778,7 +13521,9 @@ async function applyInsightMutationMysql(
 
   // supersede
   if (decision.kind !== "supersede") {
-    throw new Error(`internal invariant: supersede mutation produced ${decision.kind} decision`);
+    throw new Error(
+      `internal invariant: supersede mutation produced ${decision.kind} decision`
+    );
   }
   const nextRevision = decision.target.revision + 1;
   await tx.insert(personalMemoryInsights).values({
@@ -12812,7 +13557,13 @@ async function applyInsightMutationMysql(
     })
     .where(eq(personalMemoryInsights.id, decision.target.id));
   if (created) {
-    await addEvidenceMysql(tx, userId, created.id, event.id, event.sourceRevision);
+    await addEvidenceMysql(
+      tx,
+      userId,
+      created.id,
+      event.id,
+      event.sourceRevision
+    );
   }
   return { outcome: "superseded", insightId: created?.id ?? null, lineageKey };
 }
@@ -12855,7 +13606,11 @@ export async function failPersonalMemoryJob(
       const job = memoryState.personalMemory.jobs.find(
         item => item.id === input.jobId
       );
-      if (!job || job.leaseToken !== input.leaseToken || job.state !== "claimed") {
+      if (
+        !job ||
+        job.leaseToken !== input.leaseToken ||
+        job.state !== "claimed"
+      ) {
         return false;
       }
       job.state = nextState;
@@ -13451,7 +14206,12 @@ export async function scrubPersonalMemoryEventAndRecompute(
     }
     await tx
       .update(personalMemoryEvents)
-      .set({ contentScrubbed: true, excerpt: null, contentHash: null, display: null })
+      .set({
+        contentScrubbed: true,
+        excerpt: null,
+        contentHash: null,
+        display: null,
+      })
       .where(eq(personalMemoryEvents.id, eventId));
 
     const affectedRows = await tx
@@ -13620,10 +14380,7 @@ export async function correctPersonalMemoryInsight(input: {
       eventNow
     );
     await capturePersonalMemoryEvent({ mode: "mysql", tx }, eventCapture);
-    const event = await findPersonalMemoryEventInTx(
-      tx,
-      eventCapture.identity
-    );
+    const event = await findPersonalMemoryEventInTx(tx, eventCapture.identity);
     if (!event) throw new Error("纠正经历写入后读不回");
     const result = await applyInsightMutationMysql(
       tx,

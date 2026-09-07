@@ -16,7 +16,7 @@ import { ENV } from "../_core/env";
 import {
   buildPriorMessageHistory,
   ensureDailyLetterFromProfile,
-  saveDailyLetterFromProfile,
+  generateDailyLetterViaAttempt,
 } from "./emotionDailyLetters";
 
 type PayloadRecord = Record<string, unknown>;
@@ -26,8 +26,10 @@ interface RefreshDependencies {
   saveProfile?: typeof upsertEmotionAnalysisProfile;
   getAlmanac?: typeof getAlmanacDay;
   personalize?: typeof personalizeEmotionDailyReference302;
+  generateLetter?: typeof generateDailyLetterViaAttempt;
   ensureArchive?: typeof ensureDailyLetterFromProfile;
-  saveArchive?: typeof saveDailyLetterFromProfile;
+  /** @deprecated U6 的新版本由 generateLetter attempt 原子提交；仅保留测试兼容。 */
+  saveArchive?: (profile: EmotionAnalysisProfile) => Promise<unknown>;
   getArchive?: typeof getEmotionDailyLetter;
   listArchive?: typeof listEmotionDailyLetters;
   now?: Date;
@@ -82,9 +84,15 @@ export async function getFreshEmotionAnalysisProfile(
   const getAlmanac = dependencies.getAlmanac ?? getAlmanacDay;
   const personalize =
     dependencies.personalize ?? personalizeEmotionDailyReference302;
+  const generateLetter =
+    dependencies.generateLetter ??
+    (input =>
+      generateDailyLetterViaAttempt(input, {
+        getAlmanac,
+        personalize,
+      }));
   const ensureArchive =
     dependencies.ensureArchive ?? ensureDailyLetterFromProfile;
-  const saveArchive = dependencies.saveArchive ?? saveDailyLetterFromProfile;
   const getArchive = dependencies.getArchive ?? getEmotionDailyLetter;
   const listArchive = dependencies.listArchive ?? listEmotionDailyLetters;
   const profile = await getProfile(userId);
@@ -165,13 +173,28 @@ export async function getFreshEmotionAnalysisProfile(
     personalizedYi: [],
     personalizedJi: [],
   };
-  const refreshed = await personalize({
-    date: today,
-    almanac,
+  const generated = await generateLetter({
+    userId,
+    letterDate: today,
+    actionId: `profile-ensure:${today}`,
+    trigger: "generated",
+    generationIntent: "daily-letter",
     baseDailyReference,
     analysisSeed: todayAnalysisSeed,
-    generationIntent: "daily-letter",
+    userMessage: null,
+    userMessageSaidAt: null,
+    userMessageEditedAt: null,
+    profileRevision: profile.updatedAt.toISOString(),
   });
+  if (generated.status === "in_flight" || generated.status === "failed") {
+    // 另一标签页仍在生成，或这次外部调用失败：保留当前画像和上一封信，
+    // 不能拿半成品覆盖 profile。下一次读取会用同一 action ID 安全续跑。
+    return profile;
+  }
+
+  const generatedReference = payloadRecord(generated.letter.dailyReference);
+  const generatedSeed = payloadRecord(generated.letter.analysisSeed);
+  if (!generatedReference || !generatedSeed) return profile;
 
   const saved = await saveProfile({
     userId: profile.userId,
@@ -179,9 +202,8 @@ export async function getFreshEmotionAnalysisProfile(
     birthDate: profile.birthDate,
     consentVersion: profile.consentVersion,
     consentText: profile.consentText,
-    dailyReference: refreshed.dailyReference,
-    analysisSeed: todayAnalysisSeed,
+    dailyReference: generatedReference,
+    analysisSeed: generatedSeed,
   });
-  await saveArchive(saved);
   return saved;
 }

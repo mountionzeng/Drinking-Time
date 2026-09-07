@@ -803,4 +803,90 @@ describe("personalizeEmotionDailyReference302", () => {
       expect(body).not.toHaveProperty("max_tokens");
     }
   });
+
+  it("选材器挑出的记忆上下文（U6）进入 prompt，且约束区分 origin", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [{ message: { content: "{}" } }],
+      }),
+      text: async () => "",
+    }));
+
+    await personalizeEmotionDailyReference302({
+      ...baseInput,
+      generationIntent: "daily-letter",
+      personalMemoryContext: [
+        {
+          category: "preference",
+          origin: "user_stated",
+          text: "喜欢暖色调的画面",
+          projectScoped: false,
+          earliestEvidenceOn: "2026-07-20",
+        },
+        {
+          category: "goal",
+          origin: "inferred",
+          text: "似乎在学一门新技能",
+          projectScoped: false,
+          earliestEvidenceOn: null,
+        },
+      ],
+      fetcher,
+    });
+
+    expect(fetcher).toHaveBeenCalled();
+    const [, init] = fetcher.mock.calls[0];
+    const body = JSON.parse(String(init?.body));
+    // 约束本身在 system prompt 里，且必须提到 origin 的区分——这是
+    // "不得把推断写成用户事实"这条隐私要求唯一落地的地方。
+    expect(body.messages[0].content).toContain("personalMemory");
+    expect(body.messages[0].content).toContain("origin 为 inferred");
+    const context = JSON.parse(
+      body.messages[1].content.slice(body.messages[1].content.indexOf("{"))
+    );
+    expect(context.personalMemory).toEqual([
+      {
+        category: "preference",
+        origin: "user_stated",
+        text: "喜欢暖色调的画面",
+        earliestDate: "2026-07-20",
+      },
+      {
+        category: "goal",
+        origin: "inferred",
+        text: "似乎在学一门新技能",
+        earliestDate: null,
+      },
+    ]);
+  });
+
+  it("没有传选材上下文时 personalMemory 是空数组，不是 undefined", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [{ message: { content: "{}" } }],
+      }),
+      text: async () => "",
+    }));
+
+    await personalizeEmotionDailyReference302({
+      ...baseInput,
+      generationIntent: "daily-letter",
+      fetcher,
+    });
+
+    const [, init] = fetcher.mock.calls[0];
+    const body = JSON.parse(String(init?.body));
+    const context = JSON.parse(
+      body.messages[1].content.slice(body.messages[1].content.indexOf("{"))
+    );
+    expect(context.personalMemory).toEqual([]);
+  });
 });

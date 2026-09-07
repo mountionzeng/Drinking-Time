@@ -1277,3 +1277,177 @@ export function parsePersonalMemorySourceRef(
       return null;
   }
 }
+
+// ─── 每日来信记忆选材（U6） ───────────────────────────────────────────────
+
+/**
+ * 选材看到的候选：一条 active 理解 + 它的证据摘要。
+ *
+ * 只携带选材真正需要的字段，不是整条 `PersonalMemoryInsightRecord`——
+ * 选材器不应该有能力读到 evidence 的正文，它只需要"有没有证据、
+ * 最早一条是什么时候"来做时效判断。
+ */
+export type PersonalMemorySelectionCandidate = {
+  insightId: number;
+  lineageKey: string;
+  revision: number;
+  category: PersonalMemoryInsightCategory;
+  origin: PersonalMemoryInsightOrigin;
+  text: string;
+  scope: Record<string, unknown> | null;
+  confidence: number;
+  updatedAt: string;
+  evidenceEventIds: number[];
+  earliestEvidenceOn: string | null;
+};
+
+export type PersonalMemorySelectedInsight = {
+  insightId: number;
+  lineageKey: string;
+  revision: number;
+  category: PersonalMemoryInsightCategory;
+  origin: PersonalMemoryInsightOrigin;
+  text: string;
+  scope: Record<string, unknown> | null;
+  evidenceEventIds: number[];
+  earliestEvidenceOn: string | null;
+};
+
+export type PersonalMemorySelectionInput = {
+  candidates: readonly PersonalMemorySelectionCandidate[];
+  /** 目标中国日期，只用于可读性——排序目前不按它做相对时间衰减以外的匹配。 */
+  targetDate: string;
+  /** 冷却期内被排除的 lineageKey：最近提过、还没有新证据的理解不重复提及。 */
+  cooldownLineageKeys: ReadonlySet<string>;
+  maxSelected?: number;
+  /** 单个类别最多入选几条，避免几条相似记忆垄断整封信的上下文。 */
+  maxPerCategory?: number;
+};
+
+const DEFAULT_MAX_SELECTED = 4;
+const DEFAULT_MAX_PER_CATEGORY = 2;
+
+/**
+ * 从候选理解中选出这一封信可以使用的子集。
+ *
+ * **这不是语义相关性排序**——选材器没有嵌入或语义匹配的基础设施，
+ * "日期／主题相关性"用可验证的启发式代替：多久前被强化过（reinforce／
+ * supersede 都会推进 updatedAt）、模型给出的置信度、类别多样性、以及
+ * 冷却期。这是刻意的范围收缩：宁可用一个诚实、可测的启发式，也不要
+ * 在没有真实相关性信号的地方伪造一个"聪明"的排序而没人能验证它对不对。
+ *
+ * 过滤（硬性，不参与排序）：
+ * - `allowProactiveMention === false` 的理解一律不选——敏感主题默认不
+ *   主动提及，这是隐私默认值，不是排序权重能盖过的。**必须由调用方在
+ *   传入候选前就完成这层过滤**（本函数不重复读这个字段，因为
+ *   `PersonalMemorySelectionCandidate` 故意没有携带它——见下方调用方
+ *   `personalMemorySelection.ts` 的选材边界）。
+ * - 没有任何证据事件的候选不选——不该发生（DB 层保证 active 理解至少
+ *   有一条证据），但选材器不信任这个假设，防御性排除。
+ * - 处于冷却期的 lineageKey 不选——"同一敏感主题处于冷却期时不主动
+ *   重复提及"在这里是硬排除，不是降权，重复提及不是语气轻一点就可以。
+ * - `scope.projectScoped` 的理解一律不选——每日来信是账号级、不挂在任何
+ *   具体 Story 下的，而 `scope={projectScoped:true}` 是没有精确 storyId
+ *   的粗粒度标记（见 U7 遗留的已知限制）。没有 storyId 可以匹配，唯一
+ *   站得住的处理是整类排除，不能当作全局理解带进一封不属于任何项目的信。
+ *
+ * 排序：`updatedAt` 越新（越近强化）优先，同分时置信度更高优先；
+ * 类别多样性用 `maxPerCategory` 硬性封顶，不让同一类别挤满结果。
+ */
+export function selectPersonalMemoryForDailyLetter(
+  input: PersonalMemorySelectionInput
+): PersonalMemorySelectedInsight[] {
+  const maxSelected = Math.max(0, input.maxSelected ?? DEFAULT_MAX_SELECTED);
+  const maxPerCategory = Math.max(
+    1,
+    input.maxPerCategory ?? DEFAULT_MAX_PER_CATEGORY
+  );
+  if (maxSelected === 0) return [];
+
+  const eligible = input.candidates.filter(
+    candidate =>
+      candidate.evidenceEventIds.length > 0 &&
+      !input.cooldownLineageKeys.has(candidate.lineageKey) &&
+      // 每日来信是账号级、不挂在任何具体 Story 下的；U7 早就记下了
+      // "scope={projectScoped:true} 是没有精确 storyId 的粗粒度标记"这个
+      // 遗留限制，这里就是那个限制第一次真正咬人的地方——没有 storyId
+      // 可以匹配，唯一站得住的处理是整类排除，而不是当作全局理解带进来。
+      // 错误后果不是抽象的：把某个创作项目里角色的偏好写进账号主人的
+      // 日常生活来信，会读起来像认错了人。
+      !candidate.scope?.projectScoped
+  );
+
+  const ranked = [...eligible].sort((left, right) => {
+    const byRecency = right.updatedAt.localeCompare(left.updatedAt);
+    if (byRecency !== 0) return byRecency;
+    return right.confidence - left.confidence;
+  });
+
+  const selected: PersonalMemorySelectedInsight[] = [];
+  const perCategoryCount = new Map<PersonalMemoryInsightCategory, number>();
+  for (const candidate of ranked) {
+    if (selected.length >= maxSelected) break;
+    const usedInCategory = perCategoryCount.get(candidate.category) ?? 0;
+    if (usedInCategory >= maxPerCategory) continue;
+    perCategoryCount.set(candidate.category, usedInCategory + 1);
+    selected.push({
+      insightId: candidate.insightId,
+      lineageKey: candidate.lineageKey,
+      revision: candidate.revision,
+      category: candidate.category,
+      origin: candidate.origin,
+      text: candidate.text,
+      scope: candidate.scope,
+      evidenceEventIds: candidate.evidenceEventIds,
+      earliestEvidenceOn: candidate.earliestEvidenceOn,
+    });
+  }
+  return selected;
+}
+
+/**
+ * 从近期来信版本的 payload 中收集"最近提过"的 lineageKey，构成冷却期集合。
+ *
+ * 纯函数：调用方负责决定"近期"取多少天／多少版本，这里只做提取。
+ */
+export function collectRecentlyMentionedLineageKeys(
+  recentPayloads: readonly (PersonalMemoryLetterPayload | null)[],
+  lineageKeyByInsightId: ReadonlyMap<number, string>
+): Set<string> {
+  const keys = new Set<string>();
+  for (const payload of recentPayloads) {
+    if (!payload) continue;
+    for (const evidence of payload.selectedEvidence) {
+      const lineageKey = lineageKeyByInsightId.get(evidence.insightId);
+      if (lineageKey) keys.add(lineageKey);
+    }
+  }
+  return keys;
+}
+
+/**
+ * 生成输入里给模型看的记忆上下文条目。
+ *
+ * 明确标记 `origin`（用户原话 vs 系统推断）和 `scope`（是否限定项目），
+ * 让 prompt 层能落实"不得把推断写成用户事实"这条约束，而不是丢一段
+ * 无出处的自然语言让模型自己猜这句话有多可信。
+ */
+export type PersonalMemoryPromptContextItem = {
+  category: PersonalMemoryInsightCategory;
+  origin: PersonalMemoryInsightOrigin;
+  text: string;
+  projectScoped: boolean;
+  earliestEvidenceOn: string | null;
+};
+
+export function toPersonalMemoryPromptContext(
+  selected: readonly PersonalMemorySelectedInsight[]
+): PersonalMemoryPromptContextItem[] {
+  return selected.map(item => ({
+    category: item.category,
+    origin: item.origin,
+    text: item.text,
+    projectScoped: Boolean(item.scope?.projectScoped),
+    earliestEvidenceOn: item.earliestEvidenceOn,
+  }));
+}

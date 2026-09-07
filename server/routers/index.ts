@@ -29,8 +29,10 @@ import {
   createAnalysisResult,
   getProjectAnalysis,
   getEmotionAnalysisProfile,
+  getEmotionDailyLetter,
   upsertEmotionAnalysisProfile,
   listEmotionDailyLetters,
+  listEmotionDailyLetterVersions,
   getAccessOverview,
   getInviteOverview,
   recordAccessHeartbeat,
@@ -46,6 +48,7 @@ import {
   EmotionDailyLetterConflictError,
   EmotionDailyLetterNotFoundError,
   rewriteEmotionDailyLetter,
+  saveEmotionDailyLetterMessage,
   saveDailyLetterFromProfile,
 } from "../services/emotionDailyLetters";
 import { calculateBirthPillarsLabel } from "@shared/bazi";
@@ -956,6 +959,68 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         return listEmotionDailyLetters(ctx.user.id, input.limit);
       }),
 
+    dailyLetterVersionContext: protectedProcedure
+      .input(z.object({ letterDate: birthDateSchema }))
+      .query(async ({ ctx, input }) => {
+        const [letter, versions] = await Promise.all([
+          getEmotionDailyLetter(ctx.user.id, input.letterDate),
+          listEmotionDailyLetterVersions(ctx.user.id, input.letterDate),
+        ]);
+        return {
+          currentVersionId: letter?.currentVersionId ?? null,
+          versions: versions.map(version => ({
+            id: version.id,
+            versionNumber: version.envelope.versionNumber,
+            generatedAt: version.envelope.generatedAt,
+            trigger: version.envelope.trigger,
+            selectorVersion: version.envelope.selectorVersion,
+            promptVersion: version.envelope.promptVersion,
+            modelVersion: version.envelope.modelVersion,
+            memoryEvidenceCount: version.payload?.selectedEvidence.length ?? 0,
+            usedAlmanac: Boolean(version.payload?.almanac),
+            profileRevision: version.payload?.profileRevision ?? null,
+          })),
+        };
+      }),
+
+    rereadDailyLetter: protectedProcedure
+      .input(
+        z.object({
+          letterDate: birthDateSchema,
+          expectedRevision: z.number().int().min(1),
+          actionId: z.string().min(1).max(191),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const current = await getEmotionDailyLetter(
+          ctx.user.id,
+          input.letterDate
+        );
+        if (!current) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "这一天的回信还没有生成",
+          });
+        }
+        try {
+          return await rewriteEmotionDailyLetter({
+            userId: ctx.user.id,
+            letterDate: input.letterDate,
+            userMessage: current.userMessage ?? "",
+            expectedRevision: input.expectedRevision,
+            actionId: input.actionId,
+          });
+        } catch (error) {
+          if (error instanceof EmotionDailyLetterNotFoundError) {
+            throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+          }
+          if (error instanceof EmotionDailyLetterConflictError) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
     rewriteDailyLetter: protectedProcedure
       .input(
         z.object({
@@ -966,7 +1031,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await rewriteEmotionDailyLetter({
+          return await saveEmotionDailyLetterMessage({
             userId: ctx.user.id,
             letterDate: input.letterDate,
             userMessage: input.userMessage,

@@ -1,6 +1,8 @@
 import {
   appendEmotionDailyLetterVersion,
+  beginPersonalMemoryLetterAttempt,
   capturePersonalMemoryEventStandalone,
+  commitPersonalMemoryLetterAttempt,
   claimPersonalMemoryJobs,
   completePersonalMemoryExtractionJob,
   correctPersonalMemoryInsight,
@@ -52,6 +54,21 @@ type WorkerInput = {
       expectedCurrentVersionNumber?: number;
     }
   | { action: "listVersions"; userId: number; letterDate: string }
+  | {
+      action: "beginLetterAttempt";
+      userId: number;
+      letterDate: string;
+      actionId: string;
+    }
+  | {
+      action: "commitLetterAttempt";
+      userId: number;
+      letterDate: string;
+      actionId: string;
+      attemptId: number;
+      privacyEpoch: number;
+      userMessage: string;
+    }
   | { action: "claimJobs"; limit: number; leaseMs: number }
   | {
       action: "completeExtraction";
@@ -212,6 +229,46 @@ try {
     await finish({
       count: versions.length,
       versionNumbers: versions.map(version => version.envelope.versionNumber),
+    });
+  }
+
+  if (input.action === "beginLetterAttempt") {
+    const result = await beginPersonalMemoryLetterAttempt({
+      userId: input.userId,
+      letterDate: input.letterDate,
+      actionId: input.actionId,
+    });
+    await finish({
+      status: result.status,
+      attemptId: result.attempt.id,
+      privacyEpoch: result.attempt.privacyEpoch,
+      committedVersionId:
+        result.status === "already_committed"
+          ? result.committedVersionId
+          : null,
+    });
+  }
+
+  if (input.action === "commitLetterAttempt") {
+    const result = await commitPersonalMemoryLetterAttempt({
+      attemptId: input.attemptId,
+      userId: input.userId,
+      letterDate: input.letterDate,
+      actionId: input.actionId,
+      trigger: "generated",
+      selectorVersion: "test",
+      promptVersion: "test",
+      modelVersion: "test",
+      privacyEpoch: input.privacyEpoch,
+      payload: payloadFor(input.userMessage),
+    });
+    await finish({
+      outcome: result.outcome,
+      versionId: result.outcome === "committed" ? result.version.id : null,
+      versionNumber:
+        result.outcome === "committed"
+          ? result.version.envelope.versionNumber
+          : null,
     });
   }
 
