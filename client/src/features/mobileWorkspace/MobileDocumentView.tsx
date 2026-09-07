@@ -175,22 +175,35 @@ export function MobileDocumentView({
           <>
             <h2 className="text-base font-semibold">这个故事还没有正文</h2>
             <p className="max-w-sm text-sm leading-6 text-muted-foreground">
-              先在下面的「聊聊」里说几句。聊出雏形之后，正文会从这段对话里长出来。
+              可以直接在这里从空白写起，也可以先在下面「聊聊」几句再回来。
             </p>
+            <Button
+              type="button"
+              className="min-h-11 rounded-xl px-6"
+              disabled={controller.initializing}
+              onClick={() => void controller.initBody()}
+            >
+              {controller.initializing ? (
+                <Loader2 aria-hidden="true" className="animate-spin" />
+              ) : null}
+              {controller.initializing ? "正在准备…" : "开始写正文"}
+            </Button>
           </>
         ) : (
-          <p className="text-sm text-destructive">
-            {controller.loadError || "正文加载失败"}
-          </p>
+          <>
+            <p className="text-sm text-destructive">
+              {controller.loadError || "正文加载失败"}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void controller.retryLoad()}
+            >
+              <RefreshCw aria-hidden="true" />
+              重试正文
+            </Button>
+          </>
         )}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void controller.retryLoad()}
-        >
-          <RefreshCw aria-hidden="true" />
-          {notWrittenYet ? "刷新看看" : "重试正文"}
-        </Button>
       </section>
     );
   }
@@ -206,7 +219,9 @@ export function MobileDocumentView({
       <div className="min-h-0 flex-1 px-3 pt-3">
         <textarea
           aria-label="正文内容"
-          className="h-full min-h-0 w-full resize-none overflow-y-auto rounded-2xl border border-border/80 bg-background/90 px-4 py-4 font-serif text-base leading-7 text-foreground shadow-sm outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:bg-muted/55 disabled:text-muted-foreground"
+          // 正文直接落在纸上：不画框、不加底色和阴影 —— 这一屏就是让人读字的。
+          // 行高比默认松（2 而不是 1.75），长段落读起来才不挤。
+          className="h-full min-h-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-4 py-3 font-serif text-base leading-[2] text-foreground outline-none transition placeholder:text-muted-foreground disabled:text-muted-foreground disabled:opacity-60"
           disabled={controller.state.status === "conflict"}
           placeholder="在这里继续正文…"
           spellCheck={false}

@@ -152,6 +152,7 @@ export function useMobileDocument(input: {
     { enabled: input.storyId > 0, retry: false, refetchOnWindowFocus: false }
   );
   const saveMutation = trpc.publishingDraft.saveBody.useMutation();
+  const initMutation = trpc.publishingDraft.initBody.useMutation();
   const utils = trpc.useUtils();
 
   const commit = useCallback(
@@ -292,6 +293,12 @@ export function useMobileDocument(input: {
     save,
     discard,
     retryLoad: query.refetch,
+    /** 这个故事还没有正文时，建一份空的再开始写。服务端幂等，重复调不会覆盖已有内容。 */
+    initBody: async () => {
+      await initMutation.mutateAsync({ storyId: input.storyId });
+      await query.refetch();
+    },
+    initializing: initMutation.isPending,
     hasUnsavedChanges,
     canSave: state?.status === "dirty" || state?.status === "failed",
     isSaving: state?.status === "saving",

@@ -64,6 +64,7 @@ import {
   savePublishingBodyDocument,
   writeFinishedProductState,
   writePublishingDraftState,
+  initializePublishingBodyDocument,
 } from "../services/publishingPersistence";
 import {
   PublishingDraftModelOutputError,
@@ -833,6 +834,20 @@ export const publishingDraftRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         return await getFinishedProductState(input.storyId, ctx.user.id);
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  /** 给还没有正文的故事初始化一份空正文。幂等：已有正文时原样返回。 */
+  initBody: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await initializePublishingBodyDocument({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
       } catch (error) {
         throwPublishingError(error);
       }

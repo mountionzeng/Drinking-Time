@@ -24,6 +24,7 @@ import {
   type PublishingTextOperationReceipt,
   hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
+  emptyPublishingDraftContent,
 } from "../../shared/publishingDraft";
 import { articleAdoptionCaptureIfEnabled } from "./personalMemoryAdoption";
 import {
@@ -1813,6 +1814,84 @@ function validatePublishingBodyInput(
   const content = { ...draft, body };
   const contentError = getPublishingContentError(platform, content);
   if (contentError) throw new PublishingBodyValidationError(contentError);
+}
+
+/**
+ * 给还没有正文的故事初始化一份空正文。
+ *
+ * 新建的故事在「当前版本 × 当前平台」下没有 draft，readBody 会抛
+ * PublishingBodyUnavailableError。手机端没有「生成发布稿」那条模型路径，
+ * 于是只能被推回电脑 —— 这个入口让它可以直接从空白开始写。
+ *
+ * 两条性质：
+ * - **幂等**：已经有正文就原样返回，连点两下不会建出第二份，也不会覆盖已有内容。
+ * - **不放宽 CAS**：走的是既有的 upsert_draft 操作（baseDraftRevision 0 = 尚不存在），
+ *   saveBody 那条 baseBodyRevision >= 1 的保护一个字没动。
+ */
+export async function initializePublishingBodyDocument(params: {
+  storyId: number;
+  userId: number;
+  now?: number;
+}): Promise<PublishingBodyDocument> {
+  return withStoryWriteLock(`${params.userId}:${params.storyId}`, async () => {
+    const story = await getStoryById(params.storyId, params.userId);
+    if (!story) throw new PublishingDraftOwnershipError(params.storyId);
+
+    const current = publishingBodyStateFromStory(params.storyId, story);
+    if (current.document) return current.document;
+
+    const active = resolvePublishingActiveVersion(current.publishing);
+    const now = params.now ?? Date.now();
+    const publishing = canonicalize(
+      applyOperation(
+        current.publishing,
+        {
+          type: "upsert_draft",
+          platform: active.activePlatform,
+          content: emptyPublishingDraftContent(),
+          baseDraftRevision: 0,
+          activate: true,
+          storyId: params.storyId,
+        },
+        now
+      )
+    );
+    inspectPublishingSerializedOutput(publishing);
+    if (!inspectPublishingProjection(publishing).equivalent) {
+      throw new Error("Publishing canonical projection mismatch");
+    }
+    assertPublishingCapacity(publishing);
+
+    const expectedStoryRevision = getStoryRevision(current.body);
+    const storyRevision = expectedStoryRevision + 1;
+    const bodyWithPublishing = { ...current.body, publishing };
+    const nextBody = prepareStoryBody(
+      bodyWithPublishing,
+      storyRevision,
+      bodyWithPublishing
+    );
+    assertStoryCapacity(nextBody);
+
+    await persistPreparedStoryBody({
+      storyId: params.storyId,
+      userId: params.userId,
+      expectedRevision: expectedStoryRevision,
+      body: nextBody,
+    });
+
+    const document = publishingBodyDocumentFromState({
+      storyId: params.storyId,
+      storyRevision,
+      publishing,
+    });
+    if (!document) {
+      throw new PublishingBodyUnavailableError(
+        active.versionId,
+        active.activePlatform
+      );
+    }
+    return document;
+  });
 }
 
 export async function getPublishingBodyDocument(
