@@ -86,6 +86,27 @@ export function formatCny(minor: number): string {
 }
 
 /**
+ * 余额大字专用：固定两位小数，且**向下取整**。
+ *
+ * 为什么不用 formatCny：余额 ¥0.409 显示成「¥0.41」会让用户以为还能做一件
+ * 标价 ¥0.41 的事，点下去却被拒——展示层多给的那一厘钱，用户是花不到的。
+ * 所以余额只能少显示，不能多显示。
+ *
+ * 负数向下取整会更负（-0.001 → -0.01），方向同样是保守的：账务异常时
+ * 宁可把窟窿显示得更大一点。
+ *
+ * 逐笔明细不要用这个，用 formatCny——明细必须能对上供应商账单。
+ */
+export function formatCnyBalance(minor: number): string {
+  assertMinorAmount(minor);
+  const perCent = MINOR_PER_YUAN / 100;
+  const cents = Math.floor(minor / perCent);
+  const sign = cents < 0 ? "-" : "";
+  const absolute = Math.abs(cents);
+  return `${sign}¥${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
+/**
  * 解析人工输入的元金额（管理员调整、续充申请、发卡面额）。
  *
  * 只接受非负、最多 6 位小数的十进制写法；科学计数法、负数和多余小数位一律拒绝，

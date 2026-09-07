@@ -30,6 +30,7 @@ import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import { MobileChatView } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
 import { MobileDocumentView } from "./MobileDocumentView";
@@ -97,6 +98,7 @@ export function MobileWorkspaceFrame({
   activeView,
   onViewChange,
   storyTitle,
+  balanceSlot,
   documentView,
   chatView,
   children,
@@ -108,6 +110,8 @@ export function MobileWorkspaceFrame({
   onViewChange: (view: MobileWorkspaceView) => void;
   /** 当前故事名。只读——切换故事走底部「聊点其他的」那张面板。 */
   storyTitle?: string;
+  /** 顶栏右侧的算力余额。由调用方传，外壳不碰 tRPC。 */
+  balanceSlot?: ReactNode;
   /** 正文常驻区；加载／空／错误态用 children 兜底 */
   documentView?: ReactNode;
   /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
@@ -206,6 +210,10 @@ export function MobileWorkspaceFrame({
               {storyTitle}
             </span>
           ) : null}
+          {/* 钱在两块屏幕上都得一直看得见。由调用方传进来——外壳自己不碰
+              tRPC，否则脱离 Provider 单渲（本文件的测试就是）会当场抛错，
+              和 element 那个 prop 是同一个道理。 */}
+          {balanceSlot}
         </header>
 
         {/* 正文常驻 */}
@@ -539,6 +547,13 @@ function MobileSelectedStoryWorkspace({
       activeView={activeView}
       onViewChange={onViewChange}
       storyTitle={story.title}
+      balanceSlot={
+        <ComputeBalanceBadge
+          compact
+          className="shrink-0"
+          enabled={Boolean(user?.id)}
+        />
+      }
       element={element}
       onOpenStories={() => setStoryPanelOpen(true)}
       onOpenAccount={() => setAccountOpen(true)}
@@ -595,6 +610,7 @@ function MobileSelectedStoryWorkspace({
             <DialogTitle>我</DialogTitle>
             <DialogDescription>{user?.email ?? "未登录"}</DialogDescription>
           </DialogHeader>
+          <ComputeBalanceBadge enabled={Boolean(user?.id)} />
           <p className="text-sm leading-6 text-muted-foreground">
             手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
           </p>

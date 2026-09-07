@@ -9,6 +9,7 @@ import { useNayin } from "@/features/nayin/NayinContext";
 import PairingCodeButton from "@/features/auth/views/PairingCodeButton";
 import PersonalMemorySummary from "@/features/personalMemory/PersonalMemorySummary";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
+import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import StoryLogoMenu, {
   type StoryLogoMenuStory,
 } from "@/app/shell/StoryLogoMenu";
@@ -191,6 +192,8 @@ export default function TopBar({
               </div>
 
               <div className="flex items-center gap-2">
+                {/* 算力余额：钱要一直看得见，不能藏在二级菜单里 */}
+                <ComputeBalanceBadge compact enabled={Boolean(user?.id)} />
                 {/* User avatar + logout popover */}
                 <Popover open={userOpen} onOpenChange={setUserOpen}>
                   <PopoverTrigger asChild>
@@ -233,6 +236,10 @@ export default function TopBar({
                       <div className="text-[10px] text-muted-foreground truncate mt-0.5">
                         {user?.email || ""}
                       </div>
+                      <ComputeBalanceBadge
+                        className="mt-2"
+                        enabled={Boolean(user?.id)}
+                      />
                     </div>
                     <PersonalMemorySummary
                       onOpenAll={() => {
