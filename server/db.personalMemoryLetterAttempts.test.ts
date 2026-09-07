@@ -186,6 +186,58 @@ describe("beginPersonalMemoryLetterAttempt", () => {
 });
 
 describe("commitPersonalMemoryLetterAttempt", () => {
+  it("生成期间保存的新留言不会被旧输入覆盖", async () => {
+    const first = await db.appendEmotionDailyLetterVersion({
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "first",
+      trigger: "generated",
+      selectorVersion: "test",
+      promptVersion: "test",
+      modelVersion: "test",
+      privacyEpoch: 1,
+      payload: emptyPayload(),
+    });
+    const revision = first!.letter.revision;
+    const begun = await db.beginPersonalMemoryLetterAttempt({
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "reread",
+    });
+    await db.saveEmotionDailyLetterMessageIfRevision({
+      userId: USER,
+      letterDate: LETTER_DATE,
+      expectedRevision: revision,
+      userMessage: "生成期间刚保存的新话",
+      userMessageSaidAt: new Date(),
+      userMessageEditedAt: null,
+      analysisSeed: {},
+    });
+    expect(
+      await db.listEmotionDailyLetterVersions(USER, LETTER_DATE)
+    ).toHaveLength(1);
+    const result = await db.commitPersonalMemoryLetterAttempt({
+      attemptId: begun.attempt.id,
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "reread",
+      trigger: "reread",
+      selectorVersion: "test",
+      promptVersion: "test",
+      modelVersion: "test",
+      privacyEpoch: 1,
+      payload: emptyPayload(),
+      expectedLetterRevision: revision,
+      expectedCurrentVersionNumber: 1,
+    });
+    expect(result.outcome).toBe("revision_conflict");
+    expect(
+      (await db.getEmotionDailyLetter(USER, LETTER_DATE))?.userMessage
+    ).toBe("生成期间刚保存的新话");
+    expect(
+      await db.listEmotionDailyLetterVersions(USER, LETTER_DATE)
+    ).toHaveLength(1);
+  });
   it("成功提交产生 version 1，attempt 转为 committed", async () => {
     const begun = await db.beginPersonalMemoryLetterAttempt({
       userId: USER,

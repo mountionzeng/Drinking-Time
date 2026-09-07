@@ -187,6 +187,7 @@ export async function generateDailyLetterViaAttempt(
     /** 生成时固定的资料快照标识（这里用 profile.updatedAt，见调用点）。 */
     profileRevision: string | null;
     expectedCurrentVersionNumber?: number;
+    expectedLetterRevision?: number;
     personalMemoryCapture?: PersonalMemoryCapture;
   },
   dependencies: DailyLetterGenerationDependencies = {}
@@ -258,6 +259,7 @@ export async function generateDailyLetterViaAttempt(
       userMessageSaidAt: input.userMessageSaidAt,
       userMessageEditedAt: input.userMessageEditedAt,
       expectedCurrentVersionNumber: input.expectedCurrentVersionNumber,
+      expectedLetterRevision: input.expectedLetterRevision,
       personalMemoryCapture: input.personalMemoryCapture,
       captureLetterVersionEvent: isPersonalMemoryCaptureEnabled(input.userId),
     });
@@ -623,6 +625,7 @@ export async function rewriteEmotionDailyLetter(
     profileRevision: profile.updatedAt.toISOString(),
     expectedCurrentVersionNumber:
       currentVersion?.envelope.versionNumber ?? expectedRevision,
+    expectedLetterRevision: expectedRevision,
     // 用户这次写下／改写／清空的留言，与版本推进同一个短事务（U2）。
     // 黄历查询和来信生成都在事务之外，它们失败不会回滚已经保存的留言。
     // 构造器自带 Phase 1 白名单门禁，未列入的账号在这里就是 null。

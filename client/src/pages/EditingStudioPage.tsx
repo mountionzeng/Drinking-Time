@@ -550,7 +550,11 @@ export default function EditingStudioPage() {
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
   const [materialVisible, setMaterialVisible] = useState(false);
-  const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
+  const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      new URLSearchParams(window.location.search).get("letterDate") ?? ""
+    )
+  );
   const [workspace, setWorkspace] = useState<StudioWorkspace>("publishing");
   const interactionMode = resolveStudioInteractionMode(
     workspace,

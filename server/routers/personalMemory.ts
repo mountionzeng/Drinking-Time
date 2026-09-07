@@ -7,6 +7,7 @@
  * 接受客户端传入的 userId，其余所有归属校验都失去意义。
  */
 import { z } from "zod";
+import { isPersonalMemoryCaptureEnabled } from "../services/personalMemoryEvents";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
@@ -58,9 +59,13 @@ export const personalMemoryRouter = router({
   /** 头像弹层用的紧凑摘要：最近几个**有活动**的日期，不制造空自然日。 */
   summary: protectedProcedure
     .input(z.object({ maxDays: z.number().int().min(1).max(30).optional() }))
-    .query(async ({ ctx, input }) =>
-      getPersonalMemorySummary({ userId: ctx.user.id, maxDays: input.maxDays })
-    ),
+    .query(async ({ ctx, input }) => ({
+      ...(await getPersonalMemorySummary({
+        userId: ctx.user.id,
+        maxDays: input.maxDays,
+      })),
+      captureEnabled: isPersonalMemoryCaptureEnabled(ctx.user.id),
+    })),
 
   /** 完整足迹分页。cursor 不透明，客户端只负责原样回传。 */
   timeline: protectedProcedure

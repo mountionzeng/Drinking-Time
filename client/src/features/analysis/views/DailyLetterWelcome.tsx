@@ -214,6 +214,9 @@ export default function DailyLetterWelcome({
   );
   const [guestImportDismissed, setGuestImportDismissed] = useState(false);
   const lastProfileDateRef = useRef("");
+  const requestedLetterDateRef = useRef(
+    new URLSearchParams(window.location.search).get("letterDate")
+  );
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const rereadActionIdRef = useRef<string | null>(null);
@@ -299,6 +302,13 @@ export default function DailyLetterWelcome({
 
   useEffect(() => {
     if (!profileDate) return;
+    const requestedDate = requestedLetterDateRef.current;
+    if (requestedDate && letterDates.includes(requestedDate)) {
+      requestedLetterDateRef.current = null;
+      lastProfileDateRef.current = profileDate;
+      setSelectedDate(requestedDate);
+      return;
+    }
     const previousProfileDate = lastProfileDateRef.current;
     const nextDate = nextDailyLetterDate(
       selectedDate,

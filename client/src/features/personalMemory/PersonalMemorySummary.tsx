@@ -33,6 +33,15 @@ export default function PersonalMemorySummary({
         只记录你已发送的原话和明确采用的作品；黄历不会成为长期记忆。
       </p>
 
+      {summaryQuery.data?.captureEnabled === false ? (
+        <p
+          className="mt-2 text-xs leading-5 text-muted-foreground"
+          role="status"
+        >
+          自动记忆尚未开启。目前可回看已有来信；新聊天还不会自动整理为长期理解。
+        </p>
+      ) : null}
+
       {summaryQuery.isLoading ? (
         <p className="mt-2 text-[11px] text-muted-foreground" role="status">
           正在整理最近的记录…

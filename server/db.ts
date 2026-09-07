@@ -11839,6 +11839,8 @@ export type AppendDailyLetterVersionInput = {
    * 是 in_flight”的断网窗口。
    */
   letterAttemptId?: number;
+  /** 防止生成期间新保存的留言被旧生成输入覆盖。 */
+  expectedLetterRevision?: number;
   /** 成功的新版本是否同时写入统一足迹。由调用方的捕获门禁决定。 */
   captureLetterVersionEvent?: boolean;
 };
@@ -11968,13 +11970,33 @@ async function appendLetterVersionOnce(
     // **新**写入必须证明它引用的隐私状态仍然成立。点查主键，不涉及
     // 范围扫描，不会重演这个文件里其他地方记录过的 gap-lock 死锁。
     if (input.requiredPrivacyEpoch !== undefined) {
+      await tx
+        .insert(personalMemoryPrivacyEpochs)
+        .values({ userId: input.userId, epoch: 1 })
+        .onDuplicateKeyUpdate({ set: { userId: input.userId } });
       const [epochRow] = await tx
         .select()
         .from(personalMemoryPrivacyEpochs)
         .where(eq(personalMemoryPrivacyEpochs.userId, input.userId))
-        .limit(1);
+        .limit(1)
+        .for("update");
       const currentEpoch = epochRow?.epoch ?? 1;
       if (currentEpoch !== input.requiredPrivacyEpoch) return null;
+    }
+
+    if (input.expectedLetterRevision !== undefined) {
+      const [row] = await tx
+        .select()
+        .from(emotionDailyLetters)
+        .where(
+          and(
+            eq(emotionDailyLetters.userId, input.userId),
+            eq(emotionDailyLetters.letterDate, input.letterDate)
+          )
+        )
+        .limit(1)
+        .for("update");
+      if (row?.revision !== input.expectedLetterRevision) return null;
     }
 
     const current = currentLetterVersion(priorRecords);
@@ -12179,6 +12201,13 @@ function appendLetterVersionToLocalState(
   }
 
   const currentVersion = currentLetterVersion(sameDay);
+  if (input.expectedLetterRevision !== undefined) {
+    const row = memoryState.emotionDailyLetters.find(
+      item =>
+        item.userId === input.userId && item.letterDate === input.letterDate
+    );
+    if (row?.revision !== input.expectedLetterRevision) return null;
+  }
   const legacyRow = currentVersion
     ? null
     : memoryState.emotionDailyLetters.find(

@@ -20,7 +20,7 @@ function SourceAction({ item }: { item: PersonalMemoryTimelineItem }) {
     if (source.deepLink?.kind === "story") {
       window.location.assign(`/editing?storyId=${source.deepLink.storyId}`);
     } else if (source.deepLink?.kind === "daily_letter") {
-      window.location.assign("/editing");
+      window.location.assign(`/editing?letterDate=${item.occurredOn}`);
     }
   };
 
@@ -120,7 +120,11 @@ export default function PersonalMemoryDay({
             <button
               type="button"
               className="mt-2 min-h-9 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              onClick={() => window.location.assign("/editing")}
+              onClick={() =>
+                window.location.assign(
+                  `/editing?letterDate=${group.occurredOn}`
+                )
+              }
             >
               打开每日来信
             </button>
