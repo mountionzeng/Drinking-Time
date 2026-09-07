@@ -22,6 +22,7 @@ import {
   type TextComputeProviderId,
 } from "../_core/textComputeProvider";
 import { fromYuan } from "../../shared/computeMoney";
+import { resolveTextPrice } from "../../shared/textComputePricing";
 import { reserveForOperation, settleOperation } from "./computeLedger";
 import {
   getChatMessageContentForPersonalMemory,
@@ -137,13 +138,46 @@ function maxCostMinorPerExtraction(): number {
  * 单价把 token 用量换算成成本，好过假装免费；供应商真实计费数据接入后，
  * 这里应该被替换成对账后的真实值，而不是继续估算。
  */
-function estimateVerifiedCostMinor(usage: { total_tokens: number } | undefined): number {
-  if (!usage) return 0;
+/**
+ * 按**实际服务的那一家**的单价折算费用。
+ *
+ * 改造前这里是一个不看供应商的固定单价。编排器是有序候选链（openai-next
+ * 打头、302 兜底），同一次调用可能落在任何一家；用同一个数扣费，两家价差
+ * 多少账本就恒定偏多少，而且每一笔看上去都「算对了」，对账时查不出来。
+ *
+ * PERSONAL_MEMORY_EXTRACTION_COST_PER_1K_TOKENS_YUAN 仍然生效且优先级最高：
+ * 它是这条链路的专用覆盖，配了就说明运营侧知道自己在做什么。
+ */
+function estimateVerifiedCostMinor(input: {
+  usage: { total_tokens: number } | undefined;
+  provider: string;
+  model?: string | null;
+}): number {
+  if (!input.usage) return 0;
+
   const override = Number(
     process.env.PERSONAL_MEMORY_EXTRACTION_COST_PER_1K_TOKENS_YUAN
   );
-  const yuanPer1k = Number.isFinite(override) && override > 0 ? override : 0.01;
-  const estimated = fromYuan((usage.total_tokens / 1000) * yuanPer1k);
+  let yuanPer1k: number;
+  if (Number.isFinite(override) && override > 0) {
+    yuanPer1k = override;
+  } else {
+    const price = resolveTextPrice({
+      provider: input.provider,
+      model: input.model,
+    });
+    yuanPer1k = price.yuanPer1kTokens;
+    if (!price.priced) {
+      // 按兜底价扣了钱就必须说出来。静默按默认价计费，等于账本里混进了一批
+      // 无法对账的数字，而且没有任何痕迹表明它们是估的。
+      console.warn(
+        "[billing] 未配置该供应商/模型的单价，按兜底价计费——账目无法对账",
+        { provider: input.provider, model: input.model ?? null, yuanPer1k }
+      );
+    }
+  }
+
+  const estimated = fromYuan((input.usage.total_tokens / 1000) * yuanPer1k);
   // 永远不能超过预占的上界——估算走偏也不能突破可信费用上界这条红线。
   return Math.min(estimated, maxCostMinorPerExtraction());
 }
@@ -536,7 +570,11 @@ export async function attemptPersonalMemoryExtraction(
       operationId,
       outcome: {
         kind: "succeeded",
-        verifiedCostMinor: estimateVerifiedCostMinor(outcome.result.usage),
+        verifiedCostMinor: estimateVerifiedCostMinor({
+          usage: outcome.result.usage,
+          provider: outcome.provider,
+          model: outcome.model,
+        }),
       },
     });
 
