@@ -37,6 +37,9 @@ export type MobileStorySummary = {
   updatedAt?: string | Date | null;
   createdAt?: string | Date | null;
   shotCount?: number;
+  cardCount?: number;
+  /** 这个故事在哪些日子被动过。每日来信靠它挑出「那天也聊过的故事」。 */
+  activityDates?: string[];
 };
 
 /** 「2 小时前 · 0 个镜头」。卡片数常年是 0，只会占位，所以不放。 */

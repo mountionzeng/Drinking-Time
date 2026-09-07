@@ -1,4 +1,10 @@
-import { BookOpenText, Loader2, RefreshCw, UserRound } from "lucide-react";
+import {
+  BookOpenText,
+  Loader2,
+  MailOpen,
+  RefreshCw,
+  UserRound,
+} from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -25,6 +31,7 @@ import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry"
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { MobileChatView } from "./MobileChatView";
+import { MobileDailyLetter } from "./MobileDailyLetter";
 import { MobileDocumentView } from "./MobileDocumentView";
 import {
   MobileStoryPanel,
@@ -484,6 +491,7 @@ function MobileSelectedStoryWorkspace({
   const { element } = useNayin();
   const { user, logout } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [letterOpen, setLetterOpen] = useState(false);
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -551,6 +559,14 @@ function MobileSelectedStoryWorkspace({
       )}
     >
 
+      <MobileDailyLetter
+        autoOpen
+        open={letterOpen}
+        stories={stories}
+        onOpenChange={setLetterOpen}
+        onOpenStory={requestStoryChange}
+      />
+
       <MobileStoryPanel
         activeStoryId={activeStoryId}
         creating={creatingStory}
@@ -582,6 +598,18 @@ function MobileSelectedStoryWorkspace({
           <p className="text-sm leading-6 text-muted-foreground">
             手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 w-full justify-start"
+            onClick={() => {
+              setAccountOpen(false);
+              setLetterOpen(true);
+            }}
+          >
+            <MailOpen aria-hidden="true" />
+            今天的来信
+          </Button>
           <DialogFooter className="flex-row justify-end gap-2">
             <Button
               type="button"
