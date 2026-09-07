@@ -219,7 +219,9 @@ export function MobileDocumentView({
       <div className="min-h-0 flex-1 px-3 pt-3">
         <textarea
           aria-label="正文内容"
-          className="h-full min-h-0 w-full resize-none overflow-y-auto rounded-2xl border border-border/80 bg-background/90 px-4 py-4 font-serif text-base leading-7 text-foreground shadow-sm outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:bg-muted/55 disabled:text-muted-foreground"
+          // 正文直接落在纸上：不画框、不加底色和阴影 —— 这一屏就是让人读字的。
+          // 行高比默认松（2 而不是 1.75），长段落读起来才不挤。
+          className="h-full min-h-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-4 py-3 font-serif text-base leading-[2] text-foreground outline-none transition placeholder:text-muted-foreground disabled:text-muted-foreground disabled:opacity-60"
           disabled={controller.state.status === "conflict"}
           placeholder="在这里继续正文…"
           spellCheck={false}
