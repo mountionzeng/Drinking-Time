@@ -3048,10 +3048,18 @@
     {
       "id": "personal-memory-daily-letter",
       "name": "个人记忆与每日来信互通",
-      "status": "planned",
+      "status": "observing",
       "userValue": "让普通聊天、用户原话和明确采用的文章与图片持续形成可回看的私密个人足迹，并让每日来信结合这些记忆、八字和当天黄历越来越懂用户。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "client/src/app/shell/TopBar.tsx",
+        "client/src/pages/PersonalMemoryPage.tsx",
+        "client/src/features/analysis/views/DailyLetterWelcome.tsx"
+      ],
+      "owners": [
+        "server/routers/personalMemory.ts",
+        "server/services/personalMemoryTimeline.ts",
+        "client/src/pages/PersonalMemoryPage.tsx"
+      ],
       "evidence": [
         "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
         "docs/plans/2026-09-02-003-feat-personal-memory-daily-letter-plan.md",
@@ -3085,7 +3093,14 @@
         "server/routers.personalMemory.test.ts",
         "server/routers.personalMemoryMedia.test.ts",
         "server/_core/personalMemoryMediaRoute.ts",
-        "server/integration/personalMemoryTimeline.mysql.test.ts"
+        "server/integration/personalMemoryTimeline.mysql.test.ts",
+        "server/services/personalMemorySelection.test.ts",
+        "server/db.personalMemoryLetterAttempts.test.ts",
+        "server/integration/personalMemoryLetterAttempts.mysql.test.ts",
+        "client/src/features/personalMemory/personalMemoryViewModel.test.ts",
+        "client/src/pages/PersonalMemoryPage.test.tsx",
+        "client/src/app/shell/TopBar.test.tsx",
+        "client/src/app/router/AppRouter.test.tsx"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -3107,10 +3122,10 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "目前只有经过确认的需求与实施计划；普通聊天与采用作品尚未进入账号级个人记忆，头像菜单也没有个人足迹入口。",
-        "现有每日来信只会聚合每日回信中的历史用户留言，并未基于全部普通聊天、采用文章或采用图片形成可纠正的长期理解。",
-        "派生记忆的提炼、冲突识别、时效降权、归档恢复、来源追溯、历史回填和上下文选择仍待规划与评测。",
-        "实时黄历失败降级、同日来信显式版本、跨端一致性和真实账号隔离仍缺实现与主仓库 3000 端口验收。"
+        "真实用户捕获仍默认关闭；在用户级暂停捕获与清除已采集记录入口完成前，不开放白名单之外的账号。",
+        "派生理解 runner 仍受平台预算、供应商 allowlist 与独立暂停开关限制；当前本地账号没有自动提炼结果时，来信不会凭空声称已经学会。",
+        "历史确定性回填仍保持 dry-run，歧义图片采用不会写入；来源删除后的历史来信段落级隐私 overlay 尚未完成。",
+        "手机 Web 足迹入口、真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。"
       ],
       "history": [
         {
@@ -3172,6 +3187,11 @@
           "date": "2026-09-04",
           "kind": "build",
           "summary": "U7 账号级足迹聚合、来源解析与记忆控制 API：新增 server/services/personalMemoryTimeline.ts、server/routers/personalMemory.ts、server/_core/personalMemoryMediaRoute.ts；db.ts 新增 (occurredAt, id) keyset 分页与按 occurredOn 精确过滤两条查询。tRPC router 的 userId 一律取 ctx.user.id，input schema 不接受任何身份字段——新增 routers.ownershipBoundaries.test.ts 的失败关闭护栏，只要有 procedure 接受 userId/openId 等字段或不读 ctx.user.id 就直接红（已验证真的会红）。时间线用 keyset 而非 offset 分页（用真实 MySQL 验证同一秒内多条事件靠 id 兜底不被跳过，MySQL timestamp 截断到秒是真实风险，不是理论风险）；聚合器不跨业务表 union，只有详情 resolver（day）才回源理解或来信权威——来信没有写新的 daily_letter_version 事件，因为 U6 才决定「哪些写入算一个版本」，往 append-only 账本里抢先写一个还没定的语义是这套系统里最难回滚的错误，day 详情改为直接读 emotionDailyLetterVersions 只读展示「这天有一封信」。来源 resolver 对六种 sourceType 逐条重新验证归属，解析失败或校验不过一律 deleted/forbidden，绝不返回正文或猜一个来源出来；图片按 Story 归属校验（不信 generatedImages.userId，历史行大量为 null，拿它当归属证据等于开后门）。私密图片新增受保护媒体端点 /api/personal-memory/media/:eventId，逐请求校验账号与归属后直接送字节，不 302 到不鉴权的 /api/images——重定向等于把公开地址交给浏览器，前面的校验全白做；handler 抽成独立文件是为了让它可以脱离整个 server 启动被单独测试（打真实 express app 发真实 HTTP 请求，不是复制一份 handler 到测试里）。修了一个实现中途发现的真实 bug：日期详情最初用「最近 100 条事件」过滤当天数据，用户越活跃、要翻的旧日期就越容易被挤出窗口静默返回空——改为按 occurredOn 精确查询，本地和真实 MySQL 各锁一条回归测试，并验证过测试在改回旧实现时真的会红。发布采用来源解析另修一处：sourceKey 里的 versionId 是发布侧的不透明序号（v1、v2…），最初用 \\d+ 去匹配会让所有文章采用的来源解析静默失败。门禁：本地 452 文件/3956 用例、MySQL 集成 38/38（含新增的 timeline keyset 分页、跨账号隔离、日期详情精确过滤共 5 项）、feature:validate 全绿、tsc 干净。"
+        },
+        {
+          "date": "2026-09-07",
+          "kind": "build",
+          "summary": "U6 与桌面 U8 进入观察：每日来信只从当前有效、允许主动提及且有证据的少量长期理解中选材，并把八字修订、可信同日黄历和所选证据固定进不可变版本；保存每日留言不再隐式重写来信，只有用户明确点击“用最新记忆，再读一遍”才追加新版。桌面头像新增最近足迹摘要和完整私密足迹页，既有历史来信按日期纳入同一视图，理解可纠正、归档、恢复和忘记。真实用户聊天捕获与自动提炼仍按 knownGaps 保持关闭，因此状态为 observing，不宣称已完成自动学习或跨端上线。"
         }
       ]
     }
