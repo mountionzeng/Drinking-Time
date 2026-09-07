@@ -27,9 +27,9 @@ import { cn } from "@/lib/utils";
 import { MobileChatView } from "./MobileChatView";
 import { MobileDocumentView } from "./MobileDocumentView";
 import {
-  MobileStoryPicker,
+  MobileStoryPanel,
   type MobileStorySummary,
-} from "./MobileStoryPicker";
+} from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
 
@@ -89,7 +89,7 @@ function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
 export function MobileWorkspaceFrame({
   activeView,
   onViewChange,
-  storyPicker,
+  storyTitle,
   documentView,
   chatView,
   children,
@@ -99,7 +99,8 @@ export function MobileWorkspaceFrame({
 }: {
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
-  storyPicker: ReactNode;
+  /** 当前故事名。只读——切换故事走底部「聊点其他的」那张面板。 */
+  storyTitle?: string;
   /** 正文常驻区；加载／空／错误态用 children 兜底 */
   documentView?: ReactNode;
   /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
@@ -193,7 +194,11 @@ export function MobileWorkspaceFrame({
           >
             碎碎念
           </span>
-          {storyPicker}
+          {storyTitle ? (
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">
+              {storyTitle}
+            </span>
+          ) : null}
         </header>
 
         {/* 正文常驻 */}
@@ -291,6 +296,7 @@ export function MobileWorkspaceFrame({
         {/* 底部：一张手绘桌子，书（故事）、杯（聊聊）、人（我）都摆在上面 */}
         <MobileTableBar
           element={element}
+          activeView={activeView}
           onOpenChat={() => onViewChange("chat")}
           onOpenStories={onOpenStories ?? (() => {})}
           onOpenAccount={onOpenAccount}
@@ -307,11 +313,13 @@ export function MobileWorkspaceFrame({
  */
 function MobileTableBar({
   element,
+  activeView,
   onOpenChat,
   onOpenStories,
   onOpenAccount,
 }: {
   element: NayinElement;
+  activeView: MobileWorkspaceView;
   onOpenChat: () => void;
   onOpenStories: () => void;
   /** 没传就不画「我」——外壳不直接碰 useAuth，保持可独立测试 */
@@ -347,17 +355,23 @@ function MobileTableBar({
           故事
         </button>
 
+        {/*
+          中间这颗按当前视图换身份：正文页它是「来聊会儿」，把聊聊拉出来；
+          聊聊已经开着的时候，再放一个「打开聊聊」就是一颗死键，于是让它
+          改说「聊点其他的」——换个故事聊，正好接上这句话的字面意思。
+          原来顶栏那个故事下拉因此可以撤掉，切故事只剩这一个入口。
+        */}
         <button
           type="button"
-          aria-label="来聊会儿"
+          aria-label={activeView === "chat" ? "聊点其他的" : "来聊会儿"}
           className="relative z-10 flex h-full flex-col items-center justify-end gap-0.5 pb-1.5"
-          onClick={onOpenChat}
+          onClick={activeView === "chat" ? onOpenStories : onOpenChat}
         >
           <span className="absolute -top-6 left-1/2 -ml-7">
             <EmotiveWuxingIcon element={element} size={56} animated={false} />
           </span>
           <span className="font-chat-brand text-[15px] leading-none text-primary">
-            来聊会儿
+            {activeView === "chat" ? "聊点其他的" : "来聊会儿"}
           </span>
         </button>
 
@@ -472,8 +486,8 @@ function MobileSelectedStoryWorkspace({
   const [accountOpen, setAccountOpen] = useState(false);
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
-  const pickerRef = useRef<HTMLSelectElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const [storyPanelOpen, setStoryPanelOpen] = useState(false);
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -512,29 +526,13 @@ function MobileSelectedStoryWorkspace({
     setAnnouncement("正文未能安全保存，已留在当前 Story");
   };
 
-  const picker = (
-    <MobileStoryPicker
-      ref={pickerRef}
-      activeStoryId={activeStoryId}
-      disabled={resolvingSwitch || creatingStory}
-      stories={stories}
-      onCreateStory={onCreateStory}
-      onRequestStoryChange={requestStoryChange}
-    />
-  );
-
   return (
     <MobileWorkspaceFrame
       activeView={activeView}
       onViewChange={onViewChange}
-      storyPicker={picker}
+      storyTitle={story.title}
       element={element}
-      onOpenStories={() => {
-        // header 收起时 select 是 max-h-0 / pointer-events-none，
-        // 直接 focus 会落到一个看不见的控件上。先回常驻档再聚焦。
-        onViewChange("document");
-        requestAnimationFrame(() => pickerRef.current?.focus());
-      }}
+      onOpenStories={() => setStoryPanelOpen(true)}
       onOpenAccount={() => setAccountOpen(true)}
       documentView={
         <MobileDocumentView
@@ -552,6 +550,28 @@ function MobileSelectedStoryWorkspace({
         />
       )}
     >
+
+      <MobileStoryPanel
+        activeStoryId={activeStoryId}
+        creating={creatingStory}
+        open={storyPanelOpen}
+        stories={stories}
+        onCreateStory={
+          onCreateStory
+            ? () => {
+                setStoryPanelOpen(false);
+                onCreateStory();
+              }
+            : undefined
+        }
+        onOpenChange={setStoryPanelOpen}
+        onSelectStory={storyId => {
+          setStoryPanelOpen(false);
+          // 有未保存的正文时 requestStoryChange 会先弹「保存/放弃/取消」，
+          // 那张对话框得在面板关掉之后才看得见，所以顺序不能反。
+          requestStoryChange(storyId);
+        }}
+      />
 
       <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
         <DialogContent className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-sm">
@@ -589,10 +609,6 @@ function MobileSelectedStoryWorkspace({
           onOpenAutoFocus={event => {
             event.preventDefault();
             cancelRef.current?.focus();
-          }}
-          onCloseAutoFocus={event => {
-            event.preventDefault();
-            pickerRef.current?.focus();
           }}
         >
           <DialogHeader className="text-left">
@@ -681,14 +697,11 @@ export function MobileWorkspace({ userId }: { userId: number }) {
     }
   };
 
-  const emptyPicker = <div aria-hidden="true" className="h-11 min-w-0 flex-1" />;
-
   if (storyListQuery.isError) {
     return (
       <MobileWorkspaceFrame
         activeView={activeView}
         onViewChange={setActiveView}
-        storyPicker={emptyPicker}
       >
         <MobileStoryListError
           message={storyListQuery.error.message || "请检查网络后重试"}
@@ -703,7 +716,6 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       <MobileWorkspaceFrame
         activeView={activeView}
         onViewChange={setActiveView}
-        storyPicker={emptyPicker}
       >
         <MobileWorkspaceLoading label="正在读取 Story…" />
       </MobileWorkspaceFrame>
@@ -715,7 +727,6 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       <MobileWorkspaceFrame
         activeView={activeView}
         onViewChange={setActiveView}
-        storyPicker={emptyPicker}
       >
         <MobileEmptyState
           creating={storyUpsert.isPending}
@@ -731,7 +742,6 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       <MobileWorkspaceFrame
         activeView={activeView}
         onViewChange={setActiveView}
-        storyPicker={emptyPicker}
       >
         <MobileWorkspaceLoading label="正在打开最近的 Story…" />
       </MobileWorkspaceFrame>

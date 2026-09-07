@@ -28,7 +28,7 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="chat"
         onViewChange={vi.fn()}
-        storyPicker={<div>Story 选择器</div>}
+        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
         chatView={() => <p>对话内容</p>}
       />
@@ -38,8 +38,49 @@ describe("MobileWorkspace", () => {
     expect(html).toContain("正文内容");
     expect(html).toContain("对话内容");
     expect(html).toContain("聊聊");
-    expect(html).toContain("来聊会儿");
     expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
+  });
+
+  // 中间那颗按视图换身份：聊聊已经开着的时候再放一个「打开聊聊」是死键，
+  // 让它改做「换个故事聊」，顶栏那个故事下拉才撤得掉。
+  it("relabels the middle seat by view: 来聊会儿 on the document, 聊点其他的 in chat", () => {
+    const inDocument = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+    expect(inDocument).toContain("来聊会儿");
+    expect(inDocument).not.toContain("聊点其他的");
+
+    const inChat = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="chat"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+    expect(inChat).toContain("聊点其他的");
+    expect(inChat).not.toContain("来聊会儿");
+  });
+
+  // 顶栏只剩一个只读的故事名；切故事的唯一入口是底部那张面板。
+  it("shows the story title as plain text, not a picker control", () => {
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+      />
+    );
+    expect(html).toContain("送走小猫后有点想它");
+    expect(html).not.toContain("<select");
   });
 
   it("still renders the document when there is no conversation to attach", () => {
@@ -47,7 +88,7 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyPicker={<div>Story 选择器</div>}
+        storyTitle="送走小猫后有点想它"
       >
         <p>加载中</p>
       </MobileWorkspaceFrame>
