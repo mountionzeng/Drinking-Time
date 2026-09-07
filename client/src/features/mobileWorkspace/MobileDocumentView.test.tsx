@@ -44,6 +44,8 @@ function controller(value = state()): MobileDocumentController {
     save: vi.fn(),
     discard: vi.fn(),
     retryLoad: vi.fn(),
+    initBody: vi.fn(),
+    initializing: false,
     hasUnsavedChanges: true,
     canSave: true,
     isSaving: false,
