@@ -7,6 +7,7 @@ import {
   Loader2,
   MessageCircle,
   Pencil,
+  RefreshCw,
   Sparkles,
   X,
 } from "lucide-react";
@@ -199,6 +200,7 @@ export default function DailyLetterWelcome({
     }
   );
   const rewriteMut = trpc.emotionAnalysis.rewriteDailyLetter.useMutation();
+  const rereadMut = trpc.emotionAnalysis.rereadDailyLetter.useMutation();
   const saveProfileMut = trpc.emotionAnalysis.saveBirthProfile.useMutation();
   const importGuestProfileMut =
     trpc.emotionAnalysis.importGuestProfile.useMutation();
@@ -214,6 +216,15 @@ export default function DailyLetterWelcome({
   const lastProfileDateRef = useRef("");
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const rereadActionIdRef = useRef<string | null>(null);
+  const versionContextQuery =
+    trpc.emotionAnalysis.dailyLetterVersionContext.useQuery(
+      { letterDate: selectedDate },
+      {
+        enabled: Boolean(user?.id && selectedDate),
+        retry: false,
+      }
+    );
 
   const profile = useMemo(
     () => normalizeEmotionAnalysisProfile(profileQuery.data, "server"),
@@ -434,9 +445,37 @@ export default function DailyLetterWelcome({
         utils.emotionAnalysis.getProfile.invalidate(),
       ]);
       setEditingMessage(false);
-      toast.success("这一天的话已保存，回信也重新写好了");
+      toast.success("这一天的话已保存，会用于之后的新来信");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "回信暂时没有改好");
+    }
+  };
+
+  const rereadLetter = async () => {
+    if (!selectedDate || !selectedLetter || rereadMut.isPending) return;
+    const actionId =
+      rereadActionIdRef.current ??
+      `reread-click:${selectedDate}:${crypto.randomUUID()}`;
+    rereadActionIdRef.current = actionId;
+    try {
+      await rereadMut.mutateAsync({
+        letterDate: selectedDate,
+        expectedRevision: selectedLetter.revision,
+        actionId,
+      });
+      rereadActionIdRef.current = null;
+      await Promise.all([
+        utils.emotionAnalysis.listDailyLetters.invalidate(),
+        utils.emotionAnalysis.getProfile.invalidate(),
+        utils.emotionAnalysis.dailyLetterVersionContext.invalidate({
+          letterDate: selectedDate,
+        }),
+      ]);
+      toast.success("已经用最新的记忆重新读了一遍");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "这封信暂时没有读好"
+      );
     }
   };
 
@@ -685,6 +724,12 @@ export default function DailyLetterWelcome({
   if (!visible || !profile || !selectedReference || !selectedSeed) return null;
 
   const messageChanged = messageDraft.trim() !== selectedMessage.trim();
+  const currentVersionContext =
+    versionContextQuery.data?.versions.find(
+      version => version.id === versionContextQuery.data?.currentVersionId
+    ) ??
+    versionContextQuery.data?.versions.at(-1) ??
+    null;
 
   return (
     <div
@@ -818,7 +863,7 @@ export default function DailyLetterWelcome({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  记下这句，再读一遍
+                  记下这句
                 </button>
                 {selectedDate === profileDate && onStartVisualConversation ? (
                   <button
@@ -934,6 +979,32 @@ export default function DailyLetterWelcome({
               ? ` · 更新于 ${timestampLabel(selectedLetter.updatedAt)}`
               : ""}
           </p>
+          {currentVersionContext ? (
+            <p className="mt-2 text-[10px] leading-5 text-muted-foreground/75">
+              {currentVersionContext.memoryEvidenceCount > 0
+                ? `这版参考了 ${currentVersionContext.memoryEvidenceCount} 条长期记忆`
+                : "这版没有使用长期记忆"}
+              {currentVersionContext.usedAlmanac
+                ? " · 已结合当天黄历"
+                : " · 未使用黄历事实"}
+            </p>
+          ) : null}
+          {selectedDate === profileDate ? (
+            <button
+              type="button"
+              onClick={() => void rereadLetter()}
+              disabled={rereadMut.isPending || rewriteMut.isPending}
+              className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
+              style={{ borderColor: "var(--nayin-border)" }}
+            >
+              {rereadMut.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 text-nayin" />
+              )}
+              {rereadMut.isPending ? "正在重新读…" : "用最新记忆，再读一遍"}
+            </button>
+          ) : null}
           {onStartLetterStory ? (
             <button
               type="button"

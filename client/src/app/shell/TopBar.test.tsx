@@ -40,6 +40,10 @@ vi.mock("@/_core/hooks/useAuth", () => ({
   }),
 }));
 
+vi.mock("@/features/personalMemory/PersonalMemorySummary", () => ({
+  default: () => <section aria-label="你的个人足迹摘要">查看全部足迹</section>,
+}));
+
 vi.mock("@/features/storyAgent/spine/selectors", () => ({
   useStoryPanelVisibility: () => ({
     visibleStoryPanels: ["storyboard"],
@@ -83,6 +87,7 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("默认分析项目");
     expect(html).not.toContain("DRINKING TIME");
     expect(html).toContain("用户管理");
+    expect(html).toContain("查看全部足迹");
   });
 
   it("can hide story panel buttons on the welcome page", () => {

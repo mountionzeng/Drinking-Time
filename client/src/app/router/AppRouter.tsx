@@ -4,6 +4,7 @@ import EditingStudioPage from "@/pages/EditingStudioPage";
 import LoginPage from "@/pages/LoginPage";
 import MobileWorkspacePage from "@/pages/MobileWorkspacePage";
 import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
+import PersonalMemoryPage from "@/pages/PersonalMemoryPage";
 import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
@@ -42,7 +43,9 @@ function LoginEntry() {
         ? null
         : readMobileReturnPath(window.location.search);
     return (
-      <Redirect to={resolvePostLoginDestination(returnPath, rootWorkspacePath())} />
+      <Redirect
+        to={resolvePostLoginDestination(returnPath, rootWorkspacePath())}
+      />
     );
   }
   return <LoginPage />;
@@ -85,6 +88,11 @@ export default function AppRouter() {
       <Route path="/editing">
         <AuthGuard>
           <EditingStudioPage />
+        </AuthGuard>
+      </Route>
+      <Route path="/personal-memory">
+        <AuthGuard>
+          <PersonalMemoryPage />
         </AuthGuard>
       </Route>
       <Route path="/m">

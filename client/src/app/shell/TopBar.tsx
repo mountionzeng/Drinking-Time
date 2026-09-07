@@ -7,6 +7,7 @@
  */
 import { useNayin } from "@/features/nayin/NayinContext";
 import PairingCodeButton from "@/features/auth/views/PairingCodeButton";
+import PersonalMemorySummary from "@/features/personalMemory/PersonalMemorySummary";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import StoryLogoMenu, {
   type StoryLogoMenuStory,
@@ -215,7 +216,7 @@ export default function TopBar({
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
-                    className="w-52 p-0"
+                    className="w-72 p-0"
                     align="end"
                     style={{
                       background: "var(--panel-bg)",
@@ -233,6 +234,12 @@ export default function TopBar({
                         {user?.email || ""}
                       </div>
                     </div>
+                    <PersonalMemorySummary
+                      onOpenAll={() => {
+                        setUserOpen(false);
+                        window.location.assign("/personal-memory");
+                      }}
+                    />
                     {/* 纳音五行主题切换：原来挂在最左边那颗 Logo 上，
                     Logo 让给故事菜单后挪到这里。 */}
                     <div

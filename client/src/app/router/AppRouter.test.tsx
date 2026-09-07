@@ -21,6 +21,9 @@ vi.mock("@/pages/MobileWorkspacePage", () => ({
   default: () => "mobile-workspace",
 }));
 vi.mock("@/pages/WelcomePreviewPage", () => ({ default: () => "welcome" }));
+vi.mock("@/pages/PersonalMemoryPage", () => ({
+  default: () => "personal-memory",
+}));
 vi.mock("@/pages/NotFound", () => ({ default: () => "not-found" }));
 vi.mock("@/pages/AdminInvitesPage", () => ({ default: () => "invites" }));
 vi.mock("@/pages/AdminVisitsPage", () => ({ default: () => "visits" }));
@@ -226,5 +229,16 @@ describe("mobile route and login return", () => {
       search: "?returnTo=%2Fm",
     });
     expect(renderRoute("/login").redirectTo).toBe("/m");
+  });
+});
+
+describe("personal memory route", () => {
+  it("mounts the private timeline behind the normal account guard", () => {
+    expect(renderRoute("/personal-memory")).toMatchObject({
+      html: "personal-memory",
+      redirectTo: undefined,
+    });
+    auth.isAuthenticated = false;
+    expect(renderRoute("/personal-memory").redirectTo).toBe("/login");
   });
 });
