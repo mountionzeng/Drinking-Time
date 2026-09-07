@@ -736,12 +736,36 @@ export async function runInference(
     }
 
     if (attempt.error.category === "auth") {
-      // 鉴权失败换一家也是错的配置，而且会把坏 Key 的问题掩盖成「网关不稳」。
+      // 鉴权失败是配置错误，重发同一把 Key 毫无意义——所以跳过这家**剩下的
+      // 排期**，而不是只退一步。
+      //
+      // 但也不再像从前那样中止整条链。2026-09-07 线上就是这么挂的：首选那家
+      // 的 Key 失效，401 直接 break，后面那家完全健康却一次都没被试过，整个
+      // 产品的聊天全哑。有序候选链的意义就是「一家倒了还有下一家」，让配置
+      // 错误吃掉这个能力，代价比它想防的那个问题更大。
+      //
+      // 「别让回退掩盖坏 Key」这个顾虑仍然成立，交给日志承担：这条 error 级
+      // 日志照打，并且带上被拒的供应商——回退是给用户的，告警是给我们的。
       console.error("[inference] provider auth rejected — check credentials", {
         provider: attempt.error.provider,
         status: attempt.error.status,
       });
-      break;
+      const rejected = candidates[candidateIndex];
+      let nextIndex = candidateIndex + 1;
+      // 同一家（同 Key）在链上被排了多次时一并跳过：坏 Key 重试还是坏 Key。
+      while (
+        nextIndex < candidates.length &&
+        candidates[nextIndex].id === rejected.id &&
+        candidates[nextIndex].apiKey === rejected.apiKey
+      ) {
+        nextIndex += 1;
+      }
+      if (nextIndex >= candidates.length) break;
+      // 401 意味着请求根本没被上游执行，不存在「可能已生效」的歧义，
+      // 换一家重发不需要 replay-safe 许可。
+      candidateIndex = nextIndex;
+      minimalPayload = false;
+      continue;
     }
 
     // 400/422：只做一次预定义的确定性降级，且留在同一家。

@@ -417,12 +417,41 @@ describe("runInference — replay boundary", () => {
 });
 
 describe("runInference — non-replayable failures", () => {
-  it("stops on 401 without trying another provider and raises a config alarm", async () => {
+  it("falls through to the next provider on 401 and still raises a config alarm", async () => {
+    // 2026-09-07 线上故障的回归：首选那家 Key 失效时整条链被 break 掉，
+    // 后面健康的供应商一次都没被试过，聊天全哑。回退要发生，告警也要照喊。
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { impl, calls } = recordingFetch((call: { url: string }) =>
+      call.url === NEXT_URL ? jsonResponse(401, { error: {} }) : jsonResponse(200, okBody())
+    );
+
+    const outcome = await runInference(
+      baseRequest({ fetchImpl: impl, replaySafe: true })
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(NEXT_URL);
+    expect(outcome.provider).toBe("302");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("auth rejected"),
+      expect.objectContaining({ provider: "openai-next", status: 401 })
+    );
+  });
+
+  it("never re-sends a rejected key: a single-provider chain stops after one 401", async () => {
+    // 只配一家时链上会把同一个端点排两次（给网关抖动留机会）。坏 Key 不属于
+    // 抖动，重发一次还是 401，只会白白多付一次往返。
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { impl, calls } = recordingFetch(() => jsonResponse(401, { error: {} }));
 
     await expect(
-      runInference(baseRequest({ fetchImpl: impl, replaySafe: true }))
+      runInference(
+        baseRequest({
+          fetchImpl: impl,
+          replaySafe: true,
+          candidates: { fallback302Model: "" },
+        })
+      )
     ).rejects.toBeInstanceOf(InferenceError);
 
     expect(calls).toHaveLength(1);
@@ -430,6 +459,18 @@ describe("runInference — non-replayable failures", () => {
       expect.stringContaining("auth rejected"),
       expect.objectContaining({ provider: "openai-next", status: 401 })
     );
+  });
+
+  it("gives up when every provider on the chain rejects the credentials", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { impl, calls } = recordingFetch(() => jsonResponse(401, { error: {} }));
+
+    await expect(
+      runInference(baseRequest({ fetchImpl: impl, replaySafe: true }))
+    ).rejects.toBeInstanceOf(InferenceError);
+
+    // 两家各试一次，不多不少
+    expect(calls).toHaveLength(2);
   });
 
   it("does not cross providers on content safety or context length rejections", async () => {
