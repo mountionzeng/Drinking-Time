@@ -160,21 +160,36 @@ export function MobileDocumentView({
   }
 
   if (controller.loadState === "error" || !controller.state) {
+    // 「这个故事还没有正文」是正常状态，不是故障：新建的故事本来就没有。
+    // 用红色报错呈现它会让人以为坏了，所以这一种单独走平静的空态。
+    const notWrittenYet = (controller.loadError ?? "").includes(
+      "还没有可编辑正文"
+    );
+
     return (
       <section
         aria-label={`${storyTitle}的正文`}
         className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
       >
-        <p className="text-sm text-destructive">
-          {controller.loadError || "正文加载失败"}
-        </p>
+        {notWrittenYet ? (
+          <>
+            <h2 className="text-base font-semibold">这个故事还没有正文</h2>
+            <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+              先在下面的「聊聊」里说几句。聊出雏形之后，正文会从这段对话里长出来。
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-destructive">
+            {controller.loadError || "正文加载失败"}
+          </p>
+        )}
         <Button
           type="button"
           variant="outline"
           onClick={() => void controller.retryLoad()}
         >
           <RefreshCw aria-hidden="true" />
-          重试正文
+          {notWrittenYet ? "刷新看看" : "重试正文"}
         </Button>
       </section>
     );
