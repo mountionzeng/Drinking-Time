@@ -63,11 +63,42 @@ describe("MobileChatView", () => {
       ],
     } as unknown as MobileConversationController;
     const html = renderToStaticMarkup(
-      <MobileChatView controller={recovered} element="water" storyTitle="旅行记" />
+      <MobileChatView controller={recovered} storyTitle="旅行记" />
     );
 
     expect(html).not.toContain("待恢复的对话");
     expect(html).not.toContain("正在生成回复…");
+  });
+
+  // 折叠时消息区是收起的，回信到了必须自己蹦出来——否则用户在常驻输入条
+  // 发完消息，回信到了却毫无动静。
+  it("pops the latest reply out while the sheet is collapsed", () => {
+    const html = renderToStaticMarkup(
+      <MobileChatView controller={controller()} dense storyTitle="旅行记" />
+    );
+
+    expect(html).toContain("我们从电脑上的内容继续。");
+    expect(html).toContain('data-sheet-action="latest-reply"');
+  });
+
+  // 正在等回信时不露旧的那条，免得新旧混淆——那会儿抬头的小人正在动。
+  it("holds the peek back while a new reply is still in flight", () => {
+    const waiting = { ...controller(), isSubmitting: true };
+    const html = renderToStaticMarkup(
+      <MobileChatView controller={waiting} dense storyTitle="旅行记" />
+    );
+
+    expect(html).not.toContain('data-sheet-action="latest-reply"');
+  });
+
+  // 面板抬头已经有一只小人和「聊聊」二字了，每条气泡里再画一遍既吵又重复。
+  it("does not repeat the avatar inside every assistant bubble", () => {
+    const html = renderToStaticMarkup(
+      <MobileChatView controller={controller()} storyTitle="旅行记" />
+    );
+
+    expect(html).toContain("我们从电脑上的内容继续。");
+    expect(html).not.toContain('tracking-[0.16em]');
   });
 
   it("submits only a plain Enter outside IME composition", () => {
