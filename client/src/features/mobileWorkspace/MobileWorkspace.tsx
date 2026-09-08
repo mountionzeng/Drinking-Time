@@ -31,7 +31,7 @@ import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry"
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
-import { MobileChatView } from "./MobileChatView";
+import { MobileChatView, mobileChatPeekReply } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
 import { MobileDocumentView } from "./MobileDocumentView";
 import {
@@ -89,6 +89,17 @@ type SheetStop = "peek" | "half" | "full";
 
 const SHEET_PEEK_PX = 128;
 
+/**
+ * 折叠档露出一条回信时要多留的高度。
+ *
+ * 128px 只够「抬头 + 输入条」。把回信也塞进去而不加高，输入框就会被顶出
+ * 屏幕——真机上就是这样：能看到回信，却没法打字了。
+ *
+ * 72 = 两行正文（约 52px）+ 上下内距和外距。回信最多两行（line-clamp-2），
+ * 所以这个数是上界，不会再被撑破。
+ */
+const SHEET_REPLY_PEEK_PX = 72;
+
 function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
   if (stop === "peek") return SHEET_PEEK_PX;
   return Math.round(shellHeight * (stop === "half" ? 0.5 : 0.88));
@@ -103,6 +114,8 @@ export function MobileWorkspaceFrame({
   chatView,
   /** 正在等回信——抬头那只小人会动起来并冒出三个点。 */
   waitingForReply = false,
+  /** 折叠档正在露一条回信——面板要相应留高，否则输入框会被挤出屏幕。 */
+  hasPeekReply = false,
   children,
   overlays,
   onOpenStories,
@@ -121,6 +134,7 @@ export function MobileWorkspaceFrame({
   /** 收到 stop 决定要不要紧凑显示，所以用函数而不是现成节点 */
   chatView?: (options: { dense: boolean }) => ReactNode;
   waitingForReply?: boolean;
+  hasPeekReply?: boolean;
   /** 没有 documentView 时的兜底内容（加载／空／错误态）。 */
   children?: ReactNode;
   /** 浮层：对话框、面板。永远渲染，不受 documentView 影响。 */
@@ -185,8 +199,12 @@ export function MobileWorkspaceFrame({
     onViewChange(nearest === "peek" ? "document" : "chat");
   };
 
+  const peekHeight = SHEET_PEEK_PX + (hasPeekReply ? SHEET_REPLY_PEEK_PX : 0);
   const sheetHeight =
-    dragHeight ?? (sheetStopHeight(stop, shellHeight()) || SHEET_PEEK_PX);
+    dragHeight ??
+    (stop === "peek"
+      ? peekHeight
+      : sheetStopHeight(stop, shellHeight()) || peekHeight);
 
   return (
     <div
@@ -602,6 +620,7 @@ function MobileSelectedStoryWorkspace({
         conversation.isSubmitting ||
         conversation.recoveryTurns.some(turn => turn.status === "replying")
       }
+      hasPeekReply={mobileChatPeekReply(conversation) !== null}
       chatView={({ dense }) => (
         <MobileChatView
           controller={conversation}

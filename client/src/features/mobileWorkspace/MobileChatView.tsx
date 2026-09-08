@@ -18,6 +18,31 @@ export type MobileConversationController = ReturnType<
   typeof useMobileConversation
 >;
 
+/**
+ * 折叠档该露出的那条回信；没有则 null。
+ *
+ * 外壳要用它决定收起档留多高（露了回信就得留得下，否则输入框会被挤出屏幕），
+ * 聊天视图要用它决定画什么。两边必须是同一个判断，所以只写一次。
+ *
+ * 等回信期间返回 null：那会儿抬头的小人正在动，再摆一条旧回复会让人分不清新旧。
+ */
+export function mobileChatPeekReply(controller: {
+  messages: readonly { role: string; content: string }[];
+  isSubmitting: boolean;
+  recoveryTurns: readonly { status: string }[];
+}): string | null {
+  if (
+    controller.isSubmitting ||
+    controller.recoveryTurns.some(turn => turn.status === "replying")
+  ) {
+    return null;
+  }
+  const last = [...controller.messages]
+    .reverse()
+    .find(message => message.role === "assistant");
+  return last?.content ?? null;
+}
+
 export function shouldSubmitMobileChatKey(input: {
   key: string;
   shiftKey: boolean;
@@ -138,16 +163,7 @@ export function MobileChatView({
   const [announcement, setAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
-  // 折叠档要露的那条：最后一条来自聊聊的话。等回信时不露旧的，
-  // 免得新旧混淆——那会儿抬头那只小人正在动，已经说明状态了。
-  const lastAssistant = [...controller.messages]
-    .reverse()
-    .find(message => message.role === "assistant");
-  const latestReply =
-    controller.isSubmitting ||
-    controller.recoveryTurns.some(turn => turn.status === "replying")
-      ? null
-      : (lastAssistant?.content ?? null);
+  const latestReply = mobileChatPeekReply(controller);
 
   // 等回信的样子由面板抬头那只小人代言（MobileWorkspaceFrame 的 waitingForReply）。
   // 这里只负责一件事：replying 的轮次不要再以故障卡片的样子重复出现一遍。

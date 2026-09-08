@@ -78,6 +78,34 @@ describe("MobileWorkspace", () => {
     expect(html).toContain("故事菜单在这里");
   });
 
+  // 回归：折叠档露出回信却不加高，输入框会被顶出屏幕——真机上就是
+  // 「看得到回信，却没法打字」。露回信时面板必须留得更高。
+  it("makes room for the peeked reply so the composer stays on screen", () => {
+    const withoutReply = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+    const withReply = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+        hasPeekReply
+      />
+    );
+
+    const heightOf = (html: string) =>
+      Number(/height:([0-9.]+)px/.exec(html)?.[1] ?? 0);
+    expect(heightOf(withReply)).toBeGreaterThan(heightOf(withoutReply));
+  });
+
   // 顶栏只剩一个只读的故事名；切故事的唯一入口是底部那张面板。
   it("shows the story title as plain text, not a picker control", () => {
     const html = renderToStaticMarkup(
