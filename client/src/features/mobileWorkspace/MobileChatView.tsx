@@ -8,8 +8,6 @@ import {
   useState,
 } from "react";
 
-import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
-import type { NayinElement } from "@/features/nayin/nayin";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -19,6 +17,31 @@ import type { MobileConversationRecoveryTurn } from "./mobileConversationStore";
 export type MobileConversationController = ReturnType<
   typeof useMobileConversation
 >;
+
+/**
+ * 折叠档该露出的那条回信；没有则 null。
+ *
+ * 外壳要用它决定收起档留多高（露了回信就得留得下，否则输入框会被挤出屏幕），
+ * 聊天视图要用它决定画什么。两边必须是同一个判断，所以只写一次。
+ *
+ * 等回信期间返回 null：那会儿抬头的小人正在动，再摆一条旧回复会让人分不清新旧。
+ */
+export function mobileChatPeekReply(controller: {
+  messages: readonly { role: string; content: string }[];
+  isSubmitting: boolean;
+  recoveryTurns: readonly { status: string }[];
+}): string | null {
+  if (
+    controller.isSubmitting ||
+    controller.recoveryTurns.some(turn => turn.status === "replying")
+  ) {
+    return null;
+  }
+  const last = [...controller.messages]
+    .reverse()
+    .find(message => message.role === "assistant");
+  return last?.content ?? null;
+}
 
 export function shouldSubmitMobileChatKey(input: {
   key: string;
@@ -60,37 +83,6 @@ function recoveryStatus(turn: MobileConversationRecoveryTurn): string {
     case "persistence-failed":
       return "回答已保留，但尚未同步";
   }
-}
-
-/**
- * 等回信时那只小人：左边是当天五行的小家伙，右边一个白气泡里三个点在跳。
- *
- * 为什么不用原来那张琥珀色的「正在生成回复…」卡片：那张卡是给**出事之后**
- * 准备的（带重试／复制／移除），把正常的等待也塞进同一个壳里，等于每聊一句
- * 都先弹一次故障样式的东西。等待是常态，故障才是例外，两者不该长一个样。
- *
- * 三个点用 animation-delay 错开，不引第三方动画库；prefers-reduced-motion
- * 下 Tailwind 的 animate-* 会自己停，静止的三个点仍然读得懂。
- */
-function MobileTypingBubble({ element }: { element?: NayinElement }) {
-  return (
-    <li className="mr-auto flex max-w-[85%] items-end gap-1.5" data-testid="mobile-typing">
-      {element ? (
-        <EmotiveWuxingIcon animated element={element} size={34} />
-      ) : null}
-      <span className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-3 shadow-sm">
-        <span className="sr-only">正在回信…</span>
-        {[0, 150, 300].map(delay => (
-          <span
-            key={delay}
-            aria-hidden="true"
-            className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"
-            style={{ animationDelay: `${delay}ms` }}
-          />
-        ))}
-      </span>
-    </li>
-  );
 }
 
 function MobileTurnRecovery({
@@ -157,37 +149,31 @@ function MobileTurnRecovery({
 export function MobileChatView({
   controller,
   storyTitle,
-  element,
   dense = false,
+  onExpand,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
-  /**
-   * 当天的纳音五行，用来画助手气泡抬头那位小人。
-   * 由调用方从 useNayin() 取好传进来 —— 组件内不调，
-   * 否则脱离 NayinProvider 单渲（本组件的测试就是）会直接抛错。
-   */
-  element?: NayinElement;
   /** 常驻输入条那一档：只留输入行，消息区收起来（连它的内距一起）。 */
   dense?: boolean;
+  /** 折叠档点那条最新回信时把面板拉开。 */
+  onExpand?: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
-  // 「正在等回信」有两个来源：本轮请求还在飞（isSubmitting），以及刷新后从
-  // 本地恢复出来的 replying 的轮次。两者要合成同一个视觉，不能各画各的。
-  const waiting =
-    controller.isSubmitting ||
-    controller.recoveryTurns.some(turn => turn.status === "replying");
-  // replying 已经由上面那只小人代言了，故障卡片里就别再重复一遍。
+  const latestReply = mobileChatPeekReply(controller);
+
+  // 等回信的样子由面板抬头那只小人代言（MobileWorkspaceFrame 的 waitingForReply）。
+  // 这里只负责一件事：replying 的轮次不要再以故障卡片的样子重复出现一遍。
   const visibleRecoveryTurns = controller.recoveryTurns.filter(
     turn => turn.status !== "replying"
   );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [controller.messages.length, controller.recoveryTurns.length, waiting]);
+  }, [controller.messages.length, controller.recoveryTurns.length]);
 
   const send = () => {
     const content = draft.trim();
@@ -274,24 +260,9 @@ export function MobileChatView({
                     : "mr-auto rounded-2xl rounded-tl-sm border border-border/70 bg-background/90 text-foreground"
                 )}
               >
-                {message.role === "user" ? null : (
-                  <span className="mb-1 flex items-center gap-1.5">
-                    {element ? (
-                      <EmotiveWuxingIcon
-                        animated={false}
-                        element={element}
-                        size={26}
-                      />
-                    ) : null}
-                    <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                      聊聊
-                    </span>
-                  </span>
-                )}
                 {message.content}
               </li>
             ))}
-            {waiting ? <MobileTypingBubble element={element} /> : null}
           </ol>
         ) : null}
 
@@ -312,6 +283,22 @@ export function MobileChatView({
         ) : null}
         <div ref={endRef} aria-hidden="true" />
       </div>
+
+      {/*
+        折叠档：消息区是收起的，但新回信必须自己蹦出来——否则用户在常驻输入条
+        发完消息，回信到了却毫无动静，只能靠自己想起来去拉面板。
+        只露最新一条、最多两行，点一下展开看全部。
+      */}
+      {dense && latestReply ? (
+        <button
+          type="button"
+          data-sheet-action="latest-reply"
+          className="mx-3 mb-1 shrink-0 rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-2.5 text-left text-[15px] leading-relaxed text-foreground shadow-sm"
+          onClick={onExpand}
+        >
+          <span className="line-clamp-2 block">{latestReply}</span>
+        </button>
+      ) : null}
 
       <form
         className="mobile-workspace-composer shrink-0 border-t border-border/70 bg-background/95 px-3 pt-3 backdrop-blur"

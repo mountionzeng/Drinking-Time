@@ -15,6 +15,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
+  dailyLetterDateLabel as dateLabel,
+  dailyLetterParagraphs as letterParagraphs,
+  dailyLetterTimestampLabel as timestampLabel,
+} from "@/features/analysis/dailyLetterFormat";
+import {
   clearLocalGuestEmotionAnalysisProfile,
   getOrCreateLocalEmotionGuestId,
   loadLocalGuestEmotionAnalysisProfile,
@@ -112,39 +117,12 @@ function writePublicSeenDate(date: string) {
   }
 }
 
-function dateLabel(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return value;
-  return `${Number(match[2])}月${Number(match[3])}日`;
-}
-
 export function dailyLetterGreeting(hour: number) {
   if (hour < 5) return "夜深了，先让自己慢一点";
   if (hour < 11) return "早上好，今天也从容一点";
   if (hour < 14) return "中午好，先照顾好自己";
   if (hour < 19) return "下午好，给自己留点余地";
   return "晚上好，今天辛苦了";
-}
-
-function timestampLabel(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Shanghai",
-  });
-}
-
-function letterParagraphs(summary: string) {
-  return summary
-    .split(/\n{2,}/)
-    .map(item => item.trim())
-    .filter(Boolean);
 }
 
 export type DailyLetterStorySummary = {
@@ -158,7 +136,7 @@ export type DailyLetterStorySummary = {
 };
 
 export function storiesForDailyLetter(
-  stories: DailyLetterStorySummary[],
+  stories: readonly DailyLetterStorySummary[],
   letterDate: string
 ) {
   return stories.filter(story =>
