@@ -988,6 +988,8 @@ export async function upsertVisualAssetOperation(input: {
   inputHash?: string;
   resultId?: string;
   error?: string;
+  /** Atomically reserve a paid view. Resume may only use the already recorded task. */
+  claimOnce?: boolean;
   now?: number;
 }): Promise<{ story: PersistedStory; aggregate: StoryVisualAssets }> {
   const token = assertOperationToken(input.token);
@@ -997,6 +999,16 @@ export async function upsertVisualAssetOperation(input: {
     const aggregate = visualAssetsFromStory(story);
     const now = input.now ?? Date.now();
     const previous = aggregate.operations.find(receipt => receipt.token === token);
+    if (input.claimOnce && previous) {
+      if (previous.inputHash !== input.inputHash) {
+        throw new VisualAssetValidationError("任务回执与当前生成要求不一致");
+      }
+      const resumable = previous.status !== "succeeded" && previous.providerTaskId &&
+        input.providerTaskId === previous.providerTaskId;
+      if (previous.status !== "failed" && !resumable) {
+        throw new VisualAssetValidationError("该视角已有任务回执，正在处理或状态待核对，不会重复购买");
+      }
+    }
     const receipt: VisualAssetOperationReceipt = {
       token,
       kind: input.kind,

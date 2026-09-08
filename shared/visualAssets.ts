@@ -470,7 +470,10 @@ function normalizeView(
   const obj = recordOf(value);
   const id = cleanId(obj.id);
   const imageId = cleanPositiveInteger(obj.imageId);
-  const allowedRoles = REQUIRED_VIEW_ROLES[kind];
+  // Pet top is a supplemental artistic view, never a replacement identity anchor.
+  const allowedRoles = kind === "pet"
+    ? [...REQUIRED_VIEW_ROLES[kind], "top"]
+    : REQUIRED_VIEW_ROLES[kind];
   const role = allowedRoles.includes(obj.role as VisualAssetViewRole)
     ? (obj.role as VisualAssetViewRole)
     : undefined;

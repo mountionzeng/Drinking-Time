@@ -2114,6 +2114,7 @@
       "status": "observing",
       "userValue": "把人物固定造型、宠物固定外观、场景空间和美术风格锁定为可复用资产，让已关联镜头只展示通过一致性验收的图片候选。",
       "entryPoints": [
+        "client/src/features/storyAgent/views/ChatPhotoAssets.tsx",
         "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
         "client/src/features/creationEditor/visualAssets/VisualAssetLibrary.tsx",
         "client/src/features/storyAgent/views/StoryAgentChat.tsx",
@@ -2126,6 +2127,7 @@
         "docs/handoff/2026-08-22-visual-asset-ui-completion-handoff.md"
       ],
       "owners": [
+        "client/src/features/creationEditor/visualAssets/useVisualAssetGenerationDraft.ts",
         "shared/visualAssets.ts",
         "server/services/visualAssetPersistence.ts",
         "server/services/visualAssetCreation.ts",
@@ -2137,6 +2139,9 @@
         "server/services/publicReferenceHost.ts"
       ],
       "evidence": [
+        "client/src/features/storyAgent/views/ChatPhotoAssets.test.tsx",
+        "client/src/features/creationEditor/visualAssets/useVisualAssetGenerationDraft.test.ts",
+        "docs/qa/chat-photo-art-assets-2026-09-08.md",
         "shared/visualAssets.test.ts",
         "server/services/storySync.visual-assets.test.ts",
         "server/services/visualAssetPersistence.test.ts",
@@ -2159,6 +2164,7 @@
         "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md"
       ],
       "invariants": [
+        "宠物可另存补充 top 视图，不替代 front/profile/back/identity-detail 四张身份视图；顶视不纳入四栏结构质检或下游身份锚点，必须标明艺术推演、待核对。四图/五图选择和美术要求均进入签名报价。",
         "资产严格属于当前 Story；所有读写和图片引用同时校验 storyId 与 userId。",
         "人物资产版本只代表一套固定脸、发型、服饰和配件；宠物是独立 pet 维度，锁定物种、头脸、毛色纹理、体型、标志特征和固定配件，不得伪装成 character；场景与风格分别锁定自己的固定事实。",
         "聊天上传照片的自动提取结果只能建立待检查版本：人物脸、发型、服饰和配件写入 character，宠物固定外观写入 pet，空间、材质和关键物体写入 scene.fixedProps；人物、宠物主体不清晰或字段不完整时禁止编造对应资产，未锁定和未绑定版本不得进入后续生成。",
@@ -2180,6 +2186,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "2026-09-08 聊天照片艺术素材入口已在独立工作分支实现并做离线验证，尚未合入 main 或完成浏览器验收。用户故事「8月4日又写过送走小猫后有点想它」尚待真实小猫照片及报价确认；没有提交付费生成或改变故事、镜头。浏览器本地存储不可用或换设备时，画风草稿不会跨设备恢复，需核对生成要求后再恢复任务。",
         "已用一张真实宠物照片和一张真实人物照片完成自动提取正例验收：宠物只创建 pet+scene，人物只创建 character+scene，职责分别为 pet-identity / character-identity，未发生宠物冒充人物。尚未执行真实负例集、四视角付费生成、锁定、人物+宠物同镜绑定及候选一致性验收；未经用户确认不得提交这些付费任务。",
         "真实图片负例集和经用户确认的三镜付费验收尚未执行，因此不能宣称人物、场景与风格已经达到零 false-accept。",
         "Creation 单图循环已具备三次总费用确认和最多三次自动质检重试；storyAgent.generateForMobile 目前完成付费前资产预检与三职责注入，但生成后重试/候选隔离仍需收敛到同一循环。",
@@ -2198,6 +2205,11 @@
         "Story 1187 已用同一张图片 #1680 分别建立人物、场景和美术风格资产并完成刷新读回。人物修复后的 identity-detail #1753 与标准板 #1754 已人工原像素验收通过；场景四视角 #1755-#1758 与标准板 #1759 已人工验收通过。风格任务继续复用 token visual-board-b2f2e4b6…：人物样例 #1761、场景样例 #1762 已生成并人工确认风格一致，object-sample 再次 fetch failed，closeup-sample 尚未开始，未合成标准板。该同步接口的失败是否计费不可确认；按最坏口径当前可能为 ¥22.35，已在用户批准的 ¥23.84 上限内停止。人物、场景与风格版本均保持未锁定。"
       ],
       "history": [
+        {
+          "date": "2026-09-08",
+          "kind": "feature",
+          "summary": "复用原视觉资产库，在 Story 聊天内加入照片素材示意/检查入口；上传提取后显示下一步，多视角/艺术素材意图不再误走一次性改图。美术要求透传报价与生成，费用改为原位确认；宠物可选第五张顶视或在已有四视图后单独补顶视，保留原四图身份合同。保存顶视为待核对推演，标准板仅合成原四图；重生成不丢顶视，缺少其它视角时付费前拦截。美术草稿按 Story 本地保存；CAS 领取单视角回执防同 token 重复购买。未执行真实照片或付费成图验收，状态保持 observing。"
+        },
         {
           "date": "2026-08-28",
           "kind": "feature",

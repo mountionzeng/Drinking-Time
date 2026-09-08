@@ -5,6 +5,7 @@ import {
   chatMediaKind,
   inferChatMediaMime,
   isImportedImageGenerationRequest,
+  isPhotoAssetRequest,
   extractImportedPhotoFeatures,
   selectChatMediaFiles,
 } from "./chatMediaAttachments";
@@ -19,6 +20,16 @@ function mediaFile(
 }
 
 describe("chatMediaAttachments", () => {
+  it("routes photo asset and multi-view requests to review, never to one-off remix", () => {
+    for (const instruction of ["把小猫照片做成素材，生成正面、侧面和顶部", "艺术化处理", "生成一张猫咪三视图", "不要生成，先打开素材仓库"]) {
+      expect(isPhotoAssetRequest(instruction)).toBe(true);
+      expect(isImportedImageGenerationRequest({ instruction, imported: [
+        { kind: "image", fileName: "cat.jpg", assetId: 21 },
+      ] })).toBe(false);
+    }
+    expect(isPhotoAssetRequest("我今天有点想念它")).toBe(false);
+    expect(isPhotoAssetRequest("把照片画成水彩海报")).toBe(false);
+  });
   it("recognizes image and video files even when the browser omits MIME", () => {
     expect(inferChatMediaMime(mediaFile("still.WEBP", ""))).toBe("image/webp");
     expect(inferChatMediaMime(mediaFile("take.mov", ""))).toBe(
