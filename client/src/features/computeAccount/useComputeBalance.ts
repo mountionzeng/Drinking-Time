@@ -16,7 +16,14 @@ export type ComputeBalanceView = {
   text: string | null;
   /** 生成中被占住的钱，没有占用时为 null。 */
   reservedText: string | null;
-  /** 可用余额是不是已经见底（≤0），调用方据此变色或提示。 */
+  /**
+   * 这个账户从来没入过账、也没花过钱——计费还没对它生效。
+   *
+   * 这和「余额用完了」是两回事，必须分开：新账户余额天然是 0，把它说成
+   * 「用完了」会让人以为自己欠费，而实际上聊天、写正文、读来信都不查余额。
+   */
+  unprovisioned: boolean;
+  /** 真的花到见底了（用过，且可用 ≤ 0）。 */
   depleted: boolean;
   /**
    * 账务异常：预占超过了已入账余额，可用余额为负。
@@ -25,6 +32,31 @@ export type ComputeBalanceView = {
   negative: boolean;
   refetch: () => void;
 };
+
+export type ComputeBalanceAmounts = {
+  postedMinor: number;
+  reservedMinor: number;
+  availableMinor: number;
+  lifetimeSpentMinor: number;
+};
+
+/**
+ * 把四个数字判成一种状态。抽成纯函数是因为这三者混淆过一次：
+ * 新账户的 0 被当成「余额用完」，在顶栏常驻了一句不成立的警告。
+ */
+export function classifyComputeBalance(amounts: ComputeBalanceAmounts): {
+  unprovisioned: boolean;
+  depleted: boolean;
+  negative: boolean;
+} {
+  const untouched =
+    amounts.postedMinor === 0 && amounts.lifetimeSpentMinor === 0;
+  return {
+    unprovisioned: untouched,
+    depleted: !untouched && amounts.availableMinor <= 0,
+    negative: amounts.availableMinor < 0,
+  };
+}
 
 export function useComputeBalance(enabled = true): ComputeBalanceView {
   const query = trpc.computeAccount.balance.useQuery(undefined, {
@@ -44,8 +76,9 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
       data && data.reservedMinor > 0
         ? formatCnyBalance(data.reservedMinor)
         : null,
-    depleted: data ? data.availableMinor <= 0 : false,
-    negative: data ? data.availableMinor < 0 : false,
+    ...(data
+      ? classifyComputeBalance(data)
+      : { unprovisioned: false, depleted: false, negative: false }),
     refetch: () => void query.refetch(),
   };
 }

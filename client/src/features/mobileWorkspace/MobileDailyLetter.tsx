@@ -95,13 +95,22 @@ export function MobileDailyLetter({
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const utils = trpc.useUtils();
 
+  // 查询的开关必须把 autoOpen 也算进来。
+  //
+  // 原来写的是 `enabled: open && ...`：而「今天该不该自动迎上去」要先拿到
+  // profile 的日期才判断得出来——查询被 open 挡住，profile 永远是空，
+  // autoVisible 永远是 false，于是来信一次都不会自己出现。先有鸡还是先有蛋。
+  const active = open || autoOpen;
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
-    enabled: open && Boolean(user?.id),
+    enabled: active && Boolean(user?.id),
     retry: false,
   });
   const lettersQuery = trpc.emotionAnalysis.listDailyLetters.useQuery(
     { limit: 90 },
-    { enabled: open && Boolean(user?.id) && profileQuery.isSuccess, retry: false }
+    {
+      enabled: active && Boolean(user?.id) && profileQuery.isSuccess,
+      retry: false,
+    }
   );
   const rewriteMut = trpc.emotionAnalysis.rewriteDailyLetter.useMutation();
   const rereadMut = trpc.emotionAnalysis.rereadDailyLetter.useMutation();

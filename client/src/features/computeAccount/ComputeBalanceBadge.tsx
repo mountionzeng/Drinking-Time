@@ -40,6 +40,13 @@ function ComputeBalanceBadgeInner({
 }) {
   const balance = useComputeBalance(true);
 
+  // 账户还没开通就什么都不显示。
+  //
+  // 原来这里会亮出「¥0.00 余额已用完，生成会被拦下」——那句话是假的：手机端
+  // 的聊天、写正文、读来信都不查余额，真正过账本的只有配音/朗读。在屏幕最
+  // 显眼的位置常驻一句不成立的警告，比不显示余额糟得多。
+  if (balance.unprovisioned) return null;
+
   if (balance.loading) {
     return (
       <span
@@ -97,7 +104,7 @@ function ComputeBalanceBadgeInner({
         </span>
       ) : balance.depleted ? (
         <span className="text-[10px] leading-4 text-amber-700">
-          余额已用完，生成会被拦下
+          余额已用完，配音和朗读会被拦下
         </span>
       ) : balance.reservedText && !compact ? (
         <span className="text-[10px] leading-4 text-muted-foreground">
