@@ -22,6 +22,7 @@ import type {
   StoryVisualAssets,
   VisualAssetFixedFacts,
   VisualAssetKind,
+  VisualAssetOperationReceipt,
   VisualAssetVersion,
   VisualAssetView,
 } from "@shared/visualAssets";
@@ -77,6 +78,17 @@ const VIEW_ROLE_LABEL: Record<VisualAssetView["role"], string> = {
   "object-sample": "物件风格样例",
   "closeup-sample": "细节风格样例",
 };
+
+export function visualAssetGenerationProgress(
+  operations: VisualAssetOperationReceipt[], token: string, total: number
+): string {
+  const receipts = operations.filter(item => item.kind === "generate_views" && item.token.startsWith(`${token}:view:`));
+  const completed = receipts.filter(item => item.status === "succeeded" && item.resultId).length;
+  if (completed >= total) return `已生成 ${total}/${total} 张，正在合成标准板并检查画面。`;
+  const active = receipts.find(item => item.status === "claimed" || item.status === "submitted");
+  const role = active?.token.split(":view:")[1] as VisualAssetView["role"] | undefined;
+  return `已生成 ${completed}/${total} 张${role && VIEW_ROLE_LABEL[role] ? `，正在生成${VIEW_ROLE_LABEL[role]}` : "，正在准备下一张"}。请勿重复提交。`;
+}
 
 export function visualAssetBoardConfirmationMessage(
   kind: VisualAssetKind,
@@ -175,9 +187,11 @@ export default function VisualAssetLibrary({
   initialIncludeTopView?: boolean;
 }) {
   const utils = trpc.useUtils();
+  const [activeBoard, setActiveBoard] = useState<{ storyId: number; versionId: string; token: string; total: number } | null>(null);
   const query = trpc.visualAssets.read.useQuery(
     { storyId: storyId ?? 1 },
-    { enabled: storyId != null && storyId > 0, retry: false, refetchOnWindowFocus: false }
+    { enabled: storyId != null && storyId > 0, retry: false, refetchOnWindowFocus: false,
+      refetchInterval: activeBoard?.storyId === storyId ? 3000 : false }
   );
   const createDraft = trpc.visualAssets.createDraft.useMutation();
   const createVersion = trpc.visualAssets.createVersion.useMutation();
@@ -420,12 +434,13 @@ export default function VisualAssetLibrary({
       if (recoveredOperationToken) {
         toast.info("正在恢复原标准视图任务，已成功的付费视角会直接复用");
       }
+      const boardToken = recoveredOperationToken ?? operationToken("visual-board");
+      setActiveBoard({ storyId, versionId: version.id, token: boardToken, total: quote.candidateCount });
       const result = await generateBoardMutation.mutateAsync({
         storyId,
         assetId: asset.id,
         versionId: version.id,
-        operationToken:
-          recoveredOperationToken ?? operationToken("visual-board"),
+        operationToken: boardToken,
         confirmation: quote,
         instruction,
         includeTopView,
@@ -452,6 +467,7 @@ export default function VisualAssetLibrary({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "标准视图生成失败");
     } finally {
+      setActiveBoard(current => current?.versionId === version.id ? null : current);
       setProcessingVersionId(null);
     }
   };
@@ -711,7 +727,7 @@ export default function VisualAssetLibrary({
                             title: `${asset.name} · 标准板`,
                             description:
                               asset.kind === "character" || asset.kind === "pet"
-                                ? "头部特写 / 正面全身 / 侧面全身 / 背面全身"
+                                ? "从左到右：正面全身 / 侧面全身 / 背面全身 / 头部特写"
                                 : "完整标准视图板",
                           })
                         }
@@ -734,7 +750,7 @@ export default function VisualAssetLibrary({
                       </button>
                       <figcaption className="border-t border-border px-2 py-1.5 text-[10px] font-medium text-muted-foreground">
                         {asset.kind === "character" || asset.kind === "pet"
-                          ? `${visualAssetKindLabel(asset.kind)}标准视图 · 头部特写 / 正面 / 侧面 / 背面`
+                          ? `${visualAssetKindLabel(asset.kind)}标准视图 · 正面 / 侧面 / 背面 / 头部特写`
                           : "完整标准板"}
                       </figcaption>
                     </figure>
@@ -943,8 +959,10 @@ export default function VisualAssetLibrary({
                           className="rounded-md border border-border px-3 py-2 focus-visible:ring-2 focus-visible:ring-primary">暂不生成</button>
                       </div>
                     </div>
-                  ) : processing ? (
-                    <p role="status" className="text-xs text-muted-foreground">正在处理，请勿重复提交。已成功的付费视角可凭任务回执恢复。</p>
+                  ) : processingVersionId === version.id ? (
+                    <p role="status" className="text-xs text-muted-foreground">{activeBoard?.storyId === storyId && activeBoard.versionId === version.id
+                      ? visualAssetGenerationProgress(aggregate?.operations ?? [], activeBoard.token, activeBoard.total)
+                      : "正在处理，请勿重复提交。已成功的付费视角可凭任务回执恢复。"}</p>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
                     {editable && asset.kind === "pet" && !version.views.some(view => view.role === "top") &&

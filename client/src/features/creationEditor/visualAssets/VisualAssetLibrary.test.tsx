@@ -50,6 +50,7 @@ vi.mock("@/lib/trpc", () => {
 
 import VisualAssetLibrary, {
   recommendedConflictResolution,
+  visualAssetGenerationProgress,
   visualAssetBoardConfirmationMessage,
   visualAssetLockBlockers,
 } from "./VisualAssetLibrary";
@@ -74,6 +75,16 @@ const draftVersion = {
 };
 
 describe("VisualAssetLibrary", () => {
+  it("counts only completed views from the active purchase and distinguishes final review", () => {
+    const operations = [
+      { token: "active:view:front", kind: "generate_views" as const, status: "succeeded" as const, resultId: "101", createdAt: 1, updatedAt: 2 },
+      { token: "active:view:profile", kind: "generate_views" as const, status: "submitted" as const, createdAt: 2, updatedAt: 2 },
+      { token: "other:view:front", kind: "generate_views" as const, status: "succeeded" as const, resultId: "102", createdAt: 1, updatedAt: 2 },
+    ];
+    expect(visualAssetGenerationProgress(operations, "active", 5)).toContain("已生成 1/5 张，正在生成严格 90° 侧面全身");
+    expect(visualAssetGenerationProgress(operations, "active", 1)).toContain("正在合成标准板并检查画面");
+    expect(visualAssetGenerationProgress(operations, "new", 5)).toContain("已生成 0/5 张");
+  });
   it("offers the full existing list when confirming array facts", () => {
     const version = { ...draftVersion, fixedFacts: { ...draftVersion.fixedFacts, accessories: ["蓝色项圈", "银色圆牌"] } };
     expect(recommendedConflictResolution(version, "accessories")).toBe("蓝色项圈；银色圆牌");
