@@ -311,8 +311,6 @@ export function MobileWorkspaceFrame({
         {/* 底部：一张手绘桌子，书（故事）、杯（聊聊）、人（我）都摆在上面 */}
         <MobileTableBar
           element={element}
-          activeView={activeView}
-          onOpenChat={() => onViewChange("chat")}
           onOpenStories={onOpenStories ?? (() => {})}
           onOpenAccount={onOpenAccount}
         />
@@ -328,14 +326,10 @@ export function MobileWorkspaceFrame({
  */
 function MobileTableBar({
   element,
-  activeView,
-  onOpenChat,
   onOpenStories,
   onOpenAccount,
 }: {
   element: NayinElement;
-  activeView: MobileWorkspaceView;
-  onOpenChat: () => void;
   onOpenStories: () => void;
   /** 没传就不画「我」——外壳不直接碰 useAuth，保持可独立测试 */
   onOpenAccount?: () => void;
@@ -371,22 +365,25 @@ function MobileTableBar({
         </button>
 
         {/*
-          中间这颗按当前视图换身份：正文页它是「来聊会儿」，把聊聊拉出来；
-          聊聊已经开着的时候，再放一个「打开聊聊」就是一颗死键，于是让它
-          改说「聊点其他的」——换个故事聊，正好接上这句话的字面意思。
-          原来顶栏那个故事下拉因此可以撤掉，切故事只剩这一个入口。
+          中间这颗**永远**打开故事菜单（开启新故事 / 回到以前的故事）。
+          
+          先前做成了「正文页开聊天、聊天页才出菜单」，是我把需求读窄了：
+          聊天本来就不需要这颗按钮——常驻输入条一直在，打字即可开聊，
+          要看历史就拖那张面板或点「拉开看全部」。这颗按钮唯一不可替代的
+          用途是换一个故事，所以它就该只干这件事。
+          原来顶栏那个故事下拉因此撤掉，切故事只剩这一个入口。
         */}
         <button
           type="button"
-          aria-label={activeView === "chat" ? "聊点其他的" : "来聊会儿"}
+          aria-label="聊点其他的"
           className="relative z-10 flex h-full flex-col items-center justify-end gap-0.5 pb-1.5"
-          onClick={activeView === "chat" ? onOpenStories : onOpenChat}
+          onClick={onOpenStories}
         >
           <span className="absolute -top-6 left-1/2 -ml-7">
             <EmotiveWuxingIcon element={element} size={56} animated={false} />
           </span>
           <span className="font-chat-brand text-[15px] leading-none text-primary">
-            {activeView === "chat" ? "聊点其他的" : "来聊会儿"}
+            聊点其他的
           </span>
         </button>
 

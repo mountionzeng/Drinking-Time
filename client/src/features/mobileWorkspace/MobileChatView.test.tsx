@@ -55,6 +55,23 @@ describe("MobileChatView", () => {
     expect(html).not.toContain("正在生成回复…");
   });
 
+  // 面板收起时消息区是 hidden 的，小人画在里面等于没画——用户只能看着
+  // 发送键转圈。这条锁住「收起档也要露出来」。
+  it("still shows the typing bubble when the sheet is collapsed", () => {
+    const waiting = { ...controller(), isSubmitting: true };
+    const html = renderToStaticMarkup(
+      <MobileChatView
+        controller={waiting}
+        dense
+        element="water"
+        storyTitle="旅行记"
+      />
+    );
+
+    expect(html).toContain('data-testid="mobile-typing"');
+    expect(html).toContain("正在回信…");
+  });
+
   it("hides the typing bubble once nothing is in flight", () => {
     const html = renderToStaticMarkup(
       <MobileChatView controller={controller()} element="water" storyTitle="旅行记" />

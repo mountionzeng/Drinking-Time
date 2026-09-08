@@ -313,6 +313,19 @@ export function MobileChatView({
         <div ref={endRef} aria-hidden="true" />
       </div>
 
+      {/*
+        面板收起（dense）时整个消息区是 hidden 的，等回信的小人画在里面就等于
+        没画——用户在常驻输入条发完消息，只能看着发送键转圈。所以收起档单独
+        在输入条上方露一条，拉开时不重复画。
+      */}
+      {dense && waiting ? (
+        <div className="shrink-0 px-4 pb-1 pt-2">
+          <ol className="flex">
+            <MobileTypingBubble element={element} />
+          </ol>
+        </div>
+      ) : null}
+
       <form
         className="mobile-workspace-composer shrink-0 border-t border-border/70 bg-background/95 px-3 pt-3 backdrop-blur"
         onSubmit={handleSubmit}

@@ -41,32 +41,22 @@ describe("MobileWorkspace", () => {
     expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
   });
 
-  // 中间那颗按视图换身份：聊聊已经开着的时候再放一个「打开聊聊」是死键，
-  // 让它改做「换个故事聊」，顶栏那个故事下拉才撤得掉。
-  it("relabels the middle seat by view: 来聊会儿 on the document, 聊点其他的 in chat", () => {
-    const inDocument = renderToStaticMarkup(
-      <MobileWorkspaceFrame
-        activeView="document"
-        onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
-        documentView={<p>正文内容</p>}
-        chatView={() => <p>对话内容</p>}
-      />
-    );
-    expect(inDocument).toContain("来聊会儿");
-    expect(inDocument).not.toContain("聊点其他的");
-
-    const inChat = renderToStaticMarkup(
-      <MobileWorkspaceFrame
-        activeView="chat"
-        onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
-        documentView={<p>正文内容</p>}
-        chatView={() => <p>对话内容</p>}
-      />
-    );
-    expect(inChat).toContain("聊点其他的");
-    expect(inChat).not.toContain("来聊会儿");
+  // 中间那颗只干一件事：打开故事菜单。聊天不需要它——常驻输入条一直在，
+  // 要看历史就拖面板或点「拉开看全部」；换故事才是它不可替代的用途。
+  it("always labels the middle seat 聊点其他的, in both views", () => {
+    for (const view of ["document", "chat"] as const) {
+      const html = renderToStaticMarkup(
+        <MobileWorkspaceFrame
+          activeView={view}
+          onViewChange={vi.fn()}
+          storyTitle="送走小猫后有点想它"
+          documentView={<p>正文内容</p>}
+          chatView={() => <p>对话内容</p>}
+        />
+      );
+      expect(html).toContain("聊点其他的");
+      expect(html).not.toContain("来聊会儿");
+    }
   });
 
   // 顶栏只剩一个只读的故事名；切故事的唯一入口是底部那张面板。
