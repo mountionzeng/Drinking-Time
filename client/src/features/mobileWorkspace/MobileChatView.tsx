@@ -62,37 +62,6 @@ function recoveryStatus(turn: MobileConversationRecoveryTurn): string {
   }
 }
 
-/**
- * 等回信时那只小人：左边是当天五行的小家伙，右边一个白气泡里三个点在跳。
- *
- * 为什么不用原来那张琥珀色的「正在生成回复…」卡片：那张卡是给**出事之后**
- * 准备的（带重试／复制／移除），把正常的等待也塞进同一个壳里，等于每聊一句
- * 都先弹一次故障样式的东西。等待是常态，故障才是例外，两者不该长一个样。
- *
- * 三个点用 animation-delay 错开，不引第三方动画库；prefers-reduced-motion
- * 下 Tailwind 的 animate-* 会自己停，静止的三个点仍然读得懂。
- */
-function MobileTypingBubble({ element }: { element?: NayinElement }) {
-  return (
-    <li className="mr-auto flex max-w-[85%] items-end gap-1.5" data-testid="mobile-typing">
-      {element ? (
-        <EmotiveWuxingIcon animated element={element} size={34} />
-      ) : null}
-      <span className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-3 shadow-sm">
-        <span className="sr-only">正在回信…</span>
-        {[0, 150, 300].map(delay => (
-          <span
-            key={delay}
-            aria-hidden="true"
-            className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"
-            style={{ animationDelay: `${delay}ms` }}
-          />
-        ))}
-      </span>
-    </li>
-  );
-}
-
 function MobileTurnRecovery({
   turn,
   onRetry,
@@ -175,19 +144,15 @@ export function MobileChatView({
   const [announcement, setAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
-  // 「正在等回信」有两个来源：本轮请求还在飞（isSubmitting），以及刷新后从
-  // 本地恢复出来的 replying 的轮次。两者要合成同一个视觉，不能各画各的。
-  const waiting =
-    controller.isSubmitting ||
-    controller.recoveryTurns.some(turn => turn.status === "replying");
-  // replying 已经由上面那只小人代言了，故障卡片里就别再重复一遍。
+  // 等回信的样子由面板抬头那只小人代言（MobileWorkspaceFrame 的 waitingForReply）。
+  // 这里只负责一件事：replying 的轮次不要再以故障卡片的样子重复出现一遍。
   const visibleRecoveryTurns = controller.recoveryTurns.filter(
     turn => turn.status !== "replying"
   );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [controller.messages.length, controller.recoveryTurns.length, waiting]);
+  }, [controller.messages.length, controller.recoveryTurns.length]);
 
   const send = () => {
     const content = draft.trim();
@@ -291,7 +256,6 @@ export function MobileChatView({
                 {message.content}
               </li>
             ))}
-            {waiting ? <MobileTypingBubble element={element} /> : null}
           </ol>
         ) : null}
 
@@ -312,19 +276,6 @@ export function MobileChatView({
         ) : null}
         <div ref={endRef} aria-hidden="true" />
       </div>
-
-      {/*
-        面板收起（dense）时整个消息区是 hidden 的，等回信的小人画在里面就等于
-        没画——用户在常驻输入条发完消息，只能看着发送键转圈。所以收起档单独
-        在输入条上方露一条，拉开时不重复画。
-      */}
-      {dense && waiting ? (
-        <div className="shrink-0 px-4 pb-1 pt-2">
-          <ol className="flex">
-            <MobileTypingBubble element={element} />
-          </ol>
-        </div>
-      ) : null}
 
       <form
         className="mobile-workspace-composer shrink-0 border-t border-border/70 bg-background/95 px-3 pt-3 backdrop-blur"

@@ -101,7 +101,10 @@ export function MobileWorkspaceFrame({
   balanceSlot,
   documentView,
   chatView,
+  /** 正在等回信——抬头那只小人会动起来并冒出三个点。 */
+  waitingForReply = false,
   children,
+  overlays,
   onOpenStories,
   onOpenAccount,
   element = "metal",
@@ -117,7 +120,11 @@ export function MobileWorkspaceFrame({
   /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
   /** 收到 stop 决定要不要紧凑显示，所以用函数而不是现成节点 */
   chatView?: (options: { dense: boolean }) => ReactNode;
+  waitingForReply?: boolean;
+  /** 没有 documentView 时的兜底内容（加载／空／错误态）。 */
   children?: ReactNode;
+  /** 浮层：对话框、面板。永远渲染，不受 documentView 影响。 */
+  overlays?: ReactNode;
   onOpenStories?: () => void;
   onOpenAccount?: () => void;
   /** 当天的纳音五行。由调用方从 useNayin() 取好传进来，
@@ -216,7 +223,7 @@ export function MobileWorkspaceFrame({
           {balanceSlot}
         </header>
 
-        {/* 正文常驻 */}
+        {/* 正文常驻。children 在这里只当「没有 documentView 时的兜底内容」 */}
         <div className="min-h-0 flex-1 overflow-hidden">
           {documentView ?? children}
         </div>
@@ -280,16 +287,34 @@ export function MobileWorkspaceFrame({
           >
             <span className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-border" />
             <div className="flex min-h-9 items-center gap-2">
+              {/*
+                抬头这只小人就是「聊聊」本人，等回信时让**它**动起来，
+                而不是在下面另画一只——两只一模一样的小人上下排着，
+                看起来像复制粘贴，也说不清楚哪只才是在等。
+              */}
               <EmotiveWuxingIcon
                 element={element}
                 size={stop === "peek" ? 34 : 28}
-                animated={false}
+                animated={waitingForReply}
               />
-              {stop !== "peek" && (
+              {waitingForReply ? (
+                <span
+                  aria-hidden="true"
+                  className="flex items-center gap-1 rounded-full bg-muted/70 px-2.5 py-1.5"
+                >
+                  {[0, 150, 300].map(delay => (
+                    <span
+                      key={delay}
+                      className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
+                </span>
+              ) : stop !== "peek" ? (
                 <span className="font-chat-brand text-[17px] leading-none text-primary">
                   聊聊
                 </span>
-              )}
+              ) : null}
               <button
                 type="button"
                 data-sheet-action="toggle"
@@ -314,6 +339,18 @@ export function MobileWorkspaceFrame({
           onOpenStories={onOpenStories ?? (() => {})}
           onOpenAccount={onOpenAccount}
         />
+
+        {/*
+          浮层（故事菜单、每日来信、「我」、正文未保存裁决）挂在这里。
+
+          原来它们是当 children 传进来的，而上面那行是 `documentView ?? children`
+          ——documentView 一有值 children 就整个不渲染。于是这些对话框**一次都
+          没有出现过**：点「聊点其他的」没反应、每日来信从不自动弹、「我」打不开，
+          看起来像三个互不相干的 bug，其实是同一个。
+
+          所以把两种角色拆开：children 只当内容兜底，浮层走 overlays，永远渲染。
+        */}
+        {overlays}
       </div>
     </div>
   );
@@ -561,6 +598,10 @@ function MobileSelectedStoryWorkspace({
           suppressConflictDialog={pendingStoryId !== null}
         />
       }
+      waitingForReply={
+        conversation.isSubmitting ||
+        conversation.recoveryTurns.some(turn => turn.status === "replying")
+      }
       chatView={({ dense }) => (
         <MobileChatView
           controller={conversation}
@@ -569,133 +610,135 @@ function MobileSelectedStoryWorkspace({
           dense={dense}
         />
       )}
-    >
+      overlays={
+        <>
+          <MobileDailyLetter
+            autoOpen
+            open={letterOpen}
+            stories={stories}
+            onOpenChange={setLetterOpen}
+            onOpenStory={requestStoryChange}
+          />
 
-      <MobileDailyLetter
-        autoOpen
-        open={letterOpen}
-        stories={stories}
-        onOpenChange={setLetterOpen}
-        onOpenStory={requestStoryChange}
-      />
+          <MobileStoryPanel
+            activeStoryId={activeStoryId}
+            creating={creatingStory}
+            open={storyPanelOpen}
+            stories={stories}
+            onCreateStory={
+              onCreateStory
+                ? () => {
+                    setStoryPanelOpen(false);
+                    onCreateStory();
+                  }
+                : undefined
+            }
+            onOpenChange={setStoryPanelOpen}
+            onSelectStory={storyId => {
+              setStoryPanelOpen(false);
+              // 有未保存的正文时 requestStoryChange 会先弹「保存/放弃/取消」，
+              // 那张对话框得在面板关掉之后才看得见，所以顺序不能反。
+              requestStoryChange(storyId);
+            }}
+          />
 
-      <MobileStoryPanel
-        activeStoryId={activeStoryId}
-        creating={creatingStory}
-        open={storyPanelOpen}
-        stories={stories}
-        onCreateStory={
-          onCreateStory
-            ? () => {
-                setStoryPanelOpen(false);
-                onCreateStory();
-              }
-            : undefined
-        }
-        onOpenChange={setStoryPanelOpen}
-        onSelectStory={storyId => {
-          setStoryPanelOpen(false);
-          // 有未保存的正文时 requestStoryChange 会先弹「保存/放弃/取消」，
-          // 那张对话框得在面板关掉之后才看得见，所以顺序不能反。
-          requestStoryChange(storyId);
-        }}
-      />
+          <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
+            <DialogContent className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-sm">
+              <DialogHeader className="text-left">
+                <DialogTitle>我</DialogTitle>
+                <DialogDescription>{user?.email ?? "未登录"}</DialogDescription>
+              </DialogHeader>
+              <ComputeBalanceBadge enabled={Boolean(user?.id)} />
+              <p className="text-sm leading-6 text-muted-foreground">
+                手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full justify-start"
+                onClick={() => {
+                  setAccountOpen(false);
+                  setLetterOpen(true);
+                }}
+              >
+                <MailOpen aria-hidden="true" />
+                今天的来信
+              </Button>
+              <DialogFooter className="flex-row justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAccountOpen(false)}
+                >
+                  返回
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => void logout()}>
+                  退出登录
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
-        <DialogContent className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-sm">
-          <DialogHeader className="text-left">
-            <DialogTitle>我</DialogTitle>
-            <DialogDescription>{user?.email ?? "未登录"}</DialogDescription>
-          </DialogHeader>
-          <ComputeBalanceBadge enabled={Boolean(user?.id)} />
-          <p className="text-sm leading-6 text-muted-foreground">
-            手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 w-full justify-start"
-            onClick={() => {
-              setAccountOpen(false);
-              setLetterOpen(true);
+          <Dialog
+            open={pendingStoryId !== null}
+            onOpenChange={open => {
+              if (!open && !resolvingSwitch) void finishSwitch("cancel");
             }}
           >
-            <MailOpen aria-hidden="true" />
-            今天的来信
-          </Button>
-          <DialogFooter className="flex-row justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setAccountOpen(false)}
+            <DialogContent
+              showCloseButton={false}
+              className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-md"
+              onOpenAutoFocus={event => {
+                event.preventDefault();
+                cancelRef.current?.focus();
+              }}
             >
-              返回
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => void logout()}>
-              退出登录
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={pendingStoryId !== null}
-        onOpenChange={open => {
-          if (!open && !resolvingSwitch) void finishSwitch("cancel");
-        }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-md"
-          onOpenAutoFocus={event => {
-            event.preventDefault();
-            cancelRef.current?.focus();
-          }}
-        >
-          <DialogHeader className="text-left">
-            <DialogTitle>切换 Story 前处理正文</DialogTitle>
-            <DialogDescription>
-              当前正文还有未保存的修改。请选择保存、放弃修改，或留在这里继续编辑。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:grid sm:grid-cols-3">
-            <Button
-              ref={cancelRef}
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              disabled={resolvingSwitch}
-              onClick={() => void finishSwitch("cancel")}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="min-h-11"
-              disabled={resolvingSwitch}
-              onClick={() => void finishSwitch("discard")}
-            >
-              放弃修改
-            </Button>
-            <Button
-              type="button"
-              className="min-h-11"
-              disabled={resolvingSwitch || !document.canSave}
-              onClick={() => void finishSwitch("save")}
-            >
-              {resolvingSwitch ? (
-                <Loader2 aria-hidden="true" className="animate-spin" />
-              ) : null}
-              保存正文
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <p className="sr-only" role="status" aria-live="polite">
-        {announcement}
-      </p>
-    </MobileWorkspaceFrame>
+              <DialogHeader className="text-left">
+                <DialogTitle>切换 Story 前处理正文</DialogTitle>
+                <DialogDescription>
+                  当前正文还有未保存的修改。请选择保存、放弃修改，或留在这里继续编辑。
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:grid sm:grid-cols-3">
+                <Button
+                  ref={cancelRef}
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  disabled={resolvingSwitch}
+                  onClick={() => void finishSwitch("cancel")}
+                >
+                  取消
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="min-h-11"
+                  disabled={resolvingSwitch}
+                  onClick={() => void finishSwitch("discard")}
+                >
+                  放弃修改
+                </Button>
+                <Button
+                  type="button"
+                  className="min-h-11"
+                  disabled={resolvingSwitch || !document.canSave}
+                  onClick={() => void finishSwitch("save")}
+                >
+                  {resolvingSwitch ? (
+                    <Loader2 aria-hidden="true" className="animate-spin" />
+                  ) : null}
+                  保存正文
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <p className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </p>
+        </>
+      }
+    />
   );
 }
 

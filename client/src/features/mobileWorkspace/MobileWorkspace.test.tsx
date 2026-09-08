@@ -59,6 +59,25 @@ describe("MobileWorkspace", () => {
     }
   });
 
+  // 回归：原来对话框是当 children 传进来的，而内容区写的是
+  // `documentView ?? children`——documentView 一有值 children 就整个不渲染。
+  // 于是故事菜单、每日来信、「我」全都一次没出现过，表现为「大部分按钮
+  // 按了没反应」。浮层必须和 documentView 并存。
+  it("renders overlays alongside the document, not instead of it", () => {
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        storyTitle="送走小猫后有点想它"
+        documentView={<p>正文内容</p>}
+        overlays={<div>故事菜单在这里</div>}
+      />
+    );
+
+    expect(html).toContain("正文内容");
+    expect(html).toContain("故事菜单在这里");
+  });
+
   // 顶栏只剩一个只读的故事名；切故事的唯一入口是底部那张面板。
   it("shows the story title as plain text, not a picker control", () => {
     const html = renderToStaticMarkup(

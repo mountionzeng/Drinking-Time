@@ -42,46 +42,9 @@ describe("MobileChatView", () => {
     expect(html).toContain("发送");
   });
 
-  // 等回信时露一只小人加三个跳动的点，而不是那张给故障准备的琥珀色卡片。
-  it("shows the typing bubble while a reply is in flight", () => {
-    const waiting = { ...controller(), isSubmitting: true };
-    const html = renderToStaticMarkup(
-      <MobileChatView controller={waiting} element="water" storyTitle="旅行记" />
-    );
-
-    expect(html).toContain('data-testid="mobile-typing"');
-    expect(html).toContain("正在回信…");
-    // 故障样式不该在正常等待时出现
-    expect(html).not.toContain("正在生成回复…");
-  });
-
-  // 面板收起时消息区是 hidden 的，小人画在里面等于没画——用户只能看着
-  // 发送键转圈。这条锁住「收起档也要露出来」。
-  it("still shows the typing bubble when the sheet is collapsed", () => {
-    const waiting = { ...controller(), isSubmitting: true };
-    const html = renderToStaticMarkup(
-      <MobileChatView
-        controller={waiting}
-        dense
-        element="water"
-        storyTitle="旅行记"
-      />
-    );
-
-    expect(html).toContain('data-testid="mobile-typing"');
-    expect(html).toContain("正在回信…");
-  });
-
-  it("hides the typing bubble once nothing is in flight", () => {
-    const html = renderToStaticMarkup(
-      <MobileChatView controller={controller()} element="water" storyTitle="旅行记" />
-    );
-
-    expect(html).not.toContain('data-testid="mobile-typing"');
-  });
-
-  // 刷新后从本地恢复出来的 replying 轮次，走同一只小人，不再各画各的。
-  it("renders one indicator for a recovered replying turn, not two", () => {
+  // 等回信的样子由面板抬头那只小人代言；这里只保证 replying 不再以故障卡片
+  // 的样子重复出现一遍。
+  it("does not show the failure card for a turn that is still replying", () => {
     const recovered = {
       ...controller(),
       recoveryTurns: [
@@ -103,8 +66,8 @@ describe("MobileChatView", () => {
       <MobileChatView controller={recovered} element="water" storyTitle="旅行记" />
     );
 
-    expect(html).toContain('data-testid="mobile-typing"');
     expect(html).not.toContain("待恢复的对话");
+    expect(html).not.toContain("正在生成回复…");
   });
 
   it("submits only a plain Enter outside IME composition", () => {
