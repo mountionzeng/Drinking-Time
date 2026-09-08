@@ -3042,6 +3042,11 @@
           "date": "2026-09-02",
           "kind": "decision",
           "summary": "确认第一批采用微信原生 TypeScript 工程（不用 web-view、Taro 或 uni-app），先在独立 miniprogram/ 目录交付明显标识为 mock 的「聊聊 + 正文」双视图测试壳层；真实微信登录与邮箱绑定留到统一账号地基释放后的 U4–U7。"
+        },
+        {
+          "date": "2026-09-08",
+          "kind": "implementation",
+          "summary": "独立 wechat-mobile-parity 分支开始原生布局迁移：workspace/index.ts、index.wxml、index.wxss 保持正文挂载并增加聊天收起/半屏/全屏按钮切换。独立 tsc 与 12 文件 144 项既有测试通过；尚无新交互运行时测试、真机视觉、键盘及安全区验收，仍是 mock，不代表真实账号互通或可发布。"
         }
       ]
     },
