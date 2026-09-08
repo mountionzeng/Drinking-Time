@@ -589,7 +589,9 @@ export async function resolveVisualAssetVersionConflicts(input: {
           conflict.field
         ];
         const allowedCurrentFacts =
-          typeof currentFact === "string" ? [currentFact] : [];
+          typeof currentFact === "string" ? [currentFact] :
+            Array.isArray(currentFact) && currentFact.length > 0 && currentFact.every(item => typeof item === "string" && item.trim())
+              ? [currentFact.join("；")] : [];
         const match = pending.find(
           candidate =>
             !candidate.used &&
@@ -610,6 +612,8 @@ export async function resolveVisualAssetVersionConflicts(input: {
           fixedFacts[conflict.field] = conflict.resolution;
           continue;
         }
+        // 确认已整理的整份列表时保留各条事实，不把展示文本追加成新事实。
+        if (conflict.resolution === current.join("；")) continue;
         // 数组字段（场景的 geometry/materials/fixedProps、风格的 medium/brushwork…）
         // 一条冲突只针对该字段里有争议的那一点，不是整份事实。
         // 早先这里写成 [resolution]，会把分析出来的整份清单塌成一句图片专属描述，

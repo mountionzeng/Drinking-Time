@@ -117,12 +117,15 @@ function factsSummary(facts: VisualAssetFixedFacts): string[] {
   ];
 }
 
-function recommendedConflictResolution(
+export function recommendedConflictResolution(
   version: VisualAssetVersion,
   field: string
 ): string | undefined {
   const current = (version.fixedFacts as unknown as Record<string, unknown>)[field];
   if (typeof current === "string" && current.trim()) return current.trim();
+  if (Array.isArray(current) && current.length > 0 && current.every(item => typeof item === "string" && item.trim())) {
+    return current.join("；");
+  }
   return undefined;
 }
 
@@ -550,7 +553,7 @@ export default function VisualAssetLibrary({
         versionId: version.id,
         resolutions,
       });
-      toast.success("冲突裁决已保存，现在可以生成人物标准视图");
+      toast.success(`冲突裁决已保存，现在可以生成${visualAssetKindLabel(asset.kind)}标准视图`);
       await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "冲突裁决保存失败");

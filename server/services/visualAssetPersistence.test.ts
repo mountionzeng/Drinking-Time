@@ -454,7 +454,7 @@ describe("visual asset persistence", () => {
     });
   });
 
-  it("keeps the rest of an array fixed fact when resolving one conflict", async () => {
+  it.each([false, true])("preserves array facts when confirming a description or the complete list (whole list: %s)", async (wholeList) => {
     const story = await db.createStory({
       userId: 68,
       title: "场景裁决",
@@ -504,7 +504,7 @@ describe("visual asset persistence", () => {
       operationToken: "resolve-scene-conflict",
       assetId: asset.id,
       versionId: version.id,
-      resolutions: [{ field: "geometry", resolution: "平台为矩形" }],
+      resolutions: [{ field: "geometry", resolution: wholeList ? "封闭矩形展厅，浅青绿墙面；地面平整浅色；墙面嵌一只大眼睛" : "平台为矩形" }],
     });
 
     const facts = resolved.aggregate.assets[0]!.versions[0]!.fixedFacts as {
@@ -516,7 +516,7 @@ describe("visual asset persistence", () => {
       "封闭矩形展厅，浅青绿墙面",
       "地面平整浅色",
       "墙面嵌一只大眼睛",
-      "平台为矩形",
+      ...(wholeList ? [] : ["平台为矩形"]),
     ]);
     // 落选的那条不能留在事实里。
     expect(facts.geometry).not.toContain("平台呈圆形");

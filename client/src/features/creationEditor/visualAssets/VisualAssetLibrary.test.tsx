@@ -49,6 +49,7 @@ vi.mock("@/lib/trpc", () => {
 });
 
 import VisualAssetLibrary, {
+  recommendedConflictResolution,
   visualAssetBoardConfirmationMessage,
   visualAssetLockBlockers,
 } from "./VisualAssetLibrary";
@@ -73,6 +74,11 @@ const draftVersion = {
 };
 
 describe("VisualAssetLibrary", () => {
+  it("offers the full existing list when confirming array facts", () => {
+    const version = { ...draftVersion, fixedFacts: { ...draftVersion.fixedFacts, accessories: ["蓝色项圈", "银色圆牌"] } };
+    expect(recommendedConflictResolution(version, "accessories")).toBe("蓝色项圈；银色圆牌");
+    expect(recommendedConflictResolution(draftVersion, "accessories")).toBeUndefined();
+  });
   it("discloses the fifth paid pet top view as an artistic inference", () => {
     const message = visualAssetBoardConfirmationMessage("pet", { candidateCount: 5, estimatedCny: 7.45 });
     expect(message).toContain("分 5 次");
