@@ -230,6 +230,7 @@ export const visualAssetsRouter = router({
       mutationEnvelope.extend({
         imageId: z.number().int().positive(),
         sourceLabel: z.string().trim().min(1).max(240),
+        focus: z.string().trim().min(1).max(2000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

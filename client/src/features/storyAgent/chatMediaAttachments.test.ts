@@ -8,6 +8,7 @@ import {
   isPhotoAssetRequest,
   extractImportedPhotoFeatures,
   selectChatMediaFiles,
+  chatPhotoSubmissionAction,
 } from "./chatMediaAttachments";
 
 function mediaFile(
@@ -20,6 +21,24 @@ function mediaFile(
 }
 
 describe("chatMediaAttachments", () => {
+  it("requires an answer before upload and separates saving, extraction, remix and video", () => {
+    expect(chatPhotoSubmissionAction(" ", true)).toBe("ask");
+    expect(chatPhotoSubmissionAction("只保存图片", true)).toBe("save");
+    expect(chatPhotoSubmissionAction("小猫", true)).toBe("extract");
+    expect(chatPhotoSubmissionAction("左边的花瓶，不要背景", true)).toBe("extract");
+    expect(chatPhotoSubmissionAction("把照片画成水彩海报", true)).toBe("generate");
+    expect(chatPhotoSubmissionAction("猫的正面、侧面和顶部视图", true)).toBe("extract");
+    expect(chatPhotoSubmissionAction("", false)).toBe("none");
+  });
+  it("forwards the unchanged focus and photo order, excluding videos", async () => {
+    const extract = vi.fn(async () => ({ createdKinds: ["pet" as const] }));
+    await extractImportedPhotoFeatures({
+      imported: [{ kind: "image", fileName: "cat.jpg", assetId: 1 }, { kind: "video", fileName: "clip.mp4", assetId: 2 }],
+      focus: "小猫", extract,
+    });
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(extract).toHaveBeenCalledWith({ imageId: 1, sourceLabel: "第 1/1 张：cat.jpg", focus: "小猫" });
+  });
   it("routes photo asset and multi-view requests to review, never to one-off remix", () => {
     for (const instruction of ["把小猫照片做成素材，生成正面、侧面和顶部", "艺术化处理", "生成一张猫咪三视图", "不要生成，先打开素材仓库"]) {
       expect(isPhotoAssetRequest(instruction)).toBe(true);
@@ -29,6 +48,14 @@ describe("chatMediaAttachments", () => {
     }
     expect(isPhotoAssetRequest("我今天有点想念它")).toBe(false);
     expect(isPhotoAssetRequest("把照片画成水彩海报")).toBe(false);
+  });
+  it("keeps original photo ordinals after an earlier upload fails", async () => {
+    const extract = vi.fn(async () => ({ createdKinds: ["scene" as const] }));
+    await extractImportedPhotoFeatures({
+      imported: [{ kind: "image", fileName: "room.jpg", assetId: 2, photoIndex: 2, totalPhotos: 3 }],
+      focus: "第一张提取猫，第二张提取背景", extract,
+    });
+    expect(extract).toHaveBeenCalledWith({ imageId: 2, sourceLabel: "第 2/3 张：room.jpg", focus: "第一张提取猫，第二张提取背景" });
   });
   it("recognizes image and video files even when the browser omits MIME", () => {
     expect(inferChatMediaMime(mediaFile("still.WEBP", ""))).toBe("image/webp");

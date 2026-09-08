@@ -2114,6 +2114,7 @@
       "status": "observing",
       "userValue": "把人物固定造型、宠物固定外观、场景空间和美术风格锁定为可复用资产，让已关联镜头只展示通过一致性验收的图片候选。",
       "entryPoints": [
+        "client/src/features/storyAgent/views/ChatPhotoExtractionQuestion.tsx",
         "client/src/features/storyAgent/views/ChatPhotoAssets.tsx",
         "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
         "client/src/features/creationEditor/visualAssets/VisualAssetLibrary.tsx",
@@ -2127,6 +2128,7 @@
         "docs/handoff/2026-08-22-visual-asset-ui-completion-handoff.md"
       ],
       "owners": [
+        "shared/photoExtraction.ts",
         "client/src/features/creationEditor/visualAssets/useVisualAssetGenerationDraft.ts",
         "shared/visualAssets.ts",
         "server/services/visualAssetPersistence.ts",
@@ -2139,6 +2141,8 @@
         "server/services/publicReferenceHost.ts"
       ],
       "evidence": [
+        "shared/photoExtraction.test.ts",
+        "client/src/features/storyAgent/views/ChatPhotoExtractionQuestion.test.tsx",
         "client/src/features/storyAgent/views/ChatPhotoAssets.test.tsx",
         "client/src/features/creationEditor/visualAssets/useVisualAssetGenerationDraft.test.ts",
         "docs/qa/chat-photo-art-assets-2026-09-08.md",
@@ -2164,6 +2168,7 @@
         "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md"
       ],
       "invariants": [
+        "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
         "宠物可另存补充 top 视图，不替代 front/profile/back/identity-detail 四张身份视图；顶视不纳入四栏结构质检或下游身份锚点，必须标明艺术推演、待核对。四图/五图选择和美术要求均进入签名报价。",
         "资产严格属于当前 Story；所有读写和图片引用同时校验 storyId 与 userId。",
         "人物资产版本只代表一套固定脸、发型、服饰和配件；宠物是独立 pet 维度，锁定物种、头脸、毛色纹理、体型、标志特征和固定配件，不得伪装成 character；场景与风格分别锁定自己的固定事实。",
@@ -2205,6 +2210,11 @@
         "Story 1187 已用同一张图片 #1680 分别建立人物、场景和美术风格资产并完成刷新读回。人物修复后的 identity-detail #1753 与标准板 #1754 已人工原像素验收通过；场景四视角 #1755-#1758 与标准板 #1759 已人工验收通过。风格任务继续复用 token visual-board-b2f2e4b6…：人物样例 #1761、场景样例 #1762 已生成并人工确认风格一致，object-sample 再次 fetch failed，closeup-sample 尚未开始，未合成标准板。该同步接口的失败是否计费不可确认；按最坏口径当前可能为 ¥22.35，已在用户批准的 ¥23.84 上限内停止。人物、场景与风格版本均保持未锁定。"
       ],
       "history": [
+        {
+          "date": "2026-09-08",
+          "kind": "feature",
+          "summary": "按用户要求把照片自动全量提取改为聊天内先追问范围：显示缩略图和可编辑快捷回复，支持自然语言位置/排除说明与只保存图片。focus 从聊天透传到视觉提取；明确类别服务端过滤越界结果，仅物体清空背景几何/材质，自定义描述由视觉模型理解后待人工核对；回执绑定图片和范围，旧无 focus API 保持兼容。切换故事清空未发送照片并停止后续处理；生成与费用闸门不变。"
+        },
         {
           "date": "2026-09-08",
           "kind": "feature",

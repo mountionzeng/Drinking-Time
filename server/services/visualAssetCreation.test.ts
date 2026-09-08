@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isVisualAssetVersionLockable } from "../../shared/visualAssets";
-import { prepareStoryBody } from "./storySync";
+import { getStoryRevision, prepareStoryBody } from "./storySync";
 
 const previousDatabaseUrl = process.env.DATABASE_URL;
 const previousLocalPersistPath = process.env.LOCAL_PERSIST_PATH;
@@ -293,6 +293,30 @@ describe("visual asset creation", () => {
       kind: "scene",
       fixedProps: ["蓝色储物柜"],
     });
+  });
+
+  it.each(["只提取宠物", "只提取人物", "只提取背景", "只提取物体"])("persists only %s even when vision returns unrelated facts", async focus => {
+    const { story, image } = await seedDraft("pet");
+    const current = await persistence.getStoryVisualAssets({ storyId: story.id, userId: 71 });
+    const vision = vi.fn(async () => ({ modelLabel: "test", text: JSON.stringify({
+      character: { present: true, face: "圆脸黑眼", hair: "黑色短发", outfit: "白衬衫", accessories: [] },
+      pet: { present: true, species: "猫", face: "圆眼粉鼻", coat: "灰黑虎斑", body: "长毛小体型", distinctiveFeatures: [], accessories: [] },
+      scene: { geometry: ["长走廊"], materials: ["木地板"], fixedProps: ["左边的蓝花瓶"] },
+    }) }));
+    const input = { storyId: story.id, userId: 71, expectedRevision: getStoryRevision(current.story.body), operationToken: "focused-photo",
+      imageId: image.id, sourceLabel: "猫.jpg", focus, dependencies: { vision: vision as never, materialize: async (value: string) => value } };
+    const result = await creation.extractPhotoVisualFeatures(input);
+    const kind = focus.includes("宠物") ? "pet" : focus.includes("人物") ? "character" : "scene";
+    expect(result.createdKinds).toEqual([kind]);
+    expect(result.aggregate.assets).toHaveLength(current.aggregate.assets.length + 1);
+    expect(vision.mock.calls[0]?.[0].userText).toContain(focus);
+    expect(vision.mock.calls[0]?.[0].system).toContain("未选场景");
+    if (focus === "只提取物体") expect(result.aggregate.assets.at(-1)?.versions[0]?.fixedFacts).toEqual({ kind: "scene", geometry: [], materials: [], fixedProps: ["左边的蓝花瓶"] });
+    await creation.extractPhotoVisualFeatures(input);
+    expect(vision).toHaveBeenCalledTimes(1);
+    const changed = await creation.extractPhotoVisualFeatures({ ...input, expectedRevision: result.revision, focus: "提取整张" });
+    expect(changed.createdKinds).toEqual(["character", "pet", "scene"]);
+    expect(vision).toHaveBeenCalledTimes(2);
   });
 
   it("does not invent a character when no face is present", async () => {

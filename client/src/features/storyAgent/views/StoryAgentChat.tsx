@@ -14,6 +14,9 @@ import {
   type DragEvent,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ChatPhotoExtractionQuestion from "./ChatPhotoExtractionQuestion";
+import { PHOTO_EXTRACTION_QUESTION } from "@shared/photoExtraction";
+import { chatPhotoSubmissionAction } from "../chatMediaAttachments";
 import {
   Send,
   Sparkles,
@@ -354,6 +357,10 @@ export default function StoryAgentChat({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftStoryIdRef = useRef<number | null>(null);
   const pendingMediaRef = useRef<PendingChatMedia[]>([]);
+  const mediaSubmissionRef = useRef(false);
+  const mediaScopeEpochRef = useRef(0);
+  const mediaStoryIdRef = useRef(creationEditor?.activeStoryId ?? remoteStoryId ?? null);
+  mediaStoryIdRef.current = creationEditor?.activeStoryId ?? remoteStoryId ?? null;
   const dragDepthRef = useRef(0);
   const currentIntent = confirmedIntent ?? pendingIntentDraft;
   const currentNarrativeIntent = confirmedIntent
@@ -395,7 +402,9 @@ export default function StoryAgentChat({
       : activeSelection
         ? "告诉聊聊这处想怎么改…"
         : pendingMedia.length > 0
-          ? "补一句你希望怎么用这些素材…"
+          ? pendingMedia.some(item => item.kind === "image")
+            ? "想提取哪部分？例如小猫、背景，或只保存图片…"
+            : "补一句你希望怎么用这些素材…"
           : "说说这一版哪里需要推进…";
 
   const startRenamingTitle = () => {
@@ -531,6 +540,15 @@ export default function StoryAgentChat({
   useEffect(() => {
     pendingMediaRef.current = pendingMedia;
   }, [pendingMedia]);
+
+  useEffect(() => {
+    mediaScopeEpochRef.current += 1;
+    setPendingMedia(current => {
+      current.forEach(item => URL.revokeObjectURL(item.previewUrl));
+      return [];
+    });
+    setPhotoAssetRequest(null);
+  }, [creationEditor?.activeStoryId, remoteStoryId]);
 
   // 引用的是这个故事的图片行；换故事必须清空，否则会把上一个故事的图当参考发出去。
   useEffect(() => {
@@ -710,7 +728,8 @@ export default function StoryAgentChat({
       (!text && pendingMedia.length === 0) ||
       isReplying ||
       voice.isBusy ||
-      isImportingMedia
+      isImportingMedia ||
+      mediaSubmissionRef.current
     ) {
       return;
     }
@@ -723,6 +742,17 @@ export default function StoryAgentChat({
     if (selectionRoute.kind === "blocked") {
       toast.error(selectionRoute.reason);
       if (selectionRoute.clearSelection) clearSelection();
+      return;
+    }
+
+    const photoAction = chatPhotoSubmissionAction(text, pendingMedia.some(item => item.kind === "image"));
+    if (photoAction === "ask") {
+      toast.info(PHOTO_EXTRACTION_QUESTION);
+      resizeAndFocusInput();
+      return;
+    }
+    if (photoAction === "extract" && text.length > 2000) {
+      toast.error("请把提取范围控制在 2000 字以内");
       return;
     }
 
@@ -876,11 +906,15 @@ export default function StoryAgentChat({
       ImportedChatMedia & { attachment: PendingChatMedia }
     > = [];
     const failures: string[] = [];
+    const mediaScopeEpoch = mediaScopeEpochRef.current;
+    const isCurrentMediaScope = () => mediaStoryIdRef.current === storyId && mediaScopeEpochRef.current === mediaScopeEpoch;
 
+    mediaSubmissionRef.current = true;
     setIsImportingMedia(true);
     setMediaProgress(`正在导入 0 / ${attachments.length}`);
     try {
       for (let index = 0; index < attachments.length; index += 1) {
+        if (!isCurrentMediaScope()) return;
         const attachment = attachments[index];
         if (attachment.kind === "video" && !targetStableShotId) {
           failures.push(`${attachment.file.name}：请先选一个镜头`);
@@ -899,12 +933,15 @@ export default function StoryAgentChat({
                 ? "从聊聊对话导入，等待继续剪辑"
                 : "从聊聊对话导入，等待导演归类"),
           });
+          if (!isCurrentMediaScope()) return;
           imported.push({
             attachment,
             kind: result.kind,
             fileName: attachment.file.name,
             assetId: result.kind === "image" ? result.imageId : result.takeId,
             imageUrl: result.kind === "image" ? result.imageUrl : undefined,
+            photoIndex: attachment.kind === "image" ? attachments.slice(0, index + 1).filter(item => item.kind === "image").length : undefined,
+            totalPhotos: attachments.filter(item => item.kind === "image").length,
             targetShotNo:
               result.kind === "video" ? (targetShot?.shotNo ?? null) : null,
             targetCueCode:
@@ -921,26 +958,39 @@ export default function StoryAgentChat({
         setMediaProgress(`正在导入 ${index + 1} / ${attachments.length}`);
       }
 
+      if (!isCurrentMediaScope()) return;
       if (failures.length > 0) {
         toast.error(failures.slice(0, 2).join("；"));
       }
       if (imported.length === 0) return;
 
-      if (imported.some(item => item.kind === "image")) {
+      if (photoAction === "save") {
+        setPhotoAssetRequest({ storyId, instruction: "", notice: "照片已保存到素材库，没有识图提取、生成新图或替换镜头。" });
+        setInput("");
+        resizeAndFocusInput();
+        return;
+      }
+
+      if (photoAction === "extract" && imported.some(item => item.kind === "image")) {
         const extraction = await extractImportedPhotoFeatures({
           imported,
-          extract: photo => creationEditor.extractPhotoVisualFeatures(photo),
+          focus: text,
+          extract: photo => {
+            if (!isCurrentMediaScope()) throw new Error("已切换故事，停止提取后续照片");
+            return creationEditor.extractPhotoVisualFeatures(photo);
+          },
           onProgress: (completed, total) =>
             setMediaProgress(
-              `正在提取人物、宠物、场景和物体特征 ${completed} / ${total}`
+              `正在按你的要求提取 ${completed} / ${total}`
             ),
         });
+        if (!isCurrentMediaScope()) return;
         setPhotoAssetRequest({
           storyId,
-          instruction: isPhotoAssetRequest(text) ? text : "",
+          instruction: text,
           notice: extraction.createdKinds.length
             ? "照片已入库，识别结果是待检查版本。展开对应资产核对特征，再确认艺术化要求和生成费用。"
-            : "照片已保留，暂未提取出完整的主体特征。可在下方建立资产并选择原图重试，或补充更清晰的照片。",
+            : "照片已保留，但没有找到符合要求的完整特征。请补充更清晰的照片或说明要保留哪一部分；不会编造看不见的外观。",
         });
         if (extraction.createdKinds.length > 0) {
           const labels = [
@@ -959,7 +1009,7 @@ export default function StoryAgentChat({
         }
       }
 
-      if (isPhotoAssetRequest(text) && imported.some(item => item.kind === "image")) {
+      if (photoAction === "extract" && imported.some(item => item.kind === "image")) {
         setInput("");
         resizeAndFocusInput();
         return;
@@ -1020,6 +1070,7 @@ export default function StoryAgentChat({
         );
       }
     } finally {
+      mediaSubmissionRef.current = false;
       setIsImportingMedia(false);
       setMediaProgress(null);
     }
@@ -1818,8 +1869,14 @@ export default function StoryAgentChat({
               ))}
             </div>
             <p className="mt-0.5 truncate text-[9.5px] text-muted-foreground">
-              {pendingMedia.length} 个素材 · 图片分析归类 · 视频暂放当前镜头
+              {pendingMedia.length} 个素材待发送 · 视频暂放当前镜头
             </p>
+            {pendingMedia.some(item => item.kind === "image") ? (
+              <ChatPhotoExtractionQuestion disabled={isImportingMedia || isReplying} onReply={reply => {
+                setInput(reply);
+                resizeAndFocusInput();
+              }} />
+            ) : null}
           </div>
         ) : null}
 

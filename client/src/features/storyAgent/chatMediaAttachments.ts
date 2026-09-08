@@ -1,4 +1,5 @@
 import type { ChatImageRef } from "./chatImageRefs";
+import { isPhotoSaveOnlyReply } from "@shared/photoExtraction";
 
 export const MAX_CHAT_MEDIA_ATTACHMENTS = 8;
 export const MAX_CHAT_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -21,6 +22,9 @@ export type ImportedChatMedia = {
   assetId: number;
   /** Imported generated_images URL. Present for images that can become image-to-image refs. */
   imageUrl?: string;
+  /** Original image-only order; failed imports must not renumber later photos. */
+  photoIndex?: number;
+  totalPhotos?: number;
   targetShotNo?: number | null;
   targetCueCode?: string | null;
 };
@@ -193,11 +197,22 @@ export function buildImportedImageRefs(
   );
 }
 
+/** No upload or inference until the user answers the attachment question. */
+export function chatPhotoSubmissionAction(instruction: string, hasImages: boolean) {
+  if (!hasImages) return "none";
+  if (!instruction.trim()) return "ask";
+  if (isPhotoSaveOnlyReply(instruction)) return "save";
+  if (isImportedImageGenerationRequest({ instruction, imported: [{ kind: "image", fileName: "", assetId: 1 }] })) return "generate";
+  return "extract";
+}
+
 export async function extractImportedPhotoFeatures(input: {
   imported: readonly ImportedChatMedia[];
+  focus?: string;
   extract: (photo: {
     imageId: number;
     sourceLabel: string;
+    focus?: string;
   }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
   onProgress?: (completed: number, total: number) => void;
 }): Promise<{
@@ -213,7 +228,8 @@ export async function extractImportedPhotoFeatures(input: {
     try {
       const result = await input.extract({
         imageId: photo.assetId,
-        sourceLabel: photo.fileName,
+        sourceLabel: input.focus ? `第 ${photo.photoIndex ?? index + 1}/${photo.totalPhotos ?? photos.length} 张：${photo.fileName}`.slice(0, 240) : photo.fileName,
+        ...(input.focus ? { focus: input.focus } : {}),
       });
       result.createdKinds.forEach(kind => createdKinds.add(kind));
     } catch (error) {
