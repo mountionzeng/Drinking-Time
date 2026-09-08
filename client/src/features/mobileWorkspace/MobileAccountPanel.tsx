@@ -153,7 +153,11 @@ export function MobileAccountPanel({
               }
               onSaveProfile={saveProfile}
               embedded
-              compactEntry
+              // 不要 compactEntry：那是访客引导用的折叠入口（先给一句
+              // 「再聊聊」再展开），不是设置表单。设置页要的是登录页
+              // GuidedLanding 第二处那种传法——只 embedded，直接给完整
+              // 的出生日期和时辰选择。传了 compactEntry，生日和时辰就
+              // 藏在折叠层里点不到。
               persistLocalProfile={false}
             />
           </div>
