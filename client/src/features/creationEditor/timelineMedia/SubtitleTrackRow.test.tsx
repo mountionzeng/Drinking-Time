@@ -9,6 +9,7 @@ import type { SubtitleCue } from "@shared/timelineSubtitleModel";
 import {
   SubtitleTrackRow,
   shouldSubmitSubtitleBlur,
+  shouldSubmitSubtitleEnter,
   subtitleSaveStatus,
   subtitleCuePlacement,
   subtitleDragGhost,
@@ -160,5 +161,38 @@ describe("SubtitleTrackRow empty state", () => {
 
     expect(html).toContain('role="alert"');
     expect(html).toContain("故事或时间线不存在，无法编辑字幕");
+  });
+});
+
+describe("shouldSubmitSubtitleEnter", () => {
+  const evt = (over: Partial<Parameters<typeof shouldSubmitSubtitleEnter>[0]> = {}) => ({
+    key: "Enter",
+    shiftKey: false,
+    isComposing: false,
+    ...over,
+  });
+
+  it("saves on a plain Enter", () => {
+    expect(shouldSubmitSubtitleEnter(evt())).toBe(true);
+  });
+
+  it("leaves Enter to the IME while that keystroke is composing", () => {
+    expect(shouldSubmitSubtitleEnter(evt({ isComposing: true }))).toBe(false);
+    expect(shouldSubmitSubtitleEnter(evt({ keyCode: 229 }))).toBe(false);
+  });
+
+  it("treats Shift+Enter as a newline, not a save", () => {
+    expect(shouldSubmitSubtitleEnter(evt({ shiftKey: true }))).toBe(false);
+  });
+
+  it("ignores every other key", () => {
+    expect(shouldSubmitSubtitleEnter(evt({ key: "a" }))).toBe(false);
+    expect(shouldSubmitSubtitleEnter(evt({ key: "Escape" }))).toBe(false);
+  });
+
+  // 判断只依赖这一次按键自己的标记，所以即使之前有过没配对的
+  // compositionstart，也不会把后续的 Enter 一直吞掉。
+  it("still saves after an unpaired compositionstart, because it never consults sticky state", () => {
+    expect(shouldSubmitSubtitleEnter(evt({ isComposing: false }))).toBe(true);
   });
 });

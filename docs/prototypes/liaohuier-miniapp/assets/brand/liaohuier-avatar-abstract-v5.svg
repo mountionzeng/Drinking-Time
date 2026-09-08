@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="聊会儿五行之声汇入茶杯标记">
+  <rect width="1024" height="1024" fill="#f7f0e5"/>
+
+  <!-- The vessel: intentionally broad and grounded. -->
+  <path d="M144 554C170 739 290 846 512 864C734 846 854 739 880 554Z" fill="#292725"/>
+  <ellipse cx="512" cy="554" rx="368" ry="130" fill="#292725"/>
+  <ellipse cx="512" cy="546" rx="326" ry="96" fill="#ead6ae"/>
+  <ellipse cx="512" cy="557" rx="290" ry="77" fill="#f8e9ca"/>
+
+  <!-- Five voices travel close to the rim, then share one centre. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M215 395C284 420 348 455 433 530C465 557 485 568 512 574" stroke="#d69a27" stroke-width="31"/>
+    <path d="M355 290C390 358 427 435 474 521C490 550 501 564 512 574" stroke="#607a50" stroke-width="31"/>
+    <path d="M512 250C512 346 512 440 512 574" stroke="#52768f" stroke-width="31"/>
+    <path d="M670 290C632 360 592 438 549 521C533 551 523 565 512 574" stroke="#c95032" stroke-width="31"/>
+    <path d="M809 395C736 420 671 455 592 530C560 558 536 570 512 574" stroke="#8b623f" stroke-width="31"/>
+  </g>
+
+  <!-- Quiet element silhouettes, kept deliberately secondary. -->
+  <g>
+    <path d="M151 378C184 347 229 354 252 382C228 413 183 418 151 378Z" fill="#d69a27"/>
+    <path d="M182 382C197 365 220 361 239 371C224 391 202 397 182 382Z" fill="#f7f0e5" opacity=".84"/>
+    <path d="M330 255C365 219 424 226 449 263C420 301 365 307 330 255Z" fill="#607a50"/>
+    <path d="M349 260C372 247 397 251 416 269C394 283 370 280 349 260Z" fill="#f7f0e5" opacity=".78"/>
+    <path d="M512 191C548 231 557 268 512 309C467 268 476 231 512 191Z" fill="#52768f"/>
+    <path d="M512 221C530 247 529 269 512 286C495 269 494 247 512 221Z" fill="#f7f0e5" opacity=".78"/>
+    <path d="M575 263C600 218 654 220 694 257C688 303 637 310 601 288C621 282 632 265 629 247C613 273 594 276 575 263Z" fill="#c95032"/>
+    <path d="M769 381C795 348 842 354 873 385C845 418 800 416 769 381Z" fill="#8b623f"/>
+    <path d="M790 383C808 366 834 366 851 384C831 400 809 399 790 383Z" fill="#f7f0e5" opacity=".72"/>
+  </g>
+
+  <!-- The shared conversation becomes a five-colour tea ripple. -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M512 574C559 574 584 590 584 610C584 633 551 647 512 647C473 647 440 633 440 610C440 590 465 574 512 574" stroke="#d69a27" stroke-width="15"/>
+    <path d="M478 584C442 592 424 607 424 624C424 650 462 669 512 669C562 669 600 650 600 624" stroke="#607a50" stroke-width="13"/>
+    <path d="M456 606C438 620 438 640 454 654C478 676 546 676 570 654" stroke="#52768f" stroke-width="13"/>
+    <path d="M470 646C492 662 532 662 554 646" stroke="#c95032" stroke-width="13"/>
+    <path d="M491 660C503 668 521 668 533 660" stroke="#8b623f" stroke-width="13"/>
+  </g>
+
+  <!-- Front rim restores the feeling that every voice is received by the cup. -->
+  <path d="M185 569C234 640 365 680 512 680C659 680 790 640 839 569" fill="none" stroke="#292725" stroke-width="20" stroke-linecap="round"/>
+</svg>

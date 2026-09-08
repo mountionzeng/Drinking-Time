@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="聊会儿抽象五行汇聚标记">
+  <rect width="1024" height="1024" fill="#f7f0e5"/>
+
+  <!-- A calm, oversized vessel. -->
+  <path d="M142 551C172 744 292 847 512 865C732 847 852 744 882 551Z" fill="#292725"/>
+  <ellipse cx="512" cy="551" rx="370" ry="129" fill="#292725"/>
+  <ellipse cx="512" cy="546" rx="327" ry="94" fill="#edddb9"/>
+  <ellipse cx="512" cy="556" rx="286" ry="72" fill="#f9ebcf"/>
+
+  <!-- Five non-literal voices: colour and motion carry the five-element suggestion. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M189 398C271 413 357 456 439 531C470 559 491 571 512 578" stroke="#d79d2d" stroke-width="35"/>
+    <path d="M348 300C391 368 435 448 477 528C494 558 505 572 512 578" stroke="#617d57" stroke-width="35"/>
+    <path d="M512 255C512 355 512 466 512 578" stroke="#557b96" stroke-width="35"/>
+    <path d="M676 300C632 369 588 448 547 528C530 558 519 572 512 578" stroke="#c95435" stroke-width="35"/>
+    <path d="M835 398C753 413 667 456 585 531C554 559 533 571 512 578" stroke="#896342" stroke-width="35"/>
+  </g>
+
+  <!-- Five silent endpoints: no literal icons, just distinct weights and directions. -->
+  <path d="M139 383C168 359 216 359 242 387C215 414 166 414 139 383Z" fill="#d79d2d"/>
+  <path d="M316 264C347 231 398 235 426 267C395 296 345 298 316 264Z" fill="#617d57"/>
+  <path d="M512 194C542 226 544 267 512 298C480 267 482 226 512 194Z" fill="#557b96"/>
+  <path d="M596 268C620 232 666 229 704 259C680 294 632 301 596 268Z" fill="#c95435"/>
+  <path d="M782 387C808 359 856 359 885 383C858 414 809 414 782 387Z" fill="#896342"/>
+
+  <!-- In the tea, five arcs stop being separate and become one shared ripple. -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M512 579C559 579 583 594 583 612C583 634 551 647 512 647C473 647 441 634 441 612C441 594 465 579 512 579" stroke="#d79d2d" stroke-width="15"/>
+    <path d="M478 588C442 596 425 610 425 626C425 650 462 668 512 668C562 668 599 650 599 626" stroke="#617d57" stroke-width="13"/>
+    <path d="M456 608C438 621 438 640 454 653C478 675 546 675 570 653" stroke="#557b96" stroke-width="13"/>
+    <path d="M470 645C492 661 532 661 554 645" stroke="#c95435" stroke-width="13"/>
+    <path d="M491 659C503 667 521 667 533 659" stroke="#896342" stroke-width="13"/>
+  </g>
+  <path d="M185 568C234 641 365 680 512 680C659 680 790 641 839 568" fill="none" stroke="#292725" stroke-width="20" stroke-linecap="round"/>
+</svg>
