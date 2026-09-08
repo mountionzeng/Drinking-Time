@@ -96,16 +96,20 @@ function ComputeBalanceBadgeInner({
           账目对不上，请联系我们，先别继续生成
         </span>
       ) : balance.unprovisioned ? (
-        // 数字照常给——钱要看得见。但不喊警告：这个账户还没开通计费，
-        // 而手机端的聊天、写正文、读来信本来就不查余额。
+        // 数字照常给——钱要看得见。但不喊警告：这个账户还没领过赠送卡，
+        // 而聊天、写正文、读来信本来就不消耗额度（R12）。
         compact ? null : (
           <span className="text-[10px] leading-4 text-muted-foreground">
-            还没开通计费
+            还没领算力，聊天和写字不受影响
           </span>
         )
       ) : balance.depleted ? (
+        // 文案按 R12 写：只有付费调用被拦，别让人以为整个产品用不了了。
+        // 邮箱是设计里指定的续充联系方式，不能省——省了用户就不知道找谁。
         <span className="text-[10px] leading-4 text-amber-700">
-          余额已用完，配音和朗读会被拦下
+          {compact
+            ? "额度用完，付费生成暂停"
+            : "额度用完了。聊天、读写都不受影响，需要续充请联系 mountionzeng@gmail.com"}
         </span>
       ) : balance.reservedText && !compact ? (
         <span className="text-[10px] leading-4 text-muted-foreground">
