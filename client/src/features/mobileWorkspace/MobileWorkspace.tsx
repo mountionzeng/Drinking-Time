@@ -1,7 +1,6 @@
 import {
   BookOpenText,
   Loader2,
-  MailOpen,
   RefreshCw,
   UserRound,
 } from "lucide-react";
@@ -31,6 +30,7 @@ import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry"
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
+import { MobileAccountPanel } from "./MobileAccountPanel";
 import { MobileChatView, mobileChatPeekReply } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
 import { MobileDocumentView } from "./MobileDocumentView";
@@ -108,7 +108,6 @@ function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
 export function MobileWorkspaceFrame({
   activeView,
   onViewChange,
-  storyTitle,
   balanceSlot,
   documentView,
   chatView,
@@ -124,8 +123,6 @@ export function MobileWorkspaceFrame({
 }: {
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
-  /** 当前故事名。只读——切换故事走底部「聊点其他的」那张面板。 */
-  storyTitle?: string;
   /** 顶栏右侧的算力余额。由调用方传，外壳不碰 tRPC。 */
   balanceSlot?: ReactNode;
   /** 正文常驻区；加载／空／错误态用 children 兜底 */
@@ -224,17 +221,11 @@ export function MobileWorkspaceFrame({
               : "max-h-16 pt-3 pb-1 opacity-100"
           )}
         >
-          <span
-            aria-label="碎碎念手机工作区"
-            className="font-chat-brand shrink-0 text-xl leading-none text-foreground"
-          >
-            碎碎念
-          </span>
-          {storyTitle ? (
-            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">
-              {storyTitle}
-            </span>
-          ) : null}
+          {/*
+            品牌名和故事名都撤了：微信顶栏已经写着来处，故事名在「聊点其他的」
+            那张菜单里看得到，正文页最该留给正文本身。顶栏只剩余额。
+          */}
+          <span className="min-w-0 flex-1" />
           {/* 钱在两块屏幕上都得一直看得见。由调用方传进来——外壳自己不碰
               tRPC，否则脱离 Provider 单渲（本文件的测试就是）会当场抛错，
               和 element 那个 prop 是同一个道理。 */}
@@ -549,7 +540,7 @@ function MobileSelectedStoryWorkspace({
 }) {
   const story = stories.find(candidate => candidate.id === activeStoryId);
   const { element } = useNayin();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
   const [letterOpen, setLetterOpen] = useState(false);
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
@@ -598,7 +589,6 @@ function MobileSelectedStoryWorkspace({
     <MobileWorkspaceFrame
       activeView={activeView}
       onViewChange={onViewChange}
-      storyTitle={story.title}
       balanceSlot={
         <ComputeBalanceBadge
           compact
@@ -661,42 +651,11 @@ function MobileSelectedStoryWorkspace({
             }}
           />
 
-          <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
-            <DialogContent className="max-w-[calc(100%-1.5rem)] p-5 sm:max-w-sm">
-              <DialogHeader className="text-left">
-                <DialogTitle>我</DialogTitle>
-                <DialogDescription>{user?.email ?? "未登录"}</DialogDescription>
-              </DialogHeader>
-              <ComputeBalanceBadge enabled={Boolean(user?.id)} />
-              <p className="text-sm leading-6 text-muted-foreground">
-                手机上负责聊和改字。新建 Story、素材、分镜和成片留在电脑上。
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11 w-full justify-start"
-                onClick={() => {
-                  setAccountOpen(false);
-                  setLetterOpen(true);
-                }}
-              >
-                <MailOpen aria-hidden="true" />
-                今天的来信
-              </Button>
-              <DialogFooter className="flex-row justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setAccountOpen(false)}
-                >
-                  返回
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => void logout()}>
-                  退出登录
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <MobileAccountPanel
+          open={accountOpen}
+          onOpenChange={setAccountOpen}
+          onOpenLetter={() => setLetterOpen(true)}
+        />
 
           <Dialog
             open={pendingStoryId !== null}

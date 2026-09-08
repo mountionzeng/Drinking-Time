@@ -28,7 +28,6 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="chat"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
         chatView={() => <p>对话内容</p>}
       />
@@ -49,8 +48,7 @@ describe("MobileWorkspace", () => {
         <MobileWorkspaceFrame
           activeView={view}
           onViewChange={vi.fn()}
-          storyTitle="送走小猫后有点想它"
-          documentView={<p>正文内容</p>}
+            documentView={<p>正文内容</p>}
           chatView={() => <p>对话内容</p>}
         />
       );
@@ -68,7 +66,6 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
         overlays={<div>故事菜单在这里</div>}
       />
@@ -85,7 +82,6 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
         chatView={() => <p>对话内容</p>}
       />
@@ -94,7 +90,6 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
         chatView={() => <p>对话内容</p>}
         hasPeekReply
@@ -106,17 +101,18 @@ describe("MobileWorkspace", () => {
     expect(heightOf(withReply)).toBeGreaterThan(heightOf(withoutReply));
   });
 
-  // 顶栏只剩一个只读的故事名；切故事的唯一入口是底部那张面板。
-  it("shows the story title as plain text, not a picker control", () => {
+  // 顶栏不再放品牌名和故事名：微信顶栏已经写着来处，故事名在「聊点其他的」
+  // 那张菜单里看得到，正文页最该留给正文本身。
+  it("keeps the header free of the brand and story name", () => {
     const html = renderToStaticMarkup(
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
         documentView={<p>正文内容</p>}
       />
     );
-    expect(html).toContain("送走小猫后有点想它");
+    expect(html).toContain("正文内容");
+    expect(html).not.toContain("碎碎念");
     expect(html).not.toContain("<select");
   });
 
@@ -125,7 +121,6 @@ describe("MobileWorkspace", () => {
       <MobileWorkspaceFrame
         activeView="document"
         onViewChange={vi.fn()}
-        storyTitle="送走小猫后有点想它"
       >
         <p>加载中</p>
       </MobileWorkspaceFrame>

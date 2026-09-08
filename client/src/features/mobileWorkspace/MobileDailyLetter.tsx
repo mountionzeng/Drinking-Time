@@ -36,6 +36,7 @@ import {
   storiesForDailyLetter,
   type DailyLetterStorySummary,
 } from "@/features/analysis/views/DailyLetterWelcome";
+import { publicDailyLetterForDate } from "@/features/analysis/publicDailyLetter";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import { useNayin } from "@/features/nayin/NayinContext";
 import DailyAtmospherePanel from "@/features/nayin/views/DailyAtmospherePanel";
@@ -125,6 +126,10 @@ export function MobileDailyLetter({
 
   // 接口给的是原始行，字段类型是 unknown。电脑端一律先过 normalize 再用，
   // 这里照做——绕过去用类型断言只会把问题推到运行时。
+  const publicLetter = useMemo(
+    () => publicDailyLetterForDate(today.cstDateStr),
+    [today.cstDateStr]
+  );
   const letters = useMemo(
     () =>
       (lettersQuery.data ?? [])
@@ -252,7 +257,13 @@ export function MobileDailyLetter({
       role="dialog"
       aria-modal="true"
       aria-label="你的每日回信"
-      className="mobile-workspace-page fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-background"
+      // 不要借 .mobile-workspace-page：那是工作区外壳的类，自带一层渐变底
+      // （盖不住下面的内容）和 overflow:hidden（信一长就滚不动）。
+      className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain"
+      style={{
+        background: "var(--background)",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+      }}
     >
       <div className="mx-auto w-full max-w-2xl px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <header
@@ -287,16 +298,57 @@ export function MobileDailyLetter({
             正在把信取出来…
           </p>
         ) : !profile ? (
-          // 建档是一次性动作，这一版没搬到手机上。说清楚去哪儿做，
-          // 而不是给一个转不动的空界面。
-          <div className="py-14 text-center">
-            <p className="text-sm leading-7 text-foreground">
-              还没有建立你的八字档案，所以还写不出来信。
-            </p>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              这一步目前还得在电脑上做一次，之后手机上就能一直读了。
-            </p>
-          </div>
+          // 没有八字也要有信可读。
+          //
+          // 八字只决定「这封信按谁的命盘写」；没有它，当下的时节仍然在，
+          // 用户自己写下的话也仍然在——够写出一封不空洞的信了。把这种情况
+          // 做成一句「去电脑上建档」的挡板，等于因为缺一个可选输入就把整个
+          // 功能关掉。
+          //
+          // 用的是仓库里已经写好的那七封 publicDailyLetter（按星期轮），
+          // 不新造文案。
+          <>
+            <DailyAtmospherePanel
+              today={today}
+              almanac={almanacQuery.data}
+              loading={almanacQuery.isLoading}
+              embedded
+              compact
+            />
+
+            <section aria-label="今天的信" className="py-6">
+              <p className="mb-4 text-[13px] leading-6 text-muted-foreground">
+                {publicLetter.attention}
+              </p>
+              <div className="space-y-4">
+                {publicLetter.paragraphs.map(paragraph => (
+                  <p
+                    key={paragraph}
+                    className="text-[15px] leading-8 text-foreground"
+                  >
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+              <p className="mt-6 text-[11px] leading-5 text-muted-foreground/80">
+                这封信还没结合你的八字。想让它更贴着你写，去「我」里补上出生
+                信息，只填一次。
+              </p>
+            </section>
+
+            <div
+              className="flex justify-end border-t pt-4"
+              style={{ borderColor: "var(--nayin-border)" }}
+            >
+              <button
+                type="button"
+                className="min-h-11 px-2 text-xs text-muted-foreground"
+                onClick={closeLetter}
+              >
+                把信收好，继续聊
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div
