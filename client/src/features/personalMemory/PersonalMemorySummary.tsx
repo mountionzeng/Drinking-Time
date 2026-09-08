@@ -27,7 +27,7 @@ export default function PersonalMemorySummary({
     >
       <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
         <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
-        你的足迹
+        用户信息
       </div>
       <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
         只记录你已发送的原话和明确采用的作品；黄历不会成为长期记忆。
@@ -84,7 +84,7 @@ export default function PersonalMemorySummary({
         className="mt-2 flex min-h-9 w-full items-center justify-between rounded-md px-2 text-left text-xs text-foreground transition-colors hover:bg-[var(--muted)]"
         onClick={openAll}
       >
-        查看全部足迹
+        打开我的日历
         <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
     </section>
