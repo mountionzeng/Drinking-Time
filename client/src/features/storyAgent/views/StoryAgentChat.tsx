@@ -61,6 +61,7 @@ import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatf
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
 import ChatImageRemixTray from "./ChatImageRemixTray";
+import ChatPhotoAssets, { type PhotoAssetRequest } from "./ChatPhotoAssets";
 import AssetSwapProposalCard from "./AssetSwapProposalCard";
 import { useAssetSwapProposal } from "../useAssetSwapProposal";
 import { chatImageRefsStore } from "../chatImageRefsStore";
@@ -90,6 +91,7 @@ import {
   chatMediaKind,
   inferChatMediaMime,
   isImportedImageGenerationRequest,
+  isPhotoAssetRequest,
   extractImportedPhotoFeatures,
   MAX_CHAT_MEDIA_ATTACHMENTS,
   readChatMediaBase64,
@@ -327,6 +329,7 @@ export default function StoryAgentChat({
   );
   const { element } = useNayin();
   const [input, setInput] = useState("");
+  const [photoAssetRequest, setPhotoAssetRequest] = useState<PhotoAssetRequest | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
   const [isMediaDragActive, setIsMediaDragActive] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
@@ -691,6 +694,7 @@ export default function StoryAgentChat({
     pendingIntentDraft,
     materialAdvices,
     mediaProgress,
+    photoAssetRequest,
   ]);
 
   const handleSubmit = async () => {
@@ -719,6 +723,17 @@ export default function StoryAgentChat({
     if (selectionRoute.kind === "blocked") {
       toast.error(selectionRoute.reason);
       if (selectionRoute.clearSelection) clearSelection();
+      return;
+    }
+
+    if (selectionRoute.kind === "ordinary-chat" && isPhotoAssetRequest(text) && creationEditor?.activeStoryId) {
+      setPhotoAssetRequest({
+        storyId: creationEditor.activeStoryId,
+        instruction: text,
+        notice: "请在下方展开对应资产，核对照片特征后确认生成费用；没有照片时，先用聊天框添加照片。",
+      });
+      setInput("");
+      resizeAndFocusInput();
       return;
     }
 
@@ -920,6 +935,13 @@ export default function StoryAgentChat({
               `正在提取人物、宠物、场景和物体特征 ${completed} / ${total}`
             ),
         });
+        setPhotoAssetRequest({
+          storyId,
+          instruction: isPhotoAssetRequest(text) ? text : "",
+          notice: extraction.createdKinds.length
+            ? "照片已入库，识别结果是待检查版本。展开对应资产核对特征，再确认艺术化要求和生成费用。"
+            : "照片已保留，暂未提取出完整的主体特征。可在下方建立资产并选择原图重试，或补充更清晰的照片。",
+        });
         if (extraction.createdKinds.length > 0) {
           const labels = [
             extraction.createdKinds.includes("character") ? "人物" : "",
@@ -935,6 +957,12 @@ export default function StoryAgentChat({
             `${extraction.failures.slice(0, 2).join("；")}。图片已保留在素材库，可稍后重试。`
           );
         }
+      }
+
+      if (isPhotoAssetRequest(text) && imported.some(item => item.kind === "image")) {
+        setInput("");
+        resizeAndFocusInput();
+        return;
       }
 
       if (isImportedImageGenerationRequest({ instruction: text, imported })) {
@@ -1615,6 +1643,14 @@ export default function StoryAgentChat({
           </motion.div>
         )}
 
+        {interactionMode === "story" && creationEditor?.activeStoryId ? (
+          <ChatPhotoAssets
+            key={creationEditor.activeStoryId}
+            storyId={creationEditor.activeStoryId}
+            materialState={creationEditor.materialState}
+            request={photoAssetRequest?.storyId === creationEditor.activeStoryId ? photoAssetRequest : null}
+          />
+        ) : null}
         {isReplying && (
           <motion.div
             initial={{ opacity: 0 }}

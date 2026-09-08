@@ -73,6 +73,13 @@ const draftVersion = {
 };
 
 describe("VisualAssetLibrary", () => {
+  it("discloses the fifth paid pet top view as an artistic inference", () => {
+    const message = visualAssetBoardConfirmationMessage("pet", { candidateCount: 5, estimatedCny: 7.45 });
+    expect(message).toContain("分 5 次");
+    expect(message).toContain("补充顶视图");
+    expect(message).toContain("艺术推演");
+    expect(message).toContain("¥7.45");
+  });
   it("describes all four paid character views before confirmation", () => {
     const message = visualAssetBoardConfirmationMessage("character", {
       candidateCount: 4,

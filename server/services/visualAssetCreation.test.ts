@@ -82,6 +82,133 @@ describe("visual asset creation", () => {
     db.resetMemoryStateForTesting();
   });
 
+  async function petGeneration() {
+    const seed = await seedDraft("pet");
+    await persistence.saveVisualAssetVersionAnalysis({
+      storyId: seed.story.id, userId: 71, expectedRevision: 2,
+      operationToken: "pet-facts", assetId: seed.asset.id, versionId: seed.version.id,
+      fixedFacts: { kind: "pet", species: "猫", face: "圆脸、绿眼", coat: "橘色条纹",
+        body: "小体型、长尾", distinctiveFeatures: ["白色前爪"], accessories: [] },
+      allowedVariations: ["媒介", "动作"], conflicts: [], views: [],
+    });
+    const edit = vi.fn(async (_image: string, _prompt: string, _options: unknown) => ({
+      status: "ok" as const, imageUrl: seed.image.imageUrl!,
+    }));
+    const inspectStructure = vi.fn(async () => ({
+      verdict: "pass" as const, reason: "四个标准视图通过", modelLabel: "test",
+      confidence: 1, checks: [],
+    }));
+    const dependencies = {
+      materialize: async (value: string) => value,
+      edit: edit as never,
+      resume: vi.fn(async () => { throw new Error("unexpected resume"); }),
+      inspectStructure: inspectStructure as never,
+      storeBytes: async (bytes: ArrayBuffer | Uint8Array) => ({
+        status: "ok" as const, imageUrl: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
+      }),
+      now: () => 100,
+    };
+    const input = { storyId: seed.story.id, userId: 71, assetId: seed.asset.id,
+      versionId: seed.version.id, instruction: "朦胧彩铅，保留橘色条纹", dependencies };
+    return { ...seed, input, edit, inspectStructure };
+  }
+
+  it("quotes and persists five pet views while the identity board stays four-wide", async () => {
+    const { input, edit, inspectStructure } = await petGeneration();
+    const normal = await creation.quoteVisualAssetCanonicalBoard(input);
+    const fullInput = { ...input, includeTopView: true };
+    const quote = await creation.quoteVisualAssetCanonicalBoard(fullInput);
+    expect(normal.candidateCount).toBe(4);
+    expect(quote.candidateCount).toBe(5);
+    expect(quote.estimatedCny).toBeCloseTo(normal.estimatedCny * 5 / 4);
+    expect(quote.inputHash).not.toBe(normal.inputHash);
+    const mismatch = await creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, confirmation: normal, operationToken: "pet-five",
+    });
+    expect(mismatch.status).toBe("confirmation_required");
+    expect(edit).not.toHaveBeenCalled();
+    const result = await creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, confirmation: quote, operationToken: "pet-five",
+    });
+    expect(result.status).toBe("ok");
+    expect(edit).toHaveBeenCalledTimes(5);
+    const topPrompt = edit.mock.calls[4]![1];
+    expect(topPrompt).toContain("严格正交顶视");
+    expect(topPrompt).toContain("朦胧彩铅");
+    expect(topPrompt).toContain("不是实测三维重建");
+    expect(topPrompt).not.toContain("墙的围合形状");
+    const inspection = inspectStructure.mock.calls[0]![0] as unknown as { boardImageUrl: string };
+    const pixels = Buffer.from(inspection.boardImageUrl.split(",")[1]!, "base64");
+    const meta = await sharp(pixels).metadata();
+    expect(meta.width).toBe(meta.height! * 4);
+    const saved = await persistence.getStoryVisualAssets(input);
+    const version = saved.aggregate.assets[0]!.versions[0]!;
+    expect(version.views.map(view => view.role)).toEqual(["front", "profile", "back", "identity-detail", "top"]);
+    expect(version.views[4]).toMatchObject({ status: "unknown", failureReason: expect.stringContaining("艺术推演") });
+    expect(isVisualAssetVersionLockable("pet", version)).toBe(true);
+    expect(saved.aggregate.bindings).toHaveLength(0);
+    await creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, confirmation: quote, operationToken: "pet-five",
+    });
+    expect(edit).toHaveBeenCalledTimes(5);
+    await expect(creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, instruction: "油画", confirmation: quote, operationToken: "pet-five",
+    })).rejects.toThrow("回执");
+
+    const oneQuote = await creation.quoteVisualAssetView({ ...input, role: "front" });
+    await creation.regenerateVisualAssetView({
+      ...input, role: "front", confirmation: oneQuote, operationToken: "pet-front",
+    });
+    const after = await persistence.getStoryVisualAssets(input);
+    expect(after.aggregate.assets[0]!.versions[0]!.views.find(view => view.role === "top"))
+      .toEqual(version.views[4]);
+    expect(edit).toHaveBeenCalledTimes(6);
+  });
+
+  it("can add a top view to an existing pet board for one image price and never buys missing baseline views", async () => {
+    const { input, edit } = await petGeneration();
+    const earlyQuote = await creation.quoteVisualAssetView({ ...input, role: "front" });
+    const early = await creation.regenerateVisualAssetView({
+      ...input, role: "front", confirmation: earlyQuote, operationToken: "too-early",
+    });
+    expect(early.status).toBe("error");
+    expect(edit).not.toHaveBeenCalled();
+    const quote = await creation.quoteVisualAssetCanonicalBoard(input);
+    await creation.generateVisualAssetCanonicalBoard({ ...input, confirmation: quote, operationToken: "four" });
+    const topQuote = await creation.quoteVisualAssetView({ ...input, role: "top" });
+    expect(topQuote.candidateCount).toBe(1);
+    expect(topQuote.estimatedCny).toBeCloseTo(quote.estimatedCny / 4);
+    const mismatch = await creation.regenerateVisualAssetView({
+      ...input, instruction: "新的画风", role: "top", confirmation: topQuote, operationToken: "top",
+    });
+    expect(mismatch.status).toBe("confirmation_required");
+    expect(edit).toHaveBeenCalledTimes(4);
+    await creation.regenerateVisualAssetView({ ...input, role: "top", confirmation: topQuote, operationToken: "top" });
+    expect(edit).toHaveBeenCalledTimes(5);
+    const saved = await persistence.getStoryVisualAssets(input);
+    expect(saved.aggregate.assets[0]!.versions[0]!.views).toHaveLength(5);
+    await expect(creation.quoteVisualAssetCanonicalBoard({ ...input, userId: 999 }))
+      .rejects.toThrow();
+  });
+
+  it("does not repurchase four completed views when the pet top submission is uncertain", async () => {
+    const { input, edit } = await petGeneration();
+    edit.mockImplementation(async (_image, prompt) => prompt.includes("严格正交顶视")
+      ? { status: "error", message: "submission uncertain", submissionUncertain: true } as never
+      : { status: "ok", imageUrl: _image });
+    const fullInput = { ...input, includeTopView: true };
+    const quote = await creation.quoteVisualAssetCanonicalBoard(fullInput);
+    const first = await creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, confirmation: quote, operationToken: "uncertain-top",
+    });
+    expect(first.status).toBe("error");
+    const second = await creation.generateVisualAssetCanonicalBoard({
+      ...fullInput, confirmation: quote, operationToken: "uncertain-top",
+    });
+    expect(second).toMatchObject({ status: "error", error: expect.stringContaining("不会自动重复购买") });
+    expect(edit).toHaveBeenCalledTimes(5);
+  });
+
   it("extracts character, pet, scene, and object facts from one photo with one vision call", async () => {
     const referenceBytes = await sharp({
       create: {
