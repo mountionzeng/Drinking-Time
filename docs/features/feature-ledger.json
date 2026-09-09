@@ -287,7 +287,8 @@
         "server/services/storyMaterials.ts",
         "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
         "server/services/imageGen.ts",
-        "shared/shotImageRender.ts"
+        "shared/shotImageRender.ts",
+        "client/src/features/storyAgent/views/useShotImageRender.tsx"
       ],
       "evidence": [
         "client/src/features/creationEditor/rerender.test.ts",
@@ -353,7 +354,7 @@
         {
           "date": "2026-09-09",
           "kind": "refactor",
-          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。"
+          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。 最终整合后4408项全量测试、类型、构建和架构门槛通过；主仓库3000完成改4张/¥5.96报价取消、删猫刷新不继承、图库重新选猫与恢复1张的无付费验收。窄列按钮自动两行避免拥挤。"
         }
       ]
     },
@@ -2266,7 +2267,8 @@
         "server/services/visualAssetBoardStructure.ts",
         "server/services/imageGen.ts",
         "server/services/publicReferenceHost.ts",
-        "shared/shotImageRender.ts"
+        "shared/shotImageRender.ts",
+        "client/src/features/storyAgent/views/useShotImageRender.tsx"
       ],
       "evidence": [
         "shared/photoExtraction.test.ts",
@@ -2547,7 +2549,7 @@
         {
           "date": "2026-09-09",
           "kind": "refactor",
-          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。"
+          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。 最终整合后4408项全量测试、类型、构建和架构门槛通过；主仓库3000完成改4张/¥5.96报价取消、删猫刷新不继承、图库重新选猫与恢复1张的无付费验收。窄列按钮自动两行避免拥挤。"
         }
       ]
     },
