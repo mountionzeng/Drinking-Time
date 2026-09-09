@@ -1,4 +1,5 @@
 import type { Story } from "../../drizzle/schema";
+import { normalizePublishingAlbumTypographyLayout } from "../../shared/publishingAlbum";
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
@@ -7,6 +8,7 @@ import {
   type StoryMaterialState,
   type StoryTimelineAnchor,
   type StoryTimelineImageClip,
+  type StoryTimelineImageTextOverlay,
   type StoryTimelinePrimaryVideoEdit,
   type StoryTimelineItem,
   type StoryTimelineOverlay,
@@ -357,6 +359,55 @@ function transform(value: unknown): TimelineTransform {
   };
 }
 
+function imageTransforms(value: unknown): StoryTimelineItem["imageTransforms"] {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const result: Record<string, TimelineTransform> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (
+      !/^[1-9]\d*$/.test(key) ||
+      positiveImageId(Number(key)) == null ||
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry)
+    )
+      continue;
+    result[key] = transform(entry);
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+function imageTextOverlays(
+  value: unknown
+): StoryTimelineItem["imageTextOverlays"] {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const result: Record<string, StoryTimelineImageTextOverlay> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (
+      !/^[1-9]\d*$/.test(key) ||
+      positiveImageId(Number(key)) == null ||
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry)
+    )
+      continue;
+    const overlay = entry as Record<string, unknown>;
+    const typography = normalizePublishingAlbumTypographyLayout(
+      overlay.typography
+    );
+    if (
+      typeof overlay.text !== "string" ||
+      !overlay.text.trim() ||
+      overlay.text.length > 2000 ||
+      !typography
+    )
+      continue;
+    result[key] = { text: overlay.text, typography };
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
 function videoEffects(value: unknown): TimelineVideoEffects {
   const record =
     value && typeof value === "object" && !Array.isArray(value)
@@ -674,6 +725,8 @@ export function normalizeTimelineItems(
       primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),
       visualClips: visualClips(item.visualClips),
       imageClips: timelineImageClips(item.imageClips),
+      imageTransforms: imageTransforms(item.imageTransforms),
+      imageTextOverlays: imageTextOverlays(item.imageTextOverlays),
       visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
     } satisfies StoryTimelineItem;
   });

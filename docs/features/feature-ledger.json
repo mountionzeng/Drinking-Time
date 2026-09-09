@@ -2183,7 +2183,8 @@
         "client/src/features/publishingAlbum/publishingAlbumExport.ts",
         "client/src/features/publishingAlbum/PublishingAlbumTextLayer.tsx",
         "client/src/features/publishingAlbum/TypographyAppearanceControls.tsx",
-        "client/src/features/creationEditor/views/ImageSubtitleOverlay.tsx"
+        "client/src/features/creationEditor/views/ImageSubtitleOverlay.tsx",
+        "server/services/storyMaterials.ts"
       ],
       "evidence": [
         "shared/publishingAlbum.test.ts",
@@ -2202,7 +2203,8 @@
         "scripts/verify-publishing-album-fonts.test.ts",
         "command:pnpm fonts:verify:album",
         "client/src/features/publishingAlbum/subtitleLayoutRoundtrip.test.ts",
-        "docs/qa/image-subtitle-layer-2026-09-09.md"
+        "docs/qa/image-subtitle-layer-2026-09-09.md",
+        "server/services/imageSubtitleReadback.test.ts"
       ],
       "invariants": [
         "画册 aggregate 按发布版本隔离，不能创建或修改 Story shots、timeline、activeVideoStoryboardVersionId 或 videoStoryboard。",
@@ -2260,6 +2262,11 @@
           "date": "2026-09-09",
           "kind": "fix",
           "summary": "按用户要求将Preview“构图与文字”改为“字幕”，直接进入已有独立图片文字层。首次带入当前台词并自动排版；手绘走向、横竖排、字号/字间距/行间距、字体、字色/描边在同一编辑器可见，一次保存即按exact imageId落库。文字变化不再重置未保存路径。抽取共享SVG字形层并补齐主Preview显示；重新准备排版/PNG时遵守已保存字号、间距及对比度，竖排也消费间距参数。保留构图、OCR、原图和正式时间字幕轨。149项相关测试通过。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "主仓真实绘制/保存/刷新验收发现既有时间线读取投影漏掉 imageTextOverlays 和 imageTransforms；补齐按图片ID校验的投影，复用现有排版/构图归一化，保留文字及路径样式。新增真实保存命令→素材读取→再次修改/删除及畸形数据隔离回归，4文件102项通过；原有测试只检查原始时间线落库，未覆盖素材回读。"
         }
       ]
     },

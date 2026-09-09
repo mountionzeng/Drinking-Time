@@ -9,3 +9,5 @@
 验证：15文件149项测试通过（包括模型、几何/字形、SVG/PNG、样式保存恢复、原图精确更新与架构），类型检查/构建通过；主仓浏览器验证待补记。
 
 限制：本轮没有接入成片视频导出的imageTextOverlays；只有正式时间字幕轨已有成片导出。这里完成的是图片字幕编辑、保存与Preview显示。
+
+主仓首次实测发现读取缺口：保存成功后 getStoryMaterialState 的 normalizeTimelineItems 未输出 imageTextOverlays / imageTransforms，导致 Preview 与刷新重开丢失表现。独立 codex/subtitle-readback 补齐投影；先复现2项失败，再完成4文件102项通过，包含真实保存→素材读取→再次编辑→删除→保留其他图片的完整链路。
