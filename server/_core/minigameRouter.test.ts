@@ -51,6 +51,39 @@ async function emailLogin() {
   expect(res.headers.get('cache-control')).toBe('no-store');
   return (await res.json()).token as string;
 }
+it('WeChat login needs no email; optional email link exchanges the session for access to the old stories', async () => {
+  const calls: unknown[] = [];
+  deps.requestLinkEmailOtp = async (user, email) => { calls.push([user.id, email]); return 'sent'; };
+  deps.linkEmail = async (user, input) => {
+    calls.push([user.id, input]); return { outcome: 'linked', userId: 7 };
+  };
+  const { token: wechatToken } = await (await request('/login/wechat', { code: 'valid-code' })).json();
+  expect((await request('/stories', undefined, wechatToken)).status).toBe(200);
+  expect(calls).toEqual([]);
+  expect((await request('/bind/email/otp/request', { email: 'old@example.com', confirm: true }, wechatToken)).status).toBe(200);
+  const input = { email: 'old@example.com', otp: '123456', code: 'fresh-code', confirm: true };
+  expect((await request('/bind/email', input)).status).toBe(401);
+  expect((await request('/bind/email', { ...input, confirm: false }, wechatToken)).status).toBe(400);
+  const response = await request('/bind/email', { ...input, userId: 555 }, wechatToken);
+  expect(response.status).toBe(200);
+  const { token } = await response.json();
+  expect((await request('/stories/41', undefined, token)).status).toBe(200);
+  expect(calls).toEqual([[9, 'old@example.com'], [9, { email: 'old@example.com', otp: '123456', code: 'fresh-code' }]]);
+});
+it('email link reports a data conflict without replacing the current session', async () => {
+  deps.linkEmail = async () => ({ outcome: 'source_has_data' });
+  const { token } = await (await request('/login/wechat', { code: 'valid-code' })).json();
+  const response = await request('/bind/email', { email: 'old@example.com', otp: '123456', code: 'fresh-code', confirm: true }, token);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({ error: 'source_has_data' });
+  expect((await request('/stories', undefined, token)).status).toBe(200);
+});
+it('email association defaults closed without affecting independent WeChat login', async () => {
+  const { token } = await (await request('/login/wechat', { code: 'valid-code' })).json();
+  expect((await request('/bind/email/otp/request', { email: 'old@example.com', confirm: true }, token)).status).toBe(503);
+  expect((await request('/bind/email', { email: 'old@example.com', otp: '123456', code: 'fresh-code', confirm: true }, token)).status).toBe(503);
+  expect((await request('/stories', undefined, token)).status).toBe(200);
+});
 it('email-only rollout reads old stories while refusing both WeChat operations', async () => {
   deps.wechatEnabled = false;
   const token = await emailLogin();

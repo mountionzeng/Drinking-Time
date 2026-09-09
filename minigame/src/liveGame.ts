@@ -1,4 +1,5 @@
 import { createLiveClient, type LiveState } from "./liveClient";
+import { classifyRequestFailure } from "./requestFailure";
 import { createWorkspaceClient, workspaceError } from "./workspaceClient";
 import { renderWorkspace, type WorkspaceView, type Hit } from "./workspaceView";
 import {
@@ -34,6 +35,8 @@ let email = "",
     null,
   authPending = false,
   lifecycle = 0;
+let showEmailLogin = !__WECHAT_ENABLED__;
+let linkEmail = '', linkOtp = '';
 let extraInput: ((value: string) => void) | null = null;
 let activeScope = "";
 let hits: Hit[] = [];
@@ -84,7 +87,7 @@ const auth = createLiveClient(
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         success: (r: any) => resolve({ status: r.statusCode, data: r.data }),
-        fail: () => reject(new Error("network_error")),
+        fail: (error: unknown) => reject(new Error(classifyRequestFailure(error))),
       });
     }),
   next => {
@@ -98,6 +101,10 @@ const auth = createLiveClient(
       extraInput = null;
       editing = null;
       password = "";
+      code = '';
+      linkEmail = '';
+      linkOtp = '';
+      showEmailLogin = !__WECHAT_ENABLED__;
       view.screen = "workspace";
       view.stop = "peek";
     }
@@ -147,7 +154,7 @@ function draw() {
   const balance = accountWorkspace.getState().balance;
   view.balanceText = balance ? formatCny(balance.availableMinor) : "余额未读取";
   if (authState.authenticated) {
-    if (["account", "letter", "letterEdit"].includes(view.screen)) {
+    if (["account", "letter", "letterEdit", "linkEmail"].includes(view.screen)) {
       layout = renderAccount(
         ctx,
         width,
@@ -155,7 +162,8 @@ function draw() {
         accountWorkspace.getState(),
         view,
         workspace.getState().account?.email ?? "",
-        view.screen as "account" | "letter" | "letterEdit"
+        view.screen as "account" | "letter" | "letterEdit" | 'linkEmail',
+        { email: linkEmail, otp: linkOtp, busy: authState.busy || authPending, message: authState.error }
       );
       hits = layout.hits;
       return;
@@ -204,6 +212,18 @@ function draw() {
     ctx.drawImage(view.character, width / 2 - 38, top, 76, 84);
   label("碎碎念", width / 2 - 42, top + 116, 28, view.accent, view.font);
   label("把故事接着说下去", width / 2 - 64, top + 149, 15, "#6b635b");
+  if (!showEmailLogin && __WECHAT_ENABLED__) {
+    button(authPending || authState.busy ? '正在登录…' : '微信登录', top + 184, 'wechat', true);
+    button('其他方式：邮箱登录', top + 242, 'showEmailLogin');
+    label('先用微信，关联其他账号由你决定。', 24, top + 320, 14, '#6b635b');
+    if (authState.error) {
+      // Wrap instead of hiding the useful half of the server's error.
+      const count = Math.max(1, Math.floor((width - 48) / 13));
+      for (let i = 0; i < authState.error.length; i += count)
+        label(authState.error.slice(i, i + count), 24, top + 365 + Math.floor(i / count) * 22, 13, '#9b493e');
+    }
+    return;
+  }
   button(
     email ? `邮箱：${email.slice(0, 25)}` : "填写邮箱",
     top + 184,
@@ -227,7 +247,7 @@ function draw() {
     top + 366,
     "emailMode"
   );
-  if (__WECHAT_ENABLED__) button("微信登录", top + 424, "wechat");
+  if (__WECHAT_ENABLED__) button("返回微信登录", top + 424, "showWechatLogin");
   else label("微信登录待服务端配置完成后开放", 24, top + 449, 13, "#6b635b");
   label("绑定后，邮箱与微信共用同一份故事。", 24, top + 492, 12, "#6b635b");
   if (authState.error)
@@ -370,6 +390,12 @@ async function action(command: string) {
   }
   if (authState.busy || authPending || state.busy) return;
   if (accountWorkspace.getState().busy) return;
+  if (command === 'showEmailLogin' || command === 'showWechatLogin') {
+    showEmailLogin = command === 'showEmailLogin'; draw(); return;
+  }
+  if (command === 'linkEmail') {
+    view.screen = 'linkEmail'; view.offset = 0; draw(); return;
+  }
   if (command === "account") {
     view.screen = "account";
     view.offset = 0;
@@ -416,6 +442,37 @@ async function action(command: string) {
       },
     });
   };
+  if (command === 'linkEmailInput' || command === 'linkEmailOtp') {
+    const fieldEmail = command === 'linkEmailInput';
+    extraKeyboard(fieldEmail ? linkEmail : linkOtp, fieldEmail ? 320 : 6, value => {
+      if (fieldEmail) { linkEmail = value; linkOtp = ''; } else linkOtp = value;
+    });
+    return;
+  }
+  if (command === 'linkEmailSend') {
+    if (!/^\S+@\S+\.\S+$/.test(linkEmail.trim())) { toast('请填写有效邮箱'); return; }
+    await auth.requestLinkEmailOtp(linkEmail.trim()); return;
+  }
+  if (command === 'linkEmailConfirm') {
+    if (!/^\S+@\S+\.\S+$/.test(linkEmail.trim()) || !/^\d{6}$/.test(linkOtp)) {
+      toast('请填写邮箱和六位验证码'); return;
+    }
+    if (workspace.hasUnsavedChanges() || state.chatDraft.trim() ||
+      (!accountWorkspace.getState().profile && Object.values(accountWorkspace.getState().fields).some(value => value.trim()))) {
+      toast('当前还有未保存内容，请先处理，关联不会丢弃草稿。'); return;
+    }
+    if (!await confirm('确认关联邮箱', `将当前微信与 ${linkEmail.trim()} 关联。已有账号的故事和余额会保留；两边都有内容时暂停，不自动合并。`)) return;
+    const expected = lifecycle, address = linkEmail.trim(), otp = linkOtp;
+    authPending = true; draw();
+    try {
+      const freshCode = await new Promise<string>((resolve, reject) => wx.login({ timeout: 10000,
+        success: (r: any) => r.code ? resolve(r.code) : reject(new Error()), fail: reject }));
+      if (expected !== lifecycle) return;
+      if (await auth.linkEmail(address, otp, freshCode)) toast('关联成功，下次仍可直接微信登录。');
+    } catch { toast('微信验证暂未成功，请重试。'); }
+    finally { authPending = false; linkOtp = ''; draw(); }
+    return;
+  }
   if (command.startsWith("field:")) {
     const field = command.slice(6) as keyof BirthFields;
     if (

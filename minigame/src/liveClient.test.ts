@@ -53,3 +53,31 @@ it('preserves the current account and story list when binding requires a merge',
   expect(client.getState().stories).toHaveLength(1);
   expect(client.getState().error).toContain('暂不能自动合并');
 });
+it('optional email linking replaces the session, clears old state before loading and invalidates late workspace responses', async () => {
+  let complete!: (r: { status: number; data: unknown }) => void;
+  const states: boolean[] = [];
+  const request = vi.fn<GameRequest>(async (path, method, data, token) => {
+    if (path === '/workspace/account.balance') return new Promise(resolve => { complete = resolve; });
+    if (path === '/bind/email') return { status: 200, data: { token: 'linked-token', expiresIn: 3600 } };
+    return success(path, method, data, token);
+  });
+  const client = createLiveClient(request, state => { states.push(state.authenticated); });
+  await client.loginWechat('wx-code');
+  const late = client.workspace('account.balance').catch(error => error.message);
+  states.length = 0;
+  expect(await client.linkEmail('old@example.com', '123456', 'fresh-code')).toBe(true);
+  expect(states).toContain(false);
+  expect(client.getState().authenticated).toBe(true);
+  expect(request).toHaveBeenCalledWith('/stories', 'GET', undefined, 'linked-token');
+  complete({ status: 200, data: { result: { privateBalance: 500 } } });
+  expect(await late).toBe('stale');
+});
+it('binding error or HTML fallback keeps the current WeChat session and exposes no old email content', async () => {
+  for (const response of [{ status: 409, data: { error: 'source_has_data' } }, { status: 200, data: '<html>fallback</html>' }]) {
+    const client = createLiveClient(async (path, ...args) => path === '/bind/email' ? response : success(path, ...args), () => {});
+    await client.loginWechat('wx-code');
+    expect(await client.linkEmail('old@example.com', '123456', 'fresh-code')).toBe(false);
+    expect(client.getState().authenticated).toBe(true);
+    expect(client.getState().error).not.toBe('');
+  }
+});

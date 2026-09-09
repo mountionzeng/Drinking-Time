@@ -5,6 +5,7 @@ export type GameScreen =
   | "workspace"
   | "stories"
   | "account"
+  | "linkEmail"
   | "conflict"
   | "letter"
   | "letterEdit";
@@ -218,6 +219,15 @@ export function renderWorkspace(
     button("退出登录", 20, top + 344, w - 40, "logout");
   } else if (!state.storyId) {
     text("碎碎念", 20, top + 28, 25, ink, true);
+    button(
+      "我",
+      w - 84,
+      top,
+      64,
+      "account",
+      false,
+      Boolean(state.account) && !state.busy
+    );
     text(state.busy ? "正在打开你的工作区…" : "还没有故事", 24, h * 0.4, 22);
     button(
       state.account ? "新建一个故事" : "重新连接",
@@ -425,18 +435,22 @@ export function renderWorkspace(
         text("恢复回答", w - 94, inputY - 16, 12, view.accent);
       }
     }
-    box(16, inputY, w - 92, 46, "#eee8df");
-    text(
-      clipText(
-        state.chatDraft || "继续聊聊…",
-        Math.max(6, Math.floor((w - 115) / 15))
-      ),
-      27,
-      inputY + 29,
-      15,
-      muted
-    );
-    hits.push({ x: 16, y: inputY, w: w - 92, h: 46, action: "chatInput" });
+    // wx.showKeyboard owns the native text field while visible. Keep only one
+    // input on screen; the draft remains in state and returns when it closes.
+    if (view.keyboardHeight <= 0) {
+      box(16, inputY, w - 92, 46, "#eee8df");
+      text(
+        clipText(
+          state.chatDraft || "继续聊聊…",
+          Math.max(6, Math.floor((w - 115) / 15))
+        ),
+        27,
+        inputY + 29,
+        15,
+        muted
+      );
+      hits.push({ x: 16, y: inputY, w: w - 92, h: 46, action: "chatInput" });
+    }
     button(
       "发送",
       w - 68,

@@ -9,7 +9,8 @@ export function renderAccount(
   state: AccountWorkspaceState,
   view: WorkspaceView,
   email: string,
-  screen: "account" | "letter" | "letterEdit"
+  screen: "account" | "letter" | "letterEdit" | "linkEmail",
+  link = { email: '', otp: '', busy: false, message: '' }
 ) {
   const hits: Hit[] = [],
     paper = "#faf7f1",
@@ -54,8 +55,21 @@ export function renderAccount(
     button(label, y, command);
     y += 58;
   };
-  if (screen === "account") {
+  if (screen === 'linkEmail') {
+    para('关联邮箱或已有账号', 22);
+    para('不关联也能继续使用微信账号。', 14, muted);
+    action(link.email ? `邮箱：${link.email}` : '填写要关联的邮箱', 'linkEmailInput');
+    action(link.busy ? '请稍候…' : '发送关联验证码', 'linkEmailSend');
+    action(link.otp ? '验证码：已填写' : '填写六位验证码', 'linkEmailOtp');
+    action(link.busy ? '正在处理…' : '验证并关联', 'linkEmailConfirm');
+    para('已有邮箱账号的故事与余额会保留；当前微信账号已有内容时暂停关联，不自动合并。', 13, muted);
+    if (link.message) para(link.message, 14, '#9b493e');
+  } else if (screen === "account") {
     para(email || "微信账号", 14, muted);
+    if (!email && view.wechat) {
+      action('关联邮箱 / 已有账号', 'linkEmail');
+      para('可选，不影响当前微信账号的使用。', 13, muted);
+    }
     para("还剩多少", 20);
     para(
       state.balance
@@ -82,7 +96,7 @@ export function renderAccount(
       action(`${label}：${state.fields[key] || hint}`, `field:${key}`);
     }
     action(state.busy ? "正在保存…" : "保存出生信息", "saveProfile");
-    action(view.wechat ? "关联当前微信" : "微信关联待服务端配置", "bind");
+    if (email) action(view.wechat ? "关联当前微信" : "微信关联待服务端配置", "bind");
     action("退出登录", "logout");
   } else {
     const letter = state.letters.find(l => l.letterDate === state.date);
@@ -129,7 +143,7 @@ export function renderAccount(
   }
   ctx.fillStyle = paper;
   ctx.fillRect(0, 0, w, top + 53);
-  text(screen === "account" ? "我" : "你的每日回信", 20, top + 28, 23);
+  text(screen === "account" ? "我" : screen === 'linkEmail' ? '关联账号' : "你的每日回信", 20, top + 28, 23);
   text("返回", w - 64, top + 28, 15, view.accent);
   hits.push({
     x: w - 84,
@@ -139,7 +153,7 @@ export function renderAccount(
     action:
       screen === "letterEdit"
         ? "letter"
-        : screen === "letter"
+        : screen === "letter" || screen === 'linkEmail'
           ? "account"
           : "back",
   });

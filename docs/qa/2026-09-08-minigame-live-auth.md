@@ -4,6 +4,15 @@
 
 ## 2026-09-09 13:30 预览交付
 
+### 后续：用户报告手机扫码持续加载，Intl 兼容修复
+
+- 用户报告旧码扫码无画面。尚无真机日志；已在构建产物中确定复现一个首屏阻断：缺少Intl→createAccountWorkspace初始化date→getTodayNayin→getCstDate抛错→size/draw及事件注册尚未完成。不能据此断言是真机故障唯一原因。
+- 原测试VM默认继承Node的Intl，模拟器也具备该接口，因而漏测。去掉其他浏览器全局的对照仍通过，去掉Intl时立即失败；新增6项无Intl/无formatToParts测试均先失败。用户选择修复并重新生成测试码。
+- getCstDate与currentChinaShichen仅在缺少Intl能力时以UTC毫秒偏移8小时再取UTC字段；保留正常Web的Asia/Shanghai路径及原纳音规则。不改账号/故事/服务端配置。现代CST回退用于当前日期，不声称无Intl运行时支持历史夏令时。
+- 修复后6项全绿，含年/月/闰日/午夜边界、60天完整纳音周期与Web逐项相等、48个小时边界；专项共44项，加原时辰/日展示6项通过。live构建在有/无Intl两种VM环境均完成首屏及故事读写冒烟，且断言首屏前无网络请求。根和小游戏独立类型检查通过，主线程逐行自审（非独立审计），未重跑全量。
+- 修复game.js SHA256：`3328a277bb3e58c23485f1d4c6c6e881213048ad5e7078c848e0f34dabfb540d`。新预览上传与真机结果另行记录；不复用旧二维码称已修复。
+- 13:40修复包CLI预览成功，621.6KB（636524字节），二维码实际文件 `/private/tmp/dk-minigame-intl-fix-20260909.png` 已查看并交付，info文件同名.json。不提审/发布、不部署后端；等用户真机确认是否出现登录页。
+
 - 用户明确批准将本次包上传到 `wxd6aeb0bc3a031d39`，仅预览，不提审/正式发布。以 `c6de6fb` 构建 `--live --wechat` 并通过替身冒烟；game.js SHA256 `9e2b6fff301cff00a554087bf96986f645399c465a1aa6272399c739c236f5bd`。
 - `/Applications` 中 CLI 初始化路径不匹配；当前运行的官方工具来自 `/Volumes/微信开发者工具 Stable ARM64`。通过工具导入既有项目，AppID/小游戏模式/dist目录核对一致。CLI请求等待期间未产出文件，停止该命令后使用工具界面“预览”完成上传。
 - UI明确显示“上传代码完成”，代码包620.8KB，二维码有效至9月9日13:55；已在会话及开发者工具展示。没有声称 `/private/tmp/dk-minigame-workspace-wechat-20260909.png` 已生成，该CLI路径实际无文件。公共及本机私有设置的urlCheck均为true。

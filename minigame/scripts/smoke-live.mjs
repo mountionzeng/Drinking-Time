@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const handlers={},storage=new Map(),calls=[];
+const emailLink = process.argv.includes('--email-link');
+let linked = !emailLink;
 let labels=[],body='来自原账号的正文',revision=1,messages=[],turn;
 const ctx={save(){},restore(){},rect(){},clip(){},scale(){},fillRect(x,y,w,h){if(x===0&&y===0&&h>=844)labels=[];},fillText(value,x,y){labels.push({value,x,y});},measureText(value){return{width:[...value].length*9};},beginPath(){},moveTo(){},lineTo(){},quadraticCurveTo(){},fill(){},stroke(){},drawImage(){}};
 const document=()=>({storyId:41,storyRevision:1,versionId:'v1',platform:'xiaohongshu',body,bodyRevision:revision,draftRevision:1,versionRevision:1,containerRevision:1,publishingRevision:1,updatedAt:1});
@@ -14,15 +16,20 @@ const wx={
     if(path.endsWith('/login/email')){assert.equal(options.data.email,'old@example.com');assert.equal(options.data.password,'test-password');data={token:'test-game-token',expiresIn:3600};}
     else if(path.endsWith('/login/wechat'))data={token:'test-game-token',expiresIn:3600};
     else {
-      assert.equal(options.header.Authorization,'Bearer test-game-token');
-      if(path.endsWith('/stories'))data={stories:[{id:41,title:'我的旧故事'}]};
+      assert.equal(options.header.Authorization,emailLink && linked ? 'Bearer linked-token' : 'Bearer test-game-token');
+      if(path.endsWith('/bind/email/otp/request'))data={ok:true};
+      else if(path.endsWith('/bind/email')){
+        assert.equal(JSON.stringify(options.data),JSON.stringify({email:'old@example.com',otp:'123456',code:'one-use-code',confirm:true}));
+        linked=true;data={token:'linked-token',expiresIn:3600};
+      }
+      else if(path.endsWith('/stories'))data={stories:linked?[{id:41,title:'我的旧故事'}]:[]};
       else if(path.endsWith('/bind/wechat'))data={ok:true};
       else {const op=path.split('/').at(-1);let result;
-        if(op==='account.read')result={id:7,name:'测试用户',email:'old@example.com',recoveryScope:'opaque-scope'};
+        if(op==='account.read')result=linked?{id:7,name:'测试用户',email:'old@example.com',recoveryScope:'opaque-scope'}:{id:9,name:null,email:null,recoveryScope:'wechat-scope'};
         else if(op==='account.balance')result={postedMinor:30000000,reservedMinor:1000000,availableMinor:29000000,lifetimeSpentMinor:0};
         else if(op==='profile.read')result=null;
         else if(op==='letters.list')result=[];
-        else if(op==='stories.list')result={stories:[{id:41,title:'我的旧故事'}]};
+        else if(op==='stories.list')result={stories:linked?[{id:41,title:'我的旧故事'}]:[]};
         else if(op==='body.read')result=document();
         else if(op==='body.save'){assert.equal(options.data.baseBodyRevision,revision);body=options.data.body;revision++;result={status:'saved',document:document()};}
         else if(op==='chat.list')result={messages};
@@ -36,13 +43,35 @@ const wx={
   },
 };
 for(const event of ['KeyboardInput','KeyboardComplete','KeyboardHeightChange','TouchStart','TouchMove','TouchEnd','TouchCancel','Hide','Show','WindowResize'])wx['on'+event]=fn=>{handlers[event]=fn;};
-vm.runInNewContext(readFileSync(new URL('../dist/game.js',import.meta.url),'utf8'),{wx,console,Date,Map,Set,setTimeout,clearTimeout,queueMicrotask,TextEncoder,TextDecoder,AbortController,URL,URLSearchParams});
+vm.runInNewContext(readFileSync(new URL('../dist/game.js',import.meta.url),'utf8'),{wx,console,Date,Map,Set,setTimeout,clearTimeout,queueMicrotask,TextEncoder,TextDecoder,AbortController,URL,URLSearchParams,Intl:process.argv.includes('--without-intl')?undefined:Intl});
+assert.ok(labels.some(x=>x.value=== (process.argv.includes('--wechat') ? '微信登录' : '邮箱登录')),'login screen must paint before any network request');
+assert.equal(calls.length,0,'first paint must not depend on the server');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function tap(label){const target=labels.findLast(x=>x.value===label);assert.ok(target,'missing action '+label);const t={clientX:target.x+3,clientY:target.y-8};handlers.TouchStart({touches:[t]});handlers.TouchEnd({changedTouches:[t]});}
-tap('填写邮箱');handlers.KeyboardComplete({value:'old@example.com'});tap('填写密码');handlers.KeyboardInput({value:'test-password'});assert.ok(!labels.some(x=>x.value.includes('test-password')));handlers.KeyboardComplete({value:'test-password'});
-tap('邮箱登录');await flush();assert.ok(labels.some(x=>x.value==='来自原账号的正文'));
+if(emailLink){
+  tap('微信登录');await flush();
+  assert.ok(!calls.some(c=>c.path.includes('/email')),'WeChat entry never asks for email');
+  tap('我');await flush();tap('关联邮箱 / 已有账号');
+  tap('填写要关联的邮箱');handlers.KeyboardComplete({value:'old@example.com'});
+  tap('发送关联验证码');await flush();
+  tap('填写六位验证码');handlers.KeyboardComplete({value:'123456'});
+  tap('验证并关联');await flush();
+}else{
+  if(process.argv.includes('--wechat')) tap('其他方式：邮箱登录');
+  tap('填写邮箱');handlers.KeyboardComplete({value:'old@example.com'});tap('填写密码');handlers.KeyboardInput({value:'test-password'});assert.ok(!labels.some(x=>x.value.includes('test-password')));handlers.KeyboardComplete({value:'test-password'});
+  tap('邮箱登录');await flush();
+}
+assert.ok(labels.some(x=>x.value==='来自原账号的正文'));
 tap('编辑');handlers.KeyboardComplete({value:'小游戏改写的正文'});tap('保存');await flush();assert.equal(body,'小游戏改写的正文');assert.ok(labels.some(x=>x.value==='已保存'));
-tap('继续聊聊…');handlers.KeyboardComplete({value:'接着聊'});tap('发送');await flush();assert.ok(labels.some(x=>x.value==='接着你的旧故事聊'));
+tap('继续聊聊…');
+handlers.KeyboardHeightChange({height:320});
+assert.ok(!labels.some(x=>x.value==='继续聊聊…'),'native keyboard must not duplicate the Canvas input');
+handlers.KeyboardInput({value:'接着聊'});
+assert.ok(!labels.some(x=>x.value==='接着聊'),'draft must not render a second input while typing');
+assert.ok(labels.some(x=>x.value==='发送'),'explicit send remains visible');
+handlers.KeyboardHeightChange({height:0});
+assert.ok(labels.some(x=>x.value==='接着聊'),'closing keyboard restores the original input and draft');
+handlers.KeyboardComplete({value:'接着聊'});tap('发送');await flush();assert.ok(labels.some(x=>x.value==='接着你的旧故事聊'));
 tap('故事');await flush();assert.ok(labels.some(x=>x.value==='新建一个故事'));tap('我的旧故事');await flush();
 tap('我');await flush();assert.ok(labels.some(x=>x.value==='可用余额 ¥29.00'));tap('今天的来信 ›');await flush();assert.ok(labels.some(x=>x.value==='今天留给大家的一封信'));tap('返回');await flush();
 for(let i=0;i<3;i++){handlers.TouchStart({touches:[{clientX:180,clientY:700}]});handlers.TouchEnd({changedTouches:[{clientX:180,clientY:250}]});}

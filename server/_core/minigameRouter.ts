@@ -2,6 +2,7 @@ import { Router, json, type Request, type Response } from 'express';
 import { TRPCError } from '@trpc/server';
 import { isGameWorkspaceOperation, type GameWorkspaceOperation } from '../../shared/minigameWorkspace';
 import { createGameSessions, GAME_SESSION_SECONDS, type GamePrincipal } from './minigameSession';
+import type { EmailLinkResult } from '../services/accountIdentity';
 
 export type GameDependencies = {
   enabled: boolean; wechatEnabled: boolean; secret: string; appId: string;
@@ -11,6 +12,9 @@ export type GameDependencies = {
   password: (email: string, password: string, ip: string) => Promise<number | null>;
   requestEmailOtp?: (email:string,ip:string)=>Promise<'sent'|'rate_limited'|'unavailable'>;
   verifyEmailOtp?: (email:string,code:string,ip:string)=>Promise<number|null>;
+  requestLinkEmailOtp?: (user: GamePrincipal, email: string, ip: string) => Promise<'sent' | 'rate_limited' | 'unavailable'>;
+  linkEmail?: (user: GamePrincipal, input: { email: string; otp: string; code: string }, ip: string) => Promise<EmailLinkResult | { outcome: 'rate_limited' }>;
+  accountLock?: <T>(id: number, action: () => Promise<T>) => Promise<T>;
   wechat: (code: string) => Promise<number | null>;
   bind: (id: number, code: string) => Promise<'bound' | 'merge_required' | 'invalid_code'>;
   stories: (id: number) => Promise<Array<{ id: number; title: string }>>;
@@ -59,7 +63,8 @@ export function createMinigameRouter(deps: GameDependencies) {
     const operation = String(req.params.operation);
     if (!isGameWorkspaceOperation(operation)) { res.status(404).json({error:'not_found'}); return; }
     try {
-      res.json({ result: await deps.workspace(res.locals.gamePrincipal, operation, req.body, req, res) });
+      const invoke = () => deps.workspace!(res.locals.gamePrincipal, operation, req.body, req, res);
+      res.json({ result: await (deps.accountLock ? deps.accountLock(res.locals.gamePrincipal.id, invoke) : invoke()) });
     } catch (error) {
       if (!(error instanceof TRPCError)) throw error;
       const errors: Record<string, [number,string]> = {
@@ -104,6 +109,31 @@ export function createMinigameRouter(deps: GameDependencies) {
     }
     await login(res, await deps.wechat(code));
   }));
+  for (const path of ['/bind/email/otp/request', '/bind/email']) router.post(path, endpoint(async (req, res) => {
+    if (!deps.wechatEnabled) { res.status(503).json({ error: 'wechat_not_enabled' }); return; }
+    const principal = await sessions.verify(req.headers.authorization);
+    if (!principal) { res.status(401).json({ error: 'session_expired' }); return; }
+    if (Date.now() / 1000 - principal.issuedAt > 600) { res.status(401).json({ error: 'reauthenticate' }); return; }
+    if (!await rateLimit(req, res)) return;
+    const { email, otp, code, confirm } = req.body ?? {};
+    if (confirm !== true || typeof email !== 'string' || email.length > 320 || !/^\S+@\S+\.\S+$/.test(email)) {
+      res.status(400).json({ error: 'invalid_input' }); return;
+    }
+    if (path.endsWith('/request')) {
+      const result = await deps.requestLinkEmailOtp?.(principal.user, email, req.ip ?? 'unknown');
+      if (result === 'sent') { res.json({ ok: true }); return; }
+      res.status(result === 'rate_limited' ? 429 : 503).json({ error: result === 'rate_limited' ? result : 'email_not_configured' }); return;
+    }
+    if (typeof otp !== 'string' || !/^\d{6}$/.test(otp) || typeof code !== 'string' || !code || code.length > 256) {
+      res.status(400).json({ error: 'invalid_input' }); return;
+    }
+    if (!deps.linkEmail) { res.status(503).json({ error: 'email_not_configured' }); return; }
+    const result = await deps.linkEmail(principal.user, { email, otp, code }, req.ip ?? 'unknown');
+    if (result.outcome === 'linked') { await login(res, result.userId); return; }
+    const status = result.outcome === 'session_expired' ? 401 : result.outcome === 'rate_limited' ? 429 :
+      ['invalid_otp', 'invalid_code'].includes(result.outcome) ? 400 : 409;
+    res.status(status).json({ error: result.outcome });
+  }));
   router.post('/bind/wechat', endpoint(async (req, res) => {
     if (!deps.wechatEnabled) { res.status(503).json({ error: 'wechat_not_enabled' }); return; }
     const principal = await sessions.verify(req.headers.authorization);
@@ -117,9 +147,14 @@ export function createMinigameRouter(deps: GameDependencies) {
       !req.body.code || req.body.code.length > 256) {
       res.status(400).json({ error: 'confirmation_required' }); return;
     }
-    const result = await deps.bind(principal.user.id, req.body.code);
+    const invoke = async () => {
+      const current = await deps.getUser(principal.user.id);
+      if (!current || current.sessionVersion !== principal.user.sessionVersion) return 'session_expired' as const;
+      return deps.bind(principal.user.id, req.body.code);
+    };
+    const result = await (deps.accountLock ? deps.accountLock(principal.user.id, invoke) : invoke());
     if (result !== 'bound') {
-      res.status(result === 'merge_required' ? 409 : 400).json({ error: result }); return;
+      res.status(result === 'session_expired' ? 401 : result === 'merge_required' ? 409 : 400).json({ error: result }); return;
     }
     res.json({ ok: true });
   }));
