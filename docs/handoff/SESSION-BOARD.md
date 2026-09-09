@@ -24,7 +24,6 @@
 
 ## 当前在场
 
-图片字幕层入口（2026-09-09）：`codex/image-subtitle-layer` 独立 worktree；占用 ShotPreview、ImageClipEditorPanel、EditingNleWorkspace（保存错误传播）、publishingAlbum 排版编辑/布局及相关测试/账本。让字幕与手绘走向直接可见，保留构图/OCR及 exact imageId 数据；仅主仓3000运行，不发付费请求。149项相关测试/类型/构建/账本通过；已确认其他线无跨分支合并，当前占用合并窗口，合入后主仓实测。
 
 
 小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
@@ -128,3 +127,5 @@
 2026-09-09 MJ镜头渲染收工：`2ccd7b1` 已合入main，按用户要求切回MJ，1–4张一次约¥0.68、5–8张两次约¥1.36；显式参考直接base64输入，不因公网托管失败切换模型。242项相关测试通过，主仓库3000无付费验收通过。热点文件释放，worktree/分支清理；证据docs/qa/mj-shot-render-2026-09-09.md。
 
 2026-09-09 预览图聊天改版收工：460c2b5已合入main；直接点图→聊天修改→MJ报价→新候选。93项相关测试、类型、构建与功能账本通过；主仓3000猫图1793实际发送到MJ四张¥0.68确认并取消，未付费生成，原图与选图保留。工作树/分支清理，热点释放。证据docs/qa/preview-chat-revision-2026-09-09.md。
+
+2026-09-09 图片字幕层收工：1537bed入口/排版、2ca728d读取投影修复已合main；149项初始回归、102项修复回归、类型/构建/41卡账本通过。main:3000镜头02真实手绘/样式/保存/两次刷新通过，保留原台词示例，未改原图、无付费调用；视频导出自定义图片文字层仍是明确缺口。两次独立worktree及分支已清理，ShotPreview/ImageClipEditorPanel/EditingNleWorkspace/publishingAlbum/storyMaterials及账本热点释放。证据docs/qa/image-subtitle-layer-2026-09-09.md。
