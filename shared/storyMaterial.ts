@@ -271,6 +271,7 @@ export type ShotMaterialState = {
 };
 
 export type StoryVisualAssetMaterialState = {
+  defaultPet?: import("./visualAssets").VisualAssetVersionRef;
   assets: StoryVisualAsset[];
   proposals: ShotVisualAssetBindingProposal[];
   bindings: ShotVisualAssetBinding[];

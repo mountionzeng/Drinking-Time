@@ -1,3 +1,7 @@
+import { useShotImageRender } from "./useShotImageRender";
+import { ShotImageRenderControl, loadShotRenderSettings } from "./ShotImageRenderControl";
+import { type ShotImageRenderSettings, type ShotRenderReferences } from "@shared/shotImageRender";
+import type { StoryMaterialState } from "@shared/storyMaterial";
 /**
  * Full storyboard review and directed media workflow.
  * Kept separate so card-list changes do not load the entire review workspace.
@@ -317,6 +321,8 @@ function StoryboardMediaSelectionIndicator({
 }
 
 export function StoryboardReviewBoard({
+  storyId,
+  materialState,
   images,
   shots,
   latestScript,
@@ -372,6 +378,8 @@ export function StoryboardReviewBoard({
   onRejectCandidate,
   boardTimeline,
 }: {
+  storyId?: number | null;
+  materialState?: StoryMaterialState | null;
   images: GeneratedImageItem[];
   shots: StoryShot[];
   latestScript: GeneratedScript | null;
@@ -420,6 +428,7 @@ export function StoryboardReviewBoard({
     imageProvider?: ImageProvider;
     editMaskImageUrl?: string;
     reference?: {
+      selection?: ShotRenderReferences;
       imageUrl?: string;
       identityImageUrl?: string;
       contextImageUrls?: string[];
@@ -562,6 +571,10 @@ export function StoryboardReviewBoard({
   } | null>(null);
   const [imageEditInstruction, setImageEditInstruction] = useState("");
   const [imageEditSubmitting, setImageEditSubmitting] = useState(false);
+  const [, refreshImageSettings] = useState(0);
+  const { confirmImageCost, setImageRenderError, render: renderImageBatch, dialogs: imageRenderDialogs } = useShotImageRender(
+    storyId, creationShots.map((shot, index) => storyShotInsertIdentity(shot, index)).join(",")
+  );
   const [publishingCoverReferenceDialog, setPublishingCoverReferenceDialog] =
     useState<{
       shot: StoryShot;
@@ -706,6 +719,8 @@ export function StoryboardReviewBoard({
   const beginShotRender = useCallback((shotNo: number) => {
     setRerenderingShotNos(current => addShotToRenderSlots(current, shotNo));
   }, []);
+  const canStartImageRenderRef = useRef(canStartRenderForShot);
+  canStartImageRenderRef.current = canStartRenderForShot;
   const finishShotRender = useCallback((shotNo: number) => {
     setRerenderingShotNos(current =>
       removeShotFromRenderSlots(current, shotNo)
@@ -2079,6 +2094,19 @@ export function StoryboardReviewBoard({
     };
   };
 
+  const renderConfiguredShotImages = async (
+    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings
+  ): Promise<StoryboardImageRerenderResult> => {
+    if (!creationShot || !onGenerateShotImages || !canStartImageRenderRef.current(shot.shotNo)) return { status: "cancelled", message: "镜头正在渲染或尚未加载" };
+    const pending = matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "");
+    const effective = storyboardRenderShotWithDraft(creationShot, shot, pending);
+    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState,
+      previousShots: creationShots.slice(0, Math.max(0, creationShots.indexOf(creationShot))),
+      canStart: () => canStartImageRenderRef.current(shot.shotNo),
+      start: () => { beginShotRender(shot.shotNo); onSelectShot?.(shot.shotNo); },
+      finish: () => finishShotRender(shot.shotNo), generate: onGenerateShotImages,
+    });
+  };
   const renderShotImageCandidates = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
@@ -2094,6 +2122,7 @@ export function StoryboardReviewBoard({
     const label = displayShotCode(shot);
     if (!creationShot || !onGenerateShotImages) {
       const message = `${label} 还没有可渲染的镜头记录`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     }
@@ -2117,6 +2146,7 @@ export function StoryboardReviewBoard({
     ).trim();
     if (!imageRequirement) {
       const message = `请先在 ${label} 的“图片要求”中写清楚要怎样生成或修改`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     }
@@ -2130,6 +2160,7 @@ export function StoryboardReviewBoard({
       ? selectedFrames.find(frame => frame.id === request.imageId) : undefined;
     if (request?.imageId != null && !selectedFrame) {
       const message = `所选图片 #${request.imageId} 已不属于这个镜头，请重新选择；本次不会提交付费生成`;
+      setImageRenderError(message);
       toast.error(message); return { status: "error", message };
     }
     const selectedFrameRole = selectedFrame
@@ -2153,6 +2184,7 @@ export function StoryboardReviewBoard({
     );
     if (missingInstructionImageIds.length > 0) {
       const message = `找不到用户点名的图片 #${missingInstructionImageIds.join("、#")}，本次不会提交付费生成`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     }
@@ -2244,6 +2276,7 @@ export function StoryboardReviewBoard({
         return { status: "cancelled", message };
       }
       const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     }
@@ -2278,6 +2311,7 @@ export function StoryboardReviewBoard({
       storyboardImageRenderBlockReason(imageProviderStatus);
     if (providerBlockReason) {
       const message = `图片生成当前不可提交：${providerBlockReason}`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     }
@@ -2299,7 +2333,7 @@ export function StoryboardReviewBoard({
     const { editRoleLabel, estimate: imageEstimate } = imageRenderPlan;
     const confirmed =
       options.skipCostConfirmation ||
-      window.confirm(imageRenderPlan.confirmation);
+      await confirmImageCost(imageRenderPlan.confirmation);
     if (!confirmed) {
       return {
         status: "cancelled",
@@ -2307,6 +2341,12 @@ export function StoryboardReviewBoard({
       };
     }
 
+    // Another render may have occupied the slot while the quote was open.
+    if (!canStartImageRenderRef.current(shot.shotNo)) {
+      const message = `${label} 当前没有可用渲染线，请等待正在进行的任务完成`;
+      setImageRenderError(message);
+      return { status: "cancelled", message };
+    }
     beginShotRender(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
@@ -2416,7 +2456,7 @@ export function StoryboardReviewBoard({
           imageUrl: generation.imageUrl,
         };
       } else {
-        const message = `${label} 已生成四张候选图，请在“画面”行选择一张`;
+        const message = `${label} 已生成 ${generation.generatedCount} 张候选图，请在“画面”行选择`;
         toast.success(message);
         return {
           status: "success",
@@ -2428,6 +2468,7 @@ export function StoryboardReviewBoard({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : `${label} 图片生成失败`;
+      setImageRenderError(message);
       toast.error(message);
       return { status: "error", message };
     } finally {
@@ -3513,41 +3554,6 @@ export function StoryboardReviewBoard({
                               void deleteShot(shot.shotNo, insertStableShotId);
                             }}
                           />
-                        ) : null}
-                        {!shotIsCompact && onGenerateShotImages ? (
-                          <button
-                            type="button"
-                            data-testid={`storyboard-header-generate-image-${insertStableShotId}`}
-                            disabled={
-                              !creationShot ||
-                              !imageProviderStatus?.ready ||
-                              !canStartRenderForShot(shot.shotNo)
-                            }
-                            onClick={event => {
-                              event.stopPropagation();
-                              void renderShotImageCandidates(
-                                shot,
-                                creationShot,
-                                index
-                              );
-                            }}
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-45"
-                            aria-label={`根据前后画面和图片要求重新生成 ${shotLabel} 图片`}
-                            title={
-                              imageProviderStatus?.ready
-                                ? "根据前后画面和图片要求重新生成图片"
-                                : (imageProviderStatus?.reason ??
-                                  "正在确认图片供应商状态")
-                            }
-                          >
-                            {generatingImageShotNos.includes(shot.shotNo) ||
-                            continuityCheckingByShot[shot.shotNo] ===
-                              "image" ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <ImagePlus className="h-3 w-3" />
-                            )}
-                          </button>
                         ) : null}
                         {!shotIsCompact &&
                         creationShot &&
@@ -5176,61 +5182,17 @@ export function StoryboardReviewBoard({
                             action={
                               row.field === "promptDraft" &&
                               onGenerateShotImages ? (
-                                <button
-                                  type="button"
-                                  disabled={
-                                    !creationShot ||
-                                    !imageProviderStatus?.ready ||
-                                    !canStartRenderForShot(shot.shotNo)
-                                  }
-                                  onPointerDown={event =>
-                                    event.stopPropagation()
-                                  }
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                    void renderShotImageCandidates(
-                                      shot,
-                                      creationShot,
-                                      index
-                                    );
-                                  }}
-                                  className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                  aria-label={`按图片要求${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "并套用长裙连续性模板" : ""}渲染 ${shotLabel} 的四张候选图`}
-                                  title={
-                                    imageProviderStatus?.ready
-                                      ? shouldUseSingleImageFallback(
-                                          imageProviderStatus
-                                        )
-                                        ? `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用`
-                                        : `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}原文要求优先，生成四张同风格候选图，提交前会显示费用`
-                                      : (imageProviderStatus?.reason ??
-                                        "正在确认图片供应商状态")
-                                  }
-                                >
-                                  {generatingImageShotNos.includes(
-                                    shot.shotNo
-                                  ) ||
-                                  continuityCheckingByShot[shot.shotNo] ===
-                                    "image" ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <ImagePlus className="h-3 w-3" />
-                                  )}
-                                  {continuityCheckingByShot[shot.shotNo] ===
-                                  "image"
-                                    ? "检查人物"
-                                    : shouldUseSingleImageFallback(
-                                          imageProviderStatus
-                                        )
-                                      ? "渲染 1 张"
-                                      : "渲染 4 张"}
-                                  {isSheSelf02ImageEditTemplateEnabled(
-                                    storyTitle,
-                                    shotLabel
-                                  )
-                                    ? " · 长裙模板"
-                                    : ""}
-                                </button>
+                                <ShotImageRenderControl
+                                  key={`${storyId}:${storyShotInsertIdentity(shot, index)}`}
+                                  storyId={storyId ?? 0}
+                                  stableShotId={storyShotInsertIdentity(shot, index) ?? String(shot.shotNo)}
+                                  label={shotLabel}
+                                  material={materialState}
+                                  disabled={!creationShot || !canStartRenderForShot(shot.shotNo)}
+                                  busy={isShotRenderActive(shot.shotNo)}
+                                  onSettingsChange={() => refreshImageSettings(value => value + 1)}
+                                  onRender={async settings => { await renderConfiguredShotImages(shot, creationShot, index, settings); }}
+                                />
                               ) : row.field === "videoPrompt" &&
                                 creationShot &&
                                 (onGenerateShotVideo ||
@@ -5416,8 +5378,7 @@ export function StoryboardReviewBoard({
                     estimate={storyboardShotCostEstimate(
                       creationShotByNo.get(shot.shotNo),
                       {
-                        singleImageFallback:
-                          shouldUseSingleImageFallback(imageProviderStatus),
+                        imageCount: loadShotRenderSettings(storyId ?? 0, storyShotInsertIdentity(shot, shots.indexOf(shot)) ?? String(shot.shotNo), materialState).count,
                       }
                     )}
                   />
@@ -5441,6 +5402,7 @@ export function StoryboardReviewBoard({
           </div>
         )}
       </div>
+      {imageRenderDialogs}
       {publishingCoverReferenceDialog
         ? createPortal(
             <div

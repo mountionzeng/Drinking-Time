@@ -1,3 +1,4 @@
+import type { ShotRenderReferences } from "@shared/shotImageRender";
 import type { CreationEditorShot } from "./types";
 import { compilePromptRecipe } from "./promptTable/promptRecipe";
 import type { PromptRow } from "./promptTable/types";
@@ -8,6 +9,7 @@ import {
 import type { ImageProvider } from "@shared/imageProvider";
 
 export type RerenderReference = {
+  selection?: ShotRenderReferences;
   /** Full frame sent to FLUX Kontext as the visual/style reference. */
   imageUrl?: string;
   /** Cropped face/lower-face anchor used only for identity analysis. */
@@ -19,6 +21,7 @@ export type RerenderReference = {
 };
 
 export type GenerateForMobileInput = {
+  renderReferences?: ShotRenderReferences;
   storyId: number;
   shotNo: number;
   prompt: string;
@@ -64,7 +67,7 @@ function isNetworkFetchError(message: string): boolean {
     normalized === "failed to fetch" ||
     normalized === "load failed" ||
     normalized.includes("networkerror") ||
-    normalized.includes("fetch failed")
+    normalized === "fetch failed"
   );
 }
 
@@ -80,7 +83,7 @@ export function readableRerenderError(
         : "";
   if (!message) return fallback;
   if (!isNetworkFetchError(message)) return message;
-  return "图片请求在返回前中断，暂时无法判断生成服务是否已经接单。请先检查当前镜头是否出现了新候选；没有新候选再重试，避免重复付费。开发服务重启、浏览器连接中断或请求超时都可能出现此提示。";
+  return "图片请求在返回前中断，暂时无法判断生成服务是否已经接单。请勿立即重试；没有新候选也不能证明任务未提交，需先检查服务端任务或供应商记录，避免重复付费。";
 }
 
 function safeReferenceUrl(value: string | undefined): string | undefined {
@@ -115,6 +118,7 @@ export function createGenerateForMobileInput(params: {
     rows: params.rows,
   });
   return {
+    renderReferences: params.reference?.selection,
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
     imageProvider: params.imageProvider ?? "midjourney",
@@ -123,7 +127,7 @@ export function createGenerateForMobileInput(params: {
     exactFrameEdit: params.exactFrameEdit,
     costConfirmation: params.costConfirmation,
     styleHint: params.shot.styleRef || undefined,
-    autoSelect: params.autoSelect ?? true,
+    autoSelect: params.reference?.selection ? false : (params.autoSelect ?? true),
     referenceImageUrl: safeReferenceUrl(params.reference?.imageUrl),
     referenceIdentityImageUrl: safeReferenceUrl(
       params.reference?.identityImageUrl

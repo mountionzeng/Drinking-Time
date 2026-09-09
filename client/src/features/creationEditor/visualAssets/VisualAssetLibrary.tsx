@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Check,
@@ -46,7 +47,7 @@ import VisualAssetCreationDialog, {
   type VisualAssetImageOption,
   visualAssetKindLabel,
 } from "./VisualAssetCreationDialog";
-import ShotAssetBindingPanel from "./ShotAssetBindingPanel";
+import ShotAssetBindingPanel, { type BindingShotContext } from "./ShotAssetBindingPanel";
 import { useVisualAssetGenerationDraft } from "./useVisualAssetGenerationDraft";
 
 const KIND_ICON = {
@@ -86,7 +87,8 @@ export function visualAssetGenerationProgress(
   const completed = receipts.filter(item => item.status === "succeeded" && item.resultId).length;
   if (completed >= total) return `已生成 ${total}/${total} 张，正在合成标准板并检查画面。`;
   const active = receipts.find(item => item.status === "claimed" || item.status === "submitted");
-  const role = active?.token.split(":view:")[1] as VisualAssetView["role"] | undefined;
+  const role = active?.token.split(":view:")[1] as
+    | VisualAssetView["role"] | undefined;
   return `已生成 ${completed}/${total} 张${role && VIEW_ROLE_LABEL[role] ? `，正在生成${VIEW_ROLE_LABEL[role]}` : "，正在准备下一张"}。请勿重复提交。`;
 }
 
@@ -173,6 +175,9 @@ export default function VisualAssetLibrary({
   storyId,
   images,
   compact = false,
+  spacious = false,
+  currentShotLabel,
+  currentShotContext,
   currentStableShotId,
   onRequestImport,
   initialInstruction = "",
@@ -181,20 +186,26 @@ export default function VisualAssetLibrary({
   storyId: number | null;
   images: VisualAssetImageOption[];
   compact?: boolean;
+  spacious?: boolean;
+  currentShotLabel?: string;
+  currentShotContext?: BindingShotContext;
   currentStableShotId?: string | null;
   onRequestImport?: () => void;
   initialInstruction?: string;
   initialIncludeTopView?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const [activeBoard, setActiveBoard] = useState<{ storyId: number; versionId: string; token: string; total: number } | null>(null);
+  const [activeBoard, setActiveBoard] = useState<{ storyId: number; versionId: string; token: string; total: number;
+  } | null>(null);
   const query = trpc.visualAssets.read.useQuery(
     { storyId: storyId ?? 1 },
     { enabled: storyId != null && storyId > 0, retry: false, refetchOnWindowFocus: false,
-      refetchInterval: activeBoard?.storyId === storyId ? 3000 : false }
+      refetchInterval: activeBoard?.storyId === storyId ? 3000 : false,
+    }
   );
   const createDraft = trpc.visualAssets.createDraft.useMutation();
   const createVersion = trpc.visualAssets.createVersion.useMutation();
+  const setDefaultPet = trpc.visualAssets.setDefaultPet.useMutation();
   const lockVersion = trpc.visualAssets.lockVersion.useMutation();
   const forkVersion = trpc.visualAssets.forkVersion.useMutation();
   const deleteVersion = trpc.visualAssets.deleteVersion.useMutation();
@@ -216,6 +227,13 @@ export default function VisualAssetLibrary({
   const [processingVersionId, setProcessingVersionId] = useState<string | null>(null);
   const [conflictResolutions, setConflictResolutions] = useState<Record<string, string>>({});
   const [expandedCompactAssetId, setExpandedCompactAssetId] = useState<string | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ src: string; title: string; left: number; top: number } | null>(null);
+  const showHover = (event: React.MouseEvent<HTMLImageElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoverPreview({ src: event.currentTarget.src, title: event.currentTarget.alt,
+      left: Math.max(8, Math.min(window.innerWidth - 488, rect.left)),
+      top: Math.max(8, rect.top - 330) });
+  };
   const [imagePreview, setImagePreview] = useState<{
     src: string;
     title: string;
@@ -225,7 +243,8 @@ export default function VisualAssetLibrary({
     Record<string, string>
   >({});
   const { instructions, setInstructions, topViews, setTopViews } = useVisualAssetGenerationDraft(storyId);
-  const [confirmation, setConfirmation] = useState<{ versionId: string; message: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ versionId: string; message: string;
+  } | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
   useEffect(() => {
     setConfirmation(null);
@@ -387,6 +406,22 @@ export default function VisualAssetLibrary({
     }
   };
 
+  const useForStory = async (asset: StoryVisualAsset, version: VisualAssetVersion) => {
+    if (storyId == null || !query.data) return;
+    setLockingVersionId(version.id);
+    try {
+      await setDefaultPet.mutateAsync({ storyId, expectedRevision: query.data.revision,
+        operationToken: operationToken("visual-default-reference"),
+        pet: { assetId: asset.id, versionId: version.id } });
+      toast.success("已设为整场默认，下次渲染会参考这只宠物");
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "设置默认参考失败");
+    } finally {
+      setLockingVersionId(null);
+    }
+  };
+
   const analyze = async (asset: StoryVisualAsset, version: VisualAssetVersion) => {
     if (storyId == null || !query.data) return;
     setProcessingVersionId(version.id);
@@ -413,7 +448,8 @@ export default function VisualAssetLibrary({
     try {
       const instruction = (instructions[version.id] ?? initialInstruction).trim() || undefined;
       const includeTopView = asset.kind === "pet" && (topViews[version.id] ?? initialIncludeTopView);
-      setInstructions(current => ({ ...current, [version.id]: instruction ?? "" }));
+      setInstructions(current => ({ ...current, [version.id]: instruction ?? "",
+      }));
       setTopViews(current => ({ ...current, [version.id]: includeTopView }));
       const quote = await quoteBoard.mutateAsync({
         storyId,
@@ -435,7 +471,8 @@ export default function VisualAssetLibrary({
         toast.info("正在恢复原标准视图任务，已成功的付费视角会直接复用");
       }
       const boardToken = recoveredOperationToken ?? operationToken("visual-board");
-      setActiveBoard({ storyId, versionId: version.id, token: boardToken, total: quote.candidateCount });
+      setActiveBoard({ storyId, versionId: version.id, token: boardToken, total: quote.candidateCount,
+      });
       const result = await generateBoardMutation.mutateAsync({
         storyId,
         assetId: asset.id,
@@ -481,7 +518,8 @@ export default function VisualAssetLibrary({
     setProcessingVersionId(version.id);
     try {
       const instruction = (instructions[version.id] ?? initialInstruction).trim() || undefined;
-      setInstructions(current => ({ ...current, [version.id]: instruction ?? "" }));
+      setInstructions(current => ({ ...current, [version.id]: instruction ?? "",
+      }));
       const quote = await quoteView.mutateAsync({
         storyId,
         assetId: asset.id,
@@ -579,7 +617,9 @@ export default function VisualAssetLibrary({
   };
 
   if (storyId == null) {
-    return <div className="p-6 text-center text-sm text-muted-foreground">请先打开一个 Story</div>;
+    return (
+      <div className="p-6 text-center text-sm text-muted-foreground">请先打开一个 Story</div>
+    );
   }
 
   const createAssetButton = (
@@ -595,10 +635,24 @@ export default function VisualAssetLibrary({
 
   return (
     <section className="min-w-0" aria-label="视觉资产库">
+      {hoverPreview && createPortal(<div role="tooltip" aria-label="素材悬停大图" className="pointer-events-none fixed z-[100] w-[480px] max-w-[calc(100vw-16px)] rounded-lg border border-border bg-background p-2 shadow-2xl" style={{ left: hoverPreview.left, top: hoverPreview.top }}><img src={hoverPreview.src} alt={hoverPreview.title} className="h-[300px] w-full object-contain" /></div>, document.body)}
       {!compact ? (
         <div className="mb-2 flex justify-end" aria-label="资产操作">
           {createAssetButton}
         </div>
+      ) : null}
+
+      {aggregate && query.data ? (
+        <ShotAssetBindingPanel
+          storyId={storyId}
+          revision={query.data.revision}
+          aggregate={aggregate}
+          currentStableShotId={currentStableShotId}
+          currentShotLabel={currentShotLabel}
+          currentShotContext={currentShotContext}
+          compact={compact && !spacious}
+          onChanged={refresh}
+        />
       ) : null}
 
       {query.isLoading ? (
@@ -650,13 +704,15 @@ export default function VisualAssetLibrary({
             const compactExpanded = compact && expandedCompactAssetId === asset.id;
             const assetIdentity = (
               <>
+                {boardImage ? <img src={boardImage.imageUrl} alt={`${asset.name} 缩略图`} onMouseEnter={showHover} onMouseLeave={() => setHoverPreview(null)} className="h-10 w-16 shrink-0 rounded bg-muted object-contain" /> : null}
                 <span className={`flex shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ${compact ? "h-7 w-7" : "h-8 w-8"}`}>
                   <Icon className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{asset.name}</span>
+                  <span className="block truncate text-sm font-semibold">{asset.name.replace(/^第 (\d+\/\d+) 张：[a-f0-9]{24,} · (.+)$/i, "$2 · 参考照片 $1")}</span>
                   <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                    {visualAssetKindLabel(asset.kind)} · {STATUS_LABEL[version.status]}
+                    {visualAssetKindLabel(asset.kind)} · {" "}
+                    {STATUS_LABEL[version.status]}
                   </span>
                 </span>
               </>
@@ -691,6 +747,7 @@ export default function VisualAssetLibrary({
                       {assetIdentity}
                     </div>
                   )}
+                  {compact && asset.kind === "pet" && version.status !== "superseded" && version.views.some(view => view.role === "identity-detail") ? <button type="button" onClick={() => void useForStory(asset, version)} disabled={processing || lockingVersionId === version.id || aggregate?.defaultPet?.versionId === version.id} className="h-7 rounded bg-primary px-2 text-xs text-primary-foreground disabled:opacity-60">{aggregate?.defaultPet?.versionId === version.id ? "整场默认 ✓" : "设为整场默认"}</button> : null}
                   <select
                     value={version.id}
                     onChange={event =>
@@ -717,7 +774,45 @@ export default function VisualAssetLibrary({
                   id={`visual-asset-details-${asset.id}`}
                   className="space-y-3 border-t border-border p-3"
                 >
-                  {boardImage ? (
+                    <div
+                      className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-background p-3 shadow-sm"
+                      aria-label="资产锁定操作"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold">检查视图并锁定</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {version.status === "locked"
+                            ? "已锁定，可在上方设为整场戏默认或单独关联镜头。"
+                            : blockers.length
+                              ? `暂不能锁定：${blockers.join("、")}`
+                              : "视图已通过检查，锁定后即可关联镜头。"}
+                        </p>
+                      </div>
+                      {asset.kind === "pet" && version.status !== "superseded" && version.views.some(view => view.role === "identity-detail") ? (
+                        <button type="button" onClick={() => void useForStory(asset, version)} disabled={processing || lockingVersionId === version.id}
+                          className="h-10 shrink-0 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-40">
+                          {lockingVersionId === version.id ? "正在采用…" : aggregate?.defaultPet?.versionId === version.id ? "已设为整场默认" : "设为整场默认"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void lock(asset, version)}
+                        disabled={
+                          processing ||
+                          !canLock ||
+                          lockingVersionId === version.id
+                        }
+                        className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {lockingVersionId === version.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Lock className="h-3.5 w-3.5" />
+                        )}
+                        {version.status === "locked" ? "已锁定" : "锁定此版本"}
+                      </button>
+                    </div>
+                    {boardImage ? (
                     <figure className="overflow-hidden rounded-md border border-border bg-muted/30">
                       <button
                         type="button"
@@ -735,13 +830,17 @@ export default function VisualAssetLibrary({
                         className="group relative block w-full cursor-zoom-in bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                       >
                         <img
+                          onMouseEnter={showHover} onMouseLeave={() => setHoverPreview(null)}
                           src={boardImage.imageUrl}
                           alt={
                             asset.kind === "character" || asset.kind === "pet"
                               ? `${asset.name} ${visualAssetKindLabel(asset.kind)}标准视图板`
                               : `${asset.name} 标准板`
                           }
-                          className={compact ? "max-h-52 w-full object-contain" : "aspect-square w-full object-contain"}
+                          className={
+                              spacious
+                                ? "max-h-[34vh] w-full object-contain"
+                                : compact ? "h-24 w-full object-contain" : "aspect-square w-full object-contain"}
                         />
                         <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded bg-black/65 px-2 py-1 text-[10px] font-medium text-white opacity-90 transition group-hover:opacity-100">
                           <Maximize2 className="h-3 w-3" />
@@ -770,7 +869,12 @@ export default function VisualAssetLibrary({
                       </span>
                     </div>
                   ) : null}
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className={
+                        spacious
+                          ? "grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5"
+                          : "grid grid-cols-2 gap-2 sm:grid-cols-4"
+                      }
+                    >
                     {version.views.length > 0 ? (
                       version.views.map(view => {
                         const image = imageById.get(view.imageId);
@@ -789,7 +893,7 @@ export default function VisualAssetLibrary({
                                 aria-label={`查看 ${asset.name} ${view.role} 大图`}
                                 className="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                               >
-                                <img src={image.imageUrl} alt={view.role} className="aspect-square w-full object-contain" />
+                                <img onMouseEnter={showHover} onMouseLeave={() => setHoverPreview(null)} src={image.imageUrl} alt={view.role} className={compact && !spacious ? "h-20 w-full object-contain" : "aspect-square w-full object-contain"} />
                                 <Maximize2 className="absolute right-1.5 top-1.5 h-3 w-3 text-white drop-shadow" />
                               </button>
                             ) : (
@@ -885,13 +989,12 @@ export default function VisualAssetLibrary({
                                     推荐：使用已整理的固定造型 · {recommended}
                                   </option>
                                 ) : null}
-                                {conflict.descriptions.map((description, index) => (
-                                  description === recommended ? null : (
+                                {conflict.descriptions.map((description, index) =>
+                                      description === recommended ? null : (
                                     <option key={`${conflict.field}-${index}`} value={description}>
                                       {description}
                                     </option>
-                                  )
-                                ))}
+                                      ))}
                               </select>
                             </label>
                           </div>
@@ -930,7 +1033,8 @@ export default function VisualAssetLibrary({
                         艺术化要求（可选，不改变照片中的身份特征）
                         <textarea
                           value={instructions[version.id] ?? initialInstruction}
-                          onChange={event => setInstructions(current => ({ ...current, [version.id]: event.target.value }))}
+                          onChange={event => setInstructions(current => ({ ...current, [version.id]: event.target.value,
+                              }))}
                           disabled={processing}
                           maxLength={2000}
                           rows={2}
@@ -942,7 +1046,8 @@ export default function VisualAssetLibrary({
                         <label className="flex items-start gap-2 text-xs text-muted-foreground">
                           <input type="checkbox" checked={topViews[version.id] ?? initialIncludeTopView}
                             disabled={processing}
-                            onChange={event => setTopViews(current => ({ ...current, [version.id]: event.target.checked }))} />
+                            onChange={event => setTopViews(current => ({ ...current, [version.id]: event.target.checked,
+                                }))} />
                           加一张顶部视图（共五张；顶视为艺术推演，未拍到的细节需核对）
                         </label>
                       ) : null}
@@ -977,7 +1082,9 @@ export default function VisualAssetLibrary({
                         disabled={processing}
                         className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 text-xs font-medium text-primary disabled:opacity-50"
                       >
-                        {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        {processing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
                         分析参考图
                       </button>
                     ) : canGenerateBoard ? (
@@ -987,7 +1094,9 @@ export default function VisualAssetLibrary({
                         disabled={processing}
                         className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 text-xs font-medium text-primary disabled:opacity-50"
                       >
-                        {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        {processing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
                         {asset.kind === "character" || asset.kind === "pet"
                           ? `生成${visualAssetKindLabel(asset.kind)}标准视图`
                           : "生成标准视图"}
@@ -1006,7 +1115,8 @@ export default function VisualAssetLibrary({
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => setDialog({ assetId: asset.id, kind: asset.kind, name: asset.name })}
+                      onClick={() => setDialog({ assetId: asset.id, kind: asset.kind, name: asset.name,
+                          })}
                       className="h-8 flex-1 rounded-md border border-border px-2 text-xs hover:border-primary/50 hover:text-primary"
                     >
                       建立新版本
@@ -1022,20 +1132,7 @@ export default function VisualAssetLibrary({
                         在此基础上修改
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void lock(asset, version)}
-                      disabled={processing || !canLock || lockingVersionId === version.id}
-                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {lockingVersionId === version.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Lock className="h-3.5 w-3.5" />
-                      )}
-                      {version.status === "locked" ? "已锁定" : "锁定此版本"}
-                    </button>
-                  </div>
+                    </div>
                   <div className="flex items-center justify-end gap-3 px-3 pb-2.5 text-[11px]">
                     <button
                       type="button"
@@ -1066,16 +1163,6 @@ export default function VisualAssetLibrary({
         <div className="mt-2 flex justify-end" aria-label="资产操作">
           {createAssetButton}
         </div>
-      ) : null}
-
-      {aggregate && query.data ? (
-        <ShotAssetBindingPanel
-          storyId={storyId}
-          revision={query.data.revision}
-          aggregate={aggregate}
-          currentStableShotId={currentStableShotId}
-          onChanged={refresh}
-        />
       ) : null}
 
       <VisualAssetCreationDialog

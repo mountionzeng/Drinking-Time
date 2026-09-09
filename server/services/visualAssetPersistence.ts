@@ -878,6 +878,7 @@ function boundShotsFor(
   match: (ref: { assetId: string; versionId: string }) => boolean
 ): string[] {
   const shots = new Set<string>();
+  if (aggregate.defaultPet && match(aggregate.defaultPet)) shots.add("整场戏默认宠物");
   for (const binding of aggregate.bindings) {
     for (const kind of VISUAL_ASSET_KINDS) {
       const ref = binding[kind];
@@ -1258,4 +1259,32 @@ export async function saveVisualAssetBindingProposals(input: {
 
 export function emptyVisualAssetStateForTesting(): StoryVisualAssets {
   return emptyStoryVisualAssets();
+}
+
+/** Explicit, revision-checked Story default; does not rewrite any shot binding. */
+export async function setStoryDefaultPet(input: {
+  storyId: number;
+  userId: number;
+  expectedRevision: number;
+  operationToken: string;
+  pet: { assetId: string; versionId: string } | null;
+}): Promise<VisualAssetMutationResult> {
+  return mutateVisualAssets({
+    ...input,
+    operationKind: "bind",
+    mutate: aggregate => {
+      if (input.pet) {
+        const asset = aggregate.assets.find(item => item.id === input.pet!.assetId);
+        const version = asset?.versions.find(item => item.id === input.pet!.versionId);
+        if (asset?.kind !== "pet" || !version || version.status === "superseded" || !version.views.some(view => view.role === "identity-detail")) {
+          throw new VisualAssetValidationError("请选择已有宠物参考图的版本");
+        }
+      }
+      const { defaultPet: _previous, ...rest } = aggregate;
+      return {
+        aggregate: { ...rest, ...(input.pet ? { defaultPet: input.pet } : {}) },
+        resultId: input.pet?.versionId,
+      };
+    },
+  });
 }

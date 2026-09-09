@@ -80,6 +80,11 @@ describe("inspectVisualAssetConsistency", () => {
       status: "pass",
       dimensions: [{ kind: "pet", verdict: "pass" }],
     });
+    base.dimensions.pet!.whenVisible = true;
+    const conditionalInvoke = vi.fn(async () => ({ modelLabel: "test", text: JSON.stringify({ dimensions: [{ kind: "pet", verdict: "unknown", confidence: 0.99, evidence: "无法确定是否有宠物" }] }) }));
+    const conditional = await inspectVisualAssetConsistency({ snapshot: base, candidateImageUrl: "candidate.png", invoke: conditionalInvoke as never, materialize: async url => url });
+    expect(conditional.status).toBe("blocked");
+    expect(JSON.stringify(conditionalInvoke.mock.calls)).toContain("无宠物镜头中确认完全没有宠物才可 pass");
     expect(
       (invoke.mock.calls[0]?.[0] as { system: string } | undefined)?.system
     ).toContain("pet 必须核对同一宠物");

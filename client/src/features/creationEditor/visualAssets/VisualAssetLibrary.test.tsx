@@ -43,6 +43,8 @@ vi.mock("@/lib/trpc", () => {
         regenerateView: { useMutation: mutation },
         proposeBindings: { useMutation: mutation },
         confirmBindings: { useMutation: mutation },
+        setDefaultPet: { useMutation: mutation },
+        reviewViews: { useMutation: mutation },
       },
     },
   };
@@ -163,6 +165,8 @@ describe("VisualAssetLibrary", () => {
     expect(html).toContain('aria-label="查看 开发者女孩 front 大图"');
     expect(html).toContain('aria-label="重新生成 开发者女孩 正面全身"');
     expect(html).toContain("查看大图");
+    expect(html).toContain("整场戏用同一只宠物");
+    expect(html.indexOf("资产锁定操作")).toBeLessThan(html.indexOf('aria-label="查看 开发者女孩 标准板大图"'));
   });
 
   it("shows asset cards without the redundant library instructions", () => {
@@ -273,10 +277,14 @@ describe("VisualAssetLibrary", () => {
     };
 
     const html = renderToStaticMarkup(
-      <VisualAssetLibrary storyId={7} images={[]} currentStableShotId="shot-01" />
+      <VisualAssetLibrary storyId={7} images={[]} currentStableShotId="shot-01" currentShotLabel="02" currentShotContext={{ dialogue: "小猫会过来蹭腿", action: "小猫靠近裤脚", imageUrl: "/shot-02.png" }} />
     );
 
     expect(html).toContain("生成人物标准视图");
+    expect(html).toContain("单独设置某个镜头（可选）");
+    expect(html).toContain("小猫会过来蹭腿");
+    expect(html).toContain("小猫靠近裤脚");
+    expect(html).toContain("/shot-02.png");
   });
 
   it("reports unresolved conflicts separately from missing views", () => {
@@ -348,7 +356,7 @@ describe("VisualAssetLibrary", () => {
     };
 
     const html = renderToStaticMarkup(
-      <VisualAssetLibrary storyId={7} images={[]} currentStableShotId="shot-01" />
+      <VisualAssetLibrary storyId={7} images={[]} currentStableShotId="shot-01" currentShotLabel="02" currentShotContext={{ dialogue: "小猫会过来蹭腿", action: "小猫靠近裤脚", imageUrl: "/shot-02.png" }} />
     );
 
     expect(html).toContain("下一步：确认人物固定造型");

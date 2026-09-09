@@ -33,19 +33,50 @@ export function proposalCanBeConfirmed(
   );
 }
 
+export type BindingShotContext = {
+  imageUrl?: string | null;
+  dialogue?: string | null;
+  action?: string | null;
+  imagePrompt?: string | null;
+};
+
 export default function ShotAssetBindingPanel({
   storyId,
   revision,
   aggregate,
   currentStableShotId,
+  currentShotLabel,
+  currentShotContext,
+  compact = false,
   onChanged,
 }: {
   storyId: number;
   revision: number;
   aggregate: StoryVisualAssets;
   currentStableShotId?: string | null;
+  currentShotLabel?: string;
+  currentShotContext?: BindingShotContext;
+  compact?: boolean;
   onChanged: () => void | Promise<void>;
 }) {
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const saveDefault = trpc.visualAssets.setDefaultPet.useMutation();
+  const [defaultPetKey, setDefaultPetKey] = useState(aggregate.defaultPet ? `${aggregate.defaultPet.assetId}::${aggregate.defaultPet.versionId}` : "");
+  useEffect(() => {
+    setDefaultPetKey(aggregate.defaultPet ? `${aggregate.defaultPet.assetId}::${aggregate.defaultPet.versionId}` : "");
+  }, [aggregate.defaultPet?.assetId, aggregate.defaultPet?.versionId]);
+  const applyDefault = async () => {
+    setDefaultError(null);
+    const [assetId, versionId] = defaultPetKey.split("::");
+    try {
+      await saveDefault.mutateAsync({ storyId, expectedRevision: revision, operationToken: token("story-default-pet"), pet: defaultPetKey ? { assetId, versionId } : null });
+      await onChanged();
+      toast.success(defaultPetKey ? "已设为整场戏默认宠物，有它出场时使用同一身份" : "已取消整场戏默认宠物");
+    } catch (error) {
+      setDefaultError(error instanceof Error ? error.message : "保存默认宠物失败");
+      await onChanged();
+    }
+  };
   const propose = trpc.visualAssets.proposeBindings.useMutation();
   const confirm = trpc.visualAssets.confirmBindings.useMutation();
   const [selectedProposalIds, setSelectedProposalIds] = useState<string[]>([]);
@@ -53,6 +84,7 @@ export default function ShotAssetBindingPanel({
   const [currentShotSelection, setCurrentShotSelection] =
     useState<ShotVisualAssetSelection>({});
 
+  const defaultPetOptions = aggregate.assets.filter(asset => asset.kind === "pet").flatMap(asset => asset.versions.filter(version => version.status !== "superseded" && version.views.some(view => view.role === "identity-detail")).map(version => ({ asset, version })));
   const proposals = aggregate.proposals.filter(proposal => proposal.status === "pending");
   useEffect(() => {
     setOverrides(
@@ -194,14 +226,32 @@ export default function ShotAssetBindingPanel({
     }
   };
 
-  if (lockedOptions.length === 0) return null;
-
   return (
-    <section className="mt-4 rounded-lg border border-border bg-muted/20 p-3" aria-label="镜头资产绑定">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <details open={compact ? undefined : true}
+      className="mb-2 rounded-lg border border-primary/30 bg-primary/5 p-2"
+      aria-label="镜头资产绑定"
+    >
+      <summary className="cursor-pointer text-xs font-medium">整场默认参考 · {aggregate.defaultPet ? "已设置" : "未设置"} · 更多设置</summary>
+      <div className="mb-2 mt-2 space-y-1" aria-label="整场戏默认宠物">
+        {defaultError ? <p role="alert" className="text-xs text-destructive">{defaultError}</p> : null}
+        <h3 className="text-sm font-semibold">整场戏用同一只宠物</h3>
+        <p className="text-xs text-muted-foreground">默认参考用于下次渲染；有它出场时沿用，无需逐镜关联。</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select aria-label="整场戏默认宠物" value={defaultPetKey} onChange={event => setDefaultPetKey(event.currentTarget.value)} className="h-10 min-w-0 max-w-full rounded-md border border-border bg-background px-3 text-sm">
+            <option value="">未设置默认宠物</option>
+            {defaultPetOptions.map(({ asset, version }) => <option key={version.id} value={`${asset.id}::${version.id}`}>{asset.name} · 版本 {version.version}</option>)}
+          </select>
+          <button type="button" onClick={() => void applyDefault()} disabled={saveDefault.isPending || (!defaultPetKey && !aggregate.defaultPet)} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-40">{saveDefault.isPending ? "正在保存…" : defaultPetKey || !aggregate.defaultPet ? "设为整场戏默认" : "取消整场戏默认"}</button>
+        </div>
+        {defaultPetOptions.length === 0 ? <p className="text-sm text-amber-700">生成宠物参考图后即可设为默认，无需先锁定。</p> : null}
+        {aggregate.defaultPet ? <p className="text-xs text-primary">已设置整场戏默认。已有逐镜设置优先，保持原来的特殊安排。</p> : null}
+      </div>
+      <details>
+        <summary className="cursor-pointer text-sm font-semibold">单独设置某个镜头（可选）</summary>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Link2 className="h-4 w-4 text-primary" /> 镜头关联
+            <Link2 className="h-4 w-4 text-primary" /> 关联到镜头
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
             AI 只提出建议。批量确认或逐镜改绑后，正式生成才会使用这些版本。
@@ -210,19 +260,29 @@ export default function ShotAssetBindingPanel({
         <button
           type="button"
           onClick={() => void ask()}
-          disabled={propose.isPending}
+          disabled={propose.isPending || lockedOptions.length === 0}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary disabled:opacity-50"
         >
-          {propose.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {propose.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
           {proposals.length > 0 ? "重新生成建议" : "AI 建议镜头关联"}
         </button>
       </div>
 
+      {lockedOptions.length === 0 ? (
+        <p className="mt-2 text-sm text-amber-700">
+          还没有已锁定资产。先在下方检查视图并点击“锁定此版本”，这里就能关联。
+        </p>
+      ) : null}
       {currentStableShotId ? (
         <div className="mt-3 rounded-md border border-primary/25 bg-background p-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-xs font-semibold">当前镜头 · {currentStableShotId}</div>
+              <div className="text-xs font-semibold">
+                目标镜头 · {currentShotLabel ?? "当前选中镜头"}</div>
               <p className="mt-0.5 text-[10px] text-muted-foreground">
                 在这里关联一次；之后生成这镜的图片和视频都会自动携带同一版本。
               </p>
@@ -230,12 +290,24 @@ export default function ShotAssetBindingPanel({
             <button
               type="button"
               onClick={() => void confirmCurrentShot()}
-              disabled={confirm.isPending}
+              disabled={confirm.isPending || lockedOptions.length === 0}
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50"
             >
-              {confirm.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
-              确认关联当前镜头
+              {confirm.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Link2 className="h-3.5 w-3.5" />
+              )}
+              确认关联到镜头
             </button>
+          </div>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row" aria-label="目标镜头内容">
+            {currentShotContext?.imageUrl ? <img src={currentShotContext.imageUrl} alt={`目标镜头 ${currentShotLabel ?? ""} 当前画面`} className="h-36 w-48 shrink-0 rounded-md bg-muted object-contain" /> : <div className="flex h-28 w-48 shrink-0 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">这镜还没有当前画面</div>}
+            <div className="min-w-0 space-y-2 text-sm">
+              <p><span className="text-muted-foreground">旁白：</span>{currentShotContext?.dialogue || "无旁白"}</p>
+              <p><span className="text-muted-foreground">画面动作：</span>{currentShotContext?.action || "未填写"}</p>
+              {currentShotContext?.imagePrompt ? <details><summary className="cursor-pointer text-xs text-primary">查看完整图片要求</summary><p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{currentShotContext.imagePrompt}</p></details> : null}
+            </div>
           </div>
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {VISUAL_ASSET_KINDS.map(kind => {
@@ -316,7 +388,8 @@ export default function ShotAssetBindingPanel({
                                     key={option.version.id}
                                     value={`${option.asset.id}::${option.version.id}`}
                                   >
-                                    {option.asset.name} · 版本 {option.version.version}
+                                    {option.asset.name} · 版本 {" "}
+                                    {option.version.version}
                                   </option>
                                 ))}
                             </select>
@@ -332,7 +405,8 @@ export default function ShotAssetBindingPanel({
                     {proposal.conflicts.length > 0 ? (
                       <div className="mt-2 rounded border border-amber-300/60 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-800">
                         <div className="flex items-center gap-1 font-medium">
-                          <AlertTriangle className="h-3 w-3" /> 固定事实冲突，不能直接确认
+                          <AlertTriangle className="h-3 w-3" />{" "}
+                          固定事实冲突，不能直接确认
                         </div>
                         {proposal.conflicts.map(conflict => (
                           <div key={`${conflict.kind}-${conflict.field}`} className="mt-0.5">
@@ -356,16 +430,22 @@ export default function ShotAssetBindingPanel({
               disabled={confirm.isPending || selectedProposalIds.length === 0}
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50"
             >
-              {confirm.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              {confirm.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
               批量确认 {selectedProposalIds.length} 镜
             </button>
           </div>
         </div>
       ) : aggregate.bindings.length > 0 ? (
         <div className="mt-3 text-xs text-muted-foreground">
-          已确认 {aggregate.bindings.length} 个镜头绑定。可重新生成建议并逐镜覆盖。
+          已确认 {aggregate.bindings.length}{" "}
+          个镜头绑定。可重新生成建议并逐镜覆盖。
         </div>
       ) : null}
-    </section>
+    </details>
+    </details>
   );
 }

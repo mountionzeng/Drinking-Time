@@ -1,3 +1,4 @@
+import { quoteShotImages } from "@shared/shotImageRender";
 /** Pure rules for the storyboard review workspace. */
 import type { CSSProperties } from "react";
 import type { StoryShotEditableField } from "@shared/shotDirector";
@@ -398,24 +399,24 @@ export type StoryboardShotCostEstimate = {
   imageCny: number;
   videoCny: number;
   totalCny: number;
-  imageCandidateCount: 1 | 4;
+  imageCandidateCount: number;
 };
 
 /** Current application-chain estimate shown before any paid submission. */
 export function storyboardShotCostEstimate(
   shot: CreationEditorShot | undefined,
-  options: { singleImageFallback: boolean }
+  options: { singleImageFallback?: boolean; imageCount?: number }
 ): StoryboardShotCostEstimate {
   const imageEstimate = options.singleImageFallback
     ? estimateStoryboardMaskedEditCost()
     : estimateStoryboardImageCost();
   const videoCny = shot ? quickShotVideoRenderPlan(shot, []).estimatedCny : 0;
-  const imageCny = imageEstimate.estimatedCny;
+  const imageCny = options.imageCount !== undefined ? quoteShotImages(options.imageCount).estimatedCny : imageEstimate.estimatedCny;
   return {
     imageCny,
     videoCny,
     totalCny: Math.ceil((imageCny + videoCny) * 100) / 100,
-    imageCandidateCount: options.singleImageFallback ? 1 : 4,
+    imageCandidateCount: options.imageCount ?? (options.singleImageFallback ? 1 : 4),
   };
 }
 

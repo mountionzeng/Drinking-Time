@@ -48,6 +48,20 @@ describe("visualAssets router", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it("protects Story defaults by ownership and rejects unlocked pet versions", async () => {
+    const story = await db.createStory({ userId: 51, title: "默认宠物", body: { _revision: 1, shots: [] } });
+    const owner = visualAssetsRouter.createCaller(context(51));
+    const intruder = visualAssetsRouter.createCaller(context(52));
+    const input = { storyId: story.id, expectedRevision: 1, operationToken: "default-pet", pet: null };
+    await expect(intruder.setDefaultPet(input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(owner.setDefaultPet({ ...input, pet: { assetId: "missing", versionId: "missing" } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const saved = await owner.setDefaultPet(input);
+    expect(saved.aggregate.defaultPet).toBeUndefined();
+    expect(saved.revision).toBe(2);
+    const replay = await owner.setDefaultPet(input);
+    expect(replay.replayed).toBe(true);
+  });
+
   it("creates and reads an asset only for the Story owner", async () => {
     const story = await db.createStory({
       userId: 51,

@@ -36,7 +36,9 @@
         "聊天选区属于故事：切换故事必须清除 activeSelection，且读取侧按 storyId 兜底——storyId 与当前故事不符的选区一律读成「没有选区」，不渲染也不随消息发送。"
       ],
       "dependencies": [],
-      "replaces": ["legacy-project-scoped-shots"],
+      "replaces": [
+        "legacy-project-scoped-shots"
+      ],
       "knownGaps": [
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
@@ -177,7 +179,9 @@
       "name": "项目归属与访问控制",
       "status": "working",
       "userValue": "别人拿到你的项目 id 也读不到你的素材、分析和批注，也写不进你的项目。",
-      "entryPoints": ["server/routers/_projectAccess.ts"],
+      "entryPoints": [
+        "server/routers/_projectAccess.ts"
+      ],
       "owners": [
         "server/routers/_projectAccess.ts",
         "server/routers/index.ts",
@@ -215,7 +219,9 @@
       "userValue": "历史上按项目保存镜头的实现。",
       "entryPoints": [],
       "owners": [],
-      "evidence": ["docs/brainstorms/data-structure-diagnosis.md"],
+      "evidence": [
+        "docs/brainstorms/data-structure-diagnosis.md"
+      ],
       "invariants": [],
       "dependencies": [],
       "replaces": [],
@@ -228,14 +234,22 @@
       "name": "稳定镜头身份",
       "status": "working",
       "userValue": "镜头重排和重新生成时，图片、视频与人工修改仍能跟随正确镜头。",
-      "entryPoints": ["shared/shotIdentity.ts"],
-      "owners": ["shared/shotIdentity.ts"],
-      "evidence": ["shared/shotIdentity.test.ts"],
+      "entryPoints": [
+        "shared/shotIdentity.ts"
+      ],
+      "owners": [
+        "shared/shotIdentity.ts"
+      ],
+      "evidence": [
+        "shared/shotIdentity.test.ts"
+      ],
       "invariants": [
         "资产关联不得只依赖可变 shotNo。",
         "稳定身份不得跨故事复用。"
       ],
-      "dependencies": ["story-ownership"],
+      "dependencies": [
+        "story-ownership"
+      ],
       "replaces": [],
       "knownGaps": [],
       "history": [
@@ -263,27 +277,43 @@
       "userValue": "新生成图片不会静默覆盖已采用图片，旧候选仍可恢复。",
       "entryPoints": [
         "server/services/imageAssets.ts",
-        "client/src/features/creationEditor/views/StoryboardEditRow.tsx"
+        "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
+        "client/src/features/storyAgent/views/ShotImageRenderControl.tsx"
       ],
       "owners": [
         "client/src/features/creationEditor/rerender.ts",
         "server/routers/storyAgent.ts",
         "server/services/imageAssets.ts",
-        "server/services/storyMaterials.ts"
+        "server/services/storyMaterials.ts",
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
+        "server/services/imageGen.ts",
+        "shared/shotImageRender.ts"
       ],
       "evidence": [
         "client/src/features/creationEditor/rerender.test.ts",
         "server/routers.storyAgent.test.ts",
-        "server/services/imageAssets.test.ts"
+        "server/services/imageAssets.test.ts",
+        "docs/qa/storyboard-image-confirmation-2026-09-08.md",
+        "server/services/imageGen.test.ts",
+        "shared/shotImageRender.test.ts",
+        "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
+        "docs/qa/unified-shot-render-2026-09-09.md"
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
         "未采用和失配素材仍可作为未分配素材找回。",
         "抽帧轨删除必须按当前 Story 的 exact imageId 执行；服务端只接受带时间线抽帧标记的图片，不得删除普通镜头主图、来源视频或故事镜头。"
       ],
-      "dependencies": ["story-ownership", "stable-shot-identity"],
+      "dependencies": [
+        "story-ownership",
+        "stable-shot-identity"
+      ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "统一入口已改为GPT独立单帧并显示总报价，绕开旧MJ四张的公网参考上传依赖；真实四张连续生成尚未付费验证。此前单张图片1793真实生成和刷新验收通过。",
+        "普通参考编辑虽已接异步任务号与查询，但generateForMobile尚未将受理回执持久化到Story供刷新恢复；本轮仅修供应商适配层，不代表端到端恢复完成。",
+        "镜头渲染张数与参考选择保存在本浏览器，不跨设备同步；关闭页面后不会继续提交尚未开始的图片，已受理任务仍缺少刷新恢复。"
+      ],
       "history": [
         {
           "date": "2026-06-13",
@@ -299,6 +329,31 @@
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "抽帧上层轨新增缩略图右键删除：菜单显示真实 imageId，重叠抽帧逐张列出；删除中禁用、失败保留提示，服务端复核故事归属和抽帧标记。main:3000 以临时抽帧 #1652 验证创建、右键删除、刷新不恢复，最终仍为 8 张原抽帧、30 个故事镜头和 30 个时间线项目。"
+        },
+        {
+          "date": "2026-09-08",
+          "kind": "fix",
+          "summary": "修复渲染四张在内置浏览器中点击无可见响应：图片费用确认由 window.confirm 改为页面内对话框；取消、关闭与离开镜头集合均结束等待且不提交任务，确认后重新检查渲染线。预检和生成错误持久显示在弹窗中。main:3000 Story1196 镜头02实测点击出现四张/¥0.68确认，取消后恢复；未提交付费生成。63项相关测试及类型检查通过，证据见 docs/qa/storyboard-image-confirmation-2026-09-08.md。"
+        },
+        {
+          "date": "2026-09-08",
+          "kind": "fix",
+          "summary": "补充显式“参考素材出1张”入口：GPT-image 直接发送本地参考，避免四张MJ通道依赖失效的公网上传；单独按单张报价确认，不改变四张入口或静默切换价格。成功提示显示真实张数。77项相关测试通过；真实出图验证继续记录在 docs/qa/storyboard-image-confirmation-2026-09-08.md。 实测单张返回供应商fetch failed，未出图；修正错误格式化避免吞掉供应商原文和已受理任务号，禁止因没有候选而盲目重试。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "普通GPT参考图编辑改为async=true，复用异步结果查询；兼容直接返回图片，遮罩仍同步合成。查询失败保留providerTaskId，提交断开标记submissionUncertain，避免重复提交。新增先红后绿回归覆盖异步完成/查询失败回执/提交不确定。真实服务商出图尚未重新验证，不宣称旧任务可恢复。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "真实付费验证通过：用户明确授权镜头02单张约¥1.49测试后，通过页面参考素材出1张及费用确认仅提交一次。Story1196生成图片1793，稳定镜头publishing-v1-872f0affe88bee694dfe，文件1788922300804-ous8h8.png；刷新后画面行仍显示1793。图为小猫抓咬衣袖，1024方图；未额外重试，实际扣费未查询。四张MJ公网参考与中断任务持久恢复缺口仍保留。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "refactor",
+          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。"
         }
       ]
     },
@@ -307,7 +362,9 @@
       "name": "提示词修订谱系",
       "status": "working",
       "userValue": "提示词修改、来源和生成素材之间可以追溯，不靠覆盖旧内容更新。",
-      "entryPoints": ["server/routers/promptLineage.ts"],
+      "entryPoints": [
+        "server/routers/promptLineage.ts"
+      ],
       "owners": [
         "server/services/promptLineage.ts",
         "server/services/promptLineageStore.ts"
@@ -320,7 +377,10 @@
         "已确认修订不可原地覆盖。",
         "镜头级覆盖不得反向修改故事级快照。"
       ],
-      "dependencies": ["story-ownership", "stable-shot-identity"],
+      "dependencies": [
+        "story-ownership",
+        "stable-shot-identity"
+      ],
       "replaces": [],
       "knownGaps": [],
       "history": [
@@ -346,7 +406,10 @@
       "name": "单一开发服务与数据隔离",
       "status": "working",
       "userValue": "所有本地页面读取同一份故事数据，避免多 worktree 数据分裂。",
-      "entryPoints": ["scripts/env-status.ts", "scripts/dev-preflight.ts"],
+      "entryPoints": [
+        "scripts/env-status.ts",
+        "scripts/dev-preflight.ts"
+      ],
       "owners": [
         "scripts/env-status.ts",
         "scripts/dev-preflight.ts",
@@ -407,7 +470,10 @@
       "name": "Agent 功能生命账本",
       "status": "working",
       "userValue": "让 Codex 和 Claude 开工前知道已有能力，结束后留下可追溯证据，避免功能被遗忘、重复或静默覆盖。",
-      "entryPoints": ["AGENTS.md", "docs/features/README.md"],
+      "entryPoints": [
+        "AGENTS.md",
+        "docs/features/README.md"
+      ],
       "owners": [
         "docs/features/feature-ledger.json",
         "scripts/validate-feature-ledger.ts"
@@ -423,7 +489,9 @@
       ],
       "dependencies": [],
       "replaces": [],
-      "knownGaps": ["当前由仓库规则和校验命令执行，尚未接入 CI 强制检查。"],
+      "knownGaps": [
+        "当前由仓库规则和校验命令执行，尚未接入 CI 强制检查。"
+      ],
       "history": [
         {
           "date": "2026-08-11",
@@ -477,7 +545,10 @@
         "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
         "人工标题不能被转换、改写、格式修复或无效标题结果清空。"
       ],
-      "dependencies": ["story-ownership", "image-asset-history"],
+      "dependencies": [
+        "story-ownership",
+        "image-asset-history"
+      ],
       "replaces": [],
       "knownGaps": [
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
@@ -613,7 +684,9 @@
         "完成时才分配稳定的成品 Vn、Image Vn 与 Video Vn；空媒体层不得虚构版本号。",
         "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
       ],
-      "dependencies": ["publishing-workspace"],
+      "dependencies": [
+        "publishing-workspace"
+      ],
       "replaces": [],
       "knownGaps": [
         "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
@@ -697,8 +770,13 @@
         "shared/storyIntentProfile.test.ts",
         "client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx"
       ],
-      "invariants": ["用途与平台是不同维度。", "意图必须绑定发布版本。"],
-      "dependencies": ["publishing-versions"],
+      "invariants": [
+        "用途与平台是不同维度。",
+        "意图必须绑定发布版本。"
+      ],
+      "dependencies": [
+        "publishing-versions"
+      ],
       "replaces": [],
       "knownGaps": [
         "共享 profile、proposal 与活动版本 snapshot 权威已建立，聊天与发布工作区已复用同一提案组件；确认后的多状态持久化仍缺真实 main:3000 全链路验收。",
@@ -743,7 +821,9 @@
       "name": "安全自动标题与手动改名",
       "status": "working",
       "userValue": "故事更容易识别，同时自动命名不会覆盖人工标题。",
-      "entryPoints": ["client/src/features/storyAgent/StoryAgentContext.tsx"],
+      "entryPoints": [
+        "client/src/features/storyAgent/StoryAgentContext.tsx"
+      ],
       "owners": [
         "shared/storyTitle.ts",
         "server/db.ts",
@@ -758,7 +838,9 @@
         "自动标题只能替换未命名标题。",
         "改名只更新标题，不重写 Story body。"
       ],
-      "dependencies": ["story-ownership"],
+      "dependencies": [
+        "story-ownership"
+      ],
       "replaces": [],
       "knownGaps": [
         "writeStoryTitle 的数据库分支（drizzle UPDATE 的条件 WHERE 组装）没有测试执行过：仓库里全部测试都强制 DATABASE_URL=\"\" 跑内存分支，这是项目级既有状况、非本次引入。两条不变量目前只在内存分支有测试证据；数据库分支的等价性是靠审查逐条比对 drizzle and() 源码确认的（空条件展开不会让 WHERE 丢失或放宽），不是靠测试保证。",
@@ -1015,7 +1097,10 @@
         "朗读文本不得混入环境声说明。",
         "语音结果必须绑定正确 Story 和镜头。"
       ],
-      "dependencies": ["publishing-video-storyboard", "stable-shot-identity"],
+      "dependencies": [
+        "publishing-video-storyboard",
+        "stable-shot-identity"
+      ],
       "replaces": [],
       "knownGaps": [
         "旧 voiceAudio* 字段仍可被读取以兼容历史 Story；退役时间由 timeline-subtitle-audio-editing 的数据门禁决定。"
@@ -1225,7 +1310,9 @@
         "长期情绪画像继续服务每日回信与剧本共鸣，但不进入美术自动选择；只有本轮明确情绪可作为当前状态证据。",
         "只有用户明确表达当下语境时才按上海时区当天日期推导季节；参考画面的可见服装始终优先。"
       ],
-      "dependencies": ["unified-static-image-prompt"],
+      "dependencies": [
+        "unified-static-image-prompt"
+      ],
       "replaces": [],
       "knownGaps": [
         "12 张历史 draft 与 3 张历史手动 active 卡仍等待用户逐项筛选，旧 affinity 字段不参与新的语义自动选择。"
@@ -1282,8 +1369,12 @@
         "provider adapter 不再追加第二套美术规则。",
         "最终硬规则不可被用户或参考图覆盖。"
       ],
-      "dependencies": ["prompt-lineage"],
-      "replaces": ["legacy-image-render-instruction"],
+      "dependencies": [
+        "prompt-lineage"
+      ],
+      "replaces": [
+        "legacy-image-render-instruction"
+      ],
       "knownGaps": [
         "当前实现仍在未提交工作区，需在提示词评测语义决策后与 main 收敛。",
         "302/Forge 存储 503 时参考图拿不到公网 URL，MJ 的 --oref 人物锁无法生效（scripts/check-302-storage.ts 可探测）。"
@@ -1338,7 +1429,9 @@
       "userValue": "历史上向部分图片路径追加固定衣着和色调规则。",
       "entryPoints": [],
       "owners": [],
-      "evidence": ["git:HEAD:server/services/imageRenderInstruction.ts"],
+      "evidence": [
+        "git:HEAD:server/services/imageRenderInstruction.ts"
+      ],
       "invariants": [],
       "dependencies": [],
       "replaces": [],
@@ -1357,7 +1450,9 @@
       "name": "静态图片污染质检与隔离",
       "status": "working",
       "userValue": "文字、Logo、水印等污染图片不会展示，也不会因整轮失败自动重复扣费。",
-      "entryPoints": ["server/services/imageGen.ts"],
+      "entryPoints": [
+        "server/services/imageGen.ts"
+      ],
       "owners": [
         "server/services/staticImageQualityGate.ts",
         "server/services/imageGen.ts"
@@ -1370,9 +1465,14 @@
         "质检只判断文字污染，不替代审美选择。",
         "整轮污染不得自动再次提交付费任务。"
       ],
-      "dependencies": ["unified-static-image-prompt", "image-asset-history"],
+      "dependencies": [
+        "unified-static-image-prompt",
+        "image-asset-history"
+      ],
       "replaces": [],
-      "knownGaps": ["当前实现仍在未提交工作区。"],
+      "knownGaps": [
+        "当前实现仍在未提交工作区。"
+      ],
       "history": [
         {
           "date": "2026-08-10",
@@ -1405,13 +1505,17 @@
         "server/services/artRepositoryCatalog.ts",
         "art-repository/catalog.json"
       ],
-      "evidence": ["server/services/artRepository.test.ts"],
+      "evidence": [
+        "server/services/artRepository.test.ts"
+      ],
       "invariants": [
         "线上只消费清洗后且状态为 ready 的 DNA。",
         "原图路径、人物身份、具体情节和污染文字不得进入运行时提示词。",
         "付费分析必须显式确认。"
       ],
-      "dependencies": ["unified-static-image-prompt"],
+      "dependencies": [
+        "unified-static-image-prompt"
+      ],
       "replaces": [],
       "knownGaps": [
         "99 张参考图仍为 pending-analysis。",
@@ -1430,7 +1534,9 @@
       "name": "提示词评测与重复修改反馈闭环",
       "status": "observing",
       "userValue": "用最终提示词和真实修改历史衡量效果，让反复出现的问题可以被系统识别。",
-      "entryPoints": ["git:main:evals/run.ts"],
+      "entryPoints": [
+        "git:main:evals/run.ts"
+      ],
       "owners": [
         "git:main:evals/run.ts",
         "git:main:evals/recurringEditAnalysis.ts",
@@ -1445,7 +1551,10 @@
         "评分对象是最终编译提示词。",
         "损坏、超长或注入型修改记录不得污染后续上下文。"
       ],
-      "dependencies": ["prompt-lineage", "unified-static-image-prompt"],
+      "dependencies": [
+        "prompt-lineage",
+        "unified-static-image-prompt"
+      ],
       "replaces": [],
       "knownGaps": [
         "实现只在本地 main，当前功能分支尚未收敛。",
@@ -1464,7 +1573,9 @@
       "name": "实时社交媒体语境适配",
       "status": "observing",
       "userValue": "根据实时平台语境帮助用户调整表达，而不只是识别用途和受众。",
-      "entryPoints": ["server/routers/publishingDraft.ts"],
+      "entryPoints": [
+        "server/routers/publishingDraft.ts"
+      ],
       "owners": [
         "shared/publishingPlatformContext.ts",
         "server/services/platformTrends/provider.ts",
@@ -1487,7 +1598,9 @@
         "模型或相关性排序器只能选择 provider 已返回的候选 ID，不能补造热点。",
         "平台语境快照必须绑定版本、平台和来源稿 revision；V2 不继承 V1 快照。"
       ],
-      "dependencies": ["publishing-narrative-intent"],
+      "dependencies": [
+        "publishing-narrative-intent"
+      ],
       "replaces": [],
       "knownGaps": [
         "小红书和抖音目前都没有已核验、已授权的真实趋势 adapter，默认 provider 因此保持 unavailable。",
@@ -1667,7 +1780,10 @@
         "显式选择运动幅度时清除旧的 motion 字段，避免覆盖用户选择。",
         "硬切成片沿用供应商返回的分辨率，不降级重编码。"
       ],
-      "dependencies": ["stable-shot-identity", "image-asset-history"],
+      "dependencies": [
+        "stable-shot-identity",
+        "image-asset-history"
+      ],
       "replaces": [],
       "knownGaps": [
         "单次上限 8 秒，更长的镜头需要拆段或换模型。",
@@ -2135,7 +2251,8 @@
         "docs/brainstorms/2026-08-21-story-visual-assets-requirements.md",
         "docs/plans/2026-08-21-001-feat-story-visual-assets-plan.md",
         "docs/handoff/2026-08-22-visual-asset-chat-edit-handoff.md",
-        "docs/handoff/2026-08-22-visual-asset-ui-completion-handoff.md"
+        "docs/handoff/2026-08-22-visual-asset-ui-completion-handoff.md",
+        "client/src/features/storyAgent/views/ShotImageRenderControl.tsx"
       ],
       "owners": [
         "shared/photoExtraction.ts",
@@ -2148,7 +2265,8 @@
         "server/services/visualAssetConsistencyGate.ts",
         "server/services/visualAssetBoardStructure.ts",
         "server/services/imageGen.ts",
-        "server/services/publicReferenceHost.ts"
+        "server/services/publicReferenceHost.ts",
+        "shared/shotImageRender.ts"
       ],
       "evidence": [
         "shared/photoExtraction.test.ts",
@@ -2175,7 +2293,11 @@
         "docs/brainstorms/2026-08-21-story-visual-assets-requirements.md",
         "docs/plans/2026-08-21-001-feat-story-visual-assets-plan.md",
         "server/services/publicReferenceHost.test.ts",
-        "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md"
+        "docs/qa/visual-asset-production-architecture-diagnosis-2026-08-26.md",
+        "docs/qa/visual-asset-workspace-default-pet-2026-09-08.md",
+        "shared/shotImageRender.test.ts",
+        "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
+        "docs/qa/unified-shot-render-2026-09-09.md"
       ],
       "invariants": [
         "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
@@ -2191,7 +2313,9 @@
         "生成成功不等于自动采用；历史图片继续指向生成时实际使用的资产版本与验收结论。",
         "标准视图按视角分别计费，报价必须展示所有视角的总额；中途失败重试只补买失败的视角，已付费视角凭回执复用，不得重复购买。",
         "人物和宠物资产的身份锚点必须是正面头部特写（identity-detail），且该视图必须真实生成、不得由全身图裁切派生；全身图里的脸或头部不足以锁住身份，也不足以作为下游出图的身份证据。",
-        "素材仓库必须把 pet 显示为独立的“宠物”类别；同一镜头允许同时绑定一个 character 和一个 pet，生成合同与一致性门禁必须分别核对两者。"
+        "素材仓库必须把 pet 显示为独立的“宠物”类别；同一镜头允许同时绑定一个 character 和一个 pet，生成合同与一致性门禁必须分别核对两者。",
+        "整场默认宠物是用户主动选择的普通参考，无需人工验收或锁定；不改写原有视图判定。严格锁定和显式逐镜绑定仍遵守原质检门禁。已有逐镜设置优先，默认参考仅影响后续渲染。",
+        "统一渲染入口使用用户可见的完整参考选择：删除缩略图只取消后续生成参考，不删除资产；空列表不继承整场默认。新生成保持候选，用户选择普通宠物参考不等于锁定或人工验收。"
       ],
       "dependencies": [
         "story-ownership",
@@ -2220,6 +2344,16 @@
         "Story 1187 已用同一张图片 #1680 分别建立人物、场景和美术风格资产并完成刷新读回。人物修复后的 identity-detail #1753 与标准板 #1754 已人工原像素验收通过；场景四视角 #1755-#1758 与标准板 #1759 已人工验收通过。风格任务继续复用 token visual-board-b2f2e4b6…：人物样例 #1761、场景样例 #1762 已生成并人工确认风格一致，object-sample 再次 fetch failed，closeup-sample 尚未开始，未合成标准板。该同步接口的失败是否计费不可确认；按最坏口径当前可能为 ¥22.35，已在用户批准的 ¥23.84 上限内停止。人物、场景与风格版本均保持未锁定。"
       ],
       "history": [
+        {
+          "date": "2026-09-08",
+          "kind": "fix",
+          "summary": "用户明确纠正默认参考不应要求人工确认或先锁定。整场默认可直接使用已有宠物身份图的review版本，不改判、不锁定；普通参考不触发严格锁定的三次重试费用门禁，原显式锁定逻辑保留。素材仓库恢复30%小面板，不自动全屏，缩略图悬停放大，卡片直接设默认，详细设置折叠。Story1196的小猫v2已通过界面设为默认，保留原检查状态。44项定向测试、check通过，未付费生成。"
+        },
+        {
+          "date": "2026-09-08",
+          "kind": "feature",
+          "summary": "按用户反馈扩大素材仓库资产工作区，前置锁定与原因提示；逐镜设置展示目标镜头的旁白、动作、当前画面与图片要求。新增显式保存的 Story 默认宠物：无逐镜设置时使用条件身份契约，有宠物才沿用身份，空镜不因参考图增加宠物；已有逐镜设置优先。默认版本沿用锁定/归属/CAS/一致性门禁，删除检查涵盖整场戏引用。非付费浏览器验收与定向测试通过；尚未用真实付费空镜和宠物镜头验收条件身份效果，不提升 observing 状态。"
+        },
         {
           "date": "2026-09-08",
           "kind": "verification",
@@ -2409,6 +2543,11 @@
           "date": "2026-08-21",
           "kind": "verification",
           "summary": "在主仓库现有 main:3000 做非付费浏览器验收：素材仓库可切换到“资产 0”，空状态和说明可见；创建弹窗先要求人物/场景/美术风格三选一，选择人物后显示资产名称、最多 12 张当前 Story 图片和创建草案按钮；未提交草案、未调用 AI 或图片供应商，控制台无错误。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "refactor",
+          "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。"
         }
       ]
     },
@@ -2421,7 +2560,9 @@
         "client/src/features/storyAgent/StoryAgentContext.tsx",
         "client/src/pages/EditingStudioPage.tsx"
       ],
-      "owners": ["client/src/features/storyAgent/recentStoryEntry.ts"],
+      "owners": [
+        "client/src/features/storyAgent/recentStoryEntry.ts"
+      ],
       "evidence": [
         "client/src/features/storyAgent/recentStoryEntry.test.ts",
         "client/src/features/storyAgent/StoryAgentContext.recentStoryRetry.test.tsx",
@@ -2552,7 +2693,9 @@
         "client/src/features/storyAgent/assetSwapIntent.ts",
         "client/src/features/storyAgent/useAssetSwapProposal.ts"
       ],
-      "evidence": ["client/src/features/storyAgent/assetSwapIntent.test.ts"],
+      "evidence": [
+        "client/src/features/storyAgent/assetSwapIntent.test.ts"
+      ],
       "invariants": [
         "判定不交给模型：必须同时命中「指向素材库」「点名资产类别」「有替换动作」三个信号才提案；认不出就放行给普通选区改写，不得猜。",
         "改固定造型（让她光脚、裙子加袖子）绝不能走这条路——那要 amendFixedFacts 并整套重出；误判会做出正面光脚、侧面穿鞋的板子，且固定事实未变，之后每镜出图仍会穿鞋。",
@@ -2824,7 +2967,10 @@
         "client/src/app/router/AppRouter.tsx",
         "server/routers/index.ts"
       ],
-      "owners": ["client/src/pages/AdminInvitesPage.tsx", "server/db.ts"],
+      "owners": [
+        "client/src/pages/AdminInvitesPage.tsx",
+        "server/db.ts"
+      ],
       "evidence": [
         "client/src/pages/AdminInvitesPage.test.tsx",
         "server/inviteAdmin.router.test.ts"
@@ -2835,7 +2981,9 @@
         "已绑定邮箱的邀请始终显示为已领取；有效期只把尚未领取的邀请判为已过期。",
         "看板只展示邀请与账号状态，不读取或暴露测试者的故事、素材和生成内容。"
       ],
-      "dependencies": ["project-ownership"],
+      "dependencies": [
+        "project-ownership"
+      ],
       "replaces": [],
       "knownGaps": [
         "旧邀请码原码无法从 SHA-256 哈希恢复；丢失后只能生成新码。",
@@ -2854,7 +3002,9 @@
       "name": "统一账号、算力赠送卡与付费体系",
       "status": "observing",
       "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
-      "entryPoints": ["server/_core/oauth.ts"],
+      "entryPoints": [
+        "server/_core/oauth.ts"
+      ],
       "owners": [
         "server/services/accountIdentity.ts",
         "server/services/accountSecurity.ts",
@@ -3030,7 +3180,10 @@
         "V1 以章节式文字传记为完整成果；封面和少量插花必须由用户显式发起并单独确认，不得自动触发付费图片或视频生成。",
         "不得复制 Life Motif 受许可保护的采访题库、原文措辞或报告结构。"
       ],
-      "dependencies": ["story-ownership", "publishing-versions"],
+      "dependencies": [
+        "story-ownership",
+        "publishing-versions"
+      ],
       "replaces": [],
       "knownGaps": [
         "目前只有经过确认的产品需求，没有微信小程序、家庭邀请、追加投稿、私密可见性、老人确认、冲突保留、章节增量生成或小程序预览实现。",

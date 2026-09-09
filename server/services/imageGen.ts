@@ -1405,6 +1405,8 @@ async function generate302GptImageEdit(
   options: ImageGenOptions,
   fetcher: Fetcher
 ): Promise<ImageGenResult> {
+  let acceptedTaskId = "";
+  let submissionStarted = false;
   try {
     const source = await readImageInput(imageUrl, fetcher);
     const mask = options.editMaskImageUrl
@@ -1432,7 +1434,9 @@ async function generate302GptImageEdit(
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
     endpoint.searchParams.set("response_format", "url");
-    endpoint.searchParams.set("async", "false");
+    // Ordinary reference edits can outlive a synchronous gateway connection.
+    // Keep masked edits synchronous: their result still needs pixel compositing.
+    endpoint.searchParams.set("async", mask ? "false" : "true");
 
     const form = new FormData();
     form.append(
@@ -1481,6 +1485,7 @@ async function generate302GptImageEdit(
       );
     }
 
+    submissionStarted = true;
     const response = await withTimeout(
       fetcher(endpoint.toString(), {
         method: "POST",
@@ -1500,6 +1505,15 @@ async function generate302GptImageEdit(
     }
 
     const responseJson = await response.json();
+    const receipt = responseJson && typeof responseJson === "object"
+      ? responseJson as Record<string, unknown> : {};
+    const taskId = receipt.task_id || receipt.taskId || receipt.id;
+    if (!mask && typeof taskId === "string" && taskId && !Array.isArray(receipt.data)) {
+      acceptedTaskId = taskId;
+      await options.onProviderTaskAccepted?.(taskId);
+      const result = await poll302GptImageTask(taskId, options, fetcher);
+      return result.status === "ok" ? result : { ...result, providerTaskId: taskId };
+    }
     const stored = mask
       ? await (async () => {
           const generatedBytes = await readImageBytesFromOpenAIJson(
@@ -1537,6 +1551,7 @@ async function generate302GptImageEdit(
     return {
       status: "error",
       message,
+      ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : submissionStarted ? { submissionUncertain: true } : {}),
     };
   }
 }

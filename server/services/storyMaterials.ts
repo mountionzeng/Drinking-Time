@@ -962,6 +962,7 @@ export async function getStoryMaterialState(
       assets: visualAssetAggregate.assets,
       proposals: visualAssetAggregate.proposals,
       bindings: visualAssetAggregate.bindings,
+      defaultPet: visualAssetAggregate.defaultPet,
       images: images.filter(image => image.kind === "visual_asset"),
     },
     shots,

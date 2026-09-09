@@ -32,6 +32,27 @@ describe("visual asset persistence", () => {
     db.resetMemoryStateForTesting();
   });
 
+  it("saves and removes a Story default without changing existing shot bindings", async () => {
+    const { emptyStoryVisualAssets, emptyVisualAssetFacts, requiredVisualAssetViewRoles } = await import("../../shared/visualAssets");
+    const aggregate = emptyStoryVisualAssets();
+    aggregate.assets = [{ id: "pet-a", kind: "pet", name: "小猫", currentVersionId: "pet-v1", createdAt: 1, updatedAt: 1, versions: [{
+      id: "pet-v1", version: 1, status: "review", references: [], fixedFacts: { kind: "pet", species: "猫", face: "圆脸", coat: "灰黑虎斑", body: "中等体型", distinctiveFeatures: [], accessories: [] }, boardImageId: 1, allowedVariations: [], conflicts: [], createdAt: 1, lockedAt: 2,
+      views: requiredVisualAssetViewRoles("pet").map((role, i) => ({ id: `v-${i}`, role, imageId: i + 1, status: "pass" })),
+    }] }];
+    aggregate.bindings = [];
+    const story = await db.createStory({ userId: 11, title: "整场戏", body: { _revision: 1, shots: [], visualAssets: aggregate } });
+    const saved = await persistence.setStoryDefaultPet({ storyId: story.id, userId: 11, expectedRevision: 1, operationToken: "set-default", pet: { assetId: "pet-a", versionId: "pet-v1" } });
+    expect(saved.aggregate.defaultPet).toEqual({ assetId: "pet-a", versionId: "pet-v1" });
+    expect(saved.aggregate.assets[0]?.versions[0]?.status).toBe("review");
+    const read = await persistence.getStoryVisualAssets({ storyId: story.id, userId: 11 });
+    expect(read.aggregate.defaultPet).toEqual(saved.aggregate.defaultPet);
+    expect(read.aggregate.bindings).toEqual(aggregate.bindings);
+    await expect(persistence.setStoryDefaultPet({ storyId: story.id, userId: 11, expectedRevision: 1, operationToken: "stale-default", pet: null })).rejects.toThrow();
+    const cleared = await persistence.setStoryDefaultPet({ storyId: story.id, userId: 11, expectedRevision: 2, operationToken: "clear-default", pet: null });
+    expect(cleared.aggregate.defaultPet).toBeUndefined();
+    expect(cleared.aggregate.bindings).toEqual(aggregate.bindings);
+  });
+
   it("atomically permits one paid view claim, rejects duplicate purchase, and allows only recorded-task resume", async () => {
     const story = await db.createStory({ userId: 11, title: "付费领取", body: { _revision: 1, shots: [] } });
     const claim = { storyId: story.id, userId: 11, token: "pet-top:view:top",

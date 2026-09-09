@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type {
   ShotVisualAssetBinding,
+  ShotVisualAssetSelection,
   VisualAssetFixedFacts,
   VisualAssetKind,
   VisualAssetViewRole,
@@ -47,12 +48,15 @@ export type VisualAssetGenerationDimension = {
   allowedVariations: string[];
   views: VisualAssetGenerationView[];
   providerReferenceUrl: string;
+  /** Only Story defaults are conditional; explicit shot bindings stay mandatory. */
+  whenVisible?: boolean;
 };
 
 export type VisualAssetGenerationSnapshot = {
   storyId: number;
   stableShotId: string;
-  provider: "midjourney";
+  provider: "midjourney" | "gpt-image";
+  referenceOnly?: boolean;
   fingerprint: string;
   dimensions: Partial<Record<VisualAssetKind, VisualAssetGenerationDimension>>;
   promptContract: string;
@@ -179,14 +183,15 @@ function promptContract(
       const dimension = dimensions[kind];
       if (!dimension) return "";
       return [
-        `【${labels[kind]}｜${dimension.assetName}｜${dimension.versionId}】`,
+        `【${dimension.whenVisible ? "整场默认宠物参考" : labels[kind]}｜${dimension.assetName}｜${dimension.versionId}】`,
+        ...(dimension.whenVisible ? ["此项是用户选择的默认参考，不代表已锁定或人工验收。使用范围：整场戏默认宠物身份，仅当镜头画面要求出现该宠物时使用。不得因为附有参考图而添加宠物；旁白提到、回忆宠物不等于画面需要出现。没有宠物的空镜保持空镜；出现另一只或一群宠物时需单独指定，不能复制默认宠物凑数。"] : []),
         ...factsLines(dimension.fixedFacts),
         `允许变化：${dimension.allowedVariations.join("、") || "无"}`,
       ].join("\n");
     })
     .filter(Boolean);
   return [
-    "【锁定视觉资产·最高优先级】以下人物、宠物、场景和美术事实是用户已经确认的视觉真相，必须与所附标准视图一致，不得被镜头文字、当前帧、自动美术库或模型默认想象改写。镜头景别、机位、动作、表情和光线只有在下方明确列为允许变化时才可改变。",
+    ...(Object.values(dimensions).every(dimension => dimension?.whenVisible) ? ["【整场默认参考】按当前镜头要求渲染，仅参考宠物身份；这不是严格锁定或人工验收。"] : ["【锁定视觉资产·最高优先级】以下人物、宠物、场景和美术事实是用户已经确认的视觉真相，必须与所附标准视图一致，不得被镜头文字、当前帧、自动美术库或模型默认想象改写。镜头景别、机位、动作、表情和光线只有在下方明确列为允许变化时才可改变。"]),
     ...blocks,
   ].join("\n");
 }
@@ -207,6 +212,8 @@ export async function resolveVisualAssetGenerationContext(input: {
   userId: number;
   stableShotId: string;
   shotText?: string;
+  shotVisualText?: string;
+  selections?: ShotVisualAssetSelection;
   explicitDimensionOverrides?: Partial<Record<VisualAssetKind, string>>;
   provider?: string;
   dependencies?: VisualAssetGenerationDependencies;
@@ -223,7 +230,14 @@ export async function resolveVisualAssetGenerationContext(input: {
     };
   }
   const aggregate = visualAssetsFromStory(story);
-  const binding = bindingForShot(aggregate.bindings, input.stableShotId);
+  const explicitBinding = input.selections !== undefined
+    ? { stableShotId: input.stableShotId, confirmedAt: 0, ...input.selections }
+    : bindingForShot(aggregate.bindings, input.stableShotId);
+  if (input.selections && !VISUAL_ASSET_KINDS.some(kind => input.selections?.[kind])) return { status: "disabled" };
+  const inheritedPet = input.selections?.pet ?? (!explicitBinding && aggregate.defaultPet);
+  const binding = explicitBinding ?? (inheritedPet
+    ? { stableShotId: input.stableShotId, confirmedAt: 0, pet: inheritedPet }
+    : undefined);
   if (!binding) return { status: "disabled" };
 
   const issues: VisualAssetGenerationIssue[] = [];
@@ -240,7 +254,7 @@ export async function resolveVisualAssetGenerationContext(input: {
       message: "镜头资产绑定为空，不能安全生成",
     });
   }
-  if ((input.provider ?? "midjourney") !== "midjourney") {
+  if ((input.provider ?? "midjourney") !== "midjourney" && !((inheritedPet || input.selections) && input.provider === "gpt-image")) {
     issues.push({
       code: "provider-role-unsupported",
       message: "当前供应商尚未验证人物、宠物、场景和风格参考职责，未提交付费生成",
@@ -258,7 +272,7 @@ export async function resolveVisualAssetGenerationContext(input: {
       });
       continue;
     }
-    if (found.version.status !== "locked") {
+    if (found.version.status !== "locked" && !(kind === "pet" && inheritedPet && found.version.status !== "superseded")) {
       issues.push({
         code: "version-not-locked",
         kind,
@@ -266,7 +280,10 @@ export async function resolveVisualAssetGenerationContext(input: {
       });
       continue;
     }
-    if (textConflicts(kind, input.shotText ?? "")) {
+    const conflictText = kind === "pet" && inheritedPet
+      ? (input.shotText ?? "").replace(/without\s+(?:a\s+|the\s+)?(?:cat|pet|dog)s?\b|(?:不要|移除|去掉)(?:出现)?(?:小猫|猫|宠物|狗)/gi, "")
+      : input.shotText ?? "";
+    if (textConflicts(kind, conflictText)) {
       issues.push({
         code: "shot-text-conflict",
         kind,
@@ -282,7 +299,7 @@ export async function resolveVisualAssetGenerationContext(input: {
     }
 
     const resolvedViews = await Promise.all(
-      requiredVisualAssetViewRoles(kind).map(
+      (kind === "pet" && inheritedPet ? ["identity-detail" as const] : requiredVisualAssetViewRoles(kind)).map(
         async (
           role
         ): Promise<
@@ -290,7 +307,7 @@ export async function resolveVisualAssetGenerationContext(input: {
           | { view: VisualAssetGenerationView }
         > => {
         const view = found.version.views.find(
-          item => item.role === role && item.status === "pass"
+          item => item.role === role && ((kind === "pet" && inheritedPet) || item.status === "pass")
         );
         if (!view) {
           return {
@@ -351,7 +368,7 @@ export async function resolveVisualAssetGenerationContext(input: {
     );
     if (!representative) continue;
     let providerReferenceUrl = representative.materializedUrl;
-    if (kind === "character" || kind === "pet" || kind === "style") {
+    if ((kind === "character" || kind === "pet" || kind === "style") && input.provider !== "gpt-image") {
       const publicUrl = await makePublic(representative.sourceUrl);
       if (!publicUrl) {
         issues.push({
@@ -373,6 +390,7 @@ export async function resolveVisualAssetGenerationContext(input: {
       allowedVariations: [...found.version.allowedVariations],
       views,
       providerReferenceUrl,
+      ...(kind === "pet" && inheritedPet ? { whenVisible: true } : {}),
     };
   }
 
@@ -386,6 +404,7 @@ export async function resolveVisualAssetGenerationContext(input: {
             assetId: dimension.assetId,
             versionId: dimension.versionId,
             fixedFacts: dimension.fixedFacts,
+            ...(dimension.whenVisible ? { whenVisible: true, shotText: input.shotVisualText ?? input.shotText ?? "" } : {}),
             views: dimension.views.map(view => [view.role, view.imageId]),
           }
         : null;
@@ -394,10 +413,13 @@ export async function resolveVisualAssetGenerationContext(input: {
   const snapshot: VisualAssetGenerationSnapshot = {
     storyId: input.storyId,
     stableShotId: input.stableShotId,
-    provider: "midjourney",
+    provider: (inheritedPet || input.selections) && input.provider === "gpt-image" ? "gpt-image" : "midjourney",
+    ...(inheritedPet ? { referenceOnly: true } : {}),
     fingerprint,
     dimensions,
-    promptContract: promptContract(dimensions),
+    promptContract: [promptContract(dimensions), ...(inheritedPet
+      ? [`【当前镜头画面要求】\n${input.shotVisualText ?? input.shotText ?? "未提供；不能自行添加宠物"}`]
+      : [])].join("\n"),
     ...(dimensions.character
       ? { characterRef: dimensions.character.providerReferenceUrl }
       : {}),

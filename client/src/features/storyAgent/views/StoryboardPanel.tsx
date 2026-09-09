@@ -106,6 +106,7 @@ export default function StoryboardPanel({
   const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
   const {
     activeStoryId,
+    materialState,
     publishingHandoff,
     selectedShotNo,
     setSelectedShotNo,
@@ -226,6 +227,8 @@ export default function StoryboardPanel({
 
   return (
     <StoryboardReviewBoard
+      storyId={activeStoryId}
+      materialState={materialState}
       images={generatedImages}
       shots={displayShots}
       latestScript={latestScript}

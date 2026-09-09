@@ -209,6 +209,7 @@ export function buildStoryboardImageRenderPlan(input: {
   editMaskPlan?: StoryboardEditMaskPlan;
   editMaskImageUrl?: string;
   useSingleImageFallback: boolean;
+  singleReferenceImage?: boolean;
   imageReferences: StoryboardImageGenerationReferences;
   explicitInstruction: string;
   templateLabel?: string;
@@ -246,7 +247,7 @@ export function buildStoryboardImageRenderPlan(input: {
         ? `${input.label} 将对当前选中的${editRoleLabel}（图片 #${input.selectedFrameId}）执行带透明遮罩的局部重绘。\n\n遮罩范围：${input.editMaskPlan.label}。透明区域是唯一允许修改的区域，人物头发、双臂、构图、黑边、场景与其他像素不会交给模型重绘。\n\n用户原话：\n${exactInstruction}\n\n生成完成后会把新图放回${editRoleLabel}，旧图仍然保留。使用 302 GPT-image 1.5 图片编辑，预计人民币 ¥${estimate.estimatedCny.toFixed(2)}（最终按实际 Tokens），确认提交？`
         : `${input.label} 将精确修改当前选中的${editRoleLabel}（图片 #${input.selectedFrameId}），只执行下面这条要求，不重构其他画面：\n\n${exactInstruction}${templateNotice}\n\n生成完成后会把新图放回${editRoleLabel}，旧图仍然保留。预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，确认提交 302 参考图编辑？`;
   } else if (input.useSingleImageFallback) {
-    confirmation = `${input.label} 检测到四张候选图通道刚刚超时，将改用 302 GPT-image 参考图编辑，以 ${primaryLabel} 为视觉基底${referenceContext}生成 1 张完整单帧：${templateNotice}\n\n${input.explicitInstruction}\n\n不会生成四宫格，也不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${estimate.estimatedCny.toFixed(2)}（最终按实际 Tokens），确认提交？`;
+    confirmation = `${input.label} ${input.singleReferenceImage ? "本次选择直接发送参考素材，使用" : "检测到四张候选图通道刚刚超时，将改用"} 302 GPT-image 参考图编辑，以 ${primaryLabel} 为视觉基底${referenceContext}生成 1 张完整单帧：${templateNotice}\n\n${input.explicitInstruction}\n\n如已设置整场默认素材，将一并作为参考。预计人民币 ¥${estimate.estimatedCny.toFixed(2)}（最终按实际 Tokens），确认提交？`;
   } else {
     confirmation = `${input.label} 将以 ${primaryLabel} 为视觉基底${referenceContext}，按下面这段原文硬指令生成 ${estimate.candidateCount} 张候选图：${templateNotice}\n\n${input.explicitInstruction}\n\n人物、服装、场景、物体、材质和画面风格以这些现有故事画面为准；不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`;
   }

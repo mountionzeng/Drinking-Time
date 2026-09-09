@@ -1,3 +1,4 @@
+import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { z } from "zod";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { intentProposalId } from "@shared/storyIntentProfile";
@@ -1697,6 +1698,7 @@ export const storyAgentRouter = router({
   generateForMobile: protectedProcedure
     .input(
       z.object({
+        renderReferences: shotRenderReferencesSchema.optional(),
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
         explicitInstruction: z.string().trim().min(1).max(2_000).optional(),
         costConfirmation: z
@@ -1752,6 +1754,23 @@ export const storyAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
+        if (input.renderReferences) {
+          if (!story || story.userId !== ctx.user.id) throw new Error("故事不存在或无权访问");
+          if (!input.explicitInstruction?.trim()) throw new Error("请先填写图片要求");
+          if (!shotIdentityForStoryShot(story, input.shotNo)) throw new Error("当前镜头不存在，请刷新后重试");
+          if (input.imageProvider !== "gpt-image" || input.mode === "draft" || input.editMaskImageUrl || input.exactFrameEdit) {
+            throw new Error("可编辑参考列表仅用于正式单帧生成");
+          }
+          const selectedImages = await Promise.all(input.renderReferences.imageIds.map(id => getGeneratedImageById(id)));
+          if (selectedImages.some(image => !image || image.storyId !== input.storyId || image.userId !== ctx.user.id)) {
+            throw new Error("参考图片已删除或不属于当前故事");
+          }
+          input = { ...input, referenceImageUrl: selectedImages[0]?.imageUrl,
+            referenceContextImageUrls: selectedImages.slice(1).map(image => image!.imageUrl),
+            referenceIdentityImageUrl: undefined, originalImageUrl: undefined, storyStyleReferenceImageUrl: undefined,
+            autoSelect: false };
+        }
+
         if (!story) {
           return {
             status: "error" as const,
@@ -2079,6 +2098,8 @@ export const storyAgentRouter = router({
               storyId: input.storyId,
               userId: ctx.user.id,
               stableShotId: shotIdentity,
+              selections: input.renderReferences?.assets,
+              shotVisualText: prompt,
               shotText: [userAuthoredPrompt, input.explicitInstruction]
                 .filter(Boolean)
                 .join("\n"),
@@ -2106,10 +2127,10 @@ export const storyAgentRouter = router({
         }
 
         // 出图统一经美术网关。资产镜头不再读取旧故事参考池或旧人物锚点。
-        const storyReferences = lockedAssets
+        const storyReferences = lockedAssets || input.renderReferences
           ? []
           : storyArtReferenceImages(story);
-        const rawCharacterRef = lockedAssets
+        const rawCharacterRef = lockedAssets || input.renderReferences
           ? undefined
           : characterReferenceOf(artDirection);
         const referencePlan = planImageGenerationReferences({
@@ -2122,7 +2143,7 @@ export const storyAgentRouter = router({
             ? undefined
             : input.storyStyleReferenceImageUrl,
         });
-        if (!lockedAssets)
+        if (!lockedAssets && !input.renderReferences)
           prompt = withCharacterContinuityPrompt(prompt, storyBody, {
             hasCharacterReference: Boolean(
               referencePlan.usesStoryboardFrames
@@ -2135,7 +2156,8 @@ export const storyAgentRouter = router({
         const referenceImage =
           referencePlan.primaryImage ??
           lockedAssets?.sceneRef ??
-          lockedAssets?.petRef;
+          lockedAssets?.petRef ??
+          (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
@@ -2154,7 +2176,7 @@ export const storyAgentRouter = router({
             );
           }
         }
-        const injection = lockedAssets
+        const injection = input.renderReferences ? {} : lockedAssets
           ? {
               ...(lockedAssets.characterRef
                 ? {
@@ -2223,10 +2245,10 @@ export const storyAgentRouter = router({
           }
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
-        if (!lockedAssets) {
+        if (!lockedAssets && !input.renderReferences) {
           prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
         }
-        if (coverArtDirection && !lockedAssets) {
+        if (coverArtDirection && !lockedAssets && !input.renderReferences) {
           prompt = await compilePublishingCoverStoryboardPrompt({
             prompt,
             provider: input.imageProvider ?? "midjourney",
@@ -2283,7 +2305,7 @@ export const storyAgentRouter = router({
           authoredBrief:
             Boolean(input.explicitInstruction?.trim()) &&
             referencePlan.usesStoryboardFrames,
-          artDirection: lockedAssets
+          artDirection: lockedAssets || input.renderReferences
             ? undefined
             : referencePlan.usesStoryboardFrames
               ? explicitStyleRecipe
@@ -2373,6 +2395,7 @@ export const storyAgentRouter = router({
                 referenceContextImageUrls: Array.from(
                   new Set([
                     ...(input.referenceContextImageUrls ?? []),
+                    ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(dimension => dimension.providerReferenceUrl).filter(url => url !== referenceImage) : []),
                     ...(lockedAssets?.sceneRef &&
                     lockedAssets.sceneRef !== referenceImage
                       ? [lockedAssets.sceneRef]

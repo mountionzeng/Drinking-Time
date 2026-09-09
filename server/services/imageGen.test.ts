@@ -1045,6 +1045,46 @@ describe("editImage", () => {
     expect(form.get("image")).toBeTruthy();
   });
 
+  it("参考编辑先保留异步任务号，查询失败不会重新提交", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { task_id: "edit-receipt-1" } },
+      { ok: false, status: 502, json: {} },
+    ]);
+    const accepted = vi.fn();
+    const result = await editImage("data:image/png;base64,aW1hZ2U=", "小猫靠着腿", {
+      provider: "gpt-image", fetcher, gptPollIntervalMs: 1,
+      onProviderTaskAccepted: accepted,
+    });
+    expect(fetcher.mock.calls[0][0]).toContain("async=true");
+    expect(accepted).toHaveBeenCalledWith("edit-receipt-1");
+    expect(result.status).toBe("error");
+    expect(result.providerTaskId).toBe("edit-receipt-1");
+    expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
+  });
+
+  it("参考编辑异步结果完成后保存真实图片", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { task_id: "edit-complete" } },
+      { ok: true, status: 200, json: { status_code: 200, data: { data: [{ b64_json: Buffer.from("edited-image").toString("base64") }] } } },
+    ]);
+    const result = await editImage("data:image/png;base64,aW1hZ2U=", "小猫靠着腿", {
+      provider: "gpt-image", fetcher, gptPollIntervalMs: 1,
+    });
+    expect(result.status).toBe("ok");
+    expect(result.imageUrl).toMatch(/^\/api\/images\//);
+    expect(fetcher.mock.calls[1][0]).toContain("task_id=edit-complete");
+  });
+
+  it("参考编辑提交时断线会标记受理不确定，不吞掉风险", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    const result = await editImage("data:image/png;base64,aW1hZ2U=", "小猫靠着腿", {
+      provider: "gpt-image", fetcher,
+    });
+    expect(result.submissionUncertain).toBe(true);
+    expect(result.providerTaskId).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("带相邻镜头参考图时走 gpt-image 多图编辑，底图排第一位", async () => {
     // FLUX Kontext 只吃一张图，会把前后镜头悄悄丢掉 ——「不要不连镜」就永远做不到。
     const b64 = Buffer.from("multi-ref-image").toString("base64");

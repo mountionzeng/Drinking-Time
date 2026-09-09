@@ -88,6 +88,9 @@ export async function inspectVisualAssetConsistency(input: {
         `requested kinds: ${kinds.join(", ")}`,
         `asset snapshot fingerprint: ${input.snapshot.fingerprint}`,
         input.snapshot.promptContract,
+        ...(input.snapshot.dimensions.pet?.whenVisible ? [
+          "本次 pet 是整场戏的条件默认身份，不要求每镜都出现宠物。必须先按当前镜头画面要求核对是否应出现宠物：无宠物镜头中确认完全没有宠物才可 pass；要求出现时必须看清并核对同一身份；不应出现却出现、应出现却缺失均 fail。出现另一只或一群宠物且身份无法唯一对应则 unknown。不能确定画面要求或身份时仍 unknown。",
+        ] : []),
         ...indexLines,
       ].join("\n"),
       imageUrls,

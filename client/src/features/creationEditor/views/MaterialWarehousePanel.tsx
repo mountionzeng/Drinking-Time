@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
   Archive,
   Ban,
@@ -8,6 +9,8 @@ import {
   Loader2,
   Link2,
   Layers3,
+  Maximize2,
+  Minimize2,
   RotateCcw,
   Upload,
   Video,
@@ -523,6 +526,7 @@ export default function MaterialWarehousePanel({
   const [panelError, setPanelError] = useState<string | null>(null);
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
+  const [warehouseExpanded, setWarehouseExpanded] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets">("images");
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
@@ -867,14 +871,18 @@ export default function MaterialWarehousePanel({
   if (variant === "drawer") {
     const drawerItems =
       drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
-    return (
+    const drawer = (
       <section
         id="editing-material-warehouse"
-        className="flex min-h-[230px] flex-[0_0_42%] flex-col overflow-hidden border-t border-border bg-background"
+        className={
+          warehouseExpanded
+            ? "fixed inset-3 z-50 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+            : "flex min-h-[180px] flex-[0_0_30%] flex-col overflow-hidden border-t border-border bg-background"
+        }
         aria-label="素材仓库抽屉"
         data-testid="material-warehouse-drawer"
       >
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+        <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex items-center gap-2">
               <Archive className="h-4 w-4 text-primary" />
@@ -899,7 +907,10 @@ export default function MaterialWarehousePanel({
               </button>
               <button
                 type="button"
-                onClick={() => setDrawerTab("assets")}
+                onClick={() => {
+                  setDrawerTab("assets");
+
+                }}
                 aria-pressed={drawerTab === "assets"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "assets" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
@@ -908,6 +919,40 @@ export default function MaterialWarehousePanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {drawerTab === "assets" ? (
+              <label className="flex items-center gap-2 text-xs">
+                目标镜头
+                <select
+                  aria-label="资产关联目标镜头"
+                  value={currentShot?.shotNo ?? ""}
+                  onChange={event =>
+                    setSelectedShotNo(Number(event.currentTarget.value))
+                  }
+                  className="h-8 max-w-[140px] rounded-md border border-border bg-background px-2"
+                >
+                  <option value="" disabled>
+                    选择镜头
+                  </option>
+                  {shots.map(shot => (
+                    <option key={shot.shotNo} value={shot.shotNo}>
+                      {shotLabel(shot)} · {(shot.dialogue || shot.action || "空镜头").slice(0, 32)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setWarehouseExpanded(value => !value)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 px-3 text-xs text-primary"
+            >
+              {warehouseExpanded ? (
+                <Minimize2 className="h-4 w-4" />
+              ) : (
+                <Maximize2 className="h-4 w-4" />
+              )}
+              {warehouseExpanded ? "返回剪辑布局" : "展开工作区"}
+            </button>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -961,6 +1006,14 @@ export default function MaterialWarehousePanel({
               storyId={activeStoryId ?? null}
               images={visualAssetImages}
               compact
+              spacious={warehouseExpanded}
+              currentShotLabel={shotLabel(currentShot ?? selectedShotNo)}
+              currentShotContext={{
+                imageUrl: currentMaterial?.currentImage?.imageUrl ?? currentShot?.imageUrl,
+                dialogue: currentShot?.dialogue,
+                action: currentShot?.action,
+                imagePrompt: currentShot?.imagePrompt || currentShot?.promptDraft,
+              }}
               currentStableShotId={currentStableShotId}
               onRequestImport={() => inputRef.current?.click()}
             />
@@ -1114,6 +1167,7 @@ export default function MaterialWarehousePanel({
         </div>
       </section>
     );
+    return warehouseExpanded ? createPortal(drawer, document.body) : drawer;
   }
 
   return (

@@ -44,6 +44,13 @@ function row(overrides: Partial<PromptRow>): PromptRow {
 }
 
 describe("creation editor rerender", () => {
+  it("sends the exact selection, including empty, without adopting the generated candidate", () => {
+    for (const selection of [{imageIds: [], assets: {}}, {imageIds: [12], assets: {pet: {assetId: "cat", versionId: "v2"}}}]) {
+      const input = createGenerateForMobileInput({storyId: 7, shot, rows: [], reference: {selection}, imageProvider: "gpt-image"});
+      expect(input.renderReferences).toEqual(selection);
+      expect(input.autoSelect).toBe(false);
+    }
+  });
   it("includes edited weights in the generated prompt", () => {
     const prompt = buildRerenderPrompt({
       shot,
@@ -277,6 +284,13 @@ describe("creation editor rerender", () => {
         generate: async () => ({ status: "error", error: "service down" }),
       })
     ).rejects.toThrow("service down");
+  });
+
+  it("preserves supplier failures and accepted task receipts containing fetch failed", () => {
+    for (const message of [
+      "302 图生图失败：fetch failed",
+      "图片任务已被 302 受理（任务号 task-123），但结果回传失败（fetch failed）。请勿重复提交",
+    ]) expect(readableRerenderError(message)).toBe(message);
   });
 
   it("turns low-level fetch failures into an actionable rerender message", async () => {

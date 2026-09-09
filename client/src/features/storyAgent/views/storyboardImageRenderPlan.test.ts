@@ -228,6 +228,24 @@ describe("storyboard image render plan", () => {
     expect(plan.estimate.candidateCount).toBe(1);
   });
 
+  it("quotes the explicit single-reference route without claiming a timeout or four candidates", () => {
+    const plan = buildStoryboardImageRenderPlan({
+      label: "02",
+      isExactFrameEdit: false,
+      selectedFrameId: null,
+      selectedFrameRole: null,
+      useSingleImageFallback: true,
+      singleReferenceImage: true,
+      imageReferences: references,
+      explicitInstruction: "小猫靠着腿",
+    });
+    expect(plan.estimate).toEqual(estimateStoryboardMaskedEditCost());
+    expect(plan.candidateCount).toBeUndefined();
+    expect(plan.confirmation).toContain("生成 1 张完整单帧");
+    expect(plan.confirmation).toContain("整场默认素材");
+    expect(plan.confirmation).not.toContain("超时");
+  });
+
   it("keeps masked edits on the single-image cost path", () => {
     const plan = buildStoryboardImageRenderPlan({
       label: "0201",

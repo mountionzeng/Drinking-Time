@@ -206,3 +206,76 @@ describe("resolveVisualAssetGenerationContext", () => {
     }
   });
 });
+
+describe("Story default pet", () => {
+  it("inherits for new shots with conditional presence and retains visual requirements", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "new-shot", shotVisualText: "空出的地面，不出现狗", dependencies: test.dependencies });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.snapshot.dimensions.pet?.whenVisible).toBe(true);
+    expect(result.snapshot.promptContract).toContain("没有宠物的空镜保持空镜");
+    expect(result.snapshot.promptContract).toContain("空出的地面，不出现狗");
+  });
+  it("uses an unapproved default as reference without rewriting the review verdict", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    const version = test.story.body.visualAssets.assets[0]!.versions[0]!;
+    version.status = "review";
+    version.views.forEach(view => { view.status = "fail"; });
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "new-shot", shotVisualText: "小狗跑向主人", provider: "gpt-image", dependencies: test.dependencies });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.snapshot.petRef).toContain("identity-detail");
+    expect(result.snapshot.referenceOnly).toBe(true);
+    expect(result.snapshot.provider).toBe("gpt-image");
+    expect(result.snapshot.promptContract).toContain("不代表已锁定或人工验收");
+    expect(version.status).toBe("review");
+    expect(version.views[0]?.status).toBe("fail");
+  });
+  it("keeps existing shot bindings mandatory instead of inheriting", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", dependencies: test.dependencies });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.snapshot.dimensions.pet?.whenVisible).toBeUndefined();
+  });
+  it("blocks changed identity even for a conditional default", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "new-shot", shotText: "把狗的毛色换成黑色", dependencies: test.dependencies });
+    expect(result.status).toBe("blocked");
+  });
+  it("never uses a superseded default silently", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    test.story.body.visualAssets.assets[0]!.versions[0]!.status = "superseded";
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "new-shot", dependencies: test.dependencies });
+    expect(result.status).toBe("blocked");
+  });
+});
+
+
+describe("explicit per-render references", () => {
+  it("empty selection removes both shot bindings and story default", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.defaultPet = { assetId: "asset-pet", versionId: "version-pet" };
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", provider: "gpt-image", selections: {}, dependencies: test.dependencies });
+    expect(result.status).toBe("disabled");
+    expect(test.dependencies.makePublic).not.toHaveBeenCalled();
+  });
+  it("uses a selected pet version as reference without lock or public upload", async () => {
+    const test = fixture(["pet"]);
+    test.story.body.visualAssets.assets[0]!.versions[0]!.status = "review";
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", provider: "gpt-image", selections: { pet: { assetId: "asset-pet", versionId: "version-pet" } }, dependencies: test.dependencies });
+    expect(result.status).toBe("ready");
+    expect(test.dependencies.makePublic).not.toHaveBeenCalled();
+  });
+  it("rejects a foreign or removed asset instead of falling back to default", async () => {
+    const test = fixture(["pet"]);
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", provider: "gpt-image", selections: { pet: { assetId: "foreign-cat", versionId: "missing" } }, dependencies: test.dependencies });
+    expect(result.status).toBe("blocked");
+  });
+});

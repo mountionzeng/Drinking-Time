@@ -601,7 +601,7 @@ export async function generateNextImage(
     visualAssetContext.status === "ready"
       ? visualAssetContext.snapshot
       : undefined;
-  if (lockedAssets) {
+  if (lockedAssets && !lockedAssets.referenceOnly) {
     const estimatedCny = Number(
       (estimateStoryboardImageCost().estimatedCny * 3).toFixed(2)
     );
@@ -737,7 +737,7 @@ export async function generateNextImage(
           { provider: input.imageProvider, ...injection }
         );
         };
-        if (!lockedAssets) return generateAttempt(prompt);
+        if (!lockedAssets || lockedAssets.referenceOnly) return generateAttempt(prompt);
 
         let retryCorrections: string[] = [];
         for (let attempt = 1; attempt <= 3; attempt += 1) {

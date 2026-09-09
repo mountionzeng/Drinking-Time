@@ -24,13 +24,23 @@
 
 ## 当前在场
 
+小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
+
+小游戏启动兼容修复（2026-09-09）：上述专属分支已修复 `client/src/features/nayin/nayin.ts`、`shared/shichen.ts` 的无Intl路径，并补 `minigame/src/runtimeDate.test.ts`/`smoke-live.mjs`；50项定向、两套类型检查及账本通过，621.6KB修复预览已上传并交付 `/private/tmp/dk-minigame-intl-fix-20260909.png`。等待用户真机结果及本地提交选择，改动未提交；不占主仓对应源码、不部署后端。
+
+小游戏同步线已释放合并窗口（2026-09-09）：实现 `66e36f0`，main `de22808` → 专属分支合并 `fa5a1bb`；合并后专项38项、手机版/小游戏工作区23项、两套类型检查与live构建冒烟通过。不改 main 代码、不 push、不部署；真机验收与新版界面适配仍待继续。
+
 | 会话 | 分支 / worktree | 正在动 | 状态 | 更新时间 |
 | --- | --- | --- | --- | --- |
+| 小游戏账号与旧故事接入 | `codex/wechat-mobile-parity` / `.worktrees/codex/wechat-mobile-parity` | `minigame/**`、新增 `server/_core/minigame*`、`server/services/wechat*`/`minigameEmailOtp*`、`shared/minigameWorkspace.ts`、`server/_core/index.ts`，本分支 `accountIdentity.ts`/`publishingPersistence.ts` 适配及功能账本 | 测试站33b5cc8上的11文件服务端增量已部署并staged；Web资源hash不变，备份 `/root/dk-workspace-staging-20260908`。**后续手机版部署须保留/集成本增量。** 微信凭据已验证并仅配置测试站，微信登录开关开启，真实wx.login/旧账号绑定待真机验收；新预览上传待明确批准。本轮整理专属分支提交并进行 main→本分支的只读合并预检；不改来源分支、不部署、不占主仓功能账本。 | 2026-09-09 |
 | Codex「聊会儿」微信工作区 | `codex/liaohuier-wechat-workspace` / `.worktrees/codex/liaohuier-wechat-workspace`；`codex/liaohuier-wechat-live-auth` / `.worktrees/codex/liaohuier-wechat-live-auth` | U6 客户端认证与视觉：`miniprogram/**`；U3 小程序受限会话：`server/_core/{oauth,sdk}.ts` 及新增测试。**不改** schema、migration、`server/db.ts`、Story／账务路由 | **实施中**：前者只改小程序且不启动 dev server；后者基于最新 `main` 建干净 worktree，先 test-first 定小程序会话合同，未部署、未配置 AppSecret | 2026-09-03 |
 | 视觉资产标准板 | `affectionate-bartik-1d9c06` | 原待办会触达 `server/routers/storyAgent.ts` 的 provider 白名单/估价分支 | **协调暂停、不占用文件**：旧统一账号线已随 PR #7 收工；本线若恢复，须基于最新 `main` 重新登记文件所有权 | 2026-09-03 |
 | 个人记忆与每日来信执行 | `codex/personal-memory-daily-letter` / `.worktrees/codex/personal-memory-daily-letter` | U1-U7 全部已合入 `main`（`7e10858`）。**下一步 U6 会占用**：`server/services/personalMemorySelection.ts`（新增）、`server/services/{emotionProfileDailyRefresh,emotionDailyLetters,emotionDailyReference302}.ts`、`server/routers/index.ts`、`client/src/features/analysis/views/DailyLetterWelcome.tsx` | U7 完成：账号级足迹聚合、来源解析与记忆控制 API。租户边界新增失败关闭护栏（routers.ownershipBoundaries.test.ts）：personalMemory router 只要有 procedure 接受客户端身份字段或不读 ctx.user.id 就直接红，已验证真的会红。时间线 keyset 分页真实 MySQL 验证同一秒多事件靠 id 兜底不丢；来源 resolver 六种 sourceType 逐条验证归属，失败关闭；新增受保护足迹媒体端点 `/api/personal-memory/media/:eventId`，不重定向到不鉴权的 `/api/images`。顺带修一个真实 bug：日期详情曾靠「最近 100 条事件」过滤，活跃用户翻旧日期会静默返回空，已改精确查询+两条回归测试锁定。合并后主仓门禁绿：tsc 干净、452 文件/3956 用例、MySQL 集成 38/38、feature:validate 通过。来信仍未写新事件——daily_letter_version 语义留给 U6 决定 | 2026-09-04 |
 | 手机端界面落地 | `claude/lucid-turing-bdeb39` / `.claude/worktrees/lucid-turing-bdeb39` | 把 `docs/prototypes/liaohuier-miniapp` 的界面落成 `/m`：`client/src/features/mobileWorkspace/**`、`client/src/app/router/AppRouter.tsx`、`client/src/features/auth/{mobileReturnPath.ts,views/AuthEntryPanel.tsx}`。**不改** server、schema、migration、tRPC 合同 | **实施中**：`83efa18` /login 按设备落点；`c919217`+`433d8f8` 外壳落地（正文常驻 + 聊聊三档 + 桌子底栏）；`4bc30a4` 修展开态点「故事」聚焦到隐藏 select。数据层未动。**回复原型线（localhost-3030-redesign）**：你提的两条我已经有了——遮罩本来就是全透明（只接点空白收起），header 拉开即收。差异说明：/m 的状态与「保存正文」在 MobileDocumentView **底部**（展开时本就被面板盖住），且没有版本/平台/修订号胶囊、没有测试模式横幅（那是小程序 mock 才有），所以这边只让出 60px 不是 152px，实测正文 385→445px。`client/src/features/mobileWorkspace/**` 确认归我，还在写 | 2026-09-06 |
+| 统一镜头渲染入口 | `codex/unified-shot-render` / `.worktrees/codex/unified-shot-render` | worktree内故事版渲染UI、rerender、CreationEditorContext、storyAgent图片路由、visualAssetGenerationContext及相关测试/账本 | 已隔离：带入现有出图修复基线，待实施统一张数与参考选择；不在worktree启动服务或写业务数据 | 2026-09-09 |
 （收工时删掉自己这行。）
+
+渲染四张无反馈修复已收工（2026-09-08，工作区未提交）：`StoryboardReviewBoard.tsx` 改页面内费用确认和可见错误；main:3000 镜头02点击/取消实测通过，未付费生成；63项测试、类型检查、构建及功能账本验证通过。
 
 > **2026-09-03 收敛状态：** 统一账号线和微信测试壳层已随 PR #7 合入 `main`，旧会话、
 > 本地分支与 worktree 已销号，不再占用热区。后续 staging 数据迁移、小程序 live 接入或
@@ -48,6 +58,8 @@
 
 ## 最近落地
 
+- 2026-09-08 资产工作区与整场戏默认宠物：主仓工作区已完成，未提交；70 项定向测试、check/build/feature:validate 通过。触达 MaterialWarehousePanel、VisualAssetLibrary、ShotAssetBindingPanel、shared/visualAssets、visualAsset 持久化/生成/门禁及 storyAgent 生成快照；相关文件已释放。
+
 > **归属怎么判**：author 字段全是 `jane-githu`，区分不出会话。可靠判据只有两条——
 > `git reflog` 里这条是 `commit:`（直接在主仓提交）还是 `merge <分支名>:`（从哪个 worktree 合入），
 > 加上触达的文件属于哪条线。**不要用「时间重合 + 刚跟谁通过信」归因**：
@@ -55,6 +67,7 @@
 
 | 时间 | 提交 | 内容 | 归属（判据） | 触达热区 |
 | --- | --- | --- | --- | --- |
+| 09-08 | `061893f` / `6694e07` / `482e8eb` | 照片追问已合 main；Story 1196 三图生成五视图 1787–1791 与合板1792，裁切被质检拦截；进度显示与图注顺序修复，宠物全身留边加强但未付费复验。无额外重购 | 聊天照片接手任务收工 | VisualAssetLibrary.tsx、visualAssetCreation.ts、测试及账本 |
 | 09-08 | `ba0f1cf` / `3ea80c9` | 聊天照片艺术素材合入本地 main：复用素材库、原位报价确认、宠物补充顶视与回执防重。主仓定向回归 80/80、check/build 通过；main:3000 目标故事已显示聊天入口和示意。已清理对应 worktree/分支，未推送、未付费；三张猫图已收到，导入与真实成图验收待继续，功能保持 observing | **聊天照片艺术素材线**（merge codex/text-to-image-content-art） | `StoryAgentChat.tsx`、`ChatPhotoAssets.tsx`、`visualAssets/**`、`server/routers/visualAssets.ts`、`server/services/visualAsset{Creation,Persistence}.ts`、`shared/visualAssets.ts`、功能账本 |
 | 09-05 | `0da6b0a` / `f997cf7` | 字幕与多音轨剪辑 U1–U10 完整落地，并扩展“添加声音”为旁白、音乐、环境声和音效；旁白按字幕 cue 对齐，生成类声音按镜头位置与情绪组织 302 提示词，付费提交前强制服务端报价确认。补齐受管资产、持久任务账本、崩溃恢复、导出混音与旧入口退役门禁。主仓浏览器验证通过；全量 492 文件、4215 用例通过，`pnpm check`、build、migration、feature ledger 与环境门禁均通过 | **字幕与多音轨剪辑线**（最终验收树直接提交 `main`，随后以 `ours` merge 记录原分支 12 条阶段提交） | `EditingNleWorkspace.tsx`、`client/src/features/creationEditor/timelineMedia/**`、`server/routers/timelineMedia.ts`、`server/services/{storyAudioGeneration,storyNarration,timeline*}.ts`、`server/db.ts`、`drizzle/**` |
 | 09-04 | `7e10858` | 个人记忆与每日来信 U7：账号级足迹聚合、来源解析与记忆控制 API。tRPC router 的 userId 一律取 ctx.user.id，input schema 不接受任何身份字段；新增失败关闭护栏（routers.ownershipBoundaries.test.ts），只要有 procedure 接受客户端身份字段或不读 ctx.user.id 就直接红，已验证真的会红。时间线用 keyset 分页（occurredAt DESC, id DESC），真实 MySQL 验证同一秒内多条事件靠 id 兜底不被跳过。聚合器不跨业务表 union，只有详情 resolver 才回源理解或来信权威——来信没有写新事件，daily_letter_version 语义留给 U6 决定。来源 resolver 对六种 sourceType 逐条重新验证归属，失败关闭；新增受保护足迹媒体端点 `/api/personal-memory/media/:eventId`，不重定向到不鉴权的 `/api/images`。修了实现中途发现的真实 bug：日期详情曾靠"最近 100 条事件"过滤，活跃用户翻旧日期会静默返回空，已改精确查询并锁两条回归测试。合并前主仓门禁：tsc 干净、452 文件/3956 用例、MySQL 集成 38/38、feature:validate 通过 | **个人记忆与每日来信线**（reflog 为 `merge codex/personal-memory-daily-letter:`） | `server/services/personalMemoryTimeline.ts`、`server/routers/personalMemory.ts`、`server/_core/{index,personalMemoryMediaRoute}.ts`、`server/db.ts`、`shared/personalMemory.ts` |
@@ -103,3 +116,7 @@
   （provider 白名单 + 估价分支）。后者尚未动手，动手前会先更新本看板。
 - 视觉资产标准板线在等用户两件事：OSS 凭据；是否放开 gpt-image
   （用户一小时前在两个方案里选了另一个，图生图线希望改判——**这是用户的决定，任何会话不得代为翻案**）。
+
+图片参考通道修复（2026-09-08，工作区未提交）已释放文件：单张本地参考入口及报价、供应商错误保真已完成；真实请求302 fetch failed，未出图，未重复提交。代码为StoryboardReviewBoard/storyboardImageRenderPlan/rerender及测试，证据见docs/qa/storyboard-image-confirmation-2026-09-08.md。
+
+2026-09-09 参考图异步适配修复已释放文件（未提交）：imageGen.ts及测试；75项通过、类型/构建/账本通过。未新增付费任务，真实出图和Story回执持久化仍未验收，详见docs/qa/storyboard-image-confirmation-2026-09-08.md。

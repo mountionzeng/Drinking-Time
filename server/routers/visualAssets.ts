@@ -8,6 +8,7 @@ import {
 } from "../../shared/visualAssets";
 import {
   amendVisualAssetFixedFacts,
+  setStoryDefaultPet,
   deleteVisualAsset,
   deleteVisualAssetVersion,
   forkVisualAssetVersion,
@@ -135,6 +136,16 @@ export const visualAssetsRouter = router({
           revision: getStoryRevision(result.story.body),
           aggregate: result.aggregate,
         };
+      } catch (error) {
+        return routeError(error);
+      }
+    }),
+
+  setDefaultPet: protectedProcedure
+    .input(mutationEnvelope.extend({ pet: versionRefSchema.nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return publicMutationResult(await setStoryDefaultPet({ ...input, userId: ctx.user.id }));
       } catch (error) {
         return routeError(error);
       }

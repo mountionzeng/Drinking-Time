@@ -240,6 +240,8 @@ export type StoryVisualAssets = {
   assets: StoryVisualAsset[];
   proposals: ShotVisualAssetBindingProposal[];
   bindings: ShotVisualAssetBinding[];
+  /** Story-wide identity, used only when the shot calls for this pet. */
+  defaultPet?: VisualAssetVersionRef;
   operations: VisualAssetOperationReceipt[];
 };
 
@@ -953,6 +955,10 @@ export function normalizeStoryVisualAssets(
     assets,
     proposals,
     bindings,
+    ...(assetsById.get(cleanId(recordOf(obj.defaultPet).assetId))?.kind === "pet" &&
+      assetsById.get(cleanId(recordOf(obj.defaultPet).assetId))?.versions.some(version => version.id === cleanId(recordOf(obj.defaultPet).versionId))
+      ? { defaultPet: { assetId: cleanId(recordOf(obj.defaultPet).assetId), versionId: cleanId(recordOf(obj.defaultPet).versionId) } }
+      : {}),
     operations,
   };
 }

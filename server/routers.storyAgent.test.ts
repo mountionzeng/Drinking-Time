@@ -1272,6 +1272,47 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("explicit empty references ignore legacy and client URL references", async () => {
+    const caller = appRouter.createCaller(createAuthContext(497));
+    seedProjectForTesting({ id: 7497, userId: 497 });
+    const story = await caller.storyAgent.storyUpsert({ title: "空参考", projectId: 7497,
+      body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "小猫" }],
+        artDirection: { references: [{ id: "legacy-cat", role: "character", imageUrl: "https://example.com/cat.png", selected: true }] } } });
+    const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1,
+      prompt: "一只猫", explicitInstruction: "一只猫", imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      renderReferences: { imageIds: [], assets: {} }, referenceImageUrl: "https://example.com/ignored.png" });
+    expect(result.status).toBe("ok");
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).toHaveBeenCalled();
+    expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
+  });
+
+  it("explicit foreign image IDs are rejected before any generation", async () => {
+    const caller = appRouter.createCaller(createAuthContext(498));
+    seedProjectForTesting({ id: 7498, userId: 498 });
+    const story = await caller.storyAgent.storyUpsert({ title: "拒绝外部参考", projectId: 7498,
+      body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "小猫" }] } });
+    const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1,
+      prompt: "猫", explicitInstruction: "猫", imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 }, renderReferences: { imageIds: [99999999], assets: {} } });
+    expect(result.status).toBe("error");
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it("requires instructions, a valid shot and the current quote for explicit references", async () => {
+    const caller = appRouter.createCaller(createAuthContext(499));
+    seedProjectForTesting({ id: 7499, userId: 499 });
+    const story = await caller.storyAgent.storyUpsert({title: "渲染前校验", projectId: 7499, body: {cards: [], shots: [{shotNo: 1, cueCode: "0101", subject: "猫"}]}});
+    const base = {storyId: story!.id, shotNo: 1, prompt: "猫", explicitInstruction: "猫", imageProvider: "gpt-image" as const, costConfirmation: {accepted: true as const, estimatedCny: 1.49}, renderReferences: {imageIds: [], assets: {}}};
+    for (const override of [{explicitInstruction: undefined}, {shotNo: 99}, {costConfirmation: undefined}, {costConfirmation: {accepted: true as const, estimatedCny: 0.68}}]) {
+      expect((await caller.storyAgent.generateForMobile({...base, ...override})).status).toBe("error");
+    }
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+
   it("故事版图片可直接读取时，公网锚点失败也继续使用原图生成", async () => {
     imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
     const caller = appRouter.createCaller(createAuthContext(397));
