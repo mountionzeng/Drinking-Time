@@ -148,6 +148,14 @@ export function shichenFromTime(value: string): ShichenName | null {
 }
 
 export function currentChinaShichen(now = new Date()): ShichenName {
+  // Mini-game JS engines may omit Intl. Current Beijing time is UTC+8;
+  // never fall back to the phone's local hour (users can be abroad).
+  if (typeof Intl === "undefined" ||
+      typeof Intl.DateTimeFormat !== "function" ||
+      typeof Intl.DateTimeFormat.prototype.formatToParts !== "function") {
+    if (!Number.isFinite(now.getTime())) throw new RangeError("Invalid time value");
+    return shichenFromHour(new Date(now.getTime() + 8 * 3600_000).getUTCHours());
+  }
   const hourPart = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Shanghai",
     hour: "2-digit",

@@ -233,4 +233,26 @@
 
 .demo-switch {
   margin-top: auto;
+  margin-bottom: 280rpx;
 }
+
+.document-pane { padding-bottom: 280rpx; }
+.chat-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  background: var(--paper-raised);
+  border-radius: 28rpx 28rpx 0 0;
+  box-shadow: 0 -8rpx 32rpx rgba(44, 38, 34, .12);
+}
+.chat-sheet--peek { height: auto; }
+.chat-sheet--half { height: 50vh; }
+.chat-sheet--full { height: 88vh; }
+.chat-sheet__controls { display: flex; justify-content: space-between; padding: 8rpx 24rpx; }
+.chat-sheet .messages { height: 0; min-height: 0; box-sizing: border-box; }
+.chat-sheet .composer__input { max-height: 18vh; }
+.chat-sheet .chat-status { flex-shrink: 0; }
+.sheet { z-index: 30; }

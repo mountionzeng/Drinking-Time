@@ -104,10 +104,17 @@ export const BEVERAGE_THEMES: Record<NayinElement, BeverageTheme> = {
 
 /**
  * Return the current Beijing (UTC+8) calendar date as {year, month, day}.
- * Uses Intl.DateTimeFormat so the result does not depend on the
- * client's local timezone.
+ * Keep the Web timezone path; mini-game engines without Intl use modern CST
+ * (UTC+8). UTC getters make that fallback independent of the device timezone.
  */
 export function getCstDate(now: Date = new Date()): { y: number; m: number; d: number } {
+  if (typeof Intl === 'undefined' ||
+      typeof Intl.DateTimeFormat !== 'function' ||
+      typeof Intl.DateTimeFormat.prototype.formatToParts !== 'function') {
+    if (!Number.isFinite(now.getTime())) throw new RangeError('Invalid time value');
+    const cst = new Date(now.getTime() + 8 * 3600_000);
+    return { y: cst.getUTCFullYear(), m: cst.getUTCMonth() + 1, d: cst.getUTCDate() };
+  }
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',

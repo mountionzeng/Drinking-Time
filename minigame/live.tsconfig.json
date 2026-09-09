@@ -1,0 +1,6 @@
+{
+  "extends":"../tsconfig.json",
+  "include":["../shared/lunar-javascript.d.ts","src/liveClient.ts","src/liveGame.ts","src/workspaceClient.ts","src/workspaceView.ts","src/workspaceClient.test.ts","src/accountWorkspace.test.ts"],
+  "exclude":["dist","node_modules"],
+  "compilerOptions":{"noEmit":true}
+}

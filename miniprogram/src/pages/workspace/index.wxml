@@ -53,8 +53,12 @@
     <button class="action" bindtap="onRetryTransport">重试</button>
   </view>
 
-  <view class="pane" wx:elif="{{ui.view === 'chat'}}">
-    <scroll-view class="messages" scroll-y scroll-into-view="{{scrollTarget}}">
+  <view class="pane chat-sheet chat-sheet--{{sheetStop}}" wx:if="{{!ui.story.showsEmptyHint && ui.story.phase !== 'error'}}">
+    <view class="chat-sheet__controls">
+      <button class="action action--quiet" bindtap="expandChat">{{sheetStop === 'full' ? '半屏聊聊' : '展开聊聊'}}</button>
+      <button class="action action--quiet" wx:if="{{sheetStop !== 'peek'}}" bindtap="collapseChat">收起</button>
+    </view>
+    <scroll-view class="messages" hidden="{{sheetStop === 'peek'}}" scroll-y scroll-into-view="{{scrollTarget}}">
       <view
         wx:for="{{messages}}"
         wx:key="id"
@@ -66,7 +70,7 @@
       </view>
     </scroll-view>
 
-    <view class="chat-status">
+    <view class="chat-status" hidden="{{sheetStop === 'peek'}}">
       <text class="status-line {{ui.chat.state === 'unknown' || ui.chat.state === 'error' ? 'status-line--warn' : ''}}">{{ui.chat.label}}</text>
       <button class="action" wx:if="{{ui.chat.canLookupUnknown}}" bindtap="onLookupUnknown">查询这一轮的结果</button>
       <button class="action" wx:if="{{ui.chat.canRetryTurn}}" bindtap="onRetryTurn">用同一轮重试</button>
@@ -95,7 +99,7 @@
     </view>
   </view>
 
-  <view class="pane" wx:else>
+  <view class="pane document-pane" wx:if="{{!ui.story.showsEmptyHint && ui.story.phase !== 'error'}}">
     <view class="doc-status">
       <text class="status-line {{ui.document.state === 'conflict' || ui.document.state === 'error' ? 'status-line--warn' : ''}}">{{ui.document.label}}</text>
     </view>

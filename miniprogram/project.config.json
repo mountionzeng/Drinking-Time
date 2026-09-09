@@ -1,6 +1,6 @@
 {
   "$schema": "https://developers.weixin.qq.com/miniprogram/dev/devtools/projectconfig.html",
-  "appid": "touristappid",
+  "appid": "wxd6aeb0bc3a031d39",
   "projectname": "shiguang-miniprogram-test-shell",
   "description": "拾光 · 微信原生小程序测试壳层（mock 模式，未连接真实账号）",
   "compileType": "miniprogram",
