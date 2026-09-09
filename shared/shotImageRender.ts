@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { estimateStoryboardMaskedEditCost } from "./imageRenderCost";
+import { estimateStoryboardImageCost } from "./imageRenderCost";
 
 const versionRef = z
   .object({
@@ -37,30 +37,45 @@ export type ShotImageRenderSettings = z.infer<
 >;
 export function quoteShotImages(count: number) {
   shotImageRenderSettingsSchema.shape.count.parse(count);
-  const unitCny = estimateStoryboardMaskedEditCost().estimatedCny;
+  const estimate = estimateStoryboardImageCost();
+  const taskCount = Math.ceil(count / estimate.candidateCount);
   return {
     count,
-    unitCny,
-    estimatedCny: Math.round(unitCny * count * 100) / 100,
+    taskCount,
+    candidatesPerTask: estimate.candidateCount,
+    candidateCount: taskCount * estimate.candidateCount,
+    taskCny: estimate.estimatedCny,
+    estimatedCny: Math.round(estimate.estimatedCny * taskCount * 100) / 100,
   };
 }
-/** Never retry a failed/uncertain submission. Each completed result remains usable. */
-export async function renderShotImageBatch<T>(
-  count: number,
-  generate: (index: number) => Promise<T>,
-  onProgress?: (completed: number) => void
-) {
-  quoteShotImages(count);
+/** One MJ task yields four candidates. Preserve every paid result; never retry a short or uncertain response. */
+export async function renderShotImageBatch<
+  T extends { generatedCount: number },
+>(count: number, generate: (index: number) => Promise<T>) {
+  const quote = quoteShotImages(count);
   const results: T[] = [];
   let error: string | undefined;
-  for (let index = 0; index < count; index++) {
+  let generatedCount = 0;
+  for (let index = 0; index < quote.taskCount; index++) {
     try {
-      results.push(await generate(index));
-      onProgress?.(results.length);
+      const result = await generate(index);
+      if (!Number.isInteger(result.generatedCount) || result.generatedCount < 1)
+        throw new Error("MJ没有返回可用候选，未追加付费任务");
+      results.push(result);
+      generatedCount += result.generatedCount;
+      if (result.generatedCount !== quote.candidatesPerTask)
+        throw new Error(
+          `MJ本次实际返回${result.generatedCount}张候选，未追加付费任务`
+        );
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "图片生成失败";
       break;
     }
   }
-  return { results, error, remainingCount: count - results.length };
+  return {
+    results,
+    generatedCount,
+    error,
+    remainingCount: Math.max(0, quote.candidateCount - generatedCount),
+  };
 }

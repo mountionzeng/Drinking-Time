@@ -1564,6 +1564,17 @@ describe("editImage", () => {
     });
   });
 
+  it("explicit MJ with missing credentials never falls back to a different provider", async () => {
+    const previous = ENV.api302Key;
+    ENV.api302Key = "";
+    try {
+      const fetcher = makeFetcher([]);
+      expect((await generateImage("cat", {provider: "midjourney", fetcher})).status).toBe("error");
+      expect((await editImage("data:image/png;base64,YQ==", "cat", {provider: "midjourney", fetcher})).status).toBe("error");
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { ENV.api302Key = previous; }
+  });
+
   it("provider=midjourney 时图生图走 MJ，并把照片放进 base64Array", async () => {
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
@@ -1590,6 +1601,38 @@ describe("editImage", () => {
     expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.base64Array).toHaveLength(1); // 照片进了 base64Array（MJ image prompt）
+    expect(submitBody.base64Array[0]).toContain("base64,");
+  });
+
+  it("MJ explicit references retain all four images without a public identity URL", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-1" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "把这一刻画成电影感画面",
+      {
+        fetcher,
+        provider: "midjourney",
+        requireInputImage: true,
+        primaryReferenceLock: false,
+        referenceContextImageUrls: ["data:image/png;base64,Yg==", "data:image/png;base64,Yw==", "data:image/png;base64,ZA=="],
+        mjPollIntervalMs: 1,
+        mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.base64Array).toHaveLength(4);
     expect(submitBody.base64Array[0]).toContain("base64,");
   });
 

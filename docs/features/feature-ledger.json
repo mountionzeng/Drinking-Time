@@ -298,7 +298,8 @@
         "server/services/imageGen.test.ts",
         "shared/shotImageRender.test.ts",
         "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
-        "docs/qa/unified-shot-render-2026-09-09.md"
+        "docs/qa/unified-shot-render-2026-09-09.md",
+        "docs/qa/mj-shot-render-2026-09-09.md"
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
@@ -311,7 +312,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "统一入口已改为GPT独立单帧并显示总报价，绕开旧MJ四张的公网参考上传依赖；真实四张连续生成尚未付费验证。此前单张图片1793真实生成和刷新验收通过。",
+        "统一入口按用户要求改回MJ，显式参考通过base64Array直接发送，绕过旧公网托管阻断；本轮未新增真实付费MJ验收，不能以自动测试代替实际参考一致性结果。",
         "普通参考编辑虽已接异步任务号与查询，但generateForMobile尚未将受理回执持久化到Story供刷新恢复；本轮仅修供应商适配层，不代表端到端恢复完成。",
         "镜头渲染张数与参考选择保存在本浏览器，不跨设备同步；关闭页面后不会继续提交尚未开始的图片，已受理任务仍缺少刷新恢复。"
       ],
@@ -355,6 +356,11 @@
           "date": "2026-09-09",
           "kind": "refactor",
           "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。 最终整合后4408项全量测试、类型、构建和架构门槛通过；主仓库3000完成改4张/¥5.96报价取消、删猫刷新不继承、图库重新选猫与恢复1张的无付费验收。窄列按钮自动两行避免拥挤。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "用户明确要求使用MJ，纠正统一入口擅自改用GPT造成的价格变化。默认模型改为MJ；输入1–4张提交1个四图任务约¥0.68，5–8张提交2个任务约¥1.36，报价显示模型、任务数与全部候选数量，额外候选全部保留。显式参考通过MJ base64Array传入（最多4图），不依赖公网oref/sref托管，原严格锁定路径保留。新入口禁用primaryReferenceLock以免触发Kontext模型降级；缺少MJ凭据直接失败，不回落其他模型。单任务返回不足4张即保留实际结果并停止后续付费，不自动重试。本轮未付费生成。"
         }
       ]
     },
@@ -2299,7 +2305,8 @@
         "docs/qa/visual-asset-workspace-default-pet-2026-09-08.md",
         "shared/shotImageRender.test.ts",
         "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
-        "docs/qa/unified-shot-render-2026-09-09.md"
+        "docs/qa/unified-shot-render-2026-09-09.md",
+        "docs/qa/mj-shot-render-2026-09-09.md"
       ],
       "invariants": [
         "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
@@ -2342,7 +2349,7 @@
         "视觉资产图片只有本地单份，且 imageKey 不能当作异地备份存在的证据：storeImageBytes 的远程备份是 void 的发射后不管，函数在备份 promise 落定前就无条件返回确定性算出的 imageKey（该函数顶部注释写的『成功记 imageKey』与实现不符）。/api/images 的兜底只在本地文件丢失时按 key 回源，所以 302 备份 503 期间产出的图一旦本地丢失就彻底没了。项目里没有补传队列或补传脚本。本轮花钱产出的 1712/1715/1718/1724-1728 都在这个风险里。",
         "绑定后的镜头出图硬依赖 302 对象存储，而且是被我自己的闸门逼出来的：resolveVisualAssetGenerationContext 只放行 midjourney（其余 provider 一律 provider-role-unsupported），而 MJ 的 cref/sref 靠 URL 传参考图，于是 character/style 必须走 toPublicImageUrl → storagePut；302 存储 503 时整条绑定→出图链路不可用。gpt-image 多图编辑是直接上传字节的、不需要公网 URL，却被这条限制挡在门外。放开 gpt-image 可以去掉这个外部硬依赖。",
         "整条流程从未在界面上走完，只用 curl 打接口验过：服务端 18 个能力里 UI 只接了 13 个。最严重的是 reviewViews 没有入口——结构质检返回 unknown 时（今天两次：返回格式漂移、置信度 0.75 低于 0.85 门槛）视图卡在 unknown，isVisualAssetVersionLockable 恒为 false，锁定按钮永久置灰，用户拿着一块画对的板子却锁不上、也无处申诉。另缺 amendFixedFacts（改造型）、quoteView/regenerateView（单栏重出 ¥1.49，否则只能整套 ¥5.96）。另外四张标准视图在卡上是 object-cover 小格子，人物全身图里看不清脸，无法支撑「人工核对真实像素」。",
-        "OSS 公网参考托管已实现但未启用：需要 OSS_REGION / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET（可选 OSS_PUBLIC_BASE_URL）写进服务端环境；未配置时仍回落到已失效的 storagePut，绑定→出图依旧不可用。另：参考图对象是 public-read，任何拿到 URL 的人都能匿名访问（MJ 服务端必须匿名拉取），key 带内容哈希只防枚举不防转发。",
+        "旧严格锁定入口的 OSS 公网参考托管已实现但未启用（新统一入口普通参考直接通过 MJ base64Array 发送）：需要 OSS_REGION / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET（可选 OSS_PUBLIC_BASE_URL）写进服务端环境；未配置时仍回落到已失效的 storagePut，绑定→出图依旧不可用。另：参考图对象是 public-read，任何拿到 URL 的人都能匿名访问（MJ 服务端必须匿名拉取），key 带内容哈希只防枚举不防转发。",
         "Story 1187 已用同一张图片 #1680 分别建立人物、场景和美术风格资产并完成刷新读回。人物修复后的 identity-detail #1753 与标准板 #1754 已人工原像素验收通过；场景四视角 #1755-#1758 与标准板 #1759 已人工验收通过。风格任务继续复用 token visual-board-b2f2e4b6…：人物样例 #1761、场景样例 #1762 已生成并人工确认风格一致，object-sample 再次 fetch failed，closeup-sample 尚未开始，未合成标准板。该同步接口的失败是否计费不可确认；按最坏口径当前可能为 ¥22.35，已在用户批准的 ¥23.84 上限内停止。人物、场景与风格版本均保持未锁定。"
       ],
       "history": [
@@ -2550,6 +2557,11 @@
           "date": "2026-09-09",
           "kind": "refactor",
           "summary": "按用户授权合并固定四张与参考单张入口：统一默认1张、可编辑1–8张和参考缩略图。共享张数/报价/显式参考合同，串行调用同一GPT单帧生成；总价按张数展示，失败或离开故事停止后续提交，保留已完成候选且不自动采用。服务端只解析当前故事的图片/资产ID，显式空列表禁用隐式参考。参考与张数按故事和稳定镜头身份保存在本机；原精确修改、遮罩与视频路径保留。237项定向测试通过，未新增付费任务。 最终整合后4408项全量测试、类型、构建和架构门槛通过；主仓库3000完成改4张/¥5.96报价取消、删猫刷新不继承、图库重新选猫与恢复1张的无付费验收。窄列按钮自动两行避免拥挤。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "用户明确要求使用MJ，纠正统一入口擅自改用GPT造成的价格变化。默认模型改为MJ；输入1–4张提交1个四图任务约¥0.68，5–8张提交2个任务约¥1.36，报价显示模型、任务数与全部候选数量，额外候选全部保留。显式参考通过MJ base64Array传入（最多4图），不依赖公网oref/sref托管，原严格锁定路径保留。新入口禁用primaryReferenceLock以免触发Kontext模型降级；缺少MJ凭据直接失败，不回落其他模型。单任务返回不足4张即保留实际结果并停止后续付费，不自动重试。本轮未付费生成。"
         }
       ]
     },

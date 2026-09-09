@@ -1758,8 +1758,8 @@ export const storyAgentRouter = router({
           if (!story || story.userId !== ctx.user.id) throw new Error("故事不存在或无权访问");
           if (!input.explicitInstruction?.trim()) throw new Error("请先填写图片要求");
           if (!shotIdentityForStoryShot(story, input.shotNo)) throw new Error("当前镜头不存在，请刷新后重试");
-          if (input.imageProvider !== "gpt-image" || input.mode === "draft" || input.editMaskImageUrl || input.exactFrameEdit) {
-            throw new Error("可编辑参考列表仅用于正式单帧生成");
+          if (input.imageProvider !== "midjourney" || input.mode === "draft" || input.editMaskImageUrl || input.exactFrameEdit) {
+            throw new Error("可编辑参考列表仅用于MJ正式生成");
           }
           const selectedImages = await Promise.all(input.renderReferences.imageIds.map(id => getGeneratedImageById(id)));
           if (selectedImages.some(image => !image || image.storyId !== input.storyId || image.userId !== ctx.user.id)) {
@@ -2408,9 +2408,9 @@ export const storyAgentRouter = router({
                 ).slice(0, 3),
                 editMaskImageUrl: input.editMaskImageUrl,
                 primaryReferenceLock:
-                  referencePlan.usesStoryboardFrames && !lockedAssets,
+                  referencePlan.usesStoryboardFrames && !lockedAssets && !input.renderReferences,
                 requireInputImage:
-                  referencePlan.usesStoryboardFrames || Boolean(lockedAssets),
+                  Boolean(input.renderReferences) || referencePlan.usesStoryboardFrames || Boolean(lockedAssets),
               })
             : generateMobileImage(renderedFinalPrompt, {
                 provider: input.imageProvider ?? "midjourney",

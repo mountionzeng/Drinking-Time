@@ -24,6 +24,8 @@ describe("shot render control", () => {
     expect(html).toContain('value="1"');
     expect(html).toContain('aria-label="渲染 02 的 1 张图片"');
     expect(html).not.toContain("参考素材出 1 张");
+    expect(html).toContain("MJ · 约 ¥0.68");
+    expect(html).toContain("MJ 每次 4 张");
   });
   it("removal creates an explicit empty list and replacement keeps one pet", () => {
     const pet = {

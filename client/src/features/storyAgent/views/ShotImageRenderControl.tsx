@@ -272,7 +272,9 @@ export function ShotImageRenderControl({
           className="flex h-7 items-center gap-1 whitespace-nowrap rounded-full border border-dashed px-1.5 text-[10px] text-muted-foreground"
         >
           <Plus className="h-3 w-3" />
-          <span className="hidden @[80px]:inline">{keys.length ? "参考" : "添加参考"}</span>
+          <span className="hidden @[80px]:inline">
+            {keys.length ? "参考" : "添加参考"}
+          </span>
         </button>
       </div>
       <div className="grid grid-cols-[20px_12px] items-center justify-center rounded-xl border border-primary/30 bg-primary/10 px-1 py-1 text-primary @[80px]:flex @[80px]:rounded-full">
@@ -289,11 +291,7 @@ export function ShotImageRenderControl({
           }}
           className="col-span-2 flex justify-center whitespace-nowrap px-1 text-[10px] font-medium disabled:opacity-40 @[80px]:col-span-1"
         >
-          {busy ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            "渲染"
-          )}
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "渲染"}
         </button>
         <input
           type="number"
@@ -314,9 +312,12 @@ export function ShotImageRenderControl({
       </div>
       <span className="text-[10px] text-muted-foreground">
         {validCount
-          ? `预计 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`
+          ? `MJ · 约 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`
           : "请输入 1–8 的整数"}
         {keys.length === 0 ? " · 不参考素材" : ""}
+      </span>
+      <span className="text-[10px] text-muted-foreground">
+        MJ 每次 4 张，全部保留
       </span>
       {error ? (
         <p role="alert" className="max-w-56 text-[10px] text-destructive">
@@ -355,7 +356,9 @@ export function ShotImageRenderControl({
                   alt={option.label}
                   className="aspect-square w-full rounded object-contain"
                 />
-                <span className="line-clamp-2 break-all" title={option.label}>{option.label}</span>
+                <span className="line-clamp-2 break-all" title={option.label}>
+                  {option.label}
+                </span>
               </button>
             ))}
           </div>

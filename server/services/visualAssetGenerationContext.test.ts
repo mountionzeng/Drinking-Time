@@ -266,10 +266,10 @@ describe("explicit per-render references", () => {
     expect(result.status).toBe("disabled");
     expect(test.dependencies.makePublic).not.toHaveBeenCalled();
   });
-  it("uses a selected pet version as reference without lock or public upload", async () => {
+  it.each(["midjourney", "gpt-image"])("uses a selected pet version without public upload on %s", async provider => {
     const test = fixture(["pet"]);
     test.story.body.visualAssets.assets[0]!.versions[0]!.status = "review";
-    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", provider: "gpt-image", selections: { pet: { assetId: "asset-pet", versionId: "version-pet" } }, dependencies: test.dependencies });
+    const result = await resolveVisualAssetGenerationContext({ storyId: 1, userId: 7, stableShotId: "shot-a", provider, selections: { pet: { assetId: "asset-pet", versionId: "version-pet" } }, dependencies: test.dependencies });
     expect(result.status).toBe("ready");
     expect(test.dependencies.makePublic).not.toHaveBeenCalled();
   });

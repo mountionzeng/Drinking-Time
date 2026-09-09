@@ -416,7 +416,7 @@ export function storyboardShotCostEstimate(
     imageCny,
     videoCny,
     totalCny: Math.ceil((imageCny + videoCny) * 100) / 100,
-    imageCandidateCount: options.imageCount ?? (options.singleImageFallback ? 1 : 4),
+    imageCandidateCount: options.imageCount !== undefined ? quoteShotImages(options.imageCount).candidateCount : (options.singleImageFallback ? 1 : 4),
   };
 }
 

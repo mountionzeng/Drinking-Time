@@ -1042,6 +1042,9 @@ export async function generateImage(
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  if (options.provider === "midjourney" && !ENV.api302Key) {
+    return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
+  }
   const requested = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
   );
@@ -1635,6 +1638,9 @@ export async function editImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  if (options.provider === "midjourney" && !ENV.api302Key) {
+    return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
+  }
   const provider = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
   );
@@ -1725,7 +1731,7 @@ export async function editImage(
       : (options.referenceContextImageUrls ?? []).filter(Boolean);
     const inputImageUrls = Array.from(
       new Set([imageUrl, ...contextImageUrls])
-    ).slice(0, 3);
+    ).slice(0, 4);
     // prompt 已由 renderGate 的唯一美术提示词工程完成。provider adapter 只负责
     // 把参考图和模型参数送给 MJ，不能再注入服装、主色、光线等业务美术判断。
     const mjEdit = await generate302MidjourneyImage(

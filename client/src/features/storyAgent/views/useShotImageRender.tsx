@@ -70,10 +70,15 @@ export function useShotImageRender(
       shotNo: number;
       rows: PromptRow[];
       explicitInstruction: string;
-      imageProvider: "gpt-image";
+      imageProvider: "midjourney";
+      candidateCount: 4;
       reference: { selection: ShotImageRenderSettings["references"] };
       costConfirmation: { accepted: true; estimatedCny: number };
-    }) => Promise<{ imageId?: number; imageUrl?: string }>;
+    }) => Promise<{
+      generatedCount: number;
+      imageId?: number;
+      imageUrl?: string;
+    }>;
   }) => {
     const scope = imageBatchScope.current;
     const { label, settings, shot, material } = input;
@@ -95,7 +100,7 @@ export function useShotImageRender(
     const rows = buildPromptTable(shot, { previousShots: input.previousShots });
     const quote = quoteShotImages(settings.count);
     const confirmed = await confirmImageCost(
-      `${label} · 生成 ${settings.count} 张独立图片\n参考素材：${names.join("、") || "无"}\n\n${instruction}\n\n预计总费用 ¥${quote.estimatedCny.toFixed(2)}（每张约 ¥${quote.unitCny.toFixed(2)}，最终按实际用量）。中途失败即停止，已完成的图片保留。`
+      `${label} · MJ 渲染（希望 ${settings.count} 张）\nMJ 每次返回 4 张候选，本次提交 ${quote.taskCount} 次，预计得到 ${quote.candidateCount} 张，所有候选都会保留。\n参考素材：${names.join("、") || "无"}\n\n${instruction}\n\n预计总费用 ¥${quote.estimatedCny.toFixed(2)}（每次任务约 ¥${quote.taskCny.toFixed(2)}，最终以服务商实际扣费为准）。中途失败即停止，已完成的图片保留。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };
@@ -108,9 +113,10 @@ export function useShotImageRender(
           shotNo: shot.shotNo,
           rows,
           explicitInstruction: instruction,
-          imageProvider: "gpt-image",
+          imageProvider: "midjourney",
+          candidateCount: 4,
           reference: { selection: settings.references },
-          costConfirmation: { accepted: true, estimatedCny: quote.unitCny },
+          costConfirmation: { accepted: true, estimatedCny: quote.taskCny },
         });
         if (!image.imageId || !image.imageUrl)
           throw new Error("服务端未返回图片，停止后续生成");
@@ -123,11 +129,11 @@ export function useShotImageRender(
         };
       if (batch.error)
         throw new Error(
-          `${label} 已生成 ${batch.results.length}/${settings.count} 张，剩余任务已停止。${batch.error}`
+          `${label} 已生成 ${batch.generatedCount}/${quote.candidateCount} 张，剩余任务已停止。${batch.error}`
         );
-      const message = `${label} 已生成 ${batch.results.length} 张图片，已放入画面行`;
+      const message = `${label} 已生成 ${batch.generatedCount} 张图片，已放入画面行`;
       toast.success(message);
-      return {status: "success" as const, message};
+      return { status: "success" as const, message };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "图片生成失败";
       if (scope === imageBatchScope.current) setImageRenderError(message);

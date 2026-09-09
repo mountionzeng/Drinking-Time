@@ -368,7 +368,7 @@ export async function resolveVisualAssetGenerationContext(input: {
     );
     if (!representative) continue;
     let providerReferenceUrl = representative.materializedUrl;
-    if ((kind === "character" || kind === "pet" || kind === "style") && input.provider !== "gpt-image") {
+    if ((kind === "character" || kind === "pet" || kind === "style") && input.provider !== "gpt-image" && !input.selections) {
       const publicUrl = await makePublic(representative.sourceUrl);
       if (!publicUrl) {
         issues.push({

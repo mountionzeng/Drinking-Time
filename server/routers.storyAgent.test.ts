@@ -1279,13 +1279,27 @@ describe("storyAgent tRPC router", () => {
       body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "小猫" }],
         artDirection: { references: [{ id: "legacy-cat", role: "character", imageUrl: "https://example.com/cat.png", selected: true }] } } });
     const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1,
-      prompt: "一只猫", explicitInstruction: "一只猫", imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      prompt: "一只猫", explicitInstruction: "一只猫", imageProvider: "midjourney",
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
       renderReferences: { imageIds: [], assets: {} }, referenceImageUrl: "https://example.com/ignored.png" });
     expect(result.status).toBe("ok");
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
-    expect(imageGenMocks.generateImage).toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({provider: "midjourney"}));
     expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
+  });
+
+  it("sends an explicitly selected image to MJ without requesting a model fallback", async () => {
+    const caller = appRouter.createCaller(createAuthContext(596));
+    seedProjectForTesting({ id: 7596, userId: 596 });
+    const story = await caller.storyAgent.storyUpsert({title: "MJ参考", projectId: 7596, body: {cards: [], shots: [{shotNo: 1, cueCode: "0101", subject: "猫"}]}});
+    const first = await caller.storyAgent.generateForMobile({storyId: story!.id, shotNo: 1, prompt: "猫"});
+    expect(first.status).toBe("ok");
+    if (first.status !== "ok") return;
+    imageGenMocks.generateImage.mockClear(); imageGenMocks.editImage.mockClear();
+    const result = await caller.storyAgent.generateForMobile({storyId: story!.id, shotNo: 1, prompt: "猫", explicitInstruction: "猫咬衣袖", imageProvider: "midjourney", costConfirmation: {accepted: true, estimatedCny: 0.68}, renderReferences: {imageIds: [first.imageId!], assets: {}}});
+    expect(result.status).toBe("ok");
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(first.imageUrl, expect.any(String), expect.objectContaining({provider: "midjourney", primaryReferenceLock: false, requireInputImage: true}));
   });
 
   it("explicit foreign image IDs are rejected before any generation", async () => {
@@ -1294,8 +1308,8 @@ describe("storyAgent tRPC router", () => {
     const story = await caller.storyAgent.storyUpsert({ title: "拒绝外部参考", projectId: 7498,
       body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "小猫" }] } });
     const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1,
-      prompt: "猫", explicitInstruction: "猫", imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 }, renderReferences: { imageIds: [99999999], assets: {} } });
+      prompt: "猫", explicitInstruction: "猫", imageProvider: "midjourney",
+      costConfirmation: { accepted: true, estimatedCny: 0.68 }, renderReferences: { imageIds: [99999999], assets: {} } });
     expect(result.status).toBe("error");
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
@@ -1305,8 +1319,8 @@ describe("storyAgent tRPC router", () => {
     const caller = appRouter.createCaller(createAuthContext(499));
     seedProjectForTesting({ id: 7499, userId: 499 });
     const story = await caller.storyAgent.storyUpsert({title: "渲染前校验", projectId: 7499, body: {cards: [], shots: [{shotNo: 1, cueCode: "0101", subject: "猫"}]}});
-    const base = {storyId: story!.id, shotNo: 1, prompt: "猫", explicitInstruction: "猫", imageProvider: "gpt-image" as const, costConfirmation: {accepted: true as const, estimatedCny: 1.49}, renderReferences: {imageIds: [], assets: {}}};
-    for (const override of [{explicitInstruction: undefined}, {shotNo: 99}, {costConfirmation: undefined}, {costConfirmation: {accepted: true as const, estimatedCny: 0.68}}]) {
+    const base = {storyId: story!.id, shotNo: 1, prompt: "猫", explicitInstruction: "猫", imageProvider: "midjourney" as const, costConfirmation: {accepted: true as const, estimatedCny: 0.68}, renderReferences: {imageIds: [], assets: {}}};
+    for (const override of [{explicitInstruction: undefined}, {shotNo: 99}, {costConfirmation: undefined}, {costConfirmation: {accepted: true as const, estimatedCny: 1.49}}]) {
       expect((await caller.storyAgent.generateForMobile({...base, ...override})).status).toBe("error");
     }
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
