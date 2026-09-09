@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ImagePlus, Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -223,7 +223,7 @@ export function ShotImageRenderControl({
   };
   return (
     <div
-      className="flex flex-col items-start gap-1.5"
+      className="@container flex w-full flex-col items-start gap-1.5"
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
@@ -269,13 +269,13 @@ export function ShotImageRenderControl({
           disabled={busy || !material}
           aria-label={`${label} 编辑参考素材`}
           onClick={() => setPickerOpen(true)}
-          className="flex h-8 items-center gap-1 rounded-full border border-dashed px-2 text-[10px] text-muted-foreground"
+          className="flex h-7 items-center gap-1 whitespace-nowrap rounded-full border border-dashed px-1.5 text-[10px] text-muted-foreground"
         >
           <Plus className="h-3 w-3" />
-          {keys.length ? "参考" : "添加参考"}
+          <span className="hidden @[80px]:inline">{keys.length ? "参考" : "添加参考"}</span>
         </button>
       </div>
-      <div className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 text-primary">
+      <div className="grid grid-cols-[20px_12px] items-center justify-center rounded-xl border border-primary/30 bg-primary/10 px-1 py-1 text-primary @[80px]:flex @[80px]:rounded-full">
         <button
           type="button"
           disabled={disabled || busy || !material || missing || !validCount}
@@ -287,14 +287,13 @@ export function ShotImageRenderControl({
               setError(cause instanceof Error ? cause.message : "渲染失败")
             );
           }}
-          className="flex items-center gap-1 rounded-l-full py-1.5 pl-3 pr-1 text-xs font-medium disabled:opacity-40"
+          className="col-span-2 flex justify-center whitespace-nowrap px-1 text-[10px] font-medium disabled:opacity-40 @[80px]:col-span-1"
         >
           {busy ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <ImagePlus className="h-3.5 w-3.5" />
+            "渲染"
           )}
-          {busy ? "渲染中" : "渲染"}
         </button>
         <input
           type="number"
@@ -309,9 +308,9 @@ export function ShotImageRenderControl({
             const n = Number(event.target.value);
             if (n >= 1 && n <= 8 && Number.isInteger(n)) save(references, n);
           }}
-          className="w-9 bg-transparent text-center text-xs font-medium outline-none focus:ring-1 focus:ring-primary"
+          className="w-5 appearance-none bg-transparent text-center text-[10px] font-medium outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span className="pr-3 text-xs">张</span>
+        <span className="text-[10px]">张</span>
       </div>
       <span className="text-[10px] text-muted-foreground">
         {validCount
@@ -356,7 +355,7 @@ export function ShotImageRenderControl({
                   alt={option.label}
                   className="aspect-square w-full rounded object-contain"
                 />
-                <span>{option.label}</span>
+                <span className="line-clamp-2 break-all" title={option.label}>{option.label}</span>
               </button>
             ))}
           </div>
