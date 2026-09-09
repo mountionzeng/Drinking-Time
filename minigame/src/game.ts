@@ -2,6 +2,7 @@ import { createWorkspaceStore } from '../../miniprogram/src/core/workspaceState'
 import { createMockTransport, DEMO_RECOVERY_SCOPE } from '../../miniprogram/src/services/mockTransport';
 import { createWxStorage } from '../../miniprogram/src/services/storage';
 import { presentWorkspace } from '../../miniprogram/src/core/workspacePresentation';
+import { paintMobile, type Stop } from './mobileLayout';
 
 // Canvas/keyboard belong to the game runtime; business state remains shared.
 declare const wx: any;
@@ -19,10 +20,16 @@ let draft = '';
 const chatDrafts = new Map<number, string>();
 let activeStoryId: number | null = null;
 let expanded = false;
+let stop: Stop = 'peek';
+let currentTop = 0;
+let character: any = null;
+const avatar = wx.createImage();
+avatar.onload = () => { character = avatar; draw(); };
+avatar.src = 'character.png';
 let offset = 0;
 let maxOffset = 0;
 let touchStart: { clientY: number } | null = null;
-let targets: Array<{ y: number; run: () => void }> = [];
+let targets: Array<{ y: number; x?: number; w?: number; run: () => void }> = [];
 function text(value: string, y: number, color = '#302d28') {
   ctx.fillStyle = color; ctx.font = '16px sans-serif'; ctx.fillText(value, 20, y);
 }
@@ -84,6 +91,26 @@ function draw() {
   if (ui.chat.canLookupUnknown) button('查询上一轮结果', height - 58, () => { void store.lookupUnknownTurn(); });
   else if (ui.chat.canRetryTurn) button('重试上一轮', height - 58, () => { void store.retryTurn(); });
   else if (draft) button('继续修改这句话', height - 58, () => input('chat'));
+  const old = targets;
+  const layout = paintMobile(ctx, width, height, stop, state.document.body,
+    state.messages.map(m => (m.role === 'user' ? '我：' : '演示：') + m.content).join('\n\n'),
+    ui.story.activeTitle || '', ui.document.label, draft, offset, character);
+  currentTop = layout.top; maxOffset = layout.maxOffset;
+  const stories = old[0].run;
+  targets = [
+    {y: height - 145, x: 16, w: width - 86, run: () => input('chat')},
+    {y: height - 145, x: width - 70, w: 60, run: () => {
+      if (!draft.trim() || !ui.chat.canSend) return;
+      const value = draft; draft = ''; void store.sendMessage(value);
+    }},
+    {y: currentTop + 12, run: () => { stop = stop === 'peek' ? 'half' : 'peek'; expanded = stop !== 'peek'; offset = 0; draw(); }},
+    {y: height - 72, x: 0, w: width * .7, run: stories},
+    {y: height - 72, x: width * .7, w: width * .3, run: () => wx.showModal({title:'演示账号',content:'真实登录、余额和个人信息尚未接入。',showCancel:false})},
+  ];
+  if (currentTop > 210) targets.push(
+    {y: currentTop - 50, x: width - 170, w: 90, run: () => input('body')},
+    {y: currentTop - 50, x: width - 80, w: 75, run: old[2].run},
+  );
 }
 wx.onKeyboardInput((event: { value: string }) => {
   if (editing === 'body') store.editDocument(event.value);
@@ -101,6 +128,11 @@ wx.onTouchEnd((event: any) => {
   if (editing) return;
   const touch = event.changedTouches[0];
   if (touch && touchStart && Math.abs(touch.clientY - touchStart.clientY) > 12) {
+    if (touchStart.clientY >= currentTop && touchStart.clientY <= currentTop + 55) {
+      const up = touch.clientY < touchStart.clientY;
+      stop = up ? (stop === 'peek' ? 'half' : 'full') : (stop === 'full' ? 'half' : 'peek');
+      expanded = stop !== 'peek'; offset = 0; draw(); touchStart = null; return;
+    }
     if (touchStart.clientY > 164 && touchStart.clientY < height - 260) {
       offset = Math.max(0, Math.min(maxOffset, offset + Math.round((touchStart.clientY - touch.clientY) / 25))); draw();
     }
@@ -108,7 +140,7 @@ wx.onTouchEnd((event: any) => {
   }
   touchStart = null;
   if (!touch || touch.clientX < 16 || touch.clientX > width - 16) return;
-  targets.find(target => touch.clientY >= target.y && touch.clientY <= target.y + 42)?.run();
+  targets.find(target => touch.clientY >= target.y && touch.clientY <= target.y + 42 && touch.clientX >= (target.x ?? 16) && touch.clientX <= (target.x ?? 16) + (target.w ?? width - 32))?.run();
 });
 wx.onHide(() => store.onHide());
 wx.onShow(() => { void store.onShow(); });

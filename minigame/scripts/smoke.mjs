@@ -10,8 +10,10 @@ const ctx = {
   scale() {}, fillRect(x,y,w,h) { if(x === 0 && y === 0) labels = []; },
   fillText(value,x,y) { labels.push({ value, y }); },
   measureText(value) { return { width: [...value].length * 9 }; },
+  beginPath() {}, moveTo() {}, quadraticCurveTo() {}, stroke() {}, drawImage() {},
 };
 const wx = {
+  createImage: () => ({}),
   createCanvas: () => ({ getContext: () => ctx }),
   getSystemInfoSync: () => ({ windowWidth: 390, windowHeight: 844, pixelRatio: 2 }),
   getStorageSync: key => storage.get(key),
@@ -27,19 +29,19 @@ await flush();
 function tap(label) {
   const target = labels.find(item => item.value === label);
   assert.ok(target, `missing action: ${label}`);
-  const touch = {clientX: 25,clientY: target.y - 15};
+  const touch = {clientX: label === '编辑正文' ? 250 : label === '保存' || label === '发送' ? 340 : 25,clientY: target.y - 10};
   handlers.TouchStart({touches:[touch]}); handlers.TouchEnd({changedTouches:[touch]});
 }
 tap('编辑正文');
 assert.equal(keyboard.multiple, true);
 handlers.KeyboardComplete({value:'小游戏键盘最终确认文字'});
-tap('保存演示正文'); await flush();
+tap('保存'); await flush();
 assert.ok(labels.some(item=>item.value.includes('小游戏键盘最终确认文字')));
-tap('写一句话…'); handlers.KeyboardComplete({value:'这是一条测试聊天'});
-tap('继续修改这句话'); assert.equal(keyboard.defaultValue,'这是一条测试聊天');
+tap('说说这件小事…'); handlers.KeyboardComplete({value:'这是一条测试聊天'});
+tap('这是一条测试聊天'); assert.equal(keyboard.defaultValue,'这是一条测试聊天');
 handlers.KeyboardComplete({value:'修改后的聊天'});
-tap('发送：修改后的聊天'); await flush();
-tap('展开聊聊');
+tap('发送'); await flush();
+tap('拉开看全部 ⌃');
 assert.ok(labels.some(item=>item.value.includes('修改后的聊天')));
 handlers.Hide();
 console.log('小游戏运行冒烟通过：启动、键盘最终值、正文保存、聊天改稿、发送、切换视图、后台保存');

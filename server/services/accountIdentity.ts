@@ -9,8 +9,13 @@
  *  3. **限流落库。** PM2 重启或多进程时，进程内内存限流形同虚设。
  */
 import { ENV } from "../_core/env";
+import { randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import { accountIdentities, users } from '../../drizzle/schema';
 import {
   bumpUserSessionVersion,
+  getDb,
+  getUserById,
   consumeDevicePairingCode,
   consumePersistentRateLimit,
   consumeVerificationChallenge,
@@ -37,6 +42,77 @@ import {
 } from "./accountSecurity";
 
 export const OTP_TTL_MS = 10 * 60_000;
+export async function accountDatabaseReady() { return Boolean(await getDb()); }
+/** Server-only caller context; never serialize the full account to game clients. */
+export async function getAccountWorkspaceUser(id: number) {
+  if (!await getDb()) return null;
+  return getUserById(id);
+}
+export async function getAccountSessionPrincipal(id: number) {
+  const user = await getUserById(id);
+  return user ? { id: user.id, sessionVersion: user.sessionVersion } : null;
+}
+export async function allowMinigameAuthAttempt(ip: string) {
+  return (await consumePersistentRateLimit({ scope: 'minigame:auth:ip', subject: ip,
+    windowSeconds: 60, maxAttempts: 15 })).allowed;
+}
+
+/** Creates the account and identity in one transaction; no email or gift allocation. */
+export async function resolveWechatAccount(subject: string): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error('wechat_database_unavailable');
+  const find = async () => {
+    const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
+      .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
+    // Legacy database collations may be case-insensitive; openid is not.
+    if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
+    return row?.userId;
+  };
+  const existing = await find();
+  if (existing !== undefined) return existing;
+  try {
+    return await db.transaction(async tx => {
+      const [user] = await tx.insert(users).values({
+        openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
+      }).$returningId();
+      await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
+      return user.id;
+    });
+  } catch (error) {
+    // If another login won the unique identity constraint, its account is authoritative.
+    // The losing transaction rolls back its new user as well.
+    const winner = await find();
+    if (winner !== undefined) return winner;
+    throw error;
+  }
+}
+
+/** Identity uniqueness is the serialization point shared with independent login.
+ * Never transfers an identity from another account, even if it appears empty. */
+export async function bindWechatAccount(userId: number, subject: string) {
+  const db = await getDb();
+  if (!db) throw new Error('wechat_database_unavailable');
+  const find = async () => {
+    const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
+      .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
+    if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
+    return row;
+  };
+  const existing = await find();
+  if (existing) return existing.userId === userId ? 'bound' as const : 'merge_required' as const;
+  try {
+    await db.transaction(async tx => {
+      const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+      if (!user) throw new Error('account_missing');
+      await tx.insert(accountIdentities).values({ userId, provider: 'wechat', subject, verifiedAt: new Date() });
+    });
+    return 'bound' as const;
+  } catch (error) {
+    const winner = await find();
+    if (winner) return winner.userId === userId ? 'bound' as const : 'merge_required' as const;
+    throw error;
+  }
+}
 export const OTP_MAX_ATTEMPTS = 5;
 /** 每个邮箱每 10 分钟最多 5 次发送 */
 export const OTP_SEND_LIMIT = { windowSeconds: 600, maxAttempts: 5 };

@@ -2815,6 +2815,11 @@
       "entryPoints": ["server/_core/oauth.ts"],
       "owners": [
         "server/services/accountIdentity.ts",
+        "server/services/wechatCodeExchange.ts",
+        "server/services/wechatAccount.ts",
+        "server/_core/minigameSession.ts",
+        "server/_core/minigameRouter.ts",
+        "server/_core/minigameRoutes.ts",
         "server/services/accountSecurity.ts",
         "server/services/computeBilling.ts",
         "server/services/computeLedger.ts",
@@ -3002,6 +3007,29 @@
           "summary": "确认 V1 产品边界：在世老人亲自参与确认，亲人通过微信小程序以公开或私密方式追加文字、语音和照片，AI 仅用已确认材料增量写成章节传记；桌面端负责深度编辑，封面和少量插花为可选装饰，不建设画册、视频、数字人或多人 Story 编辑。"
         }
       ]
+    },
+    {
+      "id": "wechat-minigame-account-stories",
+      "name": "小游戏独立登录与手机版故事工作区",
+      "status": "observing",
+      "userValue": "小游戏复用手机版的账号、旧故事、正文编辑、聊天恢复、余额、每日来信与出生资料；邮箱密码和验证码入口可独立使用，微信登录与关联受真实凭据开关保护。",
+      "entryPoints": ["minigame/src/liveGame.ts", "server/_core/minigameRouter.ts"],
+      "owners": ["minigame/src/liveClient.ts", "minigame/src/workspaceClient.ts", "minigame/src/accountWorkspace.ts", "minigame/src/workspaceView.ts", "minigame/src/accountView.ts", "server/_core/minigameRoutes.ts", "server/_core/minigameWorkspace.ts", "server/_core/minigameSession.ts", "server/services/wechatAccount.ts", "server/services/minigameEmailOtp.ts"],
+      "evidence": ["server/_core/minigameRouter.test.ts", "server/_core/minigameWorkspace.test.ts", "server/integration/wechatAccount.mysql.test.ts", "minigame/src/liveClient.test.ts", "minigame/src/workspaceClient.test.ts", "minigame/src/accountWorkspace.test.ts", "minigame/scripts/smoke-live.mjs", "docs/qa/2026-09-08-minigame-live-auth.md"],
+      "invariants": [
+        "小游戏使用独立签名 Bearer 与真实 MySQL，不继承 Web Cookie 或开发 guest；AppSecret 不进入客户端。",
+        "身份冲突不得自动转移、合并故事或余额；既有账户不得重复赠送。",
+        "故事归属由服务端身份决定，退出和过期清除旧账号内容，晚到请求不能跨账号回填。",
+        "live 与 mock 显式分离；联调和替身测试不得称为真机验收或已上线。"
+      ],
+      "dependencies": ["account-compute-gift-payments", "story-ownership", "publishing-versions"],
+      "replaces": [],
+      "knownGaps": [
+        "测试站33b5cc8叠加完整工作区增量；2026-09-09微信AppSecret已验证并安全配置，微信开关开启，无效code401/匿名401/readyz通过。真实微信code登录和旧账号绑定仍未验收；新预览包上传待用户明确批准。",
+        "专项38项、真实路由/持久化链4项通过；真实用户跨端正文、真机中文键盘/安全区和视觉还原未验收，不能宣称100%或正式发布。",
+        "来信自动迎面展示、完整气息/相关故事布局、出生日期滚轮选择仍与最新手机版有差异；邮箱注册、微信绑定新邮箱、链接码与两个已有账号合并尚未完成。"
+      ],
+      "history": [{ "date": "2026-09-08", "kind": "implementation", "summary": "新增受限小游戏 HTTP 会话及账号/旧故事入口；21 项隔离测试、live 构建与 Canvas/wx 替身入口冒烟通过。后续本机真实 MySQL 三项并发/回滚测试通过，补大小写身份碰撞失败关闭；经用户批准备份并配置测试站 AppID 与独立签名密钥，保持接口关闭，等待 AppSecret 安全录入。未部署、不宣称可用。" }, { "date": "2026-09-08", "kind": "implementation", "summary": "用户否决只读版后迁移手机版保存/聊天恢复与账号来信入口；专项38、真实持久化链4通过，最终全量4302通过/6项既有图像失败/45跳过。精确基于测试站33b5cc8部署11文件服务端增量，Web资源哈希不变，匿名401/未知404/微信关闭503/Web Origin403验证通过。新二维码上传被安全审查阻止，等待明确上传批准；AppSecret与真机全量还原仍未验收，保持observing。" }, { "date": "2026-09-09", "kind": "verification", "summary": "微信凭据经官方接口验证且仅配置测试站环境，微信开关开启；未用真实wx.login code验收。整理专属分支，重新通过专项38、真实路由/隔离本地持久化链4、根及小游戏类型检查、mock与live微信构建/替身冒烟；保留原两日纳音、身份隔离与CAS语义。本轮未部署/上传，真机与全量视觉缺口仍在，保持observing。" }]
     },
     {
       "id": "wechat-miniprogram-workspace",

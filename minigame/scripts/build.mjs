@@ -11,6 +11,12 @@ const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--gi
 const require = createRequire(path.join(path.dirname(common), 'package.json'));
 const { build } = require('esbuild');
 mkdirSync(path.join(project, 'dist'), { recursive: true });
-await build({ entryPoints: [path.join(project, 'src/game.ts')], bundle: true, platform: 'browser', format: 'iife', target: 'es2019', outfile: path.join(project, 'dist/game.js') });
+const live = process.argv.includes('--live');
+await build({ entryPoints: [path.join(project, live ? 'src/liveGame.ts' : 'src/game.ts')], define: { __WECHAT_ENABLED__: String(process.argv.includes('--wechat')), 'process.env.NODE_ENV':'"production"' }, bundle: true, platform: 'browser', format: 'iife', target: 'es2019', outfile: path.join(project, 'dist/game.js') });
 copyFileSync(path.join(project, 'src/game.json'), path.join(project, 'dist/game.json'));
-console.log('小游戏构建通过');
+copyFileSync(path.join(repo, 'docs/prototypes/liaohuier-miniapp/assets/char-metal.png'), path.join(project, 'dist/character.png'));
+if(live){
+  copyFileSync(path.join(repo,'client/src/assets/fonts/honglei-zhuoshu-brand.ttf'),path.join(project,'dist/brand.ttf'));
+  execFileSync(path.join(path.dirname(common),'node_modules/.bin/tsx'),[path.join(project,'scripts/render-assets.tsx')],{cwd:repo,stdio:'inherit'});
+}
+console.log(`小游戏构建通过：${live ? '真实接口联调版（需服务端开通）' : '演示版（mock）'}`);
