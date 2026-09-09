@@ -9,8 +9,16 @@
  *  3. **限流落库。** PM2 重启或多进程时，进程内内存限流形同虚设。
  */
 import { ENV } from "../_core/env";
+import { randomUUID, createHmac } from 'node:crypto';
+import { and, asc, desc, eq, getTableColumns, getTableName, is, isNull, sql } from 'drizzle-orm';
+import { MySqlTable } from 'drizzle-orm/mysql-core';
+import * as schema from '../../drizzle/schema';
+import { withMinigameAccountLock } from './minigameAccountLock';
+import { accountIdentities, users } from '../../drizzle/schema';
 import {
   bumpUserSessionVersion,
+  getDb,
+  getUserById,
   consumeDevicePairingCode,
   consumePersistentRateLimit,
   consumeVerificationChallenge,
@@ -36,7 +44,207 @@ import {
   type PasswordPolicyResult,
 } from "./accountSecurity";
 
+const { accountIdentities: identities, accountVerificationChallenges: challenges } = schema;
+type ProofContext = { userId: number; sessionVersion: number; email: string; secret: string };
+export type EmailLinkResult = { outcome: 'linked'; userId: number } | {
+  outcome: 'session_expired' | 'invalid_code' | 'invalid_otp' | 'source_has_data' |
+    'identity_conflict' | 'needs_manual_mapping' | 'email_already_linked';
+};
+const normalize = (email: string) => email.trim().toLowerCase();
+function bindingSecret(input: ProofContext) {
+  if (input.secret.length < 32) throw new Error('email_not_configured');
+  // A Web login/verify OTP, or one sent by another account/session, cannot link identities.
+  return createHmac('sha256', input.secret)
+    .update(`minigame-email-link:v1:${input.userId}:${input.sessionVersion}`).digest('hex');
+}
+
+/** Called only after authenticated route-level and persistent email/IP throttling. */
+export async function issueMinigameLinkChallenge(input: ProofContext) {
+  const db = await getDb();
+  if (!db) throw new Error('database_required');
+  const email = normalize(input.email), secret = bindingSecret(input);
+  const code = generateOtpCode(), now = new Date();
+  await db.transaction(async tx => {
+    const [user] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
+    if (!user || user.sessionVersion !== input.sessionVersion) throw new Error('session_expired');
+    await tx.update(challenges).set({ invalidatedAt: now }).where(and(
+      eq(challenges.normalizedEmail, email), eq(challenges.purpose, 'verify'),
+      isNull(challenges.consumedAt), isNull(challenges.invalidatedAt),
+    ));
+    await tx.insert(challenges).values({ normalizedEmail: email, purpose: 'verify',
+      codeHash: hashOtpCode({ email, code, purpose: 'verify', secret, version: 1 }),
+      secretVersion: 1, maxAttempts: 5, expiresAt: new Date(now.getTime() + 600_000) });
+  });
+  return { code };
+}
+
+/** No account/content deletion and no balance merge. The sole permitted transfer is
+ * a single WeChat identity from an otherwise empty, WeChat-only account after dual proof.
+ * Legacy mapping is separately scoped to an operator-approved email allowlist. */
+export async function completeMinigameEmailLink(input: ProofContext & {
+  code: string; subject: string; approvedLegacyEmails: string[];
+}): Promise<EmailLinkResult> {
+  const db = await getDb();
+  if (!db) throw new Error('database_required');
+  const email = normalize(input.email), secret = bindingSecret(input);
+  return withMinigameAccountLock(input.userId, () => db.transaction(async tx => {
+    const [source] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
+    if (!source || source.sessionVersion !== input.sessionVersion) return { outcome: 'session_expired' };
+    const [wechat] = await tx.select().from(identities).where(and(
+      eq(identities.provider, 'wechat'), eq(identities.subject, input.subject),
+    )).for('update');
+    if (!wechat || wechat.subject !== input.subject || wechat.userId !== source.id)
+      return { outcome: 'invalid_code' };
+    const [challenge] = await tx.select().from(challenges).where(and(
+      eq(challenges.normalizedEmail, email), eq(challenges.purpose, 'verify'),
+      isNull(challenges.consumedAt), isNull(challenges.invalidatedAt),
+    )).orderBy(desc(challenges.id)).limit(1).for('update');
+    const now = new Date();
+    if (!challenge || challenge.expiresAt <= now || challenge.attemptCount >= challenge.maxAttempts)
+      return { outcome: 'invalid_otp' };
+    if (!otpDigestMatches({ email, code: input.code, purpose: 'verify', secret,
+      version: challenge.secretVersion, digest: challenge.codeHash })) {
+      await tx.update(challenges).set({ attemptCount: challenge.attemptCount + 1 }).where(eq(challenges.id, challenge.id));
+      return { outcome: 'invalid_otp' };
+    }
+    await tx.update(challenges).set({ consumedAt: now }).where(eq(challenges.id, challenge.id));
+
+    const ownIdentities = await tx.select().from(identities).where(eq(identities.userId, source.id)).for('update');
+    if ((source.email && normalize(source.email) !== email) ||
+      ownIdentities.some(row => row.provider === 'email' && row.subject !== email))
+      return { outcome: 'email_already_linked' };
+    const [emailIdentity] = await tx.select().from(identities).where(and(
+      eq(identities.provider, 'email'), eq(identities.subject, email),
+    )).for('update');
+    // Always check legacy duplicates too; a pre-existing identity is not permission to guess.
+    const candidates = await tx.select().from(users)
+      .where(sql`LOWER(TRIM(${users.email})) = ${email}`).orderBy(asc(users.id)).for('update');
+    if (candidates.length > 1 || (emailIdentity && candidates.some(row => row.id !== emailIdentity.userId)))
+      return { outcome: 'identity_conflict' };
+    const legacy = !emailIdentity && candidates.length === 1 && candidates[0].id !== source.id;
+    if (legacy && !input.approvedLegacyEmails.map(normalize).includes(email))
+      return { outcome: 'needs_manual_mapping' };
+    const targetId = emailIdentity?.userId ?? candidates[0]?.id ?? source.id;
+    const [target] = await tx.select().from(users).where(eq(users.id, targetId)).for('update');
+    if (!target || (target.email && normalize(target.email) !== email)) return { outcome: 'identity_conflict' };
+    if (targetId !== source.id) {
+      if (source.role !== 'user' || source.loginMethod !== 'wechat' || source.email || source.name ||
+        ownIdentities.length !== 1) return { outcome: 'source_has_data' };
+      // Automatically cover all schema-owned account content, including future userId tables.
+      // A zero credit projection may be created by a read; financial history still blocks.
+      for (const table of Object.values(schema)) {
+        if (!is(table, MySqlTable) || ['users', 'account_identities', 'access_sessions', 'credit_accounts'].includes(getTableName(table))) continue;
+        const columns = getTableColumns(table);
+        const owner = 'userId' in columns ? columns.userId :
+          'redeemedByUserId' in columns ? columns.redeemedByUserId : undefined;
+        if (!owner) continue;
+        const rows = await tx.select({ owner }).from(table).where(eq(owner, source.id)).limit(1).for('update');
+        if (rows.length) return { outcome: 'source_has_data' };
+      }
+      const [credit] = await tx.select().from(schema.creditAccounts).where(eq(schema.creditAccounts.userId, source.id)).for('update');
+      if (credit && (credit.balanceMinor || credit.reservedMinor || credit.lifetimeSpentMinor || credit.accessEnabledAt))
+        return { outcome: 'source_has_data' };
+    }
+    if (!emailIdentity) await tx.insert(identities).values({ provider: 'email', subject: email, userId: targetId, verifiedAt: now });
+    if (!target.email) await tx.update(users).set({ email }).where(eq(users.id, targetId));
+    if (targetId !== source.id) {
+      await tx.update(identities).set({ userId: targetId, verifiedAt: now }).where(eq(identities.id, wechat.id));
+      await tx.update(users).set({ sessionVersion: source.sessionVersion + 1 }).where(eq(users.id, source.id));
+    }
+    await tx.insert(schema.dataMigrationReceipts).values({ sourceKey: 'minigame_email_link',
+      batchKey: `challenge:${challenge.id}`, sourceHash: createHmac('sha256', secret).update(email).digest('hex'),
+      recordCount: 1, details: { sourceUserId: source.id, targetUserId: targetId,
+        wechatIdentityId: wechat.id, legacyMapped: legacy, method: 'wx_code_and_scoped_email_otp', version: 1 } });
+    return { outcome: 'linked', userId: targetId };
+  }));
+}
+
+export async function allowMinigameEmailOtpSend(email: string, ip: string) {
+  for (const [scope, subject, limits] of [
+    ['otp:send:email', normalizeAccountEmail(email), OTP_SEND_LIMIT],
+    ['otp:send:ip', ip, OTP_SEND_IP_LIMIT],
+  ] as const) {
+    if (!(await consumePersistentRateLimit({ scope, subject, ...limits })).allowed) return false;
+  }
+  return true;
+}
+export async function allowMinigameEmailOtpVerify(email: string) {
+  return (await consumePersistentRateLimit({ scope: 'otp:verify:email',
+    subject: normalizeAccountEmail(email), ...OTP_VERIFY_LIMIT })).allowed;
+}
+
 export const OTP_TTL_MS = 10 * 60_000;
+export async function accountDatabaseReady() { return Boolean(await getDb()); }
+/** Server-only caller context; never serialize the full account to game clients. */
+export async function getAccountWorkspaceUser(id: number) {
+  if (!await getDb()) return null;
+  return getUserById(id);
+}
+export async function getAccountSessionPrincipal(id: number) {
+  const user = await getUserById(id);
+  return user ? { id: user.id, sessionVersion: user.sessionVersion } : null;
+}
+export async function allowMinigameAuthAttempt(ip: string) {
+  return (await consumePersistentRateLimit({ scope: 'minigame:auth:ip', subject: ip,
+    windowSeconds: 60, maxAttempts: 15 })).allowed;
+}
+
+/** Creates the account and identity in one transaction; no email or gift allocation. */
+export async function resolveWechatAccount(subject: string): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error('wechat_database_unavailable');
+  const find = async () => {
+    const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
+      .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
+    // Legacy database collations may be case-insensitive; openid is not.
+    if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
+    return row?.userId;
+  };
+  const existing = await find();
+  if (existing !== undefined) return existing;
+  try {
+    return await db.transaction(async tx => {
+      const [user] = await tx.insert(users).values({
+        openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
+      }).$returningId();
+      await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
+      return user.id;
+    });
+  } catch (error) {
+    // If another login won the unique identity constraint, its account is authoritative.
+    // The losing transaction rolls back its new user as well.
+    const winner = await find();
+    if (winner !== undefined) return winner;
+    throw error;
+  }
+}
+
+/** Identity uniqueness is the serialization point shared with independent login.
+ * Never transfers an identity from another account, even if it appears empty. */
+export async function bindWechatAccount(userId: number, subject: string) {
+  const db = await getDb();
+  if (!db) throw new Error('wechat_database_unavailable');
+  const find = async () => {
+    const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
+      .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
+    if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
+    return row;
+  };
+  const existing = await find();
+  if (existing) return existing.userId === userId ? 'bound' as const : 'merge_required' as const;
+  try {
+    await db.transaction(async tx => {
+      const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+      if (!user) throw new Error('account_missing');
+      await tx.insert(accountIdentities).values({ userId, provider: 'wechat', subject, verifiedAt: new Date() });
+    });
+    return 'bound' as const;
+  } catch (error) {
+    const winner = await find();
+    if (winner) return winner.userId === userId ? 'bound' as const : 'merge_required' as const;
+    throw error;
+  }
+}
 export const OTP_MAX_ATTEMPTS = 5;
 /** 每个邮箱每 10 分钟最多 5 次发送 */
 export const OTP_SEND_LIMIT = { windowSeconds: 600, maxAttempts: 5 };

@@ -38,7 +38,7 @@ import {
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { storyIntentProfileFromLegacy } from "../../shared/storyIntentProfile";
-import { getStoryById } from "../db";
+import { getStoryById, listUserStories } from "../db";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
 import {
@@ -1902,12 +1902,26 @@ export async function getPublishingBodyDocument(
   const document = publishingBodyDocumentFromState(result);
   if (!document) {
     const active = resolvePublishingActiveVersion(result.publishing);
-    throw new PublishingBodyUnavailableError(
-      active.versionId,
-      active.activePlatform
-    );
+    throw new PublishingBodyUnavailableError(active.versionId, active.activePlatform);
   }
   return document;
+}
+
+/** Read-only summaries for constrained clients; ownership stays in persistence. */
+export async function listOwnedStorySummaries(userId: number) {
+  return (await listUserStories(userId)).map(({ id, title }) => ({ id, title }));
+}
+
+export async function readOwnedStoryBody(userId: number, storyId: number) {
+  const story = await getStoryById(storyId, userId);
+  if (!story) return null;
+  try {
+    const document = await getPublishingBodyDocument(storyId, userId);
+    return { title: story.title, body: document.body, bodyAvailable: true };
+  } catch (error) {
+    if (!(error instanceof PublishingBodyUnavailableError)) throw error;
+    return { title: story.title, body: '', bodyAvailable: false };
+  }
 }
 
 const PUBLISHING_BODY_CAS_ATTEMPTS = 3;

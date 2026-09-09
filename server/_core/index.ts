@@ -6,6 +6,7 @@ import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { sql } from "drizzle-orm";
 import { registerOAuthRoutes } from "./oauth";
+import { minigameRoutes } from "./minigameRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -107,6 +108,8 @@ async function startServer() {
       appOrigin: process.env.APP_ORIGIN ?? "",
     })
   );
+  // Cookie-free game namespace has its own strict bearer authentication.
+  app.use('/api/minigame', minigameRoutes());
   app.use(
     "/api",
     createRequestOriginMiddleware({

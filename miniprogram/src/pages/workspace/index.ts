@@ -27,6 +27,7 @@ const FAILURE_MODES: ReadonlyArray<{ value: MockFailureMode; label: string }> = 
 Page({
   data: {
     ready: false,
+    sheetStop: "peek",
     ui: null as PresentedWorkspace | null,
     messages: [] as WorkspaceMessage[],
     storyTitles: [] as string[],
@@ -91,7 +92,18 @@ Page({
   },
 
   switchView(event: { currentTarget: { dataset: { view: WorkspaceView } } }) {
+    this.setData({ sheetStop: event.currentTarget.dataset.view === "chat" ? "half" : "peek" });
     workspaceApp().globalData.store.setView(event.currentTarget.dataset.view);
+  },
+
+  expandChat() {
+    this.setData({ sheetStop: this.data.sheetStop === "half" ? "full" : "half" });
+    workspaceApp().globalData.store.setView("chat");
+  },
+
+  collapseChat() {
+    this.setData({ sheetStop: "peek" });
+    workspaceApp().globalData.store.setView("document");
   },
 
   onStoryChange(event: { detail: { value: string | number } }) {
