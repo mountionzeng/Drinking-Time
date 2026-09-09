@@ -20,6 +20,7 @@ type Props = {
     | "selection"
     | "confirmedImageRegion"
   >;
+  imageUrl?: string;
   compact?: boolean;
   onClear?: () => void;
   readiness?: SelectionReadiness;
@@ -68,6 +69,7 @@ export default function SelectionContextCard({
   compact = false,
   onClear,
   readiness,
+  imageUrl,
 }: Props) {
   const kind = selectionEditKind(selection as SelectionContext);
   const scopePromise =
@@ -82,7 +84,7 @@ export default function SelectionContextCard({
               ? "只会修改已确认区域，区域外保持不变"
               : "局部尚未确认，不会提交修改"
             : kind === "image"
-              ? "只会修改这张图片"
+              ? "以这张图生成新版候选，原图保留"
               : "作为当前上下文引用";
   const excerpt =
     selection.selectedText.length > (compact ? 32 : 72)
@@ -95,6 +97,9 @@ export default function SelectionContextCard({
       }`}
       aria-label="当前选区"
     >
+      {imageUrl && !compact ? (
+        <img src={imageUrl} alt="本次修改的图片" className="h-12 w-12 shrink-0 rounded object-contain bg-black/10" />
+      ) : null}
       <span className="mt-0.5 shrink-0 text-nayin-bright">
         <ContextIcon sourceType={selection.sourceType} />
       </span>

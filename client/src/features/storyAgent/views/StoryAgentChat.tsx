@@ -249,6 +249,7 @@ export default function StoryAgentChat({
     confirmPendingIntent,
     dismissPendingIntent,
     clearSelection,
+    setActiveSelection,
     sendSelectionEdit,
     confirmSelectionCandidate,
     rejectSelectionCandidate,
@@ -355,6 +356,16 @@ export default function StoryAgentChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedImage = activeSelection?.sourceType === "storyboard-image"
+    ? creationEditor?.materialState?.shots.flatMap(shot => [...shot.imageVersions, ...(shot.relatedImages ?? [])])
+        .find(image => image.id === activeSelection.imageId)
+    : undefined;
+  useEffect(() => {
+    if (interactionMode === "story" && activeSelection?.sourceType === "storyboard-image") {
+      inputRef.current?.focus();
+      inputRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeSelection, interactionMode]);
   const draftStoryIdRef = useRef<number | null>(null);
   const pendingMediaRef = useRef<PendingChatMedia[]>([]);
   const mediaSubmissionRef = useRef(false);
@@ -400,7 +411,7 @@ export default function StoryAgentChat({
     interactionMode === "publishing"
       ? "先把真实想法说出来，聊聊会一次只追问一个关键点…"
       : activeSelection
-        ? "告诉聊聊这处想怎么改…"
+        ? activeSelection.sourceType === "storyboard-image" ? "描述这张图怎么改，例如：让小猫看向镜头…" : "告诉聊聊这处想怎么改…"
         : pendingMedia.length > 0
           ? pendingMedia.some(item => item.kind === "image")
             ? "想提取哪部分？例如小猫、背景，或只保存图片…"
@@ -1329,6 +1340,19 @@ export default function StoryAgentChat({
                     />
                   </div>
                 )}
+                {m.imageRevision ? (
+                  <button type="button" className="mb-2 block w-full text-left"
+                    aria-label="选中新版图片继续修改" disabled={m.imageRevision.storyId !== activeStoryId}
+                    onClick={() => { const image = m.imageRevision!; setActiveSelection({
+                      sourceType: "storyboard-image", sourceId: String(image.imageId),
+                      selectedText: `镜头 ${image.shotNo} · 新版图片 #${image.imageId}`,
+                      fullText: `镜头 ${image.shotNo} 的新版候选图片`, ...image,
+                      objectVersion: `image:${image.imageId}`, materialStatus: "current-image",
+                    }); }}>
+                    <img src={m.imageRevision.imageUrl} alt="修改后的新版候选" className="max-h-64 w-full rounded-lg object-contain" />
+                    <span className="text-[10px] text-muted-foreground">新版候选 · 点击继续修改；采用请在画面行选择</span>
+                  </button>
+                ) : null}
                 {m.role === "user" && m.photoUrl && (
                   <img
                     src={m.photoUrl}
@@ -1749,6 +1773,7 @@ export default function StoryAgentChat({
             <SelectionContextCard
               selection={activeSelection}
               onClear={clearSelection}
+              imageUrl={selectedImage?.imageUrl}
               readiness={activeSelectionReadiness}
             />
           </div>

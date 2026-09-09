@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { useSelectionImageRerender, renderSelectionRevision } from "./useSelectionImageRerender";
 import { selectionBelongsToStory } from "./selectionStoryScope";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
 import {
@@ -434,6 +435,8 @@ export function resolvePersistedStoryId(
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";
   message: string;
+  imageId?: number;
+  imageUrl?: string;
 };
 
 export type StoryboardImageRerenderRunner = (
@@ -3418,48 +3421,9 @@ export function StoryAgentProvider({
     trpc.promptLineage.confirmCandidate.useMutation();
   const rejectPromptCandidateMut =
     trpc.promptLineage.rejectCandidate.useMutation();
-  const imageRerenderRunnerRef = useRef<StoryboardImageRerenderRunner | null>(
-    null
-  );
+  const { registerImageRerenderRunner, rerenderSelectionImage } = useSelectionImageRerender(activeStoryId);
   const imageRegionEditHandoff = useImageRegionEditHandoffRunner();
-
-  const registerImageRerenderRunner = useCallback(
-    (runner: StoryboardImageRerenderRunner) => {
-      imageRerenderRunnerRef.current = runner;
-      return () => {
-        if (imageRerenderRunnerRef.current === runner) {
-          imageRerenderRunnerRef.current = null;
-        }
-      };
-    },
-    []
-  );
-
   const registerImageRegionEditRunner = imageRegionEditHandoff.register;
-
-  const rerenderSelectionImage = useCallback(
-    async (
-      request: NonNullable<ChatMessage["imageRerenderAction"]>
-    ): Promise<StoryboardImageRerenderResult> => {
-      if (
-        request.storyId != null &&
-        activeStoryId != null &&
-        request.storyId !== activeStoryId
-      ) {
-        const message = "这条重渲操作属于另一个故事，请先切回对应故事";
-        toast.error(message);
-        return { status: "error", message };
-      }
-      const runner = imageRerenderRunnerRef.current;
-      if (!runner) {
-        const message = "故事版看板还没有准备好，请稍后再点一次";
-        toast.error(message);
-        return { status: "error", message };
-      }
-      return runner(request);
-    },
-    [activeStoryId]
-  );
 
   const sendSelectionEdit = useCallback(
     async (instruction: string) => {
@@ -3485,9 +3449,9 @@ export function StoryAgentProvider({
       setIsReplying(true);
       setReturningGreeting(null);
 
-      const commitSelectionReply = async (replyMsg: ChatMessage, persistWarning: string) =>
+      const commitSelectionReply = async (replyMsg: ChatMessage, persistWarning: string, retainSelection = false) =>
         persistSelectionReply({
-        nextMessages, reply: replyMsg, selection: submittedSelection,
+        nextMessages, reply: replyMsg, selection: submittedSelection, retainSelection,
         userMessage: userMsg, persistWarning, setMessages, setActiveSelection,
         storyId: resolvePersistedStoryId(submittedSelection.storyId, activeStoryId, remoteStoryId),
         appendTurn: appendConversationTurnMut.mutateAsync,
@@ -3569,7 +3533,7 @@ export function StoryAgentProvider({
           remoteStoryId
         );
         let editText = { fullText, selectedText };
-        let promptRewrite = false;
+        const promptRewrite = sourceType === "storyboard-image";
         if (sourceType === "storyboard-image" && storyId != null) {
           const loadedForEdit =
             await utils.promptLineage.getStoryProjection.fetch({
@@ -3585,7 +3549,6 @@ export function StoryAgentProvider({
               selection: activeSelection,
               target,
             });
-            promptRewrite = Boolean(target?.currentContent?.trim());
           }
         }
 
@@ -3611,6 +3574,22 @@ export function StoryAgentProvider({
         }
         if (result.applied && storyId != null) {
           await loadStory(storyId, { silent: true });
+        }
+
+        const revision = await renderSelectionRevision({
+          selection: submittedSelection, storyId, instruction, result,
+          originalText: editText.fullText, render: rerenderSelectionImage,
+        });
+        if (revision) {
+          if (!storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId)) return;
+          await commitSelectionReply({
+            id: newId("msg"), role: "assistant", timestamp: Date.now(),
+            content: revision.message,
+            imageRevision: revision.status === "success" && revision.imageId && revision.imageUrl
+              ? { storyId: storyId!, stableShotId: submittedSelection.stableShotId!, shotNo: submittedSelection.shotNo!, imageId: revision.imageId, imageUrl: revision.imageUrl }
+              : undefined,
+          }, "[storyConversation] persist image revision failed:", revision.status !== "success");
+          return;
         }
 
         let promptCandidate: ChatMessage["promptCandidate"];
@@ -3717,6 +3696,7 @@ export function StoryAgentProvider({
       editingCommandRunner,
       loadStory,
       imageRegionEditHandoff,
+      rerenderSelectionImage,
     ]
   );
 

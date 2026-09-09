@@ -1076,6 +1076,11 @@ export default function ShotPreview({
                 data-testid="preview-object-mask-overlay"
               />
             ) : null}
+            {currentFrameReady && onSelectImageForChat && maskState.phase === "idle" ? (
+              <button type="button" onClick={onSelectImageForChat}
+                aria-label="选中这张图片，在聊天框修改" title="点击图片，在聊天框描述修改"
+                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
+            ) : null}
             {maskSelectionActive ? (
               <div
                 className="absolute inset-0 z-[25] cursor-crosshair touch-none"
@@ -1241,8 +1246,8 @@ export default function ShotPreview({
               </p>
               <p className="text-[9px] text-muted-foreground">
                 {currentFrameIsTimelineImage
-                  ? "已选中这一帧；可在左侧聊天框直接描述要如何修改"
-                  : "已选中这张图；可在左侧聊天框直接描述要如何修改"}
+                  ? "点击这一帧，在左侧聊天框描述修改"
+                  : "点击图片，在左侧聊天框描述修改"}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">

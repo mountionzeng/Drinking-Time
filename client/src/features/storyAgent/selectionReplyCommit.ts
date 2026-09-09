@@ -25,10 +25,11 @@ export async function commitSelectionReply(input: {
   }) => Promise<unknown>;
   archive: (messages: ChatMessage[]) => Promise<unknown>;
   persistWarning: string;
+  retainSelection?: boolean;
 }) {
   const finalMessages = [...input.nextMessages, input.reply];
   input.setMessages(finalMessages);
-  input.setActiveSelection(current =>
+  if (!input.retainSelection) input.setActiveSelection(current =>
     consumeSubmittedSelection(current, input.selection)
   );
   if (input.storyId != null) {

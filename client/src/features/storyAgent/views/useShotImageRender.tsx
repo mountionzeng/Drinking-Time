@@ -59,6 +59,7 @@ export function useShotImageRender(
 
   const render = async (input: {
     label: string;
+    revisionInstruction?: string;
     settings: ShotImageRenderSettings;
     shot: CreationEditorShot;
     previousShots: CreationEditorShot[];
@@ -86,17 +87,20 @@ export function useShotImageRender(
     const chosen = selectedReferenceKeys(settings.references).map(key =>
       choices.find(choice => choice.key === key)
     );
-    const issue = !shot.promptDraft?.trim()
-      ? "请先填写图片要求"
-      : !material || chosen.some(choice => !choice)
-        ? "参考素材尚未加载或已失效，请重新选择参考"
-        : null;
+    const issue =
+      !input.revisionInstruction?.trim() && !shot.promptDraft?.trim()
+        ? "请先填写图片要求"
+        : !material || chosen.some(choice => !choice)
+          ? "参考素材尚未加载或已失效，请重新选择参考"
+          : null;
     if (issue) {
       setImageRenderError(issue);
       return { status: "error" as const, message: issue };
     }
     const names = chosen.map(choice => choice!.label);
-    const instruction = storyboardExplicitImageInstruction(shot);
+    const instruction = input.revisionInstruction
+      ? `以所选参考图片为基础生成新版，保留未要求修改的主体与画面内容。用户修改要求：\n${input.revisionInstruction}`
+      : storyboardExplicitImageInstruction(shot);
     const rows = buildPromptTable(shot, { previousShots: input.previousShots });
     const quote = quoteShotImages(settings.count);
     const confirmed = await confirmImageCost(
@@ -133,7 +137,13 @@ export function useShotImageRender(
         );
       const message = `${label} 已生成 ${batch.generatedCount} 张图片，已放入画面行`;
       toast.success(message);
-      return { status: "success" as const, message };
+      const last = batch.results.at(-1);
+      return {
+        status: "success" as const,
+        message,
+        imageId: last?.imageId,
+        imageUrl: last?.imageUrl,
+      };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "图片生成失败";
       if (scope === imageBatchScope.current) setImageRenderError(message);

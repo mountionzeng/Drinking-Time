@@ -1,3 +1,4 @@
+import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
 import { useShotImageRender } from "./useShotImageRender";
 import { ShotImageRenderControl, loadShotRenderSettings } from "./ShotImageRenderControl";
 import { type ShotImageRenderSettings, type ShotRenderReferences } from "@shared/shotImageRender";
@@ -233,7 +234,6 @@ import {
   buildStoryboardImageRenderPlan,
   buildSheSelf02ImageEditInstruction,
   isSheSelf02ImageEditTemplateEnabled,
-  resolveStoryboardRerenderShotIndex,
   SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL,
   storyboardExactEditConstraint,
   storyboardImageRenderBlockReason,
@@ -2094,15 +2094,21 @@ export function StoryboardReviewBoard({
     };
   };
 
+  const currentCreationShots = useRef(creationShots);
+  currentCreationShots.current = creationShots;
   const renderConfiguredShotImages = async (
-    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings
+    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>
   ): Promise<StoryboardImageRerenderResult> => {
     if (!creationShot || !onGenerateShotImages || !canStartImageRenderRef.current(shot.shotNo)) return { status: "cancelled", message: "镜头正在渲染或尚未加载" };
+    if (request?.imageId && !storyboardShotFrameImages(creationShot).some(frame => frame.id === request.imageId))
+      return { status: "error", message: "所选图片已不属于这个镜头，请重新选择" };
     const pending = matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "");
     const effective = storyboardRenderShotWithDraft(creationShot, shot, pending);
-    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState,
+    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined,
       previousShots: creationShots.slice(0, Math.max(0, creationShots.indexOf(creationShot))),
-      canStart: () => canStartImageRenderRef.current(shot.shotNo),
+      canStart: () => canStartImageRenderRef.current(shot.shotNo) && (!request?.imageId || currentCreationShots.current.some(current =>
+        (current.stableShotId ?? current.shotIdentity) === (creationShot.stableShotId ?? creationShot.shotIdentity) &&
+        storyboardShotFrameImages(current).some(frame => frame.id === request.imageId))),
       start: () => { beginShotRender(shot.shotNo); onSelectShot?.(shot.shotNo); },
       finish: () => finishShotRender(shot.shotNo), generate: onGenerateShotImages,
     });
@@ -2562,41 +2568,11 @@ export function StoryboardReviewBoard({
     shots,
   ]);
 
-  useEffect(() => {
-    if (!onRegisterImageRerenderRunner) return;
-    const runner: StoryboardImageRerenderRunner = async request => {
-      const shotIndex = resolveStoryboardRerenderShotIndex(
-        shots.map((candidate, index) => ({
-          stableShotId: storyShotInsertIdentity(candidate, index),
-          cueCode: candidate.cueCode,
-          shotNo: candidate.shotNo,
-        })),
-        request
-      );
-      const shot = shots[shotIndex];
-      if (!shot) {
-        const message = "这个镜头已经不在当前故事中，请刷新后再试";
-        toast.error(message);
-        return { status: "error", message };
-      }
-      const stableShotId = storyShotInsertIdentity(shot, shotIndex);
-      const creationShot = creationShots.find(candidate => {
-        const candidateStableShotId =
-          candidate.stableShotId ?? candidate.shotIdentity ?? null;
-        return (
-          (stableShotId != null && candidateStableShotId === stableShotId) ||
-          candidate.shotNo === shot.shotNo
-        );
-      });
-      return renderShotImageCandidates(shot, creationShot, shotIndex, request);
-    };
-    return onRegisterImageRerenderRunner(runner);
-  }, [
-    creationShots,
-    onRegisterImageRerenderRunner,
-    renderShotImageCandidates,
-    shots,
-  ]);
+  useStoryboardImageRerenderRunner({ shots, creationShots, register: onRegisterImageRerenderRunner,
+    render: (shot, creationShot, index, request) => request.imageId && request.instruction
+      ? renderConfiguredShotImages(shot, creationShot, index, { count: 1, references: { imageIds: [request.imageId], assets: {} } }, request)
+      : renderShotImageCandidates(shot, creationShot, index, request),
+  });
 
   const promoteStoryboardFrameCandidate = async (input: {
     shot: StoryShot;

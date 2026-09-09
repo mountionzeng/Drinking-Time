@@ -45,9 +45,12 @@ describe("SelectionContextCard", () => {
           sourceId: "41",
           selectedText: "第二张图",
         }}
+        imageUrl="/cat.png"
       />
     );
-    expect(image).toContain("只会修改这张图片");
+    expect(image).toContain("以这张图生成新版候选，原图保留");
+    expect(image).toContain('src="/cat.png"');
+    expect(image).toContain("本次修改的图片");
 
     const region = renderToStaticMarkup(
       <SelectionContextCard
@@ -101,6 +104,6 @@ describe("SelectionContextCard", () => {
     );
     expect(html).toContain("已失效");
     expect(html).toContain("选区不属于当前故事");
-    expect(html).not.toContain("只会修改这张图片");
+    expect(html).not.toContain("以这张图生成新版候选，原图保留");
   });
 });

@@ -24,6 +24,8 @@
 
 ## 当前在场
 
+预览图聊天改版（2026-09-09）：`codex/preview-chat-revision` 独立 worktree，修改 ShotPreview、EditingNleWorkspace、StoryAgentChat/Context、选区卡片及 StoryboardReviewBoard 渲染桥接，相关测试与功能账本。保留原图/候选和局部编辑，复用 MJ 报价；不提交付费生成，仅主仓 3000 验收。93项测试、类型与构建通过；已确认其他会话没有跨分支合并，当前占用合并窗口，合入后主仓验证。
+
 小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
 
 小游戏启动兼容修复（2026-09-09）：上述专属分支已修复 `client/src/features/nayin/nayin.ts`、`shared/shichen.ts` 的无Intl路径，并补 `minigame/src/runtimeDate.test.ts`/`smoke-live.mjs`；50项定向、两套类型检查及账本通过，621.6KB修复预览已上传并交付 `/private/tmp/dk-minigame-intl-fix-20260909.png`。等待用户真机结果及本地提交选择，改动未提交；不占主仓对应源码、不部署后端。

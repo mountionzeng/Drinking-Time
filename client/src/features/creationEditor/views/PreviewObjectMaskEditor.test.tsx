@@ -117,6 +117,7 @@ describe("Preview object mask editor integration", () => {
       />
     );
 
+    expect(html).toContain("选中这张图片，在聊天框修改");
     expect(html).toContain('src="/source.mp4"');
     expect(html).toContain('src="/frame-17.png"');
     expect(html).toContain('data-testid="editing-preview-frame-overlay"');

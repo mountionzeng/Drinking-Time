@@ -92,7 +92,10 @@ export type StoryboardImageRerenderActionReference = {
   instruction?: string | null;
 };
 
+export type ImageRevision = { storyId: number; stableShotId: string; shotNo: number; imageId: number; imageUrl: string };
+
 export interface ChatMessage {
+  imageRevision?: ImageRevision;
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -628,6 +631,11 @@ export function normalizeChatMessages(
               : {}),
           };
         }
+      }
+      const revision = obj.imageRevision as Partial<ImageRevision> | undefined;
+      if (revision && typeof revision.storyId === "number" && typeof revision.stableShotId === "string" &&
+          typeof revision.shotNo === "number" && typeof revision.imageId === "number" && typeof revision.imageUrl === "string") {
+        message.imageRevision = revision as ImageRevision;
       }
       message.editingTransitionCandidate = normalizeEditingTransitionCandidate(
         obj.editingTransitionCandidate

@@ -129,7 +129,9 @@
         "server/archive/selectionEdit.ts",
         "server/services/selectionTextSource.ts",
         "server/services/storyShotFieldPatch.ts",
-        "server/routers/storyAgent.ts"
+        "server/routers/storyAgent.ts",
+        "client/src/features/storyAgent/useSelectionImageRerender.ts",
+        "client/src/features/storyAgent/views/useStoryboardImageRerenderRunner.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
@@ -142,7 +144,11 @@
         "server/services/selectionTextSource.test.ts",
         "server/routers.storyAgentSelectionEdit.test.ts",
         "server/routers.creationAgentMaskEditing.test.ts",
-        "server/services/imageMaskComposite.test.ts"
+        "server/services/imageMaskComposite.test.ts",
+        "client/src/features/storyAgent/useSelectionImageRerender.test.ts",
+        "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
+        "client/src/features/storyAgent/selectionReplyCommit.test.ts",
+        "docs/qa/preview-chat-revision-2026-09-09.md"
       ],
       "invariants": [
         "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
@@ -171,6 +177,11 @@
           "date": "2026-09-01",
           "kind": "feat",
           "summary": "统一文字、整图和确认语义蒙版的活动选区身份、范围卡片和提交路由。文字由服务端读取 Story 权威内容并机械保留选区外前后缀后 CAS 写回；整图严格绑定 stableShotId 与 imageId，不再回退其他镜头或当前图；局部聊天只回填仍匹配的 Preview 蒙版会话，报价、付费生成、候选审阅和显式采用仍由原流程负责。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "refactor",
+          "summary": "按用户授权简化整图修改：直接点 Preview 图，聊天输入框聚焦并显示真实缩略图；普通图片修改经意图解释后直接进入共享 MJ 费用确认与四候选生成，不再要求手动采用提示词再重渲。严格引用所选 imageId，不继承其他素材；保留原图与正式提示词，生成结果在聊天展示可继续修改的候选。局部蒙版、构图/OCR和资产替换路径保留；取消/失败保留选图，确认后复核当前镜头图片归属。93项相关测试通过，真实付费MJ尚未验收。"
         }
       ]
     },
@@ -2820,6 +2831,11 @@
           "date": "2026-08-27",
           "kind": "verification",
           "summary": "主仓库 main:3000、真实已登录 Story 只读浏览器验收：静态图 Preview 显示『编辑图片』，侧栏三模式与 OCR 安全提示布局正常，console 无错误；未点击应用、未调用视觉模型、未产生费用。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "refactor",
+          "summary": "Preview 增加可键盘操作的整图点击入口和聊天选图缩略图；仅在图片就绪且没有活动蒙版会话时覆盖点击层，视频抽帧、构图与文字、圈选局部继续使用原工具。聊天普通改图复用共享MJ入口，原图保留。"
         }
       ]
     },
