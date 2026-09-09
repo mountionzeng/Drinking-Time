@@ -6,6 +6,7 @@ import {
   StoryboardTimelineRulerRow,
   StoryboardTimelineZoomBar,
   useStoryboardTimelineViewport,
+  storyboardZoomViewport,
 } from "./StoryboardTimelineRuler";
 import React, {
   Fragment,
@@ -121,6 +122,7 @@ import {
 import {
   buildStoryboardTimingRows,
   storyboardTimingTotalMs,
+  storyboardTimingWinnerAt,
 } from "../storyboardTiming";
 import {
   StoryboardEditRow,
@@ -594,6 +596,7 @@ export function StoryboardReviewBoard({
   );
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [compactShots, setCompactShots] = useState(false);
+  const [simplifiedDisplay, setSimplifiedDisplay] = useState(false);
   const [shotTimingPreview, setShotTimingPreview] =
     useState<StoryboardMatrixTimingPreviewState | null>(null);
   const updateShotTimingPreview = useCallback(
@@ -605,7 +608,7 @@ export function StoryboardReviewBoard({
     []
   );
   // 拖动时临时展开时间对齐列，结束后恢复用户原来的“缩小”偏好。
-  const renderCompactShots = compactShots && shotTimingPreview == null;
+  const renderCompactShots = (compactShots || simplifiedDisplay) && shotTimingPreview == null;
   const [compactExpandedShotNo, setCompactExpandedShotNo] = useState<
     number | null
   >(null);
@@ -930,6 +933,7 @@ export function StoryboardReviewBoard({
   useLayoutEffect(() => {
     if (
       viewMode !== "full" ||
+      simplifiedDisplay ||
       !boardTimeline?.isPlaying ||
       Date.now() < manualBoardScrollUntilRef.current
     ) {
@@ -955,6 +959,7 @@ export function StoryboardReviewBoard({
     boardTimeline?.isPlaying,
     boardTimeline?.playheadMs,
     boardTimeline?.totalMs,
+    simplifiedDisplay,
     viewMode,
   ]);
 
@@ -1665,11 +1670,41 @@ export function StoryboardReviewBoard({
   };
 
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
+  const [boardAvailableWidth, setBoardAvailableWidth] = useState(720);
+  useLayoutEffect(() => {
+    const scroller = boardScrollRef.current;
+    if (!scroller) return;
+    const measure = () => setBoardAvailableWidth(Math.max(1, scroller.clientWidth - 76));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [viewMode, shots.length]);
+  const expandedShotNo = simplifiedDisplay
+    ? storyboardTimingWinnerAt(storyboardTimingRows, boardTimeline?.playheadMs ?? 0, boardTimeline?.visualLayerState?.hidden)?.shotNo ?? null
+    : compactExpandedShotNo;
   const {
-    viewport: storyboardViewport,
+    viewport: zoomedStoryboardViewport,
     scale: timelineScale,
     setScale: setTimelineScale,
-  } = useStoryboardTimelineViewport(storyboardTimelineDurationMs);
+  } = useStoryboardTimelineViewport(storyboardTimelineDurationMs, boardAvailableWidth);
+  // Compact information columns are a reading view; the editable time strip
+  // remains proportional and fits their combined width.
+  const storyboardViewport = useMemo(() => simplifiedDisplay && !shotTimingPreview
+    ? storyboardZoomViewport(storyboardTimelineDurationMs,
+        Math.max(1, shots.length * 72 + (expandedShotNo == null ? 0 : matrixShotColumnWidth - 72)), 0)
+    : zoomedStoryboardViewport,
+    [simplifiedDisplay, shotTimingPreview, storyboardTimelineDurationMs, shots.length, expandedShotNo, matrixShotColumnWidth, zoomedStoryboardViewport]);
+  useLayoutEffect(() => {
+    if (!simplifiedDisplay || expandedShotNo == null) return;
+    const scroller = boardScrollRef.current;
+    const header = scroller?.querySelector<HTMLElement>(`[data-storyboard-shot-no="${expandedShotNo}"]`);
+    if (!scroller || !header) return;
+    const bounds = scroller.getBoundingClientRect();
+    const cell = header.getBoundingClientRect();
+    if (cell.left < bounds.left + 76) scroller.scrollLeft += cell.left - bounds.left - 76;
+    else if (cell.right > bounds.right) scroller.scrollLeft += cell.right - bounds.right;
+  }, [simplifiedDisplay, expandedShotNo]);
   const matrixShotEntries = useMemo(() => {
     const entries = shots.map((shot, originalIndex) => ({
       shot,
@@ -1701,7 +1736,7 @@ export function StoryboardReviewBoard({
     if (renderCompactShots) {
       return `76px ${leadingGap}${matrixShotEntries.entries
         .map(({ shot }) =>
-          shot.shotNo === compactExpandedShotNo
+          shot.shotNo === expandedShotNo
             ? `${matrixShotColumnWidth}px`
             : "72px"
         )
@@ -1711,7 +1746,7 @@ export function StoryboardReviewBoard({
       .map(width => `${Math.max(1, width)}px`)
       .join(" ")}`;
   }, [
-    compactExpandedShotNo,
+    expandedShotNo,
     hasMatrixLeadingGap,
     matrixShotEntries,
     matrixShotColumnWidth,
@@ -3288,7 +3323,14 @@ export function StoryboardReviewBoard({
             <StoryboardTimelineZoomBar
               viewport={storyboardViewport}
               scale={timelineScale}
-              onScaleChange={setTimelineScale}
+              onScaleChange={next => {
+                setTimelineScale(next);
+                setCompactShots(false);
+                setSimplifiedDisplay(false);
+                if (next === 0 && boardScrollRef.current) boardScrollRef.current.scrollLeft = 0;
+              }}
+              simplified={simplifiedDisplay}
+              onSimplifiedChange={setSimplifiedDisplay}
             />
             <div
               ref={boardScrollRef}
@@ -3340,7 +3382,7 @@ export function StoryboardReviewBoard({
                   const shotLabel = displayShotCode(shot);
                   const selected = selectedShotNo === shot.shotNo;
                   const shotIsCompact =
-                    renderCompactShots && compactExpandedShotNo !== shot.shotNo;
+                    renderCompactShots && expandedShotNo !== shot.shotNo;
                   const shotTimelineId = creationShot
                     ? creationTimelineShotId(creationShot)
                     : (shot.stableShotId ??
@@ -3597,7 +3639,7 @@ export function StoryboardReviewBoard({
                       `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
                   const mediaShotIdentity =
                     insertStableShotId ?? shotTimelineId;
-                  const mediaExpanded = storyboardMediaShotExpanded(
+                  const mediaExpanded = simplifiedDisplay ? expandedShotNo === shot.shotNo : storyboardMediaShotExpanded(
                     selectedStoryboardMedia,
                     mediaShotIdentity
                   );

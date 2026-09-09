@@ -14,7 +14,7 @@ import {
   Warehouse,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type {
@@ -22,6 +22,7 @@ import type {
   StoryVisualAssets,
   VisualAssetFixedFacts,
   VisualAssetKind,
+  VisualAssetOperationReceipt,
   VisualAssetVersion,
   VisualAssetView,
 } from "@shared/visualAssets";
@@ -30,6 +31,7 @@ import {
   recoverableVisualAssetBoardOperationToken,
   recoverableVisualAssetViewOperationToken,
   visualAssetFixedFactsAreComplete,
+  requiredVisualAssetViewRoles,
 } from "@shared/visualAssets";
 import { trpc } from "@/lib/trpc";
 import {
@@ -45,6 +47,7 @@ import VisualAssetCreationDialog, {
   visualAssetKindLabel,
 } from "./VisualAssetCreationDialog";
 import ShotAssetBindingPanel from "./ShotAssetBindingPanel";
+import { useVisualAssetGenerationDraft } from "./useVisualAssetGenerationDraft";
 
 const KIND_ICON = {
   character: UserRound,
@@ -76,12 +79,23 @@ const VIEW_ROLE_LABEL: Record<VisualAssetView["role"], string> = {
   "closeup-sample": "细节风格样例",
 };
 
+export function visualAssetGenerationProgress(
+  operations: VisualAssetOperationReceipt[], token: string, total: number
+): string {
+  const receipts = operations.filter(item => item.kind === "generate_views" && item.token.startsWith(`${token}:view:`));
+  const completed = receipts.filter(item => item.status === "succeeded" && item.resultId).length;
+  if (completed >= total) return `已生成 ${total}/${total} 张，正在合成标准板并检查画面。`;
+  const active = receipts.find(item => item.status === "claimed" || item.status === "submitted");
+  const role = active?.token.split(":view:")[1] as VisualAssetView["role"] | undefined;
+  return `已生成 ${completed}/${total} 张${role && VIEW_ROLE_LABEL[role] ? `，正在生成${VIEW_ROLE_LABEL[role]}` : "，正在准备下一张"}。请勿重复提交。`;
+}
+
 export function visualAssetBoardConfirmationMessage(
   kind: VisualAssetKind,
   quote: { candidateCount: number; estimatedCny: number }
 ): string {
   return kind === "character" || kind === "pet"
-    ? `分 ${quote.candidateCount} 次生成正面头部特写、正面全身、严格 90° 侧面全身和背面全身，再由服务端合成${kind === "pet" ? "宠物" : "人物"}标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+    ? `分 ${quote.candidateCount} 次生成正面头部特写、正面全身、严格 90° 侧面全身和背面全身${kind === "pet" && quote.candidateCount === 5 ? "，另加一张补充顶视图（艺术推演、待核对）" : ""}，再由服务端合成${kind === "pet" ? "宠物" : "人物"}标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
     : `分 ${quote.candidateCount} 次生成 ${quote.candidateCount} 个标准视角，再由服务端合成标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`;
 }
 
@@ -115,12 +129,15 @@ function factsSummary(facts: VisualAssetFixedFacts): string[] {
   ];
 }
 
-function recommendedConflictResolution(
+export function recommendedConflictResolution(
   version: VisualAssetVersion,
   field: string
 ): string | undefined {
   const current = (version.fixedFacts as unknown as Record<string, unknown>)[field];
   if (typeof current === "string" && current.trim()) return current.trim();
+  if (Array.isArray(current) && current.length > 0 && current.every(item => typeof item === "string" && item.trim())) {
+    return current.join("；");
+  }
   return undefined;
 }
 
@@ -135,7 +152,7 @@ export function visualAssetLockBlockers(
   }
   if (!version.boardImageId || version.views.length === 0) {
     blockers.push("标准视图尚未生成");
-  } else if (version.views.some(view => view.status !== "pass")) {
+  } else if (version.views.some(view => requiredVisualAssetViewRoles(asset.kind).includes(view.role) && view.status !== "pass")) {
     blockers.push("标准视图尚未全部通过");
   }
   if (!isVisualAssetVersionLockable(asset.kind, version) && blockers.length === 0) {
@@ -158,17 +175,23 @@ export default function VisualAssetLibrary({
   compact = false,
   currentStableShotId,
   onRequestImport,
+  initialInstruction = "",
+  initialIncludeTopView = false,
 }: {
   storyId: number | null;
   images: VisualAssetImageOption[];
   compact?: boolean;
   currentStableShotId?: string | null;
   onRequestImport?: () => void;
+  initialInstruction?: string;
+  initialIncludeTopView?: boolean;
 }) {
   const utils = trpc.useUtils();
+  const [activeBoard, setActiveBoard] = useState<{ storyId: number; versionId: string; token: string; total: number } | null>(null);
   const query = trpc.visualAssets.read.useQuery(
     { storyId: storyId ?? 1 },
-    { enabled: storyId != null && storyId > 0, retry: false, refetchOnWindowFocus: false }
+    { enabled: storyId != null && storyId > 0, retry: false, refetchOnWindowFocus: false,
+      refetchInterval: activeBoard?.storyId === storyId ? 3000 : false }
   );
   const createDraft = trpc.visualAssets.createDraft.useMutation();
   const createVersion = trpc.visualAssets.createVersion.useMutation();
@@ -201,6 +224,24 @@ export default function VisualAssetLibrary({
   const [viewOperationTokens, setViewOperationTokens] = useState<
     Record<string, string>
   >({});
+  const { instructions, setInstructions, topViews, setTopViews } = useVisualAssetGenerationDraft(storyId);
+  const [confirmation, setConfirmation] = useState<{ versionId: string; message: string } | null>(null);
+  const confirmResolver = useRef<((value: boolean) => void) | null>(null);
+  useEffect(() => {
+    setConfirmation(null);
+    setProcessingVersionId(null);
+    return () => { confirmResolver.current?.(false); confirmResolver.current = null; };
+  }, [storyId]);
+  const confirmGeneration = (versionId: string, message: string) => new Promise<boolean>(resolve => {
+    confirmResolver.current?.(false);
+    confirmResolver.current = resolve;
+    setConfirmation({ versionId, message });
+  });
+  const answerConfirmation = (accepted: boolean) => {
+    confirmResolver.current?.(accepted);
+    confirmResolver.current = null;
+    setConfirmation(null);
+  };
 
   const aggregate = (query.data?.aggregate as StoryVisualAssets | undefined) ?? null;
   const assets = aggregate?.assets ?? [];
@@ -370,13 +411,19 @@ export default function VisualAssetLibrary({
     if (storyId == null) return;
     setProcessingVersionId(version.id);
     try {
+      const instruction = (instructions[version.id] ?? initialInstruction).trim() || undefined;
+      const includeTopView = asset.kind === "pet" && (topViews[version.id] ?? initialIncludeTopView);
+      setInstructions(current => ({ ...current, [version.id]: instruction ?? "" }));
+      setTopViews(current => ({ ...current, [version.id]: includeTopView }));
       const quote = await quoteBoard.mutateAsync({
         storyId,
         assetId: asset.id,
         versionId: version.id,
+        instruction,
+        includeTopView,
       });
       // 报价是所有视角的总额：每个视角都是一次独立付费生成，标准板由服务端合成。
-      const confirmed = window.confirm(
+      const confirmed = await confirmGeneration(version.id,
         visualAssetBoardConfirmationMessage(asset.kind, quote)
       );
       if (!confirmed) return;
@@ -387,13 +434,16 @@ export default function VisualAssetLibrary({
       if (recoveredOperationToken) {
         toast.info("正在恢复原标准视图任务，已成功的付费视角会直接复用");
       }
+      const boardToken = recoveredOperationToken ?? operationToken("visual-board");
+      setActiveBoard({ storyId, versionId: version.id, token: boardToken, total: quote.candidateCount });
       const result = await generateBoardMutation.mutateAsync({
         storyId,
         assetId: asset.id,
         versionId: version.id,
-        operationToken:
-          recoveredOperationToken ?? operationToken("visual-board"),
+        operationToken: boardToken,
         confirmation: quote,
+        instruction,
+        includeTopView,
       });
       if (result.status === "ok") {
         // 生成成功 ≠ 版式合格。结构质检不通过时必须直说，不能报喜。
@@ -417,6 +467,7 @@ export default function VisualAssetLibrary({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "标准视图生成失败");
     } finally {
+      setActiveBoard(current => current?.versionId === version.id ? null : current);
       setProcessingVersionId(null);
     }
   };
@@ -424,18 +475,21 @@ export default function VisualAssetLibrary({
   const regenerateView = async (
     asset: StoryVisualAsset,
     version: VisualAssetVersion,
-    view: VisualAssetVersion["views"][number]
+    view: Pick<VisualAssetVersion["views"][number], "role">
   ) => {
     if (storyId == null) return;
-    const operationKey = `${version.id}:${view.role}`;
     setProcessingVersionId(version.id);
     try {
+      const instruction = (instructions[version.id] ?? initialInstruction).trim() || undefined;
+      setInstructions(current => ({ ...current, [version.id]: instruction ?? "" }));
       const quote = await quoteView.mutateAsync({
         storyId,
         assetId: asset.id,
         versionId: version.id,
         role: view.role,
+        instruction,
       });
+      const operationKey = `${version.id}:${view.role}:${quote.inputHash}`;
       const viewToken =
         viewOperationTokens[operationKey] ??
         recoverableVisualAssetViewOperationToken(
@@ -448,8 +502,8 @@ export default function VisualAssetLibrary({
         ...current,
         [operationKey]: viewToken,
       }));
-      const confirmed = window.confirm(
-        `只重新生成「${VIEW_ROLE_LABEL[view.role]}」这一张，其余已付费视角直接复用。预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+      const confirmed = await confirmGeneration(version.id,
+        `只生成「${VIEW_ROLE_LABEL[view.role]}」这一张，其余已付费视角直接复用。${asset.kind === "pet" && view.role === "top" ? "顶视是艺术推演，生成后仍需核对。" : ""}预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
       );
       if (!confirmed) return;
       const result = await regenerateViewMutation.mutateAsync({
@@ -459,6 +513,7 @@ export default function VisualAssetLibrary({
         role: view.role,
         operationToken: viewToken,
         confirmation: quote,
+        instruction,
       });
       if (result.status === "ok") {
         setViewOperationTokens(current => {
@@ -466,7 +521,9 @@ export default function VisualAssetLibrary({
           delete next[operationKey];
           return next;
         });
-        if (result.structure.verdict === "pass") {
+        if (asset.kind === "pet" && view.role === "top") {
+          toast.success("补充顶视已保存，请核对照片未展示的细节；这不代表身份质检通过");
+        } else if (result.structure.verdict === "pass") {
           toast.success(`${VIEW_ROLE_LABEL[view.role]}已重新生成并通过结构质检`);
         } else if (result.structure.verdict === "fail") {
           toast.error(`新标准板不合格：${result.structure.reason}`);
@@ -512,7 +569,7 @@ export default function VisualAssetLibrary({
         versionId: version.id,
         resolutions,
       });
-      toast.success("冲突裁决已保存，现在可以生成人物标准视图");
+      toast.success(`冲突裁决已保存，现在可以生成${visualAssetKindLabel(asset.kind)}标准视图`);
       await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "冲突裁决保存失败");
@@ -582,12 +639,13 @@ export default function VisualAssetLibrary({
             const unresolvedConflicts = version.conflicts.filter(
               conflict => !conflict.resolution
             );
-            const processing = processingVersionId === version.id;
+            const processing = processingVersionId !== null;
+            const editable = version.status !== "locked" && version.status !== "superseded";
             const boardImage = version.boardImageId
               ? imageById.get(version.boardImageId)
               : undefined;
             const rejectedView = version.views.find(
-              view => view.status !== "pass" && view.failureReason
+              view => requiredVisualAssetViewRoles(asset.kind).includes(view.role) && view.status !== "pass" && view.failureReason
             );
             const compactExpanded = compact && expandedCompactAssetId === asset.id;
             const assetIdentity = (
@@ -669,7 +727,7 @@ export default function VisualAssetLibrary({
                             title: `${asset.name} · 标准板`,
                             description:
                               asset.kind === "character" || asset.kind === "pet"
-                                ? "头部特写 / 正面全身 / 侧面全身 / 背面全身"
+                                ? "从左到右：正面全身 / 侧面全身 / 背面全身 / 头部特写"
                                 : "完整标准视图板",
                           })
                         }
@@ -692,7 +750,7 @@ export default function VisualAssetLibrary({
                       </button>
                       <figcaption className="border-t border-border px-2 py-1.5 text-[10px] font-medium text-muted-foreground">
                         {asset.kind === "character" || asset.kind === "pet"
-                          ? `${visualAssetKindLabel(asset.kind)}标准视图 · 头部特写 / 正面 / 侧面 / 背面`
+                          ? `${visualAssetKindLabel(asset.kind)}标准视图 · 正面 / 侧面 / 背面 / 头部特写`
                           : "完整标准板"}
                       </figcaption>
                     </figure>
@@ -731,7 +789,7 @@ export default function VisualAssetLibrary({
                                 aria-label={`查看 ${asset.name} ${view.role} 大图`}
                                 className="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                               >
-                                <img src={image.imageUrl} alt={view.role} className="aspect-square w-full object-cover" />
+                                <img src={image.imageUrl} alt={view.role} className="aspect-square w-full object-contain" />
                                 <Maximize2 className="absolute right-1.5 top-1.5 h-3 w-3 text-white drop-shadow" />
                               </button>
                             ) : (
@@ -749,11 +807,14 @@ export default function VisualAssetLibrary({
                                 <AlertTriangle className="h-2.5 w-2.5 text-amber-600" />
                               )}
                             </div>
+                            {asset.kind === "pet" && view.role === "top" ? (
+                              <p className="px-1.5 pb-1 text-[10px] text-muted-foreground">艺术推演 · 待核对</p>
+                            ) : null}
                             {view.status !== "pass" ? (
                               <button
                                 type="button"
                                 onClick={() => void regenerateView(asset, version, view)}
-                                disabled={processing}
+                                disabled={processing || version.status === "locked" || version.status === "superseded"}
                                 className="flex min-h-7 w-full items-center justify-center border-t border-border bg-background px-1.5 py-1 text-[9px] font-medium text-primary transition hover:bg-primary/5 disabled:opacity-50"
                                 aria-label={`重新生成 ${asset.name} ${VIEW_ROLE_LABEL[view.role]}`}
                               >
@@ -863,7 +924,52 @@ export default function VisualAssetLibrary({
                     <div className="text-[11px] text-muted-foreground">锁定前还需：{blockers.join("、")}</div>
                   ) : null}
 
+                  {editable && !needsAnalysis ? (
+                    <div className="space-y-2">
+                      <label className="block text-xs text-muted-foreground">
+                        艺术化要求（可选，不改变照片中的身份特征）
+                        <textarea
+                          value={instructions[version.id] ?? initialInstruction}
+                          onChange={event => setInstructions(current => ({ ...current, [version.id]: event.target.value }))}
+                          disabled={processing}
+                          maxLength={2000}
+                          rows={2}
+                          placeholder="例如：朦胧彩铅、柔和渐变、留白；保留毛色与斑纹"
+                          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        />
+                      </label>
+                      {asset.kind === "pet" && canGenerateBoard ? (
+                        <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <input type="checkbox" checked={topViews[version.id] ?? initialIncludeTopView}
+                            disabled={processing}
+                            onChange={event => setTopViews(current => ({ ...current, [version.id]: event.target.checked }))} />
+                          加一张顶部视图（共五张；顶视为艺术推演，未拍到的细节需核对）
+                        </label>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {confirmation?.versionId === version.id ? (
+                    <div role="status" aria-label="生成费用确认" className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-xs">
+                      <p>{confirmation.message}</p>
+                      <p className="text-muted-foreground">生成图只存入当前故事素材库，不自动替换镜头。</p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => answerConfirmation(true)}
+                          className="rounded-md bg-primary px-3 py-2 text-primary-foreground focus-visible:ring-2 focus-visible:ring-primary">确认费用并生成</button>
+                        <button type="button" onClick={() => answerConfirmation(false)}
+                          className="rounded-md border border-border px-3 py-2 focus-visible:ring-2 focus-visible:ring-primary">暂不生成</button>
+                      </div>
+                    </div>
+                  ) : processingVersionId === version.id ? (
+                    <p role="status" className="text-xs text-muted-foreground">{activeBoard?.storyId === storyId && activeBoard.versionId === version.id
+                      ? visualAssetGenerationProgress(aggregate?.operations ?? [], activeBoard.token, activeBoard.total)
+                      : "正在处理，请勿重复提交。已成功的付费视角可凭任务回执恢复。"}</p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
+                    {editable && asset.kind === "pet" && !version.views.some(view => view.role === "top") &&
+                      requiredVisualAssetViewRoles("pet").every(role => version.views.some(view => view.role === role)) ? (
+                      <button type="button" disabled={processing} onClick={() => void regenerateView(asset, version, { role: "top" })}
+                        className="h-8 rounded-md border border-border px-2 text-xs text-primary disabled:opacity-50">补充顶部视图（先报价）</button>
+                    ) : null}
                     {needsAnalysis ? (
                       <button
                         type="button"
@@ -919,7 +1025,7 @@ export default function VisualAssetLibrary({
                     <button
                       type="button"
                       onClick={() => void lock(asset, version)}
-                      disabled={!canLock || lockingVersionId === version.id}
+                      disabled={processing || !canLock || lockingVersionId === version.id}
                       className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {lockingVersionId === version.id ? (

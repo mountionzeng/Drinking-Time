@@ -1067,6 +1067,12 @@ describe("storyboard edit key routing", () => {
     }
   );
 
+  it("yields every shortcut to focused subtitle and audio timeline controls", () => {
+    expect(gate({ isInteractionBoundary: true })).toBe(false);
+    expect(gate({ key: "Delete", isInteractionBoundary: true })).toBe(false);
+    expect(gate({ key: " ", isInteractionBoundary: true })).toBe(false);
+  });
+
   it("lets space and enter activate the button they are aimed at", () => {
     expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);

@@ -371,6 +371,7 @@ type CreationEditorContextValue = {
   extractPhotoVisualFeatures: (input: {
     imageId: number;
     sourceLabel: string;
+    focus?: string;
   }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
   extractImageText: (input: {
     imageId: number;
@@ -3183,6 +3184,7 @@ export function CreationEditorProvider({
   const extractPhotoVisualFeatures = async (input: {
     imageId: number;
     sourceLabel: string;
+    focus?: string;
   }): Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }> => {
     if (activeId == null) throw new Error("故事尚未加载，无法提取照片特征");
     const latest = await utils.visualAssets.read.fetch({ storyId: activeId });
@@ -3194,6 +3196,7 @@ export function CreationEditorProvider({
       operationToken: `chat-photo-features-${activeId}-${input.imageId}`,
       imageId: input.imageId,
       sourceLabel: input.sourceLabel,
+      focus: input.focus,
     });
     void Promise.all([
       utils.visualAssets.read.invalidate({ storyId: activeId }),

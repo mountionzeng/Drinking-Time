@@ -230,6 +230,7 @@ export const visualAssetsRouter = router({
       mutationEnvelope.extend({
         imageId: z.number().int().positive(),
         sourceLabel: z.string().trim().min(1).max(240),
+        focus: z.string().trim().min(1).max(2000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -316,6 +317,8 @@ export const visualAssetsRouter = router({
           storyId: z.number().int().positive(),
           assetId: z.string().trim().min(1).max(160),
           versionId: z.string().trim().min(1).max(160),
+          instruction: z.string().trim().min(1).max(2000).optional(),
+          includeTopView: z.boolean().optional(),
         })
         .strict()
     )
@@ -337,6 +340,8 @@ export const visualAssetsRouter = router({
           storyId: z.number().int().positive(),
           assetId: z.string().trim().min(1).max(160),
           versionId: z.string().trim().min(1).max(160),
+          instruction: z.string().trim().min(1).max(2000).optional(),
+          includeTopView: z.boolean().optional(),
           operationToken: z.string().trim().min(1).max(160),
           confirmation: canonicalBoardQuoteSchema.optional(),
         })

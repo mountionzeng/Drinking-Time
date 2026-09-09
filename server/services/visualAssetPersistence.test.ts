@@ -32,6 +32,25 @@ describe("visual asset persistence", () => {
     db.resetMemoryStateForTesting();
   });
 
+  it("atomically permits one paid view claim, rejects duplicate purchase, and allows only recorded-task resume", async () => {
+    const story = await db.createStory({ userId: 11, title: "付费领取", body: { _revision: 1, shots: [] } });
+    const claim = { storyId: story.id, userId: 11, token: "pet-top:view:top",
+      kind: "generate_views" as const, status: "claimed" as const, inputHash: "same",
+      claimOnce: true };
+    const results = await Promise.allSettled([
+      persistence.upsertVisualAssetOperation(claim),
+      persistence.upsertVisualAssetOperation(claim),
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    await persistence.upsertVisualAssetOperation({ ...claim, claimOnce: false, status: "submitted", providerTaskId: "provider-1" });
+    await expect(persistence.upsertVisualAssetOperation(claim)).rejects.toThrow("不会重复购买");
+    await expect(persistence.upsertVisualAssetOperation({ ...claim, providerTaskId: "provider-1" })).resolves.toBeDefined();
+    await expect(persistence.upsertVisualAssetOperation({ ...claim, inputHash: "changed", providerTaskId: "provider-1" })).rejects.toThrow("不一致");
+    await persistence.upsertVisualAssetOperation({ ...claim, claimOnce: false, status: "succeeded", resultId: "42" });
+    await expect(persistence.upsertVisualAssetOperation({ ...claim, providerTaskId: "provider-1" })).rejects.toThrow("不会重复购买");
+  });
+
   afterAll(async () => {
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -435,7 +454,7 @@ describe("visual asset persistence", () => {
     });
   });
 
-  it("keeps the rest of an array fixed fact when resolving one conflict", async () => {
+  it.each([false, true])("preserves array facts when confirming a description or the complete list (whole list: %s)", async (wholeList) => {
     const story = await db.createStory({
       userId: 68,
       title: "场景裁决",
@@ -485,7 +504,7 @@ describe("visual asset persistence", () => {
       operationToken: "resolve-scene-conflict",
       assetId: asset.id,
       versionId: version.id,
-      resolutions: [{ field: "geometry", resolution: "平台为矩形" }],
+      resolutions: [{ field: "geometry", resolution: wholeList ? "封闭矩形展厅，浅青绿墙面；地面平整浅色；墙面嵌一只大眼睛" : "平台为矩形" }],
     });
 
     const facts = resolved.aggregate.assets[0]!.versions[0]!.fixedFacts as {
@@ -497,7 +516,7 @@ describe("visual asset persistence", () => {
       "封闭矩形展厅，浅青绿墙面",
       "地面平整浅色",
       "墙面嵌一只大眼睛",
-      "平台为矩形",
+      ...(wholeList ? [] : ["平台为矩形"]),
     ]);
     // 落选的那条不能留在事实里。
     expect(facts.geometry).not.toContain("平台呈圆形");

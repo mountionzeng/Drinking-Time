@@ -1,4 +1,5 @@
 import type { ChatImageRef } from "./chatImageRefs";
+import { isPhotoSaveOnlyReply } from "@shared/photoExtraction";
 
 export const MAX_CHAT_MEDIA_ATTACHMENTS = 8;
 export const MAX_CHAT_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -21,6 +22,9 @@ export type ImportedChatMedia = {
   assetId: number;
   /** Imported generated_images URL. Present for images that can become image-to-image refs. */
   imageUrl?: string;
+  /** Original image-only order; failed imports must not renumber later photos. */
+  photoIndex?: number;
+  totalPhotos?: number;
   targetShotNo?: number | null;
   targetCueCode?: string | null;
 };
@@ -153,6 +157,11 @@ const IMAGE_GENERATION_INTENT =
 const NEGATED_IMAGE_GENERATION_INTENT =
   /(?:不要|不用|无需|别).{0,12}(?:生成|生图|出图|画|重绘|重画|改图)|(?:do\s+not|don't).{0,20}(?:generate|create|redraw|restyle)/i;
 
+/** Asset preparation is a review/quote workflow, not a one-off paid remix. */
+export function isPhotoAssetRequest(instruction: string): boolean {
+  return /艺术化|(?:照片|图片|宠物|小猫|猫咪).{0,16}(?:素材|资产|多视|三视)|(?:提取|建立|制作|生成|打开|查看).{0,12}(?:素材库|素材仓库|视觉资产|标准视图)|(?:正面.{0,12}侧面|侧面.{0,12}正面)|(?:顶视|顶部视图|三视图|多视角)/i.test(instruction);
+}
+
 /**
  * Dragged media is a general material-import surface, not an implicit paid job.
  * Route to image-to-image only when an imported image exists and the user's own
@@ -167,6 +176,7 @@ export function isImportedImageGenerationRequest(input: {
     return false;
   }
   if (NEGATED_IMAGE_GENERATION_INTENT.test(instruction)) return false;
+  if (isPhotoAssetRequest(instruction)) return false;
   return IMAGE_GENERATION_INTENT.test(instruction);
 }
 
@@ -187,11 +197,22 @@ export function buildImportedImageRefs(
   );
 }
 
+/** No upload or inference until the user answers the attachment question. */
+export function chatPhotoSubmissionAction(instruction: string, hasImages: boolean) {
+  if (!hasImages) return "none";
+  if (!instruction.trim()) return "ask";
+  if (isPhotoSaveOnlyReply(instruction)) return "save";
+  if (isImportedImageGenerationRequest({ instruction, imported: [{ kind: "image", fileName: "", assetId: 1 }] })) return "generate";
+  return "extract";
+}
+
 export async function extractImportedPhotoFeatures(input: {
   imported: readonly ImportedChatMedia[];
+  focus?: string;
   extract: (photo: {
     imageId: number;
     sourceLabel: string;
+    focus?: string;
   }) => Promise<{ createdKinds: Array<"character" | "pet" | "scene"> }>;
   onProgress?: (completed: number, total: number) => void;
 }): Promise<{
@@ -207,7 +228,8 @@ export async function extractImportedPhotoFeatures(input: {
     try {
       const result = await input.extract({
         imageId: photo.assetId,
-        sourceLabel: photo.fileName,
+        sourceLabel: input.focus ? `第 ${photo.photoIndex ?? index + 1}/${photo.totalPhotos ?? photos.length} 张：${photo.fileName}`.slice(0, 240) : photo.fileName,
+        ...(input.focus ? { focus: input.focus } : {}),
       });
       result.createdKinds.forEach(kind => createdKinds.add(kind));
     } catch (error) {

@@ -66,6 +66,25 @@ export function shouldSubmitSubtitleBlur(composing: boolean): boolean {
   return !composing;
 }
 
+/**
+ * Enter 到底算不算「保存」。
+ *
+ * 只看这一次按键事件自己带的组字标记 `isComposing`，加上旧浏览器用 keyCode 229
+ * 表示「这一下是给输入法的」。故意不看组件里的 composing state：
+ * compositionstart 之后不保证有配对的 compositionend，真漏掉的话粘住的 state
+ * 会让这个输入框再也保存不了。这是防御性选择，不是复现过的线上故障。
+ */
+export function shouldSubmitSubtitleEnter(event: {
+  key: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+  keyCode?: number;
+}): boolean {
+  if (event.key !== "Enter") return false;
+  if (event.isComposing || event.keyCode === 229) return false;
+  return !event.shiftKey;
+}
+
 export function subtitleSaveStatus(saved: boolean | void): string {
   return saved === false ? "字幕保存失败，请按提示重试" : "字幕已保存";
 }
@@ -490,9 +509,16 @@ export function SubtitleTrackRow({
                     return;
                   }
                   if (event.key !== "Enter") return;
-                  // 输入法组字期间 Enter 归输入法，绝不当成保存。
-                  if (composing || event.nativeEvent.isComposing) return;
-                  if (event.shiftKey) return; // Shift+Enter 换行
+                  if (
+                    !shouldSubmitSubtitleEnter({
+                      key: event.key,
+                      shiftKey: event.shiftKey,
+                      isComposing: event.nativeEvent.isComposing,
+                      keyCode: event.keyCode,
+                    })
+                  ) {
+                    return; // 组字中交给输入法；Shift+Enter 换行
+                  }
                   event.preventDefault();
                   void submitEdit();
                 }}

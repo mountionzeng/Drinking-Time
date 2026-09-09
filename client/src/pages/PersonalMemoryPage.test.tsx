@@ -20,6 +20,7 @@ vi.mock("@/features/personalMemory/PersonalMemoryInsightActions", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    auth: { me: { useQuery: () => ({ data: { name: "小林" } }) } },
     useUtils: () => ({
       personalMemory: {
         summary: { invalidate: vi.fn() },
@@ -27,6 +28,8 @@ vi.mock("@/lib/trpc", () => ({
       },
     }),
     personalMemory: {
+      day: { useQuery: () => ({ data: { items: [] } }) },
+      summary: { useQuery: () => ({ data: { captureEnabled: false } }) },
       timeline: {
         useInfiniteQuery: () => ({
           data: { pages: [{ items: [] }] },
@@ -71,15 +74,20 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-import PersonalMemoryPage from "./PersonalMemoryPage";
+import PersonalMemoryPage, { monthDays } from "./PersonalMemoryPage";
 
 describe("PersonalMemoryPage", () => {
-  it("同时展示来信足迹、系统理解和隐私边界", () => {
+  it("默认只展示用户、月历和当天来信，记忆管理收起", () => {
     const html = renderToStaticMarkup(<PersonalMemoryPage />);
-    expect(html).toContain("你的足迹");
-    expect(html).toContain("时间线：2026-09-03");
-    expect(html).toContain("最近想学游泳");
-    expect(html).toContain("黄历是当天资料，不会写进长期记忆");
-    expect(html).toContain("系统推断会明确标出");
+    expect(html).toContain("小林");
+    expect(html).toContain("个人日历");
+    expect(html).toContain("写给你的一封信");
+    expect(html).not.toContain("最近想学游泳");
+    expect(html).toContain("这一天还没有保存的来信");
+  });
+  it("按周一开始排日历，正确处理闰年和月末", () => {
+    expect(monthDays("2024-02").filter(Boolean)).toHaveLength(29);
+    expect(monthDays("2026-09").slice(0, 2)).toEqual([null, "2026-09-01"]);
+    expect(monthDays("2026-09")).toHaveLength(35);
   });
 });

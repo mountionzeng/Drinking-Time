@@ -7,6 +7,7 @@ import {
   availableMinor,
   ceilYuanToMinor,
   formatCny,
+  formatCnyBalance,
   fromYuan,
   parseYuanInput,
   subtractMinor,
@@ -90,5 +91,34 @@ describe("computeMoney", () => {
     expect(parseYuanInput("")).toBeNull();
     expect(parseYuanInput("-5")).toBeNull(); // 申请/发卡金额不接受负数
     expect(parseYuanInput("1e6")).toBeNull();
+  });
+});
+
+describe("formatCnyBalance", () => {
+  it("固定两位小数", () => {
+    expect(formatCnyBalance(30 * MINOR_PER_YUAN)).toBe("¥30.00");
+    expect(formatCnyBalance(fromYuan(1.5))).toBe("¥1.50");
+    expect(formatCnyBalance(0)).toBe("¥0.00");
+  });
+
+  // 余额只能少显示不能多显示：显示 ¥0.41 却花不出去，比显示 ¥0.40 更伤。
+  it("向下取整，绝不把余额显示得比实际多", () => {
+    expect(formatCnyBalance(fromYuan(0.409))).toBe("¥0.40");
+    // 409_999 微元差一微元不到 0.41，就得显示 0.40
+    expect(formatCnyBalance(409_999)).toBe("¥0.40");
+    expect(formatCnyBalance(fromYuan(9.999))).toBe("¥9.99");
+  });
+
+  // 有一点点钱不能显示成 ¥0.00 之外的东西，但也不能假装是 0 之上——
+  // 这里就是老实的 ¥0.00，配合界面上「余额已用完」的判断由 availableMinor 决定。
+  it("不足一分显示为 ¥0.00", () => {
+    expect(formatCnyBalance(1)).toBe("¥0.00");
+    expect(formatCnyBalance(fromYuan(0.009))).toBe("¥0.00");
+  });
+
+  // 账务异常时窟窿宁可显示得更大：-0.001 → -0.01，方向同样保守。
+  it("负数同样向下取整", () => {
+    expect(formatCnyBalance(fromYuan(-0.001))).toBe("-¥0.01");
+    expect(formatCnyBalance(-2 * MINOR_PER_YUAN)).toBe("-¥2.00");
   });
 });

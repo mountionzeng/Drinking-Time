@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  DEFAULT_TIMELINE_SCALE,
-  MAX_TIMELINE_SCALE,
-  MIN_TIMELINE_SCALE,
   formatTimelineTimecode,
-  createTimelineViewport,
   msToPx,
   tickSeconds,
   type TimelineViewport,
@@ -25,11 +21,21 @@ import {
  * 「镜头数 × 固定列宽」定，跟时间无关——于是「每秒多少像素」这个量不存在，
  * 缩放和标尺都无从谈起。把总宽交给时间视口之后，横轴才真正是时间轴。
  */
-export function useStoryboardTimelineViewport(totalMs: number) {
-  const [scale, setScale] = useState(DEFAULT_TIMELINE_SCALE);
+export function storyboardZoomViewport(totalMs: number, availableWidth: number, zoom: number): TimelineViewport {
+  const duration = Math.max(1000 / 30, totalMs);
+  const width = Math.max(1, availableWidth);
+  const fitScale = width * 1000 / duration;
+  // At maximum zoom even one frame has room for a full information column.
+  const maxScale = Math.max(fitScale, 248 * 30);
+  const scale = fitScale * Math.pow(maxScale / fitScale, Math.max(0, Math.min(100, zoom)) / 100);
+  return { totalMs: Math.max(0, totalMs), scale, contentWidth: duration * scale / 1000 };
+}
+
+export function useStoryboardTimelineViewport(totalMs: number, availableWidth = 720) {
+  const [scale, setScale] = useState(0);
   const viewport = useMemo(
-    () => createTimelineViewport({ totalMs, scale }),
-    [scale, totalMs]
+    () => storyboardZoomViewport(totalMs, availableWidth, scale),
+    [scale, totalMs, availableWidth]
   );
   return { viewport, scale, setScale };
 }
@@ -42,14 +48,18 @@ export function StoryboardTimelineZoomBar({
   viewport,
   scale,
   onScaleChange,
+  simplified = false,
+  onSimplifiedChange,
 }: {
   viewport: TimelineViewport;
   scale: number;
   onScaleChange: (next: number) => void;
+  simplified?: boolean;
+  onSimplifiedChange?: (next: boolean) => void;
 }) {
   const step = (delta: number) =>
     onScaleChange(
-      Math.min(MAX_TIMELINE_SCALE, Math.max(MIN_TIMELINE_SCALE, scale + delta))
+      Math.min(100, Math.max(0, scale + delta))
     );
   return (
     <div className="flex shrink-0 items-center justify-end gap-2 border-b px-2 py-1">
@@ -66,13 +76,14 @@ export function StoryboardTimelineZoomBar({
       </button>
       <input
         type="range"
-        min={MIN_TIMELINE_SCALE}
-        max={MAX_TIMELINE_SCALE}
+        min={0}
+        max={100}
         step={1}
         value={scale}
         onChange={event => onScaleChange(Number(event.currentTarget.value))}
         className="w-24 accent-[var(--primary)]"
         aria-label="分镜表缩放"
+        aria-valuetext={scale === 0 ? "整片适应窗口" : scale === 100 ? "一帧完整信息" : `${scale}%`}
       />
       <button
         type="button"
@@ -82,6 +93,13 @@ export function StoryboardTimelineZoomBar({
       >
         +
       </button>
+      {onSimplifiedChange && (
+        <button type="button" aria-pressed={simplified}
+          onClick={() => onSimplifiedChange(!simplified)}
+          className="shrink-0 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground">
+          简化显示
+        </button>
+      )}
     </div>
   );
 }
@@ -112,7 +130,7 @@ export function StoryboardTimelineRulerRow({
       <div
         role="cell"
         aria-label="时间标尺"
-        className="relative h-5 border-b"
+        className="relative h-5 overflow-hidden border-b"
         style={{
           gridColumn: `span ${Math.max(1, columnSpan)}`,
           borderColor: PANEL_BORDER,
