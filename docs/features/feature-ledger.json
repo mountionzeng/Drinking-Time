@@ -1538,6 +1538,7 @@
         "client/src/features/creationEditor/storyboardEditRow.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
+        "client/src/features/storyAgent/views/StoryboardTimelineRuler.test.tsx",
         "client/src/features/storyAgent/storyboardTiming.test.ts",
         "server/services/storyMaterials.test.ts",
         "server/services/videoExport.test.ts",
@@ -1562,18 +1563,27 @@
         "完整故事板的镜头列按时间线绝对起点排序，列起点必须与剪辑块起点一致；重叠导致列过窄时，点击镜头自动缩小其他列并展开当前可编辑列。",
         "普通视频拖动中的镜头信息列只使用瞬态 timing 预览并继续复用起手时 viewport；预览不得落库、改变图片位置或绕过 moveVisualClip 唯一写入口。"
       ],
-      "dependencies": ["publishing-video-storyboard", "stable-shot-identity"],
+      "dependencies": [
+        "publishing-video-storyboard",
+        "stable-shot-identity"
+      ],
       "replaces": [],
       "knownGaps": [
         "素材切换时的原子事务（兼容素材 rebind 锚点、不兼容时先确认再一次事务删除并激活）尚未实现。",
         "叠放优先级接近安全整数上限时只报错，不做整表压缩。",
-        "聊天剪辑代理尚未暴露绝对帧单镜移动、滚动剪辑和取消吸附原语，也没有磁吸拓扑上下文。"
+        "聊天剪辑代理尚未暴露绝对帧单镜移动、滚动剪辑和取消吸附原语，也没有磁吸拓扑上下文。",
+        "缩放与简化显示已通过顺序五镜播放验证；重叠同起点、未放置镜头的整片适配及末端刻度溢出修复仍待完整浏览器复验。"
       ],
       "history": [
         {
           "date": "2026-08-25",
           "kind": "feature",
           "summary": "Storyboard 的每条视觉轨现在都渲染可独立命中的完整故事镜头、内部视频片段和图片块；对象身份与能力不再由主层/上层决定。即使上层完全遮挡，下层轨道仍保留可选择编辑 strip；主层与上层同类镜头共享菜单、拖动和键盘命令，镜头拖动继续同步其信息列且不改变唯一赢家规则。自动化覆盖唯一选择、重叠下层命中、能力矩阵与 650 项定向回归。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "分镜表缩放下限改为容器自适应，上限每帧至少 248px，新增简化显示随播放展开当前镜头、其余列缩到 72px；不修改真实时长或持久化。主仓通过缩放、矩阵布局、时间赢家共 15 项测试及 tsc。顺序五镜已验证播放展开切换；收尾新浏览器会话为空故事列表，尚未完成全部边界复验，维持 observing。"
         },
         {
           "date": "2026-08-25",
