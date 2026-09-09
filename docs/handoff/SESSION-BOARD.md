@@ -24,7 +24,6 @@
 
 ## 当前在场
 
-预览图聊天改版（2026-09-09）：`codex/preview-chat-revision` 独立 worktree，修改 ShotPreview、EditingNleWorkspace、StoryAgentChat/Context、选区卡片及 StoryboardReviewBoard 渲染桥接，相关测试与功能账本。保留原图/候选和局部编辑，复用 MJ 报价；不提交付费生成，仅主仓 3000 验收。93项测试、类型与构建通过；已确认其他会话没有跨分支合并，当前占用合并窗口，合入后主仓验证。
 
 小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
 
@@ -125,3 +124,5 @@
 2026-09-09 统一镜头渲染入口收工：`47c226b` 实现、`ecf3845` 窄列排版，已合入main并保留微信最新更新与原图片修复基线。4408项测试、check/build/feature/migration通过；主仓库3000完成四张总价确认取消、删猫刷新和重新选择验收，无新付费请求。热点storyAgent路由、StoryboardReviewBoard、rerender与资产上下文已释放，独立worktree与分支清理；证据见docs/qa/unified-shot-render-2026-09-09.md。上文图片修复“未提交”记录已随47c226b归档，单张真实成功证据为1793。
 
 2026-09-09 MJ镜头渲染收工：`2ccd7b1` 已合入main，按用户要求切回MJ，1–4张一次约¥0.68、5–8张两次约¥1.36；显式参考直接base64输入，不因公网托管失败切换模型。242项相关测试通过，主仓库3000无付费验收通过。热点文件释放，worktree/分支清理；证据docs/qa/mj-shot-render-2026-09-09.md。
+
+2026-09-09 预览图聊天改版收工：460c2b5已合入main；直接点图→聊天修改→MJ报价→新候选。93项相关测试、类型、构建与功能账本通过；主仓3000猫图1793实际发送到MJ四张¥0.68确认并取消，未付费生成，原图与选图保留。工作树/分支清理，热点释放。证据docs/qa/preview-chat-revision-2026-09-09.md。

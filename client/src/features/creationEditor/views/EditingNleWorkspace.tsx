@@ -1634,7 +1634,7 @@ export default function EditingNleWorkspace({
           : String(target.imageId),
         selectedText: extractedTimelineFrame
           ? `${target.label} · 当前抽帧`
-          : `${target.label} · 图片 #${target.imageId}`,
+          : target.label,
         fullText: extractedTimelineFrame
           ? `${target.label}，这是从当前视频位置抽取的图片；在聊天框描述对这一帧的修改`
           : `${target.label}，在聊天框描述这张图片要如何修改`,
