@@ -1,3 +1,4 @@
+import { ImageSubtitleOverlay } from "./ImageSubtitleOverlay";
 import { Check, Crosshair, Loader2, Pencil, Video } from "lucide-react";
 import {
   useCallback,
@@ -1076,6 +1077,7 @@ export default function ShotPreview({
                 data-testid="preview-object-mask-overlay"
               />
             ) : null}
+            {currentFrameReady && maskEditTarget?.textOverlay ? <ImageSubtitleOverlay overlay={maskEditTarget.textOverlay} /> : null}
             {currentFrameReady && onSelectImageForChat && maskState.phase === "idle" ? (
               <button type="button" onClick={onSelectImageForChat}
                 aria-label="选中这张图片，在聊天框修改" title="点击图片，在聊天框描述修改"
@@ -1256,9 +1258,9 @@ export default function ShotPreview({
                   type="button"
                   onClick={onEditImage}
                   className="inline-flex h-7 items-center gap-1 rounded-sm border border-border bg-background px-2 text-[10px] font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                  aria-label="调整当前抽帧的构图和文字"
+                  aria-label="编辑这张图片的字幕"
                 >
-                  <Pencil className="h-3 w-3" /> 构图与文字
+                  <Pencil className="h-3 w-3" /> 字幕
                 </button>
               ) : null}
               <button

@@ -22,6 +22,7 @@ describe("ImageClipEditorPanel", () => {
           textOverlay: null,
           defaultText: "默认旁白内容",
         },
+        initialTab: "composition",
         saving: false,
         onClose: () => undefined,
         onApply: async () => undefined,
@@ -34,10 +35,23 @@ describe("ImageClipEditorPanel", () => {
     expect(markup).toContain("垂直位置");
     expect(markup).toContain("旋转与翻转");
     expect(markup).toContain("倒转 180°");
-    expect(markup).toContain("添加文字");
+    expect(markup).toContain("字幕");
     expect(markup).toContain("提取文字");
     expect(markup).toContain('aria-label="水平翻转"');
     expect(markup).toContain("应用到这张图");
+  });
+
+  it("opens a new subtitle draft with the shot dialogue and immediately visible drawing controls", () => {
+    const markup = renderToStaticMarkup(<ImageClipEditorPanel target={{
+      stableShotId: "shot-0101", shotNo: 1, imageId: 42, imageUrl: "/image.png", label: "0101",
+      transform: { ...DEFAULT_TIMELINE_TRANSFORM }, textOverlay: null, defaultText: "他会过来蹭蹭我",
+    }} saving={false} onClose={() => undefined} onApply={async () => undefined} />);
+    expect(markup).toContain("他会过来蹭蹭我");
+    expect(markup).toContain("画字的走向");
+    expect(markup).toContain("保存字幕");
+    expect(markup).toContain("字幕颜色");
+    expect(markup).toContain("字幕描边粗细");
+    expect(markup).not.toContain("请先完成排版");
   });
 
   it("opens directly on the saved text layer for this exact image", () => {
@@ -80,11 +94,12 @@ describe("ImageClipEditorPanel", () => {
       })
     );
 
-    expect(markup).toContain("文字内容");
+    expect(markup).toContain("字幕内容");
     expect(markup).toContain("午饭刚吃到一半");
-    expect(markup).toContain("完成排版");
+    expect(markup).toContain("保存字幕");
     expect(markup).toContain("字号");
     expect(markup).toContain("字间距");
-    expect(markup).toContain("应用到这张图");
+    expect(markup).toContain("画字的走向");
+    expect(markup).not.toContain("应用到这张图");
   });
 });

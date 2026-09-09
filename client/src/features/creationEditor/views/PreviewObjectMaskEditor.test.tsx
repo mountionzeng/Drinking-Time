@@ -52,7 +52,7 @@ describe("Preview object mask editor integration", () => {
     expect(source).toContain("调整画面");
     expect(source).toContain("当前抽帧已就绪");
     expect(source).toContain('data-testid="preview-frame-tools"');
-    expect(source).toContain("构图与文字");
+    expect(source).toContain("编辑这张图片的字幕");
     expect(source).toContain("圈选局部");
     expect(source).toContain("在聊天框修改");
     expect(source).not.toContain('data-testid="preview-frame-edit-menu"');
@@ -122,7 +122,7 @@ describe("Preview object mask editor integration", () => {
     expect(html).toContain('src="/frame-17.png"');
     expect(html).toContain('data-testid="editing-preview-frame-overlay"');
     expect(html).toContain("当前抽帧已就绪");
-    expect(html).toContain("构图与文字");
+    expect(html).toContain("编辑这张图片的字幕");
     expect(html).toContain("圈选局部");
     expect(html).toContain("在聊天框修改");
   });

@@ -2180,7 +2180,10 @@
         "server/services/publishingAlbumBackgroundGeneration.ts",
         "client/src/features/publishingAlbum/PublishingAlbumTypographyEditor.tsx",
         "client/src/features/publishingAlbum/publishingAlbumLayout.ts",
-        "client/src/features/publishingAlbum/publishingAlbumExport.ts"
+        "client/src/features/publishingAlbum/publishingAlbumExport.ts",
+        "client/src/features/publishingAlbum/PublishingAlbumTextLayer.tsx",
+        "client/src/features/publishingAlbum/TypographyAppearanceControls.tsx",
+        "client/src/features/creationEditor/views/ImageSubtitleOverlay.tsx"
       ],
       "evidence": [
         "shared/publishingAlbum.test.ts",
@@ -2197,7 +2200,9 @@
         "client/src/features/publishingAlbum/publishingAlbumFontRecommendation.test.ts",
         "client/src/features/publishingAlbum/publishingAlbumExport.test.ts",
         "scripts/verify-publishing-album-fonts.test.ts",
-        "command:pnpm fonts:verify:album"
+        "command:pnpm fonts:verify:album",
+        "client/src/features/publishingAlbum/subtitleLayoutRoundtrip.test.ts",
+        "docs/qa/image-subtitle-layer-2026-09-09.md"
       ],
       "invariants": [
         "画册 aggregate 按发布版本隔离，不能创建或修改 Story shots、timeline、activeVideoStoryboardVersionId 或 videoStoryboard。",
@@ -2222,7 +2227,8 @@
       "replaces": [],
       "knownGaps": [
         "真实图片供应商的画册底图付费链路尚未点击验收；必须由用户另行明确同意后才能消费。",
-        "整册导出当前由浏览器逐页触发下载，浏览器若限制多文件下载需要用户允许本站多文件下载后重试。"
+        "整册导出当前由浏览器逐页触发下载，浏览器若限制多文件下载需要用户允许本站多文件下载后重试。",
+        "图片自定义字幕层本轮补齐主Preview显示与图片层保存；成片视频导出尚未接入imageTextOverlays，不能将Preview可见等同于视频导出包含该文字层。"
       ],
       "history": [
         {
@@ -2249,6 +2255,11 @@
           "date": "2026-08-21",
           "kind": "feature",
           "summary": "剪辑台图片首次进入文字页签时自动带入当前镜头旁白/对白，已有 exact imageId 文字层继续优先；共享排版编辑器新增字号与字间距滑杆，区域和路径布局、预览及保存统一使用用户设置。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "fix",
+          "summary": "按用户要求将Preview“构图与文字”改为“字幕”，直接进入已有独立图片文字层。首次带入当前台词并自动排版；手绘走向、横竖排、字号/字间距/行间距、字体、字色/描边在同一编辑器可见，一次保存即按exact imageId落库。文字变化不再重置未保存路径。抽取共享SVG字形层并补齐主Preview显示；重新准备排版/PNG时遵守已保存字号、间距及对比度，竖排也消费间距参数。保留构图、OCR、原图和正式时间字幕轨。149项相关测试通过。"
         }
       ]
     },
@@ -2836,6 +2847,11 @@
           "date": "2026-09-09",
           "kind": "refactor",
           "summary": "Preview 增加可键盘操作的整图点击入口和聊天选图缩略图；仅在图片就绪且没有活动蒙版会话时覆盖点击层，视频抽帧、构图与文字、圈选局部继续使用原工具。聊天普通改图复用共享MJ入口，原图保留。"
+        },
+        {
+          "date": "2026-09-09",
+          "kind": "refactor",
+          "summary": "Preview底部以“字幕”为文字层入口，面板默认直接编辑字幕；构图/OCR保留为其他页签。字幕保存失败保持编辑草稿并显示真实错误，避免子编辑器误报保存成功；旧文字层和其他图片不被覆盖。"
         }
       ]
     },

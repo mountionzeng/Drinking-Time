@@ -1,5 +1,6 @@
+import { PublishingAlbumTextLayer } from "./PublishingAlbumTextLayer";
 import type { PublishingAlbumLayoutPlan } from "./publishingAlbumLayout";
-import { useId, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 
 export function PublishingAlbumPagePreview({
   backgroundUrl,
@@ -18,7 +19,6 @@ export function PublishingAlbumPagePreview({
   backgroundStyle?: CSSProperties;
   onDoubleClick?: () => void;
 }) {
-  const pathId = `album-text-path-${useId().replace(/:/g, "")}`;
   return (
     <div
       className="relative w-full overflow-hidden rounded-xl bg-black/10"
@@ -40,41 +40,7 @@ export function PublishingAlbumPagePreview({
           尚未采用底图
         </div>
       )}
-      {plan ? (
-        <svg
-          className="absolute inset-0 h-full w-full"
-          viewBox={`0 0 ${canvas.width} ${canvas.height}`}
-          role="img"
-          aria-label="中文文字排版层"
-        >
-          {plan.svgPath ? (
-            <path id={pathId} d={plan.svgPath} fill="none" />
-          ) : null}
-          {plan.graphemes.map(glyph =>
-            glyph.grapheme === "\n" ? null : (
-              <text
-                key={`${glyph.index}-${glyph.x}-${glyph.y}`}
-                x={glyph.x}
-                y={glyph.y}
-                textAnchor="middle"
-                fill={plan.contrast.textColor}
-                stroke={plan.contrast.outlineColor ?? "none"}
-                strokeWidth={plan.contrast.outlineWidth}
-                paintOrder="stroke"
-                fontFamily={plan.fontFamily}
-                fontSize={plan.fontSize}
-                transform={
-                  glyph.rotation
-                    ? `rotate(${glyph.rotation} ${glyph.x} ${glyph.y})`
-                    : undefined
-                }
-              >
-                {glyph.grapheme}
-              </text>
-            )
-          )}
-        </svg>
-      ) : null}
+      {plan ? <PublishingAlbumTextLayer plan={plan} canvas={canvas} /> : null}
       {candidate ? (
         <span className="absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[10px] text-white">
           候选 · 尚未采用

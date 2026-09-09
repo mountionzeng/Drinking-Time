@@ -27,7 +27,9 @@ export default function ImageClipEditorPanel({
   onClose,
   onApply,
   onExtractText,
+  initialTab = "text",
 }: {
+  initialTab?: "composition" | "text" | "ocr";
   target: ImageClipEditorTarget;
   saving: boolean;
   onClose: () => void;
@@ -42,23 +44,23 @@ export default function ImageClipEditorPanel({
     [target]
   );
   const [draft, setDraft] = useState(initialDraft);
-  const [activeTab, setActiveTab] = useState<
-    "composition" | "text" | "ocr"
-  >(
-    target.textOverlay ? "text" : "composition"
+  const [activeTab, setActiveTab] = useState<"composition" | "text" | "ocr">(
+    initialTab
   );
-  const [text, setText] = useState(target.textOverlay?.text ?? "");
+  const [text, setText] = useState(
+    target.textOverlay?.text ?? target.defaultText
+  );
   const [extractedText, setExtractedText] = useState("");
   const [extractingText, setExtractingText] = useState(false);
   const [extractTextError, setExtractTextError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(initialDraft);
-    setText(initialDraft.textOverlay?.text ?? "");
+    setText(initialDraft.textOverlay?.text ?? target.defaultText);
     setExtractedText("");
     setExtractTextError(null);
-    setActiveTab(initialDraft.textOverlay ? "text" : "composition");
-  }, [initialDraft]);
+  }, [initialDraft, target.defaultText]);
+  useEffect(() => setActiveTab(initialTab), [initialTab, target.imageId, target.clipId]);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -74,10 +76,10 @@ export default function ImageClipEditorPanel({
       ...current,
       transform: { ...current.transform, ...patch },
     }));
-  const textNeedsLayout = text.trim().length > 0 && !draft.textOverlay;
+  const textNeedsLayout = activeTab === "text" && text.trim().length > 0 && !draft.textOverlay;
   const appliedDraft: ImageClipEditDraft = {
     transform: normalized,
-    textOverlay:
+    textOverlay: activeTab !== "text" ? draft.textOverlay :
       text.trim() && draft.textOverlay
         ? { text: text.trim(), typography: draft.textOverlay.typography }
         : null,
@@ -88,14 +90,14 @@ export default function ImageClipEditorPanel({
       role="dialog"
       aria-label={`${target.label} 图片编辑`}
       data-testid="image-clip-editor"
-      className="absolute bottom-0 right-0 top-0 z-50 flex w-[344px] max-w-[44vw] flex-col border-l border-border bg-background shadow-xl"
+      className="absolute bottom-0 right-0 top-0 z-50 flex w-[560px] max-w-full flex-col border-l border-border bg-background shadow-xl"
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
         <SlidersHorizontal className="h-4 w-4 text-primary" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold">{target.label}</p>
           <p className="truncate font-mono text-[9px] text-muted-foreground">
-            图片 #{target.imageId} · 构图与文字
+            图片 #{target.imageId} · 独立字幕层
           </p>
         </div>
         <button
@@ -142,7 +144,7 @@ export default function ImageClipEditorPanel({
           }`}
         >
           <Type className="h-3.5 w-3.5" />
-          添加文字
+          字幕
         </button>
         <button
           type="button"
@@ -200,14 +202,17 @@ export default function ImageClipEditorPanel({
             </section>
           </>
         ) : activeTab === "text" ? (
-          <section className="space-y-3 px-3 py-3" aria-label="这张图片的文字">
+          <section
+            className="space-y-3 px-3 py-3"
+            aria-label="这张图片的字幕层"
+          >
             <div>
               <div className="flex items-center justify-between gap-2">
                 <label
                   htmlFor={`image-text-${target.imageId}`}
                   className="text-[11px] font-semibold"
                 >
-                  文字内容
+                  字幕内容
                 </label>
                 {text || draft.textOverlay ? (
                   <button
@@ -219,7 +224,7 @@ export default function ImageClipEditorPanel({
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Trash2 className="h-3 w-3" />
-                    移除文字
+                    移除字幕
                   </button>
                 ) : null}
               </div>
@@ -228,8 +233,8 @@ export default function ImageClipEditorPanel({
                 value={text}
                 onChange={event => setText(event.target.value)}
                 maxLength={2_000}
-                rows={4}
-                placeholder="输入要放在这张图片上的文字"
+                rows={2}
+                placeholder="输入字幕，再画出文字的走向"
                 className="mt-2 w-full resize-y rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs leading-5 outline-none transition focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-accent)]/15"
               />
               <p className="mt-1 text-[9px] text-muted-foreground">
@@ -247,18 +252,21 @@ export default function ImageClipEditorPanel({
                 canvas={{ width: 900, height: 900 }}
                 initialLayout={draft.textOverlay?.typography ?? null}
                 editorLabel="镜头图片文字排版编辑器"
-                saveLabel="完成排版"
-                saveSuccessMessage="排版已暂存；点击下方“应用到这张图”后保存"
+                defaultPlacement
+                drawLabel="画字的走向"
+                saveLabel="保存字幕"
+                saving={saving}
+                saveSuccessMessage="字幕已保存"
                 onSave={typography =>
-                  setDraft(current => ({
-                    ...current,
+                  onApply({
+                    transform: normalized,
                     textOverlay: { text: text.trim(), typography },
-                  }))
+                  })
                 }
               />
             ) : (
               <div className="rounded-lg border border-dashed border-[var(--panel-border)] px-3 py-8 text-center text-[10px] leading-5 text-muted-foreground">
-                先输入文字，再双击预览或点击“排版文字”绘制文字区域。
+                输入字幕后，点击“画字的走向”，在图片上画一条线；文字会沿着线排列。
               </div>
             )}
           </section>
@@ -298,7 +306,10 @@ export default function ImageClipEditorPanel({
               {extractingText ? "正在识别…" : "提取这张图的文字"}
             </button>
             {extractTextError ? (
-              <p className="text-[10px] leading-4 text-destructive" role="alert">
+              <p
+                className="text-[10px] leading-4 text-destructive"
+                role="alert"
+              >
                 {extractTextError}
               </p>
             ) : null}
@@ -308,7 +319,9 @@ export default function ImageClipEditorPanel({
                   <span className="text-[10px] font-medium">识别结果</span>
                   <button
                     type="button"
-                    onClick={() => void navigator.clipboard.writeText(extractedText)}
+                    onClick={() =>
+                      void navigator.clipboard.writeText(extractedText)
+                    }
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Copy className="h-3 w-3" />
@@ -341,19 +354,27 @@ export default function ImageClipEditorPanel({
           <RotateCcw className="h-3.5 w-3.5" />
           还原
         </button>
-        <button
-          type="button"
-          onClick={() => void onApply(appliedDraft)}
-          disabled={saving || textNeedsLayout}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Save className="h-3.5 w-3.5" />
-          {saving
-            ? "保存中…"
-            : textNeedsLayout
-              ? "请先完成排版"
-              : "应用到这张图"}
-        </button>
+        {activeTab !== "text" || !text.trim() ? (
+          <button
+            type="button"
+            onClick={() => void onApply(appliedDraft).catch(() => undefined)}
+            disabled={saving || textNeedsLayout}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {saving
+              ? "保存中…"
+              : textNeedsLayout
+                ? "请先完成排版"
+                : activeTab === "text"
+                  ? "保存字幕移除"
+                  : "应用到这张图"}
+          </button>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">
+            调整后点击“保存字幕”
+          </span>
+        )}
       </footer>
     </aside>
   );

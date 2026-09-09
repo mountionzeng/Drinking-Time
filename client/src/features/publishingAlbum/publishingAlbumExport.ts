@@ -18,6 +18,7 @@ export async function preparePublishingAlbumExportPage(input: {
   backgroundUrl: string;
   typography: PublishingAlbumTypographyLayout;
   repository?: PublishingAlbumFontRepository;
+  canvas?: { width: number; height: number };
 }): Promise<PublishingAlbumExportPage> {
   const repository = input.repository ?? new PublishingAlbumFontRepository();
   await repository.load(input.typography.fontId);
@@ -35,8 +36,12 @@ export async function preparePublishingAlbumExportPage(input: {
     text: input.text,
     fontId: input.typography.fontId,
     geometry,
-    canvas: { width: 900, height: 1200 },
+    canvas: input.canvas ?? { width: 900, height: 1200 },
     alignment: input.typography.alignment,
+    fontSize: input.typography.fontSize,
+    letterSpacing: input.typography.letterSpacing,
+    lineSpacing: input.typography.lineSpacing,
+    contrast: input.typography.contrast,
     metrics: {
       isLoaded: () => true,
       supportsText: () => true,

@@ -23,6 +23,10 @@ import {
   type PublishingAlbumFontMetrics,
   type PublishingAlbumLayoutPlan,
 } from "./publishingAlbumLayout";
+import {
+  DEFAULT_SUBTITLE_GEOMETRY,
+  TypographyAppearanceControls,
+} from "./TypographyAppearanceControls";
 import { PublishingAlbumPagePreview } from "./PublishingAlbumPagePreview";
 
 const fontRepository = new PublishingAlbumFontRepository();
@@ -35,9 +39,10 @@ export function resolvePublishingAlbumTypographyArtDirectionTags(
 }
 
 function initialGeometry(
-  layout: PublishingAlbumTypographyLayout | null
+  layout: PublishingAlbumTypographyLayout | null,
+  defaultPlacement = false
 ): PublishingAlbumCanonicalGeometry | null {
-  if (!layout) return null;
+  if (!layout) return defaultPlacement ? DEFAULT_SUBTITLE_GEOMETRY : null;
   if (layout.kind === "path") return { kind: "path", points: layout.points };
   const { x, y, width, height } = layout.region;
   return {
@@ -78,6 +83,8 @@ export function PublishingAlbumTypographyEditor({
   backgroundUrl,
   initialLayout,
   artDirectionTags,
+  defaultPlacement = false,
+  drawLabel = "排版文字",
   saving = false,
   saveBlocked = false,
   canvas = { width: 900, height: 1200 },
@@ -91,6 +98,8 @@ export function PublishingAlbumTypographyEditor({
   backgroundUrl: string | null;
   initialLayout: PublishingAlbumTypographyLayout | null;
   artDirectionTags?: readonly string[];
+  defaultPlacement?: boolean;
+  drawLabel?: string;
   saving?: boolean;
   saveBlocked?: boolean;
   canvas?: { width: number; height: number };
@@ -103,8 +112,8 @@ export function PublishingAlbumTypographyEditor({
   const resolvedArtDirectionTags =
     resolvePublishingAlbumTypographyArtDirectionTags(artDirectionTags);
   const savedGeometry = useMemo(
-    () => initialGeometry(initialLayout),
-    [initialLayout]
+    () => initialGeometry(initialLayout, defaultPlacement),
+    [initialLayout, defaultPlacement]
   );
   const [geometry, setGeometry] =
     useState<PublishingAlbumCanonicalGeometry | null>(savedGeometry);
@@ -128,17 +137,35 @@ export function PublishingAlbumTypographyEditor({
   const [lineSpacing, setLineSpacing] = useState(
     initialLayout?.lineSpacing ?? 1.3
   );
+  const [contrast, setContrast] = useState(
+    initialLayout?.contrast ?? {
+      textColor: "#ffffff",
+      outlineColor: "#000000",
+      outlineWidth: 1.5,
+      backdropColor: null,
+    }
+  );
   const [fontReady, setFontReady] = useState(false);
   const [glyphsReady, setGlyphsReady] = useState(false);
   const [recommendations, setRecommendations] = useState<
     PublishingAlbumFontRecommendation[]
   >([]);
-  const [message, setMessage] = useState("双击画面或点击“排版文字”开始");
+  const [message, setMessage] = useState(
+    `点击“${drawLabel}”，在图上画一条线；闭合一圈则形成文字区域`
+  );
   const drawingRef = useRef(false);
   const strokeRef = useRef<PublishingAlbumStrokePoint[]>([]);
   const userSelectedFontRef = useRef(Boolean(initialLayout?.fontId));
 
   useEffect(() => {
+    setContrast(
+      initialLayout?.contrast ?? {
+        textColor: "#ffffff",
+        outlineColor: "#000000",
+        outlineWidth: 1.5,
+        backdropColor: null,
+      }
+    );
     setGeometry(savedGeometry);
     setHistory([]);
     setFontId(initialLayout?.fontId ?? "noto-serif-sc");
@@ -150,7 +177,7 @@ export function PublishingAlbumTypographyEditor({
     setStroke([]);
     strokeRef.current = [];
     userSelectedFontRef.current = Boolean(initialLayout?.fontId);
-  }, [initialLayout, savedGeometry, text]);
+  }, [initialLayout, savedGeometry]);
 
   useEffect(() => {
     let active = true;
@@ -231,11 +258,13 @@ export function PublishingAlbumTypographyEditor({
             fontSize: fontSize ?? undefined,
             letterSpacing,
             lineSpacing,
+            contrast,
             metrics: canvasMetrics(fontId, fontReady, glyphsReady),
           })
         : null,
     [
       alignment,
+      contrast,
       canvas,
       fontId,
       fontReady,
@@ -286,6 +315,7 @@ export function PublishingAlbumTypographyEditor({
       );
       return;
     }
+    setDrawing(false);
     setHistory(current => [...current, geometry]);
     setGeometry(result.geometry);
     setMessage(
@@ -306,29 +336,121 @@ export function PublishingAlbumTypographyEditor({
       lineSpacing: plan.lineSpacing,
       contrast: plan.contrast,
     };
-    await onSave(
-      geometry.kind === "path"
-        ? { ...base, kind: "path", points: geometry.points }
-        : {
-            ...base,
-            kind: "region",
-            shape: geometry.shape,
-            direction: geometry.direction,
-            region: geometry.region,
-          }
-    );
-    setMessage(saveSuccessMessage);
+    try {
+      await onSave(
+        geometry.kind === "path"
+          ? { ...base, kind: "path", points: geometry.points }
+          : {
+              ...base,
+              kind: "region",
+              shape: geometry.shape,
+              direction: geometry.direction,
+              region: geometry.region,
+            }
+      );
+      setMessage(saveSuccessMessage);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "字幕保存失败，请重试"
+      );
+    }
   };
 
   return (
-    <section className="space-y-3" aria-label={editorLabel}>
-      <div className="relative mx-auto max-w-md">
+    <section className={defaultPlacement ? "grid grid-cols-1 gap-3 min-[900px]:grid-cols-[minmax(0,1fr)_176px]" : "space-y-3"} aria-label={editorLabel}>
+      <div
+        className="sticky top-0 z-20 col-span-full flex flex-wrap items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-background p-2"
+        aria-label="文字排版工具栏"
+      >
+        <button
+          type="button"
+          onClick={beginDrawing}
+          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
+        >
+          <Type className="mr-1 inline h-4 w-4" />
+          {drawLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const previous = history.at(-1);
+            if (previous === undefined) return;
+            setGeometry(previous);
+            setHistory(current => current.slice(0, -1));
+            setMessage("已撤销上一次绘制");
+          }}
+          disabled={history.length === 0}
+          className="rounded-lg px-3 py-2 text-xs hover:bg-muted disabled:opacity-40"
+        >
+          <Undo2 className="mr-1 inline h-4 w-4" />
+          撤销
+        </button>
+        <button
+          type="button"
+          onClick={beginDrawing}
+          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
+        >
+          <Redo2 className="mr-1 inline h-4 w-4" />
+          重画
+        </button>
+        <label className="text-xs">
+          <span className="sr-only">字体</span>
+          <select
+            value={fontId}
+            onChange={event => {
+              userSelectedFontRef.current = true;
+              setFontId(event.target.value);
+            }}
+            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
+          >
+            {installedPublishingAlbumFonts().map(font => (
+              <option key={font.fontId} value={font.fontId}>
+                {recommendations.some(item => item.fontId === font.fontId)
+                  ? "推荐 · "
+                  : ""}
+                {font.nameZh}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs">
+          <span className="sr-only">对齐</span>
+          <select
+            value={alignment}
+            onChange={event =>
+              setAlignment(event.target.value as typeof alignment)
+            }
+            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
+          >
+            <option value="start">起点对齐</option>
+            <option value="center">居中</option>
+            <option value="end">终点对齐</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={!plan || saving || saveBlocked}
+          className="ml-auto rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs font-medium text-[var(--background)] disabled:opacity-40"
+        >
+          <Check className="mr-1 inline h-4 w-4" />
+          {saving ? "保存中…" : saveLabel}
+        </button>
+      </div>
+      <p className="col-span-full text-[11px] text-muted-foreground">
+        画一条线，文字沿线排列；画一个圈，文字填入区域。调整后保存即可。
+      </p>
+      <div className={defaultPlacement ? "relative mx-auto w-full self-start min-[900px]:row-span-2" : "relative mx-auto max-w-md"}>
         <PublishingAlbumPagePreview
           backgroundUrl={backgroundUrl}
           plan={plan}
           canvas={canvas}
           backgroundStyle={backgroundStyle}
-          label="双击进入画册文字排版"
+          label={
+            defaultPlacement
+              ? "字幕预览，双击画出文字走向"
+              : "双击进入画册文字排版"
+          }
           onDoubleClick={beginDrawing}
         />
         {drawing ? (
@@ -406,93 +528,26 @@ export function PublishingAlbumTypographyEditor({
             aria-label="字间距"
           />
           <span className="text-right font-mono text-[10px] text-muted-foreground">
-            {letterSpacing > 0 ? "+" : ""}{letterSpacing}px
+            {letterSpacing > 0 ? "+" : ""}
+            {letterSpacing}px
           </span>
         </label>
       </div>
 
-      <div
-        className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-background/70 p-2"
-        aria-label="文字排版工具栏"
-      >
-        <button
-          type="button"
-          onClick={beginDrawing}
-          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
-        >
-          <Type className="mr-1 inline h-4 w-4" />
-          排版文字
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const previous = history.at(-1);
-            if (previous === undefined) return;
-            setGeometry(previous);
-            setHistory(current => current.slice(0, -1));
-            setMessage("已撤销上一次绘制");
-          }}
-          disabled={history.length === 0}
-          className="rounded-lg px-3 py-2 text-xs hover:bg-muted disabled:opacity-40"
-        >
-          <Undo2 className="mr-1 inline h-4 w-4" />
-          撤销
-        </button>
-        <button
-          type="button"
-          onClick={beginDrawing}
-          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
-        >
-          <Redo2 className="mr-1 inline h-4 w-4" />
-          重画
-        </button>
-        <label className="text-xs">
-          <span className="sr-only">字体</span>
-          <select
-            value={fontId}
-            onChange={event => {
-              userSelectedFontRef.current = true;
-              setFontId(event.target.value);
-            }}
-            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
-          >
-            {installedPublishingAlbumFonts().map(font => (
-              <option key={font.fontId} value={font.fontId}>
-                {recommendations.some(item => item.fontId === font.fontId)
-                  ? "推荐 · "
-                  : ""}
-                {font.nameZh}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="sr-only">对齐</span>
-          <select
-            value={alignment}
-            onChange={event =>
-              setAlignment(event.target.value as typeof alignment)
-            }
-            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
-          >
-            <option value="start">起点对齐</option>
-            <option value="center">居中</option>
-            <option value="end">终点对齐</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={!plan || saving || saveBlocked}
-          className="ml-auto rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs font-medium text-[var(--background)] disabled:opacity-40"
-        >
-          <Check className="mr-1 inline h-4 w-4" />
-          {saving ? "保存中…" : saveLabel}
-        </button>
-      </div>
-      {recommendations.length > 0 ? (
+      <TypographyAppearanceControls
+        geometry={geometry}
+        onGeometry={next => {
+          setHistory(current => [...current, geometry]);
+          setGeometry(next);
+        }}
+        contrast={contrast}
+        onContrast={setContrast}
+        lineSpacing={lineSpacing}
+        onLineSpacing={setLineSpacing}
+      />
+      {!defaultPlacement && recommendations.length > 0 ? (
         <ul
-          className="grid gap-1 text-[11px] text-muted-foreground"
+          className="col-span-full grid gap-1 text-[11px] text-muted-foreground"
           aria-label="为这页推荐的字体"
         >
           {recommendations.map(item => (
@@ -504,7 +559,7 @@ export function PublishingAlbumTypographyEditor({
         </ul>
       ) : null}
       <p
-        className="text-xs text-muted-foreground"
+        className="col-span-full text-xs text-muted-foreground"
         role="status"
         aria-live="polite"
       >
@@ -512,7 +567,9 @@ export function PublishingAlbumTypographyEditor({
           ? "请先保存这一页文字，再保存与这份文字对应的排版"
           : layoutResult?.status === "overflow"
             ? layoutResult.suggestion
-            : message}
+            : layoutResult?.status === "invalid"
+              ? layoutResult.suggestion
+              : message}
       </p>
     </section>
   );

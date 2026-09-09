@@ -147,6 +147,7 @@ function layoutHorizontal(input: {
 }
 
 function layoutVertical(input: {
+  letterSpacing: number; lineSpacing: number;
   graphemes: string[]; fontSize: number; x: number; y: number; width: number; height: number;
   alignment: "start" | "center" | "end";
 }): PublishingAlbumPositionedGrapheme[] | null {
@@ -154,8 +155,8 @@ function layoutVertical(input: {
   const paddingY = input.height * 0.055;
   const availableWidth = input.width - paddingX * 2;
   const availableHeight = input.height - paddingY * 2;
-  const advanceY = input.fontSize * 1.18;
-  const advanceX = input.fontSize * 1.12;
+  const advanceY = input.fontSize * 1.18 + input.letterSpacing;
+  const advanceX = input.fontSize * input.lineSpacing;
   const columns: Array<Array<{ grapheme: string; index: number }>> = [[]];
   input.graphemes.forEach((grapheme, index) => {
     if (grapheme === "\n") { columns.push([]); return; }
@@ -230,6 +231,7 @@ export function buildPublishingAlbumLayout(input: {
   lineSpacing?: number;
   metrics: PublishingAlbumFontMetrics;
   sampleBackground?: PublishingAlbumBackgroundSampler;
+  contrast?: PublishingAlbumContrastStyle;
 }): PublishingAlbumLayoutResult {
   const font = publishingAlbumFontById(input.fontId);
   if (!font?.installed) return { status: "invalid", reason: "unknown_font", suggestion: "请选择字体仓库中已安装的字体" };
@@ -262,7 +264,7 @@ export function buildPublishingAlbumLayout(input: {
         height: input.geometry.region.height * input.canvas.height,
       };
       positioned = input.geometry.direction === "vertical"
-        ? layoutVertical({ ...region, graphemes, fontSize, alignment })
+        ? layoutVertical({ ...region, graphemes, fontSize, alignment, letterSpacing, lineSpacing })
         : layoutHorizontal({
             ...region,
             graphemes,
@@ -301,7 +303,7 @@ export function buildPublishingAlbumLayout(input: {
       lineSpacing,
       alignment,
       graphemes: positioned,
-      contrast: publishingAlbumContrastForPoints(positioned, input.sampleBackground),
+      contrast: input.contrast ?? publishingAlbumContrastForPoints(positioned, input.sampleBackground),
       svgPath: input.geometry.kind === "path"
         ? publishingAlbumSvgPath(input.geometry.points, input.canvas.width, input.canvas.height)
         : null,

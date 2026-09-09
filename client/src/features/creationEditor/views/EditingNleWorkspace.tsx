@@ -1016,8 +1016,7 @@ export default function EditingNleWorkspace({
   const [videoClipboard, setVideoClipboard] =
     useState<VideoClipboardPayload | null>(null);
   const [savingVideoEdit, setSavingVideoEdit] = useState(false);
-  const [imageEditorTarget, setImageEditorTarget] =
-    useState<ImageClipEditorTarget | null>(null);
+  const [imageEditorTarget, setImageEditorTarget] = useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
@@ -1807,13 +1806,14 @@ export default function EditingNleWorkspace({
         setImageEditorTarget(nextTarget);
         toast.success(
           draft.textOverlay
-            ? `${target.label} 构图与文字已保存`
+            ? `${target.label} 字幕与构图已保存`
             : `${target.label} 构图已保存`
         );
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "图片编辑保存失败"
         );
+        throw error;
       } finally {
         setSavingImageEdit(false);
       }

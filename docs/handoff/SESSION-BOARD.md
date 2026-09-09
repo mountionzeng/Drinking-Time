@@ -24,6 +24,8 @@
 
 ## 当前在场
 
+图片字幕层入口（2026-09-09）：`codex/image-subtitle-layer` 独立 worktree；占用 ShotPreview、ImageClipEditorPanel、EditingNleWorkspace（保存错误传播）、publishingAlbum 排版编辑/布局及相关测试/账本。让字幕与手绘走向直接可见，保留构图/OCR及 exact imageId 数据；仅主仓3000运行，不发付费请求。149项相关测试/类型/构建/账本通过；已确认其他线无跨分支合并，当前占用合并窗口，合入后主仓实测。
+
 
 小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
 
