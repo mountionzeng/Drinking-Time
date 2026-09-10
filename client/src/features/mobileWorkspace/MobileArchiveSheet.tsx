@@ -327,10 +327,8 @@ export function MobileArchiveSheet({
 
       {step === "done" ? (
         <div className="py-6 text-center">
-          <p className="text-[15px] text-foreground">已存入</p>
-          <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            {savedInto}
-          </p>
+          {/* 标题已经写着「已存入」，这里只说存到哪儿去了，不再重复一遍。 */}
+          <p className="text-[15px] leading-7 text-foreground">{savedInto}</p>
           <p className="mt-4 text-xs leading-6 text-muted-foreground">
             原聊天保留。
           </p>
