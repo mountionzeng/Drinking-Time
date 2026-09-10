@@ -41,21 +41,66 @@ describe("MobileWorkspace", () => {
     expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
   });
 
-  // 中间那颗只干一件事：打开故事菜单。聊天不需要它——常驻输入条一直在，
-  // 要看历史就拖面板或点「拉开看全部」；换故事才是它不可替代的用途。
-  it("always labels the middle seat 聊点其他的, in both views", () => {
-    for (const view of ["document", "chat"] as const) {
+  // 底部导航：三个固定槽位，当前页那格留空——不画图标文字、不可点、不可聚焦，
+  // 另外两个入口的位置不因此移动。当前在哪页靠页面标题认，不靠导航高亮。
+  it("hides only the current entry and keeps all three slots in place", () => {
+    for (const page of ["stories", "chat", "me"] as const) {
       const html = renderToStaticMarkup(
         <MobileWorkspaceFrame
-          activeView={view}
+          activeView="document"
           onViewChange={vi.fn()}
-            documentView={<p>正文内容</p>}
+          page={page}
+          pageView={<p>页面内容</p>}
+          documentView={<p>正文内容</p>}
           chatView={() => <p>对话内容</p>}
         />
       );
-      expect(html).toContain("聊点其他的");
-      expect(html).not.toContain("来聊会儿");
+      const nav = /<nav[^>]*aria-label="手机工作区"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
+      const buttons = nav.match(/<button/g) ?? [];
+
+      // 槽位永远是三个，当前页那格只是留空
+      expect(buttons).toHaveLength(3);
+      // 当前那格不可点也不可聚焦
+      expect(nav).toMatch(/<button[^>]*aria-hidden="true"[^>]*disabled[^>]*>/);
+      expect(nav).toContain('tabindex="-1"');
+      // 另外两个入口都在
+      const others = (["stories", "chat", "me"] as const).filter(p => p !== page);
+      for (const other of others) {
+        expect(nav).toContain({ stories: "故事", chat: "聊聊", me: "我" }[other]);
+      }
     }
+  });
+
+  // 故事页和我页不画正文，也不挂聊聊面板——那是聊聊页的东西。
+  it("only renders the document and the chat sheet on the chat page", () => {
+    const chat = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        page="chat"
+        pageView={<p>页面内容</p>}
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+    const stories = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={vi.fn()}
+        page="stories"
+        pageView={<p>页面内容</p>}
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+
+    expect(chat).toContain("正文内容");
+    expect(chat).toContain("对话内容");
+    expect(chat).not.toContain("页面内容");
+
+    expect(stories).toContain("页面内容");
+    expect(stories).not.toContain("正文内容");
+    expect(stories).not.toContain("对话内容");
   });
 
   // 回归：原来对话框是当 children 传进来的，而内容区写的是

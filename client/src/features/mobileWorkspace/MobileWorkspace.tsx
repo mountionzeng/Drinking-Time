@@ -1,9 +1,4 @@
-import {
-  BookOpenText,
-  Loader2,
-  RefreshCw,
-  UserRound,
-} from "lucide-react";
+import { BookOpenText, Loader2, RefreshCw } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -30,14 +25,16 @@ import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry"
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
-import { MobileAccountPanel } from "./MobileAccountPanel";
+import { MobileArchiveSheet } from "./MobileArchiveSheet";
+import { MobileNotConnected, MobileSheet } from "./MobileSheet";
+import { MobileMePage } from "./MobileMePage";
+import { MobileNavBar } from "./MobileNavBar";
+import { MobileStoriesPage } from "./MobileStoriesPage";
+import { type MobilePage } from "./liaoliaoForms";
 import { MobileChatView, mobileChatPeekReply } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
 import { MobileDocumentView } from "./MobileDocumentView";
-import {
-  MobileStoryPanel,
-  type MobileStorySummary,
-} from "./MobileStoryPanel";
+import { type MobileStorySummary } from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
 
@@ -139,8 +136,9 @@ export function MobileWorkspaceFrame({
   documentEditing = false,
   children,
   overlays,
-  onOpenStories,
-  onOpenAccount,
+  page = "chat",
+  onNavigate,
+  pageView,
   element = "metal",
 }: {
   activeView: MobileWorkspaceView;
@@ -164,8 +162,11 @@ export function MobileWorkspaceFrame({
   children?: ReactNode;
   /** 浮层：对话框、面板。永远渲染，不受 documentView 影响。 */
   overlays?: ReactNode;
-  onOpenStories?: () => void;
-  onOpenAccount?: () => void;
+  /** 当前在哪一页。只有 chat 页画正文和聊聊面板。 */
+  page?: MobilePage;
+  onNavigate?: (page: MobilePage) => void;
+  /** 非 chat 页的内容（故事页 / 我页）。 */
+  pageView?: ReactNode;
   /** 当天的纳音五行。由调用方从 useNayin() 取好传进来，
       外壳本身不碰 context，才能脱离 NayinProvider 单测。 */
   element?: NayinElement;
@@ -251,11 +252,11 @@ export function MobileWorkspaceFrame({
       <div className="relative mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden bg-background">
         {/* 聊聊拉开时把这行收掉，正文多露一截；收起面板它自己回来 */}
         <header
-          aria-hidden={activeView === "chat"}
+          aria-hidden={page !== "chat" || activeView === "chat"}
           className={cn(
             "flex min-w-0 items-center gap-3 overflow-hidden px-4",
             "transition-[max-height,opacity,padding] duration-200 ease-out",
-            activeView === "chat"
+            page !== "chat" || activeView === "chat"
               ? "pointer-events-none max-h-0 pt-0 pb-0 opacity-0"
               : "max-h-16 pt-3 pb-1 opacity-100"
           )}
@@ -271,13 +272,13 @@ export function MobileWorkspaceFrame({
           {balanceSlot}
         </header>
 
-        {/* 正文常驻。children 在这里只当「没有 documentView 时的兜底内容」 */}
+        {/* chat 页正文常驻；故事页和我页换成整页内容。 */}
         <div className="min-h-0 flex-1 overflow-hidden">
-          {documentView ?? children}
+          {page === "chat" ? documentView ?? children : pageView}
         </div>
 
         {/* 聊聊：常驻输入条 / 半屏 / 全屏 */}
-        {chatView && activeView === "chat" && (
+        {chatView && page === "chat" && activeView === "chat" && (
           <button
             type="button"
             aria-label="收起聊聊"
@@ -287,7 +288,7 @@ export function MobileWorkspaceFrame({
             onClick={() => onViewChange("document")}
           />
         )}
-        {chatView && (
+        {chatView && page === "chat" && (
         <div
           ref={sheetRef}
           className={cn(
@@ -412,11 +413,11 @@ export function MobileWorkspaceFrame({
         </div>
         )}
 
-        {/* 底部：一张手绘桌子，书（故事）、杯（聊聊）、人（我）都摆在上面 */}
-        <MobileTableBar
+        {/* 底部导航：三个固定槽位，当前页那格留空 */}
+        <MobileNavBar
+          current={page}
           element={element}
-          onOpenStories={onOpenStories ?? (() => {})}
-          onOpenAccount={onOpenAccount}
+          onNavigate={onNavigate ?? (() => {})}
         />
 
         {/*
@@ -435,91 +436,6 @@ export function MobileWorkspaceFrame({
   );
 }
 
-
-/**
- * 底部那张手绘桌子：书（故事）、杯子小人（聊聊）、人（我）都摆在同一张桌面上。
- * 桌沿是画出来的曲线加两条桌腿，不是 1px 的 border —— 设计上刻意不要那根直线。
- */
-function MobileTableBar({
-  element,
-  onOpenStories,
-  onOpenAccount,
-}: {
-  element: NayinElement;
-  onOpenStories: () => void;
-  /** 没传就不画「我」——外壳不直接碰 useAuth，保持可独立测试 */
-  onOpenAccount?: () => void;
-}) {
-  return (
-    <>
-      <nav
-        aria-label="手机工作区"
-        className="relative z-40 grid h-16 shrink-0 grid-cols-[1fr_96px_1fr] items-center bg-background"
-      >
-        <svg
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-16 w-full text-border"
-          fill="none"
-          preserveAspectRatio="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          viewBox="0 0 375 64"
-        >
-          <path d="M14,30.5 q92,-2.2 184,-.8 q90,1.4 163,2.6" strokeWidth="1.7" vectorEffect="non-scaling-stroke" />
-          <path d="M17,34.2 q92,-2.2 184,-.8 q88,1.4 158,2.4" strokeWidth="1.1" opacity=".5" vectorEffect="non-scaling-stroke" />
-          <path d="M31,36 q-1.6,10 -2.6,17" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-          <path d="M345,36.5 q1.6,10 2.6,17" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-        </svg>
-
-        <button
-          type="button"
-          className="relative z-10 flex h-full flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground"
-          onClick={onOpenStories}
-        >
-          <BookOpenText aria-hidden="true" className="size-5" />
-          故事
-        </button>
-
-        {/*
-          中间这颗**永远**打开故事菜单（开启新故事 / 回到以前的故事）。
-          
-          先前做成了「正文页开聊天、聊天页才出菜单」，是我把需求读窄了：
-          聊天本来就不需要这颗按钮——常驻输入条一直在，打字即可开聊，
-          要看历史就拖那张面板或点「拉开看全部」。这颗按钮唯一不可替代的
-          用途是换一个故事，所以它就该只干这件事。
-          原来顶栏那个故事下拉因此撤掉，切故事只剩这一个入口。
-        */}
-        <button
-          type="button"
-          aria-label="聊点其他的"
-          className="relative z-10 flex h-full flex-col items-center justify-end gap-0.5 pb-1.5"
-          onClick={onOpenStories}
-        >
-          <span className="absolute -top-6 left-1/2 -ml-7">
-            <EmotiveWuxingIcon element={element} size={56} animated={false} />
-          </span>
-          <span className="font-chat-brand text-[15px] leading-none text-primary">
-            聊点其他的
-          </span>
-        </button>
-
-        {onOpenAccount ? (
-          <button
-            type="button"
-            className="relative z-10 flex h-full flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground"
-            onClick={onOpenAccount}
-          >
-            <UserRound aria-hidden="true" className="size-5" />
-            我
-          </button>
-        ) : (
-          <span />
-        )}
-      </nav>
-
-    </>
-  );
-}
 
 export function MobileEmptyState({
   onCreateStory,
@@ -611,13 +527,14 @@ function MobileSelectedStoryWorkspace({
   const story = stories.find(candidate => candidate.id === activeStoryId);
   const { element } = useNayin();
   const { user } = useAuth();
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [page, setPage] = useState<MobilePage>("chat");
   const [letterOpen, setLetterOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [documentEditing, setDocumentEditing] = useState(false);
-  const [storyPanelOpen, setStoryPanelOpen] = useState(false);
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -668,8 +585,36 @@ function MobileSelectedStoryWorkspace({
         />
       }
       element={element}
-      onOpenStories={() => setStoryPanelOpen(true)}
-      onOpenAccount={() => setAccountOpen(true)}
+      page={page}
+      onNavigate={setPage}
+      pageView={
+        page === "stories" ? (
+          <MobileStoriesPage
+            activeStoryId={activeStoryId}
+            creating={creatingStory}
+            currentVersionLabel={
+              document.state?.document?.versionId
+                ? `编辑中 · ${document.state.document?.versionId}`
+                : null
+            }
+            stories={stories}
+            onContinueChat={() => setPage("chat")}
+            onCreateStory={onCreateStory}
+            onSelectStory={storyId => {
+              requestStoryChange(storyId);
+              setPage("chat");
+            }}
+            onViewVersions={() => setVersionsOpen(true)}
+          />
+        ) : page === "me" ? (
+          <MobileMePage
+            onOpenLetter={() => {
+              setPage("chat");
+              setLetterOpen(true);
+            }}
+          />
+        ) : null
+      }
       documentEditing={documentEditing}
       documentView={
         <MobileDocumentView
@@ -690,6 +635,7 @@ function MobileSelectedStoryWorkspace({
           storyTitle={story.title}
           dense={dense}
           replyMaxHeight={replyMaxHeight}
+          onArchive={() => setArchiveOpen(true)}
           onReplyHeightChange={onReplyHeightChange}
         />
       )}
@@ -703,33 +649,30 @@ function MobileSelectedStoryWorkspace({
             onOpenStory={requestStoryChange}
           />
 
-          <MobileStoryPanel
+          <MobileArchiveSheet
             activeStoryId={activeStoryId}
-            creating={creatingStory}
-            open={storyPanelOpen}
+            open={archiveOpen}
+            sourceText={mobileChatPeekReply(conversation)}
             stories={stories}
-            onCreateStory={
-              onCreateStory
-                ? () => {
-                    setStoryPanelOpen(false);
-                    onCreateStory();
-                  }
-                : undefined
-            }
-            onOpenChange={setStoryPanelOpen}
-            onSelectStory={storyId => {
-              setStoryPanelOpen(false);
-              // 有未保存的正文时 requestStoryChange 会先弹「保存/放弃/取消」，
-              // 那张对话框得在面板关掉之后才看得见，所以顺序不能反。
-              requestStoryChange(storyId);
-            }}
+            onOpenChange={setArchiveOpen}
           />
 
-          <MobileAccountPanel
-          open={accountOpen}
-          onOpenChange={setAccountOpen}
-          onOpenLetter={() => setLetterOpen(true)}
-        />
+          <MobileSheet
+            open={versionsOpen}
+            title={story.title}
+            onOpenChange={setVersionsOpen}
+          >
+            {document.state?.document?.versionId ? (
+              <p className="rounded-xl bg-muted px-4 py-3 text-sm leading-6">
+                编辑中 · {document.state.document?.versionId}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">正在读取版本…</p>
+            )}
+            <div className="mt-3">
+              <MobileNotConnected what="只读得到当前这份可编辑正文。列出成品和历史版本还没有对应接口，所以这里不列，也不编版本号。" />
+            </div>
+          </MobileSheet>
 
           <Dialog
             open={pendingStoryId !== null}

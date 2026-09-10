@@ -152,6 +152,7 @@ export function MobileChatView({
   storyTitle,
   dense = false,
   replyMaxHeight,
+  onArchive,
   onReplyHeightChange,
 }: {
   controller: MobileConversationController;
@@ -160,6 +161,8 @@ export function MobileChatView({
   dense?: boolean;
   /** 折叠档话语框的高度上限，由外壳按屏幕高度算好传进来。 */
   replyMaxHeight?: number;
+  /** 打开「存入故事」。收起和展开档都在，位置固定。 */
+  onArchive?: () => void;
   /** 把话语框实际需要的高度报给外壳，好让它把面板留够。 */
   onReplyHeightChange?: (height: number) => void;
 }) {
@@ -351,6 +354,21 @@ export function MobileChatView({
             onChange={event => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
           />
+          {/*
+            输入框｜存入故事｜发送。位置固定，收起和展开档都在。
+            存入和发送是两个独立动作：这颗**不**发送输入框里的字，
+            它存的是聊聊说出来的正文。
+          */}
+          {onArchive ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 shrink-0 whitespace-nowrap rounded-2xl px-3 text-xs"
+              onClick={onArchive}
+            >
+              存入故事
+            </Button>
+          ) : null}
           <Button
             type="submit"
             size="icon-lg"
