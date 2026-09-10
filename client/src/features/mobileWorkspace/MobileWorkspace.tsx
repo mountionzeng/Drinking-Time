@@ -90,15 +90,26 @@ type SheetStop = "peek" | "half" | "full";
 const SHEET_PEEK_PX = 128;
 
 /**
- * 折叠档露出一条回信时要多留的高度。
+ * 折叠档露出一条回信时先留的高度（还没量到真实高度时的起步值）。
  *
  * 128px 只够「抬头 + 输入条」。把回信也塞进去而不加高，输入框就会被顶出
  * 屏幕——真机上就是这样：能看到回信，却没法打字了。
  *
- * 72 = 两行正文（约 52px）+ 上下内距和外距。回信最多两行（line-clamp-2），
- * 所以这个数是上界，不会再被撑破。
+ * 72 = 两行正文（约 52px）+ 上下内距和外距。话语框量出真实高度后，
+ * 这个值会被 peekReplyHeight 顶掉。
  */
 const SHEET_REPLY_PEEK_PX = 72;
+
+/**
+ * 话语框最多占多高。
+ *
+ * 长回答要在收起档读完（不能逼用户展开整个聊天），但收起档还得让正文露着，
+ * 否则「收起」就名不副实。所以给一个上限，超出的部分在框内滚。
+ * 0.32 是提案值，等真机体验确认。
+ */
+export function peekReplyCap(shellHeight: number): number {
+  return Math.min(260, Math.max(120, Math.round(shellHeight * 0.32)));
+}
 
 function sheetStopHeight(stop: SheetStop, shellHeight: number): number {
   if (stop === "peek") return SHEET_PEEK_PX;
@@ -129,7 +140,11 @@ export function MobileWorkspaceFrame({
   documentView?: ReactNode;
   /** 有对话时才挂聊聊面板；空 Story 或读取失败时不挂 */
   /** 收到 stop 决定要不要紧凑显示，所以用函数而不是现成节点 */
-  chatView?: (options: { dense: boolean }) => ReactNode;
+  chatView?: (options: {
+    dense: boolean;
+    replyMaxHeight: number;
+    onReplyHeightChange: (height: number) => void;
+  }) => ReactNode;
   waitingForReply?: boolean;
   hasPeekReply?: boolean;
   /** 没有 documentView 时的兜底内容（加载／空／错误态）。 */
@@ -150,6 +165,8 @@ export function MobileWorkspaceFrame({
   // 外壳高度必须存进 state：render 期间读 ref 首帧拿到 0，
   // 半屏/全屏会被算成 0 再回退到常驻档的高度。
   const [shellH, setShellH] = useState(0);
+  // 话语框量出来的真实高度。0 = 还没量到，先用 SHEET_REPLY_PEEK_PX 起步。
+  const [peekReplyH, setPeekReplyH] = useState(0);
 
   const stop: SheetStop =
     activeView === "document" ? "peek" : expanded ? "full" : "half";
@@ -196,7 +213,11 @@ export function MobileWorkspaceFrame({
     onViewChange(nearest === "peek" ? "document" : "chat");
   };
 
-  const peekHeight = SHEET_PEEK_PX + (hasPeekReply ? SHEET_REPLY_PEEK_PX : 0);
+  const replyCap = peekReplyCap(shellHeight());
+  const reservedReply = hasPeekReply
+    ? Math.min(peekReplyH || SHEET_REPLY_PEEK_PX, replyCap)
+    : 0;
+  const peekHeight = SHEET_PEEK_PX + reservedReply;
   const sheetHeight =
     dragHeight ??
     (stop === "peek"
@@ -301,11 +322,33 @@ export function MobileWorkspaceFrame({
                 而不是在下面另画一只——两只一模一样的小人上下排着，
                 看起来像复制粘贴，也说不清楚哪只才是在等。
               */}
-              <EmotiveWuxingIcon
-                element={element}
-                size={stop === "peek" ? 34 : 28}
-                animated={waitingForReply}
-              />
+              {/*
+                小杯子自己就是个按钮：收起档它还在、还能点，点一下拉开聊天。
+                原来只有右边那行小字可点，杯子看着像装饰。
+              */}
+              <button
+                type="button"
+                data-sheet-action="character"
+                aria-label={
+                  activeView === "document" ? "拉开聊聊" : "收起聊聊"
+                }
+                className="-m-1 shrink-0 rounded-full p-1"
+                onClick={() =>
+                  onViewChange(activeView === "document" ? "chat" : "document")
+                }
+              >
+                {/*
+                  等回信时换成 thinking 那套姿势和表情——它本来就在
+                  EmotiveWuxingIcon 里，之前只让它「动起来」，脸没变过。
+                  waitingForReply 跟着真实请求走，失败或中断会自己退出。
+                */}
+                <EmotiveWuxingIcon
+                  element={element}
+                  size={stop === "peek" ? 34 : 28}
+                  mood={waitingForReply ? "thinking" : undefined}
+                  animated={waitingForReply}
+                />
+              </button>
               {waitingForReply ? (
                 <span
                   aria-hidden="true"
@@ -337,7 +380,11 @@ export function MobileWorkspaceFrame({
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
-            {chatView({ dense: stop === "peek" })}
+            {chatView({
+              dense: stop === "peek",
+              replyMaxHeight: replyCap,
+              onReplyHeightChange: setPeekReplyH,
+            })}
           </div>
         </div>
         )}
@@ -611,12 +658,13 @@ function MobileSelectedStoryWorkspace({
         conversation.recoveryTurns.some(turn => turn.status === "replying")
       }
       hasPeekReply={mobileChatPeekReply(conversation) !== null}
-      chatView={({ dense }) => (
+      chatView={({ dense, replyMaxHeight, onReplyHeightChange }) => (
         <MobileChatView
           controller={conversation}
           storyTitle={story.title}
           dense={dense}
-          onExpand={() => onViewChange("chat")}
+          replyMaxHeight={replyMaxHeight}
+          onReplyHeightChange={onReplyHeightChange}
         />
       )}
       overlays={

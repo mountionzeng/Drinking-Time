@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MobileEmptyState,
   MobileWorkspaceFrame,
+  peekReplyCap,
   resolveMobileDirtyStorySwitch,
   resolveMobileInitialStoryId,
 } from "./MobileWorkspace";
@@ -99,6 +100,50 @@ describe("MobileWorkspace", () => {
     const heightOf = (html: string) =>
       Number(/height:([0-9.]+)px/.exec(html)?.[1] ?? 0);
     expect(heightOf(withReply)).toBeGreaterThan(heightOf(withoutReply));
+  });
+
+  // 收起档小杯子不能只是块装饰：它还在、还能点，点一下就拉开聊天。
+  it("keeps the cup itself tappable while the sheet is collapsed", () => {
+    const onViewChange = vi.fn();
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="document"
+        onViewChange={onViewChange}
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+
+    expect(html).toMatch(
+      /<button[^>]*data-sheet-action="character"[^>]*aria-label="拉开聊聊"/
+    );
+  });
+
+  // 等回信时小杯子要摆出**思考**那套姿势和表情，不是原来那张脸动一动。
+  // 姿势名会写进 EmotiveWuxingIcon 的 aria-label，正好当断言锚点。
+  it("gives the cup a thinking face only while a reply is in flight", () => {
+    const render = (waitingForReply: boolean) =>
+      renderToStaticMarkup(
+        <MobileWorkspaceFrame
+          activeView="document"
+          onViewChange={vi.fn()}
+          documentView={<p>正文内容</p>}
+          chatView={() => <p>对话内容</p>}
+          waitingForReply={waitingForReply}
+        />
+      );
+
+    expect(render(true)).toContain("聊聊 · 想着呢");
+    // 回答到达／失败／中断后 waitingForReply 落回 false，思考就得退出
+    expect(render(false)).not.toContain("聊聊 · 想着呢");
+  });
+
+  // 话语框可以长，但不能长到把正文挤没——收起档还得像「收起」。
+  it("caps the speech box so the collapsed sheet still leaves the document visible", () => {
+    expect(peekReplyCap(812)).toBe(260);
+    expect(peekReplyCap(812)).toBeLessThan(812 * 0.4);
+    // 小屏也要留得下一段话
+    expect(peekReplyCap(0)).toBe(120);
   });
 
   // 顶栏不再放品牌名和故事名：微信顶栏已经写着来处，故事名在「聊点其他的」

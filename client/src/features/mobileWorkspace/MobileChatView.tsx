@@ -4,6 +4,7 @@ import {
   type FormEvent,
   default as React,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -150,20 +151,44 @@ export function MobileChatView({
   controller,
   storyTitle,
   dense = false,
-  onExpand,
+  replyMaxHeight,
+  onReplyHeightChange,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
   /** 常驻输入条那一档：只留输入行，消息区收起来（连它的内距一起）。 */
   dense?: boolean;
-  /** 折叠档点那条最新回信时把面板拉开。 */
-  onExpand?: () => void;
+  /** 折叠档话语框的高度上限，由外壳按屏幕高度算好传进来。 */
+  replyMaxHeight?: number;
+  /** 把话语框实际需要的高度报给外壳，好让它把面板留够。 */
+  onReplyHeightChange?: (height: number) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const replyRef = useRef<HTMLDivElement>(null);
 
   const latestReply = mobileChatPeekReply(controller);
+
+  /*
+    话语框要多高，只有排完版才知道，所以量出来报给外壳。
+    量的是 scrollHeight——内容自己的高度，和我们施加的 max-height 无关，
+    因此「量到 → 外壳加高 → 又量一遍」不会互相追着涨。
+  */
+  useLayoutEffect(() => {
+    if (!onReplyHeightChange) return;
+    const element = dense ? replyRef.current : null;
+    if (!element) {
+      onReplyHeightChange(0);
+      return;
+    }
+    const report = () => onReplyHeightChange(element.scrollHeight);
+    report();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [dense, latestReply, replyMaxHeight, onReplyHeightChange]);
 
   // 等回信的样子由面板抬头那只小人代言（MobileWorkspaceFrame 的 waitingForReply）。
   // 这里只负责一件事：replying 的轮次不要再以故障卡片的样子重复出现一遍。
@@ -285,19 +310,30 @@ export function MobileChatView({
       </div>
 
       {/*
-        折叠档：消息区是收起的，但新回信必须自己蹦出来——否则用户在常驻输入条
-        发完消息，回信到了却毫无动静，只能靠自己想起来去拉面板。
-        只露最新一条、最多两行，点一下展开看全部。
+        折叠档的话语框：消息区是收起的，但新回信必须自己蹦出来——否则用户在
+        常驻输入条发完消息，回信到了却毫无动静，只能靠自己想起来去拉面板。
+
+        这里刻意**不截断**。原来是 line-clamp-2 + 点一下展开，长回答就只能靠
+        拉开整个聊天才读得完；话语框自己能滚，长短都在收起档读完，展开与否
+        永远是用户自己的选择。
+
+        也刻意**不是 button**：框内要滚动，包一层按钮会让每次滑动都像在点它。
       */}
       {dense && latestReply ? (
-        <button
-          type="button"
+        <div
+          ref={replyRef}
           data-sheet-action="latest-reply"
-          className="mx-3 mb-1 shrink-0 rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-2.5 text-left text-[15px] leading-relaxed text-foreground shadow-sm"
-          onClick={onExpand}
+          role="log"
+          aria-live="polite"
+          aria-label="聊聊说的话"
+          tabIndex={0}
+          style={
+            replyMaxHeight ? { maxHeight: `${replyMaxHeight}px` } : undefined
+          }
+          className="mx-3 mb-1 min-h-0 shrink-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-2.5 text-left text-[15px] leading-relaxed text-foreground shadow-sm"
         >
-          <span className="line-clamp-2 block">{latestReply}</span>
-        </button>
+          {latestReply}
+        </div>
       ) : null}
 
       <form

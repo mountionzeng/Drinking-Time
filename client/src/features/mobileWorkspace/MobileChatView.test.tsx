@@ -81,6 +81,54 @@ describe("MobileChatView", () => {
     expect(html).toContain('data-sheet-action="latest-reply"');
   });
 
+  // 长回答必须在收起档读完。原来是 line-clamp-2 + 点一下展开，等于「想读完
+  // 就得展开整个聊天」——正是需求里点名不许的那条路。
+  it("lets a long reply be read while the sheet stays collapsed", () => {
+    const long = "很久很久以前，".repeat(60);
+    const withLongReply = {
+      ...controller(),
+      messages: [
+        {
+          id: "server-1",
+          role: "assistant",
+          content: long,
+          timestamp: 1,
+          source: "server",
+        },
+      ],
+    } as unknown as MobileConversationController;
+
+    const html = renderToStaticMarkup(
+      <MobileChatView controller={withLongReply} dense storyTitle="旅行记" />
+    );
+
+    // 全文都在，没有被截断
+    expect(html).toContain(long);
+    // 框内自己能滚
+    expect(html).toMatch(
+      /data-sheet-action="latest-reply"[^>]*class="[^"]*overflow-y-auto/
+    );
+    expect(html).not.toContain("line-clamp");
+    // 不是按钮：框内要滚动，包成按钮会让每次滑动都像在点它
+    expect(html).not.toMatch(/<button[^>]*data-sheet-action="latest-reply"/);
+  });
+
+  // 话语框再高也得给正文留位置，超出的部分在框内滚。
+  it("caps the speech box at the height the shell hands down", () => {
+    const html = renderToStaticMarkup(
+      <MobileChatView
+        controller={controller()}
+        dense
+        replyMaxHeight={200}
+        storyTitle="旅行记"
+      />
+    );
+
+    expect(html).toMatch(
+      /data-sheet-action="latest-reply"[^>]*style="max-height:200px"/
+    );
+  });
+
   // 正在等回信时不露旧的那条，免得新旧混淆——那会儿抬头的小人正在动。
   it("holds the peek back while a new reply is still in flight", () => {
     const waiting = { ...controller(), isSubmitting: true };
