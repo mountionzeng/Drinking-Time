@@ -100,8 +100,13 @@ export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
           className="size-14 shrink-0 rounded-full border border-border/70"
           style={liaoliaoSpriteStyle(element)}
         />
+        {/*
+          访客账号的 email 是 null，但它**是**一个已登录的身份（openId 形如
+          guest:…），故事和余额都挂在它名下。原来这里直接写「未登录」，
+          等于告诉用户「你没登录」——然后他看见自己的故事都在，只会更糊涂。
+        */}
         <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          {user?.email ?? "未登录"}
+          {user?.email ?? (user ? "访客身份 · 未绑定邮箱" : "未登录")}
         </p>
       </div>
 
