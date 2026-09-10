@@ -173,6 +173,7 @@ export function renderAccount(
     sheetTop: h,
     maxBody: Math.max(0, Math.ceil((y - bottom + 44) / 28)),
     maxChat: 0,
+    maxPeekReply: 0,
     maxList: 0,
   };
 }

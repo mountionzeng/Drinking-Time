@@ -30,8 +30,33 @@ export type WorkspaceView = {
   font: string;
   wechat: boolean;
   dragTop: number | null;
+  /** 收起档话语框自己的滚动位移（行）。长回答要在收起档读完，不能靠展开。 */
+  peekReplyOffset: number;
   balanceText?: string;
 };
+
+/** 收起档常驻部分的高度：抬头一行 + 输入条。回信框的高度另算。 */
+export const PEEK_BASE_PX = 140;
+/** 回信框最多占多高——长回答在框内滚，但不能把正文挤没。 */
+export const PEEK_REPLY_MAX_PX = 220;
+/**
+ * 收起档该露什么：它在想，还是它说的话。
+ *
+ * 抽成纯函数是为了能直接测——真机上试不出「等回信时会不会还摆着上一条旧回答」，
+ * 但这里可以。等回信期间返回 thinking 而不是旧回答：那会儿它正在想，
+ * 再摆一条旧的会让人分不清新旧（和手机 Web 的 mobileChatPeekReply 同一个判断）。
+ */
+export function peekSpeech(
+  busy: string | null | undefined,
+  messages: readonly { role: string; content: string }[]
+): { thinking: boolean; reply: string | null } {
+  if (busy === "正在回复…") return { thinking: true, reply: null };
+  const last = [...messages]
+    .reverse()
+    .find(message => message.role === "assistant");
+  return { thinking: false, reply: last?.content ?? null };
+}
+
 export function renderWorkspace(
   ctx: any,
   w: number,
@@ -118,6 +143,7 @@ export function renderWorkspace(
   ctx.fillStyle = paper;
   ctx.fillRect(0, 0, w, h);
   let maxBody = 0,
+    maxPeekReply = 0,
     maxChat = 0,
     maxList = 0;
   const notice = state.busy || state.error;
@@ -242,9 +268,30 @@ export function renderWorkspace(
   } else {
     const navY = bottom - 64,
       usableBottom = Math.min(navY, h - view.keyboardHeight);
+    /*
+      收起档要露什么，决定了面板留多高。
+
+      原来收起档只有抬头和输入条，消息区、思考态、最新回信全包在
+      `view.stop !== "peek"` 里——于是在微信上发完消息，收起档什么都看不见：
+      不知道它在想，也读不到回答，只能去拉开整个聊天。R08/R09 要的正是
+      「收起也能看见它在想、也能把回答读完」。
+    */
+    const speech = peekSpeech(state.busy, messages);
+    const thinkingNow = speech.thinking;
+    const lastReply = speech.reply;
+    // 回信正文按框宽排版，行高 26
+    const peekReplyLines = lastReply
+      ? wrap(lastReply, w - 24 - 28, 15)
+      : [];
+    const peekReplyNeed = peekReplyLines.length * 26 + 26;
+    const peekReplyBoxH = lastReply
+      ? Math.min(peekReplyNeed, PEEK_REPLY_MAX_PX)
+      : thinkingNow
+        ? 52
+        : 0;
     const stopHeight =
       view.stop === "peek"
-        ? 128
+        ? PEEK_BASE_PX + peekReplyBoxH
         : (usableBottom - top) * (view.stop === "half" ? 0.5 : 0.88);
     const sheetTop =
       view.dragTop ?? Math.max(top + 18, usableBottom - stopHeight);
@@ -323,18 +370,61 @@ export function renderWorkspace(
     ctx.fillStyle = border;
     ctx.fillRect(w / 2 - 18, sheetTop + 8, 36, 4);
     if (view.character)
-      ctx.drawImage(view.character, 17, sheetTop + 18, 34, 38);
-    if (view.stop !== "peek")
-      text("聊聊", 60, sheetTop + 42, 17, view.accent, true);
+      ctx.drawImage(view.character, 17, sheetTop + 16, 40, 44);
+    // 名字**始终**露着，收起档也不例外
+    text("聊聊", 66, sheetTop + 36, 17, view.accent, true);
+    text(thinkingNow ? "正在想…" : "在这儿", 66, sheetTop + 54, 11, muted);
     text(
-      view.stop === "peek" ? "拉开看全部 ⌃" : "收起 ⌄",
-      w - 111,
-      sheetTop + 42,
+      view.stop === "peek" ? "展开聊天" : "收起",
+      w - 86,
+      sheetTop + 44,
       12,
       muted
     );
-    hits.push({ x: 0, y: sheetTop, w, h: 58, action: "sheet" });
+    hits.push({ x: 0, y: sheetTop, w, h: 62, action: "sheet" });
     const inputY = usableBottom - 62;
+
+    /*
+      收起档的话语框：它在想 → 露一个「···」；回答到了 → 直接把真实回答画出来。
+      长回答在**框内**滚（peekReplyOffset），不是靠展开整个聊天——需求明确
+      禁止把自动展开当成长回答的处理方式。
+    */
+    if (view.stop === "peek" && peekReplyBoxH > 0) {
+      const boxTop = sheetTop + 68;
+      const boxH = Math.min(peekReplyBoxH, inputY - 10 - boxTop);
+      if (boxH > 20) {
+        box(12, boxTop, w - 24, boxH, "#eee8df", 14);
+        if (thinkingNow) {
+          text("···", 30, boxTop + 32, 22, muted);
+        } else {
+          const rowH = 26;
+          const visibleRows = Math.max(1, Math.floor((boxH - 22) / rowH));
+          maxPeekReply = Math.max(0, peekReplyLines.length - visibleRows);
+          const from = Math.min(view.peekReplyOffset, maxPeekReply);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(12, boxTop, w - 24, boxH);
+          ctx.clip();
+          peekReplyLines
+            .slice(from, from + visibleRows)
+            .forEach((line, i) =>
+              text(line, 26, boxTop + 26 + i * rowH, 15, ink)
+            );
+          ctx.restore();
+          // 还有没读到的，给一个「下面还有」的提示，否则用户不知道能滚
+          if (maxPeekReply > 0 && from < maxPeekReply)
+            text("⌄", w - 30, boxTop + boxH - 8, 13, muted);
+          hits.push({
+            x: 12,
+            y: boxTop,
+            w: w - 24,
+            h: boxH,
+            action: "peekReply",
+          });
+        }
+      }
+    }
+
     if (view.stop !== "peek") {
       const chatTop = sheetTop + 62,
         chatBottom = inputY - 42,
@@ -507,11 +597,11 @@ export function renderWorkspace(
         muted
       );
     }
-    return { hits, sheetTop, maxBody, maxChat, maxList };
+    return { hits, sheetTop, maxBody, maxChat, maxList, maxPeekReply };
   }
   if (notice)
     wrap(notice, w - 40, 13)
       .slice(0, 2)
       .forEach((line, i) => text(line, 20, bottom - 46 + i * 19, 13, muted));
-  return { hits, sheetTop: h, maxBody, maxChat, maxList };
+  return { hits, sheetTop: h, maxBody, maxChat, maxList, maxPeekReply };
 }

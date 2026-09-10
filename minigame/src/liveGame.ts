@@ -45,6 +45,7 @@ let layout = {
   sheetTop: 0,
   maxBody: 0,
   maxChat: 0,
+  maxPeekReply: 0,
   maxList: 0,
 };
 let touch: { x: number; y: number; sheet: boolean; top: number } | null = null;
@@ -54,6 +55,7 @@ const view: WorkspaceView = {
   stop: "peek",
   offset: 0,
   chatOffset: 0,
+  peekReplyOffset: 0,
   listOffset: 0,
   safeTop: 64,
   safeBottom: 0,
@@ -266,8 +268,16 @@ function keyboard(field: NonNullable<typeof editing>) {
   const state = workspace.getState();
   editing = field;
   if (field === "chat") {
-    view.stop = "half";
+    /*
+      R06：点输入框唤起键盘**不再自动展开**聊天。
+
+      原来这里直接 `view.stop = "half"`——一碰输入框整个面板就弹开，正文被盖住，
+      正是用户报告的「开始打字就自动展开」。收起档现在本来就能看见它在想、
+      也能读到回答（见 workspaceView 的话语框），没有理由替用户展开。
+      展开只由用户自己点抬头或「展开聊天」。
+    */
     view.chatOffset = 0;
+    view.peekReplyOffset = 0;
   }
   wx.showKeyboard({
     defaultValue:
@@ -290,9 +300,16 @@ function keyboard(field: NonNullable<typeof editing>) {
             : field === "code"
               ? 6
               : 1024,
-    multiple: field === "body" || field === "chat",
+    /*
+      R07：聊天键盘的确认键就是「发送」，一次操作发出去，不再「完成 → 发送」两步。
+
+      聊天因此取消多行（`multiple` 只留给正文）：多行键盘的确认键是换行，
+      那就没有「发送」这个键可按了。手机 Web 上回车即发送，两端一致。
+      中文选词确认不会走到这里——`onKeyboardConfirm` 只在按确认键时触发。
+    */
+    multiple: field === "body",
     confirmHold: false,
-    confirmType: "done",
+    confirmType: field === "chat" ? "send" : "done",
     fail: () => {
       editing = null;
       toast("键盘打开失败，请重试");
@@ -638,7 +655,15 @@ async function action(command: string) {
     return;
   }
   if (command === "send") {
-    await workspace.send();
+    // 和键盘确认键共用一把锁，两个入口不会各发一条
+    if (sending) return;
+    sending = true;
+    try {
+      await workspace.send();
+    } finally {
+      sending = false;
+      view.peekReplyOffset = 0;
+    }
     return;
   }
   if (command === "refresh") {
@@ -647,6 +672,10 @@ async function action(command: string) {
   }
   if (command === "reconnect") {
     await workspace.connect();
+    return;
+  }
+  if (command === "peekReply") {
+    // 点话语框本身不做任何事：它是用来读的，不是用来展开的。
     return;
   }
   if (command === "refreshChat") {
@@ -735,12 +764,54 @@ wx.onKeyboardInput((event: { value: string }) => {
     toast("草稿保存失败，请先复制内容");
   }
 });
+/**
+ * 按确认键（聊天键盘上写着「发送」）＝直接发出去。
+ *
+ * 这是 R07 的正主：原来只有 onKeyboardComplete，它只回写草稿并收键盘，
+ * 用户还得再点页面上的「发送」。
+ *
+ * 防重复：`sending` 在整个发送期间挡住第二次触发——确认键和页面按钮是两个
+ * 入口，指头快一点就会两条都进来。空白不发。
+ */
+let sending = false;
+async function sendFromKeyboard(value?: string) {
+  if (sending) return;
+  try {
+    if (typeof value === "string") changeInput(value);
+  } catch {
+    toast("草稿保存失败，请先复制内容");
+    return;
+  }
+  const draft = workspace.getState().chatDraft.trim();
+  editing = null;
+  view.keyboardHeight = 0;
+  if (!draft) {
+    // 空白不发，也别把用户晾在一个收起的键盘前面
+    draw();
+    return;
+  }
+  sending = true;
+  draw();
+  try {
+    await workspace.send();
+  } finally {
+    sending = false;
+    // 新回答从头读起，别停在上一条读到一半的位置
+    view.peekReplyOffset = 0;
+    draw();
+  }
+}
+wx.onKeyboardConfirm?.((event: { value?: string }) => {
+  if (editing !== "chat") return;
+  void sendFromKeyboard(event.value);
+});
 wx.onKeyboardComplete((event: { value?: string }) => {
   try {
     if (typeof event.value === "string") changeInput(event.value);
   } catch {
     toast("草稿保存失败，请先复制内容");
   } finally {
+    // 收键盘只收键盘：不发送、不丢草稿。发送走确认键或页面按钮。
     editing = null;
     view.keyboardHeight = 0;
     draw();
@@ -801,6 +872,18 @@ wx.onTouchEnd((event: any) => {
       view.offset = Math.max(
         0,
         Math.min(layout.maxBody, view.offset + Math.round(delta / 28))
+      );
+    else if (view.stop === "peek" && layout.maxPeekReply > 0)
+      /*
+        收起档在话语框上滑动＝在**框内**读长回答，不是滚聊天记录。
+        长回答必须能在收起档读完，不能逼用户展开整个聊天。
+      */
+      view.peekReplyOffset = Math.max(
+        0,
+        Math.min(
+          layout.maxPeekReply,
+          view.peekReplyOffset + Math.round(delta / 26)
+        )
       );
     else
       view.chatOffset = Math.max(
