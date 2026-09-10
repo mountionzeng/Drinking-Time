@@ -638,7 +638,10 @@ function MobileSelectedStoryWorkspace({
           />
 
           <MobileArchiveSheet
+            activeStoryId={activeStoryId}
             open={archiveOpen}
+            sourceBody={document.state?.body ?? null}
+            stories={stories}
             onOpenChange={setArchiveOpen}
           />
 
