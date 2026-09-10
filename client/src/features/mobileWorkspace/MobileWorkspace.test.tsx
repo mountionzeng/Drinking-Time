@@ -160,13 +160,16 @@ describe("MobileWorkspace", () => {
     );
 
     expect(html).toMatch(
-      /<button[^>]*data-sheet-action="character"[^>]*aria-label="拉开聊聊"/
+      /<button[^>]*data-sheet-action="character"[^>]*aria-label="展开聊天"/
     );
+    // 名字始终露着，不只在展开档
+    expect(html).toContain("聊聊");
   });
 
-  // 等回信时小杯子要摆出**思考**那套姿势和表情，不是原来那张脸动一动。
-  // 姿势名会写进 EmotiveWuxingIcon 的 aria-label，正好当断言锚点。
-  it("gives the cup a thinking face only while a reply is in flight", () => {
+  // 认可的那版造型只有一个静态形象，没有「想着呢」那张脸，所以思考反馈是
+  // 身体起伏 + 三点 + 一句状态字。三者都只在等回信时出现，回信到达／失败／
+  // 中断后 waitingForReply 落回 false，就都得停。
+  it("shows thinking feedback only while a reply is in flight", () => {
     const render = (waitingForReply: boolean) =>
       renderToStaticMarkup(
         <MobileWorkspaceFrame
@@ -178,9 +181,18 @@ describe("MobileWorkspace", () => {
         />
       );
 
-    expect(render(true)).toContain("聊聊 · 想着呢");
-    // 回答到达／失败／中断后 waitingForReply 落回 false，思考就得退出
-    expect(render(false)).not.toContain("聊聊 · 想着呢");
+    const waiting = render(true);
+    const idle = render(false);
+
+    // 造型本身没换身体，只是加了「想着呢」的可读状态和起伏
+    expect(waiting).toMatch(/aria-label="聊聊 · [^"]*· 想着呢"/);
+    expect(waiting).toContain("liaoliao-thinking");
+    expect(waiting).toContain("正在想…");
+
+    // 回答到达／失败／中断后，三样都得停
+    expect(idle).not.toContain("想着呢");
+    expect(idle).not.toContain("liaoliao-thinking");
+    expect(idle).not.toContain("正在想…");
   });
 
   // 真机（安卓 + 微信内置浏览器）：键盘一起来，常驻输入条加话语框把正文压掉

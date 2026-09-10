@@ -66,9 +66,11 @@ export function NayinProvider({ children }: { children: ReactNode }) {
   const [transitionTheme, setTransitionTheme] = useState<BeverageTheme | null>(
     null
   );
-  const [pendingElement, setPendingElement] = useState<
-    NayinElement | null | undefined
-  >(undefined);
+  // 选择不再等动画，所以没有「待落的选择」这回事了；
+  // 保留 setter 只为把残留状态清干净。
+  const [, setPendingElement] = useState<NayinElement | null | undefined>(
+    undefined
+  );
 
   // ─── Daily refresh at CST midnight ─────────────────────────────
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,7 +103,16 @@ export function NayinProvider({ children }: { children: ReactNode }) {
   const activeElement = previewElement || today.element;
   const activeTheme = getAllThemes().find(t => t.element === activeElement)!;
 
-  // Wrap setPreviewElement to trigger transition animation
+  /**
+   * 换外形／换五行。
+   *
+   * **选择立刻生效**，动画只是随后的视觉反馈。原来是反过来的：先播 2.4s 全屏
+   * 过渡，等 framer-motion 的 onAnimationComplete 回调才把选择落下去。后果是
+   * 选中状态要等动画结束才更新，动画被打断、页面被切走、或者用户开了「减少
+   * 动态效果」时，这次选择干脆不生效——手机上点一下外形没反应就是这个。
+   *
+   * 现在选择和动画彻底解耦：这里直接落，动画自己播完自己收场。
+   */
   const setPreviewElement = useCallback(
     (el: NayinElement | null) => {
       const targetElement = el || today.element;
@@ -112,22 +123,39 @@ export function NayinProvider({ children }: { children: ReactNode }) {
       // Don't transition if same element
       if (targetElement === activeElement) return;
 
-      // Start transition
+      // 先落选择——不依赖任何动画回调
+      setPreviewElementRaw(el);
+
+      // 再给一层轻反馈；不跑动画也不影响上面已经生效的选择
       setTransitionTheme(targetTheme);
       setIsTransitioning(true);
-      setPendingElement(el);
     },
     [activeElement, today.element]
   );
 
   const onTransitionComplete = useCallback(() => {
-    if (pendingElement !== undefined) {
-      setPreviewElementRaw(pendingElement);
-      setPendingElement(undefined);
-    }
+    // 选择在 setPreviewElement 里已经落过了，这里只负责收拾动画自己的状态。
+    setPendingElement(undefined);
     setIsTransitioning(false);
     setTransitionTheme(null);
-  }, [pendingElement]);
+  }, []);
+
+  /**
+   * 兜底：动画回调没来也要把过渡状态收掉。
+   *
+   * 页面被切到后台、标签页不渲染、用户开了「减少动态效果」——这些情况下
+   * framer-motion 的 onAnimationComplete 可能一直不触发，过渡层就会一直挂着。
+   * 选择本身不受影响（早已生效），这里只是不让那层残留。
+   */
+  useEffect(() => {
+    if (!isTransitioning) return;
+    const timer = window.setTimeout(() => {
+      setIsTransitioning(false);
+      setTransitionTheme(null);
+      setPendingElement(undefined);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [isTransitioning]);
 
   // Apply data-nayin attribute to html element for CSS variable overrides
   useEffect(() => {

@@ -941,6 +941,19 @@
   }
 }
 
+/* 聊聊等回信时的轻微起伏。造型是静态图，没有「想着呢」那张脸，
+ * 所以思考反馈靠这个起伏加旁边的三点承担。尊重减少动态效果设置。 */
+@keyframes liaoliao-think {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-3px) rotate(1deg); }
+}
+.liaoliao-thinking {
+  animation: liaoliao-think 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .liaoliao-thinking { animation: none; }
+}
+
 .mobile-workspace-composer {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }

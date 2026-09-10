@@ -20,11 +20,11 @@ import {
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import type { NayinElement } from "@/features/nayin/nayin";
-import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
+import { LiaoliaoMascot, LiaoliaoThinkingDots } from "./LiaoliaoMascot";
 import { MobileArchiveSheet } from "./MobileArchiveSheet";
 import { MobileNotConnected, MobileSheet } from "./MobileSheet";
 import { MobileMePage } from "./MobileMePage";
@@ -84,7 +84,7 @@ export async function resolveMobileDirtyStorySwitch(
  */
 type SheetStop = "peek" | "half" | "full";
 
-const SHEET_PEEK_PX = 128;
+const SHEET_PEEK_PX = 140;
 
 /**
  * 正在写正文时，聊天面板缩到只剩抬头这一条。
@@ -94,7 +94,7 @@ const SHEET_PEEK_PX = 128;
  *
  * 但不是整块藏掉：小杯子留在这条上，还看得见、还能点，点一下就回到聊天。
  */
-const SHEET_HANDLE_PX = 58;
+const SHEET_HANDLE_PX = 66;
 
 /**
  * 折叠档露出一条回信时先留的高度（还没量到真实高度时的起步值）。
@@ -335,21 +335,17 @@ export function MobileWorkspaceFrame({
             }}
           >
             <span className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-border" />
-            <div className="flex min-h-9 items-center gap-2">
+            <div className="flex min-h-11 items-center gap-2.5">
               {/*
-                抬头这只小人就是「聊聊」本人，等回信时让**它**动起来，
-                而不是在下面另画一只——两只一模一样的小人上下排着，
-                看起来像复制粘贴，也说不清楚哪只才是在等。
-              */}
-              {/*
-                小杯子自己就是个按钮：收起档它还在、还能点，点一下拉开聊天。
-                原来只有右边那行小字可点，杯子看着像装饰。
+                抬头这只就是「聊聊」本人，用的是用户认可的那版造型。
+                等回信时让**它**动起来，而不是在下面另画一只——两只一模一样的
+                上下排着，看起来像复制粘贴，也说不清楚哪只才是在等。
               */}
               <button
                 type="button"
                 data-sheet-action="character"
                 aria-label={
-                  activeView === "document" ? "拉开聊聊" : "收起聊聊"
+                  activeView === "document" ? "展开聊天" : "收起聊天"
                 }
                 className="-m-1 shrink-0 rounded-full p-1"
                 // 写正文时按下去不能夺走正文的焦点：一失焦面板就长回来，
@@ -360,44 +356,36 @@ export function MobileWorkspaceFrame({
                 }
               >
                 {/*
-                  等回信时换成 thinking 那套姿势和表情——它本来就在
-                  EmotiveWuxingIcon 里，之前只让它「动起来」，脸没变过。
-                  waitingForReply 跟着真实请求走，失败或中断会自己退出。
+                  这版造型只有「安静」一个静态形象，没有「想着呢」那张脸，
+                  所以思考反馈是身体的轻微起伏加旁边的三点，两者都跟着
+                  waitingForReply 走——回答到达、失败或中断都会自己停。
+                  缺的表情素材与补齐方案见交接文档。
                 */}
-                <EmotiveWuxingIcon
+                <LiaoliaoMascot
                   element={element}
-                  size={stop === "peek" ? 34 : 28}
-                  mood={waitingForReply ? "thinking" : undefined}
-                  animated={waitingForReply}
+                  size={44}
+                  thinking={waitingForReply}
                 />
               </button>
-              {waitingForReply ? (
-                <span
-                  aria-hidden="true"
-                  className="flex items-center gap-1 rounded-full bg-muted/70 px-2.5 py-1.5"
-                >
-                  {[0, 150, 300].map(delay => (
-                    <span
-                      key={delay}
-                      className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"
-                      style={{ animationDelay: `${delay}ms` }}
-                    />
-                  ))}
-                </span>
-              ) : stop !== "peek" ? (
-                <span className="font-chat-brand text-[17px] leading-none text-primary">
+              {/* 名字**始终**露着，不再只在展开档才出现 */}
+              <span className="min-w-0">
+                <span className="block font-chat-brand text-[17px] leading-none text-primary">
                   聊聊
                 </span>
-              ) : null}
+                <span className="mt-1 block text-[11px] leading-none text-muted-foreground">
+                  {waitingForReply ? "正在想…" : "在这儿"}
+                </span>
+              </span>
+              {waitingForReply ? <LiaoliaoThinkingDots /> : null}
               <button
                 type="button"
                 data-sheet-action="toggle"
-                className="ml-auto min-h-9 px-1.5 text-xs text-muted-foreground"
+                className="ml-auto min-h-11 shrink-0 px-1.5 text-xs text-muted-foreground"
                 onClick={() =>
                   onViewChange(activeView === "document" ? "chat" : "document")
                 }
               >
-                {stop === "peek" ? "拉开看全部 ⌃" : "收起 ⌄"}
+                {stop === "peek" ? "展开聊天" : "收起"}
               </button>
             </div>
           </div>
@@ -650,10 +638,7 @@ function MobileSelectedStoryWorkspace({
           />
 
           <MobileArchiveSheet
-            activeStoryId={activeStoryId}
             open={archiveOpen}
-            sourceText={mobileChatPeekReply(conversation)}
-            stories={stories}
             onOpenChange={setArchiveOpen}
           />
 

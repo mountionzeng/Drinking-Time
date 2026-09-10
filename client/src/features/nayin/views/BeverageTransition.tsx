@@ -98,7 +98,7 @@ function PourWave({ theme, index }: { theme: BeverageTheme; index: number }) {
       initial={{ top: '-120%' }}
       animate={{ top: ['- 120%', '0%', '0%', '120%'] }}
       transition={{
-        duration: 2.4,
+        duration: BEVERAGE_TRANSITION_SECONDS,
         times: [0, 0.35, 0.65, 1],
         delay: index * 0.15,
         ease: [0.22, 1, 0.36, 1],
@@ -107,15 +107,24 @@ function PourWave({ theme, index }: { theme: BeverageTheme; index: number }) {
   );
 }
 
+/**
+ * 换外形时的一层轻反馈。
+ *
+ * 原来是 2.4s 全屏 `pointer-events-auto` 遮罩：换个外形，整个界面两秒多点不动。
+ * 现在缩短到 0.5s，并且**不再拦截指针**——它只是反馈，不该把操作停住。
+ * 选择本身早已在 NayinContext 里立刻生效，跟这段动画没有关系。
+ */
+export const BEVERAGE_TRANSITION_SECONDS = 0.5;
+
 export default function BeverageTransition({ isActive, theme, onComplete }: BeverageTransitionProps) {
   return (
     <AnimatePresence>
       {isActive && (
         <motion.div
-          className="fixed inset-0 z-[100] pointer-events-auto overflow-hidden"
+          className="fixed inset-0 z-[100] pointer-events-none overflow-hidden"
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.18 }}
           onAnimationComplete={() => {
             // Give time for the full animation before calling complete
           }}
@@ -129,7 +138,7 @@ export default function BeverageTransition({ isActive, theme, onComplete }: Beve
             className="absolute inset-0 flex flex-col items-center justify-center z-10"
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 1, 1, 0] }}
-            transition={{ duration: 2.4, times: [0, 0.3, 0.7, 1] }}
+            transition={{ duration: BEVERAGE_TRANSITION_SECONDS, times: [0, 0.3, 0.7, 1] }}
             onAnimationComplete={onComplete}
           >
             {/* Glow ring behind emoji */}
@@ -205,7 +214,7 @@ export default function BeverageTransition({ isActive, theme, onComplete }: Beve
               initial={{ top: '-50px' }}
               animate={{ top: ['- 50px', '35%', '35%', '110%'] }}
               transition={{
-                duration: 2.4,
+                duration: BEVERAGE_TRANSITION_SECONDS,
                 times: [0, 0.35, 0.65, 1],
                 ease: [0.22, 1, 0.36, 1],
               }}

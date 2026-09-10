@@ -1,4 +1,4 @@
-import { Copy, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
+import { ArrowUp, Copy, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import {
   type KeyboardEvent,
   type FormEvent,
@@ -333,7 +333,7 @@ export function MobileChatView({
           style={
             replyMaxHeight ? { maxHeight: `${replyMaxHeight}px` } : undefined
           }
-          className="mx-3 mb-1 min-h-0 shrink-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border/70 bg-background/90 px-3.5 py-2.5 text-left text-[15px] leading-relaxed text-foreground shadow-sm"
+          className="mx-3 mb-1 min-h-0 shrink-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-[4px_16px_16px_16px] bg-muted px-4 py-3.5 text-left text-[15px] leading-[1.8] text-foreground"
         >
           {latestReply}
         </div>
@@ -379,7 +379,8 @@ export function MobileChatView({
             {controller.isSubmitting ? (
               <Loader2 aria-hidden="true" className="animate-spin" />
             ) : (
-              <Send aria-hidden="true" />
+              // 确认稿里发送是一支向上的箭头
+              <ArrowUp aria-hidden="true" />
             )}
             <span className="sr-only">发送</span>
           </Button>
