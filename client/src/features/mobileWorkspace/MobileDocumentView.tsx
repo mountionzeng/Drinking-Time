@@ -119,10 +119,13 @@ export function MobileDocumentView({
   controller,
   storyTitle,
   suppressConflictDialog = false,
+  onEditingChange,
 }: {
   controller: MobileDocumentController;
   storyTitle: string;
   suppressConflictDialog?: boolean;
+  /** 正文进入／离开编辑（输入框拿到／失去焦点）。外壳据此让聊天面板闪开。 */
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const [announcement, setAnnouncement] = useState("");
   const [dismissedConflictId, setDismissedConflictId] = useState<string | null>(
@@ -226,7 +229,9 @@ export function MobileDocumentView({
           placeholder="在这里继续正文…"
           spellCheck={false}
           value={controller.state.body}
+          onBlur={() => onEditingChange?.(false)}
           onChange={event => controller.editBody(event.target.value)}
+          onFocus={() => onEditingChange?.(true)}
         />
       </div>
 

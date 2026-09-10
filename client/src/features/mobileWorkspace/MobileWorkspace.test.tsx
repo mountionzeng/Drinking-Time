@@ -138,6 +138,50 @@ describe("MobileWorkspace", () => {
     expect(render(false)).not.toContain("聊聊 · 想着呢");
   });
 
+  // 真机（安卓 + 微信内置浏览器）：键盘一起来，常驻输入条加话语框把正文压掉
+  // 200 多像素，连正文自己的「保存正文」状态条都被盖住。写字的时候正文最大。
+  it("gets the chat sheet out of the way while the document is being edited", () => {
+    const render = (documentEditing: boolean) =>
+      renderToStaticMarkup(
+        <MobileWorkspaceFrame
+          activeView="document"
+          onViewChange={vi.fn()}
+          documentEditing={documentEditing}
+          documentView={<p>正文内容</p>}
+          chatView={() => <p>对话内容</p>}
+          hasPeekReply
+        />
+      );
+    const heightOf = (html: string) =>
+      Number(/height:([0-9.]+)px/.exec(html)?.[1] ?? 0);
+
+    const editing = render(true);
+    const idle = render(false);
+
+    // 话语框和常驻输入条都让开
+    expect(idle).toContain("对话内容");
+    expect(editing).not.toContain("对话内容");
+    expect(heightOf(editing)).toBeLessThan(heightOf(idle));
+
+    // 但小杯子留着：还看得见、还能点，点一下就回到聊天
+    expect(editing).toMatch(/<button[^>]*data-sheet-action="character"/);
+  });
+
+  // 聊天本来就展开着的时候不算「在写正文」——那会儿面板不该自己缩掉。
+  it("keeps the expanded chat open even if the document reports focus", () => {
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        activeView="chat"
+        onViewChange={vi.fn()}
+        documentEditing
+        documentView={<p>正文内容</p>}
+        chatView={() => <p>对话内容</p>}
+      />
+    );
+
+    expect(html).toContain("对话内容");
+  });
+
   // 话语框可以长，但不能长到把正文挤没——收起档还得像「收起」。
   it("caps the speech box so the collapsed sheet still leaves the document visible", () => {
     expect(peekReplyCap(812)).toBe(260);

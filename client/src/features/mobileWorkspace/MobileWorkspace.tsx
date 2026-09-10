@@ -90,6 +90,16 @@ type SheetStop = "peek" | "half" | "full";
 const SHEET_PEEK_PX = 128;
 
 /**
+ * 正在写正文时，聊天面板缩到只剩抬头这一条。
+ *
+ * 真机上（安卓 + 微信内置浏览器）键盘一起来，常驻输入条加话语框把正文压掉
+ * 200 多像素——连正文自己的「保存正文」状态条都被盖住。写字的时候正文最大。
+ *
+ * 但不是整块藏掉：小杯子留在这条上，还看得见、还能点，点一下就回到聊天。
+ */
+const SHEET_HANDLE_PX = 58;
+
+/**
  * 折叠档露出一条回信时先留的高度（还没量到真实高度时的起步值）。
  *
  * 128px 只够「抬头 + 输入条」。把回信也塞进去而不加高，输入框就会被顶出
@@ -126,6 +136,7 @@ export function MobileWorkspaceFrame({
   waitingForReply = false,
   /** 折叠档正在露一条回信——面板要相应留高，否则输入框会被挤出屏幕。 */
   hasPeekReply = false,
+  documentEditing = false,
   children,
   overlays,
   onOpenStories,
@@ -147,6 +158,8 @@ export function MobileWorkspaceFrame({
   }) => ReactNode;
   waitingForReply?: boolean;
   hasPeekReply?: boolean;
+  /** 正文正在被编辑：聊天面板让位，缩到只剩小杯子那条抬头。 */
+  documentEditing?: boolean;
   /** 没有 documentView 时的兜底内容（加载／空／错误态）。 */
   children?: ReactNode;
   /** 浮层：对话框、面板。永远渲染，不受 documentView 影响。 */
@@ -213,11 +226,16 @@ export function MobileWorkspaceFrame({
     onViewChange(nearest === "peek" ? "document" : "chat");
   };
 
+  // 写正文时让位，只在折叠档发生——聊天本来就展开着的时候不算「在写正文」。
+  const yieldingToDocument = documentEditing && stop === "peek";
   const replyCap = peekReplyCap(shellHeight());
-  const reservedReply = hasPeekReply
-    ? Math.min(peekReplyH || SHEET_REPLY_PEEK_PX, replyCap)
-    : 0;
-  const peekHeight = SHEET_PEEK_PX + reservedReply;
+  const reservedReply =
+    hasPeekReply && !yieldingToDocument
+      ? Math.min(peekReplyH || SHEET_REPLY_PEEK_PX, replyCap)
+      : 0;
+  const peekHeight = yieldingToDocument
+    ? SHEET_HANDLE_PX
+    : SHEET_PEEK_PX + reservedReply;
   const sheetHeight =
     dragHeight ??
     (stop === "peek"
@@ -333,6 +351,9 @@ export function MobileWorkspaceFrame({
                   activeView === "document" ? "拉开聊聊" : "收起聊聊"
                 }
                 className="-m-1 shrink-0 rounded-full p-1"
+                // 写正文时按下去不能夺走正文的焦点：一失焦面板就长回来，
+                // 抬头随之下移，手指落下时点到的已经不是杯子了。
+                onPointerDown={event => event.preventDefault()}
                 onClick={() =>
                   onViewChange(activeView === "document" ? "chat" : "document")
                 }
@@ -380,11 +401,13 @@ export function MobileWorkspaceFrame({
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
-            {chatView({
-              dense: stop === "peek",
-              replyMaxHeight: replyCap,
-              onReplyHeightChange: setPeekReplyH,
-            })}
+            {yieldingToDocument
+              ? null
+              : chatView({
+                  dense: stop === "peek",
+                  replyMaxHeight: replyCap,
+                  onReplyHeightChange: setPeekReplyH,
+                })}
           </div>
         </div>
         )}
@@ -593,6 +616,7 @@ function MobileSelectedStoryWorkspace({
   const conversation = useMobileConversation({ userId, storyId: activeStoryId });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const [documentEditing, setDocumentEditing] = useState(false);
   const [storyPanelOpen, setStoryPanelOpen] = useState(false);
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
@@ -646,11 +670,13 @@ function MobileSelectedStoryWorkspace({
       element={element}
       onOpenStories={() => setStoryPanelOpen(true)}
       onOpenAccount={() => setAccountOpen(true)}
+      documentEditing={documentEditing}
       documentView={
         <MobileDocumentView
           controller={document}
           storyTitle={story.title}
           suppressConflictDialog={pendingStoryId !== null}
+          onEditingChange={setDocumentEditing}
         />
       }
       waitingForReply={
