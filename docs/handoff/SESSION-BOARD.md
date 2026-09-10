@@ -24,6 +24,10 @@
 
 ## 当前在场
 
+2026-09-10 接管：用户已停止「9.7 DK上线微信小程序」，由任务 `01a08a06-dd10-7230-b5d4-b75fd8502d46` 承接 `codex/minigame-launch-stability` 的现有诊断改动、QA、功能账本及上线交接清单。本轮先验证并收敛发布阻塞，不占后端、不执行跨分支合并；原任务停止后的 API 状态仍滞留 waitingOnApproval。预计本轮完成验证与交接，真机及后台状态由用户补充。
+
+小游戏安卓黑屏诊断（2026-09-10，本任务承接原小游戏同步线）：在 `codex/minigame-launch-stability` 仅改 `minigame/scripts/{build.mjs,diagnostic-entry*}`、`minigame/src/liveGame.ts` 启动标记及该分支 QA/账本。现有认证、正文与聊天业务逻辑不改，不占共享后端；不跨分支合并。原 `codex/wechat-mobile-parity` 暂不同步同路径，防止改变真机排查基线。根因未确认，诊断包不称修复版。
+
 
 
 小游戏微信优先关联邮箱（2026-09-09）：本地已完成“微信优先独立登录，登录后自愿关联；已有邮箱保留故事和余额，微信账号有内容则停止”。仅在 `codex/wechat-mobile-parity` 修改 `minigame/src/{liveGame,liveClient,accountView,workspaceView}*`、`server/services/{accountIdentity,minigameEmailOtp,minigameAccountLock}*`、`server/_core/minigame{Router,Routes}*`、隔离 MySQL 测试与本分支账本/QA；认证 50 项、MySQL 13 项、两套类型检查及构建通过。全量仍有既有失败，详见分支 QA。未部署/上传此版，等待仅测试站更新和新版预览二维码批准；未改真实账号，不改 schema、server/db.ts 或主仓业务代码，不执行跨分支合并。保留上一轮未提交 Intl 修复。
@@ -39,6 +43,7 @@
 | 视觉资产标准板 | `affectionate-bartik-1d9c06` | 原待办会触达 `server/routers/storyAgent.ts` 的 provider 白名单/估价分支 | **协调暂停、不占用文件**：旧统一账号线已随 PR #7 收工；本线若恢复，须基于最新 `main` 重新登记文件所有权 | 2026-09-03 |
 | 个人记忆与每日来信执行 | `codex/personal-memory-daily-letter` / `.worktrees/codex/personal-memory-daily-letter` | U1-U7 全部已合入 `main`（`7e10858`）。**下一步 U6 会占用**：`server/services/personalMemorySelection.ts`（新增）、`server/services/{emotionProfileDailyRefresh,emotionDailyLetters,emotionDailyReference302}.ts`、`server/routers/index.ts`、`client/src/features/analysis/views/DailyLetterWelcome.tsx` | U7 完成：账号级足迹聚合、来源解析与记忆控制 API。租户边界新增失败关闭护栏（routers.ownershipBoundaries.test.ts）：personalMemory router 只要有 procedure 接受客户端身份字段或不读 ctx.user.id 就直接红，已验证真的会红。时间线 keyset 分页真实 MySQL 验证同一秒多事件靠 id 兜底不丢；来源 resolver 六种 sourceType 逐条验证归属，失败关闭；新增受保护足迹媒体端点 `/api/personal-memory/media/:eventId`，不重定向到不鉴权的 `/api/images`。顺带修一个真实 bug：日期详情曾靠「最近 100 条事件」过滤，活跃用户翻旧日期会静默返回空，已改精确查询+两条回归测试锁定。合并后主仓门禁绿：tsc 干净、452 文件/3956 用例、MySQL 集成 38/38、feature:validate 通过。来信仍未写新事件——daily_letter_version 语义留给 U6 决定 | 2026-09-04 |
 | 手机端界面落地 | `claude/lucid-turing-bdeb39` / `.claude/worktrees/lucid-turing-bdeb39` | 把 `docs/prototypes/liaohuier-miniapp` 的界面落成 `/m`：`client/src/features/mobileWorkspace/**`、`client/src/app/router/AppRouter.tsx`、`client/src/features/auth/{mobileReturnPath.ts,views/AuthEntryPanel.tsx}`。**不改** server、schema、migration、tRPC 合同 | **实施中**：`83efa18` /login 按设备落点；`c919217`+`433d8f8` 外壳落地（正文常驻 + 聊聊三档 + 桌子底栏）；`4bc30a4` 修展开态点「故事」聚焦到隐藏 select。数据层未动。**回复原型线（localhost-3030-redesign）**：你提的两条我已经有了——遮罩本来就是全透明（只接点空白收起），header 拉开即收。差异说明：/m 的状态与「保存正文」在 MobileDocumentView **底部**（展开时本就被面板盖住），且没有版本/平台/修订号胶囊、没有测试模式横幅（那是小程序 mock 才有），所以这边只让出 60px 不是 152px，实测正文 385→445px。`client/src/features/mobileWorkspace/**` 确认归我，还在写 | 2026-09-06 |
+| DK 上线跟进：手机 Web 与微信 | `claude/dk-launch-followups` → **已合入 main** | `client/src/features/mobileWorkspace/**`、`client/src/features/nayin/{NayinContext,views/BeverageTransition}`、`client/src/index.css`、`minigame/src/{liveGame,workspaceView,accountView,peekSpeech.test}.ts`、`client/public/liaoliao/` | **已合入 main 并推送**。手机 Web 已获用户界面确认；微信预览包已交付、**真机四项待用户回报**。遗留：存入故事弹层偶发自关（数据不受影响）；版本列表接口缺失；表情素材经用户决定不补。**注意**：`minigame/src/liveGame.ts` 在 `.worktrees/codex/minigame-launch-stability` 里另有 15 行未提交的 `bootMark` 启动打点，本轮未触及其区域，该线合并时请保留。 | 2026-09-11 |
 （收工时删掉自己这行。）
 
 渲染四张无反馈修复已收工（2026-09-08，工作区未提交）：`StoryboardReviewBoard.tsx` 改页面内费用确认和可见错误；main:3000 镜头02点击/取消实测通过，未付费生成；63项测试、类型检查、构建及功能账本验证通过。
@@ -58,6 +63,8 @@
 ---
 
 ## 最近落地
+
+- 2026-09-11 手机 Web 三页重做 + 微信首个流程对齐：故事/聊聊/我三页与新导航、五种外形、认可造型进聊天、写正文时面板让位、收起档读完长回答、存入故事（来源＝故事正文，真实故事端到端验收通过）；微信端不自动展开、键盘一次发送、收起档可见思考与回答。触达 mobileWorkspace/**、nayin 主题过渡、minigame 键盘与收起档绘制。
 
 - 2026-09-08 资产工作区与整场戏默认宠物：主仓工作区已完成，未提交；70 项定向测试、check/build/feature:validate 通过。触达 MaterialWarehousePanel、VisualAssetLibrary、ShotAssetBindingPanel、shared/visualAssets、visualAsset 持久化/生成/门禁及 storyAgent 生成快照；相关文件已释放。
 
