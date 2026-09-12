@@ -187,6 +187,20 @@ export default function AuthEntryPanel({
             </div>
           )}
 
+          <a
+            href="/api/auth/google"
+            className="flex h-10 w-full items-center justify-center rounded-md border bg-white text-sm font-medium text-neutral-800 transition-all hover:bg-neutral-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            style={{ borderColor: "var(--nayin-border)" }}
+          >
+            使用 Google 账号登录
+          </a>
+
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-border/70" />
+            <span className="text-[10px] text-muted-foreground">或使用邀请码</span>
+            <span className="h-px flex-1 bg-border/70" />
+          </div>
+
           <form onSubmit={handleInviteLogin} className="flex flex-col gap-3">
             <input
               type="email"

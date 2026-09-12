@@ -47,6 +47,7 @@ beforeAll(async () => {
   ENV.otpDigestSecret = "oauth-account-otp-secret";
   ENV.otpDigestSecretVersion = 1;
   ENV.accountAutoIdentityResolution = false;
+  ENV.googleClientId = "google-client-id-for-test";
 
   const app = express();
   app.use(express.json());
@@ -135,11 +136,14 @@ describe("现有邀请码登录链路（characterization）", () => {
     expect(wrong.status).toBe(401);
   });
 
-  it("内测期禁用 Google 登录直达", async () => {
+  it("内测期仍允许从登录页进入 Google 登录", async () => {
     const response = await fetch(`${baseUrl}/api/auth/google`, {
       redirect: "manual",
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain(
+      "https://accounts.google.com/o/oauth2/v2/auth"
+    );
   });
 
   it("邮箱格式非法时不进入任何后端逻辑", async () => {

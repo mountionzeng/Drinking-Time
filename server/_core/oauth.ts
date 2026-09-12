@@ -459,10 +459,6 @@ export function registerOAuthRoutes(app: Express) {
 
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
-    if (ENV.betaInviteRequired) {
-      res.status(403).json({ error: "invite_required" });
-      return;
-    }
     if (!ENV.googleClientId) {
       res
         .status(503)
@@ -511,11 +507,6 @@ export function registerOAuthRoutes(app: Express) {
 
       const { sub, email, name } = userRes.data;
       const openId = `google:${sub}`;
-      const existingUser = await db.getUserByOpenId(openId);
-      if (ENV.betaInviteRequired && !existingUser) {
-        res.redirect(302, "/login?error=invite_required");
-        return;
-      }
 
       await db.upsertUser({
         openId,
