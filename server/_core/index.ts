@@ -7,6 +7,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { sql } from "drizzle-orm";
 import { registerOAuthRoutes } from "./oauth";
 import { minigameRoutes } from "./minigameRoutes";
+import { shiguangBridgeRoutes } from "./shiguangBridgeRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -110,6 +111,7 @@ async function startServer() {
   );
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use('/api/minigame', minigameRoutes());
+  app.use('/api/shiguang', shiguangBridgeRoutes());
   app.use(
     "/api",
     createRequestOriginMiddleware({

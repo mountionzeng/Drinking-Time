@@ -2596,6 +2596,39 @@ export async function listUserStories(
   return rows.map(toListItem);
 }
 
+export async function listUserStorySummariesPage(
+  userId: number,
+  offset: number,
+  limit: number
+): Promise<{
+  stories: Array<Pick<Story, "id" | "title">>;
+  nextOffset: number | null;
+}> {
+  const pageSize = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const start = Math.max(0, Math.trunc(offset));
+  const db = await getDb();
+  const rows = db
+    ? await db
+        .select({ id: stories.id, title: stories.title })
+        .from(stories)
+        .where(eq(stories.userId, userId))
+        .orderBy(desc(stories.updatedAt), desc(stories.id))
+        .limit(pageSize + 1)
+        .offset(start)
+    : memoryState.stories
+        .filter(story => story.userId === userId)
+        .sort((left, right) =>
+          right.updatedAt.getTime() - left.updatedAt.getTime() || right.id - left.id
+        )
+        .slice(start, start + pageSize + 1)
+        .map(({ id, title }) => ({ id, title }));
+  const hasMore = rows.length > pageSize;
+  return {
+    stories: rows.slice(0, pageSize),
+    nextOffset: hasMore ? start + pageSize : null,
+  };
+}
+
 export async function getStoryById(
   id: number,
   userId: number
