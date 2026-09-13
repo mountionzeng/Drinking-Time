@@ -1,6 +1,8 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import axios from "axios";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { parse as parseCookieHeader } from "cookie";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import {
@@ -17,7 +19,12 @@ import {
   issueEmailOtp,
   setAccountPassword,
   verifyEmailOtp,
+  resolveForLogin,
 } from "../services/accountIdentity";
+import {
+  buildSupabaseGoogleAuthorizeUrl,
+  verifySupabaseGoogleToken,
+} from "../services/supabaseGoogleAuth";
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -31,6 +38,8 @@ const ACCOUNT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** 余额不足、需要人工处理时向用户显示的负责人邮箱。 */
 const OWNER_CONTACT_EMAIL = "mountionzeng@gmail.com";
+const GOOGLE_OAUTH_STATE_COOKIE = "dt_google_oauth_state";
+const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 function clientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
@@ -452,13 +461,39 @@ export function registerOAuthRoutes(app: Express) {
     const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
     res.setHeader("Cache-Control", "no-store");
     res.json({
-      configured: Boolean(ENV.googleClientId && ENV.googleClientSecret),
+      configured: Boolean(
+        (ENV.supabaseAuthUrl && ENV.supabaseAuthPublishableKey) ||
+          (ENV.googleClientId && ENV.googleClientSecret)
+      ),
       redirectUri,
     });
   });
 
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
+    if (ENV.supabaseAuthUrl && ENV.supabaseAuthPublishableKey) {
+      const state = randomBytes(24).toString("base64url");
+      const returnTo = getQueryParam(req, "returnTo") === "/m" ? "/m" : null;
+      const callbackUrl = new URL(
+        "/auth/supabase/callback",
+        getOrigin(req)
+      );
+      callbackUrl.searchParams.set("state", state);
+      if (returnTo) callbackUrl.searchParams.set("returnTo", returnTo);
+      res.cookie(GOOGLE_OAUTH_STATE_COOKIE, state, {
+        ...getSessionCookieOptions(req),
+        path: "/api/auth/supabase/complete",
+        maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
+      });
+      res.redirect(
+        302,
+        buildSupabaseGoogleAuthorizeUrl({
+          supabaseUrl: ENV.supabaseAuthUrl,
+          callbackUrl: callbackUrl.toString(),
+        })
+      );
+      return;
+    }
     if (ENV.betaInviteRequired) {
       res.status(403).json({ error: "invite_required" });
       return;
@@ -478,6 +513,64 @@ export function registerOAuthRoutes(app: Express) {
     url.searchParams.set("prompt", "select_account");
     res.redirect(302, url.toString());
   });
+
+  app.post(
+    "/api/auth/supabase/complete",
+    async (req: Request, res: Response) => {
+      const suppliedState =
+        typeof req.body?.state === "string" ? req.body.state : "";
+      const accessToken =
+        typeof req.body?.accessToken === "string" ? req.body.accessToken : "";
+      const expectedState =
+        parseCookieHeader(req.headers.cookie ?? "")[
+          GOOGLE_OAUTH_STATE_COOKIE
+        ] ?? "";
+      const stateMatches =
+        suppliedState.length === expectedState.length &&
+        suppliedState.length > 0 &&
+        timingSafeEqual(Buffer.from(suppliedState), Buffer.from(expectedState));
+      res.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, {
+        ...getSessionCookieOptions(req),
+        path: "/api/auth/supabase/complete",
+      });
+      if (!stateMatches || !accessToken) {
+        res.status(401).json({ error: "invalid_oauth_state" });
+        return;
+      }
+
+      try {
+        const identity = await verifySupabaseGoogleToken({
+          supabaseUrl: ENV.supabaseAuthUrl,
+          publishableKey: ENV.supabaseAuthPublishableKey,
+          accessToken,
+        });
+        const resolution = await resolveForLogin(identity.email);
+        if (
+          resolution.kind === "conflict" ||
+          resolution.kind === "needs_manual_mapping"
+        ) {
+          respondNeedsManualMapping(res);
+          return;
+        }
+        if (
+          resolution.kind === "new" &&
+          ENV.googleInviteRequired &&
+          !(await db.hasRedeemedInviteForEmail(identity.email))
+        ) {
+          res.status(403).json({ error: "invite_required" });
+          return;
+        }
+        await establishAccountSession(req, res, {
+          email: identity.email,
+          userId: resolution.kind === "known" ? resolution.userId : null,
+        });
+        res.json({ ok: true });
+      } catch (error) {
+        console.error("[Supabase Google OAuth] Completion failed", error);
+        res.status(401).json({ error: "oauth_failed" });
+      }
+    }
+  );
 
   app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");

@@ -1,7 +1,16 @@
 import express from "express";
+import axios from "axios";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   createInviteCode,
@@ -47,6 +56,7 @@ beforeAll(async () => {
   ENV.otpDigestSecret = "oauth-account-otp-secret";
   ENV.otpDigestSecretVersion = 1;
   ENV.accountAutoIdentityResolution = false;
+  ENV.googleInviteRequired = true;
 
   const app = express();
   app.use(express.json());
@@ -67,6 +77,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetMemoryStateForTesting();
+  ENV.supabaseAuthUrl = "";
+  ENV.supabaseAuthPublishableKey = "";
+  vi.restoreAllMocks();
 });
 
 /**
@@ -402,5 +415,114 @@ describe("统一账号端点（U4）", () => {
       error: "account_needs_manual_setup",
       contactEmail: "mountionzeng@gmail.com",
     });
+  });
+});
+
+describe("Supabase 托管 Google 登录", () => {
+  const email = "google-member@example.com";
+
+  beforeEach(async () => {
+    ENV.supabaseAuthUrl = "https://project.supabase.co";
+    ENV.supabaseAuthPublishableKey = "sb_publishable_test";
+    await upsertUser({
+      openId: `email:${email}`,
+      email,
+      loginMethod: "email",
+    });
+    const user = await getUserByOpenId(`email:${email}`);
+    await linkEmailIdentity({ userId: user!.id, email });
+  });
+
+  it("建立一次性状态后才跳转到 Supabase Google", async () => {
+    const response = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
+    const location = new URL(response.headers.get("location")!);
+    expect(response.status).toBe(302);
+    expect(location.origin).toBe("https://project.supabase.co");
+    expect(location.pathname).toBe("/auth/v1/authorize");
+    expect(location.searchParams.get("provider")).toBe("google");
+    expect(response.headers.get("set-cookie")).toMatch(
+      /dt_google_oauth_state=.*Path=\/api\/auth\/supabase\/complete.*HttpOnly/i
+    );
+  });
+
+  it("只把受支持的手机返回路径带过托管授权", async () => {
+    const response = await fetch(
+      `${baseUrl}/api/auth/google?returnTo=${encodeURIComponent("/m")}`,
+      { redirect: "manual" }
+    );
+    const authorizeUrl = new URL(response.headers.get("location")!);
+    const callbackUrl = new URL(authorizeUrl.searchParams.get("redirect_to")!);
+    expect(callbackUrl.pathname).toBe("/auth/supabase/callback");
+    expect(callbackUrl.searchParams.get("returnTo")).toBe("/m");
+
+    const unsafeResponse = await fetch(
+      `${baseUrl}/api/auth/google?returnTo=${encodeURIComponent("https://evil.example")}`,
+      { redirect: "manual" }
+    );
+    const unsafeAuthorizeUrl = new URL(
+      unsafeResponse.headers.get("location")!
+    );
+    const unsafeCallbackUrl = new URL(
+      unsafeAuthorizeUrl.searchParams.get("redirect_to")!
+    );
+    expect(unsafeCallbackUrl.searchParams.has("returnTo")).toBe(false);
+  });
+
+  it("拒绝没有匹配状态 Cookie 的令牌", async () => {
+    const response = await post("/api/auth/supabase/complete", {
+      state: "forged-state",
+      accessToken: "token",
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "invalid_oauth_state" });
+  });
+
+  it("拒绝没有领取邀请的新 Google 邮箱", async () => {
+    vi.spyOn(axios, "get").mockResolvedValue({
+      data: {
+        id: "supabase-new-user",
+        email: "new-google-user@example.com",
+        email_confirmed_at: "2026-09-13T00:00:00Z",
+        app_metadata: { providers: ["google"] },
+      },
+    });
+    const started = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
+    const cookie = started.headers.get("set-cookie")!;
+    const state = /dt_google_oauth_state=([^;]+)/.exec(cookie)![1];
+    const response = await post(
+      "/api/auth/supabase/complete",
+      { state, accessToken: "supabase-access-token" },
+      { Cookie: `dt_google_oauth_state=${state}` }
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "invite_required" });
+  });
+
+  it("验证 Supabase Google 邮箱后进入原账号", async () => {
+    vi.spyOn(axios, "get").mockResolvedValue({
+      data: {
+        id: "supabase-google-user",
+        email,
+        email_confirmed_at: "2026-09-13T00:00:00Z",
+        app_metadata: { providers: ["google"] },
+      },
+    });
+    const started = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
+    const cookie = started.headers.get("set-cookie")!;
+    const state = /dt_google_oauth_state=([^;]+)/.exec(cookie)![1];
+    const response = await post(
+      "/api/auth/supabase/complete",
+      { state, accessToken: "supabase-access-token" },
+      { Cookie: `dt_google_oauth_state=${state}` }
+    );
+    expect(response.status).toBe(200);
+    const session = await sdk.verifySession(sessionCookieFrom(response));
+    expect(session?.openId).toBe(`email:${email}`);
   });
 });

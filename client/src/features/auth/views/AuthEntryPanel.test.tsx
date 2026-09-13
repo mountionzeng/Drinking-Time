@@ -53,6 +53,13 @@ describe("AuthEntryPanel", () => {
     expect(html).toContain('<details class="group">');
   });
 
+  it("手机入口把受控返回路径带到 Google 登录", () => {
+    const html = renderToStaticMarkup(
+      <AuthEntryPanel returnPath="/m" variant="email" />
+    );
+    expect(html).toContain('href="/api/auth/google?returnTo=%2Fm"');
+  });
+
   it("已记住邮箱时仍然要求填写专属邀请码", () => {
     vi.stubGlobal("window", {
       location: { search: "" },

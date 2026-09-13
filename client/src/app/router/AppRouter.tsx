@@ -5,6 +5,7 @@ import LoginPage from "@/pages/LoginPage";
 import MobileWorkspacePage from "@/pages/MobileWorkspacePage";
 import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
 import PersonalMemoryPage from "@/pages/PersonalMemoryPage";
+import SupabaseAuthCallbackPage from "@/pages/SupabaseAuthCallbackPage";
 import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
@@ -66,6 +67,9 @@ function AdminGuard({ children }: { children: ReactNode }) {
 export default function AppRouter() {
   return (
     <Switch>
+      <Route path="/auth/supabase/callback">
+        <SupabaseAuthCallbackPage />
+      </Route>
       <Route path="/login">
         <LoginEntry />
       </Route>

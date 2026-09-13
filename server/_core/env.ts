@@ -145,6 +145,10 @@ export const ENV = {
   // ── Google OAuth ──
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", // Google OAuth Client ID
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "", // Google OAuth Client Secret
+  supabaseAuthUrl: process.env.SUPABASE_AUTH_URL ?? "",
+  supabaseAuthPublishableKey: process.env.SUPABASE_AUTH_PUBLISHABLE_KEY ?? "",
+  // Google 首次登录默认仍要求邮箱已领取邀请；只有显式 false 才开放注册。
+  googleInviteRequired: process.env.GOOGLE_INVITE_REQUIRED !== "false",
   appOrigin: process.env.APP_ORIGIN ?? "", // 应用 origin（如 https://example.com）
   cspMediaOrigins: process.env.CSP_MEDIA_ORIGINS ?? "", // 生产图片/音视频 HTTPS origin 白名单
 

@@ -54,6 +54,9 @@ export default function AuthEntryPanel({
   const betaWechatId = import.meta.env.VITE_BETA_WECHAT_ID?.trim();
   const params = new URLSearchParams(window.location.search);
   const oauthError = params.get("error");
+  const googleLoginHref = returnPath
+    ? `/api/auth/google?returnTo=${encodeURIComponent(returnPath)}`
+    : "/api/auth/google";
 
   useEffect(() => {
     mountedRef.current = true;
@@ -258,7 +261,7 @@ export default function AuthEntryPanel({
         >
           <>
             <a
-              href="/api/auth/google"
+              href={googleLoginHref}
               className="flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               使用 Google 账号登录

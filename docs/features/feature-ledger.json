@@ -3088,7 +3088,9 @@
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
         "client/src/features/nayin/views/DailyDrinkHero.tsx",
-        "client/src/assets/fonts/honglei-zhuoshu-brand.ttf"
+        "client/src/assets/fonts/honglei-zhuoshu-brand.ttf",
+        "server/services/supabaseGoogleAuth.ts",
+        "client/src/pages/SupabaseAuthCallbackPage.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3113,6 +3115,7 @@
         "client/src/app/router/AppRouter.test.tsx",
         "client/src/font-loading.test.ts",
         "client/src/features/nayin/views/DailyDrinkHero.test.ts",
+        "server/services/supabaseGoogleAuth.test.ts",
         "docs/qa/2026-09-13-shiguang-login-staging.md"
       ],
       "invariants": [
@@ -3134,7 +3137,7 @@
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
-        "2026-09-13 新登录布局已发测试站，Google选账号后回调失败：服务器连接oauth2.googleapis.com:443超时。需恢复服务器到Google的连通性并重测真实会话。邮箱验证码真实发送、移动端完整验收、Google与邮箱账号统一映射均未在本轮验证；正式站未发布。"
+        "Supabase 托管 Google 登录已在测试站通过真实账号验收并进入原 userId，原有 2 个故事和余额可见；其他新 Google 邮箱的邀请限制已有自动化测试但未用第二个真实账号手测。邮箱验证码真实发送、移动端完整验收仍未在本轮验证；正式站未发布。"
       ],
       "history": [
         {
@@ -3176,6 +3179,16 @@
           "date": "2026-09-13",
           "kind": "verification",
           "summary": "用户明确批准后，仅在测试站33b5cc8加既有增量基线上发布登录相关四个前端文件并保留既有欢迎页Google入口；先备份、校验、独占锁、独立构建，再原子替换HTML，旧资源保留，后端哈希不变。公网health/readiness通过，新页面视觉通过。真实Google账号选择后回调oauth_failed，日志显示连接oauth2.googleapis.com:443 ETIMEDOUT，服务器直接连接也超时；Google登录未验收成功。详见QA记录，正式站未改。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "fix",
+          "summary": "针对阿里云测试服务器无法连接 Google token 接口，新增 Supabase 托管 Google 授权：浏览器从 Supabase 完成 Google 认证，后端用一次性 HttpOnly state 校验回调并向 Supabase 验证令牌，只接受已确认的 Google 邮箱。已知邮箱通过 accountIdentity 进入原 userId，冲突或需人工映射时失败关闭，新邮箱默认仍须已领取邀请；手机 /m 返回路径受白名单限制。定向测试、类型检查与构建通过后方可部署，真实测试站授权仍待 Supabase 回调配置与浏览器验收。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "verification",
+          "summary": "在 berichmyfriend-prod Supabase Auth 中仅新增测试站回调白名单，测试站配置项目 URL、publishable key 与 GOOGLE_INVITE_REQUIRED=true；备份源码、环境和 dist 后构建并重启 staging PM2，health/readiness 通过。真实 Google 邮箱首次被安全闸门拦下；核对测试 MySQL 后确认它只对应 userId 1，且该账号有 1 个项目和 2 个故事，遂按用户要求建立唯一 email identity。重新登录成功进入 /editing，余额 ¥20.00、故事菜单 2 个故事均可见。正式站未改。"
         }
       ]
     },
