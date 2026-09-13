@@ -3137,7 +3137,7 @@
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
-        "Supabase 托管 Google 登录已在测试站通过真实账号验收并进入原 userId，原有 2 个故事和余额可见；其他新 Google 邮箱的邀请限制已有自动化测试但未用第二个真实账号手测。邮箱验证码真实发送、移动端完整验收仍未在本轮验证；正式站未发布。"
+        "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。"
       ],
       "history": [
         {
@@ -3189,6 +3189,11 @@
           "date": "2026-09-13",
           "kind": "verification",
           "summary": "在 berichmyfriend-prod Supabase Auth 中仅新增测试站回调白名单，测试站配置项目 URL、publishable key 与 GOOGLE_INVITE_REQUIRED=true；备份源码、环境和 dist 后构建并重启 staging PM2，health/readiness 通过。真实 Google 邮箱首次被安全闸门拦下；核对测试 MySQL 后确认它只对应 userId 1，且该账号有 1 个项目和 2 个故事，遂按用户要求建立唯一 email identity。重新登录成功进入 /editing，余额 ¥20.00、故事菜单 2 个故事均可见。正式站未改。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "feature",
+          "summary": "用户明确要求测试站允许所有 Google 账号直接注册。仅将 staging 的 GOOGLE_INVITE_REQUIRED 设为 false，保留代码默认邀请制与正式站配置；备份环境并重启 staging 后 health/readiness 通过。用第二个真实 Google 邮箱完成授权，成功创建独立账号进入 /editing，余额 ¥0.00 且无故事，未看到原账号的 ¥20.00 与 2 个故事。新增回归测试覆盖开放环境的新账号创建和会话签发，同时保留邀请制及历史账号映射安全闸门。"
         }
       ]
     },

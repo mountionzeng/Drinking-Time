@@ -40,3 +40,9 @@
 第一次真实 Google 回调被账号安全闸门按设计拦下。只读核对测试 MySQL：已验证邮箱仅对应 `userId=1`，该账号有 1 个项目和 2 个故事，没有第二个候选身份；随后为这个唯一用户登记 email identity。第二次真实登录成功进入 `/editing`，页面显示余额 ¥20.00，故事菜单显示 2 个原有故事，其中当前故事正文与聊天内容可见。
 
 最终验证：Supabase 托管授权、一次性 state、服务端令牌验证、拾光会话建立、原账号映射和原故事读取均通过。自动化共 40 项通过，功能账本、TypeScript 和生产构建通过。新的未受邀请 Google 邮箱由自动化测试确认返回 `invite_required`，本轮没有使用第二个真实 Google 账号手测；邮箱验证码真实发送、微信扫码和正式站发布仍不在本次范围。
+
+## 测试站开放 Google 注册
+
+用户明确要求测试站允许所有 Google 账号直接注册。仅将测试站 `/opt/Drinking-Time-mobile-staging/.env` 的 `GOOGLE_INVITE_REQUIRED` 改为 `false`，修改前备份为 `/opt/Drinking-Time-mobile-staging/.env.before-open-google-20260913-184229`；随后使用 `pm2 restart drinking-time-mobile-staging --update-env` 载入配置。重启后的 `/healthz` 返回 `ok`，`/readyz` 返回 MySQL ready、authentication required。正式站及代码默认值均未修改，未显式设为 `false` 的环境仍要求邀请。
+
+使用第二个真实 Google 邮箱 `janezeng82@gmail.com` 完成授权和回调，成功进入 `/editing`。页面显示余额 ¥0.00、“当前账号 · 云端故事库”和“还没有故事”，没有显示原账号 `mountionzeng@gmail.com` 的 ¥20.00 或 2 个故事，证明新邮箱建立了独立账号且数据隔离。回归测试同时覆盖：邀请制环境继续拒绝未受邀新邮箱，开放环境为已确认的全新 Google 邮箱建立账号和会话；历史邮箱冲突及人工映射安全闸门保持不变。

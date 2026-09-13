@@ -79,6 +79,7 @@ beforeEach(() => {
   resetMemoryStateForTesting();
   ENV.supabaseAuthUrl = "";
   ENV.supabaseAuthPublishableKey = "";
+  ENV.googleInviteRequired = true;
   vi.restoreAllMocks();
 });
 
@@ -500,6 +501,36 @@ describe("Supabase 托管 Google 登录", () => {
     );
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "invite_required" });
+  });
+
+  it("开放 Google 注册时为新邮箱建立独立账号会话", async () => {
+    const newEmail = "new-google-user@example.com";
+    ENV.googleInviteRequired = false;
+    vi.spyOn(axios, "get").mockResolvedValue({
+      data: {
+        id: "supabase-new-user",
+        email: newEmail,
+        email_confirmed_at: "2026-09-13T00:00:00Z",
+        app_metadata: { providers: ["google"] },
+      },
+    });
+    const started = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
+    const cookie = started.headers.get("set-cookie")!;
+    const state = /dt_google_oauth_state=([^;]+)/.exec(cookie)![1];
+    const response = await post(
+      "/api/auth/supabase/complete",
+      { state, accessToken: "supabase-access-token" },
+      { Cookie: `dt_google_oauth_state=${state}` }
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const user = await getUserByOpenId(`email:${newEmail}`);
+    expect(user?.email).toBe(newEmail);
+    const session = await sdk.verifySession(sessionCookieFrom(response));
+    expect(session?.openId).toBe(`email:${newEmail}`);
   });
 
   it("验证 Supabase Google 邮箱后进入原账号", async () => {
