@@ -1,7 +1,7 @@
 import { createMinigameRouter } from './minigameRouter';
 import { dispatchMinigameWorkspace } from './minigameWorkspace';
 import { requestMinigameEmailOtp, verifyMinigameEmailOtp, requestMinigameLinkEmailOtp } from '../services/minigameEmailOtp';
-import { completeMinigameEmailLink, allowMinigameEmailOtpVerify } from '../services/accountIdentity';
+import { completeMinigameEmailLink, allowMinigameEmailOtpVerify, issuePairingCode } from '../services/accountIdentity';
 import { withMinigameAccountLock } from '../services/minigameAccountLock';
 import { ENV } from './env';
 import { authenticateWithPassword, accountDatabaseReady, getAccountSessionPrincipal, allowMinigameAuthAttempt } from '../services/accountIdentity';
@@ -55,6 +55,7 @@ export function minigameRoutes() {
       }
       return bindWechatAccount(userId, result.identity.subject);
     },
+    issuePairing: userId => issuePairingCode({ userId }),
     stories: listOwnedStorySummaries,
     document: readOwnedStoryBody,
   });

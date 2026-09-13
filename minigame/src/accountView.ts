@@ -10,7 +10,8 @@ export function renderAccount(
   view: WorkspaceView,
   email: string,
   screen: "account" | "statement" | "letter" | "letterEdit" | "linkEmail",
-  link = { email: "", otp: "", busy: false, message: "" }
+  link = { email: "", otp: "", busy: false, message: "" },
+  desktopPairing: { code: string; expiresAt: string } | null = null
 ) {
   const hits: Hit[] = [],
     paper = "#faf7f1",
@@ -73,6 +74,16 @@ export function renderAccount(
     if (link.message) para(link.message, 14, "#9b493e");
   } else if (screen === "account") {
     para(email || "微信账号", 14, muted);
+    para("在电脑上继续", 20);
+    if (desktopPairing) {
+      para(desktopPairing.code, 28, view.accent);
+      para("5 分钟内在电脑登录页输入，只能使用一次。", 13, muted);
+      action("复制电脑登录码", "copyDesktopPair");
+      action("重新生成登录码", "desktopPair");
+    } else {
+      para("生成一次性短码，把这个账号的故事带到电脑做视频。", 13, muted);
+      action("生成电脑登录码", "desktopPair");
+    }
     if (!email && view.wechat) {
       action("关联邮箱 / 已有账号", "linkEmail");
       para("可选，不影响当前微信账号的使用。", 13, muted);

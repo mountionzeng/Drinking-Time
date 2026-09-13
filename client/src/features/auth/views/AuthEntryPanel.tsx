@@ -15,7 +15,7 @@ import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEnt
 type AuthEntryPanelProps = {
   autofocus?: boolean;
   returnPath?: string | null;
-  variant?: "legacy" | "email";
+  variant?: "legacy" | "email" | "pairing";
 };
 
 const REMEMBERED_EMAIL_KEY = "dt:rememberedLoginEmail";
@@ -33,7 +33,8 @@ export default function AuthEntryPanel({
   returnPath = null,
   variant = "legacy",
 }: AuthEntryPanelProps) {
-  const compact = variant === "email";
+  const compact = variant !== "legacy";
+  const pairingOnly = variant === "pairing";
   const { refresh } = useAuth();
   const [, navigate] = useLocation();
   const mountedRef = useRef(true);
@@ -207,7 +208,9 @@ export default function AuthEntryPanel({
             ? "试得太频繁了，过一会儿再来"
             : data.error === "not_configured"
               ? "服务端还没配好配对码"
-              : "配对码无效或已过期，去电脑上重新生成一个"
+              : pairingOnly
+                ? "登录码无效或已过期，请回微信重新生成"
+                : "配对码无效或已过期，去已登录的设备重新生成"
         );
         return;
       }
@@ -259,7 +262,7 @@ export default function AuthEntryPanel({
               : "monitor-panel-body flex flex-col gap-3.5 p-5"
           }
         >
-          <>
+          {!pairingOnly && <>
             <a
               href={googleLoginHref}
               className="flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -271,7 +274,6 @@ export default function AuthEntryPanel({
               {compact ? "或使用邮箱" : "或使用邀请码"}
               <span className="h-px flex-1 bg-border" />
             </div>
-          </>
           {oauthError && (
             <div
               className="rounded-md px-3 py-2 text-center text-xs"
@@ -402,7 +404,7 @@ export default function AuthEntryPanel({
             </button>
           </form>
 
-          {compact ? (
+          {variant === "email" ? (
             codeSent && (
               <p
                 role="status"
@@ -420,22 +422,36 @@ export default function AuthEntryPanel({
                 : "还没有邀请码，请联系邀请你来测试的人。"}
             </p>
           )}
+          </>}
 
-          <details open={compact ? undefined : true} className="group">
+          <details open={pairingOnly ? true : compact ? undefined : true} className="group">
             <summary
               className={
-                compact
+                pairingOnly
+                  ? "hidden"
+                  : compact
                   ? "cursor-pointer py-2 text-center text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   : "hidden"
               }
             >
               用其他设备的配对码登录
             </summary>
-            <div className="flex items-center gap-3 pt-1">
-              <span className="h-px flex-1 bg-border/70" />
-              <span className="text-[10px] text-muted-foreground">或</span>
-              <span className="h-px flex-1 bg-border/70" />
-            </div>
+            {pairingOnly ? (
+              <div className="mb-5 text-center">
+                <h2 className="text-base font-medium">打开微信里的故事</h2>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  微信端拾光 → 我 → 在电脑上继续
+                  <br />
+                  生成一次性登录码后填在这里
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 pt-1">
+                <span className="h-px flex-1 bg-border/70" />
+                <span className="text-[10px] text-muted-foreground">或</span>
+                <span className="h-px flex-1 bg-border/70" />
+              </div>
+            )}
 
             <form
               onSubmit={handlePairingLogin}
@@ -446,8 +462,8 @@ export default function AuthEntryPanel({
                 autoCapitalize="characters"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder="配对码"
-                aria-label="配对码"
+                placeholder={pairingOnly ? "6 位电脑登录码" : "配对码"}
+                aria-label={pairingOnly ? "电脑登录码" : "配对码"}
                 value={pairingCode}
                 onChange={e =>
                   setPairingCode(
@@ -480,12 +496,18 @@ export default function AuthEntryPanel({
                   borderColor: "var(--nayin-border)",
                 }}
               >
-                {pairingLoading ? "配对中…" : "用配对码登录"}
+                {pairingLoading
+                  ? "正在连接…"
+                  : pairingOnly
+                    ? "打开微信故事"
+                    : "用配对码登录"}
               </button>
             </form>
 
             <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-              在已登录的电脑上点右上角头像 →「手机登录」生成，五分钟内有效。
+              {pairingOnly
+                ? "登录码五分钟内有效，只能使用一次。连接后在云端故事库选择故事。"
+                : "在另一台已登录设备上生成，五分钟内有效。"}
             </p>
           </details>
         </div>

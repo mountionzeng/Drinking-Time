@@ -1,8 +1,10 @@
 export type StoryEntry = { id: number; title: string };
+export type DesktopPairing = { code: string; expiresAt: string };
 import type { GameWorkspaceOperation } from '../../shared/minigameWorkspace';
 export type LiveState = {
   authenticated: boolean; busy: boolean; error: string;
   stories: StoryEntry[]; document: { title: string; body: string; bodyAvailable: boolean } | null;
+  desktopPairing: DesktopPairing | null;
 };
 export type GameRequest = (path: string, method: 'GET' | 'POST', data: unknown, token: string) => Promise<{ status: number; data: any }>;
 export const gameErrors: Record<string, string> = {
@@ -27,6 +29,8 @@ export const gameErrors: Record<string, string> = {
   needs_manual_mapping: '此旧邮箱账号需要管理员确认归属，内容没有移动。',
   email_already_linked: '当前账号已关联其他邮箱，不能直接替换。',
   not_found: '故事不存在或当前账号无权查看。',
+  not_configured: '电脑连接码暂未开通，请稍后再试。',
+  confirmation_required: '请先确认由这台微信授权电脑登录。',
   api_not_deployed: '测试站还没有小游戏接口，请等待服务端部署。',
 };
 
@@ -36,9 +40,9 @@ export function createLiveClient(request: GameRequest, changed: (state: LiveStat
   let expiresAt = 0;
   let epoch = 0;
   let selection = 0;
-  let state: LiveState = { authenticated: false, busy: false, error: '', stories: [], document: null };
+  let state: LiveState = { authenticated: false, busy: false, error: '', stories: [], document: null, desktopPairing: null };
   function emit(patch: Partial<LiveState>) { state = { ...state, ...patch }; changed(state); }
-  function clear() { token = ''; expiresAt = 0; epoch++; selection++; emit({ authenticated: false, busy: false, error: '', stories: [], document: null }); }
+  function clear() { token = ''; expiresAt = 0; epoch++; selection++; emit({ authenticated: false, busy: false, error: '', stories: [], document: null, desktopPairing: null }); }
   async function call(path: string, method: 'GET' | 'POST', data: unknown, expected: number) {
     const result = await request(path, method, data, token);
     if (epoch !== expected) throw new Error('stale');
@@ -107,6 +111,14 @@ export function createLiveClient(request: GameRequest, changed: (state: LiveStat
     requestLinkEmailOtp: (email: string) => run(async expected => {
       await call('/bind/email/otp/request', 'POST', { email, confirm: true }, expected);
       emit({ error: '关联验证码已发送，请查看邮箱。' });
+    }),
+    issueDesktopPairing: () => run(async expected => {
+      const result = await call('/pair/issue', 'POST', { confirm: true }, expected);
+      if (typeof result.code !== 'string' || !/^[A-Z2-9]{6}$/.test(result.code) ||
+        typeof result.expiresAt !== 'string' || !Number.isFinite(Date.parse(result.expiresAt))) {
+        throw new Error('api_not_deployed');
+      }
+      emit({ desktopPairing: { code: result.code, expiresAt: result.expiresAt } });
     }),
     async linkEmail(email: string, otp: string, code: string) {
       let linked = false;

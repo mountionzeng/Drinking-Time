@@ -171,3 +171,42 @@ it("makes the end of a long statement reachable through body scrolling", () => {
   renderAccount(ctx, 390, 844, state, view, "", "statement");
   expect(drawn.join(" ")).toContain("账单说明已到底");
 });
+
+it("shows the one-use desktop login code only after WeChat has issued it", () => {
+  const drawn: string[] = [];
+  const ctx = {
+    font: "",
+    fillStyle: "",
+    fillRect: vi.fn(),
+    fillText: (value: string) => drawn.push(value),
+    measureText: (value: string) => ({ width: value.length * 8 }),
+  };
+  const state = {
+    busy: false,
+    error: "",
+    profile: null,
+    letters: [],
+    date: "2026-09-13",
+    balance: null,
+    statementBusy: false,
+    statementError: "",
+    statement: null,
+    fields: { birthDate: "", birthTime: "", birthPlace: "", currentLocation: "", userMessage: "" },
+    messageDraft: "",
+    profileLoaded: false,
+  } satisfies AccountWorkspaceState;
+  const view = {
+    screen: "account", stop: "peek", offset: 0, chatOffset: 0, peekReplyOffset: 0,
+    listOffset: 0, safeTop: 0, safeBottom: 0, keyboardHeight: 0, accent: "#927342",
+    character: null, font: "serif", wechat: true, dragTop: null,
+  } satisfies WorkspaceView;
+
+  renderAccount(ctx, 390, 844, state, view, "", "account", undefined, {
+    code: "7K9MPQ",
+    expiresAt: "2026-09-13T12:05:00.000Z",
+  });
+
+  expect(drawn).toContain("在电脑上继续");
+  expect(drawn).toContain("7K9MPQ");
+  expect(drawn).toContain("复制电脑登录码");
+});

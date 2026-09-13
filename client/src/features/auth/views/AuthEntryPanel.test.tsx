@@ -60,6 +60,16 @@ describe("AuthEntryPanel", () => {
     expect(html).toContain('href="/api/auth/google?returnTo=%2Fm"');
   });
 
+  it("微信登录视图接收微信端生成的一次性电脑登录码", () => {
+    const html = renderToStaticMarkup(<AuthEntryPanel variant="pairing" />);
+    expect(html).toContain("打开微信里的故事");
+    expect(html).toContain("微信端拾光 → 我 → 在电脑上继续");
+    expect(html).toContain('aria-label="电脑登录码"');
+    expect(html).toContain("打开微信故事");
+    expect(html).not.toContain("使用 Google 账号登录");
+    expect(html).not.toContain('aria-label="邮箱"');
+  });
+
   it("已记住邮箱时仍然要求填写专属邀请码", () => {
     vi.stubGlobal("window", {
       location: { search: "" },

@@ -26,6 +26,7 @@ let authState: LiveState = {
   error: "",
   stories: [],
   document: null,
+  desktopPairing: null,
 };
 let email = "",
   password = "",
@@ -181,7 +182,8 @@ function draw() {
           otp: linkOtp,
           busy: authState.busy || authPending,
           message: authState.error,
-        }
+        },
+        authState.desktopPairing
       );
       hits = layout.hits;
       return;
@@ -443,6 +445,27 @@ async function action(command: string) {
     view.screen = "linkEmail";
     view.offset = 0;
     draw();
+    return;
+  }
+  if (command === "desktopPair") {
+    if (
+      !(await confirm(
+        "在电脑上继续",
+        "生成后，拿到短码的人可以在 5 分钟内登录这个微信账号并查看其中的故事。确认现在生成？"
+      ))
+    )
+      return;
+    await auth.issueDesktopPairing();
+    if (auth.getState().desktopPairing) toast("电脑登录码已生成");
+    return;
+  }
+  if (command === "copyDesktopPair") {
+    const pairing = auth.getState().desktopPairing;
+    if (!pairing) return;
+    wx.setClipboardData({
+      data: pairing.code,
+      success: () => toast("登录码已复制"),
+    });
     return;
   }
   if (command === "account") {

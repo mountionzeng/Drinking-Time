@@ -85,22 +85,7 @@ export default function LoginPage() {
           {method === "email" ? (
             <AuthEntryPanel returnPath={returnPath} variant="email" />
           ) : (
-            <section
-              aria-label="微信登录"
-              className="flex min-h-72 flex-col items-center justify-center gap-3 text-center"
-            >
-              <h2 className="text-base font-medium">微信扫码登录</h2>
-              <p role="status" className="text-sm text-muted-foreground">
-                微信扫码登录暂未开通
-              </p>
-              <button
-                type="button"
-                onClick={() => setMethod("email")}
-                className="mt-3 rounded-md px-4 py-2 text-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                使用邮箱登录
-              </button>
-            </section>
+            <AuthEntryPanel returnPath={returnPath} variant="pairing" />
           )}
         </div>
       </main>

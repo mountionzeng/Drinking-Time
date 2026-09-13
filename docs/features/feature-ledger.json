@@ -3630,13 +3630,29 @@
     {
       "id": "wechat-desktop-story-entry",
       "name": "微信扫码连接电脑版并选择故事",
-      "status": "planned",
+      "status": "observing",
       "userValue": "用户用微信端拾光授权电脑登录，在电脑上选择微信端已有故事，继续使用该故事的完整内容。",
       "entryPoints": [
-        "client/src/pages/LoginPage.tsx"
+        "client/src/pages/LoginPage.tsx",
+        "minigame/src/accountView.ts"
       ],
-      "owners": [],
-      "evidence": [],
+      "owners": [
+        "server/_core/minigameRouter.ts",
+        "server/_core/minigameRoutes.ts",
+        "server/services/accountIdentity.ts",
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "minigame/src/liveClient.ts",
+        "minigame/src/liveGame.ts",
+        "minigame/src/accountView.ts"
+      ],
+      "evidence": [
+        "server/_core/minigameRouter.test.ts",
+        "server/services/devicePairing.test.ts",
+        "minigame/src/liveClient.test.ts",
+        "minigame/src/accountView.test.ts",
+        "client/src/features/auth/views/AuthEntryPanel.test.tsx",
+        "docs/qa/2026-09-13-wechat-desktop-pairing.md"
+      ],
       "invariants": [
         "只展示并打开微信授权账号拥有的故事；正文、聊天、镜头和素材沿用原 storyId 与归属校验，不创建平行数据副本。",
         "扫码二维码必须承载真实授权流程；占位图、普通网址码和手机页面打开不能冒充电脑登录成功。",
@@ -3650,14 +3666,20 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "当前只有登录页的微信未开通视图，没有二维码申请/轮询/单次兑换端点、微信端授权确认入口或电脑故事选择视图。",
-        "真实跨端扫码需要测试站与微信端预览版本配合；本会话禁止直接部署，未上传、发布或测试真实授权。"
+        "短码链路已经实现并发布测试站后端与网页；微信联调包已构建，但开发者工具服务端口关闭且 Mac 锁屏，尚未生成本轮预览二维码或完成真机兑换。",
+        "第一版采用微信端生成六位短码、电脑输入的方式；直接扫码、电脑申请后微信确认、授权轮询与指定单个故事的预选仍未实现。兑换后先进入同账号云端故事库，再由用户选择故事。",
+        "尚未真实验证从微信账号兑换到电脑、打开故事并提交视频生成的完整链路；正式站未发布。"
       ],
       "history": [
         {
           "date": "2026-09-13",
           "kind": "decision",
           "summary": "用户明确微信登录不是只在手机打开网页，而是扫码后显示可选故事，将微信端已有故事的全部信息在电脑网页版打开。登记为 planned；本轮先改登录布局，不宣称扫码链路可用。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "implementation",
+          "summary": "按用户要求先实现可试用的短码方向：微信小游戏当前登录账号在“我”页明确确认后签发五分钟、一次性电脑登录码；网页微信登录页兑换后建立同 userId 会话并进入云端故事库。服务端身份只取 Bearer principal，忽略客户端 userId；故事继续沿用原 storyId 与归属校验，不复制、不自动合并。测试站后端和网页已备份、构建、重启并通过 health/readiness，专项测试、双 TypeScript 与微信联调构建通过。微信开发者工具服务端口关闭且 Mac 锁屏，本轮预览二维码和真机全链路仍待完成，状态进入 observing。"
         }
       ]
     }

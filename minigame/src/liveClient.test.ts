@@ -18,7 +18,19 @@ it('logs in, uses bearer, opens old stories and clears all state on logout', asy
   await client.openStory(41);
   expect(client.getState().document?.body).toBe('saved text');
   client.logout();
-  expect(client.getState()).toEqual({ authenticated: false, busy: false, error: '', stories: [], document: null });
+  expect(client.getState()).toEqual({ authenticated: false, busy: false, error: '', stories: [], document: null, desktopPairing: null });
+});
+it('issues a desktop login code with the current game bearer and clears it on logout', async () => {
+  const request = vi.fn<GameRequest>(async (path, method, data, token) => path === '/pair/issue'
+    ? { status: 200, data: { code: '7K9MPQ', expiresAt: '2026-09-13T12:05:00.000Z' } }
+    : success(path, method, data, token));
+  const client = createLiveClient(request, () => {});
+  await client.loginWechat('code');
+  await client.issueDesktopPairing();
+  expect(request).toHaveBeenCalledWith('/pair/issue', 'POST', { confirm: true }, 'server-token');
+  expect(client.getState().desktopPairing).toEqual({ code: '7K9MPQ', expiresAt: '2026-09-13T12:05:00.000Z' });
+  client.logout();
+  expect(client.getState().desktopPairing).toBeNull();
 });
 it('ignores an in-flight old-account result after logout', async () => {
   let complete!: (r: { status: number; data: unknown }) => void;

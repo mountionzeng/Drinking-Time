@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { isGameWorkspaceOperation, type GameWorkspaceOperation } from '../../shared/minigameWorkspace';
 import { createGameSessions, GAME_SESSION_SECONDS, type GamePrincipal } from './minigameSession';
 import type { EmailLinkResult } from '../services/accountIdentity';
+import type { IssuePairingResult } from '../services/accountIdentity';
 
 export type GameDependencies = {
   enabled: boolean; wechatEnabled: boolean; secret: string; appId: string;
@@ -17,6 +18,7 @@ export type GameDependencies = {
   accountLock?: <T>(id: number, action: () => Promise<T>) => Promise<T>;
   wechat: (code: string) => Promise<number | null>;
   bind: (id: number, code: string) => Promise<'bound' | 'merge_required' | 'invalid_code'>;
+  issuePairing?: (userId: number) => Promise<IssuePairingResult>;
   stories: (id: number) => Promise<Array<{ id: number; title: string }>>;
   document: (userId: number, storyId: number) => Promise<{ title: string; body: string; bodyAvailable: boolean } | null>;
   workspace?: (user: GamePrincipal, operation: GameWorkspaceOperation, input: unknown, req: Request, res: Response) => Promise<unknown>;
@@ -157,6 +159,21 @@ export function createMinigameRouter(deps: GameDependencies) {
       res.status(result === 'session_expired' ? 401 : result === 'merge_required' ? 409 : 400).json({ error: result }); return;
     }
     res.json({ ok: true });
+  }));
+  router.post('/pair/issue', endpoint(async (req, res) => {
+    const principal = await sessions.verify(req.headers.authorization);
+    if (!principal) { res.status(401).json({ error: 'session_expired' }); return; }
+    if (req.body?.confirm !== true) { res.status(400).json({ error: 'confirmation_required' }); return; }
+    if (!await rateLimit(req, res)) return;
+    if (!deps.issuePairing) { res.status(503).json({ error: 'not_configured' }); return; }
+    const invoke = () => deps.issuePairing!(principal.user.id);
+    const result = await (deps.accountLock ? deps.accountLock(principal.user.id, invoke) : invoke());
+    if (result.outcome === 'rate_limited') {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil(result.retryAfterMs / 1000))));
+      res.status(429).json({ error: 'rate_limited' }); return;
+    }
+    if (result.outcome === 'not_configured') { res.status(503).json({ error: 'not_configured' }); return; }
+    res.json({ code: result.code, expiresAt: result.expiresAt.toISOString() });
   }));
   router.get('/stories', endpoint(async (req, res) => {
     const principal = await sessions.verify(req.headers.authorization);

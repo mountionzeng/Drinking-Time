@@ -25,6 +25,7 @@ beforeEach(async () => {
       if (binding !== null && binding !== id) return 'merge_required';
       binding = id; return 'bound';
     },
+    issuePairing: async userId => ({ outcome: 'issued', code: `PAIR${userId}`, expiresAt: new Date('2026-09-13T12:05:00.000Z') }),
     stories: async id => id === 7 ? [{ id: 41, title: '旧故事' }] : [],
     document: async (userId, storyId) => userId === 7 && storyId === 41
       ? { title: '旧故事', body: '之前保存的正文', bodyAvailable: true } : null,
@@ -99,6 +100,23 @@ it('email login → explicit WeChat binding → WeChat login reads the same old 
   expect((await request('/bind/wechat', { code: 'fresh-code', confirm: true }, emailToken)).status).toBe(200);
   const { token } = await (await request('/login/wechat', { code: 'valid-code' })).json();
   expect(await (await request('/stories/41', undefined, token)).json()).toEqual({ title: '旧故事', body: '之前保存的正文', bodyAvailable: true });
+});
+it('lets the authenticated WeChat account explicitly issue a one-use Web login code', async () => {
+  const issuedFor: number[] = [];
+  deps.issuePairing = async userId => {
+    issuedFor.push(userId);
+    return { outcome: 'issued', code: '7K9MPQ', expiresAt: new Date('2026-09-13T12:05:00.000Z') };
+  };
+  expect((await request('/pair/issue', { confirm: true })).status).toBe(401);
+  const { token } = await (await request('/login/wechat', { code: 'valid-code' })).json();
+  expect((await request('/pair/issue', { confirm: false }, token)).status).toBe(400);
+  const response = await request('/pair/issue', { confirm: true, userId: 7 }, token);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    code: '7K9MPQ',
+    expiresAt: '2026-09-13T12:05:00.000Z',
+  });
+  expect(issuedFor).toEqual([9]);
 });
 it('rejects anonymous, bad credentials, cross-account access and supplied userId', async () => {
   expect((await request('/stories')).status).toBe(401);
