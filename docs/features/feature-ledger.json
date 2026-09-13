@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T17:58:00+08:00",
+  "updatedAt": "2026-09-13T09:07:29.301Z",
   "features": [
     {
       "id": "story-ownership",
@@ -3062,7 +3062,9 @@
       "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
       "entryPoints": [
         "server/_core/oauth.ts",
-        "minigame/src/accountView.ts"
+        "minigame/src/accountView.ts",
+        "client/src/pages/LoginPage.tsx",
+        "client/src/features/auth/views/AuthEntryPanel.tsx"
       ],
       "owners": [
         "server/services/accountIdentity.ts",
@@ -3082,7 +3084,11 @@
         "minigame/src/accountView.ts",
         "server/db.ts",
         "drizzle/schema.ts",
-        "drizzle/migrations/0016_account_gift_credit.sql"
+        "drizzle/migrations/0016_account_gift_credit.sql",
+        "client/src/pages/LoginPage.tsx",
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "client/src/features/nayin/views/DailyDrinkHero.tsx",
+        "client/src/assets/fonts/honglei-zhuoshu-brand.ttf"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3102,7 +3108,12 @@
         "server/integration/computeLedger.mysql.test.ts",
         "scripts/inventory-account-migration.test.ts",
         "scripts/repair-invite-code.test.ts",
-        "scripts/verify-drizzle-migration-baseline.ts"
+        "scripts/verify-drizzle-migration-baseline.ts",
+        "client/src/features/auth/views/AuthEntryPanel.test.tsx",
+        "client/src/app/router/AppRouter.test.tsx",
+        "client/src/font-loading.test.ts",
+        "client/src/features/nayin/views/DailyDrinkHero.test.ts",
+        "docs/qa/2026-09-13-shiguang-login-staging.md"
       ],
       "invariants": [
         "邮箱验证码、密码和后续微信登录必须进入同一账号、同一份创作数据和同一余额，不得生成平行身份副本。",
@@ -3122,7 +3133,8 @@
         "真实微信端已经接入余额与逐笔账单展示，但赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由；网页版尚未接入同等账单页面。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
-        "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。"
+        "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
+        "2026-09-13 新登录布局已发测试站，Google选账号后回调失败：服务器连接oauth2.googleapis.com:443超时。需恢复服务器到Google的连通性并重测真实会话。邮箱验证码真实发送、移动端完整验收、Google与邮箱账号统一映射均未在本轮验证；正式站未发布。"
       ],
       "history": [
         {
@@ -3144,6 +3156,26 @@
           "date": "2026-09-13",
           "kind": "feature",
           "summary": "为真实微信端新增当前账号的算力账单：显示可用余额、进行中预占、微元精度逐笔消费、失败释放与待对账状态；账单投影只使用服务端登录身份并剔除 userId、请求哈希、供应商标识和创作内容。余额、账本与操作状态由同一只读数据库快照读取，待处理和历史记录使用有界分页并支持继续加载，客户端拒绝畸形或不兼容协议。因现有账本尚未记录供应商核验来源，消费统一保守标为估算，并明确提示只有已接入账本的 AI 调用会显示。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "feature",
+          "summary": "按用户确认将 /login 从欢迎页拆出，品牌显示拾光，移除该入口的宜忌、生日、地点与访客留言。邮箱视图显示 Google 入口并接入现有 account/otp/request 与 verify；保留记住邮箱、跨设备返回路径和折叠配对码入口，/welcome 既有体验保持。微信视图仅显示未开通状态，扫码授权后选择微信端故事的需求单独登记为 planned。登录与路由定向测试 31 项通过、TypeScript 与 Vite 构建通过；浏览器策略拒绝 file:// 离线预览，未做新增页面视觉/交互验收、真实邮件/Google 登录、部署或跨工作区合并。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "verification",
+          "summary": "用户明确要求独立预览端口后，3001 仅提供 dist/public 静态前端与固定未登录响应，不启动业务后端、不代理真实登录、不写 .webdev 数据。浏览器实测邮箱页显示拾光、Google 与验证码输入，微信切换显示未开通，可返回邮箱页；完成桌面布局与视图切换检查。真实 Google/验证码登录、微信扫码、移动端验收和上线仍未完成。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "fix",
+          "summary": "按用户截图纠正登录页上半部：恢复既有 DailyDrinkHero 饮品标识、泡开看看开关、日期农历分隔线、BeverageAmbience 与 WuxingParticles 背景。仅登录页通过 brandName 显示拾光，其余页面品牌不变。原品牌字体子集缺拾/光，从同款完整字体补字且保留旧字形，仍低于20KB。7项定向测试、类型检查、构建通过；3001 浏览器核对手写字形、茶杯背景与介绍展开/收起，未部署。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "verification",
+          "summary": "用户明确批准后，仅在测试站33b5cc8加既有增量基线上发布登录相关四个前端文件并保留既有欢迎页Google入口；先备份、校验、独占锁、独立构建，再原子替换HTML，旧资源保留，后端哈希不变。公网health/readiness通过，新页面视觉通过。真实Google账号选择后回调oauth_failed，日志显示连接oauth2.googleapis.com:443 ETIMEDOUT，服务器直接连接也超时；Google登录未验收成功。详见QA记录，正式站未改。"
         }
       ]
     },
@@ -3574,6 +3606,40 @@
           "date": "2026-09-08",
           "kind": "build",
           "summary": "按用户确认将桌面足迹页改为简洁用户信息月历：日期圆点标记非来信经历，点击日期显示保存的来信和当天记录，资料与记忆管理折叠；无保存来信明确空态，不生成历史正文。保留日期 hash 入口。PersonalMemoryPage 与 TopBar 定向测试、类型检查及功能账本校验通过；主仓 3000 浏览器验证今天与昨日真实来信。捕获与自动提炼开关未改变，继续 observing。"
+        }
+      ]
+    },
+    {
+      "id": "wechat-desktop-story-entry",
+      "name": "微信扫码连接电脑版并选择故事",
+      "status": "planned",
+      "userValue": "用户用微信端拾光授权电脑登录，在电脑上选择微信端已有故事，继续使用该故事的完整内容。",
+      "entryPoints": [
+        "client/src/pages/LoginPage.tsx"
+      ],
+      "owners": [],
+      "evidence": [],
+      "invariants": [
+        "只展示并打开微信授权账号拥有的故事；正文、聊天、镜头和素材沿用原 storyId 与归属校验，不创建平行数据副本。",
+        "扫码二维码必须承载真实授权流程；占位图、普通网址码和手机页面打开不能冒充电脑登录成功。",
+        "新电脑的授权须由微信端明确确认；未扫码、未确认、过期或取消均不能建立电脑会话。",
+        "账号授权和故事选择是两个阶段；未选择故事不得自动认领或合并另一邮箱账号的数据。"
+      ],
+      "dependencies": [
+        "wechat-minigame-account-stories",
+        "account-compute-gift-payments",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前只有登录页的微信未开通视图，没有二维码申请/轮询/单次兑换端点、微信端授权确认入口或电脑故事选择视图。",
+        "真实跨端扫码需要测试站与微信端预览版本配合；本会话禁止直接部署，未上传、发布或测试真实授权。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-13",
+          "kind": "decision",
+          "summary": "用户明确微信登录不是只在手机打开网页，而是扫码后显示可选故事，将微信端已有故事的全部信息在电脑网页版打开。登记为 planned；本轮先改登录布局，不宣称扫码链路可用。"
         }
       ]
     }

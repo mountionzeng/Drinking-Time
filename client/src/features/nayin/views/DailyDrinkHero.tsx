@@ -10,6 +10,7 @@ import { WuxingPourTrigger, WUXING_POUR_VERB } from "./WuxingPourReveal";
 interface DailyDrinkHeroProps {
   today: TodayNayin;
   compact?: boolean;
+  brandName?: string;
   /** 登录页：杯子本身是「倒出来看看」的开关，此时图标放大且可点。 */
   pour?: {
     open: boolean;
@@ -24,10 +25,12 @@ const brandTitleFont = "'Honglei Zhuoshu', 'Noto Serif SC', 'Songti SC', serif";
 export default function DailyDrinkHero({
   today,
   compact = false,
+  brandName,
   pour,
 }: DailyDrinkHeroProps) {
   const presentation = getDailyDrinkPresentation(today.element);
-  const [titleCn, titleEn] = presentation.title.split(" · ");
+  const title = brandName ? `${brandName} · Drinking Time` : presentation.title;
+  const [titleCn, titleEn] = title.split(" · ");
   const subtitleLines = presentation.subtitle
     .split("\n")
     .map(line => line.trim())
@@ -124,7 +127,7 @@ export default function DailyDrinkHero({
                     startOffset="25%"
                     textAnchor="middle"
                   >
-                    聊会儿
+                    {titleCn}
                   </textPath>
                 </text>
                 <text
@@ -198,13 +201,13 @@ export default function DailyDrinkHero({
       {pour ? (
         // 品牌字已经画在上面的弧线里，这里只留一份给读屏和搜索引擎。
         <h1 id="daily-drink-title" className="sr-only">
-          {presentation.title}
+          {title}
         </h1>
       ) : (
         <h1
           id="daily-drink-title"
           className="mt-3 flex flex-col items-center text-foreground"
-          aria-label={presentation.title}
+          aria-label={title}
           style={{ fontFamily: brandTitleFont, letterSpacing: 0 }}
         >
           <span
