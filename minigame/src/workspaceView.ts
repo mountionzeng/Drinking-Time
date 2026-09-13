@@ -5,6 +5,7 @@ export type GameScreen =
   | "workspace"
   | "stories"
   | "account"
+  | "statement"
   | "linkEmail"
   | "conflict"
   | "letter"
@@ -280,9 +281,7 @@ export function renderWorkspace(
     const thinkingNow = speech.thinking;
     const lastReply = speech.reply;
     // 回信正文按框宽排版，行高 26
-    const peekReplyLines = lastReply
-      ? wrap(lastReply, w - 24 - 28, 15)
-      : [];
+    const peekReplyLines = lastReply ? wrap(lastReply, w - 24 - 28, 15) : [];
     const peekReplyNeed = peekReplyLines.length * 26 + 26;
     const peekReplyBoxH = lastReply
       ? Math.min(peekReplyNeed, PEEK_REPLY_MAX_PX)

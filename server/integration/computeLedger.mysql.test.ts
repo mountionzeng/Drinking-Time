@@ -49,6 +49,53 @@ function raceInputs(base: unknown[], leadMs = 600): unknown[] {
 }
 
 describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
+  it("一致性只读快照能在 MySQL 返回余额、待处理与历史", async () => {
+    await withMysqlTestDatabase(async database => {
+      const setup = await mysql.createConnection(database.databaseUrl);
+      let userId = 0;
+      try {
+        userId = await seedUser(setup);
+      } finally {
+        await setup.end();
+      }
+      await workerResult(
+        startWorker(database.databaseUrl, {
+          action: "grant",
+          userId,
+          amountMinor: fromYuan(10),
+          idempotencyKey: "gift:statement-seed",
+        })
+      );
+      await workerResult(
+        startWorker(database.databaseUrl, {
+          action: "reserve",
+          userId,
+          operationId: "op-statement",
+          operationType: "text.generate",
+          requestHash: "hash-statement",
+          maxCostMinor: fromYuan(2),
+        })
+      );
+
+      const statement = await workerResult<{
+        balance: { reservedMinor: number; availableMinor: number };
+        attentionItems: Array<{ reservedMinor: number }>;
+        historyItems: Array<{ label: string }>;
+      }>(startWorker(database.databaseUrl, { action: "statement", userId }));
+
+      expect(statement.balance).toMatchObject({
+        reservedMinor: fromYuan(2),
+        availableMinor: fromYuan(8),
+      });
+      expect(statement.attentionItems).toContainEqual(
+        expect.objectContaining({ reservedMinor: fromYuan(2) })
+      );
+      expect(statement.historyItems).toContainEqual(
+        expect.objectContaining({ label: "赠送算力" })
+      );
+    });
+  }, 300_000);
+
   it("AE6：¥10 余额下两个进程同时预占 ¥7 与 ¥6，只有一个占住，余额不透支", async () => {
     await withMysqlTestDatabase(async database => {
       const setup = await mysql.createConnection(database.databaseUrl);
@@ -88,8 +135,12 @@ describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
       ]);
 
       const results = await Promise.all([
-        workerResult<{ outcome: string }>(startWorker(database.databaseUrl, left)),
-        workerResult<{ outcome: string }>(startWorker(database.databaseUrl, right)),
+        workerResult<{ outcome: string }>(
+          startWorker(database.databaseUrl, left)
+        ),
+        workerResult<{ outcome: string }>(
+          startWorker(database.databaseUrl, right)
+        ),
       ]);
 
       const outcomes = results.map(item => item.outcome).sort();
@@ -147,7 +198,9 @@ describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
       };
       const results = await Promise.all(
         raceInputs([shared, shared]).map(input =>
-          workerResult<{ outcome: string }>(startWorker(database.databaseUrl, input))
+          workerResult<{ outcome: string }>(
+            startWorker(database.databaseUrl, input)
+          )
         )
       );
 
@@ -210,7 +263,9 @@ describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
       };
       const results = await Promise.all(
         raceInputs([settle, settle]).map(input =>
-          workerResult<{ outcome: string }>(startWorker(database.databaseUrl, input))
+          workerResult<{ outcome: string }>(
+            startWorker(database.databaseUrl, input)
+          )
         )
       );
 
@@ -257,7 +312,9 @@ describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
       };
       const results = await Promise.all(
         raceInputs([grant, grant]).map(input =>
-          workerResult<{ kind: string }>(startWorker(database.databaseUrl, input))
+          workerResult<{ kind: string }>(
+            startWorker(database.databaseUrl, input)
+          )
         )
       );
 

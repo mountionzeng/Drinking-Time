@@ -10343,6 +10343,178 @@ export async function findBillingOperation(
   return operation ?? null;
 }
 
+export type ComputeStatementSnapshot = {
+  summary: CreditAccountSummary;
+  /** 从最新开始的候选窗口；由服务层合并两种历史来源后再做 offset。 */
+  ledgerEntries: CreditLedgerEntry[];
+  releasedOperations: BillingOperation[];
+  /** 只含 ledgerEntries 所引用、且属于同一用户的 operation。 */
+  entryOperations: BillingOperation[];
+  /** 当前待处理页多取一条，供服务层判断 hasMore。 */
+  attentionOperations: BillingOperation[];
+};
+
+export type ComputeStatementSnapshotInput = {
+  userId: number;
+  attentionOffset: number;
+  attentionLimit: number;
+  historyOffset: number;
+  historyLimit: number;
+};
+
+/**
+ * 在一份数据库快照里读取余额、账本和操作状态。
+ *
+ * 账务结算会同时更新这些表；如果分别发起独立查询，用户可能短暂看到“余额已扣、
+ * 明细仍在预占”的自相矛盾页面。MySQL 使用 repeatable-read consistent snapshot，
+ * 本地模式则在没有 await 间隙的同步区间内复制所有相关数组。
+ */
+export async function readComputeStatementSnapshot(
+  input: ComputeStatementSnapshotInput
+): Promise<ComputeStatementSnapshot> {
+  const attentionTake = input.attentionLimit + 1;
+  const historyTake = input.historyOffset + input.historyLimit + 1;
+  const nonterminal = new Set<BillingOperation["status"]>([
+    "created",
+    "reserved",
+    "submitted",
+    "submission_unknown",
+  ]);
+  const db = await getDb();
+  if (!db) {
+    const summary = summarizeCreditAccount(
+      input.userId,
+      memoryState.creditAccounts.find(item => item.userId === input.userId) ??
+        null
+    );
+    const ledgerEntries = memoryState.creditLedgerEntries
+      .filter(item => item.userId === input.userId)
+      .sort(
+        (left, right) =>
+          right.createdAt.getTime() - left.createdAt.getTime() ||
+          right.id - left.id
+      )
+      .slice(0, historyTake)
+      .map(item => ({ ...item }));
+    const releasedOperations = memoryState.billingOperations
+      .filter(
+        item => item.userId === input.userId && item.status === "released"
+      )
+      .sort(
+        (left, right) =>
+          right.updatedAt.getTime() - left.updatedAt.getTime() ||
+          right.id - left.id
+      )
+      .slice(0, historyTake)
+      .map(item => ({ ...item }));
+    const wanted = new Set(
+      ledgerEntries.flatMap(item =>
+        item.operationId ? [item.operationId] : []
+      )
+    );
+    const entryOperations = memoryState.billingOperations
+      .filter(
+        item => item.userId === input.userId && wanted.has(item.operationId)
+      )
+      .map(item => ({ ...item }));
+    const attentionOperations = memoryState.billingOperations
+      .filter(
+        item => item.userId === input.userId && nonterminal.has(item.status)
+      )
+      .sort(
+        (left, right) =>
+          right.updatedAt.getTime() - left.updatedAt.getTime() ||
+          right.id - left.id
+      )
+      .slice(input.attentionOffset, input.attentionOffset + attentionTake)
+      .map(item => ({ ...item }));
+    return {
+      summary,
+      ledgerEntries,
+      releasedOperations,
+      entryOperations,
+      attentionOperations,
+    };
+  }
+
+  return db.transaction(
+    async tx => {
+      const [account] = await tx
+        .select()
+        .from(creditAccounts)
+        .where(eq(creditAccounts.userId, input.userId))
+        .limit(1);
+      const ledgerEntries = await tx
+        .select()
+        .from(creditLedgerEntries)
+        .where(eq(creditLedgerEntries.userId, input.userId))
+        .orderBy(
+          desc(creditLedgerEntries.createdAt),
+          desc(creditLedgerEntries.id)
+        )
+        .limit(historyTake);
+      const releasedOperations = await tx
+        .select()
+        .from(billingOperations)
+        .where(
+          and(
+            eq(billingOperations.userId, input.userId),
+            eq(billingOperations.status, "released")
+          )
+        )
+        .orderBy(desc(billingOperations.updatedAt), desc(billingOperations.id))
+        .limit(historyTake);
+      const operationIds = [
+        ...new Set(
+          ledgerEntries.flatMap(item =>
+            item.operationId ? [item.operationId] : []
+          )
+        ),
+      ];
+      const entryOperations = operationIds.length
+        ? await tx
+            .select()
+            .from(billingOperations)
+            .where(
+              and(
+                eq(billingOperations.userId, input.userId),
+                inArray(billingOperations.operationId, operationIds)
+              )
+            )
+        : [];
+      const attentionOperations = await tx
+        .select()
+        .from(billingOperations)
+        .where(
+          and(
+            eq(billingOperations.userId, input.userId),
+            or(
+              eq(billingOperations.status, "created"),
+              eq(billingOperations.status, "reserved"),
+              eq(billingOperations.status, "submitted"),
+              eq(billingOperations.status, "submission_unknown")
+            )
+          )
+        )
+        .orderBy(desc(billingOperations.updatedAt), desc(billingOperations.id))
+        .limit(attentionTake)
+        .offset(input.attentionOffset);
+      return {
+        summary: summarizeCreditAccount(input.userId, account ?? null),
+        ledgerEntries,
+        releasedOperations,
+        entryOperations,
+        attentionOperations,
+      };
+    },
+    {
+      isolationLevel: "repeatable read",
+      withConsistentSnapshot: true,
+      accessMode: "read only",
+    }
+  );
+}
+
 export async function findActiveCreditHold(
   operationId: string
 ): Promise<CreditHold | null> {

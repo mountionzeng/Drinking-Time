@@ -15,7 +15,43 @@
  *    旦提前折成浮点的「元」，逐笔明细就再也对不上供应商账单了。
  */
 import { protectedProcedure, router } from "../_core/trpc";
+import { z } from "zod";
 import { getAccountBalance } from "../services/computeLedger";
+import { getAccountStatement } from "../services/computeStatement";
+import {
+  COMPUTE_STATEMENT_MAX_OFFSET,
+  COMPUTE_STATEMENT_MAX_PAGE_LIMIT,
+  COMPUTE_STATEMENT_PAGE_LIMIT,
+} from "../../shared/computeStatement";
+
+const statementInput = z
+  .object({
+    attentionOffset: z
+      .number()
+      .int()
+      .min(0)
+      .max(COMPUTE_STATEMENT_MAX_OFFSET)
+      .default(0),
+    attentionLimit: z
+      .number()
+      .int()
+      .min(1)
+      .max(COMPUTE_STATEMENT_MAX_PAGE_LIMIT)
+      .default(COMPUTE_STATEMENT_PAGE_LIMIT),
+    historyOffset: z
+      .number()
+      .int()
+      .min(0)
+      .max(COMPUTE_STATEMENT_MAX_OFFSET)
+      .default(0),
+    historyLimit: z
+      .number()
+      .int()
+      .min(1)
+      .max(COMPUTE_STATEMENT_MAX_PAGE_LIMIT)
+      .default(COMPUTE_STATEMENT_PAGE_LIMIT),
+  })
+  .optional();
 
 export const computeAccountRouter = router({
   /**
@@ -38,4 +74,7 @@ export const computeAccountRouter = router({
       accessEnabledAt: summary.accessEnabledAt,
     };
   }),
+  statement: protectedProcedure
+    .input(statementInput)
+    .query(({ ctx, input }) => getAccountStatement(ctx.user.id, input)),
 });

@@ -5,12 +5,18 @@ import {
   settleOperation,
 } from "../services/computeLedger";
 import type { ProviderOutcome } from "../services/computeBilling";
+import { getAccountStatement } from "../services/computeStatement";
 
 type WorkerInput = {
   /** 让多个进程在同一个墙钟时刻同时冲进事务，制造真实竞争 */
   startAtMs?: number;
 } & (
-  | { action: "grant"; userId: number; amountMinor: number; idempotencyKey: string }
+  | {
+      action: "grant";
+      userId: number;
+      amountMinor: number;
+      idempotencyKey: string;
+    }
   | {
       action: "reserve";
       userId: number;
@@ -21,11 +27,14 @@ type WorkerInput = {
     }
   | { action: "settle"; operationId: string; outcome: ProviderOutcome }
   | { action: "balance"; userId: number }
+  | { action: "statement"; userId: number }
 );
 
 function decodeInput(value: string | undefined): WorkerInput {
   if (!value) throw new Error("compute ledger worker input is required");
-  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as WorkerInput;
+  return JSON.parse(
+    Buffer.from(value, "base64url").toString("utf8")
+  ) as WorkerInput;
 }
 
 async function finish(payload: unknown, exitCode = 0): Promise<never> {
@@ -71,6 +80,8 @@ try {
         outcome: input.outcome,
       })
     );
+  } else if (input.action === "statement") {
+    await finish(await getAccountStatement(input.userId));
   } else {
     await finish(await getAccountBalance(input.userId));
   }

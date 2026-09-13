@@ -115,3 +115,228 @@ it("does not fill the next account with a late profile response or request its l
   expect(client.getState().profile).toBeNull();
   expect(request.mock.calls.some(([op]) => op === "letters.list")).toBe(false);
 });
+it("loads a statement and does not disguise a failed request as an empty bill", async () => {
+  const statement = {
+    version: 1,
+    currency: "CNY",
+    balance: {
+      postedMinor: 10_000_000,
+      reservedMinor: 1_000_000,
+      availableMinor: 9_000_000,
+      lifetimeSpentMinor: 321,
+    },
+    attentionItems: [],
+    attentionHasMore: false,
+    attentionTruncated: false,
+    historyItems: [
+      {
+        createdAt: "2026-09-13T10:00:00.000Z",
+        label: "文字生成",
+        amountMinor: -321,
+        reservedMinor: 0,
+        releasedMinor: 0,
+        status: "posted",
+        estimated: true,
+      },
+    ],
+    historyHasMore: false,
+    historyTruncated: false,
+    coverageNote: "只显示已进入算力账本的调用。",
+  } as const;
+  const { client } = setup({
+    "account.statement": async () => statement,
+  });
+
+  await client.statement();
+  expect(client.getState().statement).toEqual(statement);
+  expect(client.getState().statementError).toBe("");
+
+  const failed = setup({
+    "account.statement": async () => {
+      throw new Error("network");
+    },
+  }).client;
+  await failed.statement();
+  expect(failed.getState().statement).toBeNull();
+  expect(failed.getState().statementError).toBeTruthy();
+});
+
+it("clears the previous account statement when account scope changes", async () => {
+  const { client } = setup({
+    "account.statement": async () => ({
+      version: 1,
+      currency: "CNY",
+      balance: {
+        postedMinor: 1,
+        reservedMinor: 0,
+        availableMinor: 1,
+        lifetimeSpentMinor: 0,
+      },
+      attentionItems: [],
+      attentionHasMore: false,
+      attentionTruncated: false,
+      historyItems: [],
+      historyHasMore: false,
+      historyTruncated: false,
+      coverageNote: "note",
+    }),
+  });
+  await client.statement();
+  expect(client.getState().statement).not.toBeNull();
+  client.setScope("another-account");
+  expect(client.getState().statement).toBeNull();
+});
+
+it("does not let a late statement response or failure cross into another account", async () => {
+  let resolve!: (value: any) => void;
+  const first = setup({
+    "account.statement": () => new Promise(r => (resolve = r)),
+  }).client;
+  const loading = first.statement();
+  first.setScope("next-account");
+  resolve({
+    version: 1,
+    currency: "CNY",
+    balance: {
+      postedMinor: 99_000_000,
+      reservedMinor: 0,
+      availableMinor: 99_000_000,
+      lifetimeSpentMinor: 0,
+    },
+    attentionItems: [],
+    attentionHasMore: false,
+    attentionTruncated: false,
+    historyItems: [],
+    historyHasMore: false,
+    historyTruncated: false,
+    coverageNote: "old account",
+  });
+  await loading;
+  expect(first.getState()).toMatchObject({
+    balance: null,
+    statement: null,
+    statementBusy: false,
+    statementError: "",
+  });
+
+  let reject!: (error: Error) => void;
+  const second = setup({
+    "account.statement": () => new Promise((_resolve, fail) => (reject = fail)),
+  }).client;
+  const failing = second.statement();
+  second.disconnect();
+  reject(new Error("old failure"));
+  await failing;
+  expect(second.getState().statementError).toBe("");
+});
+
+it("rejects malformed or incompatible statement payloads before they reach canvas state", async () => {
+  const { client } = setup({
+    "account.statement": async () => ({
+      version: 2,
+      currency: "CNY",
+      balance: {},
+      attentionItems: [],
+      attentionHasMore: false,
+      attentionTruncated: false,
+      historyItems: [],
+      historyHasMore: false,
+      historyTruncated: false,
+      coverageNote: "new contract",
+    }),
+  });
+
+  await client.statement();
+
+  expect(client.getState().statement).toBeNull();
+  expect(client.getState().statementError).toContain("版本不兼容");
+});
+
+it("loads more history with a bounded offset and appends it without duplicates", async () => {
+  const billed = (label: string, createdAt: string) => ({
+    createdAt,
+    label,
+    amountMinor: -321,
+    reservedMinor: 0,
+    releasedMinor: 0,
+    status: "posted" as const,
+    estimated: true,
+  });
+  const first = {
+    version: 1 as const,
+    currency: "CNY" as const,
+    balance: {
+      postedMinor: 10_000_000,
+      reservedMinor: 0,
+      availableMinor: 10_000_000,
+      lifetimeSpentMinor: 642,
+    },
+    attentionItems: [],
+    attentionHasMore: false,
+    attentionTruncated: false,
+    historyItems: [billed("较新记录", "2026-09-13T10:00:00.000Z")],
+    historyHasMore: true,
+    historyTruncated: false,
+    coverageNote: "note",
+  };
+  const { client, request } = setup({
+    "account.statement": async input =>
+      input.historyOffset === 1
+        ? {
+            ...first,
+            historyItems: [billed("较早记录", "2026-09-12T10:00:00.000Z")],
+            historyHasMore: false,
+          }
+        : first,
+  });
+
+  await client.statement();
+  await client.moreStatement("history");
+
+  expect(request).toHaveBeenLastCalledWith(
+    "account.statement",
+    expect.objectContaining({ historyOffset: 1, historyLimit: 50 })
+  );
+  expect(
+    client.getState().statement?.historyItems.map(item => item.label)
+  ).toEqual(["较新记录", "较早记录"]);
+  expect(client.getState().statement?.historyHasMore).toBe(false);
+});
+
+it("keeps two legitimate charges even when every public display field is identical", async () => {
+  const item = {
+    createdAt: "2026-09-13T10:00:00.000Z",
+    label: "文字生成",
+    amountMinor: -321,
+    reservedMinor: 0,
+    releasedMinor: 0,
+    status: "posted" as const,
+    estimated: true,
+  };
+  const base = {
+    version: 1 as const,
+    currency: "CNY" as const,
+    balance: {
+      postedMinor: 10_000_000,
+      reservedMinor: 0,
+      availableMinor: 10_000_000,
+      lifetimeSpentMinor: 642,
+    },
+    attentionItems: [],
+    attentionHasMore: false,
+    attentionTruncated: false,
+    historyItems: [item],
+    historyHasMore: true,
+    historyTruncated: false,
+    coverageNote: "note",
+  };
+  const { client } = setup({
+    "account.statement": async input =>
+      input.historyOffset === 1 ? { ...base, historyHasMore: false } : base,
+  });
+
+  await client.statement();
+  await client.moreStatement("history");
+
+  expect(client.getState().statement?.historyItems).toHaveLength(2);
+});

@@ -69,6 +69,7 @@ export const workspaceError = (error: unknown) => {
         session_expired: "登录已过期，请重新登录。",
         workspace_not_enabled: "工作区接口尚未开通。",
         invalid_input: "内容无法读取或格式不符，请刷新后重试。",
+        statement_incompatible: "账单数据版本不兼容，请刷新小程序后重试。",
         not_found: "故事不存在或无权访问。",
         conflict: "另一端已更新，请保留本机修改后处理冲突。",
         rate_limited: "操作较频繁，请稍后重试。",

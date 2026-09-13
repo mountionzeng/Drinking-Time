@@ -3061,7 +3061,8 @@
       "status": "observing",
       "userValue": "用户用邮箱验证码或密码进入自己的账号，领取 ¥30 算力赠送卡，清楚看到每笔消费与余额；后续可绑定微信并购买或订阅算力。",
       "entryPoints": [
-        "server/_core/oauth.ts"
+        "server/_core/oauth.ts",
+        "minigame/src/accountView.ts"
       ],
       "owners": [
         "server/services/accountIdentity.ts",
@@ -3070,10 +3071,15 @@
         "server/_core/minigameSession.ts",
         "server/_core/minigameRouter.ts",
         "server/_core/minigameRoutes.ts",
+        "server/_core/minigameWorkspace.ts",
         "server/services/accountSecurity.ts",
         "server/services/computeBilling.ts",
         "server/services/computeLedger.ts",
+        "server/services/computeStatement.ts",
         "server/services/computeReconciliation.ts",
+        "shared/computeStatement.ts",
+        "minigame/src/accountWorkspace.ts",
+        "minigame/src/accountView.ts",
         "server/db.ts",
         "drizzle/schema.ts",
         "drizzle/migrations/0016_account_gift_credit.sql"
@@ -3083,10 +3089,14 @@
         "docs/plans/2026-09-02-001-feat-account-gift-credit-plan.md",
         "docs/qa/account-migration-cutover-rollback-plan.md",
         "server/_core/oauth.account.test.ts",
+        "server/_core/minigameWorkspace.test.ts",
         "server/services/accountIdentity.test.ts",
         "server/services/accountSecurity.test.ts",
         "server/services/computeBilling.test.ts",
         "server/services/computeLedger.test.ts",
+        "server/routers.computeAccount.test.ts",
+        "minigame/src/accountWorkspace.test.ts",
+        "minigame/src/accountView.test.ts",
         "server/services/computeReconciliation.test.ts",
         "server/integration/accountSchema.mysql.test.ts",
         "server/integration/computeLedger.mysql.test.ts",
@@ -3109,7 +3119,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "邮箱验证码/密码与算力账本的领域基础已实现，但赠送卡领取、余额与逐笔消费展示、续充申请和管理入口尚未接入用户界面与业务路由。",
+        "真实微信端已经接入余额与逐笔账单展示，但赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由；网页版尚未接入同等账单页面。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "付费 AI 调用尚未全面接入算力预留、结算与失败释放，当前不能把账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。"
@@ -3129,6 +3139,11 @@
           "date": "2026-09-03",
           "kind": "fix",
           "summary": "修复已人工映射历史邮箱账号登录时会话落到新建平行账号的问题：OTP 与密码认证均使用认证层解析出的权威 userId 和原 openId，并在邮箱身份被并发占用时失败关闭；新增两条回归测试覆盖两种登录方式。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "feature",
+          "summary": "为真实微信端新增当前账号的算力账单：显示可用余额、进行中预占、微元精度逐笔消费、失败释放与待对账状态；账单投影只使用服务端登录身份并剔除 userId、请求哈希、供应商标识和创作内容。余额、账本与操作状态由同一只读数据库快照读取，待处理和历史记录使用有界分页并支持继续加载，客户端拒绝畸形或不兼容协议。因现有账本尚未记录供应商核验来源，消费统一保守标为估算，并明确提示只有已接入账本的 AI 调用会显示。"
         }
       ]
     },

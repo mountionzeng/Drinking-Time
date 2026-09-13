@@ -10,6 +10,12 @@ import { getTodayNayin } from "../../client/src/features/nayin/nayin";
 import type { MobileDocumentStorage } from "../../client/src/features/mobileWorkspace/mobileDocumentStore";
 import type { WorkspaceCall } from "./workspaceClient";
 import { workspaceError } from "./workspaceClient";
+import {
+  COMPUTE_STATEMENT_PAGE_LIMIT,
+  parseComputeAccountStatement,
+  type ComputeAccountStatement,
+  type ComputeStatementItem,
+} from "../../shared/computeStatement";
 export { EMOTION_ANALYSIS_CONSENT_TEXT };
 export type BirthFields = {
   birthDate: string;
@@ -30,6 +36,9 @@ export type AccountWorkspaceState = {
     availableMinor: number;
     lifetimeSpentMinor: number;
   } | null;
+  statement: ComputeAccountStatement | null;
+  statementBusy: boolean;
+  statementError: string;
   fields: BirthFields;
   messageDraft: string;
   profileLoaded: boolean;
@@ -41,6 +50,9 @@ const empty = (): AccountWorkspaceState => ({
   letters: [],
   date: getTodayNayin().cstDateStr,
   balance: null,
+  statement: null,
+  statementBusy: false,
+  statementError: "",
   fields: {
     birthDate: "",
     birthTime: "",
@@ -86,6 +98,30 @@ export function createAccountWorkspace(
           .filter((l): l is EmotionDailyLetterRecord => l !== null),
       });
   }
+  function mergeStatementItems(
+    current: ComputeStatementItem[],
+    incoming: ComputeStatementItem[]
+  ): ComputeStatementItem[] {
+    // 两笔消费可能在同一毫秒、同金额、同类型；没有公开内部 id 时不能按展示字段
+    // 去重，否则会把真实账目吞掉。statementBusy 已保证同一页不会被并发追加。
+    return [...current, ...incoming].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt)
+    );
+  }
+  async function readStatement(
+    expected: number,
+    offsets: { attentionOffset: number; historyOffset: number }
+  ) {
+    const raw = await call<unknown>("account.statement", {
+      ...offsets,
+      attentionLimit: COMPUTE_STATEMENT_PAGE_LIMIT,
+      historyLimit: COMPUTE_STATEMENT_PAGE_LIMIT,
+    });
+    const statement = parseComputeAccountStatement(raw);
+    if (!statement) throw new Error("statement_incompatible");
+    if (expected !== epoch) return null;
+    return statement;
+  }
   return {
     getState: () => state,
     selected,
@@ -111,6 +147,80 @@ export function createAccountWorkspace(
         if (expected === epoch) emit({ balance });
       } catch {
         if (expected === epoch) emit({ balance: null });
+      }
+    },
+    async statement() {
+      if (state.statementBusy) return;
+      const expected = epoch;
+      emit({ statementBusy: true, statementError: "" });
+      try {
+        const statement = await readStatement(expected, {
+          attentionOffset: 0,
+          historyOffset: 0,
+        });
+        if (statement)
+          emit({ statement, balance: statement.balance, statementError: "" });
+      } catch (error) {
+        if (expected === epoch) emit({ statementError: workspaceError(error) });
+      } finally {
+        if (expected === epoch) emit({ statementBusy: false });
+      }
+    },
+    async moreStatement(section: "attention" | "history") {
+      if (state.statementBusy || !state.statement) return;
+      const current = state.statement;
+      if (
+        (section === "attention" && !current.attentionHasMore) ||
+        (section === "history" && !current.historyHasMore)
+      )
+        return;
+      const expected = epoch;
+      emit({ statementBusy: true, statementError: "" });
+      try {
+        const next = await readStatement(expected, {
+          attentionOffset:
+            section === "attention" ? current.attentionItems.length : 0,
+          historyOffset:
+            section === "history" ? current.historyItems.length : 0,
+        });
+        if (!next || expected !== epoch) return;
+        emit({
+          balance: next.balance,
+          statement: {
+            ...next,
+            attentionItems:
+              section === "attention"
+                ? mergeStatementItems(
+                    current.attentionItems,
+                    next.attentionItems
+                  )
+                : current.attentionItems,
+            attentionHasMore:
+              section === "attention"
+                ? next.attentionHasMore
+                : current.attentionHasMore,
+            attentionTruncated:
+              section === "attention"
+                ? next.attentionTruncated
+                : current.attentionTruncated,
+            historyItems:
+              section === "history"
+                ? mergeStatementItems(current.historyItems, next.historyItems)
+                : current.historyItems,
+            historyHasMore:
+              section === "history"
+                ? next.historyHasMore
+                : current.historyHasMore,
+            historyTruncated:
+              section === "history"
+                ? next.historyTruncated
+                : current.historyTruncated,
+          },
+        });
+      } catch (error) {
+        if (expected === epoch) emit({ statementError: workspaceError(error) });
+      } finally {
+        if (expected === epoch) emit({ statementBusy: false });
       }
     },
     load() {

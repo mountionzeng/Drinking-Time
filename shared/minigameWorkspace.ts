@@ -2,6 +2,7 @@
 export const GAME_WORKSPACE_OPERATIONS = [
   "account.read",
   "account.balance",
+  "account.statement",
   "profile.read",
   "profile.save",
   "letters.list",

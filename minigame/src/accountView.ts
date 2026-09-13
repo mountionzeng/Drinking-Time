@@ -9,8 +9,8 @@ export function renderAccount(
   state: AccountWorkspaceState,
   view: WorkspaceView,
   email: string,
-  screen: "account" | "letter" | "letterEdit" | "linkEmail",
-  link = { email: '', otp: '', busy: false, message: '' }
+  screen: "account" | "statement" | "letter" | "letterEdit" | "linkEmail",
+  link = { email: "", otp: "", busy: false, message: "" }
 ) {
   const hits: Hit[] = [],
     paper = "#faf7f1",
@@ -55,20 +55,27 @@ export function renderAccount(
     button(label, y, command);
     y += 58;
   };
-  if (screen === 'linkEmail') {
-    para('关联邮箱或已有账号', 22);
-    para('不关联也能继续使用微信账号。', 14, muted);
-    action(link.email ? `邮箱：${link.email}` : '填写要关联的邮箱', 'linkEmailInput');
-    action(link.busy ? '请稍候…' : '发送关联验证码', 'linkEmailSend');
-    action(link.otp ? '验证码：已填写' : '填写六位验证码', 'linkEmailOtp');
-    action(link.busy ? '正在处理…' : '验证并关联', 'linkEmailConfirm');
-    para('已有邮箱账号的故事与余额会保留；当前微信账号已有内容时暂停关联，不自动合并。', 13, muted);
-    if (link.message) para(link.message, 14, '#9b493e');
+  if (screen === "linkEmail") {
+    para("关联邮箱或已有账号", 22);
+    para("不关联也能继续使用微信账号。", 14, muted);
+    action(
+      link.email ? `邮箱：${link.email}` : "填写要关联的邮箱",
+      "linkEmailInput"
+    );
+    action(link.busy ? "请稍候…" : "发送关联验证码", "linkEmailSend");
+    action(link.otp ? "验证码：已填写" : "填写六位验证码", "linkEmailOtp");
+    action(link.busy ? "正在处理…" : "验证并关联", "linkEmailConfirm");
+    para(
+      "已有邮箱账号的故事与余额会保留；当前微信账号已有内容时暂停关联，不自动合并。",
+      13,
+      muted
+    );
+    if (link.message) para(link.message, 14, "#9b493e");
   } else if (screen === "account") {
     para(email || "微信账号", 14, muted);
     if (!email && view.wechat) {
-      action('关联邮箱 / 已有账号', 'linkEmail');
-      para('可选，不影响当前微信账号的使用。', 13, muted);
+      action("关联邮箱 / 已有账号", "linkEmail");
+      para("可选，不影响当前微信账号的使用。", 13, muted);
     }
     para("还剩多少", 20);
     para(
@@ -83,6 +90,7 @@ export function renderAccount(
     if (state.balance && state.balance.availableMinor < 0)
       para("账目异常，请联系我们，先别继续生成。", 13);
     action("刷新余额", "balance");
+    action("查看算力账单 ›", "statement");
     action("今天的来信 ›", "letter");
     para("出生信息", 20);
     para("不填也能读信；填写后，来信会结合这些资料。", 13, muted);
@@ -96,8 +104,94 @@ export function renderAccount(
       action(`${label}：${state.fields[key] || hint}`, `field:${key}`);
     }
     action(state.busy ? "正在保存…" : "保存出生信息", "saveProfile");
-    if (email) action(view.wechat ? "关联当前微信" : "微信关联待服务端配置", "bind");
+    if (email)
+      action(view.wechat ? "关联当前微信" : "微信关联待服务端配置", "bind");
     action("退出登录", "logout");
+  } else if (screen === "statement") {
+    const statement = state.statement;
+    para("算力账单", 22);
+    para(
+      statement
+        ? `可用 ${formatCny(statement.balance.availableMinor)}`
+        : state.statementBusy
+          ? "正在读取账单…"
+          : "账单尚未读取",
+      18,
+      view.accent
+    );
+    if (statement?.balance.reservedMinor)
+      para(
+        `生成中占用 ${formatCny(statement.balance.reservedMinor)}`,
+        13,
+        muted
+      );
+    if (state.statementError)
+      para(`读取失败：${state.statementError}`, 13, "#9b493e");
+    action(state.statementBusy ? "正在刷新…" : "刷新账单", "refreshStatement");
+    if (statement) {
+      const statusLabel = {
+        posted: "已入账",
+        reserved: "已预占",
+        processing: "生成中",
+        reconciliation: "待对账",
+        released: "已释放",
+        exception: "账目异常",
+      } as const;
+      const statementItems = (
+        heading: string,
+        items: typeof statement.historyItems
+      ) => {
+        para(heading, 18);
+        let previousDay = "";
+        for (const item of items) {
+          const date = new Date(item.createdAt);
+          const chinaTime = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+          const day = Number.isNaN(date.getTime())
+            ? item.createdAt.slice(0, 10)
+            : `${chinaTime.getUTCMonth() + 1}月${chinaTime.getUTCDate()}日`;
+          if (day !== previousDay) {
+            para(day, 14, muted);
+            previousDay = day;
+          }
+          const amount = item.reservedMinor
+            ? `${formatCny(-item.reservedMinor)}（占用）`
+            : item.releasedMinor
+              ? `${formatCny(item.releasedMinor)}（释放）`
+              : item.amountMinor > 0
+                ? `+${formatCny(item.amountMinor)}`
+                : formatCny(item.amountMinor);
+          para(`${item.label}  ${amount}`, 16);
+          para(
+            `${statusLabel[item.status]}${item.estimated ? " · 估算" : ""}`,
+            12,
+            item.status === "reconciliation" || item.status === "exception"
+              ? "#9b493e"
+              : muted
+          );
+        }
+      };
+      if (statement.attentionItems.length) {
+        statementItems("待处理", statement.attentionItems);
+        if (statement.attentionHasMore)
+          action(
+            state.statementBusy ? "正在读取…" : "加载更多待处理项目",
+            "moreStatementAttention"
+          );
+        if (statement.attentionTruncated)
+          para("更早待处理项目未展开；余额已包含全部预占。", 12, muted);
+      }
+      statementItems("历史记录", statement.historyItems);
+      if (statement.historyHasMore)
+        action(
+          state.statementBusy ? "正在读取…" : "加载更早记录",
+          "moreStatementHistory"
+        );
+      if (statement.historyTruncated)
+        para("更早账目暂未在小程序展开。", 12, muted);
+      if (!statement.attentionItems.length && !statement.historyItems.length)
+        para("还没有算力记录。", 14, muted);
+      para(statement.coverageNote, 12, muted);
+    }
   } else {
     const letter = state.letters.find(l => l.letterDate === state.date);
     if (screen === "letterEdit") {
@@ -143,7 +237,18 @@ export function renderAccount(
   }
   ctx.fillStyle = paper;
   ctx.fillRect(0, 0, w, top + 53);
-  text(screen === "account" ? "我" : screen === 'linkEmail' ? '关联账号' : "你的每日回信", 20, top + 28, 23);
+  text(
+    screen === "account"
+      ? "我"
+      : screen === "statement"
+        ? "算力账单"
+        : screen === "linkEmail"
+          ? "关联账号"
+          : "你的每日回信",
+    20,
+    top + 28,
+    23
+  );
   text("返回", w - 64, top + 28, 15, view.accent);
   hits.push({
     x: w - 84,
@@ -153,7 +258,9 @@ export function renderAccount(
     action:
       screen === "letterEdit"
         ? "letter"
-        : screen === "letter" || screen === 'linkEmail'
+        : screen === "letter" ||
+            screen === "statement" ||
+            screen === "linkEmail"
           ? "account"
           : "back",
   });

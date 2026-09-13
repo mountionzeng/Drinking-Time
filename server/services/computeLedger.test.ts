@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { fromYuan } from "../../shared/computeMoney";
-import { getCreditAccountSummary, resetMemoryStateForTesting, upsertUser, getUserByOpenId } from "../db";
+import {
+  getCreditAccountSummary,
+  resetMemoryStateForTesting,
+  upsertUser,
+  getUserByOpenId,
+} from "../db";
 import {
   getAccountBalance,
   grantCredit,
@@ -9,9 +14,14 @@ import {
   reserveForOperation,
   settleOperation,
 } from "./computeLedger";
+import { getAccountStatement } from "./computeStatement";
 
 async function makeUser(openId: string): Promise<number> {
-  await upsertUser({ openId, email: `${openId}@example.com`, loginMethod: "email" });
+  await upsertUser({
+    openId,
+    email: `${openId}@example.com`,
+    loginMethod: "email",
+  });
   const user = await getUserByOpenId(openId);
   return user!.id;
 }
@@ -56,10 +66,20 @@ describe("computeLedger", () => {
     const userId = await makeUser("dup-user");
     const key = "gift:legacy-invite-7";
 
-    expect(await grantCredit({ userId, amountMinor: fromYuan(30), idempotencyKey: key }))
-      .toMatchObject({ kind: "appended" });
-    expect(await grantCredit({ userId, amountMinor: fromYuan(30), idempotencyKey: key }))
-      .toMatchObject({ kind: "duplicate" });
+    expect(
+      await grantCredit({
+        userId,
+        amountMinor: fromYuan(30),
+        idempotencyKey: key,
+      })
+    ).toMatchObject({ kind: "appended" });
+    expect(
+      await grantCredit({
+        userId,
+        amountMinor: fromYuan(30),
+        idempotencyKey: key,
+      })
+    ).toMatchObject({ kind: "duplicate" });
     expect((await getAccountBalance(userId)).balanceMinor).toBe(fromYuan(30));
   });
 
@@ -127,7 +147,8 @@ describe("computeLedger", () => {
     await reserveForOperation({ userId, ...textOperation("op-1", 7) });
 
     expect(
-      (await reserveForOperation({ userId, ...textOperation("op-1", 7) })).outcome
+      (await reserveForOperation({ userId, ...textOperation("op-1", 7) }))
+        .outcome
     ).toBe("replayed");
     expect(
       (
@@ -208,7 +229,10 @@ describe("computeLedger", () => {
 
   it("余额不足只挡住新的付费调用，不动已有余额", async () => {
     const userId = await fundedUser("poor-user", 1);
-    const result = await reserveForOperation({ userId, ...textOperation("op-1", 7) });
+    const result = await reserveForOperation({
+      userId,
+      ...textOperation("op-1", 7),
+    });
 
     expect(result.outcome).toBe("insufficient_balance");
     expect(await getAccountBalance(userId)).toMatchObject({
@@ -243,5 +267,178 @@ describe("computeLedger", () => {
     expect((await getAccountBalance(userId)).balanceMinor).toBe(fromYuan(15));
     const entries = await getAccountBalance(userId);
     expect(entries.balanceMinor).toBe(fromYuan(15));
+  });
+
+  it("账单只投影当前用户，并保留微元级逐笔金额", async () => {
+    const userId = await fundedUser("statement-user", 10);
+    const otherId = await fundedUser("statement-other", 20);
+    await reserveForOperation({ userId, ...textOperation("op-statement", 1) });
+    await settleOperation({
+      operationId: "op-statement",
+      outcome: { kind: "succeeded", verifiedCostMinor: 321 },
+    });
+    await reserveForOperation({
+      userId: otherId,
+      ...textOperation("op-private", 2),
+    });
+
+    const statement = await getAccountStatement(userId, {
+      attentionLimit: 20,
+      historyLimit: 20,
+    });
+
+    expect(statement.balance.availableMinor).toBe(fromYuan(10) - 321);
+    expect([...statement.attentionItems, ...statement.historyItems]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "文字生成",
+          amountMinor: -321,
+          reservedMinor: 0,
+          releasedMinor: 0,
+          status: "posted",
+          estimated: true,
+        }),
+        expect.objectContaining({
+          label: "赠送算力",
+          amountMinor: fromYuan(10),
+          status: "posted",
+          estimated: false,
+        }),
+      ])
+    );
+    expect(JSON.stringify(statement)).not.toContain("op-private");
+    expect(JSON.stringify(statement)).not.toContain("requestHash");
+    expect(JSON.stringify(statement)).not.toContain("userId");
+  });
+
+  it("账单显示预占、状态不明和已释放，但不把它们伪装成已扣款", async () => {
+    const userId = await fundedUser("statement-status-user", 10);
+    await reserveForOperation({ userId, ...textOperation("op-reserved", 2) });
+    await reserveForOperation({ userId, ...textOperation("op-unknown", 3) });
+    await settleOperation({
+      operationId: "op-unknown",
+      outcome: { kind: "submission_unknown" },
+    });
+    await reserveForOperation({ userId, ...textOperation("op-released", 1) });
+    await settleOperation({
+      operationId: "op-released",
+      outcome: { kind: "not_charged_failure" },
+    });
+
+    const statement = await getAccountStatement(userId, {
+      attentionLimit: 20,
+      historyLimit: 20,
+    });
+
+    expect([...statement.attentionItems, ...statement.historyItems]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          amountMinor: 0,
+          reservedMinor: fromYuan(2),
+          releasedMinor: 0,
+          status: "reserved",
+        }),
+        expect.objectContaining({
+          amountMinor: 0,
+          reservedMinor: fromYuan(3),
+          releasedMinor: 0,
+          status: "reconciliation",
+        }),
+        expect.objectContaining({
+          amountMinor: 0,
+          reservedMinor: 0,
+          releasedMinor: fromYuan(1),
+          status: "released",
+        }),
+      ])
+    );
+    expect(JSON.stringify(statement)).not.toMatch(/ledger:\d+|operation:\d+/);
+  });
+
+  it("账本窗口之外的活跃预占仍进入当前对账单", async () => {
+    const userId = await fundedUser("statement-overflow-user", 100);
+    await reserveForOperation({ userId, ...textOperation("old-active", 1) });
+    for (let index = 0; index < 55; index++) {
+      const operationId = `released-${index}`;
+      await reserveForOperation({ userId, ...textOperation(operationId, 0.1) });
+      await settleOperation({
+        operationId,
+        outcome: { kind: "not_charged_failure" },
+      });
+    }
+
+    const statement = await getAccountStatement(userId, {
+      attentionLimit: 10,
+      historyLimit: 10,
+    });
+    expect(statement.attentionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reservedMinor: fromYuan(1),
+          status: "reserved",
+        }),
+      ])
+    );
+  });
+
+  it("超过一页的待处理项目保持有界，并能继续读取且余额包含全部预占", async () => {
+    const userId = await fundedUser("statement-attention-pages", 100);
+    for (let index = 0; index < 55; index++)
+      await reserveForOperation({
+        userId,
+        ...textOperation(`attention-${index}`, 0.1),
+      });
+
+    const first = await getAccountStatement(userId, {
+      attentionLimit: 50,
+      historyLimit: 1,
+    });
+    const second = await getAccountStatement(userId, {
+      attentionOffset: 50,
+      attentionLimit: 50,
+      historyLimit: 1,
+    });
+
+    expect(first.attentionItems).toHaveLength(50);
+    expect(first.attentionHasMore).toBe(true);
+    expect(second.attentionItems).toHaveLength(5);
+    expect(second.attentionHasMore).toBe(false);
+    expect(first.balance.reservedMinor).toBe(fromYuan(5.5));
+    expect(
+      [...first.attentionItems, ...second.attentionItems].reduce(
+        (total, item) => total + item.reservedMinor,
+        0
+      )
+    ).toBe(first.balance.reservedMinor);
+  });
+
+  it("超过一页的历史记录可以读取更早一页，不会重复返回首页", async () => {
+    const userId = await fundedUser("statement-history-pages", 100);
+    for (let index = 0; index < 55; index++) {
+      const operationId = `history-${index}`;
+      await reserveForOperation({ userId, ...textOperation(operationId, 0.1) });
+      await settleOperation({
+        operationId,
+        outcome: { kind: "not_charged_failure" },
+      });
+    }
+
+    const first = await getAccountStatement(userId, {
+      attentionLimit: 1,
+      historyLimit: 50,
+    });
+    const second = await getAccountStatement(userId, {
+      attentionLimit: 1,
+      historyOffset: 50,
+      historyLimit: 50,
+    });
+
+    expect(first.historyItems).toHaveLength(50);
+    expect(first.historyHasMore).toBe(true);
+    expect(second.historyItems).toHaveLength(6);
+    expect(second.historyHasMore).toBe(false);
+    expect(second.historyItems).toContainEqual(
+      expect.objectContaining({ label: "赠送算力" })
+    );
   });
 });

@@ -10,6 +10,8 @@ import {
   upsertUser,
   upsertEmotionDailyLetter,
 } from "../db";
+import { fromYuan } from "../../shared/computeMoney";
+import { grantCredit, reserveForOperation } from "../services/computeLedger";
 import { createMinigameRouter } from "./minigameRouter";
 import { dispatchMinigameWorkspace } from "./minigameWorkspace";
 import { createGameSessions } from "./minigameSession";
@@ -136,6 +138,35 @@ it("account response omits secrets and unknown operations remain closed", async 
   expect(data.result.recoveryScope).toMatch(/^[0-9a-f]{64}$/);
   expect((await request("admin.users")).status).toBe(404);
   expect((await request("body.save", {}, "wrong-token")).status).toBe(401);
+});
+it("account statement is scoped to the bearer account and ignores a supplied userId", async () => {
+  await grantCredit({
+    userId,
+    amountMinor: fromYuan(10),
+    idempotencyKey: "statement:owner",
+  });
+  await grantCredit({
+    userId: otherId,
+    amountMinor: fromYuan(99),
+    idempotencyKey: "statement:other",
+  });
+  await reserveForOperation({
+    userId,
+    operationId: "owner-operation",
+    operationType: "text.generate",
+    requestHash: "owner-hash",
+    maxCostMinor: fromYuan(1),
+  });
+
+  const response = await request("account.statement", {
+    userId: otherId,
+    historyLimit: 20,
+  });
+  expect(response.status).toBe(200);
+  const { result } = await response.json();
+  expect(result.balance.postedMinor).toBe(fromYuan(10));
+  expect(JSON.stringify(result)).not.toContain(fromYuan(99).toString());
+  expect(JSON.stringify(result)).not.toContain("userId");
 });
 it("letter reads and message edits remain owner-scoped and revision guarded", async () => {
   const date = "2026-09-07";

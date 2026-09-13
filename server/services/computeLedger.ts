@@ -12,6 +12,7 @@ import {
   findBillingOperation,
   getCreditAccountSummary,
   listProviderAttemptsForOperation,
+  readComputeStatementSnapshot,
   recordProviderAttempt,
   reserveComputeCredit,
   type CreditAccountSummary,
@@ -26,6 +27,8 @@ import {
 /** Provider-attempt persistence remains behind the compute-ledger seam. */
 export const recordOperationProviderAttempt = recordProviderAttempt;
 export const listOperationProviderAttempts = listProviderAttemptsForOperation;
+/** 账单读模型也必须经由唯一的算力 persistence seam。 */
+export const readAccountComputeStatementSnapshot = readComputeStatementSnapshot;
 
 export type ReserveForOperationInput = {
   userId: number;
@@ -45,7 +48,11 @@ export type ReserveForOperationResult =
   | { outcome: "reserved"; amountMinor: number; availableMinor: number }
   | { outcome: "replayed"; status: BillingOperationStatus }
   | { outcome: "conflict"; reason: string }
-  | { outcome: "insufficient_balance"; availableMinor: number; requiredMinor: number }
+  | {
+      outcome: "insufficient_balance";
+      availableMinor: number;
+      requiredMinor: number;
+    }
   | { outcome: "no_trusted_max_cost" }
   | { outcome: "quote_expired" };
 
@@ -65,7 +72,8 @@ export async function reserveForOperation(
     operationId: input.operationId,
     requestHash: input.requestHash,
     maxCostMinor: input.maxCostMinor,
-    availableMinor: (await getCreditAccountSummary(input.userId)).availableMinor,
+    availableMinor: (await getCreditAccountSummary(input.userId))
+      .availableMinor,
     existing: existingOperation
       ? {
           operationId: existingOperation.operationId,
@@ -78,10 +86,13 @@ export async function reserveForOperation(
     now,
   });
 
-  if (plan.action === "replay") return { outcome: "replayed", status: plan.status };
-  if (plan.action === "conflict") return { outcome: "conflict", reason: plan.reason };
+  if (plan.action === "replay")
+    return { outcome: "replayed", status: plan.status };
+  if (plan.action === "conflict")
+    return { outcome: "conflict", reason: plan.reason };
   if (plan.action === "reject") {
-    if (plan.reason === "no_trusted_max_cost") return { outcome: "no_trusted_max_cost" };
+    if (plan.reason === "no_trusted_max_cost")
+      return { outcome: "no_trusted_max_cost" };
     if (plan.reason === "quote_expired") return { outcome: "quote_expired" };
     const summary = await getCreditAccountSummary(input.userId);
     return {
@@ -132,7 +143,12 @@ export type SettleOperationInput = {
 };
 
 export type SettleOperationResult =
-  | { outcome: "settled"; chargeMinor: number; releaseMinor: number; balanceMinor: number }
+  | {
+      outcome: "settled";
+      chargeMinor: number;
+      releaseMinor: number;
+      balanceMinor: number;
+    }
   | { outcome: "released"; releaseMinor: number; balanceMinor: number }
   | { outcome: "frozen"; reason: string }
   | {

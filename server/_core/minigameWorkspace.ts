@@ -3,7 +3,27 @@ import { TRPCError } from "@trpc/server";
 import { appRouter } from "../routers";
 import { getAccountWorkspaceUser } from "../services/accountIdentity";
 import { getAccountBalance } from "../services/computeLedger";
+import { getAccountStatement } from "../services/computeStatement";
 import type { GameDependencies } from "./minigameRouter";
+import {
+  COMPUTE_STATEMENT_MAX_OFFSET,
+  COMPUTE_STATEMENT_MAX_PAGE_LIMIT,
+  COMPUTE_STATEMENT_PAGE_LIMIT,
+  type ComputeStatementQuery,
+} from "../../shared/computeStatement";
+
+function boundedStatementInteger(
+  input: Record<string, unknown>,
+  key: keyof ComputeStatementQuery,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  const value = input[key];
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.max(minimum, Math.min(maximum, value))
+    : fallback;
+}
 
 /** Existing mobile procedures retain their Zod, ownership, CAS and durable-turn guards.
  * No Web context factory, cookie, guest identity, arbitrary path or admin procedure. */
@@ -31,6 +51,42 @@ export const dispatchMinigameWorkspace: NonNullable<
       availableMinor: balance.availableMinor,
       lifetimeSpentMinor: balance.lifetimeSpentMinor,
     };
+  }
+  if (operation === "account.statement") {
+    const value =
+      input && typeof input === "object"
+        ? (input as Record<string, unknown>)
+        : {};
+    return getAccountStatement(user.id, {
+      attentionOffset: boundedStatementInteger(
+        value,
+        "attentionOffset",
+        0,
+        0,
+        COMPUTE_STATEMENT_MAX_OFFSET
+      ),
+      attentionLimit: boundedStatementInteger(
+        value,
+        "attentionLimit",
+        COMPUTE_STATEMENT_PAGE_LIMIT,
+        1,
+        COMPUTE_STATEMENT_MAX_PAGE_LIMIT
+      ),
+      historyOffset: boundedStatementInteger(
+        value,
+        "historyOffset",
+        0,
+        0,
+        COMPUTE_STATEMENT_MAX_OFFSET
+      ),
+      historyLimit: boundedStatementInteger(
+        value,
+        "historyLimit",
+        COMPUTE_STATEMENT_PAGE_LIMIT,
+        1,
+        COMPUTE_STATEMENT_MAX_PAGE_LIMIT
+      ),
+    });
   }
   if (operation === "profile.read") return caller.emotionAnalysis.getProfile();
   if (operation === "profile.save") {
