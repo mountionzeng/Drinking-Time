@@ -45,6 +45,8 @@ const wx={
 for(const event of ['KeyboardInput','KeyboardComplete','KeyboardHeightChange','TouchStart','TouchMove','TouchEnd','TouchCancel','Hide','Show','WindowResize'])wx['on'+event]=fn=>{handlers[event]=fn;};
 vm.runInNewContext(readFileSync(new URL('../dist/game.js',import.meta.url),'utf8'),{wx,console,Date,Map,Set,setTimeout,clearTimeout,queueMicrotask,TextEncoder,TextDecoder,AbortController,URL,URLSearchParams,Intl:process.argv.includes('--without-intl')?undefined:Intl});
 assert.ok(labels.some(x=>x.value=== (process.argv.includes('--wechat') ? '微信登录' : '邮箱登录')),'login screen must paint before any network request');
+assert.ok(labels.some(x=>x.value==='拾光'),'login screen must use the 拾光 brand');
+assert.ok(!labels.some(x=>String(x.value).includes('碎碎念')),'login screen must not show the retired 碎碎念 brand');
 assert.equal(calls.length,0,'first paint must not depend on the server');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function tap(label){const target=labels.findLast(x=>x.value===label);assert.ok(target,'missing action '+label);const t={clientX:target.x+3,clientY:target.y-8};handlers.TouchStart({touches:[t]});handlers.TouchEnd({changedTouches:[t]});}

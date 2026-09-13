@@ -232,7 +232,7 @@ function draw() {
   };
   if (view.character)
     ctx.drawImage(view.character, width / 2 - 38, top, 76, 84);
-  label("碎碎念", width / 2 - 42, top + 116, 28, view.accent, view.font);
+  label("拾光", width / 2 - 28, top + 116, 28, view.accent, view.font);
   label("把故事接着说下去", width / 2 - 64, top + 149, 15, "#6b635b");
   if (!showEmailLogin && __WECHAT_ENABLED__) {
     button(

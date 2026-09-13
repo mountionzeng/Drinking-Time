@@ -34,7 +34,7 @@ it('email binding sends a source-scoped challenge with a clear account-access wa
   expect(fixture.linkIssue).toHaveBeenCalledWith({ userId: 9, sessionVersion: 2, email: 'old@example.invalid', secret: fixture.env.otpDigestSecret });
   expect(fixture.issue).not.toHaveBeenCalled();
   const body = JSON.parse(fetcher.mock.calls[0][1]!.body as string);
-  expect(body.subject).toBe('碎碎念关联邮箱确认');
+  expect(body.subject).toBe('拾光关联邮箱确认');
   expect(body.text).toContain('微信可访问此邮箱账号的故事');
   fixture.allow.mockResolvedValue(false);
   expect(await requestMinigameLinkEmailOtp({ id: 9, sessionVersion: 2 }, 'old@example.invalid', 'ip')).toBe('rate_limited');

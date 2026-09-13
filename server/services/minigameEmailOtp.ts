@@ -34,7 +34,7 @@ async function sendEmailCode(email: string, code: string, linking: boolean): Pro
       body: JSON.stringify({
         from: ENV.resendFromEmail,
         to: [email],
-        subject: linking ? '碎碎念关联邮箱确认' : "碎碎念登录验证码",
+        subject: linking ? '拾光关联邮箱确认' : "拾光登录验证码",
         text: linking
           ? `你正在小游戏中将当前微信与此邮箱关联。验证码：${code}\n\n确认后微信可访问此邮箱账号的故事。10 分钟内有效。如果不是你本人操作，请忽略。请勿向他人提供验证码。`
           : `你的验证码是：${code}\n\n10 分钟内有效。请勿向他人提供验证码。`,

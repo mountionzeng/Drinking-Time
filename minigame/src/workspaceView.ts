@@ -214,7 +214,7 @@ export function renderWorkspace(
   } else if (view.screen === "account") {
     text("我", 20, top + 28, 25, ink, true);
     button("返回", w - 84, top, 64, "back");
-    text(state.account?.name || "碎碎念的朋友", 20, top + 87, 20);
+    text(state.account?.name || "拾光的朋友", 20, top + 87, 20);
     text(
       clipText(state.account?.email || "微信账号", 35),
       20,
@@ -245,7 +245,7 @@ export function renderWorkspace(
       text("微信登录待服务端配置完成后开放", 20, top + 316, 13, muted);
     button("退出登录", 20, top + 344, w - 40, "logout");
   } else if (!state.storyId) {
-    text("碎碎念", 20, top + 28, 25, ink, true);
+    text("拾光", 20, top + 28, 25, ink, true);
     button(
       "我",
       w - 84,

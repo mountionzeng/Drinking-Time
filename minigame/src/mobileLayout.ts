@@ -14,7 +14,7 @@ export function paintMobile(ctx: any, width: number, height: number, stop: Stop,
     ctx.fillStyle = color; ctx.font = `${size}px sans-serif`; ctx.fillText(s, x, y);
   };
   label('演示模式 · 未连接真实账号', 16, 86, 11, '#977d4b');
-  if (stop === 'peek') { label('碎碎念', 18, 120, 22); label(title.slice(0, 14), 98, 120, 14); }
+  if (stop === 'peek') { label('拾光', 18, 120, 22); label(title.slice(0, 14), 98, 120, 14); }
   const wrapped = (value: string) => {
     ctx.font = '16px sans-serif'; const lines: string[] = []; let line = '';
     for (const c of value) {

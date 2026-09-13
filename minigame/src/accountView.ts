@@ -228,7 +228,7 @@ export function renderAccount(
             "这一天还没有留下原话。"
         );
         if (letter) action("修改这段原话", "letterEdit");
-        para("聊会儿的回信", 18);
+        para("拾光的回信", 18);
         para(reference.summary);
         for (const block of reference.schedule ?? [])
           para(`${block.label} · ${block.title}\n${block.detail}`);
