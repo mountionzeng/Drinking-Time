@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createWorkspaceClient, type WorkspaceCall } from "./workspaceClient";
+import { createWorkspaceClient, workspaceError, type WorkspaceCall } from "./workspaceClient";
 const document = {
   storyId: 41,
   storyRevision: 1,
@@ -13,6 +13,11 @@ const document = {
   publishingRevision: 1,
   updatedAt: 1,
 };
+it("explains that exhausted compute does not remove story access", () => {
+  expect(workspaceError(new Error("insufficient_balance"))).toBe(
+    "算力余额已用完，故事仍可查看和编辑。"
+  );
+});
 function setup(
   override: Record<string, (input: any) => Promise<any>> = {},
   beforeWrite = () => {}

@@ -3,8 +3,12 @@ import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { withMysqlTestDatabase } from './mysqlTestHarness';
 const access = vi.hoisted(() => ({ getDb: vi.fn() }));
-vi.mock('../db', () => ({ getDb: access.getDb }));
+vi.mock('../db', async importOriginal => ({
+  ...(await importOriginal<typeof import('../db')>()),
+  getDb: access.getDb,
+}));
 import { bindWechatAccount, resolveWechatAccount } from '../services/wechatAccount';
+import { WECHAT_REGISTRATION_GIFT_MINOR } from '../services/accountIdentity';
 
 const mysqlTest = process.env.TEST_MYSQL_DATABASE_URL ? it : it.skip;
 mysqlTest('concurrent WeChat login creates exactly one account and rolls back losing users', async () => {
@@ -18,8 +22,18 @@ mysqlTest('concurrent WeChat login creates exactly one account and rolls back lo
         const [rows] = await pool.query<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS n FROM ${table}`);
         expect(Number(rows[0].n)).toBe(1);
       }
-      const [credits] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM credit_accounts');
-      expect(Number(credits[0].n)).toBe(0);
+      const [credits] = await pool.query<mysql.RowDataPacket[]>('SELECT balanceMinor, reservedMinor, lifetimeSpentMinor FROM credit_accounts');
+      expect(credits).toHaveLength(1);
+      expect(Number(credits[0].balanceMinor)).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
+      expect(Number(credits[0].reservedMinor)).toBe(0);
+      expect(Number(credits[0].lifetimeSpentMinor)).toBe(0);
+      const [gifts] = await pool.query<mysql.RowDataPacket[]>("SELECT entryType, amountMinor FROM credit_ledger_entries");
+      expect(gifts).toHaveLength(1);
+      expect(gifts[0].entryType).toBe('gift');
+      expect(Number(gifts[0].amountMinor)).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
+      await resolveWechatAccount('wxd6aeb0bc3a031d39:concurrent');
+      const [retriedGifts] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM credit_ledger_entries');
+      expect(Number(retriedGifts[0].n)).toBe(1);
       // Case-insensitive legacy schema must fail closed, not log into a different openid.
       await expect(resolveWechatAccount('wxd6aeb0bc3a031d39:CONCURRENT')).rejects.toThrow('wechat_identity_collision');
       await expect(bindWechatAccount(ids[0], 'wxd6aeb0bc3a031d39:CONCURRENT')).rejects.toThrow('wechat_identity_collision');

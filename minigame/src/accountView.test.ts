@@ -3,7 +3,7 @@ import { renderAccount } from "./accountView";
 import type { AccountWorkspaceState } from "./accountWorkspace";
 import type { WorkspaceView } from "./workspaceView";
 
-it("shows micro-yuan detail, reservations and reconciliation without rounding to zero", () => {
+it("shows compute units plus exact RMB cost without rounding micro-yuan charges to zero", () => {
   const drawn: string[] = [];
   const ctx = {
     font: "",
@@ -87,9 +87,10 @@ it("shows micro-yuan detail, reservations and reconciliation without rounding to
 
   renderAccount(ctx, 390, 844, state, view, "", "statement");
 
-  expect(drawn).toContain("文字生成  -¥0.000321");
-  expect(drawn).toContain("图片生成  -¥2.00（占用）");
-  expect(drawn).toContain("待对账 · 估算");
+  expect(drawn).toContain("文字生成  -0.000642 算力");
+  expect(drawn).toContain("已入账 · 费用 -¥0.000321（估算）");
+  expect(drawn).toContain("图片生成  -4.00 算力");
+  expect(drawn).toContain("待对账 · 费用 -¥2.00（估算）");
   expect(drawn.indexOf("待处理")).toBeLessThan(drawn.indexOf("历史记录"));
 });
 
@@ -187,7 +188,12 @@ it("shows the one-use desktop login code only after WeChat has issued it", () =>
     profile: null,
     letters: [],
     date: "2026-09-13",
-    balance: null,
+    balance: {
+      postedMinor: 5_000_000,
+      reservedMinor: 0,
+      availableMinor: 5_000_000,
+      lifetimeSpentMinor: 0,
+    },
     statementBusy: false,
     statementError: "",
     statement: null,
@@ -207,6 +213,10 @@ it("shows the one-use desktop login code only after WeChat has issued it", () =>
   });
 
   expect(drawn).toContain("在电脑上继续");
+  expect(drawn).toContain("算力余额");
+  expect(drawn).toContain("10.00 算力");
+  expect(drawn).toContain("按模型实际费用扣除：¥1 = 2 算力");
+  expect(drawn).not.toContain("关联邮箱 / 已有账号");
   expect(drawn).toContain("7K9MPQ");
   expect(drawn).toContain("复制电脑登录码");
 });

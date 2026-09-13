@@ -1,6 +1,10 @@
 import type { AccountWorkspaceState } from "./accountWorkspace";
 import type { WorkspaceView, Hit } from "./workspaceView";
-import { formatCny } from "../../shared/computeMoney";
+import {
+  formatCny,
+  formatComputeBalance,
+  formatComputeUnits,
+} from "../../shared/computeMoney";
 import { publicDailyLetterForDate } from "./publicDailyLetter";
 export function renderAccount(
   ctx: any,
@@ -74,6 +78,21 @@ export function renderAccount(
     if (link.message) para(link.message, 14, "#9b493e");
   } else if (screen === "account") {
     para(email || "微信账号", 14, muted);
+    para("算力余额", 20);
+    para(
+      state.balance
+        ? formatComputeBalance(state.balance.availableMinor)
+        : "正在读取算力…",
+      24,
+      view.accent
+    );
+    para("按模型实际费用扣除：¥1 = 2 算力", 13, muted);
+    if (state.balance?.reservedMinor)
+      para(`生成中占用 ${formatComputeUnits(state.balance.reservedMinor)}`, 13, muted);
+    if (state.balance && state.balance.availableMinor < 0)
+      para("账目异常，请联系我们，先别继续生成。", 13);
+    action("刷新算力", "balance");
+    action("查看算力账单 ›", "statement");
     para("在电脑上继续", 20);
     if (desktopPairing) {
       para(desktopPairing.code, 28, view.accent);
@@ -84,24 +103,6 @@ export function renderAccount(
       para("生成一次性短码，把这个账号的故事带到电脑做视频。", 13, muted);
       action("生成电脑登录码", "desktopPair");
     }
-    if (!email && view.wechat) {
-      action("关联邮箱 / 已有账号", "linkEmail");
-      para("可选，不影响当前微信账号的使用。", 13, muted);
-    }
-    para("还剩多少", 20);
-    para(
-      state.balance
-        ? `可用余额 ${formatCny(state.balance.availableMinor)}`
-        : "余额尚未读到",
-      19,
-      view.accent
-    );
-    if (state.balance?.reservedMinor)
-      para(`生成中预占 ${formatCny(state.balance.reservedMinor)}`, 13, muted);
-    if (state.balance && state.balance.availableMinor < 0)
-      para("账目异常，请联系我们，先别继续生成。", 13);
-    action("刷新余额", "balance");
-    action("查看算力账单 ›", "statement");
     action("今天的来信 ›", "letter");
     para("出生信息", 20);
     para("不填也能读信；填写后，来信会结合这些资料。", 13, muted);
@@ -115,15 +116,13 @@ export function renderAccount(
       action(`${label}：${state.fields[key] || hint}`, `field:${key}`);
     }
     action(state.busy ? "正在保存…" : "保存出生信息", "saveProfile");
-    if (email)
-      action(view.wechat ? "关联当前微信" : "微信关联待服务端配置", "bind");
     action("退出登录", "logout");
   } else if (screen === "statement") {
     const statement = state.statement;
     para("算力账单", 22);
     para(
       statement
-        ? `可用 ${formatCny(statement.balance.availableMinor)}`
+        ? `可用 ${formatComputeBalance(statement.balance.availableMinor)}`
         : state.statementBusy
           ? "正在读取账单…"
           : "账单尚未读取",
@@ -132,7 +131,7 @@ export function renderAccount(
     );
     if (statement?.balance.reservedMinor)
       para(
-        `生成中占用 ${formatCny(statement.balance.reservedMinor)}`,
+        `生成中占用 ${formatComputeUnits(statement.balance.reservedMinor)}`,
         13,
         muted
       );
@@ -164,16 +163,15 @@ export function renderAccount(
             para(day, 14, muted);
             previousDay = day;
           }
-          const amount = item.reservedMinor
-            ? `${formatCny(-item.reservedMinor)}（占用）`
+          const minor = item.reservedMinor
+            ? -item.reservedMinor
             : item.releasedMinor
-              ? `${formatCny(item.releasedMinor)}（释放）`
-              : item.amountMinor > 0
-                ? `+${formatCny(item.amountMinor)}`
-                : formatCny(item.amountMinor);
+              ? item.releasedMinor
+              : item.amountMinor;
+          const amount = `${minor > 0 ? "+" : ""}${formatComputeUnits(minor)}`;
           para(`${item.label}  ${amount}`, 16);
           para(
-            `${statusLabel[item.status]}${item.estimated ? " · 估算" : ""}`,
+            `${statusLabel[item.status]} · 费用 ${formatCny(minor)}${item.estimated ? "（估算）" : ""}`,
             12,
             item.status === "reconciliation" || item.status === "exception"
               ? "#9b493e"

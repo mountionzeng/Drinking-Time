@@ -17,6 +17,7 @@ export function minigameRoutes() {
   return createMinigameRouter({
     // Explicit opt-in; existing Web deployment is unchanged until reviewed.
     enabled: process.env.MINIGAME_API_ENABLED === 'true' && secret !== process.env.JWT_SECRET,
+    accountLinkingEnabled: emailLinkEnabled,
     wechatEnabled: process.env.WECHAT_MINIGAME_LOGIN_ENABLED === 'true' && Boolean(appSecret),
     secret, appId,
     workspace: process.env.MINIGAME_WORKSPACE_ENABLED === 'true' ? dispatchMinigameWorkspace : undefined,

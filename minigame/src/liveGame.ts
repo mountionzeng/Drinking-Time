@@ -8,7 +8,7 @@ import {
   type BirthFields,
 } from "./accountWorkspace";
 import { renderAccount } from "./accountView";
-import { formatCny } from "../../shared/computeMoney";
+import { formatComputeBalance } from "../../shared/computeMoney";
 import {
   getTodayNayin,
   BEVERAGE_THEMES,
@@ -157,7 +157,9 @@ function draw() {
   if (!width) return;
   theme();
   const balance = accountWorkspace.getState().balance;
-  view.balanceText = balance ? formatCny(balance.availableMinor) : "余额未读取";
+  view.balanceText = balance
+    ? formatComputeBalance(balance.availableMinor)
+    : "算力未读取";
   if (authState.authenticated) {
     if (
       ["account", "statement", "letter", "letterEdit", "linkEmail"].includes(

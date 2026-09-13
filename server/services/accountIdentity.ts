@@ -9,7 +9,7 @@
  *  3. **限流落库。** PM2 重启或多进程时，进程内内存限流形同虚设。
  */
 import { ENV } from "../_core/env";
-import { randomUUID, createHmac } from 'node:crypto';
+import { randomUUID, createHash, createHmac } from 'node:crypto';
 import { and, asc, desc, eq, getTableColumns, getTableName, is, isNull, sql } from 'drizzle-orm';
 import { MySqlTable } from 'drizzle-orm/mysql-core';
 import * as schema from '../../drizzle/schema';
@@ -43,6 +43,7 @@ import {
   type OtpPurpose,
   type PasswordPolicyResult,
 } from "./accountSecurity";
+import { grantCredit } from "./computeLedger";
 
 const { accountIdentities: identities, accountVerificationChallenges: challenges } = schema;
 type ProofContext = { userId: number; sessionVersion: number; email: string; secret: string };
@@ -189,7 +190,35 @@ export async function allowMinigameAuthAttempt(ip: string) {
     windowSeconds: 60, maxAttempts: 15 })).allowed;
 }
 
-/** Creates the account and identity in one transaction; no email or gift allocation. */
+/** 10 算力；按 ¥1 = 2 算力折算为 ¥5 的微元账本额度。 */
+export const WECHAT_REGISTRATION_GIFT_MINOR = 5_000_000;
+
+export function wechatRegistrationGiftIdempotencyKey(subject: string) {
+  return `wechat-registration-gift:v1:${createHash("sha256").update(subject).digest("hex")}`;
+}
+
+/**
+ * Every app-scoped WeChat identity receives one fixed registration gift.
+ *
+ * This deliberately also repairs an older WeChat account on its next login. The
+ * stable identity-derived key makes retries and concurrent first logins converge
+ * on one ledger entry instead of directly mutating a balance projection.
+ */
+export async function ensureWechatRegistrationGift(
+  userId: number,
+  subject: string,
+  grant: typeof grantCredit = grantCredit
+) {
+  await grant({
+    userId,
+    amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
+    idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
+    reason: "微信账号首次注册赠送 10 算力（¥5 额度）",
+    enableAccess: true,
+  });
+}
+
+/** Creates the account and identity in one transaction, then grants 10 compute units. */
 export async function resolveWechatAccount(subject: string): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error('wechat_database_unavailable');
@@ -201,20 +230,28 @@ export async function resolveWechatAccount(subject: string): Promise<number> {
     return row?.userId;
   };
   const existing = await find();
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    await ensureWechatRegistrationGift(existing, subject);
+    return existing;
+  }
   try {
-    return await db.transaction(async tx => {
+    const userId = await db.transaction(async tx => {
       const [user] = await tx.insert(users).values({
         openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
       }).$returningId();
       await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
       return user.id;
     });
+    await ensureWechatRegistrationGift(userId, subject);
+    return userId;
   } catch (error) {
     // If another login won the unique identity constraint, its account is authoritative.
     // The losing transaction rolls back its new user as well.
     const winner = await find();
-    if (winner !== undefined) return winner;
+    if (winner !== undefined) {
+      await ensureWechatRegistrationGift(winner, subject);
+      return winner;
+    }
     throw error;
   }
 }

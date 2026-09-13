@@ -9,6 +9,7 @@
  */
 
 export const MINOR_PER_YUAN = 1_000_000;
+export const COMPUTE_UNITS_PER_YUAN = 2;
 
 /** 金额必须是安全整数；负数合法（账本里消费是负数）。 */
 export function assertMinorAmount(value: number): number {
@@ -104,6 +105,33 @@ export function formatCnyBalance(minor: number): string {
   const sign = cents < 0 ? "-" : "";
   const absolute = Math.abs(cents);
   return `${sign}¥${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
+/**
+ * 用户侧算力按实际人民币费用换算：¥1 = 2 算力。
+ * 账本仍以微元结算，展示时才转换，避免供应商费用精度损失。
+ */
+export function formatComputeUnits(minor: number): string {
+  assertMinorAmount(minor);
+  const computeMicros = assertMinorAmount(minor * COMPUTE_UNITS_PER_YUAN);
+  const sign = computeMicros < 0 ? "-" : "";
+  const absolute = Math.abs(computeMicros);
+  const integerPart = Math.trunc(absolute / MINOR_PER_YUAN);
+  const fraction = absolute % MINOR_PER_YUAN;
+  let decimals = String(fraction).padStart(6, "0").replace(/0+$/, "");
+  if (decimals.length < 2) decimals = decimals.padEnd(2, "0");
+  return `${sign}${integerPart}.${decimals} 算力`;
+}
+
+/** 余额大字保守截断到 0.01 算力，绝不显示超过实际可用的额度。 */
+export function formatComputeBalance(minor: number): string {
+  assertMinorAmount(minor);
+  const computeMicros = assertMinorAmount(minor * COMPUTE_UNITS_PER_YUAN);
+  const unitsPerHundredth = MINOR_PER_YUAN / 100;
+  const hundredths = Math.floor(computeMicros / unitsPerHundredth);
+  const sign = hundredths < 0 ? "-" : "";
+  const absolute = Math.abs(hundredths);
+  return `${sign}${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")} 算力`;
 }
 
 /**

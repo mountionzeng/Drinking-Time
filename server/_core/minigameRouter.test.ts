@@ -85,6 +85,15 @@ it('email association defaults closed without affecting independent WeChat login
   expect((await request('/bind/email', { email: 'old@example.com', otp: '123456', code: 'fresh-code', confirm: true }, token)).status).toBe(503);
   expect((await request('/stories', undefined, token)).status).toBe(200);
 });
+it('keeps WeChat and email accounts independent when account linking is disabled', async () => {
+  deps.accountLinkingEnabled = false;
+  const { token: wechatToken } = await (await request('/login/wechat', { code: 'valid-code' })).json();
+  const emailToken = await emailLogin();
+  expect((await request('/bind/email/otp/request', { email: 'old@example.com', confirm: true }, wechatToken)).status).toBe(404);
+  expect((await request('/bind/wechat', { code: 'fresh-code', confirm: true }, emailToken)).status).toBe(404);
+  expect((await request('/pair/issue', { confirm: true }, wechatToken)).status).toBe(200);
+  expect(binding).toBeNull();
+});
 it('email-only rollout reads old stories while refusing both WeChat operations', async () => {
   deps.wechatEnabled = false;
   const token = await emailLogin();

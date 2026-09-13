@@ -8,6 +8,8 @@ import {
   ceilYuanToMinor,
   formatCny,
   formatCnyBalance,
+  formatComputeBalance,
+  formatComputeUnits,
   fromYuan,
   parseYuanInput,
   subtractMinor,
@@ -120,5 +122,14 @@ describe("formatCnyBalance", () => {
   it("负数同样向下取整", () => {
     expect(formatCnyBalance(fromYuan(-0.001))).toBe("-¥0.01");
     expect(formatCnyBalance(-2 * MINOR_PER_YUAN)).toBe("-¥2.00");
+  });
+});
+
+describe("compute display", () => {
+  it("converts actual RMB cost at ¥1 = 2 compute units without losing micro-yuan detail", () => {
+    expect(formatComputeUnits(fromYuan(5))).toBe("10.00 算力");
+    expect(formatComputeUnits(-321)).toBe("-0.000642 算力");
+    expect(formatComputeBalance(fromYuan(5))).toBe("10.00 算力");
+    expect(formatComputeBalance(409_999)).toBe("0.81 算力");
   });
 });

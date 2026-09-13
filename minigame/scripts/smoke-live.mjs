@@ -73,9 +73,8 @@ handlers.KeyboardHeightChange({height:0});
 assert.ok(labels.some(x=>x.value==='接着聊'),'closing keyboard restores the original input and draft');
 handlers.KeyboardComplete({value:'接着聊'});tap('发送');await flush();assert.ok(labels.some(x=>x.value==='接着你的旧故事聊'));
 tap('故事');await flush();assert.ok(labels.some(x=>x.value==='新建一个故事'));tap('我的旧故事');await flush();
-tap('我');await flush();assert.ok(labels.some(x=>x.value==='可用余额 ¥29.00'));tap('今天的来信 ›');await flush();assert.ok(labels.some(x=>x.value==='今天留给大家的一封信'));tap('返回');await flush();
+tap('我');await flush();assert.ok(labels.some(x=>x.value==='58.00 算力'));assert.ok(labels.some(x=>x.value==='按模型实际费用扣除：¥1 = 2 算力'));tap('今天的来信 ›');await flush();assert.ok(labels.some(x=>x.value==='今天留给大家的一封信'));tap('返回');await flush();
 for(let i=0;i<3;i++){handlers.TouchStart({touches:[{clientX:180,clientY:700}]});handlers.TouchEnd({changedTouches:[{clientX:180,clientY:250}]});}
-if(process.argv.includes('--wechat')){tap('关联当前微信');await flush();}
 tap('退出登录');await flush();assert.ok(!labels.some(x=>x.value==='小游戏改写的正文'));assert.ok(!labels.some(x=>x.value==='接着你的旧故事聊'));
 assert.equal(calls.filter(x=>x.path.endsWith('/chat.generate')).length,1);
 console.log('真实构建入口冒烟通过：原邮箱登录→原故事→正文编辑保存→聊天整轮落库→故事切换→账号退出；网络/Canvas为替身，非真机验收。');

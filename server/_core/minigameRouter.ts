@@ -7,6 +7,7 @@ import type { IssuePairingResult } from '../services/accountIdentity';
 
 export type GameDependencies = {
   enabled: boolean; wechatEnabled: boolean; secret: string; appId: string;
+  accountLinkingEnabled?: boolean;
   ready: () => Promise<boolean>;
   getUser: (id: number) => Promise<GamePrincipal | null | undefined>;
   allow: (ip: string) => Promise<boolean>;
@@ -73,6 +74,9 @@ export function createMinigameRouter(deps: GameDependencies) {
         UNAUTHORIZED:[401,'session_expired'], FORBIDDEN:[403,'forbidden'], NOT_FOUND:[404,'not_found'],
         BAD_REQUEST:[400,'invalid_input'], CONFLICT:[409,'conflict'], TOO_MANY_REQUESTS:[429,'rate_limited'],
       };
+      if (error.message === 'insufficient_balance') {
+        res.status(402).json({error:'insufficient_balance'}); return;
+      }
       const [status, code] = errors[error.code] ?? [503,'unavailable'];
       res.status(status).json({error:code});
     }
@@ -112,6 +116,7 @@ export function createMinigameRouter(deps: GameDependencies) {
     await login(res, await deps.wechat(code));
   }));
   for (const path of ['/bind/email/otp/request', '/bind/email']) router.post(path, endpoint(async (req, res) => {
+    if (deps.accountLinkingEnabled === false) { res.status(404).json({ error: 'not_found' }); return; }
     if (!deps.wechatEnabled) { res.status(503).json({ error: 'wechat_not_enabled' }); return; }
     const principal = await sessions.verify(req.headers.authorization);
     if (!principal) { res.status(401).json({ error: 'session_expired' }); return; }
@@ -137,6 +142,7 @@ export function createMinigameRouter(deps: GameDependencies) {
     res.status(status).json({ error: result.outcome });
   }));
   router.post('/bind/wechat', endpoint(async (req, res) => {
+    if (deps.accountLinkingEnabled === false) { res.status(404).json({ error: 'not_found' }); return; }
     if (!deps.wechatEnabled) { res.status(503).json({ error: 'wechat_not_enabled' }); return; }
     const principal = await sessions.verify(req.headers.authorization);
     if (!principal) { res.status(401).json({ error: 'session_expired' }); return; }

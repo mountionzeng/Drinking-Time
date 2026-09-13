@@ -12,6 +12,11 @@ import {
   type ComputeStatementQuery,
 } from "../../shared/computeStatement";
 
+const PAID_AI_OPERATIONS = new Set([
+  "chat.generate",
+  "letters.reread",
+]);
+
 function boundedStatementInteger(
   input: Record<string, unknown>,
   key: keyof ComputeStatementQuery,
@@ -87,6 +92,12 @@ export const dispatchMinigameWorkspace: NonNullable<
         COMPUTE_STATEMENT_MAX_PAGE_LIMIT
       ),
     });
+  }
+  if (PAID_AI_OPERATIONS.has(operation)) {
+    const balance = await getAccountBalance(user.id);
+    if (balance.availableMinor <= 0) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "insufficient_balance" });
+    }
   }
   if (operation === "profile.read") return caller.emotionAnalysis.getProfile();
   if (operation === "profile.save") {

@@ -139,6 +139,24 @@ it("account response omits secrets and unknown operations remain closed", async 
   expect((await request("admin.users")).status).toBe(404);
   expect((await request("body.save", {}, "wrong-token")).status).toBe(401);
 });
+it("zero balance blocks paid AI while story reading and editing remain available", async () => {
+  const blocked = await request("chat.generate", {});
+  expect(blocked.status).toBe(402);
+  expect(await blocked.json()).toEqual({ error: "insufficient_balance" });
+
+  const readable = await request("body.initialize", { storyId });
+  expect(readable.status).toBe(200);
+  const { result: document } = await readable.json();
+  const saved = await request("body.save", {
+    storyId,
+    versionId: document.versionId,
+    platform: document.platform,
+    baseBodyRevision: document.bodyRevision,
+    body: "余额为零仍能编辑",
+  });
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).result.status).toBe("saved");
+});
 it("account statement is scoped to the bearer account and ignores a supplied userId", async () => {
   await grantCredit({
     userId,

@@ -73,6 +73,7 @@ export const workspaceError = (error: unknown) => {
         not_found: "故事不存在或无权访问。",
         conflict: "另一端已更新，请保留本机修改后处理冲突。",
         rate_limited: "操作较频繁，请稍后重试。",
+        insufficient_balance: "算力余额已用完，故事仍可查看和编辑。",
       } as Record<string, string>
     )[code] ?? "网络请求未完成，请重试；未确认的内容不会自动重复提交。"
   );
