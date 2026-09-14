@@ -60,10 +60,11 @@ describe("AuthEntryPanel", () => {
     expect(html).toContain('href="/api/auth/google?returnTo=%2Fm"');
   });
 
-  it("微信登录视图接收微信端生成的一次性电脑登录码", () => {
+  it("微信登录视图接收拾光家忆为所选故事生成的一次性电脑登录码", () => {
     const html = renderToStaticMarkup(<AuthEntryPanel variant="pairing" />);
     expect(html).toContain("打开微信里的故事");
-    expect(html).toContain("微信端拾光 → 我 → 在电脑上继续");
+    expect(html).toContain("微信里的拾光家忆 → 我的 → 在电脑上继续");
+    expect(html).toContain("先在拾光家忆选择故事");
     expect(html).toContain('aria-label="电脑登录码"');
     expect(html).toContain("打开微信故事");
     expect(html).not.toContain("使用 Google 账号登录");

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T09:07:29.301Z",
+  "updatedAt": "2026-09-14T11:00:00.000Z",
   "features": [
     {
       "id": "story-ownership",
@@ -3657,30 +3657,32 @@
       "userValue": "用户用微信端拾光授权电脑登录，在电脑上选择微信端已有故事，继续使用该故事的完整内容。",
       "entryPoints": [
         "client/src/pages/LoginPage.tsx",
-        "minigame/src/accountView.ts"
+        "server/_core/shiguangDesktopBridgeRoutes.ts"
       ],
       "owners": [
-        "server/_core/minigameRouter.ts",
-        "server/_core/minigameRoutes.ts",
+        "server/_core/shiguangDesktopBridge.ts",
+        "server/_core/shiguangDesktopBridgeRoutes.ts",
         "server/services/accountIdentity.ts",
+        "server/services/shiguangStoryImport.ts",
+        "server/db.ts",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
-        "minigame/src/liveClient.ts",
-        "minigame/src/liveGame.ts",
-        "minigame/src/accountView.ts"
+        "git:shiguang-jiayi-hackathon:cloudfunctions/drinkingTimeBridge",
+        "git:shiguang-jiayi-hackathon:miniprogram/pages/account-link"
       ],
       "evidence": [
-        "server/_core/minigameRouter.test.ts",
+        "server/_core/shiguangDesktopBridge.test.ts",
+        "server/services/shiguangStoryImport.test.ts",
         "server/services/devicePairing.test.ts",
-        "minigame/src/liveClient.test.ts",
-        "minigame/src/accountView.test.ts",
         "client/src/features/auth/views/AuthEntryPanel.test.tsx",
-        "docs/qa/2026-09-13-wechat-desktop-pairing.md"
+        "docs/qa/2026-09-13-wechat-desktop-pairing.md",
+        "docs/qa/2026-09-14-shiguang-stories-to-desktop.md"
       ],
       "invariants": [
-        "只展示并打开微信授权账号拥有的故事；正文、聊天、镜头和素材沿用原 storyId 与归属校验，不创建平行数据副本。",
-        "扫码二维码必须承载真实授权流程；占位图、普通网址码和手机页面打开不能冒充电脑登录成功。",
-        "新电脑的授权须由微信端明确确认；未扫码、未确认、过期或取消均不能建立电脑会话。",
-        "账号授权和故事选择是两个阶段；未选择故事不得自动认领或合并另一邮箱账号的数据。"
+        "只传输当前微信账号在拾光家忆中仍处于有效状态、且由用户明确选择的故事；最近删除里的故事不得重新出现。",
+        "拾光家忆云函数从可信微信上下文派生不可逆主体，HMAC 签名绑定路径和完整故事快照；客户端不能提供 userId 或明文 OPENID。",
+        "电脑登录码五分钟有效且只能使用一次；未选择故事、未确认、过期或重复兑换均不能建立电脑会话。",
+        "同一来源和修订重复传输必须幂等；新修订作为新快照保留，不覆盖用户已在电脑编辑的版本。",
+        "传输保留记忆正文、标题、摘要、人物、地点、情绪、章节正文与照片引用；电脑端只允许该微信主体对应的 userId 读取。"
       ],
       "dependencies": [
         "wechat-minigame-account-stories",
@@ -3689,9 +3691,11 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "短码链路已经实现并发布测试站后端与网页；微信联调包已构建，但开发者工具服务端口关闭且 Mac 锁屏，尚未生成本轮预览二维码或完成真机兑换。",
-        "第一版采用微信端生成六位短码、电脑输入的方式；直接扫码、电脑申请后微信确认、授权轮询与指定单个故事的预选仍未实现。兑换后先进入同账号云端故事库，再由用户选择故事。",
-        "尚未真实验证从微信账号兑换到电脑、打开故事并提交视频生成的完整链路；正式站未发布。"
+        "代码已从旧小游戏签发方向纠正为拾光家忆选择故事后上传快照并签发电脑码；测试站服务端与 drinkingTimeBridge 云函数尚未部署，真机全链路尚未验收。",
+        "同来源同修订的幂等锁目前只覆盖单个服务进程；未来多进程部署时仍需数据库唯一约束消除极窄并发窗口内的重复快照。",
+        "拾光家忆的书稿照片目前只保存本机 photoId；文本、结构和引用会传到电脑，但照片字节仍需后续建立用户确认的受保护上传链路。",
+        "第一版采用微信端选择故事并生成六位短码；电脑展示二维码、微信扫码确认与自动轮询仍未实现。",
+        "尚未真实验证导入后的故事在电脑提交视频生成；正式站未发布。"
       ],
       "history": [
         {
@@ -3703,6 +3707,11 @@
           "date": "2026-09-13",
           "kind": "implementation",
           "summary": "按用户要求先实现可试用的短码方向：微信小游戏当前登录账号在“我”页明确确认后签发五分钟、一次性电脑登录码；网页微信登录页兑换后建立同 userId 会话并进入云端故事库。服务端身份只取 Bearer principal，忽略客户端 userId；故事继续沿用原 storyId 与归属校验，不复制、不自动合并。测试站后端和网页已备份、构建、重启并通过 health/readiness，专项测试、双 TypeScript 与微信联调构建通过。微信开发者工具服务端口关闭且 Mac 锁屏，本轮预览二维码和真机全链路仍待完成，状态进入 observing。"
+        },
+        {
+          "date": "2026-09-14",
+          "kind": "correction",
+          "summary": "按用户纠正将方向和产品对象统一为“拾光家忆故事进入电脑”：移除拾光家忆中验证邮箱并从 Drinking Time 读取、导入故事的反向页面；改为在“我的 → 在电脑上继续”列出未删除的微信故事，用户明确选择后由云函数以 HMAC 上传不可变故事快照，服务端映射微信主体、幂等导入并签发五分钟一次性电脑码。快照保留记忆与章节结构，同修订重试不重复、新修订不覆盖电脑编辑。"
         }
       ]
     },

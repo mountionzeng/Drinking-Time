@@ -7,6 +7,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { sql } from "drizzle-orm";
 import { registerOAuthRoutes } from "./oauth";
 import { minigameRoutes } from "./minigameRoutes";
+import { shiguangDesktopBridgeRoutes } from "./shiguangDesktopBridgeRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -110,6 +111,8 @@ async function startServer() {
   );
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use('/api/minigame', minigameRoutes());
+  // 拾光家忆云函数用 HMAC 调用，不依赖浏览器 Cookie，也不受浏览器 Origin 门禁。
+  app.use('/api/shiguang', shiguangDesktopBridgeRoutes());
   app.use(
     "/api",
     createRequestOriginMiddleware({

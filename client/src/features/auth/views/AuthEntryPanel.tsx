@@ -440,7 +440,7 @@ export default function AuthEntryPanel({
               <div className="mb-5 text-center">
                 <h2 className="text-base font-medium">打开微信里的故事</h2>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  微信端拾光 → 我 → 在电脑上继续
+                  微信里的拾光家忆 → 我的 → 在电脑上继续
                   <br />
                   生成一次性登录码后填在这里
                 </p>
@@ -506,7 +506,7 @@ export default function AuthEntryPanel({
 
             <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
               {pairingOnly
-                ? "登录码五分钟内有效，只能使用一次。连接后在云端故事库选择故事。"
+                ? "先在拾光家忆选择故事。登录码五分钟内有效，只能使用一次；连接后该故事会出现在电脑故事库。"
                 : "在另一台已登录设备上生成，五分钟内有效。"}
             </p>
           </details>

@@ -190,6 +190,15 @@ export async function allowMinigameAuthAttempt(ip: string) {
     windowSeconds: 60, maxAttempts: 15 })).allowed;
 }
 
+export async function allowShiguangBridgeAttempt(subject: string) {
+  return (await consumePersistentRateLimit({
+    scope: "shiguang:desktop-transfer:subject",
+    subject,
+    windowSeconds: 60,
+    maxAttempts: 10,
+  })).allowed;
+}
+
 /** 10 算力；按 ¥1 = 2 算力折算为 ¥5 的微元账本额度。 */
 export const WECHAT_REGISTRATION_GIFT_MINOR = 5_000_000;
 

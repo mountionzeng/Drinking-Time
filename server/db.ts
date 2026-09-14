@@ -2596,6 +2596,27 @@ export async function listUserStories(
   return rows.map(toListItem);
 }
 
+/** Finds an already imported immutable 拾光家忆 snapshot without trusting its title. */
+export async function findShiguangImportedStory(
+  userId: number,
+  sourceKey: string,
+  sourceRevision: string
+): Promise<Story | null> {
+  const matches = (story: Story) => {
+    if (!story.body || typeof story.body !== "object") return false;
+    const imported = (story.body as {
+      shiguangImport?: { sourceKey?: unknown; sourceRevision?: unknown };
+    }).shiguangImport;
+    return imported?.sourceKey === sourceKey && imported.sourceRevision === sourceRevision;
+  };
+  const db = await getDb();
+  if (!db) {
+    return memoryState.stories.find(story => story.userId === userId && matches(story)) ?? null;
+  }
+  const rows = await db.select().from(stories).where(eq(stories.userId, userId));
+  return rows.find(matches) ?? null;
+}
+
 export async function getStoryById(
   id: number,
   userId: number
