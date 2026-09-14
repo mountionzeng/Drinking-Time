@@ -3,77 +3,57 @@ import AuthEntryPanel from "@/features/auth/views/AuthEntryPanel";
 import { readMobileReturnPath } from "@/features/auth/mobileReturnPath";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { formatTodayIdentity } from "@/features/nayin/dailyPresentation";
-import DailyDrinkHero from "@/features/nayin/views/DailyDrinkHero";
-import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
-import WuxingParticles from "@/features/nayin/views/WuxingParticles";
-import { WuxingPourContent } from "@/features/nayin/views/WuxingPourReveal";
 
 export default function LoginPage() {
   const [method, setMethod] = useState<"email" | "wechat">("email");
-  const [aboutOpen, setAboutOpen] = useState(false);
   const { today } = useNayin();
   const returnPath =
     typeof window === "undefined"
       ? null
       : readMobileReturnPath(window.location.search);
+
   return (
     <div className="shiguang-login-page relative min-h-dvh bg-background text-foreground">
-      <BeverageAmbience />
-      <WuxingParticles />
-      <main className="shiguang-login-shell relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center gap-7 px-4 py-6 sm:px-6 sm:py-8 lg:gap-10 lg:px-8">
-        <header className="shiguang-login-hero flex w-full justify-center" aria-label="今日标识">
-          <DailyDrinkHero
-            today={today}
-            compact
-            brandName="拾光"
-            pour={{
-              open: aboutOpen,
-              onToggle: () => setAboutOpen(open => !open),
-              contentId: "about-shiguang",
-            }}
-          />
-        </header>
-        <WuxingPourContent
-          element={today.element}
-          open={aboutOpen}
-          contentId="about-shiguang"
+      <main className="shiguang-login-shell relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+        <header
+          className="shiguang-login-hero flex w-full justify-center"
+          aria-label="拾光家忆"
         >
-          <div className="space-y-2.5 text-left">
-            <p className="text-sm leading-relaxed text-foreground">
-              在拾光，和聊聊说起一段经历。
+          <div className="shiguang-login-brand text-center">
+            <img
+              src="/shiguang/mobile-avatar.png"
+              alt=""
+              aria-hidden="true"
+              className="shiguang-login-mark"
+            />
+            <p className="shiguang-login-brand-en" aria-hidden="true">
+              SHIGUANG JIAYI
             </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。
+            <h1 className="shiguang-login-title">拾光</h1>
+            <p className="shiguang-login-subtitle">
+              让珍藏的故事，在这里继续生长
             </p>
           </div>
-        </WuxingPourContent>
-        <div className="shiguang-login-date flex w-full max-w-5xl items-center gap-4">
-          <span
-            className="h-px flex-1"
-            style={{ background: "var(--nayin-border)" }}
-          />
-          <p className="text-center font-mono text-[11px] text-muted-foreground/80">
+        </header>
+
+        <div className="shiguang-login-date mt-6 flex w-full items-center gap-4 sm:mt-8">
+          <span className="h-px flex-1 bg-border" />
+          <p className="text-center font-mono text-[10px] tracking-[0.08em] text-muted-foreground/75">
             {formatTodayIdentity(today)}
           </p>
-          <span
-            className="h-px flex-1"
-            style={{ background: "var(--nayin-border)" }}
-          />
+          <span className="h-px flex-1 bg-border" />
         </div>
-        <section className="shiguang-login-card relative w-full max-w-md px-6 pb-8 pt-7 sm:px-9 sm:pb-10 sm:pt-8" aria-label="登录拾光">
-          <div className="shiguang-login-keepsake" aria-hidden="true">
-            <img src="/shiguang/nav-image-sound.png" alt="" />
-          </div>
-          <div className="shiguang-login-bird" aria-hidden="true">
-            <img src="/shiguang/nav-writing.png" alt="" />
-          </div>
-          <div className="relative z-10">
-            <p className="mb-1 text-center text-[11px] tracking-[0.3em] text-muted-foreground">
-              把故事带回这一页
-            </p>
+
+        <section
+          className="shiguang-login-card relative mt-6 w-full max-w-md px-5 pb-7 pt-5 sm:mt-8 sm:px-8 sm:pb-9 sm:pt-6"
+          aria-label="登录拾光"
+        >
+          <p className="mb-3 text-center text-[10px] tracking-[0.28em] text-muted-foreground">
+            把故事带回这一页
+          </p>
           <nav
             aria-label="登录方式"
-            className="shiguang-login-tabs mb-8 grid grid-cols-2"
+            className="shiguang-login-tabs mb-7 grid grid-cols-2"
           >
             {(
               [
@@ -92,12 +72,12 @@ export default function LoginPage() {
               </button>
             ))}
           </nav>
+
           {method === "email" ? (
             <AuthEntryPanel returnPath={returnPath} variant="email" />
           ) : (
             <AuthEntryPanel returnPath={returnPath} variant="pairing" />
           )}
-          </div>
         </section>
       </main>
     </div>

@@ -3772,7 +3772,8 @@
         "client/src/app/shell/TopBar.test.tsx",
         "client/src/features/auth/views/AuthEntryPanel.test.tsx",
         "client/src/features/analysis/views/DailyLetterWelcome.test.ts",
-        "client/src/pages/editingStudioWorkspace.test.ts"
+        "client/src/pages/editingStudioWorkspace.test.ts",
+        "client/src/pages/LoginPage.test.tsx"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -3801,6 +3802,11 @@
           "date": "2026-09-15",
           "kind": "fix",
           "summary": "按实机截图继续收敛拾光家忆视觉：右上角改用手机端品牌头像，今日来信改用拾光水彩插画，聊天消息去掉重复的助手头像与“聊聊”署名；顶部和故事入口插画放大，导航与导出按钮取消边框、底色和阴影，常态文字缩小并在鼠标经过时平滑放大。整体调整为宣纸、淡墨与大留白的极简古风，减少胶带、叠纸、旋转、渐变和装饰阴影。纳音五行主题入口与交互继续保留。"
+        },
+        {
+          "date": "2026-09-15",
+          "kind": "fix",
+          "summary": "登录页去掉旧五行饮品圆环与 Drinking Time 标识，改用手机端拾光头像、原品牌书写字体和极简宣纸登录布局；浏览器页签标题与 favicon 同步改为拾光家忆。邮箱验证码、Google 登录、微信故事连接和纳音主题切换能力保持不变。"
         }
       ]
     }
