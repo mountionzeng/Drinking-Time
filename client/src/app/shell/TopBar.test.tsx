@@ -73,9 +73,11 @@ describe("TopBar story panel controls", () => {
 
     // 最左边那颗 Logo 现在是故事菜单，纳音五行搬进了右上角用户菜单。
     expect(html).toContain('aria-label="拾光 · 故事菜单"');
-    expect(html).toContain('data-testid="emotive-icon"');
+    expect(html).toContain("/shiguang/mobile-avatar.png");
+    expect(html).not.toContain('data-testid="emotive-icon"');
     expect(html).toContain("shiguang-user-avatar");
     expect(html).toContain("shiguang-toolbar-button");
+    expect(html).toContain("shiguang-nav-label");
     expect(html).not.toContain('aria-label="纳音五行"');
     expect(html).toContain("Display Style / 界面风格");
     expect(html).toContain("拾光家忆");

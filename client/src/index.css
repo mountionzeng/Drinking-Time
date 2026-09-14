@@ -1374,106 +1374,54 @@ select option {
 
 /* 拾光家忆的纸张、铅笔线与水彩留白。只换皮肤，不改变工作台尺寸。 */
 [data-visual-theme="shiguang"] .nayin-strip {
-  height: 4px;
-  background: linear-gradient(
-    90deg,
-    #7f9274,
-    #c89b73 46%,
-    #93a985 72%,
-    #7f9274
-  );
-  opacity: 0.72;
+  height: 1px;
+  background: rgb(108 82 55 / 20%);
 }
 
 [data-visual-theme="shiguang"] .app-topbar-surface {
   position: relative;
   isolation: isolate;
-  background-image:
-    linear-gradient(180deg, rgb(253 249 239 / 94%), rgb(244 238 221 / 89%)),
-    url("/shiguang/memory-branch.png") !important;
-  background-repeat: no-repeat;
-  background-position:
-    center,
-    right -5rem center;
-  background-size:
-    auto,
-    34rem auto;
-  box-shadow: 0 8px 30px rgb(91 72 50 / 6%);
+  background: rgb(250 246 236 / 96%) !important;
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .app-topbar-surface::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  right: 5%;
-  bottom: -5px;
-  width: 38%;
-  height: 8px;
-  border-radius: 50%;
-  background: rgb(100 76 45 / 8%);
-  filter: blur(5px);
-  pointer-events: none;
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-workspace {
-  background:
-    linear-gradient(90deg, transparent 0 22%, rgb(120 92 58 / 7%) 22.05%, transparent 22.2%),
-    linear-gradient(180deg, rgb(251 247 236 / 38%), rgb(242 234 215 / 28%));
+  background: rgb(247 242 230 / 42%);
 }
 
 [data-visual-theme="shiguang"] .shiguang-workspace::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  right: -3rem;
-  bottom: -3.5rem;
-  width: min(34rem, 42vw);
-  aspect-ratio: 3 / 1;
-  background: url("/shiguang/memory-branch.png") right bottom / contain no-repeat;
-  opacity: 0.1;
-  pointer-events: none;
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .monitor-panel {
   position: relative;
-  background:
-    linear-gradient(180deg, rgb(255 252 244 / 94%), rgb(247 241 226 / 92%)),
-    url("/shiguang/home-paper.jpg");
-  border-color: rgb(101 82 58 / 17%);
-  border-radius: 18px 15px 19px 14px;
-  box-shadow: 0 12px 28px -20px rgb(76 57 37 / 28%);
+  background: rgb(252 249 241 / 94%);
+  border-color: rgb(101 82 58 / 12%);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .monitor-panel::before {
-  opacity: 0.18;
-  filter: sepia(0.3);
+  opacity: 0.08;
 }
 
 [data-visual-theme="shiguang"] .monitor-panel:hover {
-  border-color: rgb(101 82 58 / 28%);
-  box-shadow:
-    0 16px 34px -22px rgb(76 57 37 / 33%),
-    0 0 0 3px rgb(138 158 123 / 10%);
+  border-color: rgb(101 82 58 / 20%);
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .monitor-panel::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 8px -5px -6px 9px;
-  border: 1px solid rgb(101 82 58 / 8%);
-  border-radius: 14px 18px 13px 20px;
-  background: rgb(238 229 207 / 42%);
-  transform: rotate(0.25deg);
-  pointer-events: none;
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .monitor-panel-header,
 [data-visual-theme="shiguang"] .creation-board-panel-header {
-  background:
-    linear-gradient(90deg, rgb(240 232 211 / 92%), rgb(247 242 229 / 88%)),
-    url("/shiguang/home-paper.jpg");
-  border-bottom-style: dashed;
+  background: rgb(247 242 230 / 72%);
+  border-bottom-style: solid;
   font-family: "Noto Serif SC", "Songti SC", STSong, serif;
 }
 
@@ -1495,13 +1443,15 @@ select option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.2rem;
-  border: 1px solid transparent;
-  border-radius: 8px 11px 7px 10px;
-  background-image: linear-gradient(180deg, rgb(255 252 244 / 45%), rgb(238 228 205 / 34%));
-  box-shadow: 0 2px 0 rgb(92 68 43 / 7%);
+  gap: 0.08rem;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
   transform: rotate(-0.12deg);
-  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    transform 180ms ease,
+    color 180ms ease;
 }
 
 [data-visual-theme="shiguang"] .shiguang-nav-illustration,
@@ -1518,13 +1468,11 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .shiguang-export-button {
-  border: 1px solid rgb(111 77 52 / 30%);
-  border-radius: 9px 13px 8px 12px;
-  background:
-    linear-gradient(180deg, rgb(151 105 76), rgb(125 82 58)) !important;
-  box-shadow:
-    0 7px 14px -9px rgb(72 47 29 / 62%),
-    inset 0 1px 0 rgb(255 255 255 / 20%);
+  border: 0 !important;
+  border-radius: 0;
+  color: #765543;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 [data-visual-theme="shiguang"] .shiguang-export-button:hover {
@@ -1532,15 +1480,26 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .shiguang-nav-illustration {
-  width: 2rem;
-  height: 2rem;
-  margin: -0.3rem 0.1rem -0.3rem -0.35rem;
+  width: 3rem;
+  height: 3rem;
+  margin: -0.75rem -0.15rem -0.7rem -0.55rem;
 }
 
 [data-visual-theme="shiguang"] .shiguang-action-illustration {
-  width: 1.9rem;
-  height: 1.9rem;
-  margin: -0.35rem 0 -0.35rem -0.2rem;
+  width: 2.7rem;
+  height: 2.7rem;
+  margin: -0.65rem -0.1rem -0.65rem -0.4rem;
+}
+
+[data-visual-theme="shiguang"] .shiguang-nav-label {
+  display: inline-block;
+  font-size: 0.625rem;
+  line-height: 1;
+  letter-spacing: 0.045em;
+  transform-origin: center;
+  transition:
+    transform 180ms ease,
+    color 180ms ease;
 }
 
 [data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(even) {
@@ -1548,9 +1507,27 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .shiguang-toolbar-button:hover {
-  border-color: rgb(112 84 54 / 20%);
-  box-shadow: 0 4px 8px rgb(92 68 43 / 8%);
   transform: translateY(-1px) rotate(0deg);
+}
+
+[data-visual-theme="shiguang"]
+  .shiguang-toolbar-button:hover
+  .shiguang-nav-label,
+[data-visual-theme="shiguang"]
+  .shiguang-export-button:hover
+  .shiguang-nav-label {
+  color: #6f4d38;
+  transform: scale(1.28);
+}
+
+[data-visual-theme="shiguang"]
+  .shiguang-toolbar-button[aria-pressed="true"]
+  .shiguang-nav-label {
+  color: #765543;
+  text-decoration: underline;
+  text-decoration-color: rgb(118 85 67 / 42%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.28rem;
 }
 
 [data-visual-theme="shiguang"] .shiguang-toolbar-button:active {
@@ -1560,27 +1537,33 @@ select option {
 
 [data-visual-theme="shiguang"] .shiguang-user-avatar {
   overflow: visible;
-  border-color: rgb(105 80 51 / 42%) !important;
-  background:
-    radial-gradient(circle at 48% 38%, rgb(255 253 246), rgb(236 225 203)) !important;
-  box-shadow:
-    0 0 0 3px rgb(251 246 233),
-    0 0 0 4px rgb(115 88 56 / 18%),
-    0 5px 10px rgb(82 60 34 / 12%) !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-visual-theme="shiguang"] .shiguang-mobile-avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  object-fit: contain;
+  filter: saturate(0.9) contrast(0.96);
+}
+
+[data-visual-theme="shiguang"] .shiguang-letter-illustration {
+  width: 1.85rem;
+  height: 1.85rem;
+  margin: -0.45rem -0.2rem -0.4rem -0.25rem;
+  object-fit: contain;
 }
 
 [data-visual-theme="shiguang"] .compute-balance-badge {
   min-height: 2.25rem;
-  padding: 0.25rem 0.65rem 0.25rem 0.32rem;
-  border: 1px solid rgb(106 81 51 / 16%);
-  border-radius: 7px 11px 8px 10px;
-  background:
-    linear-gradient(180deg, rgb(255 252 244 / 92%), rgb(239 229 207 / 84%)),
-    url("/shiguang/home-paper.jpg") center / 210px auto;
-  box-shadow:
-    0 4px 10px -7px rgb(76 53 30 / 40%),
-    inset 0 1px 0 rgb(255 255 255 / 76%);
-  transform: rotate(-0.45deg);
+  padding: 0.25rem 0.45rem 0.25rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
 
 [data-visual-theme="shiguang"] .compute-balance-mark {
@@ -1589,8 +1572,8 @@ select option {
   height: 1.45rem;
   align-items: center;
   justify-content: center;
-  border-radius: 5px 8px 5px 7px;
-  background: rgb(129 94 67 / 10%);
+  border-radius: 0;
+  background: transparent;
   color: rgb(109 76 54);
   font-family: "Noto Serif SC", "Songti SC", STSong, serif;
   font-size: 0.58rem;
@@ -1605,12 +1588,12 @@ select option {
 }
 
 [data-visual-theme="shiguang"] [data-slot="button"]:not(.bg-destructive) {
-  border-radius: 9px 12px 8px 11px;
-  background-image: linear-gradient(180deg, rgb(255 255 255 / 10%), rgb(92 67 40 / 5%));
-  box-shadow: 0 2px 0 rgb(88 64 39 / 9%);
+  background-image: none;
+  box-shadow: none;
 }
 
-[data-visual-theme="shiguang"] [data-slot="button"]:not(.bg-destructive):active {
+[data-visual-theme="shiguang"]
+  [data-slot="button"]:not(.bg-destructive):active {
   box-shadow: none;
   transform: translateY(1px);
 }
@@ -1619,7 +1602,12 @@ select option {
 [data-visual-theme="shiguang"] .shiguang-login-page {
   overflow-x: hidden;
   background:
-    linear-gradient(115deg, rgb(244 236 218 / 72%), rgb(251 247 237 / 54%) 45%, rgb(230 235 216 / 44%)),
+    linear-gradient(
+      115deg,
+      rgb(244 236 218 / 72%),
+      rgb(251 247 237 / 54%) 45%,
+      rgb(230 235 216 / 44%)
+    ),
     url("/shiguang/home-paper.jpg") center 42% / cover fixed;
 }
 
@@ -1629,7 +1617,8 @@ select option {
   inset: auto -6rem -2.5rem auto;
   width: min(47rem, 72vw);
   aspect-ratio: 3 / 1;
-  background: url("/shiguang/memory-branch.png") right bottom / contain no-repeat;
+  background: url("/shiguang/memory-branch.png") right bottom / contain
+    no-repeat;
   opacity: 0.2;
   pointer-events: none;
 }
@@ -1646,25 +1635,16 @@ select option {
   isolation: isolate;
   margin-top: -0.35rem;
   border: 1px solid rgb(101 78 49 / 18%);
-  border-radius: 18px 14px 22px 16px;
-  background:
-    linear-gradient(180deg, rgb(255 252 244 / 94%), rgb(248 241 224 / 95%)),
-    url("/shiguang/home-paper.jpg") center / cover;
-  box-shadow:
-    0 24px 55px -30px rgb(65 47 28 / 42%),
-    0 2px 0 rgb(255 255 255 / 80%) inset;
-  transform: rotate(-0.12deg);
+  border-radius: 8px;
+  background: rgb(253 250 242 / 96%);
+  box-shadow: 0 14px 40px -34px rgb(65 47 28 / 45%);
+  transform: none;
   animation: shiguang-paper-arrive 480ms cubic-bezier(0.2, 0.72, 0.24, 1) both;
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-card::before,
 [data-visual-theme="shiguang"] .shiguang-login-card::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  border: 1px solid rgb(101 78 49 / 10%);
-  background: rgb(238 229 207 / 74%);
-  pointer-events: none;
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-card::before {
@@ -1696,16 +1676,16 @@ select option {
   left: -6.3rem;
   bottom: -1.8rem;
   width: 8rem;
-  opacity: 0.42;
-  transform: rotate(-6deg);
+  opacity: 0.22;
+  transform: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-bird {
   right: -4.3rem;
   top: 3.1rem;
   width: 6.5rem;
-  opacity: 0.7;
-  transform: rotate(4deg);
+  opacity: 0.42;
+  transform: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-keepsake img,
@@ -1718,9 +1698,10 @@ select option {
 [data-visual-theme="shiguang"] .shiguang-login-tabs {
   gap: 0.4rem;
   padding: 0.25rem;
-  border: 1px solid rgb(105 81 51 / 14%);
-  border-radius: 12px 15px 11px 14px;
-  background: rgb(230 220 197 / 38%);
+  border: 0;
+  border-bottom: 1px solid rgb(105 81 51 / 14%);
+  border-radius: 0;
+  background: transparent;
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-tab {
@@ -1729,40 +1710,31 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .shiguang-login-tab.is-active {
-  background: rgb(255 252 244 / 88%);
-  box-shadow:
-    0 4px 10px rgb(85 63 38 / 9%),
-    inset 0 -2px 0 rgb(136 97 70 / 40%);
+  background: transparent;
+  box-shadow: inset 0 -1px 0 rgb(108 76 52 / 65%);
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-entry input {
-  border-radius: 7px 10px 7px 9px;
-  background:
-    linear-gradient(180deg, rgb(255 253 247 / 82%), rgb(247 240 225 / 64%));
-  box-shadow: inset 0 1px 2px rgb(91 66 38 / 5%);
+  border-radius: 4px;
+  background: rgb(255 253 247 / 72%);
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button {
-  border-radius: 9px 13px 8px 12px;
-  border-color: rgb(111 82 52 / 25%) !important;
-  background:
-    linear-gradient(180deg, rgb(246 238 218 / 94%), rgb(228 214 186 / 88%)) !important;
+  border-radius: 4px;
+  border-color: rgb(111 82 52 / 18%) !important;
+  background: rgb(244 236 217 / 76%) !important;
   color: rgb(87 61 40) !important;
-  box-shadow:
-    0 5px 12px -8px rgb(76 51 29 / 45%),
-    inset 0 1px 0 rgb(255 255 255 / 72%);
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button-google {
-  background:
-    linear-gradient(180deg, rgb(255 254 249 / 96%), rgb(242 234 216 / 90%)) !important;
+  background: rgb(255 254 249 / 82%) !important;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button:hover {
-  border-color: rgb(111 82 52 / 42%) !important;
-  box-shadow:
-    0 8px 16px -10px rgb(76 51 29 / 52%),
-    inset 0 1px 0 rgb(255 255 255 / 76%);
+  border-color: rgb(111 82 52 / 34%) !important;
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
@@ -1817,14 +1789,7 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .daily-letter-backdrop::before {
-  content: "";
-  position: fixed;
-  inset: auto -4rem -2rem auto;
-  width: min(42rem, 60vw);
-  aspect-ratio: 3 / 1;
-  background: url("/shiguang/memory-branch.png") right bottom / contain no-repeat;
-  opacity: 0.18;
-  pointer-events: none;
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .daily-letter-paper {
@@ -1832,29 +1797,22 @@ select option {
   isolation: isolate;
   margin-block: 1rem;
   border: 1px solid rgb(106 80 49 / 18%);
-  border-radius: 14px 11px 17px 12px;
+  border-radius: 6px;
   background:
-    linear-gradient(90deg, transparent 0 9%, rgb(145 105 72 / 7%) 9.1%, transparent 9.35%),
+    linear-gradient(
+      90deg,
+      transparent 0 9%,
+      rgb(145 105 72 / 7%) 9.1%,
+      transparent 9.35%
+    ),
     linear-gradient(180deg, rgb(255 253 247 / 98%), rgb(247 240 222 / 98%)),
     url("/shiguang/home-paper.jpg") center / cover;
-  box-shadow:
-    0 32px 70px -34px rgb(52 37 21 / 58%),
-    0 2px 0 rgb(255 255 255 / 72%) inset;
+  box-shadow: 0 22px 60px -42px rgb(52 37 21 / 62%);
   animation: daily-letter-unfold 420ms cubic-bezier(0.2, 0.72, 0.24, 1) both;
 }
 
 [data-visual-theme="shiguang"] .daily-letter-paper::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: -10px;
-  right: 13%;
-  width: 5.8rem;
-  height: 1.2rem;
-  border-radius: 2px;
-  background: rgb(218 201 165 / 58%);
-  box-shadow: 0 1px 2px rgb(69 49 29 / 10%);
-  transform: rotate(2.2deg);
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .daily-letter-paper::after {
@@ -1884,7 +1842,11 @@ select option {
 [data-visual-theme="shiguang"] .daily-letter-action {
   border: 1px solid rgb(106 80 49 / 20%);
   border-radius: 7px 10px 7px 9px;
-  background: linear-gradient(180deg, rgb(255 252 244 / 82%), rgb(235 224 199 / 72%));
+  background: linear-gradient(
+    180deg,
+    rgb(255 252 244 / 82%),
+    rgb(235 224 199 / 72%)
+  );
   box-shadow: 0 4px 10px -7px rgb(74 51 30 / 40%);
 }
 

@@ -244,7 +244,7 @@ export default function StoryLogoMenu({
         onBlur={() => {
           if (!open) setAwake(false);
         }}
-        className="grid h-16 w-16 place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+        className="grid h-[4.75rem] w-[4.75rem] place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
         style={{
           background: open
             ? `color-mix(in oklab, ${ink} 8%, transparent)`
@@ -258,7 +258,7 @@ export default function StoryLogoMenu({
             src="/shiguang/nav-materials.png"
             alt=""
             aria-hidden="true"
-            className={`h-[3.65rem] w-[3.65rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
+            className={`h-[4.6rem] w-[4.6rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
           />
         ) : (
           /* 静置就是一只普通的杯子；鼠标靠近（或键盘聚焦）才长出五官。 */

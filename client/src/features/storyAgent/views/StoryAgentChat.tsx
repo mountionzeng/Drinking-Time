@@ -49,8 +49,6 @@ import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
 } from "@/features/storyAgent/types";
-import { useNayin } from "@/features/nayin/NayinContext";
-import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
 import {
   RecordingGlyph,
@@ -331,7 +329,6 @@ export default function StoryAgentChat({
     },
     [rerenderSelectionImage, rerenderingMessageId]
   );
-  const { element } = useNayin();
   const [input, setInput] = useState("");
   const [photoAssetRequest, setPhotoAssetRequest] = useState<PhotoAssetRequest | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
@@ -1095,16 +1092,6 @@ export default function StoryAgentChat({
     }
   };
 
-  // 聊聊头像的情绪回应：消息凝出过卡片就用卡片上识别到的情绪摆姿势。
-  // 只让最新一条聊聊消息动起来，历史消息保留姿势但不做动画。
-  const lastAssistantId = [...messages]
-    .reverse()
-    .find(m => m.role === "assistant")?.id;
-  const emotionForMessage = (spawnedCardId?: string) =>
-    spawnedCardId
-      ? cardRefs.find(c => c.id === spawnedCardId)?.emotion
-      : undefined;
-
   return (
     <div
       className="monitor-panel relative h-full flex flex-col"
@@ -1319,19 +1306,6 @@ export default function StoryAgentChat({
                       }
                 }
               >
-                {m.role === "assistant" && (
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <EmotiveWuxingIcon
-                      element={element}
-                      size={26}
-                      emotion={emotionForMessage(m.spawnedCardId)}
-                      animated={m.id === lastAssistantId}
-                    />
-                    <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                      聊聊
-                    </span>
-                  </div>
-                )}
                 {m.selectionQuote && (
                   <div className="mb-1.5">
                     <SelectionContextCard
@@ -1533,12 +1507,7 @@ export default function StoryAgentChat({
               style={{ borderColor: "var(--panel-border)" }}
               aria-label="聊聊素材归类建议"
             >
-              <header className="flex items-center gap-1.5 px-2.5 py-2">
-                <EmotiveWuxingIcon
-                  element={element}
-                  size={26}
-                  mood="thinking"
-                />
+              <header className="flex items-center px-2.5 py-2">
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold">素材归类建议</p>
                   <p className="text-[9.5px] text-muted-foreground">
@@ -1705,13 +1674,6 @@ export default function StoryAgentChat({
                   color: "var(--foreground)",
                 }}
               >
-                <div className="flex items-center gap-1.5 mb-1">
-                  {/* 再见面的问候，用「开心」姿势打招呼 */}
-                  <EmotiveWuxingIcon element={element} size={26} mood="joy" />
-                  <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                    聊聊
-                  </span>
-                </div>
                 <p className="whitespace-pre-wrap">{returningGreeting}</p>
               </div>
             </div>
@@ -1739,8 +1701,6 @@ export default function StoryAgentChat({
                 borderColor: "var(--panel-border)",
               }}
             >
-              {/* 回复中：托腮思考的姿势 */}
-              <EmotiveWuxingIcon element={element} size={26} mood="thinking" />
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
                 <span

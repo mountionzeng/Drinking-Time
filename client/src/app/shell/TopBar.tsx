@@ -149,7 +149,9 @@ export default function TopBar({
                               : undefined
                           }
                         >
-                          {panel.label}
+                          <span className="shiguang-nav-label">
+                            {panel.label}
+                          </span>
                         </button>
                       );
                     })}
@@ -178,18 +180,21 @@ export default function TopBar({
                           toggle.active ? "" : "hover:brightness-110"
                         }`}
                         style={
-                          toggle.active
+                          visualTheme === "nayin" && toggle.active
                             ? {
                                 color: "var(--nayin-accent)",
                                 background: "var(--nayin-surface)",
                                 boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
                               }
-                            : {
-                                color: "var(--nayin-accent-dim)",
-                              }
+                            : visualTheme === "nayin"
+                              ? {
+                                  color: "var(--nayin-accent-dim)",
+                                }
+                              : undefined
                         }
                       >
-                        {visualTheme === "shiguang" && toggle.illustrationSrc ? (
+                        {visualTheme === "shiguang" &&
+                        toggle.illustrationSrc ? (
                           <img
                             src={toggle.illustrationSrc}
                             alt=""
@@ -197,7 +202,9 @@ export default function TopBar({
                             className="shiguang-nav-illustration"
                           />
                         ) : null}
-                        {toggle.label}
+                        <span className="shiguang-nav-label">
+                          {toggle.label}
+                        </span>
                       </button>
                     ))}
                     {panelActions ? (
@@ -227,13 +234,22 @@ export default function TopBar({
                       }}
                       aria-label="用户"
                     >
-                      <EmotiveWuxingIcon
-                        element={element}
-                        mood="joy"
-                        size={30}
-                        animated={false}
-                        title="我的拾光"
-                      />
+                      {visualTheme === "shiguang" ? (
+                        <img
+                          src="/shiguang/mobile-avatar.png"
+                          alt=""
+                          aria-hidden="true"
+                          className="shiguang-mobile-avatar"
+                        />
+                      ) : (
+                        <EmotiveWuxingIcon
+                          element={element}
+                          mood="joy"
+                          size={30}
+                          animated={false}
+                          title="我的拾光"
+                        />
+                      )}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
