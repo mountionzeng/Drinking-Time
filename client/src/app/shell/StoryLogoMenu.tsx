@@ -255,10 +255,10 @@ export default function StoryLogoMenu({
       >
         {visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/memory-bird.png"
+            src="/shiguang/nav-materials.png"
             alt=""
             aria-hidden="true"
-            className={`h-14 w-14 object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
+            className={`h-[3.65rem] w-[3.65rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
           />
         ) : (
           /* 静置就是一只普通的杯子；鼠标靠近（或键盘聚焦）才长出五官。 */

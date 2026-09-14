@@ -4,7 +4,7 @@
  * 显示的是**可用余额**，不是已入账余额：生成中被占住的钱花不出去，把它算进
  * 「你还有多少」是在骗人。有预占时单独带一行说明，用户才知道数字为什么少了。
  */
-import { Loader2, Wallet } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import React from "react";
 
 import { cn } from "@/lib/utils";
@@ -44,7 +44,7 @@ function ComputeBalanceBadgeInner({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 text-xs text-muted-foreground",
+          "compute-balance-badge inline-flex items-center gap-1.5 text-xs text-muted-foreground",
           className
         )}
       >
@@ -61,12 +61,12 @@ function ComputeBalanceBadgeInner({
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline",
+          "compute-balance-badge inline-flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline",
           className
         )}
         onClick={balance.refetch}
       >
-        <Wallet aria-hidden="true" className="size-3.5" />
+        <span className="compute-balance-mark" aria-hidden="true">算力</span>
         余额没读到，点这里重试
       </button>
     );
@@ -79,7 +79,7 @@ function ComputeBalanceBadgeInner({
     >
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 font-mono text-sm tabular-nums",
+          "compute-balance-badge inline-flex items-center gap-1.5 font-mono text-sm tabular-nums",
           balance.negative
             ? "text-destructive"
             : balance.depleted
@@ -87,8 +87,8 @@ function ComputeBalanceBadgeInner({
               : "text-foreground"
         )}
       >
-        <Wallet aria-hidden="true" className="size-3.5 shrink-0" />
-        {balance.text}
+        <span className="compute-balance-mark" aria-hidden="true">算力</span>
+        <span className="compute-balance-value">{balance.text}</span>
       </span>
 
       {balance.negative ? (

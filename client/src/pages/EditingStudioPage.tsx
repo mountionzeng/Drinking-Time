@@ -5,8 +5,6 @@
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
 import {
-  Clapperboard,
-  LibraryBig,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -166,13 +164,18 @@ function ExportButton({ storyId }: { storyId: number }) {
       type="button"
       onClick={() => void runExport()}
       disabled={exporting}
-      className="inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
+      className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
       style={{ background: "var(--nayin-accent)" }}
     >
       {exporting ? (
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : (
-        <Clapperboard className="h-4 w-4" />
+        <img
+          src="/shiguang/nav-export.png"
+          alt=""
+          aria-hidden="true"
+          className="shiguang-action-illustration"
+        />
       )}
       {exporting ? "合成中…" : "导出成片"}
     </button>
@@ -641,7 +644,7 @@ export default function EditingStudioPage() {
   );
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden">
+    <div className="shiguang-workspace relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
       <TopBar
         showStoryPanelNav={false}
@@ -649,6 +652,7 @@ export default function EditingStudioPage() {
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
           label: option.label,
           active: workspace === option.id,
+          illustrationSrc: option.illustrationSrc,
           controls:
             option.id === "publishing"
               ? "publishing-draft-workspace"
@@ -674,10 +678,15 @@ export default function EditingStudioPage() {
                     return next;
                   })
                 }
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                <LibraryBig className="h-3.5 w-3.5" />
+                <img
+                  src="/shiguang/nav-materials.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="shiguang-action-illustration"
+                />
                 素材仓库
               </button>
               <button
@@ -690,9 +699,15 @@ export default function EditingStudioPage() {
                     return next;
                   })
                 }
-                className="inline-flex h-9 items-center rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--panel-border)" }}
               >
+                <img
+                  src="/shiguang/nav-timeline.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="shiguang-action-illustration"
+                />
                 Timeline
               </button>
               <ExportButton storyId={activeStoryId} />

@@ -17,11 +17,11 @@ export default function LoginPage() {
       ? null
       : readMobileReturnPath(window.location.search);
   return (
-    <div className="relative min-h-dvh bg-background text-foreground">
+    <div className="shiguang-login-page relative min-h-dvh bg-background text-foreground">
       <BeverageAmbience />
       <WuxingParticles />
-      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center gap-7 px-4 py-6 sm:px-6 sm:py-8 lg:gap-10 lg:px-8">
-        <header className="flex w-full justify-center" aria-label="今日标识">
+      <main className="shiguang-login-shell relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center gap-7 px-4 py-6 sm:px-6 sm:py-8 lg:gap-10 lg:px-8">
+        <header className="shiguang-login-hero flex w-full justify-center" aria-label="今日标识">
           <DailyDrinkHero
             today={today}
             compact
@@ -47,7 +47,7 @@ export default function LoginPage() {
             </p>
           </div>
         </WuxingPourContent>
-        <div className="flex w-full max-w-5xl items-center gap-4">
+        <div className="shiguang-login-date flex w-full max-w-5xl items-center gap-4">
           <span
             className="h-px flex-1"
             style={{ background: "var(--nayin-border)" }}
@@ -60,10 +60,20 @@ export default function LoginPage() {
             style={{ background: "var(--nayin-border)" }}
           />
         </div>
-        <div className="w-full max-w-sm pb-8">
+        <section className="shiguang-login-card relative w-full max-w-md px-6 pb-8 pt-7 sm:px-9 sm:pb-10 sm:pt-8" aria-label="登录拾光">
+          <div className="shiguang-login-keepsake" aria-hidden="true">
+            <img src="/shiguang/nav-image-sound.png" alt="" />
+          </div>
+          <div className="shiguang-login-bird" aria-hidden="true">
+            <img src="/shiguang/nav-writing.png" alt="" />
+          </div>
+          <div className="relative z-10">
+            <p className="mb-1 text-center text-[11px] tracking-[0.3em] text-muted-foreground">
+              把故事带回这一页
+            </p>
           <nav
             aria-label="登录方式"
-            className="mb-8 grid grid-cols-2 border-b border-border"
+            className="shiguang-login-tabs mb-8 grid grid-cols-2"
           >
             {(
               [
@@ -76,7 +86,7 @@ export default function LoginPage() {
                 type="button"
                 aria-current={method === value ? "page" : undefined}
                 onClick={() => setMethod(value)}
-                className={`border-b-2 px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                className={`shiguang-login-tab px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "is-active text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 {label}
               </button>
@@ -87,7 +97,8 @@ export default function LoginPage() {
           ) : (
             <AuthEntryPanel returnPath={returnPath} variant="pairing" />
           )}
-        </div>
+          </div>
+        </section>
       </main>
     </div>
   );

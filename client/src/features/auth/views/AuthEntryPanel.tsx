@@ -235,7 +235,7 @@ export default function AuthEntryPanel({
   return (
     <section
       id="auth-entry"
-      className="w-full max-w-xl scroll-mt-24"
+      className="shiguang-auth-entry w-full max-w-xl scroll-mt-24"
       aria-label="登录后继续"
     >
       <div
@@ -265,7 +265,7 @@ export default function AuthEntryPanel({
           {!pairingOnly && <>
             <a
               href={googleLoginHref}
-              className="flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="shiguang-auth-button shiguang-auth-button-google flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               使用 Google 账号登录
             </a>
@@ -389,7 +389,7 @@ export default function AuthEntryPanel({
             <button
               type="submit"
               disabled={emailLoading || sendingCode || pairingLoading}
-              className="h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="shiguang-auth-button h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background: "var(--nayin-surface)",
                 color: "var(--foreground)",
@@ -489,7 +489,7 @@ export default function AuthEntryPanel({
                   sendingCode ||
                   !pairingCode.trim()
                 }
-                className="h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                className="shiguang-auth-button h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "var(--nayin-surface)",
                   color: "var(--foreground)",

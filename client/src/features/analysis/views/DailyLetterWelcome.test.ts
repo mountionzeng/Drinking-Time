@@ -46,6 +46,9 @@ describe("DailyLetterWelcome", () => {
     expect(source).not.toContain("聊会儿写给你的");
     expect(source).not.toContain("今天可以做什么");
     expect(source).not.toContain("今天，怎么和自己相处");
+    expect(source).toContain("daily-letter-backdrop");
+    expect(source).toContain("daily-letter-paper");
+    expect(source).toContain("daily-letter-action");
   });
 
   it("同一用户只在新日期第一次进入时展示", () => {

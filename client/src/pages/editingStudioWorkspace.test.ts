@@ -39,6 +39,12 @@ describe("resolveStudioInteractionMode", () => {
       "文字",
       "图像和声音",
     ]);
+    expect(
+      STUDIO_WORKSPACE_OPTIONS.map(option => option.illustrationSrc)
+    ).toEqual([
+      "/shiguang/nav-writing.png",
+      "/shiguang/nav-image-sound.png",
+    ]);
   });
 });
 

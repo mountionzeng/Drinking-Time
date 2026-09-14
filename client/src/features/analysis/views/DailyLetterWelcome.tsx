@@ -518,7 +518,7 @@ export default function DailyLetterWelcome({
     if (!visible) return null;
     return (
       <div
-        className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
         role="dialog"
         aria-modal="true"
         aria-label="今日来信"
@@ -528,7 +528,7 @@ export default function DailyLetterWelcome({
           tabIndex={-1}
           className="mx-auto flex min-h-full w-full max-w-2xl items-center outline-none"
         >
-          <div className="w-full border-y py-8">
+          <div className="daily-letter-paper w-full px-6 py-8 sm:px-10">
             <header className="flex items-start justify-between gap-5">
               <div>
                 <p className="text-[10px] text-muted-foreground">
@@ -581,13 +581,13 @@ export default function DailyLetterWelcome({
       (guestProfile.analysisSeed.userMessage ? 1 : 0);
     return (
       <div
-        className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
         role="dialog"
         aria-modal="true"
         aria-label="导入本机资料"
       >
         <section className="mx-auto flex min-h-full w-full max-w-xl items-center">
-          <div className="w-full border-y py-8">
+          <div className="daily-letter-paper w-full px-6 py-8 sm:px-10">
             <p className="text-[10px] text-muted-foreground">
               登录成功 · 由你决定
             </p>
@@ -642,7 +642,7 @@ export default function DailyLetterWelcome({
   if (initialProfileSetupVisible) {
     return (
       <div
-        className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
         role="dialog"
         aria-modal="true"
         aria-label="第一次写回信"
@@ -650,7 +650,7 @@ export default function DailyLetterWelcome({
         <section
           ref={dialogRef}
           tabIndex={-1}
-          className="mx-auto w-full max-w-3xl outline-none"
+          className="daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
         >
           <header
             className="flex items-start justify-between gap-5 border-b pb-5"
@@ -721,7 +721,7 @@ export default function DailyLetterWelcome({
 
   return (
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+      className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
       role="dialog"
       aria-modal="true"
       aria-label="你的每日回信"
@@ -729,7 +729,7 @@ export default function DailyLetterWelcome({
       <section
         ref={dialogRef}
         tabIndex={-1}
-        className="mx-auto w-full max-w-3xl outline-none"
+        className="daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
       >
         <header
           className="flex items-start justify-between gap-5 border-b pb-5"
@@ -748,7 +748,7 @@ export default function DailyLetterWelcome({
           <button
             type="button"
             onClick={closeLetter}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="daily-letter-close inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="收起回信"
             title="收起回信"
           >
@@ -982,7 +982,7 @@ export default function DailyLetterWelcome({
               type="button"
               onClick={() => void rereadLetter()}
               disabled={rereadMut.isPending || rewriteMut.isPending}
-              className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
+              className="daily-letter-action mt-4 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
               style={{ borderColor: "var(--nayin-border)" }}
             >
               {rereadMut.isPending ? (
@@ -997,7 +997,7 @@ export default function DailyLetterWelcome({
             <button
               type="button"
               onClick={startStoryFromLetter}
-              className="group mt-5 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="daily-letter-action group mt-5 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               style={{ borderColor: "var(--nayin-border)" }}
             >
               <Sparkles className="h-3.5 w-3.5 text-nayin transition-transform group-hover:rotate-6 group-hover:scale-110" />
@@ -1013,7 +1013,7 @@ export default function DailyLetterWelcome({
           <button
             type="button"
             onClick={closeLetter}
-            className="px-2 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="daily-letter-action px-3 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             把信收好，继续聊
           </button>

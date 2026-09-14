@@ -48,6 +48,8 @@ describe("AuthEntryPanel", () => {
     expect(html).toContain('href="/api/auth/google"');
     expect(html).toContain('autoComplete="one-time-code"');
     expect(html).toContain("获取验证码");
+    expect(html).toContain("shiguang-auth-button-google");
+    expect(html).toContain("shiguang-auth-entry");
     expect(html).not.toContain('placeholder="邀请码"');
     expect(html).not.toContain("使用邀请码登录");
     expect(html).toContain('<details class="group">');

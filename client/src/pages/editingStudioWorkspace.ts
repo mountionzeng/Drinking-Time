@@ -7,9 +7,18 @@ export type StudioInteractionMode = "publishing" | "story";
 export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
   id: StudioWorkspace;
   label: string;
+  illustrationSrc: string;
 }> = [
-  { id: "publishing", label: "文字" },
-  { id: "editing", label: "图像和声音" },
+  {
+    id: "publishing",
+    label: "文字",
+    illustrationSrc: "/shiguang/nav-writing.png",
+  },
+  {
+    id: "editing",
+    label: "图像和声音",
+    illustrationSrc: "/shiguang/nav-image-sound.png",
+  },
 ];
 
 export function isStoryPanelWorkspace(

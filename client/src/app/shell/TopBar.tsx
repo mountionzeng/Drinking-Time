@@ -9,6 +9,7 @@ import { useNayin } from "@/features/nayin/NayinContext";
 import PairingCodeButton from "@/features/auth/views/PairingCodeButton";
 import PersonalMemorySummary from "@/features/personalMemory/PersonalMemorySummary";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import StoryLogoMenu, {
   type StoryLogoMenuStory,
@@ -28,6 +29,7 @@ interface TopBarPanelToggle {
   label: string;
   active: boolean;
   onToggle: () => void;
+  illustrationSrc?: string;
   controls?: string;
   testId?: string;
 }
@@ -132,7 +134,7 @@ export default function TopBar({
                             onStoryPanelToggle?.();
                             toggleVisibleStoryPanel(panel.id);
                           }}
-                          className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                          className={`shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
                             active
                               ? "text-foreground"
                               : "text-muted-foreground hover:text-foreground/80"
@@ -172,7 +174,7 @@ export default function TopBar({
                         aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                         title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                         onClick={toggle.onToggle}
-                        className={`min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
+                        className={`shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
                           toggle.active ? "" : "hover:brightness-110"
                         }`}
                         style={
@@ -187,6 +189,14 @@ export default function TopBar({
                               }
                         }
                       >
+                        {visualTheme === "shiguang" && toggle.illustrationSrc ? (
+                          <img
+                            src={toggle.illustrationSrc}
+                            alt=""
+                            aria-hidden="true"
+                            className="shiguang-nav-illustration"
+                          />
+                        ) : null}
                         {toggle.label}
                       </button>
                     ))}
@@ -208,7 +218,7 @@ export default function TopBar({
                 <Popover open={userOpen} onOpenChange={setUserOpen}>
                   <PopoverTrigger asChild>
                     <button
-                      className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
+                      className="shiguang-user-avatar flex h-10 w-10 items-center justify-center rounded-full transition-all hover:-translate-y-0.5"
                       style={{
                         border: "1.4px solid var(--foreground)",
                         background: "var(--background)",
@@ -217,15 +227,13 @@ export default function TopBar({
                       }}
                       aria-label="用户"
                     >
-                      <span
-                        className="text-sm font-medium"
-                        style={{
-                          fontFamily: "'Noto Serif SC', serif",
-                          color: "var(--foreground)",
-                        }}
-                      >
-                        {user?.name ? user.name[0].toUpperCase() : "G"}
-                      </span>
+                      <EmotiveWuxingIcon
+                        element={element}
+                        mood="joy"
+                        size={30}
+                        animated={false}
+                        title="我的拾光"
+                      />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent

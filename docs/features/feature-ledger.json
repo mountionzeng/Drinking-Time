@@ -3760,11 +3760,19 @@
         "client/src/features/nayin/views/BeverageAmbience.tsx",
         "client/src/app/shell/StoryLogoMenu.tsx",
         "client/src/index.css",
-        "client/public/shiguang/"
+        "client/public/shiguang/",
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/pages/LoginPage.tsx",
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "client/src/features/analysis/views/DailyLetterWelcome.tsx",
+        "client/src/features/computeAccount/ComputeBalanceBadge.tsx"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
-        "client/src/app/shell/TopBar.test.tsx"
+        "client/src/app/shell/TopBar.test.tsx",
+        "client/src/features/auth/views/AuthEntryPanel.test.tsx",
+        "client/src/features/analysis/views/DailyLetterWelcome.test.ts",
+        "client/src/pages/editingStudioWorkspace.test.ts"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -3776,13 +3784,18 @@
       "dependencies": [],
       "replaces": [],
       "knownGaps": [
-        "因主仓库 3000 正在承载另一批未提交工作且与主题文件重叠，本轮尚未把分支合入该热工作树做真实浏览器视觉验收；生产与测试站均未部署。"
+        "测试站与正式站尚未部署新版插画导航、登录信纸和每日来信纸张界面；真实登录流程需在测试站发布后复核。"
       ],
       "history": [
         {
           "date": "2026-09-14",
           "kind": "feature",
           "summary": "新增拾光家忆默认插画主题：复用小程序自有米纸、枝叶、小鸟和旧书水彩资产，统一替换全局色板、纸张背景、顶栏故事入口和工作台面板质感；右上角用户菜单新增拾光家忆/纳音五行两套界面单选，偏好写入本地存储。纳音日期、农历、日柱、五行饮品与手动预览全部保留。7 项定向测试、TypeScript 与生产构建通过；尚未在主仓 3000 视觉验收或部署。"
+        },
+        {
+          "date": "2026-09-15",
+          "kind": "feature",
+          "summary": "统一拾光家忆桌面界面的手账纸视觉：新增文字、图像和声音、素材、时间线与导出五张透明水彩插画，替换顶部故事入口并把工作区按钮改成插画书签；用户入口沿用手机端五行表情头像，算力余额改成相邻纸签；登录页增加叠纸、胶带与相册装饰，每日来信改成不透底的独立信纸阅读层。主题与账号、故事、算力数据逻辑保持不变。定向 28 项、TypeScript 与生产构建通过，待合回主仓 3000 做视觉验收。"
         }
       ]
     }
