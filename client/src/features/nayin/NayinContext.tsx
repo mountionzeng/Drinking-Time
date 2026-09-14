@@ -16,7 +16,7 @@ import {
   type BeverageTheme,
   type TodayNayin,
 } from "./nayin";
-import { setNayinFavicon } from "./favicon";
+import { setThemeFavicon } from "./favicon";
 import {
   readVisualThemeMode,
   writeVisualThemeMode,
@@ -196,11 +196,10 @@ export function NayinProvider({ children }: { children: ReactNode }) {
     };
   }, [visualTheme]);
 
-  // Keep browser tab logo synced with today's Nayin element (daily refresh).
-  // Uses drink-style emoji icons and enlarged rendering density.
+  // 拾光默认使用手机端品牌头像；只有切回纳音主题时，才按当天五行换饮品图标。
   useEffect(() => {
-    setNayinFavicon(today.element);
-  }, [today.element]);
+    setThemeFavicon(today.element, visualTheme);
+  }, [today.element, visualTheme]);
 
   return (
     <NayinContext.Provider
