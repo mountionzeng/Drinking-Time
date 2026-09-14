@@ -27,6 +27,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { MobileStorySummary } from "./MobileStoryPanel";
 import { MobileNotConnected, MobileSheet } from "./MobileSheet";
+import { saveMobilePublishingBody } from "./useMobileDocument";
 
 export type ArchiveMode = "append" | "replace";
 
@@ -112,19 +113,34 @@ export function MobileArchiveSheet({
       return;
     }
     setError(null);
-    try {
-      const result = await saveMutation.mutateAsync({
+    const request = {
         storyId: targetId,
         versionId: document.versionId,
         platform: document.platform,
         baseBodyRevision: document.bodyRevision,
         body: composeArchivedBody(document.body, addition, mode),
+      };
+    try {
+      const result = await saveMobilePublishingBody({
+        request,
+        api: {
+          save: value => saveMutation.mutateAsync(value),
+          read: async () => {
+            const refreshed = await targetDoc.refetch();
+            if (!refreshed.data) throw new Error("存入后读不到目标正文");
+            return refreshed.data;
+          },
+        },
       });
       if (result.status === "conflict") {
         setError(
           "这个版本在别处刚被改过，没有存入。返回重选一次目标再试，你写的内容还在。"
         );
         await targetDoc.refetch();
+        return;
+      }
+      if (result.status === "uncertain") {
+        setError("暂时无法确认是否已经存入，请保持本页并稍后重试读取。");
         return;
       }
       await utils.publishingDraft.readBody.invalidate({ storyId: targetId });

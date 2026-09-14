@@ -141,6 +141,20 @@
       "when": 1788708002310,
       "tag": "0019_true_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1789387512629,
+      "tag": "0020_daily_letter_attempt_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1789387540717,
+      "tag": "0021_google_login_identity",
+      "breakpoints": true
     }
   ]
 }

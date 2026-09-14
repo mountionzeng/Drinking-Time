@@ -1,0 +1,1 @@
+ALTER TABLE `account_identities` MODIFY COLUMN `provider` enum('email','wechat','google') NOT NULL DEFAULT 'email';

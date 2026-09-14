@@ -486,6 +486,8 @@ export type PersonalMemoryLetterAttemptRecord = {
   letterDate: string;
   /** 稳定动作 ID：重复提交同一次「再读一遍」返回同一 attempt，不排第二次生成。 */
   actionId: string;
+  /** 每轮实际执行的所有权凭证；同一动作重启时必须更换。 */
+  claimToken: string;
   state: PersonalMemoryLetterAttemptState;
   /** 开始生成时固定的输入截点。 */
   inputCutoffAt: string;
@@ -635,7 +637,15 @@ export function normalizePersonalMemoryLocalState(
   );
   const letterAttempts = asArray<PersonalMemoryLetterAttemptRecord>(
     input.letterAttempts
-  );
+  ).map(attempt => ({
+    ...attempt,
+    // 旧本地数据没有 claimToken。给每条旧记录一个稳定的迁移凭证；一旦
+    // attempt 重启，db 层会换成随机新值，旧执行便立即失去提交权。
+    claimToken:
+      typeof attempt.claimToken === "string" && attempt.claimToken
+        ? attempt.claimToken
+        : `legacy-${attempt.id}`,
+  }));
   const outbox = asArray<PersonalMemoryOutboxEntry>(input.outbox);
 
   const watermarks: PersonalMemoryProjectionWatermarks = {};

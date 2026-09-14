@@ -18,16 +18,21 @@ import { accountIdentities, users } from '../../drizzle/schema';
 import {
   bumpUserSessionVersion,
   getDb,
+  getLoginIdentity,
   getUserById,
+  getUserByOpenId,
   consumeDevicePairingCode,
   consumePersistentRateLimit,
   consumeVerificationChallenge,
   getPasswordCredential,
   issueDevicePairingCode,
   issueVerificationChallenge,
+  linkEmailIdentity,
+  linkLoginIdentity,
   normalizeAccountEmail,
   resolveEmailIdentity,
   setPasswordCredential,
+  upsertUser,
 } from "../db";
 import {
   PAIRING_CODE_LENGTH,
@@ -409,6 +414,122 @@ export async function resolveForLogin(email: string): Promise<LoginResolution> {
       : { kind: "needs_manual_mapping", userIds: [resolution.userId] };
   }
   return { kind: "new" };
+}
+
+export type GoogleLoginResolution =
+  | { outcome: "authenticated"; userId: number }
+  | { outcome: "invalid_profile" }
+  | { outcome: "needs_manual_mapping"; userIds: number[] }
+  | { outcome: "identity_conflict"; userIds: number[] };
+
+/**
+ * 把 Google 的 provider subject 与其已验证邮箱解析到统一账号。
+ *
+ * subject 是 Google 身份的稳定键；邮箱只在 Google 明确声明已验证时参与
+ * 账号解析。已有邮箱身份可以安全增加一个登录方式；历史歧义仍停在人工处理，
+ * 绝不因为字符串相同就搬运或合并两份账号数据。
+ */
+export async function resolveGoogleLogin(input: {
+  subject: string;
+  email: string;
+  emailVerified: boolean;
+  name?: string | null;
+}): Promise<GoogleLoginResolution> {
+  const subject = input.subject.trim();
+  const email = normalizeAccountEmail(input.email);
+  if (
+    !subject ||
+    subject.length > 320 ||
+    !input.emailVerified ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
+    return { outcome: "invalid_profile" };
+  }
+
+  const googleIdentity = await getLoginIdentity("google", subject);
+  const emailResolution = await resolveForLogin(email);
+  if (emailResolution.kind === "conflict") {
+    return {
+      outcome: "identity_conflict",
+      userIds: emailResolution.userIds,
+    };
+  }
+  if (emailResolution.kind === "needs_manual_mapping") {
+    if (googleIdentity && emailResolution.userIds.includes(googleIdentity.userId)) {
+      return { outcome: "authenticated", userId: googleIdentity.userId };
+    }
+    return {
+      outcome: "needs_manual_mapping",
+      userIds: emailResolution.userIds,
+    };
+  }
+  if (
+    googleIdentity &&
+    emailResolution.kind === "known" &&
+    googleIdentity.userId !== emailResolution.userId
+  ) {
+    return {
+      outcome: "identity_conflict",
+      userIds: [googleIdentity.userId, emailResolution.userId].sort(
+        (left, right) => left - right
+      ),
+    };
+  }
+
+  if (googleIdentity) {
+    const user = await getUserById(googleIdentity.userId);
+    if (!user) throw new Error("Google 身份指向的账号不存在");
+    await upsertUser({
+      openId: user.openId,
+      name: user.name ?? input.name?.trim() ?? null,
+      lastSignedIn: new Date(),
+    });
+    return { outcome: "authenticated", userId: user.id };
+  }
+
+  let userId = emailResolution.kind === "known" ? emailResolution.userId : null;
+  if (userId == null) {
+    const openId = `email:${email}`;
+    await upsertUser({
+      openId,
+      email,
+      name: input.name?.trim() || null,
+      loginMethod: "google",
+      lastSignedIn: new Date(),
+    });
+    const created = await getUserByOpenId(openId);
+    if (!created) throw new Error("Google 用户创建后无法读取");
+    userId = created.id;
+  }
+
+  const emailLink = await linkEmailIdentity({ userId, email });
+  if (emailLink.kind === "taken" && emailLink.userId !== userId) {
+    return {
+      outcome: "identity_conflict",
+      userIds: [userId, emailLink.userId].sort((left, right) => left - right),
+    };
+  }
+  const googleLink = await linkLoginIdentity({
+    userId,
+    provider: "google",
+    subject,
+  });
+  if (googleLink.kind === "taken" && googleLink.userId !== userId) {
+    return {
+      outcome: "identity_conflict",
+      userIds: [userId, googleLink.userId].sort((left, right) => left - right),
+    };
+  }
+
+  const user = await getUserById(userId);
+  if (!user) throw new Error("Google 身份指向的账号不存在");
+  await upsertUser({
+    openId: user.openId,
+    email,
+    name: user.name ?? input.name?.trim() ?? null,
+    lastSignedIn: new Date(),
+  });
+  return { outcome: "authenticated", userId };
 }
 
 export type VerifyOtpResult =

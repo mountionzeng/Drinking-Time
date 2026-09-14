@@ -1590,7 +1590,7 @@ export const accountIdentities = mysqlTable(
     userId: int("userId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    provider: mysqlEnum("provider", ["email", "wechat"])
+    provider: mysqlEnum("provider", ["email", "wechat", "google"])
       .default("email")
       .notNull(),
     /** 标准化后的身份标识：邮箱走小写 trim，微信以后放 openid */
@@ -2500,6 +2500,7 @@ export const emotionDailyLetterAttempts = mysqlTable(
       .references(() => users.id, { onDelete: "cascade" }),
     letterDate: varchar("letterDate", { length: 10 }).notNull(),
     actionId: varchar("actionId", { length: 191 }).notNull(),
+    claimToken: varchar("claimToken", { length: 64 }).default("").notNull(),
     state: mysqlEnum("state", [
       "in_flight",
       "committed",

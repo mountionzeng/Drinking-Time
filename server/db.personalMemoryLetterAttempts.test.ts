@@ -85,6 +85,7 @@ describe("beginPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const committed = await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -117,6 +118,7 @@ describe("beginPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     await db.failPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       outcome: "failed",
     });
@@ -218,6 +220,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     ).toHaveLength(1);
     const result = await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "reread",
@@ -247,6 +250,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const result = await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -277,6 +281,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const commitInput = {
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -309,6 +314,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
 
     const result = await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -344,6 +350,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     await db.bumpPersonalMemoryPrivacyEpoch(USER);
     await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -366,6 +373,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
 
     const result = await db.commitPersonalMemoryLetterAttempt({
       attemptId: retried.attempt.id,
+      claimToken: retried.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -379,6 +387,49 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     expect(result.outcome).toBe("committed");
   });
 
+  it("陈旧执行在同一 action 重启后不能用旧输入提交", async () => {
+    const original = await db.beginPersonalMemoryLetterAttempt({
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "a1",
+      now: new Date("2026-09-04T00:00:00.000Z"),
+    });
+    if (original.status !== "started") throw new Error("unreachable");
+    const originalClaimToken = original.attempt.claimToken;
+    const originalPrivacyEpoch = original.attempt.privacyEpoch;
+
+    await db.bumpPersonalMemoryPrivacyEpoch(USER);
+    const restarted = await db.beginPersonalMemoryLetterAttempt({
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "a1",
+      now: new Date("2026-09-04T00:03:00.000Z"),
+    });
+    if (restarted.status !== "started") throw new Error("unreachable");
+
+    // 第一轮模型现在才返回。稳定 actionId 和 attemptId 都相同；只有每轮
+    // execution claim 能证明它已经失去提交权。
+    const result = await db.commitPersonalMemoryLetterAttempt({
+      attemptId: original.attempt.id,
+      claimToken: originalClaimToken,
+      userId: USER,
+      letterDate: LETTER_DATE,
+      actionId: "a1",
+      trigger: "generated",
+      selectorVersion: "test",
+      promptVersion: "test",
+      modelVersion: "test",
+      privacyEpoch: originalPrivacyEpoch,
+      payload: emptyPayload(),
+    });
+
+    expect(result.outcome).toBe("execution_conflict");
+    expect(await db.listEmotionDailyLetterVersions(USER, LETTER_DATE)).toHaveLength(0);
+    expect(
+      (await db.getPersonalMemoryLetterAttemptById(restarted.attempt.id))?.state
+    ).toBe("in_flight");
+  });
+
   it("commitPersonalMemoryLetterAttempt 拒绝别的用户的 attemptId", async () => {
     const begun = await db.beginPersonalMemoryLetterAttempt({
       userId: USER,
@@ -389,6 +440,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     await expect(
       db.commitPersonalMemoryLetterAttempt({
         attemptId: begun.attempt.id,
+        claimToken: begun.attempt.claimToken,
         userId: USER + 1,
         letterDate: LETTER_DATE,
         actionId: "a1",
@@ -411,6 +463,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const base = {
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       trigger: "generated" as const,
       selectorVersion: "test",
@@ -448,6 +501,7 @@ describe("commitPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const input = {
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -489,6 +543,7 @@ describe("failPersonalMemoryLetterAttempt", () => {
     if (begun.status !== "started") throw new Error("unreachable");
     const committed = await db.commitPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       letterDate: LETTER_DATE,
       actionId: "a1",
@@ -504,6 +559,7 @@ describe("failPersonalMemoryLetterAttempt", () => {
     // 客户端超时重发了一次失败上报——但服务端其实已经成功了。
     await db.failPersonalMemoryLetterAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: USER,
       outcome: "failed",
     });

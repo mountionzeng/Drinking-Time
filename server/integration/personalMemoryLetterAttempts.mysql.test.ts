@@ -143,12 +143,45 @@ describeMysql("来信 attempt 状态机在真实 MySQL 上", () => {
     });
   }, 120_000);
 
+  it("两个进程同时重启陈旧 attempt：只有一个取得新 claim", async () => {
+    await withMysqlTestDatabase(async database => {
+      const connection = await mysql.createConnection(database.databaseUrl);
+      try {
+        const userId = await seedUser(connection, "pm-attempt-stale-race");
+        await connection.execute(
+          "INSERT INTO `emotion_daily_letter_attempts` " +
+            "(`userId`, `letterDate`, `actionId`, `claimToken`, `state`, `inputCutoffAt`, `privacyEpoch`, `updatedAt`) " +
+            "VALUES (?, '2026-09-04', 'a1', 'stale-claim', 'in_flight', '2026-09-04 00:00:00', 1, '2026-09-04 00:00:00')",
+          [userId]
+        );
+        const [left, right] = raceInputs([
+          { action: "beginLetterAttempt", userId, letterDate: "2026-09-04", actionId: "a1" },
+          { action: "beginLetterAttempt", userId, letterDate: "2026-09-04", actionId: "a1" },
+        ]);
+        const [leftResult, rightResult] = await Promise.all([
+          workerResult<{ status: string; claimToken: string }>(startWorker(database.databaseUrl, left)),
+          workerResult<{ status: string; claimToken: string }>(startWorker(database.databaseUrl, right)),
+        ]);
+
+        expect([leftResult.status, rightResult.status].sort()).toEqual(["in_flight", "started"]);
+        expect(leftResult.claimToken).toBe(rightResult.claimToken);
+        expect(leftResult.claimToken).not.toBe("stale-claim");
+      } finally {
+        await connection.end();
+      }
+    });
+  }, 120_000);
+
   it("commit 期间隐私 epoch 变化：拒绝提交，不留半成品版本", async () => {
     await withMysqlTestDatabase(async database => {
       const connection = await mysql.createConnection(database.databaseUrl);
       try {
         const userId = await seedUser(connection, "pm-attempt-epoch");
-        const begun = await workerResult<{ attemptId: number; privacyEpoch: number }>(
+        const begun = await workerResult<{
+          attemptId: number;
+          claimToken: string;
+          privacyEpoch: number;
+        }>(
           startWorker(database.databaseUrl, {
             action: "beginLetterAttempt",
             userId,
@@ -170,6 +203,7 @@ describeMysql("来信 attempt 状态机在真实 MySQL 上", () => {
             letterDate: "2026-09-04",
             actionId: "a1",
             attemptId: begun.attemptId,
+            claimToken: begun.claimToken,
             privacyEpoch: begun.privacyEpoch,
             userMessage: "今天很平静",
           })
@@ -199,7 +233,11 @@ describeMysql("来信 attempt 状态机在真实 MySQL 上", () => {
       const connection = await mysql.createConnection(database.databaseUrl);
       try {
         const userId = await seedUser(connection, "pm-attempt-happy");
-        const begun = await workerResult<{ attemptId: number; privacyEpoch: number }>(
+        const begun = await workerResult<{
+          attemptId: number;
+          claimToken: string;
+          privacyEpoch: number;
+        }>(
           startWorker(database.databaseUrl, {
             action: "beginLetterAttempt",
             userId,
@@ -217,6 +255,7 @@ describeMysql("来信 attempt 状态机在真实 MySQL 上", () => {
             letterDate: "2026-09-04",
             actionId: "a1",
             attemptId: begun.attemptId,
+            claimToken: begun.claimToken,
             privacyEpoch: begun.privacyEpoch,
             userMessage: "今天很平静",
           })

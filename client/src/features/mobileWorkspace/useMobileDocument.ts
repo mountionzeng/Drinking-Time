@@ -18,13 +18,7 @@ import {
 } from "./mobileDocumentStore";
 
 export type MobileDocumentApi = {
-  save(input: {
-    storyId: number;
-    versionId: string;
-    platform: MobilePublishingBodyDocument["platform"];
-    baseBodyRevision: number;
-    body: string;
-  }): Promise<
+  save(input: MobilePublishingBodySaveRequest): Promise<
     | { status: "saved"; document: MobilePublishingBodyDocument }
     | {
         status: "conflict";
@@ -35,10 +29,77 @@ export type MobileDocumentApi = {
   read(input: { storyId: number }): Promise<MobilePublishingBodyDocument>;
 };
 
+export type MobilePublishingBodySaveRequest = {
+  storyId: number;
+  versionId: string;
+  platform: MobilePublishingBodyDocument["platform"];
+  baseBodyRevision: number;
+  body: string;
+};
+
+export type MobilePublishingBodySaveOutcome =
+  | { status: "saved"; document: MobilePublishingBodyDocument }
+  | {
+      status: "conflict";
+      reason: MobileDocumentConflictReason;
+      latestDocument: MobilePublishingBodyDocument | null;
+    }
+  | {
+      status: "uncertain";
+      error: string;
+      latestDocument: MobilePublishingBodyDocument | null;
+    };
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : fallback;
+}
+
+function documentProvesSave(
+  document: MobilePublishingBodyDocument | null,
+  request: MobilePublishingBodySaveRequest
+) {
+  return Boolean(
+    document &&
+      document.storyId === request.storyId &&
+      document.versionId === request.versionId &&
+      document.platform === request.platform &&
+      document.body === request.body &&
+      document.bodyRevision > request.baseBodyRevision
+  );
+}
+
+/**
+ * 所有手机正文写入口共享的结果确认规则。响应丢失不等于保存失败：先读回
+ * 权威正文，只有精确作用域和正文都相同才确认成功，避免用户重试追加两遍。
+ */
+export async function saveMobilePublishingBody(input: {
+  api: MobileDocumentApi;
+  request: MobilePublishingBodySaveRequest;
+}): Promise<MobilePublishingBodySaveOutcome> {
+  try {
+    const result = await input.api.save(input.request);
+    if (
+      result.status === "conflict" &&
+      documentProvesSave(result.latestDocument, input.request)
+    ) {
+      return { status: "saved", document: result.latestDocument! };
+    }
+    return result;
+  } catch (error) {
+    const message = errorMessage(error, "无法确认正文是否已保存");
+    try {
+      const latestDocument = await input.api.read({
+        storyId: input.request.storyId,
+      });
+      return documentProvesSave(latestDocument, input.request)
+        ? { status: "saved", document: latestDocument }
+        : { status: "uncertain", error: message, latestDocument };
+    } catch {
+      return { status: "uncertain", error: message, latestDocument: null };
+    }
+  }
 }
 
 export async function runMobileDocumentSave(input: {
@@ -54,36 +115,33 @@ export async function runMobileDocumentSave(input: {
   }
   const expectedScopeKey = state.recovery.scopeKey;
   const expectedBody = state.body;
-  try {
-    const result = await input.api.save({
+  const result = await saveMobilePublishingBody({
+    api: input.api,
+    request: {
       storyId: state.storyId,
       versionId: state.recovery.versionId,
       platform: state.recovery.platform,
       baseBodyRevision: state.recovery.baseBodyRevision,
       body: expectedBody,
-    });
-    if (result.status === "conflict") {
-      return applyMobileDocumentSaveConflict(state, result);
-    }
+    },
+  });
+  if (result.status === "conflict") {
+    return applyMobileDocumentSaveConflict(state, result);
+  }
+  if (result.status === "saved") {
     return applyMobileDocumentSaveSuccess(state, {
       expectedScopeKey,
       expectedBody,
       document: result.document,
     });
-  } catch (error) {
-    const uncertain = applyMobileDocumentSaveFailure(state, {
-      error: errorMessage(error, "无法确认正文是否已保存"),
-      uncertain: true,
-    });
-    try {
-      return applyMobileDocumentAuthority(
-        uncertain,
-        await input.api.read({ storyId: state.storyId })
-      );
-    } catch {
-      return uncertain;
-    }
   }
+  const uncertain = applyMobileDocumentSaveFailure(state, {
+    error: result.error,
+    uncertain: true,
+  });
+  return result.latestDocument
+    ? applyMobileDocumentAuthority(uncertain, result.latestDocument)
+    : uncertain;
 }
 
 function browserStorage(): MobileDocumentStorage | null {

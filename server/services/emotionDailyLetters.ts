@@ -236,6 +236,7 @@ export async function generateDailyLetterViaAttempt(
 
     const committed = await commitAttempt({
       attemptId: begun.attempt.id,
+      claimToken: begun.attempt.claimToken,
       userId: input.userId,
       letterDate: input.letterDate,
       actionId: input.actionId,
@@ -280,11 +281,15 @@ export async function generateDailyLetterViaAttempt(
         reason: "记忆状态已更新，请重试",
       };
     }
+    if (committed.outcome === "execution_conflict") {
+      return { status: "failed", reason: "这次生成已被新的重试替代" };
+    }
     // revision_conflict：正常路径下先 begin 才能 commit，同一 attempt
     // 不会有两次提交竞争；出现只可能是极端并发下的兜底分支。
     await failAttempt({
       attemptId: begun.attempt.id,
       userId: input.userId,
+      claimToken: begun.attempt.claimToken,
       outcome: "failed",
     });
     return { status: "failed", reason: "版本已被并发更新，请刷新后重试" };
@@ -294,6 +299,7 @@ export async function generateDailyLetterViaAttempt(
     await failAttempt({
       attemptId: begun.attempt.id,
       userId: input.userId,
+      claimToken: begun.attempt.claimToken,
       outcome: "failed",
     }).catch(() => {});
     return {

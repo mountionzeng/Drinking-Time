@@ -32,6 +32,7 @@ import {
   dailyLetterGreeting,
   dailyLetterSeenKey,
   nextDailyLetterDate,
+  shouldMarkDailyLetterSeen,
   shouldShowDailyLetter,
   storiesForDailyLetter,
   type DailyLetterStorySummary,
@@ -204,7 +205,10 @@ export function MobileDailyLetter({
         userMessage: messageDraft.trim(),
         expectedRevision: selectedLetter.revision,
       });
-      await utils.emotionAnalysis.listDailyLetters.invalidate();
+      await Promise.all([
+        utils.emotionAnalysis.listDailyLetters.invalidate(),
+        utils.emotionAnalysis.getProfile.invalidate(),
+      ]);
       setEditingMessage(false);
     } catch (error) {
       setActionError(
@@ -225,7 +229,13 @@ export function MobileDailyLetter({
         actionId: rereadActionIdRef.current,
       });
       rereadActionIdRef.current = null;
-      await utils.emotionAnalysis.listDailyLetters.invalidate();
+      await Promise.all([
+        utils.emotionAnalysis.listDailyLetters.invalidate(),
+        utils.emotionAnalysis.getProfile.invalidate(),
+        utils.emotionAnalysis.dailyLetterVersionContext.invalidate({
+          letterDate: selectedDate,
+        }),
+      ]);
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "没能重新读，待会儿再试"
@@ -242,8 +252,10 @@ export function MobileDailyLetter({
 
   const closeLetter = () => {
     // 只有「今天那封」才算读过；翻旧信不该把今天的记成已读。
-    if (user?.id && profileDate) writeSeenDate(user.id, profileDate);
-    setClosedDate(profileDate);
+    if (user?.id && shouldMarkDailyLetterSeen(selectedDate, profileDate)) {
+      writeSeenDate(user.id, profileDate);
+      setClosedDate(profileDate);
+    }
     onOpenChange(false);
   };
 

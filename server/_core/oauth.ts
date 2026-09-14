@@ -17,6 +17,7 @@ import {
   changeAccountPassword,
   completePasswordRecovery,
   issueEmailOtp,
+  resolveGoogleLogin,
   setAccountPassword,
   verifyEmailOtp,
   resolveForLogin,
@@ -39,6 +40,7 @@ const ACCOUNT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** 余额不足、需要人工处理时向用户显示的负责人邮箱。 */
 const OWNER_CONTACT_EMAIL = "mountionzeng@gmail.com";
 const GOOGLE_OAUTH_STATE_COOKIE = "dt_google_oauth_state";
+const DIRECT_GOOGLE_OAUTH_STATE_COOKIE = "dt_google_direct_oauth_state";
 const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 function clientIp(req: Request): string {
@@ -60,7 +62,7 @@ async function sendOtpEmail(to: string, code: string): Promise<void> {
     {
       from: ENV.resendFromEmail,
       to: [to],
-      subject: "聊会儿登录验证码",
+      subject: "拾光登录验证码",
       text: `你的验证码是：${code}\n\n10 分钟内有效。`,
       html: `<p style="font-size:24px;font-weight:bold;letter-spacing:8px">${code}</p><p>10 分钟内有效。</p>`,
     },
@@ -98,6 +100,38 @@ function getInviteCode(req: Request): string {
   return typeof req.body?.inviteCode === "string"
     ? req.body.inviteCode.trim()
     : "";
+}
+
+function oauthStateMatches(
+  req: Request,
+  cookieName: string,
+  returnedState: string | undefined
+) {
+  if (!returnedState) return false;
+  const expected = parseCookieHeader(req.headers.cookie ?? "")[cookieName];
+  if (!expected) return false;
+  const expectedBytes = Buffer.from(expected);
+  const returnedBytes = Buffer.from(returnedState);
+  return expectedBytes.length === returnedBytes.length && timingSafeEqual(expectedBytes, returnedBytes);
+}
+
+async function establishUserSession(
+  req: Request,
+  res: Response,
+  userId: number,
+  displayName?: string | null
+): Promise<void> {
+  const user = await db.getUserById(userId);
+  if (!user) throw new Error("账号不存在，无法建立会话");
+  const sessionToken = await sdk.createSessionToken(user.openId, {
+    name: displayName ?? user.name ?? user.email?.split("@")[0] ?? "",
+    expiresInMs: ACCOUNT_SESSION_TTL_MS,
+    sessionVersion: Number(user.sessionVersion ?? 1),
+  });
+  res.cookie(COOKIE_NAME, sessionToken, {
+    ...getSessionCookieOptions(req),
+    maxAge: ACCOUNT_SESSION_TTL_MS,
+  });
 }
 
 async function establishEmailSession(
@@ -170,15 +204,7 @@ async function establishAccountSession(
     throw new Error("邮箱身份在登录过程中已绑定到另一个账号");
   }
 
-  const sessionToken = await sdk.createSessionToken(user.openId, {
-    name: input.email.split("@")[0],
-    expiresInMs: ACCOUNT_SESSION_TTL_MS,
-    sessionVersion: Number(user.sessionVersion ?? 1),
-  });
-  res.cookie(COOKIE_NAME, sessionToken, {
-    ...getSessionCookieOptions(req),
-    maxAge: ACCOUNT_SESSION_TTL_MS,
-  });
+  await establishUserSession(req, res, user.id, input.email.split("@")[0]);
   return { userId: user.id };
 }
 
@@ -198,16 +224,7 @@ async function establishPairedSession(
   if (!user) throw new Error("配对码指向的账号不存在");
   await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
 
-  const sessionToken = await sdk.createSessionToken(user.openId, {
-    name: user.name ?? user.email?.split("@")[0] ?? "",
-    expiresInMs: ACCOUNT_SESSION_TTL_MS,
-    // 带上会话版本：改密码/找回密码时自增，配对出去的设备一并失效
-    sessionVersion: Number(user.sessionVersion ?? 1),
-  });
-  res.cookie(COOKIE_NAME, sessionToken, {
-    ...getSessionCookieOptions(req),
-    maxAge: ACCOUNT_SESSION_TTL_MS,
-  });
+  await establishUserSession(req, res, user.id);
 }
 
 /** 需要人工映射时的统一响应：告诉用户找谁，而不是让他对着一个死循环重试。 */
@@ -494,10 +511,6 @@ export function registerOAuthRoutes(app: Express) {
       );
       return;
     }
-    if (ENV.betaInviteRequired) {
-      res.status(403).json({ error: "invite_required" });
-      return;
-    }
     if (!ENV.googleClientId) {
       res
         .status(503)
@@ -511,6 +524,13 @@ export function registerOAuthRoutes(app: Express) {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "openid email profile");
     url.searchParams.set("prompt", "select_account");
+    const state = randomBytes(24).toString("base64url");
+    url.searchParams.set("state", state);
+    res.cookie(DIRECT_GOOGLE_OAUTH_STATE_COOKIE, state, {
+      ...getSessionCookieOptions(req),
+      path: "/api/auth/google/callback",
+      maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
+    });
     res.redirect(302, url.toString());
   });
 
@@ -521,14 +541,7 @@ export function registerOAuthRoutes(app: Express) {
         typeof req.body?.state === "string" ? req.body.state : "";
       const accessToken =
         typeof req.body?.accessToken === "string" ? req.body.accessToken : "";
-      const expectedState =
-        parseCookieHeader(req.headers.cookie ?? "")[
-          GOOGLE_OAUTH_STATE_COOKIE
-        ] ?? "";
-      const stateMatches =
-        suppliedState.length === expectedState.length &&
-        suppliedState.length > 0 &&
-        timingSafeEqual(Buffer.from(suppliedState), Buffer.from(expectedState));
+      const stateMatches = oauthStateMatches(req, GOOGLE_OAUTH_STATE_COOKIE, suppliedState);
       res.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, {
         ...getSessionCookieOptions(req),
         path: "/api/auth/supabase/complete",
@@ -544,26 +557,30 @@ export function registerOAuthRoutes(app: Express) {
           publishableKey: ENV.supabaseAuthPublishableKey,
           accessToken,
         });
-        const resolution = await resolveForLogin(identity.email);
+        const emailResolution = await resolveForLogin(identity.email);
         if (
-          resolution.kind === "conflict" ||
-          resolution.kind === "needs_manual_mapping"
-        ) {
-          respondNeedsManualMapping(res);
-          return;
-        }
-        if (
-          resolution.kind === "new" &&
+          emailResolution.kind === "new" &&
           ENV.googleInviteRequired &&
           !(await db.hasRedeemedInviteForEmail(identity.email))
         ) {
           res.status(403).json({ error: "invite_required" });
           return;
         }
-        await establishAccountSession(req, res, {
+        const resolution = await resolveGoogleLogin({
+          subject: identity.subject,
           email: identity.email,
-          userId: resolution.kind === "known" ? resolution.userId : null,
+          emailVerified: true,
+          name: identity.name,
         });
+        if (resolution.outcome === "identity_conflict" || resolution.outcome === "needs_manual_mapping") {
+          respondNeedsManualMapping(res);
+          return;
+        }
+        if (resolution.outcome !== "authenticated") {
+          res.status(401).json({ error: "oauth_failed" });
+          return;
+        }
+        await establishUserSession(req, res, resolution.userId, identity.name);
         res.json({ ok: true });
       } catch (error) {
         console.error("[Supabase Google OAuth] Completion failed", error);
@@ -574,6 +591,15 @@ export function registerOAuthRoutes(app: Express) {
 
   app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
+    const state = getQueryParam(req, "state");
+    res.clearCookie(DIRECT_GOOGLE_OAUTH_STATE_COOKIE, {
+      ...getSessionCookieOptions(req),
+      path: "/api/auth/google/callback",
+    });
+    if (!oauthStateMatches(req, DIRECT_GOOGLE_OAUTH_STATE_COOKIE, state)) {
+      res.redirect(302, "/login?error=invalid_oauth_state");
+      return;
+    }
     if (!code) {
       res.redirect(302, "/login?error=missing_code");
       return;
@@ -598,36 +624,36 @@ export function registerOAuthRoutes(app: Express) {
         sub: string;
         email: string;
         name: string;
+        email_verified: boolean;
       }>("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: { Authorization: `Bearer ${tokenRes.data.access_token}` },
       });
 
-      const { sub, email, name } = userRes.data;
-      const openId = `google:${sub}`;
-      const existingUser = await db.getUserByOpenId(openId);
-      if (ENV.betaInviteRequired && !existingUser) {
+      const { sub, email, name, email_verified } = userRes.data;
+      const emailResolution = await resolveForLogin(email);
+      if (
+        emailResolution.kind === "new" &&
+        ENV.googleInviteRequired &&
+        !(await db.hasRedeemedInviteForEmail(email))
+      ) {
         res.redirect(302, "/login?error=invite_required");
         return;
       }
-
-      await db.upsertUser({
-        openId,
-        name: name || null,
-        email: email || null,
-        loginMethod: "google",
-        lastSignedIn: new Date(),
+      const resolution = await resolveGoogleLogin({
+        subject: sub,
+        email,
+        emailVerified: email_verified === true,
+        name,
       });
-
-      const sessionToken = await sdk.createSessionToken(openId, {
-        name: name || "",
-        expiresInMs: ONE_YEAR_MS,
-      });
-
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, {
-        ...cookieOptions,
-        maxAge: ONE_YEAR_MS,
-      });
+      if (resolution.outcome === "invalid_profile") {
+        res.redirect(302, "/login?error=google_email_not_verified");
+        return;
+      }
+      if (resolution.outcome !== "authenticated") {
+        res.redirect(302, "/login?error=account_needs_manual_setup");
+        return;
+      }
+      await establishUserSession(req, res, resolution.userId, name);
       res.redirect(302, "/");
     } catch (error) {
       console.error("[Google OAuth] Callback failed", error);

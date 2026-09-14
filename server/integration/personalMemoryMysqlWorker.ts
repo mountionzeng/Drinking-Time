@@ -66,6 +66,7 @@ type WorkerInput = {
       letterDate: string;
       actionId: string;
       attemptId: number;
+      claimToken: string;
       privacyEpoch: number;
       userMessage: string;
     }
@@ -241,6 +242,7 @@ try {
     await finish({
       status: result.status,
       attemptId: result.attempt.id,
+      claimToken: result.attempt.claimToken,
       privacyEpoch: result.attempt.privacyEpoch,
       committedVersionId:
         result.status === "already_committed"
@@ -252,6 +254,7 @@ try {
   if (input.action === "commitLetterAttempt") {
     const result = await commitPersonalMemoryLetterAttempt({
       attemptId: input.attemptId,
+      claimToken: input.claimToken,
       userId: input.userId,
       letterDate: input.letterDate,
       actionId: input.actionId,

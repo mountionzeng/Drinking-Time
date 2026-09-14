@@ -6,7 +6,10 @@ import {
   hydrateMobileDocumentState,
   type MobilePublishingBodyDocument,
 } from "./mobileDocumentStore";
-import { runMobileDocumentSave } from "./useMobileDocument";
+import {
+  runMobileDocumentSave,
+  saveMobilePublishingBody,
+} from "./useMobileDocument";
 
 function document(
   overrides: Partial<MobilePublishingBodyDocument> = {}
@@ -121,6 +124,60 @@ describe("runMobileDocumentSave", () => {
       status: "uncertain",
       body: "手机正文",
       recovery: { body: "手机正文" },
+    });
+  });
+});
+
+describe("saveMobilePublishingBody", () => {
+  const request = {
+    storyId: 7,
+    versionId: "v2",
+    platform: "xiaohongshu" as const,
+    baseBodyRevision: 4,
+    body: "原文\n\n新增段落",
+  };
+
+  it("reads back an uncertain write and confirms the exact requested body", async () => {
+    const api = {
+      save: vi.fn().mockRejectedValue(new Error("response lost")),
+      read: vi.fn(async () => document({ body: request.body, bodyRevision: 5 })),
+    };
+
+    const result = await saveMobilePublishingBody({ api, request });
+
+    expect(result.status).toBe("saved");
+    expect(api.read).toHaveBeenCalledWith({ storyId: 7 });
+  });
+
+  it("recognizes a conflict readback that already contains this exact write", async () => {
+    const landed = document({ body: request.body, bodyRevision: 5 });
+    const api = {
+      save: vi.fn(async () => ({
+        status: "conflict" as const,
+        reason: "body_changed" as const,
+        latestDocument: landed,
+      })),
+      read: vi.fn(),
+    };
+
+    const result = await saveMobilePublishingBody({ api, request });
+
+    expect(result).toEqual({ status: "saved", document: landed });
+  });
+
+  it("does not treat unchanged revision with matching text as proof of this save", async () => {
+    const unchanged = document({ body: request.body, bodyRevision: 4 });
+    const api = {
+      save: vi.fn().mockRejectedValue(new Error("response lost")),
+      read: vi.fn(async () => unchanged),
+    };
+
+    const result = await saveMobilePublishingBody({ api, request });
+
+    expect(result).toEqual({
+      status: "uncertain",
+      error: "response lost",
+      latestDocument: unchanged,
     });
   });
 });

@@ -10785,6 +10785,96 @@ export async function linkEmailIdentity(input: {
   return { kind: "linked" };
 }
 
+export type LoginIdentityProvider = "google";
+
+export async function getLoginIdentity(
+  provider: LoginIdentityProvider,
+  subject: string
+): Promise<AccountIdentity | null> {
+  const normalized = subject.trim();
+  if (!normalized) return null;
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.accountIdentities.find(
+        item => item.provider === provider && item.subject === normalized
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(accountIdentities)
+    .where(
+      and(
+        eq(accountIdentities.provider, provider),
+        eq(accountIdentities.subject, normalized)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function linkLoginIdentity(input: {
+  userId: number;
+  provider: LoginIdentityProvider;
+  subject: string;
+  verifiedAt?: Date | null;
+}): Promise<{ kind: "linked" } | { kind: "taken"; userId: number }> {
+  const subject = input.subject.trim();
+  if (!subject) throw new Error("登录身份 subject 不能为空");
+  const existing = await getLoginIdentity(input.provider, subject);
+  if (existing) {
+    return existing.userId === input.userId
+      ? { kind: "linked" }
+      : { kind: "taken", userId: existing.userId };
+  }
+
+  const db = await getDb();
+  if (!db) {
+    return withLocalAggregateMutationLock(async () => {
+      const winner = memoryState.accountIdentities.find(
+        item =>
+          item.provider === input.provider && item.subject === subject
+      );
+      if (winner) {
+        return winner.userId === input.userId
+          ? { kind: "linked" as const }
+          : { kind: "taken" as const, userId: winner.userId };
+      }
+      const current = now();
+      memoryState.accountIdentities.push({
+        id: nextMemoryId("accountIdentity"),
+        userId: input.userId,
+        provider: input.provider,
+        subject,
+        verifiedAt: input.verifiedAt ?? current,
+        createdAt: current,
+        updatedAt: current,
+      });
+      await persistMemoryState();
+      return { kind: "linked" as const };
+    });
+  }
+
+  try {
+    await db.insert(accountIdentities).values({
+      userId: input.userId,
+      provider: input.provider,
+      subject,
+      verifiedAt: input.verifiedAt ?? new Date(),
+    });
+    return { kind: "linked" };
+  } catch (error) {
+    const winner = await getLoginIdentity(input.provider, subject);
+    if (winner) {
+      return winner.userId === input.userId
+        ? { kind: "linked" }
+        : { kind: "taken", userId: winner.userId };
+    }
+    throw error;
+  }
+}
+
 export async function getPasswordCredential(
   userId: number
 ): Promise<AccountCredential | null> {
@@ -12032,6 +12122,8 @@ export type AppendDailyLetterVersionInput = {
    * 是 in_flight”的断网窗口。
    */
   letterAttemptId?: number;
+  /** 当前执行的所有权凭证；动作重启后旧执行不得再提交。 */
+  letterAttemptClaimToken?: string;
   /** 防止生成期间新保存的留言被旧生成输入覆盖。 */
   expectedLetterRevision?: number;
   /** 成功的新版本是否同时写入统一足迹。由调用方的捕获门禁决定。 */
@@ -12121,7 +12213,7 @@ async function appendLetterVersionOnce(
       ? await readMatchingLetterAttemptInTx(tx, input)
       : null;
     if (input.letterAttemptId && !attemptRow) {
-      throw new Error("来信 attempt 与用户、日期或动作不匹配");
+      throw new LetterAttemptExecutionConflictError();
     }
     // 刻意**不**在这里用 SELECT ... FOR UPDATE。
     //
@@ -12303,7 +12395,11 @@ async function readMatchingLetterAttemptInTx(
         eq(emotionDailyLetterAttempts.id, input.letterAttemptId),
         eq(emotionDailyLetterAttempts.userId, input.userId),
         eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
-        eq(emotionDailyLetterAttempts.actionId, input.actionId)
+        eq(emotionDailyLetterAttempts.actionId, input.actionId),
+        eq(
+          emotionDailyLetterAttempts.claimToken,
+          input.letterAttemptClaimToken ?? ""
+        )
       )
     )
     .limit(1);
@@ -12328,7 +12424,11 @@ async function markLetterAttemptCommittedInTx(
         eq(emotionDailyLetterAttempts.id, input.letterAttemptId),
         eq(emotionDailyLetterAttempts.userId, input.userId),
         eq(emotionDailyLetterAttempts.letterDate, input.letterDate),
-        eq(emotionDailyLetterAttempts.actionId, input.actionId)
+        eq(emotionDailyLetterAttempts.actionId, input.actionId),
+        eq(
+          emotionDailyLetterAttempts.claimToken,
+          input.letterAttemptClaimToken ?? ""
+        )
       )
     );
   if (updated[0].affectedRows !== 1) {
@@ -12365,11 +12465,12 @@ function appendLetterVersionToLocalState(
           row.id === input.letterAttemptId &&
           row.userId === input.userId &&
           row.letterDate === input.letterDate &&
-          row.actionId === input.actionId
+          row.actionId === input.actionId &&
+          row.claimToken === input.letterAttemptClaimToken
       ) ?? null)
     : null;
   if (input.letterAttemptId && !attempt) {
-    throw new Error("来信 attempt 与用户、日期或动作不匹配");
+    throw new LetterAttemptExecutionConflictError();
   }
   const sameDay = state.letterVersions.filter(
     version =>
@@ -12771,6 +12872,7 @@ function beginLetterAttemptLocally(
       userId: input.userId,
       letterDate: input.letterDate,
       actionId: input.actionId,
+      claimToken: randomUUID(),
       state: "in_flight",
       inputCutoffAt: nowAt.toISOString(),
       privacyEpoch: epoch,
@@ -12795,6 +12897,7 @@ function beginLetterAttemptLocally(
   // failed / rejected_stale / 卡死的陈旧 in_flight：重新拉回 in_flight，
   // 用当前时刻和当前 epoch 重新起算——这是"同一次重试"，不是新的一次。
   existing.state = "in_flight";
+  existing.claimToken = randomUUID();
   existing.inputCutoffAt = nowAt.toISOString();
   existing.privacyEpoch = epoch;
   existing.committedVersionId = null;
@@ -12808,6 +12911,7 @@ function beginLetterAttemptLocally(
  * 可重试信号，用新事务、新快照重新判断一次。
  */
 class LetterAttemptRestartRaceError extends Error {}
+class LetterAttemptExecutionConflictError extends Error {}
 
 async function beginPersonalMemoryLetterAttemptOnce(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
@@ -12846,6 +12950,7 @@ async function beginPersonalMemoryLetterAttemptOnce(
         userId: input.userId,
         letterDate: input.letterDate,
         actionId: input.actionId,
+        claimToken: randomUUID(),
         state: "in_flight",
         inputCutoffAt: nowAt,
         privacyEpoch: epoch,
@@ -12888,10 +12993,12 @@ async function beginPersonalMemoryLetterAttemptOnce(
     // failed / rejected_stale / 卡死的陈旧 in_flight：重启为新一轮 in_flight。
     // CAS 在刚刚观测到的 state 上；命中 0 行说明有人在这两步之间抢先动过它
     // （比如另一个并发调用同时把它标成了 committed），不能无条件覆盖。
+    const nextClaimToken = randomUUID();
     const restart = await tx
       .update(emotionDailyLetterAttempts)
       .set({
         state: "in_flight",
+        claimToken: nextClaimToken,
         inputCutoffAt: nowAt,
         privacyEpoch: epoch,
         committedVersionId: null,
@@ -12900,7 +13007,8 @@ async function beginPersonalMemoryLetterAttemptOnce(
       .where(
         and(
           eq(emotionDailyLetterAttempts.id, existingRow.id),
-          eq(emotionDailyLetterAttempts.state, existingRow.state)
+          eq(emotionDailyLetterAttempts.state, existingRow.state),
+          eq(emotionDailyLetterAttempts.claimToken, existingRow.claimToken)
         )
       );
     if (restart[0].affectedRows !== 1) {
@@ -12912,6 +13020,9 @@ async function beginPersonalMemoryLetterAttemptOnce(
       .where(eq(emotionDailyLetterAttempts.id, existingRow.id))
       .limit(1);
     if (!refreshed) throw new Error("来信 attempt 重启后读不回");
+    if (refreshed.claimToken !== nextClaimToken) {
+      throw new LetterAttemptRestartRaceError();
+    }
     return {
       status: "started",
       attempt: rowToPersonalMemoryLetterAttempt(refreshed),
@@ -12924,6 +13035,7 @@ function rowToPersonalMemoryLetterAttempt(row: {
   userId: number;
   letterDate: string;
   actionId: string;
+  claimToken: string;
   state: PersonalMemoryLetterAttemptState;
   inputCutoffAt: Date;
   privacyEpoch: number;
@@ -12936,6 +13048,7 @@ function rowToPersonalMemoryLetterAttempt(row: {
     userId: row.userId,
     letterDate: row.letterDate,
     actionId: row.actionId,
+    claimToken: row.claimToken,
     state: row.state,
     inputCutoffAt: row.inputCutoffAt.toISOString(),
     privacyEpoch: row.privacyEpoch,
@@ -12950,6 +13063,7 @@ export type CommitPersonalMemoryLetterAttemptInput = Omit<
   "requiredPrivacyEpoch"
 > & {
   attemptId: number;
+  claimToken: string;
 };
 
 export type CommitPersonalMemoryLetterAttemptResult =
@@ -12961,6 +13075,8 @@ export type CommitPersonalMemoryLetterAttemptResult =
   /** 版本号已经被别的提交推进；这是极端并发下才会出现的兜底分支
    *  （正常路径下先 begin 才能 commit，同一 attempt 不会有两次提交竞争）。 */
   | { outcome: "revision_conflict" }
+  /** 同一动作已经重启；调用方属于上一轮执行，不能提交或覆盖新一轮状态。 */
+  | { outcome: "execution_conflict" }
   /** 选材依据在生成期间被撤走：忘记、归档或删除了某条被引用的理解／来源。
    *  attempt 已经被标记 rejected_stale；调用方应该提示"记忆状态已更新，
    *  已为你重新生成"而不是当成一次普通失败。 */
@@ -12987,17 +13103,30 @@ export async function commitPersonalMemoryLetterAttempt(
   ) {
     throw new Error("来信 attempt 不存在，或与用户、日期、动作不匹配");
   }
-  const written = await appendEmotionDailyLetterVersion({
-    ...input,
-    letterAttemptId: attemptRow.id,
-    requiredPrivacyEpoch: attemptRow.privacyEpoch,
-  });
+  if (attemptRow.claimToken !== input.claimToken) {
+    return { outcome: "execution_conflict" };
+  }
+  let written: AppendDailyLetterVersionResult | null;
+  try {
+    written = await appendEmotionDailyLetterVersion({
+      ...input,
+      letterAttemptId: attemptRow.id,
+      letterAttemptClaimToken: input.claimToken,
+      requiredPrivacyEpoch: attemptRow.privacyEpoch,
+    });
+  } catch (error) {
+    if (error instanceof LetterAttemptExecutionConflictError) {
+      return { outcome: "execution_conflict" };
+    }
+    throw error;
+  }
   if (!written) {
     const currentEpoch = await getPersonalMemoryPrivacyEpoch(input.userId);
     if (currentEpoch !== attemptRow.privacyEpoch) {
       await failPersonalMemoryLetterAttempt({
         attemptId: input.attemptId,
         userId: input.userId,
+        claimToken: input.claimToken,
         outcome: "rejected_stale",
       });
       return { outcome: "epoch_conflict", currentEpoch };
@@ -13015,13 +13144,17 @@ export async function commitPersonalMemoryLetterAttempt(
 export async function failPersonalMemoryLetterAttempt(input: {
   attemptId: number;
   userId: number;
+  claimToken: string;
   outcome: "failed" | "rejected_stale";
 }): Promise<void> {
   const db = await getDb();
   if (!db) {
     return withLocalAggregateMutationLock(async () => {
       const row = memoryState.personalMemory.letterAttempts.find(
-        item => item.id === input.attemptId && item.userId === input.userId
+        item =>
+          item.id === input.attemptId &&
+          item.userId === input.userId &&
+          item.claimToken === input.claimToken
       );
       // 已经提交成功的 attempt 不允许被失败覆盖——那是过期的失败通知
       // （比如生成成功了但客户端超时重发了失败上报），提交结果优先。
@@ -13038,6 +13171,7 @@ export async function failPersonalMemoryLetterAttempt(input: {
       and(
         eq(emotionDailyLetterAttempts.id, input.attemptId),
         eq(emotionDailyLetterAttempts.userId, input.userId),
+        eq(emotionDailyLetterAttempts.claimToken, input.claimToken),
         ne(emotionDailyLetterAttempts.state, "committed")
       )
     );

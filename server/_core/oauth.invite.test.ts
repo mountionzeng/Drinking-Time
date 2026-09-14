@@ -44,6 +44,8 @@ describe("邮箱邀请码登录", () => {
     ENV.isProduction = false;
     ENV.resendApiKey = "";
     ENV.cookieSecret = "oauth-invite-test-secret";
+    ENV.googleClientId = "";
+    ENV.googleClientSecret = "";
 
     const app = express();
     app.use(express.json());
@@ -148,13 +150,15 @@ describe("邮箱邀请码登录", () => {
     expect(repairedLogin.status).toBe(200);
   });
 
-  it("内测期禁用 Google 登录直达，不能绕过邀请码", async () => {
+  it("邮箱邀请码门禁不再阻止 Google 登录", async () => {
     const response = await fetch(`${baseUrl}/api/auth/google`, {
       redirect: "manual",
     });
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "invite_required" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID.",
+    });
   });
 
   it("OTP 标记失败时不建立 session cookie", async () => {

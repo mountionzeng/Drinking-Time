@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { createStory, findShiguangImportedStory } from "../db";
+import {
+  createImportedShiguangStory,
+  findImportedShiguangStory,
+} from "../persistence/shiguangStoryImportPersistence";
 
 export type ShiguangMemorySnapshot = {
   id: string;
@@ -107,15 +110,15 @@ export async function importShiguangStorySnapshot(
 ) {
   const lockKey = `${userId}:${snapshot.sourceKey}:${snapshot.sourceRevision}`;
   return withImportLock(lockKey, async () => {
-    const existing = await findShiguangImportedStory(
+    const existing = await findImportedShiguangStory({
       userId,
-      snapshot.sourceKey,
-      snapshot.sourceRevision
-    );
+      sourceKey: snapshot.sourceKey,
+      sourceRevision: snapshot.sourceRevision,
+    });
     if (existing) return { storyId: existing.id, created: false };
 
     const body = storyBodyFromShiguang(snapshot);
-    const result = await createStory({
+    const result = await createImportedShiguangStory({
       userId,
       title: snapshot.title,
       logline: snapshot.memories[0]?.summary ?? snapshot.memories[0]?.text.slice(0, 160) ?? null,

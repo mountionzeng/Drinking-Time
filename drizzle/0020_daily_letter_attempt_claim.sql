@@ -1,0 +1,1 @@
+ALTER TABLE `emotion_daily_letter_attempts` ADD `claimToken` varchar(64) DEFAULT '' NOT NULL;

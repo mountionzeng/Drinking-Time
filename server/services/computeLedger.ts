@@ -25,10 +25,23 @@ import {
 } from "./computeBilling";
 
 /** Provider-attempt persistence remains behind the compute-ledger seam. */
-export const recordOperationProviderAttempt = recordProviderAttempt;
-export const listOperationProviderAttempts = listProviderAttemptsForOperation;
+export function recordOperationProviderAttempt(
+  ...args: Parameters<typeof recordProviderAttempt>
+) {
+  return recordProviderAttempt(...args);
+}
+
+export function listOperationProviderAttempts(
+  ...args: Parameters<typeof listProviderAttemptsForOperation>
+) {
+  return listProviderAttemptsForOperation(...args);
+}
 /** 账单读模型也必须经由唯一的算力 persistence seam。 */
-export const readAccountComputeStatementSnapshot = readComputeStatementSnapshot;
+export function readAccountComputeStatementSnapshot(
+  ...args: Parameters<typeof readComputeStatementSnapshot>
+) {
+  return readComputeStatementSnapshot(...args);
+}
 
 export type ReserveForOperationInput = {
   userId: number;

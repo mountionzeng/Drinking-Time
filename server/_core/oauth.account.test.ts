@@ -14,6 +14,7 @@ import {
 
 import {
   createInviteCode,
+  getLoginIdentity,
   getUserByOpenId,
   getUserSessionVersion,
   linkEmailIdentity,
@@ -57,6 +58,8 @@ beforeAll(async () => {
   ENV.otpDigestSecretVersion = 1;
   ENV.accountAutoIdentityResolution = false;
   ENV.googleInviteRequired = true;
+  ENV.googleClientId = "google-client-id-for-test";
+  ENV.googleClientSecret = "google-client-secret-for-test";
 
   const app = express();
   app.use(express.json());
@@ -149,11 +152,17 @@ describe("现有邀请码登录链路（characterization）", () => {
     expect(wrong.status).toBe(401);
   });
 
-  it("内测期禁用 Google 登录直达", async () => {
+  it("直连 Google 登录也建立一次性状态", async () => {
     const response = await fetch(`${baseUrl}/api/auth/google`, {
       redirect: "manual",
     });
-    expect(response.status).toBe(403);
+    const location = new URL(response.headers.get("location")!);
+    expect(response.status).toBe(302);
+    expect(location.origin).toBe("https://accounts.google.com");
+    expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+    expect(response.headers.get("set-cookie")).toMatch(
+      /dt_google_direct_oauth_state=.*Path=\/api\/auth\/google\/callback.*HttpOnly/i
+    );
   });
 
   it("邮箱格式非法时不进入任何后端逻辑", async () => {
@@ -419,6 +428,62 @@ describe("统一账号端点（U4）", () => {
   });
 });
 
+describe("直连 Google 登录兼容路径", () => {
+  async function begin() {
+    const response = await fetch(`${baseUrl}/api/auth/google`, { redirect: "manual" });
+    const location = new URL(response.headers.get("location")!);
+    return {
+      state: location.searchParams.get("state") ?? "",
+      cookie: response.headers.get("set-cookie")?.split(";", 1)[0] ?? "",
+    };
+  }
+
+  function mockGoogleUser(input: { sub: string; email: string; email_verified?: boolean }) {
+    vi.spyOn(axios, "post").mockResolvedValueOnce({ data: { access_token: "google-access-token" } });
+    vi.spyOn(axios, "get").mockResolvedValueOnce({
+      data: { name: "Google User", email_verified: true, ...input },
+    });
+  }
+
+  it("没有发起浏览器的 state 就不交换 Google code", async () => {
+    const exchange = vi.spyOn(axios, "post");
+    const response = await fetch(`${baseUrl}/api/auth/google/callback?code=foreign&state=foreign`, {
+      redirect: "manual",
+    });
+    expect(response.headers.get("location")).toBe("/login?error=invalid_oauth_state");
+    expect(exchange).not.toHaveBeenCalled();
+  });
+
+  it("已验证 Google 邮箱进入现有邮箱账号并绑定稳定 subject", async () => {
+    const email = "direct-google@example.com";
+    await upsertUser({ openId: `email:${email}`, email, loginMethod: "email" });
+    const existing = await getUserByOpenId(`email:${email}`);
+    await linkEmailIdentity({ userId: existing!.id, email });
+    ENV.googleInviteRequired = false;
+    const started = await begin();
+    mockGoogleUser({ sub: "direct-subject", email });
+    const response = await fetch(
+      `${baseUrl}/api/auth/google/callback?code=valid&state=${started.state}`,
+      { redirect: "manual", headers: { Cookie: started.cookie } }
+    );
+    expect(response.headers.get("location")).toBe("/");
+    const session = await sdk.verifySession(sessionCookieFrom(response));
+    expect(session?.openId).toBe(`email:${email}`);
+    expect(await getLoginIdentity("google", "direct-subject")).toMatchObject({ userId: existing!.id });
+  });
+
+  it("拒绝 Google 没有确认的邮箱", async () => {
+    ENV.googleInviteRequired = false;
+    const started = await begin();
+    mockGoogleUser({ sub: "unverified-subject", email: "unverified@example.com", email_verified: false });
+    const response = await fetch(
+      `${baseUrl}/api/auth/google/callback?code=valid&state=${started.state}`,
+      { redirect: "manual", headers: { Cookie: started.cookie } }
+    );
+    expect(response.headers.get("location")).toBe("/login?error=google_email_not_verified");
+  });
+});
+
 describe("Supabase 托管 Google 登录", () => {
   const email = "google-member@example.com";
 
@@ -555,5 +620,8 @@ describe("Supabase 托管 Google 登录", () => {
     expect(response.status).toBe(200);
     const session = await sdk.verifySession(sessionCookieFrom(response));
     expect(session?.openId).toBe(`email:${email}`);
+    expect(await getLoginIdentity("google", "supabase-google-user")).toMatchObject({
+      userId: (await getUserByOpenId(`email:${email}`))!.id,
+    });
   });
 });
