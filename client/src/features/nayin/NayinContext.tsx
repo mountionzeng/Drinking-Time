@@ -17,6 +17,11 @@ import {
   type TodayNayin,
 } from "./nayin";
 import { setNayinFavicon } from "./favicon";
+import {
+  readVisualThemeMode,
+  writeVisualThemeMode,
+  type VisualThemeMode,
+} from "./visualTheme";
 
 interface NayinContextValue {
   element: NayinElement;
@@ -27,6 +32,9 @@ interface NayinContextValue {
   allThemes: BeverageTheme[];
   setPreviewElement: (el: NayinElement | null) => void;
   previewElement: NayinElement | null;
+  /** The overall interface skin. Shiguang is the product default; Nayin keeps the original five-element look. */
+  visualTheme: VisualThemeMode;
+  setVisualTheme: (mode: VisualThemeMode) => void;
   /** True while the full-screen pour transition is playing */
   isTransitioning: boolean;
   /** The theme being transitioned TO (shown in the overlay) */
@@ -57,10 +65,21 @@ function todayWithOverride(): TodayNayin {
   return forced ? { ...base, element: forced } : base;
 }
 
+function visualThemeStorage() {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function NayinProvider({ children }: { children: ReactNode }) {
   const [today, setToday] = useState<TodayNayin>(() => todayWithOverride());
   const [previewElement, setPreviewElementRaw] = useState<NayinElement | null>(
     null
+  );
+  const [visualTheme, setVisualThemeRaw] = useState<VisualThemeMode>(() =>
+    readVisualThemeMode(visualThemeStorage())
   );
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionTheme, setTransitionTheme] = useState<BeverageTheme | null>(
@@ -140,6 +159,11 @@ export function NayinProvider({ children }: { children: ReactNode }) {
     setTransitionTheme(null);
   }, []);
 
+  const setVisualTheme = useCallback((mode: VisualThemeMode) => {
+    setVisualThemeRaw(mode);
+    writeVisualThemeMode(visualThemeStorage(), mode);
+  }, []);
+
   /**
    * 兜底：动画回调没来也要把过渡状态收掉。
    *
@@ -165,6 +189,13 @@ export function NayinProvider({ children }: { children: ReactNode }) {
     };
   }, [activeElement]);
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-visual-theme", visualTheme);
+    return () => {
+      document.documentElement.removeAttribute("data-visual-theme");
+    };
+  }, [visualTheme]);
+
   // Keep browser tab logo synced with today's Nayin element (daily refresh).
   // Uses drink-style emoji icons and enlarged rendering density.
   useEffect(() => {
@@ -181,6 +212,8 @@ export function NayinProvider({ children }: { children: ReactNode }) {
         allThemes: getAllThemes(),
         setPreviewElement,
         previewElement,
+        visualTheme,
+        setVisualTheme,
         isTransitioning,
         transitionTheme,
         onTransitionComplete,

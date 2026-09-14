@@ -63,8 +63,15 @@ export default function TopBar({
   storyMenu,
   secondaryRow,
 }: TopBarProps) {
-  const { allThemes, setPreviewElement, previewElement, element, today } =
-    useNayin();
+  const {
+    allThemes,
+    setPreviewElement,
+    previewElement,
+    element,
+    today,
+    visualTheme,
+    setVisualTheme,
+  } = useNayin();
   const { user, logout } = useAuth();
   const { visibleStoryPanels, toggleVisibleStoryPanel } =
     useStoryPanelVisibility();
@@ -77,15 +84,17 @@ export default function TopBar({
         : [];
 
   return (
-    <div className="sticky top-0 z-50 backdrop-blur-md">
+    <div className="app-topbar sticky top-0 z-50 backdrop-blur-md">
       {/* Nayin color strip */}
       <div className="nayin-strip" />
 
       <div
-        className="border-b px-4 md:px-6"
+        className="app-topbar-surface border-b px-4 md:px-6"
         style={{
           background:
-            "linear-gradient(180deg, oklch(1 0 0 / 92%), oklch(from var(--nayin-surface) l c h / 80%))",
+            visualTheme === "shiguang"
+              ? "linear-gradient(180deg, color-mix(in oklab, var(--panel-bg) 92%, transparent), color-mix(in oklab, var(--nayin-surface) 84%, transparent))"
+              : "linear-gradient(180deg, oklch(1 0 0 / 92%), oklch(from var(--nayin-surface) l c h / 80%))",
           borderColor: "var(--nayin-border)",
           backdropFilter: "blur(20px) saturate(140%)",
         }}
@@ -95,6 +104,7 @@ export default function TopBar({
           <div className="flex shrink-0 items-center">
             <StoryLogoMenu
               element={element}
+              visualTheme={visualTheme}
               stories={storyMenu?.stories}
               onNewStory={storyMenu?.onNewStory}
               onOpenStory={storyMenu?.onOpenStory}
@@ -247,75 +257,139 @@ export default function TopBar({
                         window.location.assign("/personal-memory");
                       }}
                     />
-                    {/* 纳音五行主题切换：原来挂在最左边那颗 Logo 上，
-                    Logo 让给故事菜单后挪到这里。 */}
+                    {/* 两套界面都从这里切换；拾光家忆默认，纳音五行保留原能力。 */}
                     <div
-                      className="border-b p-3"
+                      className="visual-theme-picker border-b p-3"
                       style={{ borderColor: "var(--nayin-border)" }}
                     >
                       <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                        Nayin Five Elements / 纳音五行
+                        Display Style / 界面风格
                       </div>
-                      <div className="mt-1.5 text-xs leading-relaxed text-foreground">
-                        {today.cstDateStr}（东八区）
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        农历 {today.lunar.yearGanzhi}年 {today.lunar.monthCn}
-                        {today.lunar.dayCn}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        日柱{" "}
-                        <span className="text-nayin-bright">
-                          {today.ganzhi}
-                        </span>
-                        <span className="mx-1 opacity-40">·</span>
-                        纳音{" "}
-                        <span className="text-nayin-bright font-semibold">
-                          {today.nayinName}
-                        </span>
-                        <span className="mx-1 opacity-40">·</span>
-                        五行{" "}
-                        <span className="text-nayin-bright">
-                          {today.theme.elementCn}
-                        </span>
-                        {today.theme.element !== element && (
-                          <span className="ml-1.5 text-[10px] opacity-60">
-                            (已切换预览)
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {allThemes.map(t => (
-                          <button
-                            key={t.element}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={t.element === element}
-                            title={`${t.elementCn}${t.element === today.element ? "（今日）" : ""}`}
-                            className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-[var(--muted)]"
-                            style={
-                              t.element === element
-                                ? { background: "var(--nayin-surface)" }
-                                : undefined
-                            }
-                            onClick={() => {
-                              setPreviewElement(
-                                t.element === today.element ? null : t.element
-                              );
-                            }}
-                          >
-                            <WuxingDrinkIcon element={t.element} size={24} />
-                          </button>
-                        ))}
-                      </div>
-                      {previewElement && (
+                      <div
+                        role="radiogroup"
+                        aria-label="界面风格"
+                        className="mt-2 grid grid-cols-2 gap-2"
+                      >
                         <button
                           type="button"
-                          className="mt-2 w-full rounded-md py-1.5 text-center text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
-                          onClick={() => setPreviewElement(null)}
+                          role="radio"
+                          aria-checked={visualTheme === "shiguang"}
+                          className="visual-theme-choice visual-theme-choice-shiguang"
+                          onClick={() => setVisualTheme("shiguang")}
                         >
-                          恢复今日主题
+                          <span
+                            className="visual-theme-choice-art"
+                            aria-hidden="true"
+                          >
+                            <img src="/shiguang/memory-bird.png" alt="" />
+                          </span>
+                          <span>
+                            <strong>拾光家忆</strong>
+                            <small>默认 · 手绘记忆</small>
+                          </span>
                         </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={visualTheme === "nayin"}
+                          className="visual-theme-choice visual-theme-choice-nayin"
+                          onClick={() => setVisualTheme("nayin")}
+                        >
+                          <span
+                            className="visual-theme-choice-art"
+                            aria-hidden="true"
+                          >
+                            <WuxingDrinkIcon
+                              element={today.element}
+                              size={28}
+                            />
+                          </span>
+                          <span>
+                            <strong>纳音五行</strong>
+                            <small>每日饮品主题</small>
+                          </span>
+                        </button>
+                      </div>
+                      {visualTheme === "shiguang" ? (
+                        <div className="shiguang-theme-note mt-2.5">
+                          <span>一页旧纸，慢慢收住每一段故事。</span>
+                        </div>
+                      ) : (
+                        <div
+                          className="mt-2.5 border-t pt-2.5"
+                          style={{ borderColor: "var(--nayin-border)" }}
+                        >
+                          <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                            Nayin Five Elements / 纳音五行
+                          </div>
+                          <div className="mt-1.5 text-xs leading-relaxed text-foreground">
+                            {today.cstDateStr}（东八区）
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            农历 {today.lunar.yearGanzhi}年{" "}
+                            {today.lunar.monthCn}
+                            {today.lunar.dayCn}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            日柱{" "}
+                            <span className="text-nayin-bright">
+                              {today.ganzhi}
+                            </span>
+                            <span className="mx-1 opacity-40">·</span>
+                            纳音{" "}
+                            <span className="text-nayin-bright font-semibold">
+                              {today.nayinName}
+                            </span>
+                            <span className="mx-1 opacity-40">·</span>
+                            五行{" "}
+                            <span className="text-nayin-bright">
+                              {today.theme.elementCn}
+                            </span>
+                            {today.theme.element !== element && (
+                              <span className="ml-1.5 text-[10px] opacity-60">
+                                (已切换预览)
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {allThemes.map(t => (
+                              <button
+                                key={t.element}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={t.element === element}
+                                title={`${t.elementCn}${t.element === today.element ? "（今日）" : ""}`}
+                                className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-[var(--muted)]"
+                                style={
+                                  t.element === element
+                                    ? { background: "var(--nayin-surface)" }
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  setPreviewElement(
+                                    t.element === today.element
+                                      ? null
+                                      : t.element
+                                  )
+                                }
+                              >
+                                <WuxingDrinkIcon
+                                  element={t.element}
+                                  size={24}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                          {previewElement && (
+                            <button
+                              type="button"
+                              className="mt-2 w-full rounded-md py-1.5 text-center text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
+                              onClick={() => setPreviewElement(null)}
+                            >
+                              恢复今日主题
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="p-1.5">

@@ -3705,6 +3705,46 @@
           "summary": "按用户要求先实现可试用的短码方向：微信小游戏当前登录账号在“我”页明确确认后签发五分钟、一次性电脑登录码；网页微信登录页兑换后建立同 userId 会话并进入云端故事库。服务端身份只取 Bearer principal，忽略客户端 userId；故事继续沿用原 storyId 与归属校验，不复制、不自动合并。测试站后端和网页已备份、构建、重启并通过 health/readiness，专项测试、双 TypeScript 与微信联调构建通过。微信开发者工具服务端口关闭且 Mac 锁屏，本轮预览二维码和真机全链路仍待完成，状态进入 observing。"
         }
       ]
+    },
+    {
+      "id": "shiguang-illustration-theme",
+      "name": "拾光家忆默认插画主题与纳音切换",
+      "status": "observing",
+      "userValue": "电脑端默认使用拾光家忆的米纸、水彩枝叶、小鸟与旧书插画风格，并可从用户菜单随时切回纳音五行界面。",
+      "entryPoints": [
+        "client/src/features/nayin/NayinContext.tsx",
+        "client/src/app/shell/TopBar.tsx"
+      ],
+      "owners": [
+        "client/src/features/nayin/visualTheme.ts",
+        "client/src/features/nayin/views/BeverageAmbience.tsx",
+        "client/src/app/shell/StoryLogoMenu.tsx",
+        "client/src/index.css",
+        "client/public/shiguang/"
+      ],
+      "evidence": [
+        "client/src/features/nayin/visualTheme.test.ts",
+        "client/src/app/shell/TopBar.test.tsx"
+      ],
+      "invariants": [
+        "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
+        "切换界面只改变视觉表现，不改变 Story、镜头、素材、编辑状态、算力或账号数据。",
+        "纳音五行的北京时间、农历、日柱、纳音名称、五行饮品和五套颜色必须保留，切回后继续按既有规则工作。",
+        "拾光家忆主题使用项目自有的插画资产，不向第三方传输用户内容，也不触发付费生成。",
+        "主题选择具备键盘焦点和单选语义，减少动态效果偏好下停止装饰性动画。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "因主仓库 3000 正在承载另一批未提交工作且与主题文件重叠，本轮尚未把分支合入该热工作树做真实浏览器视觉验收；生产与测试站均未部署。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-14",
+          "kind": "feature",
+          "summary": "新增拾光家忆默认插画主题：复用小程序自有米纸、枝叶、小鸟和旧书水彩资产，统一替换全局色板、纸张背景、顶栏故事入口和工作台面板质感；右上角用户菜单新增拾光家忆/纳音五行两套界面单选，偏好写入本地存储。纳音日期、农历、日柱、五行饮品与手动预览全部保留。7 项定向测试、TypeScript 与生产构建通过；尚未在主仓 3000 视觉验收或部署。"
+        }
+      ]
     }
   ]
 }

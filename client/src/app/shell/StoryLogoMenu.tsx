@@ -17,6 +17,7 @@ import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { WUXING_DRINK_INK } from "@/features/nayin/views/WuxingDrinkIcon";
 import { formatStoryTimestamp } from "@/features/storyAgent/storyTimestamp";
 import type { NayinElement } from "@/features/nayin/nayin";
+import type { VisualThemeMode } from "@/features/nayin/visualTheme";
 
 /** hover 的延迟不对称：进来要快，出去要慢，鼠标斜着划过去才不会误关。 */
 const OPEN_DELAY_MS = 90;
@@ -36,6 +37,7 @@ export interface StoryLogoMenuStory {
 
 export interface StoryLogoMenuProps {
   element: NayinElement;
+  visualTheme?: VisualThemeMode;
   /** 已按最近修改排序的故事；组件只取前三条。 */
   stories?: StoryLogoMenuStory[];
   onNewStory?: () => void;
@@ -67,6 +69,7 @@ function storyMeta(story: StoryLogoMenuStory): string {
 
 export default function StoryLogoMenu({
   element,
+  visualTheme = "nayin",
   stories = [],
   onNewStory,
   onOpenStory,
@@ -234,7 +237,7 @@ export default function StoryLogoMenu({
         type="button"
         aria-haspopup={interactive ? "menu" : undefined}
         aria-expanded={interactive ? open : undefined}
-        aria-label="聊聊 · 故事菜单"
+        aria-label={`${visualTheme === "shiguang" ? "拾光" : "聊聊"} · 故事菜单`}
         onClick={handleButtonClick}
         onKeyDown={handleButtonKeyDown}
         onFocus={() => setAwake(true)}
@@ -250,16 +253,25 @@ export default function StoryLogoMenu({
           ...focusRing,
         }}
       >
-        {/* 静置就是一只普通的杯子；鼠标靠近（或键盘聚焦）才长出五官。 */}
-        <EmotiveWuxingIcon
-          element={element}
-          mood="joy"
-          plain={!awake}
-          size={56}
-          awake={awake}
-          animated={false}
-          title="聊聊"
-        />
+        {visualTheme === "shiguang" ? (
+          <img
+            src="/shiguang/memory-bird.png"
+            alt=""
+            aria-hidden="true"
+            className={`h-14 w-14 object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
+          />
+        ) : (
+          /* 静置就是一只普通的杯子；鼠标靠近（或键盘聚焦）才长出五官。 */
+          <EmotiveWuxingIcon
+            element={element}
+            mood="joy"
+            plain={!awake}
+            size={56}
+            awake={awake}
+            animated={false}
+            title="聊聊"
+          />
+        )}
       </button>
 
       {open && interactive ? (

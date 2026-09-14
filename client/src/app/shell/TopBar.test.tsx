@@ -12,6 +12,8 @@ vi.mock("@/features/nayin/NayinContext", () => ({
     allThemes: [{ element: "water", elementCn: "水" }],
     setPreviewElement: vi.fn(),
     previewElement: null,
+    visualTheme: "shiguang",
+    setVisualTheme: vi.fn(),
     element: "water",
     today: {
       cstDateStr: "2026-06-17",
@@ -70,11 +72,15 @@ describe("TopBar story panel controls", () => {
     const html = renderToStaticMarkup(<TopBar />);
 
     // 最左边那颗 Logo 现在是故事菜单，纳音五行搬进了右上角用户菜单。
-    expect(html).toContain('aria-label="聊聊 · 故事菜单"');
+    expect(html).toContain('aria-label="拾光 · 故事菜单"');
     expect(html).not.toContain('aria-label="纳音五行"');
-    expect(html).toContain("Nayin Five Elements / 纳音五行");
+    expect(html).toContain("Display Style / 界面风格");
+    expect(html).toContain("拾光家忆");
+    expect(html).toContain("纳音五行");
+    expect(html).toContain('aria-label="界面风格"');
+    expect(html).toContain('aria-checked="true"');
     expect(html.indexOf("退出登录")).toBeGreaterThan(
-      html.indexOf("Nayin Five Elements")
+      html.indexOf("Display Style")
     );
     expect(html).toContain("素材仓库");
     expect(html).toContain("故事卡片");
@@ -93,7 +99,7 @@ describe("TopBar story panel controls", () => {
   it("can hide story panel buttons on the welcome page", () => {
     const html = renderToStaticMarkup(<TopBar showStoryPanelNav={false} />);
 
-    expect(html).toContain('aria-label="聊聊 · 故事菜单"');
+    expect(html).toContain('aria-label="拾光 · 故事菜单"');
     expect(html).not.toContain("素材仓库");
     expect(html).not.toContain("故事卡片");
     expect(html).not.toContain("故事版看板");

@@ -9,39 +9,42 @@
  * fire/Dahongpao: warm ripple glow
  * earth/Coffee: swirling latte art particles
  */
-import { useNayin } from '../NayinContext';
-import { motion, AnimatePresence } from 'framer-motion';
-import type { NayinElement } from '../nayin';
+import { useNayin } from "../NayinContext";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import type { NayinElement } from "../nayin";
 
 const BG_IMAGES: Record<NayinElement, string> = {
-  metal: 'https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-beer-bubbles-dzwAao3vHcYXGbXmzExAYL.webp',
-  wood: 'https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-longjing-steam-UL3fVUyu4yPorELChZ3xwm.webp',
-  water: 'https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-coconut-tropical-bwnmhcYqq3TFQgLjXLT4Th.webp',
-  fire: 'https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-dahongpao-waves-UFkixqk2khtzYULNEKMB2y.webp',
-  earth: 'https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-coffee-latte-art-7Pij5RYqvwBBGu3GaXA9ue.webp',
+  metal:
+    "https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-beer-bubbles-dzwAao3vHcYXGbXmzExAYL.webp",
+  wood: "https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-longjing-steam-UL3fVUyu4yPorELChZ3xwm.webp",
+  water:
+    "https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-coconut-tropical-bwnmhcYqq3TFQgLjXLT4Th.webp",
+  fire: "https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-dahongpao-waves-UFkixqk2khtzYULNEKMB2y.webp",
+  earth:
+    "https://d2xsxph8kpxj0f.cloudfront.net/310519663478872384/HmkJEiCufuvwJRb4Xr9WPX/bg-coffee-latte-art-7Pij5RYqvwBBGu3GaXA9ue.webp",
 };
 
 // Beverage-themed greeting messages
 const GREETINGS: Record<NayinElement, { title: string; subtitle: string }> = {
   metal: {
-    title: '',
-    subtitle: '',
+    title: "",
+    subtitle: "",
   },
   wood: {
-    title: '茶已泡好，请慢用',
-    subtitle: '龙井清香中，灵感自然来',
+    title: "茶已泡好，请慢用",
+    subtitle: "龙井清香中，灵感自然来",
   },
   water: {
-    title: '椰风海韵，轻松创作',
-    subtitle: '来杯椰汁，享受热带般的创作时光',
+    title: "椰风海韵，轻松创作",
+    subtitle: "来杯椰汁，享受热带般的创作时光",
   },
   fire: {
-    title: '大红袍暖身，创意升温',
-    subtitle: '岩茶醇厚，灵感如火',
+    title: "大红袍暖身，创意升温",
+    subtitle: "岩茶醇厚，灵感如火",
   },
   earth: {
-    title: '咖啡续命，灵感不断',
-    subtitle: '一杯拿铁，开启高效模式',
+    title: "咖啡续命，灵感不断",
+    subtitle: "一杯拿铁，开启高效模式",
   },
 };
 
@@ -58,7 +61,7 @@ function BubbleParticles() {
             height: 4 + Math.random() * 8,
             left: `${5 + Math.random() * 90}%`,
             bottom: `-${10 + Math.random() * 20}px`,
-            background: `oklch(0.75 0.14 80 / ${0.22 + Math.random() * 0.30})`,
+            background: `oklch(0.75 0.14 80 / ${0.22 + Math.random() * 0.3})`,
           }}
           animate={{
             y: [0, -(200 + Math.random() * 400)],
@@ -69,7 +72,7 @@ function BubbleParticles() {
             duration: 4 + Math.random() * 6,
             repeat: Infinity,
             delay: Math.random() * 8,
-            ease: 'easeOut',
+            ease: "easeOut",
           }}
         />
       ))}
@@ -90,7 +93,7 @@ function SteamWisps() {
             left: `${10 + Math.random() * 80}%`,
             bottom: `${20 + Math.random() * 40}%`,
             background: `oklch(0.62 0.12 155 / ${0.07 + Math.random() * 0.12})`,
-            filter: 'blur(8px)',
+            filter: "blur(8px)",
           }}
           animate={{
             y: [0, -(30 + Math.random() * 60)],
@@ -102,7 +105,7 @@ function SteamWisps() {
             duration: 6 + Math.random() * 8,
             repeat: Infinity,
             delay: Math.random() * 10,
-            ease: 'easeOut',
+            ease: "easeOut",
           }}
         />
       ))}
@@ -122,9 +125,9 @@ function PalmShadows() {
             height: 3,
             left: `${Math.random() * 100}%`,
             top: `${10 + Math.random() * 80}%`,
-            background: `oklch(0.85 0.04 80 / ${0.05 + Math.random() * 0.10})`,
-            borderRadius: '50%',
-            filter: 'blur(6px)',
+            background: `oklch(0.85 0.04 80 / ${0.05 + Math.random() * 0.1})`,
+            borderRadius: "50%",
+            filter: "blur(6px)",
             transform: `rotate(${-20 + Math.random() * 40}deg)`,
           }}
           animate={{
@@ -134,7 +137,7 @@ function PalmShadows() {
           transition={{
             duration: 8 + Math.random() * 6,
             repeat: Infinity,
-            ease: 'easeInOut',
+            ease: "easeInOut",
           }}
         />
       ))}
@@ -154,8 +157,8 @@ function RippleGlow() {
             height: 200 + Math.random() * 200,
             left: `${20 + Math.random() * 60}%`,
             top: `${20 + Math.random() * 60}%`,
-            background: `radial-gradient(circle, oklch(0.58 0.16 30 / ${0.06 + Math.random() * 0.10}) 0%, transparent 70%)`,
-            transform: 'translate(-50%, -50%)',
+            background: `radial-gradient(circle, oklch(0.58 0.16 30 / ${0.06 + Math.random() * 0.1}) 0%, transparent 70%)`,
+            transform: "translate(-50%, -50%)",
           }}
           animate={{
             scale: [1, 1.2, 1],
@@ -165,7 +168,7 @@ function RippleGlow() {
             duration: 5 + Math.random() * 4,
             repeat: Infinity,
             delay: Math.random() * 3,
-            ease: 'easeInOut',
+            ease: "easeInOut",
           }}
         />
       ))}
@@ -196,7 +199,7 @@ function LatteSwirl() {
           transition={{
             duration: 10 + Math.random() * 8,
             repeat: Infinity,
-            ease: 'linear',
+            ease: "linear",
           }}
         />
       ))}
@@ -213,8 +216,57 @@ const PARTICLE_MAP: Record<NayinElement, React.FC> = {
 };
 
 export function BeverageAmbience() {
-  const { element } = useNayin();
+  const { element, visualTheme } = useNayin();
+  const reduceMotion = useReducedMotion();
   const Particles = PARTICLE_MAP[element];
+
+  if (visualTheme === "shiguang") {
+    return (
+      <div
+        className="shiguang-ambience fixed inset-0 z-0 overflow-hidden pointer-events-none"
+        aria-hidden="true"
+      >
+        <div className="shiguang-paper absolute inset-0" />
+        <motion.img
+          src="/shiguang/memory-branch.png"
+          alt=""
+          className="shiguang-branch absolute -right-12 top-10 w-[min(54rem,72vw)] opacity-25"
+          initial={{ opacity: 0, x: 18 }}
+          animate={{
+            opacity: 0.25,
+            x: 0,
+            rotate: reduceMotion ? 0 : [0, 0.5, 0],
+          }}
+          transition={{
+            opacity: { duration: 0.8 },
+            rotate: { duration: 9, repeat: Infinity, ease: "easeInOut" },
+          }}
+        />
+        <motion.img
+          src="/shiguang/memory-bird.png"
+          alt=""
+          className="shiguang-bird absolute right-[8vw] top-10 w-24 opacity-55 sm:w-32"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 0.55, y: reduceMotion ? 0 : [0, -4, 0] }}
+          transition={{
+            opacity: { duration: 0.8, delay: 0.2 },
+            y: { duration: 5.5, repeat: Infinity, ease: "easeInOut" },
+          }}
+        />
+        <motion.img
+          src="/shiguang/book-wash.png"
+          alt=""
+          className="shiguang-book-wash absolute -bottom-14 left-[3vw] w-40 opacity-20 sm:w-52"
+          animate={
+            reduceMotion
+              ? { rotate: 0, y: 0 }
+              : { rotate: [-1, 1, -1], y: [0, -3, 0] }
+          }
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-0 pointer-events-none">
@@ -230,12 +282,16 @@ export function BeverageAmbience() {
           {/* Background image with light cream overlay */}
           <div
             className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${BG_IMAGES[element]})`, opacity: 0.28 }}
+            style={{
+              backgroundImage: `url(${BG_IMAGES[element]})`,
+              opacity: 0.28,
+            }}
           />
           <div
             className="absolute inset-0"
             style={{
-              background: 'linear-gradient(180deg, var(--nayin-surface, oklch(0.975 0.008 75)) 0%, oklch(from var(--nayin-surface, oklch(0.975 0.008 75)) l c h / 85%) 50%, oklch(from var(--nayin-surface, oklch(0.975 0.008 75)) l c h / 92%) 100%)',
+              background:
+                "linear-gradient(180deg, var(--nayin-surface, oklch(0.975 0.008 75)) 0%, oklch(from var(--nayin-surface, oklch(0.975 0.008 75)) l c h / 85%) 50%, oklch(from var(--nayin-surface, oklch(0.975 0.008 75)) l c h / 92%) 100%)",
             }}
           />
           {/* Particles */}
