@@ -83,6 +83,7 @@ export default function TopBar({
       : panelToggle
         ? [panelToggle]
         : [];
+  const shiguangAvatarText = Array.from(user?.name?.trim() || "我")[0] ?? "我";
 
   return (
     <div className="app-topbar sticky top-0 z-50 backdrop-blur-md">
@@ -238,12 +239,19 @@ export default function TopBar({
                       aria-label="用户"
                     >
                       {visualTheme === "shiguang" ? (
-                        <img
-                          src="/shiguang/mobile-avatar.png"
-                          alt=""
+                        <span
+                          className="shiguang-member-avatar"
                           aria-hidden="true"
-                          className="shiguang-mobile-avatar"
-                        />
+                        >
+                          <img
+                            src="/shiguang/book-wash.png"
+                            alt=""
+                            className="shiguang-member-avatar-backdrop"
+                          />
+                          <span className="shiguang-member-avatar-letter">
+                            {shiguangAvatarText}
+                          </span>
+                        </span>
                       ) : (
                         <span
                           className="text-sm font-medium"
