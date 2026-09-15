@@ -5,11 +5,11 @@ describe("faviconForTheme", () => {
   it("keeps the Shiguang brand icon independent of the daily element", () => {
     expect(faviconForTheme("water", "shiguang")).toEqual({
       type: "image/png",
-      href: "/shiguang/mobile-avatar.png",
+      href: "/shiguang/xiaoyi-avatar.png",
     });
     expect(faviconForTheme("fire", "shiguang")).toEqual({
       type: "image/png",
-      href: "/shiguang/mobile-avatar.png",
+      href: "/shiguang/xiaoyi-avatar.png",
     });
   });
 

@@ -48,6 +48,12 @@ describe("workspaceForStoryStage", () => {
 });
 
 describe("shouldRouteWorkspaceForStoryTransition", () => {
+  it("keeps the writing workspace during the one cold-start story entry", () => {
+    expect(
+      shouldRouteWorkspaceForStoryTransition(null, 42, { initialEntry: true })
+    ).toBe(false);
+  });
+
   it("routes again when the same story is reopened after returning to the list", () => {
     expect(shouldRouteWorkspaceForStoryTransition(42, null)).toBe(false);
     expect(shouldRouteWorkspaceForStoryTransition(null, 42)).toBe(true);

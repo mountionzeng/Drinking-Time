@@ -47,6 +47,7 @@ interface TopBarProps {
   panelToggle?: TopBarPanelToggle;
   panelToggles?: TopBarPanelToggle[];
   panelActions?: ReactNode;
+  accountActions?: ReactNode;
   storyMenu?: TopBarStoryMenu;
   /**
    * 顶栏第二行（今日来信）。放进来是为了让左边那颗 Logo 竖着贯穿两行，
@@ -61,6 +62,7 @@ export default function TopBar({
   panelToggle,
   panelToggles,
   panelActions,
+  accountActions,
   storyMenu,
   secondaryRow,
 }: TopBarProps) {
@@ -220,6 +222,7 @@ export default function TopBar({
 
               <div className="flex items-center gap-2">
                 {/* 算力余额：钱要一直看得见，不能藏在二级菜单里 */}
+                {accountActions}
                 <ComputeBalanceBadge compact enabled={Boolean(user?.id)} />
                 {/* User avatar + logout popover */}
                 <Popover open={userOpen} onOpenChange={setUserOpen}>

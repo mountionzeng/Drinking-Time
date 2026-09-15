@@ -113,6 +113,21 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain("查看全部足迹");
   });
 
+  it.each(["shiguang", "nayin"] as const)("keeps export beside the account and tools below navigation in %s", visualTheme => {
+    themeState.visualTheme = visualTheme;
+    const html = renderToStaticMarkup(
+      <TopBar
+        showStoryPanelNav={false}
+        panelToggle={{ label: "图像和声音", active: true, onToggle: vi.fn() }}
+        accountActions={<button>导出成片</button>}
+        secondaryRow={<div aria-label="图像和声音工具">素材仓库 Timeline</div>}
+      />
+    );
+    expect(html.indexOf("导出成片")).toBeGreaterThan(html.indexOf('aria-label="剪辑面板切换"'));
+    expect(html.indexOf("导出成片")).toBeLessThan(html.indexOf('aria-label="用户"'));
+    expect(html.indexOf('aria-label="图像和声音工具"')).toBeGreaterThan(html.indexOf('aria-label="用户"'));
+  });
+
   it("can hide story panel buttons on the welcome page", () => {
     themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(<TopBar showStoryPanelNav={false} />);

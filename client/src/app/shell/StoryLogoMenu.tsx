@@ -255,7 +255,7 @@ export default function StoryLogoMenu({
       >
         {visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/nav-materials.png"
+            src="/shiguang/nav-materials-v2.png"
             alt=""
             aria-hidden="true"
             className={`h-[4.6rem] w-[4.6rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}

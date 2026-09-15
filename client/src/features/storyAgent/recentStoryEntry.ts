@@ -26,8 +26,10 @@ export function workspaceForStoryStage(
 
 export function shouldRouteWorkspaceForStoryTransition(
   previousStoryId: number | null,
-  activeStoryId: number | null
+  activeStoryId: number | null,
+  options?: { initialEntry?: boolean }
 ): boolean {
+  if (options?.initialEntry) return false;
   if (activeStoryId === null || previousStoryId === activeStoryId) return false;
   // The first server save replaces the local draft id without changing stories.
   if (previousStoryId === -1 && activeStoryId > 0) return false;

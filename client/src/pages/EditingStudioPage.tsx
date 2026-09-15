@@ -77,8 +77,10 @@ import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraft
 import {
   STUDIO_WORKSPACE_OPTIONS,
   isStoryPanelWorkspace,
+  resolveExportStoryId,
   resolveStudioInteractionMode,
   resolveTimelineCommandStoryId,
+  shouldSettleStoryOpenRequest,
   type StudioInteractionMode,
   type StudioWorkspace,
 } from "./editingStudioWorkspace";
@@ -115,7 +117,7 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
       >
         {visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/nav-writing.png"
+            src="/shiguang/nav-writing-v2.png"
             alt=""
             aria-hidden="true"
             className="shiguang-letter-illustration"
@@ -137,16 +139,30 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-function ExportButton({ storyId }: { storyId: number }) {
+function ExportButton({
+  storyId,
+  pendingStoryRequestId,
+}: {
+  storyId: number | null;
+  pendingStoryRequestId: number | null;
+}) {
   const { visualTheme } = useNayin();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
+  const exportStoryId = resolveExportStoryId(storyId, pendingStoryRequestId);
+  const disabledReason =
+    pendingStoryRequestId !== null
+      ? "正在打开另一篇故事"
+      : exportStoryId === null
+        ? "先打开一个故事再导出成片"
+        : undefined;
 
   const runExport = async () => {
+    if (exportStoryId === null) return;
     setExporting(true);
     try {
       const result = await exportMut.mutateAsync({
-        storyId,
+        storyId: exportStoryId,
         fallbackToLatestTake: true,
       });
       if (result.status === "ok") {
@@ -179,7 +195,8 @@ function ExportButton({ storyId }: { storyId: number }) {
     <button
       type="button"
       onClick={() => void runExport()}
-      disabled={exporting}
+      disabled={exporting || exportStoryId === null}
+      title={disabledReason}
       className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
       style={{ background: "var(--nayin-accent)" }}
     >
@@ -187,7 +204,7 @@ function ExportButton({ storyId }: { storyId: number }) {
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : visualTheme === "shiguang" ? (
         <img
-          src="/shiguang/nav-export.png"
+          src="/shiguang/nav-export-v2.png"
           alt=""
           aria-hidden="true"
           className="shiguang-action-illustration"
@@ -255,6 +272,7 @@ function EditingStudioBody({
   const [videoEditorHandoffTarget, setVideoEditorHandoffTarget] =
     useState<VideoClipEditorTarget | null>(null);
   const previousStoryIdRef = useRef<number | null>(null);
+  const hasEnteredStoryRef = useRef(false);
   const dirtyBuffers = Object.values(publishingBuffers).filter(
     buffer => buffer.storyId === activeStoryId
   );
@@ -262,7 +280,13 @@ function EditingStudioBody({
   useEffect(() => {
     const previousStoryId = previousStoryIdRef.current;
     previousStoryIdRef.current = activeStoryId;
-    if (!shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId))
+    const initialEntry = !hasEnteredStoryRef.current && activeStoryId !== null;
+    if (activeStoryId !== null) hasEnteredStoryRef.current = true;
+    if (
+      !shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId, {
+        initialEntry,
+      })
+    )
       return;
     onWorkspaceChange(workspaceForStoryStage(storyShotCount));
   }, [activeStoryId, onWorkspaceChange, storyShotCount]);
@@ -310,11 +334,19 @@ function EditingStudioBody({
 
   useEffect(() => {
     const openDailyLetterStory = (event: Event) => {
-      const storyId = (event as CustomEvent<{ storyId?: number }>).detail
-        ?.storyId;
+      const detail = (
+        event as CustomEvent<{ storyId?: number; requestId?: number }>
+      ).detail;
+      const storyId = detail?.storyId;
       if (!storyId) return;
       setChatCollapsed(false);
-      void loadStory(storyId);
+      void loadStory(storyId).finally(() => {
+        window.dispatchEvent(
+          new CustomEvent("dt:story-open-settled", {
+            detail: { storyId, requestId: detail?.requestId },
+          })
+        );
+      });
     };
     // 日签和顶栏 Logo 菜单都从这里进某篇故事。TopBar 渲染在 StoryAgentProvider
     // 外面（拿不到 loadStory），所以走 window 事件跨过这层边界。
@@ -540,6 +572,10 @@ export default function EditingStudioPage() {
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
   const storyList = useStorySpine(state => state.storyList);
+  const nextStoryRequestIdRef = useRef(0);
+  const [pendingStoryRequestId, setPendingStoryRequestId] = useState<
+    number | null
+  >(null);
   // 顶栏 Logo 菜单只露最近三条，这里先按最后修改时间排一次。
   const recentStories = useMemo(
     () =>
@@ -550,6 +586,13 @@ export default function EditingStudioPage() {
       ),
     [storyList]
   );
+  const openStory = useCallback((storyId: number) => {
+    const requestId = ++nextStoryRequestIdRef.current;
+    setPendingStoryRequestId(requestId);
+    window.dispatchEvent(
+      new CustomEvent("dt:open-story", { detail: { storyId, requestId } })
+    );
+  }, []);
   const storyMenu = useMemo(
     () => ({
       stories: recentStories,
@@ -563,13 +606,22 @@ export default function EditingStudioPage() {
             detail: { action: "back" },
           })
         ),
-      onOpenStory: (storyId: number) =>
-        window.dispatchEvent(
-          new CustomEvent("dt:open-story", { detail: { storyId } })
-        ),
+      onOpenStory: openStory,
     }),
-    [recentStories]
+    [openStory, recentStories]
   );
+  useEffect(() => {
+    const settleStoryOpen = (event: Event) => {
+      const requestId = (event as CustomEvent<{ requestId?: number }>).detail
+        ?.requestId;
+      setPendingStoryRequestId(current =>
+        shouldSettleStoryOpenRequest(current, requestId) ? null : current
+      );
+    };
+    window.addEventListener("dt:story-open-settled", settleStoryOpen);
+    return () =>
+      window.removeEventListener("dt:story-open-settled", settleStoryOpen);
+  }, []);
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
@@ -685,9 +737,19 @@ export default function EditingStudioPage() {
             setWorkspace(option.id);
           },
         }))}
-        panelActions={
-          workspace === "editing" && activeStoryId !== null ? (
-            <div className="flex items-center gap-1.5">
+        accountActions={
+          <ExportButton
+            storyId={activeStoryId}
+            pendingStoryRequestId={pendingStoryRequestId}
+          />
+        }
+        secondaryRow={
+          workspace === "editing" ? (
+            <div
+              className="flex min-h-10 items-center gap-1.5 pb-1"
+              role="group"
+              aria-label="图像和声音工具"
+            >
               <button
                 type="button"
                 aria-pressed={materialVisible}
@@ -704,7 +766,7 @@ export default function EditingStudioPage() {
               >
                 {visualTheme === "shiguang" ? (
                   <img
-                    src="/shiguang/nav-materials.png"
+                    src="/shiguang/nav-materials-v2.png"
                     alt=""
                     aria-hidden="true"
                     className="shiguang-action-illustration"
@@ -729,7 +791,7 @@ export default function EditingStudioPage() {
               >
                 {visualTheme === "shiguang" ? (
                   <img
-                    src="/shiguang/nav-timeline.png"
+                    src="/shiguang/nav-timeline-v2.png"
                     alt=""
                     aria-hidden="true"
                     className="shiguang-action-illustration"
@@ -737,12 +799,10 @@ export default function EditingStudioPage() {
                 ) : null}
                 <span className="shiguang-nav-label">Timeline</span>
               </button>
-              <ExportButton storyId={activeStoryId} />
             </div>
-          ) : null
-        }
-        secondaryRow={
-          <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
+          ) : (
+            <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
+          )
         }
       />
       <DailyLetterWelcome
@@ -756,13 +816,7 @@ export default function EditingStudioPage() {
           );
         }}
         stories={storyList}
-        onOpenStory={storyId => {
-          window.dispatchEvent(
-            new CustomEvent("dt:open-daily-letter-story", {
-              detail: { storyId },
-            })
-          );
-        }}
+        onOpenStory={openStory}
         onStartLetterStory={message => {
           window.dispatchEvent(
             new CustomEvent("dt:start-daily-thought-conversation", {

@@ -1902,7 +1902,7 @@ select option {
   top: 1rem;
   width: 5.6rem;
   height: 5.6rem;
-  background: url("/shiguang/nav-writing.png") center / contain no-repeat;
+  background: url("/shiguang/nav-writing-v2.png") center / contain no-repeat;
   opacity: 0.16;
   transform: rotate(7deg);
   pointer-events: none;
@@ -2079,4 +2079,127 @@ select option {
   .shiguang-book-wash {
     animation: none !important;
   }
+}
+
+/* 拾光家忆：浅宣纸与边角水痕；纸边装饰不拦截面板操作。 */
+[data-visual-theme="shiguang"] {
+  --panel-bg: rgba(250, 250, 241, 0.94);
+  --panel-header: rgba(231, 240, 227, 0.68);
+  --shiguang-paper:
+    linear-gradient(rgba(248, 252, 244, 0.32), rgba(248, 252, 244, 0.32)),
+    url("/shiguang/home-paper.jpg");
+}
+
+[data-visual-theme="shiguang"] body,
+[data-visual-theme="shiguang"] .shiguang-workspace,
+[data-visual-theme="shiguang"] .shiguang-login-page {
+  background-color: #f7f9ef;
+  background-image: var(--shiguang-paper);
+  background-size: cover;
+  background-position: center;
+}
+
+[data-visual-theme="shiguang"] .app-topbar-surface {
+  background: var(--shiguang-paper) center 28% / cover !important;
+  border-bottom-color: transparent;
+  box-shadow: 0 3px 5px -4px rgba(88, 100, 76, 0.25);
+}
+
+[data-visual-theme="shiguang"] .app-topbar-surface::after {
+  display: block;
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 6px;
+  pointer-events: none;
+  background: #f8f9ef;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 45%,
+    96% 72%,
+    92% 42%,
+    87% 78%,
+    82% 51%,
+    76% 85%,
+    71% 48%,
+    66% 76%,
+    60% 43%,
+    54% 80%,
+    48% 54%,
+    42% 90%,
+    36% 50%,
+    30% 74%,
+    24% 47%,
+    18% 83%,
+    12% 54%,
+    6% 76%,
+    0 50%
+  );
+}
+
+[data-visual-theme="shiguang"] .monitor-panel,
+[data-visual-theme="shiguang"] .creation-board-panel {
+  background: var(--shiguang-paper) center / cover;
+  border-color: rgba(119, 138, 109, 0.17);
+  box-shadow:
+    inset 1px 0 rgba(255, 255, 248, 0.85),
+    2px 0 5px -4px rgba(83, 95, 73, 0.24);
+}
+
+[data-visual-theme="shiguang"] .monitor-panel-header,
+[data-visual-theme="shiguang"] .creation-board-panel-header {
+  background: linear-gradient(
+    100deg,
+    rgba(211, 230, 212, 0.4),
+    rgba(249, 242, 219, 0.3) 58%,
+    rgba(216, 231, 235, 0.3)
+  );
+  border-bottom: 1px solid rgba(136, 150, 117, 0.18);
+  box-shadow: 0 2px 0 rgba(255, 255, 247, 0.55);
+}
+
+[data-visual-theme="shiguang"] .creation-board-resize-handle {
+  background: url("/shiguang/home-paper.jpg") center / 720px auto;
+  box-shadow:
+    inset 1px 0 rgba(255, 255, 250, 0.85),
+    inset -1px 0 rgba(118, 136, 101, 0.15);
+}
+
+[data-visual-theme="shiguang"] .creation-board-resize-handle::after {
+  pointer-events: none;
+  background: rgba(141, 159, 126, 0.15);
+  clip-path: polygon(
+    42% 0,
+    63% 8%,
+    38% 17%,
+    58% 27%,
+    35% 39%,
+    61% 52%,
+    40% 65%,
+    64% 77%,
+    38% 89%,
+    55% 100%,
+    75% 100%,
+    58% 89%,
+    84% 77%,
+    60% 65%,
+    81% 52%,
+    55% 39%,
+    78% 27%,
+    58% 17%,
+    83% 8%,
+    62% 0
+  );
+}
+
+[data-visual-theme="shiguang"] .creation-board-resize-handle:hover,
+[data-visual-theme="shiguang"]
+  .creation-board-resize-handle[data-resize-handle-active],
+[data-visual-theme="shiguang"] .creation-board-resize-handle:focus-visible {
+  background-color: #dceadb;
+  background-blend-mode: multiply;
+  outline: 1px solid rgba(79, 127, 107, 0.45);
 }
