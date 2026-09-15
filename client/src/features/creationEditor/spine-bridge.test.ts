@@ -338,7 +338,9 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain(
       "const [timelineVisible, setTimelineVisible] = useState(false)"
     );
-    expect(editingPage).toContain("<ExportButton storyId={activeStoryId} />");
+    expect(editingPage).toMatch(
+      /<ExportButton\s+storyId=\{activeStoryId\}\s+pendingStoryRequestId=\{pendingStoryRequestId\}\s*\/>/
+    );
     expect(editingPage).not.toContain("剪辑工作台");
     expect(editingPage).toContain("<DailyLetterWelcome");
     expect(editingPage).toContain("forceOpen={dailyLetterOpen}");
