@@ -31,6 +31,7 @@ interface TopBarPanelToggle {
   illustrationSrc?: string;
   controls?: string;
   testId?: string;
+  subnav?: ReactNode;
 }
 
 /** 顶栏 Logo 上那层故事菜单要的数据与动作；不传就只显示一个不可点的 Logo。 */
@@ -164,50 +165,60 @@ export default function TopBar({
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
                   >
                     {editingPanelToggles.map((toggle, index) => (
-                      <button
+                      <div
                         key={toggle.testId ?? toggle.label}
-                        type="button"
-                        data-testid={
-                          toggle.testId ??
-                          (editingPanelToggles.length === 1
-                            ? "topbar-panel-toggle"
-                            : `topbar-panel-toggle-${index}`)
-                        }
-                        aria-pressed={toggle.active}
-                        aria-controls={toggle.controls}
-                        aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
-                        title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
-                        onClick={toggle.onToggle}
-                        className={`shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
-                          toggle.active ? "" : "hover:brightness-110"
-                        }`}
-                        style={
-                          visualTheme === "nayin" && toggle.active
-                            ? {
-                                color: "var(--nayin-accent)",
-                                background: "var(--nayin-surface)",
-                                boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
-                              }
-                            : visualTheme === "nayin"
-                              ? {
-                                  color: "var(--nayin-accent-dim)",
-                                }
-                              : undefined
-                        }
+                        className="topbar-panel-toggle-group flex shrink-0 flex-col items-center"
                       >
-                        {visualTheme === "shiguang" &&
-                        toggle.illustrationSrc ? (
-                          <img
-                            src={toggle.illustrationSrc}
-                            alt=""
-                            aria-hidden="true"
-                            className="shiguang-nav-illustration"
-                          />
+                        <button
+                          type="button"
+                          data-testid={
+                            toggle.testId ??
+                            (editingPanelToggles.length === 1
+                              ? "topbar-panel-toggle"
+                              : `topbar-panel-toggle-${index}`)
+                          }
+                          aria-pressed={toggle.active}
+                          aria-controls={toggle.controls}
+                          aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
+                          title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
+                          onClick={toggle.onToggle}
+                          className={`shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
+                            toggle.active ? "" : "hover:brightness-110"
+                          }`}
+                          style={
+                            visualTheme === "nayin" && toggle.active
+                              ? {
+                                  color: "var(--nayin-accent)",
+                                  background: "var(--nayin-surface)",
+                                  boxShadow:
+                                    "inset 0 -2px 0 var(--nayin-accent)",
+                                }
+                              : visualTheme === "nayin"
+                                ? {
+                                    color: "var(--nayin-accent-dim)",
+                                  }
+                                : undefined
+                          }
+                        >
+                          {visualTheme === "shiguang" &&
+                          toggle.illustrationSrc ? (
+                            <img
+                              src={toggle.illustrationSrc}
+                              alt=""
+                              aria-hidden="true"
+                              className="shiguang-nav-illustration"
+                            />
+                          ) : null}
+                          <span className="shiguang-nav-label">
+                            {toggle.label}
+                          </span>
+                        </button>
+                        {toggle.subnav ? (
+                          <div className="topbar-panel-subnav w-full">
+                            {toggle.subnav}
+                          </div>
                         ) : null}
-                        <span className="shiguang-nav-label">
-                          {toggle.label}
-                        </span>
-                      </button>
+                      </div>
                     ))}
                     {panelActions ? (
                       <div className="ml-1 flex shrink-0 items-center">

@@ -332,12 +332,12 @@ describe("creation editor spine boundary", () => {
     expect(storyLogoMenu).toContain("回到以前的故事");
     expect(storyLogoMenu).toContain("开启新故事");
     expect(editingPage).toContain("素材仓库");
-    expect(editingPage).toContain("Timeline");
-    expect(editingPage).toContain("if (next) setTimelineVisible(false)");
-    expect(editingPage).toContain("if (next) setMaterialVisible(false)");
-    expect(editingPage).toContain(
-      "const [timelineVisible, setTimelineVisible] = useState(false)"
-    );
+    expect(editingPage).toContain('aria-label="图像和声音子类目"');
+    expect(editingPage).toContain("<MediaLibraryIllustration />");
+    expect(editingPage).not.toContain("nav-timeline-v2.png");
+    expect(editingPage).not.toContain(">Timeline</span>");
+    expect(editingPage).not.toContain("setTimelineVisible");
+    expect(editingPage).toContain("workspace-chat-paper-seam");
     expect(editingPage).toMatch(
       /<ExportButton\s+storyId=\{activeStoryId\}\s+pendingStoryRequestId=\{pendingStoryRequestId\}\s*\/>/
     );

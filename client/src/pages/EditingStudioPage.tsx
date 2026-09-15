@@ -6,7 +6,6 @@
  */
 import {
   Clapperboard,
-  LibraryBig,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -139,6 +138,58 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+function MediaLibraryIllustration() {
+  return (
+    <svg
+      viewBox="0 0 58 34"
+      role="presentation"
+      aria-hidden="true"
+      className="media-library-illustration"
+    >
+      <path
+        d="M8 8.5 35 5l1.6 20.5-27.4 2.8Z"
+        fill="currentColor"
+        opacity=".07"
+      />
+      <path
+        d="M8 8.5 35 5l1.6 20.5-27.4 2.8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.15"
+        opacity=".52"
+      />
+      <path
+        d="m12.5 23.5 6.3-7 4.3 3.6 4.1-5.1 5.7 8.8"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+        opacity=".7"
+      />
+      <circle cx="28.4" cy="11.2" r="2" fill="currentColor" opacity=".34" />
+      <path
+        d="M40 12.5v8m3-11v14m3-10v6m3-8v10"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.35"
+        opacity=".58"
+      />
+      <path
+        d="M5.5 30c12-1.5 27.5-1.2 47 .4"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth=".8"
+        opacity=".22"
+      />
+    </svg>
+  );
+}
+
 function ExportButton({
   storyId,
   pendingStoryRequestId,
@@ -244,14 +295,12 @@ function EditingStudioBody({
   workspace,
   interactionMode,
   onWorkspaceChange,
-  onTimelineVisibleChange,
   materialVisible,
   onMaterialVisibleChange,
 }: {
   workspace: StudioWorkspace;
   interactionMode: StudioInteractionMode;
   onWorkspaceChange: (workspace: StudioWorkspace) => void;
-  onTimelineVisibleChange: (visible: boolean) => void;
   materialVisible: boolean;
   onMaterialVisibleChange: (visible: boolean) => void;
 }) {
@@ -418,7 +467,7 @@ function EditingStudioBody({
       <div className="flex h-full min-h-0">
         {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
         <div
-          className="relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
+          className="workspace-chat-column relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
           style={{
             width: chatCollapsed ? 48 : "min(340px, 38vw)",
             borderColor: "var(--nayin-border)",
@@ -458,6 +507,7 @@ function EditingStudioBody({
             )}
           </div>
         </div>
+        <span className="workspace-chat-paper-seam" aria-hidden="true" />
 
         {/* 右：文字稿、五个故事面板与剪辑台共享同一 Story。 */}
         <div className="relative min-w-0 flex-1 overflow-hidden">
@@ -467,7 +517,6 @@ function EditingStudioBody({
                 onContinueToVideo={() => {
                   // 成片生成完成后直接落到可连续播放的剪辑台，避免用户还要
                   // 从故事版看板再找一次完整时间线。
-                  onTimelineVisibleChange(true);
                   onWorkspaceChange("editing");
                 }}
               />
@@ -567,7 +616,6 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
-  const { visualTheme } = useNayin();
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
@@ -624,7 +672,6 @@ export default function EditingStudioPage() {
   }, []);
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
-  const [timelineVisible, setTimelineVisible] = useState(false);
   const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
     /^\d{4}-\d{2}-\d{2}$/.test(
@@ -736,6 +783,29 @@ export default function EditingStudioPage() {
           onToggle: () => {
             setWorkspace(option.id);
           },
+          subnav:
+            option.id === "editing" && workspace === "editing" ? (
+              <div
+                className="editing-media-subnav flex flex-col items-center"
+                role="group"
+                aria-label="图像和声音子类目"
+              >
+                <span
+                  className="editing-media-subnav-stem"
+                  aria-hidden="true"
+                />
+                <button
+                  type="button"
+                  aria-pressed={materialVisible}
+                  aria-controls="editing-material-warehouse"
+                  onClick={() => setMaterialVisible(value => !value)}
+                  className="editing-media-subnav-button shiguang-toolbar-button inline-flex min-h-8 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                >
+                  <MediaLibraryIllustration />
+                  <span className="shiguang-nav-label">素材仓库</span>
+                </button>
+              </div>
+            ) : undefined,
         }))}
         accountActions={
           <ExportButton
@@ -744,63 +814,7 @@ export default function EditingStudioPage() {
           />
         }
         secondaryRow={
-          workspace === "editing" ? (
-            <div
-              className="flex min-h-10 items-center gap-1.5 pb-1"
-              role="group"
-              aria-label="图像和声音工具"
-            >
-              <button
-                type="button"
-                aria-pressed={materialVisible}
-                aria-controls="editing-material-warehouse"
-                onClick={() =>
-                  setMaterialVisible(value => {
-                    const next = !value;
-                    if (next) setTimelineVisible(false);
-                    return next;
-                  })
-                }
-                className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                {visualTheme === "shiguang" ? (
-                  <img
-                    src="/shiguang/nav-materials-v2.png"
-                    alt=""
-                    aria-hidden="true"
-                    className="shiguang-action-illustration"
-                  />
-                ) : (
-                  <LibraryBig className="h-3.5 w-3.5" />
-                )}
-                <span className="shiguang-nav-label">素材仓库</span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={timelineVisible}
-                onClick={() =>
-                  setTimelineVisible(value => {
-                    const next = !value;
-                    if (next) setMaterialVisible(false);
-                    return next;
-                  })
-                }
-                className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                {visualTheme === "shiguang" ? (
-                  <img
-                    src="/shiguang/nav-timeline-v2.png"
-                    alt=""
-                    aria-hidden="true"
-                    className="shiguang-action-illustration"
-                  />
-                ) : null}
-                <span className="shiguang-nav-label">Timeline</span>
-              </button>
-            </div>
-          ) : (
+          workspace === "editing" ? null : (
             <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
           )
         }
@@ -835,7 +849,6 @@ export default function EditingStudioPage() {
             workspace={workspace}
             interactionMode={interactionMode}
             onWorkspaceChange={setWorkspace}
-            onTimelineVisibleChange={setTimelineVisible}
             materialVisible={materialVisible}
             onMaterialVisibleChange={setMaterialVisible}
           />

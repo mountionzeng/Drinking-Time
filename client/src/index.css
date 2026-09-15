@@ -1519,6 +1519,42 @@ select option {
   filter: saturate(0.84) contrast(0.94);
 }
 
+.editing-media-subnav-stem {
+  display: block;
+  width: 1px;
+  height: 0.72rem;
+  background: color-mix(in oklab, var(--nayin-accent) 44%, transparent);
+}
+
+.editing-media-subnav-button {
+  color: var(--nayin-accent-dim);
+}
+
+.media-library-illustration {
+  width: 2.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  color: var(--nayin-accent);
+  overflow: visible;
+}
+
+.editing-media-subnav-button:hover .media-library-illustration,
+.editing-media-subnav-button[aria-pressed="true"] .media-library-illustration {
+  color: var(--foreground);
+}
+
+[data-visual-theme="shiguang"] .editing-media-subnav-button {
+  transform: rotate(0.12deg);
+}
+
+[data-visual-theme="shiguang"] .editing-media-subnav-button:hover {
+  transform: translateY(-1px) rotate(0deg);
+}
+
+[data-visual-theme="nayin"] .editing-media-subnav-button[aria-pressed="true"] {
+  color: var(--nayin-accent);
+}
+
 [data-visual-theme="nayin"] .shiguang-nav-illustration,
 [data-visual-theme="nayin"] .shiguang-action-illustration {
   display: none;
@@ -2102,7 +2138,7 @@ select option {
 [data-visual-theme="shiguang"] .app-topbar-surface {
   background: var(--shiguang-paper) center 28% / cover !important;
   border-bottom-color: transparent;
-  box-shadow: 0 3px 5px -4px rgba(88, 100, 76, 0.25);
+  box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .app-topbar-surface::after {
@@ -2111,32 +2147,89 @@ select option {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -4px;
-  height: 6px;
+  bottom: -7px;
+  height: 9px;
   pointer-events: none;
-  background: #f8f9ef;
+  background: var(--shiguang-paper) center 31% / 760px auto;
+  filter: drop-shadow(0 1px 0.7px rgba(88, 100, 76, 0.16));
   clip-path: polygon(
     0 0,
     100% 0,
-    100% 45%,
-    96% 72%,
-    92% 42%,
-    87% 78%,
-    82% 51%,
-    76% 85%,
-    71% 48%,
-    66% 76%,
-    60% 43%,
-    54% 80%,
-    48% 54%,
-    42% 90%,
-    36% 50%,
-    30% 74%,
-    24% 47%,
-    18% 83%,
-    12% 54%,
-    6% 76%,
-    0 50%
+    100% 38%,
+    97% 68%,
+    94% 46%,
+    91% 82%,
+    87% 54%,
+    83% 91%,
+    79% 49%,
+    75% 76%,
+    70% 42%,
+    66% 86%,
+    61% 56%,
+    56% 94%,
+    51% 48%,
+    46% 79%,
+    41% 44%,
+    36% 88%,
+    31% 52%,
+    26% 96%,
+    21% 47%,
+    16% 81%,
+    11% 43%,
+    6% 89%,
+    2% 55%,
+    0 73%
+  );
+}
+
+.workspace-chat-paper-seam {
+  display: none;
+}
+
+[data-visual-theme="shiguang"] .workspace-chat-column {
+  border-right-color: transparent !important;
+}
+
+[data-visual-theme="shiguang"] .workspace-chat-column .monitor-panel {
+  border-right-color: transparent;
+  box-shadow: inset 1px 0 rgba(255, 255, 248, 0.85);
+}
+
+[data-visual-theme="shiguang"] .workspace-chat-paper-seam {
+  position: relative;
+  z-index: 12;
+  display: block;
+  width: 14px;
+  height: 100%;
+  margin-right: -14px;
+  flex: 0 0 14px;
+  pointer-events: none;
+  background: var(--shiguang-paper) 42% center / 720px auto;
+  filter: drop-shadow(1px 0 0.8px rgba(82, 99, 75, 0.16));
+  clip-path: polygon(
+    0 0,
+    73% 0,
+    91% 6%,
+    65% 11%,
+    88% 16%,
+    62% 21%,
+    93% 26%,
+    67% 31%,
+    90% 36%,
+    63% 41%,
+    92% 46%,
+    68% 51%,
+    94% 56%,
+    66% 61%,
+    91% 66%,
+    64% 71%,
+    90% 76%,
+    69% 81%,
+    95% 86%,
+    65% 91%,
+    88% 96%,
+    71% 100%,
+    0 100%
   );
 }
 
