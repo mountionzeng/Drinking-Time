@@ -2,8 +2,8 @@ export const VISUAL_THEME_STORAGE_KEY = "drinking-time-visual-theme-v1";
 
 export type VisualThemeMode = "shiguang" | "nayin";
 
-export function documentTitleForVisualTheme(mode: VisualThemeMode): string {
-  return mode === "shiguang" ? "拾光家忆" : "Drinking Time - Analysis Engine";
+export function documentTitleForVisualTheme(_mode: VisualThemeMode): string {
+  return "Drinking Time - Analysis Engine";
 }
 
 type ThemeStorage = Pick<Storage, "getItem" | "setItem">;

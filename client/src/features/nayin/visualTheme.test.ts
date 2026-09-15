@@ -7,8 +7,10 @@ import {
 } from "./visualTheme";
 
 describe("visual theme preference", () => {
-  it("restores the original document title for the Nayin interface", () => {
-    expect(documentTitleForVisualTheme("shiguang")).toBe("拾光家忆");
+  it("keeps the original product title in both visual themes", () => {
+    expect(documentTitleForVisualTheme("shiguang")).toBe(
+      "Drinking Time - Analysis Engine"
+    );
     expect(documentTitleForVisualTheme("nayin")).toBe(
       "Drinking Time - Analysis Engine"
     );

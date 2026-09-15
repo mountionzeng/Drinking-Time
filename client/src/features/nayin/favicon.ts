@@ -55,7 +55,7 @@ const FAVICON_BY_ELEMENT: Record<NayinElement, FaviconPreset> = {
 };
 
 const FAVICON_RELS = ["icon", "shortcut icon", "apple-touch-icon"] as const;
-const SHIGUANG_FAVICON = "/shiguang/xiaoyi-avatar.png";
+const SHIGUANG_FAVICON = "/shiguang/xiaoyi-avatar-max.png";
 
 function buildFaviconSvg(preset: FaviconPreset): string {
   return `
