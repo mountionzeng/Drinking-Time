@@ -64,6 +64,8 @@
 
 ## 最近落地
 
+- 2026-09-15 拾光家忆桌面插画工作区与页签小鸟已落地主仓 `00955e5`，架构守卫随 `48b678f` 修正并通过 517 文件／4506 项全量测试、TypeScript、构建、迁移基线、功能账本和环境门禁；测试站已显示“拾光家忆”与小忆水彩小鸟 favicon。正式站只读预检发现证书过期且服务端落后主干 415 个提交，未执行生产拉取、迁移、重启或证书修改。
+
 - 2026-09-11 手机 Web 三页重做 + 微信首个流程对齐：故事/聊聊/我三页与新导航、五种外形、认可造型进聊天、写正文时面板让位、收起档读完长回答、存入故事（来源＝故事正文，真实故事端到端验收通过）；微信端不自动展开、键盘一次发送、收起档可见思考与回答。触达 mobileWorkspace/**、nayin 主题过渡、minigame 键盘与收起档绘制。
 
 - 2026-09-08 资产工作区与整场戏默认宠物：主仓工作区已完成，未提交；70 项定向测试、check/build/feature:validate 通过。触达 MaterialWarehousePanel、VisualAssetLibrary、ShotAssetBindingPanel、shared/visualAssets、visualAsset 持久化/生成/门禁及 storyAgent 生成快照；相关文件已释放。
