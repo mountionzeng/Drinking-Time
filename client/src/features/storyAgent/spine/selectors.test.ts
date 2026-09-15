@@ -112,4 +112,18 @@ describe('story spine selectors', () => {
     expect(chatAfterCardBodyEdit.cardRefs).toBe(chatAfterMessage.cardRefs);
     expect(boardAfterCardBodyEdit.cards).not.toBe(boardAfterMessage.cards);
   });
+
+  it('exposes the active story cover to the current-story card', () => {
+    const store = storySpineStore.getState();
+    store.setActiveStoryId(42);
+    store.setStoryList([
+      { id: 41, title: 'Other', coverImageUrl: '/covers/other.jpg' },
+      { id: 42, title: 'Current', coverImageUrl: '/covers/current.jpg' },
+    ]);
+
+    expect(
+      selectStoryAgentChatSlice(storySpineStore.getState())
+        .activeStoryCoverImageUrl
+    ).toBe('/covers/current.jpg');
+  });
 });

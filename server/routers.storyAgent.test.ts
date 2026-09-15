@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import type { TrpcContext } from "./_core/context";
+import { emptyPublishingDraftState } from "../shared/publishingDraft";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   DEFAULT_TIMELINE_VIDEO_EFFECTS,
@@ -428,6 +429,44 @@ describe("storyAgent tRPC router", () => {
     await expect(
       caller.storyAgent.storyGet({ id: created!.id })
     ).resolves.toBeNull();
+  });
+
+  it("returns an owned generated cover in the story list", async () => {
+    const caller = appRouter.createCaller(createAuthContext(199));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "封面故事",
+      body: { cards: [], shots: [] },
+    });
+    const cover = await createGeneratedImage({
+      storyId: created!.id,
+      userId: 199,
+      imageUrl: "/api/images/story-cover.jpg",
+      prompt: "publishing cover",
+      isCurrent: true,
+    });
+    const publishing = emptyPublishingDraftState();
+    publishing.cover = {
+      assetId: cover.id,
+      sourceCoreRevision: 0,
+      createdAt: Date.now(),
+    };
+    if (publishing.versions?.[0]) {
+      publishing.versions[0].cover = publishing.cover;
+    }
+    await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      baseRevision: created!.revision,
+      title: "封面故事",
+      body: { cards: [], shots: [], publishing },
+    });
+
+    const listed = await caller.storyAgent.storyList();
+    expect(listed.stories).toContainEqual(
+      expect.objectContaining({
+        id: created!.id,
+        coverImageUrl: "/api/images/story-cover.jpg",
+      })
+    );
   });
 
   it("renames only the story title without replacing body or sibling metadata", async () => {

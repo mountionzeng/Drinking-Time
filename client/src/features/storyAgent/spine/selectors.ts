@@ -109,6 +109,7 @@ export type StoryAgentChatSlice = {
   remoteStoryId?: number;
   storyTitle?: string;
   storyLogline?: string;
+  activeStoryCoverImageUrl: string | null;
   storyShotsCount: number;
   saveStatus: StorySpineState["saveStatus"];
   lastSavedAt?: number;
@@ -131,6 +132,10 @@ export function selectStoryAgentChatSlice(
     remoteStoryId: state.remoteStoryId,
     storyTitle: state.storyTitle,
     storyLogline: state.storyLogline,
+    activeStoryCoverImageUrl:
+      state.storyList.find(
+        story => story.id === (state.remoteStoryId ?? state.activeStoryId)
+      )?.coverImageUrl ?? null,
     storyShotsCount: state.storyShots.length,
     saveStatus: state.saveStatus,
     lastSavedAt: state.lastSavedAt,

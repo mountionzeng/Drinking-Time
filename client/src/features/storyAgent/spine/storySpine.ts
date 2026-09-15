@@ -35,6 +35,7 @@ export type StoryListItem = {
   cardCount?: number;
   shotCount?: number;
   activityDates?: string[];
+  coverImageUrl?: string | null;
 };
 
 type SetterInput<T> = T | ((current: T) => T);

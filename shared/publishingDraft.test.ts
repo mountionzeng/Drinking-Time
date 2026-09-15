@@ -18,6 +18,7 @@ import {
   publishingDraftBufferKey,
   resolvePublishingIntentProfile,
   resolvePublishingActiveVersion,
+  resolvePublishingDisplayCoverAssetId,
   publishingVersionScopeKey,
   publishingVersionScopedRevision,
   upsertPublishingPlatformDraft,
@@ -29,6 +30,52 @@ import {
 } from "./publishingDraft";
 
 const NOW = 1_786_000_000_000;
+
+describe("resolvePublishingDisplayCoverAssetId", () => {
+  it("prefers an adopted ancestor cover over unadopted child candidates", () => {
+    const state = {
+      ...emptyPublishingDraftState(),
+      activeVersionId: "v2",
+      versions: [
+        {
+          versionId: "v1",
+          parentId: null,
+          cover: { assetId: 41 },
+          coverRounds: [],
+        },
+        {
+          versionId: "v2",
+          parentId: "v1",
+          cover: null,
+          coverRounds: [{ assetIds: [52, 53] }],
+        },
+      ],
+      cover: null,
+      coverRounds: [],
+    } as unknown as PublishingDraftState;
+
+    expect(resolvePublishingDisplayCoverAssetId(state)).toBe(41);
+  });
+
+  it("uses the newest generated candidate when no formal cover exists", () => {
+    const state = {
+      ...emptyPublishingDraftState(),
+      activeVersionId: "v1",
+      versions: [
+        {
+          versionId: "v1",
+          parentId: null,
+          cover: null,
+          coverRounds: [{ assetIds: [31] }, { assetIds: [72, 73] }],
+        },
+      ],
+      cover: null,
+      coverRounds: [],
+    } as unknown as PublishingDraftState;
+
+    expect(resolvePublishingDisplayCoverAssetId(state)).toBe(72);
+  });
+});
 
 function content(
   body: string,

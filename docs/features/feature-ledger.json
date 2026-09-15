@@ -3753,7 +3753,9 @@
       "userValue": "电脑端默认使用拾光家忆的米纸、水彩枝叶、小鸟与旧书插画风格，并可从用户菜单随时切回纳音五行界面。",
       "entryPoints": [
         "client/src/features/nayin/NayinContext.tsx",
-        "client/src/app/shell/TopBar.tsx"
+        "client/src/app/shell/TopBar.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
       ],
       "owners": [
         "client/src/features/nayin/visualTheme.ts",
@@ -3765,7 +3767,13 @@
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
         "client/src/features/analysis/views/DailyLetterWelcome.tsx",
-        "client/src/features/computeAccount/ComputeBalanceBadge.tsx"
+        "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
+        "client/src/features/storyAgent/views/StoryCoverThumbnail.tsx",
+        "client/src/features/storyAgent/spine/selectors.ts",
+        "client/src/features/storyAgent/spine/storySpine.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "shared/publishingDraft.ts",
+        "server/db.ts"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
@@ -3774,7 +3782,11 @@
         "client/src/features/auth/views/AuthEntryPanel.test.tsx",
         "client/src/features/analysis/views/DailyLetterWelcome.test.ts",
         "client/src/pages/editingStudioWorkspace.test.ts",
-        "client/src/pages/LoginPage.test.tsx"
+        "client/src/pages/LoginPage.test.tsx",
+        "client/src/app/shell/StoryLogoMenu.test.tsx",
+        "client/src/features/storyAgent/spine/selectors.test.ts",
+        "shared/publishingDraft.test.ts",
+        "server/routers.storyAgent.test.ts"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -3838,6 +3850,11 @@
           "date": "2026-09-15",
           "kind": "fix",
           "summary": "按用户后续决定将拾光与纳音两套视觉主题的浏览器页签名称统一恢复为“Drinking Time - Analysis Engine”；拾光小鸟 favicon 去除原图约 15px 透明边距并放大至铺满 128px 画布，纳音主题仍按每日五行显示饮品图标。定向 6 项、TypeScript、生产构建与功能账本通过；测试站采用前端原子替换发布，公网 health/readiness、标题、bundle 和图片哈希均核验通过，未重启后端或改动数据库。"
+        },
+        {
+          "date": "2026-09-15",
+          "kind": "feature",
+          "summary": "拾光家忆的“当前故事”和“回到以前的故事”现在会显示每个故事已采用的正式封面；尚未采用但已经生成封面候选时，显示最新一轮的首张有效候选，子版本可继承祖先正式封面。封面生成或采用后列表立即更新，无需刷新；无封面的故事保持文字布局，纳音五行仍为原来的纯文字菜单。定向 103 项、TypeScript、功能账本、生产构建和 localhost:3000 双主题浏览器验收通过。"
         }
       ]
     }

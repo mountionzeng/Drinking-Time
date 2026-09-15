@@ -45,6 +45,7 @@ import {
   type StoryboardImageRerenderResult,
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
+import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
@@ -233,6 +234,7 @@ export default function StoryAgentChat({
     remoteStoryId,
     storyTitle,
     storyLogline,
+    activeStoryCoverImageUrl,
     storyShotsCount,
     saveStatus,
     lastSavedAt,
@@ -1198,7 +1200,13 @@ export default function StoryAgentChat({
           }}
           aria-label="聊聊当前上下文"
         >
-          <div className="flex items-start gap-2">
+          <div className="group flex items-start gap-2.5">
+            {visualTheme === "shiguang" ? (
+              <StoryCoverThumbnail
+                src={activeStoryCoverImageUrl}
+                className="h-[68px] w-[50px] rounded-[8px] shadow-[0_3px_10px_rgba(67,83,62,0.12)]"
+              />
+            ) : null}
             <span className="mt-0.5 shrink-0 text-nayin-bright">
               <Link2 className="h-3.5 w-3.5" />
             </span>

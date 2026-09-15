@@ -18,6 +18,7 @@ import { WUXING_DRINK_INK } from "@/features/nayin/views/WuxingDrinkIcon";
 import { formatStoryTimestamp } from "@/features/storyAgent/storyTimestamp";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
+import StoryCoverThumbnail from "@/features/storyAgent/views/StoryCoverThumbnail";
 
 /** hover 的延迟不对称：进来要快，出去要慢，鼠标斜着划过去才不会误关。 */
 const OPEN_DELAY_MS = 90;
@@ -33,6 +34,7 @@ export interface StoryLogoMenuStory {
   updatedAt?: string | Date | null;
   createdAt?: string | Date | null;
   shotCount?: number;
+  coverImageUrl?: string | null;
 }
 
 export interface StoryLogoMenuProps {
@@ -44,6 +46,22 @@ export interface StoryLogoMenuProps {
   onOpenStory?: (storyId: number) => void;
   /** 「查看全部故事」——回到聊聊里的故事列表。 */
   onBrowseAll?: () => void;
+}
+
+export function StoryMenuCover({
+  story,
+  visualTheme,
+}: {
+  story: StoryLogoMenuStory;
+  visualTheme: VisualThemeMode;
+}) {
+  if (visualTheme !== "shiguang") return null;
+  return (
+    <StoryCoverThumbnail
+      src={story.coverImageUrl}
+      className="h-[66px] w-[48px] rounded-[7px] shadow-[0_3px_9px_rgba(67,83,62,0.12)]"
+    />
+  );
 }
 
 function usePointerHasHover(): boolean {
@@ -335,7 +353,7 @@ export default function StoryLogoMenu({
                 role="menuitem"
                 data-menu-item
                 onClick={run(() => onOpenStory?.(story.id))}
-                className={`${itemBase} flex flex-col gap-[3px] px-3 py-[9px] focus-visible:ring-2`}
+                className={`${itemBase} group flex items-center gap-2.5 px-3 py-[9px] focus-visible:ring-2`}
                 style={focusRing}
                 onMouseEnter={event => {
                   event.currentTarget.style.background = `color-mix(in oklab, ${ink} 8%, transparent)`;
@@ -344,16 +362,19 @@ export default function StoryLogoMenu({
                   event.currentTarget.style.background = "transparent";
                 }}
               >
-                <span className="text-[13.5px] font-medium leading-[1.35] text-foreground">
-                  {story.title?.trim() || "未命名故事"}
-                </span>
-                {story.logline?.trim() || story.summary?.trim() ? (
-                  <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
-                    {story.logline?.trim() || story.summary?.trim()}
+                <StoryMenuCover story={story} visualTheme={visualTheme} />
+                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <span className="text-[13.5px] font-medium leading-[1.35] text-foreground">
+                    {story.title?.trim() || "未命名故事"}
                   </span>
-                ) : null}
-                <span className="font-mono text-[11px] text-muted-foreground/80">
-                  {storyMeta(story) || "还没动过"}
+                  {story.logline?.trim() || story.summary?.trim() ? (
+                    <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
+                      {story.logline?.trim() || story.summary?.trim()}
+                    </span>
+                  ) : null}
+                  <span className="font-mono text-[11px] text-muted-foreground/80">
+                    {storyMeta(story) || "还没动过"}
+                  </span>
                 </span>
               </button>
             ))

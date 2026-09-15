@@ -1501,6 +1501,47 @@ export function resolvePublishingActiveVersion(
 }
 
 /**
+ * Pick the image that represents a story in compact navigation surfaces.
+ * A formally adopted cover wins. If the user has only generated candidates,
+ * show the first image from the newest round so the story still gets a cover.
+ * Child versions inherit an adopted cover from their ancestors.
+ */
+export function resolvePublishingDisplayCoverAssetId(
+  state: PublishingDraftState
+): number | null {
+  const versions = state.versions ?? [];
+  const versionsById = new Map(
+    versions.map(version => [version.versionId, version] as const)
+  );
+  const startVersion =
+    versionsById.get(state.activeVersionId ?? "") ?? versions[0];
+  let current: PublishingStoryVersion | undefined = startVersion;
+  let nearestCandidateId: number | null = null;
+  const visited = new Set<string>();
+
+  while (current && !visited.has(current.versionId)) {
+    visited.add(current.versionId);
+    if (current.cover?.assetId) return current.cover.assetId;
+    const latestRound = current.coverRounds.at(-1);
+    if (nearestCandidateId === null && latestRound) {
+      nearestCandidateId =
+        latestRound.assetIds.find(id => Number.isInteger(id) && id > 0) ?? null;
+    }
+    current = current.parentId
+      ? versionsById.get(current.parentId)
+      : undefined;
+  }
+
+  if (state.cover?.assetId) return state.cover.assetId;
+  if (nearestCandidateId !== null) return nearestCandidateId;
+  return (
+    state.coverRounds
+      .at(-1)
+      ?.assetIds.find(id => Number.isInteger(id) && id > 0) ?? null
+  );
+}
+
+/**
  * 用途：构造某个发布版本的 ScopeKey，统一 storyId + versionId 的资源身份
  *   表达，替代散落各处的 `story.id === activeStoryId && versionId === xxx`
  *   手写比较。

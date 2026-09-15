@@ -133,6 +133,15 @@ type PublishingCoverAssetView = {
   createdAt: Date;
 };
 
+function updateStoryListCover(storyId: number, imageUrl?: string | null) {
+  if (!imageUrl) return;
+  storySpineStore.getState().setStoryList(stories =>
+    stories.map(story =>
+      story.id === storyId ? { ...story, coverImageUrl: imageUrl } : story
+    )
+  );
+}
+
 type StoryScopedPublishingCover = {
   storyId: number;
   asset: PublishingCoverAssetView;
@@ -1158,6 +1167,10 @@ export default function PublishingDraftWorkspace({
         };
       });
       setGeneratedCoverRounds({ storyId, rounds: result.coverRounds });
+      updateStoryListCover(
+        storyId,
+        result.coverAsset?.imageUrl ?? result.coverRound.candidates[0]?.imageUrl
+      );
       setActiveCoverRoundId(result.coverRound.id);
       setSelectedCoverAssetId(null);
       setCoverInstructions(
@@ -1370,6 +1383,7 @@ export default function PublishingDraftWorkspace({
           current?.coverFallbackEstimate ?? coverFallbackEstimate,
       }));
       setGeneratedCover({ storyId, asset: result.coverAsset });
+      updateStoryListCover(storyId, result.coverAsset.imageUrl);
       setCoverStudioOpen(false);
       setSelectedCoverAssetId(null);
       setCoverFeedback("");

@@ -38,6 +38,10 @@ import {
 } from "./services/audioMedia";
 import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
+  normalizePublishingDraftState,
+  resolvePublishingDisplayCoverAssetId,
+} from "../shared/publishingDraft";
+import {
   InsertUser,
   users,
   User,
@@ -2498,7 +2502,12 @@ export type StoryListItem = Pick<
   | "summary"
   | "createdAt"
   | "updatedAt"
-> & { cardCount: number; shotCount: number; activityDates: string[] };
+> & {
+  cardCount: number;
+  shotCount: number;
+  activityDates: string[];
+  coverImageUrl: string | null;
+};
 
 function chinaDateKey(value: Date | number | string): string | null {
   const date = value instanceof Date ? value : new Date(value);
@@ -2560,7 +2569,23 @@ function bodyShotCount(body: unknown): number {
   return Array.isArray(shots) ? shots.length : 0;
 }
 
-function toListItem(row: Story): StoryListItem {
+function storyCoverAssetId(body: unknown): number | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const publishing = normalizePublishingDraftState(
+    (body as { publishing?: unknown }).publishing
+  );
+  return resolvePublishingDisplayCoverAssetId(publishing);
+}
+
+type StoryListRow = {
+  row: Story;
+  coverAssetId: number | null;
+};
+
+function toListItem(
+  row: Story,
+  coverImageUrl: string | null = null
+): StoryListItem {
   return {
     id: row.id,
     userId: row.userId,
@@ -2575,7 +2600,23 @@ function toListItem(row: Story): StoryListItem {
     cardCount: bodyCardCount(row.body),
     shotCount: bodyShotCount(row.body),
     activityDates: storyActivityDates(row.body, row.createdAt),
+    coverImageUrl,
   };
+}
+
+function listItemsWithCoverUrls(
+  rows: StoryListRow[],
+  images: GeneratedImage[],
+  userId: number
+): StoryListItem[] {
+  const imagesById = new Map(images.map(image => [image.id, image] as const));
+  return rows.map(({ row, coverAssetId }) => {
+    const image = coverAssetId ? imagesById.get(coverAssetId) : undefined;
+    const authorized =
+      image?.storyId === row.id &&
+      (image.userId === userId || image.userId === null);
+    return toListItem(row, authorized ? image.imageUrl : null);
+  });
 }
 
 export async function listUserStories(
@@ -2583,17 +2624,45 @@ export async function listUserStories(
 ): Promise<StoryListItem[]> {
   const db = await getDb();
   if (!db) {
-    return memoryState.stories
+    const rows = memoryState.stories
       .filter(s => s.userId === userId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .map(toListItem);
+      .map(row => ({ row, coverAssetId: storyCoverAssetId(row.body) }));
+    const coverIds = new Set(
+      rows.flatMap(item =>
+        item.coverAssetId === null ? [] : [item.coverAssetId]
+      )
+    );
+    return listItemsWithCoverUrls(
+      rows,
+      memoryState.generatedImages.filter(image => coverIds.has(image.id)),
+      userId
+    );
   }
   const rows = await db
     .select()
     .from(stories)
     .where(eq(stories.userId, userId))
     .orderBy(desc(stories.updatedAt));
-  return rows.map(toListItem);
+  const storyRows = rows.map(row => ({
+    row,
+    coverAssetId: storyCoverAssetId(row.body),
+  }));
+  const coverIds = Array.from(
+    new Set(
+      storyRows.flatMap(item =>
+        item.coverAssetId === null ? [] : [item.coverAssetId]
+      )
+    )
+  );
+  const coverImages =
+    coverIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(generatedImages)
+          .where(inArray(generatedImages.id, coverIds));
+  return listItemsWithCoverUrls(storyRows, coverImages, userId);
 }
 
 /** Finds an already imported immutable 拾光家忆 snapshot without trusting its title. */

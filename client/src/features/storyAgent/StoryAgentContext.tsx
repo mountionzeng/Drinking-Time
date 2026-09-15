@@ -2766,6 +2766,7 @@ export function StoryAgentProvider({
           cardCount: s.cardCount,
           shotCount: s.shotCount,
           activityDates: s.activityDates ?? [],
+          coverImageUrl: s.coverImageUrl,
         }));
         setStoryList(items);
         // Clear stale remoteStoryId if it no longer exists on the server
