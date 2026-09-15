@@ -1,10 +1,14 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import TopBar from "./TopBar";
 import { STORY_PANELS } from "@/features/analysis/storyPanels";
 
 vi.stubGlobal("React", React);
+
+const themeState = vi.hoisted(() => ({
+  visualTheme: "shiguang" as "shiguang" | "nayin",
+}));
 
 vi.mock("@/features/nayin/NayinContext", () => ({
   useNayin: () => ({
@@ -12,7 +16,7 @@ vi.mock("@/features/nayin/NayinContext", () => ({
     allThemes: [{ element: "water", elementCn: "水" }],
     setPreviewElement: vi.fn(),
     previewElement: null,
-    visualTheme: "shiguang",
+    visualTheme: themeState.visualTheme,
     setVisualTheme: vi.fn(),
     element: "water",
     today: {
@@ -68,7 +72,12 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 describe("TopBar story panel controls", () => {
+  beforeEach(() => {
+    themeState.visualTheme = "shiguang";
+  });
+
   it("uses the left top area for the five story panel buttons", () => {
+    themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(<TopBar />);
 
     // 最左边那颗 Logo 现在是故事菜单，纳音五行搬进了右上角用户菜单。
@@ -102,6 +111,7 @@ describe("TopBar story panel controls", () => {
   });
 
   it("can hide story panel buttons on the welcome page", () => {
+    themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(<TopBar showStoryPanelNav={false} />);
 
     expect(html).toContain('aria-label="拾光 · 故事菜单"');
@@ -113,6 +123,7 @@ describe("TopBar story panel controls", () => {
   });
 
   it("uses the same top navigation position for a timeline visibility toggle", () => {
+    themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(
       <TopBar
         showStoryPanelNav={false}
@@ -130,6 +141,19 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain('aria-label="隐藏时间线"');
     expect(html).toContain("时间线");
     expect(html).not.toContain("故事版看板");
+  });
+
+  it("restores the original Nayin logo size, user initial and five-element menu", () => {
+    themeState.visualTheme = "nayin";
+    const html = renderToStaticMarkup(<TopBar />);
+
+    expect(html).toContain('aria-label="聊聊 · 故事菜单"');
+    expect(html).toContain("h-16 w-16");
+    expect(html).toContain(">L</span>");
+    expect(html).not.toContain("/shiguang/mobile-avatar.png");
+    expect(html).toContain("Nayin Five Elements / 纳音五行");
+    expect(html).not.toContain("Display Style / 界面风格");
+    expect(html).toContain("切换到拾光家忆界面");
   });
 
   it("supports English editing toggles and an action after Timeline", () => {

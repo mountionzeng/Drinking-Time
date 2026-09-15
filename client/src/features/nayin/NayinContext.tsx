@@ -18,6 +18,7 @@ import {
 } from "./nayin";
 import { setThemeFavicon } from "./favicon";
 import {
+  documentTitleForVisualTheme,
   readVisualThemeMode,
   writeVisualThemeMode,
   type VisualThemeMode,
@@ -191,6 +192,7 @@ export function NayinProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-visual-theme", visualTheme);
+    document.title = documentTitleForVisualTheme(visualTheme);
     return () => {
       document.documentElement.removeAttribute("data-visual-theme");
     };

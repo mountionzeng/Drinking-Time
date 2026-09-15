@@ -164,7 +164,7 @@ export default function DailyLetterWelcome({
   onStartLetterStory?: (message: string) => void;
 }) {
   const { user } = useAuth();
-  const { today } = useNayin();
+  const { today, visualTheme } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
     enabled: Boolean(user?.id),
@@ -518,7 +518,7 @@ export default function DailyLetterWelcome({
     if (!visible) return null;
     return (
       <div
-        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
         aria-label="今日来信"
@@ -528,7 +528,13 @@ export default function DailyLetterWelcome({
           tabIndex={-1}
           className="mx-auto flex min-h-full w-full max-w-2xl items-center outline-none"
         >
-          <div className="daily-letter-paper w-full px-6 py-8 sm:px-10">
+          <div
+            className={
+              visualTheme === "shiguang"
+                ? "daily-letter-paper w-full px-6 py-8 sm:px-10"
+                : "w-full border-y py-8"
+            }
+          >
             <header className="flex items-start justify-between gap-5">
               <div>
                 <p className="text-[10px] text-muted-foreground">
@@ -581,13 +587,19 @@ export default function DailyLetterWelcome({
       (guestProfile.analysisSeed.userMessage ? 1 : 0);
     return (
       <div
-        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
         aria-label="导入本机资料"
       >
         <section className="mx-auto flex min-h-full w-full max-w-xl items-center">
-          <div className="daily-letter-paper w-full px-6 py-8 sm:px-10">
+          <div
+            className={
+              visualTheme === "shiguang"
+                ? "daily-letter-paper w-full px-6 py-8 sm:px-10"
+                : "w-full border-y py-8"
+            }
+          >
             <p className="text-[10px] text-muted-foreground">
               登录成功 · 由你决定
             </p>
@@ -642,7 +654,7 @@ export default function DailyLetterWelcome({
   if (initialProfileSetupVisible) {
     return (
       <div
-        className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
         aria-label="第一次写回信"
@@ -650,7 +662,11 @@ export default function DailyLetterWelcome({
         <section
           ref={dialogRef}
           tabIndex={-1}
-          className="daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
+          className={
+            visualTheme === "shiguang"
+              ? "daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
+              : "mx-auto w-full max-w-3xl outline-none"
+          }
         >
           <header
             className="flex items-start justify-between gap-5 border-b pb-5"
@@ -721,7 +737,7 @@ export default function DailyLetterWelcome({
 
   return (
     <div
-      className="daily-letter-backdrop fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+      className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
       role="dialog"
       aria-modal="true"
       aria-label="你的每日回信"
@@ -729,7 +745,11 @@ export default function DailyLetterWelcome({
       <section
         ref={dialogRef}
         tabIndex={-1}
-        className="daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
+        className={
+          visualTheme === "shiguang"
+            ? "daily-letter-paper mx-auto w-full max-w-3xl px-6 py-8 outline-none sm:px-10"
+            : "mx-auto w-full max-w-3xl outline-none"
+        }
       >
         <header
           className="flex items-start justify-between gap-5 border-b pb-5"
@@ -1013,7 +1033,7 @@ export default function DailyLetterWelcome({
           <button
             type="button"
             onClick={closeLetter}
-            className="daily-letter-action px-3 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={`${visualTheme === "shiguang" ? "daily-letter-action px-3" : "px-2"} py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
           >
             把信收好，继续聊
           </button>

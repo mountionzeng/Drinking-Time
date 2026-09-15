@@ -4,7 +4,13 @@
  * 右：故事版镜头 + 动态预览 + 多轨时间轴（共享同一套镜头数据）
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
-import { Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  Clapperboard,
+  LibraryBig,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
@@ -132,6 +138,7 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
 }
 
 function ExportButton({ storyId }: { storyId: number }) {
+  const { visualTheme } = useNayin();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
 
@@ -178,13 +185,15 @@ function ExportButton({ storyId }: { storyId: number }) {
     >
       {exporting ? (
         <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
+      ) : visualTheme === "shiguang" ? (
         <img
           src="/shiguang/nav-export.png"
           alt=""
           aria-hidden="true"
           className="shiguang-action-illustration"
         />
+      ) : (
+        <Clapperboard className="h-4 w-4" />
       )}
       <span className="shiguang-nav-label">
         {exporting ? "合成中…" : "导出成片"}
@@ -526,6 +535,7 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
+  const { visualTheme } = useNayin();
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
@@ -692,12 +702,16 @@ export default function EditingStudioPage() {
                 className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                <img
-                  src="/shiguang/nav-materials.png"
-                  alt=""
-                  aria-hidden="true"
-                  className="shiguang-action-illustration"
-                />
+                {visualTheme === "shiguang" ? (
+                  <img
+                    src="/shiguang/nav-materials.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="shiguang-action-illustration"
+                  />
+                ) : (
+                  <LibraryBig className="h-3.5 w-3.5" />
+                )}
                 <span className="shiguang-nav-label">素材仓库</span>
               </button>
               <button
@@ -713,12 +727,14 @@ export default function EditingStudioPage() {
                 className="shiguang-toolbar-button inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                <img
-                  src="/shiguang/nav-timeline.png"
-                  alt=""
-                  aria-hidden="true"
-                  className="shiguang-action-illustration"
-                />
+                {visualTheme === "shiguang" ? (
+                  <img
+                    src="/shiguang/nav-timeline.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="shiguang-action-illustration"
+                  />
+                ) : null}
                 <span className="shiguang-nav-label">Timeline</span>
               </button>
               <ExportButton storyId={activeStoryId} />

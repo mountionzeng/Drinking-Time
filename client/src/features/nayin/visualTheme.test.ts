@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  documentTitleForVisualTheme,
   readVisualThemeMode,
   VISUAL_THEME_STORAGE_KEY,
   writeVisualThemeMode,
 } from "./visualTheme";
 
 describe("visual theme preference", () => {
+  it("restores the original document title for the Nayin interface", () => {
+    expect(documentTitleForVisualTheme("shiguang")).toBe("拾光家忆");
+    expect(documentTitleForVisualTheme("nayin")).toBe(
+      "Drinking Time - Analysis Engine"
+    );
+  });
+
   it("uses the Shiguang illustration theme when no preference exists", () => {
     expect(readVisualThemeMode(null)).toBe("shiguang");
     expect(readVisualThemeMode({ getItem: () => null, setItem: vi.fn() })).toBe(

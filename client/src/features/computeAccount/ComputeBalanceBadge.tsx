@@ -4,7 +4,7 @@
  * 显示的是**可用余额**，不是已入账余额：生成中被占住的钱花不出去，把它算进
  * 「你还有多少」是在骗人。有预占时单独带一行说明，用户才知道数字为什么少了。
  */
-import { Loader2 } from "lucide-react";
+import { Loader2, Wallet } from "lucide-react";
 import React from "react";
 
 import { cn } from "@/lib/utils";
@@ -66,7 +66,13 @@ function ComputeBalanceBadgeInner({
         )}
         onClick={balance.refetch}
       >
-        <span className="compute-balance-mark" aria-hidden="true">算力</span>
+        <Wallet
+          aria-hidden="true"
+          className="compute-balance-wallet size-3.5"
+        />
+        <span className="compute-balance-mark" aria-hidden="true">
+          算力
+        </span>
         余额没读到，点这里重试
       </button>
     );
@@ -87,7 +93,13 @@ function ComputeBalanceBadgeInner({
               : "text-foreground"
         )}
       >
-        <span className="compute-balance-mark" aria-hidden="true">算力</span>
+        <Wallet
+          aria-hidden="true"
+          className="compute-balance-wallet size-3.5 shrink-0"
+        />
+        <span className="compute-balance-mark" aria-hidden="true">
+          算力
+        </span>
         <span className="compute-balance-value">{balance.text}</span>
       </span>
 

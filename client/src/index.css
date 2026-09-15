@@ -286,47 +286,54 @@
  * ================================================= */
 [data-visual-theme="shiguang"] {
   --radius: 1rem;
-  --background: oklch(0.965 0.018 87);
-  --foreground: oklch(0.31 0.028 58);
-  --card: oklch(0.985 0.014 88);
-  --card-foreground: oklch(0.31 0.028 58);
-  --popover: oklch(0.985 0.014 88);
-  --popover-foreground: oklch(0.31 0.028 58);
-  --primary: oklch(0.49 0.075 42);
-  --primary-foreground: oklch(0.98 0.012 88);
-  --secondary: oklch(0.91 0.025 88);
-  --secondary-foreground: oklch(0.35 0.032 58);
-  --muted: oklch(0.92 0.021 88);
-  --muted-foreground: oklch(0.5 0.028 62);
-  --accent: oklch(0.89 0.035 132);
-  --accent-foreground: oklch(0.32 0.04 126);
-  --border: oklch(0.46 0.035 58 / 16%);
-  --input: oklch(0.46 0.035 58 / 19%);
-  --ring: oklch(0.49 0.075 42);
-  --sidebar: oklch(0.94 0.024 88);
-  --sidebar-foreground: oklch(0.31 0.028 58);
-  --sidebar-primary: oklch(0.49 0.075 42);
-  --sidebar-primary-foreground: oklch(0.98 0.012 88);
-  --sidebar-accent: oklch(0.89 0.035 132);
-  --sidebar-accent-foreground: oklch(0.32 0.04 126);
-  --sidebar-border: oklch(0.46 0.035 58 / 15%);
-  --sidebar-ring: oklch(0.49 0.075 42);
-  --nayin-accent: oklch(0.49 0.075 42);
-  --nayin-accent-dim: oklch(0.4 0.055 42);
-  --nayin-accent-bright: oklch(0.58 0.09 42);
-  --nayin-glow: oklch(0.65 0.06 88 / 18%);
-  --nayin-surface: oklch(0.965 0.022 88);
-  --nayin-surface-dim: oklch(0.925 0.025 88);
-  --nayin-text-subtle: oklch(0.5 0.028 62);
-  --nayin-border: oklch(0.46 0.035 58 / 17%);
+  --shiguang-sage: oklch(0.52 0.07 153);
+  --shiguang-sage-deep: oklch(0.39 0.055 153);
+  --shiguang-mint: oklch(0.91 0.037 151);
+  --shiguang-blue: oklch(0.9 0.03 219);
+  --shiguang-peach: oklch(0.92 0.04 66);
+  --shiguang-gold: oklch(0.69 0.07 84);
+  --shiguang-rose: oklch(0.92 0.03 20);
+  --background: oklch(0.958 0.022 139);
+  --foreground: oklch(0.31 0.027 151);
+  --card: oklch(0.979 0.015 120);
+  --card-foreground: oklch(0.31 0.027 151);
+  --popover: oklch(0.982 0.014 120);
+  --popover-foreground: oklch(0.31 0.027 151);
+  --primary: var(--shiguang-sage);
+  --primary-foreground: oklch(0.985 0.01 116);
+  --secondary: oklch(0.927 0.031 82);
+  --secondary-foreground: oklch(0.38 0.035 90);
+  --muted: oklch(0.925 0.025 148);
+  --muted-foreground: oklch(0.49 0.026 151);
+  --accent: var(--shiguang-blue);
+  --accent-foreground: oklch(0.35 0.04 210);
+  --border: oklch(0.5 0.045 151 / 18%);
+  --input: oklch(0.5 0.045 151 / 22%);
+  --ring: var(--shiguang-sage);
+  --sidebar: oklch(0.94 0.027 154);
+  --sidebar-foreground: oklch(0.31 0.027 151);
+  --sidebar-primary: var(--shiguang-sage);
+  --sidebar-primary-foreground: oklch(0.985 0.01 116);
+  --sidebar-accent: var(--shiguang-blue);
+  --sidebar-accent-foreground: oklch(0.35 0.04 210);
+  --sidebar-border: oklch(0.5 0.045 151 / 17%);
+  --sidebar-ring: var(--shiguang-sage);
+  --nayin-accent: var(--shiguang-sage);
+  --nayin-accent-dim: var(--shiguang-sage-deep);
+  --nayin-accent-bright: oklch(0.62 0.078 153);
+  --nayin-glow: oklch(0.72 0.055 153 / 20%);
+  --nayin-surface: oklch(0.965 0.024 144);
+  --nayin-surface-dim: oklch(0.92 0.03 151);
+  --nayin-text-subtle: oklch(0.49 0.026 151);
+  --nayin-border: oklch(0.5 0.045 151 / 19%);
   --nayin-bg-gradient: linear-gradient(
     145deg,
-    oklch(0.98 0.016 88 / 78%),
-    oklch(0.92 0.03 130 / 38%)
+    oklch(0.98 0.017 112 / 80%),
+    oklch(0.91 0.036 153 / 48%)
   );
-  --panel-bg: oklch(0.985 0.014 88 / 96%);
-  --panel-border: oklch(0.46 0.035 58 / 15%);
-  --panel-header: oklch(0.935 0.026 88 / 95%);
+  --panel-bg: oklch(0.978 0.017 128 / 96%);
+  --panel-border: oklch(0.5 0.045 151 / 17%);
+  --panel-header: oklch(0.927 0.032 151 / 92%);
   --font-sans: "Noto Serif SC", "Songti SC", STSong, serif;
 }
 
@@ -344,7 +351,17 @@
     letter-spacing: 0.002em;
     background-color: var(--background);
     background-image:
-      linear-gradient(oklch(0.97 0.012 88 / 84%), oklch(0.95 0.022 88 / 88%)),
+      radial-gradient(
+        circle at 10% 12%,
+        oklch(0.9 0.04 215 / 34%),
+        transparent 29%
+      ),
+      radial-gradient(
+        circle at 88% 82%,
+        oklch(0.93 0.048 70 / 32%),
+        transparent 31%
+      ),
+      linear-gradient(oklch(0.97 0.018 128 / 82%), oklch(0.94 0.03 151 / 88%)),
       url("/shiguang/home-paper.jpg");
     background-size: cover;
     background-position: center;
@@ -1375,13 +1392,18 @@ select option {
 /* 拾光家忆的纸张、铅笔线与水彩留白。只换皮肤，不改变工作台尺寸。 */
 [data-visual-theme="shiguang"] .nayin-strip {
   height: 1px;
-  background: rgb(108 82 55 / 20%);
+  background: color-mix(in oklab, var(--shiguang-sage) 38%, transparent);
 }
 
 [data-visual-theme="shiguang"] .app-topbar-surface {
   position: relative;
   isolation: isolate;
-  background: rgb(250 246 236 / 96%) !important;
+  background: linear-gradient(
+    90deg,
+    oklch(0.94 0.033 153 / 78%),
+    oklch(0.98 0.016 112 / 88%) 46%,
+    oklch(0.94 0.027 211 / 66%)
+  ) !important;
   box-shadow: none;
 }
 
@@ -1390,7 +1412,23 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .shiguang-workspace {
-  background: rgb(247 242 230 / 42%);
+  background:
+    radial-gradient(
+      circle at 5% 18%,
+      oklch(0.9 0.04 214 / 28%),
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 94% 12%,
+      oklch(0.92 0.048 67 / 24%),
+      transparent 22%
+    ),
+    radial-gradient(
+      circle at 78% 96%,
+      oklch(0.93 0.03 22 / 24%),
+      transparent 25%
+    ),
+    oklch(0.95 0.026 146 / 54%);
 }
 
 [data-visual-theme="shiguang"] .shiguang-workspace::after {
@@ -1399,8 +1437,8 @@ select option {
 
 [data-visual-theme="shiguang"] .monitor-panel {
   position: relative;
-  background: rgb(252 249 241 / 94%);
-  border-color: rgb(101 82 58 / 12%);
+  background: oklch(0.978 0.018 137 / 92%);
+  border-color: oklch(0.5 0.045 151 / 15%);
   border-radius: 8px;
   box-shadow: none;
 }
@@ -1410,7 +1448,7 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .monitor-panel:hover {
-  border-color: rgb(101 82 58 / 20%);
+  border-color: oklch(0.5 0.055 151 / 27%);
   box-shadow: none;
 }
 
@@ -1420,20 +1458,36 @@ select option {
 
 [data-visual-theme="shiguang"] .monitor-panel-header,
 [data-visual-theme="shiguang"] .creation-board-panel-header {
-  background: rgb(247 242 230 / 72%);
+  background: linear-gradient(
+    90deg,
+    oklch(0.91 0.038 153 / 72%),
+    oklch(0.96 0.022 129 / 54%)
+  );
   border-bottom-style: solid;
   font-family: "Noto Serif SC", "Songti SC", STSong, serif;
 }
 
 [data-visual-theme="shiguang"] .creation-board-panel {
-  background: rgb(249 245 235 / 92%);
+  background: linear-gradient(
+    145deg,
+    oklch(0.976 0.017 122 / 94%),
+    oklch(0.93 0.028 213 / 52%)
+  );
+}
+
+[data-visual-theme="shiguang"] .creation-board-panel-header {
+  background: linear-gradient(
+    90deg,
+    oklch(0.93 0.041 70 / 66%),
+    oklch(0.96 0.021 124 / 52%)
+  );
 }
 
 [data-visual-theme="shiguang"] .editing-panel-heading,
 [data-visual-theme="shiguang"]
   [data-editing-surface="storyboard"]
   .creation-board-panel-title-text {
-  color: #765543;
+  color: var(--shiguang-sage-deep);
   font-family: "Noto Serif SC", "Songti SC", STSong, serif;
   letter-spacing: 0.12em;
 }
@@ -1470,7 +1524,7 @@ select option {
 [data-visual-theme="shiguang"] .shiguang-export-button {
   border: 0 !important;
   border-radius: 0;
-  color: #765543;
+  color: var(--shiguang-sage-deep);
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -1502,6 +1556,22 @@ select option {
     color 180ms ease;
 }
 
+[data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(4n + 1) {
+  --shiguang-nav-accent: var(--shiguang-sage-deep);
+}
+
+[data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(4n + 2) {
+  --shiguang-nav-accent: oklch(0.48 0.055 218);
+}
+
+[data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(4n + 3) {
+  --shiguang-nav-accent: oklch(0.55 0.07 75);
+}
+
+[data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(4n) {
+  --shiguang-nav-accent: oklch(0.53 0.055 24);
+}
+
 [data-visual-theme="shiguang"] .shiguang-toolbar-button:nth-child(even) {
   transform: rotate(0.18deg);
 }
@@ -1516,16 +1586,16 @@ select option {
 [data-visual-theme="shiguang"]
   .shiguang-export-button:hover
   .shiguang-nav-label {
-  color: #6f4d38;
+  color: var(--shiguang-nav-accent, var(--shiguang-sage-deep));
   transform: scale(1.28);
 }
 
 [data-visual-theme="shiguang"]
   .shiguang-toolbar-button[aria-pressed="true"]
   .shiguang-nav-label {
-  color: #765543;
+  color: var(--shiguang-nav-accent, var(--shiguang-sage-deep));
   text-decoration: underline;
-  text-decoration-color: rgb(118 85 67 / 42%);
+  text-decoration-color: color-mix(in oklab, currentColor 42%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.28rem;
 }
@@ -1561,9 +1631,27 @@ select option {
   padding: 0.25rem 0.45rem 0.25rem 0.2rem;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  background:
+    radial-gradient(
+      circle at 16% 28%,
+      oklch(0.86 0.055 153 / 55%),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 82% 72%,
+      oklch(0.9 0.045 73 / 48%),
+      transparent 38%
+    );
   box-shadow: none;
   transform: none;
+}
+
+.compute-balance-mark {
+  display: none;
+}
+
+[data-visual-theme="shiguang"] .compute-balance-wallet {
+  display: none;
 }
 
 [data-visual-theme="shiguang"] .compute-balance-mark {
@@ -1574,14 +1662,14 @@ select option {
   justify-content: center;
   border-radius: 0;
   background: transparent;
-  color: rgb(109 76 54);
+  color: var(--shiguang-sage-deep);
   font-family: "Noto Serif SC", "Songti SC", STSong, serif;
   font-size: 0.58rem;
   letter-spacing: 0.08em;
 }
 
 [data-visual-theme="shiguang"] .compute-balance-value {
-  color: rgb(79 57 40);
+  color: oklch(0.34 0.035 151);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1604,9 +1692,9 @@ select option {
   background:
     linear-gradient(
       115deg,
-      rgb(244 236 218 / 72%),
-      rgb(251 247 237 / 54%) 45%,
-      rgb(230 235 216 / 44%)
+      oklch(0.92 0.037 153 / 72%),
+      oklch(0.98 0.017 112 / 62%) 45%,
+      oklch(0.91 0.032 215 / 48%)
     ),
     url("/shiguang/home-paper.jpg") center 42% / cover fixed;
 }
@@ -1636,7 +1724,7 @@ select option {
 
 [data-visual-theme="shiguang"] .shiguang-login-title {
   margin: 0;
-  color: rgb(68 50 35);
+  color: var(--shiguang-sage-deep);
   font-family: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
   font-size: clamp(3.7rem, 7vw, 5.2rem);
   font-weight: 400;
@@ -1646,10 +1734,14 @@ select option {
 [data-visual-theme="shiguang"] .shiguang-login-card {
   isolation: isolate;
   border: 0;
-  border-top: 1px solid rgb(101 78 49 / 14%);
-  border-bottom: 1px solid rgb(101 78 49 / 10%);
+  border-top: 1px solid oklch(0.5 0.045 151 / 19%);
+  border-bottom: 1px solid oklch(0.5 0.045 151 / 13%);
   border-radius: 0;
-  background: rgb(253 250 242 / 54%);
+  background: linear-gradient(
+    145deg,
+    oklch(0.985 0.015 119 / 68%),
+    oklch(0.93 0.031 153 / 52%)
+  );
   box-shadow: none;
   animation: shiguang-paper-arrive 420ms cubic-bezier(0.2, 0.72, 0.24, 1) both;
 }
@@ -1658,7 +1750,7 @@ select option {
   gap: 1.5rem;
   padding: 0;
   border: 0;
-  border-bottom: 1px solid rgb(105 81 51 / 14%);
+  border-bottom: 1px solid oklch(0.5 0.045 151 / 17%);
   border-radius: 0;
   background: transparent;
 }
@@ -1672,35 +1764,37 @@ select option {
 
 [data-visual-theme="shiguang"] .shiguang-login-tab.is-active {
   background: transparent;
-  box-shadow: inset 0 -1px 0 rgb(108 76 52 / 72%);
+  color: var(--shiguang-sage-deep);
+  box-shadow: inset 0 -1px 0 var(--shiguang-sage);
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-entry input {
   border-radius: 4px;
-  background: rgb(255 253 247 / 72%);
+  border-color: oklch(0.5 0.045 151 / 20%);
+  background: oklch(0.985 0.014 122 / 78%);
   box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button {
   border-radius: 4px;
-  border-color: rgb(111 82 52 / 18%) !important;
-  background: rgb(244 236 217 / 76%) !important;
-  color: rgb(87 61 40) !important;
+  border-color: oklch(0.5 0.045 151 / 20%) !important;
+  background: oklch(0.9 0.038 153 / 78%) !important;
+  color: var(--shiguang-sage-deep) !important;
   box-shadow: none;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button-google {
-  background: rgb(255 254 249 / 82%) !important;
+  background: oklch(0.985 0.014 122 / 84%) !important;
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button:hover {
-  border-color: rgb(111 82 52 / 34%) !important;
+  border-color: oklch(0.5 0.06 151 / 38%) !important;
   box-shadow: none;
   transform: translateY(-1px);
 }
 
 [data-visual-theme="shiguang"] .shiguang-auth-button:active {
-  box-shadow: inset 0 2px 4px rgb(76 51 29 / 9%);
+  box-shadow: inset 0 2px 4px oklch(0.38 0.04 151 / 10%);
   transform: translateY(1px);
 }
 
@@ -1719,7 +1813,6 @@ select option {
   [data-visual-theme="shiguang"] .shiguang-login-card {
     padding-inline: 1.25rem;
   }
-
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1731,8 +1824,12 @@ select option {
 /* 今日来信：从工作台上方展开一张真正可读的信纸。 */
 [data-visual-theme="shiguang"] .daily-letter-backdrop {
   background:
-    radial-gradient(circle at 50% 12%, rgb(255 252 242 / 74%), transparent 46%),
-    rgb(91 72 48 / 24%);
+    radial-gradient(
+      circle at 50% 12%,
+      oklch(0.96 0.025 148 / 76%),
+      transparent 46%
+    ),
+    oklch(0.42 0.035 151 / 24%);
   backdrop-filter: blur(7px) saturate(0.72);
 }
 
@@ -1744,16 +1841,20 @@ select option {
   position: relative;
   isolation: isolate;
   margin-block: 1rem;
-  border: 1px solid rgb(106 80 49 / 18%);
+  border: 1px solid oklch(0.5 0.045 151 / 20%);
   border-radius: 6px;
   background:
     linear-gradient(
       90deg,
       transparent 0 9%,
-      rgb(145 105 72 / 7%) 9.1%,
+      oklch(0.55 0.07 153 / 8%) 9.1%,
       transparent 9.35%
     ),
-    linear-gradient(180deg, rgb(255 253 247 / 98%), rgb(247 240 222 / 98%)),
+    linear-gradient(
+      180deg,
+      oklch(0.99 0.012 115 / 98%),
+      oklch(0.95 0.029 147 / 98%)
+    ),
     url("/shiguang/home-paper.jpg") center / cover;
   box-shadow: 0 22px 60px -42px rgb(52 37 21 / 62%);
   animation: daily-letter-unfold 420ms cubic-bezier(0.2, 0.72, 0.24, 1) both;
@@ -1782,18 +1883,18 @@ select option {
 }
 
 [data-visual-theme="shiguang"] .daily-letter-close {
-  border: 1px solid rgb(106 80 49 / 14%);
+  border: 1px solid oklch(0.5 0.045 151 / 16%);
   border-radius: 50%;
-  background: rgb(249 243 229 / 72%);
+  background: oklch(0.93 0.032 153 / 74%);
 }
 
 [data-visual-theme="shiguang"] .daily-letter-action {
-  border: 1px solid rgb(106 80 49 / 20%);
+  border: 1px solid oklch(0.55 0.055 82 / 24%);
   border-radius: 7px 10px 7px 9px;
   background: linear-gradient(
     180deg,
-    rgb(255 252 244 / 82%),
-    rgb(235 224 199 / 72%)
+    oklch(0.98 0.019 105 / 84%),
+    oklch(0.92 0.042 76 / 72%)
   );
   box-shadow: 0 4px 10px -7px rgb(74 51 30 / 40%);
 }

@@ -49,6 +49,8 @@ import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
 } from "@/features/storyAgent/types";
+import { useNayin } from "@/features/nayin/NayinContext";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
 import {
   RecordingGlyph,
@@ -222,6 +224,7 @@ export default function StoryAgentChat({
   interactionMode?: "story" | "publishing";
   onOpenPublishingWorkspace?: () => void;
 }) {
+  const { element, visualTheme } = useNayin();
   const {
     messages,
     cardRefs,
@@ -1092,6 +1095,14 @@ export default function StoryAgentChat({
     }
   };
 
+  const lastAssistantId = [...messages]
+    .reverse()
+    .find(message => message.role === "assistant")?.id;
+  const emotionForMessage = (spawnedCardId?: string) =>
+    spawnedCardId
+      ? cardRefs.find(card => card.id === spawnedCardId)?.emotion
+      : undefined;
+
   return (
     <div
       className="monitor-panel relative h-full flex flex-col"
@@ -1306,6 +1317,19 @@ export default function StoryAgentChat({
                       }
                 }
               >
+                {visualTheme === "nayin" && m.role === "assistant" ? (
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <EmotiveWuxingIcon
+                      element={element}
+                      size={26}
+                      emotion={emotionForMessage(m.spawnedCardId)}
+                      animated={m.id === lastAssistantId}
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
+                      聊聊
+                    </span>
+                  </div>
+                ) : null}
                 {m.selectionQuote && (
                   <div className="mb-1.5">
                     <SelectionContextCard
@@ -1507,7 +1531,14 @@ export default function StoryAgentChat({
               style={{ borderColor: "var(--panel-border)" }}
               aria-label="聊聊素材归类建议"
             >
-              <header className="flex items-center px-2.5 py-2">
+              <header className="flex items-center gap-1.5 px-2.5 py-2">
+                {visualTheme === "nayin" ? (
+                  <EmotiveWuxingIcon
+                    element={element}
+                    size={26}
+                    mood="thinking"
+                  />
+                ) : null}
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold">素材归类建议</p>
                   <p className="text-[9.5px] text-muted-foreground">
@@ -1674,6 +1705,18 @@ export default function StoryAgentChat({
                   color: "var(--foreground)",
                 }}
               >
+                {visualTheme === "nayin" ? (
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <EmotiveWuxingIcon
+                      element={element}
+                      size={26}
+                      mood="joy"
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
+                      聊聊
+                    </span>
+                  </div>
+                ) : null}
                 <p className="whitespace-pre-wrap">{returningGreeting}</p>
               </div>
             </div>
@@ -1701,6 +1744,13 @@ export default function StoryAgentChat({
                 borderColor: "var(--panel-border)",
               }}
             >
+              {visualTheme === "nayin" ? (
+                <EmotiveWuxingIcon
+                  element={element}
+                  size={26}
+                  mood="thinking"
+                />
+              ) : null}
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
                 <span
