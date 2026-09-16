@@ -3747,6 +3747,71 @@
       ]
     },
     {
+      "id": "conversational-sound-director",
+      "name": "对话式声音导演",
+      "status": "partial",
+      "userValue": "点击添加声音后，系统先读取当前故事和正式时间线，在聊天框逐题确认有依据的声音需求，再形成可编辑、可保存版本的整套声音方案；当前阶段不会调用供应商或产生费用。",
+      "entryPoints": [
+        "client/src/features/creationEditor/timelineMedia/AddTimelineMediaMenu.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
+      ],
+      "owners": [
+        "shared/storySoundPlan.ts",
+        "server/services/storySoundPlanStore.ts",
+        "server/services/storySoundContext.ts",
+        "server/services/storySoundDirector.ts",
+        "server/routers/storySoundDirector.ts",
+        "client/src/features/creationEditor/soundDirector/useStorySoundDirector.ts",
+        "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.tsx",
+        "client/src/features/creationEditor/soundDirector/SoundPlanTable.tsx"
+      ],
+      "evidence": [
+        "server/services/storySoundPlanStore.test.ts",
+        "server/services/storySoundContext.test.ts",
+        "server/services/storySoundDirector.test.ts",
+        "server/routers.storySoundDirector.test.ts",
+        "client/src/features/creationEditor/soundDirector/useStorySoundDirector.test.tsx",
+        "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.test.tsx",
+        "client/src/features/creationEditor/soundDirector/SoundPlanTable.test.tsx",
+        "client/src/features/creationEditor/timelineMedia/AddTimelineMediaMenu.test.tsx"
+      ],
+      "invariants": [
+        "所有自动问题和方案行必须引用当前 Story、镜头、字幕、人物、正式 Timeline 或用户回答证据；不得为填满轨道而创造人物、台词、事件或声音。",
+        "缺少逐字台词时只允许保存显式标记的 AI 草稿；未经用户确认不得进入未来的报价或生成。",
+        "声音方案是 Story + User 所有的独立权威数据；普通聊天消息和 Timeline 只可作为投影或引用。",
+        "恢复方案版本、修改方案、勾选行或完成问答均不得写 Timeline、调用供应商或产生费用。",
+        "现有手动旁白、音乐、环境声、音效与本地导入入口必须保留。"
+      ],
+      "dependencies": [
+        "timeline-subtitle-audio-editing",
+        "storyboard-voice-lane",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "官方音色、本人音色克隆、可信报价、付费生成、素材库落地和人物对白子轨尚未接入；对应控件明确禁用。",
+        "声音方案尚未完成主仓 localhost:3000 的从入口到保存版本整条人工验收。",
+        "跨标签页冲突当前要求用户显式载入最新版后重新应用本地输入，尚未提供自动字段级合并。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-16",
+          "kind": "feature",
+          "summary": "建立 Story/User 所有的声音方案、本人音色与付费操作领域模型，增加私有样本边界、内容寻址版本、CAS 修订和 local/MySQL 持久化。"
+        },
+        {
+          "date": "2026-09-16",
+          "kind": "feature",
+          "summary": "增加确定性故事声音证据编译器与可恢复线性问答：从整体方向依次处理对白、旁白、配乐、环境声和音效，保留逐字台词，将无原句的表达意图阻断为 AI 草稿，并避免重复建议已有 Timeline 声音。"
+        },
+        {
+          "date": "2026-09-16",
+          "kind": "feature",
+          "summary": "添加声音主入口直接展开聊天并启动逐题声音导演；问答完成后显示可编辑、可勾选、可保存与恢复版本的声音方案。旧分类入口保留为手动添加，音色、报价和生成继续禁用且不会调用供应商。"
+        }
+      ]
+    },
+    {
       "id": "shiguang-illustration-theme",
       "name": "拾光家忆默认插画主题与纳音切换",
       "status": "observing",
