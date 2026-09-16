@@ -54,6 +54,19 @@ const versionFromRecord = (
   createdAt: row.createdAt.toISOString(),
 });
 
+const completedInterviewStateFromVersion = (
+  version: StorySoundPlanVersion
+) => ({
+  schemaVersion: 1 as const,
+  evidenceSnapshotDigest: version.evidenceSnapshotDigest,
+  sourceRevisions: version.sourceRevisions,
+  questions: [],
+  answers: [],
+  reviewSuggestions: [],
+  currentStepIndex: 0,
+  evidenceChanged: false,
+});
+
 export async function loadStorySoundWorkspace(scope: {
   storyId: number;
   userId: number;
@@ -126,6 +139,19 @@ export async function listStorySoundPlanVersions(scope: {
   return rows.map(row => versionFromRecord(row));
 }
 
+export async function getStorySoundPlanVersion(input: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+}) {
+  const row = await getStorySoundPlanVersionRecord(
+    input.versionId,
+    input.storyId,
+    input.userId
+  );
+  return row ? versionFromRecord(row) : null;
+}
+
 export async function restoreStorySoundPlanVersionToWorkspace(input: {
   storyId: number;
   userId: number;
@@ -138,7 +164,8 @@ export async function restoreStorySoundPlanVersionToWorkspace(input: {
     input.userId
   );
   if (!row) throw new Error("Sound plan version not found");
-  const restored = restoreStorySoundPlanVersion(versionFromRecord(row));
+  const version = versionFromRecord(row);
+  const restored = restoreStorySoundPlanVersion(version);
   return saveStorySoundWorkspace({
     storyId: input.storyId,
     userId: input.userId,
@@ -146,7 +173,10 @@ export async function restoreStorySoundPlanVersionToWorkspace(input: {
     draft: restored,
     interviewStatus: "needs_review",
     restoredFromVersionId: restored.restoredFromVersionId,
-    interviewState: undefined,
+    // A restored immutable version is already fully reviewed. Preserve its
+    // evidence provenance so an edited derivative can be saved without
+    // inventing a second interview or weakening the evidence-change check.
+    interviewState: completedInterviewStateFromVersion(version),
     selectionByRowId: restored.selectionByRowId,
   });
 }

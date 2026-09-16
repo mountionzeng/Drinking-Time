@@ -161,5 +161,22 @@ describe("storySoundDirector router", () => {
     });
     expect(restarted.complete).toBe(true);
     expect(restarted.question).toBeNull();
+
+    const edited = await owner.storySoundDirector.editRow({
+      storyId: created.id,
+      expectedRevision: restarted.workspace.revision,
+      rowId: restarted.workspace.rows[0]!.id,
+      text: "我真的回来了。",
+    });
+    expect(edited.status).toBe("ok");
+    if (edited.status !== "ok") return;
+    const savedFromRestored = await owner.storySoundDirector.saveVersion({
+      storyId: created.id,
+      expectedRevision: edited.workspace.revision,
+    });
+    expect(savedFromRestored).toMatchObject({
+      status: "ok",
+      version: { versionNumber: 2 },
+    });
   });
 });

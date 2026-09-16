@@ -8,6 +8,7 @@ import {
   type StorySoundRowKind,
 } from "../../shared/storySoundPlan";
 import {
+  getStorySoundPlanVersion,
   loadStorySoundWorkspace,
   saveStorySoundPlanVersion,
   saveStorySoundWorkspace,
@@ -816,7 +817,29 @@ export async function buildStorySoundPlanVersion(
   if (workspace.revision !== input.expectedRevision) {
     return { status: "conflict" as const, revision: workspace.revision };
   }
-  const state = normalizeStorySoundInterviewState(workspace.interviewState);
+  let state = normalizeStorySoundInterviewState(workspace.interviewState);
+  // Workspaces restored before provenance was preserved have no interview
+  // state. Recover the immutable source version metadata so those drafts can
+  // still become a new version without bypassing evidence validation.
+  if (!state && workspace.restoredFromVersionId) {
+    const restoredVersion = await getStorySoundPlanVersion({
+      storyId: input.storyId,
+      userId: input.userId,
+      versionId: workspace.restoredFromVersionId,
+    });
+    if (restoredVersion) {
+      state = {
+        schemaVersion: 1,
+        evidenceSnapshotDigest: restoredVersion.evidenceSnapshotDigest,
+        sourceRevisions: restoredVersion.sourceRevisions,
+        questions: [],
+        answers: [],
+        reviewSuggestions: [],
+        currentStepIndex: 0,
+        evidenceChanged: false,
+      };
+    }
+  }
   if (!state || state.currentStepIndex < state.questions.length) {
     throw new Error("请先完成声音问答");
   }
