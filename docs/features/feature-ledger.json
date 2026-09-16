@@ -3760,6 +3760,8 @@
         "server/services/storySoundPlanStore.ts",
         "server/services/storySoundContext.ts",
         "server/services/storySoundDirector.ts",
+        "shared/storyVoiceCapabilities.ts",
+        "server/services/doubaoSpeechCapabilities.ts",
         "server/routers/storySoundDirector.ts",
         "client/src/features/creationEditor/soundDirector/useStorySoundDirector.ts",
         "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.tsx",
@@ -3769,6 +3771,7 @@
         "server/services/storySoundPlanStore.test.ts",
         "server/services/storySoundContext.test.ts",
         "server/services/storySoundDirector.test.ts",
+        "server/services/doubaoSpeechCapabilities.test.ts",
         "server/routers.storySoundDirector.test.ts",
         "client/src/features/creationEditor/soundDirector/useStorySoundDirector.test.tsx",
         "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.test.tsx",
@@ -3780,7 +3783,8 @@
         "缺少逐字台词时只允许保存显式标记的 AI 草稿；未经用户确认不得进入未来的报价或生成。",
         "声音方案是 Story + User 所有的独立权威数据；普通聊天消息和 Timeline 只可作为投影或引用。",
         "恢复方案版本、修改方案、勾选行或完成问答均不得写 Timeline、调用供应商或产生费用。",
-        "现有手动旁白、音乐、环境声、音效与本地导入入口必须保留。"
+        "现有手动旁白、音乐、环境声、音效与本地导入入口必须保留。",
+        "豆包 ASR Key 的存在不得被当作 TTS、官方音色或声音复刻权限；未核验 entitlement、价格或样本数据政策时，对应能力必须局部关闭。"
       ],
       "dependencies": [
         "timeline-subtitle-audio-editing",
@@ -3789,7 +3793,8 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "官方音色、本人音色克隆、可信报价、付费生成、素材库落地和人物对白子轨尚未接入；对应控件明确禁用。",
+        "豆包 TTS/复刻能力合同已建立并默认 fail closed；当前账号 entitlement、官方音色白名单、价格版本及样本地域/留存/删除/DSAR 条款尚未核验，真实 TTS/复刻 smoke 未授权，相关控件继续禁用。",
+        "本人音色克隆向导、可信报价、付费生成、素材库落地和人物对白子轨尚未接入。",
         "跨标签页冲突当前要求用户显式载入最新版后重新应用本地输入，尚未提供自动字段级合并。"
       ],
       "history": [
@@ -3812,6 +3817,11 @@
           "date": "2026-09-16",
           "kind": "verification",
           "summary": "在主仓 localhost:3000 完成入口到方案版本的人工验收：选项与聊天自由回答、上一题、行编辑/勾选、AI 草稿确认、保存 V1、只读查看、基于版本恢复及旧手动添加入口均通过；Timeline 未新增声音，浏览器本轮无新增 error。"
+        },
+        {
+          "date": "2026-09-16",
+          "kind": "feature",
+          "summary": "建立豆包语音服务端能力合同：按凭据、账号 entitlement、资源、官方音色白名单、合同/价格版本和声音样本政策独立 fail closed；客户端只接收自有不透明音色/情感 ID，密钥、资源 ID、外部音色 ID 与原始供应商 payload 不出服务端。本单元未调用供应商或产生费用。"
         }
       ]
     },

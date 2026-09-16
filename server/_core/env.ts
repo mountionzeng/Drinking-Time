@@ -25,7 +25,42 @@ export const ENV = {
   llmSupportsImage: process.env.LLM_SUPPORTS_IMAGE === "true", // 模型是否支持图片输入
   llmSupportsResponseFormat:
     process.env.LLM_SUPPORTS_RESPONSE_FORMAT !== "false", // 模型是否支持 structured output
-  doubaoSpeechApiKey: process.env.DOUBAO_SPEECH_API_KEY ?? "", // 豆包录音文件极速版 API Key
+  // 豆包语音新版控制台共用 API Key。仅配置 Key 不能证明 TTS/复刻权限；
+  // 下列 entitlement/policy 开关必须由控制台与合同事实分别确认后显式开启。
+  doubaoSpeechApiKey: process.env.DOUBAO_SPEECH_API_KEY ?? "",
+  doubaoSpeechNextApiKey: process.env.DOUBAO_SPEECH_API_KEY_NEXT ?? "",
+  doubaoSpeechActiveKeySlot:
+    process.env.DOUBAO_SPEECH_ACTIVE_KEY_SLOT ?? "primary",
+  doubaoSpeechPrimaryCredentialStatus:
+    process.env.DOUBAO_SPEECH_PRIMARY_CREDENTIAL_STATUS ?? "unverified",
+  doubaoSpeechNextCredentialStatus:
+    process.env.DOUBAO_SPEECH_NEXT_CREDENTIAL_STATUS ?? "unverified",
+  doubaoTtsEntitlementVerified:
+    process.env.DOUBAO_TTS_ENTITLEMENT_VERIFIED === "true",
+  doubaoVoiceCloneEntitlementVerified:
+    process.env.DOUBAO_VOICE_CLONE_ENTITLEMENT_VERIFIED === "true",
+  doubaoTtsResourceId: process.env.DOUBAO_TTS_RESOURCE_ID ?? "",
+  doubaoVoiceCloneResourceId: process.env.DOUBAO_VOICE_CLONE_RESOURCE_ID ?? "",
+  doubaoSpeechContractVersion: process.env.DOUBAO_SPEECH_CONTRACT_VERSION ?? "",
+  doubaoSpeechPriceVersion: process.env.DOUBAO_SPEECH_PRICE_VERSION ?? "",
+  doubaoOfficialVoiceAllowlistJson:
+    process.env.DOUBAO_OFFICIAL_VOICE_ALLOWLIST_JSON ?? "",
+  doubaoSpeechPreviewModes: process.env.DOUBAO_SPEECH_PREVIEW_MODES ?? "",
+  doubaoVoiceClonePolicyVerified:
+    process.env.DOUBAO_VOICE_CLONE_POLICY_VERIFIED === "true",
+  doubaoSpeechPolicyRegion: process.env.DOUBAO_SPEECH_POLICY_REGION ?? "",
+  doubaoSpeechRetentionPolicyVersion:
+    process.env.DOUBAO_SPEECH_RETENTION_POLICY_VERSION ?? "",
+  doubaoVoiceCloneProviderTrainingUse:
+    process.env.DOUBAO_VOICE_CLONE_PROVIDER_TRAINING_USE ?? "unverified",
+  doubaoVoiceCloneSampleRetention:
+    process.env.DOUBAO_VOICE_CLONE_SAMPLE_RETENTION ?? "unverified",
+  doubaoVoiceCloneDeletionMode:
+    process.env.DOUBAO_VOICE_CLONE_DELETION_MODE ?? "unverified",
+  doubaoVoiceCloneDeletionSla:
+    process.env.DOUBAO_VOICE_CLONE_DELETION_SLA ?? "",
+  doubaoVoiceCloneDsarSupported:
+    process.env.DOUBAO_VOICE_CLONE_DSAR_SUPPORTED === "true",
   voiceTranscriptionFallbackModel:
     process.env.VOICE_TRANSCRIPTION_FALLBACK_MODEL ?? "gpt-4o-mini-transcribe", // 豆包资源权限异常时临时回退的 302 转写模型
   scriptStructureAgentApiUrl: process.env.SCRIPT_STRUCTURE_AGENT_API_URL ?? "", // 剧本/台词 Agent API 地址（可选）
