@@ -8,9 +8,13 @@ import {
   editStorySoundPlanRow,
   goBackStorySoundInterview,
   resumeStorySoundInterview,
+  setStorySoundPlanRowSelection,
   startOrResumeStorySoundInterview,
 } from "../services/storySoundDirector";
-import { listStorySoundPlanVersions } from "../services/storySoundPlanStore";
+import {
+  listStorySoundPlanVersions,
+  restoreStorySoundPlanVersionToWorkspace,
+} from "../services/storySoundPlanStore";
 import { StorySoundLimitError } from "../services/storySoundLimits";
 
 const storyId = z.number().int().positive();
@@ -110,6 +114,21 @@ export const storySoundDirectorRouter = router({
       owned(() => editStorySoundPlanRow({ ...input, userId: ctx.user.id }))
     ),
 
+  setRowSelected: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        expectedRevision,
+        rowId: z.string().min(1).max(200),
+        selected: z.boolean(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      owned(() =>
+        setStorySoundPlanRowSelection({ ...input, userId: ctx.user.id })
+      )
+    ),
+
   confirmDraftText: protectedProcedure
     .input(
       z.object({
@@ -135,6 +154,23 @@ export const storySoundDirectorRouter = router({
       owned(() =>
         listStorySoundPlanVersions({
           storyId: input.storyId,
+          userId: ctx.user.id,
+        })
+      )
+    ),
+
+  restoreVersion: protectedProcedure
+    .input(
+      z.object({
+        storyId,
+        expectedRevision,
+        versionId: z.string().min(1).max(200),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      owned(() =>
+        restoreStorySoundPlanVersionToWorkspace({
+          ...input,
           userId: ctx.user.id,
         })
       )

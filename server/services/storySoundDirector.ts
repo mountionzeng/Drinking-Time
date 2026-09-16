@@ -354,7 +354,8 @@ function publicSession(
     question: interview ? currentQuestion(interview) : null,
     complete: interview
       ? interview.currentStepIndex >= interview.questions.length
-      : false,
+      : workspace.interviewStatus === "draft" ||
+        workspace.interviewStatus === "needs_review",
   };
 }
 
@@ -364,6 +365,13 @@ export async function startOrResumeStorySoundInterview(
 ) {
   const existing = await loadStorySoundWorkspace(input);
   if (existing && normalizeStorySoundInterviewState(existing.interviewState)) {
+    return publicSession(existing);
+  }
+  if (
+    existing &&
+    (existing.interviewStatus === "draft" ||
+      existing.interviewStatus === "needs_review")
+  ) {
     return publicSession(existing);
   }
   assertInterviewAllowance(input.userId);
@@ -760,6 +768,39 @@ export async function editStorySoundPlanRow(input: {
     restoredFromVersionId: workspace.restoredFromVersionId,
     interviewState: workspace.interviewState,
     selectionByRowId: workspace.selectionByRowId,
+  });
+  return saved.status === "conflict"
+    ? saved
+    : { status: "ok" as const, workspace: saved.workspace };
+}
+
+export async function setStorySoundPlanRowSelection(input: {
+  storyId: number;
+  userId: number;
+  expectedRevision: number;
+  rowId: string;
+  selected: boolean;
+}) {
+  const workspace = await loadStorySoundWorkspace(input);
+  if (!workspace) throw new Error("声音方案尚未开始");
+  if (workspace.revision !== input.expectedRevision) {
+    return { status: "conflict" as const, revision: workspace.revision };
+  }
+  if (!workspace.rows.some(row => row.id === input.rowId)) {
+    throw new Error("声音方案行不存在");
+  }
+  const saved = await saveStorySoundWorkspace({
+    ...input,
+    expectedRevision: workspace.revision,
+    draft: workspace,
+    interviewStatus: workspace.interviewStatus,
+    currentStepId: workspace.currentStepId,
+    restoredFromVersionId: workspace.restoredFromVersionId,
+    interviewState: workspace.interviewState,
+    selectionByRowId: {
+      ...workspace.selectionByRowId,
+      [input.rowId]: input.selected,
+    },
   });
   return saved.status === "conflict"
     ? saved

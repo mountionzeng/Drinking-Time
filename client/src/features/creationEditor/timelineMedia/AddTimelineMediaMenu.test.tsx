@@ -31,4 +31,19 @@ describe("AddTimelineMediaMenu", () => {
     expect(html).toContain("添加声音");
     expect(html).toContain('aria-haspopup="menu"');
   });
+
+  it("makes sound director the primary sound action and keeps manual routes", () => {
+    const html = renderToStaticMarkup(
+      <AddTimelineMediaMenu
+        triggerLabel="添加声音"
+        availableActions={["narration-from-subtitle", "import-music"]}
+        onStartSoundDirector={vi.fn()}
+        onPick={vi.fn()}
+      />
+    );
+    expect(html).toContain('data-testid="start-sound-director"');
+    expect(html).toContain("添加声音");
+    expect(html).toContain("手动添加");
+    expect(html).toContain('aria-label="手动添加声音"');
+  });
 });

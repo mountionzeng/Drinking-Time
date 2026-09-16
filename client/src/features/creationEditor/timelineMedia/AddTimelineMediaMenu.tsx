@@ -20,6 +20,8 @@ export type AddTimelineMediaMenuBinding = {
   disabledReasons?: Partial<Record<AddTimelineMediaAction, string>>;
   pending?: boolean;
   onPick: (action: AddTimelineMediaAction) => void;
+  /** 声音栏主入口：直接进入声音导演；原分类入口仍保留在手动添加里。 */
+  onStartSoundDirector?: () => void;
 };
 
 type MenuItem = {
@@ -66,6 +68,7 @@ export function AddTimelineMediaMenu({
   pending = false,
   triggerLabel = "添加",
   onPick,
+  onStartSoundDirector,
 }: AddTimelineMediaMenuBinding & {
   /** 本轮真正可用的动作；其余以禁用项显示。 */
   triggerLabel?: string;
@@ -88,20 +91,36 @@ export function AddTimelineMediaMenu({
   }, [open]);
 
   const available = new Set(availableActions);
+  const directorEntry =
+    triggerLabel === "添加声音" && onStartSoundDirector != null;
 
   return (
     <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={pending}
-        data-testid="add-timeline-media-trigger"
-        onClick={() => setOpen(value => !value)}
-        className="rounded-sm border border-border px-2 py-0.5 text-[10px] font-medium transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {triggerLabel}
-      </button>
+      <div className="flex items-center gap-1">
+        {directorEntry ? (
+          <button
+            type="button"
+            disabled={pending}
+            data-testid="start-sound-director"
+            onClick={onStartSoundDirector}
+            className="rounded-sm bg-[var(--nayin-accent)] px-2 py-0.5 text-[10px] font-medium text-background transition enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {triggerLabel}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={directorEntry ? "手动添加声音" : triggerLabel}
+          disabled={pending}
+          data-testid="add-timeline-media-trigger"
+          onClick={() => setOpen(value => !value)}
+          className="rounded-sm border border-border px-2 py-0.5 text-[10px] font-medium transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {directorEntry ? "手动添加" : triggerLabel}
+        </button>
+      </div>
       {open ? (
         <div
           role="menu"

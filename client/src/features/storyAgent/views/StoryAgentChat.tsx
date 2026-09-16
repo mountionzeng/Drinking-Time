@@ -108,6 +108,12 @@ import {
   rotateTimelineImage180,
 } from "../chatImageLocalEdit";
 import { DEFAULT_TIMELINE_TRANSFORM } from "@shared/storyMaterial";
+import { SoundDirectorQuestionCard } from "@/features/creationEditor/soundDirector/SoundDirectorQuestionCard";
+import { SoundPlanTable } from "@/features/creationEditor/soundDirector/SoundPlanTable";
+import {
+  shouldRouteChatToSoundDirector,
+  useStorySoundDirector,
+} from "@/features/creationEditor/soundDirector/useStorySoundDirector";
 
 type OpenCreationChatDetail = {
   draftMessage?: string;
@@ -268,6 +274,9 @@ export default function StoryAgentChat({
     Record<string, StoryboardImageRerenderResult>
   >({});
   const creationEditor = useOptionalCreationEditor();
+  const soundDirector = useStorySoundDirector(
+    creationEditor?.activeStoryId ?? remoteStoryId ?? activeStoryId ?? null
+  );
   const activeSelectionReadiness = activeSelection
     ? selectionReadiness(
         activeSelection,
@@ -335,7 +344,8 @@ export default function StoryAgentChat({
     [rerenderSelectionImage, rerenderingMessageId]
   );
   const [input, setInput] = useState("");
-  const [photoAssetRequest, setPhotoAssetRequest] = useState<PhotoAssetRequest | null>(null);
+  const [photoAssetRequest, setPhotoAssetRequest] =
+    useState<PhotoAssetRequest | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
   const [isMediaDragActive, setIsMediaDragActive] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
@@ -358,12 +368,20 @@ export default function StoryAgentChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const selectedImage = activeSelection?.sourceType === "storyboard-image"
-    ? creationEditor?.materialState?.shots.flatMap(shot => [...shot.imageVersions, ...(shot.relatedImages ?? [])])
-        .find(image => image.id === activeSelection.imageId)
-    : undefined;
+  const selectedImage =
+    activeSelection?.sourceType === "storyboard-image"
+      ? creationEditor?.materialState?.shots
+          .flatMap(shot => [
+            ...shot.imageVersions,
+            ...(shot.relatedImages ?? []),
+          ])
+          .find(image => image.id === activeSelection.imageId)
+      : undefined;
   useEffect(() => {
-    if (interactionMode === "story" && activeSelection?.sourceType === "storyboard-image") {
+    if (
+      interactionMode === "story" &&
+      activeSelection?.sourceType === "storyboard-image"
+    ) {
       inputRef.current?.focus();
       inputRef.current?.scrollIntoView({ block: "nearest" });
     }
@@ -372,8 +390,11 @@ export default function StoryAgentChat({
   const pendingMediaRef = useRef<PendingChatMedia[]>([]);
   const mediaSubmissionRef = useRef(false);
   const mediaScopeEpochRef = useRef(0);
-  const mediaStoryIdRef = useRef(creationEditor?.activeStoryId ?? remoteStoryId ?? null);
-  mediaStoryIdRef.current = creationEditor?.activeStoryId ?? remoteStoryId ?? null;
+  const mediaStoryIdRef = useRef(
+    creationEditor?.activeStoryId ?? remoteStoryId ?? null
+  );
+  mediaStoryIdRef.current =
+    creationEditor?.activeStoryId ?? remoteStoryId ?? null;
   const dragDepthRef = useRef(0);
   const currentIntent = confirmedIntent ?? pendingIntentDraft;
   const currentNarrativeIntent = confirmedIntent
@@ -412,13 +433,19 @@ export default function StoryAgentChat({
   const inputPlaceholder =
     interactionMode === "publishing"
       ? "先把真实想法说出来，聊聊会一次只追问一个关键点…"
-      : activeSelection
-        ? activeSelection.sourceType === "storyboard-image" ? "描述这张图怎么改，例如：让小猫看向镜头…" : "告诉聊聊这处想怎么改…"
-        : pendingMedia.length > 0
-          ? pendingMedia.some(item => item.kind === "image")
-            ? "想提取哪部分？例如小猫、背景，或只保存图片…"
-            : "补一句你希望怎么用这些素材…"
-          : "说说这一版哪里需要推进…";
+      : soundDirector.active && soundDirector.session?.question
+        ? "回答当前声音问题，或点击上面的选项…"
+        : soundDirector.active && soundDirector.session?.complete
+          ? "请在上方声音方案中修改；结束声音导演后可继续普通聊天"
+          : activeSelection
+            ? activeSelection.sourceType === "storyboard-image"
+              ? "描述这张图怎么改，例如：让小猫看向镜头…"
+              : "告诉聊聊这处想怎么改…"
+            : pendingMedia.length > 0
+              ? pendingMedia.some(item => item.kind === "image")
+                ? "想提取哪部分？例如小猫、背景，或只保存图片…"
+                : "补一句你希望怎么用这些素材…"
+              : "说说这一版哪里需要推进…";
 
   const startRenamingTitle = () => {
     setTitleDraft(storyDisplayTitle);
@@ -726,6 +753,8 @@ export default function StoryAgentChat({
     materialAdvices,
     mediaProgress,
     photoAssetRequest,
+    soundDirector.active,
+    soundDirector.session?.workspace.revision,
   ]);
 
   const handleSubmit = async () => {
@@ -737,6 +766,20 @@ export default function StoryAgentChat({
       resizeAndFocusInput();
       return;
     }
+    if (
+      shouldRouteChatToSoundDirector({
+        active: soundDirector.active,
+        hasQuestion: Boolean(soundDirector.session?.question),
+        text,
+      })
+    ) {
+      setInput("");
+      const accepted = await soundDirector.answer({ freeText: text });
+      if (!accepted) setInput(text);
+      resizeAndFocusInput();
+      return;
+    }
+    if (soundDirector.active) return;
     if (
       (!text && pendingMedia.length === 0) ||
       isReplying ||
@@ -758,7 +801,10 @@ export default function StoryAgentChat({
       return;
     }
 
-    const photoAction = chatPhotoSubmissionAction(text, pendingMedia.some(item => item.kind === "image"));
+    const photoAction = chatPhotoSubmissionAction(
+      text,
+      pendingMedia.some(item => item.kind === "image")
+    );
     if (photoAction === "ask") {
       toast.info(PHOTO_EXTRACTION_QUESTION);
       resizeAndFocusInput();
@@ -769,11 +815,16 @@ export default function StoryAgentChat({
       return;
     }
 
-    if (selectionRoute.kind === "ordinary-chat" && isPhotoAssetRequest(text) && creationEditor?.activeStoryId) {
+    if (
+      selectionRoute.kind === "ordinary-chat" &&
+      isPhotoAssetRequest(text) &&
+      creationEditor?.activeStoryId
+    ) {
       setPhotoAssetRequest({
         storyId: creationEditor.activeStoryId,
         instruction: text,
-        notice: "请在下方展开对应资产，核对照片特征后确认生成费用；没有照片时，先用聊天框添加照片。",
+        notice:
+          "请在下方展开对应资产，核对照片特征后确认生成费用；没有照片时，先用聊天框添加照片。",
       });
       setInput("");
       resizeAndFocusInput();
@@ -920,7 +971,9 @@ export default function StoryAgentChat({
     > = [];
     const failures: string[] = [];
     const mediaScopeEpoch = mediaScopeEpochRef.current;
-    const isCurrentMediaScope = () => mediaStoryIdRef.current === storyId && mediaScopeEpochRef.current === mediaScopeEpoch;
+    const isCurrentMediaScope = () =>
+      mediaStoryIdRef.current === storyId &&
+      mediaScopeEpochRef.current === mediaScopeEpoch;
 
     mediaSubmissionRef.current = true;
     setIsImportingMedia(true);
@@ -953,8 +1006,14 @@ export default function StoryAgentChat({
             fileName: attachment.file.name,
             assetId: result.kind === "image" ? result.imageId : result.takeId,
             imageUrl: result.kind === "image" ? result.imageUrl : undefined,
-            photoIndex: attachment.kind === "image" ? attachments.slice(0, index + 1).filter(item => item.kind === "image").length : undefined,
-            totalPhotos: attachments.filter(item => item.kind === "image").length,
+            photoIndex:
+              attachment.kind === "image"
+                ? attachments
+                    .slice(0, index + 1)
+                    .filter(item => item.kind === "image").length
+                : undefined,
+            totalPhotos: attachments.filter(item => item.kind === "image")
+              .length,
             targetShotNo:
               result.kind === "video" ? (targetShot?.shotNo ?? null) : null,
             targetCueCode:
@@ -978,24 +1037,30 @@ export default function StoryAgentChat({
       if (imported.length === 0) return;
 
       if (photoAction === "save") {
-        setPhotoAssetRequest({ storyId, instruction: "", notice: "照片已保存到素材库，没有识图提取、生成新图或替换镜头。" });
+        setPhotoAssetRequest({
+          storyId,
+          instruction: "",
+          notice: "照片已保存到素材库，没有识图提取、生成新图或替换镜头。",
+        });
         setInput("");
         resizeAndFocusInput();
         return;
       }
 
-      if (photoAction === "extract" && imported.some(item => item.kind === "image")) {
+      if (
+        photoAction === "extract" &&
+        imported.some(item => item.kind === "image")
+      ) {
         const extraction = await extractImportedPhotoFeatures({
           imported,
           focus: text,
           extract: photo => {
-            if (!isCurrentMediaScope()) throw new Error("已切换故事，停止提取后续照片");
+            if (!isCurrentMediaScope())
+              throw new Error("已切换故事，停止提取后续照片");
             return creationEditor.extractPhotoVisualFeatures(photo);
           },
           onProgress: (completed, total) =>
-            setMediaProgress(
-              `正在按你的要求提取 ${completed} / ${total}`
-            ),
+            setMediaProgress(`正在按你的要求提取 ${completed} / ${total}`),
         });
         if (!isCurrentMediaScope()) return;
         setPhotoAssetRequest({
@@ -1022,7 +1087,10 @@ export default function StoryAgentChat({
         }
       }
 
-      if (photoAction === "extract" && imported.some(item => item.kind === "image")) {
+      if (
+        photoAction === "extract" &&
+        imported.some(item => item.kind === "image")
+      ) {
         setInput("");
         resizeAndFocusInput();
         return;
@@ -1347,16 +1415,32 @@ export default function StoryAgentChat({
                   </div>
                 )}
                 {m.imageRevision ? (
-                  <button type="button" className="mb-2 block w-full text-left"
-                    aria-label="选中新版图片继续修改" disabled={m.imageRevision.storyId !== activeStoryId}
-                    onClick={() => { const image = m.imageRevision!; setActiveSelection({
-                      sourceType: "storyboard-image", sourceId: String(image.imageId),
-                      selectedText: `镜头 ${image.shotNo} · 新版图片 #${image.imageId}`,
-                      fullText: `镜头 ${image.shotNo} 的新版候选图片`, ...image,
-                      objectVersion: `image:${image.imageId}`, materialStatus: "current-image",
-                    }); }}>
-                    <img src={m.imageRevision.imageUrl} alt="修改后的新版候选" className="max-h-64 w-full rounded-lg object-contain" />
-                    <span className="text-[10px] text-muted-foreground">新版候选 · 点击继续修改；采用请在画面行选择</span>
+                  <button
+                    type="button"
+                    className="mb-2 block w-full text-left"
+                    aria-label="选中新版图片继续修改"
+                    disabled={m.imageRevision.storyId !== activeStoryId}
+                    onClick={() => {
+                      const image = m.imageRevision!;
+                      setActiveSelection({
+                        sourceType: "storyboard-image",
+                        sourceId: String(image.imageId),
+                        selectedText: `镜头 ${image.shotNo} · 新版图片 #${image.imageId}`,
+                        fullText: `镜头 ${image.shotNo} 的新版候选图片`,
+                        ...image,
+                        objectVersion: `image:${image.imageId}`,
+                        materialStatus: "current-image",
+                      });
+                    }}
+                  >
+                    <img
+                      src={m.imageRevision.imageUrl}
+                      alt="修改后的新版候选"
+                      className="max-h-64 w-full rounded-lg object-contain"
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      新版候选 · 点击继续修改；采用请在画面行选择
+                    </span>
                   </button>
                 ) : null}
                 {m.role === "user" && m.photoUrl && (
@@ -1526,6 +1610,36 @@ export default function StoryAgentChat({
             </motion.div>
           ))}
         </AnimatePresence>
+
+        {soundDirector.active ? (
+          <div className="space-y-2" aria-live="polite">
+            <SoundDirectorQuestionCard director={soundDirector} />
+            <SoundPlanTable director={soundDirector} />
+            {soundDirector.conflictRevision != null ? (
+              <section
+                role="alert"
+                className="w-[96%] rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-900"
+              >
+                另一处页面已经更新了声音方案。你当前输入还保留在本页，请先载入较新的版本再决定如何合并。
+                <button
+                  type="button"
+                  onClick={() => void soundDirector.refreshAfterConflict()}
+                  className="ml-2 underline underline-offset-2"
+                >
+                  载入最新方案
+                </button>
+              </section>
+            ) : null}
+            {soundDirector.error ? (
+              <p
+                role="alert"
+                className="w-[96%] text-[10px] leading-relaxed text-destructive"
+              >
+                {soundDirector.error}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {materialAdvices.length > 0 ? (
           <motion.div
@@ -1715,11 +1829,7 @@ export default function StoryAgentChat({
               >
                 {visualTheme === "nayin" ? (
                   <div className="mb-1 flex items-center gap-1.5">
-                    <EmotiveWuxingIcon
-                      element={element}
-                      size={26}
-                      mood="joy"
-                    />
+                    <EmotiveWuxingIcon element={element} size={26} mood="joy" />
                     <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
                       聊聊
                     </span>
@@ -1736,7 +1846,11 @@ export default function StoryAgentChat({
             key={creationEditor.activeStoryId}
             storyId={creationEditor.activeStoryId}
             materialState={creationEditor.materialState}
-            request={photoAssetRequest?.storyId === creationEditor.activeStoryId ? photoAssetRequest : null}
+            request={
+              photoAssetRequest?.storyId === creationEditor.activeStoryId
+                ? photoAssetRequest
+                : null
+            }
           />
         ) : null}
         {isReplying && (
@@ -1915,10 +2029,13 @@ export default function StoryAgentChat({
               {pendingMedia.length} 个素材待发送 · 视频暂放当前镜头
             </p>
             {pendingMedia.some(item => item.kind === "image") ? (
-              <ChatPhotoExtractionQuestion disabled={isImportingMedia || isReplying} onReply={reply => {
-                setInput(reply);
-                resizeAndFocusInput();
-              }} />
+              <ChatPhotoExtractionQuestion
+                disabled={isImportingMedia || isReplying}
+                onReply={reply => {
+                  setInput(reply);
+                  resizeAndFocusInput();
+                }}
+              />
             ) : null}
           </div>
         ) : null}
@@ -1950,7 +2067,12 @@ export default function StoryAgentChat({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isReplying || voice.isBusy || isImportingMedia}
+                disabled={
+                  soundDirector.active ||
+                  isReplying ||
+                  voice.isBusy ||
+                  isImportingMedia
+                }
                 className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                 aria-label="添加图片或视频"
                 title="添加图片或视频"
@@ -2004,7 +2126,11 @@ export default function StoryAgentChat({
             }}
             onKeyDown={handleKey}
             placeholder={inputPlaceholder}
-            disabled={isReplying || isImportingMedia}
+            disabled={
+              isReplying ||
+              isImportingMedia ||
+              (soundDirector.active && !soundDirector.session?.question)
+            }
             className="flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
             style={{
               borderColor: "var(--panel-border)",
@@ -2020,6 +2146,7 @@ export default function StoryAgentChat({
                 (interactionMode === "publishing" ||
                   pendingMedia.length === 0)) ||
               isReplying ||
+              (soundDirector.active && !soundDirector.session?.question) ||
               voice.isBusy ||
               isImportingMedia
             }

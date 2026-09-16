@@ -1016,7 +1016,8 @@ export default function EditingNleWorkspace({
   const [videoClipboard, setVideoClipboard] =
     useState<VideoClipboardPayload | null>(null);
   const [savingVideoEdit, setSavingVideoEdit] = useState(false);
-  const [imageEditorTarget, setImageEditorTarget] = useState<ImageClipEditorTarget | null>(null);
+  const [imageEditorTarget, setImageEditorTarget] =
+    useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
@@ -2097,6 +2098,19 @@ export default function EditingNleWorkspace({
     [playbackClock.playheadMs, subtitleCandidates, timelineMedia]
   );
 
+  const startSoundDirector = useCallback(() => {
+    if (activeStoryId == null) {
+      toast.error("请先打开一个故事");
+      return;
+    }
+    window.dispatchEvent(new Event("dt:open-creation-chat"));
+    window.dispatchEvent(
+      new CustomEvent("dt:start-sound-director", {
+        detail: { storyId: activeStoryId },
+      })
+    );
+  }, [activeStoryId]);
+
   const audioCreationCue = useMemo(() => {
     if (audioCreationRequest?.kind !== "narration") return null;
     return (
@@ -2211,6 +2225,7 @@ export default function EditingNleWorkspace({
         },
         pending: timelineMedia.pending,
         onPick: pickTimelineMedia,
+        onStartSoundDirector: startSoundDirector,
       },
       anchors: timelineAnchors,
       overlays: timelineOverlays,
@@ -2559,6 +2574,7 @@ export default function EditingNleWorkspace({
       subtitleCandidates.length,
       timelineMedia,
       pickTimelineMedia,
+      startSoundDirector,
       chatCutTimeline,
       splitAtPlayhead,
       timelineAnchors,
