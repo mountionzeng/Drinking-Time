@@ -290,22 +290,226 @@ export type InsertEmotionDailyLetter = typeof emotionDailyLetters.$inferInsert;
  * - userId 是所有者（owner）。Phase 3 加 storyMembers 表做共享时再放权
  * - projectId 可空：当前 iframe 里 PROJECTS 是 mock 的，等真项目模型起来再绑
  */
-export const stories = mysqlTable("stories", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  projectId: int("projectId"),
-  title: varchar("title", { length: 255 }).notNull(),
-  logline: text("logline"),
-  theme: text("theme"),
-  arc: text("arc"),
-  summary: text("summary"),
-  body: json("body").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const stories = mysqlTable(
+  "stories",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    projectId: int("projectId"),
+    title: varchar("title", { length: 255 }).notNull(),
+    logline: text("logline"),
+    theme: text("theme"),
+    arc: text("arc"),
+    summary: text("summary"),
+    body: json("body").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    idOwnerUnique: uniqueIndex("stories_id_owner_unique").on(
+      table.id,
+      table.userId
+    ),
+  })
+);
 
 export type Story = typeof stories.$inferSelect;
 export type InsertStory = typeof stories.$inferInsert;
+
+/** Mutable conversational sound-director workspace; exactly one per owned Story. */
+export const storySoundWorkspaces = mysqlTable(
+  "story_sound_workspaces",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId").notNull(),
+    userId: int("userId").notNull(),
+    revision: int("revision").notNull().default(1),
+    interviewStatus: mysqlEnum("interviewStatus", [
+      "interviewing",
+      "draft",
+      "needs_review",
+    ]).notNull(),
+    currentStepId: varchar("currentStepId", { length: 128 }),
+    restoredFromVersionId: varchar("restoredFromVersionId", { length: 64 }),
+    draft: json("draft").notNull(),
+    selectionByRowId: json("selectionByRowId").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerUnique: uniqueIndex("story_sound_workspaces_owner_unique").on(
+      table.storyId,
+      table.userId
+    ),
+    storyOwnerFk: foreignKey({
+      columns: [table.storyId, table.userId],
+      foreignColumns: [stories.id, stories.userId],
+      name: "story_sound_workspaces_story_owner_fk",
+    }).onDelete("cascade"),
+  })
+);
+export type StorySoundWorkspaceRecord =
+  typeof storySoundWorkspaces.$inferSelect;
+
+/** Immutable content-addressed creative/evidence snapshot. */
+export const storySoundPlanVersions = mysqlTable(
+  "story_sound_plan_versions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    publicId: varchar("publicId", { length: 64 }).notNull(),
+    storyId: int("storyId").notNull(),
+    userId: int("userId").notNull(),
+    versionNumber: int("versionNumber").notNull(),
+    contentDigest: varchar("contentDigest", { length: 64 }).notNull(),
+    evidenceSnapshotDigest: varchar("evidenceSnapshotDigest", {
+      length: 64,
+    }).notNull(),
+    sourceRevisions: json("sourceRevisions").notNull(),
+    draft: json("draft").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    publicIdUnique: uniqueIndex("story_sound_versions_public_id_unique").on(
+      table.publicId
+    ),
+    versionUnique: uniqueIndex("story_sound_versions_number_unique").on(
+      table.storyId,
+      table.userId,
+      table.versionNumber
+    ),
+    contentUnique: uniqueIndex("story_sound_versions_content_unique").on(
+      table.storyId,
+      table.userId,
+      table.contentDigest,
+      table.evidenceSnapshotDigest
+    ),
+    storyOwnerFk: foreignKey({
+      columns: [table.storyId, table.userId],
+      foreignColumns: [stories.id, stories.userId],
+      name: "story_sound_versions_story_owner_fk",
+    }).onDelete("cascade"),
+  })
+);
+export type StorySoundPlanVersionRecord =
+  typeof storySoundPlanVersions.$inferSelect;
+
+/** Paid/provider row receipt. Story deletion tombstones instead of cascading this row. */
+export const storySoundRowOperations = mysqlTable(
+  "story_sound_row_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    publicId: varchar("publicId", { length: 64 }).notNull(),
+    storyId: int("storyId"),
+    storyIdSnapshot: int("storyIdSnapshot").notNull(),
+    userId: int("userId").notNull(),
+    rowId: varchar("rowId", { length: 128 }).notNull(),
+    versionId: varchar("versionId", { length: 64 }).notNull(),
+    requestDigest: varchar("requestDigest", { length: 64 }).notNull(),
+    quoteId: varchar("quoteId", { length: 128 }).notNull(),
+    state: mysqlEnum("state", [
+      "prepared",
+      "submitting",
+      "ready",
+      "failed",
+      "submission_unknown",
+      "provider_succeeded_media_missing",
+    ]).notNull(),
+    amountMinorUnits: bigint("amountMinorUnits", { mode: "number" }).notNull(),
+    currency: varchar("currency", { length: 16 }).notNull(),
+    assetId: int("assetId"),
+    timelineClipId: varchar("timelineClipId", { length: 128 }),
+    tombstonedAt: timestamp("tombstonedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    publicIdUnique: uniqueIndex("story_sound_row_ops_public_id_unique").on(
+      table.publicId
+    ),
+    ownerRequestUnique: uniqueIndex(
+      "story_sound_row_ops_owner_request_unique"
+    ).on(table.userId, table.storyIdSnapshot, table.rowId, table.requestDigest),
+    ownerLookup: index("story_sound_row_ops_owner_index").on(
+      table.storyId,
+      table.userId
+    ),
+  })
+);
+export type StorySoundRowOperationRecord =
+  typeof storySoundRowOperations.$inferSelect;
+
+/** Reusable, redacted, user-owned cloned voice identity. */
+export const storyVoiceProfiles = mysqlTable(
+  "story_voice_profiles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    publicId: varchar("publicId", { length: 64 }).notNull(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profile: json("profile").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    publicIdUnique: uniqueIndex("story_voice_profiles_public_id_unique").on(
+      table.publicId
+    ),
+    idOwnerUnique: uniqueIndex("story_voice_profiles_id_owner_unique").on(
+      table.id,
+      table.userId
+    ),
+    ownerPublicUnique: uniqueIndex(
+      "story_voice_profiles_owner_public_unique"
+    ).on(table.userId, table.publicId),
+  })
+);
+export type StoryVoiceProfileRecord = typeof storyVoiceProfiles.$inferSelect;
+
+/** One activation reservation/result per owner/profile/provider/price version. */
+export const storyVoiceActivationOperations = mysqlTable(
+  "story_voice_activation_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    publicId: varchar("publicId", { length: 64 }).notNull(),
+    profileId: int("profileId").notNull(),
+    profilePublicId: varchar("profilePublicId", { length: 64 }).notNull(),
+    userId: int("userId").notNull(),
+    provider: varchar("provider", { length: 64 }).notNull(),
+    priceVersion: varchar("priceVersion", { length: 128 }).notNull(),
+    requestDigest: varchar("requestDigest", { length: 64 }).notNull(),
+    state: mysqlEnum("state", [
+      "prepared",
+      "active",
+      "failed",
+      "submission_unknown",
+    ])
+      .notNull()
+      .default("prepared"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    publicIdUnique: uniqueIndex("story_voice_activation_public_id_unique").on(
+      table.publicId
+    ),
+    idempotencyUnique: uniqueIndex(
+      "story_voice_activation_idempotency_unique"
+    ).on(
+      table.userId,
+      table.profilePublicId,
+      table.provider,
+      table.priceVersion
+    ),
+    profileOwnerFk: foreignKey({
+      columns: [table.profileId, table.userId],
+      foreignColumns: [storyVoiceProfiles.id, storyVoiceProfiles.userId],
+      name: "story_voice_activation_profile_owner_fk",
+    }).onDelete("cascade"),
+  })
+);
+export type StoryVoiceActivationOperationRecord =
+  typeof storyVoiceActivationOperations.$inferSelect;
 
 /**
  * StoryBody — 期望塞进 stories.body 的形状。Drizzle 把 json 列推成 unknown，
