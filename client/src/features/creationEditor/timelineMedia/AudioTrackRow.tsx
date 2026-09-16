@@ -148,7 +148,11 @@ function waveformClip(
     id: clip.id,
     name: `素材-${clip.assetId}`,
     kind:
-      kind === "narration" ? "voice" : kind === "music" ? "music" : "source",
+      kind === "dialogue" || kind === "narration"
+        ? "voice"
+        : kind === "music"
+          ? "music"
+          : "source",
     audioUrl: audioAssetUrl(storyId, clip.assetId),
     startMs: timelineFramesToMs(clip.timelineStartFrame),
     endMs: timelineFramesToMs(audioClipEndFrame(clip)),
@@ -364,6 +368,9 @@ export function AudioTrackRow({
             />
             <span className="pointer-events-none absolute bottom-0 left-1.5 max-w-[calc(100%-12px)] truncate bg-[var(--background)]/75 px-1 font-mono text-[7px] leading-3">
               {profile.label} · 素材 #{clip.assetId}
+              {track.kind === "dialogue"
+                ? ` · ${clip.speakerLabel ?? (clip.speakerId === "unassigned" ? "未分配人物" : clip.speakerId)}`
+                : ""}
               {clip.textStale ? " · 文字已变化" : ""}
             </span>
             <span
@@ -474,7 +481,7 @@ export function AudioTrackSection({
           data-testid="storyboard-audio-empty-row"
           className="flex h-12 items-center justify-center border-b border-r text-[8px] text-muted-foreground/70"
         >
-          旁白、音乐、环境声、音效和原声会显示在这里
+          对白、旁白、音乐、环境声、音效和原声会显示在这里
         </div>
       </>
     );

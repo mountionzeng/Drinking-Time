@@ -291,6 +291,31 @@ describe("timelineMedia router", () => {
       toStartFrame: 90,
     });
     expect(moved).toMatchObject({ status: "ok", changed: true });
+
+    const dialogue = await caller.timelineMedia.reclassifyAudioClip({
+      storyId,
+      operation: { editorSessionEpoch: "tab-a", operationId: "op-dialogue" },
+      clipId,
+      toKind: "dialogue",
+      speakerId: "unassigned",
+      speakerLabel: "未分配人物",
+    });
+    expect(dialogue).toMatchObject({ status: "ok", changed: true });
+    const afterDialogue = (await getStoryTimeline(storyId, 710)) as {
+      extensions?: {
+        audioTracks?: {
+          tracks: {
+            kind: string;
+            clips: Array<{ id: string; speakerId?: string }>;
+          }[];
+        };
+      };
+    } | null;
+    expect(
+      afterDialogue!.extensions!.audioTracks!.tracks.find(
+        track => track.kind === "dialogue"
+      )!.clips[0]
+    ).toMatchObject({ id: clipId, speakerId: "unassigned" });
   });
 
   it("rejects inserting a clip that points at another Story's asset", async () => {

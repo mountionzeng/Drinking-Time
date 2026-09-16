@@ -12,6 +12,7 @@ import {
   bindSpeechForStory,
   deleteAudioClipForStory,
   insertAudioClipForStory,
+  insertGeneratedAudioClipForStory,
   moveAudioClipForStory,
   moveBoundSpeechForStory,
   reclassifyAudioClipForStory,
@@ -236,6 +237,68 @@ describe("timelineAudioEditing", () => {
       clipId,
     });
     expect(deleted).toMatchObject({ status: "ok", timelineVersion: v + 1 });
+  });
+
+  it("round-trips generated dialogue metadata and keeps it through free clip edits", async () => {
+    const storyId = await seedStory();
+    const assetId = await seedReadyAsset(storyId, 120);
+    const inserted = await insertGeneratedAudioClipForStory({
+      storyId,
+      userId: USER_ID,
+      operation: nextOp(),
+      kind: "dialogue",
+      assetId,
+      timelineStartFrame: 30,
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+      soundPlanVersionId: "version-1",
+      soundPlanRowId: "row-1",
+    });
+    expect(inserted).toMatchObject({ status: "ok", changed: true });
+    const dialogue = (await audioState(storyId))!.tracks.find(
+      track => track.kind === "dialogue"
+    )!.clips[0] as {
+      id: string;
+      assetId: number;
+      speakerId: string;
+      speakerLabel: string;
+      soundPlanVersionId: string;
+      soundPlanRowId: string;
+    };
+    expect(dialogue).toMatchObject({
+      assetId,
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+      soundPlanVersionId: "version-1",
+      soundPlanRowId: "row-1",
+    });
+
+    await moveAudioClipForStory({
+      storyId,
+      userId: USER_ID,
+      operation: nextOp(),
+      clipId: dialogue.id,
+      toStartFrame: 90,
+    });
+    await setAudioClipGainForStory({
+      storyId,
+      userId: USER_ID,
+      operation: nextOp(),
+      clipId: dialogue.id,
+      gain: 0.5,
+    });
+    expect(
+      (await audioState(storyId))!.tracks.find(
+        track => track.kind === "dialogue"
+      )!.clips[0]
+    ).toMatchObject({
+      assetId,
+      timelineStartFrame: 90,
+      gain: 0.5,
+      speakerId: "character-mother",
+      soundPlanVersionId: "version-1",
+      soundPlanRowId: "row-1",
+    });
   });
 
   it("no-speed invariant: trim-left syncs sourceIn and shifts start; the source range is never stretched by a move", async () => {

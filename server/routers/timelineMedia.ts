@@ -389,6 +389,8 @@ export const timelineMediaRouter = router({
         operation: operationInput,
         clipId,
         toKind: audioKind,
+        speakerId: z.string().min(1).max(200).optional(),
+        speakerLabel: z.string().min(1).max(200).optional(),
       })
     )
     .mutation(({ ctx, input }) =>
@@ -398,6 +400,8 @@ export const timelineMediaRouter = router({
         operation: input.operation,
         clipId: input.clipId,
         toKind: input.toKind,
+        ...(input.speakerId ? { speakerId: input.speakerId } : {}),
+        ...(input.speakerLabel ? { speakerLabel: input.speakerLabel } : {}),
       })
     ),
 

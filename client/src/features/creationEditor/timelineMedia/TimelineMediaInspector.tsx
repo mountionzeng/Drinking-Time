@@ -85,6 +85,8 @@ export function TimelineMediaInspector({
   onReclassifyAudio?: (input: {
     clipId: string;
     toKind: AudioTrackKind;
+    speakerId?: string;
+    speakerLabel?: string;
   }) => Promise<void> | void;
   onDeleteAudio?: (clipId: string) => Promise<void> | void;
   narrationCandidates?: TimelineNarrationCandidate[];
@@ -262,12 +264,19 @@ export function TimelineMediaInspector({
               disabled={pending || !onReclassifyAudio}
               data-testid="timeline-media-inspector-audio-kind"
               className="rounded-sm border border-border/60 bg-background px-1 py-0.5 text-foreground"
-              onChange={event =>
+              onChange={event => {
+                const toKind = event.currentTarget.value as AudioTrackKind;
                 void onReclassifyAudio?.({
                   clipId: clip.id,
-                  toKind: event.currentTarget.value as AudioTrackKind,
-                })
-              }
+                  toKind,
+                  ...(toKind === "dialogue"
+                    ? {
+                        speakerId: "unassigned",
+                        speakerLabel: "未分配人物",
+                      }
+                    : {}),
+                });
+              }}
             >
               {AUDIO_TRACK_KINDS.map(value => (
                 <option key={value} value={value}>

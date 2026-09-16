@@ -7,9 +7,10 @@ import {
 } from "./timelineMediaCapabilities";
 
 describe("timelineMediaCapabilities", () => {
-  it("keeps the one subtitle lane above all five fixed audio lanes", () => {
+  it("keeps subtitle above dialogue and the five existing audio lanes", () => {
     expect(TIMELINE_MEDIA_KIND_ORDER).toEqual([
       "subtitle",
+      "dialogue",
       "narration",
       "music",
       "ambience",
@@ -17,6 +18,7 @@ describe("timelineMediaCapabilities", () => {
       "source",
     ]);
     expect(AUDIO_KIND_ORDER).toEqual([
+      "dialogue",
       "narration",
       "music",
       "ambience",
@@ -29,6 +31,7 @@ describe("timelineMediaCapabilities", () => {
     expect(timelineMediaSupports("subtitle", "edit-text")).toBe(true);
     expect(timelineMediaSupports("subtitle", "gain")).toBe(false);
     expect(timelineMediaSupports("narration", "regenerate")).toBe(true);
+    expect(timelineMediaSupports("dialogue", "regenerate")).toBe(true);
     expect(timelineMediaSupports("music", "regenerate")).toBe(false);
     expect(timelineMediaSupports("music", "gain")).toBe(true);
     expect(timelineMediaSupports("source", "reclassify")).toBe(true);
@@ -49,6 +52,7 @@ describe("timelineMediaCapabilities", () => {
     expect(
       AUDIO_KIND_ORDER.map(kind => timelineMediaKindProfile(kind).addLabel)
     ).toEqual([
+      null,
       "从字幕生成旁白",
       "生成或导入音乐",
       "生成或导入环境声",

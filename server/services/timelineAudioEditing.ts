@@ -358,6 +358,11 @@ export type InsertAudioClipCommand = {
   sourceOutFrame?: number;
   gain?: number;
   linkedVisualSourceId?: string;
+  /** Mix-neutral metadata set only by server-owned generated-sound flows. */
+  speakerId?: string;
+  speakerLabel?: string;
+  soundPlanVersionId?: string;
+  soundPlanRowId?: string;
 };
 
 async function insertAudioClipForStoryWithSessionPolicy(
@@ -397,6 +402,10 @@ async function insertAudioClipForStoryWithSessionPolicy(
         sourceOutFrame,
         gain: input.gain ?? 1,
         linkedVisualSourceId: input.linkedVisualSourceId ?? null,
+        speakerId: input.speakerId ?? null,
+        speakerLabel: input.speakerLabel ?? null,
+        soundPlanVersionId: input.soundPlanVersionId ?? null,
+        soundPlanRowId: input.soundPlanRowId ?? null,
       },
     },
     ({ audio }, ids) =>
@@ -411,6 +420,14 @@ async function insertAudioClipForStoryWithSessionPolicy(
           gain: input.gain,
           ...(input.linkedVisualSourceId
             ? { linkedVisualSourceId: input.linkedVisualSourceId }
+            : {}),
+          ...(input.speakerId ? { speakerId: input.speakerId } : {}),
+          ...(input.speakerLabel ? { speakerLabel: input.speakerLabel } : {}),
+          ...(input.soundPlanVersionId
+            ? { soundPlanVersionId: input.soundPlanVersionId }
+            : {}),
+          ...(input.soundPlanRowId
+            ? { soundPlanRowId: input.soundPlanRowId }
             : {}),
         }),
         {}
@@ -531,7 +548,11 @@ export function deleteAudioClipForStory(
 }
 
 export function reclassifyAudioClipForStory(
-  input: ClipCommandBase & { toKind: AudioTrackKind }
+  input: ClipCommandBase & {
+    toKind: AudioTrackKind;
+    speakerId?: string;
+    speakerLabel?: string;
+  }
 ): Promise<TimelineMediaCommandResult> {
   return runMediaCommand(
     {
@@ -542,6 +563,8 @@ export function reclassifyAudioClipForStory(
         kind: "audio-reclassify",
         clipId: input.clipId,
         toKind: input.toKind,
+        speakerId: input.speakerId ?? null,
+        speakerLabel: input.speakerLabel ?? null,
       },
     },
     ({ audio }) =>
@@ -549,6 +572,8 @@ export function reclassifyAudioClipForStory(
         reclassifyAudioClip(audio, {
           clipId: input.clipId,
           toKind: input.toKind,
+          ...(input.speakerId ? { speakerId: input.speakerId } : {}),
+          ...(input.speakerLabel ? { speakerLabel: input.speakerLabel } : {}),
         }),
         {}
       )

@@ -170,6 +170,8 @@ export type TimelineMediaController = {
   reclassifyAudioClip: (input: {
     clipId: string;
     toKind: AudioTrackKindModel;
+    speakerId?: string;
+    speakerLabel?: string;
   }) => Promise<void>;
   setAudioClipGain: (input: { clipId: string; gain: number }) => Promise<void>;
   setAudioClipMuted: (input: {

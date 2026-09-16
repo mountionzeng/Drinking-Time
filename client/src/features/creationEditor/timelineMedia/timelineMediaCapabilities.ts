@@ -71,6 +71,16 @@ const PROFILES: Record<TimelineMediaObjectKind, TimelineMediaKindProfile> = {
     primaryAction: "edit-text",
     addLabel: "从当前文字生成字幕",
   },
+  dialogue: {
+    kind: "dialogue",
+    label: "对白",
+    tone: "border-violet-500/45 bg-violet-500/10 text-violet-600",
+    capabilities: [...AUDIO_COMMON, "reclassify", "regenerate"],
+    inspectorFields: [...AUDIO_INSPECTOR, "regenerate"],
+    primaryAction: "regenerate",
+    // Dialogue is created from the grounded sound plan, not the direct-add menu.
+    addLabel: null,
+  },
   narration: {
     kind: "narration",
     label: "旁白",
@@ -120,9 +130,10 @@ const PROFILES: Record<TimelineMediaObjectKind, TimelineMediaKindProfile> = {
   },
 };
 
-/** Fixed display order: subtitle first, then the five audio kinds. */
+/** Fixed display order: subtitle first, then six semantic audio kinds. */
 export const TIMELINE_MEDIA_KIND_ORDER: readonly TimelineMediaObjectKind[] = [
   "subtitle",
+  "dialogue",
   "narration",
   "music",
   "ambience",
@@ -144,6 +155,7 @@ export function timelineMediaSupports(
 }
 
 export const AUDIO_KIND_ORDER: readonly AudioTrackKind[] = [
+  "dialogue",
   "narration",
   "music",
   "ambience",

@@ -122,7 +122,42 @@ describe("AudioTrackRow", () => {
     expect(html).toContain('data-selected="true"');
   });
 
-  it("folds five empty tracks into one Add Sound row", () => {
+  it("renders dialogue as an ordinary editable lane with a mix-neutral speaker label", () => {
+    const html = renderToStaticMarkup(
+      <AudioTrackRow
+        storyId={12}
+        track={{
+          ...track,
+          kind: "dialogue",
+          clips: [
+            {
+              ...clip,
+              id: "dialogue-1",
+              speakerId: "character-mother",
+              speakerLabel: "母亲",
+              soundPlanVersionId: "version-1",
+              soundPlanRowId: "row-1",
+            },
+          ],
+        }}
+        viewport={viewport}
+        playheadMs={0}
+        selectedClipId="dialogue-1"
+        pending={false}
+        error={null}
+        onSelectClip={vi.fn()}
+        onMove={vi.fn()}
+        onTrim={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(html).toContain('aria-label="对白轨"');
+    expect(html).toContain("对白 · 素材 #41 · 母亲");
+    expect(html).toContain('aria-label="对白入点"');
+    expect(html).toContain('aria-label="对白出点"');
+  });
+
+  it("folds all six empty tracks into one Add Sound row", () => {
     const html = renderToStaticMarkup(
       <AudioTrackSection
         storyId={12}

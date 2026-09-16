@@ -40,10 +40,60 @@ const musicClip = (state: TimelineAudioState) =>
   state.tracks.find(t => t.kind === "music")!.clips[0];
 
 describe("timelineAudioModel", () => {
-  it("empty state has exactly the five fixed tracks in order", () => {
+  it("adds dialogue before the five existing tracks without changing their relative order", () => {
     expect(emptyAudioState().tracks.map(t => t.kind)).toEqual([
       ...AUDIO_TRACK_KINDS,
     ]);
+    expect(AUDIO_TRACK_KINDS).toEqual([
+      "dialogue",
+      "narration",
+      "music",
+      "ambience",
+      "sfx",
+      "source",
+    ]);
+  });
+
+  it("normalizes an existing five-kind document identically and adds only an empty dialogue lane", () => {
+    const legacy = {
+      tracks: ["narration", "music", "ambience", "sfx", "source"].map(
+        (kind, index) => ({
+          kind,
+          muted: kind === "source",
+          defaultGain: 0.5 + index / 10,
+          clips: [
+            {
+              id: `${kind}-legacy`,
+              assetId: index + 1,
+              timelineStartFrame: index * 30,
+              sourceInFrame: 0,
+              sourceOutFrame: 90,
+              gain: 0.8,
+            },
+          ],
+        })
+      ),
+    };
+    const normalized = normalizeAudioState(legacy);
+
+    expect(normalized.tracks[0]).toEqual({
+      kind: "dialogue",
+      muted: false,
+      defaultGain: 1,
+      clips: [],
+    });
+    expect(normalized.tracks.slice(1)).toEqual(
+      legacy.tracks.map(track => ({
+        ...track,
+        clips: track.clips.map(clip => ({
+          ...clip,
+          durationFrames: 90,
+          muted: false,
+          fadeInFrames: 0,
+          fadeOutFrames: 0,
+        })),
+      }))
+    );
   });
 
   it("insert rejects an illegal kind, a duplicate id, and a sub-frame source range", () => {
@@ -159,6 +209,74 @@ describe("timelineAudioModel", () => {
     expect(
       reclassifyAudioClip(bound, { clipId: "clip-1", toKind: "sfx" }).status
     ).toBe("error");
+  });
+
+  it("requires an explicit speaker when reclassifying to dialogue and clears grouping metadata when leaving", () => {
+    const state = withMusicClip();
+    expect(
+      reclassifyAudioClip(state, {
+        clipId: "clip-1",
+        toKind: "dialogue",
+      }).status
+    ).toBe("error");
+    const asDialogue = reclassifyAudioClip(state, {
+      clipId: "clip-1",
+      toKind: "dialogue",
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+    });
+    expect(asDialogue.status).toBe("ok");
+    if (asDialogue.status !== "ok") return;
+    expect(asDialogue.state.tracks[0].clips[0]).toMatchObject({
+      id: "clip-1",
+      assetId: 42,
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+    });
+    const backToMusic = reclassifyAudioClip(asDialogue.state, {
+      clipId: "clip-1",
+      toKind: "music",
+    });
+    expect(backToMusic.status).toBe("ok");
+    if (backToMusic.status !== "ok") return;
+    const moved = backToMusic.state.tracks.find(t => t.kind === "music")!
+      .clips[0];
+    expect(moved.speakerId).toBeUndefined();
+    expect(moved.speakerLabel).toBeUndefined();
+    expect(moved.assetId).toBe(42);
+  });
+
+  it("keeps speaker and plan backlinks mix-neutral while dialogue uses the shared mix plan", () => {
+    const inserted = insertAudioClip(emptyAudioState(), {
+      id: "dialogue-1",
+      kind: "dialogue",
+      assetId: 77,
+      timelineStartFrame: 30,
+      sourceOutFrame: 90,
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+      soundPlanVersionId: "version-1",
+      soundPlanRowId: "row-1",
+    });
+    expect(inserted.status).toBe("ok");
+    if (inserted.status !== "ok") return;
+    const clip = inserted.state.tracks[0].clips[0];
+    expect(clip).toMatchObject({
+      speakerId: "character-mother",
+      speakerLabel: "母亲",
+      soundPlanVersionId: "version-1",
+      soundPlanRowId: "row-1",
+    });
+    const plan = buildAudioMixPlan({ audioState: inserted.state });
+    expect(plan.inputs).toHaveLength(1);
+    expect(plan.inputs[0]).toMatchObject({
+      kind: "dialogue",
+      source: { kind: "asset", assetId: 77 },
+      timelineStartFrame: 30,
+      durationFrames: 90,
+    });
+    expect(plan.inputs[0]).not.toHaveProperty("speakerId");
+    expect(plan.inputs[0]).not.toHaveProperty("soundPlanRowId");
   });
 
   it("gain / mute / fade / track-level changes each report changed and no-op correctly", () => {

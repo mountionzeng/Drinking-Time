@@ -33,19 +33,28 @@ describe("timelineMediaTotalFrames", () => {
   it("is the visual end when there are no subtitles", () => {
     expect(timelineMediaTotalFrames({ visualEndFrame: 300 })).toBe(300);
     expect(
-      timelineMediaTotalFrames({ visualEndFrame: 300, subtitleState: emptySubtitleState() })
+      timelineMediaTotalFrames({
+        visualEndFrame: 300,
+        subtitleState: emptySubtitleState(),
+      })
     ).toBe(300);
   });
 
   it("extends past the visual end when a subtitle runs longer", () => {
     expect(
-      timelineMediaTotalFrames({ visualEndFrame: 300, subtitleState: subtitleState(450) })
+      timelineMediaTotalFrames({
+        visualEndFrame: 300,
+        subtitleState: subtitleState(450),
+      })
     ).toBe(450);
   });
 
   it("keeps the visual end when the subtitle is shorter", () => {
     expect(
-      timelineMediaTotalFrames({ visualEndFrame: 600, subtitleState: subtitleState(120) })
+      timelineMediaTotalFrames({
+        visualEndFrame: 600,
+        subtitleState: subtitleState(120),
+      })
     ).toBe(600);
   });
 
@@ -70,9 +79,34 @@ describe("timelineMediaTotalFrames", () => {
     ).toBe(900);
   });
 
+  it("counts dialogue like every other formal audio lane", async () => {
+    const { emptyAudioState, insertAudioClip } = await import(
+      "./timelineAudioModel"
+    );
+    const inserted = insertAudioClip(emptyAudioState(), {
+      id: "dialogue-a",
+      kind: "dialogue",
+      assetId: 2,
+      timelineStartFrame: 600,
+      sourceOutFrame: 90,
+      speakerId: "character-a",
+    });
+    if (inserted.status !== "ok") throw new Error("setup");
+    expect(
+      timelineMediaTotalFrames({
+        visualEndFrame: 300,
+        subtitleState: subtitleState(450),
+        audioState: inserted.state,
+      })
+    ).toBe(690);
+  });
+
   it("clamps a non-finite visual end to 0", () => {
     expect(
-      timelineMediaTotalFrames({ visualEndFrame: Number.NaN, subtitleState: subtitleState(90) })
+      timelineMediaTotalFrames({
+        visualEndFrame: Number.NaN,
+        subtitleState: subtitleState(90),
+      })
     ).toBe(90);
   });
 });

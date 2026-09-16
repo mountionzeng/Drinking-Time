@@ -1,10 +1,10 @@
 /**
- * The one authoritative model for the five fixed audio tracks and their pure
+ * The one authoritative model for the six fixed audio tracks and their pure
  * edit planner (U9).
  *
- * Tracks are a fixed set in a fixed order — `narration`, `music`, `ambience`,
- * `sfx`, `source`. There is no solo, no loop, no arbitrary track manager. Track
- * order is for reading only; it never decides mixing.
+ * Tracks are a fixed set in a fixed order — `dialogue`, `narration`, `music`,
+ * `ambience`, `sfx`, `source`. There is no solo, no loop, no arbitrary track
+ * manager. Track order is for reading only; it never decides mixing.
  *
  * A clip holds a non-owning `assetId` (a `ready` StoryAudioAsset from U2) plus
  * its own timeline placement, source crop and mix params. There is no speed in
@@ -18,6 +18,7 @@
  */
 
 export const AUDIO_TRACK_KINDS = [
+  "dialogue",
   "narration",
   "music",
   "ambience",
@@ -25,6 +26,8 @@ export const AUDIO_TRACK_KINDS = [
   "source",
 ] as const;
 export type AudioTrackKind = (typeof AUDIO_TRACK_KINDS)[number];
+
+export const UNASSIGNED_DIALOGUE_SPEAKER_ID = "unassigned";
 
 export const MIN_AUDIO_CLIP_FRAMES = 1;
 export const MAX_AUDIO_GAIN = 4;
@@ -54,6 +57,12 @@ export type AudioClip = {
    * Only an explicit linked identity suppresses the duplicate visual original.
    */
   linkedVisualSourceId?: string;
+  /** Mix-neutral grouping metadata. `unassigned` is an explicit valid choice. */
+  speakerId?: string;
+  speakerLabel?: string;
+  /** Non-owning reverse links. Never provider or billing authority. */
+  soundPlanVersionId?: string;
+  soundPlanRowId?: string;
 };
 
 export type AudioTrack = {
@@ -104,7 +113,13 @@ function clampGain(value: number): number {
   return Math.min(MAX_AUDIO_GAIN, Math.max(0, value));
 }
 
-function normalizeClip(raw: unknown): AudioClip | null {
+function optionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeClip(raw: unknown, kind: AudioTrackKind): AudioClip | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   if (
@@ -145,6 +160,21 @@ function normalizeClip(raw: unknown): AudioClip | null {
     ...(typeof record.linkedVisualSourceId === "string"
       ? { linkedVisualSourceId: record.linkedVisualSourceId }
       : {}),
+    ...(kind === "dialogue"
+      ? {
+          speakerId:
+            optionalText(record.speakerId) ?? UNASSIGNED_DIALOGUE_SPEAKER_ID,
+          ...(optionalText(record.speakerLabel)
+            ? { speakerLabel: optionalText(record.speakerLabel) }
+            : {}),
+        }
+      : {}),
+    ...(optionalText(record.soundPlanVersionId)
+      ? { soundPlanVersionId: optionalText(record.soundPlanVersionId) }
+      : {}),
+    ...(optionalText(record.soundPlanRowId)
+      ? { soundPlanRowId: optionalText(record.soundPlanRowId) }
+      : {}),
   };
 }
 
@@ -173,7 +203,7 @@ export function normalizeAudioState(value: unknown): TimelineAudioState {
         : 1;
     const rawClips = Array.isArray(record.clips) ? record.clips : [];
     track.clips = rawClips
-      .map(normalizeClip)
+      .map(rawClip => normalizeClip(rawClip, kind))
       .filter((clip): clip is AudioClip => clip !== null)
       .sort((a, b) => a.timelineStartFrame - b.timelineStartFrame);
   }
@@ -230,6 +260,10 @@ export type InsertAudioClipInput = {
   gain?: number;
   linkedVisualSourceId?: string;
   speechBindingId?: string;
+  speakerId?: string;
+  speakerLabel?: string;
+  soundPlanVersionId?: string;
+  soundPlanRowId?: string;
 };
 
 export function insertAudioClip(
@@ -251,6 +285,10 @@ export function insertAudioClip(
   if (!isInt(input.timelineStartFrame) || input.timelineStartFrame < 0) {
     return err("音频起点必须是非负整数帧");
   }
+  const speakerId = optionalText(input.speakerId);
+  if (input.kind === "dialogue" && !speakerId) {
+    return err("对白必须选择人物或明确设为未分配人物");
+  }
   const clip: AudioClip = {
     id: input.id,
     assetId: input.assetId,
@@ -267,6 +305,20 @@ export function insertAudioClip(
       : {}),
     ...(input.speechBindingId
       ? { speechBindingId: input.speechBindingId }
+      : {}),
+    ...(input.kind === "dialogue"
+      ? {
+          speakerId: speakerId!,
+          ...(optionalText(input.speakerLabel)
+            ? { speakerLabel: optionalText(input.speakerLabel) }
+            : {}),
+        }
+      : {}),
+    ...(optionalText(input.soundPlanVersionId)
+      ? { soundPlanVersionId: optionalText(input.soundPlanVersionId) }
+      : {}),
+    ...(optionalText(input.soundPlanRowId)
+      ? { soundPlanRowId: optionalText(input.soundPlanRowId) }
       : {}),
   };
   return ok(
@@ -377,7 +429,12 @@ export function deleteAudioClip(
 /** Move a clip to another semantic track. Same clip object, no asset copy. */
 export function reclassifyAudioClip(
   state: TimelineAudioState,
-  input: { clipId: string; toKind: AudioTrackKind }
+  input: {
+    clipId: string;
+    toKind: AudioTrackKind;
+    speakerId?: string;
+    speakerLabel?: string;
+  }
 ): AudioPlannerResult {
   const found = findClip(state, input.clipId);
   if (!found) return err("音频片段不存在");
@@ -386,7 +443,25 @@ export function reclassifyAudioClip(
   if (found.clip.speechBindingId && input.toKind !== "narration") {
     return err("解除字幕绑定后才能改变旁白类型");
   }
-  const moving = found.clip;
+  const speakerId = optionalText(input.speakerId);
+  if (input.toKind === "dialogue" && !speakerId) {
+    return err("对白必须选择人物或明确设为未分配人物");
+  }
+  const {
+    speakerId: _oldSpeakerId,
+    speakerLabel: _oldSpeakerLabel,
+    ...withoutSpeaker
+  } = found.clip;
+  const moving: AudioClip =
+    input.toKind === "dialogue"
+      ? {
+          ...withoutSpeaker,
+          speakerId: speakerId!,
+          ...(optionalText(input.speakerLabel)
+            ? { speakerLabel: optionalText(input.speakerLabel) }
+            : {}),
+        }
+      : withoutSpeaker;
   return ok(
     {
       tracks: state.tracks.map(t => {
