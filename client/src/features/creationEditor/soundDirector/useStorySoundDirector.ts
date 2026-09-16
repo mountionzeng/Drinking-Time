@@ -296,6 +296,7 @@ export function useStorySoundDirector(storyId: number | null) {
       if (result.status === "conflict") {
         setConflictRevision(result.revision);
       } else if (result.status === "evidence_changed") {
+        setSession(result as StorySoundDirectorSession);
         setError("故事内容已经变化，请重新核对声音问题后再保存版本");
       } else {
         await versionsQuery.refetch();

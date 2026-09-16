@@ -849,20 +849,38 @@ export async function buildStorySoundPlanVersion(
   )(input);
   if (!packet) throw new Error("故事不存在或不属于当前用户");
   if (packet.evidenceSnapshotDigest !== state.evidenceSnapshotDigest) {
-    const changedState = { ...state, evidenceChanged: true };
+    const changedState = {
+      ...buildStorySoundInterviewState(packet),
+      evidenceChanged: true,
+    };
+    const groundedRows = workspace.rows.filter(row =>
+      row.evidence.every(reference => {
+        if (reference.sourceKind === "user_answer") return true;
+        return (
+          Boolean(reference.revisionHash) &&
+          packet.sourceRevisions[reference.id] === reference.revisionHash
+        );
+      })
+    );
+    const groundedSelection = Object.fromEntries(
+      groundedRows.map(row => [
+        row.id,
+        workspace.selectionByRowId[row.id] !== false,
+      ])
+    );
     const saved = await saveStorySoundWorkspace({
       ...input,
       expectedRevision: workspace.revision,
-      draft: workspace,
-      interviewStatus: "needs_review",
-      currentStepId: state.questions[0]?.id,
+      draft: { ...workspace, rows: groundedRows },
+      interviewStatus: "interviewing",
+      currentStepId: changedState.questions[0]?.id,
       interviewState: changedState,
-      selectionByRowId: workspace.selectionByRowId,
+      selectionByRowId: groundedSelection,
     });
+    if (saved.status === "conflict") return saved;
     return {
       status: "evidence_changed" as const,
-      revision:
-        saved.status === "ok" ? saved.workspace.revision : saved.revision,
+      ...publicSession(saved.workspace),
     };
   }
   const version = await saveStorySoundPlanVersion({

@@ -258,5 +258,37 @@ describe("storySoundDirector", () => {
       status: "ok",
       version: { versionNumber: 1 },
     });
+
+    const changedPacket = packet();
+    changedPacket.evidenceSnapshotDigest = "e".repeat(64);
+    changedPacket.sourceRevisions = {
+      ...changedPacket.sourceRevisions,
+      "story:11:title": "f".repeat(64),
+    };
+    changedPacket.evidence[0] = {
+      ...changedPacket.evidence[0]!,
+      revisionHash: "f".repeat(64),
+      text: "雨夜回家（修订）",
+    };
+    const changed = await buildStorySoundPlanVersion(
+      {
+        storyId: 11,
+        userId: 1,
+        expectedRevision: session.workspace.revision,
+      },
+      { compileContext: async () => changedPacket }
+    );
+    expect(changed).toMatchObject({
+      status: "evidence_changed",
+      complete: false,
+      question: { category: "global" },
+    });
+    const rereview = await resumeStorySoundInterview({
+      storyId: 11,
+      userId: 1,
+    });
+    expect(rereview?.complete).toBe(false);
+    expect(rereview?.question?.category).toBe("global");
+    expect(rereview?.workspace.rows).toHaveLength(session.workspace.rows.length);
   });
 });
