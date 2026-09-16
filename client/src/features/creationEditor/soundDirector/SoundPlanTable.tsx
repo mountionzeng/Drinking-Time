@@ -88,7 +88,7 @@ export function SoundPlanTable({
 
   return (
     <article
-      className="w-full overflow-hidden rounded-lg border bg-card text-foreground shadow-sm"
+      className="w-full rounded-lg border bg-card text-foreground shadow-sm"
       style={{ borderColor: "var(--nayin-accent-dim)" }}
       aria-label="声音方案"
       data-testid="sound-plan-table"
@@ -174,19 +174,8 @@ export function SoundPlanTable({
         aria-label={
           readOnly ? `声音方案 V${viewedVersion.versionNumber}` : "当前声音方案"
         }
-        className="divide-y divide-border/70"
+        className="space-y-2.5 bg-muted/20 p-2.5"
       >
-        <div
-          role="row"
-          className="hidden grid-cols-[28px_68px_82px_minmax(160px,1fr)_110px_92px] gap-2 bg-muted/40 px-3 py-1.5 text-[9px] font-medium text-muted-foreground md:grid"
-        >
-          <span role="columnheader">选</span>
-          <span role="columnheader">类型</span>
-          <span role="columnheader">位置</span>
-          <span role="columnheader">内容</span>
-          <span role="columnheader">表演/音色</span>
-          <span role="columnheader">状态</span>
-        </div>
         {rows.map(row => {
           const content = draftText[row.id] ?? rowContent(row);
           const selected =
@@ -196,14 +185,15 @@ export function SoundPlanTable({
               key={row.id}
               role="row"
               aria-label={`${KIND_LABEL[row.kind]} ${row.sceneId ?? frameTime(row.startFrame)}`}
-              className="grid grid-cols-[28px_1fr] gap-x-2 gap-y-1 px-3 py-2.5 text-[10px] md:grid-cols-[28px_68px_82px_minmax(160px,1fr)_110px_92px] md:items-start"
+              className="rounded-lg border border-border/80 bg-card p-2.5 text-[10px] shadow-[0_1px_0_rgba(65,80,55,0.04)]"
             >
-              <span role="cell" className="row-span-3 md:row-span-1">
+              <div className="flex min-w-0 items-start gap-2">
                 <input
                   type="checkbox"
                   aria-label={`选择${KIND_LABEL[row.kind]} ${row.sceneId ?? frameTime(row.startFrame)}`}
                   checked={selected}
                   disabled={readOnly || director.pending}
+                  className="mt-1 shrink-0 accent-[var(--nayin-accent)]"
                   onChange={event =>
                     void director.setRowSelected(
                       row.id,
@@ -211,20 +201,41 @@ export function SoundPlanTable({
                     )
                   }
                 />
-              </span>
-              <span role="cell" className="font-medium text-nayin-bright">
-                {KIND_LABEL[row.kind]}
-              </span>
-              <span role="cell" className="text-muted-foreground md:order-none">
-                {row.sceneId ? `${row.sceneId} · ` : ""}
-                {frameTime(row.startFrame)}–
-                {frameTime(row.startFrame + row.durationFrames)}
-              </span>
-              <span role="cell" className="col-span-1 md:col-span-1">
+                <div role="cell" className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-full bg-[var(--nayin-glow)] px-2 py-0.5 font-semibold text-nayin-bright">
+                      {KIND_LABEL[row.kind]}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {row.sceneId ? `${row.sceneId} · ` : ""}
+                      {frameTime(row.startFrame)}–
+                      {frameTime(row.startFrame + row.durationFrames)}
+                    </span>
+                  </div>
+                  <p
+                    className={`mt-1.5 text-[9.5px] ${
+                      row.textOrigin === "ai_draft"
+                        ? "text-amber-700"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {statusLabel(row)}
+                  </p>
+                </div>
+              </div>
+
+              <div role="cell" className="mt-2">
+                <label
+                  htmlFor={`sound-plan-content-${row.id}`}
+                  className="mb-1 block text-[9px] font-medium text-muted-foreground"
+                >
+                  内容
+                </label>
                 <textarea
+                  id={`sound-plan-content-${row.id}`}
                   value={content}
                   readOnly={readOnly}
-                  rows={2}
+                  rows={4}
                   aria-label={`${KIND_LABEL[row.kind]}内容`}
                   onChange={event =>
                     setDraftText(current => ({
@@ -239,7 +250,7 @@ export function SoundPlanTable({
                       void saveContent(row, content);
                     }
                   }}
-                  className="w-full resize-y rounded border border-border bg-transparent px-2 py-1.5 leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] read-only:border-transparent read-only:px-0"
+                  className="min-h-24 w-full resize-y overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background/50 px-2.5 py-2 text-[11px] leading-relaxed [field-sizing:content] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] read-only:bg-transparent"
                 />
                 {row.textOrigin === "ai_draft" && !readOnly ? (
                   <button
@@ -254,32 +265,21 @@ export function SoundPlanTable({
                     确认这句 AI 草稿
                   </button>
                 ) : null}
-              </span>
-              <span role="cell" className="text-muted-foreground">
-                {row.performance.style || row.performance.emotion || "保持原意"}
-                <span className="mt-1 block rounded border border-dashed border-border px-1.5 py-1 text-[9px] opacity-65">
-                  音色稍后接入
-                </span>
-              </span>
-              <span role="cell">
-                <span
-                  className={
-                    row.textOrigin === "ai_draft"
-                      ? "text-amber-700"
-                      : "text-muted-foreground"
-                  }
-                >
-                  {statusLabel(row)}
-                </span>
-                <button
-                  type="button"
-                  disabled
-                  className="mt-1 flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[9px] opacity-45"
-                >
-                  <Lock className="h-2.5 w-2.5" />
-                  报价与生成未开启
-                </button>
-              </span>
+              </div>
+
+              <div
+                role="cell"
+                className="mt-2 grid gap-1.5 rounded-md bg-muted/45 p-2 text-muted-foreground"
+              >
+                <p>
+                  <span className="font-medium text-foreground/75">表演要求：</span>
+                  {row.performance.style || row.performance.emotion || "保持原意"}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground/75">音色：</span>
+                  尚未选择
+                </p>
+              </div>
             </div>
           );
         })}
@@ -291,12 +291,44 @@ export function SoundPlanTable({
         </p>
       ) : null}
       <footer
-        className="border-t px-3 py-2 text-[9.5px] leading-relaxed text-muted-foreground"
+        className="border-t px-3 py-3 text-[9.5px] leading-relaxed text-muted-foreground"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        <p className="flex items-start gap-1.5">
+        <section
+          aria-label="真实声音生成步骤"
+          className="rounded-lg border border-[var(--nayin-accent-dim)] bg-[var(--nayin-glow)]/40 p-2.5"
+        >
+          <h4 className="text-[10.5px] font-semibold text-foreground">
+            真实声音的下一步
+          </h4>
+          <ol className="mt-2 grid gap-1.5" aria-label="生成声音流程">
+            {["选择音色", "获取报价", "确认生成"].map((step, index) => (
+              <li key={step} className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--nayin-accent-dim)] bg-card text-[9px] font-semibold text-nayin-bright">
+                  {index + 1}
+                </span>
+                <span className="font-medium text-foreground/80">{step}</span>
+              </li>
+            ))}
+          </ol>
+          <button
+            type="button"
+            disabled
+            title="尚未核验豆包 TTS 权限、可用音色和价格版本"
+            className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-muted/60 px-2.5 py-2 text-[10px] font-medium text-muted-foreground opacity-70"
+          >
+            <Lock className="h-3 w-3" />
+            选择音色并生成
+          </button>
+          <p className="mt-1.5 text-[9px]">
+            尚未核验豆包 TTS 权限、可用音色和价格版本，因此暂不开放真实生成。
+          </p>
+        </section>
+        <p className="mt-2 flex items-start gap-1.5">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
-          当前只保存方案。音色、报价和生成将在确认接入后开放，不会在这里产生费用。
+          <span>
+            当前只保存方案，不会调用豆包，也不会在这里产生费用。
+          </span>
         </p>
         <button
           type="button"

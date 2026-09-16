@@ -6,7 +6,7 @@ import { SoundPlanTable } from "./SoundPlanTable";
 vi.stubGlobal("React", React);
 
 describe("SoundPlanTable", () => {
-  it("marks AI drafts and keeps provider actions disabled", () => {
+  it("uses readable stacked cards and keeps provider actions disabled", () => {
     const html = renderToStaticMarkup(
       <SoundPlanTable
         director={
@@ -28,7 +28,7 @@ describe("SoundPlanTable", () => {
                     sceneId: "01",
                     startFrame: 0,
                     durationFrames: 90,
-                    text: "她向母亲道歉",
+                    text: "她向母亲道歉，并把这些年一直没能说出口的话慢慢讲完。",
                     textOrigin: "ai_draft",
                     evidence: [
                       { id: "shot:1", sourceKind: "shot", sourceId: "1" },
@@ -51,8 +51,15 @@ describe("SoundPlanTable", () => {
     );
     expect(html).toContain("AI 草稿 · 待确认");
     expect(html).toContain("确认这句 AI 草稿");
-    expect(html).toContain("音色稍后接入");
-    expect(html).toContain("报价与生成未开启");
+    expect(html).toContain('rows="4"');
+    expect(html).toContain("选择音色");
+    expect(html).toContain("获取报价");
+    expect(html).toContain("确认生成");
+    expect(html).toContain("选择音色并生成");
+    expect(html).toContain("尚未核验豆包 TTS 权限、可用音色和价格版本");
     expect(html).toContain("不会在这里产生费用");
+    expect(html).not.toContain(
+      "md:grid-cols-[28px_68px_82px_minmax(160px,1fr)_110px_92px]"
+    );
   });
 });
