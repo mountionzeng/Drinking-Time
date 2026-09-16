@@ -69,6 +69,7 @@ import { personalMemoryRouter } from "./personalMemory";
 import { publishingDraftRouter } from "./publishingDraft";
 import { visualAssetsRouter } from "./visualAssets";
 import { timelineMediaRouter } from "./timelineMedia";
+import { storySoundDirectorRouter } from "./storySoundDirector";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -1163,6 +1164,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
   // Subtitle + multi-audio-track narrow commands (one write path per U1/U3).
   timelineMedia: timelineMediaRouter,
+  storySoundDirector: storySoundDirectorRouter,
 
   // ─── Shot management ────────────────────────────────────────────────
   shot: router({

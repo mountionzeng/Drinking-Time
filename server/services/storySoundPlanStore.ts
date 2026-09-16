@@ -34,6 +34,9 @@ const workspaceFromRecord = (
     ...(row.restoredFromVersionId
       ? { restoredFromVersionId: row.restoredFromVersionId }
       : {}),
+    ...(row.interviewState == null
+      ? {}
+      : { interviewState: row.interviewState }),
     selectionByRowId: (row.selectionByRowId ?? {}) as Record<string, boolean>,
   };
 };
@@ -68,6 +71,7 @@ export async function saveStorySoundWorkspace(input: {
   interviewStatus: StorySoundPlanWorkspace["interviewStatus"];
   currentStepId?: string;
   restoredFromVersionId?: string;
+  interviewState?: unknown;
   selectionByRowId: Record<string, boolean>;
 }): Promise<
   | { status: "ok"; workspace: StorySoundPlanWorkspace }
@@ -81,6 +85,7 @@ export async function saveStorySoundWorkspace(input: {
     interviewStatus: input.interviewStatus,
     currentStepId: input.currentStepId ?? null,
     restoredFromVersionId: input.restoredFromVersionId ?? null,
+    interviewState: input.interviewState ?? null,
     draft: normalized,
     selectionByRowId: input.selectionByRowId,
   });
@@ -141,6 +146,7 @@ export async function restoreStorySoundPlanVersionToWorkspace(input: {
     draft: restored,
     interviewStatus: "needs_review",
     restoredFromVersionId: restored.restoredFromVersionId,
+    interviewState: undefined,
     selectionByRowId: restored.selectionByRowId,
   });
 }

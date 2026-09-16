@@ -1427,3 +1427,31 @@ export async function appendStoryConversationTurn(
 
   return listStoryConversation(owner);
 }
+
+/**
+ * Mirror one structured sound-director answer into the ordinary Story chat.
+ * The structured workspace remains authoritative; this is only a readable
+ * continuity trail for the user when they return to the conversation.
+ */
+export async function appendStorySoundDirectorConversationSummary(input: {
+  storyId: number;
+  userId: number;
+  workspaceRevision: number;
+  stepId: string;
+  answerSummary: string;
+  assistantSummary: string;
+}) {
+  const identity = `sound-director:${input.storyId}:${input.workspaceRevision}:${input.stepId}`;
+  return appendStoryConversationTurn({
+    storyId: input.storyId,
+    userId: input.userId,
+    userMessage: {
+      clientMessageId: `${identity}:answer`,
+      content: `声音方案：${input.answerSummary}`,
+    },
+    assistantMessage: {
+      clientMessageId: `${identity}:next`,
+      content: input.assistantSummary,
+    },
+  });
+}

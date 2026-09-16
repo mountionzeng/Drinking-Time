@@ -1,0 +1,1 @@
+ALTER TABLE `story_sound_workspaces` ADD `interviewState` json;

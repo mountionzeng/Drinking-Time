@@ -9738,6 +9738,7 @@ export async function compareAndSaveStorySoundWorkspaceRecord(
             interviewStatus: input.interviewStatus,
             currentStepId: input.currentStepId ?? null,
             restoredFromVersionId: input.restoredFromVersionId ?? null,
+            interviewState: input.interviewState ?? null,
             draft: input.draft,
             selectionByRowId: input.selectionByRowId,
             createdAt: current,

@@ -105,6 +105,8 @@ export type StorySoundPlanWorkspace = StorySoundPlanDraft & {
   interviewStatus: "interviewing" | "draft" | "needs_review";
   currentStepId?: string;
   restoredFromVersionId?: string;
+  /** Server-owned linear interview state. Clients may render but never author it wholesale. */
+  interviewState?: unknown;
   selectionByRowId: Record<string, boolean>;
 };
 

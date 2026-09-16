@@ -331,6 +331,8 @@ export const storySoundWorkspaces = mysqlTable(
     ]).notNull(),
     currentStepId: varchar("currentStepId", { length: 128 }),
     restoredFromVersionId: varchar("restoredFromVersionId", { length: 64 }),
+    /** Structured resumable interview cursor/answers; creative rows remain in draft. */
+    interviewState: json("interviewState"),
     draft: json("draft").notNull(),
     selectionByRowId: json("selectionByRowId").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),

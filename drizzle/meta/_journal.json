@@ -162,6 +162,13 @@
       "when": 1789555012387,
       "tag": "0022_story_sound_director",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1789560518250,
+      "tag": "0023_story_sound_interview_state",
+      "breakpoints": true
     }
   ]
 }
