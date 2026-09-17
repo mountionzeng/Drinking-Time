@@ -13,9 +13,9 @@ import {
   previewMediaLayerPlan,
   resolveTimelineImageClip,
   resolveTimelineVideoSource,
-  selectedShotPlayheadSyncTarget,
   timelineImageWinsVisualOverlap,
   shouldHandleEditingShortcut,
+  shouldForwardPreviewPlay,
   shouldForwardPreviewPause,
   storyboardAudioClipsFromManifest,
   timelineVideoPlaybackRate,
@@ -77,30 +77,6 @@ describe("editing workspace project canvas", () => {
         extracting: true,
       })
     ).toBe(false);
-  });
-
-  it("seeks an explicitly selected shot without feeding playhead-driven selection back into the clock", () => {
-    expect(
-      selectedShotPlayheadSyncTarget({
-        selectedShotNo: 7,
-        selectionFromPlayheadShotNo: null,
-        timing: { startMs: 23_000 },
-      })
-    ).toBe(23_000);
-    expect(
-      selectedShotPlayheadSyncTarget({
-        selectedShotNo: 7,
-        selectionFromPlayheadShotNo: 7,
-        timing: { startMs: 23_000 },
-      })
-    ).toBeNull();
-    expect(
-      selectedShotPlayheadSyncTarget({
-        selectedShotNo: null,
-        selectionFromPlayheadShotNo: null,
-        timing: null,
-      })
-    ).toBeNull();
   });
 
   it("ignores click jitter until a real pointer drag crosses four pixels", () => {
@@ -554,6 +530,32 @@ describe("editing workspace project canvas", () => {
       shouldForwardPreviewPause({ ...directPause, ignoreNextPause: true })
     ).toBe(false);
     expect(shouldForwardPreviewPause({ ...directPause, nowMs: 3_000 })).toBe(
+      false
+    );
+  });
+
+  it("only lets a recent direct Preview control play the master timeline", () => {
+    const directPlay = {
+      timelinePlaying: false,
+      mediaIsCurrent: true,
+      mediaConnected: true,
+      lastInteractionAtMs: 2_000,
+      nowMs: 2_100,
+    };
+    expect(shouldForwardPreviewPlay(directPlay)).toBe(true);
+    expect(
+      shouldForwardPreviewPlay({ ...directPlay, lastInteractionAtMs: null })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPlay({ ...directPlay, timelinePlaying: true })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPlay({ ...directPlay, mediaIsCurrent: false })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPlay({ ...directPlay, mediaConnected: false })
+    ).toBe(false);
+    expect(shouldForwardPreviewPlay({ ...directPlay, nowMs: 3_500 })).toBe(
       false
     );
   });

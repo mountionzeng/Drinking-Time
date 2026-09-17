@@ -2,7 +2,6 @@ import { Clapperboard, FileUp, Loader2, Upload } from "lucide-react";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -76,7 +75,6 @@ import {
 } from "@shared/timelineAudioModel";
 import { buildSubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 import type { CreationEditorShot } from "../types";
-import { stepTimelinePlayheadByFrames } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
   editedTimelineDurationMs,
@@ -121,11 +119,8 @@ const DEFAULT_PREVIEW_PANEL_SIZE = 50;
 
 import {
   adoptedVideoTake,
-  selectedShotPlayheadSyncTarget,
   shotImageUrl,
   shotLabel,
-  shouldHandleEditingShortcut,
-  type EditingShortcutTargetKind,
   type TimelineVideoSource,
 } from "../previewPlaybackModel";
 export {
@@ -133,7 +128,7 @@ export {
   extractedFrameTargetVisualLayer,
   fitProjectCanvas,
   previewMediaLayerPlan,
-  selectedShotPlayheadSyncTarget,
+  shouldForwardPreviewPlay,
   shouldForwardPreviewPause,
   shouldHandleEditingShortcut,
   timelineVideoPlaybackRate,
@@ -1186,12 +1181,10 @@ export default function EditingNleWorkspace({
   /**
    * 播放头跨进新镜头时同步选中它。
    *
-   * 这是从被删掉的底部时间线里搬过来的行为（原先叫 `selectShot: true`）：
    * 播放时镜头详情要跟着走，否则播到第五镜、右边还停在第一镜。
-   * 用 ref 记下「这次选中是播放头引起的」，避免选中态再反过来把播放头拽回
-   * 镜头开头——那会让播放每跨一镜就卡一下。
+   * 反方向不成立：编辑文本导致的镜头选择不能移动播放头；只有时间轨上的
+   * 明确 seek 手势才能改变播放位置。
    */
-  const selectionFromPlayheadRef = useRef<number | null>(null);
   const selectShotFromPlayhead = useCallback(
     (playheadMs: number) => {
       if (timingRowsRef.current.length === 0) return;
@@ -1202,7 +1195,6 @@ export default function EditingNleWorkspace({
       );
       const nextShotNo = findShotAtTime(timingRowsRef.current, lookupMs);
       if (nextShotNo == null) return;
-      selectionFromPlayheadRef.current = nextShotNo;
       setSelectedShotNo(nextShotNo);
     },
     [setSelectedShotNo]
@@ -1287,29 +1279,7 @@ export default function EditingNleWorkspace({
     timelineShots[0] ??
     shots[0] ??
     null;
-  const selectedShotTiming = selectedShot
-    ? timingByShotNo.get(selectedShot.shotNo)
-    : null;
   const previewPlayheadMs = playbackClock.playheadMs;
-
-  useLayoutEffect(() => {
-    const syncTargetMs = selectedShotPlayheadSyncTarget({
-      selectedShotNo,
-      selectionFromPlayheadShotNo: selectionFromPlayheadRef.current,
-      timing: selectedShotTiming,
-    });
-    selectionFromPlayheadRef.current = null;
-    if (syncTargetMs == null) return;
-    playbackClock.setPlaying(false);
-    playbackClock.seek(syncTargetMs);
-    // seek 会同步投影一次选中态；这次投影已经消费完，不能污染下一次显式选择。
-    selectionFromPlayheadRef.current = null;
-  }, [
-    playbackClock.seek,
-    playbackClock.setPlaying,
-    selectedShotNo,
-    selectedShotTiming,
-  ]);
 
   const activeTimelineVisualFrame = useMemo(
     () =>
@@ -2379,6 +2349,7 @@ export default function EditingNleWorkspace({
       // 那一层随底部时间线一起删了。
       onSeek: playheadMs => playbackClock.seek(playheadMs),
       onTogglePlay: isPlaying => playbackClock.setPlaying(isPlaying),
+      onTogglePlayback: playbackClock.togglePlaying,
       onSelectRange: range => {
         setBoardSelectedRange(
           range ? { startMs: range.startMs, endMs: range.endMs } : null
@@ -2576,56 +2547,6 @@ export default function EditingNleWorkspace({
       updateShotDuration,
     ]
   );
-
-  useEffect(() => {
-    const handleEditingShortcut = (event: KeyboardEvent) => {
-      const isSpaceKey = event.key === " " || event.key === "Spacebar";
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      const targetKind: EditingShortcutTargetKind = target?.closest(
-        'input, textarea, select, [contenteditable="true"], [role="textbox"]'
-      )
-        ? "text"
-        : target?.closest("button, a, [role='button']")
-          ? "button"
-          : "other";
-      if (
-        !shouldHandleEditingShortcut({
-          key: event.key,
-          zoneActive: keyboardShortcutZoneRef.current,
-          defaultPrevented: event.defaultPrevented,
-          metaKey: event.metaKey,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          targetKind,
-        })
-      ) {
-        return;
-      }
-      event.preventDefault();
-      if (isSpaceKey) {
-        playbackClock.togglePlaying();
-        return;
-      }
-      playbackClock.setPlaying(false);
-      playbackClock.seek(
-        stepTimelinePlayheadByFrames(
-          playbackClock.playheadMs,
-          event.key === "ArrowRight" ? 1 : -1,
-          chatCutTimeline?.fps ?? 30,
-          timings.at(-1)?.endMs ?? 0,
-          event.shiftKey ? 10 : 1
-        )
-      );
-    };
-    window.addEventListener("keydown", handleEditingShortcut);
-    return () => window.removeEventListener("keydown", handleEditingShortcut);
-  }, [
-    chatCutTimeline?.fps,
-    keyboardShortcutZoneRef,
-    playbackClock.isPlaying,
-    playbackClock.playheadMs,
-    timings,
-  ]);
 
   if (initialStoryLoading) {
     return (

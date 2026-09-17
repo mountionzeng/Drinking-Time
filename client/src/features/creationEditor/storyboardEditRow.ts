@@ -918,6 +918,18 @@ export function storyboardEditNeedsRowFocus(action: StoryboardEditAction) {
 }
 
 /**
+ * 全局快捷键只要求剪辑行仍挂在当前文档中。
+ *
+ * 不能用 offsetParent 判断：它描述 CSS 布局上下文，在嵌套滚动/网格容器里可能为
+ * null，即使节点仍可见；把它当可见性会令整套快捷键在映射前被静默拦掉。
+ */
+export function storyboardEditRowAcceptsGlobalShortcuts(
+  row: Pick<HTMLElement, "isConnected"> | null
+): boolean {
+  return row?.isConnected === true;
+}
+
+/**
  * 这次按键该不该被剪辑行接走。剪辑台里点过任何一个按钮之后焦点就不在时间条上了，
  * 所以快捷键挂在 window 上，用这个函数把不该抢的场合排掉：
  * 正在输入、别人已经处理过、或者空格键正落在某个按钮上（那是在按那个按钮）。
@@ -927,6 +939,8 @@ export function storyboardEditShouldHandleKey(input: {
   defaultPrevented: boolean;
   isEditableTarget: boolean;
   isButtonTarget: boolean;
+  /** 焦点位于任一可视时间轨或其剪辑块内。 */
+  isTimelineTarget?: boolean;
   rowVisible: boolean;
   /** 焦点是否落在时间尺的位置锚点标记上。 */
   isAnchorTarget?: boolean;
@@ -956,7 +970,11 @@ export function storyboardEditShouldHandleKey(input: {
     return false;
   }
   // 空格在按钮上就是「按下这个按钮」，别抢。
-  if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
+  if (
+    input.isButtonTarget &&
+    (input.key === " " || input.key === "Enter") &&
+    !(input.key === " " && input.isTimelineTarget)
+  ) {
     return false;
   }
   return true;

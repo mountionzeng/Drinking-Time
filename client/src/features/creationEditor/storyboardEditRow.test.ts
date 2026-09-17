@@ -17,6 +17,7 @@ import {
   storyboardEditMarkedRange,
   storyboardEditMenuItems,
   storyboardEditNeedsRowFocus,
+  storyboardEditRowAcceptsGlobalShortcuts,
   storyboardEditNeighborShotId,
   storyboardMagnetThresholdFrames,
   storyboardRollingBoundaryFrame,
@@ -1047,9 +1048,28 @@ describe("storyboard edit key routing", () => {
       ...overrides,
     });
 
+  it("keeps global shortcuts active for a connected row without an offset parent", () => {
+    expect(
+      storyboardEditRowAcceptsGlobalShortcuts({ isConnected: true })
+    ).toBe(true);
+    expect(
+      storyboardEditRowAcceptsGlobalShortcuts({ isConnected: false })
+    ).toBe(false);
+    expect(storyboardEditRowAcceptsGlobalShortcuts(null)).toBe(false);
+  });
+
   it("still fires when focus has moved off the time bar onto a button", () => {
     // 这就是「点了看板上的按钮之后快捷键全失灵」的那个场景。
     expect(gate({ isButtonTarget: true })).toBe(true);
+  });
+
+  it("uses Space for transport when a timeline clip itself owns focus", () => {
+    expect(
+      gate({ key: " ", isButtonTarget: true, isTimelineTarget: true })
+    ).toBe(true);
+    expect(
+      gate({ key: " ", isButtonTarget: true, isTimelineTarget: false })
+    ).toBe(false);
   });
 
   it("never steals keys from the chat box or any other text field", () => {

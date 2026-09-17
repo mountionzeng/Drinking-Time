@@ -48,6 +48,7 @@ import {
   previewMediaLayerPlan,
   shotImageUrl,
   shotLabel,
+  shouldForwardPreviewPlay,
   shouldForwardPreviewPause,
   previewSubtitleLines,
   timelineVideoPlaybackRate,
@@ -947,6 +948,8 @@ export default function ShotPreview({
                       }
                     }}
                     onPlay={event => {
+                      const lastInteractionAtMs =
+                        previewControlInteractionAtRef.current;
                       previewControlInteractionAtRef.current = null;
                       const startSeconds = sourceStartSeconds;
                       const endSeconds = sourceEndSeconds;
@@ -963,7 +966,18 @@ export default function ShotPreview({
                           ? Math.max(startSeconds, endSeconds - 1 / 120)
                           : startSeconds;
                       }
-                      if (!timelinePlaying) onRequestTimelinePlaying(true);
+                      if (
+                        shouldForwardPreviewPlay({
+                          timelinePlaying,
+                          mediaIsCurrent:
+                            videoRef.current === event.currentTarget,
+                          mediaConnected: event.currentTarget.isConnected,
+                          lastInteractionAtMs,
+                          nowMs: Date.now(),
+                        })
+                      ) {
+                        onRequestTimelinePlaying(true);
+                      }
                       if (reverse) {
                         ignoreNextVideoPauseRef.current = true;
                         event.currentTarget.pause();

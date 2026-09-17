@@ -403,6 +403,11 @@
       "knownGaps": [],
       "history": [
         {
+          "date": "2026-09-15",
+          "kind": "fix",
+          "summary": "修复完整故事板时间轴整套全局快捷键静默失效：不再用可能在嵌套滚动/网格布局中误报的 offsetParent 判断剪辑行可见性，改为只要剪辑行仍连接当前文档就接收空格、JKL、方向键、I/O、S、F 等既有快捷键；组件切换卸载后仍不接管其他页面。快捷键与 StoryboardEditRow 定向测试 142 项及 tsc 通过。"
+        },
+        {
           "date": "2026-08-25",
           "kind": "fix",
           "summary": "Phase C（刷新延迟修复）：本地模式读单个 Story 的提示词投影不再复制整份提示词仓库。新增 getLocalPromptLineageStateForStory()/getLocalPromptCompilationHeadsForStory()（server/db.ts）：先按 storyId 从内存态筛出切片再 structuredClone，不泄露可变全局引用；loadStoryPromptAggregate 本地分支改用前者替换「clone 整库 + 写入用 onCommit 管线」的读法；新增 loadStoryPromptCompilationHeads(owner)（本地校验 storyId 存在但 userId 不符仍抛 PromptLineageOwnershipError，SQL 直接按 storyId+userId 查表）。storyMaterials.getStoryMaterialState 改用这个窄函数，不再取完整聚合。server/routers/promptLineage.ts 的 Prompt Table 独立端点未改，仍取完整单 Story aggregate，但同样受益于本地分支的筛选顺序优化。新增 16 个单测（server/services/promptLineageStore.test.ts、server/db.promptLineageStoryScope.test.ts）覆盖单 Story 隔离、clone 非活引用、所有权不匹配抛错、空提示词状态返回空。主仓 3000 用 Story 1186（37 镜头、105 条 compilationHeads）服务层只读计时：getStoryMaterialState 热调用从约 45-48ms 降到约 9-13ms，loadStoryPromptAggregate 从约 38-41ms 降到约 9ms，新的 loadStoryPromptCompilationHeads 约 0.1ms；连续 3 次整页刷新 + 打开素材仓库（图片77/视频112/资产2）实测正常，无 console error。"
@@ -1667,6 +1672,7 @@
         "shared/timelineEditing.test.ts",
         "shared/timelineCommands.test.ts",
         "client/src/features/creationEditor/storyboardEditRow.test.ts",
+        "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
         "client/src/features/storyAgent/views/StoryboardTimelineRuler.test.tsx",
@@ -1706,6 +1712,11 @@
         "缩放与简化显示已通过顺序五镜播放验证；重叠同起点、未放置镜头的整片适配及末端刻度溢出修复仍待完整浏览器复验。"
       ],
       "history": [
+        {
+          "date": "2026-09-15",
+          "kind": "fix",
+          "summary": "修复 Storyboard 播放头与选中态的错误双向耦合：播放头推进仍会更新当前镜头，但编辑台词、旁白、停顿或其他字段导致的镜头选中不再反向 seek；只有主轨或上层视觉轨上的明确点击才按鼠标绝对时间移动播放头，超过 4px 的拖动仍不误触 seek。Space 收敛到剪辑行唯一入口并直接调用播放时钟的原子 toggle，不再根据可能过期的渲染快照反推状态；Preview 的迟到 programmatic onPlay 也不能反向重启主时钟。相关 184 项定向测试与 tsc 通过；main:3000 真实复现旧版 2413ms 聚焦第 05 镜旁白后跳到 12000ms，修复后保持 2413ms；点击上层轨从 2413ms 落到 8397ms，Space 播放到约 9034ms 后再次 Space 稳定暂停。"
+        },
         {
           "date": "2026-08-25",
           "kind": "feature",
