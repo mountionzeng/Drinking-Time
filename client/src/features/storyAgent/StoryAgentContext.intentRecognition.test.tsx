@@ -374,6 +374,23 @@ vi.mock("@/features/storyAgent/hooks/useVoiceInput", () => ({
   }),
 }));
 
+// These tests exercise intent reflection in the chat shell. The sound
+// director has its own hook tests and normally receives tRPC from the app.
+vi.mock(
+  "@/features/creationEditor/soundDirector/useStorySoundDirector",
+  () => ({
+    shouldRouteChatToSoundDirector: () => false,
+    useStorySoundDirector: () => ({
+      active: false,
+      session: null,
+      error: null,
+      conflictRevision: null,
+      answer: vi.fn(),
+      refreshAfterConflict: vi.fn(),
+    }),
+  })
+);
+
 describe("StoryAgentChat intent soft confirm", () => {
   beforeEach(() => {
     fixtures.chatContextState.pendingIntentDraft = fixtures.jobIntent;

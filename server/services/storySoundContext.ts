@@ -11,7 +11,10 @@ import type {
   StorySoundEvidenceReference,
   StorySoundRowKind,
 } from "../../shared/storySoundPlan";
-import { getStoryById, getStoryTimeline } from "../db";
+import {
+  getStoryById,
+  getStoryTimeline,
+} from "../persistence/storySoundPersistence";
 
 export type StorySoundEvidenceCertainty =
   | "verbatim"

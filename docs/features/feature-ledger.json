@@ -3532,6 +3532,11 @@
           "date": "2026-09-13",
           "kind": "fix",
           "summary": "按用户明确要求将微信小游戏及验证码邮件中的旧品牌“碎碎念”和“聊会儿”统一为“拾光”，并在微信构建冒烟中增加首屏必须显示“拾光”且不得显示“碎碎念”的回归断言。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "修复跨分支合并后验证码邮件标题回退为旧品牌的问题，登录与关联邮件重新统一显示“拾光”；服务专项测试通过。"
         }
       ]
     },
@@ -3859,6 +3864,7 @@
       ],
       "owners": [
         "shared/storySoundPlan.ts",
+        "server/persistence/storySoundPersistence.ts",
         "server/services/storySoundPlanStore.ts",
         "server/services/storySoundContext.ts",
         "server/services/storySoundDirector.ts",
@@ -3944,6 +3950,11 @@
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "故事证据在旧声音版本后发生变化时，保存操作现在会保留仍然有效的方案行并立即重新打开逐题核对；过期证据行不会静默继承，客户端同步进入第一道核对题，避免只显示提示却无法继续。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "全分支收敛后将声音方案、证据读取、行级操作和本人音色的数据库访问集中到单一 storySoundPersistence 边界，声音领域三个服务不再各自直接依赖总数据库模块；同时补齐聊天意图测试对声音导演 Hook 的隔离。定向 69 项、全仓 4614 项、小程序 215 项、TypeScript、生产构建和环境门禁通过；主仓 /editing 无浏览器错误，未创建测试故事或触发付费生成。"
         }
       ]
     },

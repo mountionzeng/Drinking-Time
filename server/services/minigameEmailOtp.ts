@@ -45,7 +45,7 @@ async function sendEmailCode(
 ): Promise<'sent' | 'unavailable'> {
   const linking = mode !== "login";
   const subject = mode === "shiguang" ? "拾光Ai 关联 Drinking Time 确认" :
-    linking ? "碎碎念关联邮箱确认" : "碎碎念登录验证码";
+    linking ? "拾光关联邮箱确认" : "拾光登录验证码";
   const sourceCopy = mode === "shiguang" ? "拾光Ai微信小程序" : "小游戏";
   try {
     const response = await fetch("https://api.resend.com/emails", {

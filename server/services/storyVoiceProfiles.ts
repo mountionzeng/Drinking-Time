@@ -6,7 +6,7 @@ import {
   getOrCreateStoryVoiceActivationOperationRecord,
   getStoryVoiceProfileRecord,
   upsertStoryVoiceProfileRecord,
-} from "../db";
+} from "../persistence/storySoundPersistence";
 
 export async function saveStoryVoiceProfile(
   input: StoryVoiceProfile

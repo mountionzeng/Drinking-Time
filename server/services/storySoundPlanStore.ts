@@ -15,7 +15,7 @@ import {
   getStorySoundWorkspaceRecord,
   listStorySoundPlanVersionRecords,
   listStorySoundRowOperationRecords,
-} from "../db";
+} from "../persistence/storySoundPersistence";
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");

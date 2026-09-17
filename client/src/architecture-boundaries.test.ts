@@ -348,6 +348,9 @@ describe("architecture boundaries", () => {
     // 拾光家忆不可变故事快照的唯一持久化 owner：幂等查询与新故事创建。
     // 到期条件是这两条能力物理迁出 db.ts；不得散回桥接路由或导入服务。
     "server/persistence/shiguangStoryImportPersistence.ts",
+    // 声音方案、声音操作与本人音色的唯一持久化 owner。到期条件是对应
+    // records 物理迁出 db.ts；不得散回声音导演、上下文或音色服务。
+    "server/persistence/storySoundPersistence.ts",
     // U2：受管音频资产与 staged import 的领域 persistence。到期条件是这两条
     // 能力下沉到独立 repository package（与 storyVisualPersistence 一并迁出），
     // 届时整体迁移本组，不得散回各 editing/import 调用点。

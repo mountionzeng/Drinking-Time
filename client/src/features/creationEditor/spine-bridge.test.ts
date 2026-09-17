@@ -279,7 +279,9 @@ describe("creation editor spine boundary", () => {
     );
 
     expect(chat).toContain('interactionMode === "publishing"');
-    expect(chat).toContain('"等待你整理成当前平台文字稿"');
+    expect(chat).toContain(
+      '"先把真实想法说出来，聊聊会一次只追问一个关键点…"'
+    );
   });
 
   it("keeps the dedicated editing route in the studio layout", () => {
