@@ -216,7 +216,7 @@ export async function allowShiguangBridgeAttempt(subject: string) {
     windowSeconds: 60, maxAttempts: 30 })).allowed;
 }
 
-export async function allowShiguangBridgeAttempt(subject: string) {
+export async function allowShiguangDesktopTransferAttempt(subject: string) {
   return (await consumePersistentRateLimit({
     scope: "shiguang:desktop-transfer:subject",
     subject,

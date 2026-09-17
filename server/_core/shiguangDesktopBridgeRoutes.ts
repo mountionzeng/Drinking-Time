@@ -1,7 +1,7 @@
 import { createShiguangDesktopBridgeRouter } from "./shiguangDesktopBridge";
 import {
   accountDatabaseReady,
-  allowShiguangBridgeAttempt,
+  allowShiguangDesktopTransferAttempt,
   issuePairingCode,
   resolveWechatAccount,
 } from "../services/accountIdentity";
@@ -12,7 +12,7 @@ export function shiguangDesktopBridgeRoutes() {
     enabled: process.env.SHIGUANG_BRIDGE_ENABLED === "true",
     secret: process.env.SHIGUANG_BRIDGE_SECRET ?? "",
     ready: accountDatabaseReady,
-    allow: allowShiguangBridgeAttempt,
+    allow: allowShiguangDesktopTransferAttempt,
     resolve: resolveWechatAccount,
     importStory: importShiguangStorySnapshot,
     issuePairing: userId => issuePairingCode({ userId }),
