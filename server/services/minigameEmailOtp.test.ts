@@ -12,11 +12,13 @@ vi.mock("./accountIdentity", () => ({
   verifyEmailOtp: fixture.verify,
   issueMinigameLinkChallenge: fixture.linkIssue,
   allowMinigameEmailOtpSend: fixture.allow,
+  allowShiguangEmailOtpSend: fixture.allow,
 }));
 import {
   requestMinigameEmailOtp,
   verifyMinigameEmailOtp,
   requestMinigameLinkEmailOtp,
+  requestShiguangLinkEmailOtp,
 } from "./minigameEmailOtp";
 beforeEach(() => {
   fixture.env.resendApiKey = "test-key";
@@ -39,6 +41,16 @@ it('email binding sends a source-scoped challenge with a clear account-access wa
   fixture.allow.mockResolvedValue(false);
   expect(await requestMinigameLinkEmailOtp({ id: 9, sessionVersion: 2 }, 'old@example.invalid', 'ip')).toBe('rate_limited');
   expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it("拾光Ai 关联邮件说明真实来源且沿用同一份账户验证", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", fetcher);
+  expect(await requestShiguangLinkEmailOtp({ id: 9, sessionVersion: 2 }, "old@example.invalid", "shiguang:subject")).toBe("sent");
+  expect(fixture.allow).toHaveBeenCalledWith("old@example.invalid", "shiguang:subject");
+  expect(fixture.linkIssue).toHaveBeenCalledWith(expect.objectContaining({ channel: "shiguang" }));
+  const body = JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+  expect(body.subject).toBe("拾光Ai 关联 Drinking Time 确认");
+  expect(body.text).toContain("拾光Ai微信小程序");
 });
 afterEach(() => vi.unstubAllGlobals());
 it("sends only after domain challenge issuance, with bounded server-only mail transport", async () => {

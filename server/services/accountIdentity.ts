@@ -57,15 +57,15 @@ export type EmailLinkResult = { outcome: 'linked'; userId: number } | {
     'identity_conflict' | 'needs_manual_mapping' | 'email_already_linked';
 };
 const normalize = (email: string) => email.trim().toLowerCase();
-function bindingSecret(input: ProofContext) {
+function bindingSecret(input: ProofContext & { channel?: 'minigame' | 'shiguang' }) {
   if (input.secret.length < 32) throw new Error('email_not_configured');
   // A Web login/verify OTP, or one sent by another account/session, cannot link identities.
   return createHmac('sha256', input.secret)
-    .update(`minigame-email-link:v1:${input.userId}:${input.sessionVersion}`).digest('hex');
+    .update(`${input.channel ?? 'minigame'}-email-link:v1:${input.userId}:${input.sessionVersion}`).digest('hex');
 }
 
 /** Called only after authenticated route-level and persistent email/IP throttling. */
-export async function issueMinigameLinkChallenge(input: ProofContext) {
+export async function issueMinigameLinkChallenge(input: ProofContext & { channel?: 'minigame' | 'shiguang' }) {
   const db = await getDb();
   if (!db) throw new Error('database_required');
   const email = normalize(input.email), secret = bindingSecret(input);
@@ -88,7 +88,7 @@ export async function issueMinigameLinkChallenge(input: ProofContext) {
  * a single WeChat identity from an otherwise empty, WeChat-only account after dual proof.
  * Legacy mapping is separately scoped to an operator-approved email allowlist. */
 export async function completeMinigameEmailLink(input: ProofContext & {
-  code: string; subject: string; approvedLegacyEmails: string[];
+  code: string; subject: string; approvedLegacyEmails: string[]; channel?: 'minigame' | 'shiguang';
 }): Promise<EmailLinkResult> {
   const db = await getDb();
   if (!db) throw new Error('database_required');
@@ -157,18 +157,25 @@ export async function completeMinigameEmailLink(input: ProofContext & {
       await tx.update(identities).set({ userId: targetId, verifiedAt: now }).where(eq(identities.id, wechat.id));
       await tx.update(users).set({ sessionVersion: source.sessionVersion + 1 }).where(eq(users.id, source.id));
     }
-    await tx.insert(schema.dataMigrationReceipts).values({ sourceKey: 'minigame_email_link',
+    await tx.insert(schema.dataMigrationReceipts).values({ sourceKey: input.channel === 'shiguang' ? 'shiguang_email_link' : 'minigame_email_link',
       batchKey: `challenge:${challenge.id}`, sourceHash: createHmac('sha256', secret).update(email).digest('hex'),
       recordCount: 1, details: { sourceUserId: source.id, targetUserId: targetId,
-        wechatIdentityId: wechat.id, legacyMapped: legacy, method: 'wx_code_and_scoped_email_otp', version: 1 } });
+        wechatIdentityId: wechat.id, legacyMapped: legacy,
+        method: input.channel === 'shiguang' ? 'shiguang_wx_context_and_scoped_email_otp' : 'wx_code_and_scoped_email_otp', version: 1 } });
     return { outcome: 'linked', userId: targetId };
   }));
 }
 
 export async function allowMinigameEmailOtpSend(email: string, ip: string) {
+  return allowEmailOtpSend(email, ip, 'otp:send:ip');
+}
+export async function allowShiguangEmailOtpSend(email: string, subject: string) {
+  return allowEmailOtpSend(email, subject, 'shiguang:otp:send:subject');
+}
+async function allowEmailOtpSend(email: string, requester: string, requesterScope: string) {
   for (const [scope, subject, limits] of [
     ['otp:send:email', normalizeAccountEmail(email), OTP_SEND_LIMIT],
-    ['otp:send:ip', ip, OTP_SEND_IP_LIMIT],
+    [requesterScope, requester, OTP_SEND_IP_LIMIT],
   ] as const) {
     if (!(await consumePersistentRateLimit({ scope, subject, ...limits })).allowed) return false;
   }
@@ -190,9 +197,23 @@ export async function getAccountSessionPrincipal(id: number) {
   const user = await getUserById(id);
   return user ? { id: user.id, sessionVersion: user.sessionVersion } : null;
 }
+export async function getEmailIdentityHint(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [identity] = await db.select({ subject: identities.subject }).from(identities)
+    .where(and(eq(identities.userId, userId), eq(identities.provider, "email"))).limit(1);
+  if (!identity) return null;
+  const [local = "", domain = ""] = identity.subject.split("@");
+  const first = Array.from(local)[0] ?? "*";
+  return domain ? `${first}***@${domain}` : "***";
+}
 export async function allowMinigameAuthAttempt(ip: string) {
   return (await consumePersistentRateLimit({ scope: 'minigame:auth:ip', subject: ip,
     windowSeconds: 60, maxAttempts: 15 })).allowed;
+}
+export async function allowShiguangBridgeAttempt(subject: string) {
+  return (await consumePersistentRateLimit({ scope: 'shiguang:bridge:subject', subject,
+    windowSeconds: 60, maxAttempts: 30 })).allowed;
 }
 
 export async function allowShiguangBridgeAttempt(subject: string) {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T16:21:10.000Z",
+  "updatedAt": "2026-09-17T21:20:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -4033,6 +4033,55 @@
           "date": "2026-09-15",
           "kind": "feature",
           "summary": "拾光家忆的“当前故事”和“回到以前的故事”现在会显示每个故事已采用的正式封面；尚未采用但已经生成封面候选时，显示最新一轮的首张有效候选，子版本可继承祖先正式封面。封面生成或采用后列表立即更新，无需刷新；无封面的故事保持文字布局，纳音五行仍为原来的纯文字菜单。定向 103 项、TypeScript、功能账本、生产构建和 localhost:3000 双主题浏览器验收通过。"
+        }
+      ]
+    },
+    {
+      "id": "shiguang-cross-platform-account-import",
+      "name": "拾光Ai关联 Drinking Time 账号并私密导入故事",
+      "status": "observing",
+      "userValue": "拾光Ai用户经邮箱验证码证明本人身份后，可在微信小程序中选择并私密导入自己在 Drinking Time 网页版的故事或片段。",
+      "entryPoints": [
+        "server/_core/shiguangBridgeRoutes.ts"
+      ],
+      "owners": [
+        "server/db.ts",
+        "server/_core/shiguangBridge.ts",
+        "server/_core/shiguangBridgeRoutes.ts",
+        "server/services/accountIdentity.ts",
+        "server/services/minigameEmailOtp.ts",
+        "server/services/publishingPersistence.ts"
+      ],
+      "evidence": [
+        "server/_core/shiguangBridge.test.ts",
+        "server/_core/minigameRouter.test.ts",
+        "server/services/accountIdentity.test.ts",
+        "server/services/minigameEmailOtp.test.ts"
+      ],
+      "invariants": [
+        "拾光微信身份只由云函数可信 OPENID 派生，并以不可逆哈希主体进入 Drinking Time；客户端不能提供 userId 或 OPENID。",
+        "邮箱关联必须经过账户作用域验证码；两边有内容、身份冲突或未批准旧邮箱时停止，不自动合并故事、余额或账号。",
+        "故事列表和正文始终按 Drinking Time 服务端解析的 userId 校验归属，不能跨账号读取。",
+        "导入为单向复制且默认 personal、private、confirmed；不修改 Drinking Time 原故事，不自动分享给拾光亲友。",
+        "服务桥默认关闭，HMAC 密钥只存在两端服务端环境，不得进入小程序客户端或仓库。"
+      ],
+      "dependencies": [
+        "wechat-minigame-account-stories",
+        "story-ownership",
+        "publishing-versions"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未部署 Drinking Time 服务端或拾光Ai drinkingTimeBridge 云函数，也未完成真实邮箱 OTP、双微信账号隔离与导入后亲友不可见的真机验收。",
+        "双微信／双邮箱的服务端隔离已由路由回归测试覆盖，但尚未在真实 MySQL 数据库上完成同等隔离验收。",
+        "当前是用户主动的一次性导入，不做双向同步或解除关联；超过 5 万字的故事需先在网页版拆分。",
+        "签名 nonce 目前只在单个服务进程内防重放，多进程共享 nonce 仓库尚未实现；正式扩大流量前需补齐。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-13",
+          "kind": "implementation",
+          "summary": "新增默认关闭的 HMAC 服务桥、拾光微信主体到 Drinking Time 账号的邮箱 OTP 关联、归属约束且不加载正文的轻量分页故事列表/正文接口，以及拾光端整篇或 500 字片段的私密幂等导入。服务端定向 81 项、TypeScript 与拾光端 275 项全量测试通过；未部署、未合并，保持 observing。"
         }
       ]
     }

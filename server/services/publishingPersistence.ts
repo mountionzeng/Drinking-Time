@@ -38,7 +38,7 @@ import {
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { storyIntentProfileFromLegacy } from "../../shared/storyIntentProfile";
-import { getStoryById, listUserStories } from "../db";
+import { getStoryById, listUserStorySummariesPage } from "../db";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
 import {
@@ -1907,9 +1907,22 @@ export async function getPublishingBodyDocument(
   return document;
 }
 
-/** Read-only summaries for constrained clients; ownership stays in persistence. */
+/** Read-only, bounded summaries for constrained clients; ownership stays in persistence. */
+export async function listOwnedStorySummariesPage(userId: number, cursor: number) {
+  const page = await listUserStorySummariesPage(userId, cursor, 50);
+  return { stories: page.stories, nextCursor: page.nextOffset };
+}
+
+/** Compatibility boundary for the existing minigame API, without loading Story bodies. */
 export async function listOwnedStorySummaries(userId: number) {
-  return (await listUserStories(userId)).map(({ id, title }) => ({ id, title }));
+  const stories: Array<{ id: number; title: string }> = [];
+  let cursor = 0;
+  for (;;) {
+    const page = await listOwnedStorySummariesPage(userId, cursor);
+    stories.push(...page.stories);
+    if (page.nextCursor === null) return stories;
+    cursor = page.nextCursor;
+  }
 }
 
 export async function readOwnedStoryBody(userId: number, storyId: number) {
@@ -1917,10 +1930,19 @@ export async function readOwnedStoryBody(userId: number, storyId: number) {
   if (!story) return null;
   try {
     const document = await getPublishingBodyDocument(storyId, userId);
-    return { title: story.title, body: document.body, bodyAvailable: true };
+    return {
+      title: story.title,
+      body: document.body,
+      bodyAvailable: true,
+      sourceRevision: createHash("sha256")
+        .update(`${story.title}\0${document.body}`)
+        .digest("hex")
+        .slice(0, 24),
+      sourceUpdatedAt: document.updatedAt,
+    };
   } catch (error) {
     if (!(error instanceof PublishingBodyUnavailableError)) throw error;
-    return { title: story.title, body: '', bodyAvailable: false };
+    return { title: story.title, body: '', bodyAvailable: false, sourceRevision: "", sourceUpdatedAt: story.updatedAt.getTime() };
   }
 }
 
