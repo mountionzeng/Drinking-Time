@@ -58,6 +58,7 @@ import {
   storyboardEditSegments,
   storyboardEditSelectionRange,
   storyboardEditNeedsRowFocus,
+  storyboardEditRowAcceptsGlobalShortcuts,
   storyboardEditShortcut,
   storyboardEditShouldHandleKey,
   storyboardEditTimingAt,
@@ -1216,7 +1217,9 @@ function StoryboardEditTrack({
     if (!isStoryboardClipPointerDrag(start, event)) {
       setSingleDrag(null);
       onShotTimingPreviewChange?.(null, start.gestureId);
-      // 点击才选择；拖动不能触发分镜列展开与自动横滚。
+      // 点击落播放头并选择；拖动不能触发分镜列展开与自动横滚。
+      timeline.onSelectRange(null);
+      timeline.onSeek(trackMsFromPointer(event.clientX));
       onSelectShot(start.shotNo);
       return;
     }
@@ -3263,7 +3266,8 @@ export function StoryboardEditRow({
         });
         return;
       case "togglePlay":
-        timeline.onTogglePlay(!timeline.isPlaying);
+        if (timeline.onTogglePlayback) timeline.onTogglePlayback();
+        else timeline.onTogglePlay(!timeline.isPlaying);
         return;
       case "play":
         timeline.onTogglePlay(true);
@@ -3338,6 +3342,9 @@ export function StoryboardEditRow({
           )
         ),
         isButtonTarget: Boolean(target?.closest("button, a, [role='button']")),
+        isTimelineTarget: Boolean(
+          target?.closest("[data-storyboard-visual-layer]")
+        ),
         isAnchorTarget: Boolean(
           target?.closest('[data-storyboard-edit-anchor="true"]')
         ),
@@ -3349,7 +3356,7 @@ export function StoryboardEditRow({
             'select, [role="combobox"], [role="dialog"], [role="menu"], [aria-haspopup="menu"], [data-renaming="true"], [data-rename-input="true"], [data-timeline-media-keyboard="true"]'
           )
         ),
-        rowVisible: rowRef.current?.offsetParent != null,
+        rowVisible: storyboardEditRowAcceptsGlobalShortcuts(rowRef.current),
       });
       if (!allowed) return;
       shortcutRef.current(event);
@@ -3492,8 +3499,15 @@ export function StoryboardEditRow({
               <AddTimelineMediaMenu
                 {...timeline.addMedia}
                 triggerLabel="添加声音"
+                compact
               />
             ) : undefined
+          }
+          audioAssets={timeline.audio.audioAssets}
+          onInsertAsset={timeline.audio.onInsertAsset}
+          onDiscardAsset={timeline.audio.onDiscardAsset}
+          onRequestGenerateMusic={() =>
+            timeline.addMedia?.onPick("import-music")
           }
           columnSpan={columnSpan}
         />

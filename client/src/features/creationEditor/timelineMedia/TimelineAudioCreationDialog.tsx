@@ -17,6 +17,22 @@ export type TimelineAudioCreationRequest =
   | { kind: "narration"; subtitleCueId: string; targetFrame: number }
   | { kind: TimelineGeneratedAudioKind; targetFrame: number };
 
+export type TimelineAudioGenerationScope = "shot" | "from-shot" | "story";
+
+export const TIMELINE_AUDIO_SCOPE_OPTIONS: readonly {
+  value: TimelineAudioGenerationScope;
+  label: string;
+  hint: string;
+}[] = [
+  { value: "shot", label: "当前镜头", hint: "只放在播放头所在镜头" },
+  {
+    value: "from-shot",
+    label: "从这里到结尾",
+    hint: "从当前镜头连续覆盖到故事结束",
+  },
+  { value: "story", label: "整个故事", hint: "从第一个镜头覆盖到最后" },
+];
+
 const COPY = {
   narration: {
     label: "旁白",
@@ -79,14 +95,17 @@ export function TimelineAudioCreationDialog({
   onGenerateSceneAudio: (input: {
     kind: TimelineGeneratedAudioKind;
     targetFrame: number;
+    scope: TimelineAudioGenerationScope;
     intent?: string;
   }) => Promise<boolean>;
   onImport: (kind: TimelineGeneratedAudioKind) => void;
 }) {
   const [intent, setIntent] = useState("");
+  const [scope, setScope] = useState<TimelineAudioGenerationScope>("shot");
 
   useEffect(() => {
     setIntent("");
+    setScope("shot");
   }, [request?.kind, request?.targetFrame]);
 
   if (!request) return null;
@@ -98,6 +117,7 @@ export function TimelineAudioCreationDialog({
       : await onGenerateSceneAudio({
           kind: request.kind,
           targetFrame: request.targetFrame,
+          scope,
           intent: intent.trim() || undefined,
         });
     if (generated) onClose();
@@ -149,10 +169,39 @@ export function TimelineAudioCreationDialog({
                 <div className="text-[11px] leading-5 text-muted-foreground">
                   <p className="font-medium text-foreground">自动镜头范围</p>
                   <p>
-                    以当前播放头所在镜头为准。服务端会重新读取镜头位置、时长、情绪、动作和场景，前端不能伪造落点或价格。
+                    起点由当前播放头决定；服务端会重新读取镜头位置、时长、情绪、动作和场景，前端不能伪造落点或价格。
                   </p>
                 </div>
               </div>
+              <fieldset className="space-y-2">
+                <legend className="text-[11px] font-medium text-foreground">
+                  覆盖范围
+                </legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {TIMELINE_AUDIO_SCOPE_OPTIONS.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={pending}
+                      aria-pressed={scope === option.value}
+                      data-testid={`timeline-audio-scope-${option.value}`}
+                      onClick={() => setScope(option.value)}
+                      className={`min-h-16 rounded-md border px-2 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 ${
+                        scope === option.value
+                          ? "border-[var(--nayin-accent)] bg-[color-mix(in_srgb,var(--nayin-accent)_10%,transparent)]"
+                          : "border-border bg-background hover:bg-muted/40"
+                      }`}
+                    >
+                      <span className="block text-[11px] font-medium text-foreground">
+                        {option.label}
+                      </span>
+                      <span className="mt-0.5 block text-[9px] leading-4 text-muted-foreground">
+                        {option.hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
               <label className="block space-y-1.5">
                 <span className="text-[11px] font-medium text-foreground">
                   这段声音希望是什么感觉？

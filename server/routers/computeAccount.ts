@@ -18,6 +18,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { getAccountBalance } from "../services/computeLedger";
 import { getAccountStatement } from "../services/computeStatement";
+import { isLocalUnlimitedCompute } from "../services/computeAccessPolicy";
 import {
   COMPUTE_STATEMENT_MAX_OFFSET,
   COMPUTE_STATEMENT_MAX_PAGE_LIMIT,
@@ -72,6 +73,10 @@ export const computeAccountRouter = router({
       availableMinor: summary.availableMinor,
       lifetimeSpentMinor: summary.lifetimeSpentMinor,
       accessEnabledAt: summary.accessEnabledAt,
+      // Presentation only; the client cannot select this mode.
+      billingMode: isLocalUnlimitedCompute()
+        ? ("local_unlimited" as const)
+        : ("metered" as const),
     };
   }),
   statement: protectedProcedure

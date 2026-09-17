@@ -96,6 +96,16 @@ export type TimelineNarrationCandidate = {
   unavailableReason?: string;
 };
 
+export type TimelineAudioAssetLibraryItem = {
+  id: number;
+  displayName: string;
+  mediaKind: "narration" | "music" | "ambience" | "sfx" | "source" | "unknown";
+  durationFrames: number;
+  createdAt: string | Date;
+  referenced: boolean;
+  audioUrl: string;
+};
+
 export type TimelineGeneratedAudioKind = "music" | "ambience" | "sfx";
 
 export type TimelineMediaController = {
@@ -203,11 +213,14 @@ export type TimelineMediaController = {
   generateSceneAudio: (input: {
     kind: TimelineGeneratedAudioKind;
     targetFrame: number;
+    scope?: "shot" | "from-shot" | "story";
     intent?: string;
   }) => Promise<boolean>;
 
   // ── Narration candidates (U5) ─────────────────────────────────────
   narrationCandidates: TimelineNarrationCandidate[];
+  audioAssets: TimelineAudioAssetLibraryItem[];
+  discardAudioAsset: (assetId: number) => Promise<boolean>;
   generateNarration: (subtitleCueId: string) => Promise<boolean>;
   adoptNarrationCandidate: (input: {
     subtitleCueId: string;
@@ -318,6 +331,11 @@ export function useTimelineMediaController(
       { storyId: storyId ?? 0 },
       { enabled: storyId != null }
     );
+  const audioAssetsQuery = trpc.timelineMedia.audioAssetLibrary.useQuery(
+    { storyId: storyId ?? 0 },
+    { enabled: storyId != null }
+  );
+  const discardAudioAssetMut = trpc.timelineMedia.discardAudioAsset.useMutation();
 
   const runForResult = useCallback(
     async (call: () => Promise<MediaCommandResult>): Promise<boolean> => {
@@ -693,6 +711,7 @@ export function useTimelineMediaController(
             storyId,
             kind: inputArgs.kind,
             targetFrame: inputArgs.targetFrame,
+            scope: inputArgs.scope ?? "shot",
             intent: inputArgs.intent,
           });
           if (sessionKeyRef.current !== commandSessionKey) return false;
@@ -705,8 +724,12 @@ export function useTimelineMediaController(
           const startSec = quote.context.startFrame / 30;
           const endSec =
             (quote.context.startFrame + quote.context.durationFrames) / 30;
+          const shotRange =
+            quote.context.shotNo === quote.context.endShotNo
+              ? `SH${String(quote.context.shotNo).padStart(2, "0")}`
+              : `SH${String(quote.context.shotNo).padStart(2, "0")}–SH${String(quote.context.endShotNo).padStart(2, "0")}`;
           const accepted = window.confirm(
-            `将为 SH${String(quote.context.shotNo).padStart(2, "0")} 的 ${startSec.toFixed(1)}–${endSec.toFixed(1)} 秒生成${kindLabel}。\n\n情绪依据：${quote.context.emotionSummary}\n模型：${quote.provider} / ${quote.model}\n预计最高 ¥${quote.estimatedCny.toFixed(2)}。确认提交 302？`
+            `将为 ${shotRange} 的 ${startSec.toFixed(1)}–${endSec.toFixed(1)} 秒生成${kindLabel}。\n\n情绪依据：${quote.context.emotionSummary}\n模型：${quote.provider} / ${quote.model}\n预计最高 ¥${quote.estimatedCny.toFixed(2)}。确认提交 302？`
           );
           if (!accepted) return false;
           const operationRef = operation();
@@ -737,6 +760,7 @@ export function useTimelineMediaController(
               setError: setLastError,
             }
           );
+          await audioAssetsQuery.refetch();
           return outcome.error == null;
         } catch (error) {
           if (sessionKeyRef.current !== commandSessionKey) return false;
@@ -750,6 +774,7 @@ export function useTimelineMediaController(
       },
       [
         generateSceneAudioMut,
+        audioAssetsQuery,
         onChanged,
         operation,
         quoteSceneAudioMut,
@@ -758,6 +783,26 @@ export function useTimelineMediaController(
       ]
     ),
     narrationCandidates: narrationCandidatesQuery.data ?? [],
+    audioAssets: audioAssetsQuery.data ?? [],
+    discardAudioAsset: useCallback(async assetId => {
+      if (storyId == null) return false;
+      setPendingCount(count => count + 1);
+      setLastError(null);
+      try {
+        const result = await discardAudioAssetMut.mutateAsync({ storyId, operation: operation(), assetId });
+        if (result.status !== "ok") {
+          setLastError(result.message);
+          return false;
+        }
+        await audioAssetsQuery.refetch();
+        return true;
+      } catch (error) {
+        setLastError(error instanceof Error ? error.message : "删除声音素材失败");
+        return false;
+      } finally {
+        setPendingCount(count => Math.max(0, count - 1));
+      }
+    }, [audioAssetsQuery, discardAudioAssetMut, operation, storyId]),
     generateNarration: useCallback(
       async (subtitleCueId: string) => {
         if (storyId == null) {

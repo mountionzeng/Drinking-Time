@@ -5,6 +5,7 @@
  * 类型必须由用户明确选择，系统不会从文件名或提示词猜轨道。
  */
 import { useEffect, useRef, useState } from "react";
+import { Plus, Sparkles } from "lucide-react";
 import { timelineMediaKindProfile } from "./timelineMediaCapabilities";
 
 export type AddTimelineMediaAction =
@@ -69,9 +70,11 @@ export function AddTimelineMediaMenu({
   triggerLabel = "添加",
   onPick,
   onStartSoundDirector,
+  compact = false,
 }: AddTimelineMediaMenuBinding & {
   /** 本轮真正可用的动作；其余以禁用项显示。 */
   triggerLabel?: string;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -96,16 +99,22 @@ export function AddTimelineMediaMenu({
 
   return (
     <div className="relative" ref={rootRef}>
-      <div className="flex items-center gap-1">
+      <div className={`flex items-center ${compact ? "gap-0.5" : "gap-1"}`}>
         {directorEntry ? (
           <button
             type="button"
             disabled={pending}
             data-testid="start-sound-director"
             onClick={onStartSoundDirector}
-            className="rounded-sm bg-[var(--nayin-accent)] px-2 py-0.5 text-[10px] font-medium text-background transition enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            className={
+              compact
+                ? "flex size-5 shrink-0 items-center justify-center rounded-sm text-[var(--nayin-accent)] transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                : "whitespace-nowrap rounded-sm bg-[var(--nayin-accent)] px-2 py-0.5 text-[10px] font-medium text-background transition enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            }
           >
-            {triggerLabel}
+            {compact ? <Sparkles className="size-3.5" /> : triggerLabel}
           </button>
         ) : null}
         <button
@@ -113,12 +122,23 @@ export function AddTimelineMediaMenu({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={directorEntry ? "手动添加声音" : triggerLabel}
+          title={directorEntry ? "手动添加声音" : triggerLabel}
           disabled={pending}
           data-testid="add-timeline-media-trigger"
           onClick={() => setOpen(value => !value)}
-          className="rounded-sm border border-border px-2 py-0.5 text-[10px] font-medium transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          className={
+            compact
+              ? "flex size-5 shrink-0 items-center justify-center rounded-sm transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+              : "whitespace-nowrap rounded-sm border border-border px-2 py-0.5 text-[10px] font-medium transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          }
         >
-          {directorEntry ? "手动添加" : triggerLabel}
+          {compact ? (
+            <Plus className="size-3.5" />
+          ) : directorEntry ? (
+            "手动添加"
+          ) : (
+            triggerLabel
+          )}
         </button>
       </div>
       {open ? (
@@ -126,7 +146,7 @@ export function AddTimelineMediaMenu({
           role="menu"
           aria-label="添加时间线媒体"
           data-testid="add-timeline-media-menu"
-          className="absolute right-0 z-[100] mt-1 min-w-[200px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg"
+          className={`absolute ${compact ? "left-0" : "right-0"} z-[100] mt-1 min-w-[200px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg`}
         >
           {TIMELINE_MEDIA_ADD_ITEMS.map(item => {
             const enabled = available.has(item.action) && !pending;

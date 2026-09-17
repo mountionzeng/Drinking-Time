@@ -3,7 +3,7 @@ import { ENV } from "../_core/env";
 export type GeneratedStoryAudioKind = "music" | "ambience" | "sfx";
 
 export type StoryAudio302Result = {
-  provider: "302-elevenlabs";
+  provider: "302-elevenlabs" | "302-minimax";
   model: string;
   source: { kind: "url"; url: string };
 };
@@ -38,7 +38,7 @@ function positiveInteger(value: string, fallback: number): number {
 
 function safeModel(value: string, label: string): string {
   const model = value.trim();
-  if (!model || model.length > 100 || !/^[\w.-]+$/i.test(model)) {
+  if (!model || model.length > 100 || !/^[\w.+-]+$/i.test(model)) {
     throw new Error(`${label}配置无效`);
   }
   return model;
@@ -66,6 +66,10 @@ function audioUrlFromPayload(payload: unknown): string | null {
       const url = audioUrlFromPayload(item);
       if (url) return url;
     }
+  }
+  if (record.data && typeof record.data === "object") {
+    const url = audioUrlFromPayload(record.data);
+    if (url) return url;
   }
   return null;
 }
@@ -211,8 +215,11 @@ export async function generateStoryAudio302(input: {
         input.musicModel ?? ENV.audio302MusicModel,
         "音乐模型"
       );
+      const minimax = /^music-/i.test(model);
       const response = await checkedFetch(
-        `${baseUrl}/elevenlabs/music?response_format=url`,
+        minimax
+          ? `${baseUrl}/minimaxi/v1/music_generation`
+          : `${baseUrl}/elevenlabs/music?response_format=url`,
         {
           method: "POST",
           headers: {
@@ -220,13 +227,29 @@ export async function generateStoryAudio302(input: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            prompt,
-            music_length_ms: Math.round(
-              Math.min(300, Math.max(10, input.durationSeconds)) * 1_000
-            ),
-            model_id: model,
-          }),
+          body: JSON.stringify(
+            minimax
+              ? {
+                  model,
+                  prompt,
+                  lyrics: "[Intro]\n[Inst]\n[Outro]",
+                  stream: false,
+                  output_format: "url",
+                  audio_setting: {
+                    sample_rate: 44_100,
+                    bitrate: 128_000,
+                    format: "mp3",
+                  },
+                  aigc_watermark: false,
+                }
+              : {
+                  prompt,
+                  music_length_ms: Math.round(
+                    Math.min(300, Math.max(10, input.durationSeconds)) * 1_000
+                  ),
+                  model_id: model,
+                }
+          ),
           signal: controller.signal,
         },
         fetcher
@@ -241,7 +264,7 @@ export async function generateStoryAudio302(input: {
         );
       }
       return {
-        provider: "302-elevenlabs",
+        provider: minimax ? "302-minimax" : "302-elevenlabs",
         model,
         source: { kind: "url", url },
       };

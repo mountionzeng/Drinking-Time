@@ -149,6 +149,43 @@ describe("scene audio context", () => {
       })
     ).toContain("不要煽情");
   });
+
+  it("derives consecutive and whole-story ranges from authoritative layout", () => {
+    const input = {
+      targetFrame: 70,
+      timelineItems: [
+        { stableShotId: "a", included: true, position: 0, durationFrames: 60 },
+        { stableShotId: "b", included: true, position: 1, durationFrames: 90 },
+        { stableShotId: "c", included: true, position: 2, durationFrames: 30 },
+      ],
+      storyBody: {
+        shots: [
+          { stableShotId: "a", shotNo: 1, emotion: "平静" },
+          { stableShotId: "b", shotNo: 2, emotion: "紧张" },
+          { stableShotId: "c", shotNo: 3, emotion: "释然" },
+        ],
+      },
+    };
+    expect(
+      resolveStorySceneAudioContext({ ...input, scope: "from-shot" })
+    ).toMatchObject({
+      stableShotId: "b",
+      shotNo: 2,
+      endShotNo: 3,
+      startFrame: 60,
+      durationFrames: 120,
+      emotionSummary: "紧张 · 释然",
+    });
+    expect(
+      resolveStorySceneAudioContext({ ...input, scope: "story" })
+    ).toMatchObject({
+      stableShotId: "a",
+      shotNo: 1,
+      endShotNo: 3,
+      startFrame: 0,
+      durationFrames: 180,
+    });
+  });
 });
 
 describe("story scene audio paid workflow", () => {

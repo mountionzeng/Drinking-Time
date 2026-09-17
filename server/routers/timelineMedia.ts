@@ -21,7 +21,7 @@ import {
   trimSubtitleCueForStory,
   undoLatestTimelineMediaEditForStory,
 } from "../services/timelineSubtitleEditing";
-import { AUDIO_TRACK_KINDS } from "../../shared/timelineAudioModel";
+import { AUDIO_TRACK_KINDS, normalizeAudioState } from "../../shared/timelineAudioModel";
 import {
   MAX_LOCAL_AUDIO_BYTES,
   acquireLocalAudioImportPermit,
@@ -54,6 +54,12 @@ import {
   quoteStorySceneAudio,
 } from "../services/storyAudioGeneration";
 import { isVisualEditSessionEpochAllowed } from "../services/visualEditSessionRegistry";
+import {
+  discardReadyStoryAudioAsset,
+  listOwnedStoryAudioAssets,
+} from "../services/storyAudioAssets";
+import { loadOwnedStoryTimelineEnvelope } from "../persistence/storyVisualPersistence";
+import { withVisualEditServiceLock } from "../services/visualClipEditing";
 
 const operationInput = z.object({
   editorSessionEpoch: z.string().min(1).max(80),
@@ -564,6 +570,7 @@ export const timelineMediaRouter = router({
         storyId,
         kind: generatedAudioKind,
         targetFrame: frame,
+        scope: z.enum(["shot", "from-shot", "story"]).default("shot"),
         intent: z.string().trim().max(800).optional(),
       })
     )
@@ -573,6 +580,7 @@ export const timelineMediaRouter = router({
         userId: ctx.user.id,
         kind: input.kind,
         targetFrame: input.targetFrame,
+        scope: input.scope,
         intent: input.intent,
       })
     ),
@@ -655,6 +663,57 @@ export const timelineMediaRouter = router({
         storyId: input.storyId,
         userId: ctx.user.id,
         ...(input.subtitleCueId ? { subtitleCueId: input.subtitleCueId } : {}),
+      })
+    ),
+
+  audioAssetLibrary: protectedProcedure
+    .input(z.object({ storyId }))
+    .query(async ({ ctx, input }) => {
+      const [assets, envelope] = await Promise.all([
+        listOwnedStoryAudioAssets({ storyId: input.storyId, userId: ctx.user.id }),
+        loadOwnedStoryTimelineEnvelope({ storyId: input.storyId, userId: ctx.user.id }),
+      ]);
+      const referenced = new Set(
+        normalizeAudioState(envelope?.extensions.audioTracks).tracks.flatMap(track =>
+          track.clips.map(clip => clip.assetId)
+        )
+      );
+      return assets
+        .filter(asset => asset.status === "ready")
+        .map(asset => ({
+          id: asset.id,
+          displayName: asset.displayName,
+          mediaKind: asset.mediaKind,
+          durationFrames: Math.max(1, asset.durationFrames ?? 1),
+          createdAt: asset.createdAt,
+          referenced: referenced.has(asset.id),
+          audioUrl: `/api/story-audio-asset/${asset.storyId}/${asset.id}`,
+        }))
+        .sort((a, b) => b.id - a.id);
+    }),
+
+  discardAudioAsset: protectedProcedure
+    .input(z.object({ storyId, operation: operationInput, assetId: z.number().int().positive() }))
+    .mutation(({ ctx, input }) =>
+      withVisualEditServiceLock(input.storyId, ctx.user.id, async () => {
+        if (!isVisualEditSessionEpochAllowed({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          editorSessionEpoch: input.operation.editorSessionEpoch,
+        })) return { status: "error" as const, message: "这个剪辑会话已经失效，请刷新后重试" };
+        const envelope = await loadOwnedStoryTimelineEnvelope({ storyId: input.storyId, userId: ctx.user.id });
+        const used = normalizeAudioState(envelope?.extensions.audioTracks).tracks.some(track =>
+          track.clips.some(clip => clip.assetId === input.assetId)
+        );
+        if (used) return { status: "error" as const, message: "这份声音正在时间线上使用，请先删除时间线片段" };
+        const discarded = await discardReadyStoryAudioAsset({
+          scope: { storyId: input.storyId, userId: ctx.user.id },
+          assetId: input.assetId,
+          reason: "用户从声音素材库删除",
+        });
+        return discarded
+          ? { status: "ok" as const }
+          : { status: "error" as const, message: "声音素材删除失败，请稍后重试" };
       })
     ),
 

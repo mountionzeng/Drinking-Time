@@ -403,6 +403,11 @@
       "knownGaps": [],
       "history": [
         {
+          "date": "2026-09-15",
+          "kind": "fix",
+          "summary": "修复完整故事板时间轴整套全局快捷键静默失效：不再用可能在嵌套滚动/网格布局中误报的 offsetParent 判断剪辑行可见性，改为只要剪辑行仍连接当前文档就接收空格、JKL、方向键、I/O、S、F 等既有快捷键；组件切换卸载后仍不接管其他页面。快捷键与 StoryboardEditRow 定向测试 142 项及 tsc 通过。"
+        },
+        {
           "date": "2026-08-25",
           "kind": "fix",
           "summary": "Phase C（刷新延迟修复）：本地模式读单个 Story 的提示词投影不再复制整份提示词仓库。新增 getLocalPromptLineageStateForStory()/getLocalPromptCompilationHeadsForStory()（server/db.ts）：先按 storyId 从内存态筛出切片再 structuredClone，不泄露可变全局引用；loadStoryPromptAggregate 本地分支改用前者替换「clone 整库 + 写入用 onCommit 管线」的读法；新增 loadStoryPromptCompilationHeads(owner)（本地校验 storyId 存在但 userId 不符仍抛 PromptLineageOwnershipError，SQL 直接按 storyId+userId 查表）。storyMaterials.getStoryMaterialState 改用这个窄函数，不再取完整聚合。server/routers/promptLineage.ts 的 Prompt Table 独立端点未改，仍取完整单 Story aggregate，但同样受益于本地分支的筛选顺序优化。新增 16 个单测（server/services/promptLineageStore.test.ts、server/db.promptLineageStoryScope.test.ts）覆盖单 Story 隔离、clone 非活引用、所有权不匹配抛错、空提示词状态返回空。主仓 3000 用 Story 1186（37 镜头、105 条 compilationHeads）服务层只读计时：getStoryMaterialState 热调用从约 45-48ms 降到约 9-13ms，loadStoryPromptAggregate 从约 38-41ms 降到约 9ms，新的 loadStoryPromptCompilationHeads 约 0.1ms；连续 3 次整页刷新 + 打开素材仓库（图片77/视频112/资产2）实测正常，无 console error。"
@@ -1286,6 +1291,41 @@
           "date": "2026-09-05",
           "kind": "feature",
           "summary": "添加声音入口先区分旁白、音乐、环境声和音效：旁白继续由字幕 cue 驱动候选与绑定；其余类型由服务端解析播放头命中的镜头、情绪、动作、场景和声音说明，签发短期报价并在用户再次确认后调用 302 ElevenLabs Music / Sound Generation，生成资产自动裁到镜头范围并写入对应正式音轨。本地导入入口继续保留。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "verification",
+          "summary": "音乐生成接入 302 MiniMax music-2.5+，服务端固定纯音乐结构并支持嵌套 audio_url；主仓 main:3000 已真实付费验收 SH01：报价与结算均为 ¥0.15，供应商回执成功，60.71 秒 MP3 以 ready 原始资产保存并按镜头裁为 0–90 帧写入独立音乐轨，Preview 可播放，刷新后资产引用、时间线 clip 与 ¥0.85 余额均持久保留。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "feature",
+          "summary": "已有音频轨不再吞掉添加入口：首条可见音轨常驻添加声音与手动添加菜单；音乐、环境声和音效生成新增当前镜头、从当前镜头到结尾、整个故事三种服务端权威范围，报价确认明确显示镜头区间和秒数。main:3000 已验证已有音乐后仍可再次打开入口，整段范围正确解析为 SH01–SH06 / 0–18 秒。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "修复生成音乐只采用当前镜头时难以继续编辑原始素材的问题：选中时间线音乐块后，左右裁剪手柄从完全隐藏改为持续可见并扩大命中区域，块内明确提示可拖右侧展开原始素材后续内容；不改写原始资产、不自动延长时间线，也不触发再次生成或计费。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "feature",
+          "summary": "声音工作区新增独立素材库：当前 Story 每份 ready 原始声音都以完整时长和独立播放器显示，不再因时间线只采用几秒而隐藏剩余内容；素材可再次放入当前播放头参与分层裁剪，未被时间线引用时可显式删除，正在使用的素材必须先删除引用，避免时间线悬空。main:3000 已验证 60.7 秒 music-SH01.mp3 与其 3 秒时间线引用同时显示。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "短片配乐从不接受时长参数、固定返回约一分钟的 MiniMax music-2.5+ 切回支持 music_length_ms 的 302 ElevenLabs music_v1；生成请求按所选故事范围精确传时长，低于供应商下限时最少 10 秒，避免 18 秒短篇无谓生成一分钟素材。既有 60.7 秒资产继续保留，不静默删除。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "verification",
+          "summary": "main:3000 真实付费验证整个故事范围：302 ElevenLabs music_v1 按 SH01–SH06 / 18 秒请求成功，结算 ¥0.18，返回 18.102812 秒（543 帧）ready 素材 #3；素材库同时显示新 18.1 秒与旧 60.7 秒完整音乐，时间线新片段从 0 帧覆盖全片 540 帧，旧 3 秒引用仍保留且没有被覆盖。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "按用户指定收拢声音工作区：默认显示可编辑波形轨，完整素材卡通过左侧素材数量按钮展开；生成新音乐移至首条可见音轨左侧，声音导演与手动添加改为紧凑图标，避免窄栏中文竖排。完整资产、试听、插入和删除约束保留。main:3000 已验证展开仍可查看 18.1 秒与 60.7 秒两份素材，收起恢复波形主视图，生成入口正常打开范围选择弹窗；本轮未提交生成或计费。"
         }
       ]
     },
@@ -1667,6 +1707,7 @@
         "shared/timelineEditing.test.ts",
         "shared/timelineCommands.test.ts",
         "client/src/features/creationEditor/storyboardEditRow.test.ts",
+        "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
         "client/src/features/storyAgent/views/StoryboardTimelineRuler.test.tsx",
@@ -1706,6 +1747,11 @@
         "缩放与简化显示已通过顺序五镜播放验证；重叠同起点、未放置镜头的整片适配及末端刻度溢出修复仍待完整浏览器复验。"
       ],
       "history": [
+        {
+          "date": "2026-09-15",
+          "kind": "fix",
+          "summary": "修复 Storyboard 播放头与选中态的错误双向耦合：播放头推进仍会更新当前镜头，但编辑台词、旁白、停顿或其他字段导致的镜头选中不再反向 seek；只有主轨或上层视觉轨上的明确点击才按鼠标绝对时间移动播放头，超过 4px 的拖动仍不误触 seek。Space 收敛到剪辑行唯一入口并直接调用播放时钟的原子 toggle，不再根据可能过期的渲染快照反推状态；Preview 的迟到 programmatic onPlay 也不能反向重启主时钟。相关 184 项定向测试与 tsc 通过；main:3000 真实复现旧版 2413ms 聚焦第 05 镜旁白后跳到 12000ms，修复后保持 2413ms；点击上层轨从 2413ms 落到 8397ms，Space 播放到约 9034ms 后再次 Space 稳定暂停。"
+        },
         {
           "date": "2026-08-25",
           "kind": "feature",
@@ -3082,6 +3128,7 @@
         "server/services/accountSecurity.ts",
         "server/services/computeBilling.ts",
         "server/services/computeLedger.ts",
+        "server/services/computeAccessPolicy.ts",
         "server/services/computeStatement.ts",
         "server/services/computeReconciliation.ts",
         "shared/computeStatement.ts",
@@ -3092,6 +3139,9 @@
         "drizzle/migrations/0016_account_gift_credit.sql",
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "server/routers/computeAccount.ts",
+        "client/src/features/computeAccount/useComputeBalance.ts",
+        "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
         "client/src/features/nayin/views/DailyDrinkHero.tsx",
         "client/src/assets/fonts/honglei-zhuoshu-brand.ttf",
         "server/services/supabaseGoogleAuth.ts",
@@ -3132,6 +3182,8 @@
         "邮箱账号与微信账号保持独立；微信端故事通过一次性短码在电脑进入同一微信 userId，不合并到已有邮箱账号，也不复制故事或余额。",
         "赠送卡只负责开通和增加算力，不再作为长期登录凭据；首张卡提供一次 ¥30，旧账号迁移和旧邀请码转换不得重复赠送。",
         "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
+        "本机不限额只能由服务端 development 环境的显式开关决定；客户端参数、普通用户身份和管理员身份均不能开启线上免额。",
+        "本机不限额仍须记录已接入账本调用的实际成本，并向本机界面展示累计成本；生产环境仍使用余额闸门。",
         "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
         "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。"
@@ -3150,6 +3202,11 @@
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。"
       ],
       "history": [
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "本机 development 环境可用显式服务端开关不限额：预占可临时穿透余额，但继续走 hold、provider attempt 与结算链路，因此已接入账本的真实供应商成本仍累计显示在顶栏；不写入任何可带到线上使用的赠送余额，生产、预览与测试环境继续执行余额闸门，客户端不能请求绕过。"
+        },
         {
           "date": "2026-09-02",
           "kind": "decision",

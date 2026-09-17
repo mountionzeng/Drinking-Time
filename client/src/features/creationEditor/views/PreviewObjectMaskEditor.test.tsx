@@ -127,11 +127,11 @@ describe("Preview object mask editor integration", () => {
     expect(html).toContain("在聊天框修改");
   });
 
-  it("moves the one Preview clock only for an explicit shot selection", () => {
-    expect(workspaceSource).toContain("selectedShotPlayheadSyncTarget");
-    expect(workspaceSource).toMatch(
-      /selectionFromPlayheadRef\.current[\s\S]*?playbackClock\.seek\(syncTargetMs\)/
-    );
+  it("does not move the Preview clock when editing merely selects another shot", () => {
+    expect(workspaceSource).not.toContain("selectedShotPlayheadSyncTarget");
+    expect(workspaceSource).not.toContain("previouslySyncedShotNoRef");
+    expect(workspaceSource).not.toMatch(/playbackClock\.seek\(syncTargetMs\)/);
+    expect(workspaceSource).not.toContain("handleEditingShortcut");
   });
 
   it("surfaces frame extraction failures instead of silently returning to idle", () => {

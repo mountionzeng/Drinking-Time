@@ -98,6 +98,27 @@ export function shotImageUrl(shot: CreationEditorShot | null): string | null {
 
 const PREVIEW_CONTROL_PAUSE_WINDOW_MS = 1_200;
 
+export function shouldForwardPreviewPlay(input: {
+  timelinePlaying: boolean;
+  mediaIsCurrent: boolean;
+  mediaConnected: boolean;
+  lastInteractionAtMs: number | null;
+  nowMs: number;
+}): boolean {
+  const interactionAgeMs =
+    input.lastInteractionAtMs == null
+      ? null
+      : input.nowMs - input.lastInteractionAtMs;
+  return (
+    !input.timelinePlaying &&
+    input.mediaIsCurrent &&
+    input.mediaConnected &&
+    interactionAgeMs != null &&
+    interactionAgeMs >= 0 &&
+    interactionAgeMs <= PREVIEW_CONTROL_PAUSE_WINDOW_MS
+  );
+}
+
 export function shouldForwardPreviewPause(input: {
   timelinePlaying: boolean;
   ignoreNextPause: boolean;
@@ -180,20 +201,6 @@ export function canEditCurrentVideoFrame(input: {
   extracting: boolean;
 }): boolean {
   return input.hasVideo && !input.timelinePlaying && !input.extracting;
-}
-
-/**
- * Storyboard 的显式镜头选择要移动唯一播放头；播放头自己推进产生的选中
- * 只更新界面投影，不能再反向 seek，否则每次跨镜都会回跳到镜头起点。
- */
-export function selectedShotPlayheadSyncTarget(input: {
-  selectedShotNo: number | null | undefined;
-  selectionFromPlayheadShotNo: number | null | undefined;
-  timing?: { startMs: number } | null;
-}): number | null {
-  if (input.selectedShotNo == null || !input.timing) return null;
-  if (input.selectionFromPlayheadShotNo === input.selectedShotNo) return null;
-  return Math.max(0, input.timing.startMs);
 }
 
 export function previewMediaLayerPlan(input: {

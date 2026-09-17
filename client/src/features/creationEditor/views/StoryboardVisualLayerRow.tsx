@@ -112,6 +112,8 @@ export type StoryboardBoardTimeline = {
   /** 全片绝对毫秒 */
   onSeek: (ms: number) => void;
   onTogglePlay: (playing: boolean) => void;
+  /** 不依赖渲染快照的原子播放/暂停切换，供 Space 使用。 */
+  onTogglePlayback?: () => void;
   onSelectRange: (
     range:
       | (StoryboardEditRange & { stableShotId: string; shotNo: number })
@@ -1388,9 +1390,17 @@ export function StoryboardVisualLayerRow({
             if (pairingStart) setPairingCandidate(null);
           }}
           onClick={event => {
+            // Space 在聚焦的 role=button 轨道上会补发 detail=0、clientX=0 的
+            // 键盘 click；它只负责播放/暂停，不能被误当成鼠标定位到片头。
+            if (event.detail === 0) return;
             if (pairingStart && event.target === event.currentTarget) {
               setPairingStart(null);
               setPairingCandidate(null);
+              return;
+            }
+            if (event.target === event.currentTarget) {
+              timeline.onTogglePlay(false);
+              seekFromClientX(event.clientX);
             }
           }}
           onKeyDown={event => {
@@ -1415,7 +1425,7 @@ export function StoryboardVisualLayerRow({
           !shots.some(
             shot => (shot.timelineItem?.visualLayer ?? 0) === visualLayer
           ) ? (
-            <span className="absolute inset-0 flex items-center px-2 text-[8px] text-muted-foreground/65">
+            <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-[8px] text-muted-foreground/65">
               在剪辑条上右键，选择“抽帧”
             </span>
           ) : null}
@@ -1462,7 +1472,10 @@ export function StoryboardVisualLayerRow({
                   onPointerUp={finishClipPointerDrag}
                   onPointerCancel={cancelClipPointerDrag}
                   onClick={event => {
+                    if (event.detail === 0) return;
                     if (consumeSuppressedClipClick()) return;
+                    timeline.onTogglePlay(false);
+                    seekFromClientX(event.clientX);
                     onSelectVisualObject(
                       {
                         type: "story-shot",

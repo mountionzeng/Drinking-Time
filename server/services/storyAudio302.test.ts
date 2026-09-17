@@ -2,6 +2,45 @@ import { describe, expect, it, vi } from "vitest";
 import { StoryAudio302Error, generateStoryAudio302 } from "./storyAudio302";
 
 describe("generateStoryAudio302", () => {
+  it("uses MiniMax music-2.5+ for instrumental background music", async () => {
+    const fetcher = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: { audio_url: "https://file.302.ai/audio/minimax.mp3" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    );
+    const result = await generateStoryAudio302({
+      kind: "music",
+      prompt: "restrained cinematic underscore",
+      durationSeconds: 3,
+      apiKey: "test-key",
+      baseUrl: "https://api.302.ai/",
+      musicModel: "music-2.5+",
+      fetcher,
+    });
+
+    expect(result).toEqual({
+      provider: "302-minimax",
+      model: "music-2.5+",
+      source: { kind: "url", url: "https://file.302.ai/audio/minimax.mp3" },
+    });
+    expect(String(fetcher.mock.calls[0][0])).toBe(
+      "https://api.302.ai/minimaxi/v1/music_generation"
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      model: "music-2.5+",
+      prompt: "restrained cinematic underscore",
+      lyrics: "[Intro]\n[Inst]\n[Outro]",
+      stream: false,
+      output_format: "url",
+      audio_setting: { sample_rate: 44_100, bitrate: 128_000, format: "mp3" },
+      aigc_watermark: false,
+    });
+  });
+
   it("uses ElevenLabs Music v1 and its minimum ten-second duration", async () => {
     const fetcher = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -16,6 +55,7 @@ describe("generateStoryAudio302", () => {
       durationSeconds: 8,
       apiKey: "test-key",
       baseUrl: "https://api.302.ai/",
+      musicModel: "music_v1",
       fetcher,
     });
 

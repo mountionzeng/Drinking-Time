@@ -9,6 +9,23 @@ import {
 vi.stubGlobal("React", React);
 
 describe("AddTimelineMediaMenu", () => {
+  it("keeps both compact icon actions accessible without wrapping text labels", () => {
+    const html = renderToStaticMarkup(
+      <AddTimelineMediaMenu
+        compact
+        triggerLabel="添加声音"
+        availableActions={["import-music"]}
+        onStartSoundDirector={vi.fn()}
+        onPick={vi.fn()}
+      />
+    );
+    expect(html).toContain('aria-label="添加声音"');
+    expect(html).toContain('aria-label="手动添加声音"');
+    expect(html).toContain('data-testid="start-sound-director"');
+    expect(html).not.toContain(">添加声音<");
+    expect(html).not.toContain(">手动添加<");
+  });
+
   it("names the six creation routes without asking the system to guess a type", () => {
     expect(TIMELINE_MEDIA_ADD_ITEMS.map(item => item.label)).toEqual([
       "从当前文字生成字幕",

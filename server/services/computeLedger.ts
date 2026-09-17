@@ -23,6 +23,7 @@ import {
   type BillingOperationStatus,
   type ProviderOutcome,
 } from "./computeBilling";
+import { isLocalUnlimitedCompute } from "./computeAccessPolicy";
 
 /** Provider-attempt persistence remains behind the compute-ledger seam. */
 export function recordOperationProviderAttempt(
@@ -80,13 +81,15 @@ export async function reserveForOperation(
 ): Promise<ReserveForOperationResult> {
   const now = input.now ?? new Date();
   const existingOperation = await findBillingOperation(input.operationId);
+  const localUnlimited = isLocalUnlimitedCompute();
 
   const plan = planReservation({
     operationId: input.operationId,
     requestHash: input.requestHash,
     maxCostMinor: input.maxCostMinor,
-    availableMinor: (await getCreditAccountSummary(input.userId))
-      .availableMinor,
+    availableMinor: localUnlimited
+      ? Number.MAX_SAFE_INTEGER
+      : (await getCreditAccountSummary(input.userId)).availableMinor,
     existing: existingOperation
       ? {
           operationId: existingOperation.operationId,
@@ -124,6 +127,7 @@ export async function reserveForOperation(
     amountMinor: plan.amountMinor,
     storyId: input.storyId ?? null,
     quoteExpiresAt: input.quoteExpiresAt ?? null,
+    allowNegativeBalance: localUnlimited,
   });
 
   if (reserved.kind === "reserved") {

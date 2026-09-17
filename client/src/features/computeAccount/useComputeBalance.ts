@@ -16,6 +16,8 @@ export type ComputeBalanceView = {
   text: string | null;
   /** 生成中被占住的钱，没有占用时为 null。 */
   reservedText: string | null;
+  localUnlimited: boolean;
+  localCostText: string | null;
   /**
    * 这个账户从来没入过账、也没花过钱——计费还没对它生效。
    *
@@ -38,6 +40,7 @@ export type ComputeBalanceAmounts = {
   reservedMinor: number;
   availableMinor: number;
   lifetimeSpentMinor: number;
+  billingMode?: "metered" | "local_unlimited";
 };
 
 /**
@@ -65,6 +68,8 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
     // 生成一次就会动一次，但没必要盯着轮询；切回窗口时刷新足够。
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    refetchInterval: query =>
+      query.state.data?.billingMode === "local_unlimited" ? 5_000 : false,
   });
 
   const data = query.data ?? null;
@@ -75,6 +80,11 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
     reservedText:
       data && data.reservedMinor > 0
         ? formatCnyBalance(data.reservedMinor)
+        : null,
+    localUnlimited: data?.billingMode === "local_unlimited",
+    localCostText:
+      data?.billingMode === "local_unlimited"
+        ? formatCnyBalance(data.lifetimeSpentMinor)
         : null,
     ...(data
       ? classifyComputeBalance(data)

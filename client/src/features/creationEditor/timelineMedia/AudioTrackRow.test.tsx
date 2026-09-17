@@ -120,6 +120,9 @@ describe("AudioTrackRow", () => {
     expect(html).toContain('aria-label="音乐入点"');
     expect(html).toContain('aria-label="音乐出点"');
     expect(html).toContain('data-selected="true"');
+    expect(html).toContain('title="向右拖动，展开原始素材的后续内容"');
+    expect(html).toContain('data-visible="true"');
+    expect(html).toContain("拖右侧展开后续素材");
   });
 
   it("renders dialogue as an ordinary editable lane with a mix-neutral speaker label", () => {
@@ -177,5 +180,56 @@ describe("AudioTrackRow", () => {
     expect(html).toContain('data-testid="storyboard-audio-empty-row"');
     expect(html).toContain("添加声音");
     expect(html).not.toContain('data-testid="storyboard-audio-track-music"');
+  });
+
+  it("shows every ready source asset separately from its timeline references", () => {
+    const html = renderToStaticMarkup(
+      <AudioTrackSection
+        storyId={12}
+        audioState={{ tracks: [track] }}
+        viewport={viewport}
+        playheadMs={0}
+        selectedClipId={null}
+        pending={false}
+        error={null}
+        onSelectClip={vi.fn()}
+        onMove={vi.fn()}
+        onTrim={vi.fn()}
+        onDelete={vi.fn()}
+        onRequestAdd={vi.fn()}
+        audioAssets={[
+          {
+            id: 41,
+            displayName: "完整配乐.mp3",
+            mediaKind: "music",
+            durationFrames: 1821,
+            createdAt: "2026-09-17T10:12:27.786Z",
+            referenced: true,
+            audioUrl: "/api/story-audio-asset/12/41",
+          },
+        ]}
+        onInsertAsset={vi.fn()}
+        onDiscardAsset={vi.fn()}
+        onRequestGenerateMusic={vi.fn()}
+      />
+    );
+    expect(html).toContain('data-testid="storyboard-audio-asset-library"');
+    expect(html).toContain("完整配乐.mp3");
+    expect(html).toContain("60.7s");
+    expect(html).toContain("再次放入播放头");
+    expect(html).toContain("时间线中");
+    expect(html).toContain('<div class="hidden">');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-label="声音素材库，1 份素材"');
+    expect(html).toContain('data-testid="storyboard-audio-track-music"');
+    expect(
+      html.match(/data-testid="audio-library-generate-music"/g)
+    ).toHaveLength(1);
+    const header = html.slice(
+      html.indexOf('data-testid="storyboard-audio-header-music"')
+    );
+    expect(
+      header.indexOf('data-testid="audio-library-generate-music"')
+    ).toBeLessThan(header.indexOf('role="cell"'));
   });
 });

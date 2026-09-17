@@ -51,12 +51,15 @@ import { findDurableTimelineMediaOperation } from "./timelineMediaOperationLedge
 const OPERATION_TYPE = "audio.scene-generation";
 const QUOTE_TTL_MS = 5 * 60 * 1_000;
 const PREPARED_RECOVERY_GRACE_MS = 10 * 60 * 1_000;
-const PRICE_VERSION = "scene-audio-302-cny-v1";
+const PRICE_VERSION = "scene-audio-302-cny-v2";
 function maxCostMinor(
   kind: GeneratedStoryAudioKind,
   durationFrames: number
 ): number {
   if (kind !== "music") return fromYuan(0.06);
+  if (/^music-/i.test(ENV.audio302MusicModel.trim())) {
+    return fromYuan(0.15);
+  }
   const providerSeconds = Math.min(
     300,
     Math.max(10, Math.ceil(durationFrames / STORY_TIMELINE_FPS))
@@ -69,6 +72,7 @@ type StoryRecord = Record<string, unknown>;
 export type StorySceneAudioContext = {
   stableShotId: string;
   shotNo: number;
+  endShotNo: number;
   startFrame: number;
   durationFrames: number;
   emotionSummary: string;
@@ -77,12 +81,15 @@ export type StorySceneAudioContext = {
   soundSummary: string;
 };
 
+export type StorySceneAudioScope = "shot" | "from-shot" | "story";
+
 type SceneAudioQuoteClaims = {
   version: 1;
   userId: number;
   storyId: number;
   kind: GeneratedStoryAudioKind;
   targetFrame: number;
+  scope: StorySceneAudioScope;
   intent: string;
   context: StorySceneAudioContext;
   promptHash: string;
@@ -199,10 +206,12 @@ export function resolveStorySceneAudioContext(input: {
   timelineItems: unknown;
   storyBody: unknown;
   targetFrame: number;
+  scope?: StorySceneAudioScope;
 }): StorySceneAudioContext {
   const items = normalizedTimelineItems(input.timelineItems);
+  const layout = buildTimelineLayout(items);
   const resolution = resolveTimelineFrame(
-    buildTimelineLayout(items),
+    layout,
     Math.max(0, Math.floor(input.targetFrame))
   );
   if (resolution.kind !== "shot") {
@@ -210,44 +219,74 @@ export function resolveStorySceneAudioContext(input: {
   }
   const body = record(input.storyBody);
   const shots = Array.isArray(body.shots) ? body.shots.map(record) : [];
-  const shot =
-    shots.find(
-      candidate =>
-        text(candidate.stableShotId) === resolution.row.item.stableShotId
+  const anchorIndex = layout.findIndex(
+    row => row.item.stableShotId === resolution.row.item.stableShotId
+  );
+  const scope = input.scope ?? "shot";
+  const selectedRows =
+    scope === "story"
+      ? layout
+      : scope === "from-shot"
+        ? layout.slice(anchorIndex)
+        : [resolution.row];
+  const selectedShots = selectedRows.map(row =>
+    (shots.find(
+      candidate => text(candidate.stableShotId) === row.item.stableShotId
     ) ??
-    shots.find(
-      candidate =>
-        positiveInteger(candidate.shotNo, -1) ===
-        resolution.row.item.position + 1
-    ) ??
-    {};
+      shots.find(
+        candidate =>
+          positiveInteger(candidate.shotNo, -1) === row.item.position + 1
+      ) ??
+      {})
+  );
+  const firstRow = selectedRows[0] ?? resolution.row;
+  const lastRow = selectedRows.at(-1) ?? resolution.row;
+  const firstShot = selectedShots[0] ?? {};
+  const lastShot = selectedShots.at(-1) ?? firstShot;
   return {
-    stableShotId: resolution.row.item.stableShotId,
+    stableShotId: firstRow.item.stableShotId,
     shotNo: positiveInteger(
-      shot.shotNo,
-      Math.max(1, resolution.row.item.position + 1)
+      firstShot.shotNo,
+      Math.max(1, firstRow.item.position + 1)
     ),
-    startFrame: resolution.row.startFrame,
-    durationFrames: resolution.row.durationFrames,
+    endShotNo: positiveInteger(
+      lastShot.shotNo,
+      Math.max(1, lastRow.item.position + 1)
+    ),
+    startFrame: firstRow.startFrame,
+    durationFrames:
+      lastRow.startFrame + lastRow.durationFrames - firstRow.startFrame,
     emotionSummary: joined(
-      [
+      selectedShots.flatMap(shot => [
         shot.emotion,
         shot.mood,
         shot.emotionCharge,
         shot.emotionDelta,
         shot.beat,
-      ],
+      ]),
       "克制、贴合叙事"
     ),
     sceneSummary: joined(
-      [shot.sceneTitle, shot.location, shot.timeLight, shot.lighting],
+      selectedShots.flatMap(shot => [
+        shot.sceneTitle,
+        shot.location,
+        shot.timeLight,
+        shot.lighting,
+      ]),
       "沿用当前镜头空间"
     ),
     actionSummary: joined(
-      [shot.subject, shot.action, shot.performance],
+      selectedShots.flatMap(shot => [
+        shot.subject,
+        shot.action,
+        shot.performance,
+      ]),
       "跟随当前镜头动作"
     ),
-    soundSummary: joined([shot.sound, shot.soundBridge], "无额外声音说明"),
+    soundSummary: joined(
+      selectedShots.flatMap(shot => [shot.sound, shot.soundBridge]),
+      "无额外声音说明"
+    ),
   };
 }
 
@@ -270,7 +309,7 @@ export function composeStorySceneAudioPrompt(input: {
     `Sound direction: ${input.context.soundSummary}.`,
   ].join(" ");
   if (input.kind === "music") {
-    return `Instrumental cinematic underscore only; no vocals and no spoken words. ${facts} Support this exact shot without overpowering narration. Use a clean beginning and a natural ending suitable for editing.`;
+    return `Instrumental cinematic underscore only; no vocals and no spoken words. ${facts} Support the selected story range without overpowering narration. Use a clean beginning and a natural ending suitable for editing.`;
   }
   if (input.kind === "ambience") {
     return `Seamless loopable environmental ambience only; no music and no speech. ${facts} Keep the perspective and acoustic space stable, with no abrupt foreground event.`;
@@ -324,8 +363,14 @@ function decodeQuote(token: string): SceneAudioQuoteClaims | null {
 }
 
 function providerFor(kind: GeneratedStoryAudioKind) {
+  const musicModel = ENV.audio302MusicModel.trim();
   return kind === "music"
-    ? { provider: "302-elevenlabs", model: ENV.audio302MusicModel.trim() }
+    ? {
+        provider: /^music-/i.test(musicModel)
+          ? "302-minimax"
+          : "302-elevenlabs",
+        model: musicModel,
+      }
     : { provider: "302-elevenlabs", model: ENV.audio302SoundModel.trim() };
 }
 
@@ -333,6 +378,7 @@ async function currentContext(input: {
   storyId: number;
   userId: number;
   targetFrame: number;
+  scope: StorySceneAudioScope;
 }) {
   const [story, timeline] = await Promise.all([
     loadOwnedStory({ storyId: input.storyId, userId: input.userId }),
@@ -346,6 +392,7 @@ async function currentContext(input: {
     timelineItems: timeline.items,
     storyBody: story.body,
     targetFrame: input.targetFrame,
+    scope: input.scope,
   });
 }
 
@@ -371,19 +418,33 @@ async function currentPlacement(input: {
   storyId: number;
   userId: number;
   stableShotId: string;
+  scope: StorySceneAudioScope;
 }): Promise<SceneAudioPlacement | null> {
   const timeline = await loadOwnedStoryTimelineEnvelope({
     storyId: input.storyId,
     userId: input.userId,
   });
   if (!timeline) return null;
-  const row = buildTimelineLayout(normalizedTimelineItems(timeline.items)).find(
+  const layout = buildTimelineLayout(normalizedTimelineItems(timeline.items));
+  const rowIndex = layout.findIndex(
     candidate =>
       candidate.item.included !== false &&
       candidate.item.stableShotId === input.stableShotId
   );
-  return row
-    ? { startFrame: row.startFrame, durationFrames: row.durationFrames }
+  if (rowIndex < 0) return null;
+  const selectedRows =
+    input.scope === "story"
+      ? layout
+      : input.scope === "from-shot"
+        ? layout.slice(rowIndex)
+        : [layout[rowIndex]];
+  const first = selectedRows[0];
+  const last = selectedRows.at(-1);
+  return first && last
+    ? {
+        startFrame: first.startFrame,
+        durationFrames: last.startFrame + last.durationFrames - first.startFrame,
+      }
     : null;
 }
 
@@ -392,18 +453,20 @@ export async function quoteStorySceneAudio(input: {
   userId: number;
   kind: GeneratedStoryAudioKind;
   targetFrame: number;
+  scope?: StorySceneAudioScope;
   intent?: string;
   now?: () => number;
 }): Promise<StorySceneAudioQuote> {
   const intent = text(input.intent).slice(0, 800);
-  const context = await currentContext(input);
+  const scope = input.scope ?? "shot";
+  const context = await currentContext({ ...input, scope });
   const prompt = composeStorySceneAudioPrompt({
     kind: input.kind,
     context,
     intent,
   });
   const { provider, model } = providerFor(input.kind);
-  if (!model || !/^[\w.-]+$/i.test(model)) {
+  if (!model || !/^[\w.+-]+$/i.test(model)) {
     throw new Error("302 声音模型尚未配置或配置无效");
   }
   const requestedAt = (input.now ?? Date.now)();
@@ -413,6 +476,7 @@ export async function quoteStorySceneAudio(input: {
     storyId: input.storyId,
     kind: input.kind,
     targetFrame: Math.max(0, Math.floor(input.targetFrame)),
+    scope,
     intent,
     context,
     promptHash: sha256(prompt),
@@ -505,6 +569,7 @@ export async function generateStorySceneAudio(input: {
         storyId: input.storyId,
         userId: input.userId,
         targetFrame: claims.targetFrame,
+        scope: claims.scope,
       });
     } catch (error) {
       return {
@@ -613,6 +678,7 @@ export async function generateStorySceneAudio(input: {
             storyId: input.storyId,
             userId: input.userId,
             stableShotId: claims.context.stableShotId,
+            scope: claims.scope,
           });
       if (!placement) {
         return {
@@ -845,6 +911,7 @@ async function continueWithProviderResult(input: {
     storyId: input.input.storyId,
     userId: input.input.userId,
     stableShotId: claims.context.stableShotId,
+    scope: claims.scope,
   });
   if (!placement) {
     const message = "声音已经生成，但原镜头已被删除，未自动写入时间线";
