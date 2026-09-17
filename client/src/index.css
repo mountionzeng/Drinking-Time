@@ -1902,7 +1902,7 @@ select option {
   top: 1rem;
   width: 5.6rem;
   height: 5.6rem;
-  background: url("/shiguang/nav-writing.png") center / contain no-repeat;
+  background: url("/shiguang/nav-writing-v2.png") center / contain no-repeat;
   opacity: 0.16;
   transform: rotate(7deg);
   pointer-events: none;

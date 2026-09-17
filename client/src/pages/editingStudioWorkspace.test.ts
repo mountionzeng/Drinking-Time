@@ -42,8 +42,8 @@ describe("resolveStudioInteractionMode", () => {
     expect(
       STUDIO_WORKSPACE_OPTIONS.map(option => option.illustrationSrc)
     ).toEqual([
-      "/shiguang/nav-writing.png",
-      "/shiguang/nav-image-sound.png",
+      "/shiguang/nav-writing-v2.png",
+      "/shiguang/nav-image-sound-v2.png",
     ]);
   });
 });

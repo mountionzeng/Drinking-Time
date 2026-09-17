@@ -12,12 +12,12 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
   {
     id: "publishing",
     label: "文字",
-    illustrationSrc: "/shiguang/nav-writing.png",
+    illustrationSrc: "/shiguang/nav-writing-v2.png",
   },
   {
     id: "editing",
     label: "图像和声音",
-    illustrationSrc: "/shiguang/nav-image-sound.png",
+    illustrationSrc: "/shiguang/nav-image-sound-v2.png",
   },
 ];
 

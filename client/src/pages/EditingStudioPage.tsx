@@ -115,7 +115,7 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
       >
         {visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/nav-writing.png"
+            src="/shiguang/nav-writing-v2.png"
             alt=""
             aria-hidden="true"
             className="shiguang-letter-illustration"
@@ -187,7 +187,7 @@ function ExportButton({ storyId }: { storyId: number }) {
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : visualTheme === "shiguang" ? (
         <img
-          src="/shiguang/nav-export.png"
+          src="/shiguang/nav-export-v2.svg"
           alt=""
           aria-hidden="true"
           className="shiguang-action-illustration"
@@ -704,7 +704,7 @@ export default function EditingStudioPage() {
               >
                 {visualTheme === "shiguang" ? (
                   <img
-                    src="/shiguang/nav-materials.png"
+                    src="/shiguang/nav-materials-v2.png"
                     alt=""
                     aria-hidden="true"
                     className="shiguang-action-illustration"
@@ -729,7 +729,7 @@ export default function EditingStudioPage() {
               >
                 {visualTheme === "shiguang" ? (
                   <img
-                    src="/shiguang/nav-timeline.png"
+                    src="/shiguang/nav-timeline-v2.png"
                     alt=""
                     aria-hidden="true"
                     className="shiguang-action-illustration"
