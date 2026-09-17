@@ -255,7 +255,7 @@ function ExportButton({
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : visualTheme === "shiguang" ? (
         <img
-          src="/shiguang/nav-export-v2.png"
+          src="/shiguang/nav-export-v2.svg"
           alt=""
           aria-hidden="true"
           className="shiguang-action-illustration"
