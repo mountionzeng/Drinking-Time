@@ -3383,7 +3383,8 @@
       "entryPoints": [],
       "owners": [],
       "evidence": [
-        "docs/brainstorms/2026-08-28-family-biography-wechat-text-requirements.md"
+        "docs/brainstorms/2026-08-28-family-biography-wechat-text-requirements.md",
+        "docs/brainstorms/2026-09-13-shiguang-dialogue-intelligence-requirements.md"
       ],
       "invariants": [
         "现有 Story 继续只有一个所有者；受邀亲人只能追加投稿，不能获得 Story 共同编辑权，既有 storyId + userId 归属校验不得放宽。",
@@ -3407,6 +3408,11 @@
           "date": "2026-08-28",
           "kind": "decision",
           "summary": "确认 V1 产品边界：在世老人亲自参与确认，亲人通过微信小程序以公开或私密方式追加文字、语音和照片，AI 仅用已确认材料增量写成章节传记；桌面端负责深度编辑，封面和少量插花为可选装饰，不建设画册、视频、数字人或多人 Story 编辑。"
+        },
+        {
+          "date": "2026-09-13",
+          "kind": "decision",
+          "summary": "用户确认拾光与网页版为同一产品两个入口，多人协同前期重在分析客观处境，随讲述逐渐深入个人情感；个人对话默认私密，明确分享后进入共同故事。先在独立拾光小程序仓库迭代聊天云函数供试聊，本仓库家庭确认与账号整合仍未实现，不提升 planned 状态。"
         }
       ]
     },
