@@ -8,6 +8,8 @@ describe("StoryAgentChat layout", () => {
     expect(source).not.toContain("<ChatPhotoAssets");
     expect(source).toContain("story-chat-scroll-surface");
     expect(source).toContain("story-context-surface");
+    expect(source).toContain("story-context-overlay");
+    expect(source).toContain("story-chat-scroll-under-context");
     expect(source).not.toContain("{storyDisplaySubtitle}");
   });
 });
