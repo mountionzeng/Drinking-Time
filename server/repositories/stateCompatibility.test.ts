@@ -1,0 +1,111 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Persisted field names from the pre-refactor format, independent of the registry.
+const legacyCollections = [
+  ["user", "users"],
+  ["accessSession", "accessSessions"],
+  ["project", "projects"],
+  ["reference", "references"],
+  ["shot", "shots"],
+  ["analysisResult", "analysisResults"],
+  ["emotionAnalysisProfile", "emotionAnalysisProfiles"],
+  ["emotionDailyLetter", "emotionDailyLetters"],
+  ["story", "stories"],
+  ["storySoundWorkspace", "storySoundWorkspaces"],
+  ["storySoundPlanVersion", "storySoundPlanVersions"],
+  ["storySoundRowOperation", "storySoundRowOperations"],
+  ["storyVoiceProfile", "storyVoiceProfiles"],
+  ["storyVoiceActivationOperation", "storyVoiceActivationOperations"],
+  ["editSnapshot", "editSnapshots"],
+  ["semanticAnnotation", "semanticAnnotations"],
+  ["generatedImage", "generatedImages"],
+  ["previewMaskedImageOperation", "previewMaskedImageOperations"],
+  ["timelineFrameExtractionOperation", "timelineFrameExtractionOperations"],
+  ["imageSignal", "imageSignals"],
+  ["videoTake", "videoTakes"],
+  ["videoTakeRange", "videoTakeRanges"],
+  ["videoTimelineSelection", "videoTimelineSelections"],
+  ["storyTimeline", "storyTimelines"],
+  ["storyAudioAsset", "storyAudioAssets"],
+  ["storyAudioImportOperation", "storyAudioImportOperations"],
+  ["shotDerivationDraft", "shotDerivationDrafts"],
+  ["storyOperation", "storyOperations"],
+  ["inviteCode", "inviteCodes"],
+  ["creditAccount", "creditAccounts"],
+  ["creditLedgerEntry", "creditLedgerEntries"],
+  ["creditHold", "creditHolds"],
+  ["billingOperation", "billingOperations"],
+  ["providerAttempt", "providerAttempts"],
+  ["accountIdentity", "accountIdentities"],
+  ["accountCredential", "accountCredentials"],
+  ["accountVerificationChallenge", "accountVerificationChallenges"],
+  ["devicePairingCode", "devicePairingCodes"],
+  ["accountRateLimit", "accountRateLimits"],
+] as const;
+
+const persistPath = process.env.LOCAL_PERSIST_PATH!;
+afterEach(() => vi.unstubAllEnvs());
+
+describe("local state schema compatibility", () => {
+  it.each(["missing", "stale", "ahead"] as const)(
+    "loads every legacy collection with %s counters without reusing IDs",
+    async mode => {
+      vi.resetModules();
+      const file = persistPath + "." + mode;
+      vi.stubEnv("LOCAL_PERSIST_PATH", file);
+      vi.stubEnv("DATABASE_URL", "");
+      const runtime = await import("./runtime");
+      const stateReference = runtime.memoryState;
+      const pristine = structuredClone(runtime.memoryState);
+      const date = "2026-09-17T10:00:00.000Z";
+      const rows = Object.fromEntries(legacyCollections.map(([, collection], index) => [
+        collection,
+        [{ id: 100 + index * 10, userId: 7, createdAt: date, updatedAt: date, timestamp: date,
+          body: { marker: collection, cards: [], shots: [], characters: [] } }],
+      ]));
+      const counters = Object.fromEntries(legacyCollections.map(([key], index) => [
+        key, mode === "ahead" ? 500 + index * 10 : 1,
+      ]));
+      await writeFile(file, JSON.stringify({
+        ...rows, ...(mode === "missing" ? {} : { nextIds: counters }),
+      }));
+
+      await runtime.ensureMemoryLoaded();
+      // Edit history is loaded lazily from its sidecar or the legacy fallback.
+      await runtime.ensureLocalEditSnapshotsLoaded();
+      await runtime.ensureLocalPromptLineageLoaded();
+      expect(Object.keys(runtime.memoryState.nextIds).sort()).toEqual(
+        legacyCollections.map(([key]) => key).sort()
+      );
+      expect(Object.keys(runtime.memoryState).filter(key =>
+        Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
+      ).sort()).toEqual(legacyCollections.map(([, collection]) => collection).sort());
+
+      for (const [index, [key, collection]] of legacyCollections.entries()) {
+        expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);
+        const next = mode === "ahead" ? 500 + index * 10 : 101 + index * 10;
+        expect(runtime.nextMemoryId(key)).toBe(next);
+        expect(runtime.nextMemoryId(key)).toBe(next + 1);
+      }
+      await runtime.persistMemoryState();
+      const saved = JSON.parse(await readFile(file, "utf8"));
+      expect(saved.nextIds).toEqual(runtime.memoryState.nextIds);
+      for (const [, collection] of legacyCollections) {
+        if (collection === "editSnapshots") continue;
+        expect(saved[collection]).toMatchObject(rows[collection]);
+      }
+      const snapshots = JSON.parse(await readFile(file + ".edit-snapshots.json", "utf8"));
+      expect(snapshots).toMatchObject(rows.editSnapshots);
+
+      runtime.resetMemoryStateForTesting();
+      expect(runtime.memoryState).toBe(stateReference);
+      expect(runtime.memoryState).toEqual(pristine);
+      const firstReset = { ...runtime.memoryState };
+      runtime.resetMemoryStateForTesting();
+      for (const key of Object.keys(firstReset) as Array<keyof typeof firstReset>) {
+        expect(runtime.memoryState[key]).not.toBe(firstReset[key]);
+      }
+    }
+  );
+});

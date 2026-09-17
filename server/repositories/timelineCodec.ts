@@ -1,37 +1,13 @@
 /** Persistence operations for timelineCodec. Local and MySQL behavior share this boundary. */
 import {
-  decodeStoredStoryTimeline,
-  encodeStoredStoryTimeline,
+  decodeStoredStoryTimeline as decodeStoryTimelinePayload,
+  encodeStoredStoryTimeline as encodeStoryTimelinePayload,
   mergeStoredStoryTimelineExtensions,
 } from "../persistence/storyTimelinePersistence";
 import { StoryTimeline } from "../../drizzle/schema";
 
-export type StoryTimelinePayload = {
-  items: unknown;
-  overlays?: unknown;
-  visualLayerState?: unknown;
-  /**
-   * Non-visual media slices (subtitles in U3, audio in U9). A visual writer
-   * never sets this and must never drop it; it is preserved from the stored
-   * document by the canonical codec on every save.
-   */
-  extensions?: Record<string, unknown>;
-};
-
-// Thin wrappers over the one canonical codec in
-// server/persistence/storyTimelinePersistence.ts. Do not reimplement envelope
-// decode/encode here — the architecture guard forbids a second codec.
-export function decodeStoryTimelinePayload(
-  value: unknown
-): StoryTimelinePayload {
-  return decodeStoredStoryTimeline(value);
-}
-
-export function encodeStoryTimelinePayload(
-  payload: StoryTimelinePayload
-): unknown {
-  return encodeStoredStoryTimeline(payload);
-}
+export { decodeStoryTimelinePayload, encodeStoryTimelinePayload };
+export type { StoredStoryTimelinePayload as StoryTimelinePayload } from "../persistence/storyTimelinePersistence";
 
 export function replaceStoryTimelineItemsPreservingOverlays(
   currentValue: unknown,

@@ -29,7 +29,8 @@
         "client/src/architecture-boundaries.test.ts",
         "client/src/features/storyAgent/selectionStoryScope.test.ts",
         "server/repositories/boundaries.test.ts",
-        "server/repositories/sharedRuntime.test.ts"
+        "server/repositories/sharedRuntime.test.ts",
+        "server/repositories/stateCompatibility.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -112,6 +113,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories、storyLifecycle、shots、runtime；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。424 个顶层声明的运行时代码与拆分前一致，263 个旧导出完整保留。全仓 4619 项、小程序 215 项、TypeScript、构建、迁移基线、功能账本及环境门禁通过；主仓 3000 的 editing/healthz/readyz 均返回 200。57 项测试按既有条件跳过，未配置独立 MySQL 测试库，未宣称真实 MySQL 验收完成。"
+        },
+        {
+          "date": "2026-09-18",
+          "kind": "refactor",
+          "summary": "本地集合类型由初始化工厂推导，39 个 ID 计数器通过显式对应表初始化和恢复，测试重置复用工厂并保留共享对象身份。旧数据、归属和写盘安全机制不变；临时文件回归覆盖全部集合、缺失/落后/超前计数器及侧车文件兼容性。"
         }
       ]
     },
@@ -462,7 +468,8 @@
         "server/_core/portPolicy.test.ts",
         "command:pnpm env:check",
         "server/repositories/boundaries.test.ts",
-        "server/repositories/sharedRuntime.test.ts"
+        "server/repositories/sharedRuntime.test.ts",
+        "server/repositories/stateCompatibility.test.ts"
       ],
       "invariants": [
         "只有主仓库可运行端口 3000。",
@@ -508,6 +515,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/runtime；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-18",
+          "kind": "refactor",
+          "summary": "精简 MemoryState 的初始化、加载时 ID 恢复和测试重置定义，保持单实例状态、原存储路径、备份、写盘合并与测试路径隔离。新增 39 类集合的旧格式兼容测试，主仓仍使用唯一 3000 服务。"
         }
       ]
     },
@@ -1209,7 +1221,8 @@
         "client/src/features/creationEditor/timelineMedia/AudioTrackRow.tsx",
         "client/src/features/creationEditor/timelineMedia/TimelineAudioEngine.tsx",
         "client/src/features/creationEditor/views/StoryboardAudioWaveform.tsx",
-        "client/src/features/creationEditor/timelineMedia/timelineMediaCapabilities.ts"
+        "client/src/features/creationEditor/timelineMedia/timelineMediaCapabilities.ts",
+        "server/repositories/timelineCodec.ts"
       ],
       "evidence": [
         "shared/timelineSubtitleModel.test.ts",
@@ -1354,6 +1367,11 @@
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "按用户指定收拢声音工作区：默认显示可编辑波形轨，完整素材卡通过左侧素材数量按钮展开；生成新音乐移至首条可见音轨左侧，声音导演与手动添加改为紧凑图标，避免窄栏中文竖排。完整资产、试听、插入和删除约束保留。main:3000 已验证展开仍可查看 18.1 秒与 60.7 秒两份素材，收起恢复波形主视图，生成入口正常打开范围选择弹窗；本轮未提交生成或计费。"
+        },
+        {
+          "date": "2026-09-18",
+          "kind": "refactor",
+          "summary": "删除仓库层重复的 Timeline payload 定义和编解码转发函数，以类型别名与直接导出复用 storyTimelinePersistence；保持原入口、旧格式读取、字幕/音频扩展字段和视觉保存语义，已有 Timeline 与编解码测试继续验收。"
         }
       ]
     },

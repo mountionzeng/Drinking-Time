@@ -62,7 +62,6 @@ import {
 import {
   createEmptyPersonalMemoryLocalState,
   normalizePersonalMemoryLocalState,
-  type PersonalMemoryLocalState,
 } from "../../shared/personalMemory";
 export const transientState = {
   memoryVideoTakeSubmissionClaimQueue: Promise.resolve() as Promise<void>,
@@ -79,180 +78,110 @@ let localPersistModeLogged = false;
 
 export const LEGACY_GUEST_OPEN_ID = "local-guest";
 
-export type MemoryState = {
-  users: User[];
-  accessSessions: AccessSession[];
-  projects: Project[];
-  references: Reference[];
-  shots: Shot[];
-  analysisResults: AnalysisResult[];
-  emotionAnalysisProfiles: EmotionAnalysisProfile[];
-  emotionDailyLetters: EmotionDailyLetter[];
-  stories: Story[];
-  storySoundWorkspaces: StorySoundWorkspaceRecord[];
-  storySoundPlanVersions: StorySoundPlanVersionRecord[];
-  storySoundRowOperations: StorySoundRowOperationRecord[];
-  storyVoiceProfiles: StoryVoiceProfileRecord[];
-  storyVoiceActivationOperations: StoryVoiceActivationOperationRecord[];
-  editSnapshots: EditSnapshot[];
-  semanticAnnotations: SemanticAnnotation[];
-  generatedImages: GeneratedImage[];
-  previewMaskedImageOperations: PreviewMaskedImageOperation[];
-  timelineFrameExtractionOperations: TimelineFrameExtractionOperation[];
-  imageSignals: ImageSignal[];
-  videoTakes: VideoTake[];
-  videoTakeRanges: VideoTakeRange[];
-  videoTimelineSelections: VideoTimelineSelection[];
-  storyTimelines: StoryTimeline[];
-  storyAudioAssets: StoryAudioAsset[];
-  storyAudioImportOperations: StoryAudioImportOperation[];
-  shotDerivationDrafts: ShotDerivationDraft[];
-  storyOperations: StoryOperation[];
-  inviteCodes: InviteCode[];
-  creditAccounts: CreditAccount[];
-  creditLedgerEntries: CreditLedgerEntry[];
-  creditHolds: CreditHold[];
-  billingOperations: BillingOperation[];
-  providerAttempts: ProviderAttempt[];
-  accountIdentities: AccountIdentity[];
-  accountCredentials: AccountCredential[];
-  accountVerificationChallenges: AccountVerificationChallenge[];
-  devicePairingCodes: DevicePairingCode[];
-  accountRateLimits: AccountRateLimit[];
-  promptLineage: PromptLineageLocalState;
-  /**
-   * 个人记忆（U1）。它同时是 local-persist 自己那部分来源的家，
-   * 和**统一足迹索引**——prompt-lineage 聚合的 outbox 由 projector 投影进来。
-   * 刻意不新建第三份 JSON 文件：跟着 memoryState 一起原子落盘。
-   */
-  personalMemory: PersonalMemoryLocalState;
-  nextIds: {
-    user: number;
-    accessSession: number;
-    project: number;
-    reference: number;
-    shot: number;
-    analysisResult: number;
-    emotionAnalysisProfile: number;
-    emotionDailyLetter: number;
-    story: number;
-    storySoundWorkspace: number;
-    storySoundPlanVersion: number;
-    storySoundRowOperation: number;
-    storyVoiceProfile: number;
-    storyVoiceActivationOperation: number;
-    editSnapshot: number;
-    semanticAnnotation: number;
-    generatedImage: number;
-    previewMaskedImageOperation: number;
-    timelineFrameExtractionOperation: number;
-    imageSignal: number;
-    videoTake: number;
-    videoTakeRange: number;
-    videoTimelineSelection: number;
-    storyTimeline: number;
-    storyAudioAsset: number;
-    storyAudioImportOperation: number;
-    shotDerivationDraft: number;
-    storyOperation: number;
-    inviteCode: number;
-    creditAccount: number;
-    creditLedgerEntry: number;
-    creditHold: number;
-    billingOperation: number;
-    providerAttempt: number;
-    accountIdentity: number;
-    accountCredential: number;
-    accountVerificationChallenge: number;
-    devicePairingCode: number;
-    accountRateLimit: number;
+function createEmptyMemoryCollections() {
+  return {
+    users: [] as User[],
+    accessSessions: [] as AccessSession[],
+    projects: [] as Project[],
+    references: [] as Reference[],
+    shots: [] as Shot[],
+    analysisResults: [] as AnalysisResult[],
+    emotionAnalysisProfiles: [] as EmotionAnalysisProfile[],
+    emotionDailyLetters: [] as EmotionDailyLetter[],
+    stories: [] as Story[],
+    storySoundWorkspaces: [] as StorySoundWorkspaceRecord[],
+    storySoundPlanVersions: [] as StorySoundPlanVersionRecord[],
+    storySoundRowOperations: [] as StorySoundRowOperationRecord[],
+    storyVoiceProfiles: [] as StoryVoiceProfileRecord[],
+    storyVoiceActivationOperations: [] as StoryVoiceActivationOperationRecord[],
+    editSnapshots: [] as EditSnapshot[],
+    semanticAnnotations: [] as SemanticAnnotation[],
+    generatedImages: [] as GeneratedImage[],
+    previewMaskedImageOperations: [] as PreviewMaskedImageOperation[],
+    timelineFrameExtractionOperations: [] as TimelineFrameExtractionOperation[],
+    imageSignals: [] as ImageSignal[],
+    videoTakes: [] as VideoTake[],
+    videoTakeRanges: [] as VideoTakeRange[],
+    videoTimelineSelections: [] as VideoTimelineSelection[],
+    storyTimelines: [] as StoryTimeline[],
+    storyAudioAssets: [] as StoryAudioAsset[],
+    storyAudioImportOperations: [] as StoryAudioImportOperation[],
+    shotDerivationDrafts: [] as ShotDerivationDraft[],
+    storyOperations: [] as StoryOperation[],
+    inviteCodes: [] as InviteCode[],
+    creditAccounts: [] as CreditAccount[],
+    creditLedgerEntries: [] as CreditLedgerEntry[],
+    creditHolds: [] as CreditHold[],
+    billingOperations: [] as BillingOperation[],
+    providerAttempts: [] as ProviderAttempt[],
+    accountIdentities: [] as AccountIdentity[],
+    accountCredentials: [] as AccountCredential[],
+    accountVerificationChallenges: [] as AccountVerificationChallenge[],
+    devicePairingCodes: [] as DevicePairingCode[],
+    accountRateLimits: [] as AccountRateLimit[],
   };
-};
+}
 
-export const memoryState: MemoryState = {
-  users: [],
-  accessSessions: [],
-  projects: [],
-  references: [],
-  shots: [],
-  analysisResults: [],
-  emotionAnalysisProfiles: [],
-  emotionDailyLetters: [],
-  stories: [],
-  storySoundWorkspaces: [],
-  storySoundPlanVersions: [],
-  storySoundRowOperations: [],
-  storyVoiceProfiles: [],
-  storyVoiceActivationOperations: [],
-  editSnapshots: [],
-  semanticAnnotations: [],
-  generatedImages: [],
-  previewMaskedImageOperations: [],
-  timelineFrameExtractionOperations: [],
-  imageSignals: [],
-  videoTakes: [],
-  videoTakeRanges: [],
-  videoTimelineSelections: [],
-  storyTimelines: [],
-  storyAudioAssets: [],
-  storyAudioImportOperations: [],
-  shotDerivationDrafts: [],
-  storyOperations: [],
-  inviteCodes: [],
-  creditAccounts: [],
-  creditLedgerEntries: [],
-  creditHolds: [],
-  billingOperations: [],
-  providerAttempts: [],
-  accountIdentities: [],
-  accountCredentials: [],
-  accountVerificationChallenges: [],
-  devicePairingCodes: [],
-  accountRateLimits: [],
-  promptLineage: createEmptyPromptLineageLocalState(),
-  personalMemory: createEmptyPersonalMemoryLocalState(),
-  nextIds: {
-    user: 1,
-    accessSession: 1,
-    project: 1,
-    reference: 1,
-    shot: 1,
-    analysisResult: 1,
-    emotionAnalysisProfile: 1,
-    emotionDailyLetter: 1,
-    story: 1,
-    storySoundWorkspace: 1,
-    storySoundPlanVersion: 1,
-    storySoundRowOperation: 1,
-    storyVoiceProfile: 1,
-    storyVoiceActivationOperation: 1,
-    editSnapshot: 1,
-    semanticAnnotation: 1,
-    generatedImage: 1,
-    previewMaskedImageOperation: 1,
-    timelineFrameExtractionOperation: 1,
-    imageSignal: 1,
-    videoTake: 1,
-    videoTakeRange: 1,
-    videoTimelineSelection: 1,
-    storyTimeline: 1,
-    storyAudioAsset: 1,
-    storyAudioImportOperation: 1,
-    shotDerivationDraft: 1,
-    storyOperation: 1,
-    inviteCode: 1,
-    creditAccount: 1,
-    creditLedgerEntry: 1,
-    creditHold: 1,
-    billingOperation: 1,
-    providerAttempt: 1,
-    accountIdentity: 1,
-    accountCredential: 1,
-    accountVerificationChallenge: 1,
-    devicePairingCode: 1,
-    accountRateLimit: 1,
-  },
-};
+// Persisted counter names are not uniformly singular forms of collection names.
+// Keep the mapping explicit so loading old files cannot allocate duplicate IDs.
+const memoryIdCollections = {
+  user: "users",
+  accessSession: "accessSessions",
+  project: "projects",
+  reference: "references",
+  shot: "shots",
+  analysisResult: "analysisResults",
+  emotionAnalysisProfile: "emotionAnalysisProfiles",
+  emotionDailyLetter: "emotionDailyLetters",
+  story: "stories",
+  storySoundWorkspace: "storySoundWorkspaces",
+  storySoundPlanVersion: "storySoundPlanVersions",
+  storySoundRowOperation: "storySoundRowOperations",
+  storyVoiceProfile: "storyVoiceProfiles",
+  storyVoiceActivationOperation: "storyVoiceActivationOperations",
+  editSnapshot: "editSnapshots",
+  semanticAnnotation: "semanticAnnotations",
+  generatedImage: "generatedImages",
+  previewMaskedImageOperation: "previewMaskedImageOperations",
+  timelineFrameExtractionOperation: "timelineFrameExtractionOperations",
+  imageSignal: "imageSignals",
+  videoTake: "videoTakes",
+  videoTakeRange: "videoTakeRanges",
+  videoTimelineSelection: "videoTimelineSelections",
+  storyTimeline: "storyTimelines",
+  storyAudioAsset: "storyAudioAssets",
+  storyAudioImportOperation: "storyAudioImportOperations",
+  shotDerivationDraft: "shotDerivationDrafts",
+  storyOperation: "storyOperations",
+  inviteCode: "inviteCodes",
+  creditAccount: "creditAccounts",
+  creditLedgerEntry: "creditLedgerEntries",
+  creditHold: "creditHolds",
+  billingOperation: "billingOperations",
+  providerAttempt: "providerAttempts",
+  accountIdentity: "accountIdentities",
+  accountCredential: "accountCredentials",
+  accountVerificationChallenge: "accountVerificationChallenges",
+  devicePairingCode: "devicePairingCodes",
+  accountRateLimit: "accountRateLimits",
+} as const satisfies Record<string, keyof ReturnType<typeof createEmptyMemoryCollections>>;
+
+type MemoryNextIds = Record<keyof typeof memoryIdCollections, number>;
+
+function createEmptyMemoryState() {
+  return {
+    ...createEmptyMemoryCollections(),
+    promptLineage: createEmptyPromptLineageLocalState(),
+    // Personal memory stays in the same atomic local-persist file.
+    personalMemory: createEmptyPersonalMemoryLocalState(),
+    nextIds: Object.fromEntries(
+      Object.keys(memoryIdCollections).map(key => [key, 1])
+    ) as MemoryNextIds,
+  };
+}
+
+export type MemoryState = ReturnType<typeof createEmptyMemoryState>;
+export const memoryState: MemoryState = createEmptyMemoryState();
 
 export function nextMemoryId(type: keyof MemoryState["nextIds"]): number {
   const id = memoryState.nextIds[type];
@@ -641,158 +570,15 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     (raw as { personalMemory?: unknown }).personalMemory
   );
 
-  memoryState.nextIds = {
-    user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
-    accessSession: Math.max(
-      raw.nextIds?.accessSession ?? 0,
-      nextIdFromRows(memoryState.accessSessions)
-    ),
-    project: Math.max(
-      raw.nextIds?.project ?? 0,
-      nextIdFromRows(memoryState.projects)
-    ),
-    reference: Math.max(
-      raw.nextIds?.reference ?? 0,
-      nextIdFromRows(memoryState.references)
-    ),
-    shot: Math.max(raw.nextIds?.shot ?? 0, nextIdFromRows(memoryState.shots)),
-    analysisResult: Math.max(
-      raw.nextIds?.analysisResult ?? 0,
-      nextIdFromRows(memoryState.analysisResults)
-    ),
-    emotionAnalysisProfile: Math.max(
-      raw.nextIds?.emotionAnalysisProfile ?? 0,
-      nextIdFromRows(memoryState.emotionAnalysisProfiles)
-    ),
-    emotionDailyLetter: Math.max(
-      raw.nextIds?.emotionDailyLetter ?? 0,
-      nextIdFromRows(memoryState.emotionDailyLetters)
-    ),
-    story: Math.max(
-      raw.nextIds?.story ?? 0,
-      nextIdFromRows(memoryState.stories)
-    ),
-    storySoundWorkspace: Math.max(
-      raw.nextIds?.storySoundWorkspace ?? 0,
-      nextIdFromRows(memoryState.storySoundWorkspaces)
-    ),
-    storySoundPlanVersion: Math.max(
-      raw.nextIds?.storySoundPlanVersion ?? 0,
-      nextIdFromRows(memoryState.storySoundPlanVersions)
-    ),
-    storySoundRowOperation: Math.max(
-      raw.nextIds?.storySoundRowOperation ?? 0,
-      nextIdFromRows(memoryState.storySoundRowOperations)
-    ),
-    storyVoiceProfile: Math.max(
-      raw.nextIds?.storyVoiceProfile ?? 0,
-      nextIdFromRows(memoryState.storyVoiceProfiles)
-    ),
-    storyVoiceActivationOperation: Math.max(
-      raw.nextIds?.storyVoiceActivationOperation ?? 0,
-      nextIdFromRows(memoryState.storyVoiceActivationOperations)
-    ),
-    editSnapshot: Math.max(
-      raw.nextIds?.editSnapshot ?? 0,
-      nextIdFromRows(memoryState.editSnapshots)
-    ),
-    semanticAnnotation: Math.max(
-      raw.nextIds?.semanticAnnotation ?? 0,
-      nextIdFromRows(memoryState.semanticAnnotations)
-    ),
-    generatedImage: Math.max(
-      raw.nextIds?.generatedImage ?? 0,
-      nextIdFromRows(memoryState.generatedImages)
-    ),
-    previewMaskedImageOperation: Math.max(
-      raw.nextIds?.previewMaskedImageOperation ?? 0,
-      nextIdFromRows(memoryState.previewMaskedImageOperations)
-    ),
-    timelineFrameExtractionOperation: Math.max(
-      raw.nextIds?.timelineFrameExtractionOperation ?? 0,
-      nextIdFromRows(memoryState.timelineFrameExtractionOperations)
-    ),
-    imageSignal: Math.max(
-      raw.nextIds?.imageSignal ?? 0,
-      nextIdFromRows(memoryState.imageSignals)
-    ),
-    videoTake: Math.max(
-      raw.nextIds?.videoTake ?? 0,
-      nextIdFromRows(memoryState.videoTakes)
-    ),
-    videoTakeRange: Math.max(
-      raw.nextIds?.videoTakeRange ?? 0,
-      nextIdFromRows(memoryState.videoTakeRanges)
-    ),
-    videoTimelineSelection: Math.max(
-      raw.nextIds?.videoTimelineSelection ?? 0,
-      nextIdFromRows(memoryState.videoTimelineSelections)
-    ),
-    storyTimeline: Math.max(
-      raw.nextIds?.storyTimeline ?? 0,
-      nextIdFromRows(memoryState.storyTimelines)
-    ),
-    storyAudioAsset: Math.max(
-      raw.nextIds?.storyAudioAsset ?? 0,
-      nextIdFromRows(memoryState.storyAudioAssets)
-    ),
-    storyAudioImportOperation: Math.max(
-      raw.nextIds?.storyAudioImportOperation ?? 0,
-      nextIdFromRows(memoryState.storyAudioImportOperations)
-    ),
-    shotDerivationDraft: Math.max(
-      raw.nextIds?.shotDerivationDraft ?? 0,
-      nextIdFromRows(memoryState.shotDerivationDrafts)
-    ),
-    storyOperation: Math.max(
-      raw.nextIds?.storyOperation ?? 0,
-      nextIdFromRows(memoryState.storyOperations)
-    ),
-    inviteCode: Math.max(
-      raw.nextIds?.inviteCode ?? 0,
-      nextIdFromRows(memoryState.inviteCodes)
-    ),
-    creditAccount: Math.max(
-      raw.nextIds?.creditAccount ?? 0,
-      nextIdFromRows(memoryState.creditAccounts)
-    ),
-    creditLedgerEntry: Math.max(
-      raw.nextIds?.creditLedgerEntry ?? 0,
-      nextIdFromRows(memoryState.creditLedgerEntries)
-    ),
-    creditHold: Math.max(
-      raw.nextIds?.creditHold ?? 0,
-      nextIdFromRows(memoryState.creditHolds)
-    ),
-    billingOperation: Math.max(
-      raw.nextIds?.billingOperation ?? 0,
-      nextIdFromRows(memoryState.billingOperations)
-    ),
-    providerAttempt: Math.max(
-      raw.nextIds?.providerAttempt ?? 0,
-      nextIdFromRows(memoryState.providerAttempts)
-    ),
-    accountIdentity: Math.max(
-      raw.nextIds?.accountIdentity ?? 0,
-      nextIdFromRows(memoryState.accountIdentities)
-    ),
-    accountCredential: Math.max(
-      raw.nextIds?.accountCredential ?? 0,
-      nextIdFromRows(memoryState.accountCredentials)
-    ),
-    accountVerificationChallenge: Math.max(
-      raw.nextIds?.accountVerificationChallenge ?? 0,
-      nextIdFromRows(memoryState.accountVerificationChallenges)
-    ),
-    devicePairingCode: Math.max(
-      raw.nextIds?.devicePairingCode ?? 0,
-      nextIdFromRows(memoryState.devicePairingCodes)
-    ),
-    accountRateLimit: Math.max(
-      raw.nextIds?.accountRateLimit ?? 0,
-      nextIdFromRows(memoryState.accountRateLimits)
-    ),
-  };
+  memoryState.nextIds = Object.fromEntries(
+    Object.entries(memoryIdCollections).map(([key, collection]) => [
+      key,
+      Math.max(
+        raw.nextIds?.[key as keyof MemoryNextIds] ?? 0,
+        nextIdFromRows(memoryState[collection])
+      ),
+    ])
+  ) as MemoryNextIds;
 }
 
 async function loadLocalPromptLineageState(
@@ -1390,92 +1176,11 @@ export const timelineFrameExtractionMemoryLock =
   createKeyedSerialLock<string>();
 
 export function resetMemoryStateForTesting(): void {
-  memoryState.users = [];
-  memoryState.accessSessions = [];
-  memoryState.projects = [];
-  memoryState.references = [];
-  memoryState.shots = [];
-  memoryState.analysisResults = [];
-  memoryState.emotionAnalysisProfiles = [];
-  memoryState.emotionDailyLetters = [];
-  memoryState.stories = [];
-  memoryState.storySoundWorkspaces = [];
-  memoryState.storySoundPlanVersions = [];
-  memoryState.storySoundRowOperations = [];
-  memoryState.storyVoiceProfiles = [];
-  memoryState.storyVoiceActivationOperations = [];
-  memoryState.editSnapshots = [];
-  memoryState.semanticAnnotations = [];
-  memoryState.generatedImages = [];
-  memoryState.previewMaskedImageOperations = [];
-  memoryState.timelineFrameExtractionOperations = [];
-  memoryState.imageSignals = [];
-  memoryState.videoTakes = [];
-  memoryState.videoTakeRanges = [];
-  memoryState.videoTimelineSelections = [];
-  memoryState.storyTimelines = [];
-  memoryState.storyAudioAssets = [];
-  memoryState.storyAudioImportOperations = [];
-  memoryState.shotDerivationDrafts = [];
-  memoryState.storyOperations = [];
-  memoryState.inviteCodes = [];
-  memoryState.creditAccounts = [];
-  memoryState.creditLedgerEntries = [];
-  memoryState.creditHolds = [];
-  memoryState.billingOperations = [];
-  memoryState.providerAttempts = [];
-  memoryState.accountIdentities = [];
-  memoryState.accountCredentials = [];
-  memoryState.accountVerificationChallenges = [];
-  memoryState.devicePairingCodes = [];
-  memoryState.accountRateLimits = [];
-  memoryState.promptLineage = createEmptyPromptLineageLocalState();
-  memoryState.personalMemory = createEmptyPersonalMemoryLocalState();
+  Object.assign(memoryState, createEmptyMemoryState());
   promptLineageLoaded = true;
   promptLineageLoadFallback = undefined;
   editSnapshotsLoaded = true;
   editSnapshotsLoadFallback = undefined;
-  memoryState.nextIds = {
-    user: 1,
-    accessSession: 1,
-    project: 1,
-    reference: 1,
-    shot: 1,
-    analysisResult: 1,
-    emotionAnalysisProfile: 1,
-    emotionDailyLetter: 1,
-    story: 1,
-    storySoundWorkspace: 1,
-    storySoundPlanVersion: 1,
-    storySoundRowOperation: 1,
-    storyVoiceProfile: 1,
-    storyVoiceActivationOperation: 1,
-    editSnapshot: 1,
-    semanticAnnotation: 1,
-    generatedImage: 1,
-    previewMaskedImageOperation: 1,
-    timelineFrameExtractionOperation: 1,
-    imageSignal: 1,
-    videoTake: 1,
-    videoTakeRange: 1,
-    videoTimelineSelection: 1,
-    storyTimeline: 1,
-    storyAudioAsset: 1,
-    storyAudioImportOperation: 1,
-    shotDerivationDraft: 1,
-    storyOperation: 1,
-    inviteCode: 1,
-    creditAccount: 1,
-    creditLedgerEntry: 1,
-    creditHold: 1,
-    billingOperation: 1,
-    providerAttempt: 1,
-    accountIdentity: 1,
-    accountCredential: 1,
-    accountVerificationChallenge: 1,
-    devicePairingCode: 1,
-    accountRateLimit: 1,
-  };
   defaultProjectLocks.clear();
   timelineFrameExtractionMemoryLock.clear();
   previewMaskedImageMemoryLock.clear();

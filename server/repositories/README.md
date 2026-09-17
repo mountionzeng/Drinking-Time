@@ -21,6 +21,12 @@
 既有 `persistence/storyTimelinePersistence.ts` 编解码器，保留字幕、音频等扩展字段。
 `testing.ts` 只提供已有测试的 seed 和声音状态 round-trip 辅助。
 
+本地状态的集合和行类型由 `runtime.ts` 的 `createEmptyMemoryCollections`
+统一声明，`MemoryState` 由初始化工厂推导。`memoryIdCollections` 显式关联
+旧格式的计数器名与集合名，供初始化和加载恢复使用；恢复时继续取已保存计数器
+与现有最大 ID + 1 的较大值。测试重置复用同一工厂，保留共享状态对象的身份。
+这不改变 JSON 或 MySQL 的数据格式，无需迁移旧数据。
+
 ## 必须保持的边界
 
 - 每个进程只有一个 `runtime.ts` 实例，所有仓库共享连接、内存状态和写盘队列。
