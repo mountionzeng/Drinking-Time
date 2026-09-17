@@ -5,26 +5,33 @@
   </view>
 
   <view class="topbar safe-top">
-    <picker
-      class="story-picker"
-      mode="selector"
-      range="{{storyTitles}}"
-      value="{{storyIndex}}"
-      bindchange="onStoryChange"
-      disabled="{{storyTitles.length === 0}}"
-    >
-      <view class="story-picker__value">
-        <text class="story-picker__title">{{ui.story.activeTitle || ui.story.label}}</text>
-        <text class="story-picker__hint">切换 Story</text>
-      </view>
-    </picker>
+    <view class="topbar__heading">
+      <text class="topbar__eyebrow">当前 Story</text>
+      <picker
+        class="story-picker"
+        mode="selector"
+        range="{{storyTitles}}"
+        value="{{storyIndex}}"
+        bindchange="onStoryChange"
+        disabled="{{storyTitles.length === 0}}"
+      >
+        <view class="story-picker__value">
+          <text class="story-picker__title">{{ui.story.activeTitle || ui.story.label}}</text>
+          <text class="story-picker__hint">切换</text>
+        </view>
+      </picker>
+    </view>
+    <button class="action action--quiet topbar__create" wx:if="{{ui.story.canCreate}}" bindtap="onOpenCreateStory">新建</button>
   </view>
 
   <view class="statusbar">
-    <text class="status-line">{{ui.balance.text}}</text>
-    <text class="status-line {{ui.transport.state === 'mock-failure' ? 'status-line--warn' : ''}}">{{ui.transport.label}}</text>
+    <view class="statusbar__summary">
+      <text class="statusbar__balance">{{ui.balance.text}}</text>
+      <text class="statusbar__mode {{ui.transport.state === 'mock-failure' ? 'statusbar__mode--warn' : ''}}">{{ui.transport.label}}</text>
+    </view>
     <button class="action action--quiet retry" wx:if="{{ui.transport.canRetry}}" bindtap="onRetryTransport">重试</button>
     <text class="status-line status-line--warn" wx:if="{{ui.balance.blocked}}">{{ui.balance.blockedHint}}</text>
+    <text class="status-line status-line--recent" wx:for="{{ui.balance.recentCharges}}" wx:key="id">{{item.text}}</text>
   </view>
 
   <view class="tabs" role="tablist">
@@ -46,6 +53,7 @@
   -->
   <view class="card" wx:if="{{ui.story.showsEmptyHint}}">
     <text class="empty">{{ui.story.emptyHint}}</text>
+    <button class="action action--primary" bindtap="onOpenCreateStory">创建 Story</button>
   </view>
 
   <view class="card" wx:elif="{{ui.story.phase === 'error'}}">
@@ -138,14 +146,31 @@
     <view class="sheet__panel safe-bottom">
       <text class="sheet__title">要切到「{{ui.story.pendingTitle}}」，但正文还没保存</text>
       <text class="sheet__body">先复制一份留底，或者留在当前 Story 把它保存好。</text>
-      <button class="action action--primary" bindtap="onKeepCurrentStory">留在当前 Story</button>
+      <button class="action action--primary" bindtap="onSaveAndSwitch">保存并切换</button>
+      <button class="action" bindtap="onKeepCurrentStory">取消切换</button>
       <button class="action" bindtap="onCopyBoth">先复制这份正文</button>
       <button class="action action--quiet" bindtap="onDiscardAndSwitch">放弃修改并切换</button>
     </view>
   </view>
 
-  <view class="card demo-switch">
-    <text class="field-label">演示状态开关（仅用于在开发者工具里演示各种状态）</text>
+  <view class="sheet" wx:if="{{showCreateStory}}">
+    <view class="sheet__panel safe-bottom">
+      <text class="sheet__title">创建 Story</text>
+      <text class="sheet__body">只需填写标题；留空会使用“未命名”。</text>
+      <input
+        class="story-title-input"
+        value="{{newStoryTitle}}"
+        placeholder="Story 标题"
+        maxlength="120"
+        bindinput="onNewStoryTitleInput"
+      />
+      <button class="action action--primary" bindtap="onConfirmCreateStory">创建并打开</button>
+      <button class="action action--quiet" bindtap="onCancelCreateStory">取消</button>
+    </view>
+  </view>
+
+  <view class="demo-switch" wx:if="{{showDemoControls}}">
+    <text class="field-label">开发者工具中的状态演示</text>
     <picker
       mode="selector"
       range="{{failureModes}}"

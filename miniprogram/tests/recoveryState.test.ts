@@ -58,6 +58,17 @@ describe("恢复键的作用域隔离", () => {
     });
   });
 
+  it("待创建 Story 使用同一作用域下的零号操作槽，不冒充已有 Story", () => {
+    const key = recoveryKey("story-create", SCOPE_A, 0);
+    expect(parseRecoveryKey(key)).toEqual({
+      kind: "story-create",
+      scope: SCOPE_A,
+      storyId: 0,
+    });
+    expect(parseRecoveryKey(recoveryKey("document", SCOPE_A, 0))).toBeNull();
+    expect(parseRecoveryKey(recoveryKey("story-create", SCOPE_A, 1))).toBeNull();
+  });
+
   it("键里不含邮箱、openid 形态的身份信息就无法解析", () => {
     expect(parseRecoveryKey("dt:mp:document:v1:someone@example.com:1")).toBeNull();
     expect(parseRecoveryKey("dt:mp:document:v2:demo-scope-aaaa:1")).toBeNull();

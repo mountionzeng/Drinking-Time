@@ -195,6 +195,18 @@ describe("走完全流程", () => {
     expect(ui.document.state).toBe("clean");
   });
 
+  it("可以在页面创建 Story 并立即编辑默认正文", async () => {
+    const before = (workspace.data.storyTitles as string[]).length;
+    call(workspace, "onOpenCreateStory");
+    call(workspace, "onNewStoryTitleInput", {
+      detail: { value: "手机新故事" },
+    });
+    call(workspace, "onConfirmCreateStory");
+    await flush();
+    expect((workspace.data.storyTitles as string[]).length).toBe(before + 1);
+    expect(workspace.data.body).toContain("小红书");
+  });
+
   it("中文输入法组合期间的回车不会发出去", async () => {
     const before = (workspace.data.messages as unknown[]).length;
     call(workspace, "onCompositionStart");

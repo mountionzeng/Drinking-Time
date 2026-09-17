@@ -1,4 +1,4 @@
-# 拾光 · 微信原生小程序测试壳层
+# 聊会儿 · 微信原生小程序测试壳层
 
 本目录是**微信开发者工具可运行的原生 mock 测试壳层**。
 
@@ -11,7 +11,7 @@
 ## 现在能做什么
 
 - 用微信开发者工具导入、编译、点开三页：启动页 → 隐私说明 → 演示工作区。
-- 在工作区里选固定演示 Story、完成确定性的本地演示聊天、编辑并保存演示正文。
+- 在工作区里创建或切换演示 Story、完成确定性的本地演示聊天、编辑并保存演示正文。
 - 看到聊天未知结果、正文冲突、Story 切换脏草稿、transport 失败和恢复损坏各自的状态与出路。
 
 ## 现在一定不会做什么
@@ -19,7 +19,8 @@
 - 不调用 `wx.login`、`wx.request`、`wx.uploadFile`、`wx.downloadFile`、`wx.connectSocket`
   （`tests/noRealWechatCalls.test.ts` 会装计数 stub 并断言调用次数为 0）。
 - 不调用模型、不产生任何费用、不写 `.webdev/`、不碰远端数据库。
-- 页面里没有图片、素材、分镜、时间线、预览、视频或 Story 创建入口。
+- 工作区允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口；登录页直接复用用户确认的网页「渲染 1」主视觉裁图。背景、杯子和提示字由脚本从同一裁图确定性分层，点击时只让杯子用原生样式按网页 BeerMugPour 的 `-32°` 节奏倾斜，提示字始终留在最上层；不构成素材上传能力。
+- 邮箱与邀请码表单仅用于演示进入工作区：输入不会提交、验证或保存，不能当作现有电脑账号的真实登录。
 
 ---
 
@@ -66,7 +67,7 @@ pnpm exec vitest run --config miniprogram/vitest.config.ts
 | `tests/projectSafety.test.ts` | 提交候选集合里的 Secret、私钥、高熵凭据、`api.weixin.qq.com` 直连、真实 AppID 外泄、私有配置未被 ignore |
 | `tests/runtimeIsolation.test.ts` | `src/core/**` 与 `src/services/**` 不引 React / DOM / `localStorage` / Node API / `@shared`；`wx.*` 只出现在 `services/storage.ts` |
 | `tests/noRealWechatCalls.test.ts` | 用会计数并抛错的 stub 换掉 `wx.login` / `request` / `uploadFile` / `downloadFile` / `connectSocket`，跑完真实页面的完整流程后断言计数全为 0 |
-| `tests/workspacePresentation.test.ts` | 页面里没有范围外入口（图片／素材／分镜／时间线／预览／视频／新建 Story）；动作触控目标 ≥ 88rpx |
+| `tests/workspacePresentation.test.ts` | 工作区允许创建 Story，但没有范围外入口（图片／素材／分镜／时间线／预览／视频）；登录页网页「渲染 1」静态背景／杯子／提示字分层、原生倾倒动画和不落库的邮箱／邀请码演示入口受契约保护；动作触控目标 ≥ 88rpx |
 
 ## 只能人工验收的部分
 
@@ -90,12 +91,14 @@ pnpm exec vitest run --config miniprogram/vitest.config.ts
 - [ ] 没看隐私说明时，「进入演示工作区」是禁用的；点它只弹提示，不跳转。
 - [ ] 隐私页点「暂不同意」后仍然进不去；点「我已看过，同意」后才能进。
 - [ ] 工作区能选两个演示 Story，「聊聊 / 正文」两个页签都能切。
+- [ ] 在空态或顶部点「创建 Story」，标题留空显示“未命名”，创建后立即有默认小红书正文。
 - [ ] 发一条消息，得到「（演示回答，未调用任何模型）」开头的回复。
 - [ ] 改正文点保存，状态从「有未保存的修改」变成「已保存」。
 - [ ] 余额行显示「演示余额 ¥30.00」并随聊天下降。
 - [ ] 用底部「演示状态开关」逐个切到：打开 Story 失败 / 聊天结果未知 / 聊天明确失败 / 正文冲突 / 余额不足，
       确认每种都有可读状态和出路（重试、查询结果、复制两份文本）。
 - [ ] 正文有未保存修改时切 Story，弹出裁决面板；「放弃修改并切换」不是默认焦点。
+- [ ] 脏正文切换 Story 时，「保存并切换」成功才离开；模拟保存失败或冲突时仍留在原 Story。
 - [ ] **中文输入法**：打一半中文按回车，不发送。
 - [ ] 模拟器切到 iPhone SE(320) / 常见 360 / iPhone 12(390)，发送、保存、复制、冲突操作都够得着。
 - [ ] 软键盘弹起后输入框不被遮挡；带刘海机型底部不被横条压住。
@@ -114,11 +117,13 @@ AppSecret、`session_key`、服务端会话密钥、刷新凭据**永远不写�
 | `WECHAT_MINIPROGRAM_APP_ID` | 服务端环境配置 | 用户本人 |
 | `WECHAT_MINIPROGRAM_APP_SECRET` | 服务端秘密存储（**不是**本目录） | 用户本人 |
 
-`tests/projectSafety.test.ts` 扫描 `git ls-files --cached --others --exclude-standard -- miniprogram`
-的整个提交候选集合，拦截 Secret 赋值、私钥头、高熵凭据和 `api.weixin.qq.com` 直连；
+`tests/projectSafety.test.ts` 扫描 `miniprogram/**`、合同 schema、两端生成物和合同生成器的
+全部已跟踪／未跟踪但未忽略提交候选，拦截 Secret 赋值、私钥头、高熵凭据和
+`api.weixin.qq.com` 直连；
 并单独验证开发者工具生成的 `project.private.config.json` 确实被 ignore。
 
-## 下一阶段（U4–U7，尚未开工）
+## 后续实施阶段（U2–U8）
 
-真实 `code2Session`、Bearer principal、邮箱绑定、服务端适配、真机、合法域名、内容安全与发布门禁，
-都要等统一账号线收口并重新登记文件所有权后另开阶段。
+真实 `code2Session`、可撤销设备会话、Bearer principal、邮箱绑定、服务端适配、
+合并数据库、真机、合法域名、内容安全与发布门禁，按
+`docs/plans/2026-09-03-001-feat-liaohuier-wechat-workspace-plan.md` 继续实施。

@@ -1,7 +1,7 @@
 {
   "pages": ["pages/start/index", "pages/privacy/index", "pages/workspace/index"],
   "window": {
-    "navigationBarTitleText": "拾光 · 测试模式",
+    "navigationBarTitleText": "聊会儿 · 测试模式",
     "navigationBarBackgroundColor": "#efe7d9",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f6f1e7",

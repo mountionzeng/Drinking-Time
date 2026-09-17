@@ -1,35 +1,65 @@
 <view class="page safe-top safe-bottom">
   <view class="mock-banner" aria-role="alert">
-    {{badge}}
+    <text class="mock-banner__badge">{{badge}}</text>
     <text class="mock-banner__detail">{{detail}}</text>
   </view>
 
-  <view class="card">
-    <text class="title">拾光 · 微信原生测试壳层</text>
-    <text class="body">这一版只用来验证界面、状态和接口形状。它没有连接微信登录、没有绑定邮箱账号、没有服务器，也不会产生任何费用。</text>
+  <view class="start-hero">
+    <!-- 三层都从用户确认的网页「渲染 1」确定性裁出，没有重新绘制。 -->
+    <view class="start-hero__reference-wrap">
+      <image
+        class="start-hero__background"
+        src="/assets/brand/render-one-background.png"
+        mode="widthFix"
+        aria-label="聊会儿 Drinking Time"
+      />
+      <image
+        class="start-hero__cup {{isPouring ? 'start-hero__cup--pouring' : ''}}"
+        src="/assets/brand/render-one-cup.png"
+        mode="widthFix"
+        bindtap="onCupTap"
+        aria-label="点一下倒一杯看看"
+      />
+      <image
+        class="start-hero__prompt"
+        src="/assets/brand/render-one-prompt.png"
+        mode="widthFix"
+        aria-hidden="true"
+      />
+      <text class="start-hero__prompt-label">倒一杯看看</text>
+    </view>
   </view>
 
-  <view class="card">
-    <text class="field-label">隐私说明</text>
-    <text class="body">{{consentLabel}}（版本 {{consentVersion}}）</text>
-    <button class="action" bindtap="openPrivacy">查看隐私说明</button>
-  </view>
-
-  <view class="card">
-    <text class="field-label">演示工作区</text>
-    <text class="body" wx:if="{{!canEnterWorkspace}}">同意隐私说明后才能进入。进入后看到的仍然全部是本机演示数据。</text>
-    <text class="body" wx:else>进入后可以选演示 Story、做演示聊天、编辑演示正文。</text>
-    <button
-      class="action action--primary"
-      disabled="{{!canEnterWorkspace}}"
-      bindtap="enterWorkspace"
-    >进入演示工作区</button>
-  </view>
-
-  <view class="card">
-    <text class="field-label">下一步需要什么</text>
-    <text class="body">1. 你本人在微信公众平台确认测试号的 AppID（只需要告诉我 AppID 和小程序名称）。</text>
-    <text class="body">2. AppSecret 由你本人写进服务端秘密配置，不要发到聊天里，也不会进入这个目录。</text>
-    <text class="body">3. 服务端会话、邮箱绑定、真机联调和合法域名属于后续阶段，现在都还没有做。</text>
+  <view class="login-panel">
+    <text class="login-panel__title">登录聊会儿</text>
+    <button class="action action--primary login-panel__wechat" bindtap="onWeChatLogin">微信一键登录</button>
+    <text class="login-panel__hint">首次使用微信登录后，绑定邮箱即可在电脑上继续写。</text>
+    <view class="login-panel__divider"><text>或</text></view>
+    <button class="action action--quiet" bindtap="onEmailLogin">用邮箱和邀请码体验工作区</button>
+    <view class="email-demo" wx:if="{{showEmailDemo}}">
+      <text class="email-demo__title">邮箱和邀请码</text>
+      <text class="email-demo__notice">本机演示：输入不会提交、验证或保存，请不要把它当成真实登录。</text>
+      <input
+        class="email-demo__input"
+        type="text"
+        value="{{demoEmail}}"
+        placeholder="邮箱"
+        maxlength="254"
+        bindinput="onDemoEmailInput"
+      />
+      <input
+        class="email-demo__input"
+        type="text"
+        password
+        value="{{demoInviteCode}}"
+        placeholder="邀请码"
+        maxlength="128"
+        bindinput="onDemoInviteCodeInput"
+      />
+      <button class="action action--primary" bindtap="onSubmitEmailDemo">进入演示工作区</button>
+      <button class="email-demo__cancel" bindtap="onCancelEmailDemo">取消</button>
+    </view>
+    <button class="login-panel__privacy" bindtap="openPrivacy">隐私说明（版本 {{consentVersion}}）</button>
+    <text class="start-note">{{consentLabel}} · 当前为测试模式，尚未连接真实微信登录或邮箱服务。</text>
   </view>
 </view>

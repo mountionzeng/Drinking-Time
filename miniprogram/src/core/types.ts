@@ -7,7 +7,15 @@
  * U6 接真实服务端时由那一轮负责收敛成一份真正共享的合同。
  */
 
-/** 与 shared/publishingDraft.ts 的 PUBLISHING_PLATFORM_IDS 逐字对齐。 */
+import type {
+  BalanceSummary as WireBalanceSummary,
+  ConversationMessage as WireConversationMessage,
+  DocumentRead as WireDocumentRead,
+  RecentCharge as WireRecentCharge,
+  StorySummary as WireStorySummary,
+} from "../contracts/workspace";
+
+/** 与生成合同及 shared/publishingDraft.ts 的 PUBLISHING_PLATFORM_IDS 逐字对齐。 */
 export const PUBLISHING_PLATFORM_IDS = [
   "xiaohongshu",
   "x",
@@ -17,7 +25,7 @@ export const PUBLISHING_PLATFORM_IDS = [
   "douyin_tiktok",
 ] as const;
 
-export type PublishingPlatformId = (typeof PUBLISHING_PLATFORM_IDS)[number];
+export type PublishingPlatformId = WireDocumentRead["platform"];
 
 export function isPublishingPlatformId(
   value: unknown,
@@ -42,36 +50,22 @@ export function isRecoveryScope(value: unknown): value is RecoveryScope {
   return typeof value === "string" && SCOPE_PATTERN.test(value);
 }
 
-export type StorySummary = {
-  id: number;
-  title: string;
-  updatedAt: number;
-};
+export type StorySummary = Omit<WireStorySummary, "contractVersion">;
 
-export type ConversationServerMessage = {
-  id: number;
-  role: "user" | "assistant" | "system";
-  content: string;
-  clientMessageId: string | null;
-  createdAt: string;
-};
+export type ConversationServerMessage = Omit<
+  WireConversationMessage,
+  "contractVersion"
+>;
 
-export type PublishingBodyDocument = {
-  storyId: number;
-  storyRevision: number;
-  versionId: string;
-  platform: PublishingPlatformId;
-  body: string;
-  bodyRevision: number;
-  updatedAt: number;
-};
+export type PublishingBodyDocument = Omit<WireDocumentRead, "contractVersion">;
 
 /** 余额摘要。mock 阶段 `demo` 恒为 true，界面据此打演示标识。 */
-export type BalanceSummary = {
-  availableCents: number;
-  lastCostCents: number | null;
-  currency: "CNY";
+export type BalanceSummary = Omit<WireBalanceSummary, "contractVersion"> & {
   demo: boolean;
+  /** 最近已经结算的调用，最新一笔在前；pending/unknown 不得出现在这里。 */
+  recentSettledCharges: SettledCharge[];
 };
+
+export type SettledCharge = Omit<WireRecentCharge, "contractVersion">;
 
 export type WorkspaceView = "chat" | "document";

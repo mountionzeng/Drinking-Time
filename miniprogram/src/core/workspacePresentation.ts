@@ -37,6 +37,7 @@ export type PresentedWorkspace = {
     showsEmptyHint: boolean;
     emptyHint: string;
     showsSwitchDialog: boolean;
+    canCreate: boolean;
   };
   chat: {
     state: ChatUiState;
@@ -66,10 +67,12 @@ export type PresentedWorkspace = {
     demo: boolean;
     blocked: boolean;
     blockedHint: string | null;
+    recentCharges: Array<{ id: string; text: string }>;
   };
 };
 
-const YUAN = (cents: number): string => (cents / 100).toFixed(2);
+const YUAN = (minor: number, minorPerMajor = 1_000_000): string =>
+  (minor / minorPerMajor).toFixed(2);
 
 function chatUi(snapshot: WorkspaceSnapshot): PresentedWorkspace["chat"] {
   const pending = snapshot.turns.some(
@@ -206,15 +209,21 @@ export function presentWorkspace(
       activeTitle: activeStory?.title ?? null,
       pendingTitle: pendingStory?.title ?? null,
       showsEmptyHint: snapshot.storyPhase === "empty",
-      emptyHint: "还没有 Story。请先到电脑上创建，这里只做已有 Story 的续写。",
+      emptyHint: "还没有 Story。现在可以直接在手机上创建一个。",
       showsSwitchDialog: snapshot.storyPhase === "switching-dirty",
+      canCreate:
+        snapshot.storyPhase !== "loading" &&
+        snapshot.runtimeMode !== "configuration-error" &&
+        snapshot.transportKind !== "blocked",
     },
     chat: chatUi(snapshot),
     document: documentUi(snapshot),
     transport: {
       state: transportState,
       label: transportFailed
-        ? `演示 transport 失败：${snapshot.transportError ?? "未知原因"}`
+        ? `${isMock ? "演示 transport " : "连接"}失败：${
+            snapshot.transportError ?? "未知原因"
+          }`
         : isMock
           ? "演示 transport 正常（本机数据，无网络）"
           : "连接正常",
@@ -225,17 +234,28 @@ export function presentWorkspace(
         snapshot.balance === null
           ? "余额未知"
           : `${snapshot.balance.demo ? "演示余额" : "可用余额"} ¥${YUAN(
-              snapshot.balance.availableCents,
+              snapshot.balance.availableMinor,
+              snapshot.balance.minorPerMajor,
             )}${
-              snapshot.balance.lastCostCents === null
+              snapshot.balance.lastSettledCostMinor === null
                 ? ""
-                : `　上一次调用 ¥${YUAN(snapshot.balance.lastCostCents)}`
+                : `　上一次调用 ¥${YUAN(
+                    snapshot.balance.lastSettledCostMinor,
+                    snapshot.balance.minorPerMajor,
+                  )}`
             }`,
       demo: snapshot.balance?.demo ?? true,
       blocked: snapshot.balanceBlocked,
       blockedHint: snapshot.balanceBlocked
         ? "余额不足只会挡住新的付费调用，浏览和正文编辑不受影响。需要续充请联系负责人。"
         : null,
+      recentCharges: (snapshot.balance?.recentSettledCharges ?? []).map(charge => ({
+        id: charge.ledgerEntryId,
+        text: `${charge.label}　-¥${YUAN(
+          charge.amountMinor,
+          charge.minorPerMajor,
+        )}`,
+      })),
     },
   };
 }

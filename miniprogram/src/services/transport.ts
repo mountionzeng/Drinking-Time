@@ -5,12 +5,21 @@ import type {
   PublishingPlatformId,
   StorySummary,
 } from "../core/types";
+import type {
+  DocumentSaveRequest as WireDocumentSaveRequest,
+  StoryCreateReceipt as WireStoryCreateReceipt,
+  StoryCreateRequest as WireStoryCreateRequest,
+  SubmitTurnRequest as WireSubmitTurnRequest,
+  TurnStatusRequest as WireTurnStatusRequest,
+  WorkspaceErrorKind,
+} from "../contracts/workspace";
+import type { RuntimeTransportKind } from "../core/runtimeMode";
 
 /**
- * 小程序本地 transport 合同（冻结于 U3）。
+ * 小程序本地 transport 合同（冻结于“聊会儿”工作区计划 U1）。
  *
  * mock 与未来的 live 实现都必须完整实现这份接口。这里刻意**不**改 `shared/**`：
- * U6 由账号／服务端文件释放后的那条线把同一语义提升成真正的跨端共享合同。
+ * U4/U6 会把同一语义接到服务端与真实网络 transport。
  *
  * 三件事在这一层就定死，避免以后各写各的：
  * 1. 整轮幂等：submitTurn 以 requestHash 为键，重复提交不得产生第二次生成；
@@ -18,15 +27,7 @@ import type {
  * 3. 正文保存是 CAS：带 baseBodyRevision，冲突时把服务端那份一起带回来。
  */
 
-export type TransportErrorKind =
-  | "unavailable"
-  | "timeout"
-  | "unknown-result"
-  | "conflict"
-  | "target-missing"
-  | "insufficient-balance"
-  | "rejected"
-  | "internal";
+export type TransportErrorKind = WorkspaceErrorKind;
 
 export type TransportError = {
   kind: TransportErrorKind;
@@ -54,8 +55,9 @@ export function transportFail<T>(
   return {
     ok: false,
     error: {
-      retryable: error.kind !== "rejected" && error.kind !== "insufficient-balance",
-      resultUnknown: error.kind === "timeout" || error.kind === "unknown-result",
+      retryable:
+        error.kind === "unavailable" || error.kind === "explicit-failure",
+      resultUnknown: error.kind === "unknown-result",
       ...error,
     },
   };
@@ -68,14 +70,16 @@ export type StoryWorkspaceSnapshot = {
   balance: BalanceSummary;
 };
 
-export type SubmitTurnRequest = {
-  storyId: number;
-  clientTurnId: string;
-  requestHash: string;
-  userClientMessageId: string;
-  assistantClientMessageId: string;
-  userContent: string;
+export type CreateStoryRequest = Omit<WireStoryCreateRequest, "contractVersion">;
+
+export type CreateStoryResponse = {
+  receipt: Omit<WireStoryCreateReceipt, "contractVersion" | "story"> & {
+    story: StorySummary;
+  };
+  document: PublishingBodyDocument;
 };
+
+export type SubmitTurnRequest = Omit<WireSubmitTurnRequest, "contractVersion">;
 
 export type SubmitTurnResponse = {
   assistantContent: string;
@@ -84,11 +88,7 @@ export type SubmitTurnResponse = {
   balance: BalanceSummary;
 };
 
-export type LookupTurnRequest = {
-  storyId: number;
-  clientTurnId: string;
-  requestHash: string;
-};
+export type LookupTurnRequest = Omit<WireTurnStatusRequest, "contractVersion">;
 
 export type LookupTurnResponse = {
   status: "synced" | "missing";
@@ -96,18 +96,18 @@ export type LookupTurnResponse = {
   balance: BalanceSummary | null;
 };
 
-export type SaveDocumentBodyRequest = {
-  storyId: number;
-  versionId: string;
-  platform: PublishingPlatformId;
-  baseBodyRevision: number;
-  body: string;
-};
+export type SaveDocumentBodyRequest = Omit<
+  WireDocumentSaveRequest,
+  "contractVersion"
+> & { platform: PublishingPlatformId };
 
 export interface WorkspaceTransport {
   /** 界面据此打「演示数据」标识，禁止 mock 冒充 live。 */
-  readonly kind: "mock" | "live";
+  readonly kind: RuntimeTransportKind;
   listStories(): Promise<TransportResult<StorySummary[]>>;
+  createStory(
+    request: CreateStoryRequest,
+  ): Promise<TransportResult<CreateStoryResponse>>;
   openStory(storyId: number): Promise<TransportResult<StoryWorkspaceSnapshot>>;
   submitTurn(
     request: SubmitTurnRequest,
@@ -118,4 +118,32 @@ export interface WorkspaceTransport {
   saveDocumentBody(
     request: SaveDocumentBodyRequest,
   ): Promise<TransportResult<{ document: PublishingBodyDocument }>>;
+}
+
+/**
+ * live 配置不完整时使用的零数据 transport。
+ *
+ * 它只让启动页能够解释错误；即使绕过页面直接打开工作区，所有业务读取
+ * 也只会失败，不会看见 mock Story、余额或回答。
+ */
+export function createBlockedWorkspaceTransport(
+  message: string,
+): WorkspaceTransport {
+  const unavailable = async <T>(): Promise<TransportResult<T>> =>
+    transportFail<T>({
+      kind: "unavailable",
+      message,
+      retryable: false,
+      resultUnknown: false,
+    });
+
+  return {
+    kind: "blocked",
+    listStories: () => unavailable(),
+    createStory: () => unavailable(),
+    openStory: () => unavailable(),
+    submitTurn: () => unavailable(),
+    lookupTurn: () => unavailable(),
+    saveDocumentBody: () => unavailable(),
+  };
 }

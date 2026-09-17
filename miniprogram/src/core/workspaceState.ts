@@ -28,11 +28,12 @@ import {
   clearRecoveryForScope,
   pruneRecoveryStorage,
   readRecoveryRecords,
+  RECOVERY_TTL_MS,
   reconcileRecoveryOwner,
   recoveryKey,
   writeRecoveryRecords,
 } from "./recoveryState";
-import type { RuntimeMode } from "./runtimeMode";
+import type { RuntimeMode, RuntimeTransportKind } from "./runtimeMode";
 import type {
   BalanceSummary,
   ConversationServerMessage,
@@ -61,7 +62,7 @@ export type TransportStatus = "ready" | "failure";
 
 export type WorkspaceSnapshot = {
   runtimeMode: RuntimeMode;
-  transportKind: "mock" | "live";
+  transportKind: RuntimeTransportKind;
   view: WorkspaceView;
   storyPhase: StoryPhase;
   stories: StorySummary[];
@@ -89,13 +90,49 @@ export type WorkspaceStoreOptions = {
   idFactory?: () => string;
 };
 
-export type StorySwitchDecision = "cancel" | "discard";
+export type StorySwitchDecision = "save-and-switch" | "cancel" | "discard";
+
+type PendingStoryCreation = {
+  clientOperationId: string;
+  title: string;
+};
+
+type PendingStoryCreationRecord = PendingStoryCreation & {
+  updatedAt: number;
+  expiresAt: number;
+};
+
+function normalizePendingStoryCreation(
+  value: unknown,
+): PendingStoryCreationRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Partial<PendingStoryCreationRecord>;
+  if (
+    typeof candidate.clientOperationId !== "string" ||
+    candidate.clientOperationId.length < 8 ||
+    candidate.clientOperationId.length > 80 ||
+    !/^[A-Za-z0-9_-]+$/.test(candidate.clientOperationId) ||
+    typeof candidate.title !== "string" ||
+    candidate.title.length > 200 ||
+    typeof candidate.updatedAt !== "number" ||
+    typeof candidate.expiresAt !== "number"
+  ) {
+    return null;
+  }
+  return {
+    clientOperationId: candidate.clientOperationId,
+    title: candidate.title,
+    updatedAt: candidate.updatedAt,
+    expiresAt: candidate.expiresAt,
+  };
+}
 
 export type WorkspaceStore = {
   getState(): WorkspaceSnapshot;
   subscribe(listener: (snapshot: WorkspaceSnapshot) => void): () => void;
   start(): Promise<void>;
   setView(view: WorkspaceView): void;
+  createStory(title: string): Promise<void>;
   selectStory(storyId: number): Promise<void>;
   resolveStorySwitch(decision: StorySwitchDecision): Promise<void>;
   sendMessage(text: string): Promise<void>;
@@ -117,7 +154,12 @@ export function createWorkspaceStore(
   const now = options.now ?? (() => Date.now());
   const idFactory = options.idFactory;
 
+  function createOperationId(): string {
+    return `story-${(idFactory ?? (() => `${now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`))()}`;
+  }
+
   let serverMessages: ConversationServerMessage[] = [];
+  let pendingStoryCreation: PendingStoryCreation | null = null;
   let state: WorkspaceSnapshot = {
     runtimeMode: options.runtimeMode,
     transportKind: transport.kind,
@@ -152,6 +194,37 @@ export function createWorkspaceStore(
 
   function documentKey(storyId: number): string {
     return recoveryKey("document", scope, storyId);
+  }
+
+  function storyCreationKey(): string {
+    return recoveryKey("story-create", scope, 0);
+  }
+
+  function loadPendingStoryCreation(): PendingStoryCreation | null {
+    const record = readRecoveryRecords<PendingStoryCreationRecord>(
+      storage,
+      storyCreationKey(),
+      normalizePendingStoryCreation,
+      now(),
+    )[0];
+    return record
+      ? { clientOperationId: record.clientOperationId, title: record.title }
+      : null;
+  }
+
+  function persistPendingStoryCreation(
+    pending: PendingStoryCreation | null,
+  ): void {
+    const updatedAt = now();
+    writeRecoveryRecords<PendingStoryCreationRecord>(
+      storage,
+      storyCreationKey(),
+      pending
+        ? [{ ...pending, updatedAt, expiresAt: updatedAt + RECOVERY_TTL_MS }]
+        : [],
+      normalizePendingStoryCreation,
+      updatedAt,
+    );
   }
 
   function loadTurns(storyId: number): ConversationRecoveryTurn[] {
@@ -280,7 +353,7 @@ export function createWorkspaceStore(
       transportStatus: "ready",
       transportError: null,
       balance: result.data.balance,
-      balanceBlocked: result.data.balance.availableCents <= 0,
+      balanceBlocked: result.data.balance.availableMinor <= 0,
       document,
       turns: projectedAfter.turns,
       messages: projectedAfter.messages,
@@ -326,14 +399,57 @@ export function createWorkspaceStore(
     },
 
     async start() {
+      if (state.runtimeMode === "configuration-error") {
+        const message =
+          "小程序运行配置不完整。修复 AppID、HTTPS 服务地址和后端能力前不会读取账号或演示数据。";
+        patch({
+          storyPhase: "error",
+          stories: [],
+          activeStoryId: null,
+          storyError: message,
+          transportStatus: "failure",
+          transportError: message,
+        });
+        return;
+      }
       // 先清理，再渲染：上一个作用域的任何草稿都不能出现在新身份下。
       reconcileRecoveryOwner(storage, scope);
       pruneRecoveryStorage(storage, scope, now());
+      pendingStoryCreation = loadPendingStoryCreation();
       await loadStories();
     },
 
     setView(view) {
       patch({ view });
+    },
+
+    async createStory(rawTitle) {
+      const title = rawTitle.trim() || "未命名";
+      if (!pendingStoryCreation || pendingStoryCreation.title !== title) {
+        pendingStoryCreation = { clientOperationId: createOperationId(), title };
+        persistPendingStoryCreation(pendingStoryCreation);
+      }
+      const result = await transport.createStory({ ...pendingStoryCreation });
+      if (!result.ok) {
+        patch({
+          storyError: result.error.message,
+          transportStatus: "failure",
+          transportError: result.error.message,
+        });
+        return;
+      }
+      const story = result.data.receipt.story;
+      pendingStoryCreation = null;
+      persistPendingStoryCreation(null);
+      patch({
+        stories: [
+          story,
+          ...state.stories.filter(item => item.id !== story.id),
+        ],
+        transportStatus: "ready",
+        transportError: null,
+      });
+      await openStory(story.id);
     },
 
     async selectStory(storyId) {
@@ -353,6 +469,17 @@ export function createWorkspaceStore(
           pendingStoryId: null,
           storyPhase: state.activeStoryId === null ? "empty" : "selected",
         });
+        return;
+      }
+      if (decision === "save-and-switch") {
+        await this.saveDocument();
+        if (
+          state.activeStoryId === target ||
+          (state.document.status !== "saved" && state.document.status !== "clean")
+        ) {
+          return;
+        }
+        await openStory(target);
         return;
       }
       const cleared = discardLocalDraft(state.document);
@@ -521,10 +648,16 @@ export function createWorkspaceStore(
         return;
       }
       const error = result.error;
-      if (error.kind === "conflict" || error.kind === "target-missing") {
+      if (
+        error.kind === "document-conflict" ||
+        error.kind === "target-missing"
+      ) {
         commitDocument(
           applyDocumentSaveConflict(state.document, {
-            reason: error.kind === "conflict" ? "body_changed" : "target_missing",
+            reason:
+              error.kind === "document-conflict"
+                ? "body_changed"
+                : "target_missing",
             latestDocument: error.latestDocument ?? null,
           }),
         );
@@ -564,7 +697,7 @@ export function createWorkspaceStore(
         transportStatus: "ready",
         transportError: null,
         balance: result.data.balance,
-        balanceBlocked: result.data.balance.availableCents <= 0,
+        balanceBlocked: result.data.balance.availableMinor <= 0,
         document,
         turns: projected.turns,
         messages: projected.messages,
@@ -585,6 +718,7 @@ export function createWorkspaceStore(
     signOut() {
       clearRecoveryForScope(storage, scope);
       serverMessages = [];
+      pendingStoryCreation = null;
       patch({
         storyPhase: "loading",
         stories: [],
@@ -633,7 +767,7 @@ export function createWorkspaceStore(
       commitTurns(storyId, replaceTurn(state.turns, settled), {
         chatError: null,
         balance: result.data.balance,
-        balanceBlocked: result.data.balance.availableCents <= 0,
+        balanceBlocked: result.data.balance.availableMinor <= 0,
         transportStatus: "ready",
         transportError: null,
       });
