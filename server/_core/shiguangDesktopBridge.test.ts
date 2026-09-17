@@ -94,4 +94,8 @@ describe("拾光家忆故事进入电脑", () => {
   it("签名序列化与 JSON 传输一样忽略对象里的 undefined", () => {
     expect(canonicalJson({ a: 1, missing: undefined })).toBe('{"a":1}');
   });
+  it("快照可选字段经过 JSON 传输后通过共享验签", async () => {
+    const { response } = await post({}, { subject, story: { ...story, manuscript: undefined } });
+    expect(response.status).toBe(200);
+  });
 });

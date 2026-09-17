@@ -3845,6 +3845,7 @@
       ],
       "owners": [
         "server/_core/shiguangDesktopBridge.ts",
+        "server/_core/shiguangBridgeSignature.ts",
         "server/_core/shiguangDesktopBridgeRoutes.ts",
         "server/services/accountIdentity.ts",
         "server/services/shiguangStoryImport.ts",
@@ -3857,6 +3858,7 @@
       ],
       "evidence": [
         "server/_core/shiguangDesktopBridge.test.ts",
+        "server/_core/shiguangBridgeSignature.test.ts",
         "server/services/shiguangStoryImport.test.ts",
         "server/services/devicePairing.test.ts",
         "client/src/features/auth/views/AuthEntryPanel.test.tsx",
@@ -3919,6 +3921,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/accounts、stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "两个拾光桥共用 shiguangBridgeSignature 的 canonical JSON、HMAC-SHA256 与恒定时间验签；保留旧导出入口、协议 1.0.0 的 UTF-16 键序、相对路径和五分钟时间窗。公开云函数固定向量、篡改拒绝、头格式与时间窗边界、两桥 HTTP 回归验证兼容性；不改变导入、权限、限流或防重放存储，真实部署验收和既有缺口仍保留。"
         }
       ]
     },
@@ -4168,6 +4175,7 @@
         "server/repositories/accounts.ts",
         "server/repositories/users.ts",
         "server/_core/shiguangBridge.ts",
+        "server/_core/shiguangBridgeSignature.ts",
         "server/_core/shiguangBridgeRoutes.ts",
         "server/services/accountIdentity.ts",
         "server/services/minigameEmailOtp.ts",
@@ -4175,6 +4183,7 @@
       ],
       "evidence": [
         "server/_core/shiguangBridge.test.ts",
+        "server/_core/shiguangBridgeSignature.test.ts",
         "server/_core/minigameRouter.test.ts",
         "server/services/accountIdentity.test.ts",
         "server/services/minigameEmailOtp.test.ts"
@@ -4213,6 +4222,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories、accounts、users；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "与电脑桥共用 shiguangBridgeSignature 签名协议实现，保留旧导出入口。可选 undefined 对象字段统一按协议省略，实际 JSON 请求签名不变；旧邮箱桥固定向量、共享验签边界与篡改用例、两桥 HTTP 测试覆盖兼容性。账号归属、默认关闭配置、独立限流及 nonce 存储不变，真实部署和 MySQL 验收仍待完成。"
         }
       ]
     }

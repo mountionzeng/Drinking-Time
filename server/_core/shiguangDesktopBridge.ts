@@ -1,8 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { Router, json, type Request } from "express";
+import { Router, json } from "express";
 
 import type { IssuePairingResult } from "../services/accountIdentity";
 import type { ShiguangStorySnapshot } from "../services/shiguangStoryImport";
+import { hasValidBridgeSignature } from "./shiguangBridgeSignature";
+
+export { canonicalJson, bridgeSignature } from "./shiguangBridgeSignature";
 
 type Dependencies = {
   enabled: boolean;
@@ -14,42 +16,6 @@ type Dependencies = {
   issuePairing: (userId: number) => Promise<IssuePairingResult>;
   now?: () => number;
 };
-
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .filter(([, item]) => item !== undefined)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-    .join(",")}}`;
-}
-
-export function bridgeSignature(
-  secret: string,
-  path: string,
-  timestamp: string,
-  nonce: string,
-  body: unknown
-) {
-  return createHmac("sha256", secret)
-    .update(`POST\n${path}\n${timestamp}\n${nonce}\n${canonicalJson(body)}`)
-    .digest("hex");
-}
-
-function hasValidSignature(req: Request, secret: string, now: number) {
-  const timestamp = String(req.header("x-shiguang-timestamp") ?? "");
-  const nonce = String(req.header("x-shiguang-nonce") ?? "");
-  const signature = String(req.header("x-shiguang-signature") ?? "");
-  if (
-    !/^\d{13}$/.test(timestamp) ||
-    Math.abs(now - Number(timestamp)) > 300_000 ||
-    !/^[0-9A-Za-z_-]{16,64}$/.test(nonce) ||
-    !/^[0-9a-f]{64}$/.test(signature)
-  ) return false;
-  const expected = bridgeSignature(secret, req.path, timestamp, nonce, req.body);
-  return timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
-}
 
 function validStrings(value: unknown, max: number, count: number) {
   return Array.isArray(value) && value.length <= count && value.every(item => typeof item === "string" && item.length <= max);
@@ -103,7 +69,7 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       res.setHeader("Cache-Control", "no-store");
       if (!deps.enabled || deps.secret.length < 32) return res.status(503).json({ error: "bridge_not_configured" });
       const now = (deps.now ?? Date.now)();
-      if (!hasValidSignature(req, deps.secret, now)) return res.status(401).json({ error: "invalid_bridge_signature" });
+      if (!hasValidBridgeSignature(req, deps.secret, now)) return res.status(401).json({ error: "invalid_bridge_signature" });
       const replayKey = `${req.header("x-shiguang-timestamp")}:${req.header("x-shiguang-nonce")}`;
       if (seenNonces.has(replayKey)) return res.status(401).json({ error: "replayed_request" });
       seenNonces.set(replayKey, now);

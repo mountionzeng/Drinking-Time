@@ -66,6 +66,9 @@ describe("拾光家忆服务器桥", () => {
     expect(bridgeSignature(secret, "/link/email/otp/request", "1700000000000", "nonce_for_golden_vector",
       { subject, email: "me@example.com" })).toBe("71212c4e14c99d63994fdfe96783691d8f85e3cbcf07e8cee59597e5b62ad86b");
   });
+  it("可选 undefined 对象字段在 JSON 传输后仍能通过统一验签", async () => {
+    expect((await post("/stories", { subject, cursor: undefined })).status).toBe(200);
+  });
   it("正文按真实传输字节限制，避免云函数收到半截响应", async () => {
     const original = deps.document;
     deps.document = async () => ({ title: "特殊正文", body: "\u0000".repeat(50_000), bodyAvailable: true,

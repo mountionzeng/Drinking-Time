@@ -114,7 +114,7 @@ signature = lowercase_hex( HMAC_SHA256( key = 共享密钥(UTF-8),
 3. 对象：去掉值为 `undefined` 的键，其余键按 JavaScript 字符串比较（UTF-16 码元序）升序排列，输出 `{` + `JSON.stringify(键):canonicalJson(值)` 用 `,` 连接 + `}`。
 4. 任何位置都不留空白。
 
-**传输与验签**：实际发出的正文是普通的 `JSON.stringify(正文)`，键顺序不限。服务端**先把正文解析成对象，再对解析结果做 canonicalJson 后验签**（已核实，见 `server/_core/shiguangDesktopBridge.ts` 的 `hasValidSignature`）。因此发送方不要在正文里放 JSON 往返后会变样的值，例如 `undefined`、`NaN`、超过 2^53 的数字；本约定的字段全是字符串和数组，没有这个问题。
+**传输与验签**：实际发出的正文是普通的 `JSON.stringify(正文)`，键顺序不限。服务端**先把正文解析成对象，再对解析结果做 canonicalJson 后验签**（已核实，两个桥现共用 `server/_core/shiguangBridgeSignature.ts` 的 `hasValidBridgeSignature`，线上协议不变）。因此发送方不要在正文里放 JSON 往返后会变样的值，例如 `undefined`、`NaN`、超过 2^53 的数字；本约定的字段全是字符串和数组，没有这个问题。
 
 签名比较使用恒定时间比较。
 
