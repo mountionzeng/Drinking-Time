@@ -5,28 +5,33 @@
   </view>
 
   <view class="topbar safe-top">
-    <picker
-      class="story-picker"
-      mode="selector"
-      range="{{storyTitles}}"
-      value="{{storyIndex}}"
-      bindchange="onStoryChange"
-      disabled="{{storyTitles.length === 0}}"
-    >
-      <view class="story-picker__value">
-        <text class="story-picker__title">{{ui.story.activeTitle || ui.story.label}}</text>
-        <text class="story-picker__hint">切换 Story</text>
-      </view>
-    </picker>
-    <button class="action action--quiet" wx:if="{{ui.story.canCreate}}" bindtap="onOpenCreateStory">创建 Story</button>
+    <view class="topbar__heading">
+      <text class="topbar__eyebrow">当前 Story</text>
+      <picker
+        class="story-picker"
+        mode="selector"
+        range="{{storyTitles}}"
+        value="{{storyIndex}}"
+        bindchange="onStoryChange"
+        disabled="{{storyTitles.length === 0}}"
+      >
+        <view class="story-picker__value">
+          <text class="story-picker__title">{{ui.story.activeTitle || ui.story.label}}</text>
+          <text class="story-picker__hint">切换</text>
+        </view>
+      </picker>
+    </view>
+    <button class="action action--quiet topbar__create" wx:if="{{ui.story.canCreate}}" bindtap="onOpenCreateStory">新建</button>
   </view>
 
   <view class="statusbar">
-    <text class="status-line">{{ui.balance.text}}</text>
-    <text class="status-line {{ui.transport.state === 'mock-failure' ? 'status-line--warn' : ''}}">{{ui.transport.label}}</text>
+    <view class="statusbar__summary">
+      <text class="statusbar__balance">{{ui.balance.text}}</text>
+      <text class="statusbar__mode {{ui.transport.state === 'mock-failure' ? 'statusbar__mode--warn' : ''}}">{{ui.transport.label}}</text>
+    </view>
     <button class="action action--quiet retry" wx:if="{{ui.transport.canRetry}}" bindtap="onRetryTransport">重试</button>
     <text class="status-line status-line--warn" wx:if="{{ui.balance.blocked}}">{{ui.balance.blockedHint}}</text>
-    <text class="status-line" wx:for="{{ui.balance.recentCharges}}" wx:key="id">{{item.text}}</text>
+    <text class="status-line status-line--recent" wx:for="{{ui.balance.recentCharges}}" wx:key="id">{{item.text}}</text>
   </view>
 
   <view class="tabs" role="tablist">
@@ -160,8 +165,8 @@
     </view>
   </view>
 
-  <view class="card demo-switch" wx:if="{{showDemoControls}}">
-    <text class="field-label">演示状态开关（仅用于在开发者工具里演示各种状态）</text>
+  <view class="demo-switch" wx:if="{{showDemoControls}}">
+    <text class="field-label">开发者工具中的状态演示</text>
     <picker
       mode="selector"
       range="{{failureModes}}"

@@ -1,22 +1,203 @@
 .page {
+  position: relative;
   min-height: 100vh;
-  padding-bottom: 40rpx;
+  padding: 0 32rpx 48rpx;
+  overflow: hidden;
 }
 
-.title {
+.mock-banner {
+  width: calc(100% + 64rpx);
+  margin-left: -32rpx;
+}
+
+.start-hero {
+  position: relative;
+  z-index: 1;
+  margin: 0 -32rpx 22rpx;
+}
+
+.start-hero__reference-wrap {
+  position: relative;
+}
+
+.start-hero__background {
   display: block;
-  margin-bottom: 12rpx;
-  font-size: 38rpx;
+  width: 100%;
+  height: auto;
+}
+
+/* 杯子和字都从同一张「渲染 1」裁出；动画期间只有这个小图层变化。 */
+.start-hero__cup {
+  position: absolute;
+  z-index: 2;
+  left: 34.62%;
+  top: 29.49%;
+  display: block;
+  width: 32.69%;
+  height: auto;
+  transform-origin: 78% 92%;
+  will-change: transform;
+}
+
+.start-hero__cup--pouring {
+  animation: render-one-pour 820ms cubic-bezier(0.22, 0.78, 0.3, 1) both;
+}
+
+.start-hero__prompt {
+  position: absolute;
+  z-index: 3;
+  left: 37.02%;
+  top: 87.82%;
+  display: block;
+  width: 25.96%;
+  height: auto;
+  pointer-events: none;
+}
+
+.start-hero__prompt-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  margin: 0 8rpx 8rpx;
+  padding: 28rpx 28rpx 30rpx;
+  background-color: rgba(255, 254, 250, 0.88);
+  border: 2rpx solid var(--line);
+  border-radius: 24rpx;
+  box-shadow: 0 18rpx 46rpx rgba(94, 76, 25, 0.06);
+  animation: panel-enter 620ms 100ms cubic-bezier(0.22, 0.8, 0.24, 1) both;
+}
+
+.login-panel__title {
+  display: block;
+  margin: 0 0 24rpx;
+  color: var(--brand-ink);
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 43rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.login-panel__wechat {
+  width: 100%;
+  background-color: #d5aa32;
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 0 rgba(151, 111, 21, 0.16);
+}
+
+.login-panel__hint {
+  display: block;
+  margin: 18rpx 8rpx 0;
+  color: var(--ink-soft);
+  font-size: 23rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.login-panel__divider {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin: 28rpx 0;
+  color: var(--ink-soft);
+  font-size: 22rpx;
+}
+
+.login-panel__divider::before,
+.login-panel__divider::after {
+  flex: 1;
+  height: 2rpx;
+  background-color: var(--line);
+  content: "";
+}
+
+.email-demo {
+  margin-top: 24rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx solid var(--line);
+}
+
+.email-demo__title {
+  display: block;
+  margin-bottom: 8rpx;
+  color: var(--ink);
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 32rpx;
   font-weight: 600;
 }
 
-.body {
+.email-demo__notice {
   display: block;
-  margin-bottom: 12rpx;
-  color: var(--ink-soft);
-  line-height: 1.7;
+  margin-bottom: 18rpx;
+  color: var(--warn);
+  font-size: 23rpx;
+  line-height: 1.6;
 }
 
-.action {
-  margin-top: 8rpx;
+.email-demo__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88rpx;
+  margin-bottom: 16rpx;
+  padding: 16rpx 20rpx;
+  background-color: var(--paper);
+  border: 2rpx solid var(--line);
+  border-radius: 18rpx;
+  color: var(--ink);
+  font-size: 30rpx;
+}
+
+.email-demo__cancel {
+  display: block;
+  margin: 14rpx auto 0;
+  padding: 8rpx 16rpx;
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  font-size: 24rpx;
+}
+
+.login-panel__privacy {
+  display: block;
+  margin: 24rpx auto 0;
+  padding: 8rpx 12rpx;
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.start-note {
+  display: block;
+  margin-top: 16rpx;
+  color: var(--ink-soft);
+  font-size: 24rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@keyframes panel-enter {
+  from { opacity: 0; transform: translateY(24rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes render-one-pour {
+  0% { transform: rotate(0deg) translate3d(0, 0, 0); }
+  24% { transform: rotate(-15deg) translate3d(-2rpx, -2rpx, 0); }
+  55% { transform: rotate(-32deg) translate3d(-5rpx, -6rpx, 0); }
+  68% { transform: rotate(-32deg) translate3d(-5rpx, -6rpx, 0); }
+  100% { transform: rotate(0deg) translate3d(0, 0, 0); }
 }

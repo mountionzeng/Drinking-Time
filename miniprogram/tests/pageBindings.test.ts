@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * WXML 与 Page 的静态对账。
@@ -19,6 +19,7 @@ const LOCALS = new Set(["item", "index"]);
 type PageOptions = Record<string, unknown> & { data?: Record<string, unknown> };
 
 const pages = new Map<string, PageOptions>();
+const navigations: string[] = [];
 
 beforeAll(async () => {
   const captured: PageOptions[] = [];
@@ -30,6 +31,8 @@ beforeAll(async () => {
     removeStorageSync: (key: string) => memory.delete(key),
     getStorageInfoSync: () => ({ keys: [], currentSize: 0, limitSize: 0 }),
     getAccountInfoSync: () => ({ miniProgram: { appId: "touristappid" } }),
+    navigateTo: ({ url }: { url: string }) => navigations.push(url),
+    showToast: () => undefined,
   };
   globalScope.App = (options: Record<string, unknown>) => {
     globalScope.__app = options;
@@ -142,5 +145,61 @@ describe("关键 Story 动作", () => {
     const page = pages.get("workspace");
     expect(typeof page?.onConfirmCreateStory).toBe("function");
     expect(typeof page?.onSaveAndSwitch).toBe("function");
+  });
+});
+
+describe("登录页演示交互", () => {
+  it("点杯子只切换杯子动画状态，整张主视觉始终不参与逐帧替换", () => {
+    vi.useFakeTimers();
+    try {
+      const start = pages.get("start") as PageOptions & {
+        onCupTap(): void;
+      };
+      const data: Record<string, unknown> = {
+        ...(start.data ?? {}),
+        isPouring: false,
+      };
+      const controller = {
+        data,
+        setData(patch: Record<string, unknown>) {
+          Object.assign(data, patch);
+        },
+      };
+
+      start.onCupTap.call(controller);
+      expect(data.isPouring).toBe(true);
+      expect(data).not.toHaveProperty("heroImageSrc");
+      vi.advanceTimersByTime(820);
+      expect(data.isPouring).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("演示邮箱和邀请码不会进入工作区状态，跳转前即被清空", () => {
+    const start = pages.get("start") as PageOptions & {
+      onSubmitEmailDemo(): void;
+    };
+    const data = {
+      ...(start.data ?? {}),
+      canEnterWorkspace: true,
+      runtimeBlocked: false,
+      showEmailDemo: true,
+      demoEmail: "preview@example.test",
+      demoInviteCode: "DEMO-CARD-42",
+    };
+    const controller = {
+      data,
+      setData(patch: Record<string, unknown>) {
+        Object.assign(data, patch);
+      },
+    };
+
+    navigations.splice(0);
+    start.onSubmitEmailDemo.call(controller);
+
+    expect(data.demoEmail).toBe("");
+    expect(data.demoInviteCode).toBe("");
+    expect(navigations).toEqual(["/pages/workspace/index"]);
   });
 });

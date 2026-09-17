@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -225,7 +225,7 @@ function pageFiles(extension: string): string[] {
 }
 
 describe("页面范围", () => {
-  it("页面允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口", () => {
+  it("工作区允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口", () => {
     const forbidden = [
       /<image\b/,
       /<video\b/,
@@ -234,7 +234,13 @@ describe("页面范围", () => {
       /素材|分镜|时间线|时间轴|预览视频/,
     ];
     const offenders: string[] = [];
-    for (const file of [...pageFiles(".wxml"), ...pageFiles(".ts")]) {
+    // 登录页允许一张静态品牌插画；这里守的是用户工作区不意外扩张成
+    // 素材/分镜工具，而不是禁止品牌本身拥有一张图片。
+    const workspaceFiles = [
+      path.join(PAGES_ROOT, "workspace", "index.wxml"),
+      path.join(PAGES_ROOT, "workspace", "index.ts"),
+    ];
+    for (const file of workspaceFiles) {
       const content = readFileSync(file, "utf8");
       for (const pattern of forbidden) {
         if (pattern.test(content)) {
@@ -246,6 +252,66 @@ describe("页面范围", () => {
     expect(
       readFileSync(path.join(PAGES_ROOT, "workspace", "index.wxml"), "utf8"),
     ).toMatch(/创建 Story/);
+  });
+
+  it("登录页把渲染 1 拆成静态背景、同一只杯子和始终可见的原字素材", () => {
+    const startWxml = readFileSync(
+      path.join(PAGES_ROOT, "start", "index.wxml"),
+      "utf8",
+    );
+    expect(startWxml).toContain(
+      'src="/assets/brand/render-one-background.png"',
+    );
+    expect(startWxml).toContain(
+      'src="/assets/brand/render-one-cup.png"',
+    );
+    expect(startWxml).toContain(
+      'src="/assets/brand/render-one-prompt.png"',
+    );
+    expect(startWxml).toContain('class="start-hero__prompt"');
+    const startPage = readFileSync(
+      path.join(PAGES_ROOT, "start", "index.ts"),
+      "utf8",
+    );
+    for (const asset of [
+      "login-hero-reference.jpg",
+      "render-one-background.png",
+      "render-one-cup.png",
+      "render-one-prompt.png",
+    ]) {
+      expect(
+        existsSync(
+          path.resolve(import.meta.dirname, "..", "src/assets/brand", asset),
+        ),
+      ).toBe(true);
+    }
+    expect(startPage).not.toContain("heroImageSrc");
+    expect(startWxml).not.toContain("beer-mug-v1.png");
+  });
+
+  it("杯子只用原生样式动画，不再加载全屏帧序列；邮箱邀请码仅作不落库的流程预览", () => {
+    const startWxml = readFileSync(
+      path.join(PAGES_ROOT, "start", "index.wxml"),
+      "utf8",
+    );
+    const startPage = readFileSync(
+      path.join(PAGES_ROOT, "start", "index.ts"),
+      "utf8",
+    );
+    const startStyles = readFileSync(
+      path.join(PAGES_ROOT, "start", "index.wxss"),
+      "utf8",
+    );
+    expect(startWxml).toContain('bindtap="onCupTap"');
+    expect(startWxml).toContain("start-hero__cup--pouring");
+    expect(startStyles).toContain("@keyframes render-one-pour");
+    expect(startStyles).toContain("transform-origin: 78% 92%");
+    expect(startPage).not.toContain("render-one-pour-frames/frame-");
+    expect(startPage).not.toContain("POUR_FRAME_MS");
+    expect(startPage).not.toContain("beer-mug-source");
+    expect(startWxml).toContain("本机演示：输入不会提交、验证或保存");
+    expect(startPage).toContain("绝不提交、验证或持久化");
+    expect(startPage).not.toContain("wx.request");
   });
 
   it("所有动作按钮的触控目标不小于 88rpx（= 44px）", () => {

@@ -19,7 +19,8 @@
 - 不调用 `wx.login`、`wx.request`、`wx.uploadFile`、`wx.downloadFile`、`wx.connectSocket`
   （`tests/noRealWechatCalls.test.ts` 会装计数 stub 并断言调用次数为 0）。
 - 不调用模型、不产生任何费用、不写 `.webdev/`、不碰远端数据库。
-- 页面允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口。
+- 工作区允许创建 Story，但没有图片、素材、分镜、时间线、预览或视频入口；登录页直接复用用户确认的网页「渲染 1」主视觉裁图。背景、杯子和提示字由脚本从同一裁图确定性分层，点击时只让杯子用原生样式按网页 BeerMugPour 的 `-32°` 节奏倾斜，提示字始终留在最上层；不构成素材上传能力。
+- 邮箱与邀请码表单仅用于演示进入工作区：输入不会提交、验证或保存，不能当作现有电脑账号的真实登录。
 
 ---
 
@@ -66,7 +67,7 @@ pnpm exec vitest run --config miniprogram/vitest.config.ts
 | `tests/projectSafety.test.ts` | 提交候选集合里的 Secret、私钥、高熵凭据、`api.weixin.qq.com` 直连、真实 AppID 外泄、私有配置未被 ignore |
 | `tests/runtimeIsolation.test.ts` | `src/core/**` 与 `src/services/**` 不引 React / DOM / `localStorage` / Node API / `@shared`；`wx.*` 只出现在 `services/storage.ts` |
 | `tests/noRealWechatCalls.test.ts` | 用会计数并抛错的 stub 换掉 `wx.login` / `request` / `uploadFile` / `downloadFile` / `connectSocket`，跑完真实页面的完整流程后断言计数全为 0 |
-| `tests/workspacePresentation.test.ts` | 页面允许创建 Story，但没有范围外入口（图片／素材／分镜／时间线／预览／视频）；动作触控目标 ≥ 88rpx |
+| `tests/workspacePresentation.test.ts` | 工作区允许创建 Story，但没有范围外入口（图片／素材／分镜／时间线／预览／视频）；登录页网页「渲染 1」静态背景／杯子／提示字分层、原生倾倒动画和不落库的邮箱／邀请码演示入口受契约保护；动作触控目标 ≥ 88rpx |
 
 ## 只能人工验收的部分
 

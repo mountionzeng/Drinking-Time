@@ -8,15 +8,16 @@
  */
 
 page {
-  --paper: #f6f1e7;
-  --paper-raised: #fffaf1;
-  --ink: #2c2622;
-  --ink-soft: #6b6259;
-  --line: #e0d6c4;
-  --accent: #9c5f3c;
-  --accent-soft: #f2e3d5;
-  --warn: #a4442c;
-  --warn-soft: #f7e3dd;
+  --paper: #fffdf7;
+  --paper-raised: #fffefa;
+  --ink: #292622;
+  --ink-soft: #7a746c;
+  --line: #eee7d3;
+  --accent: #d4a82b;
+  --accent-deep: #aa8120;
+  --accent-soft: #faf0d0;
+  --warn: #a87926;
+  --warn-soft: #fff5dc;
   --ok: #4a6b46;
 
   background-color: var(--paper);
@@ -40,20 +41,31 @@ page {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  padding: 16rpx 24rpx;
-  background-color: var(--warn-soft);
-  border-bottom: 2rpx solid var(--warn);
-  color: var(--warn);
-  font-size: 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 14rpx 24rpx;
+  background-color: rgba(255, 253, 247, 0.92);
+  border-bottom: 2rpx solid var(--line);
+  color: var(--ink-soft);
+  font-size: 22rpx;
+}
+
+.mock-banner__badge {
+  flex-shrink: 0;
+  padding: 4rpx 12rpx;
+  background-color: var(--accent-soft);
+  border-radius: 99rpx;
+  color: var(--accent-deep);
+  font-size: 20rpx;
   font-weight: 600;
 }
 
 .mock-banner__detail {
-  display: block;
-  margin-top: 6rpx;
+  flex: 1;
   color: var(--ink-soft);
-  font-weight: 400;
-  font-size: 24rpx;
+  font-size: 21rpx;
+  line-height: 1.45;
 }
 
 .card {
@@ -76,8 +88,8 @@ page {
   margin: 0;
   background-color: var(--accent-soft);
   border: 2rpx solid var(--accent);
-  border-radius: 16rpx;
-  color: var(--accent);
+  border-radius: 18rpx;
+  color: var(--accent-deep);
   font-size: 30rpx;
   line-height: 1.4;
   white-space: normal;
@@ -87,7 +99,8 @@ page {
 
 .action--primary {
   background-color: var(--accent);
-  color: #fffaf1;
+  border-color: var(--accent);
+  color: #fffdf7;
 }
 
 .action--quiet {
