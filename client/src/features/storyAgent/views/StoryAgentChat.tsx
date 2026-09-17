@@ -1244,7 +1244,8 @@ export default function StoryAgentChat({
         style={{ borderColor: "var(--panel-border)" }}
       >
         <section
-          className="rounded-md border px-3 py-2"
+          className="story-context-surface rounded-md border px-3 py-2"
+          data-active-selection={activeSelection ? "true" : "false"}
           style={{
             borderColor: activeSelection
               ? "var(--nayin-accent-dim)"

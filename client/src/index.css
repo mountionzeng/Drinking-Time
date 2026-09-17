@@ -2203,6 +2203,16 @@ select option {
     inset 0 -1px rgba(119, 138, 109, 0.08);
 }
 
+[data-visual-theme="shiguang"]
+  .story-context-surface[data-active-selection="false"] {
+  background: rgba(231, 240, 227, 0.24) !important;
+  border-color: rgba(119, 138, 109, 0.22) !important;
+  backdrop-filter: blur(1.5px);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 248, 0.4),
+    0 2px 8px rgba(83, 95, 73, 0.035);
+}
+
 [data-visual-theme="shiguang"] .workspace-chat-paper-seam {
   position: relative;
   z-index: 12;
