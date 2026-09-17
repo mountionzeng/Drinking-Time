@@ -1240,11 +1240,7 @@ export default function StoryAgentChat({
       </div>
 
       <div
-        className={
-          activeSelection
-            ? "border-b px-3 py-2.5"
-            : `story-context-overlay px-3 py-2.5 ${showHeader ? "story-context-overlay-below-header" : ""}`
-        }
+        className="border-b px-3 py-2.5"
         style={{ borderColor: "var(--panel-border)" }}
       >
         <section
@@ -1353,7 +1349,7 @@ export default function StoryAgentChat({
 
       <div
         ref={scrollRef}
-        className={`monitor-panel-body story-chat-scroll-surface flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1 ${!activeSelection ? "story-chat-scroll-under-context" : ""}`}
+        className="monitor-panel-body story-chat-scroll-surface flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
       >
         <AnimatePresence initial={false}>
           {messages.map(m => (
