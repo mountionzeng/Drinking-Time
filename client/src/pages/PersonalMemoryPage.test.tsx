@@ -8,11 +8,6 @@ vi.stubGlobal("window", {
   history: { length: 1, back: vi.fn() },
 });
 vi.mock("wouter", () => ({ useLocation: () => ["/personal-memory", vi.fn()] }));
-vi.mock("@/features/personalMemory/PersonalMemoryTimeline", () => ({
-  default: ({ groups }: { groups: Array<{ occurredOn: string }> }) => (
-    <div>时间线：{groups.map(group => group.occurredOn).join(",")}</div>
-  ),
-}));
 vi.mock("@/features/personalMemory/PersonalMemoryInsightActions", () => ({
   default: ({ insight }: { insight: { text: string } }) => (
     <article>{insight.text}</article>

@@ -14,7 +14,6 @@ import {
   getStorySoundPlanVersionRecord,
   getStorySoundWorkspaceRecord,
   listStorySoundPlanVersionRecords,
-  listStorySoundRowOperationRecords,
 } from "../persistence/storySoundPersistence";
 
 const digest = (value: string) =>
@@ -216,14 +215,4 @@ export async function getOrCreateStorySoundRowOperation(input: {
     ...(row.assetId ? { assetId: row.assetId } : {}),
     ...(row.timelineClipId ? { timelineClipId: row.timelineClipId } : {}),
   };
-}
-
-export async function listStorySoundRowOperations(input: {
-  storyId: number;
-  userId: number;
-}) {
-  return listStorySoundRowOperationRecords({
-    storyIdSnapshot: input.storyId,
-    userId: input.userId,
-  });
 }
