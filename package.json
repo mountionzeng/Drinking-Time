@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "predev": "tsx scripts/dev-preflight.ts",
-    "dev": "PORT=3000 NODE_ENV=development tsx watch server/_core/index.ts",
+    "dev": "PORT=3000 NODE_ENV=development LOCAL_COMPUTE_UNLIMITED=true tsx watch server/_core/index.ts",
     "env:status": "tsx scripts/env-status.ts",
     "env:check": "tsx scripts/env-status.ts --check",
     "verify:merge": "pnpm env:check && pnpm migration:verify && pnpm check && pnpm feature:validate && pnpm test && pnpm build && pnpm env:check",
