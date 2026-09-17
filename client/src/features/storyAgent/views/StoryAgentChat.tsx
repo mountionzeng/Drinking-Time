@@ -65,7 +65,7 @@ import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatf
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
 import ChatImageRemixTray from "./ChatImageRemixTray";
-import ChatPhotoAssets, { type PhotoAssetRequest } from "./ChatPhotoAssets";
+import type { PhotoAssetRequest } from "./ChatPhotoAssets";
 import AssetSwapProposalCard from "./AssetSwapProposalCard";
 import { useAssetSwapProposal } from "../useAssetSwapProposal";
 import { chatImageRefsStore } from "../chatImageRefsStore";
@@ -239,9 +239,7 @@ export default function StoryAgentChat({
     activeStoryId,
     remoteStoryId,
     storyTitle,
-    storyLogline,
     activeStoryCoverImageUrl,
-    storyShotsCount,
     saveStatus,
     lastSavedAt,
     returningGreeting,
@@ -419,17 +417,6 @@ export default function StoryAgentChat({
     (remoteStoryId || (activeStoryId && activeStoryId > 0)
       ? `故事 #${remoteStoryId ?? activeStoryId}`
       : "新故事草稿");
-  const storyDisplaySubtitle =
-    interactionMode === "publishing"
-      ? "等待你整理成当前平台文字稿"
-      : storyLogline?.trim() ||
-        (storyShotsCount > 0
-          ? `${storyShotsCount} 个镜头正在同步`
-          : currentIntent
-            ? "等待从对话直接生成 Storyboard 表格"
-            : cardRefs.length > 0
-              ? `${cardRefs.length} 张故事卡正在同步`
-              : "等待整理成故事卡");
   const inputPlaceholder =
     interactionMode === "publishing"
       ? "先把真实想法说出来，聊聊会一次只追问一个关键点…"
@@ -1342,9 +1329,6 @@ export default function StoryAgentChat({
                   </button>
                 </div>
               )}
-              <p className="mt-0.5 truncate text-[10.5px] leading-relaxed text-muted-foreground">
-                {storyDisplaySubtitle}
-              </p>
             </div>
           </div>
           {activeSelection ? (
@@ -1364,7 +1348,7 @@ export default function StoryAgentChat({
 
       <div
         ref={scrollRef}
-        className="monitor-panel-body flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
+        className="monitor-panel-body story-chat-scroll-surface flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
       >
         <AnimatePresence initial={false}>
           {messages.map(m => (
@@ -1841,18 +1825,6 @@ export default function StoryAgentChat({
           </motion.div>
         )}
 
-        {interactionMode === "story" && creationEditor?.activeStoryId ? (
-          <ChatPhotoAssets
-            key={creationEditor.activeStoryId}
-            storyId={creationEditor.activeStoryId}
-            materialState={creationEditor.materialState}
-            request={
-              photoAssetRequest?.storyId === creationEditor.activeStoryId
-                ? photoAssetRequest
-                : null
-            }
-          />
-        ) : null}
         {isReplying && (
           <motion.div
             initial={{ opacity: 0 }}
