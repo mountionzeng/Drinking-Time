@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T12:14:41.659Z",
+  "updatedAt": "2026-09-17T00:00:00.000Z",
   "features": [
     {
       "id": "story-ownership",
@@ -3077,6 +3077,7 @@
         "server/services/accountSecurity.ts",
         "server/services/computeBilling.ts",
         "server/services/computeLedger.ts",
+        "server/services/computeAccessPolicy.ts",
         "server/services/computeStatement.ts",
         "server/services/computeReconciliation.ts",
         "shared/computeStatement.ts",
@@ -3087,6 +3088,9 @@
         "drizzle/migrations/0016_account_gift_credit.sql",
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "server/routers/computeAccount.ts",
+        "client/src/features/computeAccount/useComputeBalance.ts",
+        "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
         "client/src/features/nayin/views/DailyDrinkHero.tsx",
         "client/src/assets/fonts/honglei-zhuoshu-brand.ttf",
         "server/services/supabaseGoogleAuth.ts",
@@ -3127,6 +3131,8 @@
         "邮箱账号与微信账号保持独立；微信端故事通过一次性短码在电脑进入同一微信 userId，不合并到已有邮箱账号，也不复制故事或余额。",
         "赠送卡只负责开通和增加算力，不再作为长期登录凭据；首张卡提供一次 ¥30，旧账号迁移和旧邀请码转换不得重复赠送。",
         "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
+        "本机不限额只能由服务端 NODE_ENV=development 决定；客户端参数、普通用户身份和管理员身份均不能开启线上免额。",
+        "本机不限额仍须记录已接入账本调用的实际成本，并向本机界面展示累计成本；生产环境仍使用余额闸门。",
         "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
         "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。"
@@ -3145,6 +3151,11 @@
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。"
       ],
       "history": [
+        {
+          "date": "2026-09-17",
+          "kind": "fix",
+          "summary": "本机 development 环境改为显式服务端开关的不限额：预占可临时穿透余额，但继续走 hold、provider attempt 与结算链路，因此已接入账本的真实供应商成本仍累计显示在顶栏；不写入任何可带到线上使用的赠送余额，生产、预览与测试环境继续执行余额闸门，客户端不能请求绕过。定向账本/路由/策略测试（28 项）及 TypeScript 检查通过；全站尚未接入账本的供应商路径仍按 knownGaps 保留。"
+        },
         {
           "date": "2026-09-02",
           "kind": "decision",

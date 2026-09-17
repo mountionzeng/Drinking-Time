@@ -9952,6 +9952,8 @@ export type ReserveComputeCreditInput = {
   amountMinor: number;
   storyId?: number | null;
   quoteExpiresAt?: Date | null;
+  /** 只供本机 development 的服务端策略使用，绝不来自客户端。 */
+  allowNegativeBalance?: boolean;
 };
 
 export type ReserveComputeCreditResult =
@@ -9995,7 +9997,7 @@ export async function reserveComputeCredit(
       const account = memoryCreditAccountRow(input.userId);
       const availableMinor =
         Number(account.balanceMinor) - Number(account.reservedMinor);
-      if (availableMinor < input.amountMinor) {
+      if (!input.allowNegativeBalance && availableMinor < input.amountMinor) {
         return {
           kind: "insufficient" as const,
           availableMinor,
@@ -10065,7 +10067,7 @@ export async function reserveComputeCredit(
 
     const availableMinor =
       Number(account?.balanceMinor ?? 0) - Number(account?.reservedMinor ?? 0);
-    if (availableMinor < input.amountMinor) {
+    if (!input.allowNegativeBalance && availableMinor < input.amountMinor) {
       return {
         kind: "insufficient" as const,
         availableMinor,

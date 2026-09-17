@@ -16,6 +16,9 @@ export type ComputeBalanceView = {
   text: string | null;
   /** 生成中被占住的钱，没有占用时为 null。 */
   reservedText: string | null;
+  /** 本机开发模式下，不拦余额，但仍显示本机实际累计供应商成本。 */
+  localUnlimited: boolean;
+  localCostText: string | null;
   /**
    * 这个账户从来没入过账、也没花过钱——计费还没对它生效。
    *
@@ -38,6 +41,7 @@ export type ComputeBalanceAmounts = {
   reservedMinor: number;
   availableMinor: number;
   lifetimeSpentMinor: number;
+  billingMode?: "metered" | "local_unlimited";
 };
 
 /**
@@ -62,9 +66,13 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
   const query = trpc.computeAccount.balance.useQuery(undefined, {
     enabled,
     retry: false,
-    // 生成一次就会动一次，但没必要盯着轮询；切回窗口时刷新足够。
+    // 线上余额按切回窗口刷新；本机成本仪表在下面单独短轮询。
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    // 本机不限额时，累计成本是正在看的运行中仪表；短轮询让结算完成后
+    // 不必切换窗口也能更新。线上余额仍沿用原有的按需刷新，避免无意义轮询。
+    refetchInterval: query =>
+      query.state.data?.billingMode === "local_unlimited" ? 5_000 : false,
   });
 
   const data = query.data ?? null;
@@ -75,6 +83,11 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
     reservedText:
       data && data.reservedMinor > 0
         ? formatCnyBalance(data.reservedMinor)
+        : null,
+    localUnlimited: data?.billingMode === "local_unlimited",
+    localCostText:
+      data?.billingMode === "local_unlimited"
+        ? formatCnyBalance(data.lifetimeSpentMinor)
         : null,
     ...(data
       ? classifyComputeBalance(data)

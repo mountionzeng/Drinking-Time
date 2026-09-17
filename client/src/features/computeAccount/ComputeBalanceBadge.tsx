@@ -81,7 +81,11 @@ function ComputeBalanceBadgeInner({
   return (
     <span
       className={cn("inline-flex flex-col gap-0.5", className)}
-      aria-label={`可用余额 ${balance.text}`}
+      aria-label={
+        balance.localUnlimited
+          ? `本机开发不限额，累计成本 ${balance.localCostText}`
+          : `可用余额 ${balance.text}`
+      }
     >
       <span
         className={cn(
@@ -98,12 +102,18 @@ function ComputeBalanceBadgeInner({
           className="compute-balance-wallet size-3.5 shrink-0"
         />
         <span className="compute-balance-mark" aria-hidden="true">
-          算力
+          {balance.localUnlimited ? "本机" : "算力"}
         </span>
-        <span className="compute-balance-value">{balance.text}</span>
+        <span className="compute-balance-value">
+          {balance.localUnlimited ? "不限额" : balance.text}
+        </span>
       </span>
 
-      {balance.negative ? (
+      {balance.localUnlimited ? (
+        <span className="text-[10px] leading-4 text-muted-foreground">
+          本机累计成本 {balance.localCostText}（仅已接入账本的调用）
+        </span>
+      ) : balance.negative ? (
         <span className="text-[10px] leading-4 text-destructive">
           账目对不上，请联系我们，先别继续生成
         </span>

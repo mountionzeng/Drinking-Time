@@ -403,7 +403,10 @@ async function startServer() {
 
   const port = await findAvailablePort(preferredPort);
 
-  server.listen(port, () => {
+  // A development server may opt into locally unlimited compute. It must stay
+  // on loopback: development auth/origin behavior is intentionally relaxed.
+  const host = process.env.NODE_ENV === "development" ? "127.0.0.1" : undefined;
+  server.listen(port, host, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
 

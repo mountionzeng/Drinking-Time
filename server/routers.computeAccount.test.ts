@@ -51,6 +51,26 @@ describe("computeAccount statement", () => {
     expect(JSON.stringify(statement)).not.toContain("userId");
   });
 
+  it("只在本机 development 标记为不限额，生产响应仍是余额计费", async () => {
+    const owner = await user("local-billing-mode");
+    const originalEnvironment = process.env.NODE_ENV;
+    const originalUnlimited = process.env.LOCAL_COMPUTE_UNLIMITED;
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.LOCAL_COMPUTE_UNLIMITED = "true";
+      await expect(appRouter.createCaller(context(owner)).computeAccount.balance())
+        .resolves.toMatchObject({ billingMode: "local_unlimited" });
+      process.env.NODE_ENV = "production";
+      await expect(appRouter.createCaller(context(owner)).computeAccount.balance())
+        .resolves.toMatchObject({ billingMode: "metered" });
+    } finally {
+      if (originalEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalEnvironment;
+      if (originalUnlimited === undefined) delete process.env.LOCAL_COMPUTE_UNLIMITED;
+      else process.env.LOCAL_COMPUTE_UNLIMITED = originalUnlimited;
+    }
+  });
+
   it("rejects anonymous callers and invalid history windows", async () => {
     const owner = await user("statement-validation-owner");
     await expect(
