@@ -87,6 +87,11 @@ export async function reserveForOperation(
     operationId: input.operationId,
     requestHash: input.requestHash,
     maxCostMinor: input.maxCostMinor,
+    // Development is the only environment that may bypass the prepaid gate.
+    // The actual atomic reserve below carries that server-only flag. We still
+    // create the ordinary operation/hold/attempt trail and settle its actual
+    // cost; unlike a temporary credit, this cannot turn into usable balance
+    // if the same account is later opened in a metered environment.
     availableMinor: localUnlimited
       ? Number.MAX_SAFE_INTEGER
       : (await getCreditAccountSummary(input.userId)).availableMinor,

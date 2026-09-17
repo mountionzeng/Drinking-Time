@@ -51,6 +51,60 @@ describe("computeLedger", () => {
     resetMemoryStateForTesting();
   });
 
+  it("本机开发不因余额拦截，但仍按实际成本记入不可变账本", async () => {
+    const originalEnvironment = process.env.NODE_ENV;
+    const originalUnlimited = process.env.LOCAL_COMPUTE_UNLIMITED;
+    process.env.NODE_ENV = "development";
+    process.env.LOCAL_COMPUTE_UNLIMITED = "true";
+    try {
+      const userId = await makeUser("local-unlimited-user");
+      expect(
+        await reserveForOperation({ userId, ...textOperation("local-op", 2) })
+      ).toMatchObject({ outcome: "reserved" });
+      await settleOperation({
+        operationId: "local-op",
+        outcome: { kind: "succeeded", verifiedCostMinor: fromYuan(0.25) },
+      });
+      expect(await getAccountBalance(userId)).toMatchObject({
+        // 本机免额不是一笔可带到线上使用的赠送余额；本机累计成本仍以
+        // 同一不可变消费账本结算，切回计量环境时该账户照常不能预占。
+        balanceMinor: -fromYuan(0.25),
+        lifetimeSpentMinor: fromYuan(0.25),
+        reservedMinor: 0,
+      });
+    } finally {
+      if (originalEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalEnvironment;
+      if (originalUnlimited === undefined) delete process.env.LOCAL_COMPUTE_UNLIMITED;
+      else process.env.LOCAL_COMPUTE_UNLIMITED = originalUnlimited;
+    }
+  });
+
+  it("本机同一操作并发重放不会留下免费余额", async () => {
+    const originalEnvironment = process.env.NODE_ENV;
+    const originalUnlimited = process.env.LOCAL_COMPUTE_UNLIMITED;
+    process.env.NODE_ENV = "development";
+    process.env.LOCAL_COMPUTE_UNLIMITED = "true";
+    try {
+      const userId = await makeUser("local-idempotent-user");
+      const input = { userId, ...textOperation("local-race", 2) };
+      const [first, second] = await Promise.all([
+        reserveForOperation(input),
+        reserveForOperation(input),
+      ]);
+      expect([first.outcome, second.outcome].sort()).toEqual([
+        "replayed",
+        "reserved",
+      ]);
+      expect((await getAccountBalance(userId)).reservedMinor).toBe(fromYuan(2));
+    } finally {
+      if (originalEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalEnvironment;
+      if (originalUnlimited === undefined) delete process.env.LOCAL_COMPUTE_UNLIMITED;
+      else process.env.LOCAL_COMPUTE_UNLIMITED = originalUnlimited;
+    }
+  });
+
   it("赠送走账本，余额和可用额度一致", async () => {
     const userId = await fundedUser("gift-user", 30);
 

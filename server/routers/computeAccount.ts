@@ -73,7 +73,8 @@ export const computeAccountRouter = router({
       availableMinor: summary.availableMinor,
       lifetimeSpentMinor: summary.lifetimeSpentMinor,
       accessEnabledAt: summary.accessEnabledAt,
-      // Presentation only; the client cannot select this mode.
+      // Presentation only. Authorization stays entirely on the server in
+      // reserveForOperation; clients cannot select this mode.
       billingMode: isLocalUnlimitedCompute()
         ? ("local_unlimited" as const)
         : ("metered" as const),
