@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -12,7 +12,12 @@ const require = createRequire(path.join(path.dirname(common), 'package.json'));
 const { build } = require('esbuild');
 mkdirSync(path.join(project, 'dist'), { recursive: true });
 const live = process.argv.includes('--live');
-await build({ entryPoints: [path.join(project, live ? 'src/liveGame.ts' : 'src/game.ts')], define: { __WECHAT_ENABLED__: String(process.argv.includes('--wechat')), 'process.env.NODE_ENV':'"production"' }, bundle: true, platform: 'browser', format: 'iife', target: 'es2019', outfile: path.join(project, 'dist/game.js') });
+const diagnose = process.argv.includes('--diagnose');
+if (diagnose && !live) throw new Error('--diagnose requires --live');
+await build({ entryPoints: [path.join(project, live ? 'src/liveGame.ts' : 'src/game.ts')], define: { __BOOT_DIAGNOSTIC__: String(diagnose), __WECHAT_ENABLED__: String(process.argv.includes('--wechat')), 'process.env.NODE_ENV':'"production"' }, bundle: true, platform: 'browser', format: 'iife', target: 'es2019', outfile: path.join(project, diagnose ? 'dist/app.js' : 'dist/game.js') });
+if (diagnose) copyFileSync(path.join(project, 'scripts/diagnostic-entry.js'), path.join(project, 'dist/game.js'));
+// A normal build must not upload the previous diagnostic business bundle.
+else rmSync(path.join(project, 'dist/app.js'), { force: true });
 copyFileSync(path.join(project, 'src/game.json'), path.join(project, 'dist/game.json'));
 copyFileSync(path.join(repo, 'docs/prototypes/liaohuier-miniapp/assets/char-metal.png'), path.join(project, 'dist/character.png'));
 if(live){

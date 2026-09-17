@@ -15,9 +15,16 @@ import {
 } from "../../client/src/features/nayin/nayin";
 declare const wx: any;
 declare const __WECHAT_ENABLED__: boolean;
+declare const __BOOT_DIAGNOSTIC__: boolean;
+declare const GameGlobal: { __dkBootMark?: (stage: string) => void };
+function bootMark(stage: string) {
+  if (__BOOT_DIAGNOSTIC__) GameGlobal.__dkBootMark?.(stage);
+}
 const API = "https://test.drinkingtime.top/api/minigame";
+bootMark('before-canvas');
 const canvas = wx.createCanvas(),
   ctx = canvas.getContext("2d");
+bootMark(ctx ? 'context-ready' : 'context-null');
 let width = 0,
   height = 0;
 let authState: LiveState = {
@@ -130,18 +137,21 @@ const workspace = createWorkspaceClient(
   }
 );
 function size() {
+  bootMark('reading-size');
   const info = wx.getSystemInfoSync();
   width = info.windowWidth;
   height = info.windowHeight;
   canvas.width = width * info.pixelRatio;
   canvas.height = height * info.pixelRatio;
   ctx.scale(info.pixelRatio, info.pixelRatio);
+  bootMark('sized-' + width + 'x' + height + '@' + info.pixelRatio);
   const capsule = wx.getMenuButtonBoundingClientRect?.();
   view.safeTop = Math.max(
     info.safeArea?.top ?? info.statusBarHeight ?? 24,
     capsule?.bottom ?? 64
   );
   view.safeBottom = Math.max(0, height - (info.safeArea?.bottom ?? height));
+  bootMark('safe-area-ready');
 }
 function theme() {
   const today = getTodayNayin();
@@ -149,7 +159,7 @@ function theme() {
   view.character = images[today.element] ?? null;
 }
 function draw() {
-  if (!width) return;
+  if (!width) { bootMark('zero-width'); return; }
   theme();
   const balance = accountWorkspace.getState().balance;
   view.balanceText = balance ? formatCny(balance.availableMinor) : "余额未读取";
@@ -182,6 +192,7 @@ function draw() {
   hits = [];
   ctx.fillStyle = "#faf7f1";
   ctx.fillRect(0, 0, width, height);
+  bootMark('login-background-painted');
   const top = view.safeTop + 40;
   const label = (
     text: string,
@@ -844,6 +855,7 @@ wx.onWindowResize?.(() => {
   draw();
 });
 size();
+bootMark('loading-font');
 try {
   view.font = wx.loadFont?.("brand.ttf") || "serif";
 } catch {}
@@ -855,4 +867,6 @@ for (const element of ["metal", "wood", "water", "fire", "earth"]) {
   };
   img.src = `character-${element}.png`;
 }
+bootMark('before-first-draw');
 draw();
+bootMark('first-draw-returned');

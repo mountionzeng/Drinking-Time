@@ -10,7 +10,7 @@ const document=()=>({storyId:41,storyRevision:1,versionId:'v1',platform:'xiaohon
 const wx={
   createCanvas:()=>({getContext:()=>ctx}),createImage:()=>({}),getSystemInfoSync:()=>({windowWidth:390,windowHeight:844,pixelRatio:2}),
   getStorageSync:k=>storage.get(k),setStorageSync:(k,v)=>storage.set(k,v),removeStorageSync:k=>storage.delete(k),showKeyboard(){},showToast(){},
-  showActionSheet:options=>options.success({tapIndex:0}),showModal:options=>options.success({confirm:true}),login:options=>options.success({code:'one-use-code'}),
+  showActionSheet:options=>options.success({tapIndex:0}),showModal:options=>options.success?.({confirm:true}),login:options=>options.success({code:'one-use-code'}),
   request(options){
     const path=new URL(options.url).pathname;calls.push({path,data:options.data});let data;
     if(path.endsWith('/login/email')){assert.equal(options.data.email,'old@example.com');assert.equal(options.data.password,'test-password');data={token:'test-game-token',expiresIn:3600};}
@@ -43,7 +43,9 @@ const wx={
   },
 };
 for(const event of ['KeyboardInput','KeyboardComplete','KeyboardHeightChange','TouchStart','TouchMove','TouchEnd','TouchCancel','Hide','Show','WindowResize'])wx['on'+event]=fn=>{handlers[event]=fn;};
-vm.runInNewContext(readFileSync(new URL('../dist/game.js',import.meta.url),'utf8'),{wx,console,Date,Map,Set,setTimeout,clearTimeout,queueMicrotask,TextEncoder,TextDecoder,AbortController,URL,URLSearchParams,Intl:process.argv.includes('--without-intl')?undefined:Intl});
+const sandbox=vm.createContext({wx,GameGlobal:{},console,Date,Map,Set,setTimeout,clearTimeout,queueMicrotask,TextEncoder,TextDecoder,AbortController,URL,URLSearchParams,Intl:process.argv.includes('--without-intl')?undefined:Intl});
+sandbox.require=path=>{assert.equal(path,'./app.js');return vm.runInContext(readFileSync(new URL('../dist/app.js',import.meta.url),'utf8'),sandbox);};
+vm.runInContext(readFileSync(new URL('../dist/game.js',import.meta.url),'utf8'),sandbox);
 assert.ok(labels.some(x=>x.value=== (process.argv.includes('--wechat') ? '微信登录' : '邮箱登录')),'login screen must paint before any network request');
 assert.equal(calls.length,0,'first paint must not depend on the server');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
