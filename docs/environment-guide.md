@@ -13,6 +13,11 @@
 
 开发数据位于 `.webdev/local-persist.json`，路径随服务的 `process.cwd()` 变化。提示词谱系和编辑快照也有各自的本地文件。不同 worktree 启动服务会得到互不相通的副本；手机和电脑访问不同副本同样不能互通。
 
+2026-09-17 数据层按业务拆入 `server/repositories/`，`server/db.ts` 仅保留兼容导出。
+连接、本地文件路径、共享状态、备份及测试防误写的权威实现现为
+`server/repositories/runtime.ts`；数据位置和格式不变。模块分工见
+[数据持久化模块](../server/repositories/README.md)。
+
 因此：
 
 - 本地 JSON 只服务于单机开发和恢复；
@@ -91,7 +96,7 @@ npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
 
 | 日期       | 事故                             | 现有保护                                       |
 | ---------- | -------------------------------- | ---------------------------------------------- |
-| 2026-06-01 | 测试覆盖真实本地数据             | `server/db.ts` 测试防误写与 `.webdev/backups/` |
+| 2026-06-01 | 测试覆盖真实本地数据             | `server/repositories/runtime.ts` 测试防误写与 `.webdev/backups/` |
 | 2026-06-12 | 6 个 worktree 各自产生数据并冲突 | 主仓单服务、`env:status`、`env:check`          |
 | 2026-08-14 | 旧 predev 依赖宽泛进程名         | 二次身份核验后才终止精确进程组                 |
 

@@ -341,24 +341,13 @@ describe("architecture boundaries", () => {
     "server/_core/sdk.ts",
     "server/archive/storyAgent.prompts.ts",
     "server/archive/storyReply.ts",
-    // Story/Timeline 视觉聚合的唯一持久化 owner：归属校验、素材引用授权与
-    // Story+Timeline CAS。到期条件是这些能力下沉到独立 repository package，
-    // 届时整体迁移本条，不得重新散回 editing services。
-    "server/persistence/storyVisualPersistence.ts",
-    // 拾光家忆不可变故事快照的唯一持久化 owner：幂等查询与新故事创建。
-    // 到期条件是这两条能力物理迁出 db.ts；不得散回桥接路由或导入服务。
-    "server/persistence/shiguangStoryImportPersistence.ts",
-    // 声音方案、声音操作与本人音色的唯一持久化 owner。到期条件是对应
-    // records 物理迁出 db.ts；不得散回声音导演、上下文或音色服务。
-    "server/persistence/storySoundPersistence.ts",
+    // Story visual / imported snapshots / sound-plan seams now depend on
+    // repositories directly. Their former db.ts exemptions are retired.
     // U2：受管音频资产与 staged import 的领域 persistence。到期条件是这两条
     // 能力下沉到独立 repository package（与 storyVisualPersistence 一并迁出），
     // 届时整体迁移本组，不得散回各 editing/import 调用点。
     "server/services/storyAudioAssets.ts",
     "server/services/storyAudioImport.ts",
-    // 抽帧 durable receipt 状态机的持久化 owner。到期条件是 receipt SQL/本地
-    // 状态物理迁出 db.ts；迁移只能收窄这一条，不能让 workflow 直接 import db。
-    "server/persistence/timelineFrameExtractionPersistence.ts",
     "server/routers/_projectAccess.ts",
     "server/routers/_storyShared.ts",
     "server/routers/creationAgent.ts",
@@ -651,12 +640,12 @@ describe("architecture boundaries", () => {
   });
 
   // U1: the persisted-timeline encode is the one place a stored envelope is
-  // built. Only server/db.ts's thin wiring may call it; a service that reaches
+  // built. Only the repository's timeline wiring may call it; a service that reaches
   // for it is hand-writing a save object and can silently drop a subtitle or
   // audio slice — exactly what the single codec exists to prevent. Decode is
   // safe to reuse widely (it never drops anything), so it is not restricted.
   const storedTimelineEncodeImporterAllowlist = new Set([
-    "server/db.ts",
+    "server/repositories/timelineCodec.ts",
     "server/persistence/storyTimelinePersistence.ts",
   ]);
 
@@ -775,7 +764,7 @@ describe("architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps the persisted-timeline encode behind server/db.ts wiring", async () => {
+  it("keeps the persisted-timeline encode behind repository wiring", async () => {
     const [sharedSources, serverSources, clientSources] = await Promise.all([
       sharedSourcesPromise,
       serverSourcesPromise,

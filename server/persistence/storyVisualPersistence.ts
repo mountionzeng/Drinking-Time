@@ -10,15 +10,17 @@ import type {
   StoryTimelineVisualLayerState,
 } from "../../shared/storyMaterial";
 import type { VisualEditDocument } from "../../shared/visualClipModel";
+import { getGeneratedImageById } from "../repositories/images";
+import { getStoryById } from "../repositories/stories";
 import {
-  getGeneratedImageById,
-  getStoryById,
   getStoryTimeline,
-  getStoryVideoTakes,
-  getVideoTakeRangeById,
   updateStoryAndTimelineAtomic,
   updateStoryTimeline,
-} from "../db";
+} from "../repositories/timelines";
+import {
+  getStoryVideoTakes,
+  getVideoTakeRangeById,
+} from "../repositories/videos";
 
 export type StoryVisualTimelineRecord = StoryTimeline & {
   overlays?: unknown;
@@ -195,7 +197,7 @@ export async function saveStoryTimelineExtensionCas(input: {
   currentItems: unknown;
   /**
    * Supplied only when the media command is creating a missing Timeline from
-   * the Story projection. Existing rows inherit these fields in `db.ts`.
+   * the Story projection. Existing rows inherit these fields in the timeline repository.
    */
   currentOverlays?: unknown;
   currentVisualLayerState?: unknown;

@@ -6,15 +6,17 @@ import type {
 import {
   claimTimelineFrameExtractionOperation,
   failTimelineFrameExtractionOperation,
-  getGeneratedImageById,
-  getGeneratedImageByStoryAndImageKey,
   getTimelineFrameExtractionOperation,
   markTimelineFrameExtractionSucceeded,
   recordTimelineFrameExtractionDescriptor,
   releaseTimelineFrameExtractionClaim,
   renewTimelineFrameExtractionClaim,
   settleTimelineFrameExtractionAsset,
-} from "../db";
+} from "../repositories/frameExtractions";
+import {
+  getGeneratedImageById,
+  getGeneratedImageByStoryAndImageKey,
+} from "../repositories/images";
 export { TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR } from "./timelineFrameExtractionErrors";
 
 export type TimelineFrameExtractionOwner = {

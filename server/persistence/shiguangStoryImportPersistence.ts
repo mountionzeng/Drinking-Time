@@ -1,5 +1,8 @@
 import type { InsertStory, Story } from "../../drizzle/schema";
-import { createStory, findShiguangImportedStory } from "../db";
+import {
+  createStory,
+  findShiguangImportedStory,
+} from "../repositories/stories";
 
 /** Persistence boundary for immutable story snapshots imported from 拾光家忆. */
 export async function findImportedShiguangStory(input: {

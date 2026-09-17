@@ -6,7 +6,8 @@
  * 捕获入口、U7 的足迹查询和集成测试 worker 都从这里取，而不是各自去戳 db.ts。
  *
  * 这里只做转发，不加语义——语义在 shared/personalMemory.ts，事务与幂等在
- * db.ts。任何新的业务判断都应该落进上面两处之一，不要在这层长出第三套规则。
+ * repositories/memoryEvents、memoryLetters、memoryInsights；本入口暂经 db.ts
+ * 兼容导出访问它们。不要在这里再长出一套业务规则。
  */
 export {
   appendEmotionDailyLetterVersion,

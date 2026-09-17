@@ -10,14 +10,20 @@ const mocks = vi.hoisted(() => ({
   saveTimeline: vi.fn(),
 }));
 
-vi.mock("../db", () => ({
+vi.mock("../repositories/images", () => ({
   getGeneratedImageById: mocks.getImage,
+}));
+vi.mock("../repositories/stories", () => ({
   getStoryById: mocks.getStory,
+}));
+vi.mock("../repositories/timelines", () => ({
   getStoryTimeline: mocks.getTimeline,
-  getStoryVideoTakes: mocks.getTakes,
-  getVideoTakeRangeById: mocks.getRange,
   updateStoryAndTimelineAtomic: mocks.saveAggregate,
   updateStoryTimeline: mocks.saveTimeline,
+}));
+vi.mock("../repositories/videos", () => ({
+  getStoryVideoTakes: mocks.getTakes,
+  getVideoTakeRangeById: mocks.getRange,
 }));
 
 import { loadOwnedStory } from "./storyVisualPersistence";

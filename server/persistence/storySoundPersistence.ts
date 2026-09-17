@@ -3,20 +3,20 @@
  *
  * Domain services import durable operations from this module instead of
  * reaching into the repository-wide db module independently. Keeping one
- * owner preserves the architecture ratchet while the underlying records are
- * still implemented in server/db.ts.
+ * owner preserves the architecture ratchet; durable records live in the
+ * sound-plan repository and share the same runtime as Story and Timeline.
  */
 export {
   compareAndSaveStorySoundWorkspaceRecord,
   getOrCreateStorySoundPlanVersionRecord,
   getOrCreateStorySoundRowOperationRecord,
   getOrCreateStoryVoiceActivationOperationRecord,
-  getStoryById,
   getStorySoundPlanVersionRecord,
   getStorySoundWorkspaceRecord,
-  getStoryTimeline,
   getStoryVoiceProfileRecord,
   listStorySoundPlanVersionRecords,
   listStorySoundRowOperationRecords,
   upsertStoryVoiceProfileRecord,
-} from "../db";
+} from "../repositories/soundPlans";
+export { getStoryById } from "../repositories/stories";
+export { getStoryTimeline } from "../repositories/timelines";

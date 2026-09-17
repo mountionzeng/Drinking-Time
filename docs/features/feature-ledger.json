@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-17T21:20:00+08:00",
+  "updatedAt": "2026-09-17T23:15:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -12,7 +12,10 @@
         "server/routers/creationAgent.ts"
       ],
       "owners": [
-        "server/db.ts",
+        "server/repositories/stories.ts",
+        "server/repositories/storyLifecycle.ts",
+        "server/repositories/shots.ts",
+        "server/repositories/runtime.ts",
         "server/services/storySync.ts",
         "server/services/storyMaterials.ts",
         "client/src/features/storyAgent/selectionStoryScope.ts"
@@ -24,7 +27,9 @@
         "server/db.storyRevision.test.ts",
         "server/db.localPersistenceFailure.test.ts",
         "client/src/architecture-boundaries.test.ts",
-        "client/src/features/storyAgent/selectionStoryScope.test.ts"
+        "client/src/features/storyAgent/selectionStoryScope.test.ts",
+        "server/repositories/boundaries.test.ts",
+        "server/repositories/sharedRuntime.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -102,6 +107,11 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "修复聊天选区跨故事串台：clearCurrentStory 逐个清了 22 个字段却漏了 activeSelection，而 loadStory 压根不走 clearCurrentStory，于是从故事 A 切到 B 后 A 的选区仍挂在输入框上，下方还提示「下一条消息会带着这个选区交给聊聊」。现在切换时真正清除，并在聊天切片选择器和 sendSelectionEdit 两处按 storyId 兜底。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories、storyLifecycle、shots、runtime；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。424 个顶层声明的运行时代码与拆分前一致，263 个旧导出完整保留。全仓 4619 项、小程序 215 项、TypeScript、构建、迁移基线、功能账本及环境门禁通过；主仓 3000 的 editing/healthz/readyz 均返回 200。57 项测试按既有条件跳过，未配置独立 MySQL 测试库，未宣称真实 MySQL 验收完成。"
         }
       ]
     },
@@ -198,7 +208,8 @@
         "server/routers/index.ts",
         "server/routers/storyAgent.ts",
         "server/routers/creationAgent.ts",
-        "server/db.ts"
+        "server/repositories/projects.ts",
+        "server/repositories/references.ts"
       ],
       "evidence": [
         "server/routers.projectOwnership.test.ts",
@@ -220,6 +231,11 @@
           "date": "2026-08-15",
           "kind": "fix",
           "summary": "补齐项目级水平越权防护。projects 表有 userId，但 protectedProcedure 只验登录不验归属。第一批修了 6 个以 projectId 为访问键的 procedure：reference.list/upload、analysis.get/run、editContext.saveSnapshot/getRecentAnnotations——任何登录用户传别人的 projectId 就能读到其素材、分析、批注，或往其项目里写引用和快照。深度安全审查随后证明第一版并不完整：storyAgent.chat/mobileChat 把 projectId 传进 getRecentAnnotations、creationAgent.chat/generateNextImage/inpaint 传进 renderGate 的编辑偏好与聊天修正查询，这些底层读取只按 projectId 过滤——同一批数据经兄弟接口仍可跨账号读出，并进入攻击者的模型上下文/出图提示词。审查方用可复现探针实证了这条路径。已补齐这 5 个（外加 reassignImage 显式补一道），统一走 _projectAccess.ts 的 assertProjectOwner/assertOptionalProjectOwner。更严重的是第一版静态守卫的豁免名单把这 5 个错误地认证为「projectId 仅作标签」——一个把漏洞写成安全的守卫比没有守卫更糟，已删除并只保留 4 条经逐条追踪确认的豁免。测试：11 条拒绝/正向路径 + 3 条静态边界断言，全部用「去掉守卫必须失败」验证过；守卫改为 fail-closed，publicProcedure 收 projectId 一律违规、不可豁免，且要求校验调用真的带上 ctx.user.id（不再接受字符串出现即通过）。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/projects、references；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -438,13 +454,15 @@
         "scripts/dev-preflight.ts",
         "server/_core/devServerPreflight.ts",
         "server/_core/portPolicy.ts",
-        "server/db.ts"
+        "server/repositories/runtime.ts"
       ],
       "evidence": [
         "scripts/env-status.test.ts",
         "scripts/dev-preflight.test.ts",
         "server/_core/portPolicy.test.ts",
-        "command:pnpm env:check"
+        "command:pnpm env:check",
+        "server/repositories/boundaries.test.ts",
+        "server/repositories/sharedRuntime.test.ts"
       ],
       "invariants": [
         "只有主仓库可运行端口 3000。",
@@ -485,6 +503,11 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "环境规则测试与真实 env:check 通过：主仓仅有端口 3000 服务，其他 worktree 不含业务持久化文件。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/runtime；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -849,7 +872,7 @@
       ],
       "owners": [
         "shared/storyTitle.ts",
-        "server/db.ts",
+        "server/repositories/stories.ts",
         "server/routers/storyAgent.ts"
       ],
       "evidence": [
@@ -884,6 +907,11 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "自动标题、手动改名、占位标题条件更新和迟到响应隔离通过全量测试。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -1897,7 +1925,9 @@
         "server/routers/creationAgent.ts",
         "server/services/storySync.ts",
         "server/services/videoExport.ts",
-        "server/db.ts",
+        "server/repositories/timelines.ts",
+        "server/repositories/timelineCodec.ts",
+        "server/repositories/frameExtractions.ts",
         "shared/timelineViewport.ts",
         "client/src/features/creationEditor/storyboardEditRow.ts",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.ts",
@@ -2205,6 +2235,11 @@
           "date": "2026-08-24",
           "kind": "decision",
           "summary": "删除底部时间线（MultiTrackTimeline，1282 行），只保留上方 Storyboard。两者是同一份数据的两个可编辑投影，标尺、缩放和图层操作各做了一遍；用户决定只留 Storyboard，标尺与缩放已先搬过去。删除前把两样只住在它里面的东西搬走：播放时钟提到父层（否则播放键会哑），音频播放独立成文件由父层渲染（否则播放没有声音——故事版没有自己的音频播放，这条是第一版取舍清单漏掉的）。第 9 条不变量「其他视图只是投影」由此从约定变成结构事实：现在只剩一个可编辑表面。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/timelines、timelineCodec、frameExtractions；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -2942,7 +2977,8 @@
         "server/services/previewMaskedImageEditing.ts",
         "server/services/visualClipEditing.ts",
         "server/routers/creationAgent.ts",
-        "server/db.ts",
+        "server/repositories/maskedImageOperations.ts",
+        "server/repositories/images.ts",
         "drizzle/schema.ts",
         "drizzle/migrations/0014_preview_masked_image_operations.sql"
       ],
@@ -3063,6 +3099,11 @@
           "date": "2026-08-28",
           "kind": "verification",
           "summary": "Preview 拆分收敛后再次在主仓库 localhost:3000 验收：区域修改入口稳定，无 FAL_KEY 时画面点击仍失败关闭且不闪退，历史 source #1742 的 succeeded 候选 #1768 可跨刷新恢复但未采用；连续播放 8 秒跨 take-1288 与 take-1603 时 Preview 始终只有一个 video 节点，本轮操作时间窗 console 新增 error/warn 为 0。相关定向测试 17 文件 189 项通过，TypeScript 与架构边界通过；全仓仅沙箱禁止临时 listen 的两组环境测试无法执行。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/maskedImageOperations、images；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -3078,7 +3119,8 @@
       ],
       "owners": [
         "client/src/pages/AdminInvitesPage.tsx",
-        "server/db.ts"
+        "server/repositories/accessAnalytics.ts",
+        "server/repositories/invites.ts"
       ],
       "evidence": [
         "client/src/pages/AdminInvitesPage.test.tsx",
@@ -3103,6 +3145,11 @@
           "date": "2026-08-27",
           "kind": "feature",
           "summary": "新增只限管理员的 /admin/invites 页面与 accessAnalytics.invites 查询：按待领取、已领取、已过期统计和筛选邀请，展示标签/邮箱、关联用户、创建、领取和过期时间。数据接口明确排除 codeHash，普通用户调用返回 FORBIDDEN。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/accessAnalytics、invites；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -3134,7 +3181,9 @@
         "shared/computeStatement.ts",
         "minigame/src/accountWorkspace.ts",
         "minigame/src/accountView.ts",
-        "server/db.ts",
+        "server/repositories/accounts.ts",
+        "server/repositories/computeLedger.ts",
+        "server/repositories/users.ts",
         "drizzle/schema.ts",
         "drizzle/migrations/0016_account_gift_credit.sql",
         "client/src/pages/LoginPage.tsx",
@@ -3271,6 +3320,11 @@
           "date": "2026-09-14",
           "kind": "fix",
           "summary": "从旧工作树只移植仍必要的 Google 身份安全语义到最新 main：保留 Supabase 托管授权，直连兼容路径补一次性 state 和已验证邮箱校验；两条路径都把稳定 Google subject 绑定到统一邮箱账号，冲突停止人工处理，会话沿用 30 天可撤销版本。新增正式登记的 0021 迁移扩展 identity provider，未合入会回退拾光桥接的旧 OAuth 文件。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/accounts、computeLedger、users；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -3619,7 +3673,11 @@
         "server/routers/personalMemory.ts",
         "server/services/personalMemoryTimeline.ts",
         "client/src/pages/PersonalMemoryPage.tsx",
-        "server/db.ts",
+        "server/repositories/memoryEvents.ts",
+        "server/repositories/memoryLetters.ts",
+        "server/repositories/memoryInsights.ts",
+        "server/repositories/memoryRows.ts",
+        "server/repositories/emotionLetters.ts",
         "server/services/emotionDailyLetters.ts",
         "shared/personalMemory.ts",
         "drizzle/schema.ts",
@@ -3768,6 +3826,11 @@
           "date": "2026-09-14",
           "kind": "fix",
           "summary": "每日来信 attempt 增加每轮随机 claimToken；重启、提交和失败都校验执行所有权，陈旧执行不能覆盖新重试。并发重启 CAS 同时匹配旧 token，只有一个请求能取得新 claim，避免重复模型调用；0020 迁移已通过 Drizzle journal 和 snapshot 正式登记。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/memoryEvents、memoryLetters、memoryInsights、memoryRows、emotionLetters；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。删除未被页面调用的 PersonalMemoryTimeline 旧组件及过期测试 mock，当前 PersonalMemoryDay 入口保留。"
         }
       ]
     },
@@ -3786,7 +3849,8 @@
         "server/services/accountIdentity.ts",
         "server/services/shiguangStoryImport.ts",
         "server/persistence/shiguangStoryImportPersistence.ts",
-        "server/db.ts",
+        "server/repositories/accounts.ts",
+        "server/repositories/stories.ts",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
         "git:shiguang-jiayi-hackathon:cloudfunctions/drinkingTimeBridge",
         "git:shiguang-jiayi-hackathon:miniprogram/pages/account-link"
@@ -3850,6 +3914,11 @@
           "date": "2026-09-15",
           "kind": "verification",
           "summary": "起草桥接口约定 1.0.0 草案（docs/integrations/shiguang-bridge-contract.md），与拾光家忆 d83f1ed 云函数逐条对照：签名串、规范化 JSON 与主体派生在公开测试向量上两端结果一致；进程内探针复现导入标记在电脑保存后丢失、未来时间戳可重放、超限与坏 JSON 返回 HTML 三处缺口，登记为约定提案 P1–P10 和待决定事项 D1；随后并入小程序端两轮核对意见。只写文档，未改代码，约定待用户确认。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/accounts、stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -3873,7 +3942,8 @@
         "server/routers/storySoundDirector.ts",
         "client/src/features/creationEditor/soundDirector/useStorySoundDirector.ts",
         "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.tsx",
-        "client/src/features/creationEditor/soundDirector/SoundPlanTable.tsx"
+        "client/src/features/creationEditor/soundDirector/SoundPlanTable.tsx",
+        "server/repositories/soundPlans.ts"
       ],
       "evidence": [
         "server/services/storySoundPlanStore.test.ts",
@@ -3955,6 +4025,11 @@
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "全分支收敛后将声音方案、证据读取、行级操作和本人音色的数据库访问集中到单一 storySoundPersistence 边界，声音领域三个服务不再各自直接依赖总数据库模块；同时补齐聊天意图测试对声音导演 Hook 的隔离。定向 69 项、全仓 4614 项、小程序 215 项、TypeScript、生产构建和环境门禁通过；主仓 /editing 无浏览器错误，未创建测试故事或触发付费生成。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/soundPlans；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。删除无调用的 listStorySoundRowOperations 转发函数；方案持久化入口直连声音仓库，不改变生成能力和费用边界。"
         }
       ]
     },
@@ -3985,7 +4060,7 @@
         "client/src/features/storyAgent/spine/storySpine.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
         "shared/publishingDraft.ts",
-        "server/db.ts"
+        "server/repositories/stories.ts"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
@@ -4072,6 +4147,11 @@
           "date": "2026-09-15",
           "kind": "feature",
           "summary": "拾光家忆的“当前故事”和“回到以前的故事”现在会显示每个故事已采用的正式封面；尚未采用但已经生成封面候选时，显示最新一轮的首张有效候选，子版本可继承祖先正式封面。封面生成或采用后列表立即更新，无需刷新；无封面的故事保持文字布局，纳音五行仍为原来的纯文字菜单。定向 103 项、TypeScript、功能账本、生产构建和 localhost:3000 双主题浏览器验收通过。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     },
@@ -4084,7 +4164,9 @@
         "server/_core/shiguangBridgeRoutes.ts"
       ],
       "owners": [
-        "server/db.ts",
+        "server/repositories/stories.ts",
+        "server/repositories/accounts.ts",
+        "server/repositories/users.ts",
         "server/_core/shiguangBridge.ts",
         "server/_core/shiguangBridgeRoutes.ts",
         "server/services/accountIdentity.ts",
@@ -4126,6 +4208,11 @@
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "合并两套拾光服务桥后，将电脑故事传入与邮箱关联／故事读取拆成独立限流入口和持久化 scope，保留各自阈值，避免同名实现互相覆盖；TypeScript 门禁恢复通过。"
+        },
+        {
+          "date": "2026-09-17",
+          "kind": "refactor",
+          "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories、accounts、users；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
         }
       ]
     }

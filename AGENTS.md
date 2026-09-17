@@ -11,10 +11,10 @@
 
 ## 为什么是铁律
 
-本地数据文件 `.webdev/local-persist.json` 的路径跟 `process.cwd()` 走（见 `server/db.ts`）：
+本地数据文件 `.webdev/local-persist.json` 的路径跟 `process.cwd()` 走（见 `server/repositories/runtime.ts`；`server/db.ts` 仅保留兼容导出）：
 **每个 worktree 里启动的服务读写的是自己目录下的那份数据**。多个 dev server 并行 = 数据分裂成多份互不相通的副本。
 
-这不是假设：2026-06-01 数据被测试覆盖（`server/db.ts` 注释有案底），2026-06-12 数据分裂成 6 份、靠内容去重+id 重编号才合回来（`scripts/merge-local-persist.ts`）。复原成本极高，别让它发生第三次。
+这不是假设：2026-06-01 数据被测试覆盖（`server/repositories/runtime.ts` 注释有案底），2026-06-12 数据分裂成 6 份、靠内容去重+id 重编号才合回来（`scripts/merge-local-persist.ts`）。复原成本极高，别让它发生第三次。
 
 ## 更多信息
 

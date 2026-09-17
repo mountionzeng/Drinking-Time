@@ -13,11 +13,13 @@ const mocks = vi.hoisted(() => ({
   settle: vi.fn(),
 }));
 
-vi.mock("../db", () => ({
-  claimTimelineFrameExtractionOperation: mocks.claim,
-  failTimelineFrameExtractionOperation: mocks.fail,
+vi.mock("../repositories/images", () => ({
   getGeneratedImageById: mocks.getImage,
   getGeneratedImageByStoryAndImageKey: mocks.getImageByKey,
+}));
+vi.mock("../repositories/frameExtractions", () => ({
+  claimTimelineFrameExtractionOperation: mocks.claim,
+  failTimelineFrameExtractionOperation: mocks.fail,
   getTimelineFrameExtractionOperation: mocks.getReceipt,
   markTimelineFrameExtractionSucceeded: mocks.complete,
   recordTimelineFrameExtractionDescriptor: mocks.record,

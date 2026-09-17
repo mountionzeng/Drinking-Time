@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGeneratedImage,
   createStory,
@@ -44,6 +44,9 @@ import {
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import { clearVisualEditUndoForTesting } from "./visualEditUndoJournal";
 import * as dbModule from "../db";
+import * as timelineRepository from "../repositories/timelines";
+
+afterEach(() => vi.restoreAllMocks());
 
 const USER_ID = 1;
 
@@ -759,7 +762,7 @@ describe("Story-scoped image paste and narrow delete", () => {
       operation,
     });
     expect(pasted.status).toBe("ok");
-    const update = vi.spyOn(dbModule, "updateStoryTimeline");
+    const update = vi.spyOn(timelineRepository, "updateStoryTimeline");
     const undone = await undoVisualEditForStory({
       storyId,
       userId: USER_ID,
@@ -1648,7 +1651,7 @@ describe("窄补丁命令（U6）", () => {
     const before = JSON.stringify(await getStoryTimeline(storyId, USER_ID));
     const version = await persistedVersion(storyId);
     const update = vi
-      .spyOn(dbModule, "updateStoryTimeline")
+      .spyOn(timelineRepository, "updateStoryTimeline")
       .mockImplementationOnce(async () => {
         await dbModule.updateStory(storyId, USER_ID, {
           body: { shots: [{ shotNo: 2, stableShotId: "sh-02" }] },
@@ -2146,7 +2149,7 @@ describe("撤销失败后不吞掉那一格（U5）", () => {
 
     // 让这一次撤销必定写失败：故事查得到、但写入时版本对不上。
     const failing = vi
-      .spyOn(dbModule, "updateStoryTimeline")
+      .spyOn(timelineRepository, "updateStoryTimeline")
       .mockRejectedValue(new Error("时间轴版本已更新"));
     const failed = await undoVisualEditForStory({ storyId, userId: USER_ID });
     expect(failed.status).toBe("error");
@@ -2172,7 +2175,7 @@ describe("撤销失败后不吞掉那一格（U5）", () => {
       (await getStoryTimeline(storyId, USER_ID))?.items
     );
     const conflict = vi
-      .spyOn(dbModule, "updateStoryTimeline")
+      .spyOn(timelineRepository, "updateStoryTimeline")
       .mockRejectedValueOnce(new Error("时间轴版本已更新"));
     const failed = await undoVisualEditForStory({ storyId, userId: USER_ID });
     expect(failed).toMatchObject({ status: "error", errorKind: "conflict" });

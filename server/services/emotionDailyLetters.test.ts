@@ -259,7 +259,7 @@ describe("来信正文只有一个写入口（U1 门禁）", () => {
     "ensureEmotionDailyLetter",
   ];
 
-  it("除 db.ts 自身外，没有生产代码直接调用日期级 writer", async () => {
+  it("除来信仓库和兼容导出外，没有生产代码直接调用日期级 writer", async () => {
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const run = promisify(execFile);
@@ -288,8 +288,12 @@ describe("来信正文只有一个写入口（U1 门禁）", () => {
       .filter(Boolean)
       .filter(line => {
         const file = line.split(":")[0];
-        // db.ts 是这些函数的定义处；本文件是这条门禁自身。
-        return file !== "server/db.ts" && !file.endsWith(".test.ts");
+        // 唯一定义迁至 emotionLetters；db.ts 仅保留兼容导出。
+        return (
+          file !== "server/db.ts" &&
+          file !== "server/repositories/emotionLetters.ts" &&
+          !file.endsWith(".test.ts")
+        );
       });
 
     expect(offenders).toEqual([]);
