@@ -15,6 +15,9 @@ describe("权威拾光故事绑定",()=>{
     expect(parseShiguangStoryAccessGrant(grant())).toEqual(grant());
     expect(parseShiguangStoryAccessGrant({...grant(),title:""})).toBeNull();
     expect(parseShiguangStoryAccessGrant({...grant(),clientDraft:{text:"伪造"}})).toBeNull();
+    expect(parseShiguangStoryAccessGrant({...grant(),revisionId:`revision-${"a".repeat(119)}`,version:2147483647})).not.toBeNull();
+    expect(parseShiguangStoryAccessGrant({...grant(),revisionId:`revision-${"a".repeat(120)}`})).toBeNull();
+    expect(parseShiguangStoryAccessGrant({...grant(),version:2147483648})).toBeNull();
   });
   it("同一账号和故事更新绑定而不创建第二份权威稿",async()=>{
     const store=memoryStore(),first=await bindShiguangStoryAccessWithStore(17,grant(),store);

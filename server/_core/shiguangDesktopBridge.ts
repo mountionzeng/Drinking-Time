@@ -78,9 +78,12 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       for (const [key, seenAt] of seenNonces) if (now - seenAt > 300_000) seenNonces.delete(key);
 
       const subject = req.body?.subject;
-      const story = req.body?.story===undefined?null:parseShiguangStorySnapshot(req.body.story);
-      const storyAccess = req.body?.storyAccess===undefined?null:parseShiguangStoryAccessGrant(req.body.storyAccess);
-      if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) || Boolean(story)===Boolean(storyAccess)) {
+      const hasStory = Object.prototype.hasOwnProperty.call(req.body ?? {}, "story");
+      const hasStoryAccess = Object.prototype.hasOwnProperty.call(req.body ?? {}, "storyAccess");
+      const story = hasStory ? parseShiguangStorySnapshot(req.body.story) : null;
+      const storyAccess = hasStoryAccess ? parseShiguangStoryAccessGrant(req.body.storyAccess) : null;
+      if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) || hasStory===hasStoryAccess ||
+        (hasStory && !story) || (hasStoryAccess && !storyAccess)) {
         return res.status(400).json({ error: "invalid_input" });
       }
       if (!await deps.allow(subject)) return res.status(429).json({ error: "rate_limited" });

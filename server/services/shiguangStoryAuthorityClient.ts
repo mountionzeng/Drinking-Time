@@ -20,10 +20,11 @@ export type ShiguangStoryMediaInput={revisionId:string;chapterId:string;photoId:
 export type ShiguangStoryMediaResult={photoId:string;url:string;expiresInSeconds:300};
 
 async function boundedText(response:Response,limit:number):Promise<string>{
-  const declared=Number(response.headers.get("content-length"));if(Number.isFinite(declared)&&declared>limit)throw new Error("story_authority_response_invalid");
+  const declared=Number(response.headers.get("content-length"));if(Number.isFinite(declared)&&declared>limit){try{await response.body?.cancel();}catch{}throw new Error("story_authority_response_invalid");}
   if(!response.body){const value=await response.text();if(Buffer.byteLength(value)>limit)throw new Error("story_authority_response_invalid");return value;}
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];let bytes=0;
   try{for(;;){const {done,value}=await reader.read();if(done)break;if(value){bytes+=value.byteLength;if(bytes>limit)throw new Error("story_authority_response_invalid");chunks.push(value);}}}
+  catch(error){try{await reader.cancel();}catch{}throw error;}
   finally{reader.releaseLock();}
   return Buffer.concat(chunks.map(chunk=>Buffer.from(chunk))).toString("utf8");
 }
@@ -32,7 +33,7 @@ function parseDocument(value:unknown):AuthoritativeStoryDocument|null{
   if(!value||typeof value!=="object"||Array.isArray(value))return null;const doc=value as Record<string,unknown>;
   if(!exact(doc,["familyId","storyId","revisionId","version","title","updatedAt","provenanceVersion","chapters"])||
     typeof doc.familyId!=="string"||!/^family_[0-9A-Za-z_-]{1,120}$/.test(doc.familyId)||typeof doc.storyId!=="string"||!/^story-[a-z0-9-]{1,100}$/.test(doc.storyId)||
-    typeof doc.revisionId!=="string"||!/^revision-[a-zA-Z0-9-]{1,120}$/.test(doc.revisionId)||!Number.isSafeInteger(doc.version)||(doc.version as number)<1||
+    typeof doc.revisionId!=="string"||!/^revision-[a-zA-Z0-9-]{1,119}$/.test(doc.revisionId)||!Number.isSafeInteger(doc.version)||(doc.version as number)<1||(doc.version as number)>2147483647||
     typeof doc.title!=="string"||!doc.title.trim()||doc.title.length>120||typeof doc.updatedAt!=="string"||doc.updatedAt.length>64||!Number.isFinite(Date.parse(doc.updatedAt))||doc.provenanceVersion!==1||
     !Array.isArray(doc.chapters)||doc.chapters.length>30)return null;
   let blocks=0;const chapterIds=new Set<string>(),blockIds=new Set<string>(),chapters=[] as AuthoritativeStoryDocument["chapters"];
@@ -66,7 +67,7 @@ async function authorityRequest(path:string,body:Record<string,unknown>,options:
   if(!/^\d{13}$/.test(timestamp)||!/^[0-9A-Za-z_-]{16,64}$/.test(nonce))throw new Error("story_authority_request_invalid");
   let response:Response;try{response=await (options.fetcher??fetch)(url,{method:"POST",headers:{"content-type":"application/json","x-shiguang-timestamp":timestamp,
     "x-shiguang-nonce":nonce,"x-shiguang-signature":bridgeSignature(secret,path,timestamp,nonce,body)},body:JSON.stringify(body),signal:AbortSignal.timeout(options.timeoutMs??12000)});}catch{throw new Error("story_authority_unavailable");}
-  if(!/^application\/json\b/i.test(response.headers.get("content-type")||""))throw new Error("story_authority_unavailable");
+  if(!/^application\/json\b/i.test(response.headers.get("content-type")||"")){try{await response.body?.cancel();}catch{}throw new Error("story_authority_unavailable");}
   const raw=await boundedText(response,600000);
   let value:unknown;try{value=JSON.parse(raw);}catch{throw new Error("story_authority_response_invalid");}
   if(!response.ok){if(response.status===404)throw new Error("story_access_revoked");if(response.status===409)throw new Error("story_version_conflict");throw new Error("story_authority_unavailable");}
@@ -78,7 +79,7 @@ export async function writeShiguangAuthoritativeStory(binding:BoundShiguangStory
   if(!value||typeof value!=="object"||Array.isArray(value)||!exact(value as Record<string,unknown>,["result"]))throw new Error("story_authority_response_invalid");
   const result=(value as {result:unknown}).result;if(!result||typeof result!=="object"||Array.isArray(result))throw new Error("story_authority_response_invalid");
   const row=result as Record<string,unknown>;if(!exact(row,["ok","storyId","revisionId","version","replayed"])||row.ok!==true||row.storyId!==binding.sourceStoryId||
-    typeof row.revisionId!=="string"||!/^revision-[a-zA-Z0-9-]{1,120}$/.test(row.revisionId)||!Number.isSafeInteger(row.version)||(row.version as number)<1||typeof row.replayed!=="boolean")
+    typeof row.revisionId!=="string"||!/^revision-[a-zA-Z0-9-]{1,119}$/.test(row.revisionId)||!Number.isSafeInteger(row.version)||(row.version as number)<1||(row.version as number)>2147483647||typeof row.replayed!=="boolean")
     throw new Error("story_authority_response_invalid");
   return row as ShiguangStoryWriteResult;
 }

@@ -90,6 +90,17 @@ describe("拾光家忆故事进入电脑", () => {
     expect(deps.resolve).not.toHaveBeenCalled();
   });
 
+  it("另一种载荷即使损坏也不能降级为单一载荷",async()=>{
+    const storyAccess={grantId:`desktop-grant-${"b".repeat(64)}`,familyId:"family_owner",storyId:"story-summer",
+      revisionId:"revision-current",version:7,title:"那年的夏天"};
+    const snapshotWithBrokenAccess=await post({}, {subject,story,storyAccess:{bad:true}});
+    expect(snapshotWithBrokenAccess.response.status).toBe(400);
+    expect(snapshotWithBrokenAccess.deps.resolve).not.toHaveBeenCalled();
+    const accessWithBrokenSnapshot=await post({}, {subject,story:{bad:true},storyAccess});
+    expect(accessWithBrokenSnapshot.response.status).toBe(400);
+    expect(accessWithBrokenSnapshot.deps.resolve).not.toHaveBeenCalled();
+  });
+
   it("拒绝客户端伪造主体格式或损坏的故事快照", async () => {
     const { response, deps } = await post({}, { subject: "wechat:forged", story: { ...story, memories: "all" } });
     expect(response.status).toBe(400);

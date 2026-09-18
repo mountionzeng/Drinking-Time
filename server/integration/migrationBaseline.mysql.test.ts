@@ -43,6 +43,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
           "provider_attempts",
           "recharge_requests",
           "data_migration_receipts",
+          "shiguang_story_access_bindings",
         ]) {
           expect(tables.get(table), `${table} 应当存在且为 utf8mb4`).toMatch(
             /^utf8mb4_/,
@@ -53,7 +54,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         const [migrationRows] = await connection.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS count FROM __drizzle_migrations",
         );
-        expect(Number(migrationRows[0]?.count)).toBe(18);
+        expect(Number(migrationRows[0]?.count)).toBe(25);
       } finally {
         await connection.end();
       }

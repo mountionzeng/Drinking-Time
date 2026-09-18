@@ -34,6 +34,19 @@ describe("拾光权威故事客户端",()=>{
     await expect(readShiguangAuthoritativeStory(binding,{enabled:true,baseUrl:"https://authority.example",secret:"s".repeat(32),fetcher:async()=>json({error:"story_access_revoked"},404),now:()=>1789711200000,nonce:()=>"abcdefghijklmnop"})).rejects.toThrow("story_access_revoked");
   });
 
+  it("拒绝响应类型或超长响应时会取消剩余流",async()=>{
+    const cancelled={wrongType:false,oversized:false,declared:false};
+    const stream=(key:keyof typeof cancelled,chunk:Uint8Array)=>new ReadableStream<Uint8Array>({pull(controller){controller.enqueue(chunk);},cancel(){cancelled[key]=true;}});
+    const options={enabled:true,baseUrl:"https://authority.example",secret:"s".repeat(32),now:()=>1789711200000,nonce:()=>"abcdefghijklmnop"};
+    await expect(readShiguangAuthoritativeStory(binding,{...options,fetcher:async()=>new Response(stream("wrongType",new Uint8Array([1])),{headers:{"content-type":"text/html"}})}))
+      .rejects.toThrow("story_authority_unavailable");
+    await expect(readShiguangAuthoritativeStory(binding,{...options,fetcher:async()=>new Response(stream("oversized",new Uint8Array(600001)),{headers:{"content-type":"application/json"}})}))
+      .rejects.toThrow("story_authority_response_invalid");
+    await expect(readShiguangAuthoritativeStory(binding,{...options,fetcher:async()=>new Response(stream("declared",new Uint8Array([1])),{headers:{"content-type":"application/json","content-length":"600001"}})}))
+      .rejects.toThrow("story_authority_response_invalid");
+    expect(cancelled).toEqual({wrongType:true,oversized:true,declared:true});
+  });
+
   it("照片请求绑定当前修订和章节，并只接受短期 HTTPS 地址",async()=>{
     const input={revisionId:"revision-current",chapterId:"chapter-one",photoId:"photo-kept"},fetcher=vi.fn(async(url:string|URL,init?:RequestInit)=>{
       expect(String(url)).toBe("https://authority.example/v1/story/media");const body=JSON.parse(String(init?.body));

@@ -39,15 +39,15 @@ export function createShiguangStoryAccessRouter(deps:Dependencies){return router
       if(code==="story_access_revoked")throw new TRPCError({code:"NOT_FOUND",message:"故事不可用"});
       throw new TRPCError({code:"SERVICE_UNAVAILABLE",message:"暂时无法读取故事，请稍后重试"});}
   }),
-  media:protectedProcedure.input(z.object({accessId:z.number().int().positive(),revisionId:z.string().regex(/^revision-[a-zA-Z0-9-]{1,120}$/),
+  media:protectedProcedure.input(z.object({accessId:z.number().int().positive(),revisionId:z.string().regex(/^revision-[a-zA-Z0-9-]{1,119}$/),
     chapterId:z.string().regex(/^chapter-[a-z0-9-]{1,60}$/),photoId:z.string().regex(/^photo-[a-z0-9-]{1,120}$/)}).strict()).query(async({ctx,input})=>{
     const binding=await deps.get(ctx.user.id,input.accessId);if(!binding)throw new TRPCError({code:"NOT_FOUND",message:"照片不可用"});
     const {accessId:_,...mediaInput}=input;try{if(!deps.media)throw new Error("story_authority_unavailable");return await deps.media(binding,mediaInput);}
     catch(error){const code=String((error as Error)?.message||"");if(code==="story_access_revoked"||code==="story_version_conflict")
       throw new TRPCError({code:"NOT_FOUND",message:"照片不可用"});throw new TRPCError({code:"SERVICE_UNAVAILABLE",message:"暂时无法读取照片，请稍后重试"});}
   }),
-  write:protectedProcedure.input(z.object({accessId:z.number().int().positive(),revisionId:z.string().regex(/^revision-[a-zA-Z0-9-]{1,120}$/),
-    expectedVersion:z.number().int().positive(),requestId:z.string().regex(/^[a-zA-Z0-9-]{8,100}$/),edits:z.array(edit).min(1).max(128)}).strict()
+  write:protectedProcedure.input(z.object({accessId:z.number().int().positive(),revisionId:z.string().regex(/^revision-[a-zA-Z0-9-]{1,119}$/),
+    expectedVersion:z.number().int().positive().max(2147483647),requestId:z.string().regex(/^[a-zA-Z0-9-]{8,100}$/),edits:z.array(edit).min(1).max(128)}).strict()
     .refine(value=>value.edits.reduce((length,item)=>length+item.text.length,0)<=20000,{message:"修改文字过长"})).mutation(async({ctx,input})=>{
     const binding=await deps.get(ctx.user.id,input.accessId);if(!binding)throw new TRPCError({code:"NOT_FOUND",message:"故事不可用"});
     const {accessId:_,...writeInput}=input;

@@ -36,8 +36,8 @@ export function parseShiguangStoryAccessGrant(value: unknown): ShiguangStoryAcce
     typeof grant.grantId !== "string" || !/^desktop-grant-[a-f0-9]{64}$/.test(grant.grantId) ||
     typeof grant.familyId !== "string" || !/^family_[0-9A-Za-z_-]{1,120}$/.test(grant.familyId) ||
     typeof grant.storyId !== "string" || !/^story-[a-z0-9-]{1,100}$/.test(grant.storyId) ||
-    typeof grant.revisionId !== "string" || !/^revision-[a-zA-Z0-9-]{1,120}$/.test(grant.revisionId) ||
-    !Number.isSafeInteger(grant.version) || (grant.version as number) < 1 ||
+    typeof grant.revisionId !== "string" || !/^revision-[a-zA-Z0-9-]{1,119}$/.test(grant.revisionId) ||
+    !Number.isSafeInteger(grant.version) || (grant.version as number) < 1 || (grant.version as number) > 2147483647 ||
     typeof grant.title !== "string" || !grant.title.trim() || grant.title.length > 120) return null;
   return { ...grant, title: grant.title.trim() } as ShiguangStoryAccessGrant;
 }
