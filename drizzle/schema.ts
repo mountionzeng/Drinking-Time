@@ -2309,6 +2309,38 @@ export type DataMigrationReceipt = typeof dataMigrationReceipts.$inferSelect;
 export type InsertDataMigrationReceipt =
   typeof dataMigrationReceipts.$inferInsert;
 
+/**
+ * ShiguangStoryAccessBindings — 微信端明确选择的权威故事引用。
+ *
+ * 这里只保存服务端授权编号和当前观察到的版本，不保存故事正文，也不把电脑端
+ * Story 当作权威副本。后续读取/写入必须携带 grantId 回到拾光权威服务重新鉴权。
+ */
+export const shiguangStoryAccessBindings = mysqlTable(
+  "shiguang_story_access_bindings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    sourceFamilyId: varchar("sourceFamilyId", { length: 128 }).notNull(),
+    sourceStoryId: varchar("sourceStoryId", { length: 128 }).notNull(),
+    grantId: varchar("grantId", { length: 96 }).notNull(),
+    sourceRevisionId: varchar("sourceRevisionId", { length: 128 }).notNull(),
+    sourceVersion: int("sourceVersion").notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    status: mysqlEnum("status", ["active", "revoked"]).default("active").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    userStoryUnique: uniqueIndex("shiguang_story_access_user_story_unique").on(
+      table.userId, table.sourceFamilyId, table.sourceStoryId
+    ),
+    grantUnique: uniqueIndex("shiguang_story_access_grant_unique").on(table.grantId),
+    userStatusIndex: index("shiguang_story_access_user_status_index").on(table.userId, table.status, table.id),
+  })
+);
+
+export type ShiguangStoryAccessBinding = typeof shiguangStoryAccessBindings.$inferSelect;
+
 // ─── 个人记忆（U1 数据合同）────────────────────────────────────────────
 //
 // 语义定义在 shared/personalMemory.ts，本地模式（server/db.ts）读同一份。

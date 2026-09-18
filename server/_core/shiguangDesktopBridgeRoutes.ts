@@ -6,6 +6,7 @@ import {
   resolveWechatAccount,
 } from "../services/accountIdentity";
 import { importShiguangStorySnapshot } from "../services/shiguangStoryImport";
+import { bindShiguangStoryAccess } from "../services/shiguangStoryAccess";
 
 export function shiguangDesktopBridgeRoutes() {
   return createShiguangDesktopBridgeRouter({
@@ -15,6 +16,7 @@ export function shiguangDesktopBridgeRoutes() {
     allow: allowShiguangDesktopTransferAttempt,
     resolve: resolveWechatAccount,
     importStory: importShiguangStorySnapshot,
+    bindStoryAccess: bindShiguangStoryAccess,
     issuePairing: userId => issuePairingCode({ userId }),
   });
 }

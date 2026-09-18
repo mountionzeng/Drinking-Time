@@ -2,6 +2,7 @@ import { Router, json } from "express";
 
 import type { IssuePairingResult } from "../services/accountIdentity";
 import type { ShiguangStorySnapshot } from "../services/shiguangStoryImport";
+import { parseShiguangStoryAccessGrant, type ShiguangStoryAccessGrant } from "../services/shiguangStoryAccess";
 import { hasValidBridgeSignature } from "./shiguangBridgeSignature";
 
 export { canonicalJson, bridgeSignature } from "./shiguangBridgeSignature";
@@ -13,6 +14,7 @@ type Dependencies = {
   allow: (subject: string) => Promise<boolean>;
   resolve: (subject: string) => Promise<number>;
   importStory: (userId: number, story: ShiguangStorySnapshot) => Promise<{ storyId: number; created: boolean }>;
+  bindStoryAccess: (userId:number, grant:ShiguangStoryAccessGrant)=>Promise<{id:number}>;
   issuePairing: (userId: number) => Promise<IssuePairingResult>;
   now?: () => number;
 };
@@ -76,15 +78,17 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       for (const [key, seenAt] of seenNonces) if (now - seenAt > 300_000) seenNonces.delete(key);
 
       const subject = req.body?.subject;
-      const story = parseShiguangStorySnapshot(req.body?.story);
-      if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) || !story) {
+      const story = req.body?.story===undefined?null:parseShiguangStorySnapshot(req.body.story);
+      const storyAccess = req.body?.storyAccess===undefined?null:parseShiguangStoryAccessGrant(req.body.storyAccess);
+      if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) || Boolean(story)===Boolean(storyAccess)) {
         return res.status(400).json({ error: "invalid_input" });
       }
       if (!await deps.allow(subject)) return res.status(429).json({ error: "rate_limited" });
       if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
 
       const userId = await deps.resolve(subject);
-      const imported = await deps.importStory(userId, story);
+      const imported = story ? await deps.importStory(userId, story) : null;
+      const binding = storyAccess ? await deps.bindStoryAccess(userId, storyAccess) : null;
       const pairing = await deps.issuePairing(userId);
       if (pairing.outcome !== "issued") {
         return res.status(pairing.outcome === "rate_limited" ? 429 : 503).json({ error: pairing.outcome });
@@ -92,8 +96,8 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       return res.json({
         code: pairing.code,
         expiresAt: pairing.expiresAt.toISOString(),
-        storyId: imported.storyId,
-        imported: imported.created,
+        ...(imported?{storyId:imported.storyId,imported:imported.created}:{}),
+        ...(binding?{storyAccessId:binding.id,bound:true}:{}),
       });
     } catch {
       return res.status(503).json({ error: "unavailable" });

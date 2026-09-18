@@ -27,6 +27,7 @@ vi.mock("@/pages/PersonalMemoryPage", () => ({
 vi.mock("@/pages/NotFound", () => ({ default: () => "not-found" }));
 vi.mock("@/pages/AdminInvitesPage", () => ({ default: () => "invites" }));
 vi.mock("@/pages/AdminVisitsPage", () => ({ default: () => "visits" }));
+vi.mock("@/features/shiguang/StoryEditorPage", () => ({ default: ({accessId}:{accessId?:number}) => `story-editor:${accessId??"list"}` }));
 
 import AppRouter from "./AppRouter";
 import {
@@ -240,5 +241,12 @@ describe("personal memory route", () => {
     });
     auth.isAuthenticated = false;
     expect(renderRoute("/personal-memory").redirectTo).toBe("/login");
+  });
+});
+
+describe("authoritative story route",()=>{
+  it("mounts list and exact story behind the normal account guard",()=>{
+    expect(renderRoute("/stories").html).toBe("story-editor:list");expect(renderRoute("/stories/42").html).toBe("story-editor:42");
+    expect(renderRoute("/stories/not-a-number").redirectTo).toBe("/stories");auth.isAuthenticated=false;expect(renderRoute("/stories/42").redirectTo).toBe("/login");
   });
 });

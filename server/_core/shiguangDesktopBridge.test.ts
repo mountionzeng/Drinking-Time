@@ -37,6 +37,7 @@ async function post(
     allow: vi.fn(async () => true),
     resolve: vi.fn(async () => 17),
     importStory: vi.fn(async () => ({ storyId: 31, created: true })),
+    bindStoryAccess: vi.fn(async () => ({ id: 42 })),
     issuePairing: vi.fn(async () => ({ outcome: "issued" as const, code: "ABC234", expiresAt: new Date("2026-09-14T10:05:00.000Z") })),
     now: () => 1_800_000_000_000,
     ...overrides,
@@ -70,6 +71,23 @@ describe("拾光家忆故事进入电脑", () => {
     expect(deps.resolve).toHaveBeenCalledWith(subject);
     expect(deps.importStory).toHaveBeenCalledWith(17, story);
     expect(deps.issuePairing).toHaveBeenCalledWith(17);
+  });
+
+  it("绑定手机明确选择的权威故事，不导入正文快照", async () => {
+    const storyAccess={grantId:`desktop-grant-${"b".repeat(64)}`,familyId:"family_owner",storyId:"story-summer",
+      revisionId:"revision-current",version:7,title:"那年的夏天"};
+    const {response,deps}=await post({}, {subject,storyAccess});
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({code:"ABC234",expiresAt:"2026-09-14T10:05:00.000Z",storyAccessId:42,bound:true});
+    expect(deps.resolve).toHaveBeenCalledWith(subject);expect(deps.bindStoryAccess).toHaveBeenCalledWith(17,storyAccess);
+    expect(deps.importStory).not.toHaveBeenCalled();
+  });
+
+  it("拒绝同时提交快照和权威故事绑定",async()=>{
+    const storyAccess={grantId:`desktop-grant-${"b".repeat(64)}`,familyId:"family_owner",storyId:"story-summer",
+      revisionId:"revision-current",version:7,title:"那年的夏天"};
+    const {response,deps}=await post({}, {subject,story,storyAccess});expect(response.status).toBe(400);
+    expect(deps.resolve).not.toHaveBeenCalled();
   });
 
   it("拒绝客户端伪造主体格式或损坏的故事快照", async () => {

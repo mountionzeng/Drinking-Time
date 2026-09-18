@@ -9,6 +9,7 @@ import SupabaseAuthCallbackPage from "@/pages/SupabaseAuthCallbackPage";
 import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
+import StoryEditorPage from "@/features/shiguang/StoryEditorPage";
 import { useAuth } from "@/_core/hooks/useAuth";
 import React, { type ReactNode } from "react";
 import {
@@ -98,6 +99,15 @@ export default function AppRouter() {
         <AuthGuard>
           <PersonalMemoryPage />
         </AuthGuard>
+      </Route>
+      <Route path="/stories/:accessId">
+        {params => {
+          const accessId=Number(params.accessId);
+          return Number.isSafeInteger(accessId)&&accessId>0?<AuthGuard><StoryEditorPage key={`story-${accessId}`} accessId={accessId}/></AuthGuard>:<Redirect to="/stories"/>;
+        }}
+      </Route>
+      <Route path="/stories">
+        <AuthGuard><StoryEditorPage key="story-list" /></AuthGuard>
       </Route>
       <Route path="/m">
         <AuthGuard returnPath="/m">
