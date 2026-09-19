@@ -1,7 +1,7 @@
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {describe,it,expect} from 'vitest';
-import {StoryCardSelection} from './StoryShareCard';
+import {StoryCardSelection,toggleStoryCardSelection} from './StoryShareCard';
 import {wrapCardText} from './storyCardCanvas';
 import {cardMaterialSchema,type CardSource} from '../../../../shared/storyShareCard';
 
@@ -26,5 +26,12 @@ describe('故事卡片',()=>{
     expect(cardMaterialSchema.safeParse({descriptor:{...descriptor,privateLink:'secret'},media:[]}).success).toBe(false);
     for(const url of ['http://example.com/a.jpg','https://user:secret@example.com/a.jpg','data:image/png,xxx'])
       expect(cardMaterialSchema.safeParse({descriptor,media:[{photoId:'photo-a',url,requestedMaxAgeSeconds:300}]}).success).toBe(false);
+  });
+  it('选择达到四张照片后拒绝第五张，但仍可取消已选照片',()=>{
+    const blocks=Array.from({length:5},(_,index)=>({blockId:`block-${String(index).padStart(64,'a')}`,kind:'photo' as const,photoId:`photo-${index}`,publishable:true}));
+    const source:CardSource={story:{id:'story-a',title:'夏日',version:1},revisionId:'revision-a',chapters:[{id:'chapter-a',title:'第一章',blocks}]};
+    const selected=blocks.slice(0,4).map(block=>block.blockId);
+    expect(toggleStoryCardSelection(source,'chapter-a',selected,blocks[4].blockId)).toEqual({selected,error:'一张故事卡最多选择 4 张照片'});
+    expect(toggleStoryCardSelection(source,'chapter-a',selected,blocks[0].blockId)).toEqual({selected:selected.slice(1)});
   });
 });

@@ -11,6 +11,8 @@ type Dependencies = {
   enabled: boolean;
   secret: string;
   ready: () => Promise<boolean>;
+  claimNonce: (timestamp:string,nonce:string,now:number) => Promise<boolean>;
+  storyAccessReady: () => boolean;
   allow: (subject: string) => Promise<boolean>;
   resolve: (subject: string) => Promise<number>;
   importStory: (userId: number, story: ShiguangStorySnapshot) => Promise<{ storyId: number; created: boolean }>;
@@ -64,7 +66,6 @@ export function parseShiguangStorySnapshot(value: unknown): ShiguangStorySnapsho
 
 export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
   const router = Router();
-  const seenNonces = new Map<string, number>();
   router.use(json({ limit: "512kb" }));
   router.post("/desktop/pair/issue", async (req, res) => {
     try {
@@ -72,10 +73,8 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       if (!deps.enabled || deps.secret.length < 32) return res.status(503).json({ error: "bridge_not_configured" });
       const now = (deps.now ?? Date.now)();
       if (!hasValidBridgeSignature(req, deps.secret, now)) return res.status(401).json({ error: "invalid_bridge_signature" });
-      const replayKey = `${req.header("x-shiguang-timestamp")}:${req.header("x-shiguang-nonce")}`;
-      if (seenNonces.has(replayKey)) return res.status(401).json({ error: "replayed_request" });
-      seenNonces.set(replayKey, now);
-      for (const [key, seenAt] of seenNonces) if (now - seenAt > 300_000) seenNonces.delete(key);
+      const timestamp=req.header("x-shiguang-timestamp")!,nonce=req.header("x-shiguang-nonce")!;
+      if(!await deps.claimNonce(timestamp,nonce,now))return res.status(401).json({error:"replayed_request"});
 
       const subject = req.body?.subject;
       const hasStory = Object.prototype.hasOwnProperty.call(req.body ?? {}, "story");
@@ -86,6 +85,7 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
         (hasStory && !story) || (hasStoryAccess && !storyAccess)) {
         return res.status(400).json({ error: "invalid_input" });
       }
+      if(storyAccess&&!deps.storyAccessReady())return res.status(503).json({error:"story_authority_not_configured"});
       if (!await deps.allow(subject)) return res.status(429).json({ error: "rate_limited" });
       if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
 

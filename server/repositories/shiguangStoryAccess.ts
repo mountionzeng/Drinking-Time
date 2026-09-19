@@ -31,3 +31,9 @@ export async function findActiveShiguangStoryAccessBinding(userId:number,accessI
   return (await db.select().from(shiguangStoryAccessBindings).where(and(eq(shiguangStoryAccessBindings.id,accessId),
     eq(shiguangStoryAccessBindings.userId,userId),eq(shiguangStoryAccessBindings.status,"active"))).limit(1))[0];
 }
+
+export async function revokeShiguangStoryAccessBinding(userId:number,accessId:number):Promise<void>{
+  const db=await getDb();if(!db)throw new Error("database_required");
+  await db.update(shiguangStoryAccessBindings).set({status:"revoked"}).where(and(eq(shiguangStoryAccessBindings.id,accessId),
+    eq(shiguangStoryAccessBindings.userId,userId),eq(shiguangStoryAccessBindings.status,"active")));
+}

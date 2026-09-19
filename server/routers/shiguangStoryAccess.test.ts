@@ -72,4 +72,10 @@ describe("拾光权威故事路由",()=>{
     await expect(createShiguangStoryAccessRouter({...base,write:async()=>{throw new Error("story_authority_unavailable");}}).createCaller(context(17)).write(input))
       .rejects.toMatchObject({code:"SERVICE_UNAVAILABLE"});
   });
+  it("权威端确认撤权后把本地绑定标记为撤销，不再留在活动列表",async()=>{
+    const revoke=vi.fn(async()=>{}),router=createShiguangStoryAccessRouter({list:async()=>[],get:async()=>binding,revoke,
+      read:async()=>{throw new Error("story_access_revoked");},write:vi.fn()});
+    await expect(router.createCaller(context(17)).read({accessId:4})).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(revoke).toHaveBeenCalledWith(17,4);
+  });
 });

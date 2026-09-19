@@ -2341,6 +2341,19 @@ export const shiguangStoryAccessBindings = mysqlTable(
 
 export type ShiguangStoryAccessBinding = typeof shiguangStoryAccessBindings.$inferSelect;
 
+/** Cross-process replay claims for HMAC-signed 拾光 bridge requests. */
+export const shiguangBridgeNonces = mysqlTable(
+  "shiguang_bridge_nonces",
+  {
+    nonceHash: varchar("nonceHash", { length: 64 }).primaryKey(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({expiresIndex:index("shiguang_bridge_nonces_expires_index").on(table.expiresAt)})
+);
+
+export type ShiguangBridgeNonce = typeof shiguangBridgeNonces.$inferSelect;
+
 // ─── 个人记忆（U1 数据合同）────────────────────────────────────────────
 //
 // 语义定义在 shared/personalMemory.ts，本地模式（server/db.ts）读同一份。

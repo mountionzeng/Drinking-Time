@@ -19,7 +19,22 @@ describe("跨端故事文档草稿",()=>{
   it("冲突重放基于最新结构，保留仍存在区块的本地文字和本人补充",()=>{
     const old=document(),local=updateDraftBlock(appendOwnDraftBlock(createEditorDraft(old),"chapter-one","local-1"),"block-"+"a".repeat(64),"本地修改");
     const withAddition=updateDraftBlock(local,"local-1","本地补充"),next=document(4);next.chapters[0].content.push({text:"别人新增",blockId:"block-"+"d".repeat(64),sourceIds:[]});
-    const rebased=rebaseEditorDraft(next,withAddition);expect(rebased.chapters[0].content.map(block=>block.text||block.photoId)).toEqual(["本地修改","photo-kept","别人新增","本地补充"]);
-    expect(buildWriteEdits(next,rebased)).toEqual([{action:"edit",blockId:"block-"+"a".repeat(64),text:"本地修改"},{action:"appendOwn",chapterId:"chapter-one",text:"本地补充"}]);
+    const rebased=rebaseEditorDraft(old,next,withAddition);expect(rebased?.chapters[0].content.map(block=>block.text||block.photoId)).toEqual(["本地修改","photo-kept","别人新增","本地补充"]);
+    expect(buildWriteEdits(next,rebased!)).toEqual([{action:"edit",blockId:"block-"+"a".repeat(64),text:"本地修改"},{action:"appendOwn",chapterId:"chapter-one",text:"本地补充"}]);
+  });
+  it("冲突重放只覆盖本地真正改过的段落，保留远端对其他段落的更新",()=>{
+    const old=document();old.chapters[0].content.push({text:"旧的第二段",blockId:"block-"+"d".repeat(64),sourceIds:[]});
+    const local=updateDraftBlock(createEditorDraft(old),"block-"+"a".repeat(64),"本地修改");
+    const next=document(4);next.chapters[0].content.push({text:"远端新的第二段",blockId:"block-"+"d".repeat(64),sourceIds:[]});
+    const rebased=rebaseEditorDraft(old,next,local);
+    expect(rebased?.chapters[0].content.map(block=>block.text||block.photoId)).toEqual(["本地修改","photo-kept","远端新的第二段"]);
+    expect(buildWriteEdits(next,rebased!)).toEqual([{action:"edit",blockId:"block-"+"a".repeat(64),text:"本地修改"}]);
+  });
+  it("同一段双方都改过或本地补充所属章节消失时停止重放并保留原草稿",()=>{
+    const old=document(),local=updateDraftBlock(createEditorDraft(old),"block-"+"a".repeat(64),"本地修改"),next=document(4);
+    next.chapters[0].content[0]={...next.chapters[0].content[0],text:"远端修改"};
+    expect(rebaseEditorDraft(old,next,local)).toBeNull();
+    const withAddition=updateDraftBlock(appendOwnDraftBlock(createEditorDraft(old),"chapter-one","local-1"),"local-1","不能丢的补充");
+    expect(rebaseEditorDraft(old,{...next,chapters:[]},withAddition)).toBeNull();
   });
 });

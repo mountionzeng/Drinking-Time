@@ -3872,6 +3872,7 @@
         "server/services/shiguangStoryAuthorityClient.ts",
         "server/routers/shiguangStoryAccess.ts",
         "server/repositories/shiguangStoryAccess.ts",
+        "server/repositories/shiguangBridgeNonces.ts",
         "server/persistence/shiguangStoryImportPersistence.ts",
         "server/repositories/accounts.ts",
         "server/repositories/stories.ts",
@@ -3894,18 +3895,21 @@
         "server/services/devicePairing.test.ts",
         "client/src/features/auth/views/AuthEntryPanel.test.tsx",
         "client/src/features/shiguang/StoryEditorPage.test.tsx",
+        "client/src/features/shiguang/storyEditorSafety.test.ts",
         "client/src/features/shiguang/storyDocument.test.ts",
         "client/src/features/shiguang/StoryShareCard.test.tsx",
         "server/integration/shiguangStoryAccess.test.ts",
         "docs/qa/2026-09-13-wechat-desktop-pairing.md",
         "docs/qa/2026-09-14-shiguang-stories-to-desktop.md",
         "docs/integrations/shiguang-bridge-contract.md",
-        "drizzle/0024_familiar_miek.sql"
+        "drizzle/0024_familiar_miek.sql",
+        "drizzle/0025_dry_sunset_bain.sql"
       ],
       "invariants": [
         "只传输当前微信账号在拾光家忆中仍处于有效状态、且由用户明确选择的故事；最近删除里的故事不得重新出现。",
         "拾光家忆云函数从可信微信上下文派生不可逆主体，HMAC 签名绑定路径和完整故事快照；客户端不能提供 userId 或明文 OPENID。",
         "电脑登录码五分钟有效且只能使用一次；未选择故事、未确认、过期或重复兑换均不能建立电脑会话。",
+        "签名 nonce 必须先在数据库原子领取；多进程与进程重启后重放都不能再次签发登录码。",
         "同一来源和修订重复传输必须幂等；新修订作为新快照保留，不覆盖用户已在电脑编辑的版本。",
         "传输保留记忆正文、标题、摘要、人物、地点、情绪、章节正文与照片引用；电脑端只允许该微信主体对应的 userId 读取。",
         "权威绑定不在电脑端创建第二份可写快照；登录用户只能用自己的 accessId 触发服务端读取，浏览器永远拿不到 grantId、共享密钥或可换取正文的地址。",
@@ -3927,12 +3931,16 @@
         "尚未真实验证导入后的故事在电脑提交视频生成；正式站未发布。",
         "权威读写、五分钟受控照片读取和电脑故事编辑 UI 已在本地代码中接通，但尚未配置真实 HTTPS 路由、共享密钥、云集合、腾讯临时媒体精确 CSP origin 与双端开关；照片 TTL、过期失效和浏览器展示仍待真实环境验收。",
         "2026-09-15 进程内复现：电脑端普通保存导入的故事会丢弃快照来源标记，之后同一来源同一修订再次传输会新建重复故事，违反幂等不变量；修复（约定提案 P1）待用户批准。",
-        "防重放记录只在单进程内存且按收到时间清理：带未来时间戳（≤300 秒）的已签名请求在记录清理后可被重放并换到新登录码（2026-09-15 进程内复现，需先截获完整请求）；进程重启也会清空记录（约定提案 P2）。",
         "请求体超过 512KB 或 JSON 损坏时返回 HTML 而非 JSON 错误，云函数只能提示 bridge_unavailable；快照逐字段上限允许的体积大于 512KB 请求上限（约定提案 P3/P4）。",
         "主体按拾光家忆 AppID 作用域 openid 派生；小程序迁到公司主体若更换 AppID，所有主体会变化，openid/unionid 方案待用户决定（约定 D1）。",
         "云函数执行超时未在拾光家忆仓库配置（约定要求 ≥15 秒），线上值待核对；服务地址漏 /api/shiguang 时服务端返回 200 首页，云函数当成功、小程序以「返回异常」拒绝，提示不准确（约定第 2、3.5 节）。"
       ],
       "history": [
+        {
+          "date": "2026-09-19",
+          "kind": "fix",
+          "summary": "收紧电脑端权威故事边界：冲突重放只带上相对旧基础真实修改的本地段落，同段双方修改或远端删除本地区块时失败关闭并保留原草稿；写入后必须重新读取到回执对应修订才显示成功，未保存草稿以合并写入的 sessionStorage 恢复。照片接近视口才请求且故事卡最多四张。新增 0025 持久 nonce 原子领取支持跨进程防重放，绑定拒绝未配置权威端和旧授权回退，权威撤权会使本地绑定失效；发布与回滚步骤已记录。完整门禁 549 个测试文件、4693 项通过，57 项外部 MySQL 条件跳过；215 项小游戏测试、26 项迁移、类型检查、功能账本、生产构建和环境门禁均通过。真实 HTTPS 路由、共享密钥、双端开关、临时媒体和双微信身份仍待环境验收。"
+        },
         {
           "date": "2026-09-19",
           "kind": "implementation",

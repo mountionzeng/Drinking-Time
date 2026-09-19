@@ -1,4 +1,4 @@
-import {findActiveShiguangStoryAccessBinding,listActiveShiguangStoryAccessBindings,withShiguangStoryAccessStore} from "../repositories/shiguangStoryAccess";
+import {findActiveShiguangStoryAccessBinding,listActiveShiguangStoryAccessBindings,revokeShiguangStoryAccessBinding,withShiguangStoryAccessStore} from "../repositories/shiguangStoryAccess";
 
 export type ShiguangStoryAccessGrant = {
   grantId: string;
@@ -46,6 +46,9 @@ export async function bindShiguangStoryAccessWithStore(userId:number,grant:Shigu
   if (!Number.isSafeInteger(userId) || userId < 1) throw new Error("invalid_user");
   const sameGrant=await store.findByGrant(grant.grantId);
   if(sameGrant&&(sameGrant.userId!==userId||sameGrant.sourceFamilyId!==grant.familyId||sameGrant.sourceStoryId!==grant.storyId))throw new Error("grant_conflict");
+  const existing=await store.findByStory(userId,grant.familyId,grant.storyId);
+  if(existing&&grant.version<existing.sourceVersion)throw new Error("stale_grant");
+  if(existing&&grant.version===existing.sourceVersion&&grant.revisionId!==existing.sourceRevisionId)throw new Error("grant_conflict");
   await store.upsert(userId,grant);
   const binding=await store.findByStory(userId,grant.familyId,grant.storyId);
   if(!binding||binding.grantId!==grant.grantId)throw new Error("binding_failed");
@@ -65,4 +68,9 @@ export async function listShiguangStoryAccess(userId:number):Promise<BoundShigua
 export async function getShiguangStoryAccess(userId:number,accessId:number):Promise<BoundShiguangStory|undefined> {
   if(!Number.isSafeInteger(userId)||userId<1||!Number.isSafeInteger(accessId)||accessId<1)throw new Error("invalid_access");
   return findActiveShiguangStoryAccessBinding(userId,accessId);
+}
+
+export async function revokeShiguangStoryAccess(userId:number,accessId:number):Promise<void>{
+  if(!Number.isSafeInteger(userId)||userId<1||!Number.isSafeInteger(accessId)||accessId<1)throw new Error("invalid_access");
+  return revokeShiguangStoryAccessBinding(userId,accessId);
 }

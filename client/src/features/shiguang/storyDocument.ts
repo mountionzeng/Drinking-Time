@@ -35,10 +35,15 @@ export function buildWriteEdits(document:StoryDocument,draft:StoryEditorDraft):S
   return edits;
 }
 
-export function rebaseEditorDraft(next:StoryDocument,current:StoryEditorDraft):StoryEditorDraft{
-  const localText=new Map(current.chapters.flatMap(chapter=>chapter.content.filter(block=>!block.isOwnAddition&&typeof block.text==="string")
+export function rebaseEditorDraft(base:StoryDocument,next:StoryDocument,current:StoryEditorDraft):StoryEditorDraft|null{
+  const baseText=new Map(base.chapters.flatMap(chapter=>chapter.content.filter(block=>typeof block.text==="string").map(block=>[block.blockId,block.text!] as const)));
+  const nextText=new Map(next.chapters.flatMap(chapter=>chapter.content.filter(block=>typeof block.text==="string").map(block=>[block.blockId,block.text!] as const)));
+  const localText=new Map(current.chapters.flatMap(chapter=>chapter.content.filter(block=>!block.isOwnAddition&&typeof block.text==="string"&&baseText.get(block.blockId)!==block.text)
     .map(block=>[block.blockId,block.text!] as const)));
   const additions=new Map(current.chapters.map(chapter=>[chapter.id,chapter.content.filter(block=>block.isOwnAddition)] as const));
+  for(const [blockId,text] of localText){const before=baseText.get(blockId),latest=nextText.get(blockId);if(latest===undefined||(latest!==before&&latest!==text))return null;}
+  const nextChapterIds=new Set(next.chapters.map(chapter=>chapter.id));
+  if([...additions].some(([chapterId,blocks])=>blocks.some(block=>typeof block.text==="string"&&block.text.trim())&&!nextChapterIds.has(chapterId)))return null;
   return {chapters:next.chapters.map(chapter=>({id:chapter.id,title:chapter.title,content:[...chapter.content.map(block=>
     typeof block.text==="string"&&localText.has(block.blockId)?{...block,text:localText.get(block.blockId)!}:clone(block)),...(additions.get(chapter.id)||[])]}))};
 }

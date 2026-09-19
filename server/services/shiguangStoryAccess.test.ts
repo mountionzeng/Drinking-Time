@@ -29,4 +29,10 @@ describe("权威拾光故事绑定",()=>{
     await expect(bindShiguangStoryAccessWithStore(18,grant(),store)).rejects.toThrow("grant_conflict");
     await expect(bindShiguangStoryAccessWithStore(17,{...grant(),storyId:"story-other"},store)).rejects.toThrow("grant_conflict");
   });
+  it("延迟到达的旧授权不能把已观察到的较新修订回退",async()=>{
+    const store=memoryStore();await bindShiguangStoryAccessWithStore(17,{...grant(),revisionId:"revision-new",version:9},store);
+    await expect(bindShiguangStoryAccessWithStore(17,{...grant("b"),revisionId:"revision-old",version:8},store)).rejects.toThrow("stale_grant");
+    await expect(bindShiguangStoryAccessWithStore(17,{...grant("c"),revisionId:"revision-other",version:9},store)).rejects.toThrow("grant_conflict");
+    expect(store.rows[0]).toMatchObject({sourceRevisionId:"revision-new",sourceVersion:9});
+  });
 });

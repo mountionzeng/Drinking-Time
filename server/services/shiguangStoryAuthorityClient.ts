@@ -19,6 +19,22 @@ export type ShiguangStoryWriteResult={ok:true;storyId:string;revisionId:string;v
 export type ShiguangStoryMediaInput={revisionId:string;chapterId:string;photoId:string};
 export type ShiguangStoryMediaResult={photoId:string;url:string;expiresInSeconds:300};
 
+function authorityConfiguration(path:string,options:Pick<AuthorityOptions,"enabled"|"baseUrl"|"secret">):
+  {enabled:false;url?:undefined;secret?:undefined}|{enabled:true;url?:URL;secret?:string}{
+  const enabled=options.enabled??process.env.SHIGUANG_STORY_AUTHORITY_ENABLED==="true";
+  if(!enabled)return {enabled:false};
+  const baseUrl=String(options.baseUrl??process.env.SHIGUANG_STORY_AUTHORITY_URL??"").trim();
+  const secret=String(options.secret??process.env.SHIGUANG_STORY_AUTHORITY_SECRET??"");
+  try{const url=new URL(path,baseUrl.endsWith("/")?baseUrl:baseUrl+"/");
+    if(url.protocol==="https:"&&!url.username&&!url.password&&url.pathname===path&&secret.length>=32)return {enabled:true,url,secret};
+  }catch{}
+  return {enabled:true};
+}
+
+export function isShiguangStoryAuthorityConfigured(options:Pick<AuthorityOptions,"enabled"|"baseUrl"|"secret">={}):boolean{
+  return Boolean(authorityConfiguration(READ_PATH,options).url);
+}
+
 async function boundedText(response:Response,limit:number):Promise<string>{
   const declared=Number(response.headers.get("content-length"));if(Number.isFinite(declared)&&declared>limit){try{await response.body?.cancel();}catch{}throw new Error("story_authority_response_invalid");}
   if(!response.body){const value=await response.text();if(Buffer.byteLength(value)>limit)throw new Error("story_authority_response_invalid");return value;}
@@ -59,10 +75,10 @@ export async function readShiguangAuthoritativeStory(binding:BoundShiguangStory,
 }
 
 async function authorityRequest(path:string,body:Record<string,unknown>,options:AuthorityOptions):Promise<unknown>{
-  const enabled=options.enabled??process.env.SHIGUANG_STORY_AUTHORITY_ENABLED==="true",baseUrl=String(options.baseUrl??process.env.SHIGUANG_STORY_AUTHORITY_URL??"").trim();
-  const secret=String(options.secret??process.env.SHIGUANG_STORY_AUTHORITY_SECRET??"");
-  if(!enabled)throw new Error("story_authority_disabled");let url:URL;try{url=new URL(path,baseUrl.endsWith("/")?baseUrl:baseUrl+"/");}catch{throw new Error("story_authority_not_configured");}
-  if(url.protocol!=="https:"||url.pathname!==path||url.username||url.password||secret.length<32)throw new Error("story_authority_not_configured");
+  const configuration=authorityConfiguration(path,options);
+  if(!configuration.enabled)throw new Error("story_authority_disabled");
+  if(!configuration.url||!configuration.secret)throw new Error("story_authority_not_configured");
+  const {url,secret}=configuration;
   const timestamp=String((options.now??Date.now)()),nonce=(options.nonce??(()=>randomBytes(18).toString("base64url")))();
   if(!/^\d{13}$/.test(timestamp)||!/^[0-9A-Za-z_-]{16,64}$/.test(nonce))throw new Error("story_authority_request_invalid");
   let response:Response;try{response=await (options.fetcher??fetch)(url,{method:"POST",headers:{"content-type":"application/json","x-shiguang-timestamp":timestamp,

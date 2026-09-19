@@ -35,6 +35,8 @@ async function post(
     secret,
     ready: vi.fn(async () => true),
     allow: vi.fn(async () => true),
+    claimNonce: vi.fn(async () => true),
+    storyAccessReady: vi.fn(() => true),
     resolve: vi.fn(async () => 17),
     importStory: vi.fn(async () => ({ storyId: 31, created: true })),
     bindStoryAccess: vi.fn(async () => ({ id: 42 })),
@@ -83,6 +85,14 @@ describe("拾光家忆故事进入电脑", () => {
     expect(deps.importStory).not.toHaveBeenCalled();
   });
 
+  it("权威读取侧没有完整启用时不持久化故事绑定，但旧快照入口不受影响",async()=>{
+    const storyAccess={grantId:`desktop-grant-${"b".repeat(64)}`,familyId:"family_owner",storyId:"story-summer",
+      revisionId:"revision-current",version:7,title:"那年的夏天"};
+    const blocked=await post({storyAccessReady:()=>false},{subject,storyAccess});expect(blocked.response.status).toBe(503);
+    expect(blocked.deps.resolve).not.toHaveBeenCalled();expect(blocked.deps.bindStoryAccess).not.toHaveBeenCalled();
+    const legacy=await post({storyAccessReady:()=>false},{subject,story});expect(legacy.response.status).toBe(200);
+  });
+
   it("拒绝同时提交快照和权威故事绑定",async()=>{
     const storyAccess={grantId:`desktop-grant-${"b".repeat(64)}`,familyId:"family_owner",storyId:"story-summer",
       revisionId:"revision-current",version:7,title:"那年的夏天"};
@@ -112,6 +122,13 @@ describe("拾光家忆故事进入电脑", () => {
     expect(disabled.response.status).toBe(503);
     const unsigned = await post({ secret: "different-secret-with-at-least-32-characters" });
     expect(unsigned.response.status).toBe(401);
+  });
+
+  it("两个服务实例共享持久 nonce 领取，重放不能再次签发登录码",async()=>{
+    const claimed=new Set<string>(),claimNonce=vi.fn(async(timestamp:string,nonce:string)=>{const key=`${timestamp}:${nonce}`;if(claimed.has(key))return false;claimed.add(key);return true;});
+    const first=await post({claimNonce});expect(first.response.status).toBe(200);
+    const replay=await post({claimNonce});expect(replay.response.status).toBe(401);
+    expect(replay.deps.resolve).not.toHaveBeenCalled();expect(claimNonce).toHaveBeenCalledTimes(2);
   });
 
   it("只接受有界且可解析的快照", () => {

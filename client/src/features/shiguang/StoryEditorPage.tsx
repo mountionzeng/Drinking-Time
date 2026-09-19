@@ -7,10 +7,12 @@ import {Button} from "@/components/ui/button";
 import {Textarea} from "@/components/ui/textarea";
 import {trpc} from "@/lib/trpc";
 import StoryShareCard from './StoryShareCard';
+import {clearStoryDraftRecovery,isWriteReconciled,readStoryDraftRecovery,writeStoryDraftRecovery} from "./storyEditorSafety";
 import {appendOwnDraftBlock,buildWriteEdits,createEditorDraft,draftHasChanges,rebaseEditorDraft,removeOwnDraftBlock,updateDraftBlock,
   type StoryDocument,type StoryEditorDraft} from "./storyDocument";
 
 type AccessItem={id:number;title:string;status:"active"|"revoked"};
+type DraftRecoveryState={accessId:number;base:StoryDocument;draft:StoryEditorDraft;dirty:boolean};
 type ViewProps={accesses:AccessItem[];selectedAccessId?:number;document?:StoryDocument;draft?:StoryEditorDraft;loading:boolean;error?:string;notice?:string;
   dirty:boolean;saving:boolean;conflict?:StoryDocument;onSelect:(id:number)=>void;onChange:(blockId:string,text:string)=>void;onAppend:(chapterId:string)=>void;
   onRemove:(localId:string)=>void;onSave:()=>void;onRebase:()=>void;shareCard?:ReactNode;renderPhoto?:(chapterId:string,photoId:string,blockId:string)=>ReactNode};
@@ -70,9 +72,15 @@ export function StoryEditorView(props:ViewProps){
 }
 
 const requestId=()=>`desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+function persistDraftRecovery(state:DraftRecoveryState|undefined):void{if(!state)return;try{if(state.dirty)writeStoryDraftRecovery(sessionStorage,state.accessId,state.base,state.draft);
+  else clearStoryDraftRecovery(sessionStorage,state.accessId);}catch{}}
 function StoryPhoto({accessId,revisionId,chapterId,photoId}:{accessId:number;revisionId:string;chapterId:string;photoId:string}){
-  const [failed,setFailed]=useState(false),media=trpc.shiguangStoryAccess.media.useQuery({accessId,revisionId,chapterId,photoId},{retry:false,staleTime:240000,gcTime:300000});
-  return <StoryPhotoView url={media.data?.url} loading={media.isLoading} failed={failed||media.isError} onError={()=>setFailed(true)}/>;
+  const host=useRef<HTMLDivElement>(null),[visible,setVisible]=useState(false),[failed,setFailed]=useState(false);
+  useEffect(()=>{const node=host.current;if(!node)return;if(typeof IntersectionObserver==="undefined"){setVisible(true);return;}
+    const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setVisible(true);observer.disconnect();}},{rootMargin:"800px"});
+    observer.observe(node);return()=>observer.disconnect();},[]);
+  const media=trpc.shiguangStoryAccess.media.useQuery({accessId,revisionId,chapterId,photoId},{enabled:visible,retry:false,staleTime:240000,gcTime:300000});
+  return <div ref={host}><StoryPhotoView url={media.data?.url} loading={visible&&media.isLoading} failed={failed||media.isError} onError={()=>setFailed(true)}/></div>;
 }
 export default function StoryEditorPage({accessId}:{accessId?:number}){
   const [,navigate]=useLocation(),list=trpc.shiguangStoryAccess.list.useQuery(),read=trpc.shiguangStoryAccess.read.useQuery({accessId:accessId||1},{enabled:Boolean(accessId),retry:false});
@@ -80,7 +88,8 @@ export default function StoryEditorPage({accessId}:{accessId?:number}){
   const [base,setBase]=useState<StoryDocument|undefined>(undefined),[draft,setDraft]=useState<StoryEditorDraft|undefined>(undefined);
   const [loadedAccessId,setLoadedAccessId]=useState<number|undefined>(undefined);
   const [notice,setNotice]=useState<string|undefined>(undefined),[error,setError]=useState<string|undefined>(undefined);
-  const [conflict,setConflict]=useState<StoryDocument|undefined>(undefined),pendingRequest=useRef<string|undefined>(undefined);
+  const [conflict,setConflict]=useState<StoryDocument|undefined>(undefined),[saving,setSaving]=useState(false),pendingRequest=useRef<string|undefined>(undefined),savingRef=useRef(false);
+  const draftRecovery=useRef<DraftRecoveryState|undefined>(undefined),draftRecoveryTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const accessEpoch=useRef({id:accessId,generation:0});
   if(accessEpoch.current.id!==accessId)accessEpoch.current={id:accessId,generation:accessEpoch.current.generation+1};
   useEffect(()=>()=>{accessEpoch.current.generation++;},[]);
@@ -88,21 +97,41 @@ export default function StoryEditorPage({accessId}:{accessId?:number}){
   const dirty=Boolean(currentBase&&currentDraft&&draftHasChanges(currentBase,currentDraft));
   useEffect(()=>{setLoadedAccessId(undefined);setBase(undefined);setDraft(undefined);setConflict(undefined);setNotice(undefined);setError(undefined);pendingRequest.current=undefined;},[accessId]);
   useEffect(()=>{const value=read.data as StoryDocument|undefined;if(!value)return;if(!base||base.storyId!==value.storyId||(!dirty&&base.revisionId!==value.revisionId)){
+    let recovery:ReturnType<typeof readStoryDraftRecovery>=null;if(accessId)try{recovery=readStoryDraftRecovery(sessionStorage,accessId);}catch{}
+    if(recovery&&recovery.base.storyId===value.storyId&&draftHasChanges(recovery.base,recovery.draft)){
+      setLoadedAccessId(accessId);setBase(recovery.base);setDraft(recovery.draft);setConflict(recovery.base.revisionId===value.revisionId?undefined:value);
+      setNotice("已恢复这台电脑上尚未保存的文字。");setError(undefined);pendingRequest.current=undefined;return;
+    }
     setLoadedAccessId(accessId);setBase(value);setDraft(createEditorDraft(value));setConflict(undefined);setError(undefined);pendingRequest.current=undefined;}},[accessId,base,dirty,read.data]);
-  useEffect(()=>{if(!dirty)return;const handler=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[dirty]);
+  useEffect(()=>{const next=accessId&&loadedAccessId===accessId&&currentBase&&currentDraft?{accessId,base:currentBase,draft:currentDraft,dirty}:undefined;
+    if(draftRecovery.current&&draftRecovery.current.accessId!==next?.accessId)persistDraftRecovery(draftRecovery.current);draftRecovery.current=next;
+    if(draftRecoveryTimer.current)clearTimeout(draftRecoveryTimer.current);draftRecoveryTimer.current=undefined;
+    if(next){if(!dirty)persistDraftRecovery(next);else draftRecoveryTimer.current=setTimeout(()=>{if(draftRecovery.current===next)persistDraftRecovery(next);},300);}
+    return()=>{if(draftRecoveryTimer.current)clearTimeout(draftRecoveryTimer.current);draftRecoveryTimer.current=undefined;};
+  },[accessId,currentBase,currentDraft,dirty,loadedAccessId]);
+  useEffect(()=>()=>{if(draftRecoveryTimer.current)clearTimeout(draftRecoveryTimer.current);persistDraftRecovery(draftRecovery.current);},[]);
+  useEffect(()=>{if(!dirty)return;const handler=(event:BeforeUnloadEvent)=>{persistDraftRecovery(draftRecovery.current);event.preventDefault();event.returnValue="";};
+    window.addEventListener("beforeunload",handler);return()=>window.removeEventListener("beforeunload",handler);},[dirty]);
   const accesses=(list.data||[]) as AccessItem[],readError=read.error?"暂时无法读取这本故事，请稍后重试。":undefined;
-  const choose=(id:number)=>{if(write.isPending)return;if(dirty&&!window.confirm("这本故事还有未保存修改，仍要切换吗？"))return;navigate(`/stories/${id}`);};
-  const save=async()=>{if(write.isPending||!accessId||!currentBase||!currentDraft)return;const generation=accessEpoch.current.generation;
+  const choose=(id:number)=>{if(savingRef.current)return;if(dirty&&!window.confirm("这本故事还有未保存修改，仍要切换吗？"))return;navigate(`/stories/${id}`);};
+  const save=async()=>{if(savingRef.current||!accessId||!currentBase||!currentDraft)return;const generation=accessEpoch.current.generation;
     const current=()=>generation===accessEpoch.current.generation;
     const edits=buildWriteEdits(currentBase,currentDraft);if(!edits.length)return;setError(undefined);setNotice(undefined);
-    const id=pendingRequest.current||requestId();pendingRequest.current=id;try{await write.mutateAsync({accessId,revisionId:currentBase.revisionId,expectedVersion:currentBase.version,requestId:id,edits});
-      if(!current())return;pendingRequest.current=undefined;const latest=await read.refetch();if(!current())return;if(latest.data){const value=latest.data as StoryDocument;setBase(value);setDraft(createEditorDraft(value));setConflict(undefined);}setNotice("已保存到微信里的同一本故事。");
-    }catch(caught){if(!current())return;if(caught instanceof TRPCClientError&&caught.data?.code==="CONFLICT"){const latest=await read.refetch();if(!current())return;if(latest.data)setConflict(latest.data as StoryDocument);setError("故事已有更新，你的修改仍保留在当前页面。");}
-      else setError("这次保存没有完成，修改仍保留在当前页面，可以稍后重试。");}};
-  const rebase=()=>{if(!conflict||!currentDraft)return;setDraft(rebaseEditorDraft(conflict,currentDraft));setBase(conflict);setConflict(undefined);pendingRequest.current=undefined;setError(undefined);setNotice("已放到最新版本上，请核对后再次保存。");};
+    const id=pendingRequest.current||requestId();pendingRequest.current=id;savingRef.current=true;setSaving(true);try{const result=await write.mutateAsync({accessId,revisionId:currentBase.revisionId,expectedVersion:currentBase.version,requestId:id,edits});
+      if(!current())return;const latest=await read.refetch();if(!current())return;const value=latest.isSuccess?latest.data as StoryDocument|undefined:undefined;
+      if(isWriteReconciled(result,value)){const nextDraft=createEditorDraft(value);pendingRequest.current=undefined;setBase(value);setDraft(nextDraft);setConflict(undefined);
+        draftRecovery.current={accessId,base:value,draft:nextDraft,dirty:false};persistDraftRecovery(draftRecovery.current);setNotice("已保存到微信里的同一本故事。");}
+      else setError("修改已写入，但暂时无法确认最新版本。文字仍保留在页面和本机草稿中，请稍后再次保存确认。");
+    }catch(caught){if(!current())return;if(caught instanceof TRPCClientError&&caught.data?.code==="CONFLICT"){const latest=await read.refetch();if(!current())return;
+      const value=latest.isSuccess?latest.data as StoryDocument|undefined:undefined;if(value&&(value.version>currentBase.version||value.revisionId!==currentBase.revisionId)){
+        setConflict(value);setError("故事已有更新，你的修改仍保留在当前页面。");}else setError("故事已有更新，但暂时无法读取最新版。文字仍保留在页面和本机草稿中，请稍后重试。");}
+      else setError("这次保存没有完成，修改仍保留在当前页面，可以稍后重试。");}finally{if(current()){savingRef.current=false;setSaving(false);}}};
+  const rebase=()=>{if(!conflict||!currentBase||!currentDraft)return;const rebased=rebaseEditorDraft(currentBase,conflict,currentDraft);if(!rebased){
+      setError("同一段文字已被别人修改，或原章节已经删除。你的草稿仍完整保留，请先复制核对后再处理。");return;}
+    setDraft(rebased);setBase(conflict);setConflict(undefined);pendingRequest.current=undefined;setError(undefined);setNotice("已放到最新版本上，请核对后再次保存。");};
   return <StoryEditorView accesses={accesses} selectedAccessId={accessId} document={currentBase} draft={currentDraft} loading={list.isLoading||Boolean(accessId&&read.isLoading)} error={error||readError}
-    shareCard={accessId&&currentBase?<StoryShareCard key={`${accessId}:${currentBase.revisionId}:${dirty}`} accessId={accessId} disabled={dirty||write.isPending}/>:undefined}
-    notice={notice} dirty={dirty} saving={write.isPending} conflict={conflict} onSelect={choose} onChange={(id,text)=>{pendingRequest.current=undefined;if(currentDraft)setDraft(updateDraftBlock(currentDraft,id,text));}}
+    shareCard={accessId&&currentBase?<StoryShareCard key={`${accessId}:${currentBase.revisionId}:${dirty}`} accessId={accessId} disabled={dirty||saving}/>:undefined}
+    notice={notice} dirty={dirty} saving={saving} conflict={conflict} onSelect={choose} onChange={(id,text)=>{pendingRequest.current=undefined;if(currentDraft)setDraft(updateDraftBlock(currentDraft,id,text));}}
     onAppend={chapterId=>{pendingRequest.current=undefined;if(currentDraft)setDraft(appendOwnDraftBlock(currentDraft,chapterId,requestId()));}} onRemove={id=>{pendingRequest.current=undefined;if(currentDraft)setDraft(removeOwnDraftBlock(currentDraft,id));}} onSave={save} onRebase={rebase}
     renderPhoto={accessId&&currentBase?(chapterId,photoId,blockId)=><StoryPhoto key={`${currentBase.revisionId}:${blockId}`} accessId={accessId} revisionId={currentBase.revisionId}
       chapterId={chapterId} photoId={photoId}/>:undefined}/>;
