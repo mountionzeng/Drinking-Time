@@ -13,6 +13,7 @@ import {
 } from "./emotionDailyReference302";
 import { calculateBirthPillarsLabel } from "../../shared/bazi";
 import { ENV } from "../_core/env";
+import { assertComputeRequestAccess } from "./computeRequestAccess";
 import {
   buildPriorMessageHistory,
   ensureDailyLetterFromProfile,
@@ -97,6 +98,15 @@ export async function getFreshEmotionAnalysisProfile(
   const listArchive = dependencies.listArchive ?? listEmotionDailyLetters;
   const profile = await getProfile(userId);
   if (!profile) return null;
+  if (process.env.NODE_ENV === "production") {
+    try {
+      await assertComputeRequestAccess();
+    } catch {
+      // A read must still return the saved letter when automatic AI refresh
+      // cannot be funded. Explicit regeneration reports the ordinary error.
+      return profile;
+    }
+  }
 
   const dailyReference = payloadRecord(profile.dailyReference);
   const storedAnalysisSeed = payloadRecord(profile.analysisSeed);

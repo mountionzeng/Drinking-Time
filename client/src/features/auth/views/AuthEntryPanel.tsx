@@ -20,6 +20,10 @@ type AuthEntryPanelProps = {
 
 const REMEMBERED_EMAIL_KEY = "dt:rememberedLoginEmail";
 
+export function pairingLoginDestination(pairingOnly:boolean,returnPath:string|null){
+  return returnPath?resolvePostLoginDestination(returnPath,rootWorkspacePath()):pairingOnly?"/stories":resolvePostLoginDestination(null,rootWorkspacePath());
+}
+
 function loadRememberedEmail() {
   try {
     return window.localStorage?.getItem(REMEMBERED_EMAIL_KEY)?.trim() ?? "";
@@ -224,7 +228,7 @@ export default function AuthEntryPanel({
           // 同上：存储被禁不该把成功登录变成错误。
         }
       }
-      navigate(resolvePostLoginDestination(returnPath, rootWorkspacePath()));
+      navigate(pairingLoginDestination(pairingOnly,returnPath));
     } catch {
       if (isCurrentRequest()) setPairingError("网络错误，请重试");
     } finally {

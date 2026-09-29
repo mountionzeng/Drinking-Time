@@ -1,3 +1,4 @@
+import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -629,7 +630,7 @@ async function submitRunwayVideoExpand(input: {
   form.append("outpaint_aspect_ratio", fields.outpaint_aspect_ratio);
 
   try {
-    const response = await (input.fetcher ?? globalThis.fetch)(
+    const response = await guardComputeFetch(input.fetcher ?? globalThis.fetch)(
       api302Endpoint(RUNWAY_EXPAND_SUBMIT_PATH),
       {
         method: "POST",
@@ -659,7 +660,7 @@ async function submitRunwayVideoExpand(input: {
     return {
       status: "error",
       message: error instanceof Error ? error.message : "302 视频外扩提交失败",
-      submissionState: "unknown",
+      submissionState: error instanceof ComputeAccessError ? "not_submitted" : "unknown",
     };
   }
 }

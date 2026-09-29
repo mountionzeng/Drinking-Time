@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import AuthEntryPanel from "./AuthEntryPanel";
+import AuthEntryPanel,{pairingLoginDestination} from "./AuthEntryPanel";
 import { resolvePostLoginDestination } from "../mobileReturnPath";
 
 vi.stubGlobal("React", React);
@@ -15,6 +15,9 @@ vi.mock("wouter", () => ({
 }));
 
 describe("AuthEntryPanel", () => {
+  it("sends a direct WeChat-code login to the authoritative story shelf while preserving explicit returns",()=>{
+    expect(pairingLoginDestination(true,null)).toBe("/stories");expect(pairingLoginDestination(true,"/m")).toBe("/m");
+  });
   beforeEach(() => {
     vi.stubGlobal("window", {
       location: { search: "" },

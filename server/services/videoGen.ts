@@ -1,3 +1,4 @@
+import { guardComputeFetch } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
@@ -376,7 +377,7 @@ export async function submitShotVideo(
     };
   }
 
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const { url, body } = buildSubmitRequest(input);
   const headers = videoHeaders(providerStatus.submitPath);
 
@@ -466,7 +467,7 @@ export async function refreshShotVideoTask(
     };
   }
 
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   try {
     const url = endpoint(buildPath(pollPath, { taskId }));
     const response = await withTimeout(
@@ -526,7 +527,7 @@ export async function generateShotVideo(
   input: ShotVideoInput,
   options: { fetcher?: Fetcher } = {}
 ): Promise<ShotVideoResult> {
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const submitted = await submitShotVideo(input, { fetcher });
   if (submitted.status !== "ok") return submitted;
   if (submitted.videoUrl) {

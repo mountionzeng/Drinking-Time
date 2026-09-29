@@ -71,6 +71,7 @@ import { textDraftsRouter } from "./textDrafts";
 import { visualAssetsRouter } from "./visualAssets";
 import { timelineMediaRouter } from "./timelineMedia";
 import { storySoundDirectorRouter } from "./storySoundDirector";
+import { shiguangStoryAccessRouter } from "./shiguangStoryAccess";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -329,6 +330,8 @@ export const appRouter = router({
   personalMemory: personalMemoryRouter,
 
   computeAccount: computeAccountRouter,
+
+  shiguangStoryAccess: shiguangStoryAccessRouter,
 
   promptLineage: promptLineageRouter,
 

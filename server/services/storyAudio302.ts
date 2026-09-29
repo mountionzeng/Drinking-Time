@@ -1,3 +1,4 @@
+import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 
 export type GeneratedStoryAudioKind = "music" | "ambience" | "sfx";
@@ -123,6 +124,7 @@ async function limitedJsonPayload(
     }
     json += decoder.decode();
   } catch (error) {
+    if (error instanceof ComputeAccessError) throw new StoryAudio302Error("not_charged_failure", error.message);
     if (error instanceof StoryAudio302Error) throw error;
     throw new StoryAudio302Error(
       "charged_failure",
@@ -156,6 +158,7 @@ async function checkedFetch(
     }
     return response;
   } catch (error) {
+    if (error instanceof ComputeAccessError) throw new StoryAudio302Error("not_charged_failure", error.message);
     if (error instanceof StoryAudio302Error) throw error;
     if (error instanceof Error && error.name === "AbortError") {
       throw new StoryAudio302Error(
@@ -208,7 +211,7 @@ export async function generateStoryAudio302(input: {
     () => controller.abort(),
     input.timeoutMs ?? positiveInteger(ENV.audio302TimeoutMs, 180_000)
   );
-  const fetcher = input.fetcher ?? fetch;
+  const fetcher = guardComputeFetch(input.fetcher ?? fetch);
   try {
     if (input.kind === "music") {
       const model = safeModel(

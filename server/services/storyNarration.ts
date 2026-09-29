@@ -200,6 +200,7 @@ function decodeQuote(token: string): NarrationQuoteClaims | null {
   } catch {
     return null;
   }
+  if (actual.toString("base64url") !== signature) return null;
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     return null;
   }
