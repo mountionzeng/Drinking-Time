@@ -1,3 +1,4 @@
+import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 
 type StoryVoiceFetch = (
@@ -74,7 +75,7 @@ export async function generateStoryVoice302(input: {
     input.timeoutMs ?? positiveInteger(ENV.tts302TimeoutMs, 60_000)
   );
   try {
-    const response = await (input.fetcher ?? fetch)(
+    const response = await guardComputeFetch(input.fetcher ?? fetch)(
       `${baseUrl}/302/tts/generate`,
       {
         method: "POST",
@@ -113,6 +114,7 @@ export async function generateStoryVoice302(input: {
     }
     return { audioUrl, provider, voice };
   } catch (error) {
+    if (error instanceof ComputeAccessError) throw new StoryVoice302Error("not_charged_failure", error.message);
     if (error instanceof Error && error.name === "AbortError") {
       throw new StoryVoice302Error(
         "submission_unknown",

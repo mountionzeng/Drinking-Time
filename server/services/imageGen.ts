@@ -1,3 +1,4 @@
+import { guardComputeFetch } from "./computeRequestAccess";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -967,7 +968,7 @@ export async function generateDraftImage(
   if (!ENV.api302Key) {
     return { status: "error", message: "302 API Key 未配置，无法出草稿图" };
   }
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const model = ENV.image302DraftModel || "flux-schnell";
   const timeoutMs = parseNumber(ENV.image302DraftTimeoutMs, 12_000);
   try {
@@ -1041,7 +1042,7 @@ export async function generateImage(
   prompt: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   if (options.provider === "midjourney" && !ENV.api302Key) {
     return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
   }
@@ -1310,7 +1311,7 @@ export async function resume302GptImageTask(
   taskId: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   try {
     const result = await poll302GptImageTask(taskId, options, fetcher);
     if (result.status === "ok") recordSuccess();
@@ -1637,7 +1638,7 @@ export async function editImage(
     return { status: "error", message: circuitBreakerMessage() };
   }
 
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   if (options.provider === "midjourney" && !ENV.api302Key) {
     return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
   }
@@ -1927,7 +1928,7 @@ export async function resume302MidjourneyTask(
   if (!taskId.trim()) {
     return { status: "error", message: "302 Midjourney task id is missing" };
   }
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   return poll302MidjourneyTask(taskId.trim(), options, fetcher, Date.now());
 }
 
@@ -2108,7 +2109,7 @@ export async function inpaintImage(
     return { status: "error", message: circuitBreakerMessage() };
   }
 
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
 
   try {
     const body: Record<string, unknown> = {
