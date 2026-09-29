@@ -1,3 +1,4 @@
+import { noteComputeReservation } from "./computeRequestAccess";
 /**
  * 算力账本的领域命令层。
  *
@@ -11,6 +12,7 @@ import {
   findActiveCreditHold,
   findBillingOperation,
   getCreditAccountSummary,
+  getDb,
   listProviderAttemptsForOperation,
   readComputeStatementSnapshot,
   recordProviderAttempt,
@@ -23,6 +25,18 @@ import {
   type BillingOperationStatus,
   type ProviderOutcome,
 } from "./computeBilling";
+
+/** Production provider admission reads only the shared, authoritative ledger. */
+export async function canFundComputeRequest(userId: number, reservations: ReadonlySet<string>): Promise<boolean> {
+  if (!await getDb()) throw new Error("Shared ledger unavailable");
+  const summary = await getCreditAccountSummary(userId);
+  if (Number.isSafeInteger(summary.availableMinor) && summary.availableMinor > 0) return true;
+  for (const id of reservations) {
+    const [hold, operation] = await Promise.all([findActiveCreditHold(id), findBillingOperation(id)]);
+    if (hold && operation?.userId === userId && Number(hold.amountMinor) > 0) return true;
+  }
+  return false;
+}
 
 /** Provider-attempt persistence remains behind the compute-ledger seam. */
 export function recordOperationProviderAttempt(
@@ -127,6 +141,7 @@ export async function reserveForOperation(
   });
 
   if (reserved.kind === "reserved") {
+    noteComputeReservation(input.userId, input.operationId);
     return {
       outcome: "reserved",
       amountMinor: plan.amountMinor,

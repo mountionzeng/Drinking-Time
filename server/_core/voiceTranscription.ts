@@ -1,3 +1,4 @@
+import { guardComputeFetch } from "../services/computeRequestAccess";
 /**
  * Voice transcription helper using Volcengine (Doubao) recording-file ASR.
  *
@@ -89,7 +90,7 @@ export async function transcribeAudio(
     let audioBuffer: Buffer;
     let mimeType: string;
     try {
-      const response = await fetch(options.audioUrl);
+      const response = await guardComputeFetch(fetch)(options.audioUrl);
       if (!response.ok) {
         return {
           error: "Failed to download audio file",
@@ -190,7 +191,7 @@ async function postDoubaoTranscription(
     };
   }
 
-  const response = await fetch("https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash", {
+  const response = await guardComputeFetch(fetch)("https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -263,7 +264,7 @@ async function post302Transcription(
   if (options.language) formData.append("language", options.language);
 
   const baseUrl = (ENV.api302BaseUrl || "https://api.302.ai").replace(/\/+$/, "");
-  const response = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
+  const response = await guardComputeFetch(fetch)(`${baseUrl}/v1/audio/transcriptions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${ENV.api302Key}` },
     body: formData,

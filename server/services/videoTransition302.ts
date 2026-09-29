@@ -1,3 +1,4 @@
+import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -257,7 +258,7 @@ export async function uploadFileTo302(
   options: { fetcher?: Fetcher; timeoutMs?: number } = {}
 ) {
   requireApiKey();
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const copy = new Uint8Array(input.bytes.byteLength);
   copy.set(input.bytes);
   const form = new FormData();
@@ -312,7 +313,7 @@ export async function uploadFileToVidu(
     throw new Error("Vidu 上传只支持 PNG、JPEG 或 WEBP");
   }
 
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const timeoutMs = options.timeoutMs ?? 60_000;
   let createResponse: Response;
   let createJson: unknown;
@@ -465,7 +466,7 @@ export async function submitViduTransition(
   options: { fetcher?: Fetcher; timeoutMs?: number } = {}
 ) {
   requireApiKey();
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const body = buildViduTransitionBody(input);
   let response: Response;
   let json: unknown;
@@ -481,7 +482,7 @@ export async function submitViduTransition(
   } catch (error) {
     throw new ViduSubmissionError(
       providerErrorMessage(error, "Vidu 提交请求失败"),
-      "unknown"
+      error instanceof ComputeAccessError ? "not_submitted" : "unknown"
     );
   } finally {
     deadline.clear();
@@ -515,7 +516,7 @@ export async function refreshViduTransition(
   options: { fetcher?: Fetcher; timeoutMs?: number } = {}
 ): Promise<ViduTransitionRefreshResult> {
   requireApiKey();
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const url = endpoint(
     VIDU_FETCH_PATH.replace("{taskId}", encodeURIComponent(taskId))
   );
@@ -624,7 +625,7 @@ export async function downloadVideoToFile(
     maxBytes?: number;
   } = {}
 ) {
-  const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const maxBytes = options.maxBytes ?? 200 * 1024 * 1024;
   await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
   const temporaryPath = temporarySiblingPath(outputPath);

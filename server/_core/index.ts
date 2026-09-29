@@ -403,7 +403,7 @@ async function startServer() {
 
   const port = await findAvailablePort(preferredPort);
 
-  server.listen(port, () => {
+  server.listen(port, process.env.NODE_ENV === "production" ? "127.0.0.1" : undefined, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
 

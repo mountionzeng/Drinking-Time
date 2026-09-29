@@ -3091,7 +3091,8 @@
         "client/src/assets/fonts/honglei-zhuoshu-brand.ttf",
         "server/services/supabaseGoogleAuth.ts",
         "client/src/pages/SupabaseAuthCallbackPage.tsx",
-        "drizzle/0021_google_login_identity.sql"
+        "drizzle/0021_google_login_identity.sql",
+        "server/services/computeRequestAccess.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3121,7 +3122,11 @@
         "docs/qa/2026-09-13-wechat-registration-credit.md",
         "server/integration/wechatAccount.mysql.test.ts",
         "minigame/src/workspaceClient.test.ts",
-        "drizzle/0021_google_login_identity.sql"
+        "drizzle/0021_google_login_identity.sql",
+        "server/services/computeRequestAccess.test.ts",
+        "server/services/computeProviderBoundary.test.ts",
+        "server/integration/computeAccess.mysql.test.ts",
+        "docs/qa/2026-09-29-production-web-restore.md"
       ],
       "invariants": [
         "邮箱账号与微信账号保持独立；微信端故事通过一次性短码在电脑进入同一微信 userId，不合并到已有邮箱账号，也不复制故事或余额。",
@@ -3138,6 +3143,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "本轮补齐正式环境供应商提交前的零余额准入检查；它不替代原有预占结算，也不宣称所有正余额调用已完成逐笔计费。正式站余额保持零，不新增充值或自动赠送入口；未接入账本的正余额消费仍须后续补齐。",
         "真实微信端已经接入余额与逐笔账单展示，微信账号下次成功登录会幂等领取固定 10 算力（¥5 账本额度）；赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
@@ -3145,6 +3151,11 @@
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。"
       ],
       "history": [
+        {
+          "date": "2026-09-29",
+          "kind": "fix",
+          "summary": "按用户恢复正式站并先补齐余额限制的要求，基于线上5b469f0版本增加服务端身份上下文及文字/图像/视频/声音/识别供应商提交前余额检查；零余额、匿名或账本不可用不发付费请求，已有内容读写及媒体读取不受影响，已预占的本人操作可继续；自动来信余额不足时返回旧稿。附带已合并的Drizzle事务逗号补丁，并将生产监听限制为loopback。发布与实际验证状态见QA记录。"
+        },
         {
           "date": "2026-09-02",
           "kind": "decision",

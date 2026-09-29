@@ -1,0 +1,26 @@
+diff --git a/mysql-core/session.cjs b/mysql-core/session.cjs
+index 4a4356885829308d83dd969d2b7bf8b6ef9eb0ea..9196ed63a3b4d2ccda56ddf8b9f9f3f98139438e 100644
+--- a/mysql-core/session.cjs
++++ b/mysql-core/session.cjs	
+@@ -142,7 +142,7 @@ class MySqlSession {
+     if (config.accessMode) {
+       parts.push(config.accessMode);
+     }
+-    return parts.length ? import_sql.sql`start transaction ${import_sql.sql.raw(parts.join(" "))}` : void 0;
++    return parts.length ? import_sql.sql`start transaction ${import_sql.sql.raw(parts.join(", "))}` : void 0;
+   }
+ }
+ class MySqlTransaction extends import_db.MySqlDatabase {
+diff --git a/mysql-core/session.js b/mysql-core/session.js
+index 590c9258cf6718b4d6be0a156c6975dd085e8d3d..bff86dac354d0d35c79991593684e5e5377bb6d8 100644
+--- a/mysql-core/session.js
++++ b/mysql-core/session.js	
+@@ -117,7 +117,7 @@ class MySqlSession {
+     if (config.accessMode) {
+       parts.push(config.accessMode);
+     }
+-    return parts.length ? sql`start transaction ${sql.raw(parts.join(" "))}` : void 0;
++    return parts.length ? sql`start transaction ${sql.raw(parts.join(", "))}` : void 0;
+   }
+ }
+ class MySqlTransaction extends MySqlDatabase {
