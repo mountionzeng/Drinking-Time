@@ -4165,6 +4165,7 @@
         "client/src/features/analysis/views/DailyLetterWelcome.tsx",
         "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
         "client/src/features/storyAgent/views/StoryCoverThumbnail.tsx",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.tsx",
         "client/src/features/storyAgent/spine/selectors.ts",
         "client/src/features/storyAgent/spine/storySpine.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
@@ -4181,6 +4182,7 @@
         "client/src/pages/LoginPage.test.tsx",
         "client/src/app/shell/StoryLogoMenu.test.tsx",
         "client/src/features/storyAgent/spine/selectors.test.ts",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.test.tsx",
         "shared/publishingDraft.test.ts",
         "server/routers.storyAgent.test.ts"
       ],
@@ -4261,6 +4263,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-29",
+          "kind": "fix",
+          "summary": "按实机截图放大拾光家忆聊天气泡外侧的小忆头像，并提高其水彩色彩与轮廓对比；裁切、底色、边框和滤镜都限定在拾光主题，纳音五行继续使用原有五行 SVG 尺寸与样式。"
         },
         {
           "date": "2026-09-29",
