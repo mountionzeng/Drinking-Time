@@ -46,6 +46,8 @@ import {
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import StoryCoverThumbnail from "./StoryCoverThumbnail";
+import ChatAssistantAvatar from "./ChatAssistantAvatar";
+import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
 import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
@@ -1358,8 +1360,16 @@ export default function StoryAgentChat({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
             >
+              {m.role === "assistant" ? (
+                <ChatAssistantAvatar
+                  visualTheme={visualTheme}
+                  element={element}
+                  emotion={emotionForMessage(m.spawnedCardId)}
+                  animated={m.id === lastAssistantId}
+                />
+              ) : null}
               <div
                 className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${
                   m.role === "user" ? "rounded-tr-sm" : "rounded-tl-sm border"
@@ -1378,19 +1388,8 @@ export default function StoryAgentChat({
                       }
                 }
               >
-                {visualTheme === "nayin" && m.role === "assistant" ? (
-                  <div className="mb-1 flex items-center gap-1.5">
-                    <EmotiveWuxingIcon
-                      element={element}
-                      size={26}
-                      emotion={emotionForMessage(m.spawnedCardId)}
-                      animated={m.id === lastAssistantId}
-                    />
-                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                      聊聊
-                    </span>
-                  </div>
-                ) : null}
+                {/* 头像已经挪到气泡外侧（见 ChatAssistantAvatar），
+                    这里不再画第二个，也不重复署名「聊聊」。 */}
                 {m.selectionQuote && (
                   <div className="mb-1.5">
                     <SelectionContextCard
@@ -1803,7 +1802,12 @@ export default function StoryAgentChat({
                 style={{ borderColor: "var(--panel-border)" }}
               />
             </div>
-            <div className="flex justify-start">
+            <div className="flex items-start justify-start gap-2">
+              <ChatAssistantAvatar
+                visualTheme={visualTheme}
+                element={element}
+                animated
+              />
               <div
                 className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2 text-[12.5px] leading-relaxed"
                 style={{
@@ -1812,14 +1816,6 @@ export default function StoryAgentChat({
                   color: "var(--foreground)",
                 }}
               >
-                {visualTheme === "nayin" ? (
-                  <div className="mb-1 flex items-center gap-1.5">
-                    <EmotiveWuxingIcon element={element} size={26} mood="joy" />
-                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                      聊聊
-                    </span>
-                  </div>
-                ) : null}
                 <p className="whitespace-pre-wrap">{returningGreeting}</p>
               </div>
             </div>
@@ -1830,8 +1826,14 @@ export default function StoryAgentChat({
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex justify-start"
+            className="flex items-start justify-start gap-2"
           >
+            <ChatAssistantAvatar
+              visualTheme={visualTheme}
+              element={element}
+              mood="thinking"
+              animated
+            />
             <div
               className="rounded-2xl rounded-tl-sm px-3 py-2 border flex items-center gap-2"
               style={{
@@ -1839,13 +1841,6 @@ export default function StoryAgentChat({
                 borderColor: "var(--panel-border)",
               }}
             >
-              {visualTheme === "nayin" ? (
-                <EmotiveWuxingIcon
-                  element={element}
-                  size={26}
-                  mood="thinking"
-                />
-              ) : null}
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
                 <span
@@ -2138,6 +2133,12 @@ export default function StoryAgentChat({
             )}
           </button>
         </div>
+        <TextDraftVersions
+          key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
+          storyId={remoteStoryId ?? activeStoryId ?? null}
+          input={input}
+          blocked={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
+        />
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Compass } from "lucide-react";
 
 interface TopBarPanelToggle {
   label: string;
@@ -32,6 +32,8 @@ interface TopBarPanelToggle {
   controls?: string;
   testId?: string;
   subnav?: ReactNode;
+  /** 首次使用引导用来定位这颗按钮。 */
+  tourAnchor?: string;
 }
 
 /** 顶栏 Logo 上那层故事菜单要的数据与动作；不传就只显示一个不可点的 Logo。 */
@@ -55,6 +57,8 @@ interface TopBarProps {
    * 右边这一列自己上下堆：上面是工作区按钮，下面是这条。
    */
   secondaryRow?: ReactNode;
+  /** 传了就在用户菜单里显示「重看使用引导」。 */
+  onReplayTour?: () => void;
 }
 
 export default function TopBar({
@@ -66,6 +70,7 @@ export default function TopBar({
   accountActions,
   storyMenu,
   secondaryRow,
+  onReplayTour,
 }: TopBarProps) {
   const {
     allThemes,
@@ -106,7 +111,7 @@ export default function TopBar({
       >
         <div className="flex items-stretch gap-3">
           {/* 左：Logo，竖着居中，贯穿右边那两行 */}
-          <div className="flex shrink-0 items-center">
+          <div className="flex shrink-0 items-center" data-tour="story-menu">
             <StoryLogoMenu
               element={element}
               visualTheme={visualTheme}
@@ -177,6 +182,7 @@ export default function TopBar({
                               ? "topbar-panel-toggle"
                               : `topbar-panel-toggle-${index}`)
                           }
+                          data-tour={toggle.tourAnchor}
                           aria-pressed={toggle.active}
                           aria-controls={toggle.controls}
                           aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
@@ -234,7 +240,9 @@ export default function TopBar({
               <div className="flex items-center gap-2">
                 {/* 算力余额：钱要一直看得见，不能藏在二级菜单里 */}
                 {accountActions}
-                <ComputeBalanceBadge compact enabled={Boolean(user?.id)} />
+                <span data-tour="compute-balance">
+                  <ComputeBalanceBadge compact enabled={Boolean(user?.id)} />
+                </span>
                 {/* User avatar + logout popover */}
                 <Popover open={userOpen} onOpenChange={setUserOpen}>
                   <PopoverTrigger asChild>
@@ -251,6 +259,7 @@ export default function TopBar({
                           "0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)",
                       }}
                       aria-label="用户"
+                      data-tour="account"
                     >
                       {visualTheme === "shiguang" ? (
                         <span
@@ -456,6 +465,20 @@ export default function TopBar({
                         >
                           <BarChart3 className="h-3.5 w-3.5" />
                           用户管理
+                        </button>
+                      ) : null}
+                      {onReplayTour ? (
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
+                          data-testid="topbar-replay-tour"
+                          onClick={() => {
+                            setUserOpen(false);
+                            onReplayTour();
+                          }}
+                        >
+                          <Compass className="h-3.5 w-3.5" />
+                          重看使用引导
                         </button>
                       ) : null}
                       <button

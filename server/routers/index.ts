@@ -67,6 +67,7 @@ import { creationAgentRouter } from "./creationAgent";
 import { computeAccountRouter } from "./computeAccount";
 import { personalMemoryRouter } from "./personalMemory";
 import { publishingDraftRouter } from "./publishingDraft";
+import { textDraftsRouter } from "./textDrafts";
 import { visualAssetsRouter } from "./visualAssets";
 import { timelineMediaRouter } from "./timelineMedia";
 import { storySoundDirectorRouter } from "./storySoundDirector";
@@ -1160,6 +1161,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: storyAgentRouter,
   publishingDraft: publishingDraftRouter,
+  textDrafts: textDraftsRouter,
   visualAssets: visualAssetsRouter,
 
   // Subtitle + multi-audio-track narrow commands (one write path per U1/U3).

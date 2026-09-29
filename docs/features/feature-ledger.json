@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-17T23:15:00+08:00",
+  "updatedAt": "2026-09-29T19:00:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -3241,9 +3241,11 @@
         "server/services/supabaseGoogleAuth.test.ts",
         "docs/qa/2026-09-13-shiguang-login-staging.md",
         "docs/qa/2026-09-13-wechat-registration-credit.md",
+        "docs/qa/2026-09-28-emergency-web-lockdown.md",
         "server/integration/wechatAccount.mysql.test.ts",
         "minigame/src/workspaceClient.test.ts",
-        "drizzle/0021_google_login_identity.sql"
+        "drizzle/0021_google_login_identity.sql",
+        "docs/qa/2026-09-29-production-web-restore.md"
       ],
       "invariants": [
         "邮箱账号与微信账号保持独立；微信端故事通过一次性短码在电脑进入同一微信 userId，不合并到已有邮箱账号，也不复制故事或余额。",
@@ -3251,7 +3253,7 @@
         "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
         "本机不限额只能由服务端 development 环境的显式开关决定；客户端参数、普通用户身份和管理员身份均不能开启线上免额。",
         "本机不限额仍须记录已接入账本调用的实际成本，并向本机界面展示累计成本；生产环境仍使用余额闸门。",
-        "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
+        "正常运行时余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。用户明确授权的全站紧急停用除外，停用必须保留原数据、审计记录与恢复路径。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
         "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。"
       ],
@@ -3262,6 +3264,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "2026-09-29 已按用户授权恢复正式站，测试站仍暂停。正式站部署 226c9bb4，补齐供应商提交前零余额检查，原有 4 账户/1 故事/零余额保留；公开登录表单已验收，真实邮箱验证码/Google 授权尚未验收。正余额路径逐笔预占/结算仍有缺口，不能据此声称全站计费完成。修复已另行合入本地 main，本工作分支未切换，详见恢复 QA。",
         "真实微信端已经接入余额与逐笔账单展示，微信账号下次成功登录会幂等领取固定 10 算力（¥5 账本额度）；赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
@@ -3270,9 +3273,19 @@
       ],
       "history": [
         {
+          "date": "2026-09-29",
+          "kind": "fix",
+          "summary": "按用户“先补齐余额限制，再恢复完整网站”的授权，仅基于正式站原版本发布供应商零余额准入保护与既有 Drizzle 事务修复。正式 HTTPS、健康/就绪与主资源均 200，浏览器表单无控制台错误；4 个实际账户均在发送供应商请求前拦截，测试站与 IP 维护保持。真实用户登录和所有正余额调用逐笔扣费仍属验证/实现缺口。证据见 docs/qa/2026-09-29-production-web-restore.md。"
+        },
+        {
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "本机 development 环境改为显式服务端开关的不限额：预占可临时穿透余额，但继续走 hold、provider attempt 与结算链路，因此已接入账本的真实供应商成本仍累计显示在顶栏；不写入任何可带到线上使用的赠送余额，生产、预览与测试环境继续执行余额闸门，客户端不能请求绕过。定向账本/路由/策略测试（28 项）及 TypeScript 检查通过；全站尚未接入账本的供应商路径仍按 knownGaps 保留。"
+        },
+        {
+          "date": "2026-09-28",
+          "kind": "decision",
+          "summary": "按用户紧急明确指令，先备份并停止正式与测试网页服务，再加 nginx 全入口维护拦截，随后事务内追加两条余额清零 adjustment。两库余额投影与流水一致、无活动预占；除余额及追加流水外的全库导出前后逐字节一致。公网页面/POST 接口均为 503，本机 3000 为 200，未修改小程序云环境、供应商密钥、故事或图片。停用与恢复证据记录于 docs/qa/2026-09-28-emergency-web-lockdown.md；等待新的明确指令方可恢复线上。"
         },
         {
           "date": "2026-09-02",
@@ -4177,6 +4190,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-29",
+          "kind": "fix",
+          "summary": "按实机截图收敛两处细节：文字工作区抬头把中英混杂的“Publishing Draft · 小红书”改成固定文案“发布文案区”，两套主题共用同一行不再拼接平台名；顶栏“今日来信”入口在拾光主题下换成新绘的羽毛笔水彩图标（daily-letter-quill.svg，因图像生成工具当时不可用改为手绘 SVG，沿用 nav-export-v2 的色板/线条风格），独立成新文件不复用原 nav-writing-v2.png，“文字”面板按钮图标与纳音主题图标均未受影响。定向 53 个文件 256 项测试与 TypeScript 通过，主仓 3000 双主题浏览器验收通过。"
         }
       ]
     },
@@ -4245,6 +4263,106 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "与电脑桥共用 shiguangBridgeSignature 签名协议实现，保留旧导出入口。可选 undefined 对象字段统一按协议省略，实际 JSON 请求签名不变；旧邮箱桥固定向量、共享验签边界与篡改用例、两桥 HTTP 测试覆盖兼容性。账号归属、默认关闭配置、独立限流及 nonce 存储不变，真实部署和 MySQL 验收仍待完成。"
+        }
+      ]
+    },
+    {
+      "id": "independent-text-versions",
+      "name": "聊天驱动的独立文字版本与双过程文风学习",
+      "status": "observing",
+      "userValue": "在聊天框下用旧稿和新对话生成新文字版本，回看、修改并明确采用；依据自写或认可样本及实际采用稿逐步调整表达技巧。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/routers/textDrafts.ts"
+      ],
+      "owners": [
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "client/src/features/publishingDraft/textDraftBasis.ts",
+        "shared/textDraftHistory.ts",
+        "server/services/textDraftHistory.ts",
+        "server/services/textDraftPrompt.ts",
+        "server/services/writingTechniqueLibrary.ts"
+      ],
+      "evidence": [
+        "server/services/textDraftHistory.test.ts",
+        "client/src/features/publishingDraft/textDraftBasis.test.ts",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "docs/qa/2026-09-29-independent-text-versions.md"
+      ],
+      "invariants": [
+        "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
+        "以旧稿和新增或修改的对话生成新稿；保存来源版本、完整输入及提示词/技巧库版本。",
+        "服务端按 storyId 与 userId 校验归属，历史为服务端专属字段，普通故事保存不能伪造或覆盖学习证据。",
+        "同一 operationToken 与请求内容只认领一次；模型调用位于持久化重试之外，不确定结果不自动重提。",
+        "原有表达与采用反馈分开存储及解释；不确定或参考资料不是强偏好证据，未采用生成稿不作为认可样本。",
+        "用户可停用文风参考证据；按用户和平台隔离、去重；技巧库不吸收用户私密原句。",
+        "保留人工标题、平台约束和修订冲突检测，不自动触发图片、视频或语音生成。"
+      ],
+      "dependencies": ["story-ownership", "publishing-workspace", "publishing-versions"],
+      "replaces": [],
+      "knownGaps": [
+        "已验证本地入口与模拟模型下的持久化链路；未做真实付费模型生成、文学效果评价或 MySQL 并发验收。",
+        "首批4张技巧卡是有来源链接的编辑性归纳，不宣称已完成作品逐段核验；未覆盖全部写作场景。",
+        "只接入独立文字版本链路，不改变旧生成、转换或改写入口；学习为提示词证据推断，不是基础模型训练。",
+        "首版检索最近100个故事，每个平台最多6份原文及6份采用证据；每故事最多100次记录及5MB正文容量。",
+        "面板未采用编辑只暂存在当前页面，刷新会丢失；生成记录和已采用稿持久保存。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-29",
+          "kind": "implementation",
+          "summary": "接续已确认需求，新增聊天框下生成新版本、独立文字历史及明确采用入口；后端版本化技巧卡与两类证据接入同一次生成，复用Story CAS保护并发，补充幂等、隔离、标题、快照及旧对话兼容回归。入口只读浏览器检查通过；实际模型效果与SQL验收待完成，登记observing。"
+        }
+      ]
+    },
+    {
+      "id": "studio-first-use-tour",
+      "name": "电脑版工作室首次使用引导",
+      "status": "observing",
+      "userValue": "新用户第一次进入电脑版工作室时，界面逐块高亮并说明这一块能做什么；看完不再打扰，之后可从用户菜单重看。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx"
+      ],
+      "owners": [
+        "client/src/features/studioTour/StudioTour.tsx",
+        "client/src/features/studioTour/studioTourSteps.ts",
+        "client/src/features/studioTour/studioTourStorage.ts",
+        "client/src/app/shell/TopBar.tsx",
+        "client/src/index.css"
+      ],
+      "evidence": [
+        "client/src/features/studioTour/studioTourSteps.test.ts",
+        "client/src/features/studioTour/studioTourStorage.test.ts",
+        "client/src/features/studioTour/StudioTour.test.tsx",
+        "client/src/app/shell/TopBar.test.tsx"
+      ],
+      "invariants": [
+        "只做说明，不代替用户操作：引导不点按钮、不改故事、不写业务数据。",
+        "自动播放按账号只发生一次，记录写在本机 localStorage；读不到本地存储时不自动弹，避免每次进来都被拦。",
+        "锚点用 data-tour 定位，找不到的步骤自动跳过；一块都认不出来时放弃这次播放且不写 seen。",
+        "已有弹层（每日来信等 aria-modal 对话框）开着时不抢屏，等它关闭再开始。",
+        "高亮与说明卡只用 --nayin-accent 等主题变量，拾光家忆与纳音五行两套皮肤都跟随；prefers-reduced-motion 下关闭动画。"
+      ],
+      "dependencies": [
+        "recent-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "只覆盖电脑版工作室的顶层区域；剪辑台内部（故事版、预览播放器、时间轴轨道）和手机版 /m 尚未纳入。",
+        "已用 Chrome DevTools 协议在 1440×900、1024×620、1280×480 三种视口走完七步并截图，纳音五行皮肤下的视觉确认仍未做，也未经真人试用。",
+        "seen 记录只在本机，换浏览器或清缓存会再播一次；未做服务端账号级记录。",
+        "让开弹层靠 aria-modal 对话框特征判断；今后新增不带该属性的自定义弹层需要同步维护这条判断。"
+      ],
+      "history": [
+        {
+          "date": "2026-09-25",
+          "kind": "feature",
+          "summary": "新增聚光灯式首次使用引导：七步依次高亮故事菜单、聊聊、文字、图像和声音、导出成片、算力余额与账号菜单，说明卡自动翻转并夹在视口内。顶栏、工作区按钮、导出按钮和左栏加 data-tour 锚点，不改动既有结构与文案；用户菜单新增「重看使用引导」。25 项定向单测与 TypeScript 门禁通过，真实浏览器人工验收未完成，保持 observing。"
+        },
+        {
+          "date": "2026-09-28",
+          "kind": "fix",
+          "summary": "真实浏览器验收发现两处缺陷并修好：一是引导会和每日来信叠在一起（来信自己决定弹出时机，只看 props 漏判），改为开场前后都按 aria-modal 特征盯 DOM，一出现就让开且不写 seen，下次进来照讲；二是左侧聊聊栏几乎占满屏高时说明卡被挤到视口外，新增 cardAnchorRect 对超高锚点只取顶部一段定位，高亮框仍框住整块。三种视口下七步全部在屏、无控制台报错，定向单测增至 43 项。"
         }
       ]
     }

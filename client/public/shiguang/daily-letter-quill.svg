@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" fill="none">
+  <!-- 羽毛：延续 nav-export-v2 的水彩块 + 细墨线路数，强调「写」而不是「信」本身 -->
+  <path
+    d="M132 24c-30 6-56 24-70 52-9 18-13 38-11 58 20-3 39-11 54-24 26-23 38-54 34-84a54 54 0 0 0-7-2Z"
+    fill="#EFD9B8"
+    fill-opacity=".7"
+  />
+  <path
+    d="M132 24c-30 6-56 24-70 52-9 18-13 38-11 58 6-1 12-2 18-4-3-19 0-39 9-57 12-24 32-41 56-49a54 54 0 0 0-2 0Z"
+    fill="#C7905F"
+    fill-opacity=".5"
+  />
+  <path
+    d="M132 24c-30 6-56 24-70 52-9 18-13 38-11 58 20-3 39-11 54-24 26-23 38-54 34-84"
+    stroke="#8A5A34"
+    stroke-opacity=".72"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M124 36c-8 22-22 40-40 52M132 50c-11 20-27 36-46 46M138 68c-13 16-29 29-48 37"
+    stroke="#8A5A34"
+    stroke-opacity=".38"
+    stroke-width="2.5"
+    stroke-linecap="round"
+  />
+  <!-- 笔尖 + 一道墨迹，和信纸插画共用的青绿墨色 -->
+  <path
+    d="M51 134c-4 4-8 12-9 22 10-1 18-5 22-9"
+    fill="#4F7F6B"
+    fill-opacity=".22"
+  />
+  <path
+    d="M51 134c-4 4-8 12-9 22 10-1 18-5 22-9l-13-13Z"
+    stroke="#4F7F6B"
+    stroke-opacity=".78"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M46 152c8 3 15 2 21-3"
+    stroke="#4F7F6B"
+    stroke-opacity=".6"
+    stroke-width="3"
+    stroke-linecap="round"
+  />
+</svg>
