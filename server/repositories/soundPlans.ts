@@ -21,6 +21,7 @@ import {
   now,
   persistMemoryState,
 } from "./runtime";
+import { isDuplicateKeyError } from "./memoryEvents";
 
 let storySoundMemoryMutationTail: Promise<void> = Promise.resolve();
 
@@ -37,6 +38,15 @@ async function withStorySoundMemoryLock<T>(
     return await action();
   } finally {
     release();
+  }
+}
+
+async function retryOnceOnDuplicate<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) throw error;
+    return action();
   }
 }
 
@@ -271,7 +281,7 @@ export async function getOrCreateStorySoundPlanVersionRecord(
       await persistMemoryState();
       return structuredClone(row);
     });
-  return db.transaction(async tx => {
+  return retryOnceOnDuplicate(() => db.transaction(async tx => {
     const duplicate = (
       await tx
         .select()
@@ -303,31 +313,9 @@ export async function getOrCreateStorySoundPlanVersionRecord(
       )
       .for("update");
     const publicId = randomUUID();
-    try {
-      await tx
-        .insert(storySoundPlanVersions)
-        .values({ ...input, publicId, versionNumber: Number(nextVersion) });
-    } catch {
-      const raced = (
-        await tx
-          .select()
-          .from(storySoundPlanVersions)
-          .where(
-            and(
-              eq(storySoundPlanVersions.storyId, input.storyId),
-              eq(storySoundPlanVersions.userId, input.userId),
-              eq(storySoundPlanVersions.contentDigest, input.contentDigest),
-              eq(
-                storySoundPlanVersions.evidenceSnapshotDigest,
-                input.evidenceSnapshotDigest
-              )
-            )
-          )
-          .limit(1)
-      )[0];
-      if (raced) return raced;
-      throw new Error("Failed to create sound plan version");
-    }
+    await tx
+      .insert(storySoundPlanVersions)
+      .values({ ...input, publicId, versionNumber: Number(nextVersion) });
     return (
       await tx
         .select()
@@ -335,7 +323,7 @@ export async function getOrCreateStorySoundPlanVersionRecord(
         .where(eq(storySoundPlanVersions.publicId, publicId))
         .limit(1)
     )[0]!;
-  });
+  }));
 }
 
 export async function getOrCreateStorySoundRowOperationRecord(
@@ -382,7 +370,7 @@ export async function getOrCreateStorySoundRowOperationRecord(
       await persistMemoryState();
       return structuredClone(row);
     });
-  return db.transaction(async tx => {
+  return retryOnceOnDuplicate(() => db.transaction(async tx => {
     const existing = (
       await tx
         .select()
@@ -442,7 +430,7 @@ export async function getOrCreateStorySoundRowOperationRecord(
         .where(eq(storySoundRowOperations.publicId, publicId))
         .limit(1)
     )[0]!;
-  });
+  }));
 }
 
 export async function listStorySoundRowOperationRecords(input: {
@@ -609,7 +597,7 @@ export async function getOrCreateStoryVoiceActivationOperationRecord(input: {
       await persistMemoryState();
       return structuredClone(row);
     });
-  return db.transaction(async tx => {
+  return retryOnceOnDuplicate(() => db.transaction(async tx => {
     const existing = (
       await tx
         .select()
@@ -656,5 +644,5 @@ export async function getOrCreateStoryVoiceActivationOperationRecord(input: {
         .where(eq(storyVoiceActivationOperations.publicId, publicId))
         .limit(1)
     )[0]!;
-  });
+  }));
 }
