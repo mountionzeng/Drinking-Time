@@ -2490,8 +2490,18 @@ select option {
   object-fit: cover;
 }
 
-[data-visual-theme="shiguang"] .chat-assistant-avatar img {
-  border: 1px solid rgba(79, 127, 107, 0.2);
-  background: rgba(229, 239, 233, 0.75);
-  box-shadow: 0 1px 4px rgba(64, 105, 88, 0.1);
+[data-visual-theme="shiguang"] .chat-assistant-avatar {
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(201, 225, 211, 0.88);
+  box-shadow: 0 1px 4px rgba(47, 91, 69, 0.2);
+}
+
+[data-visual-theme="shiguang"] .chat-assistant-avatar-shiguang {
+  width: 118%;
+  height: 118%;
+  max-width: none;
+  max-height: none;
+  border: 1px solid rgba(53, 106, 79, 0.4);
+  filter: saturate(1.14) contrast(1.08);
 }

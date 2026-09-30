@@ -42,7 +42,11 @@ export default function ChatAssistantAvatar({
       aria-hidden="true"
     >
       {visualTheme === "shiguang" ? (
-        <img src="/shiguang/xiaoyi-avatar.png" alt="" />
+        <img
+          className="chat-assistant-avatar-shiguang"
+          src="/shiguang/xiaoyi-avatar.png"
+          alt=""
+        />
       ) : (
         <EmotiveWuxingIcon
           element={element}

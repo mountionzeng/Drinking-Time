@@ -10,6 +10,7 @@ describe("ChatAssistantAvatar", () => {
     );
 
     expect(html).toContain("/shiguang/xiaoyi-avatar.png");
+    expect(html).toContain("chat-assistant-avatar-shiguang");
     expect(html).not.toContain("<svg");
   });
 
