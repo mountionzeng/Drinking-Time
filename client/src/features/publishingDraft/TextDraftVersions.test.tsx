@@ -46,13 +46,13 @@ beforeEach(() => {
   fixture.mutate.mockClear();
 });
 describe("independent text version controls", () => {
-  it("renders the explicit generation and history actions without calling a model", () => {
+  it("renders one compact generation entry without taking over the composer", () => {
     const html = renderToStaticMarkup(
       <TextDraftVersions storyId={1} input="新的补充" blocked={false} />
     );
     expect(html).toContain("生成新版本");
-    expect(html).toContain("文字版本");
-    expect(html).toContain("尚未发送的文字一起生成");
+    expect(html).toContain("继续补充，准备好再生成。");
+    expect(html).not.toContain("文字版本");
     expect(fixture.mutate).not.toHaveBeenCalled();
   });
   it("disables generation while the chat is busy", () => {
@@ -60,7 +60,7 @@ describe("independent text version controls", () => {
       <TextDraftVersions storyId={1} input="" blocked />
     );
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>/);
-    expect(html).not.toContain("尚未发送");
+    expect(html).toContain("继续补充，准备好再生成。");
   });
   it("shows a retry affordance instead of treating unreadable history as empty", () => {
     fixture.error = true;

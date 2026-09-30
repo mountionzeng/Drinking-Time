@@ -108,14 +108,24 @@ describe("independent text versions with real Story CAS persistence", () => {
       basis: { title: "我的标题", body: "用户修改的旧稿", tags: ["保留"] },
       messages: [
         ...input.messages,
-        { id: "m2", role: "user", content: "结尾短一点，保留原话" },
+        {
+          id: "m2",
+          role: "assistant",
+          content: "已梳理出外婆等候与回家人重逢的关系，结尾应收在一句原话。",
+        },
+        { id: "m3", role: "user", content: "结尾短一点，保留原话" },
       ],
       instruction: "输入框未发送的补充",
     });
     const sent = JSON.parse(model.mock.calls[1][0].message);
     expect(sent.basis.body).toBe("用户修改的旧稿");
     expect(sent.conversationDelta).toEqual([
-      { id: "m2", role: "user", content: "结尾短一点，保留原话" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "已梳理出外婆等候与回家人重逢的关系，结尾应收在一句原话。",
+      },
+      { id: "m3", role: "user", content: "结尾短一点，保留原话" },
     ]);
     expect(sent.instruction).toBe("输入框未发送的补充");
     expect(next.versions[0]).toEqual(first.versions[0]);
@@ -380,6 +390,8 @@ describe("writing prompt contracts", () => {
     expect(prompt.systemPrompt).toContain("再学习采用结果");
     expect(prompt.systemPrompt).toContain("unknown 来源不明");
     expect(prompt.systemPrompt).toContain("当前用户明确要求优先");
+    expect(prompt.systemPrompt).toContain("当作本次创作的工作成果");
+    expect(prompt.systemPrompt).toContain("助手自行猜测、未获确认的推断");
     expect(JSON.parse(prompt.modelMessage).evidence).toEqual([]);
   });
   it("detects edited earlier messages rather than relying on timestamps", () => {

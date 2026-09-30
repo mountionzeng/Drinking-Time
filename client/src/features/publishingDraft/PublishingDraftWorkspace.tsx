@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   Clipboard,
   Download,
   FilePenLine,
@@ -52,6 +53,7 @@ import {
   type PublishingTextOperationKind,
   type PublishingTextOperationScope,
 } from "@shared/publishingDraft";
+import type { TextDraftVersion } from "@shared/textDraftHistory";
 import {
   PUBLISHING_TREND_PLATFORM_IDS,
   emptyPublishingPlatformContextState,
@@ -89,6 +91,37 @@ import {
   publishingTrendWriteScope,
 } from "./publishingOperationScope";
 import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+export function textDraftChangeSummary(
+  version: Pick<TextDraftVersion, "request" | "conversationDelta">
+) {
+  if (!version.request.parentId) return "首次根据聊天内容整理";
+  if (!version.conversationDelta.length) return "沿用前一版内容重新整理";
+  const userCount = version.conversationDelta.filter(
+    message => message.role === "user"
+  ).length;
+  const assistantCount = version.conversationDelta.length - userCount;
+  return [
+    userCount ? `补充 ${userCount} 条` : "",
+    assistantCount ? `助手整理 ${assistantCount} 条` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function openTextDraftHistory(versionId?: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("dt:open-text-version-history", {
+      detail: versionId ? { versionId } : undefined,
+    })
+  );
+}
 
 function createPublishingTextOperationIdentity(
   kind: PublishingTextOperationKind,
@@ -308,6 +341,14 @@ export default function PublishingDraftWorkspace({
     { storyId: activeStoryId ?? 0 },
     { enabled: activeStoryId != null }
   );
+  const textDraftHistoryQuery = trpc.textDrafts.read.useQuery(
+    { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
+    {
+      enabled: Boolean(activeStoryId && activeStoryId > 0),
+      retry: false,
+      refetchOnWindowFocus: false,
+    }
+  );
   const updateFinishedProductMut =
     trpc.publishingDraft.updateFinishedProduct.useMutation();
   const refreshPlatformContextMut =
@@ -473,6 +514,9 @@ export default function PublishingDraftWorkspace({
           platform,
           versionId,
         });
+  const textDraftVersions = [...(textDraftHistoryQuery.data?.versions ?? [])]
+    .filter(version => version.status === "ready" && version.generated)
+    .reverse();
   const dirty = Boolean(
     draft &&
       editorContent &&
@@ -547,9 +591,16 @@ export default function PublishingDraftWorkspace({
       : status?.tone === "review"
         ? "bg-rose-500/10 text-rose-700"
         : "bg-emerald-500/10 text-emerald-700";
+  // 文字生成改由左侧聊天触发。旧的发布管理、平台热点和局部改写仍保留
+  // 在数据与服务端中，但不再打断当前的“聊天 → 完整新稿”主流程。
+  const legacyPublishingControlsVisible = false;
 
   const replaceContent = (next: PublishingDraftContent) => {
-    if (activeStoryId == null || !draft) return;
+    if (activeStoryId == null) return;
+    if (!draft) {
+      setPublishingBuffer(activeStoryId, platform, next, versionId);
+      return;
+    }
     if (publishingContentEquals(next, draft.content)) {
       discardPublishingBuffer(activeStoryId, platform, versionId);
       return;
@@ -1689,7 +1740,16 @@ export default function PublishingDraftWorkspace({
             <h1 className="font-chat-brand mt-1 text-xl text-foreground">
               {storyTitle?.trim() || "未命名故事"}
             </h1>
-            <PublishingVersionControls
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(new Event("dt:open-text-version-history"))
+              }
+              className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
+            >
+              文字历史
+            </button>
+            {legacyPublishingControlsVisible ? <PublishingVersionControls
               versions={finishedProduct?.versions ?? []}
               purpose={finishedProductPurpose}
               busy={finishedProductBusy}
@@ -1714,7 +1774,7 @@ export default function PublishingDraftWorkspace({
               }
               onComplete={() => void updateFinishedProduct({ type: "complete" })}
               onAbandon={() => void updateFinishedProduct({ type: "abandon" })}
-            />
+            /> : null}
             {activeVersion?.album ? (
               <nav className="mt-2 flex gap-1" aria-label="发布工作区子导航">
                 <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-1.5 text-[11px]">正文</span>
@@ -1732,7 +1792,7 @@ export default function PublishingDraftWorkspace({
           className="relative flex min-h-[560px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-[0_20px_60px_-48px_rgba(55,42,25,0.55)]"
           style={{ borderColor: "var(--nayin-border)" }}
         >
-          <div
+          {legacyPublishingControlsVisible ? <div
             className="border-b px-4 pt-3"
             style={{ borderColor: "var(--panel-border)" }}
           >
@@ -1766,9 +1826,9 @@ export default function PublishingDraftWorkspace({
                 尚未生成任何平台版本
               </div>
             )}
-          </div>
+          </div> : null}
 
-          {!draft || !editorContent ? (
+          {!editorContent ? (
             <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
               <div className="max-w-md">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
@@ -1822,11 +1882,75 @@ export default function PublishingDraftWorkspace({
                       {status.label}
                     </span>
                   ) : null}
-                  <span className="text-[10px] text-muted-foreground">
-                    版本 {draft.revision} · 内核 {draft.sourceCoreRevision}
-                  </span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="打开文字版本历史"
+                        className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
+                      >
+                        {draft
+                          ? `版本 ${draft.revision} · 内核 ${draft.sourceCoreRevision}`
+                          : "新版本 · 尚未采用"}
+                        <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      className="w-[min(24rem,calc(100vw-2rem))] p-2"
+                    >
+                      <div className="px-2 pb-2 pt-1">
+                        <p className="text-xs font-medium">文字版本</p>
+                        <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                          每一版都保留；点击可查看完整正文和当次改动。
+                        </p>
+                      </div>
+                      {textDraftVersions.length ? (
+                        <div className="max-h-72 space-y-1 overflow-y-auto">
+                          {textDraftVersions.map(version => (
+                            <button
+                              key={version.id}
+                              type="button"
+                              onClick={() => openTextDraftHistory(version.id)}
+                              className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
+                            >
+                              <span className="flex items-center justify-between gap-2 text-xs font-medium">
+                                <span>文字 {version.sequence}</span>
+                                <span className="font-normal text-muted-foreground">
+                                  {version.adoption ? "已采用" : "未采用"}
+                                </span>
+                              </span>
+                              <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                                {textDraftChangeSummary(version)}
+                              </span>
+                              {version.conversationDelta.slice(0, 2).map(message => (
+                                <span
+                                  key={message.id}
+                                  className="mt-1 block truncate text-[10px] leading-4 text-muted-foreground"
+                                >
+                                  {message.role === "assistant" ? "助手整理：" : "你的补充："}
+                                  {message.content}
+                                </span>
+                              ))}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="px-2 py-3 text-[11px] text-muted-foreground">
+                          还没有可查看的文字历史。
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openTextDraftHistory()}
+                        className="mt-1 w-full rounded-md px-2 py-2 text-left text-[11px] font-medium text-[var(--nayin-accent)] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
+                      >
+                        查看全部文字历史
+                      </button>
+                    </PopoverContent>
+                  </Popover>
                 </div>
-                {draft.needsReview ? (
+                {draft?.needsReview ? (
                   <span className="inline-flex items-center gap-1 text-[10px] text-rose-700">
                     <RefreshCcw className="h-3 w-3" />
                     请先复核，不会自动改写
@@ -1834,7 +1958,7 @@ export default function PublishingDraftWorkspace({
                 ) : null}
               </div>
 
-              {trendPlatform && platformContext ? (
+              {legacyPublishingControlsVisible && trendPlatform && platformContext ? (
                 <PublishingTrendTagPicker
                   platform={trendPlatform}
                   context={platformContext}
@@ -1846,7 +1970,7 @@ export default function PublishingDraftWorkspace({
               ) : null}
 
               <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-6 sm:px-10 sm:py-8">
-                <section
+                {legacyPublishingControlsVisible ? <section
                   className="mb-7 border-b border-[var(--panel-border)] pb-5"
                   aria-label="按要求重写文案"
                 >
@@ -1927,7 +2051,7 @@ export default function PublishingDraftWorkspace({
                       按要求重写
                     </ActionButton>
                   </div>
-                </section>
+                </section> : null}
 
                 {platform === "x" ? (
                   <div className="rounded-md bg-[var(--nayin-surface)] px-3 py-2 text-[11px] leading-5 text-muted-foreground">

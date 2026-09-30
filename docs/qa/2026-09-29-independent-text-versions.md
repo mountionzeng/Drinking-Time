@@ -35,6 +35,37 @@ pnpm feature:validate
 pnpm exec vitest run server/services/textDraftHistory.test.ts client/src/features/publishingDraft/textDraftBasis.test.ts client/src/features/publishingDraft/TextDraftVersions.test.tsx server/services/storySync.publishing.test.ts server/services/publishingDraft.test.ts server/services/publishingPersistence.test.ts server/routers.publishingDraft.test.ts client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx
 ```
 
+## 现版试用前复核（2026-09-29 22:52）
+
+本次只更新文档并复测现有实现，未修改产品代码、未发布线上、未发起真实模型生成或采用。
+
+- `pnpm env:status`：只有主仓库 3000 端口运行服务；`GET /editing` 返回 HTTP 200。HTTP 可达不等于浏览器完整流程通过；本次未重新操作浏览器，上文的入口观察属于此前记录。
+- 4个定向文件42项全部通过：`textDraftHistory.test.ts` 14项、`textDraftBasis.test.ts` 4项、`TextDraftVersions.test.tsx` 3项、`StoryAgentContext.intentRecognition.test.tsx` 21项。
+- 服务测试使用模拟模型及隔离的临时持久化目录；覆盖旧稿与新增／修改对话、采用与证据、重放及冲突等边界。组件测试是静态渲染，不是浏览器点击生成／采用的端到端测试。
+- 未重跑全量测试、构建及类型检查；前述结果仍为此前验证。真实文字质量、完整浏览器多轮操作与 MySQL 并发仍待验收，功能保持 `observing`。
+
+本次定向复测命令：
+
+```sh
+pnpm exec vitest run server/services/textDraftHistory.test.ts client/src/features/publishingDraft/textDraftBasis.test.ts client/src/features/publishingDraft/TextDraftVersions.test.tsx client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx --maxWorkers=2
+```
+
+### 用户试用顺序（待执行，不代表已通过）
+
+建议用不影响正式作品的测试故事；点击生成会实际调用模型，可能产生费用。每一步都可停下来反馈，不必一次完成所有检查。
+
+1. 提供一小段自己写的经历。在“文字版本”中确认材料来源；混合资料就保留“不确定／混合素材”，不要整段标成自写。关闭面板后点击“生成新版本”，查看第一稿。
+2. 针对第一稿补充一句明确要求，例如“保留外婆的原话，结尾短一点”，再生成第二稿。检查是否保留事实、遵循新增要求；回看第一稿，确认没有被覆盖。
+3. 修改第二稿的一句话，必要时填反馈，再点“采用这一版”。检查当前平台正文是否更新、人工标题是否保留；未采用前不应自动替换正式正文。
+4. **采用完成后**刷新页面，确认旧候选及最终采用稿仍在。未采用的面板编辑仅在当前页面暂存，不能用刷新后的丢失误判为采用稿丢失。
+5. 再补充内容并生成，观察是否以正确的旧稿与新要求为依据。是否“更贴近我的感受”由真人比较，不从一次采用或规则测试推断学习成功。
+
+反馈尽量保留“原话／旧稿 → 本次要求 → 实际生成 → 希望怎样写”的对照。流程不符合既定行为记为现版缺陷；需要新增理解机制的反馈记入进阶方案，不混成同一种修复。
+
+### 进阶版准备边界
+
+`docs/plans/2026-09-29-001-feat-writing-preference-profile-plan.md` 已明确为草案、尚未实施。本轮补充共鸣内容与写法分离、用户原话／系统推断／新感悟分离，以及修改意义而非只改文风的五个验收例。现版提示词已有保留立场和遵从更正的要求，但尚无该方案的结构化理解、纠正关联及汇总机制；不可把方案内容描述为现版已完成能力。
+
 ## Code Review Results
 
 Scope：本轮文字版本相关改动；未审查或改写其他会话的头像、首次引导、应急路由工作。

@@ -4353,8 +4353,10 @@
         "server/routers/textDrafts.ts"
       ],
       "owners": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
         "client/src/features/publishingDraft/TextDraftVersions.tsx",
         "client/src/features/publishingDraft/textDraftBasis.ts",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
         "shared/textDraftHistory.ts",
         "server/services/textDraftHistory.ts",
         "server/services/textDraftPrompt.ts",
@@ -4389,6 +4391,36 @@
           "date": "2026-09-29",
           "kind": "implementation",
           "summary": "接续已确认需求，新增聊天框下生成新版本、独立文字历史及明确采用入口；后端版本化技巧卡与两类证据接入同一次生成，复用Story CAS保护并发，补充幂等、隔离、标题、快照及旧对话兼容回归。入口只读浏览器检查通过；实际模型效果与SQL验收待完成，登记observing。"
+        },
+        {
+          "date": "2026-09-29",
+          "kind": "validation",
+          "summary": "现版试用前复核：主仓唯一3000服务健康、editing返回HTTP 200；文字历史服务、依据选择、入口静态渲染及聊天意图4个定向文件42项通过，模型模拟且数据隔离。未重测浏览器完整生成/采用、未调用真实模型或验收MySQL，保持observing。QA补充用户试用顺序；表达偏好进阶方案标为draft并加入共鸣、新感悟与语义修改规则，仅准备文档，未实施。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "refactor",
+          "summary": "新故事直接进入聊天，不再强制先选故事方向；聊天底部收为唯一“生成新版本”入口。每次点击先显示四种本次创作方向，选择仅写入该次生成指令，不覆盖故事既有用途。完成稿先进入右侧正文编辑区，旧版本仍由独立历史保留；当前工作区隐藏成品版本管理、平台热点与局部改写区。37项相关组件测试、类型检查及主仓3000浏览器入口检查通过；未点击真实模型生成或采用。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "fix",
+          "summary": "更新文字版本时，明确把聊天助手基于用户材料形成且经用户确认的结构、关系、写作判断和可用段落作为创作工作成果；用户补充和事实更正仍优先，未经确认的助手推断及技巧示例不得写成事实。服务回归测试锁定助手整理内容会随新增对话送入模型。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "improvement",
+          "summary": "右侧正文顶部的版本信息改为文字版本下拉菜单：按版本列出采用状态、相对上一版的用户补充与助手整理摘要；点击可打开完整历史和逐条“本次改动”，查看不会自动替换或采用正文。组件测试、主仓3000浏览器实测通过。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "improvement",
+          "summary": "聊天输入区默认扩为三行并可随内容增长至约七行，附件、录音和发送收为32px同排图标；生成新版本改为下方紧凑按钮，保留方向选择与完整上下文生成。组件测试、类型检查及主仓3000浏览器实测通过。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "improvement",
+          "summary": "附件和语音输入改为输入框左侧纵向工具列，进一步释放横向输入空间；发送保持右下角，交互和生成流程不变。类型检查、组件测试及主仓3000浏览器实测通过。"
         }
       ]
     },

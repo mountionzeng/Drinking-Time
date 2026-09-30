@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { History, Loader2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import {
@@ -23,9 +23,15 @@ import type {
   TextDraftVersion,
 } from "@shared/textDraftHistory";
 import { resolveTextDraftBasis } from "./textDraftBasis";
+import {
+  CAPABILITY_GROUPS,
+  type StoryCapabilityGroupId,
+} from "@/features/storyAgent/views/StoryCapabilityMenu";
 
 const buttonClass =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
+const compactButtonClass =
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--panel-border)] px-2 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
 
 export function TextDraftVersions({
   storyId,
@@ -37,9 +43,17 @@ export function TextDraftVersions({
   blocked: boolean;
 }) {
   const { publishing, publishingBuffers, messages } = useStoryAgent();
-  const { ensureActiveStoryPersisted, setPublishing } = useStoryAgentActions();
+  const {
+    ensureActiveStoryPersisted,
+    setPublishing,
+    setPublishingBuffer,
+  } = useStoryAgentActions();
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
+  const [directionOpen, setDirectionOpen] = useState(false);
+  const [direction, setDirection] = useState<StoryCapabilityGroupId | null>(
+    null
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [edited, setEdited] = useState<TextDraftContent | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -92,6 +106,29 @@ export function TextDraftVersions({
     );
   };
 
+  useEffect(() => {
+    const openHistory = (event: Event) => {
+      const requestedId =
+        event instanceof CustomEvent &&
+        event.detail &&
+        typeof event.detail.versionId === "string"
+          ? event.detail.versionId
+          : null;
+      const requested = requestedId
+        ? versions.find(version => version.id === requestedId)
+        : latest;
+      if (requested) {
+        setSelectedId(requested.id);
+        setEdited(requested.adoption?.content ?? requested.generated ?? null);
+        setFeedback(requested.adoption?.feedback ?? "");
+      }
+      setOpen(true);
+    };
+    window.addEventListener("dt:open-text-version-history", openHistory);
+    return () =>
+      window.removeEventListener("dt:open-text-version-history", openHistory);
+  }, [latest, versions]);
+
   function selectVersion(version: TextDraftVersion) {
     if (
       edited &&
@@ -106,7 +143,9 @@ export function TextDraftVersions({
     setFeedback(version.adoption?.feedback ?? "");
   }
 
-  async function generateVersion() {
+  async function generateVersion(
+    selectedDirectionId: StoryCapabilityGroupId | null = direction
+  ) {
     if (lock.current || busy || blocked) return;
     lock.current = true;
     setStarting(true);
@@ -136,6 +175,17 @@ export function TextDraftVersions({
         buffer: buffer?.content,
         published: publishing.drafts[platform]?.content,
       });
+      const selectedDirection = CAPABILITY_GROUPS.find(
+        option => option.id === selectedDirectionId
+      );
+      const instruction = [
+        selectedDirection
+          ? `本次创作方向：${selectedDirection.label}。${selectedDirection.description}`
+          : "",
+        input.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n");
       const result = await generate.mutateAsync({
         storyId: id,
         operationToken: crypto.randomUUID(),
@@ -146,7 +196,7 @@ export function TextDraftVersions({
         messages: messages
           .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => ({ id: m.id, role: m.role, content: m.content })),
-        instruction: input.trim(),
+        instruction,
         source,
       });
       utils.textDrafts.read.setData({ storyId: id }, result);
@@ -156,10 +206,19 @@ export function TextDraftVersions({
         setSelectedId(next.id);
         setEdited(next.generated ?? null);
         setFeedback("");
+        if (next.status === "ready" && next.generated) {
+          setPublishingBuffer(
+            id,
+            platform,
+            next.generated,
+            publishing.activeVersionId ?? "v1"
+          );
+        }
       }
-      setOpen(true);
+      setDirectionOpen(false);
+      setDirection(null);
       if (next?.status === "ready")
-        toast.success("新文字版本已生成，采用前请先查看");
+        toast.success("新版本已生成，正在右侧显示完整正文");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -234,37 +293,24 @@ export function TextDraftVersions({
 
   return (
     <>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">
+          继续补充，准备好再生成。
+        </p>
         <button
           type="button"
-          className={`${buttonClass} flex-1 text-[var(--nayin-accent)]`}
-          onClick={() => void generateVersion()}
+          className={`${compactButtonClass} text-[var(--nayin-accent)]`}
+          onClick={() => setDirectionOpen(true)}
           disabled={blocked || busy || query.isError}
         >
           {busy ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
           )}
           {busy ? "正在处理…" : "生成新版本"}
         </button>
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => {
-            if (!selected && latest) selectVersion(latest);
-            setOpen(true);
-          }}
-        >
-          <History className="h-3.5 w-3.5" />
-          文字版本{versions.length ? ` · ${versions.length}` : ""}
-        </button>
       </div>
-      {input.trim() && (
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          将连同输入框里尚未发送的文字一起生成。
-        </p>
-      )}
       {versions.at(-1)?.status === "unknown" && (
         <p className="mt-1 text-[10px] text-muted-foreground">
           上一轮结果未确认。再次生成会发起新的请求。
@@ -279,6 +325,65 @@ export function TextDraftVersions({
           文字历史读取失败，点击重试
         </button>
       )}
+      <Dialog open={directionOpen} onOpenChange={setDirectionOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>这次想怎样讲？</DialogTitle>
+            <DialogDescription>
+              只影响这一次新版本，不会改变这篇故事原有的用途。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            {CAPABILITY_GROUPS.map(option => {
+              const Icon = option.icon;
+              const selected = direction === option.id;
+              return (
+                <button
+                  type="button"
+                  key={option.id}
+                  onClick={() => setDirection(option.id)}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${
+                    selected
+                      ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)]"
+                      : "border-[var(--panel-border)] hover:bg-muted/50"
+                  }`}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-medium">{option.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => {
+                setDirection(null);
+                void generateVersion(null);
+              }}
+              disabled={busy}
+            >
+              不指定方向，直接生成
+            </button>
+            <button
+              type="button"
+              className={`${buttonClass} border-[var(--nayin-accent)] bg-[var(--nayin-accent)] text-background hover:bg-[var(--nayin-accent)]`}
+              onClick={() => void generateVersion()}
+              disabled={busy || direction === null}
+            >
+              生成这一版
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={open}
         onOpenChange={next => {
@@ -359,6 +464,27 @@ export function TextDraftVersions({
                   : "首次整理"}{" "}
                 · 新增或修改对话 {selected.conversationDelta.length} 条
               </p>
+              <details className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
+                <summary className="cursor-pointer font-medium">
+                  本次改动
+                </summary>
+                {selected.conversationDelta.length ? (
+                  <div className="mt-2 space-y-2 text-muted-foreground">
+                    {selected.conversationDelta.map(message => (
+                      <p key={message.id} className="whitespace-pre-wrap leading-5">
+                        <span className="font-medium text-foreground">
+                          {message.role === "assistant" ? "助手整理：" : "你的补充："}
+                        </span>
+                        {message.content}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-muted-foreground">
+                    这版没有新增聊天内容，沿用上一版材料重新整理。
+                  </p>
+                )}
+              </details>
               <label className="text-xs">
                 标题
                 <input

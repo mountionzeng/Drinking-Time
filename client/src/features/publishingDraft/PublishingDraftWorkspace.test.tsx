@@ -25,6 +25,7 @@ const actions = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
   readData: undefined as any,
   finishedProductData: undefined as any,
+  textDraftHistory: undefined as any,
   buildVideoStoryboardPending: false,
 }));
 
@@ -91,6 +92,9 @@ vi.mock("@/lib/trpc", () => {
         prepareVideoStoryboard: { useMutation: mutation },
         confirmVideoStoryboard: { useMutation: mutation },
       },
+      textDrafts: {
+        read: { useQuery: () => ({ data: api.textDraftHistory }) },
+      },
       artAgent: {
         analyzeReference: { useMutation: mutation },
       },
@@ -119,6 +123,7 @@ vi.mock("@/components/ui/dialog", () => ({
 
 import PublishingDraftWorkspace, {
   isCurrentCoverReferenceAnalysis,
+  textDraftChangeSummary,
 } from "./PublishingDraftWorkspace";
 import { publishingErrorMessage } from "./publishingDraftViewModel";
 
@@ -128,6 +133,7 @@ describe("PublishingDraftWorkspace", () => {
     story.publishing = emptyPublishingDraftState(1);
     story.publishingBuffers = {};
     api.readData = undefined;
+    api.textDraftHistory = undefined;
     api.finishedProductData = {
       storyId: 7,
       storyRevision: 0,
@@ -146,6 +152,18 @@ describe("PublishingDraftWorkspace", () => {
     ).toBe(
       "本地服务未连接，图片任务没有提交，也不会扣费。恢复服务后再试一次。"
     );
+  });
+
+  it("summarizes the user and assistant work that changed a text version", () => {
+    expect(
+      textDraftChangeSummary({
+        request: { parentId: "text-1" },
+        conversationDelta: [
+          { id: "u1", role: "user", content: "结尾更短" },
+          { id: "a1", role: "assistant", content: "保留外婆的原话" },
+        ],
+      } as any)
+    ).toBe("补充 1 条 · 助手整理 1 条");
   });
 
   it("rejects a stale cover-reference analysis after a newer request or scope reset", () => {
@@ -208,15 +226,16 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain('id="publishing-title"');
     expect(html).toContain('id="publishing-body"');
     expect(html).toContain("真正稀缺的不是 token");
-    expect(html).toContain("这版不对？直接告诉我");
-    expect(html).toContain("少点矫情");
-    expect(html).toContain("按要求重写");
-    expect(html).toContain("只修格式");
+    expect(html).toContain("文字历史");
+    expect(html).not.toContain("这版不对？直接告诉我");
+    expect(html).not.toContain("少点矫情");
+    expect(html).not.toContain("按要求重写");
+    expect(html).not.toContain("只修格式");
     expect(html).toContain("复制文案");
     expect(html).toContain("进入视频制作");
-    expect(html).toContain("成品版本");
-    expect(html).toContain("这次为什么要更新？");
-    expect(html).toContain("保存文字新版");
+    expect(html).not.toContain("成品版本");
+    expect(html).not.toContain("这次为什么要更新？");
+    expect(html).not.toContain("保存文字新版");
     expect(html).toContain("四图候选 · 对话修改 · 明确采用");
     expect(html).toContain("一次生成 4 张粗选图");
     expect(html).toContain("本轮补充要求 · 两个生成按钮都会参考");

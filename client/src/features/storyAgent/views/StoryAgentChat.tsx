@@ -60,9 +60,6 @@ import {
   TranscribingGlyph,
 } from "@/features/storyAgent/views/VoiceInputGlyph";
 import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
-import StoryCapabilityMenu, {
-  shouldShowCapabilityMenu,
-} from "./StoryCapabilityMenu";
 import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatformPicker";
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
@@ -507,7 +504,7 @@ export default function StoryAgentChat({
       if (!ta) return;
       ta.focus();
       ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
+      ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
     });
   }, []);
 
@@ -551,14 +548,6 @@ export default function StoryAgentChat({
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
-  const showCapabilityMenu =
-    interactionMode === "story" &&
-    shouldShowCapabilityMenu({
-      messages,
-      confirmedIntent,
-      returningGreeting,
-      isReplying,
-    });
   const jobIntakeStep = getJobIntakeStep(confirmedIntent);
   const showJobIntake =
     interactionMode === "story" &&
@@ -725,8 +714,7 @@ export default function StoryAgentChat({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const isPristineStoryStart =
-      showCapabilityMenu && !messages.some(message => message.role === "user");
+    const isPristineStoryStart = false;
     if (isPristineStoryStart) {
       el.scrollTo({ top: 0, behavior: "auto" });
       return;
@@ -736,7 +724,6 @@ export default function StoryAgentChat({
     messages,
     isReplying,
     returningGreeting,
-    showCapabilityMenu,
     showJobIntake,
     pendingIntentDraft,
     materialAdvices,
@@ -1727,7 +1714,6 @@ export default function StoryAgentChat({
           </div>
         ) : null}
 
-        {showCapabilityMenu && <StoryCapabilityMenu />}
         {showJobIntake && <StoryJobIntakePrompt />}
 
         {interactionMode === "story" &&
@@ -2028,10 +2014,11 @@ export default function StoryAgentChat({
         )}
 
         <div
-          className={`flex items-end gap-2 ${!activeSelection && pendingMedia.length === 0 ? "pt-2.5" : "pt-1.5"}`}
+          className={`flex items-end gap-1.5 ${!activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
         >
-          {interactionMode === "story" ? (
-            <>
+          <div className="flex shrink-0 flex-col items-center gap-1">
+            {interactionMode === "story" ? (
+              <>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -2041,11 +2028,11 @@ export default function StoryAgentChat({
                   voice.isBusy ||
                   isImportingMedia
                 }
-                className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                 aria-label="添加图片或视频"
                 title="添加图片或视频"
               >
-                <Paperclip className="w-4 h-4" />
+                <Paperclip className="h-3.5 w-3.5" />
               </button>
               <input
                 ref={fileInputRef}
@@ -2055,42 +2042,43 @@ export default function StoryAgentChat({
                 className="hidden"
                 onChange={handleMediaSelect}
               />
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={voice.toggleRecording}
-            disabled={isReplying || voice.isTranscribing || isImportingMedia}
-            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-            style={
-              voice.isRecording
-                ? {
-                    background: "var(--nayin-glow)",
-                    color: "var(--nayin-accent-bright)",
-                  }
-                : undefined
-            }
-            aria-label={voice.isRecording ? "停止录音" : "开始录音"}
-            title={voice.isRecording ? "停止录音" : "语音输入"}
-          >
-            {voice.isTranscribing ? (
-              <TranscribingGlyph />
-            ) : voice.isRecording ? (
-              <RecordingGlyph />
-            ) : (
-              <Mic className="w-4 h-4" />
-            )}
-          </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={voice.toggleRecording}
+              disabled={isReplying || voice.isTranscribing || isImportingMedia}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              style={
+                voice.isRecording
+                  ? {
+                      background: "var(--nayin-glow)",
+                      color: "var(--nayin-accent-bright)",
+                    }
+                  : undefined
+              }
+              aria-label={voice.isRecording ? "停止录音" : "开始录音"}
+              title={voice.isRecording ? "停止录音" : "语音输入"}
+            >
+              {voice.isTranscribing ? (
+                <TranscribingGlyph />
+              ) : voice.isRecording ? (
+                <RecordingGlyph />
+              ) : (
+                <Mic className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
           <textarea
             ref={inputRef}
-            rows={1}
+            rows={3}
             value={input}
             onChange={e => {
               setInput(e.target.value);
               // auto-resize
               const ta = e.currentTarget;
               ta.style.height = "auto";
-              ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
+              ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
             }}
             onKeyDown={handleKey}
             placeholder={inputPlaceholder}
@@ -2099,7 +2087,7 @@ export default function StoryAgentChat({
               isImportingMedia ||
               (soundDirector.active && !soundDirector.session?.question)
             }
-            className="flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
+            className="min-h-[68px] max-h-40 flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
             style={{
               borderColor: "var(--panel-border)",
               // @ts-expect-error custom prop for tailwind ring color via inline style
@@ -2118,7 +2106,7 @@ export default function StoryAgentChat({
               voice.isBusy ||
               isImportingMedia
             }
-            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
+            className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
             style={{
               background: "var(--nayin-accent)",
               color: "var(--background)",
@@ -2127,9 +2115,9 @@ export default function StoryAgentChat({
             aria-label="发送"
           >
             {isReplying || isImportingMedia ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Send className="w-4 h-4" />
+              <Send className="h-3.5 w-3.5" />
             )}
           </button>
         </div>
