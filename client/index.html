@@ -25,5 +25,79 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!--
+      白屏自愈。
+
+      一个早就开着的标签页，手里攥的是旧版本的模块地址（Vite 重新预构建、
+      或线上换了版本之后，那些带哈希的文件就没了）。这时入口脚本整个加载不起来，
+      React 从没挂载过，用户看到的就是一片空白——控制台里只有一句
+      「MIME type / Failed to load module script」，看不出该怎么办。
+
+      所以：入口脚本报错，且 #root 确实还是空的，就自动整页重载一次拿新地址。
+      用 sessionStorage 记一次，避免真有 bug 时无限刷。
+    -->
+    <script>
+      (function () {
+        var RELOAD_MARK = "dt:staleModuleReloaded";
+        var reloaded = false;
+        try {
+          reloaded = sessionStorage.getItem(RELOAD_MARK) === "1";
+        } catch (error) {
+          reloaded = true; // 读不到就不自动刷，只提示，免得刷不停。
+        }
+
+        function rootIsEmpty() {
+          var root = document.getElementById("root");
+          return !root || root.childElementCount === 0;
+        }
+
+        function recover() {
+          if (!rootIsEmpty()) return;
+          if (reloaded) {
+            console.error(
+              "[启动失败] 页面脚本加载不起来，自动重载已经试过一次。请手动硬刷新（Cmd/Ctrl + Shift + R）。"
+            );
+            return;
+          }
+          try {
+            sessionStorage.setItem(RELOAD_MARK, "1");
+          } catch (error) {
+            return;
+          }
+          console.warn("[启动失败] 检测到过期的脚本地址，正在自动重载…");
+          location.reload();
+        }
+
+        // 模块脚本加载失败会冒泡到 window 的 error 事件（带 target）。
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (!target || target === window) return;
+            var tag = target.tagName;
+            if (tag !== "SCRIPT" && tag !== "LINK") return;
+            setTimeout(recover, 0);
+          },
+          true
+        );
+
+        // 兜一层：脚本没报错但也没挂上（比如整块被 MIME 挡掉）。
+        window.addEventListener("load", function () {
+          setTimeout(recover, 2500);
+        });
+
+        // 正常起来了就把标记清掉，下次再坏还能自动救一次。
+        window.addEventListener("load", function () {
+          setTimeout(function () {
+            if (rootIsEmpty()) return;
+            try {
+              sessionStorage.removeItem(RELOAD_MARK);
+            } catch (error) {
+              // 清不掉只影响下一次能不能自动重载，不影响本次。
+            }
+          }, 4000);
+        });
+      })();
+    </script>
   </body>
 </html>

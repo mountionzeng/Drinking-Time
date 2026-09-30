@@ -512,7 +512,7 @@ export function inspectPublishingSerializedOutput(state: PublishingDraftState): 
   return canonical;
 }
 
-function canonicalize(state: PublishingDraftState): PublishingDraftState {
+export function canonicalizePublishingDraftState(state: PublishingDraftState): PublishingDraftState {
   const versions = state.versions ?? [];
   const active = resolvePublishingActiveVersion(state);
   return {
@@ -538,6 +538,8 @@ function canonicalize(state: PublishingDraftState): PublishingDraftState {
     ),
   };
 }
+
+const canonicalize = canonicalizePublishingDraftState;
 
 function publishingForStorage(
   state: PublishingDraftState

@@ -7,6 +7,11 @@ import StoryAgentChat from "./views/StoryAgentChat";
 
 vi.stubGlobal("React", React);
 
+// This suite tests intent bubbles; the independent version panel owns its RPC context.
+vi.mock("@/features/publishingDraft/TextDraftVersions", () => ({
+  TextDraftVersions: () => null,
+}));
+
 const fixtures = vi.hoisted(() => {
   const openingMessage: ChatMessage = {
     id: "first-question",
