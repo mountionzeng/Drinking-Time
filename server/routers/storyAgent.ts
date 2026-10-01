@@ -2282,6 +2282,15 @@ export const storyAgentRouter = router({
           storyId: story.id,
           preservePrompt: Boolean(coverArtDirection),
           outputPurpose: "story-frame" as const,
+          // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
+          // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
+          candidateCompositionExploration:
+            input.mode !== "draft" &&
+            !input.draftImageId &&
+            !lockedAssets &&
+            !input.renderReferences &&
+            !referencePlan.usesStoryboardFrames &&
+            !input.explicitInstruction?.trim(),
           lockedVisualAssets: lockedAssets
             ? {
                 fingerprint: lockedAssets.fingerprint,
