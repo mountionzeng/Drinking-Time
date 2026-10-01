@@ -1608,6 +1608,12 @@ describe("storyAgent tRPC router", () => {
       expect.stringContaining("雨夜路灯下的一个停顿"),
       expect.any(Object)
     );
+    expect(String(imageGenMocks.generateImage.mock.calls[0]?.[0])).toContain(
+      "【自动构图导演】"
+    );
+    expect(String(imageGenMocks.generateImage.mock.calls[0]?.[0])).toContain(
+      "【候选构图分叉】"
+    );
     expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty(
       "characterRef"
     );
