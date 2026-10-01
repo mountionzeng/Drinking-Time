@@ -49,6 +49,10 @@ import {
   resume302MidjourneyTask,
 } from "../services/imageGen";
 import { engineerImagePrompt } from "../services/renderGate";
+import {
+  COVER_PROMPT_COMPILER_SYSTEM,
+  PUBLISHING_COVER_ART_SUFFIX,
+} from "../services/publishingCoverStoryboardPrompt";
 import { inspectStaticImageCandidates } from "../services/staticImageQualityGate";
 import { storyArtRecipe } from "./_storyShared";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
@@ -2241,7 +2245,7 @@ export const publishingDraftRouter = router({
                   // So the compiler must produce a purely affirmative scene and
                   // never name the thing being avoided; suppression is the
                   // --no parameter's job, not this text's.
-                  "Compile the supplied Chinese art brief into ONE English visual prompt describing a single vertical painted scene. Keep the confirmed story facts: who is present, how they relate, the setting, and what is happening. HIGHEST PRIORITY: the 【用户持续要求】 block is the user's own binding art direction — carry EVERY concrete detail in it through literally (subject gender, age, hair, clothing, season, palette, light, mood), even when compressing. Appearance the source text never states is NOT a story fact; it is the user's to decide, so never soften or drop such a direction on the grounds that it might alter the story — obey it. If a direction says the two people are women, both figures are unambiguously women. Losing one of these details is a failure; sacrifice background description instead. Drop only section headers, policy sentences, and rules — describe what is visibly in the picture. Write purely affirmative description: state what IS there, never what is absent, forbidden or avoided. This is a standalone painting, NOT a cover, poster, magazine, layout or publication — never use those words. Never write the words text, letters, words, writing, title, headline, sign, label, logo, watermark, signature, book, newspaper, screen, or clock, not even to forbid them, and never describe any surface that would carry writing. Do not quote or transliterate source words. Output English only, one paragraph, under 140 words.",
+                  COVER_PROMPT_COMPILER_SYSTEM,
               },
               { role: "user", content: prompt },
             ],
@@ -2249,7 +2253,7 @@ export const publishingDraftRouter = router({
           );
           const compiledText = compiled.text.trim();
           if (compiledText) {
-            renderPrompt = `${compiledText} Handcrafted tempera and gouache painting, visible paper grain and brush marks, one continuous vertical scene, quiet empty space near the top, plain unmarked surfaces throughout.`;
+            renderPrompt = `${compiledText} ${PUBLISHING_COVER_ART_SUFFIX}`;
           }
         }
         const generated = generation.taskId

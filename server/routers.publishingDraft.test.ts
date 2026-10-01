@@ -1689,6 +1689,13 @@ describe("publishingDraft router", () => {
       })
     );
     // The brief itself is what gets compiled, so it is still fully asserted.
+    const providerPrompt = imageGenMocks.generateImage.mock.calls[0]?.[0];
+    expect(providerPrompt).not.toMatch(
+      /Handcrafted tempera and gouache|one continuous vertical scene|quiet empty space near the top/
+    );
+    expect(
+      agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.[0]?.content
+    ).toContain("Preserve the chosen medium");
     const submittedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
@@ -1700,6 +1707,7 @@ describe("publishingDraft router", () => {
     expect(submittedPrompt).not.toContain("正文");
     expect(submittedPrompt).toContain("原始视觉联想（可推翻，不是事实）");
     expect(submittedPrompt).not.toContain("故事提出的视觉概念");
+    expect(submittedPrompt).not.toContain("主体与关键细节留在居中安全区");
     expect(submittedPrompt).not.toContain("Dark indigo");
     expect(submittedPrompt).not.toContain("gold dust");
     expect(submittedPrompt).toContain(

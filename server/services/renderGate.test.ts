@@ -425,6 +425,9 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("不要照搬钟表、沙漏");
     expect(seen).toContain("商品静物");
     expect(seen).toContain("可能承载字符的表面");
+    expect(seen).not.toContain("主体与关键细节留在居中安全区");
+    expect(seen).toContain("安全边距只用于防止裁掉关键细节");
+    expect(seen).toContain("已指定的媒介、色板与构图优先");
   });
 
   it("上一轮一个方向都没选时整轮换掉视觉元素并切换探索方法", async () => {

@@ -1461,11 +1461,15 @@
       "owners": [
         "client/src/features/storyAgent/views/storyboardImageRenderPlan.ts",
         "server/services/renderGate.ts",
+        "server/services/publishingCoverStoryboardPrompt.ts",
+        "server/routers/publishingDraft.ts",
         "server/services/imageGen.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
         "server/services/renderGate.test.ts",
+        "server/services/publishingCoverStoryboardPrompt.test.ts",
+        "server/routers.publishingDraft.test.ts",
         "server/services/imageGen.test.ts"
       ],
       "invariants": [
@@ -1480,7 +1484,7 @@
         "legacy-image-render-instruction"
       ],
       "knownGaps": [
-        "当前实现仍在未提交工作区，需在提示词评测语义决策后与 main 收敛。",
+        "2026-10-01 封面构图与媒介修正已通过编译器、网关和路由回归；尚未运行真实付费出图对比，候选画面的多样性仍需视觉验收。",
         "302/Forge 存储 503 时参考图拿不到公网 URL，MJ 的 --oref 人物锁无法生效（scripts/check-302-storage.ts 可探测）。"
       ],
       "history": [
@@ -1528,6 +1532,11 @@
           "date": "2026-10-01",
           "kind": "feature",
           "summary": "新故事镜头在没有用户构图、既有画面、锁定场景或已确认构图配方时，按故事与镜号稳定选择非居中构图和非具名视觉手法；首次正式批量候选额外要求在景别、视觉重心和空间层次上分叉。"
+        },
+        {
+          "date": "2026-10-01",
+          "kind": "fix",
+          "summary": "排查发现封面仍强制居中安全区，封面与继承封面的故事镜头编译器还无条件追加蛋彩、水粉、竖向场景和顶部留白。改为边距保护、按内容展开构图；两入口共用媒介中立的编译规则，保留用户及已确认配方的媒介与构图，只在开放维度探索。通过 76 项相关回归，不增加模型调用或修改既有候选。"
         }
       ]
     },
