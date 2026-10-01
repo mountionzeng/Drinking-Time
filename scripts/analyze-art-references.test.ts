@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtRepositoryCatalog } from "../server/services/artRepository";
+import { normalizeArtReferenceTags } from "../shared/artReferenceTags";
 
 const mocks = vi.hoisted(() => ({
   analyze: vi.fn(),
@@ -109,4 +110,33 @@ describe("art reference analysis", () => {
       expect(current.assets["first.jpg"].dna).toBeUndefined();
     }
   );
+
+  it("accepts useful open tags even when the old style categories cannot be determined", async () => {
+    const artTags = normalizeArtReferenceTags({
+      media: ["彩铅", "拼贴"],
+      composition: ["横向展开", "不对称"],
+      freeTags: ["介于平面和空间之间"],
+      artistReferences: [],
+    });
+    mocks.analyze.mockResolvedValue({
+      configured: true,
+      analysis: {
+        ...analysis,
+        visualStyle: [],
+        composition: "",
+        materialsAndTextures: [],
+        confidence: 0.4,
+        artTags,
+      },
+    });
+    await main(["--limit=1", "--confirm-paid-analysis"]);
+    expect(mocks.analyze).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "art-curation" })
+    );
+    const saved = mocks.write.mock.calls[0][1] as ArtRepositoryCatalog;
+    expect(saved.assets["first.jpg"]).toMatchObject({
+      status: "ready",
+      dna: { artTags },
+    });
+  });
 });

@@ -6,6 +6,7 @@ import {
   loadArtRepositoryCatalog,
   resolveArtRepositoryDir,
   sanitizeCuratedArtDna,
+  hasReusableArtDna,
 } from "../server/services/artRepository";
 import { writeArtRepositoryCatalog } from "../server/services/artRepositoryCatalog";
 
@@ -54,6 +55,7 @@ export async function main(argv = process.argv.slice(2)) {
       const result = await analyzeVisionReference({
         imageDataUrl: `data:${mimeType(fileName)};base64,${buffer.toString("base64")}`,
         fileName,
+        purpose: "art-curation",
         brief:
           "这是私有策展库截图。只提取可泛化的美术 DNA；把水印、文字、签名、账号、状态栏和应用界面视为源图污染，不得写入 promptDraft；不要把人物、物体、地点或情节当作需要复制的内容。",
       });
@@ -66,6 +68,7 @@ export async function main(argv = process.argv.slice(2)) {
           : [],
         material: result.analysis.materialsAndTextures,
         mood: result.analysis.mood,
+        artTags: result.analysis.artTags,
         matchTags: [
           ...result.analysis.visualStyle,
           ...result.analysis.mood,
@@ -77,7 +80,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (
         !result.configured ||
         !(result.analysis.confidence > 0) ||
-        !(dna.style.length || dna.composition.length || dna.material.length)
+        !hasReusableArtDna(dna)
       ) {
         throw new Error("未提取到可信、可复用的美术信息，保留待分析状态");
       }

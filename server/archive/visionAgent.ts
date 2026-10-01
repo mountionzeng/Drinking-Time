@@ -1,4 +1,8 @@
 import { ENV } from "../_core/env";
+import {
+  normalizeArtReferenceTags,
+  type ArtReferenceTags,
+} from "../../shared/artReferenceTags";
 import { invokeLLM, type Message } from "../_core/llm";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import {
@@ -11,6 +15,7 @@ type VisionAnalyzeParams = {
   imageUrl?: string;
   fileName?: string;
   brief?: string;
+  purpose?: "art-curation";
 };
 
 export type VisionAnalysisResult = {
@@ -37,6 +42,7 @@ export type VisionAnalysisResult = {
     promptDraft: string;
     negativePrompt: string;
     confidence: number;
+    artTags?: ArtReferenceTags;
   };
 };
 
@@ -150,10 +156,11 @@ function normalizeAnalysis(raw: unknown): VisionAnalysisResult["analysis"] {
     confidence: Number.isFinite(confidenceRaw)
       ? Math.max(0, Math.min(1, confidenceRaw))
       : 0,
+    ...(obj.artTags ? { artTags: normalizeArtReferenceTags(obj.artTags) } : {}),
   };
 }
 
-function buildSystemPrompt() {
+function buildSystemPrompt(purpose?: VisionAnalyzeParams["purpose"]) {
   return [
     "你是 Drinking Time 的影视视觉分析 Agent。",
     "用户会给你一张参考图。你的任务不是简单描述图片，而是把图片翻译成影视美术和 AI 生成可以使用的结构化信息。",
@@ -161,6 +168,12 @@ function buildSystemPrompt() {
     "如果输入是手机截图或带平台水印的转载图，必须把水印、可读文字、作者签名、用户名、账号、状态栏、应用界面、页码、播放控件和截图黑边列为 source artifacts / productionRisks；它们不是美术风格，不得进入 visualStyle、composition、materialsAndTextures 或 promptDraft。negativePrompt 必须要求最终画面不出现这些污染层。",
     "参考图的主体、人物、物体、地点和情节可以客观描述，但不得在 promptDraft 中写成必须复制的内容；promptDraft 只保留可泛化的构图、光线、材料、情绪和制作方法。",
     "不要编造看不见的事实。看不清时用“无法确定”或降低 confidence。",
+    ...(purpose === "art-curation" ? [
+      "策展提取使用开放、多选、可交叉的标签，不强制每张图片归入唯一流派。允许混合媒介、近似描述和自定义标签；某一维度不确定就留空，继续提取其他可见维度，不因为分不清流派而否定整张图。",
+      "艺术家参照只表示可能的视觉亲缘，不是在鉴定作者：artistReferences 写姓名和可观察的相似依据，不能凭签名或水印断言作者，无法支持就留空。姓名仅留在 artistReferences，其他字段和 promptDraft 用不含姓名的可观察画面特征表达。",
+      "composition 提取重心、方向、主体尺度、裁切与留白；viewpoint 提取俯视、平视、仰视、景别；spatialLayers 提取前中后景、遮挡、平面或纵深；markMaking 提取笔触、线条和边缘；colorRelations 提取冷暖、明度、饱和度关系；narrativeUses 提取可服务的叙事或生命体验，不推测用户的年龄和心理。",
+      "标签尽量短，可用多个常见近义词，freeTags 保留前述分类装不下的特征。所有标签只能描述可泛化的方法，不携带源图中的具体人物、物体、地点或情节。",
+    ] : []),
     "请用简体中文输出。必须返回严格 JSON，不要 markdown，不要解释。",
     "JSON 格式如下：",
     "{",
@@ -181,6 +194,9 @@ function buildSystemPrompt() {
     '    "productionRisks": ["缺失信息或制作风险"],',
     '    "promptDraft": "可直接给图像/视频模型的中文提示词",',
     '    "negativePrompt": "负面提示词",',
+    ...(purpose === "art-curation" ? [
+      '    "artTags": { "artistReferences": [{"name":"艺术家参照（非作者鉴定）","basis":"可观察的相似依据"}], "movements": [], "media": [], "composition": [], "viewpoint": [], "spatialLayers": [], "markMaking": [], "colorRelations": [], "narrativeUses": [], "freeTags": [] },',
+    ] : []),
     '    "confidence": 0.82',
     "  }",
     "}",
@@ -222,7 +238,7 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
   if (!imageUrl) throw new Error("imageDataUrl or imageUrl is required");
 
   const messages: Message[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: buildSystemPrompt(params.purpose) },
     {
       role: "user",
       content: [
@@ -234,7 +250,7 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
 
   const result = await invokeLLM({
     messages,
-    maxTokens: 1800,
+    maxTokens: params.purpose === "art-curation" ? 3000 : 1800,
     response_format: ENV.llmSupportsResponseFormat
       ? { type: "json_object" }
       : undefined,
@@ -290,7 +306,7 @@ async function invokeUnifiedVisionChannel(
   if (chain.length === 0) return null;
 
   const messages: Message[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: buildSystemPrompt(params.purpose) },
     {
       role: "user",
       content: [
@@ -305,7 +321,7 @@ async function invokeUnifiedVisionChannel(
     messages,
     candidates: { fallback302Model: ENV.vision302Model },
     explicitCandidates: chain,
-    maxTokens: 1800,
+    maxTokens: params.purpose === "art-curation" ? 3000 : 1800,
     // 原直连实现两条通道都不下发 response_format，靠 prompt 约定 JSON——
     // 这里保持一致，不引入未经真实网关验证的行为变化。
     // 视觉分析是纯读取，没有工具调用也没有业务写入，可以安全重发。

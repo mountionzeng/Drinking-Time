@@ -1621,10 +1621,14 @@
       "owners": [
         "server/services/artRepository.ts",
         "server/services/artRepositoryCatalog.ts",
+        "shared/artReferenceTags.ts",
+        "server/archive/visionAgent.ts",
+        "scripts/analyze-art-references.ts",
         "art-repository/catalog.json"
       ],
       "evidence": [
         "server/services/artRepository.test.ts",
+        "server/archive/visionAgent.test.ts",
         "scripts/analyze-art-references.test.ts"
       ],
       "invariants": [
@@ -1638,7 +1642,7 @@
       "replaces": [],
       "knownGaps": [
         "99 张参考图仍为 pending-analysis。",
-        "尚未迁移私有对象存储；2026-10-01 已核对本地 99 张原图完整、哈希一致且无重复，逐图付费分析待确认。"
+        "尚未迁移私有对象存储；2026-10-01 已核对本地 99 张原图完整、哈希一致且无重复。用户已授权首批 10 张付费分析，但自动审批拦截了原图外发，具体供应商目的地授权仍待确认，未发生分析调用。"
       ],
       "history": [
         {
@@ -1650,6 +1654,11 @@
           "date": "2026-10-01",
           "kind": "fix",
           "summary": "继续图库分析前补齐质量保护：空结果、零置信度和过滤后无可复用信息的分析保持 pending-analysis；内容没有匹配证据时不再回退到目录前两条画风。预检和批量上限由无付费调用的脚本回归覆盖。"
+        },
+        {
+          "date": "2026-10-01",
+          "kind": "feature",
+          "summary": "按用户要求放宽为开放、可交叉的多标签提取，增加艺术家视觉亲缘、流派、媒介、构图、视角、空间层次、笔触、色彩关系、叙事用途与自定义标签；匹配扩展到多维标签，艺术家姓名保留内部参照，不进入自动生图片段。旧记录兼容，局部分类不确定不阻止其他有效信息保存。"
         }
       ]
     },

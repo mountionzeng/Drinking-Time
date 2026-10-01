@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  ART_REFERENCE_TAG_FIELDS,
+  normalizeArtReferenceTags,
+  type ArtReferenceTags,
+} from "../../shared/artReferenceTags";
 
 export const ART_REPOSITORY_USAGE = "derived-dna-only" as const;
 
@@ -22,6 +27,7 @@ export type CuratedArtDna = {
   material: string[];
   mood: string[];
   matchTags: string[];
+  artTags?: ArtReferenceTags;
 };
 
 export type ArtRepositoryAsset = {
@@ -74,15 +80,51 @@ export function sanitizeCuratedArtDna(
 ): CuratedArtDna {
   const clean = (value: unknown) =>
     unique(stringArray(value).filter(item => !ARTIFACT_PATTERN.test(item)));
+  const tags = input.artTags
+    ? normalizeArtReferenceTags(input.artTags)
+    : undefined;
+  if (tags) {
+    tags.artistReferences = tags.artistReferences.filter(
+      reference =>
+        !ARTIFACT_PATTERN.test(`${reference.name} ${reference.basis}`)
+    );
+  }
+  const artistNames =
+    tags?.artistReferences.map(reference => reference.name.toLowerCase()) ?? [];
+  const visualOnly = (value: unknown) =>
+    clean(value).filter(
+      fragment =>
+        !artistNames.some(name => fragment.toLowerCase().includes(name))
+    );
+  if (tags) {
+    for (const field of ART_REFERENCE_TAG_FIELDS)
+      tags[field] = visualOnly(tags[field]);
+  }
   return {
-    style: clean(input.style),
+    style: visualOnly(input.style),
     palette: clean(input.palette),
-    light: clean(input.light),
-    composition: clean(input.composition),
-    material: clean(input.material),
-    mood: clean(input.mood),
+    light: visualOnly(input.light),
+    composition: visualOnly(input.composition),
+    material: visualOnly(input.material),
+    mood: visualOnly(input.mood),
     matchTags: clean(input.matchTags),
+    ...(tags ? { artTags: tags } : {}),
   };
+}
+
+export function hasReusableArtDna(dna: CuratedArtDna): boolean {
+  return [
+    dna.style,
+    dna.composition,
+    dna.material,
+    dna.artTags?.movements,
+    dna.artTags?.media,
+    dna.artTags?.composition,
+    dna.artTags?.viewpoint,
+    dna.artTags?.spatialLayers,
+    dna.artTags?.markMaking,
+    dna.artTags?.colorRelations,
+  ].some(values => Boolean(values?.length));
 }
 
 export function resolveArtRepositoryDir(): string {
@@ -168,7 +210,16 @@ export function curatorProfilePromptBlock(
 
 function scoreDna(dna: CuratedArtDna, context: string): number {
   const haystack = context.toLocaleLowerCase("zh-CN");
-  return unique([...dna.matchTags, ...dna.mood]).reduce(
+  const tags = dna.artTags;
+  return unique([
+    ...dna.matchTags,
+    ...dna.mood,
+    ...dna.style,
+    ...dna.composition,
+    ...dna.material,
+    ...(tags ? ART_REFERENCE_TAG_FIELDS.flatMap(field => tags[field]) : []),
+    ...(tags?.artistReferences.map(reference => reference.name) ?? []),
+  ]).reduce(
     (score, tag) =>
       score +
       (tag && haystack.includes(tag.toLocaleLowerCase("zh-CN")) ? 1 : 0),
@@ -189,12 +240,7 @@ export function matchCuratedArtDna(
   const ready = Object.values(catalog.assets)
     .filter(asset => asset.status === "ready" && asset.dna)
     .map(asset => sanitizeCuratedArtDna(asset.dna!))
-    .filter(
-      dna =>
-        dna.style.length > 0 ||
-        dna.composition.length > 0 ||
-        dna.material.length > 0
-    )
+    .filter(hasReusableArtDna)
     .map((dna, index) => ({ dna, index, score: scoreDna(dna, context) }))
     .sort(
       (left, right) => right.score - left.score || left.index - right.index
@@ -202,27 +248,32 @@ export function matchCuratedArtDna(
 
   if (ready.length === 0 || limit <= 0) return [];
   const matched = ready.filter(candidate => candidate.score > 0);
-  return matched
-    .slice(0, limit)
-    .map(candidate => candidate.dna);
+  return matched.slice(0, limit).map(candidate => candidate.dna);
 }
 
 export function curatedDnaPromptBlock(dnaList: CuratedArtDna[]): string {
   if (dnaList.length === 0) return "";
   const lines = dnaList.map((dna, index) => {
+    const tags = dna.artTags;
     const guidance = [
       dna.style.length ? `语言=${dna.style.join("、")}` : "",
       dna.light.length ? `光=${dna.light.join("、")}` : "",
       dna.composition.length ? `空间=${dna.composition.join("、")}` : "",
       dna.material.length ? `材料=${dna.material.join("、")}` : "",
       dna.mood.length ? `情绪=${dna.mood.join("、")}` : "",
+      tags?.movements.length ? `流派语言=${tags.movements.join("、")}` : "",
+      tags?.media.length ? `媒介=${tags.media.join("、")}` : "",
+      tags?.composition.length ? `构图=${tags.composition.join("、")}` : "",
+      tags?.viewpoint.length ? `视角=${tags.viewpoint.join("、")}` : "",
+      tags?.spatialLayers.length ? `层次=${tags.spatialLayers.join("、")}` : "",
+      tags?.markMaking.length ? `笔触=${tags.markMaking.join("、")}` : "",
     ]
       .filter(Boolean)
       .join("；");
     return `${index + 1}. ${guidance}`;
   });
   return [
-    "【策展库情境匹配】以下是已审核参考图中提炼出的候选方法，只借用方法，不借用画面内容。色板默认不继承；只有故事或用户明确给出相同色彩证据时才可采用。",
+    "【策展库情境匹配】以下是已审核参考图中提炼出的候选方法，只借用方法，不借用画面内容。标签可以交叉，只挑适合当前内容的部分，不必整套套用；用户明确要求优先。色板默认不继承；只有故事或用户明确给出相同色彩证据时才可采用。",
     ...lines,
   ].join("\n");
 }

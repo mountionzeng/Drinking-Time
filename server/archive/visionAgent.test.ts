@@ -195,6 +195,36 @@ describe("analyzeVisionReference compatible vision", () => {
     expect(result.analysis.confidence).toBe(0);
   });
 
+  it("extracts overlapping curation tags and keeps artist affinity separate from attribution", async () => {
+    ENV.vision302ApiKey = "";
+    ENV.vision302Model = "";
+    ENV.llmSupportsImage = true;
+    const payload = { ...analysisPayload, analysis: {
+      ...analysisPayload.analysis,
+      artTags: {
+        artistReferences: [{ name: "吴冠中", basis: "点线色块与空间节奏相近" }, { name: "无依据姓名" }],
+        media: ["彩铅", "拼贴", "彩铅"],
+        composition: ["横向展开", "偏心"],
+        freeTags: ["介于抽象与具象之间", null],
+      },
+    } };
+    vi.mocked(invokeLLM).mockResolvedValue({ choices: [{ message: {
+      content: JSON.stringify(payload),
+    } }] } as Awaited<ReturnType<typeof invokeLLM>>);
+    const result = await analyzeVisionReference({
+      imageDataUrl: "data:image/png;base64,AAAA", purpose: "art-curation",
+    });
+    expect(result.analysis.artTags?.media).toEqual(["彩铅", "拼贴"]);
+    expect(result.analysis.artTags?.freeTags).toEqual(["介于抽象与具象之间"]);
+    expect(result.analysis.artTags?.artistReferences).toEqual([
+      { name: "吴冠中", basis: "点线色块与空间节奏相近" },
+    ]);
+    const call = vi.mocked(invokeLLM).mock.calls[0][0];
+    expect(call.messages[0].content).toContain("不强制每张图片归入唯一流派");
+    expect(call.messages[0].content).toContain("不是在鉴定作者");
+    expect(call.maxTokens).toBe(3000);
+  });
+
   it("视觉模型返回坏 JSON（有花括号但语法错，正是 live 踩到的那种）时同样降级兜底，不抛错", async () => {
     // 缺少逗号的非法 JSON：parseJsonLoose 的两条路径（直接 parse + 截花括号再 parse）都会抛。
     const brokenJson =
