@@ -202,7 +202,7 @@ export function matchCuratedArtDna(
 
   if (ready.length === 0 || limit <= 0) return [];
   const matched = ready.filter(candidate => candidate.score > 0);
-  return (matched.length > 0 ? matched : ready)
+  return matched
     .slice(0, limit)
     .map(candidate => candidate.dna);
 }

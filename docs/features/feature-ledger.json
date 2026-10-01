@@ -1624,7 +1624,8 @@
         "art-repository/catalog.json"
       ],
       "evidence": [
-        "server/services/artRepository.test.ts"
+        "server/services/artRepository.test.ts",
+        "scripts/analyze-art-references.test.ts"
       ],
       "invariants": [
         "线上只消费清洗后且状态为 ready 的 DNA。",
@@ -1637,13 +1638,18 @@
       "replaces": [],
       "knownGaps": [
         "99 张参考图仍为 pending-analysis。",
-        "当前实现未提交且尚未迁移私有对象存储。"
+        "尚未迁移私有对象存储；2026-10-01 已核对本地 99 张原图完整、哈希一致且无重复，逐图付费分析待确认。"
       ],
       "history": [
         {
           "date": "2026-08-10",
           "kind": "feature",
           "summary": "建立去重导入、待分析目录和清洗后 DNA 读取边界。"
+        },
+        {
+          "date": "2026-10-01",
+          "kind": "fix",
+          "summary": "继续图库分析前补齐质量保护：空结果、零置信度和过滤后无可复用信息的分析保持 pending-analysis；内容没有匹配证据时不再回退到目录前两条画风。预检和批量上限由无付费调用的脚本回归覆盖。"
         }
       ]
     },

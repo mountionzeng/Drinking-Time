@@ -122,6 +122,9 @@ describe("artRepository", () => {
     expect(block).toContain("纸本拼贴");
     expect(block).toContain("色板默认不继承");
     expect(block).not.toContain("深蓝与金色");
+    // 无关内容不能悄悄套用目录里的第一种画风。
+    expect(matchCuratedArtDna(catalog, "两个人讨论明天的工作")).toEqual([]);
+    expect(matchCuratedArtDna(catalog, "")).toEqual([]);
   });
 
   it("重复导入按同名和内容哈希去重，并给新图建立待分析安全清单", async () => {
