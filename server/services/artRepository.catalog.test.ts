@@ -23,7 +23,20 @@ const batch = [
   "1d03dab4a17835d92115fc7dfd7c1ca5.jpg",
 ];
 
-describe("首批会话策展目录", () => {
+const secondBatch = [
+  "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg",
+  "216e86f32c4f626514166409c01bd899.jpg",
+  "26f4744ffb6f71c236685cf7a25a5d1e.jpg",
+  "296fe087f8d9d677eb8e964936b67171.jpg",
+  "2c23550c177b13810e1aa846a2e6314d.jpg",
+  "3162303808fac712bcf00c60c7a8afa5.jpg",
+  "3685382d7bcbfce321817eb262cff5a1.jpg",
+  "3939b6d147017e60c3d16a5ab2ccfdee.jpg",
+  "3ae3c085b442624a0ff45cf0b0a944e0.jpg",
+  "3beac1dbb97b4477f7630ee4a88cbf72.jpg",
+];
+
+describe("会话策展目录", () => {
   it("真实目录的十张 DNA 可清洗、可复用，且没有改变权利状态", async () => {
     const catalog = await loadArtRepositoryCatalog(repositoryDir);
     expect(catalog).not.toBeNull();
@@ -72,6 +85,77 @@ describe("首批会话策展目录", () => {
       for (const color of selected[0].palette)
         expect(prompt).not.toContain(color);
     }
+  });
+
+  it("第二批十张新记录都有可复用信息，自由观察词通过清洗且不改变权利边界", async () => {
+    const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+    for (const name of secondBatch) {
+      const asset = catalog.assets[name];
+      expect(asset.status).toBe("ready");
+      expect(asset.rightsStatus).toBe("unverified");
+      expect(asset.usage).toBe("derived-dna-only");
+      const clean = sanitizeCuratedArtDna(asset.dna!);
+      expect(clean).toEqual(asset.dna);
+      expect(hasReusableArtDna(clean)).toBe(true);
+      expect(clean.artTags?.freeTags.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("分类之外的自由词能检索到可执行方法，但不会把自由标签整套注入", async () => {
+    const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+    for (const [query, name, method] of [
+      ["颗粒闪光", secondBatch[0], "暗底上的颗粒闪光"],
+      ["暗幕亮窗", secondBatch[3], "暗前景衬亮远景"],
+      ["呼吸感", secondBatch[5], "大面积留白"],
+      ["断续轮廓", secondBatch[6], "失而复现的轮廓"],
+      ["反光碎片", secondBatch[8], "断续亮线"],
+      ["图底游戏", secondBatch[9], "图底互换"],
+    ]) {
+      const selected = matchCuratedArtDna(catalog, query, 1);
+      expect(selected).toEqual([
+        sanitizeCuratedArtDna(catalog.assets[name].dna!),
+      ]);
+      const prompt = curatedDnaPromptBlock(selected);
+      expect(prompt).toContain(method);
+      expect(prompt).not.toMatch(
+        /\.jpg|小红书|Art History|Dan Schultz|克里姆特|马蒂斯|Gustav Klimt|Henri Matisse/
+      );
+    }
+    const prompt = curatedDnaPromptBlock(
+      matchCuratedArtDna(catalog, "图底游戏", 1)
+    );
+    expect(prompt).not.toContain("图底游戏");
+    expect(prompt).not.toContain("明黄绿");
+  });
+
+  it("只在命中数相同时优先更长的已命中词组，完全同分保持目录顺序", async () => {
+    const source = (await loadArtRepositoryCatalog(repositoryDir))!;
+    const seed = source.assets[batch[0]];
+    const generic = {
+      ...seed,
+      dna: sanitizeCuratedArtDna({
+        style: ["泛词方法"],
+        matchTags: ["颗粒", "颗粒", "尚未命中的很长词组"],
+      }),
+    };
+    const specific = {
+      ...seed,
+      dna: sanitizeCuratedArtDna({
+        style: ["具体方法"],
+        matchTags: ["颗粒闪光"],
+      }),
+    };
+    const catalog = { ...source, assets: { generic, specific } };
+    expect(matchCuratedArtDna(catalog, "颗粒闪光", 1)).toEqual([specific.dna]);
+    generic.dna.matchTags = ["颗粒", "闪光"];
+    expect(matchCuratedArtDna(catalog, "颗粒闪光", 1)).toEqual([generic.dna]);
+    generic.dna.matchTags = ["颗粒闪光"];
+    expect(matchCuratedArtDna(catalog, "颗粒闪光", 1)).toEqual([generic.dna]);
+    expect(matchCuratedArtDna(catalog, "无关请求")).toEqual([]);
+    expect(matchCuratedArtDna(catalog, "颗粒闪光", 0)).toEqual([]);
+    catalog.assets.specific = { ...specific, status: "pending-analysis" };
+    generic.dna.matchTags = ["颗粒"];
+    expect(matchCuratedArtDna(catalog, "颗粒闪光", 1)).toEqual([generic.dna]);
   });
 
   it("现有入口实际加载候选，不加载原图内容或截图污染", async () => {

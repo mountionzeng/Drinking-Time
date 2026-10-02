@@ -129,6 +129,7 @@ describe("analyzeVisionReference compatible vision", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("qwen3-vl-plus");
     expect(body.messages[0].content).toContain("水印、可读文字、作者签名");
+    expect(body.messages[0].content).not.toContain("先自由观察，再归类");
     expect(body.messages[0].content).toContain(
       "不得在 promptDraft 中写成必须复制的内容"
     );
@@ -205,7 +206,7 @@ describe("analyzeVisionReference compatible vision", () => {
         artistReferences: [{ name: "吴冠中", basis: "点线色块与空间节奏相近" }, { name: "无依据姓名" }],
         media: ["彩铅", "拼贴", "彩铅"],
         composition: ["横向展开", "偏心"],
-        freeTags: ["介于抽象与具象之间", null],
+        freeTags: ["介于抽象与具象之间", "图底互换", "断续轮廓", null],
       },
     } };
     vi.mocked(invokeLLM).mockResolvedValue({ choices: [{ message: {
@@ -215,13 +216,16 @@ describe("analyzeVisionReference compatible vision", () => {
       imageDataUrl: "data:image/png;base64,AAAA", purpose: "art-curation",
     });
     expect(result.analysis.artTags?.media).toEqual(["彩铅", "拼贴"]);
-    expect(result.analysis.artTags?.freeTags).toEqual(["介于抽象与具象之间"]);
+    expect(result.analysis.artTags?.freeTags).toEqual(["介于抽象与具象之间", "图底互换", "断续轮廓"]);
     expect(result.analysis.artTags?.artistReferences).toEqual([
       { name: "吴冠中", basis: "点线色块与空间节奏相近" },
     ]);
     const call = vi.mocked(invokeLLM).mock.calls[0][0];
     expect(call.messages[0].content).toContain("不强制每张图片归入唯一流派");
     expect(call.messages[0].content).toContain("不是在鉴定作者");
+    expect(call.messages[0].content).toContain("先自由观察，再归类");
+    expect(call.messages[0].content).toContain("示例不是必填清单");
+    expect(call.messages[0].content).toContain("同时写入对应的光线、构图、笔触或材质字段");
     expect(call.maxTokens).toBe(3000);
   });
 

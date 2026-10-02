@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "collectionId": "founder-private-art-references",
-  "updatedAt": "2026-10-01T08:13:18.000Z",
+  "updatedAt": "2026-10-02T10:01:53.000Z",
   "sourcePolicy": {
     "visibility": "private",
     "rawImagesAtRuntime": false,
@@ -800,82 +800,825 @@
     "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg": {
       "sha256": "6d2104584a3be5bcd315a9f2e3c74ebbd5e418364811268dbac2aa493416a3b9",
       "sourceFileName": "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "抒情幻想绘画",
+          "细密点粒与柔化色层"
+        ],
+        "palette": [
+          "群青",
+          "靛蓝",
+          "紫蓝",
+          "微量黄绿"
+        ],
+        "light": [
+          "暗底上的颗粒闪光",
+          "局部亮形与散射微光"
+        ],
+        "composition": [
+          "偏置亮点",
+          "横向节奏与斜向光带交织"
+        ],
+        "material": [
+          "粉彩般的细粒叠色"
+        ],
+        "mood": [
+          "幽静",
+          "梦幻"
+        ],
+        "matchTags": [
+          "夜色",
+          "微光",
+          "遐想"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "抒情幻想"
+          ],
+          "media": [
+            "粉彩颗粒质感"
+          ],
+          "composition": [
+            "点面反差",
+            "不对称平衡"
+          ],
+          "viewpoint": [
+            "平视",
+            "远景"
+          ],
+          "spatialLayers": [
+            "低反差远层与细碎近层"
+          ],
+          "markMaking": [
+            "点粒叠加",
+            "短横擦痕",
+            "雾化边缘"
+          ],
+          "colorRelations": [
+            "近似色主导",
+            "小面积补色闪点"
+          ],
+          "narrativeUses": [
+            "夜间独处",
+            "静静期待"
+          ],
+          "freeTags": [
+            "颗粒闪光",
+            "明暗疏密",
+            "流光感"
+          ]
+        }
+      }
     },
     "216e86f32c4f626514166409c01bd899.jpg": {
       "sha256": "3c3411832028b193acb554abad18c10533885c7f9ba8c46b7c9eff4d2d7cdc1f",
       "sourceFileName": "216e86f32c4f626514166409c01bd899.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "细密装饰性绘画",
+          "图案与体积交织"
+        ],
+        "palette": [
+          "蓝绿",
+          "灰绿",
+          "深蓝",
+          "浅金"
+        ],
+        "light": [
+          "低反差漫射光",
+          "局部金属般反光"
+        ],
+        "composition": [
+          "密集环境包裹焦点",
+          "重复竖线与曲线对照"
+        ],
+        "material": [
+          "薄层设色般的细腻表面",
+          "金箔般局部亮斑"
+        ],
+        "mood": [
+          "静谧",
+          "沉浸"
+        ],
+        "matchTags": [
+          "沉浸",
+          "装饰性",
+          "冥想"
+        ],
+        "artTags": {
+          "artistReferences": [
+            {
+              "name": "Gustav Klimt",
+              "basis": "局部金色图案、平面纹样与具象体积并置有视觉亲缘，仅是方法参照，不鉴定作者"
+            }
+          ],
+          "movements": [
+            "装饰性具象",
+            "象征性绘画语言"
+          ],
+          "media": [
+            "薄层设色质感"
+          ],
+          "composition": [
+            "疏密节奏",
+            "重复与差异"
+          ],
+          "viewpoint": [
+            "平视",
+            "中景"
+          ],
+          "spatialLayers": [
+            "前景穿插",
+            "平面纹样与浅纵深交织"
+          ],
+          "markMaking": [
+            "细线描绘",
+            "碎点装饰",
+            "柔和轮廓"
+          ],
+          "colorRelations": [
+            "蓝绿近似色",
+            "小面积金色强调"
+          ],
+          "narrativeUses": [
+            "沉入内心",
+            "与环境相融"
+          ],
+          "freeTags": [
+            "克里姆特",
+            "图案化节奏",
+            "包裹感",
+            "装饰密度"
+          ]
+        }
+      }
     },
     "26f4744ffb6f71c236685cf7a25a5d1e.jpg": {
       "sha256": "0352ba113092c0ee9032f3edca5b242c2fb4b05a8dccb11979e57da630a6c2b9",
       "sourceFileName": "26f4744ffb6f71c236685cf7a25a5d1e.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "装饰性风景概括",
+          "线性纹理与平面色块并置"
+        ],
+        "palette": [
+          "松绿",
+          "灰绿",
+          "乳白",
+          "灰蓝",
+          "少量朱橙"
+        ],
+        "light": [
+          "均匀柔光与斑驳亮面"
+        ],
+        "composition": [
+          "递进式纵深",
+          "视觉动线蜿蜒",
+          "环境主导"
+        ],
+        "material": [
+          "干刷与彩铅般颗粒"
+        ],
+        "mood": [
+          "悠缓",
+          "安静"
+        ],
+        "matchTags": [
+          "漫步",
+          "行进",
+          "层叠"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "装饰性风景"
+          ],
+          "media": [
+            "干刷质感",
+            "彩铅颗粒质感"
+          ],
+          "composition": [
+            "层层递进",
+            "小尺度焦点穿插"
+          ],
+          "viewpoint": [
+            "略俯视",
+            "远景"
+          ],
+          "spatialLayers": [
+            "大小递减",
+            "遮挡叠层"
+          ],
+          "markMaking": [
+            "平行细线",
+            "短点",
+            "擦染"
+          ],
+          "colorRelations": [
+            "绿调层次",
+            "微量暖色焦点"
+          ],
+          "narrativeUses": [
+            "慢慢前行",
+            "寻找路径"
+          ],
+          "freeTags": [
+            "路径引导",
+            "线面交织",
+            "节奏递进"
+          ]
+        }
+      }
     },
     "296fe087f8d9d677eb8e964936b67171.jpg": {
       "sha256": "c86f59c384b4e4d0479750bc135e5659e4e91638d9e418ec5f0e345a3a5774bd",
       "sourceFileName": "296fe087f8d9d677eb8e964936b67171.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "柔粒抒情绘画",
+          "暗形与粉雾色面相衬"
+        ],
+        "palette": [
+          "炭黑",
+          "粉橙",
+          "灰紫",
+          "浅蓝绿"
+        ],
+        "light": [
+          "暗前景衬亮远景",
+          "雾中柔光"
+        ],
+        "composition": [
+          "框景",
+          "不规则开口",
+          "近大远小"
+        ],
+        "material": [
+          "彩铅粉彩般的绒面颗粒"
+        ],
+        "mood": [
+          "宁静",
+          "留恋"
+        ],
+        "matchTags": [
+          "远望",
+          "眺望",
+          "暮色"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "抒情具象"
+          ],
+          "media": [
+            "粉彩质感",
+            "彩铅质感"
+          ],
+          "composition": [
+            "暗形环抱亮面"
+          ],
+          "viewpoint": [
+            "远眺",
+            "略俯视"
+          ],
+          "spatialLayers": [
+            "深暗前景",
+            "明亮中层",
+            "雾化远层"
+          ],
+          "markMaking": [
+            "细密排擦",
+            "柔边",
+            "短点"
+          ],
+          "colorRelations": [
+            "暗色与浅粉色层对照",
+            "冷暖低纯度过渡"
+          ],
+          "narrativeUses": [
+            "隔着距离的想念",
+            "静静观察"
+          ],
+          "freeTags": [
+            "暗幕亮窗",
+            "通透感",
+            "柔硬边对照"
+          ]
+        }
+      }
     },
     "2c23550c177b13810e1aa846a2e6314d.jpg": {
       "sha256": "5cb95f8c46704b67dc1e016b3c8dd1c80873c6208bf4154cbfb0a1b1cbd7e56c",
       "sourceFileName": "2c23550c177b13810e1aa846a2e6314d.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "破碎色触塑造体积",
+          "结构性笔触与松动描绘"
+        ],
+        "palette": [
+          "青绿",
+          "赭黄",
+          "橄榄绿",
+          "蓝灰"
+        ],
+        "light": [
+          "侧向暖光",
+          "冷色阴影"
+        ],
+        "composition": [
+          "偏置重心",
+          "横向景深展开",
+          "近景斜线穿插"
+        ],
+        "material": [
+          "油彩般厚薄叠涂"
+        ],
+        "mood": [
+          "沉稳",
+          "朴实"
+        ],
+        "matchTags": [
+          "乡野",
+          "厚实",
+          "踏实"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "印象性风景绘画"
+          ],
+          "media": [
+            "油彩质感"
+          ],
+          "composition": [
+            "大暗形与小亮形平衡"
+          ],
+          "viewpoint": [
+            "远景"
+          ],
+          "spatialLayers": [
+            "前景遮挡",
+            "多层纵深"
+          ],
+          "markMaking": [
+            "破碎色触",
+            "方向性排笔",
+            "干擦"
+          ],
+          "colorRelations": [
+            "补色碎点交织",
+            "冷暖交替塑形"
+          ],
+          "narrativeUses": [
+            "回归日常",
+            "熟悉的地方"
+          ],
+          "freeTags": [
+            "色触拼接",
+            "画面重量",
+            "粗细交替"
+          ]
+        }
+      }
     },
     "3162303808fac712bcf00c60c7a8afa5.jpg": {
       "sha256": "fc20a2cac47451786b9d1b4c814211d01748d064211b314b7e0c5043513a3353",
       "sourceFileName": "3162303808fac712bcf00c60c7a8afa5.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "东方写意意境",
+          "浓淡色面与简练细线"
+        ],
+        "palette": [
+          "淡灰白",
+          "紫蓝",
+          "草绿",
+          "微量赭红"
+        ],
+        "light": [
+          "均匀散射光",
+          "淡层透亮"
+        ],
+        "composition": [
+          "大面积留白",
+          "低位微小焦点",
+          "疏密强对照"
+        ],
+        "material": [
+          "水墨晕染般的颗粒色层"
+        ],
+        "mood": [
+          "空灵",
+          "从容"
+        ],
+        "matchTags": [
+          "留白",
+          "旷远",
+          "旅途"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "东方写意",
+            "简约叙事"
+          ],
+          "media": [
+            "水墨设色质感"
+          ],
+          "composition": [
+            "极简空间",
+            "环境尺度反差"
+          ],
+          "viewpoint": [
+            "远景"
+          ],
+          "spatialLayers": [
+            "虚实相间",
+            "淡层退远"
+          ],
+          "markMaking": [
+            "晕染",
+            "颗粒边缘",
+            "精细线描"
+          ],
+          "colorRelations": [
+            "淡底浓色",
+            "少量暖色点睛"
+          ],
+          "narrativeUses": [
+            "远行",
+            "渺小但同行"
+          ],
+          "freeTags": [
+            "呼吸感",
+            "虚实对照",
+            "留白里的微小焦点"
+          ]
+        }
+      }
     },
     "3685382d7bcbfce321817eb262cff5a1.jpg": {
       "sha256": "4f1776fae799edea5ffff9418ccf4f85782bd80d5a276f5b814e832eb131b6be",
       "sourceFileName": "3685382d7bcbfce321817eb262cff5a1.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "松动写实",
+          "有形笔触保留体积"
+        ],
+        "palette": [
+          "黄绿",
+          "灰紫",
+          "蓝绿",
+          "暖灰褐"
+        ],
+        "light": [
+          "斑驳逆光",
+          "边缘亮线",
+          "亮暗色面交替"
+        ],
+        "composition": [
+          "斜线交叉",
+          "偏置焦点",
+          "局部遮挡"
+        ],
+        "material": [
+          "厚涂油彩般的笔峰纹理"
+        ],
+        "mood": [
+          "专注",
+          "轻快"
+        ],
+        "matchTags": [
+          "探索",
+          "动手",
+          "阳光"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "印象性写实"
+          ],
+          "media": [
+            "厚涂油彩质感"
+          ],
+          "composition": [
+            "开放边缘裁切",
+            "交叉动线"
+          ],
+          "viewpoint": [
+            "平视",
+            "中景"
+          ],
+          "spatialLayers": [
+            "近层横斜形",
+            "中层焦点",
+            "概括远层"
+          ],
+          "markMaking": [
+            "弧形短笔触",
+            "笔峰起伏",
+            "失而复现的轮廓"
+          ],
+          "colorRelations": [
+            "黄绿亮面与紫灰阴影"
+          ],
+          "narrativeUses": [
+            "专注当下",
+            "小小探索"
+          ],
+          "freeTags": [
+            "触觉感",
+            "断续轮廓",
+            "动作势能"
+          ]
+        }
+      }
     },
     "3939b6d147017e60c3d16a5ab2ccfdee.jpg": {
       "sha256": "105da5aa8f82c067abd722ce8a4fe72422bec050a908de78ead084d455e45d44",
       "sourceFileName": "3939b6d147017e60c3d16a5ab2ccfdee.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "朦胧叙事绘画",
+          "柔焦颗粒与几何形概括"
+        ],
+        "palette": [
+          "金橙",
+          "赭棕",
+          "暗红",
+          "灰蓝"
+        ],
+        "light": [
+          "暖色漫射光",
+          "局部亮斑"
+        ],
+        "composition": [
+          "斜向透视",
+          "局部裁切",
+          "前景细线穿插"
+        ],
+        "material": [
+          "彩铅与粉彩般的细粒叠擦"
+        ],
+        "mood": [
+          "怀旧",
+          "亲切"
+        ],
+        "matchTags": [
+          "街角",
+          "归途",
+          "旧日"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "抒情城市绘画"
+          ],
+          "media": [
+            "粉彩质感",
+            "彩铅质感"
+          ],
+          "composition": [
+            "画外延伸",
+            "斜线与横线交错"
+          ],
+          "viewpoint": [
+            "高处俯视",
+            "中远景"
+          ],
+          "spatialLayers": [
+            "前景遮挡",
+            "交错纵深"
+          ],
+          "markMaking": [
+            "柔焦边缘",
+            "细线",
+            "颗粒擦染"
+          ],
+          "colorRelations": [
+            "暖色主导",
+            "冷色局部平衡"
+          ],
+          "narrativeUses": [
+            "城市归途",
+            "熟悉的日常"
+          ],
+          "freeTags": [
+            "橱窗般的截景",
+            "时间沉积感",
+            "暮光感"
+          ]
+        }
+      }
     },
     "3ae3c085b442624a0ff45cf0b0a944e0.jpg": {
       "sha256": "3bea69d5e4b4445831fac2aa920ac4a6e67a1d5160960f1006d4f8d9c8d707aa",
       "sourceFileName": "3ae3c085b442624a0ff45cf0b0a944e0.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "具象形体与抽象色触并存",
+          "局部细节与概括背景对照"
+        ],
+        "palette": [
+          "橄榄绿",
+          "灰赭",
+          "乳白",
+          "淡蓝紫",
+          "微量红"
+        ],
+        "light": [
+          "明亮反光",
+          "冷暖明暗塑形"
+        ],
+        "composition": [
+          "偏置近景",
+          "环形节奏",
+          "开放式裁切"
+        ],
+        "material": [
+          "油彩般的堆叠与拖抹"
+        ],
+        "mood": [
+          "自在",
+          "好奇"
+        ],
+        "matchTags": [
+          "观察",
+          "清凉",
+          "嬉游"
+        ],
+        "artTags": {
+          "artistReferences": [],
+          "movements": [
+            "印象性具象"
+          ],
+          "media": [
+            "油彩质感"
+          ],
+          "composition": [
+            "曲线围绕偏置焦点"
+          ],
+          "viewpoint": [
+            "俯视",
+            "中近景"
+          ],
+          "spatialLayers": [
+            "浅空间",
+            "透叠色面"
+          ],
+          "markMaking": [
+            "弧形色触",
+            "宽笔塑形",
+            "断续亮线"
+          ],
+          "colorRelations": [
+            "灰绿底与蓝紫亮色",
+            "少量暖红强调"
+          ],
+          "narrativeUses": [
+            "感官发现",
+            "片刻自在"
+          ],
+          "freeTags": [
+            "反光碎片",
+            "透明感",
+            "曲线回声"
+          ]
+        }
+      }
     },
     "3beac1dbb97b4477f7630ee4a88cbf72.jpg": {
       "sha256": "964ed24363e46464b4701ca841521abe1f0ba524387ab69413657804b2b40127",
       "sourceFileName": "3beac1dbb97b4477f7630ee4a88cbf72.jpg",
-      "status": "pending-analysis",
+      "status": "ready",
       "rightsStatus": "unverified",
       "usage": "derived-dna-only",
-      "addedAt": "2026-08-10T11:44:01.519Z"
+      "addedAt": "2026-08-10T11:44:01.519Z",
+      "analyzedAt": "2026-10-02T10:01:53.000Z",
+      "dna": {
+        "style": [
+          "平面化装饰插画",
+          "有机色面与夸张尺度"
+        ],
+        "palette": [
+          "明黄绿",
+          "粉橙",
+          "墨绿",
+          "淡粉白"
+        ],
+        "light": [
+          "以色面亮暗组织形体"
+        ],
+        "composition": [
+          "斜向流动",
+          "尺度夸张",
+          "满幅节奏"
+        ],
+        "material": [
+          "粉彩蜡笔般颗粒",
+          "水彩斑驳般叠色"
+        ],
+        "mood": [
+          "轻盈",
+          "欢快"
+        ],
+        "matchTags": [
+          "舒展",
+          "畅游",
+          "童趣"
+        ],
+        "artTags": {
+          "artistReferences": [
+            {
+              "name": "Henri Matisse",
+              "basis": "有机形概括、非自然主义配色与平面化空间具有视觉亲缘，不判定作者或实际材料"
+            }
+          ],
+          "movements": [
+            "装饰性平面语言",
+            "野兽派色彩语言"
+          ],
+          "media": [
+            "颗粒混合媒介质感"
+          ],
+          "composition": [
+            "曲线与分支线呼应",
+            "图底互换"
+          ],
+          "viewpoint": [
+            "俯视"
+          ],
+          "spatialLayers": [
+            "平面叠层",
+            "大小错置"
+          ],
+          "markMaking": [
+            "颗粒涂擦",
+            "彩色轮廓",
+            "斑驳色块"
+          ],
+          "colorRelations": [
+            "明亮邻近色",
+            "深浅绿反差"
+          ],
+          "narrativeUses": [
+            "释放束缚",
+            "轻盈漫游"
+          ],
+          "freeTags": [
+            "马蒂斯",
+            "图底游戏",
+            "非自然色",
+            "伸展感"
+          ]
+        }
+      }
     },
     "3dced4d435f910947e32aecacbd7b76b.jpg": {
       "sha256": "fec3f8d063b0527e9e1a02d9b822422323c4f02cb2a710054af99fd28b6d56d0",
