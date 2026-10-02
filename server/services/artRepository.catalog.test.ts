@@ -36,6 +36,19 @@ const secondBatch = [
   "3beac1dbb97b4477f7630ee4a88cbf72.jpg",
 ];
 
+const thirdBatch = [
+  "3dced4d435f910947e32aecacbd7b76b.jpg",
+  "431dafa5900a573375537236b166e765.jpg",
+  "447db8569fe4fd0d32ab2f5816044223.jpg",
+  "44cc4963d85d7a278283c11d2f82814a.jpg",
+  "4626c808af84c874e6fe32b8a314c64f.jpg",
+  "4840de42868f1c351f97a4c4a8ebf94a.jpg",
+  "49203439d467bce185ba0294414be5c8.jpg",
+  "492aca92bbbc80ed82525dc21ae1cd0c.jpg",
+  "498da3c58a6e60e0b97cefbd63306e95.jpg",
+  "4a9bfb3b9d61a99a0f06eafb4b4f3772.jpg",
+];
+
 describe("会话策展目录", () => {
   it("真实目录的十张 DNA 可清洗、可复用，且没有改变权利状态", async () => {
     const catalog = await loadArtRepositoryCatalog(repositoryDir);
@@ -76,7 +89,12 @@ describe("会话策展目录", () => {
 
   it("艺术家可检索，但姓名、色板、原图路径不会随候选输出", async () => {
     const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
-    for (const name of ["Vincent van Gogh", "Alphonse Mucha"]) {
+    for (const name of [
+      "Vincent van Gogh",
+      "Alphonse Mucha",
+      "Edward Hopper",
+      "Camille Corot",
+    ]) {
       const selected = matchCuratedArtDna(catalog, name);
       expect(selected).toHaveLength(1);
       const prompt = curatedDnaPromptBlock(selected);
@@ -127,6 +145,54 @@ describe("会话策展目录", () => {
     expect(prompt).not.toContain("图底游戏");
     expect(prompt).not.toContain("明黄绿");
   });
+
+  it("第三批十张开放标签可完整清洗、可复用，保留原图权利限制", async () => {
+    const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+    for (const name of thirdBatch) {
+      const asset = catalog.assets[name];
+      expect(asset.status).toBe("ready");
+      expect(asset.rightsStatus).toBe("unverified");
+      expect(asset.usage).toBe("derived-dna-only");
+      expect(asset.analyzedAt).toBeTruthy();
+      const clean = sanitizeCuratedArtDna(asset.dna!);
+      expect(clean).toEqual(asset.dna);
+      expect(hasReusableArtDna(clean)).toBe(true);
+      expect(clean.artTags?.freeTags.length).toBeGreaterThan(0);
+    }
+  });
+
+  it.each([
+    ["雾光穿透", thirdBatch[0], "雾中散射光晕"],
+    ["光池孤岛", thirdBatch[1], "局部光池"],
+    ["垂坠线韵", thirdBatch[2], "曲线向上汇聚"],
+    ["纸剧场感", thirdBatch[3], "横向多焦点展开"],
+    ["环抱式动势", thirdBatch[4], "环形围合与弧线接力"],
+    ["线面反拍", thirdBatch[5], "曲直节奏对照"],
+    ["灯色包裹", thirdBatch[6], "内外冷暖光交叠"],
+    ["矿物哑色", thirdBatch[7], "不等量大色面叠置"],
+    ["银灰透气", thirdBatch[8], "软边团簇"],
+    ["碎金节律", thirdBatch[9], "横向短线"],
+  ])(
+    "第三批自由词 %s 通过真实入口提供方法而非原图内容",
+    async (query, name, method) => {
+      const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+      const selected = matchCuratedArtDna(catalog, query, 1);
+      expect(selected).toEqual([
+        sanitizeCuratedArtDna(catalog.assets[name].dna!),
+      ]);
+      const blocks = await artRepositoryPromptBlocks(query, repositoryDir);
+      const prompt = blocks.find(block =>
+        block.startsWith("【策展库情境匹配】")
+      )!;
+      expect(prompt).toContain(method);
+      expect(prompt).not.toContain(query);
+      expect(prompt).not.toMatch(
+        /\.jpg|references\/|小红书|水印|签名|状态栏|手机|电车|钢琴|帆船|猫|Edward Hopper|Camille Corot/
+      );
+      for (const color of selected[0].palette)
+        expect(prompt).not.toContain(color);
+    }
+  );
 
   it("只在命中数相同时优先更长的已命中词组，完全同分保持目录顺序", async () => {
     const source = (await loadArtRepositoryCatalog(repositoryDir))!;
