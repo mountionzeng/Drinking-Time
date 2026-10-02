@@ -208,10 +208,10 @@ export function curatorProfilePromptBlock(
     .join("\n");
 }
 
-function scoreDna(dna: CuratedArtDna, context: string): number {
+function scoreDna(dna: CuratedArtDna, context: string) {
   const haystack = context.toLocaleLowerCase("zh-CN");
   const tags = dna.artTags;
-  return unique([
+  const matchedTags = unique([
     ...dna.matchTags,
     ...dna.mood,
     ...dna.style,
@@ -219,12 +219,11 @@ function scoreDna(dna: CuratedArtDna, context: string): number {
     ...dna.material,
     ...(tags ? ART_REFERENCE_TAG_FIELDS.flatMap(field => tags[field]) : []),
     ...(tags?.artistReferences.map(reference => reference.name) ?? []),
-  ]).reduce(
-    (score, tag) =>
-      score +
-      (tag && haystack.includes(tag.toLocaleLowerCase("zh-CN")) ? 1 : 0),
-    0
-  );
+  ]).filter(tag => tag && haystack.includes(tag.toLocaleLowerCase("zh-CN")));
+  return {
+    score: matchedTags.length,
+    specificity: Math.max(0, ...matchedTags.map(tag => tag.length)),
+  };
 }
 
 /**
@@ -241,9 +240,13 @@ export function matchCuratedArtDna(
     .filter(asset => asset.status === "ready" && asset.dna)
     .map(asset => sanitizeCuratedArtDna(asset.dna!))
     .filter(hasReusableArtDna)
-    .map((dna, index) => ({ dna, index, score: scoreDna(dna, context) }))
+    .map((dna, index) => ({ dna, index, ...scoreDna(dna, context) }))
     .sort(
-      (left, right) => right.score - left.score || left.index - right.index
+      // 命中数仍优先；同分时完整词组胜过其泛化子词，再保持目录稳定顺序。
+      (left, right) =>
+        right.score - left.score ||
+        right.specificity - left.specificity ||
+        left.index - right.index
     );
 
   if (ready.length === 0 || limit <= 0) return [];
