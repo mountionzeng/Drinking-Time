@@ -91,6 +91,7 @@ import {
   publishingTrendWriteScope,
 } from "./publishingOperationScope";
 import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
+import { PublishingImagePack } from "../publishingAlbum/PublishingImagePack";
 import {
   Popover,
   PopoverContent,
@@ -473,9 +474,7 @@ export default function PublishingDraftWorkspace({
     );
     setFinishedProductPurpose(editing?.purpose ?? "");
   }, [activeStoryId, finishedProduct?.revision]);
-  useEffect(() => {
-    if (activeVersion?.album) setAlbumWorkspaceOpen(true);
-  }, [activeVersion?.versionId]);
+  useEffect(() => setAlbumWorkspaceOpen(false), [activeVersion?.versionId]);
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
@@ -1705,23 +1704,6 @@ export default function PublishingDraftWorkspace({
     });
   };
 
-  if (albumWorkspaceOpen && activeVersion?.album) {
-    return (
-      <PublishingAlbumWorkspace
-        key={`${activeStoryId}:${activeVersion.versionId}`}
-        storyId={activeStoryId}
-        version={activeVersion}
-        coverAvailable={Boolean(activeVersion.cover?.assetId)}
-        onPublishingChange={setPublishing}
-        onBackToDraft={() => setAlbumWorkspaceOpen(false)}
-        onOpenCoverStudio={() => {
-          setAlbumWorkspaceOpen(false);
-          openCoverStudio(true);
-        }}
-      />
-    );
-  }
-
   return (
     <motion.section
       initial={{ opacity: 0, y: 4 }}
@@ -2140,55 +2122,38 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
-                <section
-                  className="mt-7 overflow-hidden rounded-lg border"
-                  style={{ borderColor: "var(--panel-border)" }}
-                  aria-label="社交封面"
-                >
-                  <div
-                    className="flex items-center justify-between gap-3 border-b px-3 py-2"
-                    style={{ borderColor: "var(--panel-border)" }}
-                  >
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        社交封面
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">
-                        四图候选 · 对话修改 · 明确采用；正式图为原生 3:4
-                      </p>
-                    </div>
-                    {coverAsset ? (
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-700">
-                        正式封面已采用
-                      </span>
-                    ) : null}
-                  </div>
-                  {coverAsset ? (
-                    <div className="grid gap-3 p-3 sm:grid-cols-[112px_1fr] sm:items-center">
-                      <img
-                        src={coverAsset.imageUrl}
-                        alt="当前发布封面主视觉"
-                        className="aspect-[3/4] w-28 rounded-md object-cover"
-                      />
-                      <div>
-                        <p className="text-xs font-medium text-foreground">
-                          同一张图适配所有平台
-                        </p>
-                        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                          下载时才按平台比例居中裁切并加入当前标题，不会再次调用图片模型。
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 p-3 text-[11px] leading-5 text-muted-foreground">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--nayin-surface)]">
-                        <ImageIcon className="h-4 w-4 text-[var(--nayin-accent)]" />
-                      </div>
-                      先生成一轮 4
-                      张候选。选择、查看和采用都不收费；只有明确生成新一轮才会产生图片费用。
-                    </div>
-                  )}
-                </section>
+                <PublishingImagePack
+                  key={`${activeStoryId}:${versionId}:${platform}`}
+                  scope={`${activeStoryId}:${versionId}:${platform}`}
+                  storyId={activeStoryId}
+                  versionId={versionId ?? "v1"}
+                  hasAlbum={Boolean(activeVersion?.album)}
+                  title={editorContent.title || storyTitle || ""}
+                  body={editorContent.body}
+                  assets={[
+                    ...(coverAsset ? [{ id: coverAsset.id, imageUrl: coverAsset.imageUrl, label: "正式封面" }] : []),
+                    ...coverRounds.flatMap((round, index) => round.candidates.map((asset, ordinal) => ({
+                      id: asset.id, imageUrl: asset.imageUrl, label: `第 ${index + 1} 轮 · ${ordinal + 1}`,
+                      warning: round.qualityFlaggedAssetIds?.includes(asset.id) ? "疑似含字" : round.qualityCheckUnavailable ? "质检未完成" : undefined,
+                    }))),
+                  ]}
+                  adoptedCoverId={coverAsset?.id ?? null}
+                  onOpenCoverStudio={() => openCoverStudio(false)}
+                  coverBusy={busy || coverBusy || videoBusy || dirty}
+                  advancedOpen={albumWorkspaceOpen}
+                  onAdvancedOpenChange={setAlbumWorkspaceOpen}
+                  advancedEditor={activeVersion?.album ? (
+                    <PublishingAlbumWorkspace
+                      key={`${activeStoryId}:${activeVersion.versionId}`}
+                      storyId={activeStoryId}
+                      version={activeVersion}
+                      coverAvailable={Boolean(activeVersion.cover?.assetId)}
+                      onPublishingChange={setPublishing}
+                      onBackToDraft={() => setAlbumWorkspaceOpen(false)}
+                      onOpenCoverStudio={() => openCoverStudio(true)}
+                    />
+                  ) : undefined}
+                />
               </div>
 
               <footer

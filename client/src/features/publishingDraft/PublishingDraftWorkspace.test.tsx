@@ -66,6 +66,7 @@ vi.mock("@/lib/trpc", () => {
         },
       }),
       publishingDraft: {
+        readAlbum: { useQuery: () => ({ data: undefined }) },
         read: { useQuery: () => ({ data: api.readData }) },
         finishedProduct: {
           useQuery: () => ({ data: api.finishedProductData, refetch: vi.fn() }),
@@ -236,7 +237,9 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).not.toContain("成品版本");
     expect(html).not.toContain("这次为什么要更新？");
     expect(html).not.toContain("保存文字新版");
-    expect(html).toContain("四图候选 · 对话修改 · 明确采用");
+    expect(html).toContain("把文章做成图片");
+    expect(html).toContain("已有图片 0 张");
+    expect(html).toContain("制作图片");
     expect(html).toContain("一次生成 4 张粗选图");
     expect(html).toContain("本轮补充要求 · 两个生成按钮都会参考");
     expect(html).toContain("美术参考图 · 可选");

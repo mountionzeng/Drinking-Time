@@ -1,7 +1,48 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-29T19:00:00+08:00",
+  "updatedAt": "2026-10-02T12:05:00+08:00",
   "features": [
+    {
+      "id": "publishing-article-image-pack",
+      "name": "正文下方的一次整套图片制作",
+      "status": "working",
+      "userValue": "复用已有图片，把满意的文章制作成统一字体与配色的封面、插图正文和纸色正文图片，直接下载或复制发送。",
+      "entryPoints": ["client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"],
+      "owners": [
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx",
+        "client/src/features/publishingAlbum/imagePackComposition.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/imagePackComposition.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "docs/qa/2026-10-02-publishing-image-pack.md"
+      ],
+      "invariants": [
+        "制作图片为本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
+        "合成图片的选择不改变正式封面、画册底图、视频故事板及成品快照；付费能力仍走现有工作室。",
+        "按资产 ID 去重计数，保留疑似含字与质检未完成风险提示。",
+        "完整保留正文 Unicode 与段落，最多九张；超限、缺字或布局溢出报错，不能静默截断。",
+        "封面与正文共用配色和字体，实际 PNG 同时用于预览、下载和复制。",
+        "文字或设置变化后旧输出禁用；取消或离开组件不得回填过期结果。",
+        "快捷设置按故事、发布版本和平台隔离，旧逐页画册仍可展开编辑。"
+      ],
+      "dependencies": ["publishing-static-album", "publishing-workspace", "publishing-versions"],
+      "replaces": [],
+      "knownGaps": [
+        "快捷正文为设计纸色，场景底图需用原高级画册；目前只支持一张插图在开头或中间页顶部。",
+        "设置仅保存在当前浏览器，刷新后 PNG 需重新制作，不提供跨设备成品保存。",
+        "多文件下载、剪贴板与系统分享受浏览器支持限制；未验收第三方实发或付费供应商。",
+        "取消与切版竞态尚未有自动化 DOM 交互测试，已有取消函数回归和真实浏览器改字失效验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-02",
+          "kind": "feature",
+          "summary": "按用户最新截图需求，将素材清点、封面文字、单插图与整篇排版接到正文下方；复用现有字体/布局/PNG链路，无新接口和依赖。main:3000 以12张既有候选制作5张成品，验证改字禁用旧导出、单张下载与复制成功，旧画册编辑仍可展开。"
+        }
+      ]
+    },
     {
       "id": "story-ownership",
       "name": "Story 作为唯一工作单元",
@@ -2371,6 +2412,11 @@
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "新增独立 version-scoped 静态画册：最多九页确定性分页；正式封面风格驱动的无字底图签名报价、同 taskId 恢复、候选质检标记与显式采用；五款固定来源 OFL 中文字体与可解释推荐；双击或按钮进入的一笔区域/路径排版；共享 Unicode 布局计划的 SVG 预览、单页和整册 PNG 导出。album9 不再进入视频 router。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "refactor",
+          "summary": "按用户要求将旧逐页画册内嵌到正文下方的高级折叠区，取消带画册版本自动替换正文的行为；主仓真实验证原2页和字体/排版入口仍可见，缺正式封面时付费底图仍禁用。快捷整套合成独立登记为 publishing-article-image-pack，复用同一字体和PNG导出，不更改画册aggregate或采用状态。"
         },
         {
           "date": "2026-08-20",
