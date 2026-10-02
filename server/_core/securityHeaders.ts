@@ -81,6 +81,11 @@ export function createSecurityHeadersMiddleware(input: {
     for (const [name, value] of Object.entries(headers)) {
       res.setHeader(name, value);
     }
+    if (req.path?.startsWith("/s/") || (req.path === "/login" && req.query?.returnTo)) {
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      res.setHeader("Cache-Control", "no-store");
+    }
     next();
   };
 }

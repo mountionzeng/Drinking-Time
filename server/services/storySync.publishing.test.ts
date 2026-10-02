@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { mergeStaleStoryBody, prepareStoryBody } from "./storySync";
 
 describe("storySync publishing preservation", () => {
+  it("keeps inherited source material across both normal and stale saves", () => {
+    const inheritedStoryContext = { snapshot: { title: "原作者的故事" }, importedAt: 1 };
+    const server = { _revision: 1, inheritedStoryContext, cards: [], shots: [], messages: [] };
+    const incoming = { shots: [], inheritedStoryContext: { snapshot: "forged" } };
+    expect(prepareStoryBody(incoming, 2, server).inheritedStoryContext).toEqual(inheritedStoryContext);
+    expect(mergeStaleStoryBody(server, incoming, 2).inheritedStoryContext).toEqual(inheritedStoryContext);
+  });
   const serverPublishing = {
     version: 1,
     revision: 4,

@@ -316,6 +316,25 @@ export const stories = mysqlTable(
 export type Story = typeof stories.$inferSelect;
 export type InsertStory = typeof stories.$inferInsert;
 
+/** Revocable, text-only snapshots; raw bearer tokens are never stored. */
+export const storyContextShares = mysqlTable("story_context_shares", {
+  tokenHash: varchar("tokenHash", { length: 64 }).primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  snapshot: json("snapshot").$type<import("../shared/storyContextShare").StoryContextSnapshot>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+}, table => ({ ownerIndex: index("story_context_shares_owner").on(table.storyId, table.userId) }));
+export type StoryContextShare = typeof storyContextShares.$inferSelect;
+
+/** One receipt per recipient and share makes retries create only one story. */
+export const storyContextShareImports = mysqlTable("story_context_share_imports", {
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  userId: int("userId").notNull(),
+  storyId: int("storyId").notNull(),
+}, table => ({ receiptUnique: uniqueIndex("story_context_share_import_receipt").on(table.tokenHash, table.userId) }));
+export type StoryContextShareImport = typeof storyContextShareImports.$inferSelect;
+
 /** Mutable conversational sound-director workspace; exactly one per owned Story. */
 export const storySoundWorkspaces = mysqlTable(
   "story_sound_workspaces",

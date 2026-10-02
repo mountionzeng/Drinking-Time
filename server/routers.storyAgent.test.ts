@@ -251,6 +251,28 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("loads inherited reference for the story owner and rejects another account before calling the model", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const { createStoryContextSnapshot, buildInheritedStoryInput } = await import("./services/storyContextSnapshot");
+    const snapshot = createStoryContextSnapshot({
+      title: "原故事", logline: "甲喜欢收集贝壳", theme: null,
+      arc: null, summary: null, body: {},
+    }, { includeConversation: false });
+    const { id } = await createStory(buildInheritedStoryInput(snapshot, 42));
+    await appRouter.createCaller(createAuthContext(42)).storyAgent.chat({
+      storyId: id, message: "把背景改成山里", interactionMode: "publishing",
+    });
+    expect(storyAgentMocks.replyFromStoryAgent).toHaveBeenCalledWith(expect.objectContaining({
+      referenceContext: expect.stringContaining("甲喜欢收集贝壳"),
+      message: "把背景改成山里",
+    }));
+    storyAgentMocks.replyFromStoryAgent.mockClear();
+    await expect(appRouter.createCaller(createAuthContext(43)).storyAgent.chat({
+      storyId: id, message: "读取他的背景",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(storyAgentMocks.replyFromStoryAgent).not.toHaveBeenCalled();
+  });
+
   it("wraps classification and summary procedures", async () => {
     const caller = appRouter.createCaller(createAuthContext());
 

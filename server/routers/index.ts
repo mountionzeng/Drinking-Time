@@ -63,6 +63,7 @@ import {
   storyConversationRouter,
 } from "./promptLineage";
 import { storyAgentRouter } from "./storyAgent";
+import { storyContextShareRouter } from "./storyContextShare";
 import { creationAgentRouter } from "./creationAgent";
 import { computeAccountRouter } from "./computeAccount";
 import { personalMemoryRouter } from "./personalMemory";
@@ -1163,6 +1164,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // Wraps archive/storyAgent functions as tRPC procedures.
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: storyAgentRouter,
+  storyContextShare: storyContextShareRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,
   visualAssets: visualAssetsRouter,

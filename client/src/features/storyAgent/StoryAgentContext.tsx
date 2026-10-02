@@ -116,6 +116,7 @@ import {
 } from "./storyTitle";
 import {
   refreshRecentStoryListWithRetry,
+  requestedStoryId,
   resolveRecentStoryEntry,
 } from "./recentStoryEntry";
 import { coldEntryStoryListFetchOptions } from "./recentStoryListCache";
@@ -2055,6 +2056,7 @@ export function StoryAgentProvider({
         }
 
         const result = (await chatMut.mutateAsync({
+          storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
           message: userContent,
           interactionMode,
           history: messages.map(m => ({
@@ -3053,6 +3055,7 @@ export function StoryAgentProvider({
     }
 
     let cancelled = false;
+    const entryState = storySpineStore.getState();
 
     void (async () => {
       const refreshed = await refreshRecentStoryListWithRetry(
@@ -3063,6 +3066,22 @@ export function StoryAgentProvider({
         () => cancelled
       );
       if (!refreshed || cancelled) return;
+
+      const requestedId = requestedStoryId(window.location.search);
+      if (requestedId) {
+        // A deliberate story selection while the list loads takes precedence.
+        if (storySpineStore.getState().storyLoadEpoch !== entryState.storyLoadEpoch)
+          return;
+        recentStoryOpenedForProjectRef.current = projectId;
+        await loadStoryRef.current(requestedId, {
+          silent: true,
+          expectedActiveStoryId: entryState.activeStoryId,
+        });
+        if (!cancelled && storySpineStore.getState().activeStoryId === requestedId) {
+          window.history.replaceState(null, "", "/editing");
+        }
+        return;
+      }
 
       const state = storySpineStore.getState();
       const entry = resolveRecentStoryEntry(

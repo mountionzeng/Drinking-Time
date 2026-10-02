@@ -1,35 +1,15 @@
-export type MobileReturnPath = "/m";
+import { allowedLoginReturnPath } from "@shared/loginReturnPath";
+export type MobileReturnPath = "/m" | `/s/${string}`;
 
-const MOBILE_RETURN_PATH: MobileReturnPath = "/m";
 const RETURN_PARAMETER = "returnTo";
 
-/**
- * This validator intentionally has a one-item allowlist. Its input must have
- * already gone through the browser's single URLSearchParams decode pass.
- * Percent signs are rejected so a second decode can never change the target.
- */
-export function normalizeMobileReturnPath(
-  candidate: string | null | undefined
-): MobileReturnPath | null {
-  if (!candidate || candidate.length > 16) return null;
-  if (/[%\\\u0000-\u001f\u007f]/.test(candidate)) return null;
-  if (candidate.startsWith("//") || candidate.includes("..")) return null;
-  return candidate === MOBILE_RETURN_PATH ? MOBILE_RETURN_PATH : null;
-}
-
 export function readMobileReturnPath(search: string): MobileReturnPath | null {
-  try {
-    const params = new URLSearchParams(search);
-    const values = params.getAll(RETURN_PARAMETER);
-    if (values.length !== 1) return null;
-    return normalizeMobileReturnPath(values[0]);
-  } catch {
-    return null;
-  }
+  const values = new URLSearchParams(search).getAll(RETURN_PARAMETER);
+  return values.length === 1 ? allowedLoginReturnPath(values[0]) : null;
 }
 
 export function mobileLoginHref(candidate: string): string {
-  const returnPath = normalizeMobileReturnPath(candidate);
+  const returnPath = allowedLoginReturnPath(candidate);
   if (!returnPath) return "/login";
   return `/login?${RETURN_PARAMETER}=${encodeURIComponent(returnPath)}`;
 }
@@ -37,7 +17,7 @@ export function mobileLoginHref(candidate: string): string {
 /**
  * 登录后去哪。
  *
- * `returnTo` 只认唯一的白名单值 `/m`；没有它时用调用方给的 fallback。
+ * `returnTo` 只认 `/m` 与合法的故事分享路径；没有它时用调用方给的 fallback。
  * fallback 默认 `/editing` 是为了让这个函数保持纯粹、可单测；
  * 真正的调用方传的是 `rootWorkspacePath()`，这样直接打开 /login 的手机
  * 登录完会落到 /m，而不是掉进电脑版工作室。
@@ -46,5 +26,5 @@ export function resolvePostLoginDestination(
   candidate: string | null | undefined,
   fallback: MobileReturnPath | "/editing" = "/editing"
 ): MobileReturnPath | "/editing" {
-  return normalizeMobileReturnPath(candidate) ?? fallback;
+  return allowedLoginReturnPath(candidate) ?? fallback;
 }

@@ -81,6 +81,7 @@ const BODY_FIELDS_TO_PRESERVE = [
 // Dedicated mutations own these slices. Generic whole-Story saves may carry an
 // older browser snapshot and must never replace the latest server copy.
 const SERVER_OWNED_BODY_FIELDS = [
+  "inheritedStoryContext",
   "publishing",
   "visualAssets",
   "finishedProduct",

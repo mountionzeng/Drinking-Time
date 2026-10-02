@@ -96,6 +96,12 @@ vi.mock("@/lib/trpc", () => {
       textDrafts: {
         read: { useQuery: () => ({ data: api.textDraftHistory }) },
       },
+      storyContextShare: {
+        preview: { useQuery: () => ({ data: undefined }) },
+        source: { useQuery: () => ({ data: null }) },
+        create: { useMutation: mutation },
+        revoke: { useMutation: mutation },
+      },
       artAgent: {
         analyzeReference: { useMutation: mutation },
       },

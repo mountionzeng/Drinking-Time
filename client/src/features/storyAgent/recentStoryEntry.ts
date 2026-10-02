@@ -8,6 +8,13 @@ type StoryEntryCandidate = {
   shotCount?: number;
 };
 
+export function requestedStoryId(search: string): number | null {
+  const values = new URLSearchParams(search).getAll("storyId");
+  if (values.length !== 1 || !/^[1-9]\d*$/.test(values[0])) return null;
+  const id = Number(values[0]);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
 export async function refreshRecentStoryListWithRetry(
   refreshStoryList: () => Promise<boolean>,
   isCancelled: () => boolean

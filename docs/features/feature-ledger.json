@@ -1,7 +1,82 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T15:35:00+08:00",
+  "updatedAt": "2026-10-02T11:49:07.604Z",
   "features": [
+    {
+      "id": "story-context-sharing",
+      "name": "分享故事上下文，开始独立创作",
+      "status": "observing",
+      "userValue": "作者分享故事文字与背景，收件人以此建立属于自己的新故事，双方独立创作。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/pages/SharedStoryPage.tsx",
+        "server/routers/storyContextShare.ts"
+      ],
+      "owners": [
+        "shared/storyContextShare.ts",
+        "server/services/storyContextSnapshot.ts",
+        "server/repositories/storyContextShares.ts",
+        "server/routers/storyContextShare.ts",
+        "client/src/features/storyAgent/views/StoryContextShare.tsx",
+        "client/src/pages/SharedStoryPage.tsx",
+        "shared/loginReturnPath.ts"
+      ],
+      "evidence": [
+        "server/services/storyContextSnapshot.test.ts",
+        "server/routers.storyContextShare.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "server/routers.storyAgent.test.ts",
+        "server/archive/storyAgent.test.ts",
+        "server/services/textDraftHistory.test.ts",
+        "server/services/storySync.publishing.test.ts",
+        "server/_core/oauth.account.test.ts",
+        "server/_core/securityHeaders.test.ts",
+        "shared/loginReturnPath.test.ts",
+        "client/src/features/auth/mobileReturnPath.test.ts",
+        "client/src/features/storyAgent/recentStoryEntry.test.ts",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "docs/qa/2026-10-02-story-context-sharing.md"
+      ],
+      "invariants": [
+        "收件人的新故事属于收件人，原作者的故事和归属不变。",
+        "只复制经作者预览确认的文字快照，禁止整包克隆 Story.body、账号记忆、媒体引用或付费凭据。",
+        "来源聊天保留发言来源，不能冒充收件人自己的聊天、素材卡、表达意图或个人记忆。",
+        "分享正文不使用聊天摘要的600字截断；超出快照上限明确报错。",
+        "打开分享链接不创建故事、不调用付费模型；承接必须是明确操作。",
+        "持有链接即可查看授权快照；登录正式账号后显式承接，创建独立故事。链接可转发，界面明确告知。",
+        "分享固定到确认时的快照；停止链接不删除已建立的收件人故事。并发及重复承接只建一个副本。",
+        "登录返回仅允许既有手机入口和合法分享路径，不把原始分享 token 放入第三方 OAuth 地址或数据库。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "publishing-workspace",
+        "recent-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "已实现完整链接接口与本地入口；尚未部署公网，localhost 链接不能供其他设备使用。",
+        "本机固定开发游客账号限制真实双账号浏览器承接；归属隔离、承接保存和幂等已通过隔离接口测试，公网正式账号与真实模型改写仍待验收。",
+        "真实 MySQL 迁移与事务集成未执行；新增 0026 迁移通过基线校验，部署时需先迁移。",
+        "首版提供链接，不含二维码、自动过期或原始媒体复制。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-02",
+          "kind": "refactor",
+          "summary": "清理当天重复实现：分享预览直接对当前编辑器正文构建并校验快照，删除为校验而构建后丢弃的完整新故事；创建链接不再重复查询链接数量，SQL直接聚合计数、本地单次遍历。登录返回复用共享白名单，删除无外部调用的重复校验包装。保持归属、撤销、独立承接及快照上限；补齐当前正文隔离/超限和链接数量回归。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "implementation",
+          "summary": "用户确认持有链接可阅读、正式登录后建立自己的新故事。实现文字预览/固定快照、随机链接、原子且幂等承接、撤销、来源参考提示、编辑器入口和两种OAuth回跳；浏览器虚构故事验证创建/接收预览/登录跳转/撤销，已清理测试数据。最终全量4871项通过、58项跳过；本地类型、构建、账本及迁移检查结果见QA。保持 observing，公网双账号和真实MySQL待验收，无付费调用。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "implementation",
+          "summary": "用户确认收件人创建自己的独立新故事。保存方案并实现不写库的文字白名单快照与新故事初始化函数；7项新增测试覆盖完整正文、聊天来源、私有字段排除、对象隔离、超限失败及权威版本读取，连同既有发布稿测试共52项通过。无运行入口，无付费调用。"
+        }
+      ]
+    },
     {
       "id": "publishing-article-image-pack",
       "name": "正文下方的一次整套图片制作",
@@ -52,6 +127,11 @@
         "生成模型仍可能偏离纯花纹要求，候选须人工选择；现有自动质检只检查文字污染，不应被当作纯花纹保证。实测与修正记录见QA文档。"
       ],
       "history": [
+        {
+          "date": "2026-10-02",
+          "kind": "refactor",
+          "summary": "清理当天内部冗余：封面主色提取由复制并排序色桶改为单次扫描，保留同票时首次出现的颜色；移除封面候选区无布局用途的嵌套容器。图片分组、滑动/悬停、既有AI底图、无框合成和导出功能保持，取色与图片工作区回归通过，无新增费用。"
+        },
         {
           "date": "2026-10-02",
           "kind": "fix",
@@ -2888,6 +2968,11 @@
       "replaces": [],
       "knownGaps": [],
       "history": [
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "承接分享后支持 /editing?storyId= 指定独立故事，等待项目初始化后加载；手动切换优先，沿用加载epoch和归属校验。保留没有指定ID时的最近故事进入行为，解析/现有入口和全量回归通过，主仓浏览器确认。"
+        },
         {
           "date": "2026-08-25",
           "kind": "fix",

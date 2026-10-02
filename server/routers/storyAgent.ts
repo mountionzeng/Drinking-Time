@@ -1,5 +1,7 @@
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { inheritedStoryReference } from "../../shared/storyContextShare";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
@@ -224,6 +226,7 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         message: z.string().min(1),
+        storyId: z.number().int().positive().optional(),
         history: z
           .array(
             z.object({
@@ -317,7 +320,10 @@ export const storyAgentRouter = router({
       // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
       // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
       await assertOptionalProjectOwner(input.projectId, ctx.user.id);
+      const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
+      if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
       return replyFromStoryAgent({
+        referenceContext: inheritedStoryReference(story?.body),
         message: input.message,
         history: input.history,
         existingCardCount: input.existingCardCount,

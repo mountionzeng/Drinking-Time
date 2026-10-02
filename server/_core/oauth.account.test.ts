@@ -429,12 +429,23 @@ describe("统一账号端点（U4）", () => {
 });
 
 describe("直连 Google 登录兼容路径", () => {
+  it("returns to a shared story after login without sending its token to Google", async () => {
+    const returnTo = `/s/${"A".repeat(43)}`;
+    const response = await fetch(`${baseUrl}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`, { redirect: "manual" });
+    const authorize = new URL(response.headers.get("location")!);
+    expect(authorize.href).not.toContain("A".repeat(43));
+    const cookie = response.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; ");
+    ENV.googleInviteRequired = false;
+    mockGoogleUser({ sub: "share-login", email: "share-login@example.com" });
+    const done = await fetch(`${baseUrl}/api/auth/google/callback?code=valid&state=${authorize.searchParams.get("state")}`, { redirect: "manual", headers: { Cookie: cookie } });
+    expect(done.headers.get("location")).toBe(returnTo);
+  });
   async function begin() {
     const response = await fetch(`${baseUrl}/api/auth/google`, { redirect: "manual" });
     const location = new URL(response.headers.get("location")!);
     return {
       state: location.searchParams.get("state") ?? "",
-      cookie: response.headers.get("set-cookie")?.split(";", 1)[0] ?? "",
+      cookie: response.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; "),
     };
   }
 
@@ -521,7 +532,8 @@ describe("Supabase 托管 Google 登录", () => {
     const authorizeUrl = new URL(response.headers.get("location")!);
     const callbackUrl = new URL(authorizeUrl.searchParams.get("redirect_to")!);
     expect(callbackUrl.pathname).toBe("/auth/supabase/callback");
-    expect(callbackUrl.searchParams.get("returnTo")).toBe("/m");
+    expect(callbackUrl.searchParams.has("returnTo")).toBe(false);
+    expect(response.headers.get("set-cookie")).toContain("dt_google_return_to=%2Fm;");
 
     const unsafeResponse = await fetch(
       `${baseUrl}/api/auth/google?returnTo=${encodeURIComponent("https://evil.example")}`,
@@ -607,17 +619,20 @@ describe("Supabase 托管 Google 登录", () => {
         app_metadata: { providers: ["google"] },
       },
     });
-    const started = await fetch(`${baseUrl}/api/auth/google`, {
+    const returnTo = `/s/${"B".repeat(43)}`;
+    const started = await fetch(`${baseUrl}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`, {
       redirect: "manual",
     });
+    expect(decodeURIComponent(started.headers.get("location")!)).not.toContain(returnTo);
     const cookie = started.headers.get("set-cookie")!;
     const state = /dt_google_oauth_state=([^;]+)/.exec(cookie)![1];
     const response = await post(
       "/api/auth/supabase/complete",
       { state, accessToken: "supabase-access-token" },
-      { Cookie: `dt_google_oauth_state=${state}` }
+      { Cookie: `dt_google_oauth_state=${state}; dt_google_return_to=${encodeURIComponent(returnTo)}` }
     );
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, returnTo });
     const session = await sdk.verifySession(sessionCookieFrom(response));
     expect(session?.openId).toBe(`email:${email}`);
     expect(await getLoginIdentity("google", "supabase-google-user")).toMatchObject({

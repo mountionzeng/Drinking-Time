@@ -25,6 +25,7 @@ import {
   StoryBodyRevisionConflictError,
 } from "./storyBodyPersistence";
 import { loadStoryPromptAggregate } from "./promptLineageStore";
+import { inheritedStoryReference } from "../../shared/storyContextShare";
 import { runJsonAgent } from "./agentRuntime";
 import {
   compileTextDraftPrompt,
@@ -260,7 +261,8 @@ export async function generateTextDraft(
     request,
     delta,
     evidence,
-    originalSamples
+    originalSamples,
+    inheritedStoryReference(body)
   );
   if (prompt.modelMessage.length > 160_000)
     throw bad("写作上下文过长，请缩短本次材料");

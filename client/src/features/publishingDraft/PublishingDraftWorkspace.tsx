@@ -33,6 +33,10 @@ import {
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
+import {
+  StoryContextShareButton,
+  InheritedStorySource,
+} from "@/features/storyAgent/views/StoryContextShare";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
   NARRATIVE_SPEC_IDS,
@@ -1773,10 +1777,23 @@ export default function PublishingDraftWorkspace({
               </nav>
             ) : null}
           </div>
-          <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
-            AI 帮你整理结构和措辞，但事实、判断与锋芒仍属于你。
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            {activeStoryId != null && activeStoryId > 0 ? (
+              <StoryContextShareButton
+                key={activeStoryId}
+                storyId={activeStoryId}
+                article={editorContent ? { platform, ...editorContent } : undefined}
+              />
+            ) : null}
+            <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
+              AI 帮你整理结构和措辞，但事实、判断与锋芒仍属于你。
+            </p>
+          </div>
         </header>
+
+        {activeStoryId != null && activeStoryId > 0 ? (
+          <InheritedStorySource key={`source-${activeStoryId}`} storyId={activeStoryId} />
+        ) : null}
 
         <article
           className="relative flex min-h-[560px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-[0_20px_60px_-48px_rgba(55,42,25,0.55)]"

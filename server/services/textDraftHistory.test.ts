@@ -59,6 +59,17 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it("uses the imported background as source material without recording it as recipient conversation", async () => {
+    const input = await setup();
+    const { createStoryContextSnapshot, buildInheritedStoryInput } = await import("./storyContextSnapshot");
+    const source = createStoryContextSnapshot({ title: "来源故事", logline: "", theme: "", arc: "", summary: "", body: { messages: [{ role: "user", content: "原作者在海边长大。" }] } }, { includeConversation: true });
+    await db.updateStory(input.storyId, input.userId, { body: { ...(buildInheritedStoryInput(source, input.userId).body as object), _revision: 0 } });
+    const history = await service.generateTextDraft(input);
+    const prompt = JSON.parse(model.mock.calls[0][0].message);
+    expect(prompt.sourceStoryReference).toContain("原作者在海边长大");
+    expect(JSON.stringify(history.versions[0].conversationSnapshot)).not.toContain("原作者在海边长大");
+    expect(prompt.originalSamples).toEqual([]);
+  });
   it("rejects oversized persisted messages before creating an unreadable history", async () => {
     const input = await setup();
     await db.updateStory(input.storyId, input.userId, {

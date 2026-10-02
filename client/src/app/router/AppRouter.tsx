@@ -10,6 +10,8 @@ import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
 import StoryEditorPage from "@/features/shiguang/StoryEditorPage";
+import SharedStoryPage from "@/pages/SharedStoryPage";
+import { canAcceptStoryShare } from "@shared/storyContextShare";
 import { useAuth } from "@/_core/hooks/useAuth";
 import React, { type ReactNode } from "react";
 import {
@@ -37,13 +39,14 @@ function AuthGuard({
 }
 
 function LoginEntry() {
-  const { isAuthenticated, loading } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
   if (loading) return null;
   if (isAuthenticated) {
     const returnPath =
       typeof window === "undefined"
         ? null
         : readMobileReturnPath(window.location.search);
+    if (returnPath?.startsWith("/s/") && !canAcceptStoryShare(user)) return <LoginPage />;
     return (
       <Redirect
         to={resolvePostLoginDestination(returnPath, rootWorkspacePath())}
@@ -68,6 +71,7 @@ function AdminGuard({ children }: { children: ReactNode }) {
 export default function AppRouter() {
   return (
     <Switch>
+      <Route path="/s/:token">{params => <SharedStoryPage key={params.token} token={params.token} />}</Route>
       <Route path="/auth/supabase/callback">
         <SupabaseAuthCallbackPage />
       </Route>

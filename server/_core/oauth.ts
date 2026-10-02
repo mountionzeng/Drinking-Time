@@ -1,4 +1,5 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { allowedLoginReturnPath } from "../../shared/loginReturnPath";
 import type { Express, Request, Response } from "express";
 import axios from "axios";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -41,6 +42,7 @@ const ACCOUNT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const OWNER_CONTACT_EMAIL = "mountionzeng@gmail.com";
 const GOOGLE_OAUTH_STATE_COOKIE = "dt_google_oauth_state";
 const DIRECT_GOOGLE_OAUTH_STATE_COOKIE = "dt_google_direct_oauth_state";
+const GOOGLE_RETURN_COOKIE = "dt_google_return_to";
 const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 function clientIp(req: Request): string {
@@ -488,15 +490,18 @@ export function registerOAuthRoutes(app: Express) {
 
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
+    const returnTo = allowedLoginReturnPath(getQueryParam(req, "returnTo"));
+    // Keep bearer share paths out of third-party OAuth URLs.
+    res.cookie(GOOGLE_RETURN_COOKIE, returnTo ?? "/", {
+      ...getSessionCookieOptions(req), path: "/api/auth", maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
+    });
     if (ENV.supabaseAuthUrl && ENV.supabaseAuthPublishableKey) {
       const state = randomBytes(24).toString("base64url");
-      const returnTo = getQueryParam(req, "returnTo") === "/m" ? "/m" : null;
       const callbackUrl = new URL(
         "/auth/supabase/callback",
         getOrigin(req)
       );
       callbackUrl.searchParams.set("state", state);
-      if (returnTo) callbackUrl.searchParams.set("returnTo", returnTo);
       res.cookie(GOOGLE_OAUTH_STATE_COOKIE, state, {
         ...getSessionCookieOptions(req),
         path: "/api/auth/supabase/complete",
@@ -581,7 +586,9 @@ export function registerOAuthRoutes(app: Express) {
           return;
         }
         await establishUserSession(req, res, resolution.userId, identity.name);
-        res.json({ ok: true });
+        const returnTo = allowedLoginReturnPath(parseCookieHeader(req.headers.cookie ?? "")[GOOGLE_RETURN_COOKIE]);
+        res.clearCookie(GOOGLE_RETURN_COOKIE, { ...getSessionCookieOptions(req), path: "/api/auth" });
+        res.json({ ok: true, ...(returnTo ? { returnTo } : {}) });
       } catch (error) {
         console.error("[Supabase Google OAuth] Completion failed", error);
         res.status(401).json({ error: "oauth_failed" });
@@ -654,7 +661,9 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
       await establishUserSession(req, res, resolution.userId, name);
-      res.redirect(302, "/");
+      const returnTo = allowedLoginReturnPath(parseCookieHeader(req.headers.cookie ?? "")[GOOGLE_RETURN_COOKIE]);
+      res.clearCookie(GOOGLE_RETURN_COOKIE, { ...getSessionCookieOptions(req), path: "/api/auth" });
+      res.redirect(302, returnTo ?? "/");
     } catch (error) {
       console.error("[Google OAuth] Callback failed", error);
       res.redirect(302, "/login?error=oauth_failed");

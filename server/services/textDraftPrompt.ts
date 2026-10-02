@@ -5,6 +5,7 @@ import type {
   TextDraftVersion,
 } from "../../shared/textDraftHistory";
 import { WRITING_TECHNIQUES } from "./writingTechniqueLibrary";
+import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 
 export type WritingEvidence = {
   storyId: number;
@@ -26,11 +27,13 @@ export function compileTextDraftPrompt(
   input: TextDraftRequest,
   delta: TextDraftMessage[],
   evidence: WritingEvidence[],
-  originalSamples: OriginalWritingEvidence[] = []
+  originalSamples: OriginalWritingEvidence[] = [],
+  referenceContext = ""
 ) {
   return {
     systemPrompt: [
       "你是帮助用户表达的文字编辑。生成当前平台的一份完整新稿，并进行有证据的文风判断。",
+      ...(referenceContext ? [INHERITED_STORY_REFERENCE_RULE] : []),
       "事实、立场、来源身份、时态和确定程度必须保持。用户的更正可替换旧说法，但不得自行把听说、计划或可能写成已证实的事实。不得把助手对话和技巧卡示例当成用户经历。",
       "将对话中助手依据用户材料整理、归纳或经用户确认的结构、人物关系、写作判断和可用段落当作本次创作的工作成果，并实际用于更新正文。用户原话、补充和事实更正优先；助手自行猜测、未获确认的推断和技巧卡示例不得写成事实。",
       "先学习原有表达：source=own 才表示用户确认是自己写的，liked 表示明确喜欢的范文，reference 仅是事实资料，unknown 来源不明只能形成低可信假设。原有写作水平不是审美上限。",
@@ -48,6 +51,7 @@ export function compileTextDraftPrompt(
     ].join("\n"),
     modelMessage: JSON.stringify({
       basis: input.basis,
+      ...(referenceContext ? { sourceStoryReference: referenceContext } : {}),
       source: input.source,
       conversationDelta: delta,
       instruction: input.instruction,
