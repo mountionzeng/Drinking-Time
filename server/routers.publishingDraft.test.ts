@@ -26,6 +26,7 @@ const imageGenMocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
   generateDraftImage: vi.fn(),
   editImage: vi.fn(),
+  readImageAverageColor: vi.fn(async () => "rgb(190, 170, 150)"),
   resume302MidjourneyTask: vi.fn(),
   resume302GptImageTask: vi.fn(),
 }));
@@ -2249,7 +2250,12 @@ describe("publishingDraft router", () => {
     expect(submittedPrompt).toContain("【静态图片无字硬约束】");
   });
 
-  it("uses a selected owned candidate as the visual reference for feedback", async () => {
+  it.each([
+    { outputKind: undefined, customArt: true },
+    { outputKind: "illustration" as const, customArt: true },
+    { outputKind: "illustration" as const, customArt: false },
+    { outputKind: "body-texture" as const, customArt: false },
+  ])("uses an owned reference: $outputKind, custom art $customArt", async ({ outputKind, customArt }) => {
     const sourceRound = {
       id: "round-source",
       platform: "xiaohongshu" as const,
@@ -2301,11 +2307,12 @@ describe("publishingDraft router", () => {
       basePublishingRevision: 1,
       referenceAssetId: 52,
       feedback: "去掉画面里的字体，让人物更小、机器更压迫",
+      outputKind,
       instructions: [
         "像一张风景画",
         "去掉画面里的字体，让人物更小、机器更压迫",
       ],
-      artReference: {
+      artReference: customArt ? {
         label: "纸本参考.png",
         style: ["纸本拼贴"],
         palette: ["矿物色"],
@@ -2313,36 +2320,56 @@ describe("publishingDraft router", () => {
         composition: ["极端留白"],
         material: ["粗纸纤维"],
         mood: ["温柔的不安"],
-      },
+      } : null,
       costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
     });
 
-    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
-    expect(imageGenMocks.editImage).toHaveBeenCalledTimes(1);
-    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
-      "/api/images/asset-52.png",
-      expect.stringContaining("A compiled English cover scene."),
-      expect.objectContaining({
-        provider: "midjourney",
-        aspectRatio: "3:4",
-        mjTimeoutMs: 600_000,
-        requireInputImage: true,
-      })
-    );
-    // The reference must not outweigh the prompt, or a revision cannot honour
-    // instructions like "remove the lettering" / "make the subject a woman".
-    const reviseOptions = imageGenMocks.editImage.mock.calls[0]?.[2] as {
-      imageWeight: number;
-    };
-    expect(reviseOptions.imageWeight).toBeLessThan(1);
+    if (outputKind === "body-texture") {
+      expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+      expect(imageGenMocks.generateImage.mock.calls[0]?.[0]).toContain("--no people, animals, objects, scenery, landscape, mountains, buildings, horizon");
+      expect(imageGenMocks.generateImage.mock.calls[0]?.[0]).not.toContain("A single coherent stylized artwork");
+      expect(imageGenMocks.generateImage.mock.calls[0]?.[0]).toContain("borders, frames, outlines, boxes, corner ornaments");
+      expect(imageGenMocks.generateImage.mock.calls[0]?.[0]).toContain("Continuous edge-to-edge paper surface");
+      expect(imageGenMocks.readImageAverageColor).toHaveBeenCalledWith("/api/images/asset-52.png");
+      expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining("A compiled English cover scene."),
+        expect.objectContaining({ provider: "midjourney", aspectRatio: "3:4" }),
+      );
+    } else {
+      expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+      expect(imageGenMocks.editImage).toHaveBeenCalledTimes(1);
+      expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+        "/api/images/asset-52.png", expect.stringContaining("A compiled English cover scene."),
+        expect.objectContaining({ provider: "midjourney", aspectRatio: outputKind === "illustration" ? "16:9" : "3:4", mjTimeoutMs: 600_000, requireInputImage: true }),
+      );
+      expect((imageGenMocks.editImage.mock.calls[0]?.[2] as { imageWeight: number }).imageWeight).toBeLessThan(1);
+    }
     const revisedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
     expect(revisedPrompt).toMatch(/人物更小[\s\S]*禁止可读文字/);
     expect(revisedPrompt).toContain("【用户持续要求】像一张风景画");
-    expect(revisedPrompt).toContain("纸本拼贴");
-    expect(revisedPrompt).toContain("粗纸纤维");
-    expect(revisedPrompt).toContain("【修改边界】");
+    if (customArt) {
+      expect(revisedPrompt).toContain("纸本拼贴");
+      expect(revisedPrompt).toContain("粗纸纤维");
+    } else {
+      if (outputKind === "illustration") expect(revisedPrompt).toContain("cover prompt");
+      expect(revisedPrompt).not.toContain("【艺术跃迁】");
+      expect(revisedPrompt).toContain("【静态图片无字硬约束】");
+    }
+    if (!outputKind) expect(revisedPrompt).toContain("【修改边界】");
+    else {
+      if (outputKind === "body-texture") {
+        expect(revisedPrompt).toContain("只生成3:4平面装饰花纹与材质");
+        expect(revisedPrompt).toContain("rgb(190, 170, 150)");
+        expect(revisedPrompt).not.toContain("cover prompt");
+        expect(revisedPrompt).not.toContain("【四图探索梯度】");
+        expect(agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.[0]?.content).toContain("never a scene");
+      } else expect(revisedPrompt).toContain("16:9横版正文插图");
+      expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
+        operation: expect.objectContaining({ type: "claim_cover_generation", generation: expect.objectContaining({ outputKind, referenceAssetId: 52 }) }),
+      }));
+    }
     expect(revisedPrompt).not.toContain("floor-length gown");
     expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2350,6 +2377,7 @@ describe("publishingDraft router", () => {
           type: "complete_cover_generation",
           round: expect.objectContaining({
             parentAssetId: 52,
+            ...(outputKind ? { outputKind } : {}),
             feedback: "去掉画面里的字体，让人物更小、机器更压迫",
             instructions: [
               "像一张风景画",
@@ -2361,13 +2389,36 @@ describe("publishingDraft router", () => {
     );
   });
 
-  it("resumes a persisted 302 cover task without submitting a second paid job", async () => {
+  it("returns a completed cover receipt without rereading the story or rebuilding its prompt", async () => {
+    const round = { id: "done-round", platform: "xiaohongshu" as const, sourceCoreRevision: 1,
+      parentAssetId: null, feedback: "", assetIds: [91, 92, 93, 94], createdAt: 1 };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7, storyRevision: 2,
+      publishing: { ...publishing, coverRounds: [round], coverGeneration: {
+        operationToken: "done-cover", versionId: "v1", status: "completed", platform: "xiaohongshu",
+        referenceAssetId: null, feedback: "", prompt: "saved", roundId: round.id,
+        taskId: "paid-task", claimedAt: 1, updatedAt: 2, expiresAt: 2,
+      } },
+    });
+    const result = await publishingDraftRouter.createCaller(context()).generateCover({
+      storyId: 7, platform: "xiaohongshu", basePublishingRevision: 0, operationToken: "done-cover",
+    });
+    expect(result).toMatchObject({ status: "ok", coverRound: { id: round.id } });
+    expect(dbMocks.getStoryById).not.toHaveBeenCalled();
+    expect(dbMocks.getRecentRejectionSignals).not.toHaveBeenCalled();
+    expect(agentChannelMocks.invokeAgent).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "illustration", "body-texture"] as const)("resumes persisted output %s without a second paid job", async outputKind => {
     const generation = {
       operationToken: "cover-op-1",
       versionId: "v1",
       status: "pending" as const,
       platform: "xiaohongshu" as const,
-      referenceAssetId: null,
+      referenceAssetId: outputKind ? 52 : null,
+      outputKind,
       feedback: "",
       prompt: "durable cover prompt",
       roundId: "round-resumed",
@@ -2390,6 +2441,7 @@ describe("publishingDraft router", () => {
         },
       },
       coverGeneration: generation,
+      cover: outputKind ? { assetId: 52, sourceCoreRevision: 1, platform: "xiaohongshu" as const, createdAt: 1 } : null,
     };
     persistenceMocks.getPublishingDraftState.mockResolvedValue({
       storyId: 7,
@@ -2420,7 +2472,7 @@ describe("publishingDraft router", () => {
     expect(result.status).toBe("ok");
     expect(imageGenMocks.resume302MidjourneyTask).toHaveBeenCalledWith(
       "302-task-1",
-      expect.objectContaining({ provider: "midjourney" })
+      expect.objectContaining({ provider: "midjourney", aspectRatio: outputKind === "illustration" ? "16:9" : "3:4" })
     );
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();

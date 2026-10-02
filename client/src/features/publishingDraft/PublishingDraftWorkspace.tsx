@@ -570,9 +570,10 @@ export default function PublishingDraftWorkspace({
     (persistedCoverGeneration?.provider === "gpt-image" &&
       (persistedCoverGeneration.status === "failed" ||
         persistedCoverGeneration.status === "unknown"));
+  const studioCoverRounds = coverRounds.filter(round => !round.outputKind);
   const activeCoverRound =
-    coverRounds.find(round => round.id === activeCoverRoundId) ??
-    coverRounds.at(-1) ??
+    studioCoverRounds.find(round => round.id === activeCoverRoundId) ??
+    studioCoverRounds.at(-1) ??
     null;
   const selectedCoverAsset =
     activeCoverRound?.candidates.find(
@@ -1003,7 +1004,7 @@ export default function PublishingDraftWorkspace({
   };
 
   const openCoverStudio = (returnToAlbum = false) => {
-    const latestRound = coverRounds.at(-1) ?? null;
+    const latestRound = studioCoverRounds.at(-1) ?? null;
     setActiveCoverRoundId(latestRound?.id ?? null);
     setSelectedCoverAssetId(null);
     setCoverFeedback("");
@@ -1100,7 +1101,9 @@ export default function PublishingDraftWorkspace({
   const generateCover = async (
     mode: "fresh" | "revise",
     existingOperationToken?: string,
-    provider: "midjourney" | "gpt-image" | "flux-schnell" = "midjourney"
+    provider: "midjourney" | "gpt-image" | "flux-schnell" = "midjourney",
+    materialRequest?: { coverId: number; instruction: string; kind: "illustration" | "body-texture" },
+    coverInstruction?: string
   ) => {
     if (
       !draft ||
@@ -1110,14 +1113,14 @@ export default function PublishingDraftWorkspace({
       coverGenerationInFlightRef.current
     )
       return;
-    if (mode === "revise" && !selectedCoverAsset && !existingOperationToken)
+    if (mode === "revise" && !selectedCoverAsset && !existingOperationToken && !materialRequest)
       return;
     const storyId = activeStoryId;
     const operationToken =
       existingOperationToken ?? `cover-${crypto.randomUUID()}`;
-    const submittedInstructions = uniqueCoverInstructions([
+    const submittedInstructions = materialRequest ? uniqueCoverInstructions([materialRequest.instruction]) : uniqueCoverInstructions([
       ...coverInstructions,
-      coverFeedback,
+      coverInstruction ?? coverFeedback,
     ]);
     coverGenerationInFlightRef.current = true;
     setCoverGenerationMode(mode);
@@ -1128,10 +1131,11 @@ export default function PublishingDraftWorkspace({
         provider,
         basePublishingRevision: publishing.revision,
         referenceAssetId:
-          mode === "revise" ? selectedCoverAsset?.id : undefined,
-        feedback: coverFeedback.trim() || undefined,
+          materialRequest?.coverId ?? (mode === "revise" ? selectedCoverAsset?.id : undefined),
+        outputKind: materialRequest?.kind,
+        feedback: materialRequest ? materialRequest.instruction.trim() || undefined : (coverInstruction ?? coverFeedback).trim() || undefined,
         instructions: submittedInstructions,
-        artReference: coverArtReference,
+        artReference: materialRequest ? null : coverArtReference,
         operationToken,
         costConfirmation: {
           accepted: true,
@@ -1217,6 +1221,10 @@ export default function PublishingDraftWorkspace({
         };
       });
       setGeneratedCoverRounds({ storyId, rounds: result.coverRounds });
+      if (result.coverRound.outputKind) {
+        toast.success(`${result.coverRound.outputKind === "body-texture" ? "花纹底图" : "横版插图"}已生成，请在正文下方选择一张使用`);
+        return;
+      }
       updateStoryListCover(
         storyId,
         result.coverAsset?.imageUrl ?? result.coverRound.candidates[0]?.imageUrl
@@ -2133,13 +2141,19 @@ export default function PublishingDraftWorkspace({
                   assets={[
                     ...(coverAsset ? [{ id: coverAsset.id, imageUrl: coverAsset.imageUrl, label: "正式封面" }] : []),
                     ...coverRounds.flatMap((round, index) => round.candidates.map((asset, ordinal) => ({
-                      id: asset.id, imageUrl: asset.imageUrl, label: `第 ${index + 1} 轮 · ${ordinal + 1}`,
+                      id: asset.id, imageUrl: asset.imageUrl, label: `${round.outputKind === "body-texture" ? "花纹底图" : round.outputKind === "illustration" ? "横版插图" : "第"} ${index + 1} 轮 · ${ordinal + 1}`,
+                      kind: round.outputKind, parentAssetId: round.parentAssetId,
                       warning: round.qualityFlaggedAssetIds?.includes(asset.id) ? "疑似含字" : round.qualityCheckUnavailable ? "质检未完成" : undefined,
                     }))),
                   ]}
                   adoptedCoverId={coverAsset?.id ?? null}
                   onOpenCoverStudio={() => openCoverStudio(false)}
                   coverBusy={busy || coverBusy || videoBusy || dirty}
+                  generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}
+                  illustrationCost={coverEstimate.estimatedCny}
+                  onGenerateCover={instruction => generateCover("fresh", undefined, "midjourney", undefined, instruction)}
+                  onGenerateIllustration={(coverId, instruction) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "illustration" })}
+                  onGenerateTexture={(coverId, instruction) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "body-texture" })}
                   advancedOpen={albumWorkspaceOpen}
                   onAdvancedOpenChange={setAlbumWorkspaceOpen}
                   advancedEditor={activeVersion?.album ? (
@@ -2194,7 +2208,7 @@ export default function PublishingDraftWorkspace({
                   ) : (
                     <ImageIcon className="h-4 w-4" />
                   )}
-                  {coverRounds.length > 0 ? "继续选封面" : "打开封面工作室"}
+                  {studioCoverRounds.length > 0 ? "继续选封面" : "打开封面工作室"}
                 </ActionButton>
                 {coverAsset ? (
                   <ActionButton
@@ -2422,12 +2436,12 @@ export default function PublishingDraftWorkspace({
               </div>
             ) : null}
 
-            {coverRounds.length > 0 ? (
+            {studioCoverRounds.length > 0 ? (
               <div
                 className="flex gap-2 overflow-x-auto pb-1"
                 aria-label="封面候选轮次"
               >
-                {coverRounds.map((round, index) => {
+                {studioCoverRounds.map((round, index) => {
                   const active = round.id === activeCoverRound?.id;
                   return (
                     <button
@@ -2747,7 +2761,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <RefreshCcw className="h-4 w-4" />
               )}
-              {coverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 · ¥
+              {studioCoverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 · ¥
               {coverEstimate.estimatedCny.toFixed(2)}
             </ActionButton>
             {canUseCoverFallback ? (

@@ -49,6 +49,14 @@ describe("article image composition", () => {
     }
   });
 
+  it("changing generated textures cannot change the article text, page count or typography plan", () => {
+    const article = { ...options, body: "完整正文👩‍👧，保持段落。\n\n".repeat(30), illustrationUrl: "/chosen.png" };
+    const before = planImagePack(article);
+    expect(planImagePack({ ...article, bodyTextureUrl: "/texture-a.png" })).toEqual(before);
+    expect(planImagePack({ ...article, bodyTextureUrl: "/texture-b.png" })).toEqual(before);
+    expect(before.slice(1).map(page => page.text).join("")).toBe(article.body.trim());
+  });
+
   it("cancels before image fetching or font loading after leaving the story", async () => {
     const controller = new AbortController();
     controller.abort();

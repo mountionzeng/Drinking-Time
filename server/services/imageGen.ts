@@ -710,6 +710,14 @@ function midjourneyPromptFor(
   return out;
 }
 
+/** A texture reference must carry color without carrying recognizable subjects. */
+export async function readImageAverageColor(imageUrl: string): Promise<string> {
+  const source = await readImageInput(imageUrl, globalThis.fetch as Fetcher);
+  const rgb = await sharp(source.bytes).flatten({ background: "#ffffff" })
+    .toColourspace("srgb").resize(1, 1, { fit: "fill" }).removeAlpha().raw().toBuffer();
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
 /**
  * 生成图本地资产库目录。
  * 用 ENV.LOCAL_IMAGE_DIR 指到一个所有端口/工作树共享的绝对目录，

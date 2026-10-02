@@ -43,12 +43,14 @@ import {
 } from "../db";
 import {
   editImage,
+  readImageAverageColor,
   generateDraftImage,
   generateImage,
   resume302GptImageTask,
   resume302MidjourneyTask,
 } from "../services/imageGen";
 import { engineerImagePrompt } from "../services/renderGate";
+import { extractPublishingCoverArtDirection } from "../services/publishingCoverArtDirection";
 import {
   COVER_PROMPT_COMPILER_SYSTEM,
   PUBLISHING_COVER_ART_SUFFIX,
@@ -1918,6 +1920,7 @@ export const publishingDraftRouter = router({
           .optional(),
         basePublishingRevision: z.number().int().nonnegative(),
         referenceAssetId: z.number().int().positive().optional(),
+        outputKind: z.enum(["illustration", "body-texture"]).optional(),
         feedback: z.string().trim().max(2_000).optional(),
         instructions: z
           .array(z.string().trim().min(1).max(2_000))
@@ -1978,6 +1981,7 @@ export const publishingDraftRouter = router({
         const coverProvider = matchingOperation
           ? (persistedGeneration?.provider ?? "midjourney")
           : (input.provider ?? "midjourney");
+        const outputKind = matchingOperation ? persistedGeneration?.outputKind : input.outputKind;
         const estimate =
           coverProvider === "midjourney"
             ? estimatePublishingCoverCost()
@@ -2000,6 +2004,32 @@ export const publishingDraftRouter = router({
           };
         }
 
+        if (matchingOperation && persistedGeneration.status === "completed") {
+          const coverRounds = await loadPublishingCoverRounds({
+            publishing: current.publishing,
+            storyId: input.storyId,
+            userId: ctx.user.id,
+          });
+          const coverRound = coverRounds.find(
+            round => round.id === persistedGeneration.roundId
+          );
+          if (!coverRound) {
+            throw new Error("封面候选已完成但结果轮次不可用");
+          }
+          return {
+            status: "ok" as const,
+            estimate,
+            ...current,
+            coverAsset: await loadPublishingCoverAsset({
+              assetId: current.publishing.cover?.assetId,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+            coverRounds,
+            coverRound,
+          };
+        }
+
         const core = current.publishing.core;
         const draft = current.publishing.drafts[input.platform];
         if (!core || !draft) {
@@ -2016,7 +2046,7 @@ export const publishingDraftRouter = router({
           const belongsToRound = current.publishing.coverRounds.some(round =>
             round.assetIds.includes(referenceAssetId)
           );
-          if (!belongsToRound) {
+          if (!belongsToRound && current.publishing.cover?.assetId !== referenceAssetId) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "选择的候选图不属于当前故事",
@@ -2040,6 +2070,9 @@ export const publishingDraftRouter = router({
               persistedGeneration!.feedback
             )
           : coverInstructions(input.instructions, input.feedback);
+        if (outputKind && !referenceAsset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "请先选择一张当前版本的封面，再生成配图" });
+        }
         const artReference = resuming
           ? (persistedGeneration!.artReference ?? null)
           : (input.artReference ?? null);
@@ -2055,8 +2088,24 @@ export const publishingDraftRouter = router({
           const referenceMoodInstruction = artReference?.mood.length
             ? [`参考图的情绪语言：${artReference.mood.join("、")}`]
             : [];
+          const sourcePrompt = outputKind === "illustration" && referenceAsset
+            ? (await getGeneratedImageById(referenceAsset.id))?.prompt ?? "" : "";
+          const textureColor = outputKind === "body-texture" && referenceAsset
+            ? await readImageAverageColor(referenceAsset.imageUrl) : "";
           prompt = await engineerImagePrompt({
-            prompt: composePublishingCoverContentBrief({
+            prompt: outputKind === "body-texture" ? [
+              "【正文底图任务】只生成3:4平面装饰花纹与材质，不叙事，不绘制主体或具体场景。",
+              `所选封面的参考色为 ${textureColor}，使用这一色系的浅色变化。`,
+              "满幅连续的浅色纸面纹理，自然延伸到画面四周；中央约80%宽度是正文阅读区域，接近干净浅纸色，仅留极淡细纹。外围可有疏淡、不规则的材质变化，但不得围成框线。不要边框、画框、描边、双线、矩形框、装饰角花或内嵌纸张；不要深色晕染或高对比纹路，适合在其上排版深色正文。",
+              "使用上述参考色与用户指定的纹理材质，不绘制人物、动物、物品、构图或叙事内容。",
+              "像素中禁止文字、字符、标题、签名、Logo和水印。正文完全由程序另行排版。",
+            ].join("\n") : outputKind === "illustration" ? [
+              "为下文绘制一幅16:9横版正文插图，按文字选择新的场景和构图，不是封面，不照搬参考图的竖版布局。",
+              draft.content.body,
+              "继承所选封面的配色、笔触与材质：",
+              extractPublishingCoverArtDirection(sourcePrompt) || sourcePrompt.slice(0, 6000),
+              "画面不要文字、标题、字幕、水印；文字由产品另行排版。",
+            ].join("\n") : composePublishingCoverContentBrief({
               facts: core.facts,
               visualConcept: discardPreviousRound ? "" : core.visualConcept,
               thesis: core.thesis,
@@ -2065,46 +2114,23 @@ export const publishingDraftRouter = router({
             storyId: input.storyId,
             projectId: story.projectId ?? undefined,
             emotion: core.emotion,
+            // The selected cover already supplies the style; avoid a second art search.
+            authoredBrief: Boolean(outputKind) && !artReference,
             userInstructions: [...instructions, ...referenceMoodInstruction],
             artDirection: coverArtRecipe(storyArtRecipe(story), artReference),
-            outputPurpose: "publishing-cover",
-            referencePolicy: referenceAssetId
+            outputPurpose: outputKind ? "publishing-album" : "publishing-cover",
+            referencePolicy: outputKind ? "style-only" : referenceAssetId
               ? "preserve-composition"
               : artReference
                 ? "style-only"
                 : "none",
-            fourCandidateExploration: true,
+            fourCandidateExploration: outputKind !== "body-texture",
             discardPreviousRound,
             explorationRound,
           });
         }
         let generation = persistedGeneration;
         if (persistedGeneration?.operationToken === operationToken) {
-          if (persistedGeneration.status === "completed") {
-            const coverRounds = await loadPublishingCoverRounds({
-              publishing: current.publishing,
-              storyId: input.storyId,
-              userId: ctx.user.id,
-            });
-            const coverRound = coverRounds.find(
-              round => round.id === persistedGeneration.roundId
-            );
-            if (!coverRound) {
-              throw new Error("封面候选已完成但结果轮次不可用");
-            }
-            return {
-              status: "ok" as const,
-              estimate,
-              ...current,
-              coverAsset: await loadPublishingCoverAsset({
-                assetId: current.publishing.cover?.assetId,
-                storyId: input.storyId,
-                userId: ctx.user.id,
-              }),
-              coverRounds,
-              coverRound,
-            };
-          }
           if (!resuming) {
             return {
               status: "error" as const,
@@ -2153,6 +2179,7 @@ export const publishingDraftRouter = router({
                 status: "pending",
                 platform: input.platform,
                 provider: coverProvider,
+                ...(outputKind ? { outputKind } : {}),
                 referenceAssetId,
                 feedback: input.feedback?.trim() ?? "",
                 instructions,
@@ -2214,7 +2241,7 @@ export const publishingDraftRouter = router({
         const imageOptions = {
           provider:
             coverProvider === "flux-schnell" ? "gpt-image" : coverProvider,
-          aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+          aspectRatio: generation.outputKind === "illustration" ? "16:9" : PUBLISHING_COVER_PROFILE.aspectRatio,
           fidelity: coverProvider === "gpt-image" ? "draft" : "final",
           mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
           // Exploration rounds run in MJ v7 Draft Mode: same art lineage, about
@@ -2245,7 +2272,9 @@ export const publishingDraftRouter = router({
                   // So the compiler must produce a purely affirmative scene and
                   // never name the thing being avoided; suppression is the
                   // --no parameter's job, not this text's.
-                  COVER_PROMPT_COMPILER_SYSTEM,
+                  generation.outputKind === "body-texture"
+                    ? "Compile this brief into a short English description of a flat, pale, low-contrast continuous paper texture. This is a material surface, never a scene. Describe only subtle fibers, grain and diffuse organic washes extending uninterrupted to every image edge. The central 80% width is a nearly plain pale paper field with barely perceptible grain. Peripheral variation is irregular and softly diffused, never a frame, border, outline, corner ornament or inset sheet. Translate RGB values into natural color words. User suggestions may change texture and color but must not introduce figures, objects, scenery, symbols or lettering. Output one affirmative paragraph under 100 words."
+                    : COVER_PROMPT_COMPILER_SYSTEM,
               },
               { role: "user", content: prompt },
             ],
@@ -2253,8 +2282,15 @@ export const publishingDraftRouter = router({
           );
           const compiledText = compiled.text.trim();
           if (compiledText) {
-            renderPrompt = `${compiledText} ${PUBLISHING_COVER_ART_SUFFIX}`;
+            renderPrompt = generation.outputKind === "body-texture"
+              ? `${compiledText} Continuous edge-to-edge paper surface, nearly plain pale central field, diffuse organic grain.`
+              : `${compiledText} ${PUBLISHING_COVER_ART_SUFFIX}`;
           }
+        }
+        if (generation.outputKind === "body-texture" && coverProvider === "midjourney") {
+          // Keep unwanted subjects out of the positive prompt. The provider merges
+          // these with its existing no-lettering constraint in a single --no flag.
+          renderPrompt += " --no people, animals, objects, scenery, landscape, mountains, buildings, horizon, borders, frames, outlines, boxes, corner ornaments";
         }
         const generated = generation.taskId
           ? coverProvider === "gpt-image"
@@ -2262,7 +2298,7 @@ export const publishingDraftRouter = router({
             : await resume302MidjourneyTask(generation.taskId, imageOptions)
           : coverProvider === "flux-schnell"
             ? await generateDraftImage(renderPrompt, imageOptions)
-            : referenceAsset
+            : referenceAsset && generation.outputKind !== "body-texture"
               ? await editImage(referenceAsset.imageUrl, renderPrompt, {
                   ...imageOptions,
                   requireInputImage: true,
@@ -2382,6 +2418,7 @@ export const publishingDraftRouter = router({
         const createdAt = Date.now();
         const round: PublishingCoverRound = {
           id: generation.roundId,
+          ...(generation.outputKind ? { outputKind: generation.outputKind } : {}),
           platform: input.platform,
           sourceCoreRevision: core.revision,
           parentAssetId: referenceAsset?.id ?? null,

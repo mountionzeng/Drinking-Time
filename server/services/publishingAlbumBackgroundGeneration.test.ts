@@ -24,6 +24,7 @@ import {
   generatePublishingAlbumBackground,
   quotePublishingAlbumBackground,
 } from "./publishingAlbumBackgroundGeneration";
+import { compilePublishingAlbumBackgroundPrompt } from "./publishingAlbumBackgroundPrompt";
 
 function stateWithGeneration(backgroundGeneration: any = null, text = "她把钥匙放回桌上。") {
   return {
@@ -77,6 +78,8 @@ describe("publishing album background generation", () => {
     const quote = await quotePublishingAlbumBackground({
       storyId: 7, userId: 3, versionId: "v1", pageId: "page-1", dependencies: deps,
     });
+    deps.getState.mockClear();
+    vi.mocked(compilePublishingAlbumBackgroundPrompt).mockClear();
     persistenceMocks.claimPublishingAlbumBackground.mockImplementation(async ({ generation }: any) =>
       stateWithGeneration(generation)
     );
@@ -102,6 +105,8 @@ describe("publishing album background generation", () => {
     });
 
     expect(result).toMatchObject({ status: "ok", assetIds: [501, 502] });
+    expect(deps.getState).toHaveBeenCalledTimes(1);
+    expect(compilePublishingAlbumBackgroundPrompt).toHaveBeenCalledTimes(1);
     expect(deps.generate).toHaveBeenCalledTimes(1);
     expect(persistenceMocks.updatePublishingAlbumBackground).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: "paid-task-1" })

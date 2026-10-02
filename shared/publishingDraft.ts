@@ -349,7 +349,10 @@ export type PublishingCoverArtReference = {
   mood: string[];
 };
 
+export type PublishingImageOutputKind = "illustration" | "body-texture";
+
 export type PublishingCoverRound = {
+  outputKind?: PublishingImageOutputKind;
   id: string;
   platform: PublishingPlatformId;
   sourceCoreRevision: number;
@@ -386,6 +389,7 @@ export type PublishingCoverRound = {
  * a request, or a dev-server reload.
  */
 export type PublishingCoverGeneration = {
+  outputKind?: PublishingImageOutputKind;
   operationToken: string;
   versionId: string;
   status: "pending" | "completed" | "failed" | "unknown";
@@ -1140,6 +1144,7 @@ function normalizeCoverRound(
     id,
     platform: obj.platform,
     sourceCoreRevision: finiteNonNegativeInteger(obj.sourceCoreRevision),
+    ...((obj.outputKind === "illustration" || obj.outputKind === "body-texture") ? { outputKind: obj.outputKind } : {}),
     parentAssetId: positiveInteger(obj.parentAssetId),
     feedback: cleanString(obj.feedback).trim().slice(0, 2_000),
     instructions: boundedStringList(obj.instructions, 20, 2_000),
@@ -1181,6 +1186,7 @@ function normalizeCoverGeneration(
     operationToken: operationToken.slice(0, 200),
     versionId: versionId.slice(0, 64),
     status: rawStatus as PublishingCoverGeneration["status"],
+    ...((obj.outputKind === "illustration" || obj.outputKind === "body-texture") ? { outputKind: obj.outputKind } : {}),
     platform: obj.platform,
     provider:
       obj.provider === "gpt-image" || obj.provider === "flux-schnell"
@@ -1522,7 +1528,7 @@ export function resolvePublishingDisplayCoverAssetId(
   while (current && !visited.has(current.versionId)) {
     visited.add(current.versionId);
     if (current.cover?.assetId) return current.cover.assetId;
-    const latestRound = current.coverRounds.at(-1);
+    const latestRound = current.coverRounds.filter(round => !round.outputKind).at(-1);
     if (nearestCandidateId === null && latestRound) {
       nearestCandidateId =
         latestRound.assetIds.find(id => Number.isInteger(id) && id > 0) ?? null;
@@ -1536,6 +1542,7 @@ export function resolvePublishingDisplayCoverAssetId(
   if (nearestCandidateId !== null) return nearestCandidateId;
   return (
     state.coverRounds
+      .filter(round => !round.outputKind)
       .at(-1)
       ?.assetIds.find(id => Number.isInteger(id) && id > 0) ?? null
   );

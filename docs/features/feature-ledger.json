@@ -1,41 +1,97 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T12:05:00+08:00",
+  "updatedAt": "2026-10-02T15:35:00+08:00",
   "features": [
     {
       "id": "publishing-article-image-pack",
       "name": "正文下方的一次整套图片制作",
       "status": "working",
       "userValue": "复用已有图片，把满意的文章制作成统一字体与配色的封面、插图正文和纸色正文图片，直接下载或复制发送。",
-      "entryPoints": ["client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"],
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      ],
       "owners": [
         "client/src/features/publishingAlbum/PublishingImagePack.tsx",
-        "client/src/features/publishingAlbum/imagePackComposition.ts"
+        "client/src/features/publishingAlbum/imagePackComposition.ts",
+        "client/src/features/publishingAlbum/imagePackMaterial.ts",
+        "client/src/features/publishingAlbum/ImageCandidatePreview.tsx",
+        "server/routers/publishingDraft.ts"
       ],
       "evidence": [
         "client/src/features/publishingAlbum/imagePackComposition.test.ts",
         "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "client/src/features/publishingAlbum/imagePackMaterial.test.ts",
+        "server/routers.publishingDraft.test.ts",
+        "server/services/imageGen.palette.test.ts",
+        "shared/publishingDraft.test.ts",
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "docs/qa/2026-10-02-publishing-image-pack.md"
       ],
       "invariants": [
-        "制作图片为本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
-        "合成图片的选择不改变正式封面、画册底图、视频故事板及成品快照；付费能力仍走现有工作室。",
+        "选图后自动本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
+        "合成图片的选择不改变正式封面、画册底图、视频故事板及成品快照；新封面/插图/花纹底图收费须在小窗口显式确认，复用既有生成接口与任务恢复。",
+        "横版插图固定16:9，花纹底图固定3:4，复用同一MJ模型及生成接口；插图以所选封面为图像参考，花纹仅在本地提取封面平均色，不向模型传入封面原图或正文。用途随任务及候选轮持久化，恢复沿用同一任务，均不得成为故事默认封面。新花纹底图生成要求为连续无框纸纹、中央浅净，排除框线、画框和角花。",
+        "用户选择的AI底图原样放在正文下面；正文合成不新增边框、装饰线、页码、纹理或淡化遮罩。文字独立排版，底图不得改写正文或分页。保留免费本地纹理；生成新候选不自动替换当前底图，点击选择后自动合成并展示正文成品。",
         "按资产 ID 去重计数，保留疑似含字与质检未完成风险提示。",
         "完整保留正文 Unicode 与段落，最多九张；超限、缺字或布局溢出报错，不能静默截断。",
         "封面与正文共用配色和字体，实际 PNG 同时用于预览、下载和复制。",
         "文字或设置变化后旧输出禁用；取消或离开组件不得回填过期结果。",
         "快捷设置按故事、发布版本和平台隔离，旧逐页画册仍可展开编辑。"
       ],
-      "dependencies": ["publishing-static-album", "publishing-workspace", "publishing-versions"],
+      "dependencies": [
+        "publishing-static-album",
+        "publishing-workspace",
+        "publishing-versions"
+      ],
       "replaces": [],
       "knownGaps": [
-        "快捷正文为设计纸色，场景底图需用原高级画册；目前只支持一张插图在开头或中间页顶部。",
-        "设置仅保存在当前浏览器，刷新后 PNG 需重新制作，不提供跨设备成品保存。",
-        "多文件下载、剪贴板与系统分享受浏览器支持限制；未验收第三方实发或付费供应商。",
-        "取消与切版竞态尚未有自动化 DOM 交互测试，已有取消函数回归和真实浏览器改字失效验证。"
+        "快捷正文支持AI花纹与免费纸纹；AI花纹仅作淡化装饰，不生成文字或叙事场景。目前只支持一张插图在开头或中间页顶部。",
+        "设置仅保存在当前浏览器，刷新后自动重新排版 PNG，不提供跨设备成品保存。",
+        "多文件下载、剪贴板与系统分享受浏览器支持限制；已核验真实MJ横版插图任务与成品，其他供应商及第三方实发仍未验收。",
+        "取消与切版竞态尚未有自动化 DOM 交互测试，已有取消函数回归和真实浏览器改字失效、连续切换素材自动更新及导出禁用验证。",
+        "生成模型仍可能偏离纯花纹要求，候选须人工选择；现有自动质检只检查文字污染，不应被当作纯花纹保证。实测与修正记录见QA文档。"
       ],
       "history": [
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "根据用户17:31截图改为无框底图：移除生成描述中的外围装饰结构，中文任务、英文编译和最终提示均指定满幅连续纸纹与浅净中央，MJ负向参数排除边框/画框/描边/矩形/角花。原图直接合成规则及正文排版不变，54项路由回归和类型检查通过。真实付费验证见QA记录。 真实MJ任务1790933799115210完成4图，报价¥0.34，选择无框第8轮第2张后主仓自动生成5张PNG，已目视核验正文没有框线。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "按用户截图纠正双边框和额外装饰：正文页仅使用所选原图加正文及用户选定插图，删除程序边框、顶部装饰线、页码、中央淡化遮罩，AI底图路径不再先绘制程序纸纹。主仓第2张实看与截图同款底图对照，程序外框/装饰线/页码消失，只留原图自带边框。14项定向回归、类型和账本校验通过，无新费用。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "根据用户截图纠正过度淡化：删除AI底图整图12%透明度，所选原图直接作为正文背景，仅保留中央65%纸色柔和遮罩。原图边缘恢复100%，中央纹理保留35%，不再仅4.2%。主仓以截图同款第5轮第4张验证5张成品，深边框、纸纹和底部图案清晰位于文字下方。15项定向回归、类型和账本校验通过；中央最坏黑纹216种配色对比度>4.5，无新增付费。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "按用户确认的底图风格强化可读性：点击AI或免费底图自动切至正文成品预览；新底图提示词要求中央80%宽度近似浅净纸面，装饰集中边缘。已有AI底图合成时中央再以65%纸色柔和遮罩淡化（纹理实际约4.2%，边缘最高12%），文字及分页不变，无新增按钮/请求/依赖。69项相关回归与类型检查通过，主仓浏览器确认点击第7轮候选自动更新5张PNG。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "feature",
+          "summary": "按用户要求增加所有素材与成品缩略图的悬停/键盘聚焦放大，浮层通过Portal避开滑动容器裁切；正文底图复用封面与插图的MJ模型、费用确认、候选、质检与同任务恢复，新增body-texture用途。真实测试发现完整参考图会带入人物，改为本地平均取色后仅发送文字，纹理专用编译和MJ排除场景参数。花纹以12%不透明度置于文字下方，正文及分页独立，保留免费纹理。真实验收结果见QA记录。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "refactor",
+          "summary": "按用户要求简化文章出图：删除制作/更新整套按钮，选择后500ms合并变更再自动排版；免费纹理一键换组，切换封面保留插图。主仓真实确认5张PNG自动更新、处理中禁止导出、换组不改当前选择。插图默认继承已有封面画风，跳过重复美术检索，仍保留统一硬约束、英文编译、质检、一次费用确认及同任务恢复。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "核验用户真实MJ插图任务1790926640401946：四张1456×816图片已保存，主仓选用后制作5张PNG。修复切换封面隐藏已付费插图（保留全部，当前封面优先并标注其他来源），区分按钮不可用与真实生成，实际请求显示等待时长。沿用同任务恢复及质检，无额外购买；耗时拆解和复验见QA记录。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "feature",
+          "summary": "按用户后续截图收敛为封面、16:9插图、正文底图三个横向候选条，各行右上角Popover生成窗口，下方最终PNG预览。32×32封面采样自动配色，确定性纹理生成六张免费候选；复用generateCover增加可选illustration用途并持久化、隔离默认封面。149项定向回归通过，主仓验证取色/生成纹理/选择/成品，未消费真实插图任务。"
+        },
         {
           "date": "2026-10-02",
           "kind": "feature",
@@ -658,6 +714,11 @@
           "date": "2026-08-28",
           "kind": "refactor",
           "summary": "发布区版本操作收敛为一张成品组合表和一个 mutation；明确保存文字、图像或视频才更新对应层，普通保存、候选生成、图片采用和 Take 生成均不自动建成品版本。删除旧选择、重命名、意图自动建版和 dirty 草稿搬运弹窗。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "feature",
+          "summary": "既有generateCover路由兼容可选illustration用途：新插图以拥有且属于当前版本候选/正式封面的资产为参考，按16:9生成并记录父资产与用途；原封面保持3:4，复用成本确认和同taskId恢复。候选列表保留质检提示，故事默认封面选择跳过插图轮次。新增创建/恢复/归一化/默认封面隔离回归。"
         },
         {
           "date": "2026-08-15",
@@ -2409,6 +2470,11 @@
       ],
       "history": [
         {
+          "date": "2026-10-02",
+          "kind": "refactor",
+          "summary": "付费底图生成复用一次读取的权威快照，将原先3次状态读取、2次提示词编译合并为各1次；报价签名、有效期、输入hash和价格校验仍保留，claim继续检查版本冲突。回归验证单次读取/编译、过期输入拒绝、同任务恢复与非自动采用。"
+        },
+        {
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "新增独立 version-scoped 静态画册：最多九页确定性分页；正式封面风格驱动的无字底图签名报价、同 taskId 恢复、候选质检标记与显式采用；五款固定来源 OFL 中文字体与可解释推荐；双击或按钮进入的一笔区域/路径排版；共享 Unicode 布局计划的 SVG 预览、单页和整册 PNG 导出。album9 不再进入视频 router。"
@@ -3653,7 +3719,7 @@
         {
           "date": "2026-09-10",
           "kind": "verification",
-      "summary": "安卓反复黑屏未定位。局域网真机确认窗口388×837、pixelRatio3.25及Object.fromEntries存在；新增仅--diagnose启用的独立ES5入口和有界启动阶段原生提示，不改认证/数据/绘制时机，不输出原始异常。用户停止原任务后接管复核：4项加载器、62项小游戏专项、小游戏tsc及诊断包无Intl微信关联冒烟通过；模拟器app-returned、测试站readyz200，均不替代安卓真机验收。15:28普通构建新增清理生成的诊断app.js，完整构建、流程冒烟、无诊断残留产物断言通过；开发版本上传被自动审查拒绝，等待具体授权。主仓已有上线后补清单，后台访问被站点策略阻止；详见docs/qa/2026-09-10-android-startup-diagnostic.md，不称安卓修复或发布。"
+          "summary": "安卓反复黑屏未定位。局域网真机确认窗口388×837、pixelRatio3.25及Object.fromEntries存在；新增仅--diagnose启用的独立ES5入口和有界启动阶段原生提示，不改认证/数据/绘制时机，不输出原始异常。用户停止原任务后接管复核：4项加载器、62项小游戏专项、小游戏tsc及诊断包无Intl微信关联冒烟通过；模拟器app-returned、测试站readyz200，均不替代安卓真机验收。15:28普通构建新增清理生成的诊断app.js，完整构建、流程冒烟、无诊断残留产物断言通过；开发版本上传被自动审查拒绝，等待具体授权。主仓已有上线后补清单，后台访问被站点策略阻止；详见docs/qa/2026-09-10-android-startup-diagnostic.md，不称安卓修复或发布。"
         },
         {
           "date": "2026-09-08",
@@ -4458,7 +4524,11 @@
         "用户可停用文风参考证据；按用户和平台隔离、去重；技巧库不吸收用户私密原句。",
         "保留人工标题、平台约束和修订冲突检测，不自动触发图片、视频或语音生成。"
       ],
-      "dependencies": ["story-ownership", "publishing-workspace", "publishing-versions"],
+      "dependencies": [
+        "story-ownership",
+        "publishing-workspace",
+        "publishing-versions"
+      ],
       "replaces": [],
       "knownGaps": [
         "已验证本地入口与模拟模型下的持久化链路；未做真实付费模型生成、文学效果评价或 MySQL 并发验收。",

@@ -2,8 +2,10 @@ import { PUBLISHING_ALBUM_MAX_PAGES, type PublishingAlbumRegionLayout } from "@s
 import { publishingAlbumGraphemes } from "./publishingAlbumLayout";
 import { PublishingAlbumFontRepository } from "./publishingAlbumFontRepository";
 import { preparePublishingAlbumExportPage, renderPublishingAlbumPagePng } from "./publishingAlbumExport";
+import { drawPaperMaterial, type ImagePackPalette, type ImagePackTexture } from "./imagePackMaterial";
+import type { PublishingImageOutputKind } from "@shared/publishingDraft";
 
-export type PackAsset = { id: number; imageUrl: string; label: string; warning?: string };
+export type PackAsset = { id: number; imageUrl: string; label: string; warning?: string; kind?: PublishingImageOutputKind; parentAssetId?: number | null };
 export const IMAGE_PACK_STYLES = {
   sage: { label: "拾光绿", paper: "#eef3e9", ink: "#294936", accent: "#809a77" },
   paper: { label: "暖纸白", paper: "#f7f1e6", ink: "#4d4032", accent: "#b49770" },
@@ -14,9 +16,13 @@ export type ImagePackOptions = {
   body: string;
   fontId: string;
   style: keyof typeof IMAGE_PACK_STYLES;
+  palette?: ImagePackPalette;
+  texture?: ImagePackTexture;
+  textureSeed?: number;
   includeCover: boolean;
   coverUrl?: string;
   illustrationUrl?: string;
+  bodyTextureUrl?: string;
   illustrationPosition: "above" | "middle";
 };
 export type ImagePackPage = { kind: "cover" | "body"; text: string; illustration: boolean };
@@ -71,7 +77,7 @@ export async function makeImagePack(
   signal: AbortSignal,
 ): Promise<ImagePackResult[]> {
   const pages = planImagePack(options);
-  const style = IMAGE_PACK_STYLES[options.style];
+  const style = options.palette ?? IMAGE_PACK_STYLES[options.style];
   const bitmaps = new Map<string, ImageBitmap>();
   const results: ImagePackResult[] = [];
   const assertCurrent = () => signal.throwIfAborted();
@@ -95,18 +101,26 @@ export async function makeImagePack(
       const canvas = Object.assign(document.createElement("canvas"), { width: 900, height: 1200 });
       const context = canvas.getContext("2d");
       if (!context) throw new Error("当前浏览器无法制作图片");
-      context.fillStyle = style.paper;
-      context.fillRect(0, 0, 900, 1200);
-      context.strokeStyle = style.accent;
-      context.lineWidth = 2;
-      context.strokeRect(32, 32, 836, 1136);
-      context.fillStyle = style.accent;
-      context.fillRect(65, 72, 56, 4);
-      context.font = "20px sans-serif";
-      context.textAlign = "right";
-      context.fillText(`${index + 1} / ${pages.length}`, 830, 1125);
-      if (page.kind === "cover") await drawImage(context, options.coverUrl!, [65, 110, 770, 710]);
-      if (page.illustration) await drawImage(context, options.illustrationUrl!, [80, 100, 740, 400]);
+      if (page.kind === "body" && options.bodyTextureUrl) {
+        // Use the chosen image as-is; its own decoration is the only decoration.
+        context.fillStyle = style.paper;
+        context.fillRect(0, 0, 900, 1200);
+        await drawImage(context, options.bodyTextureUrl, [0, 0, 900, 1200]);
+      } else {
+        drawPaperMaterial(context, 900, 1200, style, options.texture ?? "paper", options.textureSeed ?? 0);
+      }
+      if (page.kind === "cover") {
+        context.strokeStyle = style.accent;
+        context.lineWidth = 2;
+        context.strokeRect(32, 32, 836, 1136);
+        context.fillStyle = style.accent;
+        context.fillRect(65, 72, 56, 4);
+        context.font = "20px sans-serif";
+        context.textAlign = "right";
+        context.fillText(`${index + 1} / ${pages.length}`, 830, 1125);
+        await drawImage(context, options.coverUrl!, [65, 110, 770, 710]);
+      }
+      if (page.illustration) await drawImage(context, options.illustrationUrl!, [80, 80, 740, 740 * 9 / 16]);
       assertCurrent();
       const typography: PublishingAlbumRegionLayout = {
         layoutVersion: 1, kind: "region", shape: "rectangle", direction: "horizontal",
