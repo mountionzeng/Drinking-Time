@@ -49,6 +49,59 @@ const thirdBatch = [
   "4a9bfb3b9d61a99a0f06eafb4b4f3772.jpg",
 ];
 
+const fourthBatch = [
+  {
+    file: "4acbf36e4a052299eb2137a4b3e42895.jpg",
+    query: "网点暗场",
+    method: "网点铺调",
+  },
+  {
+    file: "4e650687ebfc51df7ba2784dca79d805.jpg",
+    query: "绒面色团",
+    method: "细线穿行于软边色团",
+  },
+  {
+    file: "55ff99b5a0cc855197d31fdcd1cb4430.jpg",
+    query: "薄层透底",
+    method: "薄层透出底色",
+  },
+  {
+    file: "58d0b35ddf5d9fae3fbd4de95bdae18a.jpg",
+    query: "柔光圈层",
+    method: "局部柔光向外渐隐",
+  },
+  {
+    file: "5944e4019670a6b283ade50edf2f7bde.jpg",
+    query: "密线开窗",
+    method: "细密近层围绕开阔亮域",
+  },
+  {
+    file: "5dd5eee42dfecbd0b91e7fda324e0602.jpg",
+    query: "弧带递进",
+    method: "弧形带引导纵深",
+  },
+  {
+    file: "5ddb112d8f84d693c254fefbd8424951.jpg",
+    query: "光束切面",
+    method: "宽幅斜向体积光",
+  },
+  {
+    file: "632166909ff14ed5ffba9430962addd7.jpg",
+    query: "记忆失焦",
+    method: "轮廓融入色光",
+  },
+  {
+    file: "6578f5d55bab8f782e7d0546516c20ab.jpg",
+    query: "光线喷薄",
+    method: "放射扩散与环状节奏并置",
+  },
+  {
+    file: "683628dac067dd4492ba0ab78bb5549a.jpg",
+    query: "疏朗群像",
+    method: "横向多焦点排列",
+  },
+];
+
 describe("会话策展目录", () => {
   it("真实目录的十张 DNA 可清洗、可复用，且没有改变权利状态", async () => {
     const catalog = await loadArtRepositoryCatalog(repositoryDir);
@@ -188,6 +241,46 @@ describe("会话策展目录", () => {
       expect(prompt).not.toContain(query);
       expect(prompt).not.toMatch(
         /\.jpg|references\/|小红书|水印|签名|状态栏|手机|电车|钢琴|帆船|猫|Edward Hopper|Camille Corot/
+      );
+      for (const color of selected[0].palette)
+        expect(prompt).not.toContain(color);
+    }
+  );
+
+  it("第四批记录保持开放特征和权利边界，不从配文推定作者", async () => {
+    const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+    for (const { file } of fourthBatch) {
+      const asset = catalog.assets[file];
+      expect(asset.status).toBe("ready");
+      expect(asset.rightsStatus).toBe("unverified");
+      expect(asset.usage).toBe("derived-dna-only");
+      expect(asset.analyzedAt).toBeTruthy();
+      const clean = sanitizeCuratedArtDna(asset.dna!);
+      expect(clean).toEqual(asset.dna);
+      expect(hasReusableArtDna(clean)).toBe(true);
+      expect(clean.artTags?.freeTags.length).toBeGreaterThan(0);
+      expect(JSON.stringify(clean)).not.toMatch(
+        /Ulla Thynell|John Sladek|TIK-TOK/i
+      );
+    }
+  });
+
+  it.each(fourthBatch)(
+    "第四批 $query 可检索到可执行方法",
+    async ({ file, query, method }) => {
+      const catalog = (await loadArtRepositoryCatalog(repositoryDir))!;
+      const selected = matchCuratedArtDna(catalog, query, 1);
+      expect(selected).toEqual([
+        sanitizeCuratedArtDna(catalog.assets[file].dna!),
+      ]);
+      const blocks = await artRepositoryPromptBlocks(query, repositoryDir);
+      const prompt = blocks.find(block =>
+        block.startsWith("【策展库情境匹配】")
+      )!;
+      expect(prompt).toContain(method);
+      expect(prompt).not.toContain(query);
+      expect(prompt).not.toMatch(
+        /\.jpg|references\/|小红书|水印|签名|状态栏|手机|国旗|机器人|鸟|蜡烛|喷泉|Ulla Thynell|John Sladek|TIK-TOK/i
       );
       for (const color of selected[0].palette)
         expect(prompt).not.toContain(color);
