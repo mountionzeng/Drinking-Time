@@ -25,4 +25,11 @@ describe("cover-derived paper palette", () => {
     expect(paletteFromPixels([]).paper).toMatch(/^#[a-f0-9]{6}$/);
   });
 
+  it("preserves the first encountered dominant color when counts tie", () => {
+    const warm = [170, 110, 65, 255];
+    const blue = [20, 70, 170, 255];
+    expect(paletteFromPixels([...warm, ...blue])).toEqual(paletteFromPixels(warm));
+    expect(paletteFromPixels([...blue, ...warm])).toEqual(paletteFromPixels(blue));
+  });
+
 });

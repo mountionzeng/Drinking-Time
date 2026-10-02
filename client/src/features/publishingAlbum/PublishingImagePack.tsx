@@ -244,7 +244,6 @@ export function PublishingImagePack({
           </Popover>
         </div>
         {assets.length ? (
-          <div>
             <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="已有图片">
               {assets.filter(asset => !asset.kind).map(asset => (
                 <ImageCandidatePreview key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
@@ -258,7 +257,6 @@ export function PublishingImagePack({
                 </ImageCandidatePreview>
               ))}
             </div>
-          </div>
         ) : <p className="rounded-lg bg-[var(--nayin-surface)] p-3 text-xs leading-6 text-muted-foreground">还没有配图。可以取消“包含封面”制作纯文字图片，或点击右上角“生成封面”。</p>}
         {albumQuery.error ? <p className="text-xs text-destructive">画册图片读取失败，请刷新后重试。封面候选仍可使用。</p> : null}
         {cover?.warning || illustration?.warning || bodyTexture?.warning ? <p className="text-xs text-amber-700">所选配图：{[cover?.warning, illustration?.warning, bodyTexture?.warning].filter(Boolean).join("、")}，发送前请检查画面。</p> : null}

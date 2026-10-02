@@ -15,7 +15,10 @@ export function paletteFromPixels(pixels: ArrayLike<number>): ImagePackPalette {
     rgb.forEach((value, channel) => { bin.rgb[channel] += value; });
     bins.set(key, bin);
   }
-  const dominant = [...bins.values()].sort((a, b) => b.count - a.count)[0];
+  let dominant: { count: number; rgb: number[] } | undefined;
+  for (const bin of bins.values()) {
+    if (!dominant || bin.count > dominant.count) dominant = bin;
+  }
   const rgb = dominant ? dominant.rgb.map(value => value / dominant.count) : [160, 160, 150];
   const mix = (target: number, amount: number) => `#${rgb.map(value => Math.round(value * (1 - amount) + target * amount).toString(16).padStart(2, "0")).join("")}`;
   return { paper: mix(255, .88), ink: mix(0, .78), accent: mix(80, .35) };
