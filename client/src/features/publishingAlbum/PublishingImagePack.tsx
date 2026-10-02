@@ -285,7 +285,7 @@ export function PublishingImagePack({
             </button></ImageCandidatePreview>)}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs">正文底图 <span className="text-muted-foreground">· {cover ? palette ? "已从封面取色" : theme?.error ? "取色未完成" : "正在读取封面颜色…" : "选封面后自动配色"}</span></p>
+            <p className="text-xs">整套底图 <span className="text-muted-foreground">· {cover ? palette ? "封面与正文共用" : theme?.error ? "取色未完成" : "正在读取封面颜色…" : "选封面后自动配色"}</span></p>
             {onGenerateTexture ? <Popover open={textureSetup} onOpenChange={setTextureSetup}>
               <PopoverTrigger asChild><button type="button" className={control} disabled={!cover || coverBusy || !coverAssets.some(asset => asset.id === cover.id)}>生成底图</button></PopoverTrigger>
               <PopoverContent align="end" className="w-80 space-y-3">

@@ -101,7 +101,7 @@ export async function makeImagePack(
       const canvas = Object.assign(document.createElement("canvas"), { width: 900, height: 1200 });
       const context = canvas.getContext("2d");
       if (!context) throw new Error("当前浏览器无法制作图片");
-      if (page.kind === "body" && options.bodyTextureUrl) {
+      if (options.bodyTextureUrl) {
         // Use the chosen image as-is; its own decoration is the only decoration.
         context.fillStyle = style.paper;
         context.fillRect(0, 0, 900, 1200);
@@ -110,14 +110,6 @@ export async function makeImagePack(
         drawPaperMaterial(context, 900, 1200, style, options.texture ?? "paper", options.textureSeed ?? 0);
       }
       if (page.kind === "cover") {
-        context.strokeStyle = style.accent;
-        context.lineWidth = 2;
-        context.strokeRect(32, 32, 836, 1136);
-        context.fillStyle = style.accent;
-        context.fillRect(65, 72, 56, 4);
-        context.font = "20px sans-serif";
-        context.textAlign = "right";
-        context.fillText(`${index + 1} / ${pages.length}`, 830, 1125);
         await drawImage(context, options.coverUrl!, [65, 110, 770, 710]);
       }
       if (page.illustration) await drawImage(context, options.illustrationUrl!, [80, 80, 740, 740 * 9 / 16]);
