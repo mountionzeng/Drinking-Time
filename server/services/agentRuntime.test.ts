@@ -12,6 +12,17 @@ beforeEach(() => {
 });
 
 describe("runJsonAgent（对话 Agent 骨架）", () => {
+  it("passes a bounded, non-replayed writing request to the model channel", async () => {
+    invokeAgentMock.mockResolvedValue({ text: '{}', modelLabel: "m" });
+    const execution = { deadlineMs: 90_000, reasoningEffort: "low", replaySafe: false };
+    await runJsonAgent({ systemPrompt: "JSON", message: "写作", execution, fallback: () => null });
+    expect(invokeAgentMock).toHaveBeenCalledWith(expect.any(Array), 800, undefined, execution);
+  });
+  it("requests protocol JSON for structured publishing output", async () => {
+    invokeAgentMock.mockResolvedValue({ text: '{"body":"完整正文"}', modelLabel: "m" });
+    await runJsonAgent({ systemPrompt: "Return JSON", message: "写作", responseFormat: { type: "json_object" }, fallback: () => null });
+    expect(invokeAgentMock).toHaveBeenCalledWith(expect.any(Array), 800, { type: "json_object" });
+  });
   it("拼消息(system+过滤后的历史+user)，解析合法 JSON", async () => {
     invokeAgentMock.mockResolvedValue({ text: '{"reply":"hi"}', modelLabel: "m" });
 

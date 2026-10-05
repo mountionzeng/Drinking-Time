@@ -31,6 +31,29 @@ import {
 
 const NOW = 1_786_000_000_000;
 
+describe("background cover quality state", () => {
+  const round = { id: "pending-qa", platform: "xiaohongshu", sourceCoreRevision: 1,
+    parentAssetId: null, feedback: "", assetIds: [41, 42, 43, 44], createdAt: NOW - 100,
+    qualityCheckPendingUntil: NOW + 90_000 };
+
+  it("keeps a pending check visible across reload and expires it as unchecked", () => {
+    const pending = normalizePublishingDraftState({ coverRounds: [round] }, NOW).coverRounds[0]!;
+    expect(pending.qualityCheckPendingUntil).toBe(NOW + 90_000);
+    expect(pending.qualityCheckedAt).toBeUndefined();
+    const expired = normalizePublishingDraftState({ coverRounds: [round] }, NOW + 90_001).coverRounds[0]!;
+    expect(expired.qualityCheckPendingUntil).toBeUndefined();
+    expect(expired.qualityCheckUnavailable).toBe(true);
+    expect(expired.assetIds).toEqual(round.assetIds);
+  });
+
+  it("preserves the completion timestamp even when the check finds no risk", () => {
+    const checked = normalizePublishingDraftState({ coverRounds: [{ ...round,
+      qualityCheckPendingUntil: undefined, qualityCheckedAt: NOW }] }, NOW).coverRounds[0]!;
+    expect(checked.qualityCheckedAt).toBe(NOW);
+    expect(checked.qualityCheckUnavailable).toBeUndefined();
+  });
+});
+
 describe("resolvePublishingDisplayCoverAssetId", () => {
   it.each(["illustration", "body-texture"] as const)("does not replace the story cover with generated %s", outputKind => {
     const state = normalizePublishingDraftState({

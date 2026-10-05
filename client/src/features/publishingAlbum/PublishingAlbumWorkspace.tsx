@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Download, ImagePlus, Loader2, Type } from "lucide-react";
+import { ArrowLeft, Check, Download, ImagePlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { PublishingDraftState, PublishingStoryVersion } from "../../../../shared/publishingDraft";
@@ -210,8 +210,8 @@ export function PublishingAlbumWorkspace({
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--panel-border)] px-4 py-3">
         <nav className="flex items-center gap-1" aria-label="发布工作区子导航">
           <button type="button" onClick={onBackToDraft} className="rounded-lg px-3 py-2 text-xs hover:bg-muted"><ArrowLeft className="mr-1 inline h-4 w-4" />正文</button>
-          <button type="button" onClick={onOpenCoverStudio} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">封面</button>
-          <button type="button" aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-2 text-xs font-medium">画册</button>
+          <button type="button" onClick={onOpenCoverStudio} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">编辑封面</button>
+          <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-2 text-xs font-medium">画册</span>
         </nav>
         <div className="flex gap-2">
           <button type="button" onClick={() => void exportPages(false)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />导出本页</button>
@@ -269,14 +269,13 @@ export function PublishingAlbumWorkspace({
                 <h2 className="text-sm font-medium">无字底图</h2>
                 {!coverAvailable ? (
                   <div className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs leading-5 text-amber-800">
-                    当前版本还没有正式采用封面。你仍可编辑文字；采用封面后才能生成继承其风格的底图。
-                    <button type="button" onClick={onOpenCoverStudio} className="mt-2 block underline">返回封面工作室</button>
+                    采用封面后可生成底图。
                   </div>
                 ) : null}
                 <textarea value={feedback} onChange={event => setFeedback(event.target.value)} maxLength={2_000} rows={2} placeholder="可选：这一页希望更安静、留白靠左……" className="mt-2 w-full rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs" />
                 {quote ? (
                   <div className="mt-2 rounded-lg border border-[var(--nayin-accent)] p-3 text-xs">
-                    本次会生成 {quote.candidateCount} 张候选，预计 ¥{quote.estimatedCny.toFixed(2)}。候选不会自动采用。
+                    {quote.candidateCount} 张底图 · 预计 ¥{quote.estimatedCny.toFixed(2)}
                     <div className="mt-2 flex gap-2">
                       <button type="button" onClick={() => setQuote(null)} className="rounded px-2 py-1">取消</button>
                       <button type="button" onClick={() => void confirmGeneration()} className="rounded bg-[var(--nayin-accent)] px-2 py-1 text-[var(--background)]">确认付费生成</button>
@@ -310,7 +309,6 @@ export function PublishingAlbumWorkspace({
                   </div>
                 </section>
               ) : null}
-              <p className="text-[11px] text-muted-foreground"><Type className="mr-1 inline h-3 w-3" />文字始终是可编辑产品层，不由图片模型生成。</p>
             </div>
           </div>
         </main>

@@ -185,6 +185,26 @@ function emptyPublishingForGeneration() {
 }
 
 describe("publishingDraft router", () => {
+  it("releases an image claim when prompt compilation fails before provider submission", async () => {
+    const state = { ...publishing, drafts: { xiaohongshu: {
+      platform: "xiaohongshu" as const, content: { title: "雨天", body: "修伞", tags: [] },
+      revision: 1, sourceCoreRevision: 1, needsReview: false, updatedAt: 1,
+    } } };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({ storyId: 7, storyRevision: 2, publishing: state });
+    let generation: any;
+    persistenceMocks.writePublishingDraftState.mockImplementation(async ({ operation }: { operation: any }) => {
+      generation = operation.type === "claim_cover_generation" ? operation.generation : { ...generation, status: operation.status, error: operation.error };
+      return { storyId: 7, storyRevision: 3, publishing: { ...state, revision: 2, coverGeneration: generation } };
+    });
+    agentChannelMocks.invokeAgent.mockRejectedValueOnce(new Error("connection ended"));
+    const result = await publishingDraftRouter.createCaller(context()).generateCover({ storyId: 7, platform: "xiaohongshu", basePublishingRevision: 1, costConfirmation: { accepted: true, estimatedCny: COVER_CNY } });
+    expect(result).toMatchObject({ status: "error", publishing: { coverGeneration: { status: "failed", taskId: null } } });
+    expect(result.status === "error" && result.error).toContain("尚未提交出图");
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(agentChannelMocks.invokeAgent).toHaveBeenCalledWith(expect.any(Array), 400, undefined, { reasoningEffort: "low", deadlineMs: 45_000, replaySafe: false });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.getStoryById.mockResolvedValue({
@@ -1623,6 +1643,7 @@ describe("publishingDraft router", () => {
 
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -1752,6 +1773,7 @@ describe("publishingDraft router", () => {
     });
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -1839,6 +1861,7 @@ describe("publishingDraft router", () => {
     );
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -1876,10 +1899,13 @@ describe("publishingDraft router", () => {
       status: "ok",
       coverRound: {
         assetIds: [91, 92, 93, 94],
-        qualityFlaggedAssetIds: [92, 93],
+        qualityCheckPendingUntil: expect.any(Number),
         candidates: [{ id: 91 }, { id: 92 }, { id: 93 }, { id: 94 }],
       },
     });
+    await vi.waitFor(() => expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ type: "set_cover_quality", flaggedAssetIds: [92, 93], unavailable: false }),
+    })));
     expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
     expect(
       dbMocks.createGeneratedImage.mock.calls.map(
@@ -1933,6 +1959,7 @@ describe("publishingDraft router", () => {
     );
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -1971,10 +1998,13 @@ describe("publishingDraft router", () => {
       status: "ok",
       coverRound: {
         assetIds: [91, 92, 93, 94],
-        qualityFlaggedAssetIds: [91, 92, 93, 94],
+        qualityCheckPendingUntil: expect.any(Number),
         candidates: [{ id: 91 }, { id: 92 }, { id: 93 }, { id: 94 }],
       },
     });
+    await vi.waitFor(() => expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ type: "set_cover_quality", flaggedAssetIds: [91, 92, 93, 94], unavailable: false }),
+    })));
     expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
     expect(imageGenMocks.generateImage).toHaveBeenCalledTimes(1);
     expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
@@ -2007,6 +2037,7 @@ describe("publishingDraft router", () => {
     }));
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         stored =
           operation.type === "claim_cover_generation"
             ? { ...stored, revision: 2, coverGeneration: operation.generation }
@@ -2072,6 +2103,7 @@ describe("publishingDraft router", () => {
     );
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -2112,11 +2144,14 @@ describe("publishingDraft router", () => {
     expect(result.coverRound.qualityFlaggedAssetIds).toBeUndefined();
     // A crashed inspection must not read as a clean one: without this marker
     // the UI presents unchecked, possibly text-covered images as if they passed.
-    expect(result.coverRound.qualityCheckUnavailable).toBe(true);
+    expect(result.coverRound.qualityCheckPendingUntil).toEqual(expect.any(Number));
+    await vi.waitFor(() => expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ type: "set_cover_quality", unavailable: true }),
+    })));
     expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
   });
 
-  it("marks an inspected clean round as checked, not as unavailable", async () => {
+  it("returns paid images before a delayed QA response and later saves the check", async () => {
     const state = {
       ...publishing,
       drafts: {
@@ -2138,6 +2173,7 @@ describe("publishingDraft router", () => {
     });
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           return {
             storyId: 7,
@@ -2162,6 +2198,8 @@ describe("publishingDraft router", () => {
       }
     );
 
+    let finish!: (value: { accepted: never[]; rejected: never[]; modelLabel: string }) => void;
+    staticImageQualityMocks.inspectStaticImageCandidates.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const result = await publishingDraftRouter
       .createCaller(context())
       .generateCover({
@@ -2172,6 +2210,13 @@ describe("publishingDraft router", () => {
       });
 
     expect(result.status).toBe("ok");
+    expect(result.coverRound.qualityCheckPendingUntil).toEqual(expect.any(Number));
+    expect(result.coverRound.candidates).toHaveLength(4);
+    expect(persistenceMocks.writePublishingDraftState.mock.calls.some(([args]) => args.operation.type === "set_cover_quality")).toBe(false);
+    finish({ accepted: [], rejected: [], modelLabel: "vision-test" });
+    await vi.waitFor(() => expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ type: "set_cover_quality", unavailable: false, flaggedAssetIds: [] }),
+    })));
     expect(result.coverRound.qualityCheckUnavailable).toBeUndefined();
   });
 
@@ -2572,7 +2617,7 @@ describe("publishingDraft router", () => {
     );
   });
 
-  it("recovers an outstanding paid task instead of buying a new round on a fresh click", async () => {
+  it.each([undefined, "fresh-client-token"])("recovers an outstanding paid task instead of buying a new round (%s)", async operationToken => {
     const generation = {
       operationToken: "cover-op-orphaned",
       versionId: "v1",
@@ -2627,13 +2672,14 @@ describe("publishingDraft router", () => {
       })
     );
 
-    // No operationToken: exactly what the "换 4 张" button sends.
+    // Both older callers and the current UI (which creates a fresh token) recover.
     const result = await publishingDraftRouter
       .createCaller(context())
       .generateCover({
         storyId: 7,
         platform: "xiaohongshu",
         basePublishingRevision: 1,
+        operationToken,
         costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
       });
 
@@ -2655,7 +2701,7 @@ describe("publishingDraft router", () => {
     );
   });
 
-  it("does not resubmit when an interrupted cover request has no recoverable task id", async () => {
+  it.each(["cover-op-unknown", "fresh-client-token"])("does not resubmit an interrupted cover request without a task id (%s)", async operationToken => {
     const generation = {
       operationToken: "cover-op-unknown",
       versionId: "v1",
@@ -2711,7 +2757,7 @@ describe("publishingDraft router", () => {
       storyId: 7,
       platform: "xiaohongshu",
       basePublishingRevision: 1,
-      operationToken: "cover-op-unknown",
+      operationToken,
     });
 
     expect(result).toMatchObject({
@@ -2746,6 +2792,7 @@ describe("publishingDraft router", () => {
     });
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           generation = operation.generation;
         } else if (operation.type === "update_cover_generation") {
@@ -2843,6 +2890,7 @@ describe("publishingDraft router", () => {
     });
     persistenceMocks.writePublishingDraftState.mockImplementation(
       async ({ operation }: { operation: any }) => {
+        if (operation.type === "set_cover_quality") return {};
         if (operation.type === "claim_cover_generation") {
           generation = operation.generation;
         }

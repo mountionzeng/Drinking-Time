@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T11:49:07.604Z",
+  "updatedAt": "2026-10-05T03:24:52.530Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -35,7 +35,9 @@
         "client/src/features/auth/mobileReturnPath.test.ts",
         "client/src/features/storyAgent/recentStoryEntry.test.ts",
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
-        "docs/qa/2026-10-02-story-context-sharing.md"
+        "docs/qa/2026-10-02-story-context-sharing.md",
+        "docs/qa/2026-10-03-editor-ui-simplification.md",
+        "docs/qa/2026-10-03-editor-button-audit.md"
       ],
       "invariants": [
         "收件人的新故事属于收件人，原作者的故事和归属不变。",
@@ -54,12 +56,32 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "已实现完整链接接口与本地入口；尚未部署公网，localhost 链接不能供其他设备使用。",
+        "2026-10-03只读复核：正式网站健康/就绪，但仍为19b832a（2026-09-30），storyContextShare.read返回接口不存在；生产26个迁移哈希/时间戳与本地一致，缺少0026及两张分享表。localhost链接和本地快照不能供外部设备使用，部署不会自动同步本机故事。",
         "本机固定开发游客账号限制真实双账号浏览器承接；归属隔离、承接保存和幂等已通过隔离接口测试，公网正式账号与真实模型改写仍待验收。",
         "真实 MySQL 迁移与事务集成未执行；新增 0026 迁移通过基线校验，部署时需先迁移。",
         "首版提供链接，不含二维码、自动过期或原始媒体复制。"
       ],
       "history": [
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "虚构故事1202实点创建/复制/打开/停用本机分享链接通过，分享页正确提供登录后续写。测试链接已停用，未修改其他故事的分享。公网部署与真实接收账号续写仍未验收。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "按用户确认清理重复入口和大段解释：分享链接只保留文稿顶部入口，预览/接收页改为简短动作与范围文案，保留聊天开关、持链阅读/转发、登录独立续写、本机限制及撤销。浏览器验证预览，未创建/停用链接或上线；状态继续observing。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "修复分享入口难发现：将顶部“邀请他改写”明确标为带链接图标的“分享链接”，在底部“复制文案”旁补上同名入口；两处共用一个分享窗口与链接状态，没有正文时仍保留顶部入口。本机地址限制提前到创建前显示。主仓Chrome实点两处均打开当前完整文稿预览，保留未应用修改和所选插图；31项工作区/分享路由/快照回归及类型检查通过。没有创建真实分享或部署公网，状态继续observing。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "verification",
+          "summary": "用户反馈分享续写此前未成功。完成本机配置、公网HTTP、ECS代码与MySQL只读排查：本机DISABLE_AUTH=true且固定游客，链接按当前localhost构建；线上缺少分享路由及0026两张表，已有26个迁移哈希/时间戳无分歧。49项分享/快照/回跳/入口测试及11项筛选的引用/上下文回归通过，27项本地迁移基线校验通过。记录上线、账号和单故事文字承接的剩余步骤；没有改生产环境、数据库或发布真实故事，状态继续observing。"
+        },
         {
           "date": "2026-10-02",
           "kind": "refactor",
@@ -88,19 +110,26 @@
       "owners": [
         "client/src/features/publishingAlbum/PublishingImagePack.tsx",
         "client/src/features/publishingAlbum/imagePackComposition.ts",
+        "client/src/features/publishingAlbum/imagePackIllustrations.ts",
         "client/src/features/publishingAlbum/imagePackMaterial.ts",
         "client/src/features/publishingAlbum/ImageCandidatePreview.tsx",
         "server/routers/publishingDraft.ts"
       ],
       "evidence": [
         "client/src/features/publishingAlbum/imagePackComposition.test.ts",
+        "client/src/features/publishingAlbum/imagePackIllustrations.test.ts",
+        "client/src/features/publishingAlbum/imagePackRendering.test.ts",
         "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
         "client/src/features/publishingAlbum/imagePackMaterial.test.ts",
         "server/routers.publishingDraft.test.ts",
         "server/services/imageGen.palette.test.ts",
         "shared/publishingDraft.test.ts",
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
-        "docs/qa/2026-10-02-publishing-image-pack.md"
+        "docs/qa/2026-10-02-publishing-image-pack.md",
+        "docs/qa/2026-10-02-generation-latency.md",
+        "docs/qa/2026-10-03-editor-ui-simplification.md",
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "docs/qa/2026-10-05-editor-stable-baseline.md"
       ],
       "invariants": [
         "选图后自动本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
@@ -111,7 +140,9 @@
         "完整保留正文 Unicode 与段落，最多九张；超限、缺字或布局溢出报错，不能静默截断。",
         "封面与正文共用配色和字体，实际 PNG 同时用于预览、下载和复制。",
         "文字或设置变化后旧输出禁用；取消或离开组件不得回填过期结果。",
-        "快捷设置按故事、发布版本和平台隔离，旧逐页画册仍可展开编辑。"
+        "快捷设置按故事、发布版本和平台隔离，旧逐页画册仍可展开编辑。",
+        "正文插图支持多选，每张默认正文开头，在对应大图预览下选择具体段落之后或单独移除；主页面不重复展示位置列表。点击已选图打开编辑而不取消选择，悬停预览可移入操作，支持键盘和点击打开/关闭。按正文文字顺序排版，图片可位于同页文字之间，空间不足自动换页，同位置按选图顺序排列。",
+        "位置绑定段落原文及重复次数，不绑定页码；前文增删后仍跟随原段落，目标原文变化、删除或重复数量改变时明确要求重新定位并禁用旧成品导出。旧开头设置自动迁移，旧中间页设置保留图片并要求指定段落；不猜测位置。"
       ],
       "dependencies": [
         "publishing-static-album",
@@ -120,13 +151,48 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "快捷正文支持AI花纹与免费纸纹；AI花纹仅作淡化装饰，不生成文字或叙事场景。目前只支持一张插图在开头或中间页顶部。",
+        "快捷插图按非空换行段落定位，不支持句中光标插入、拖拽或同一素材重复插入；目标段落改写后需手动重新定位。",
         "设置仅保存在当前浏览器，刷新后自动重新排版 PNG，不提供跨设备成品保存。",
         "多文件下载、剪贴板与系统分享受浏览器支持限制；已核验真实MJ横版插图任务与成品，其他供应商及第三方实发仍未验收。",
         "取消与切版竞态尚未有自动化 DOM 交互测试，已有取消函数回归和真实浏览器改字失效、连续切换素材自动更新及导出禁用验证。",
         "生成模型仍可能偏离纯花纹要求，候选须人工选择；现有自动质检只检查文字污染，不应被当作纯花纹保证。实测与修正记录见QA文档。"
       ],
       "history": [
+        {
+          "date": "2026-10-05",
+          "kind": "verification",
+          "summary": "按用户要求固化插图交互为稳定基线。完整verify:merge通过：主项目4917项、小程序215项测试通过，58项主项目测试跳过，类型、构建、27迁移基线和49张功能卡校验通过。真实操作沿用10月3日验收；未扩展其他功能、重新付费生成或部署公网。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "真实选择四图候选、两张插图分别放在第1/3段后，自动生成3张成品；Chrome真实PNG下载完成，系统分享打开3图面板。分享图片仅在实际文件受支持时显示，配图区显示必要生成错误。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "配图区统一保留编辑封面入口；设置与图片分享改为直观名称，删除重复生成/导出说明和质检汇总，保留单图风险标签、费用与故障提示。多图定位、自动排版、原选图与导出逻辑保持；页面实看和既有回归通过。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "根据用户两张截图，将插入位置与移除操作收进对应插图的大图预览底部，删除正常状态下重复缩略图/位置列表。点击已选插图只打开设置；交互预览支持跨间隙移入、点击固定、段落菜单及Escape/外部关闭；其他封面、纹理和成品仍沿用只读预览。缺失素材保留紧凑移除入口、失效段落在缩略图标注重新定位。24项入口/发布工作区回归及类型检查通过；主仓Chrome实看大图下控件、打开段落菜单并用Escape关闭，保持原两张插图、位置和未应用正文。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "implementation",
+          "summary": "按用户要求将单图开头/中间页重设计为多图正文段落定位。选图后直接显示缩略图、段落菜单和移除；保留其他封面候选与已有画册图作插图。按文字和图片块顺序分页，一页可含图片前后的文字，图像解码复用且每页只做一次最终PNG合成。迁移旧设置并显式处理失效锚点。75项排版/字体/导出/发布工作区测试与类型检查通过；主仓Chrome核验段落菜单、多选行及5张成品，检测到用户同时编辑后停止操作并保留其修改。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "封面、插图和底图候选改为先显示、后台更新质检标记；沿用免费合成和原位置选择，质检中/未完成均明确提示。页面待检查候选仍可选的回归通过；当前Mac锁屏，新增浏览器点击复验未完成。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "将插图位置从折叠设置移至插图候选下方，选图即显示正文开头（默认）/正文中间页单选项。主仓Chrome验证中间位置将插图从第2张移至第4张，不插图隐藏选项、重新选图显示并保留位置。12项相关回归及类型检查通过，无新增费用；仍只支持一张插图和两个页顶部位置。"
+        },
         {
           "date": "2026-10-02",
           "kind": "refactor",
@@ -212,7 +278,10 @@
         "client/src/features/storyAgent/selectionStoryScope.test.ts",
         "server/repositories/boundaries.test.ts",
         "server/repositories/sharedRuntime.test.ts",
-        "server/repositories/stateCompatibility.test.ts"
+        "server/repositories/stateCompatibility.test.ts",
+        "server/services/storySync.publishing.test.ts",
+        "server/services/storySync.preserve-rationale.test.ts",
+        "docs/qa/2026-10-03-editor-button-audit.md"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -231,6 +300,11 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "真实验收发现旧浏览器保存经mergeStaleStoryBody删除文字历史；补齐权威server body参数，回归先失败后通过，保留模型结果并拒绝客户端伪造。视觉编辑会话仅对正数持久故事ID激活，避免新故事空请求。"
+        },
         {
           "date": "2026-08-26",
           "kind": "fix",
@@ -758,7 +832,8 @@
         "server/services/renderGate.ts",
         "server/services/publishingPersistence.ts",
         "shared/finishedProductVersion.ts",
-        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx",
+        "server/services/publishingCoverQuality.ts"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -769,7 +844,11 @@
         "server/services/staticImageQualityGate.test.ts",
         "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts",
         "shared/finishedProductVersion.test.ts",
-        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx"
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
+        "docs/qa/2026-10-02-generation-latency.md",
+        "docs/qa/2026-10-03-editor-ui-simplification.md",
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "docs/qa/2026-10-05-editor-stable-baseline.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -783,7 +862,8 @@
         "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
         "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
         "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
-        "人工标题不能被转换、改写、格式修复或无效标题结果清空。"
+        "人工标题不能被转换、改写、格式修复或无效标题结果清空。",
+        "已保存的候选可先展示为质检中；后台检查必须绑定原版本和候选列表，未检查/超时/服务中断不得呈现为检查通过，也不自动重新购买生成或质检。"
       ],
       "dependencies": [
         "story-ownership",
@@ -792,9 +872,30 @@
       "replaces": [],
       "knownGaps": [
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
-        "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
+        "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
+        "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。"
       ],
       "history": [
+        {
+          "date": "2026-10-05",
+          "kind": "verification",
+          "summary": "将后台质检、任务恢复、明确文稿采用与简化入口纳入稳定基线；完整verify:merge通过，主项目4917项及小程序215项测试通过。保留既有质检风险、候选与付费任务约束；公网及外部供应商验证边界不变。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "真实生成/采用/封面/导出验收：合并空白区重复生成入口，首稿明确采用后开放配图，临时故事ID不触发成品查询。修复提示词编译失败留下pending任务，编译设45秒期限及low reasoning；新token仍恢复既有付费回执。真实MJ四图成功，领取至完成212.370秒，其中供应商绘图161.777秒；不宣称固定提速。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "按用户要求合并分享、文字历史和封面编辑的重复入口，删除常驻宣言、占位按钮及重复进度；封面候选和视频设置文案简化为动作、价格与状态。保留全部候选、参考图、付费确认和原封面采用规则；入口数量及相关回归通过。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "配图下载后先持久化并返回全部候选，像素质检改为后台提示，90秒待检查期限过后明确标为未完成。后台结果通过CAS绑定原版本/轮次/资产列表，切换版本不覆盖新稿；页面仅在待检查时轮询。文章JSON调用增加协议约束，保留验证和原有修复。相关回归与全量环境复验、类型和构建通过，未提交真实付费任务。"
+        },
         {
           "date": "2026-08-28",
           "kind": "refactor",
@@ -2541,7 +2642,8 @@
         "command:pnpm fonts:verify:album",
         "client/src/features/publishingAlbum/subtitleLayoutRoundtrip.test.ts",
         "docs/qa/image-subtitle-layer-2026-09-09.md",
-        "server/services/imageSubtitleReadback.test.ts"
+        "server/services/imageSubtitleReadback.test.ts",
+        "docs/qa/2026-10-03-editor-ui-simplification.md"
       ],
       "invariants": [
         "画册 aggregate 按发布版本隔离，不能创建或修改 Story shots、timeline、activeVideoStoryboardVersionId 或 videoStoryboard。",
@@ -2570,6 +2672,11 @@
         "图片自定义字幕层本轮补齐主Preview显示与图片层保存；成片视频导出尚未接入imageTextOverlays，不能将Preview可见等同于视频导出包含该文字层。"
       ],
       "history": [
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "移除无正式封面时的重复封面入口及产品层解释，当前画册标签改为不可点击文本，报价保留数量/费用/显式付费确认；逐页编辑、保存、底图采用和导出能力保持，原回归通过。"
+        },
         {
           "date": "2026-10-02",
           "kind": "refactor",
@@ -4613,13 +4720,24 @@
         "shared/textDraftHistory.ts",
         "server/services/textDraftHistory.ts",
         "server/services/textDraftPrompt.ts",
-        "server/services/writingTechniqueLibrary.ts"
+        "server/services/writingTechniqueLibrary.ts",
+        "server/services/agentRuntime.ts",
+        "client/src/features/storyAgent/storyAgentPersistence.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "server/_core/agentChannel.ts"
       ],
       "evidence": [
         "server/services/textDraftHistory.test.ts",
         "client/src/features/publishingDraft/textDraftBasis.test.ts",
         "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
-        "docs/qa/2026-09-29-independent-text-versions.md"
+        "docs/qa/2026-09-29-independent-text-versions.md",
+        "docs/qa/2026-10-02-generation-latency.md",
+        "docs/qa/2026-10-03-editor-ui-simplification.md",
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts",
+        "server/_core/agentChannel.test.ts",
+        "server/services/agentRuntime.test.ts",
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "docs/qa/2026-10-05-editor-stable-baseline.md"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -4637,13 +4755,33 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "已验证本地入口与模拟模型下的持久化链路；未做真实付费模型生成、文学效果评价或 MySQL 并发验收。",
+        "主仓本地已实测真实模型生成、编辑采用与历史持久化；文学效果评估、多用户/MySQL并发仍待验收。",
         "首批4张技巧卡是有来源链接的编辑性归纳，不宣称已完成作品逐段核验；未覆盖全部写作场景。",
-        "只接入独立文字版本链路，不改变旧生成、转换或改写入口；学习为提示词证据推断，不是基础模型训练。",
+        "独立文字版本已接入正文区明确采用；旧跨平台转换和改写服务保留，学习仍为提示词证据推断。",
         "首版检索最近100个故事，每个平台最多6份原文及6份采用证据；每故事最多100次记录及5MB正文容量。",
         "面板未采用编辑只暂存在当前页面，刷新会丢失；生成记录和已采用稿持久保存。"
       ],
       "history": [
+        {
+          "date": "2026-10-05",
+          "kind": "refactor",
+          "summary": "提交前全量检查发现StoryAgentContext超过冻结文件规模；缓冲区setter复用既有动作签名，移除重复参数类型声明，缩减至4525行且不放宽上限。55项定向回归与随后全量verify:merge通过；采用来源ID、并发修订和历史保护保持，状态继续observing。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "fix",
+          "summary": "真实按钮验收发现首稿仅进入buffer导致无法保存；为预览记录来源文字版本，正文改字后可直接采用，沿用原有CAS/标题/成品快照保护。实测gpt-5.6-terra一次44.924秒完成，编辑采用并持久化通过。生成增加low reasoning、90秒期限和禁止不确定连接自动重放；错误按安全类别展示。"
+        },
+        {
+          "date": "2026-10-03",
+          "kind": "refactor",
+          "summary": "删除聊天下方常驻解释，文稿方向改为短名称；两个生成确认按钮合为一个，支持选方向及再次点击取消，未选仍按已有默认方向生成。生成、采用和学习规则保留；浏览器仅验证弹窗与选择，未提交付费请求。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "fix",
+          "summary": "文风检索从最多100个串行故事读取改为每批4个并发，处理顺序/归属/平台/去重/学习开关不变；生成启用已有JSON协议约束。新增并发和协议回归先失败后通过，保持observing；未测真实模型端到端提速。"
+        },
         {
           "date": "2026-09-29",
           "kind": "implementation",

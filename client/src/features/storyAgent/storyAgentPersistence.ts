@@ -41,6 +41,8 @@ export type PublishingDraftBuffer = {
   platform: PublishingPlatformId;
   /** Version scope; omitted by legacy localStorage entries, which are V1. */
   versionId?: string;
+  /** Independent text version that produced this preview, retained through edits. */
+  textDraftVersionId?: string;
   content: PublishingDraftContent;
   updatedAt: number;
 };
@@ -158,6 +160,9 @@ export function normalizePublishingBuffers(
           ? buffer.versionId.trim()
           : "v1",
       content,
+      ...(typeof buffer.textDraftVersionId === "string" && buffer.textDraftVersionId
+        ? { textDraftVersionId: buffer.textDraftVersionId }
+        : {}),
       updatedAt:
         typeof buffer.updatedAt === "number" &&
         Number.isFinite(buffer.updatedAt)

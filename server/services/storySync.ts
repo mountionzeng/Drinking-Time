@@ -505,5 +505,5 @@ export function mergeStaleStoryBody(
     }
   }
 
-  return prepareStoryBody(merged, revision);
+  return prepareStoryBody(merged, revision, server);
 }

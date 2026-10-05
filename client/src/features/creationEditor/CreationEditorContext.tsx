@@ -1728,7 +1728,7 @@ export function CreationEditorProvider({
   }, [activeId, renderedExtractionStorySessionToken]);
   useEffect(() => {
     setActivatedVisualEditEpoch(null);
-    if (activeId == null) return;
+    if (activeId == null || activeId <= 0) return;
     let cancelled = false;
     const activationSequence = nextVisualActivationSequence(editorClientId);
     void activateVisualEditSessionMut

@@ -33,10 +33,9 @@ export default function SharedStoryPage({ token }: { token: string }) {
     <main className="min-h-dvh bg-background px-5 py-10 text-foreground sm:py-16">
       <div className="mx-auto max-w-2xl space-y-8">
         <header className="space-y-2">
-          <p className="text-xs text-muted-foreground">朋友分享给你的故事</p>
-          <h1 className="font-chat-brand text-2xl">从这里，写出你的故事</h1>
+          <h1 className="font-chat-brand text-2xl">朋友分享的故事</h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            保留这段故事的背景和文字，继续写下你的想法。创建后属于你自己的故事，原作不会改变。
+            保留原文与背景，续写为自己的故事。
           </p>
         </header>
         {!valid || shared.error ? (
@@ -57,12 +56,9 @@ export default function SharedStoryPage({ token }: { token: string }) {
                 {accept.isPending
                   ? "正在创建你的故事…"
                   : isAuthenticated
-                    ? "以此开始我的故事"
-                    : "登录，开始我的故事"}
+                    ? "续写这个故事"
+                    : "登录后续写"}
               </Button>
-              <p className="text-xs text-muted-foreground">
-                查看与创建故事不会生成图片或消耗算力。
-              </p>
               {accept.error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {accept.error.message}

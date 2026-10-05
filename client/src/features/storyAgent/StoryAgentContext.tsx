@@ -461,7 +461,8 @@ interface StoryAgentContextValue {
     storyId: number,
     platform: PublishingPlatformId,
     content: PublishingDraftContent,
-    versionId?: string
+    versionId?: string,
+    textDraftVersionId?: string
   ) => void;
   discardPublishingBuffer: (
     storyId: number,
@@ -1757,18 +1758,14 @@ export function StoryAgentProvider({
     return savedId;
   }, [saveArchiveStory]);
 
-  const setLocalPublishingBuffer = useCallback(
-    (
-      storyId: number,
-      platform: PublishingPlatformId,
-      content: PublishingDraftContent,
-      versionId = "v1"
-    ) => {
+  const setLocalPublishingBuffer = useCallback<StoryAgentContextValue["setPublishingBuffer"]>(
+    (storyId, platform, content, versionId = "v1", textDraftVersionId) => {
       setPublishingBuffers(current =>
         putPublishingBuffer(current, {
           storyId,
           platform,
           versionId,
+          textDraftVersionId,
           content,
           updatedAt: Date.now(),
         })

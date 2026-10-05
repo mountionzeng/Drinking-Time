@@ -115,6 +115,15 @@ describe("invokeAgent — story agent routing (F1 / AE1)", () => {
 });
 
 describe("invokeAgent — cross-protocol fallback (F2 / AE3)", () => {
+  it("uses low reasoning and does not replay a writing request after an uncertain connection failure", async () => {
+    stubFetch(() => { throw new TypeError("fetch failed"); });
+    await expect(invokeAgent([{ role: "user", content: "write JSON" }], 4500,
+      { type: "json_object" }, { reasoningEffort: "low", deadlineMs: 90_000, replaySafe: false }
+    )).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].payload.reasoning_effort).toBe("low");
+    expect(calls[0].init.signal).toBeDefined();
+  });
   it("falls back to Claude Messages once on a transient Next failure", async () => {
     stubFetch(index => (index === 0 ? failure(502) : claudeOk()));
 
