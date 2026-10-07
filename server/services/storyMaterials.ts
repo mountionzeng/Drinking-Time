@@ -49,6 +49,8 @@ export async function getOwnedStoryBody(
 
 type StoryShotFact = {
   stableShotId: string;
+  publishingReferenceImageId?: number | null;
+  publishingContinuityImageId?: number | null;
   splitSourceStableShotId: string | null;
   relatedImageIds: number[];
   shotNo: number;
@@ -306,6 +308,16 @@ function storyShots(story: Story): StoryShotFact[] {
     return [
       {
         stableShotId,
+        publishingReferenceImageId: positiveImageId(
+          shot.publishingVideo && typeof shot.publishingVideo === "object"
+            ? (shot.publishingVideo as Record<string, unknown>).referenceImageId
+            : null
+        ),
+        publishingContinuityImageId: positiveImageId(
+          shot.publishingVideo && typeof shot.publishingVideo === "object"
+            ? (shot.publishingVideo as Record<string, unknown>).continuityImageId
+            : null
+        ),
         splitSourceStableShotId:
           normalizeShotIdentity(shot.splitSourceStableShotId) ?? null,
         relatedImageIds: imageIdsFromRecord(shot.sourceTransition),
@@ -815,12 +827,12 @@ export async function getStoryMaterialState(
     childImageIdsByParent.set(image.parentImageId, children);
   }
 
-  const imageLineageIds = (seedIds: Iterable<number>) => {
+  const imageLineageIds = (seedIds: Iterable<number>, referenceOnlyIds: ReadonlySet<number>) => {
     const seen = new Set<number>();
     const queue = Array.from(seedIds);
     while (queue.length > 0) {
       const imageId = queue.shift();
-      if (imageId == null || seen.has(imageId)) continue;
+      if (imageId == null || seen.has(imageId) || referenceOnlyIds.has(imageId)) continue;
       const image = imageById.get(imageId);
       if (!image) continue;
       seen.add(imageId);
@@ -836,6 +848,10 @@ export async function getStoryMaterialState(
       timelineItem?.referencedImageId == null
         ? null
         : (imageById.get(timelineItem.referencedImageId) ?? null);
+    const publishingReferenceImage =
+      fact.publishingReferenceImageId == null
+        ? null
+        : (imageById.get(fact.publishingReferenceImageId) ?? null);
     const timelineTakeIds = new Set(
       [
         timelineItem?.primaryVideoEdit?.takeId,
@@ -877,12 +893,30 @@ export async function getStoryMaterialState(
             },
           ]
         : []),
+      ...(publishingReferenceImage &&
+      publishingReferenceImage.id !== referencedImage?.id &&
+      !ownedImageVersions.some(
+        image => image.id === publishingReferenceImage.id
+      )
+        ? [
+            {
+              ...publishingReferenceImage,
+              promptFreshness: resolvePromptAssetFreshness(
+                publishingReferenceImage.promptCompilationId,
+                imageCompilationId
+              ),
+            },
+          ]
+        : []),
     ];
     const currentImage =
       (referencedImage
         ? imageVersions.find(image => image.id === referencedImage.id)
         : null) ??
       imageVersions.find(image => image.isPrimary) ??
+      (publishingReferenceImage
+        ? imageVersions.find(image => image.id === publishingReferenceImage.id)
+        : null) ??
       null;
     const rawOwnVideoTakes = videos.filter(
       take =>
@@ -911,8 +945,15 @@ export async function getStoryMaterialState(
       }
     }
     for (const image of imageVersions) relatedSeedIds.add(image.id);
+    // Stop at article references even when reached through a generated child
+    // or video input: their cover and sibling candidates belong to the article.
+    const referenceOnlyIds = new Set(
+      [fact.publishingReferenceImageId, fact.publishingContinuityImageId].filter(
+        (id): id is number => id != null && !ownedImageVersions.some(image => image.id === id)
+      )
+    );
     const directImageIds = new Set(imageVersions.map(image => image.id));
-    const relatedImages = Array.from(imageLineageIds(relatedSeedIds))
+    const relatedImages = Array.from(imageLineageIds(relatedSeedIds, referenceOnlyIds))
       .filter(imageId => !directImageIds.has(imageId))
       .flatMap(imageId => {
         const image = imageById.get(imageId);
@@ -983,6 +1024,8 @@ export async function getStoryMaterialState(
       shotNo: fact.shotNo,
       cueCode: fact.cueCode,
       currentImage,
+      imageGenerationReference: fact.publishingContinuityImageId == null
+        ? null : (imageById.get(fact.publishingContinuityImageId) ?? null),
       imageVersions,
       relatedImages,
       currentVideo,

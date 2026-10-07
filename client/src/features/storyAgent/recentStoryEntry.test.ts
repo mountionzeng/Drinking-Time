@@ -1,9 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveRecentStoryEntry,
+  requestedStoryId,
   shouldRouteWorkspaceForStoryTransition,
   workspaceForStoryStage,
 } from "./recentStoryEntry";
+
+describe("requestedStoryId", () => {
+  it("selects one explicit recipient story", () => {
+    expect(requestedStoryId("?storyId=42")).toBe(42);
+  });
+  it.each([
+    "",
+    "?storyId=0",
+    "?storyId=-1",
+    "?storyId=1.5",
+    "?storyId=42&storyId=43",
+    "?storyId=9007199254740992",
+  ])("rejects ambiguous or invalid requests %s", search => {
+    expect(requestedStoryId(search)).toBeNull();
+  });
+});
 
 describe("resolveRecentStoryEntry", () => {
   const stories = [

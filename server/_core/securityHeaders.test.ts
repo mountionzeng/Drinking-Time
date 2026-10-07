@@ -3,9 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   buildSecurityHeaders,
   createHttpsRedirectMiddleware,
+  createSecurityHeadersMiddleware,
 } from "./securityHeaders";
 
 describe("production security headers", () => {
+  it("prevents sharing pages from leaking referrers, being indexed or cached", () => {
+    const headers: Record<string, string> = {};
+    createSecurityHeadersMiddleware({ isProduction: false, cspMediaOrigins: "" })({ path: "/s/secret", protocol: "http" } as never, {
+      setHeader: (key: string, value: string) => { headers[key] = value; },
+    } as never, (() => {}) as never);
+    expect(headers["Referrer-Policy"]).toBe("no-referrer");
+    expect(headers["X-Robots-Tag"]).toBe("noindex, nofollow");
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
   it("enforces CSP, HSTS and browser hardening on HTTPS", () => {
     const headers = buildSecurityHeaders({
       isProduction: true,

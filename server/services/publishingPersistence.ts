@@ -286,6 +286,15 @@ type CompleteCoverGenerationOperation = {
   round: PublishingCoverRound;
 };
 
+type SetCoverQualityOperation = {
+  type: "set_cover_quality";
+  versionId: string;
+  roundId: string;
+  assetIds: number[];
+  flaggedAssetIds: number[];
+  unavailable: boolean;
+};
+
 export type InitializePublishingAlbumOperation = {
   type: "initialize_album";
   versionId: string;
@@ -368,6 +377,7 @@ export type PublishingDraftWriteOperation =
   | ClaimCoverGenerationOperation
   | UpdateCoverGenerationOperation
   | CompleteCoverGenerationOperation
+  | SetCoverQualityOperation
   | ClaimTextOperation
   | SettleTextOperation
   | AppendPlatformContextSnapshotOperation
@@ -512,7 +522,7 @@ export function inspectPublishingSerializedOutput(state: PublishingDraftState): 
   return canonical;
 }
 
-function canonicalize(state: PublishingDraftState): PublishingDraftState {
+export function canonicalizePublishingDraftState(state: PublishingDraftState): PublishingDraftState {
   const versions = state.versions ?? [];
   const active = resolvePublishingActiveVersion(state);
   return {
@@ -538,6 +548,8 @@ function canonicalize(state: PublishingDraftState): PublishingDraftState {
     ),
   };
 }
+
+const canonicalize = canonicalizePublishingDraftState;
 
 function publishingForStorage(
   state: PublishingDraftState
@@ -1397,6 +1409,26 @@ function applyOperation(
   preVersionIntent?: unknown
 ): PublishingDraftState {
   switch (operation.type) {
+    case "set_cover_quality": {
+      const target = current.versions?.find(version => version.versionId === operation.versionId);
+      const round = target?.coverRounds.find(item => item.id === operation.roundId);
+      if (!target || !round || round.assetIds.join(",") !== operation.assetIds.join(",")) {
+        throw new Error("质检结果与原候选轮次不匹配");
+      }
+      const updated = { ...round, qualityCheckUnavailable: operation.unavailable,
+        qualityFlaggedAssetIds: operation.flaggedAssetIds.filter(id => round.assetIds.includes(id)),
+        qualityCheckedAt: now };
+      delete updated.qualityCheckPendingUntil;
+      const coverRounds = target.coverRounds.map(item => item.id === round.id ? updated : item);
+      return {
+        ...current,
+        revision: current.revision + 1,
+        ...(current.activeVersionId === target.versionId ? { coverRounds } : {}),
+        versions: current.versions?.map(version => version.versionId === target.versionId
+          ? { ...version, coverRounds, versionRevision: version.versionRevision + 1 } : version),
+        updatedAt: now,
+      };
+    }
     case "initialize_album":
     case "update_album_page_text":
     case "update_album_page_typography":

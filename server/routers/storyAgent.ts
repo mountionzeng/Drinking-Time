@@ -1,6 +1,9 @@
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
+import { placeImageRevisionForStory } from "../services/visualClipEditing";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { inheritedStoryReference } from "../../shared/storyContextShare";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
@@ -225,6 +228,7 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         message: z.string().min(1),
+        storyId: z.number().int().positive().optional(),
         history: z
           .array(
             z.object({
@@ -318,7 +322,10 @@ export const storyAgentRouter = router({
       // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
       // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
       await assertOptionalProjectOwner(input.projectId, ctx.user.id);
+      const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
+      if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
       return replyFromStoryAgent({
+        referenceContext: inheritedStoryReference(story?.body),
         message: input.message,
         history: input.history,
         existingCardCount: input.existingCardCount,
@@ -1700,6 +1707,7 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         renderReferences: shotRenderReferencesSchema.optional(),
+        referenceRevision: z.boolean().optional(),
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
         explicitInstruction: z.string().trim().min(1).max(2_000).optional(),
         costConfirmation: z
@@ -1755,12 +1763,17 @@ export const storyAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
+        if (input.referenceRevision && (
+          !input.renderReferences || input.renderReferences.imageIds.length !== 1 ||
+          Object.keys(input.renderReferences.assets).length > 0 || input.remixEdit || input.draftImageId
+        )) throw new Error("改图需要选中一张原图");
         if (input.renderReferences) {
           if (!story || story.userId !== ctx.user.id) throw new Error("故事不存在或无权访问");
           if (!input.explicitInstruction?.trim()) throw new Error("请先填写图片要求");
           if (!shotIdentityForStoryShot(story, input.shotNo)) throw new Error("当前镜头不存在，请刷新后重试");
-          if (input.imageProvider !== "midjourney" || input.mode === "draft" || input.editMaskImageUrl || input.exactFrameEdit) {
-            throw new Error("可编辑参考列表仅用于MJ正式生成");
+          const revisionProviderAllowed = input.referenceRevision && input.imageProvider === "gpt-image";
+          if ((!revisionProviderAllowed && input.imageProvider !== "midjourney") || input.mode === "draft" || input.editMaskImageUrl || input.exactFrameEdit) {
+            throw new Error("参考列表仅用于MJ正式生成，单图修改也可选择GPT Image");
           }
           const selectedImages = await Promise.all(input.renderReferences.imageIds.map(id => getGeneratedImageById(id)));
           if (selectedImages.some(image => !image || image.storyId !== input.storyId || image.userId !== ctx.user.id)) {
@@ -1856,7 +1869,9 @@ export const storyAgentRouter = router({
         //   Path 1/3: 客户端已构建结构化 prompt，传入 input.prompt
         //   Path 2A:  LLM 写好的 imagePrompt，传入 input.prompt
         //   Path 2B:  没有 prompt，服务端从对话现编
-        let prompt = input.prompt?.trim() ?? "";
+        let prompt = input.referenceRevision
+          ? input.explicitInstruction!.trim()
+          : input.prompt?.trim() ?? "";
         // 一致性闸门只能看用户自己写的话。prompt 后面会被 synthesizeShotPrompt
         // 整个替换成机器合成的画面描述，而合成器的职责就是描述「白色长裙」这类外观，
         // 还会用「不要…」做否定约束 —— 两者一凑就命中闸门的冲突词，
@@ -2048,6 +2063,7 @@ export const storyAgentRouter = router({
 
         if (
           promptContext &&
+          !input.referenceRevision &&
           ENV.forgeApiKey &&
           !process.env.VITEST &&
           process.env.NODE_ENV !== "test"
@@ -2212,7 +2228,23 @@ export const storyAgentRouter = router({
             "",
             prompt,
           ].join("\n");
-        } else if (input.exactFrameEdit) {
+        } else if (input.referenceRevision && input.imageProvider === "midjourney") {
+          if (!referenceImageInput) throw new Error("原图无法读取，本次未提交生成");
+          const directed = await directImagePrompt({
+            imageInput: referenceImageInput,
+            referencePurpose: "current-frame",
+            fallbackPrompt: input.explicitInstruction!,
+            narrativePrompt: [
+              "按用户要求修改这张原图。请把修改后的目标外观写在英文 finalPrompt 开头，使用肯定的画面描述，不能只翻译成修改命令。",
+              "被替换的颜色或物件不要在目标描述里重复；未要求改变的人物、布局和画风参照原图。",
+              input.explicitInstruction!,
+            ].join("\n"),
+            shotNo: input.shotNo,
+          });
+          // A failed optional translation still retains the exact user request and
+          // selected image; it must never switch the chosen image provider.
+          prompt = directed.prompt;
+        } else if (input.referenceRevision || input.exactFrameEdit) {
           // 精确改图时，选中的那张图就是场景本身。美术库改写出来的场景段落会
           // 在提示词开头重述一个「应该长什么样」的画面（配色、姿势全都写死），
           // 于是模型照着它重画，用户的原图当场被换掉。这里换成一句短引导。
@@ -2279,10 +2311,19 @@ export const storyAgentRouter = router({
               )
             : referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
-          projectId: story.projectId ?? undefined,
+          projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
           preservePrompt: Boolean(coverArtDirection),
           outputPurpose: "story-frame" as const,
+          // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
+          // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
+          candidateCompositionExploration:
+            input.mode !== "draft" &&
+            !input.draftImageId &&
+            !lockedAssets &&
+            !input.renderReferences &&
+            !referencePlan.usesStoryboardFrames &&
+            !input.explicitInstruction?.trim(),
           lockedVisualAssets: lockedAssets
             ? {
                 fingerprint: lockedAssets.fingerprint,
@@ -2389,6 +2430,7 @@ export const storyAgentRouter = router({
           return referenceImage
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
                 provider: input.imageProvider ?? "midjourney",
+                referenceRevision: input.referenceRevision,
                 ...injection,
                 imageWeight,
                 referenceImageUrl: input.referenceImageUrl,
@@ -2468,15 +2510,28 @@ export const storyAgentRouter = router({
               generationType: referencePlan.usesStoryboardFrames
                 ? "inpaint"
                 : "initial",
-              parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
+              parentImageId: input.referenceRevision ? input.renderReferences!.imageIds[0] : input.draftImageId ?? null,
               isCurrent: false,
             })
           );
         }
         const image = storedImages[0]!;
+        let timelinePlacementWarning: string | undefined;
+        if (input.referenceRevision && shotIdentity) {
+          try {
+            const placement = await placeImageRevisionForStory({
+              storyId: input.storyId, userId: ctx.user.id,
+              sourceImageId: input.renderReferences!.imageIds[0],
+              stableShotId: shotIdentity, imageId: image.id,
+            });
+            if (placement.status === "error") timelinePlacementWarning = placement.error;
+          } catch (error) {
+            timelinePlacementWarning = error instanceof Error ? error.message : "图层保存失败";
+          }
+        }
         // 重渲链路明确要求 autoSelect 时，新图要成为当前版本；旧图仍保留在历史中。
         // 之前这里只保存了新资产但没有执行 promote，导致“生成成功却仍停在旧图”。
-        if (input.autoSelect) {
+        if (input.autoSelect && !input.referenceRevision) {
           // 刻意**不**传 adoption：这是生成完自动置为当前，用户从没在候选
           // 之间做过选择。按计划「生成候选、处理中结果和系统审美判断不算采用」，
           // 把它记成采用就会让来信引用一个用户其实没挑过的作品。
@@ -2495,6 +2550,7 @@ export const storyAgentRouter = router({
           imageUrl: result.imageUrl,
           imageId: image.id,
           // 这一次任务产出的全部候选（含首张）。调用方据此展示真实张数，
+          ...(timelinePlacementWarning ? { timelinePlacementWarning } : {}),
           // 不用再把一张图克隆成四个假候选，也不会把付过钱的三张丢掉。
           candidates: storedImages.map(stored => ({
             imageId: stored.id,

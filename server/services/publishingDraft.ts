@@ -569,6 +569,7 @@ export async function generatePublishingDraft(params: {
   narrativeIntent?: PublishingNarrativeIntent;
 }): Promise<GeneratedPublishingDraft> {
   let result = await runJsonAgent<unknown>({
+    responseFormat: { type: "json_object" },
     ...compileGeneratePublishingDraftPrompt(params),
     fallback: () => null,
   });
@@ -585,6 +586,7 @@ export async function generatePublishingDraft(params: {
         ? "invalid story core"
         : invalidContentReason(root.draft, params.platform);
     result = await runJsonAgent<unknown>({
+      responseFormat: { type: "json_object" },
       ...compileGeneratePublishingDraftRepairPrompt({
         platform: params.platform,
         conversation: params.conversation,
@@ -622,6 +624,7 @@ export async function convertPublishingDraft(params: {
   currentTarget?: PublishingDraftContent;
 }): Promise<ConvertedPublishingDraft> {
   let result = await runJsonAgent<unknown>({
+    responseFormat: { type: "json_object" },
     ...compileConvertPublishingDraftPrompt(params),
     fallback: () => null,
   });
@@ -641,6 +644,7 @@ export async function convertPublishingDraft(params: {
       params.targetPlatform
     );
     result = await runJsonAgent<unknown>({
+      responseFormat: { type: "json_object" },
       ...compileConvertPublishingDraftRepairPrompt({
         core: params.core,
         sourceDraft: params.sourceDraft,
@@ -684,6 +688,7 @@ export async function revisePublishingDraft(params: {
   instruction: string;
 }): Promise<RevisedPublishingDraft> {
   let result = await runJsonAgent<unknown>({
+    responseFormat: { type: "json_object" },
     ...compileRevisePublishingDraftPrompt(params),
     fallback: () => null,
   });
@@ -696,6 +701,7 @@ export async function revisePublishingDraft(params: {
   let content = normalizeContent(root?.draft, params.platform, titleSources);
   if (!content) {
     result = await runJsonAgent<unknown>({
+      responseFormat: { type: "json_object" },
       ...compileRevisePublishingDraftRepairPrompt({
         core: params.core,
         current: params.current,
@@ -726,6 +732,7 @@ export async function revisePublishingDraft(params: {
   );
   if (styleViolations.length > 0) {
     const styleRepair = await runJsonAgent<unknown>({
+      responseFormat: { type: "json_object" },
       ...compileRevisePublishingStyleRepairPrompt({
         core: params.core,
         current: content,
@@ -793,6 +800,7 @@ export async function classifyPublishingDraftEdit(params: {
   }
 
   const { parsed, modelLabel } = await runJsonAgent<unknown>({
+    responseFormat: { type: "json_object" },
     systemPrompt: [
       "你是发布稿修改层级分类器。只判断用户的修改属于哪一层，不替用户做决定。",
       "wording_only：表达、句式、段落、篇幅变化，但事实、观点、情绪和结论未变。",

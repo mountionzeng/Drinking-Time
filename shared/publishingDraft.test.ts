@@ -31,7 +31,41 @@ import {
 
 const NOW = 1_786_000_000_000;
 
+describe("background cover quality state", () => {
+  const round = { id: "pending-qa", platform: "xiaohongshu", sourceCoreRevision: 1,
+    parentAssetId: null, feedback: "", assetIds: [41, 42, 43, 44], createdAt: NOW - 100,
+    qualityCheckPendingUntil: NOW + 90_000 };
+
+  it("keeps a pending check visible across reload and expires it as unchecked", () => {
+    const pending = normalizePublishingDraftState({ coverRounds: [round] }, NOW).coverRounds[0]!;
+    expect(pending.qualityCheckPendingUntil).toBe(NOW + 90_000);
+    expect(pending.qualityCheckedAt).toBeUndefined();
+    const expired = normalizePublishingDraftState({ coverRounds: [round] }, NOW + 90_001).coverRounds[0]!;
+    expect(expired.qualityCheckPendingUntil).toBeUndefined();
+    expect(expired.qualityCheckUnavailable).toBe(true);
+    expect(expired.assetIds).toEqual(round.assetIds);
+  });
+
+  it("preserves the completion timestamp even when the check finds no risk", () => {
+    const checked = normalizePublishingDraftState({ coverRounds: [{ ...round,
+      qualityCheckPendingUntil: undefined, qualityCheckedAt: NOW }] }, NOW).coverRounds[0]!;
+    expect(checked.qualityCheckedAt).toBe(NOW);
+    expect(checked.qualityCheckUnavailable).toBeUndefined();
+  });
+});
+
 describe("resolvePublishingDisplayCoverAssetId", () => {
+  it.each(["illustration", "body-texture"] as const)("does not replace the story cover with generated %s", outputKind => {
+    const state = normalizePublishingDraftState({
+      ...emptyPublishingDraftState(NOW),
+      coverRounds: [
+        { id: "cover", platform: "xiaohongshu", assetIds: [51], createdAt: NOW },
+        { id: "illustration", platform: "xiaohongshu", assetIds: [61], parentAssetId: 51, outputKind, createdAt: NOW + 1 },
+      ],
+    });
+    expect(state.coverRounds[1]).toMatchObject({ outputKind, parentAssetId: 51 });
+    expect(resolvePublishingDisplayCoverAssetId(state)).toBe(51);
+  });
   it("prefers an adopted ancestor cover over unadopted child candidates", () => {
     const state = {
       ...emptyPublishingDraftState(),
@@ -572,7 +606,7 @@ describe("normalizePublishingDraftState", () => {
     });
   });
 
-  it("retains a submitted cover task so a refreshed workspace can recover it", () => {
+  it.each([undefined, "illustration", "body-texture"] as const)("retains submitted task kind %s so refresh can recover it", outputKind => {
     const normalized = normalizePublishingDraftState(
       {
         ...emptyPublishingDraftState(NOW),
@@ -595,6 +629,7 @@ describe("normalizePublishingDraftState", () => {
             mood: ["温柔的不安"],
           },
           prompt: "durable prompt",
+          outputKind,
           roundId: "round-op-1",
           taskId: "302-task-1",
           claimedAt: NOW,
@@ -617,6 +652,7 @@ describe("normalizePublishingDraftState", () => {
       }),
     });
     expect(normalized.coverGeneration?.artReference?.imageUrl).toBeUndefined();
+    expect(normalized.coverGeneration?.outputKind).toBe(outputKind);
   });
 
   it("normalizes legacy state into an isolated V1 canonical version", () => {

@@ -1,6 +1,30 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { SelectionState, ChatMessage } from "./types";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
+import type { StoryboardImageRerenderResult } from "./StoryAgentContext";
+
+export function selectionUserMessage(id: string, content: string, selection: SelectionState): ChatMessage {
+  return { id, role: "user", content, timestamp: Date.now(), selectionQuote: selectionQuoteFrom(selection) };
+}
+
+export function imageRevisionReply(id: string, storyId: number | null, selection: SelectionState, revision: StoryboardImageRerenderResult): ChatMessage {
+  return {
+    id, role: "assistant", timestamp: Date.now(), content: revision.message,
+    imageRevision: revision.status === "success" && revision.imageId && revision.imageUrl && storyId != null && selection.stableShotId && selection.shotNo
+      ? { storyId, stableShotId: selection.stableShotId, shotNo: selection.shotNo, imageId: revision.imageId, imageUrl: revision.imageUrl }
+      : undefined,
+  };
+}
+
+export async function commitImageRevisionReply(input: {
+  isCurrent: boolean;
+  reply: ChatMessage;
+  revision: StoryboardImageRerenderResult;
+  commit: (reply: ChatMessage, warning: string, retainSelection: boolean) => Promise<unknown>;
+}) {
+  if (!input.isCurrent) return;
+  await input.commit(input.reply, "[storyConversation] persist image revision failed:", input.revision.status !== "success");
+}
 
 export function selectionQuoteFrom(selection: SelectionState) {
   const { sourceType, sourceId, selectedText, objectVersion, contentFingerprint,

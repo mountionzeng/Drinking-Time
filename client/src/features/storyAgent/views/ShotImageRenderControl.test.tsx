@@ -1,15 +1,28 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ShotImageRenderControl,
   changeRenderReference,
   loadShotRenderSettings,
   selectedReferenceKeys,
+  shotRenderReferenceOptions,
 } from "./ShotImageRenderControl";
-vi.stubGlobal("React", React);
+import type { StoryMaterialState } from "@shared/storyMaterial";
+beforeEach(() => vi.stubGlobal("React", React));
 describe("shot render control", () => {
-  it("renders one editable count and one render action", () => {
+  it("prefills the supplemental illustration reference but preserves an explicit user removal", () => {
+    const image = { id: 88, imageUrl: "/illustration.png" };
+    const material = { shots: [{ stableShotId: "detail", imageVersions: [], imageGenerationReference: image }], unassignedImages: [] } as unknown as StoryMaterialState;
+    const getItem = vi.fn().mockReturnValue(null);
+    vi.stubGlobal("localStorage", { getItem });
+    expect(loadShotRenderSettings(1, "detail", material).references).toEqual({ imageIds: [88], assets: {} });
+    expect(shotRenderReferenceOptions(material)).toContainEqual({ key: "image:88", label: "图片 #88", imageId: 88, imageUrl: image.imageUrl });
+    getItem.mockReturnValue(JSON.stringify({ count: 1, references: { imageIds: [], assets: {} } }));
+    expect(loadShotRenderSettings(1, "detail", material).references.imageIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+  it("renders one fixed four-image action without a count input or duplicate explanation", () => {
     const html = renderToStaticMarkup(
       <ShotImageRenderControl
         storyId={1}
@@ -20,12 +33,12 @@ describe("shot render control", () => {
         onRender={async () => {}}
       />
     );
-    expect(html).toContain('aria-label="02 渲染张数"');
-    expect(html).toContain('value="1"');
-    expect(html).toContain('aria-label="渲染 02 的 1 张图片"');
+    expect(html).not.toContain('type="number"');
+    expect(html).toContain('aria-label="02 生成4张图"');
+    expect(html).toContain("生成4张图");
     expect(html).not.toContain("参考素材出 1 张");
     expect(html).toContain("MJ · 约 1.36 算力");
-    expect(html).toContain("MJ 每次 4 张");
+    expect(html).not.toContain("MJ 每次 4 张");
   });
   it("removal creates an explicit empty list and replacement keeps one pet", () => {
     const pet = {
@@ -56,11 +69,11 @@ describe("shot render control", () => {
       )
     ).toEqual(["asset:v2"]);
   });
-  it("reload retains empty references and edited count", () => {
+  it("reload retains empty references but normalizes the legacy eight-image choice to four", () => {
     const getItem = vi
       .fn()
       .mockReturnValue(
-        JSON.stringify({ count: 4, references: { imageIds: [], assets: {} } })
+        JSON.stringify({ count: 8, references: { imageIds: [], assets: {} } })
       );
     vi.stubGlobal("localStorage", { getItem });
     expect(loadShotRenderSettings(1196, "shot02")).toEqual({

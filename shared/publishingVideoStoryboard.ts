@@ -52,6 +52,11 @@ export type PublishingVideoScriptSegment = {
 
 export type PublishingVideoStoryboardShot = {
   draftShotId: string;
+  /** Non-owning reference to an existing same-story illustration. */
+  referenceImageId?: number;
+  /** Illustration used to compose a new shot, never an already-rendered first frame. */
+  continuityImageId?: number;
+  supplementReason?: string;
   stableShotId?: string;
   /**
    * 这一镜在整片里承担的位置。属于**镜头**而非段落 —— 同一段正文拆出的
@@ -82,6 +87,7 @@ export type PublishingVideoPreviewSource = {
   storyboardRevision: number;
   canonicalContentHash: string;
   formalCoverAssetId: number | null;
+  articleLayoutHash?: string;
 };
 
 export type PublishingVideoOperationState =
@@ -112,6 +118,7 @@ export type PublishingVideoOperationState =
 
 export type PublishingVideoStoryboardPreview = {
   previewId: string;
+  sourceMode?: "article";
   revision: number;
   status: "preview" | "confirmed" | "stale";
   createdAt: number;
@@ -194,7 +201,10 @@ export type PublishingVideoValidationIssue = {
 };
 
 function normalizedText(value: string): string {
-  return value.replace(/\r\n?/g, "\n").replace(/[\t ]+$/gm, "").trim();
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t ]+$/gm, "")
+    .trim();
 }
 
 function comparisonText(value: string): string {
@@ -210,7 +220,9 @@ function stableHash(value: string): string {
   return (hash >>> 0).toString(36).padStart(7, "0");
 }
 
-function classifyParagraph(text: string): PublishingVideoParagraphClassification {
+function classifyParagraph(
+  text: string
+): PublishingVideoParagraphClassification {
   const compact = comparisonText(text);
   if (
     /(?:关注|点赞|收藏|转发|评论|私信|订阅|点击|查看更多|follow|subscribe|like|share)/i.test(
@@ -252,7 +264,10 @@ export function publishingVideoContentHash(
 ): string {
   return stableHash(
     paragraphs
-      .map(item => `${item.ordinal}\u0000${item.duplicateOrdinal}\u0000${item.text}`)
+      .map(
+        item =>
+          `${item.ordinal}\u0000${item.duplicateOrdinal}\u0000${item.text}`
+      )
       .join("\u0001")
   );
 }
@@ -289,7 +304,9 @@ function finiteInteger(value: unknown, fallback = 0): number {
     : fallback;
 }
 
-function normalizeParagraph(value: unknown): PublishingVideoSourceParagraph | null {
+function normalizeParagraph(
+  value: unknown
+): PublishingVideoSourceParagraph | null {
   const record = objectRecord(value);
   if (!record) return null;
   const paragraphId = stringValue(record.paragraphId).trim();
@@ -341,6 +358,18 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
   const stableShotId = stringValue(record.stableShotId).trim();
   return {
     draftShotId,
+    ...(typeof record.referenceImageId === "number" &&
+    Number.isSafeInteger(record.referenceImageId) &&
+    record.referenceImageId > 0
+      ? { referenceImageId: record.referenceImageId }
+      : {}),
+    ...(typeof record.continuityImageId === "number" &&
+    Number.isSafeInteger(record.continuityImageId) && record.continuityImageId > 0
+      ? { continuityImageId: record.continuityImageId }
+      : {}),
+    ...(typeof record.supplementReason === "string"
+      ? { supplementReason: record.supplementReason.slice(0, 300) }
+      : {}),
     ...(stableShotId ? { stableShotId } : {}),
     ...(isPublishingVideoBeat(record.beat) ? { beat: record.beat } : {}),
     segmentIds: stringArray(record.segmentIds),
@@ -355,7 +384,9 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
   };
 }
 
-function normalizePreview(value: unknown): PublishingVideoStoryboardPreview | null {
+function normalizePreview(
+  value: unknown
+): PublishingVideoStoryboardPreview | null {
   const record = objectRecord(value);
   if (!record) return null;
   const previewId = stringValue(record.previewId).trim();
@@ -376,6 +407,9 @@ function normalizePreview(value: unknown): PublishingVideoStoryboardPreview | nu
         draftRevision: finiteInteger(source.draftRevision),
         storyboardRevision: finiteInteger(source.storyboardRevision),
         canonicalContentHash: stringValue(source.canonicalContentHash),
+        ...(typeof source.articleLayoutHash === "string"
+          ? { articleLayoutHash: source.articleLayoutHash }
+          : {}),
         formalCoverAssetId:
           typeof source.formalCoverAssetId === "number" &&
           Number.isInteger(source.formalCoverAssetId) &&
@@ -386,6 +420,9 @@ function normalizePreview(value: unknown): PublishingVideoStoryboardPreview | nu
     : null;
   return {
     previewId,
+    ...(record.sourceMode === "article"
+      ? { sourceMode: "article" as const }
+      : {}),
     revision: Math.max(1, finiteInteger(record.revision, 1)),
     status,
     createdAt: finiteInteger(record.createdAt),
@@ -410,7 +447,9 @@ function normalizePreview(value: unknown): PublishingVideoStoryboardPreview | nu
         })
       : [],
     staleReasons: stringArray(record.staleReasons).filter(
-      (reason): reason is PublishingVideoStoryboardPreview["staleReasons"][number] =>
+      (
+        reason
+      ): reason is PublishingVideoStoryboardPreview["staleReasons"][number] =>
         reason === "content" ||
         reason === "core" ||
         reason === "cover" ||
@@ -419,7 +458,9 @@ function normalizePreview(value: unknown): PublishingVideoStoryboardPreview | nu
   };
 }
 
-function normalizeOperationState(value: unknown): PublishingVideoOperationState | null {
+function normalizeOperationState(
+  value: unknown
+): PublishingVideoOperationState | null {
   const record = objectRecord(value);
   if (!record) return null;
   const operationToken = stringValue(record.operationToken).trim();
@@ -504,7 +545,9 @@ export function normalizePublishingVideoStoryboardAggregate(
         shots,
         baselineByStableShotId: Object.fromEntries(
           shots.flatMap(shot =>
-            shot.stableShotId ? [[shot.stableShotId, structuredClone(shot)]] : []
+            shot.stableShotId
+              ? [[shot.stableShotId, structuredClone(shot)]]
+              : []
           )
         ),
       };
@@ -573,7 +616,9 @@ export function buildPublishingVideoPreview(input: {
       shotIds.push(draftShotId);
       shots.push({
         draftShotId,
-        ...(isPublishingVideoBeat(requested.beat) ? { beat: requested.beat } : {}),
+        ...(isPublishingVideoBeat(requested.beat)
+          ? { beat: requested.beat }
+          : {}),
         segmentIds: [segmentId],
         sourceParagraphIds: [paragraph.paragraphId],
         scriptText: normalizedText(rewrite.scriptText),
@@ -630,7 +675,9 @@ export function buildPublishingVideoPreview(input: {
   }
 
   return {
-    previewId: input.previewId ?? `preview-${stableHash(`${now}:${publishingVideoContentHash(input.paragraphs)}`)}`,
+    previewId:
+      input.previewId ??
+      `preview-${stableHash(`${now}:${publishingVideoContentHash(input.paragraphs)}`)}`,
     revision: 1,
     status: "preview",
     createdAt: now,
@@ -676,6 +723,7 @@ export function validatePublishingVideoPreview(
         targetId: segment.segmentId,
       });
     } else if (
+      preview.sourceMode !== "article" &&
       comparisonText(segment.scriptText) === comparisonText(paragraph.text)
     ) {
       issues.push({
@@ -693,6 +741,18 @@ export function validatePublishingVideoPreview(
     }
   }
   for (const paragraph of preview.paragraphs) {
+    if (
+      preview.sourceMode === "article" &&
+      !preview.segments.some(
+        segment => segment.sourceParagraphId === paragraph.paragraphId
+      )
+    ) {
+      issues.push({
+        code: "missing_paragraph_segment",
+        message: "正文段落未完整带入",
+        targetId: paragraph.paragraphId,
+      });
+    }
     // 段落不再强制各自成镜。文字是阅读单位、镜头是观看单位，两者不是一回事：
     // 一段长自省可能就是一个静止长镜头，过渡句在影视里往往一个转场就过去了。
     // 10 秒档尤其明显 —— 装不下的正文会被丢掉，用户想要可自行粘回镜头表。
@@ -708,17 +768,23 @@ export function validatePublishingVideoPreview(
     }
     shotIds.add(shot.draftShotId);
     if (
-      shot.segmentIds.length === 0 ||
+      (shot.segmentIds.length === 0 &&
+        !(preview.sourceMode === "article" && (shot.referenceImageId || shot.continuityImageId))) ||
       shot.segmentIds.some(segmentId => !segmentsById.has(segmentId))
     ) {
       issues.push({
-        code: shot.segmentIds.length === 0 ? "shot_without_segment" : "unknown_segment",
+        code:
+          shot.segmentIds.length === 0
+            ? "shot_without_segment"
+            : "unknown_segment",
         message: "镜头必须只引用存在的剧本片段",
         targetId: shot.draftShotId,
       });
     }
     if (
-      shot.sourceParagraphIds.some(paragraphId => !paragraphsById.has(paragraphId))
+      shot.sourceParagraphIds.some(
+        paragraphId => !paragraphsById.has(paragraphId)
+      )
     ) {
       issues.push({
         code: "unknown_paragraph",
@@ -731,7 +797,10 @@ export function validatePublishingVideoPreview(
   // 镜头数由节奏预算决定，不由文字长度决定。
   if (
     preview.paragraphs.length > 0 &&
-    preview.shots.length < PUBLISHING_VIDEO_MINIMUM_SHOT_COUNT
+    preview.shots.length <
+      (preview.sourceMode === "article"
+        ? 1
+        : PUBLISHING_VIDEO_MINIMUM_SHOT_COUNT)
   ) {
     issues.push({
       code: "too_few_shots",
@@ -742,6 +811,7 @@ export function validatePublishingVideoPreview(
   if (
     preview.shots.length >
     Math.max(
+      preview.sourceMode === "article" ? 101 : 0,
       PUBLISHING_VIDEO_MINIMUM_SHOT_COUNT,
       preview.paragraphs.length * PUBLISHING_VIDEO_MAXIMUM_SHOTS_PER_PARAGRAPH
     )
@@ -767,7 +837,8 @@ const BASELINE_FIELDS: Array<keyof PublishingVideoStoryboardShot> = [
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return (
-    left.length === right.length && left.every((item, index) => item === right[index])
+    left.length === right.length &&
+    left.every((item, index) => item === right[index])
   );
 }
 
@@ -775,77 +846,91 @@ export function classifyPublishingVideoImpact(input: {
   previousShots: PublishingVideoStoryboardShot[];
   nextShots: PublishingVideoStoryboardShot[];
   currentFormalShots: PublishingVideoStoryboardShot[];
-  confirmedBaselineByStableShotId: Record<string, PublishingVideoStoryboardShot>;
+  confirmedBaselineByStableShotId: Record<
+    string,
+    PublishingVideoStoryboardShot
+  >;
 }): PublishingVideoImpactPlan {
   const nextOverlapCount = new Map<string, number>();
   for (const previous of input.previousShots) {
     if (!previous.stableShotId) continue;
     const count = input.nextShots.filter(next =>
-      next.sourceParagraphIds.some(id => previous.sourceParagraphIds.includes(id))
+      next.sourceParagraphIds.some(id =>
+        previous.sourceParagraphIds.includes(id)
+      )
     ).length;
     nextOverlapCount.set(previous.stableShotId, count);
   }
 
-  const items = input.nextShots.map((next, index): PublishingVideoImpactItem => {
-    const overlaps = input.previousShots.filter(previous =>
-      next.sourceParagraphIds.some(id => previous.sourceParagraphIds.includes(id))
-    );
-    const exact = overlaps.filter(previous =>
-      sameIds(previous.sourceParagraphIds, next.sourceParagraphIds)
-    );
-    let kind: PublishingVideoImpactKind = "insert";
-    let proposedStableShotId: string | null = null;
-    let changedFields: string[] = [];
-    if (overlaps.length > 1 || next.sourceParagraphIds.length > 1) {
-      kind = "merge";
-    } else if (
-      overlaps.length === 1 &&
-      overlaps[0]?.stableShotId &&
-      (nextOverlapCount.get(overlaps[0].stableShotId) ?? 0) > 1
-    ) {
-      kind = "split";
-    } else if (exact.length === 1 && exact[0]?.stableShotId) {
-      const stableShotId = exact[0].stableShotId;
-      const baseline = input.confirmedBaselineByStableShotId[stableShotId];
-      const current = input.currentFormalShots.find(
-        shot => shot.stableShotId === stableShotId
+  const items = input.nextShots.map(
+    (next, index): PublishingVideoImpactItem => {
+      const overlaps = input.previousShots.filter(previous =>
+        next.sourceParagraphIds.some(id =>
+          previous.sourceParagraphIds.includes(id)
+        )
       );
-      if (baseline && current) {
-        changedFields = BASELINE_FIELDS.filter(
-          field => current[field] !== baseline[field]
+      const exact = overlaps.filter(previous =>
+        sameIds(previous.sourceParagraphIds, next.sourceParagraphIds)
+      );
+      let kind: PublishingVideoImpactKind = "insert";
+      let proposedStableShotId: string | null = null;
+      let changedFields: string[] = [];
+      if (overlaps.length > 1 || next.sourceParagraphIds.length > 1) {
+        kind = "merge";
+      } else if (
+        overlaps.length === 1 &&
+        overlaps[0]?.stableShotId &&
+        (nextOverlapCount.get(overlaps[0].stableShotId) ?? 0) > 1
+      ) {
+        kind = "split";
+      } else if (exact.length === 1 && exact[0]?.stableShotId) {
+        const stableShotId = exact[0].stableShotId;
+        const baseline = input.confirmedBaselineByStableShotId[stableShotId];
+        const current = input.currentFormalShots.find(
+          shot => shot.stableShotId === stableShotId
         );
+        if (baseline && current) {
+          changedFields = BASELINE_FIELDS.filter(
+            field => current[field] !== baseline[field]
+          );
+        }
+        if (changedFields.length > 0) {
+          kind = "manual_field_conflict";
+        } else {
+          kind = "retain";
+          proposedStableShotId = stableShotId;
+        }
+      } else if (overlaps.length === 1) {
+        kind = "content_update";
+      } else if (next.sourceParagraphIds.length === 0) {
+        kind = "ambiguous_source";
       }
-      if (changedFields.length > 0) {
-        kind = "manual_field_conflict";
-      } else {
-        kind = "retain";
-        proposedStableShotId = stableShotId;
-      }
-    } else if (overlaps.length === 1) {
-      kind = "content_update";
-    } else if (next.sourceParagraphIds.length === 0) {
-      kind = "ambiguous_source";
+      const previousStableShotIds = overlaps.flatMap(shot =>
+        shot.stableShotId ? [shot.stableShotId] : []
+      );
+      return {
+        impactId: `impact-${index + 1}-${next.draftShotId}`,
+        kind,
+        nextDraftShotId: next.draftShotId,
+        previousStableShotIds,
+        proposedStableShotId,
+        changedFields,
+        requiresResolution: !["retain", "insert"].includes(kind),
+        resolution:
+          kind === "retain" ? "reuse" : kind === "insert" ? "use_new" : null,
+      };
     }
-    const previousStableShotIds = overlaps.flatMap(shot =>
-      shot.stableShotId ? [shot.stableShotId] : []
-    );
-    return {
-      impactId: `impact-${index + 1}-${next.draftShotId}`,
-      kind,
-      nextDraftShotId: next.draftShotId,
-      previousStableShotIds,
-      proposedStableShotId,
-      changedFields,
-      requiresResolution: !["retain", "insert"].includes(kind),
-      resolution: kind === "retain" ? "reuse" : kind === "insert" ? "use_new" : null,
-    };
-  });
+  );
 
   const retainedPreviousIds = new Set(
     items.flatMap(item => item.previousStableShotIds)
   );
   for (const previous of input.previousShots) {
-    if (!previous.stableShotId || retainedPreviousIds.has(previous.stableShotId)) continue;
+    if (
+      !previous.stableShotId ||
+      retainedPreviousIds.has(previous.stableShotId)
+    )
+      continue;
     items.push({
       impactId: `impact-remove-${previous.stableShotId}`,
       kind: "remove",
@@ -860,7 +945,8 @@ export function classifyPublishingVideoImpact(input: {
 
   return {
     items,
-    unresolvedCount: items.filter(item => item.requiresResolution && !item.resolution)
-      .length,
+    unresolvedCount: items.filter(
+      item => item.requiresResolution && !item.resolution
+    ).length,
   };
 }

@@ -1,3 +1,4 @@
+import { withComputeUser } from "../services/computeRequestAccess";
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
@@ -8,7 +9,10 @@ const t = initTRPC.context<TrpcContext>().create({
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+const baseProcedure = t.procedure.use(({ ctx, next }) =>
+  withComputeUser(ctx.user?.id ?? null, () => next())
+);
+export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -25,9 +29,9 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = baseProcedure.use(requireUser);
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = baseProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

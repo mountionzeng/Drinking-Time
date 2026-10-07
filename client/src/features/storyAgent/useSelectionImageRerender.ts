@@ -35,14 +35,16 @@ export function useSelectionImageRerender(activeStoryId: number | null) {
   return { registerImageRerenderRunner, rerenderSelectionImage };
 }
 
-/** Interpret first: acknowledgement, questions and unchanged prompts never submit image work. */
+/** Ordinary chat interprets first; the explicit regenerate button already supplies that intent. */
 export async function renderSelectionRevision(input: {
   selection: SelectionState;
   storyId: number | null;
   instruction: string;
-  result: { isApprovalOnly: boolean; modifiedFullText: string };
-  originalText: string;
+  result?: { isApprovalOnly: boolean; modifiedFullText: string };
+  originalText?: string;
   render: StoryboardImageRerenderRunner;
+  regenerateImage?: boolean;
+  imageProvider?: "midjourney" | "gpt-image";
 }) {
   const { selection, result, storyId } = input;
   if (
@@ -51,9 +53,13 @@ export async function renderSelectionRevision(input: {
     !selection.stableShotId ||
     !selection.shotNo ||
     storyId == null ||
-    result.isApprovalOnly ||
-    !result.modifiedFullText.trim() ||
-    result.modifiedFullText === input.originalText
+    selection.storyId !== storyId ||
+    !input.instruction.trim() ||
+    (!input.regenerateImage && (
+      !result || result.isApprovalOnly ||
+      !result.modifiedFullText.trim() ||
+      result.modifiedFullText === input.originalText
+    ))
   )
     return null;
   return input.render({
@@ -63,5 +69,6 @@ export async function renderSelectionRevision(input: {
     cueCode: selection.cueCode ?? null,
     imageId: selection.imageId,
     instruction: input.instruction,
+    ...(input.imageProvider ? { imageProvider: input.imageProvider } : {}),
   });
 }

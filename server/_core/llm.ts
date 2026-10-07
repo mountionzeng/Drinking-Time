@@ -75,6 +75,7 @@ export type InvokeParams = {
   replaySafe?: boolean;
   /** 整条候选链的外层预算（毫秒）。 */
   deadlineMs?: number;
+  reasoningEffort?: string;
   signal?: AbortSignal;
 };
 
@@ -195,6 +196,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
     replaySafe,
     deadlineMs,
+    reasoningEffort,
     signal,
   } = params;
 
@@ -225,6 +227,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         : undefined,
     replaySafe,
     deadlineMs,
+    reasoningEffort,
     signal,
   });
 
@@ -250,6 +253,7 @@ export async function invokeLLMWithProvider(params: InvokeParams) {
     response_format,
     replaySafe,
     deadlineMs,
+    reasoningEffort,
     signal,
   } = params;
 
@@ -273,6 +277,7 @@ export async function invokeLLMWithProvider(params: InvokeParams) {
     }),
     replaySafe,
     deadlineMs,
+    reasoningEffort,
     signal,
   });
 }

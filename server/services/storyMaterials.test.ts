@@ -1113,6 +1113,70 @@ describe("getStoryMaterialState", () => {
     expect(shotB?.relatedImages).toEqual([]);
   });
 
+  it("keeps only the selected article illustration after a video uses it", async () => {
+    const story = await createStory({ userId: 1, projectId: null, title: "插图引用", body: {} });
+    const imageInput = {
+      userId: 1, projectId: null, storyId: story.id,
+      shotNo: PUBLISHING_COVER_SHOT_NO,
+      shotIdentity: PUBLISHING_COVER_SHOT_IDENTITY,
+      imageUrl: "data:image/png;base64,QQ==", imageKey: null,
+      prompt: "文章图片", generationType: "initial" as const, isCurrent: false,
+    };
+    const cover = await createGeneratedImage(imageInput);
+    const selected = await createGeneratedImage({ ...imageInput, parentImageId: cover.id });
+    await createGeneratedImage({ ...imageInput, parentImageId: cover.id });
+    expect(await updateStoryBodyIfRevision({
+      id: story.id, userId: 1, expectedRevision: 0,
+      body: { _revision: 1, shots: [{ stableShotId: "article-shot", shotNo: 1, publishingVideo: { referenceImageId: selected.id } }] },
+    })).toBe(true);
+    const before = await getStoryMaterialState(story.id, 1);
+    expect(before?.shots[0].currentImage?.id).toBe(selected.id);
+    expect(before?.shots[0].relatedImages).toEqual([]);
+    await createVideoTake({
+      storyId: story.id, userId: 1, stableShotId: "article-shot",
+      sourceImageId: selected.id, status: "available", provider: "local",
+      model: "imported", prompt: "原插图动起来", durationSec: 5,
+      aspectRatio: "16:9", videoUrl: "/api/videos/article.mp4",
+      extractionCapability: "available",
+    });
+    const after = await getStoryMaterialState(story.id, 1);
+    expect(after?.shots[0].imageVersions.map(image => image.id)).toEqual([selected.id]);
+    expect(after?.shots[0].relatedImages).toEqual([]);
+    expect(after?.shots[0].videoTakes).toHaveLength(1);
+  });
+
+  it("does not pull article candidates into a supplement through its generated child", async () => {
+    const story = await createStory({ userId: 1, projectId: null, title: "补镜参考", body: {} });
+    const imageInput = {
+      userId: 1, projectId: null, storyId: story.id,
+      shotNo: PUBLISHING_COVER_SHOT_NO,
+      shotIdentity: PUBLISHING_COVER_SHOT_IDENTITY,
+      imageUrl: "data:image/png;base64,QQ==", imageKey: null,
+      prompt: "文章图片", generationType: "initial" as const, isCurrent: false,
+    };
+    const cover = await createGeneratedImage(imageInput);
+    const guide = await createGeneratedImage({ ...imageInput, parentImageId: cover.id });
+    await createGeneratedImage({ ...imageInput, parentImageId: cover.id });
+    await createGeneratedImage({ ...imageInput, parentImageId: guide.id });
+    expect(await updateStoryBodyIfRevision({
+      id: story.id, userId: 1, expectedRevision: 0,
+      body: { _revision: 1, shots: [{ stableShotId: "supplement", shotNo: 1, publishingVideo: { continuityImageId: guide.id } }] },
+    })).toBe(true);
+    const before = await getStoryMaterialState(story.id, 1);
+    expect(before?.shots[0].currentImage).toBeNull();
+    expect(before?.shots[0].imageGenerationReference?.id).toBe(guide.id);
+    const frame = await createGeneratedImage({
+      ...imageInput, shotNo: 1, shotIdentity: "supplement",
+      parentImageId: guide.id, isCurrent: true,
+    });
+    await selectImage(story.id, frame.id);
+    const after = await getStoryMaterialState(story.id, 1);
+    expect(after?.shots[0].currentImage?.id).toBe(frame.id);
+    expect(after?.shots[0].imageGenerationReference?.id).toBe(guide.id);
+    expect(after?.shots[0].imageVersions.map(image => image.id)).toEqual([frame.id]);
+    expect(after?.shots[0].relatedImages).toEqual([]);
+  });
+
   it("keeps publishing covers out of shots and unassigned materials", async () => {
     const story = await createStory({
       userId: 1,

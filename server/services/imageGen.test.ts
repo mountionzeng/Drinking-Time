@@ -839,7 +839,83 @@ describe("generateImage", () => {
     // to survive, otherwise nothing downstream can classify the failure.
     expect(result.message).toContain("fetch failed");
     expect(result.message).toContain("other side closed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["UND_ERR_CONNECT_TIMEOUT", "ENOTFOUND", "EAI_AGAIN"])(
+    "reconnects once after %s without changing the paid MJ request",
+    async code => {
+      ENV.api302Key = "test-302-key";
+      const onAccepted = vi.fn();
+      const fetcher = makeFetcher([
+        { ok: true, status: 200, json: { code: 1, result: "task-reconnected" } },
+        { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+        { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      ]);
+      fetcher.mockRejectedValueOnce(Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connection not established"), { code }),
+      }));
+
+      const result = await generateImage("a cat", {
+        fetcher, provider: "midjourney", onMidjourneyTaskAccepted: onAccepted,
+      });
+
+      expect(result.status).toBe("ok");
+      const submissions = fetcher.mock.calls.filter(([, init]) => init?.method === "POST");
+      expect(submissions).toHaveLength(2);
+      expect(submissions[0]).toEqual(submissions[1]);
+      // Following a redirect could hide an already received POST behind a later
+      // connect failure. Never replay a paid request through that ambiguity.
+      expect(submissions[0][1].redirect).toBe("error");
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(onAccepted).toHaveBeenCalledWith("task-reconnected");
+    }
+  );
+
+  it("stops after two connection failures and reports that no MJ submission was sent", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn().mockRejectedValue(Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+    }));
+    const result = await generateImage("a cat", { fetcher, provider: "midjourney" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ status: "error", submissionUncertain: false });
+    expect(result.message).toContain("尚未提交");
+    expect(result.providerTaskId).toBeUndefined();
+  });
+
+  it("aborts an expired submit and never reconnects if the transport fails later", async () => {
+    ENV.api302Key = "test-302-key";
+    let rejectTransport!: (error: Error) => void;
+    const fetcher = vi.fn().mockImplementation(() => new Promise((_, reject) => {
+      rejectTransport = reject;
+    }));
+    const result = await generateImage("a cat", {
+      fetcher, provider: "midjourney", mjSubmitTimeoutMs: 1,
+    });
+    expect(result).toMatchObject({ status: "error", submissionUncertain: true });
+    expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
+    rejectTransport(Object.assign(new Error("late connect timeout"), { code: "UND_ERR_CONNECT_TIMEOUT" }));
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "ETIMEDOUT", undefined])(
+    "does not reconnect when the second attempt may have been submitted (%s)",
+    async code => {
+      ENV.api302Key = "test-302-key";
+      const fetcher = vi.fn()
+        .mockRejectedValueOnce(Object.assign(new TypeError("fetch failed"), {
+          cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+        }))
+        .mockRejectedValue(Object.assign(new TypeError("fetch failed"), {
+          cause: Object.assign(new Error("connection ended"), { code }),
+        }));
+      const result = await generateImage("a cat", { fetcher, provider: "midjourney" });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ status: "error", submissionUncertain: true });
+    }
+  );
 
   it("returns the accepted Midjourney receipt when its persistence callback fails", async () => {
     ENV.api302Key = "test-302-key";

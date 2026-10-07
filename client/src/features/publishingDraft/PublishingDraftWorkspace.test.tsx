@@ -25,6 +25,7 @@ const actions = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
   readData: undefined as any,
   finishedProductData: undefined as any,
+  textDraftHistory: undefined as any,
   buildVideoStoryboardPending: false,
 }));
 
@@ -65,6 +66,7 @@ vi.mock("@/lib/trpc", () => {
         },
       }),
       publishingDraft: {
+        readAlbum: { useQuery: () => ({ data: undefined }) },
         read: { useQuery: () => ({ data: api.readData }) },
         finishedProduct: {
           useQuery: () => ({ data: api.finishedProductData, refetch: vi.fn() }),
@@ -90,6 +92,16 @@ vi.mock("@/lib/trpc", () => {
         },
         prepareVideoStoryboard: { useMutation: mutation },
         confirmVideoStoryboard: { useMutation: mutation },
+      },
+      textDrafts: {
+        read: { useQuery: () => ({ data: api.textDraftHistory }) },
+        adopt: { useMutation: mutation },
+      },
+      storyContextShare: {
+        preview: { useQuery: () => ({ data: undefined }) },
+        source: { useQuery: () => ({ data: null }) },
+        create: { useMutation: mutation },
+        revoke: { useMutation: mutation },
       },
       artAgent: {
         analyzeReference: { useMutation: mutation },
@@ -119,6 +131,7 @@ vi.mock("@/components/ui/dialog", () => ({
 
 import PublishingDraftWorkspace, {
   isCurrentCoverReferenceAnalysis,
+  textDraftChangeSummary,
 } from "./PublishingDraftWorkspace";
 import { publishingErrorMessage } from "./publishingDraftViewModel";
 
@@ -128,6 +141,7 @@ describe("PublishingDraftWorkspace", () => {
     story.publishing = emptyPublishingDraftState(1);
     story.publishingBuffers = {};
     api.readData = undefined;
+    api.textDraftHistory = undefined;
     api.finishedProductData = {
       storyId: 7,
       storyRevision: 0,
@@ -146,6 +160,18 @@ describe("PublishingDraftWorkspace", () => {
     ).toBe(
       "本地服务未连接，图片任务没有提交，也不会扣费。恢复服务后再试一次。"
     );
+  });
+
+  it("summarizes the user and assistant work that changed a text version", () => {
+    expect(
+      textDraftChangeSummary({
+        request: { parentId: "text-1" },
+        conversationDelta: [
+          { id: "u1", role: "user", content: "结尾更短" },
+          { id: "a1", role: "assistant", content: "保留外婆的原话" },
+        ],
+      } as any)
+    ).toBe("补充 1 条 · 助手整理 1 条");
   });
 
   it("rejects a stale cover-reference analysis after a newer request or scope reset", () => {
@@ -183,10 +209,32 @@ describe("PublishingDraftWorkspace", () => {
   it("keeps the editor empty until the user explicitly generates a draft", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
-    expect(html).toContain("先聊清楚，再落笔");
-    expect(html).toContain("生成 小红书 文字稿");
-    expect(html).toContain("不会判断“够了”就自动写稿");
+    expect(html).toContain("暂无文稿");
+    expect(html).not.toContain("生成 小红书 文字稿");
     expect(html).not.toContain('id="publishing-body"');
+    expect(html).toMatch(/<button[^>]*>[\s\S]*?分享链接<\/button>/);
+  });
+
+  it("lets a first generated preview be adopted after editing, before any publishing draft exists", () => {
+    const generated = { title: "雨天", body: "旧木架", tags: [] };
+    api.textDraftHistory = { revision: 2, versions: [{ id: "text-1", status: "ready", conversationDelta: [], request: { platform: "xiaohongshu" }, generated }] };
+    story.publishingBuffers = { "7:xiaohongshu": {
+      storyId: 7, platform: "xiaohongshu", versionId: "v1", textDraftVersionId: "text-1",
+      content: { ...generated, body: "修好旧木架" }, updatedAt: 1,
+    } };
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+    const adoptButton = html.match(/<button[^>]*>.*?<\/button>/g)?.find(button => button.includes("采用文稿"));
+    expect(adoptButton).toBeDefined();
+    expect(adoptButton).not.toContain('disabled=""');
+    expect(html).toMatch(/<textarea[^>]*>修好旧木架<\/textarea>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*<svg[^]*?生成封面<\/button>/);
+  });
+
+  it("does not infer adoption from an unrelated latest version", () => {
+    api.textDraftHistory = { revision: 2, versions: [{ id: "other", status: "ready", conversationDelta: [], request: { platform: "xiaohongshu" }, generated: { title: "", body: "另一篇", tags: [] } }] };
+    story.publishingBuffers = { "7:xiaohongshu": { storyId: 7, platform: "xiaohongshu", content: { title: "", body: "本地编辑", tags: [] }, updatedAt: 1 } };
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+    expect(html).not.toContain("采用文稿");
   });
 
   it("renders only an existing platform draft as an editable paper", () => {
@@ -208,25 +256,50 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain('id="publishing-title"');
     expect(html).toContain('id="publishing-body"');
     expect(html).toContain("真正稀缺的不是 token");
-    expect(html).toContain("这版不对？直接告诉我");
-    expect(html).toContain("少点矫情");
-    expect(html).toContain("按要求重写");
-    expect(html).toContain("只修格式");
+    expect(html).toContain("文字历史");
+    expect(html).not.toContain("这版不对？直接告诉我");
+    expect(html).not.toContain("少点矫情");
+    expect(html).not.toContain("按要求重写");
+    expect(html).not.toContain("只修格式");
     expect(html).toContain("复制文案");
+    expect(html.match(/分享链接<\/button>/g)).toHaveLength(1);
+    expect(html.match(/编辑封面<\/button>/g)).toHaveLength(1);
+    expect(html.match(/aria-label="打开文字版本历史"/g)).toHaveLength(1);
+    expect(html).not.toContain("继续选封面");
+    expect(html).not.toContain("邀请他改写");
     expect(html).toContain("进入视频制作");
-    expect(html).toContain("成品版本");
-    expect(html).toContain("这次为什么要更新？");
-    expect(html).toContain("保存文字新版");
-    expect(html).toContain("四图候选 · 对话修改 · 明确采用");
-    expect(html).toContain("一次生成 4 张粗选图");
-    expect(html).toContain("本轮补充要求 · 两个生成按钮都会参考");
-    expect(html).toContain("美术参考图 · 可选");
-    expect(html).toContain("只提取风格、色彩、光线、构图与材质");
+    expect(html).not.toContain("成品版本");
+    expect(html).not.toContain("这次为什么要更新？");
+    expect(html).not.toContain("保存文字新版");
+    expect(html).toContain("把文章做成图片");
+    expect(html).toContain("已有图片 0 张");
+    expect(html).toContain("请选择封面");
+    expect(html).not.toContain(">制作图片</button>");
+    expect(html).toContain("本轮要求");
+    expect(html).toContain("风格参考图（可选）");
+    expect(html).toContain("仅参考画风，不复制人物和内容");
     expect(html).toContain("上传参考图");
-    expect(html).toContain("先选一张，再修改");
-    expect(html).toContain("选择与采用免费");
+    expect(html).not.toContain("先选一张，再修改");
+    expect(html).not.toContain("AI 帮你整理结构和措辞");
     expect(html).not.toContain("主视觉为正方形");
     expect(html).not.toContain("X</button>");
+  });
+
+  it.each([
+    [{ qualityCheckPendingUntil: Date.now() + 90_000 }, "质检中"],
+    [{ qualityCheckUnavailable: true }, "质检未完成"],
+  ])("keeps paid images selectable with an explicit advisory check state %j", (quality, label) => {
+    story.publishing = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu", content: { title: "自己的标题", body: "完整正文", tags: [] }, now: 2,
+    });
+    api.readData = { storyId: 7, storyRevision: 3, publishing: story.publishing, coverAsset: null,
+      coverRounds: [{ id: "qa-round", platform: "xiaohongshu", sourceCoreRevision: 1,
+        parentAssetId: null, feedback: "", assetIds: [91], createdAt: 3, ...quality,
+        outputKind: "illustration", candidates: [{ id: 91, imageUrl: "/api/images/qa.png" }] }],
+    };
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+    expect(html).toContain(label);
+    expect(html).toMatch(/<button(?=[^>]*aria-label="选用插图：)(?![^>]*disabled)[^>]*>/);
   });
 
   it("shows one video-production entry point and keeps cover selection separate", () => {
@@ -313,14 +386,12 @@ describe("PublishingDraftWorkspace", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
     expect(html).toContain("正在生成故事版…");
-    expect(html).toContain(
-      "正在生成剧本、图片要求和视频要求，完成后会直接打开故事版…"
-    );
+    expect(html.match(/正在生成故事版…/g)).toHaveLength(1);
     const videoButton = html.match(
       /<button[^>]*>(?:(?!<\/button>)[\s\S])*正在生成故事版…(?:(?!<\/button>)[\s\S])*<\/button>/
     )?.[0];
     const coverButton = html.match(
-      /<button[^>]*>(?:(?!<\/button>)[\s\S])*继续选封面(?:(?!<\/button>)[\s\S])*<\/button>/
+      /<button[^>]*>(?:(?!<\/button>)[\s\S])*编辑封面(?:(?!<\/button>)[\s\S])*<\/button>/
     )?.[0];
 
     expect(videoButton).toContain('disabled=""');
@@ -409,9 +480,11 @@ describe("PublishingDraftWorkspace", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
     expect(html).toContain("第 1 轮");
-    expect(html).toContain("不满意，换");
+    expect(html).toContain("重新生成");
     expect(html.match(/第 [1-4] 张封面候选/g)).toHaveLength(8);
-    expect(html).toContain("不选图也可以直接换一批");
+    const regenerateButton = html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*重新生成(?:(?!<\/button>)[\s\S])*<\/button>/)?.[0];
+    expect(regenerateButton).toBeDefined();
+    expect(regenerateButton).not.toContain('disabled=""');
     expect(html).not.toContain("采用并进入视频");
   });
 
@@ -465,7 +538,7 @@ describe("PublishingDraftWorkspace", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
     expect(html).toContain(
-      "这是早期轮次：当时有 2 张因检测到文字、Logo 或水印被隔离，未保留。"
+      "旧轮次有 2 张含字图片未保留。"
     );
     expect(html).not.toContain("这一轮有图片资产暂时不可用");
   });
@@ -519,11 +592,11 @@ describe("PublishingDraftWorkspace", () => {
 
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
-    expect(html).toContain("本轮没有经过像素质检");
-    expect(html).toContain("请自己确认后再采用");
+    expect(html).toContain("质检未完成");
+    expect(html).toContain("请检查文字与水印");
     // No false reassurance and no phantom badges.
     expect(html).not.toContain("疑似文字");
-    expect(html).not.toContain("是否采用由你决定");
+    expect(html).not.toContain("疑似含字或水印，仍可采用");
   });
 
   it("shows every flagged candidate as selectable rather than hiding it", () => {
@@ -578,7 +651,7 @@ describe("PublishingDraftWorkspace", () => {
     // All four paid images stay on screen and stay selectable.
     expect(html.match(/第 [1-4] 张封面候选/g)).toHaveLength(8);
     expect(html.match(/疑似文字/g)).toHaveLength(2);
-    expect(html).toContain("是否采用由你决定");
+    expect(html).toContain("2 张疑似含字或水印，仍可采用");
     expect(html).not.toContain("已自动隔离");
   });
 

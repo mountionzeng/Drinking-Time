@@ -13,6 +13,7 @@ import {
   type ArtRepositoryProfile,
 } from "./artRepository";
 import { syncArtRepository } from "./artRepositoryCatalog";
+import { normalizeArtReferenceTags } from "../../shared/artReferenceTags";
 
 const temporaryDirectories: string[] = [];
 
@@ -122,6 +123,31 @@ describe("artRepository", () => {
     expect(block).toContain("纸本拼贴");
     expect(block).toContain("色板默认不继承");
     expect(block).not.toContain("深蓝与金色");
+    // 无关内容不能悄悄套用目录里的第一种画风。
+    expect(matchCuratedArtDna(catalog, "两个人讨论明天的工作")).toEqual([]);
+    expect(matchCuratedArtDna(catalog, "")).toEqual([]);
+
+    catalog.assets["ready.jpg"].dna = sanitizeCuratedArtDna({
+      style: ["常玉式简练", "轮廓概括"],
+      artTags: normalizeArtReferenceTags({
+        artistReferences: [{ name: "常玉", basis: "简练轮廓与大面积色面具有视觉亲缘，非作者鉴定" }],
+        media: ["彩铅", "撕纸拼贴"],
+        composition: ["横向展开", "偏置"],
+        viewpoint: ["俯视"],
+        spatialLayers: ["平面叠层"],
+        markMaking: ["铅笔颗粒"],
+        freeTags: ["轻盈的失衡"],
+      }),
+    });
+    for (const query of ["想要俯视", "横向展开", "撕纸拼贴", "参考常玉的艺术语言", "轻盈的失衡"]) {
+      const selections = matchCuratedArtDna(catalog, query);
+      expect(selections).toHaveLength(1);
+      const prompt = curatedDnaPromptBlock(selections);
+      expect(prompt).toContain("横向展开");
+      expect(prompt).toContain("彩铅、撕纸拼贴");
+      expect(prompt).not.toContain("常玉");
+      expect(prompt).not.toContain("作者鉴定");
+    }
   });
 
   it("重复导入按同名和内容哈希去重，并给新图建立待分析安全清单", async () => {

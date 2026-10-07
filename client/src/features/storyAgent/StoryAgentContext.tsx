@@ -19,7 +19,7 @@ import { selectionBelongsToStory } from "./selectionStoryScope";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
 import {
   commitSelectionReply as persistSelectionReply,
-  selectionQuoteFrom,
+  selectionUserMessage, imageRevisionReply, commitImageRevisionReply,
 } from "./selectionReplyCommit";
 import {
   handoffConfirmedImageRegion,
@@ -116,6 +116,7 @@ import {
 } from "./storyTitle";
 import {
   refreshRecentStoryListWithRetry,
+  requestedStoryId,
   resolveRecentStoryEntry,
 } from "./recentStoryEntry";
 import { coldEntryStoryListFetchOptions } from "./recentStoryListCache";
@@ -460,7 +461,8 @@ interface StoryAgentContextValue {
     storyId: number,
     platform: PublishingPlatformId,
     content: PublishingDraftContent,
-    versionId?: string
+    versionId?: string,
+    textDraftVersionId?: string
   ) => void;
   discardPublishingBuffer: (
     storyId: number,
@@ -546,7 +548,7 @@ interface StoryAgentContextValue {
   activeSelection: SelectionState | null;
   setActiveSelection: (state: SelectionState | null) => void;
   clearSelection: () => void;
-  sendSelectionEdit: (instruction: string) => Promise<void>;
+  sendSelectionEdit: (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image" }) => Promise<void>;
   confirmSelectionCandidate: (messageId: string) => Promise<void>;
   rejectSelectionCandidate: (messageId: string) => Promise<void>;
   rerenderSelectionImage: (
@@ -942,7 +944,7 @@ function scriptFromStory(params: {
 // tokenizeForSimilarity / storyCardSearchText / getSimilarCards
 // \u5df2\u642c\u5230 ./storyCardSimilarity\uff08\u89c1\u9876\u90e8 import\uff09\uff0c\u6b64\u5904\u4e0d\u518d\u91cd\u590d\u5b9a\u4e49\u3002
 
-function archiveMessagesFrom(
+export function archiveMessagesFrom(
   sourceMessages: ChatMessage[],
   sourceCards: StoryCard[]
 ) {
@@ -960,6 +962,7 @@ function archiveMessagesFrom(
       selectionQuote: message.selectionQuote,
       promptCandidate: message.promptCandidate,
       imageRerenderAction: message.imageRerenderAction,
+      imageRevision: message.imageRevision,
       editingTransitionCandidate: message.editingTransitionCandidate,
       pendingCard: spawnedCard
         ? {
@@ -1675,6 +1678,7 @@ export function StoryAgentProvider({
         photoUrl: message.photoUrl,
         spawnedCardId: message.spawnedCardId,
         imageRerenderAction: message.imageRerenderAction,
+        imageRevision: message.imageRevision,
       })),
       cards,
       scripts,
@@ -1756,18 +1760,14 @@ export function StoryAgentProvider({
     return savedId;
   }, [saveArchiveStory]);
 
-  const setLocalPublishingBuffer = useCallback(
-    (
-      storyId: number,
-      platform: PublishingPlatformId,
-      content: PublishingDraftContent,
-      versionId = "v1"
-    ) => {
+  const setLocalPublishingBuffer = useCallback<StoryAgentContextValue["setPublishingBuffer"]>(
+    (storyId, platform, content, versionId = "v1", textDraftVersionId) => {
       setPublishingBuffers(current =>
         putPublishingBuffer(current, {
           storyId,
           platform,
           versionId,
+          textDraftVersionId,
           content,
           updatedAt: Date.now(),
         })
@@ -2055,6 +2055,7 @@ export function StoryAgentProvider({
         }
 
         const result = (await chatMut.mutateAsync({
+          storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
           message: userContent,
           interactionMode,
           history: messages.map(m => ({
@@ -3053,6 +3054,7 @@ export function StoryAgentProvider({
     }
 
     let cancelled = false;
+    const entryState = storySpineStore.getState();
 
     void (async () => {
       const refreshed = await refreshRecentStoryListWithRetry(
@@ -3063,6 +3065,22 @@ export function StoryAgentProvider({
         () => cancelled
       );
       if (!refreshed || cancelled) return;
+
+      const requestedId = requestedStoryId(window.location.search);
+      if (requestedId) {
+        // A deliberate story selection while the list loads takes precedence.
+        if (storySpineStore.getState().storyLoadEpoch !== entryState.storyLoadEpoch)
+          return;
+        recentStoryOpenedForProjectRef.current = projectId;
+        await loadStoryRef.current(requestedId, {
+          silent: true,
+          expectedActiveStoryId: entryState.activeStoryId,
+        });
+        if (!cancelled && storySpineStore.getState().activeStoryId === requestedId) {
+          window.history.replaceState(null, "", "/editing");
+        }
+        return;
+      }
 
       const state = storySpineStore.getState();
       const entry = resolveRecentStoryEntry(
@@ -3415,7 +3433,6 @@ export function StoryAgentProvider({
   );
 
   const clearSelection = useCallback(() => setActiveSelection(null), []);
-
   const selectionEditMut = trpc.storyAgent.selectionEdit.useMutation();
   const promptCandidateMut = trpc.promptLineage.createCandidate.useMutation();
   const confirmPromptCandidateMut =
@@ -3427,7 +3444,7 @@ export function StoryAgentProvider({
   const registerImageRegionEditRunner = imageRegionEditHandoff.register;
 
   const sendSelectionEdit = useCallback(
-    async (instruction: string) => {
+    async (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image" }) => {
       if (!activeSelection || isReplying) return;
       const submittedSelection = activeSelection;
       if (!selectionBelongsToStory(activeSelection, activeStoryId)) {
@@ -3437,15 +3454,10 @@ export function StoryAgentProvider({
         return;
       }
       const requestStoryId = activeStoryId;
+      const storyId = resolvePersistedStoryId(activeSelection.storyId, activeStoryId, remoteStoryId);
 
       const { sourceType, sourceId, selectedText, fullText } = activeSelection;
-      const userMsg: ChatMessage = {
-        id: newId("msg"),
-        role: "user",
-        content: instruction,
-        timestamp: Date.now(),
-        selectionQuote: selectionQuoteFrom(activeSelection),
-      };
+      const userMsg = selectionUserMessage(newId("msg"), instruction, activeSelection);
       const nextMessages = [...messages, userMsg]; setMessages(nextMessages);
       setIsReplying(true);
       setReturningGreeting(null);
@@ -3460,6 +3472,11 @@ export function StoryAgentProvider({
           messages, cards, scripts, storyShots, characters, remoteStoryId,
           title: storyTitle, logline: storyLogline, theme: storyTheme, arc: storyArc,
         }),
+      });
+
+      const commitImageRevision = (revision: StoryboardImageRerenderResult) => commitImageRevisionReply({
+        isCurrent: storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId),
+        reply: imageRevisionReply(newId("msg"), storyId, submittedSelection, revision), revision, commit: commitSelectionReply,
       });
 
       try {
@@ -3482,6 +3499,18 @@ export function StoryAgentProvider({
             replyMsg,
             "[storyConversation] persist image-region handoff failed:"
           );
+          return;
+        }
+
+        if (options?.regenerateImage) {
+          const revision = await renderSelectionRevision({
+            selection: submittedSelection, storyId, instruction,
+            render: rerenderSelectionImage,
+            regenerateImage: true,
+            imageProvider: options.imageProvider,
+          });
+          if (!revision) throw new Error("请重新选中一张完整图片后再生成");
+          await commitImageRevision(revision);
           return;
         }
 
@@ -3528,11 +3557,6 @@ export function StoryAgentProvider({
           }
         }
 
-        const storyId = resolvePersistedStoryId(
-          activeSelection.storyId,
-          activeStoryId,
-          remoteStoryId
-        );
         let editText = { fullText, selectedText };
         const promptRewrite = sourceType === "storyboard-image";
         if (sourceType === "storyboard-image" && storyId != null) {
@@ -3580,16 +3604,10 @@ export function StoryAgentProvider({
         const revision = await renderSelectionRevision({
           selection: submittedSelection, storyId, instruction, result,
           originalText: editText.fullText, render: rerenderSelectionImage,
+          imageProvider: options?.imageProvider,
         });
         if (revision) {
-          if (!storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId)) return;
-          await commitSelectionReply({
-            id: newId("msg"), role: "assistant", timestamp: Date.now(),
-            content: revision.message,
-            imageRevision: revision.status === "success" && revision.imageId && revision.imageUrl
-              ? { storyId: storyId!, stableShotId: submittedSelection.stableShotId!, shotNo: submittedSelection.shotNo!, imageId: revision.imageId, imageUrl: revision.imageUrl }
-              : undefined,
-          }, "[storyConversation] persist image revision failed:", revision.status !== "success");
+          await commitImageRevision(revision);
           return;
         }
 
@@ -3657,6 +3675,7 @@ export function StoryAgentProvider({
                   cueCode: activeSelection.cueCode ?? null,
                   imageId: activeSelection.imageId ?? null,
                   instruction,
+                  imageProvider: options?.imageProvider,
                 }
               : undefined,
         };

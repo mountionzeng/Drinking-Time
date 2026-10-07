@@ -114,6 +114,17 @@ beforeEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("storyAgent edit context injection (U6)", () => {
+  it.each(["story", "publishing"] as const)("uses inherited material for %s replies without making it extraction evidence", async interactionMode => {
+    await replyFromStoryAgent({ message: "把这段故事改成第三人称", interactionMode, referenceContext: "SOURCE_ONLY:原作者在海边长大。" });
+    const reply = mockInvokeLLM.mock.calls[0][0].messages;
+    expect(reply.some(message => String(message.content).includes("SOURCE_ONLY"))).toBe(true);
+    expect(reply.some(message => String(message.content).includes("不代表当前用户的经历"))).toBe(true);
+    const extraction = mockInvokeLLM.mock.calls[1]?.[0].messages;
+    if (interactionMode === "story") {
+      expect(extraction).toBeDefined();
+      expect(extraction!.some(message => String(message.content).includes("SOURCE_ONLY"))).toBe(false);
+    }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

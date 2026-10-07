@@ -136,6 +136,7 @@ const {
   createGeneratedImage,
   createVideoTake,
   getGeneratedImageById,
+  getStoryTimeline,
   getStoryGeneratedImages,
   seedProjectForTesting,
 } = await import("./db");
@@ -249,6 +250,28 @@ describe("storyAgent tRPC router", () => {
         confirmedIntent: expect.objectContaining({ platform: "x" }),
       })
     );
+  });
+
+  it("loads inherited reference for the story owner and rejects another account before calling the model", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const { createStoryContextSnapshot, buildInheritedStoryInput } = await import("./services/storyContextSnapshot");
+    const snapshot = createStoryContextSnapshot({
+      title: "原故事", logline: "甲喜欢收集贝壳", theme: null,
+      arc: null, summary: null, body: {},
+    }, { includeConversation: false });
+    const { id } = await createStory(buildInheritedStoryInput(snapshot, 42));
+    await appRouter.createCaller(createAuthContext(42)).storyAgent.chat({
+      storyId: id, message: "把背景改成山里", interactionMode: "publishing",
+    });
+    expect(storyAgentMocks.replyFromStoryAgent).toHaveBeenCalledWith(expect.objectContaining({
+      referenceContext: expect.stringContaining("甲喜欢收集贝壳"),
+      message: "把背景改成山里",
+    }));
+    storyAgentMocks.replyFromStoryAgent.mockClear();
+    await expect(appRouter.createCaller(createAuthContext(43)).storyAgent.chat({
+      storyId: id, message: "读取他的背景",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(storyAgentMocks.replyFromStoryAgent).not.toHaveBeenCalled();
   });
 
   it("wraps classification and summary procedures", async () => {
@@ -1327,6 +1350,68 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
   });
 
+  it("GPT revisions use the selected source, correct quote and one unadopted version without prompt rewriting", async () => {
+    const caller = appRouter.createCaller(createAuthContext(6597));
+    const story = await caller.storyAgent.storyUpsert({ title: "GPT改图", body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "猫" }] } });
+    const source = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, prompt: "猫" });
+    if (source.status !== "ok") throw new Error("Missing fixture image");
+    imageGenMocks.editImage.mockClear();
+    const original = await getGeneratedImageById(source.imageId!);
+    const input = { storyId: story!.id, shotNo: 1, explicitInstruction: "只把伞改红", imageProvider: "gpt-image" as const, referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} } };
+    expect(await caller.storyAgent.generateForMobile({ ...input, costConfirmation: { accepted: true, estimatedCny: 0.68 } })).toMatchObject({ status: "error" });
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    const result = await caller.storyAgent.generateForMobile({ ...input, autoSelect: true, costConfirmation: { accepted: true, estimatedCny: 1.49 } });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error(result.error);
+    expect(result.candidates).toHaveLength(1);
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(source.imageUrl, expect.stringContaining("只把伞改红"), expect.objectContaining({ referenceRevision: true, provider: "gpt-image", requireInputImage: true }));
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+    expect(await getGeneratedImageById(result.imageId!)).toMatchObject({ parentImageId: source.imageId, isCurrent: false });
+    expect(await getGeneratedImageById(source.imageId!)).toEqual(original);
+    expect(result).not.toHaveProperty("timelinePlacementWarning");
+    const timeline = await getStoryTimeline(story!.id, 6597);
+    expect(timeline?.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ imageClips: expect.arrayContaining([
+        expect.objectContaining({ id: `image-revision-${result.imageId}`, imageId: result.imageId, visualLayer: 1 }),
+      ]) }),
+    ]));
+  });
+
+  it("MJ reference revisions preserve their source, store all versions and verify the edit quote", async () => {
+    const caller = appRouter.createCaller(createAuthContext(6596));
+    const story = await caller.storyAgent.storyUpsert({ title: "MJ参考重绘", body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "猫" }] } });
+    const source = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, prompt: "猫" });
+    if (source.status !== "ok") throw new Error("Missing fixture image");
+    const original = await getGeneratedImageById(source.imageId!);
+    imageGenMocks.editImage.mockClear();
+    const input = { storyId: story!.id, shotNo: 1, prompt: "旧场景", explicitInstruction: "只让小猫看向镜头", imageProvider: "midjourney" as const, referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} } };
+    expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error" });
+    expect(await caller.storyAgent.generateForMobile({ ...input, costConfirmation: { accepted: true, estimatedCny: 0.34 } })).toMatchObject({ status: "error" });
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    imageGenMocks.editImage.mockResolvedValueOnce({ status: "ok", imageUrl: "/new-1.png", imageKey: "new-1", candidates: [1, 2, 3, 4].map(n => ({ imageUrl: `/new-${n}.png`, imageKey: `new-${n}` })) } as any);
+    imagePromptDirectorMocks.directImagePrompt.mockResolvedValueOnce({ prompt: "A cat looks straight at the camera.", source: "302-vision", model: "test", analysis: null } as any);
+    const result = await caller.storyAgent.generateForMobile({ ...input, autoSelect: true, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error(result.error);
+    expect(result.candidates).toHaveLength(4);
+    expect(imageGenMocks.editImage).toHaveBeenCalledTimes(1);
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(source.imageUrl, expect.stringContaining("只让小猫看向镜头"), expect.objectContaining({ referenceRevision: true, provider: "midjourney", primaryReferenceLock: false, requireInputImage: true }));
+    expect(imagePromptDirectorMocks.directImagePrompt).toHaveBeenCalledTimes(1);
+    expect(imagePromptDirectorMocks.directImagePrompt).toHaveBeenCalledWith(expect.objectContaining({ referencePurpose: "current-frame", narrativePrompt: expect.stringContaining("只让小猫看向镜头") }));
+    for (const candidate of result.candidates!) {
+      expect(await getGeneratedImageById(candidate.imageId)).toMatchObject({ parentImageId: source.imageId, isCurrent: false, storyId: story!.id, shotIdentity: original!.shotIdentity });
+    }
+    expect(await getGeneratedImageById(source.imageId!)).toEqual(original);
+    imageGenMocks.editImage.mockClear();
+    expect(await caller.storyAgent.generateForMobile({ ...input, costConfirmation: { accepted: true, estimatedCny: 0.68 } })).toMatchObject({ status: "ok" });
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(source.imageUrl, expect.stringContaining(input.explicitInstruction), expect.objectContaining({ provider: "midjourney" }));
+    imageGenMocks.editImage.mockClear();
+    for (const renderReferences of [undefined, { imageIds: [], assets: {} }, { imageIds: [source.imageId!, source.imageId!], assets: {} }, { imageIds: [99999999], assets: {} }]) {
+      expect(await caller.storyAgent.generateForMobile({ ...input, renderReferences, costConfirmation: { accepted: true, estimatedCny: 0.68 } })).toMatchObject({ status: "error" });
+    }
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+
   it("sends an explicitly selected image to MJ without requesting a model fallback", async () => {
     const caller = appRouter.createCaller(createAuthContext(596));
     seedProjectForTesting({ id: 7596, userId: 596 });
@@ -1607,6 +1692,12 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
       expect.any(Object)
+    );
+    expect(String(imageGenMocks.generateImage.mock.calls[0]?.[0])).toContain(
+      "【自动构图导演】"
+    );
+    expect(String(imageGenMocks.generateImage.mock.calls[0]?.[0])).toContain(
+      "【候选构图分叉】"
     );
     expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty(
       "characterRef"

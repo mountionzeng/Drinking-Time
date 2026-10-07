@@ -11,6 +11,7 @@ import type { ImageProvider } from "@shared/imageProvider";
 
 export type RerenderReference = {
   selection?: ShotRenderReferences;
+  referenceRevision?: boolean;
   /** Full frame sent to FLUX Kontext as the visual/style reference. */
   imageUrl?: string;
   /** Cropped face/lower-face anchor used only for identity analysis. */
@@ -23,6 +24,7 @@ export type RerenderReference = {
 
 export type GenerateForMobileInput = {
   renderReferences?: ShotRenderReferences;
+  referenceRevision?: boolean;
   storyId: number;
   shotNo: number;
   prompt: string;
@@ -44,6 +46,7 @@ export type GenerateForMobileInput = {
 };
 
 export type GenerateForMobileResult = {
+  timelinePlacementWarning?: string;
   status: "ok" | "error";
   imageUrl?: string;
   imageId?: number;
@@ -120,6 +123,7 @@ export function createGenerateForMobileInput(params: {
   });
   return {
     renderReferences: params.reference?.selection,
+    referenceRevision: params.reference?.referenceRevision,
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
     imageProvider: params.imageProvider ?? "midjourney",
@@ -182,6 +186,24 @@ export type RerenderShotImageCandidatesResult = {
   failedCount: number;
   errors: string[];
 };
+
+export function summarizeRerenderBatch(batch: {
+  results: GenerateForMobileResult[];
+  generatedCount: number;
+  failedCount: number;
+}, candidateCount?: number) {
+  const result = batch.results.at(-1);
+  if (!result) throw new Error("图片生成没有返回候选结果");
+  if (result.timelinePlacementWarning) {
+    throw new Error(`新图已保存在仓库，但未放入图层：${result.timelinePlacementWarning}。请从仓库拖入，不必重新生成。`);
+  }
+  return {
+    generatedCount: candidateCount === 4 ? batch.generatedCount : batch.results[0]?.candidates?.length || 1,
+    failedCount: batch.failedCount,
+    imageId: result.imageId,
+    imageUrl: result.imageUrl,
+  };
+}
 
 export async function rerenderShotImageCandidates(params: {
   storyId: number;

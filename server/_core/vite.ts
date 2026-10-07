@@ -5,6 +5,27 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { shouldServeSpaShell } from "./spaFallback";
+
+/** 把 express 的 request 收敛成 shouldServeSpaShell 要的那几个字段。 */
+function requestShape(req: {
+  originalUrl?: string;
+  path?: string;
+  headers: Record<string, unknown>;
+}) {
+  const header = (name: string) => {
+    const value = req.headers[name];
+    return typeof value === "string" ? value : undefined;
+  };
+  return {
+    path: req.originalUrl ?? req.path ?? "/",
+    headers: {
+      accept: header("accept"),
+      secFetchDest: header("sec-fetch-dest"),
+      secFetchMode: header("sec-fetch-mode"),
+    },
+  };
+}
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -23,6 +44,13 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+
+    // 资源请求找不到就回 404，别拿 HTML 冒充 JS —— 那会让早就开着的标签页
+    // 白屏，且只在控制台留一句 MIME 报错。详见 spaFallback.ts。
+    if (!shouldServeSpaShell(requestShape(req))) {
+      res.status(404).type("text/plain").end("Not found");
+      return;
+    }
 
     try {
       const clientTemplate = path.resolve(
@@ -92,7 +120,14 @@ export function serveStatic(app: Express) {
   );
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  app.use("*", (req, res) => {
+    // 同 dev：资源请求找不到就 404。线上换版本后，旧标签页手里的
+    // `index-<旧哈希>.js` 已经不在了，回 HTML 只会让它白屏。
+    if (!shouldServeSpaShell(requestShape(req))) {
+      noStore(res);
+      res.status(404).type("text/plain").end("Not found");
+      return;
+    }
     noStore(res);
     res.sendFile(path.resolve(distPath, "index.html"));
   });

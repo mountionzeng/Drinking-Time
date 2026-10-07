@@ -65,6 +65,8 @@ export type RenderContext = {
   referencePolicy?: ImageReferencePolicy;
   /** 四图封面探索使用固定的“1 克制 + 2 大胆 + 1 意外”梯度。 */
   fourCandidateExploration?: boolean;
+  /** 故事镜头的批量候选需在构图上分叉；不影响已有画面的精确修改。 */
+  candidateCompositionExploration?: boolean;
   /** 未选择上一轮任何候选时，上一整轮视觉方案都视为已拒绝。 */
   discardPreviousRound?: boolean;
   /** 当前探索轮次，用于确定性切换媒介与视觉机制。 */
@@ -125,6 +127,86 @@ const COVER_RESTART_METHODS = [
   "使用不带符号含义的抽象形体、色块边界和材料裂变构成叙事空间",
   "让室内与室外、近景与远景发生不可能的连续折叠，形成梦境式场所",
 ] as const;
+
+type StoryFrameDirection = {
+  composition: string;
+  visualMethod: string;
+};
+
+const STORY_FRAME_DIRECTIONS: StoryFrameDirection[] = [
+  {
+    composition: "把视觉重心安置在三分线一侧，让另一侧的环境、动作痕迹或光的走向与之形成张力",
+    visualMethod: "让局部材料、光或空气的变化参与叙事，而不是只把主体置于干净背景前",
+  },
+  {
+    composition: "用近景遮挡建立前、中、远三层关系，从一个不完整的观看位置进入场景",
+    visualMethod: "让边缘的纸面、笔触、雾气或反光保留观看的过程和手工判断",
+  },
+  {
+    composition: "采用开阔环境远景，把人物或关键物件放小，借空间尺度表达它所处的关系",
+    visualMethod: "让地面、墙面、天气或光照的节奏承担一部分情绪，而不依赖单一人物表情",
+  },
+  {
+    composition: "以斜向路径、倾斜边界或跨画面的动作组织画面，让重心落在一个角落而非正中央",
+    visualMethod: "让色面、材质方向或光的流向跟随这条路径，形成明确的视觉运动",
+  },
+  {
+    composition: "从俯视或高处斜看的空间几何入手，把主体放在不对称的区域并保留可读的环境关系",
+    visualMethod: "让平面、阴影和物件间距形成图案，而不是用统一景深把一切抹平",
+  },
+  {
+    composition: "以裁切过的近距离观察取景，让关键动作、手势、物件或局部空间从画面边缘进入",
+    visualMethod: "通过叠笔、擦除、未完成边缘或局部密度变化增强亲近感，不把画面处理成商品特写",
+  },
+  {
+    composition: "设置两个相隔的视觉支点，用视线、光线、道路、桌面或空气中的节奏把它们连接起来",
+    visualMethod: "让留白成为两者之间尚未说出的关系，而不是把所有信息压缩在中央主体上",
+  },
+  {
+    composition: "让低处的前景与远处空间共同组织画面，主体偏置并嵌入环境，而非独立竖在画面中央",
+    visualMethod: "让质地、色块边界或可见制作痕迹参与空间层次，避免一套通用电影滤镜",
+  },
+];
+
+const EXPLICIT_COMPOSITION_PATTERN =
+  /(?:构图|机位|视角|景别|居中|偏[左中右]|留白|裁切|对称|三分(?:法)?|俯拍|仰拍|鸟瞰|平视|远景|全景|中景|近景|特写|前景|后景|侧面|正面|顶部|画面(?:左|右|上|下)(?:侧|角|边)?|(?:左|右|上|下)边|diagonal|off[-\s]?center|close[-\s]?up|wide\s+shot|long\s+shot|overhead|bird'?s[-\s]?eye|low[-\s]?angle|eye[-\s]?level|framing|camera\s+angle|composition)/i;
+
+function canAutoDirectStoryFrameComposition(ctx: RenderContext): boolean {
+  if (ctx.outputPurpose !== "story-frame") return false;
+  if (
+    ctx.authoredBrief ||
+    ctx.styleIndex != null ||
+    ctx.artDirection ||
+    ctx.userInstructions?.some(instruction => instruction.trim())
+  ) {
+    return false;
+  }
+  if (
+    ctx.referencePolicy === "preserve-composition" ||
+    ctx.storyboardReferenceTruth ||
+    ctx.lockedVisualAssets?.kinds.includes("style") ||
+    ctx.lockedVisualAssets?.kinds.includes("scene")
+  ) {
+    return false;
+  }
+  const directionText = [ctx.prompt, ...(ctx.userInstructions ?? [])]
+    .filter(Boolean)
+    .join("\n");
+  return !EXPLICIT_COMPOSITION_PATTERN.test(directionText);
+}
+
+function automaticStoryFrameDirection(ctx: RenderContext): string | null {
+  if (!canAutoDirectStoryFrameComposition(ctx)) return null;
+  const identity = [ctx.storyId ?? ctx.projectId ?? "unscoped-story", ctx.shotNo ?? ctx.prompt].join(":");
+  const direction = STORY_FRAME_DIRECTIONS[stableIndex(identity, STORY_FRAME_DIRECTIONS.length)]!;
+  return [
+    "【自动构图导演】",
+    "这是没有用户或既有画面指定构图的新故事镜头。不要退回画面中央孤立的竖直长条、对称站位或单一主体贴着干净背景的安全解法。",
+    `本镜构图：${direction.composition}。`,
+    `视觉手法：${direction.visualMethod}。`,
+    "人物、年代、服装、色彩和具体媒介仍必须由故事事实、用户要求与已确认美术证据决定。",
+  ].join("\n");
+}
 
 const STATIC_IMAGE_STYLIZATION_CONSTRAINT =
   "【风格化硬约束】最终画面必须是明显风格化、具有手工媒介痕迹的原创图像，不能被误认成相机照片、商品摄影、图库照片或光滑的 3D 渲染。使用可见笔触、纸面阻力、颜料厚薄、套色偏差、擦除或有判断的形体简化；不要摄影写实、产品布光、镜头虚化和塑料质感。";
@@ -239,7 +321,7 @@ function productConstraintBlock(ctx: RenderContext): string[] {
   const blocks: string[] = [];
   if (ctx.outputPurpose === "publishing-cover") {
     blocks.push(
-      "【封面产品约束】生成无文字的完整单幅画面，不做海报排版。主体与关键细节留在居中安全区，顶部保留由环境、材质或光线自然形成的安静留白。禁止可读文字、伪文字、数字、Logo、水印、界面、边框、分栏或装饰画框。所有可能承载字符的表面——钟面、日历、书页、报纸、招牌、包装、屏幕和界面——都必须避开；若它是已确认的故事事实，则只保留无字、被遮挡或不可读的材质表面。",
+      "【封面产品约束】生成无文字的完整单幅画面，不做海报排版。安全边距只用于防止裁掉关键细节，不要求主体居中；竖幅是画布比例，不代表主体必须竖直狭长。根据故事关系安排横向展开、偏置重心、环境尺度或局部裁切，需要叠字的位置由环境、材质或光线自然形成安静区域。用户或参考图已指定的构图优先。禁止可读文字、伪文字、数字、Logo、水印、界面、边框、分栏或装饰画框。所有可能承载字符的表面——钟面、日历、书页、报纸、招牌、包装、屏幕和界面——都必须避开；若它是已确认的故事事实，则只保留无字、被遮挡或不可读的材质表面。",
       "【封面概念转译】原始视觉联想不是已确认的故事事实，可以彻底推翻。除非它本身是故事事实，不要照搬钟表、沙漏、灯泡、棋子、道路、门、梯子、拼图、手机、发光大脑等库存隐喻；把抽象观点转译为空间、尺度、材料行为或人物关系。拒绝商品静物、广告样片、图库照片、励志海报和“一个物件居中放在干净背景上”的安全构图。"
     );
     if (ctx.discardPreviousRound) {
@@ -280,9 +362,14 @@ function productConstraintBlock(ctx: RenderContext): string[] {
       "【故事板视觉事实】提供的当前画面与相邻画面是本轮可见事实来源。除非用户明确要求改变，保留画面中真实可见的人物身份、年龄、面部、发型、服装、地点、建筑、道具、配色、光线、材质与制作设计；不要根据通用规则补写裙长、冷暖色、配饰或其他未显示的信息，也不要让文字美术库覆盖画面证据。"
     );
   }
+  if (ctx.candidateCompositionExploration && canAutoDirectStoryFrameComposition(ctx)) {
+    blocks.push(
+      "【候选构图分叉】如果本轮返回多个候选，它们必须在景别、视觉重心和空间层次上实质不同：至少探索一次环境尺度、一次偏置关系、一次前景遮挡或边缘进入、一次更亲近的局部观察。不得只对同一居中构图换色、换背景或微调姿势。所有候选仍须忠于同一故事事实与人物关系。"
+    );
+  }
   if (ctx.fourCandidateExploration) {
     blocks.push(
-      "【四图探索梯度】同一内容生成四个真正不同的方向：一张克制但有艺术判断，两张采用更大胆的空间、尺度或材质表达，一张提供意料之外但仍准确的诗性方案。四张都必须忠于故事事实，不得只做同一构图的换色。"
+      "【四图探索梯度】同一内容生成四个真正不同的方向：一张克制但有艺术判断，两张采用更大胆的空间、尺度或材质表达，一张提供意料之外但仍准确的诗性方案。用户与已确认配方中已指定的媒介、色板与构图优先；只在尚未指定的维度探索。开放构图可分别尝试环境远景、横向关系、俯视和边缘近观；开放媒介可根据内容分别尝试彩铅、套色版画、水墨、撕纸拼贴或厚涂，而非统一水粉质感。每张只选一种主导媒介，分别形成完整单幅图，不能把候选拼成分栏。修改原图时保留构图骨架，只变化用户允许的部分。四张都必须忠于故事事实，不得只做同一构图的换色。"
     );
   }
   return blocks;
@@ -316,6 +403,8 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   additions.push(...productConstraintBlock(ctx));
   const lockedStyle = ctx.lockedVisualAssets?.kinds.includes("style") === true;
   if (!ctx.authoredBrief && !lockedStyle) {
+    const compositionDirection = automaticStoryFrameDirection(ctx);
+    if (compositionDirection) additions.push(compositionDirection);
     additions.push(textArtSignalBlock(textSignals));
     const temporalBlock = temporalVisualPromptBlock({
       text: [ctx.prompt, ...instructions].filter(Boolean).join("\n"),

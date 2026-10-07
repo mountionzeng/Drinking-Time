@@ -64,6 +64,7 @@ import {
   reorderShotToTargetForStory,
   setShotIncludedForStory,
   insertVisualImageClipForStory,
+  placeImageRevisionForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
   moveShotSingleForStory,
@@ -2029,6 +2030,17 @@ export const creationAgentRouter = router({
             : { durationFrames: input.durationFrames }),
         },
       });
+    }),
+
+  placeImageRevision: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), imageId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const image = await getGeneratedImageById(input.imageId);
+      if (!image || image.storyId !== input.storyId || !image.parentImageId || !image.shotIdentity) {
+        return { status: "error" as const, error: "这张图片没有可定位的改图来源", errorKind: "invalid" as const };
+      }
+      return placeImageRevisionForStory({ ...input, userId: ctx.user.id,
+        sourceImageId: image.parentImageId, stableShotId: image.shotIdentity });
     }),
 
   /** 移除一个普通剪辑块（图片 clip、内部片段或遗留 overlay）。 */

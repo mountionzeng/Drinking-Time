@@ -1,3 +1,4 @@
+import { guardComputeFetch } from "./computeRequestAccess";
 /**
  * fal.ai SAM 2 segmentation service
  * Accepts image + click coordinates, returns a mask image for the selected object.
@@ -434,7 +435,7 @@ export async function segmentAtPoint(
     return { status: "error", message: "circuit breaker open" };
   }
 
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const resolveRemoteHosts = options.resolveRemoteHosts ?? !options.fetcher;
   const requestTimeoutMs = options.requestTimeoutMs ?? TIMEOUT_MS;
 
@@ -700,7 +701,7 @@ async function segmentWithinVisionContour(
   points: SourceMaskPoint[],
   options: SegmentationOptions
 ): Promise<SegmentationResult> {
-  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const resolveRemoteHosts = options.resolveRemoteHosts ?? !options.fetcher;
   const requestTimeoutMs = options.requestTimeoutMs ?? TIMEOUT_MS;
   const sourceBytes = await readSourceBytes(

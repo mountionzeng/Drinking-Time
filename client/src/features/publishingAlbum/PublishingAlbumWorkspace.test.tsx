@@ -56,7 +56,8 @@ describe("PublishingAlbumWorkspace", () => {
     expect(html).toContain("封面");
     expect(html).toContain("画册");
     expect(html).toContain("用户自己的中文文字");
-    expect(html).toContain("当前版本还没有正式采用封面");
+    expect(html).toContain("采用封面后可生成底图");
+    expect(html.match(/编辑封面<\/button>/g)).toHaveLength(1);
     expect(html).not.toContain("进入视频");
     expect(html).not.toContain("进入剪辑台");
   });

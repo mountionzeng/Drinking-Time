@@ -11,8 +11,12 @@ import { invokeLLM, type Message, type ResponseFormat } from "./llm";
 import {
   runInference,
   type InferenceCandidate,
+  type InferenceRequest,
 } from "./inferenceOrchestrator";
 import { resolveComputeCandidates } from "./textComputeProvider";
+
+export type AgentExecutionOptions = Pick<InferenceRequest,
+  "deadlineMs" | "reasoningEffort" | "replaySafe">;
 
 function shouldUseClaudeChannel(): boolean {
   return Boolean(
@@ -95,6 +99,7 @@ async function invokeViaStoryAgentChain(
   messages: Message[],
   maxTokens: number,
   responseFormat?: ResponseFormat,
+  options?: AgentExecutionOptions,
 ): Promise<{ text: string; modelLabel: string }> {
   const chain = storyAgentCandidates();
   if (chain.length === 0) {
@@ -112,6 +117,7 @@ async function invokeViaStoryAgentChain(
     explicitCandidates: chain,
     // 故事回复是纯文本生成，没有工具调用也没有副作用，可以安全重发。
     replaySafe: true,
+    ...options,
   });
 
   const content = outcome.result.choices[0]?.message?.content;
@@ -132,9 +138,10 @@ export async function invokeAgent(
   messages: Message[],
   maxTokens: number,
   responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
+  options?: AgentExecutionOptions,
 ): Promise<{ text: string; modelLabel: string }> {
   if (shouldUseClaudeChannel()) {
-    return invokeViaStoryAgentChain(messages, maxTokens, responseFormat);
+    return invokeViaStoryAgentChain(messages, maxTokens, responseFormat, options);
   }
 
   const result = await invokeLLM({
@@ -142,6 +149,7 @@ export async function invokeAgent(
     maxTokens,
     responseFormat,
     replaySafe: true,
+    ...options,
   });
 
   const content = result.choices[0]?.message?.content;

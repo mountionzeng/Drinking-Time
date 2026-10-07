@@ -8,6 +8,9 @@ overrides:
   tailwindcss>nanoid: 3.3.7
 
 patchedDependencies:
+  drizzle-orm@0.44.7:
+    hash: c88902560eff5e541aec27bae4bc15a85103c91e93da400aaa6afbecc52cabcc
+    path: patches/drizzle-orm@0.44.7.patch
   wouter@3.7.1:
     hash: 4e16e6ff3fde7d6c1024d3e0c8605dc9eb6afb690d0d49958c2f449091813072
     path: patches/wouter@3.7.1.patch
@@ -75,7 +78,7 @@ importers:
         version: 17.3.1
       drizzle-orm:
         specifier: ^0.44.5
-        version: 0.44.7(mysql2@3.20.0(@types/node@24.7.0))
+        version: 0.44.7(patch_hash=c88902560eff5e541aec27bae4bc15a85103c91e93da400aaa6afbecc52cabcc)(mysql2@3.20.0(@types/node@24.7.0))
       express:
         specifier: ^4.21.2
         version: 4.21.2
@@ -4860,7 +4863,7 @@ snapshots:
       esbuild: 0.25.10
       tsx: 4.21.0
 
-  drizzle-orm@0.44.7(mysql2@3.20.0(@types/node@24.7.0)):
+  drizzle-orm@0.44.7(patch_hash=c88902560eff5e541aec27bae4bc15a85103c91e93da400aaa6afbecc52cabcc)(mysql2@3.20.0(@types/node@24.7.0)):
     optionalDependencies:
       mysql2: 3.20.0(@types/node@24.7.0)
 

@@ -2,7 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import { mergeStaleStoryBody, prepareStoryBody } from "./storySync";
 
+it("preserves server text history during a stale browser save without accepting forged history", () => {
+  const textDraftHistory = { revision: 2, versions: [{ id: "paid-generation", status: "ready" }] };
+  const server = { _revision: 3, shots: [], textDraftHistory };
+  const incoming = { _revision: 1, shots: [], textDraftHistory: { revision: 0, versions: [] } };
+  expect(mergeStaleStoryBody(server, incoming, 4).textDraftHistory).toEqual(textDraftHistory);
+  expect(mergeStaleStoryBody({ shots: [] }, incoming, 1).textDraftHistory).toBeUndefined();
+});
+
 describe("storySync publishing preservation", () => {
+  it("keeps inherited source material across both normal and stale saves", () => {
+    const inheritedStoryContext = { snapshot: { title: "原作者的故事" }, importedAt: 1 };
+    const server = { _revision: 1, inheritedStoryContext, cards: [], shots: [], messages: [] };
+    const incoming = { shots: [], inheritedStoryContext: { snapshot: "forged" } };
+    expect(prepareStoryBody(incoming, 2, server).inheritedStoryContext).toEqual(inheritedStoryContext);
+    expect(mergeStaleStoryBody(server, incoming, 2).inheritedStoryContext).toEqual(inheritedStoryContext);
+  });
   const serverPublishing = {
     version: 1,
     revision: 4,

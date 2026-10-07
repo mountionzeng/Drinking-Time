@@ -44,6 +44,10 @@ function row(overrides: Partial<PromptRow>): PromptRow {
 }
 
 describe("creation editor rerender", () => {
+  it("passes selected-image revisions through without auto-adopting the result", () => {
+    const input = createGenerateForMobileInput({ storyId: 7, shot, rows: [], reference: { selection: { imageIds: [12], assets: {} }, referenceRevision: true }, explicitInstruction: "让眼睛看向镜头" });
+    expect(input).toMatchObject({ referenceRevision: true, autoSelect: false, renderReferences: { imageIds: [12], assets: {} } });
+  });
   it("sends the exact selection, including empty, without adopting the generated candidate", () => {
     for (const selection of [{imageIds: [], assets: {}}, {imageIds: [12], assets: {pet: {assetId: "cat", versionId: "v2"}}}]) {
       const input = createGenerateForMobileInput({storyId: 7, shot, rows: [], reference: {selection}, imageProvider: "gpt-image"});

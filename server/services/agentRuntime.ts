@@ -5,8 +5,8 @@
  *
  * 不含各 Agent 专属的：system prompt 构造、tool call 解析、未配置兜底（返回形各异，留在各 Agent）。
  */
-import { invokeAgent } from "../_core/agentChannel";
-import { type Message } from "../_core/llm";
+import { invokeAgent, type AgentExecutionOptions } from "../_core/agentChannel";
+import { type Message, type ResponseFormat } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 
 export type AgentTurn = { role: "user" | "assistant"; content: string };
@@ -47,6 +47,8 @@ export async function runJsonAgent<T>(opts: {
   history?: AgentTurn[];
   maxTokens?: number;
   historyLimit?: number;
+  responseFormat?: ResponseFormat;
+  execution?: AgentExecutionOptions;
   fallback: (rawText: string) => T;
 }): Promise<RunJsonAgentResult<T>> {
   const turns = normalizeTurns(opts.history, opts.historyLimit ?? 12);
@@ -57,7 +59,11 @@ export async function runJsonAgent<T>(opts: {
     { role: "user", content: opts.message.trim() },
   ];
 
-  const { text, modelLabel } = await invokeAgent(messages, opts.maxTokens ?? 800);
+  const { text, modelLabel } = opts.execution
+    ? await invokeAgent(messages, opts.maxTokens ?? 800, opts.responseFormat, opts.execution)
+    : opts.responseFormat
+    ? await invokeAgent(messages, opts.maxTokens ?? 800, opts.responseFormat)
+    : await invokeAgent(messages, opts.maxTokens ?? 800);
 
   let parsed: T;
   try {

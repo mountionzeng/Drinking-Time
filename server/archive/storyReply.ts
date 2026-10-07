@@ -1,4 +1,5 @@
 import { type Message } from "../_core/llm";
+import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import { parseJsonLoose } from "../_core/llmJson";
 import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
@@ -183,6 +184,7 @@ export async function replyFromStoryAgent(params: {
   history?: ChatTurn[];
   existingCardCount?: number;
   summary?: string;
+  referenceContext?: string;
   currentShots?: ShotDraft[];
   similarCards?: SimilarStoryCardPayload[];
   storyCards?: StoryCardContextPayload[];
@@ -196,6 +198,10 @@ export async function replyFromStoryAgent(params: {
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
+  const referenceMessages: Message[] = params.referenceContext ? [
+    { role: "system", content: INHERITED_STORY_REFERENCE_RULE },
+    { role: "user", content: params.referenceContext },
+  ] : [];
   const currentShots = Array.isArray(params.currentShots)
     ? params.currentShots
     : [];
@@ -261,6 +267,7 @@ export async function replyFromStoryAgent(params: {
       : params.message.trim();
     const messages: Message[] = [
       { role: "system", content: publishingPrompt },
+      ...referenceMessages,
       ...cleanedHistory.slice(-16).map(turn => ({
         role: turn.role,
         content: turn.content,
@@ -364,6 +371,7 @@ export async function replyFromStoryAgent(params: {
         params.storyCards
       ),
     },
+    ...referenceMessages,
     ...turns,
     { role: "user", content: userContent },
   ];
@@ -397,6 +405,7 @@ export async function replyFromStoryAgent(params: {
         allowStoryTitleSuggestion
       ),
     },
+    ...(params.referenceContext ? [{ role: "system" as const, content: INHERITED_STORY_REFERENCE_RULE }] : []),
     ...turns,
     { role: "user", content: userContent }, // 对方这一轮（带图时含图）
     {

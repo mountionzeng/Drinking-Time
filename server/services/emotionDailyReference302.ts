@@ -1,3 +1,4 @@
+import { guardComputeFetch } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveTextComputeProvider } from "./textComputeProvider";
@@ -778,7 +779,7 @@ export async function personalizeEmotionDailyReference302(
       : 30_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const fetcher = input.fetcher ?? (globalThis.fetch as Fetcher);
+  const fetcher = guardComputeFetch(input.fetcher ?? (globalThis.fetch as Fetcher));
   const guidance = currentTimeContext(input);
 
   try {

@@ -1,3 +1,4 @@
+import { withComputeUser, noteComputeReservation } from "./computeRequestAccess";
 /**
  * 从单条经历生成带证据的理解（U5）。
  *
@@ -552,7 +553,9 @@ export async function attemptPersonalMemoryExtraction(
   });
 
   try {
-    const outcome = await runInference({
+    const outcome = await withComputeUser(platformUserId, async () => {
+      noteComputeReservation(platformUserId, operationId);
+      return runInference({
       useCase: "text",
       messages,
       candidates: { fallback302Model: ENV.llmModel },
@@ -564,6 +567,7 @@ export async function attemptPersonalMemoryExtraction(
       // 换一家供应商重发同一份用户原话。
       replaySafe: false,
       deadlineMs: EXTRACTION_TIMEOUT_MS,
+      });
     });
 
     await settleOperation({

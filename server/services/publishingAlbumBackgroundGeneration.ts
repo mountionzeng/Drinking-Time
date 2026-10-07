@@ -117,8 +117,9 @@ async function resolveGenerationInput(input: {
   provider: PublishingAlbumBackgroundProvider;
   feedback?: string;
   dependencies: AlbumBackgroundDependencies;
+  current?: Awaited<ReturnType<typeof getPublishingDraftState>>;
 }) {
-  const current = await input.dependencies.getState(input.storyId, input.userId);
+  const current = input.current ?? await input.dependencies.getState(input.storyId, input.userId);
   const version = current.publishing.versions?.find(candidate => candidate.versionId === input.versionId);
   if (!version?.album) throw new Error("当前发布版本还没有静态画册");
   const page = version.album.pages.find(candidate => candidate.pageId === input.pageId);
@@ -174,18 +175,14 @@ export async function quotePublishingAlbumBackground(input: {
   const dependencies = { ...defaultDependencies, ...input.dependencies };
   const provider = input.provider ?? "midjourney";
   const resolved = await resolveGenerationInput({ ...input, provider, dependencies });
-  const estimate = costFor(provider);
-  const unsigned = {
-    storyId: input.storyId,
-    versionId: input.versionId,
-    pageId: input.pageId,
-    provider,
-    inputHash: resolved.requestHash,
-    currency: estimate.currency,
-    estimatedCny: estimate.estimatedCny,
-    candidateCount: estimate.candidateCount,
-    expiresAt: dependencies.now() + 10 * 60 * 1_000,
-  };
+  return createQuote({
+    storyId: input.storyId, versionId: input.versionId, pageId: input.pageId,
+    provider, inputHash: resolved.requestHash,
+  }, dependencies.now());
+}
+
+function createQuote(input: Pick<PublishingAlbumBackgroundQuote, "storyId" | "versionId" | "pageId" | "provider" | "inputHash">, now: number): PublishingAlbumBackgroundQuote {
+  const unsigned = { ...input, ...costFor(input.provider), expiresAt: now + 10 * 60 * 1_000 };
   return { ...unsigned, quoteId: signQuote(unsigned) };
 }
 
@@ -244,24 +241,29 @@ export async function generatePublishingAlbumBackground(input: {
   if (recoverable) {
     generation = outstanding;
   } else {
-    const resolved = await resolveGenerationInput({ ...input, provider, dependencies });
+    const resolved = await resolveGenerationInput({ ...input, provider, dependencies, current: initial });
     if (resolved.page.backgroundRounds.length >= PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE) {
       throw new Error(`单页最多保留 ${PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE} 轮底图候选`);
     }
-    const quote = await quotePublishingAlbumBackground({ ...input, provider, dependencies });
+    const estimate = costFor(provider);
     const confirmation = input.confirmation;
-    if (!confirmation) return { status: "confirmation_required", quote };
+    if (!confirmation) {
+      return { status: "confirmation_required", quote: createQuote({
+        storyId: input.storyId, versionId: input.versionId, pageId: input.pageId,
+        provider, inputHash: resolved.requestHash,
+      }, dependencies.now()) };
+    }
     const quoteMatches =
       validQuoteSignature(confirmation) &&
       confirmation.expiresAt >= dependencies.now() &&
-      confirmation.storyId === quote.storyId &&
-      confirmation.versionId === quote.versionId &&
-      confirmation.pageId === quote.pageId &&
-      confirmation.provider === quote.provider &&
-      confirmation.inputHash === quote.inputHash &&
-      confirmation.currency === quote.currency &&
-      confirmation.estimatedCny === quote.estimatedCny &&
-      confirmation.candidateCount === quote.candidateCount;
+      confirmation.storyId === input.storyId &&
+      confirmation.versionId === input.versionId &&
+      confirmation.pageId === input.pageId &&
+      confirmation.provider === provider &&
+      confirmation.inputHash === resolved.requestHash &&
+      confirmation.currency === estimate.currency &&
+      confirmation.estimatedCny === estimate.estimatedCny &&
+      confirmation.candidateCount === estimate.candidateCount;
     if (!quoteMatches) throw new Error("画册底图报价已过期或与当前页面不匹配，请重新确认");
     const now = dependencies.now();
     generation = {

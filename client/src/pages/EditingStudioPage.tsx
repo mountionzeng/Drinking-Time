@@ -73,6 +73,8 @@ import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraftWorkspace";
+import StudioTour from "@/features/studioTour/StudioTour";
+import { STUDIO_TOUR_REPLAY_EVENT } from "@/features/studioTour/studioTourStorage";
 import {
   STUDIO_WORKSPACE_OPTIONS,
   isStoryPanelWorkspace,
@@ -116,7 +118,7 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
       >
         {visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/nav-writing-v2.png"
+            src="/shiguang/daily-letter-quill.svg"
             alt=""
             aria-hidden="true"
             className="shiguang-letter-illustration"
@@ -248,6 +250,7 @@ function ExportButton({
       onClick={() => void runExport()}
       disabled={exporting || exportStoryId === null}
       title={disabledReason}
+      data-tour="export"
       className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
       style={{ background: "var(--nayin-accent)" }}
     >
@@ -467,6 +470,7 @@ function EditingStudioBody({
       <div className="flex h-full min-h-0">
         {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
         <div
+          data-tour="chat-column"
           className="workspace-chat-column relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
           style={{
             width: chatCollapsed ? 48 : "min(340px, 38vw)",
@@ -780,6 +784,7 @@ export default function EditingStudioPage() {
                 ? "editing-nle-workspace"
                 : `studio-${option.id}-workspace`,
           testId: `topbar-${option.id}-workspace-toggle`,
+          tourAnchor: `workspace-${option.id}`,
           onToggle: () => {
             setWorkspace(option.id);
           },
@@ -818,7 +823,11 @@ export default function EditingStudioPage() {
             <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
           )
         }
+        onReplayTour={() => {
+          window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
+        }}
       />
+      <StudioTour blockedByOverlay={dailyLetterOpen} />
       <DailyLetterWelcome
         forceOpen={dailyLetterOpen}
         onRequestClose={() => setDailyLetterOpen(false)}

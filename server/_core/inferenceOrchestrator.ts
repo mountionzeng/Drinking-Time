@@ -1,3 +1,4 @@
+import { guardComputeFetch, assertComputeRequestAccess } from "../services/computeRequestAccess";
 import {
   describeModelCapabilities,
   resolveComputeCandidates,
@@ -434,7 +435,7 @@ async function attemptOpenAiCompatible(
   options: PayloadOptions,
   signal: AbortSignal | undefined
 ): Promise<AttemptResult> {
-  const doFetch = request.fetchImpl ?? fetch;
+  const doFetch = guardComputeFetch(request.fetchImpl ?? fetch);
   const payload = buildOpenAiPayload(request, candidate, capabilities, options);
 
   let response: Response;
@@ -528,7 +529,7 @@ async function attemptClaudeMessages(
   candidate: InferenceCandidate,
   signal: AbortSignal | undefined
 ): Promise<AttemptResult> {
-  const doFetch = request.fetchImpl ?? fetch;
+  const doFetch = guardComputeFetch(request.fetchImpl ?? fetch);
   const system = request.messages
     .filter(m => m.role === "system")
     .map(m => String(m.content))
@@ -637,6 +638,7 @@ function attemptSummary(error: AttemptError): string {
 export async function runInference(
   request: InferenceRequest
 ): Promise<InferenceOutcome> {
+  await assertComputeRequestAccess();
   const now = request.now ?? (() => Date.now());
   const startedAt = now();
   const chainDeadlineAt =

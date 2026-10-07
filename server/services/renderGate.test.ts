@@ -15,7 +15,7 @@ vi.mock("../db", async importOriginal => {
   return { ...actual, ...dbMocks };
 });
 
-import { renderViaGate } from "./renderGate";
+import { renderViaGate, type RenderContext } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
   it("资产锁进入最高优先级提示词，锁定风格时不再混入自动美术方向", async () => {
@@ -93,6 +93,119 @@ describe("renderViaGate（出图网关）", () => {
         "任何需要的标题或文案只能由产品界面后期叠加，绝不能画进图片像素中。"
       )
     ).toBe(true);
+  });
+
+  it("新故事镜头获得稳定但不居中的自动构图与候选分叉", async () => {
+    const render = async (shotNo: string) => {
+      let seen = "";
+      await renderViaGate(
+        {
+          prompt: "一个人穿过空旷的旧车站",
+          storyId: 41,
+          shotNo,
+          outputPurpose: "story-frame",
+          candidateCompositionExploration: true,
+        },
+        async prompt => {
+          seen = prompt;
+          return { ok: true };
+        }
+      );
+      return seen;
+    };
+
+    const first = await render("SH03");
+    const retry = await render("SH03");
+    const nextShot = await render("SH04");
+    const direction = (prompt: string) =>
+      prompt
+        .split("\n")
+        .filter(line => line.startsWith("本镜构图：") || line.startsWith("视觉手法："));
+
+    expect(first).toContain("【自动构图导演】");
+    expect(first).toContain("画面中央孤立的竖直长条");
+    expect(first).toContain("【候选构图分叉】");
+    expect(first).toContain("景别、视觉重心和空间层次");
+    expect(direction(first)).toEqual(direction(retry));
+    expect(direction(first)).not.toEqual(direction(nextShot));
+  });
+
+  it("用户或既有美术已经决定方向时不擅自加入自动构图", async () => {
+    const protectedContexts: RenderContext[] = [
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        userInstructions: ["人物穿蓝色外套"],
+      },
+      {
+        prompt: "人物站在画面右侧，门在左边",
+        outputPurpose: "story-frame",
+      },
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        referencePolicy: "preserve-composition",
+      },
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        lockedVisualAssets: {
+          fingerprint: "scene-lock",
+          kinds: ["scene"],
+          promptContract: "锁定场景事实",
+        },
+      },
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        artDirection: {
+          style: ["纸本拼贴"],
+          palette: [],
+          light: [],
+          composition: [],
+          material: [],
+          negative: [],
+        },
+      },
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        authoredBrief: true,
+      },
+    ];
+
+    for (const context of protectedContexts) {
+      let seen = "";
+      await renderViaGate(
+        { ...context, candidateCompositionExploration: true },
+        async prompt => {
+          seen = prompt;
+          return { ok: true };
+        }
+      );
+
+      expect(seen).not.toContain("【自动构图导演】");
+      expect(seen).not.toContain("【候选构图分叉】");
+    }
+  });
+
+  it("用户或既有画面已经决定构图时不擅自加入自动构图", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "一个人站在窗边",
+        outputPurpose: "story-frame",
+        styleIndex: 0,
+        candidateCompositionExploration: true,
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).not.toContain("【自动构图导演】");
+    expect(seen).not.toContain("【候选构图分叉】");
   });
 
   it("从文字中读取情绪、明确年代和生活质地，为手绘谱系服务但不杜撰年代", async () => {
@@ -312,6 +425,9 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("不要照搬钟表、沙漏");
     expect(seen).toContain("商品静物");
     expect(seen).toContain("可能承载字符的表面");
+    expect(seen).not.toContain("主体与关键细节留在居中安全区");
+    expect(seen).toContain("安全边距只用于防止裁掉关键细节");
+    expect(seen).toContain("已指定的媒介、色板与构图优先");
   });
 
   it("上一轮一个方向都没选时整轮换掉视觉元素并切换探索方法", async () => {

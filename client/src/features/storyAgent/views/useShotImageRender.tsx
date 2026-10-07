@@ -4,6 +4,7 @@ import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import type { PromptRow } from "@/features/creationEditor/promptTable/types";
 import type { StoryMaterialState } from "@shared/storyMaterial";
+import { STORYBOARD_IMAGE_CANDIDATE_COUNT, estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
 import {
   shotRenderReferenceOptions,
   selectedReferenceKeys,
@@ -61,6 +62,9 @@ export function useShotImageRender(
   const render = async (input: {
     label: string;
     revisionInstruction?: string;
+    revisionProvider?: "midjourney" | "gpt-image";
+    /** A parent batch already confirmed the same one-task quote. */
+    skipCostConfirmation?: boolean;
     settings: ShotImageRenderSettings;
     shot: CreationEditorShot;
     previousShots: CreationEditorShot[];
@@ -72,9 +76,9 @@ export function useShotImageRender(
       shotNo: number;
       rows: PromptRow[];
       explicitInstruction: string;
-      imageProvider: "midjourney";
-      candidateCount: 4;
-      reference: { selection: ShotImageRenderSettings["references"] };
+      imageProvider: "midjourney" | "gpt-image";
+      candidateCount?: 4;
+      reference: { selection: ShotImageRenderSettings["references"]; referenceRevision?: boolean };
       costConfirmation: { accepted: true; estimatedCny: number };
     }) => Promise<{
       generatedCount: number;
@@ -84,6 +88,9 @@ export function useShotImageRender(
   }) => {
     const scope = imageBatchScope.current;
     const { label, settings, shot, material } = input;
+    const isRevision = Boolean(input.revisionInstruction?.trim());
+    const provider = isRevision ? input.revisionProvider ?? "midjourney" : "midjourney";
+    const isGptRevision = provider === "gpt-image";
     const choices = material ? shotRenderReferenceOptions(material) : [];
     const chosen = selectedReferenceKeys(settings.references).map(key =>
       choices.find(choice => choice.key === key)
@@ -91,6 +98,8 @@ export function useShotImageRender(
     const issue =
       !input.revisionInstruction?.trim() && !shot.promptDraft?.trim()
         ? "请先填写图片要求"
+        : isRevision && (settings.references.imageIds.length !== 1 || Object.keys(settings.references.assets).length !== 0)
+          ? "请选中一张要修改的图片"
         : !material || chosen.some(choice => !choice)
           ? "参考素材尚未加载或已失效，请重新选择参考"
           : null;
@@ -103,30 +112,39 @@ export function useShotImageRender(
       ? `以所选参考图片为基础生成新版，保留未要求修改的主体与画面内容。用户修改要求：\n${input.revisionInstruction}`
       : storyboardExplicitImageInstruction(shot);
     const rows = buildPromptTable(shot, { previousShots: input.previousShots });
-    const quote = quoteShotImages(settings.count);
-    const confirmed = await confirmImageCost(
-      `${label} · MJ 渲染（希望 ${settings.count} 张）\nMJ 每次返回 4 张候选，本次提交 ${quote.taskCount} 次，预计得到 ${quote.candidateCount} 张，所有候选都会保留。\n参考素材：${names.join("、") || "无"}\n\n${instruction}\n\n预计总费用 ${formatComputeQuote(quote.estimatedCny)}（每次任务约 ${formatComputeQuote(quote.taskCny)}，最终以服务商实际扣费为准）。中途失败即停止，已完成的图片保留。`
+    // Legacy saved settings may request eight; this entry always buys one task.
+    const quote = isGptRevision ? estimateStoryboardMaskedEditCost() : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
+    const estimatedCny = quote.estimatedCny;
+    const confirmed = (!isRevision && input.skipCostConfirmation) || await confirmImageCost(
+      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny)}，最终以服务商实际扣费为准。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };
     input.start();
     try {
-      const batch = await renderShotImageBatch(settings.count, async () => {
+      const generate = async () => {
         if (scope !== imageBatchScope.current)
           throw new Error("已离开当前故事，未提交后续图片");
         const image = await input.generate({
           shotNo: shot.shotNo,
           rows,
           explicitInstruction: instruction,
-          imageProvider: "midjourney",
-          candidateCount: 4,
-          reference: { selection: settings.references },
-          costConfirmation: { accepted: true, estimatedCny: quote.taskCny },
+          imageProvider: provider,
+          candidateCount: isRevision ? undefined : 4,
+          reference: { selection: settings.references, ...(isRevision ? { referenceRevision: true } : {}) },
+          costConfirmation: { accepted: true, estimatedCny },
         });
         if (!image.imageId || !image.imageUrl)
           throw new Error("服务端未返回图片，停止后续生成");
         return image;
-      });
+      };
+      let batch;
+      if (isGptRevision) {
+        const result = await generate();
+        batch = { results: [result], generatedCount: result.generatedCount, error: undefined };
+      } else {
+        batch = await renderShotImageBatch(quote.candidateCount, generate);
+      }
       if (scope !== imageBatchScope.current)
         return {
           status: "cancelled" as const,
@@ -136,7 +154,9 @@ export function useShotImageRender(
         throw new Error(
           `${label} 已生成 ${batch.generatedCount}/${quote.candidateCount} 张，剩余任务已停止。${batch.error}`
         );
-      const message = `${label} 已生成 ${batch.generatedCount} 张图片，已放入画面行`;
+      const message = isRevision
+        ? `${label} 新图已放到上方图层，全部版本已保存在仓库`
+        : `${label} 已生成 ${batch.generatedCount} 张图片，已放入画面行`;
       toast.success(message);
       const last = batch.results.at(-1);
       return {

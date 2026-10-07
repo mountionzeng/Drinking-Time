@@ -43,13 +43,19 @@ import {
 } from "../db";
 import {
   editImage,
+  readImageAverageColor,
   generateDraftImage,
   generateImage,
   resume302GptImageTask,
   resume302MidjourneyTask,
 } from "../services/imageGen";
 import { engineerImagePrompt } from "../services/renderGate";
-import { inspectStaticImageCandidates } from "../services/staticImageQualityGate";
+import { extractPublishingCoverArtDirection } from "../services/publishingCoverArtDirection";
+import {
+  COVER_PROMPT_COMPILER_SYSTEM,
+  PUBLISHING_COVER_ART_SUFFIX,
+} from "../services/publishingCoverStoryboardPrompt";
+import { checkPublishingCoverQuality } from "../services/publishingCoverQuality";
 import { storyArtRecipe } from "./_storyShared";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
 import {
@@ -86,6 +92,7 @@ import {
   PublishingVideoStoryboardOperationConflictError,
 } from "../services/publishingVideoStoryboardPersistence";
 import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
+import { publishingArticleLayoutSchema } from "../../shared/publishingArticleVideo";
 import {
   initializePublishingAlbum,
   updatePublishingAlbumPageText,
@@ -1281,6 +1288,7 @@ export const publishingDraftRouter = router({
         storyId: z.number().int().positive(),
         versionId: z.string().trim().min(1).max(64).optional(),
         operationToken: z.string().trim().min(1).max(160).optional(),
+        articleLayout: publishingArticleLayoutSchema.optional(),
         /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
         narrativeSpec: z
           .enum(["video10", "video30", "video50"])
@@ -1295,6 +1303,7 @@ export const publishingDraftRouter = router({
           versionId: input.versionId,
           operationToken: input.operationToken,
           narrativeSpec: input.narrativeSpec,
+          articleLayout: input.articleLayout,
         });
       } catch (error) {
         throwPublishingError(error);
@@ -1914,6 +1923,7 @@ export const publishingDraftRouter = router({
           .optional(),
         basePublishingRevision: z.number().int().nonnegative(),
         referenceAssetId: z.number().int().positive().optional(),
+        outputKind: z.enum(["illustration", "body-texture"]).optional(),
         feedback: z.string().trim().max(2_000).optional(),
         instructions: z
           .array(z.string().trim().min(1).max(2_000))
@@ -1944,8 +1954,8 @@ export const publishingDraftRouter = router({
          * recovers that round instead of buying another one.
          */
         const outstandingPaidReceipt =
-          !input.operationToken &&
-          isRecoverablePublishingCoverGeneration(persistedGeneration)
+          input.operationToken !== persistedGeneration?.operationToken &&
+          (persistedGeneration?.status === "pending" || isRecoverablePublishingCoverGeneration(persistedGeneration))
             ? persistedGeneration
             : null;
         const operationToken =
@@ -1974,6 +1984,7 @@ export const publishingDraftRouter = router({
         const coverProvider = matchingOperation
           ? (persistedGeneration?.provider ?? "midjourney")
           : (input.provider ?? "midjourney");
+        const outputKind = matchingOperation ? persistedGeneration?.outputKind : input.outputKind;
         const estimate =
           coverProvider === "midjourney"
             ? estimatePublishingCoverCost()
@@ -1996,6 +2007,32 @@ export const publishingDraftRouter = router({
           };
         }
 
+        if (matchingOperation && persistedGeneration.status === "completed") {
+          const coverRounds = await loadPublishingCoverRounds({
+            publishing: current.publishing,
+            storyId: input.storyId,
+            userId: ctx.user.id,
+          });
+          const coverRound = coverRounds.find(
+            round => round.id === persistedGeneration.roundId
+          );
+          if (!coverRound) {
+            throw new Error("封面候选已完成但结果轮次不可用");
+          }
+          return {
+            status: "ok" as const,
+            estimate,
+            ...current,
+            coverAsset: await loadPublishingCoverAsset({
+              assetId: current.publishing.cover?.assetId,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+            coverRounds,
+            coverRound,
+          };
+        }
+
         const core = current.publishing.core;
         const draft = current.publishing.drafts[input.platform];
         if (!core || !draft) {
@@ -2012,7 +2049,7 @@ export const publishingDraftRouter = router({
           const belongsToRound = current.publishing.coverRounds.some(round =>
             round.assetIds.includes(referenceAssetId)
           );
-          if (!belongsToRound) {
+          if (!belongsToRound && current.publishing.cover?.assetId !== referenceAssetId) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "选择的候选图不属于当前故事",
@@ -2036,6 +2073,9 @@ export const publishingDraftRouter = router({
               persistedGeneration!.feedback
             )
           : coverInstructions(input.instructions, input.feedback);
+        if (outputKind && !referenceAsset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "请先选择一张当前版本的封面，再生成配图" });
+        }
         const artReference = resuming
           ? (persistedGeneration!.artReference ?? null)
           : (input.artReference ?? null);
@@ -2051,8 +2091,24 @@ export const publishingDraftRouter = router({
           const referenceMoodInstruction = artReference?.mood.length
             ? [`参考图的情绪语言：${artReference.mood.join("、")}`]
             : [];
+          const sourcePrompt = outputKind === "illustration" && referenceAsset
+            ? (await getGeneratedImageById(referenceAsset.id))?.prompt ?? "" : "";
+          const textureColor = outputKind === "body-texture" && referenceAsset
+            ? await readImageAverageColor(referenceAsset.imageUrl) : "";
           prompt = await engineerImagePrompt({
-            prompt: composePublishingCoverContentBrief({
+            prompt: outputKind === "body-texture" ? [
+              "【正文底图任务】只生成3:4平面装饰花纹与材质，不叙事，不绘制主体或具体场景。",
+              `所选封面的参考色为 ${textureColor}，使用这一色系的浅色变化。`,
+              "满幅连续的浅色纸面纹理，自然延伸到画面四周；中央约80%宽度是正文阅读区域，接近干净浅纸色，仅留极淡细纹。外围可有疏淡、不规则的材质变化，但不得围成框线。不要边框、画框、描边、双线、矩形框、装饰角花或内嵌纸张；不要深色晕染或高对比纹路，适合在其上排版深色正文。",
+              "使用上述参考色与用户指定的纹理材质，不绘制人物、动物、物品、构图或叙事内容。",
+              "像素中禁止文字、字符、标题、签名、Logo和水印。正文完全由程序另行排版。",
+            ].join("\n") : outputKind === "illustration" ? [
+              "为下文绘制一幅16:9横版正文插图，按文字选择新的场景和构图，不是封面，不照搬参考图的竖版布局。",
+              draft.content.body,
+              "继承所选封面的配色、笔触与材质：",
+              extractPublishingCoverArtDirection(sourcePrompt) || sourcePrompt.slice(0, 6000),
+              "画面不要文字、标题、字幕、水印；文字由产品另行排版。",
+            ].join("\n") : composePublishingCoverContentBrief({
               facts: core.facts,
               visualConcept: discardPreviousRound ? "" : core.visualConcept,
               thesis: core.thesis,
@@ -2061,46 +2117,23 @@ export const publishingDraftRouter = router({
             storyId: input.storyId,
             projectId: story.projectId ?? undefined,
             emotion: core.emotion,
+            // The selected cover already supplies the style; avoid a second art search.
+            authoredBrief: Boolean(outputKind) && !artReference,
             userInstructions: [...instructions, ...referenceMoodInstruction],
             artDirection: coverArtRecipe(storyArtRecipe(story), artReference),
-            outputPurpose: "publishing-cover",
-            referencePolicy: referenceAssetId
+            outputPurpose: outputKind ? "publishing-album" : "publishing-cover",
+            referencePolicy: outputKind ? "style-only" : referenceAssetId
               ? "preserve-composition"
               : artReference
                 ? "style-only"
                 : "none",
-            fourCandidateExploration: true,
+            fourCandidateExploration: outputKind !== "body-texture",
             discardPreviousRound,
             explorationRound,
           });
         }
         let generation = persistedGeneration;
         if (persistedGeneration?.operationToken === operationToken) {
-          if (persistedGeneration.status === "completed") {
-            const coverRounds = await loadPublishingCoverRounds({
-              publishing: current.publishing,
-              storyId: input.storyId,
-              userId: ctx.user.id,
-            });
-            const coverRound = coverRounds.find(
-              round => round.id === persistedGeneration.roundId
-            );
-            if (!coverRound) {
-              throw new Error("封面候选已完成但结果轮次不可用");
-            }
-            return {
-              status: "ok" as const,
-              estimate,
-              ...current,
-              coverAsset: await loadPublishingCoverAsset({
-                assetId: current.publishing.cover?.assetId,
-                storyId: input.storyId,
-                userId: ctx.user.id,
-              }),
-              coverRounds,
-              coverRound,
-            };
-          }
           if (!resuming) {
             return {
               status: "error" as const,
@@ -2149,6 +2182,7 @@ export const publishingDraftRouter = router({
                 status: "pending",
                 platform: input.platform,
                 provider: coverProvider,
+                ...(outputKind ? { outputKind } : {}),
                 referenceAssetId,
                 feedback: input.feedback?.trim() ?? "",
                 instructions,
@@ -2210,7 +2244,7 @@ export const publishingDraftRouter = router({
         const imageOptions = {
           provider:
             coverProvider === "flux-schnell" ? "gpt-image" : coverProvider,
-          aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+          aspectRatio: generation.outputKind === "illustration" ? "16:9" : PUBLISHING_COVER_PROFILE.aspectRatio,
           fidelity: coverProvider === "gpt-image" ? "draft" : "final",
           mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
           // Exploration rounds run in MJ v7 Draft Mode: same art lineage, about
@@ -2230,7 +2264,9 @@ export const publishingDraftRouter = router({
          */
         let renderPrompt = prompt;
         if (!generation.taskId && coverProvider !== "gpt-image") {
-          const compiled = await invokeAgent(
+          let compiled;
+          try {
+            compiled = await invokeAgent(
             [
               {
                 role: "system",
@@ -2241,16 +2277,45 @@ export const publishingDraftRouter = router({
                   // So the compiler must produce a purely affirmative scene and
                   // never name the thing being avoided; suppression is the
                   // --no parameter's job, not this text's.
-                  "Compile the supplied Chinese art brief into ONE English visual prompt describing a single vertical painted scene. Keep the confirmed story facts: who is present, how they relate, the setting, and what is happening. HIGHEST PRIORITY: the 【用户持续要求】 block is the user's own binding art direction — carry EVERY concrete detail in it through literally (subject gender, age, hair, clothing, season, palette, light, mood), even when compressing. Appearance the source text never states is NOT a story fact; it is the user's to decide, so never soften or drop such a direction on the grounds that it might alter the story — obey it. If a direction says the two people are women, both figures are unambiguously women. Losing one of these details is a failure; sacrifice background description instead. Drop only section headers, policy sentences, and rules — describe what is visibly in the picture. Write purely affirmative description: state what IS there, never what is absent, forbidden or avoided. This is a standalone painting, NOT a cover, poster, magazine, layout or publication — never use those words. Never write the words text, letters, words, writing, title, headline, sign, label, logo, watermark, signature, book, newspaper, screen, or clock, not even to forbid them, and never describe any surface that would carry writing. Do not quote or transliterate source words. Output English only, one paragraph, under 140 words.",
+                  generation.outputKind === "body-texture"
+                    ? "Compile this brief into a short English description of a flat, pale, low-contrast continuous paper texture. This is a material surface, never a scene. Describe only subtle fibers, grain and diffuse organic washes extending uninterrupted to every image edge. The central 80% width is a nearly plain pale paper field with barely perceptible grain. Peripheral variation is irregular and softly diffused, never a frame, border, outline, corner ornament or inset sheet. Translate RGB values into natural color words. User suggestions may change texture and color but must not introduce figures, objects, scenery, symbols or lettering. Output one affirmative paragraph under 100 words."
+                    : COVER_PROMPT_COMPILER_SYSTEM,
               },
               { role: "user", content: prompt },
             ],
-            400
-          );
+              400,
+              undefined,
+              { reasoningEffort: "low", deadlineMs: 45_000, replaySafe: false }
+            );
+            if (!compiled.text.trim()) throw new Error("Empty compiled image prompt");
+          } catch {
+            // No image provider call has happened yet. Release the claim instead
+            // of leaving a phantom pending/uncertain paid image task behind.
+            const failed = await writePublishingDraftState({
+              storyId: input.storyId, userId: ctx.user.id,
+              operation: {
+                type: "update_cover_generation", operationToken, status: "failed",
+                error: "配图准备失败，尚未提交出图，请重试。",
+              },
+            });
+            return {
+              status: "error" as const, error: failed.publishing.coverGeneration!.error!,
+              estimate, ...failed,
+              coverAsset: await loadPublishingCoverAsset({ assetId: failed.publishing.cover?.assetId, storyId: input.storyId, userId: ctx.user.id }),
+              coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
+            };
+          }
           const compiledText = compiled.text.trim();
           if (compiledText) {
-            renderPrompt = `${compiledText} Handcrafted tempera and gouache painting, visible paper grain and brush marks, one continuous vertical scene, quiet empty space near the top, plain unmarked surfaces throughout.`;
+            renderPrompt = generation.outputKind === "body-texture"
+              ? `${compiledText} Continuous edge-to-edge paper surface, nearly plain pale central field, diffuse organic grain.`
+              : `${compiledText} ${PUBLISHING_COVER_ART_SUFFIX}`;
           }
+        }
+        if (generation.outputKind === "body-texture" && coverProvider === "midjourney") {
+          // Keep unwanted subjects out of the positive prompt. The provider merges
+          // these with its existing no-lettering constraint in a single --no flag.
+          renderPrompt += " --no people, animals, objects, scenery, landscape, mountains, buildings, horizon, borders, frames, outlines, boxes, corner ornaments";
         }
         const generated = generation.taskId
           ? coverProvider === "gpt-image"
@@ -2258,7 +2323,7 @@ export const publishingDraftRouter = router({
             : await resume302MidjourneyTask(generation.taskId, imageOptions)
           : coverProvider === "flux-schnell"
             ? await generateDraftImage(renderPrompt, imageOptions)
-            : referenceAsset
+            : referenceAsset && generation.outputKind !== "body-texture"
               ? await editImage(referenceAsset.imageUrl, renderPrompt, {
                   ...imageOptions,
                   requireInputImage: true,
@@ -2329,33 +2394,6 @@ export const publishingDraftRouter = router({
           };
         }
 
-        /**
-         * Pixel QA advises, it never discards. The round is already paid for,
-         * so every candidate reaches the user; risky ones are merely labelled
-         * and the user decides whether a mark is acceptable. QA being down is
-         * likewise not a reason to withhold images the provider delivered.
-         */
-        let flaggedIndexes = new Set<number>();
-        let qualityCheckUnavailable = false;
-        try {
-          const qualityInspection = await inspectStaticImageCandidates({
-            candidates: generatedCandidates,
-          });
-          flaggedIndexes = new Set(
-            qualityInspection.rejected.map(candidate => candidate.originalIndex)
-          );
-        } catch (error) {
-          // Swallowing this made a crashed inspection indistinguishable from a
-          // clean one, so obviously text-covered candidates were presented as
-          // if they had passed. Deliver them anyway — they are paid for — but
-          // say plainly that nothing checked them.
-          qualityCheckUnavailable = true;
-          console.warn(
-            "[publishingDraft] 像素质检不可用，本轮候选未经检查：",
-            error instanceof Error ? error.message : error
-          );
-        }
-
         const images = await Promise.all(
           generatedCandidates.map(candidate =>
             createGeneratedImage({
@@ -2378,6 +2416,7 @@ export const publishingDraftRouter = router({
         const createdAt = Date.now();
         const round: PublishingCoverRound = {
           id: generation.roundId,
+          ...(generation.outputKind ? { outputKind: generation.outputKind } : {}),
           platform: input.platform,
           sourceCoreRevision: core.revision,
           parentAssetId: referenceAsset?.id ?? null,
@@ -2385,17 +2424,7 @@ export const publishingDraftRouter = router({
           instructions: generation.instructions ?? instructions,
           artReference: generation.artReference ?? artReference,
           assetIds: images.map(image => image.id),
-          ...(flaggedIndexes.size > 0
-            ? {
-                qualityFlaggedAssetIds: images
-                  .filter((_image, index) => flaggedIndexes.has(index + 1))
-                  .map(image => image.id),
-                qualityCheckedAt: createdAt,
-              }
-            : {}),
-          ...(qualityCheckUnavailable
-            ? { qualityCheckUnavailable: true, qualityCheckedAt: createdAt }
-            : {}),
+          qualityCheckPendingUntil: createdAt + 90_000,
           createdAt,
         };
         const saved = await writePublishingDraftState({
@@ -2407,6 +2436,14 @@ export const publishingDraftRouter = router({
             round,
           },
         });
+        // Persist and expose every paid image before advisory pixel QA completes.
+        // A failed/restarted worker leaves an expiring, visibly unchecked marker.
+        void checkPublishingCoverQuality({
+          storyId: input.storyId, userId: ctx.user.id, versionId: generation.versionId,
+          roundId: round.id, assets: images.map((image, index) => ({
+            ...generatedCandidates[index]!, id: image.id,
+          })),
+        }).catch(error => console.warn("[publishingDraft] 后台质检结果保存失败", error instanceof Error ? error.message : "unknown"));
         const coverRounds = await loadPublishingCoverRounds({
           publishing: saved.publishing,
           storyId: input.storyId,

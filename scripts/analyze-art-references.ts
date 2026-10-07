@@ -6,6 +6,7 @@ import {
   loadArtRepositoryCatalog,
   resolveArtRepositoryDir,
   sanitizeCuratedArtDna,
+  hasReusableArtDna,
 } from "../server/services/artRepository";
 import { writeArtRepositoryCatalog } from "../server/services/artRepositoryCatalog";
 
@@ -54,10 +55,11 @@ export async function main(argv = process.argv.slice(2)) {
       const result = await analyzeVisionReference({
         imageDataUrl: `data:${mimeType(fileName)};base64,${buffer.toString("base64")}`,
         fileName,
+        purpose: "art-curation",
         brief:
           "这是私有策展库截图。只提取可泛化的美术 DNA；把水印、文字、签名、账号、状态栏和应用界面视为源图污染，不得写入 promptDraft；不要把人物、物体、地点或情节当作需要复制的内容。",
       });
-      asset.dna = sanitizeCuratedArtDna({
+      const dna = sanitizeCuratedArtDna({
         style: result.analysis.visualStyle,
         palette: result.analysis.colorPalette,
         light: result.analysis.lighting ? [result.analysis.lighting] : [],
@@ -66,12 +68,23 @@ export async function main(argv = process.argv.slice(2)) {
           : [],
         material: result.analysis.materialsAndTextures,
         mood: result.analysis.mood,
+        artTags: result.analysis.artTags,
         matchTags: [
           ...result.analysis.visualStyle,
           ...result.analysis.mood,
           result.analysis.eraAndCulture,
         ],
       });
+      // Vision 在结构化解析失败时会返回 confidence=0 的空结果。
+      // 只有留下可复用美术信息时才允许进入运行时匹配。
+      if (
+        !result.configured ||
+        !(result.analysis.confidence > 0) ||
+        !hasReusableArtDna(dna)
+      ) {
+        throw new Error("未提取到可信、可复用的美术信息，保留待分析状态");
+      }
+      asset.dna = dna;
       asset.status = "ready";
       asset.analyzedAt = new Date().toISOString();
       catalog.updatedAt = asset.analyzedAt;

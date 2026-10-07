@@ -48,6 +48,26 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads share snapshots, revocation dates and import receipts from disk", async () => {
+    vi.resetModules();
+    const file = persistPath + ".story-sharing";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const { createStoryContextSnapshot } = await import("../services/storyContextSnapshot");
+    const snapshot = createStoryContextSnapshot({ title: "分享测试", logline: null, theme: null, arc: null, summary: null, body: {} }, { includeConversation: false });
+    const share = { tokenHash: "a".repeat(64), storyId: 7, userId: 8, snapshot, createdAt: "2026-10-02T10:00:00.000Z", revokedAt: "2026-10-02T11:00:00.000Z" };
+    const receipt = { tokenHash: share.tokenHash, userId: 9, storyId: 10 };
+    await writeFile(file, JSON.stringify({ storyContextShares: [share], storyContextShareImports: [receipt] }));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.storyContextShares).toEqual([{ ...share, createdAt: new Date(share.createdAt), revokedAt: new Date(share.revokedAt) }]);
+    expect(runtime.memoryState.storyContextShareImports).toEqual([receipt]);
+    await runtime.persistMemoryState();
+    const saved = JSON.parse(await readFile(file, "utf8"));
+    expect(saved.storyContextShares).toEqual([share]);
+    expect(saved.storyContextShareImports).toEqual([receipt]);
+  });
+
   it.each(["missing", "stale", "ahead"] as const)(
     "loads every legacy collection with %s counters without reusing IDs",
     async mode => {
@@ -80,7 +100,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual(legacyCollections.map(([, collection]) => collection).sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

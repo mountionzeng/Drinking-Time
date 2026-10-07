@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { readMobileReturnPath } from "@/features/auth/mobileReturnPath";
+import { allowedLoginReturnPath } from "@shared/loginReturnPath";
 
 function callbackErrorMessage(error: string) {
   if (error === "invite_required") return "这个 Google 账号还没有拾光内测权限";
@@ -15,7 +17,7 @@ export default function SupabaseAuthCallbackPage() {
     const query = new URLSearchParams(window.location.search);
     const accessToken = fragment.get("access_token");
     const state = query.get("state");
-    const destination = query.get("returnTo") === "/m" ? "/m" : "/";
+    const destination = readMobileReturnPath(window.location.search) ?? "/";
     window.history.replaceState(null, "", window.location.pathname);
 
     if (!accessToken || !state) {
@@ -33,7 +35,7 @@ export default function SupabaseAuthCallbackPage() {
       .then(async response => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error ?? "oauth_failed");
-        window.location.replace(destination);
+        window.location.replace(allowedLoginReturnPath(data.returnTo) ?? destination);
       })
       .catch(error => {
         if (active) setMessage(callbackErrorMessage(String(error.message)));
