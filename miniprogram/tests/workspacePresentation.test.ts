@@ -164,8 +164,9 @@ describe("Story 与 transport 状态", () => {
     const { store, ui } = setup();
     await store.start();
     await store.sendMessage("这一轮会结算");
-    expect(ui().balance.text).toContain("上一次调用 ¥0.12");
-    expect(ui().balance.recentCharges[0]?.text).toContain("-¥0.12");
+    expect(ui().balance.text).toContain("上一次调用 0.24 算力");
+    expect(ui().balance.recentCharges[0]?.text).toContain("-0.24 算力");
+    expect(ui().balance.text).not.toMatch(/[¥￥]|人民币/);
   });
 });
 

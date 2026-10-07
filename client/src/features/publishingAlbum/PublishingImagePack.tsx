@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clipboard, Download, ImagePlus, Loader2, Share2 } from "lucide-react";
 import { toast } from "sonner";
@@ -298,7 +299,7 @@ export function PublishingImagePack({
             <PopoverContent align="end" className="w-80 space-y-3">
               <p className="text-sm font-medium">生成封面</p>
               <textarea aria-label="封面生成要求" value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)} maxLength={1000} rows={3} className={`${control} w-full`} placeholder="想要怎样的画面？留空则根据文章生成" />
-              {onGenerateCover ? <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setCoverSetup(false); void onGenerateCover(coverInstruction); }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button> : null}
+              {onGenerateCover ? <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setCoverSetup(false); void onGenerateCover(coverInstruction); }}>确认生成 4 张 · {illustrationCost == null ? "" : formatComputeQuote(illustrationCost)}</button> : null}
             </PopoverContent>
           </Popover>
           </div>
@@ -328,7 +329,7 @@ export function PublishingImagePack({
                 <p className="text-sm font-medium">生成横版插图 · 16:9</p>
                 {generationCover ? <>
                 <textarea aria-label="插图内容" className={`${control} w-full`} rows={3} value={illustrationInstruction} onChange={event => setIllustrationInstruction(event.target.value)} maxLength={1000} placeholder="想画什么？留空则根据文章内容生成" />
-                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setIllustrationSetup(false); void onGenerateIllustration(generationCover.id, illustrationInstruction); }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setIllustrationSetup(false); void onGenerateIllustration(generationCover.id, illustrationInstruction); }}>确认生成 4 张 · {illustrationCost == null ? "" : formatComputeQuote(illustrationCost)}</button>
                 </> : referenceCoverPicker()}
               </PopoverContent>
             </Popover> : null}
@@ -357,7 +358,7 @@ export function PublishingImagePack({
                 <p className="text-sm font-medium">生成花纹底图 · 3:4</p>
                 {generationCover ? <>
                 <textarea aria-label="底图花纹要求" className={`${control} w-full`} rows={3} value={textureInstruction} onChange={event => setTextureInstruction(event.target.value)} maxLength={1000} placeholder="例如：细腻纸纹、淡淡水彩、稀疏植物纹样" />
-                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setTextureSetup(false); void onGenerateTexture(generationCover.id, textureInstruction); }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setTextureSetup(false); void onGenerateTexture(generationCover.id, textureInstruction); }}>确认生成 4 张 · {illustrationCost == null ? "" : formatComputeQuote(illustrationCost)}</button>
                 </> : referenceCoverPicker()}
               </PopoverContent>
             </Popover> : null}

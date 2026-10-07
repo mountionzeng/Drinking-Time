@@ -214,7 +214,7 @@ describe("assetSwapIntent", () => {
     // 卡片按纯文本渲染，markdown 星号会原样显示给用户。
     expect(text).not.toContain("**");
     expect(text).toContain("「人物 · 版本 2」");
-    expect(text).toContain("¥1.49");
+    expect(text).toContain("2.98 算力");
     expect(text).toContain("确认后才会提交 302");
     // 生成不等于采用：卡上要指向那个明确的采用动作，别让用户以为出图就换好了。
     expect(text).toContain("「用这张」");

@@ -88,9 +88,9 @@ it("shows compute units plus exact RMB cost without rounding micro-yuan charges 
   renderAccount(ctx, 390, 844, state, view, "", "statement");
 
   expect(drawn).toContain("文字生成  -0.000642 算力");
-  expect(drawn).toContain("已入账 · 费用 -¥0.000321（估算）");
+  expect(drawn).toContain("已入账 · 消耗 -0.000642 算力（估算）");
   expect(drawn).toContain("图片生成  -4.00 算力");
-  expect(drawn).toContain("待对账 · 费用 -¥2.00（估算）");
+  expect(drawn).toContain("待对账 · 消耗 -4.00 算力（估算）");
   expect(drawn.indexOf("待处理")).toBeLessThan(drawn.indexOf("历史记录"));
 });
 
@@ -215,7 +215,7 @@ it("shows the one-use desktop login code only after WeChat has issued it", () =>
   expect(drawn).toContain("在电脑上继续");
   expect(drawn).toContain("算力余额");
   expect(drawn).toContain("10.00 算力");
-  expect(drawn).toContain("按模型实际费用扣除：¥1 = 2 算力");
+  expect(drawn).toContain("绑定同一账号后，手机和电脑共用算力");
   expect(drawn).not.toContain("关联邮箱 / 已有账号");
   expect(drawn).toContain("7K9MPQ");
   expect(drawn).toContain("复制电脑登录码");

@@ -10,6 +10,7 @@ import {
   formatCnyBalance,
   formatComputeBalance,
   formatComputeUnits,
+  formatComputeQuote,
   fromYuan,
   parseYuanInput,
   subtractMinor,
@@ -17,6 +18,12 @@ import {
 } from "./computeMoney";
 
 describe("computeMoney", () => {
+  it("quotes and tiny usage show compute only, preserving nonzero precision", () => {
+    expect(formatComputeQuote(0.35)).toBe("0.70 算力");
+    expect(formatComputeQuote(0.000001)).toBe("0.000002 算力");
+    expect(formatComputeQuote(0)).toBe("0.00 算力");
+    expect(formatComputeQuote(1.49)).not.toMatch(/[¥￥]|人民币/);
+  });
   it("以微元为唯一内部单位：1 元 = 1_000_000 微元", () => {
     expect(MINOR_PER_YUAN).toBe(1_000_000);
     expect(fromYuan(30)).toBe(30_000_000);

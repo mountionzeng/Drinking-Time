@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
@@ -1197,7 +1198,7 @@ export default function PublishingDraftWorkspace({
       });
       if (result.status === "confirmation_required") {
         toast.error(
-          `费用预估已变化，请重新确认人民币 ¥${result.estimate.estimatedCny.toFixed(2)}`
+          `费用预估已变化，请重新确认${formatComputeQuote(result.estimate.estimatedCny)}`
         );
         return;
       }
@@ -2446,7 +2447,7 @@ export default function PublishingDraftWorkspace({
                   </DialogDescription>
                 </div>
                 <div className="rounded-full border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-3 py-1.5 text-[10px] text-muted-foreground">
-                  每轮 4 张 · ¥{coverEstimate.estimatedCny.toFixed(2)}
+                  每轮 4 张 · {formatComputeQuote(coverEstimate.estimatedCny)}
                 </div>
               </div>
             </div>
@@ -2782,8 +2783,8 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <RefreshCcw className="h-4 w-4" />
               )}
-              {studioCoverRounds.length > 0 ? "重新生成" : "生成"} 4 张 · ¥
-              {coverEstimate.estimatedCny.toFixed(2)}
+              {studioCoverRounds.length > 0 ? "重新生成" : "生成"} 4 张 ·
+              {formatComputeQuote(coverEstimate.estimatedCny)}
             </ActionButton>
             {canUseCoverFallback ? (
               <ActionButton
@@ -2793,8 +2794,8 @@ export default function PublishingDraftWorkspace({
                 disabled={coverBusy}
               >
                 <Sparkles className="h-4 w-4" />
-                快速生成 1 张 · ¥
-                {coverFallbackEstimate.estimatedCny.toFixed(2)}
+                快速生成 1 张 ·
+                {formatComputeQuote(coverFallbackEstimate.estimatedCny)}
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (
@@ -2808,7 +2809,7 @@ export default function PublishingDraftWorkspace({
                   <Sparkles className="h-4 w-4" />
                 )}
                 修改选中图 · 4 张 ·
-                ¥{coverEstimate.estimatedCny.toFixed(2)}
+                {formatComputeQuote(coverEstimate.estimatedCny)}
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (

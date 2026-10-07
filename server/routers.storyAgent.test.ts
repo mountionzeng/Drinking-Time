@@ -1741,7 +1741,7 @@ describe("storyAgent tRPC router", () => {
     });
     expect(missingConfirmation).toMatchObject({
       status: "error",
-      error: expect.stringContaining("¥0.68"),
+      error: expect.stringContaining("1.36 算力"),
     });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
 
@@ -1754,7 +1754,7 @@ describe("storyAgent tRPC router", () => {
     });
     expect(staleConfirmation).toMatchObject({
       status: "error",
-      error: expect.stringContaining("¥0.68"),
+      error: expect.stringContaining("1.36 算力"),
     });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
 
@@ -1805,7 +1805,7 @@ describe("storyAgent tRPC router", () => {
     });
     expect(missingConfirmation).toMatchObject({
       status: "error",
-      error: expect.stringContaining("¥1.49"),
+      error: expect.stringContaining("2.98 算力"),
     });
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
 

@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * Creation Agent — server-side service for the Creation Engine.
  *
@@ -616,7 +617,7 @@ export async function generateNextImage(
         estimatedCny,
         maxAttempts: 3,
         fingerprint: lockedAssets.fingerprint,
-        message: `锁定资产生成会自动质检，最多尝试 3 次，最坏费用约 ¥${estimatedCny.toFixed(2)}`,
+        message: `锁定资产生成会自动质检，最多尝试 3 次，最坏费用约 ${formatComputeQuote(estimatedCny)}`,
       };
     }
   }

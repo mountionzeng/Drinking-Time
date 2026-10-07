@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import {
@@ -297,7 +298,7 @@ export function ShotImageRenderControl({
         <span>{busy ? "生成中" : "生成4张图"}</span>
       </button>
       <span className="text-[10px] text-muted-foreground">
-        {`MJ · 约 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`}
+        {`MJ · 约 ${formatComputeQuote(quoteShotImages(count).estimatedCny)}`}
         {keys.length === 0 ? " · 不参考素材" : ""}
       </span>
       {error ? (

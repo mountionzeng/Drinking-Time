@@ -47,7 +47,7 @@ describe("EditingTransitionCandidateCard", () => {
     expect(html).toContain("720P");
     expect(html).toContain("Vidu Q2");
     expect(html).not.toContain("credits");
-    expect(html).toContain("¥0.35");
+    expect(html).toContain("0.70 算力");
     expect(html).toContain("确认后才会提交 302");
     expect(html).toContain("确认并生成");
     expect(html).toContain("修改");

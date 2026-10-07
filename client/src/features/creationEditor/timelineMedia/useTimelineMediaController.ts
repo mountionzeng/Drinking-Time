@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 /**
  * The single client entry point for subtitle (U3) and, later, audio (U9)
  * timeline-media commands.
@@ -729,7 +730,7 @@ export function useTimelineMediaController(
               ? `SH${String(quote.context.shotNo).padStart(2, "0")}`
               : `SH${String(quote.context.shotNo).padStart(2, "0")}–SH${String(quote.context.endShotNo).padStart(2, "0")}`;
           const accepted = window.confirm(
-            `将为 ${shotRange} 的 ${startSec.toFixed(1)}–${endSec.toFixed(1)} 秒生成${kindLabel}。\n\n情绪依据：${quote.context.emotionSummary}\n模型：${quote.provider} / ${quote.model}\n预计最高 ¥${quote.estimatedCny.toFixed(2)}。确认提交 302？`
+            `将为 ${shotRange} 的 ${startSec.toFixed(1)}–${endSec.toFixed(1)} 秒生成${kindLabel}。\n\n情绪依据：${quote.context.emotionSummary}\n模型：${quote.provider} / ${quote.model}\n预计最高 ${formatComputeQuote(quote.estimatedCny)}。确认提交 302？`
           );
           if (!accepted) return false;
           const operationRef = operation();
@@ -819,7 +820,7 @@ export function useTimelineMediaController(
           });
           if (sessionKeyRef.current !== commandSessionKey) return false;
           const accepted = window.confirm(
-            `将按当前字幕生成一份旁白候选，预计最高 ¥${quote.estimatedCny.toFixed(2)}。候选不会自动替换时间线，是否继续？`
+            `将按当前字幕生成一份旁白候选，预计最高 ${formatComputeQuote(quote.estimatedCny)}。候选不会自动替换时间线，是否继续？`
           );
           if (!accepted) return false;
           const result = await generateNarrationMut.mutateAsync({

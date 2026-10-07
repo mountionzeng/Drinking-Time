@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { GripVertical, Loader2, Volume2 } from "lucide-react";
 import {
   useEffect,
@@ -119,24 +120,24 @@ export function StoryboardCostCell({
           ? "color-mix(in srgb, var(--nayin-glow) 46%, transparent)"
           : "transparent",
       }}
-      aria-label={`预计费用：图片 ¥${estimate.imageCny.toFixed(2)}，视频 ¥${estimate.videoCny.toFixed(2)}，合计 ¥${estimate.totalCny.toFixed(2)}`}
+      aria-label={`预计费用：图片 ${formatComputeQuote(estimate.imageCny)}，视频 ${formatComputeQuote(estimate.videoCny)}，合计 ${formatComputeQuote(estimate.totalCny)}`}
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[8px] text-muted-foreground">
           图片 · {estimate.imageCandidateCount} 张
         </span>
         <span className="text-[9px] font-medium tabular-nums text-foreground">
-          ¥{estimate.imageCny.toFixed(2)}
+          {formatComputeQuote(estimate.imageCny)}
         </span>
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
         <span className="text-[8px] text-muted-foreground">视频</span>
         <span className="text-[9px] font-medium tabular-nums text-foreground">
-          ¥{estimate.videoCny.toFixed(2)}
+          {formatComputeQuote(estimate.videoCny)}
         </span>
       </div>
       <div className="mt-1 border-t border-border/45 pt-1 text-right text-[10px] font-semibold tabular-nums text-[var(--nayin-accent)]">
-        合计 ¥{estimate.totalCny.toFixed(2)}
+        合计 {formatComputeQuote(estimate.totalCny)}
       </div>
     </div>
   );

@@ -77,7 +77,7 @@ describe("creationAgent.generateShotVideo cost confirmation", () => {
 
     expect(result).toEqual({
       status: "error",
-      error: "费用预估已变化，请重新确认预计 ¥0.88",
+      error: "费用预估已变化，请重新确认预计 1.76 算力",
     });
   });
 });

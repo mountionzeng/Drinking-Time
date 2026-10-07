@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * Paid scene-audio generation for music, ambience and sound effects.
  *
@@ -640,7 +641,7 @@ export async function generateStorySceneAudio(input: {
   if (reservation.outcome === "insufficient_balance") {
     return {
       status: "error",
-      message: `算力余额不足，需要 ¥${toYuan(reservation.requiredMinor).toFixed(2)}`,
+      message: `算力余额不足，需要 ${formatComputeQuote(toYuan(reservation.requiredMinor))}`,
     };
   }
   if (reservation.outcome === "no_trusted_max_cost") {

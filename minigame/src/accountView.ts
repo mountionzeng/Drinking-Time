@@ -1,7 +1,6 @@
 import type { AccountWorkspaceState } from "./accountWorkspace";
 import type { WorkspaceView, Hit } from "./workspaceView";
 import {
-  formatCny,
   formatComputeBalance,
   formatComputeUnits,
 } from "../../shared/computeMoney";
@@ -86,7 +85,7 @@ export function renderAccount(
       24,
       view.accent
     );
-    para("按模型实际费用扣除：¥1 = 2 算力", 13, muted);
+    para("绑定同一账号后，手机和电脑共用算力", 13, muted);
     if (state.balance?.reservedMinor)
       para(`生成中占用 ${formatComputeUnits(state.balance.reservedMinor)}`, 13, muted);
     if (state.balance && state.balance.availableMinor < 0)
@@ -171,7 +170,7 @@ export function renderAccount(
           const amount = `${minor > 0 ? "+" : ""}${formatComputeUnits(minor)}`;
           para(`${item.label}  ${amount}`, 16);
           para(
-            `${statusLabel[item.status]} · 费用 ${formatCny(minor)}${item.estimated ? "（估算）" : ""}`,
+            `${statusLabel[item.status]} · 消耗 ${formatComputeUnits(minor)}${item.estimated ? "（估算）" : ""}`,
             12,
             item.status === "reconciliation" || item.status === "exception"
               ? "#9b493e"

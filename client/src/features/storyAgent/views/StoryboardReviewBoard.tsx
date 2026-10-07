@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
 import { useShotImageRender } from "./useShotImageRender";
 import { ShotImageRenderControl, loadShotRenderSettings } from "./ShotImageRenderControl";
@@ -2853,8 +2854,8 @@ export function StoryboardReviewBoard({
           options.skipCostConfirmation ||
           window.confirm(
             usesLocalTransform
-              ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+              ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
           );
         if (!confirmed) {
           toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -2915,8 +2916,8 @@ export function StoryboardReviewBoard({
         options.skipCostConfirmation ||
         window.confirm(
           plan.renderDecision.strategy === "local-transform"
-            ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+            ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计${formatComputeQuote(plan.estimatedCny)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
         );
       if (!confirmed) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -3004,7 +3005,7 @@ export function StoryboardReviewBoard({
         : `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成四图候选，并按固定规则采用左上候选作为当前主图，再生成视频。`
       : "";
     const confirmed = window.confirm(
-      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ¥${plan.estimatedCny.toFixed(2)}；新资产会保留旧版本。确认一键生成？`
+      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(plan.estimatedCny)}；新资产会保留旧版本。确认一键生成？`
     );
     if (!confirmed) {
       toast.info("已取消一键生成，未产生费用");
@@ -5300,7 +5301,7 @@ export function StoryboardReviewBoard({
                                     aria-label={`按视频要求渲染 ${shotLabel} 视频`}
                                     title={
                                       matrixVideoBlockReason ??
-                                      "先保存本镜文字并确认人民币费用，再生成候选 Take"
+                                      "先保存本镜文字并确认算力消耗，再生成候选 Take"
                                     }
                                   >
                                     {continuityCheckingByShot[shot.shotNo] ===

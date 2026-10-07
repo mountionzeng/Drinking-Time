@@ -302,6 +302,7 @@ export async function grantCredit(input: {
   userId: number;
   amountMinor: number;
   idempotencyKey: string;
+  oncePerAccountPrefix?: string;
   giftCardId?: number | null;
   reason?: string | null;
   /** 领卡同时开通工作台 */
@@ -315,6 +316,7 @@ export async function grantCredit(input: {
     entryType: "gift",
     amountMinor: input.amountMinor,
     idempotencyKey: input.idempotencyKey,
+    oncePerAccountPrefix: input.oncePerAccountPrefix,
     giftCardId: input.giftCardId ?? null,
     reason: input.reason ?? null,
     enableAccess: input.enableAccess,

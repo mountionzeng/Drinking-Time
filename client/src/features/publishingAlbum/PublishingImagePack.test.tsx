@@ -64,7 +64,7 @@ describe("article image pack entry", () => {
       onGenerateIllustration={vi.fn()} onGenerateTexture={vi.fn()} illustrationCost={0.34} />);
     for (const name of ["生成插图", "生成底图"]) {
       const panel = renderToStaticMarkup(<>{generationPanels.get(name)}</>);
-      expect(panel).toContain("确认生成 4 张 · ¥0.34");
+      expect(panel).toContain("确认生成 4 张 · 0.68 算力");
       expect(panel).not.toContain("选择参考封面");
       expect(panel).not.toContain('disabled=""');
     }

@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * Paid narration workflow for formal Timeline subtitles (U5).
  *
@@ -508,7 +509,7 @@ export async function generateStoryNarrationCandidate(input: {
   if (reservation.outcome === "insufficient_balance") {
     return {
       status: "error",
-      message: `算力余额不足，需要 ¥${toYuan(reservation.requiredMinor).toFixed(2)}`,
+      message: `算力余额不足，需要 ${formatComputeQuote(toYuan(reservation.requiredMinor))}`,
     };
   }
   if (reservation.outcome === "no_trusted_max_cost") {

@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -638,7 +639,7 @@ export async function startEndShotVideoJob(
   if (Math.abs(input.confirmedEstimatedCny - estimate.estimatedCny) > 0.001) {
     return {
       status: "error",
-      error: `费用预估已变化，请重新确认预计 ¥${estimate.estimatedCny.toFixed(2)}`,
+      error: `费用预估已变化，请重新确认预计 ${formatComputeQuote(estimate.estimatedCny)}`,
       estimate,
     };
   }

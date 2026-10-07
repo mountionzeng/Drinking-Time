@@ -37,7 +37,7 @@ describe("shot render control", () => {
     expect(html).toContain('aria-label="02 生成4张图"');
     expect(html).toContain("生成4张图");
     expect(html).not.toContain("参考素材出 1 张");
-    expect(html).toContain("MJ · 约 ¥0.68");
+    expect(html).toContain("MJ · 约 1.36 算力");
     expect(html).not.toContain("MJ 每次 4 张");
   });
   it("removal creates an explicit empty list and replacement keeps one pet", () => {

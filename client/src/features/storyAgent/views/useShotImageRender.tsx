@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { toast } from "sonner";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
@@ -115,7 +116,7 @@ export function useShotImageRender(
     const quote = isGptRevision ? estimateStoryboardMaskedEditCost() : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
     const estimatedCny = quote.estimatedCny;
     const confirmed = (!isRevision && input.skipCostConfirmation) || await confirmImageCost(
-      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ¥${estimatedCny.toFixed(2)}，最终以服务商实际扣费为准。`
+      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny)}，最终以服务商实际扣费为准。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };

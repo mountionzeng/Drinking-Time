@@ -97,7 +97,7 @@ describe("VisualAssetLibrary", () => {
     expect(message).toContain("分 5 次");
     expect(message).toContain("补充顶视图");
     expect(message).toContain("艺术推演");
-    expect(message).toContain("¥7.45");
+    expect(message).toContain("14.90 算力");
   });
   it("describes all four paid character views before confirmation", () => {
     const message = visualAssetBoardConfirmationMessage("character", {
@@ -110,7 +110,7 @@ describe("VisualAssetLibrary", () => {
     expect(message).toContain("正面全身");
     expect(message).toContain("严格 90° 侧面全身");
     expect(message).toContain("背面全身");
-    expect(message).toContain("¥5.96");
+    expect(message).toContain("11.92 算力");
   });
 
   it("makes the standard board and individual views available for large preview", () => {
