@@ -79,6 +79,8 @@ pnpm env:check
 
 `pnpm test:mysql-integration` 必须使用一次性 `TEST_MYSQL_DATABASE_URL`。没有该变量时命令会失败关闭并拒绝执行；这只说明“未执行”，不能算生产发布通过。
 
+测试凭据只允许访问 `drinking_time_test_` 前缀的数据库，禁止使用 root 或正式业务账号；执行前用该账号确认正式库查询被拒绝。测试配置屏蔽继承的 `DATABASE_URL`，测试替身须覆盖 repository runtime 的连接入口。生产机器上不得并行运行集成测试与前端构建；内存不足时在本机构建并校验上传包，避免影响 MySQL。
+
 ## 2. 生产迁移基线只读预检
 
 在任何 schema 变更前，先备份，再只读比较：

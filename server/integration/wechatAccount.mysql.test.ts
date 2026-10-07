@@ -3,6 +3,10 @@ import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { withMysqlTestDatabase } from './mysqlTestHarness';
 const access = vi.hoisted(() => ({ getDb: vi.fn() }));
+vi.mock('../repositories/runtime', async importOriginal => ({
+  ...(await importOriginal<typeof import('../repositories/runtime')>()),
+  getDb: access.getDb,
+}));
 vi.mock('../db', async importOriginal => ({
   ...(await importOriginal<typeof import('../db')>()),
   getDb: access.getDb,

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T01:15:00.000Z",
+  "updatedAt": "2026-10-07T02:00:00.000Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -37,7 +37,8 @@
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "docs/qa/2026-10-02-story-context-sharing.md",
         "docs/qa/2026-10-03-editor-ui-simplification.md",
-        "docs/qa/2026-10-03-editor-button-audit.md"
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "docs/qa/2026-10-07-web-release.md"
       ],
       "invariants": [
         "收件人的新故事属于收件人，原作者的故事和归属不变。",
@@ -56,10 +57,9 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "2026-10-03只读复核：正式网站健康/就绪，但仍为19b832a（2026-09-30），storyContextShare.read返回接口不存在；生产26个迁移哈希/时间戳与本地一致，缺少0026及两张分享表。localhost链接和本地快照不能供外部设备使用，部署不会自动同步本机故事。",
         "本机固定开发游客账号限制真实双账号浏览器承接；归属隔离、承接保存和幂等已通过隔离接口测试，公网正式账号与真实模型改写仍待验收。",
-        "真实 MySQL 迁移与事务集成未执行；新增 0026 迁移通过基线校验，部署时需先迁移。",
-        "首版提供链接，不含二维码、自动过期或原始媒体复制。"
+        "首版提供链接，不含二维码、自动过期或原始媒体复制。",
+        "2026-10-07正式库0026及网页版本已发布；本机故事与图片未导入线上，真实双账号分享承接仍待验收。"
       ],
       "history": [
         {
@@ -101,6 +101,11 @@
           "date": "2026-10-07",
           "kind": "verification",
           "summary": "发布前只读核对生产：已有26项迁移的SHA-256和时间戳与本地完全一致，仅缺0026及两张分享表；正式服务ready，4个用户、1个故事。迁移待明确授权，未修改生产数据库或导入本地故事。"
+        },
+        {
+          "date": "2026-10-07",
+          "kind": "verification",
+          "summary": "用户明确批准后备份并执行正式库0026，27项迁移完整，新增两张utf8mb4分享表；原有表结构、4个用户和1个故事不变。58项真实MySQL集成测试全通过，新网页部署后healthz/readyz/login/editing及主JS公网200，浏览器登录页可见。真实账号分享承接仍待验证。"
         }
       ]
     },
@@ -4125,6 +4130,11 @@
           "date": "2026-09-17",
           "kind": "fix",
           "summary": "修复跨分支合并后验证码邮件标题回退为旧品牌的问题，登录与关联邮件重新统一显示“拾光”；服务专项测试通过。"
+        },
+        {
+          "date": "2026-10-07",
+          "kind": "fix",
+          "summary": "发布实库验收修复测试隔离：微信与邮箱关联测试同时隔离db及repository runtime入口，MySQL测试屏蔽应用DATABASE_URL，使用只可访问临时库的凭据。旧空账号关联场景显式构造赠送前的账号；真实微信登录HTTP场景验证注册赠送后拒绝跨账号转移，保留现有不合并资产规则。业务实现未变更。"
         }
       ]
     },
