@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { z } from "zod";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
@@ -1825,7 +1826,7 @@ export const storyAgentRouter = router({
           if (!input.costConfirmation?.accepted) {
             return {
               status: "error" as const,
-              error: `请先确认预计人民币 ¥${estimate.estimatedCny.toFixed(2)}`,
+              error: `请先确认预计算力 ${formatComputeQuote(estimate.estimatedCny)}`,
             };
           }
           if (
@@ -1835,7 +1836,7 @@ export const storyAgentRouter = router({
           ) {
             return {
               status: "error" as const,
-              error: `费用预估已变化，请重新确认预计人民币 ¥${estimate.estimatedCny.toFixed(2)}`,
+              error: `费用预估已变化，请重新确认预计算力 ${formatComputeQuote(estimate.estimatedCny)}`,
             };
           }
         }

@@ -1521,7 +1521,7 @@ export default function StoryAgentChat({
                           }`}
                     </button>
                     <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                      点击后先核对参考帧和预计人民币费用；确认后才提交，旧候选会保留。
+                      点击后先核对参考帧和预计算力消耗；确认后才提交，旧候选会保留。
                     </p>
                     {rerenderResultByMessageId[m.id] ? (
                       <p

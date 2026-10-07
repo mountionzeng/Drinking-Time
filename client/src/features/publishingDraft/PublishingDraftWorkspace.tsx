@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
@@ -1093,7 +1094,7 @@ export default function PublishingDraftWorkspace({
       });
       if (result.status === "confirmation_required") {
         toast.error(
-          `费用预估已变化，请重新确认人民币 ¥${result.estimate.estimatedCny.toFixed(2)}`
+          `费用预估已变化，请重新确认${formatComputeQuote(result.estimate.estimatedCny)}`
         );
         return;
       }
@@ -2307,7 +2308,7 @@ export default function PublishingDraftWorkspace({
                   </DialogDescription>
                 </div>
                 <div className="rounded-full border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-3 py-1.5 text-[10px] text-muted-foreground">
-                  新一轮 ¥{coverEstimate.estimatedCny.toFixed(2)} · 含像素质检 ·
+                  新一轮 {formatComputeQuote(coverEstimate.estimatedCny)} · 含像素质检 ·
                   选择与采用免费
                 </div>
               </div>
@@ -2658,8 +2659,8 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <RefreshCcw className="h-4 w-4" />
               )}
-              {coverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 · ¥
-              {coverEstimate.estimatedCny.toFixed(2)}
+              {coverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 ·
+              {formatComputeQuote(coverEstimate.estimatedCny)}
             </ActionButton>
             {canUseCoverFallback ? (
               <ActionButton
@@ -2669,8 +2670,8 @@ export default function PublishingDraftWorkspace({
                 disabled={coverBusy}
               >
                 <Sparkles className="h-4 w-4" />
-                极速备用通道生成 1 张 · ¥
-                {coverFallbackEstimate.estimatedCny.toFixed(2)}
+                极速备用通道生成 1 张 ·
+                {formatComputeQuote(coverFallbackEstimate.estimatedCny)}
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (
@@ -2684,7 +2685,7 @@ export default function PublishingDraftWorkspace({
                   <Sparkles className="h-4 w-4" />
                 )}
                 {coverFeedback.trim() ? "按意见修改这张" : "基于这张再出 4 张"}·
-                ¥{coverEstimate.estimatedCny.toFixed(2)}
+                {formatComputeQuote(coverEstimate.estimatedCny)}
               </ActionButton>
             ) : (
               <ActionButton onClick={() => {}} disabled>

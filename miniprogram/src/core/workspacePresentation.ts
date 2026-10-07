@@ -71,8 +71,8 @@ export type PresentedWorkspace = {
   };
 };
 
-const YUAN = (minor: number, minorPerMajor = 1_000_000): string =>
-  (minor / minorPerMajor).toFixed(2);
+const COMPUTE = (minor: number, minorPerMajor = 1_000_000): string =>
+  `${(minor * 2 / minorPerMajor).toFixed(6).replace(/0{1,4}$/, "")} 算力`;
 
 function chatUi(snapshot: WorkspaceSnapshot): PresentedWorkspace["chat"] {
   const pending = snapshot.turns.some(
@@ -233,13 +233,13 @@ export function presentWorkspace(
       text:
         snapshot.balance === null
           ? "余额未知"
-          : `${snapshot.balance.demo ? "演示余额" : "可用余额"} ¥${YUAN(
+          : `${snapshot.balance.demo ? "演示余额" : "可用余额"} ${COMPUTE(
               snapshot.balance.availableMinor,
               snapshot.balance.minorPerMajor,
             )}${
               snapshot.balance.lastSettledCostMinor === null
                 ? ""
-                : `　上一次调用 ¥${YUAN(
+                : `　上一次调用 ${COMPUTE(
                     snapshot.balance.lastSettledCostMinor,
                     snapshot.balance.minorPerMajor,
                   )}`
@@ -251,7 +251,7 @@ export function presentWorkspace(
         : null,
       recentCharges: (snapshot.balance?.recentSettledCharges ?? []).map(charge => ({
         id: charge.ledgerEntryId,
-        text: `${charge.label}　-¥${YUAN(
+        text: `${charge.label}　-${COMPUTE(
           charge.amountMinor,
           charge.minorPerMajor,
         )}`,

@@ -83,14 +83,14 @@ function ComputeBalanceBadgeInner({
       className={cn("inline-flex flex-col gap-0.5", className)}
       aria-label={
         balance.localUnlimited
-          ? `本机开发不限额，累计成本 ${balance.localCostText}`
+          ? `本机开发不限额，累计使用 ${balance.localCostText}`
           : `可用余额 ${balance.text}`
       }
     >
       <span
         className={cn(
           "compute-balance-badge inline-flex items-center gap-1.5 font-mono text-sm tabular-nums",
-          balance.negative
+          !balance.localUnlimited && balance.negative
             ? "text-destructive"
             : balance.depleted
               ? "text-amber-700"
@@ -111,7 +111,7 @@ function ComputeBalanceBadgeInner({
 
       {balance.localUnlimited ? (
         <span className="text-[10px] leading-4 text-muted-foreground">
-          本机累计成本 {balance.localCostText}（仅已接入账本的调用）
+          本机累计使用 {balance.localCostText}（仅已接入账本的调用）
         </span>
       ) : balance.negative ? (
         <span className="text-[10px] leading-4 text-destructive">

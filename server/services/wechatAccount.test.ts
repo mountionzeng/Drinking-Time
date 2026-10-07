@@ -35,7 +35,8 @@ it('defines one opaque, stable 10-compute-unit gift for an app-scoped WeChat ide
     userId: 23,
     amountMinor: 5_000_000,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
-    reason: '微信账号首次注册赠送 10 算力（¥5 额度）',
+    oncePerAccountPrefix: 'wechat-registration-gift:',
+    reason: '账号首次登录赠送 10 算力',
     enableAccess: true,
   });
   expect(wechatRegistrationGiftIdempotencyKey(subject)).not.toContain('sensitive-openid');

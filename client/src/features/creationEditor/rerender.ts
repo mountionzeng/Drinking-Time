@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import type { ShotRenderReferences } from "@shared/shotImageRender";
 import type { CreationEditorShot } from "./types";
 import { compilePromptRecipe } from "./promptTable/promptRecipe";
@@ -203,7 +204,7 @@ export async function rerenderShotImageCandidates(params: {
       0.001
   ) {
     throw new Error(
-      `费用预估已变化，请重新确认预计人民币 ¥${estimate.estimatedCny.toFixed(2)}`
+      `费用预估已变化，请重新确认预计${formatComputeQuote(estimate.estimatedCny)}`
     );
   }
 

@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { toast } from "sonner";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
@@ -104,7 +105,7 @@ export function useShotImageRender(
     const rows = buildPromptTable(shot, { previousShots: input.previousShots });
     const quote = quoteShotImages(settings.count);
     const confirmed = await confirmImageCost(
-      `${label} · MJ 渲染（希望 ${settings.count} 张）\nMJ 每次返回 4 张候选，本次提交 ${quote.taskCount} 次，预计得到 ${quote.candidateCount} 张，所有候选都会保留。\n参考素材：${names.join("、") || "无"}\n\n${instruction}\n\n预计总费用 ¥${quote.estimatedCny.toFixed(2)}（每次任务约 ¥${quote.taskCny.toFixed(2)}，最终以服务商实际扣费为准）。中途失败即停止，已完成的图片保留。`
+      `${label} · MJ 渲染（希望 ${settings.count} 张）\nMJ 每次返回 4 张候选，本次提交 ${quote.taskCount} 次，预计得到 ${quote.candidateCount} 张，所有候选都会保留。\n参考素材：${names.join("、") || "无"}\n\n${instruction}\n\n预计总费用 ${formatComputeQuote(quote.estimatedCny)}（每次任务约 ${formatComputeQuote(quote.taskCny)}，最终以服务商实际扣费为准）。中途失败即停止，已完成的图片保留。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };

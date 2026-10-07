@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import {
   VISUAL_ASSET_KINDS,
   type ShotVisualAssetBinding,
@@ -217,7 +218,7 @@ export function describeAssetSwapProposal(proposal: AssetSwapProposal): string {
   }
   lines.push(
     `资产的固定造型不会被改动；要改造型本身（比如换服装、换发型），得去资产面板改固定事实，那会让所有已绑镜头重出。`,
-    `预计人民币 ¥${proposal.estimatedCny.toFixed(2)}；确认后才会提交 302 并产生费用。新候选先进素材仓库，点结果上的「用这张」才会替换这一镜的当前画面。`
+    `预计${formatComputeQuote(proposal.estimatedCny)}；确认后才会提交 302 并产生费用。新候选先进素材仓库，点结果上的「用这张」才会替换这一镜的当前画面。`
   );
   return lines.join("\n");
 }

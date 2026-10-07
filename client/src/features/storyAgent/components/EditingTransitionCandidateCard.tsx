@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import {
   ArrowRight,
   Check,
@@ -61,7 +62,7 @@ function formatDuration(seconds: number): string {
 }
 
 function formatCny(value: number): string {
-  return value.toFixed(value < 1 ? 2 : 1);
+  return formatComputeQuote(value);
 }
 
 function ActionButton({
@@ -110,7 +111,7 @@ function StatusNotice({
       >
         <CircleDollarSign className="mt-0.5 h-3 w-3 shrink-0 text-nayin-bright" />
         <span>
-          预计 ¥{formatCny(candidate.estimatedCny)}；确认后才会提交 302
+          预计 {formatCny(candidate.estimatedCny)}；确认后才会提交 302
           并产生费用。
         </span>
       </div>

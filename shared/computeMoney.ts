@@ -11,6 +11,11 @@
 export const MINOR_PER_YUAN = 1_000_000;
 export const COMPUTE_UNITS_PER_YUAN = 2;
 
+/** Quotes use provider currency internally; user-facing values use compute units. */
+export function formatComputeQuote(yuan: number): string {
+  return formatComputeUnits(ceilYuanToMinor(yuan));
+}
+
 /** 金额必须是安全整数；负数合法（账本里消费是负数）。 */
 export function assertMinorAmount(value: number): number {
   if (!Number.isSafeInteger(value)) {

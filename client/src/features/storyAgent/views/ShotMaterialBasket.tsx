@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import {
   useEffect,
   useMemo,
@@ -457,7 +458,7 @@ export default function ShotMaterialBasket({
     );
     const estimate = estimateShotVideoCost({ durationSec, motion });
     const confirmed = window.confirm(
-      `预计费用 ¥${estimate.estimatedCny.toFixed(2)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
+      `预计费用 ${formatComputeQuote(estimate.estimatedCny)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
     );
     if (!confirmed) return;
     try {
@@ -980,7 +981,7 @@ export default function ShotMaterialBasket({
                     : workflowStep === "apply"
                       ? "确认后把导演方案写入当前镜头"
                       : workflowStep === "generate"
-                        ? "确认人民币费用后提交视频生成"
+                        ? "确认算力消耗后提交视频生成"
                         : "刷新当前视频任务状态"
               }
               onClick={() => void advanceVideoWorkflow()}
@@ -1029,7 +1030,7 @@ export default function ShotMaterialBasket({
           </div>
           <div className="min-w-0">
             <p className="text-[9px] font-semibold text-foreground">
-              预计人民币 ¥{startEndEstimate.estimatedCny.toFixed(2)}
+              预计{formatComputeQuote(startEndEstimate.estimatedCny)}
             </p>
             <p className="mt-0.5 truncate text-[8px] text-muted-foreground">
               {startEndEstimate.durationSec}s · {startEndEstimate.resolution} ·

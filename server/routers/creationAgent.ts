@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 import path from "node:path";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { z } from "zod";
@@ -1210,7 +1211,7 @@ export const creationAgentRouter = router({
       ) {
         return {
           status: "error" as const,
-          error: `费用预估已变化，请重新确认预计 ¥${estimate.estimatedCny.toFixed(2)}`,
+          error: `费用预估已变化，请重新确认预计 ${formatComputeQuote(estimate.estimatedCny)}`,
         };
       }
       const result = await startShotVideoJob(

@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { ImageSubtitleOverlay } from "./ImageSubtitleOverlay";
 import { Check, Crosshair, Loader2, Pencil, Video } from "lucide-react";
 import {
@@ -629,7 +630,7 @@ export default function ShotPreview({
           0.001
       ) {
         throw new Error(
-          `费用已变化为 ¥${quoted.quote.estimatedCny.toFixed(2)}，请核对后重新确认`
+          `费用已变化为 ${formatComputeQuote(quoted.quote.estimatedCny)}，请核对后重新确认`
         );
       }
       providerSubmissionStarted = true;
@@ -1205,8 +1206,8 @@ export default function ShotPreview({
                     />
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[9px] text-white/60">
-                        仅透明蒙版内可修改，预计 ¥
-                        {maskedEstimate.estimatedCny.toFixed(2)}
+                        仅透明蒙版内可修改，预计
+                        {formatComputeQuote(maskedEstimate.estimatedCny)}
                       </span>
                       <button
                         type="button"

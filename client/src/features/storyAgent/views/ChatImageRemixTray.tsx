@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { Images, Loader2, Sparkles, X } from "lucide-react";
 import { chatImageRefRole } from "../chatImageRefs";
 import type { ChatImageRemixController } from "../useChatImageRemix";
@@ -88,7 +89,7 @@ export default function ChatImageRemixTray({
             {draft.instruction}
           </p>
           <p className="mt-1 text-[9.5px] text-muted-foreground">
-            预计人民币 ¥{draft.estimatedCny.toFixed(2)}；确认后才会提交 302
+            预计{formatComputeQuote(draft.estimatedCny)}；确认后才会提交 302
             并产生费用。新图先进素材仓库，拖到时间轴或镜头设计表才算采用。
           </p>
           <div className="mt-1.5 flex gap-1.5">

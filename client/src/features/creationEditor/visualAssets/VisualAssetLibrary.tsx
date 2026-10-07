@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -97,8 +98,8 @@ export function visualAssetBoardConfirmationMessage(
   quote: { candidateCount: number; estimatedCny: number }
 ): string {
   return kind === "character" || kind === "pet"
-    ? `分 ${quote.candidateCount} 次生成正面头部特写、正面全身、严格 90° 侧面全身和背面全身${kind === "pet" && quote.candidateCount === 5 ? "，另加一张补充顶视图（艺术推演、待核对）" : ""}，再由服务端合成${kind === "pet" ? "宠物" : "人物"}标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
-    : `分 ${quote.candidateCount} 次生成 ${quote.candidateCount} 个标准视角，再由服务端合成标准板，预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`;
+    ? `分 ${quote.candidateCount} 次生成正面头部特写、正面全身、严格 90° 侧面全身和背面全身${kind === "pet" && quote.candidateCount === 5 ? "，另加一张补充顶视图（艺术推演、待核对）" : ""}，再由服务端合成${kind === "pet" ? "宠物" : "人物"}标准板，预计最高 ${formatComputeQuote(quote.estimatedCny)}。是否继续？`
+    : `分 ${quote.candidateCount} 次生成 ${quote.candidateCount} 个标准视角，再由服务端合成标准板，预计最高 ${formatComputeQuote(quote.estimatedCny)}。是否继续？`;
 }
 
 function operationToken(prefix: string): string {
@@ -541,7 +542,7 @@ export default function VisualAssetLibrary({
         [operationKey]: viewToken,
       }));
       const confirmed = await confirmGeneration(version.id,
-        `只生成「${VIEW_ROLE_LABEL[view.role]}」这一张，其余已付费视角直接复用。${asset.kind === "pet" && view.role === "top" ? "顶视是艺术推演，生成后仍需核对。" : ""}预计最高 ¥${quote.estimatedCny.toFixed(2)}。是否继续？`
+        `只生成「${VIEW_ROLE_LABEL[view.role]}」这一张，其余已付费视角直接复用。${asset.kind === "pet" && view.role === "top" ? "顶视是艺术推演，生成后仍需核对。" : ""}预计最高 ${formatComputeQuote(quote.estimatedCny)}。是否继续？`
       );
       if (!confirmed) return;
       const result = await regenerateViewMutation.mutateAsync({

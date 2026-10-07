@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Download, ImagePlus, Loader2, Type } from "lucide-react";
 import { toast } from "sonner";
@@ -276,7 +277,7 @@ export function PublishingAlbumWorkspace({
                 <textarea value={feedback} onChange={event => setFeedback(event.target.value)} maxLength={2_000} rows={2} placeholder="可选：这一页希望更安静、留白靠左……" className="mt-2 w-full rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs" />
                 {quote ? (
                   <div className="mt-2 rounded-lg border border-[var(--nayin-accent)] p-3 text-xs">
-                    本次会生成 {quote.candidateCount} 张候选，预计 ¥{quote.estimatedCny.toFixed(2)}。候选不会自动采用。
+                    本次会生成 {quote.candidateCount} 张候选，预计 {formatComputeQuote(quote.estimatedCny)}。候选不会自动采用。
                     <div className="mt-2 flex gap-2">
                       <button type="button" onClick={() => setQuote(null)} className="rounded px-2 py-1">取消</button>
                       <button type="button" onClick={() => void confirmGeneration()} className="rounded bg-[var(--nayin-accent)] px-2 py-1 text-[var(--background)]">确认付费生成</button>

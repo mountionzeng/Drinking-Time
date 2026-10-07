@@ -233,11 +233,11 @@ export function wechatRegistrationGiftIdempotencyKey(subject: string) {
 }
 
 /**
- * Every app-scoped WeChat identity receives one fixed registration gift.
+ * Each canonical account receives one registration gift, across linked identities.
  *
  * This deliberately also repairs an older WeChat account on its next login. The
- * stable identity-derived key makes retries and concurrent first logins converge
- * on one ledger entry instead of directly mutating a balance projection.
+ * Legacy identity keys remain valid; the account-scoped prefix guard under the
+ * ledger lock prevents another identity from granting the same account twice.
  */
 export async function ensureWechatRegistrationGift(
   userId: number,
@@ -248,7 +248,8 @@ export async function ensureWechatRegistrationGift(
     userId,
     amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
-    reason: "微信账号首次注册赠送 10 算力（¥5 额度）",
+    oncePerAccountPrefix: "wechat-registration-gift:",
+    reason: "账号首次登录赠送 10 算力",
     enableAccess: true,
   });
 }

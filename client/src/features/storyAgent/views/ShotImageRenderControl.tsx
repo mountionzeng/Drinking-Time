@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "@shared/computeMoney";
 import { useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import {
@@ -312,7 +313,7 @@ export function ShotImageRenderControl({
       </div>
       <span className="text-[10px] text-muted-foreground">
         {validCount
-          ? `MJ · 约 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`
+          ? `MJ · 约 ${formatComputeQuote(quoteShotImages(count).estimatedCny)}`
           : "请输入 1–8 的整数"}
         {keys.length === 0 ? " · 不参考素材" : ""}
       </span>

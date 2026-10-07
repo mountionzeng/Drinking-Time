@@ -4,15 +4,15 @@
  * 两端各写一遍的话，迟早会在「预占算不算在余额里」这种地方分叉——同一个
  * 账户在两块屏幕上显示两个数字，是最伤信任的一类 bug。
  */
-import { formatCnyBalance } from "@shared/computeMoney";
+import { formatComputeBalance, formatComputeUnits } from "@shared/computeMoney";
 import { trpc } from "@/lib/trpc";
 
 export type ComputeBalanceView = {
   /** 还在读 */
   loading: boolean;
-  /** 读失败。余额读不到时不要显示 ¥0.00——那和「真的没钱了」看起来一样。 */
+  /** 读失败时不能伪装成余额为零。 */
   failed: boolean;
-  /** 可用余额，已格式化成「¥30.00」。 */
+  /** 可用余额，只显示算力。 */
   text: string | null;
   /** 生成中被占住的钱，没有占用时为 null。 */
   reservedText: string | null;
@@ -66,28 +66,25 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
   const query = trpc.computeAccount.balance.useQuery(undefined, {
     enabled,
     retry: false,
-    // 线上余额按切回窗口刷新；本机成本仪表在下面单独短轮询。
+    // 回到页面立即刷新；前台短轮询同步其他设备已结算的用量。
     refetchOnWindowFocus: true,
     staleTime: 30_000,
-    // 本机不限额时，累计成本是正在看的运行中仪表；短轮询让结算完成后
-    // 不必切换窗口也能更新。线上余额仍沿用原有的按需刷新，避免无意义轮询。
-    refetchInterval: query =>
-      query.state.data?.billingMode === "local_unlimited" ? 5_000 : false,
+    refetchInterval: 5_000,
   });
 
   const data = query.data ?? null;
   return {
     loading: query.isLoading,
     failed: query.isError,
-    text: data ? formatCnyBalance(data.availableMinor) : null,
+    text: data ? formatComputeBalance(data.availableMinor) : null,
     reservedText:
       data && data.reservedMinor > 0
-        ? formatCnyBalance(data.reservedMinor)
+        ? formatComputeBalance(data.reservedMinor)
         : null,
     localUnlimited: data?.billingMode === "local_unlimited",
     localCostText:
       data?.billingMode === "local_unlimited"
-        ? formatCnyBalance(data.lifetimeSpentMinor)
+        ? formatComputeUnits(data.lifetimeSpentMinor)
         : null,
     ...(data
       ? classifyComputeBalance(data)

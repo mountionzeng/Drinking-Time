@@ -1,3 +1,4 @@
+import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * 剪辑指令代理：把「把第三镜挪到最前面」「删掉第 5 镜」「第一镜改成 2 秒」
  * 这类自然语言变成结构化时间轴操作并落库（ChatCut 式对话驱动剪辑的执行层）。
@@ -1354,7 +1355,7 @@ export async function proposeExtractedFrameTransition(params: {
     .slice(0, 16);
   return {
     status: "ok",
-    reply: `已选中两张抽帧：目标区间 ${(intervalMs / 1_000).toFixed(1)} 秒，实际请求 ${durationSec} 秒，预计 ${cost.credits} 点 / ¥${cny.estimatedCny.toFixed(2)}。确认后才会付费；未生成的余段会留空。`,
+    reply: `已选中两张抽帧：目标区间 ${(intervalMs / 1_000).toFixed(1)} 秒，实际请求 ${durationSec} 秒，预计 ${formatComputeQuote(cny.estimatedCny)}。确认后才会付费；未生成的余段会留空。`,
     proposal: {
       candidateId: `transition-${digest}`,
       provisionalStableShotId: `transition-shot-${digest}`,
@@ -1460,7 +1461,7 @@ export async function proposeGapTransition(params: {
     )} → ${displayShotCode(
       byIdentity.get(built.proposal.target.stableShotId) ??
         built.proposal.target
-    )} 的空档。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 ¥0.35。`,
+    )} 的空档。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 0.70 算力。`,
   };
 }
 
@@ -1624,7 +1625,7 @@ export async function runTimelineEditCommand(params: {
       )} → ${displayShotCode(
         byIdentity.get(built.proposal.target.stableShotId) ??
           built.proposal.target
-      )}。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 ¥0.35。`,
+      )}。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 0.70 算力。`,
       appliedCount: 0,
       proposal: built.proposal,
     };

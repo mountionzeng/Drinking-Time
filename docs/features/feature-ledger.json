@@ -3175,7 +3175,7 @@
       "id": "account-compute-gift-payments",
       "name": "统一账号、算力赠送卡与付费体系",
       "status": "observing",
-      "userValue": "用户用邮箱验证码、密码或 Google 进入邮箱账号，领取 ¥30 算力赠送卡；微信账号独立注册时固定获得 10 算力（可抵扣 ¥5 实际模型费用），并清楚看到余额与已接账本的逐笔消费。",
+      "userValue": "同一权威账号在手机和电脑共用算力余额；首次微信登录赠送 10 算力且不重复领取，页面只显示算力，本机开发保持不限额。完整手机扣账与部署仍待验收。",
       "entryPoints": [
         "server/_core/oauth.ts",
         "minigame/src/accountView.ts",
@@ -3213,7 +3213,9 @@
         "client/src/assets/fonts/honglei-zhuoshu-brand.ttf",
         "server/services/supabaseGoogleAuth.ts",
         "client/src/pages/SupabaseAuthCallbackPage.tsx",
-        "drizzle/0021_google_login_identity.sql"
+        "drizzle/0021_google_login_identity.sql",
+        "server/_core/shiguangComputeBridge.ts",
+        "server/_core/shiguangComputeBridgeRoutes.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3243,14 +3245,17 @@
         "docs/qa/2026-09-13-wechat-registration-credit.md",
         "server/integration/wechatAccount.mysql.test.ts",
         "minigame/src/workspaceClient.test.ts",
-        "drizzle/0021_google_login_identity.sql"
+        "drizzle/0021_google_login_identity.sql",
+        "server/_core/shiguangComputeBridge.test.ts",
+        "server/services/sharedComputeGift.test.ts",
+        "docs/qa/shared-compute-wallet-2026-09-23.md"
       ],
       "invariants": [
-        "邮箱账号与微信账号保持独立；微信端故事通过一次性短码在电脑进入同一微信 userId，不合并到已有邮箱账号，也不复制故事或余额。",
+        "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
         "赠送卡只负责开通和增加算力，不再作为长期登录凭据；首张卡提供一次 ¥30，旧账号迁移和旧邀请码转换不得重复赠送。",
         "所有付费 AI 调用必须先受可用余额约束，并在完成后形成可核对的逐笔消费；并发、失败、重试和回调不得造成负余额或重复扣费。",
         "本机不限额只能由服务端 development 环境的显式开关决定；客户端参数、普通用户身份和管理员身份均不能开启线上免额。",
-        "本机不限额仍须记录已接入账本调用的实际成本，并向本机界面展示累计成本；生产环境仍使用余额闸门。",
+        "本机不限额仍记录已接入账本调用的实际用量，用户界面只显示算力，不显示人民币符号或换算说明。",
         "余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
         "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。"
@@ -3266,7 +3271,8 @@
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
-        "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。"
+        "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。",
+        "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。"
       ],
       "history": [
         {
@@ -3343,6 +3349,16 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/accounts、computeLedger、users；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-23",
+          "kind": "implementation",
+          "summary": "实现共享算力服务端接口、账户级赠送去重、全端算力展示。桌面237项定向、原生小程序215项、小游戏账单3项和手机821项测试通过。未合并部署、未验证真实MySQL或真机扣账；详见 docs/qa/shared-compute-wallet-2026-09-23.md。"
+        },
+        {
+          "date": "2026-09-24",
+          "kind": "implementation",
+          "summary": "与文字任务核对TokenHub计价记录后，在手机独立仓库接入采访追问、整理记忆、正文生成逐尝试用量持久化；我的页面显示最近10次预计算力，空回复重试汇总，超时和缺失回执保留待核对。只估算不扣款、不冒充供应商实收，页面不展示人民币。手机858项测试及类型检查通过；未部署、未开启开关、未发真实付费调用，完整共享钱包扣账和跨端联调仍未完成。"
         }
       ]
     },
