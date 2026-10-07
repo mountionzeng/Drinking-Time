@@ -2067,7 +2067,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "三批共 30 张由当前 Codex 会话逐图提取为 ready，另 69 张仍为 pending-analysis；尚未进行真实出图的美观度对照验收。",
+        "四批共 40 张由当前 Codex 会话逐图提取为 ready，另 59 张仍为 pending-analysis；尚未进行真实出图的美观度对照验收。",
         "匹配仍基于词组命中，不是完整的语义检索，未覆盖的近义说法可能不命中。",
         "尚未迁移私有对象存储；2026-10-01 核对 99 张原图完整、哈希一致且无重复。用户确认供应商后改选当前会话分析，未调用独立付费视觉 API；会话使用云端推理及账户额度，并非离线训练或产品自动接入 ChatGPT 客户端。"
       ],
@@ -2106,6 +2106,11 @@
           "date": "2026-10-02",
           "kind": "feature",
           "summary": "第三批通过当前会话逐图提取 10 张，新增雾光穿透、暗场光池、垂坠线韵、横向舞台式展开、环形围合、线面反拍、灯色包裹、矿物哑色、银灰透气与碎金节律等交叉特征。保留两项有可观察依据的艺术家视觉亲缘，不鉴定作者；追加十组真实目录检索到提示词入口的验证，以及权利边界、清洗和姓名隔离回归。不修改匹配算法，不新增 UI，不调用独立付费视觉 API；原有 89 条记录保持不变，真实出图质量仍待验收。"
+        },
+        {
+          "date": "2026-10-02",
+          "kind": "feature",
+          "summary": "第四批用当前会话逐图提取 10 张，新增网点暗场、绒面色团、薄层透底、柔光圈层、密线开窗、弧带递进、斜向体积光、记忆失焦、放射强光和疏朗横向群组等开放方法。无充分依据的艺术家关联留空，不依据截图配文或署名鉴定作者；十组真实目录入口回归覆盖自由词到方法、权利边界、清洗和源图内容隔离。其余 89 条记录不变，不新增 UI、匹配算法或付费 API 调用；累计 40 张 ready，真实出图质量仍待验收。"
         }
       ]
     },
@@ -4673,6 +4678,7 @@
         "client/src/features/analysis/views/DailyLetterWelcome.tsx",
         "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
         "client/src/features/storyAgent/views/StoryCoverThumbnail.tsx",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.tsx",
         "client/src/features/storyAgent/spine/selectors.ts",
         "client/src/features/storyAgent/spine/storySpine.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
@@ -4689,6 +4695,7 @@
         "client/src/pages/LoginPage.test.tsx",
         "client/src/app/shell/StoryLogoMenu.test.tsx",
         "client/src/features/storyAgent/spine/selectors.test.ts",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.test.tsx",
         "shared/publishingDraft.test.ts",
         "server/routers.storyAgent.test.ts"
       ],
@@ -4769,6 +4776,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-09-29",
+          "kind": "fix",
+          "summary": "按实机截图放大拾光家忆聊天气泡外侧的小忆头像，并提高其水彩色彩与轮廓对比；裁切、底色、边框和滤镜都限定在拾光主题，纳音五行继续使用原有五行 SVG 尺寸与样式。"
         },
         {
           "date": "2026-09-29",
