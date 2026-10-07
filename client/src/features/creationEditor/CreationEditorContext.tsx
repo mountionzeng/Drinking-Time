@@ -35,6 +35,7 @@ import {
 import {
   rerenderShotImage,
   rerenderShotImageCandidates,
+  summarizeRerenderBatch,
   type RerenderReference,
 } from "./rerender";
 import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS } from "./playback";
@@ -1317,7 +1318,7 @@ export function mergeShotsWithImages(
   });
 }
 
-/** Apply non-owning timeline image references without mutating asset ownership. */
+/** Apply non-owning image references without mutating asset ownership. */
 export function applyTimelineImageReferences(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[],
@@ -1326,13 +1327,13 @@ export function applyTimelineImageReferences(
   const imageById = new Map(images.map(image => [image.id, image]));
   const itemByShotId = new Map(items.map(item => [item.stableShotId, item]));
   return shots.map(shot => {
-    const referencedImageId = itemByShotId.get(
-      creationTimelineShotId(shot)
-    )?.referencedImageId;
+    const referencedImageId =
+      itemByShotId.get(creationTimelineShotId(shot))?.referencedImageId ??
+      (shot.imageId == null
+        ? shot.publishingVideo?.referenceImageId
+        : undefined);
     const image =
-      referencedImageId == null
-        ? null
-        : (imageById.get(referencedImageId) ?? null);
+      referencedImageId == null ? null : imageById.get(referencedImageId);
     if (!image || image.status === "rejected" || !image.imageUrl) return shot;
     return {
       ...shot,
@@ -1728,7 +1729,7 @@ export function CreationEditorProvider({
   }, [activeId, renderedExtractionStorySessionToken]);
   useEffect(() => {
     setActivatedVisualEditEpoch(null);
-    if (activeId == null) return;
+    if (activeId == null || activeId <= 0) return;
     let cancelled = false;
     const activationSequence = nextVisualActivationSequence(editorClientId);
     void activateVisualEditSessionMut
@@ -3015,12 +3016,7 @@ export function CreationEditorProvider({
         utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
         utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
       ]);
-      return {
-        generatedCount: batch.generatedCount,
-        failedCount: batch.failedCount,
-        imageId: result.imageId,
-        imageUrl: result.imageUrl,
-      };
+      return summarizeRerenderBatch(batch, options?.candidateCount);
     } catch (error) {
       const message = error instanceof Error ? error.message : "图片生成失败";
       setRerenderError(message);

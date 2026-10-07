@@ -7,6 +7,7 @@ import {
   createVideoTake,
   getStoryVideoTakes,
   resetMemoryStateForTesting,
+  updateStory,
 } from "../db";
 import {
   explainVideoProviderError,
@@ -69,6 +70,30 @@ afterEach(() => {
 });
 
 describe("videoJobs", () => {
+  it("submits an article's referenced illustration directly, but rejects an unrelated shot", async () => {
+    const story = await createStory({ userId: 1, projectId: null, title: "复用插图", body: {} });
+    const image = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
+      shotNo: "PUBLISHING-COVER-1", imageUrl: "data:image/png;base64,QQ==", imageKey: null,
+      prompt: "已选插图", generationType: "initial", isCurrent: false });
+    await updateStory(story.id, 1, { body: { shots: [
+      { stableShotId: "article-shot", shotIdentity: "article-shot", shotNo: 1, action: "人物转身", publishingVideo: { referenceImageId: image.id } },
+      { stableShotId: "unrelated-shot", shotIdentity: "unrelated-shot", shotNo: 2, action: "人物转身" },
+      { stableShotId: "supplement-shot", shotIdentity: "supplement-shot", shotNo: 3, action: "手部特写", publishingVideo: { continuityImageId: image.id } },
+    ] } });
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "reuse-illustration" }) }));
+    vi.stubGlobal("fetch", fetch);
+    const rejected = await startShotVideoJob({ storyId: story.id, shotNo: 2, stableShotId: "unrelated-shot", imageId: image.id, prompt: "人物转身" }, 1);
+    expect(rejected.status).toBe("error");
+    const guideOnly = await startShotVideoJob({ storyId: story.id, shotNo: 3, stableShotId: "supplement-shot", imageId: image.id, prompt: "手部特写" }, 1);
+    expect(guideOnly.status).toBe("error");
+    expect(fetch).not.toHaveBeenCalled();
+    const result = await startShotVideoJob({ storyId: story.id, shotNo: 1, stableShotId: "article-shot", imageId: image.id, prompt: "人物转身", directorPromptApproved: true }, 1);
+    expect(result.status).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body)).image_url).toBe(image.imageUrl);
+    if (result.status === "ok") expect(result.take.sourceImageId).toBe(image.id);
+  });
+
   async function selectImage(storyId: number, imageId: number) {
     await createImageSignal({
       userId: 1,

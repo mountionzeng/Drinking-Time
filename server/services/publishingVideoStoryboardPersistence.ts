@@ -42,6 +42,13 @@ import {
 } from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { generatePublishingVideoStoryboardPreview } from "./publishingVideoStoryboard";
+import {
+  ARTICLE_VIDEO_PLANNING_VERSION,
+  publishingArticleVideoRows,
+  type PublishingArticleLayout,
+} from "../../shared/publishingArticleVideo";
+import { normalizeImagePackBody } from "../../shared/articleIllustrations";
+import { getStoryImageAssets } from "./imageAssets";
 
 const CLAIM_TTL_MS = 5 * 60_000;
 const MAX_CAS_ATTEMPTS = 4;
@@ -92,6 +99,8 @@ export type PublishingVideoBuildResult =
   | (PublishingVideoPreviewPersistenceResult & { status: "pending" });
 
 type PreviewContext = {
+  articleLayout?: PublishingArticleLayout;
+  narrativeSpec?: NarrativeSpecId;
   storyId: number;
   userId: number;
   storyRevision: number;
@@ -178,6 +187,8 @@ async function loadPreviewContext(input: {
   storyId: number;
   userId: number;
   versionId?: string;
+  articleLayout?: PublishingArticleLayout;
+  narrativeSpec?: NarrativeSpecId;
 }): Promise<PreviewContext> {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) {
@@ -210,6 +221,15 @@ async function loadPreviewContext(input: {
     );
   }
   const storyRevision = getStoryRevision(body);
+  if (
+    input.articleLayout &&
+    normalizeImagePackBody(input.articleLayout.body) !==
+      normalizeImagePackBody(draft.content.body)
+  ) {
+    throw new PublishingVideoStoryboardEligibilityError(
+      "文字稿已经变化，请保存后重新进入视频制作"
+    );
+  }
   const request = operationRequestHash({
     storyId: input.storyId,
     version,
@@ -218,7 +238,24 @@ async function loadPreviewContext(input: {
     storyRevision,
     body,
   });
+  if (input.articleLayout) {
+    request.source.articleLayoutHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          planningVersion: ARTICLE_VIDEO_PLANNING_VERSION,
+          layout: input.articleLayout,
+          narrativeSpec:
+            input.narrativeSpec ?? version.narrativeSpec ?? "video30",
+        })
+      )
+      .digest("hex");
+    request.hash = createHash("sha256")
+      .update(`${request.hash}:${request.source.articleLayoutHash}`)
+      .digest("hex");
+  }
   return {
+    articleLayout: input.articleLayout,
+    narrativeSpec: input.narrativeSpec,
     storyId: input.storyId,
     userId: input.userId,
     storyRevision,
@@ -269,6 +306,8 @@ async function claimPreviewOperation(input: {
   userId: number;
   operationToken: string;
   versionId?: string;
+  articleLayout?: PublishingArticleLayout;
+  narrativeSpec?: NarrativeSpecId;
   now: number;
 }): Promise<
   | { status: "claimed"; context: PreviewContext }
@@ -356,6 +395,8 @@ async function completePreviewOperation(input: {
       storyId: input.claimed.storyId,
       userId: input.claimed.userId,
       versionId: input.claimed.version.versionId,
+      articleLayout: input.claimed.articleLayout,
+      narrativeSpec: input.claimed.narrativeSpec,
     });
     const aggregate =
       latest.version.videoStoryboard ??
@@ -493,16 +534,49 @@ export async function generateAndPersistPublishingVideoPreview(input: {
   narrativeSpec?: NarrativeSpecId;
   operationToken?: string;
   versionId?: string;
+  articleLayout?: PublishingArticleLayout;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
 }): Promise<PublishingVideoPreviewPersistenceResult> {
   const now = input.now ?? Date.now();
   const operationToken = input.operationToken?.trim() || randomUUID();
+  // Resolve only owned, available assets. No client URL can enter the prompt or shot.
+  const articleRows = (() => {
+    try {
+      return input.articleLayout
+        ? publishingArticleVideoRows(input.articleLayout)
+        : undefined;
+    } catch (error) {
+      throw new PublishingVideoStoryboardEligibilityError(
+        error instanceof Error ? error.message : "插图位置无效"
+      );
+    }
+  })();
+  if (articleRows) {
+    const assets = await getStoryImageAssets(input.storyId, input.userId);
+    for (const row of articleRows) {
+      if (!row.referenceImageId) continue;
+      const asset = assets.find(
+        asset =>
+          asset.id === row.referenceImageId &&
+          asset.status !== "rejected" &&
+          asset.availability !== "missing"
+      );
+      if (!asset)
+        throw new PublishingVideoStoryboardEligibilityError(
+          "选中的插图不可用，请重新选择"
+        );
+      row.referencePrompt = asset.prompt?.slice(0, 6_000) ?? undefined;
+      row.referenceImageUrl = asset.imageUrl;
+    }
+  }
   const claim = await claimPreviewOperation({
     storyId: input.storyId,
     userId: input.userId,
     operationToken,
     versionId: input.versionId,
+    articleLayout: input.articleLayout,
+    narrativeSpec: input.narrativeSpec,
     now,
   });
   if (claim.status === "pending") {
@@ -538,9 +612,9 @@ export async function generateAndPersistPublishingVideoPreview(input: {
       narrativeIntent: claim.context.version.narrativeIntent,
       // 规格决定镜头总数区间与单镜区间，模型据此改编而非逐段转写。
       // 本次传入的优先于 version 上的存量值 —— 用户刚在小界面选的就该立刻生效。
-      narrativeSpec:
-        input.narrativeSpec ?? claim.context.version.narrativeSpec,
+      narrativeSpec: input.narrativeSpec ?? claim.context.version.narrativeSpec,
       coverVisualDescription: claim.context.core?.visualConcept ?? null,
+      articleRows,
       now,
     });
     const completed = await completePreviewOperation({
@@ -567,10 +641,38 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
   operationToken?: string;
   /** 用户在「进入视频制作」时选的规格；不传则沿用 version 上已存的 */
   narrativeSpec?: NarrativeSpecId;
+  articleLayout?: PublishingArticleLayout;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
 }): Promise<PublishingVideoBuildResult> {
   const operationToken = input.operationToken?.trim() || randomUUID();
+  if (input.articleLayout) {
+    const context = await loadPreviewContext(input);
+    const aggregate = context.version.videoStoryboard;
+    const preview = aggregate?.latestPreview;
+    if (
+      preview?.status === "confirmed" &&
+      aggregate?.confirmed?.previewId === preview.previewId &&
+      context.publishing.activeVideoStoryboardGroupId ===
+        aggregate.confirmed.groupId &&
+      preview.source?.articleLayoutHash === context.source.articleLayoutHash &&
+      preview.source?.platform === context.source.platform &&
+      preview.source?.canonicalContentHash ===
+        context.source.canonicalContentHash
+    ) {
+      return {
+        status: "confirmed",
+        storyId: input.storyId,
+        storyRevision: context.storyRevision,
+        publishing: context.publishing,
+        preview,
+        shots: (Array.isArray(context.body.shots)
+          ? context.body.shots
+          : []) as Record<string, unknown>[],
+        reused: true,
+      };
+    }
+  }
   const generated = await generateAndPersistPublishingVideoPreview({
     ...input,
     operationToken: `${operationToken}:preview`,
@@ -692,9 +794,11 @@ function planConfirmedShotDurations(input: {
   const budget = fitBudgetToBeats(planRhythmBudget(specId, profile), beats);
   if (budget.mode === "album") return input.shots.map(() => null);
   // 段落没有情绪标注时，segmentWeight 会退化为等权 —— 仍能排出合规节奏
-  return allocateShotDurations(budget, beats, beats.map(() => undefined)).map(
-    plan => plan.durationMs
-  );
+  return allocateShotDurations(
+    budget,
+    beats,
+    beats.map(() => undefined)
+  ).map(plan => plan.durationMs);
 }
 
 function formalShotFromPreview(input: {
@@ -719,7 +823,7 @@ function formalShotFromPreview(input: {
     action: input.shot.action || "按剧本完成动作",
     scriptText: input.shot.scriptText,
     dialogue: input.shot.voiceText,
-    shotType: "剧本镜头",
+    shotType: input.shot.supplementReason ? "补充镜头" : "剧本镜头",
     beat: input.shot.beat ?? "正文推进",
     cameraAngle: "",
     cameraMove: "",
@@ -728,7 +832,7 @@ function formalShotFromPreview(input: {
     mood: "",
     sound: input.shot.soundRequirement,
     styleRef: "故事级封面风格参考（如有）",
-    note: "由文字稿剧本预览确认生成",
+    note: input.shot.supplementReason ?? "由文字稿剧本预览确认生成",
     emotion: "",
     intent: input.shot.scriptText,
     rationale: input.shot.imageRequirement,
@@ -736,6 +840,12 @@ function formalShotFromPreview(input: {
     promptDraft: input.shot.imageRequirement,
     videoPrompt: input.shot.videoRequirement,
     publishingVideo: {
+      ...(input.shot.referenceImageId
+        ? { referenceImageId: input.shot.referenceImageId }
+        : {}),
+      ...(input.shot.continuityImageId
+        ? { continuityImageId: input.shot.continuityImageId }
+        : {}),
       versionId: input.versionId,
       sourcePlatform: input.sourcePlatform,
       groupId: input.groupId,
@@ -775,6 +885,7 @@ function mergeUserEnrichment(input: {
   current: Record<string, unknown>;
   baseline: Record<string, unknown>;
   generated: Record<string, unknown>;
+  preserveEditedFields?: boolean;
 }): Record<string, unknown> {
   const preserved = Object.fromEntries(
     Object.entries(input.current).flatMap(([field, value]) => {
@@ -783,7 +894,8 @@ function mergeUserEnrichment(input: {
         field === "stableShotId" ||
         field === "shotIdentity" ||
         field === "publishingVideo" ||
-        GENERATED_VERSIONED_SHOT_FIELDS.has(field) ||
+        (GENERATED_VERSIONED_SHOT_FIELDS.has(field) &&
+          !input.preserveEditedFields) ||
         isDeepStrictEqual(value, input.baseline[field])
       ) {
         return [];
@@ -1060,7 +1172,12 @@ export async function confirmPublishingVideoStoryboard(input: {
             ? provenance.confirmedRevision
             : previousConfirmed.confirmedStoryRevision,
       });
-      return mergeUserEnrichment({ current, baseline, generated });
+      return mergeUserEnrichment({
+        current,
+        baseline,
+        generated,
+        preserveEditedFields: preview.sourceMode === "article",
+      });
     });
     const nextShots = [
       ...retained.slice(0, insertionIndex),

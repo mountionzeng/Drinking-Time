@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   emptyState,
   getPublishingBuffer,
+  normalizePublishingBuffers,
   normalizePersisted,
   removePublishingBuffer,
   setPublishingBuffer,
@@ -13,6 +14,10 @@ import {
 } from "./storyAgentPersistence";
 
 describe("storyAgent publishing persistence", () => {
+  it("retains the generated version identity and edited content across local reloads", () => {
+    const buffer = { storyId: 7, platform: "x" as const, versionId: "v1", textDraftVersionId: "generated-1", content: { title: "", body: "edited", tags: [] }, updatedAt: 1 };
+    expect(getPublishingBuffer(normalizePublishingBuffers(setPublishingBuffer({}, buffer)), 7, "x")).toEqual(buffer);
+  });
   it("reconciles leave/carry after a committed receipt and is idempotent after a client crash", () => {
     const source = { storyId: 7, platform: "x" as const, versionId: "v1", content: { title: "", body: "dirty", tags: [] }, updatedAt: 1 };
     const buffers = setPublishingBuffer({}, source);

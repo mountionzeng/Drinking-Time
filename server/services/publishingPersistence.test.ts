@@ -1823,6 +1823,38 @@ describe("publishingPersistence", () => {
     ).rejects.toThrow("ENOSPC");
   });
 
+  it("settles background QA on the original version without changing the active draft or adopting images", async () => {
+    const initial = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "xiaohongshu", selectedPlatforms: ["xiaohongshu"],
+      core: baseCore, content: { title: "V1", body: "原稿", tags: [] }, basePublishingRevision: 0,
+    } });
+    const pending = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "append_cover_round", basePublishingRevision: initial.publishing.revision,
+      round: { id: "qa-round", platform: "xiaohongshu", sourceCoreRevision: 1, parentAssetId: null,
+        feedback: "", assetIds: [51, 52], createdAt: Date.now(), qualityCheckPendingUntil: Date.now() + 90_000 },
+    } });
+    const v2 = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "create_version", platform: "xiaohongshu", core: { ...baseCore, thesis: "新判断" },
+      content: { title: "V2", body: "新稿", tags: [] }, baseCoreRevision: 1, baseDraftRevision: 1,
+      baseVersionRevision: pending.publishing.versions?.[0]?.versionRevision,
+      baseContainerRevision: pending.publishing.containerRevision ?? 0,
+    } });
+    const operation = { type: "set_cover_quality" as const, versionId: "v1", roundId: "qa-round",
+      assetIds: [51, 52], flaggedAssetIds: [52, 999], unavailable: false };
+    const checked = await writePublishingDraftState({ storyId: 7, userId: 3, operation });
+    expect(checked.publishing.activeVersionId).toBe("v2");
+    expect(checked.publishing.drafts).toEqual(v2.publishing.drafts);
+    expect(checked.publishing.coverRounds).toEqual(v2.publishing.coverRounds);
+    const round = checked.publishing.versions?.find(version => version.versionId === "v1")?.coverRounds[0];
+    expect(round?.assetIds).toEqual([51, 52]);
+    expect(round?.qualityFlaggedAssetIds).toEqual([52]);
+    expect(round?.qualityCheckPendingUntil).toBeUndefined();
+    expect(round?.qualityCheckedAt).toBeGreaterThan(0);
+    expect(checked.publishing.cover).toBeNull();
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operation: { ...operation, assetIds: [99] } })).rejects.toThrow("不匹配");
+    await expect(writePublishingDraftState({ storyId: 7, userId: 999, operation })).rejects.toThrow();
+  });
+
   it("keeps a V1 paid recovery receipt out of a newly created V2", async () => {
     const initialized = await writePublishingDraftState({
       storyId: 7,

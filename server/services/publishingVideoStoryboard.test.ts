@@ -9,6 +9,7 @@ import {
   canonicalizePublishingVideoParagraphs,
   validatePublishingVideoPreview,
 } from "../../shared/publishingVideoStoryboard";
+import { publishingArticleVideoRows } from "../../shared/publishingArticleVideo";
 
 const saved = {
   api302Key: ENV.api302Key,
@@ -155,6 +156,51 @@ describe("publishing video storyboard generation", () => {
         return context.paragraphs.length;
       })
     ).toEqual([3, 3]);
+  });
+
+  it("fills prompts from the actual illustration while keeping source text and selected image fixed", async () => {
+    const rows = publishingArticleVideoRows({ body, illustrations: [{ assetId: 88, after: null }] });
+    rows[0].referenceImageUrl = "data:image/png;base64,QQ==";
+    rows[0].referencePrompt = "原图的水彩画面";
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      expect(request.messages[1].content).toContainEqual({ type: "image_url", image_url: { url: rows[0].referenceImageUrl, detail: "low" } });
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ paragraphs: [{
+        paragraphId: rows[0].id, scriptText: "模型想改写正文", visualTreatment: "缓慢推进", shots: [{ subject: "阿宁", action: "修伞", imageRequirement: "原图水彩质感和旧木架", videoRequirement: "阿宁轻轻修补木架，镜头缓慢推进", soundRequirement: "雨声" }],
+      }] }) } }] }), text: async () => "" };
+    });
+    vi.stubGlobal("fetch", fetch);
+    const result = await generatePublishingVideoStoryboardPreview({ body, platform: "xiaohongshu", core: null, articleRows: rows });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.preview.shots).toHaveLength(1);
+    expect(result.preview.shots[0]).toMatchObject({ scriptText: body, voiceText: body, referenceImageId: 88, imageRequirement: "原图水彩质感和旧木架", videoRequirement: "阿宁轻轻修补木架，镜头缓慢推进" });
+  });
+
+  it("plans with all rows in one call and inserts missing coverage without imposing a fixed pattern", async () => {
+    const rows = [1, 2, 3, 4].map(id => ({ id: `row-${id}`, text: `原文${id}`, voiceText: `原文${id}`, referenceImageId: id, referenceImageUrl: `data:image/png;base64,${id}` }));
+    const requirements = { subject: "阿宁", action: "修木架", imageRequirement: "水彩修伞铺", videoRequirement: "人物整理旧伞", soundRequirement: "雨声" };
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      const content = request.messages[1].content;
+      const context = JSON.parse(content[0].text.split("上下文：")[1]);
+      expect(context.rows.map((row: { id: string }) => row.id)).toEqual(rows.map(row => row.id));
+      expect(context.targetDurationSec).toBe(30);
+      expect(content.filter((item: { type: string }) => item.type === "image_url")).toHaveLength(4);
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        paragraphs: rows.map(row => ({ paragraphId: row.id, scriptText: row.text, visualTreatment: "原图动作", shots: [requirements] })),
+        supplements: [
+          { ...requirements, anchorRowId: "row-2", position: "before", sourceRowId: "row-1", reason: "缺少看清木架刻痕的细节", action: "手指停在木架刻痕上" },
+          { ...requirements, anchorRowId: "row-3", position: "after", sourceRowId: "not-owned", reason: "无效引用" },
+        ],
+      }) } }] }), text: async () => "" };
+    });
+    vi.stubGlobal("fetch", fetch);
+    const result = await generatePublishingVideoStoryboardPreview({ body, platform: "xiaohongshu", core: null, articleRows: rows, narrativeSpec: "video30" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.preview.shots).toHaveLength(5);
+    expect(result.preview.shots[1]).toMatchObject({ continuityImageId: 1, action: "手指停在木架刻痕上", voiceText: "" });
+    expect(result.preview.shots[2].draftShotId).toBe("row-2");
+    expect(result.preview.shots.filter(shot => !shot.supplementReason).map(shot => shot.scriptText)).toEqual(rows.map(row => row.text));
   });
 
   it("routes text storyboard compute to OpenAI Next when configured", async () => {

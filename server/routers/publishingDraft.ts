@@ -55,7 +55,7 @@ import {
   COVER_PROMPT_COMPILER_SYSTEM,
   PUBLISHING_COVER_ART_SUFFIX,
 } from "../services/publishingCoverStoryboardPrompt";
-import { inspectStaticImageCandidates } from "../services/staticImageQualityGate";
+import { checkPublishingCoverQuality } from "../services/publishingCoverQuality";
 import { storyArtRecipe } from "./_storyShared";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
 import {
@@ -92,6 +92,7 @@ import {
   PublishingVideoStoryboardOperationConflictError,
 } from "../services/publishingVideoStoryboardPersistence";
 import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
+import { publishingArticleLayoutSchema } from "../../shared/publishingArticleVideo";
 import {
   initializePublishingAlbum,
   updatePublishingAlbumPageText,
@@ -1287,6 +1288,7 @@ export const publishingDraftRouter = router({
         storyId: z.number().int().positive(),
         versionId: z.string().trim().min(1).max(64).optional(),
         operationToken: z.string().trim().min(1).max(160).optional(),
+        articleLayout: publishingArticleLayoutSchema.optional(),
         /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
         narrativeSpec: z
           .enum(["video10", "video30", "video50"])
@@ -1301,6 +1303,7 @@ export const publishingDraftRouter = router({
           versionId: input.versionId,
           operationToken: input.operationToken,
           narrativeSpec: input.narrativeSpec,
+          articleLayout: input.articleLayout,
         });
       } catch (error) {
         throwPublishingError(error);
@@ -1951,8 +1954,8 @@ export const publishingDraftRouter = router({
          * recovers that round instead of buying another one.
          */
         const outstandingPaidReceipt =
-          !input.operationToken &&
-          isRecoverablePublishingCoverGeneration(persistedGeneration)
+          input.operationToken !== persistedGeneration?.operationToken &&
+          (persistedGeneration?.status === "pending" || isRecoverablePublishingCoverGeneration(persistedGeneration))
             ? persistedGeneration
             : null;
         const operationToken =
@@ -2261,7 +2264,9 @@ export const publishingDraftRouter = router({
          */
         let renderPrompt = prompt;
         if (!generation.taskId && coverProvider !== "gpt-image") {
-          const compiled = await invokeAgent(
+          let compiled;
+          try {
+            compiled = await invokeAgent(
             [
               {
                 role: "system",
@@ -2278,8 +2283,28 @@ export const publishingDraftRouter = router({
               },
               { role: "user", content: prompt },
             ],
-            400
-          );
+              400,
+              undefined,
+              { reasoningEffort: "low", deadlineMs: 45_000, replaySafe: false }
+            );
+            if (!compiled.text.trim()) throw new Error("Empty compiled image prompt");
+          } catch {
+            // No image provider call has happened yet. Release the claim instead
+            // of leaving a phantom pending/uncertain paid image task behind.
+            const failed = await writePublishingDraftState({
+              storyId: input.storyId, userId: ctx.user.id,
+              operation: {
+                type: "update_cover_generation", operationToken, status: "failed",
+                error: "配图准备失败，尚未提交出图，请重试。",
+              },
+            });
+            return {
+              status: "error" as const, error: failed.publishing.coverGeneration!.error!,
+              estimate, ...failed,
+              coverAsset: await loadPublishingCoverAsset({ assetId: failed.publishing.cover?.assetId, storyId: input.storyId, userId: ctx.user.id }),
+              coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
+            };
+          }
           const compiledText = compiled.text.trim();
           if (compiledText) {
             renderPrompt = generation.outputKind === "body-texture"
@@ -2369,33 +2394,6 @@ export const publishingDraftRouter = router({
           };
         }
 
-        /**
-         * Pixel QA advises, it never discards. The round is already paid for,
-         * so every candidate reaches the user; risky ones are merely labelled
-         * and the user decides whether a mark is acceptable. QA being down is
-         * likewise not a reason to withhold images the provider delivered.
-         */
-        let flaggedIndexes = new Set<number>();
-        let qualityCheckUnavailable = false;
-        try {
-          const qualityInspection = await inspectStaticImageCandidates({
-            candidates: generatedCandidates,
-          });
-          flaggedIndexes = new Set(
-            qualityInspection.rejected.map(candidate => candidate.originalIndex)
-          );
-        } catch (error) {
-          // Swallowing this made a crashed inspection indistinguishable from a
-          // clean one, so obviously text-covered candidates were presented as
-          // if they had passed. Deliver them anyway — they are paid for — but
-          // say plainly that nothing checked them.
-          qualityCheckUnavailable = true;
-          console.warn(
-            "[publishingDraft] 像素质检不可用，本轮候选未经检查：",
-            error instanceof Error ? error.message : error
-          );
-        }
-
         const images = await Promise.all(
           generatedCandidates.map(candidate =>
             createGeneratedImage({
@@ -2426,17 +2424,7 @@ export const publishingDraftRouter = router({
           instructions: generation.instructions ?? instructions,
           artReference: generation.artReference ?? artReference,
           assetIds: images.map(image => image.id),
-          ...(flaggedIndexes.size > 0
-            ? {
-                qualityFlaggedAssetIds: images
-                  .filter((_image, index) => flaggedIndexes.has(index + 1))
-                  .map(image => image.id),
-                qualityCheckedAt: createdAt,
-              }
-            : {}),
-          ...(qualityCheckUnavailable
-            ? { qualityCheckUnavailable: true, qualityCheckedAt: createdAt }
-            : {}),
+          qualityCheckPendingUntil: createdAt + 90_000,
           createdAt,
         };
         const saved = await writePublishingDraftState({
@@ -2448,6 +2436,14 @@ export const publishingDraftRouter = router({
             round,
           },
         });
+        // Persist and expose every paid image before advisory pixel QA completes.
+        // A failed/restarted worker leaves an expiring, visibly unchecked marker.
+        void checkPublishingCoverQuality({
+          storyId: input.storyId, userId: ctx.user.id, versionId: generation.versionId,
+          roundId: round.id, assets: images.map((image, index) => ({
+            ...generatedCandidates[index]!, id: image.id,
+          })),
+        }).catch(error => console.warn("[publishingDraft] 后台质检结果保存失败", error instanceof Error ? error.message : "unknown"));
         const coverRounds = await loadPublishingCoverRounds({
           publishing: saved.publishing,
           storyId: input.storyId,

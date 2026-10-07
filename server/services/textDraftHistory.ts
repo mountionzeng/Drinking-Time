@@ -27,6 +27,7 @@ import {
 import { loadStoryPromptAggregate } from "./promptLineageStore";
 import { inheritedStoryReference } from "../../shared/storyContextShare";
 import { runJsonAgent } from "./agentRuntime";
+import { InferenceError } from "../_core/inferenceOrchestrator";
 import {
   compileTextDraftPrompt,
   type WritingEvidence,
@@ -123,55 +124,59 @@ async function writingEvidence(input: Owner, platform: string) {
   const originalSamples: OriginalWritingEvidence[] = [];
   const seen = new Set<string>();
   const originalSeen = new Set<string>();
-  for (const item of page.stories) {
-    const story = await getStoryById(item.id, input.userId);
-    if (!story) continue;
-    const history = readTextDraftHistory(record(story.body).textDraftHistory);
-    for (const version of [...history.versions].reverse()) {
-      if (version.request.platform !== platform) continue;
-      if (
-        version.originalLearningEnabled !== false &&
-        originalSamples.length < 6 &&
-        (version.request.source === "own" || version.request.source === "liked")
-      ) {
-        const messages = version.request.messages.filter(
-          message => message.role === "user"
-        );
-        const key = hash({
-          source: version.request.source,
-          messages: messages.map(m => m.content),
-          instruction: version.request.instruction,
-        });
-        if (!originalSeen.has(key)) {
-          originalSeen.add(key);
-          originalSamples.push({
-            storyId: item.id,
-            versionId: version.id,
+  for (let offset = 0; offset < page.stories.length; offset += 4) {
+    const batch = page.stories.slice(offset, offset + 4);
+    const stories = await Promise.all(batch.map(item => getStoryById(item.id, input.userId)));
+    // Process in the original recency order, regardless of read completion order.
+    for (const story of stories) {
+      if (!story) continue;
+      const history = readTextDraftHistory(record(story.body).textDraftHistory);
+      for (const version of [...history.versions].reverse()) {
+        if (version.request.platform !== platform) continue;
+        if (
+          version.originalLearningEnabled !== false &&
+          originalSamples.length < 6 &&
+          (version.request.source === "own" || version.request.source === "liked")
+        ) {
+          const messages = version.request.messages.filter(
+            message => message.role === "user"
+          );
+          const key = hash({
             source: version.request.source,
-            messages,
+            messages: messages.map(m => m.content),
             instruction: version.request.instruction,
           });
+          if (!originalSeen.has(key)) {
+            originalSeen.add(key);
+            originalSamples.push({
+              storyId: story.id,
+              versionId: version.id,
+              source: version.request.source,
+              messages,
+              instruction: version.request.instruction,
+            });
+          }
         }
+        if (
+          !version.adoption?.learningEnabled ||
+          version.request.platform !== platform
+        )
+          continue;
+        const key = hash(version.adoption.content);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (result.length < 6)
+          result.push({
+            storyId: story.id,
+            versionId: version.id,
+            platform,
+            generated: version.generated,
+            adopted: version.adoption,
+            observation: version.observation,
+          });
+        if (result.length >= 6 && originalSamples.length >= 6)
+          return { adoptions: result, originalSamples };
       }
-      if (
-        !version.adoption?.learningEnabled ||
-        version.request.platform !== platform
-      )
-        continue;
-      const key = hash(version.adoption.content);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (result.length < 6)
-        result.push({
-          storyId: item.id,
-          versionId: version.id,
-          platform,
-          generated: version.generated,
-          adopted: version.adoption,
-          observation: version.observation,
-        });
-      if (result.length >= 6 && originalSamples.length >= 6)
-        return { adoptions: result, originalSamples };
     }
   }
   return { adoptions: result, originalSamples };
@@ -327,6 +332,8 @@ export async function generateTextDraft(
       message: claimed.modelMessage,
       history: [],
       maxTokens: 4500,
+      responseFormat: { type: "json_object" },
+      execution: { reasoningEffort: "low", deadlineMs: 90_000, replaySafe: false },
       fallback: () => null,
     });
     output = z
@@ -361,15 +368,29 @@ export async function generateTextDraft(
     if (contentError) throw bad(contentError);
     modelLabel = result.modelLabel;
   } catch (error) {
+    const inference = error instanceof InferenceError ? error : null;
     const definite =
       error instanceof z.ZodError ||
-      (error instanceof TRPCError && error.code === "BAD_REQUEST");
+      (error instanceof TRPCError && error.code === "BAD_REQUEST") ||
+      Boolean(inference?.attempts.length && inference.attempts.every(attempt =>
+        !attempt.acceptanceUnknown && ["auth", "invalid_request", "rate_limit", "content_safety", "context_length"].includes(attempt.category)
+      ));
+    // Keep provider diagnostics without storing credentials, prompts or raw responses.
+    const reason = inference
+      ? ({ auth: "模型服务认证失败", invalid_request: "模型服务拒绝了请求参数", timeout: "模型服务超时", network: "模型服务连接中断", rate_limit: "模型服务繁忙", server_error: "模型服务暂时不可用", content_safety: "模型服务未接受此内容", context_length: "素材超出模型长度限制", aborted: "生成已中断", unknown: "未能确认生成结果" }[inference.category])
+      : error instanceof z.ZodError || (error instanceof TRPCError && error.code === "BAD_REQUEST")
+        ? "生成结果未通过校验"
+        : "未能确认生成结果";
+    console.warn("[textDrafts] generation failed", {
+      storyId: owner.storyId, versionId: claimed.id,
+      attempts: inference?.attempts,
+      category: inference?.category ?? (definite ? "validation" : "unknown"),
+    });
     await mutateHistory(owner, history => {
       const version = history.versions.find(item => item.id === claimed.id)!;
       version.status = definite ? "failed" : "unknown";
-      version.error = definite
-        ? "生成结果未通过校验，旧稿已保留；未自动重试"
-        : "未能确认生成结果，可能已计费；未自动重试";
+      version.error = `${reason}；${definite ? "旧稿已保留" : "可能已计费"}，未自动重试`;
+      version.completedAt = Date.now();
     });
     return getTextDraftHistory(owner);
   }

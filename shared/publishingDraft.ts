@@ -379,6 +379,8 @@ export type PublishingCoverRound = {
    * UI silently presents unchecked images as if they had passed.
    */
   qualityCheckUnavailable?: boolean;
+  /** Images are usable while advisory QA runs; expiry must never look clean. */
+  qualityCheckPendingUntil?: number;
   qualityCheckedAt?: number;
   createdAt: number;
 };
@@ -1135,8 +1137,11 @@ function normalizeCoverRound(
         )
       )
     : [];
-  const qualityCheckUnavailable = obj.qualityCheckUnavailable === true;
+  const pendingUntil = finiteNonNegativeInteger(obj.qualityCheckPendingUntil);
+  const qualityCheckPendingUntil = pendingUntil > now ? pendingUntil : undefined;
+  const qualityCheckUnavailable = obj.qualityCheckUnavailable === true || (pendingUntil > 0 && pendingUntil <= now);
   const qualityChecked =
+    finiteNonNegativeInteger(obj.qualityCheckedAt) > 0 ||
     qualityRejectedCount > 0 ||
     flaggedAssetIds.length > 0 ||
     qualityCheckUnavailable;
@@ -1155,6 +1160,7 @@ function normalizeCoverRound(
       ? { qualityFlaggedAssetIds: flaggedAssetIds }
       : {}),
     ...(qualityCheckUnavailable ? { qualityCheckUnavailable: true } : {}),
+    ...(qualityCheckPendingUntil ? { qualityCheckPendingUntil } : {}),
     ...(qualityChecked
       ? { qualityCheckedAt: timestamp(obj.qualityCheckedAt, now) }
       : {}),

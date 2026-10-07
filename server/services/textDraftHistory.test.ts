@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TextDraftRequest } from "../../shared/textDraftHistory";
 import { normalizePublishingDraftState } from "../../shared/publishingDraft";
 import { prepareStoryBody } from "./storySync";
+import { InferenceError } from "../_core/inferenceOrchestrator";
 
 const model = vi.hoisted(() => vi.fn());
 vi.mock("./agentRuntime", () => ({ runJsonAgent: model }));
@@ -59,6 +60,29 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it("reads writing evidence with bounded concurrency without changing owner filtering", async () => {
+    const input = await setup();
+    for (let i = 0; i < 8; i++) await setup(input.userId);
+    await setup(999);
+    const stories = await import("../repositories/stories");
+    const read = stories.getStoryById;
+    let active = 0;
+    let peak = 0;
+    const spy = vi.spyOn(stories, "getStoryById").mockImplementation(async (id, userId) => {
+      expect(userId).toBe(input.userId);
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      try { return await read(id, userId); } finally { active--; }
+    });
+    try {
+      const history = await service.generateTextDraft(input);
+      expect(history.versions[0].status).toBe("ready");
+      expect(peak).toBe(4);
+      expect(model.mock.calls[0][0].responseFormat).toEqual({ type: "json_object" });
+      expect(JSON.parse(model.mock.calls[0][0].message).evidence).toEqual([]);
+    } finally { spy.mockRestore(); }
+  });
   it("uses the imported background as source material without recording it as recipient conversation", async () => {
     const input = await setup();
     const { createStoryContextSnapshot, buildInheritedStoryInput } = await import("./storyContextSnapshot");
@@ -180,6 +204,22 @@ describe("independent text versions with real Story CAS persistence", () => {
       status: "unknown",
       request: { messages: input.messages },
     });
+    await service.generateTextDraft(input);
+    expect(model).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["auth", 401, false, "failed", "认证失败"],
+    ["network", undefined, true, "unknown", "连接中断"],
+    ["timeout", undefined, false, "unknown", "超时"],
+  ] as const)("records a safe %s diagnostic and preserves uncertain billing", async (category, status, acceptanceUnknown, expectedStatus, message) => {
+    const input = await setup();
+    model.mockRejectedValue(new InferenceError("raw-secret-not-for-users", [{ provider: "openai-next", model: "test", category, status, acceptanceUnknown, aborted: category === "timeout" }]));
+    const result = await service.generateTextDraft(input);
+    expect(result.versions[0].status).toBe(expectedStatus);
+    expect(result.versions[0].error).toContain(message);
+    expect(result.versions[0].error).not.toContain("raw-secret");
+    expect(result.versions[0].completedAt).toBeGreaterThanOrEqual(result.versions[0].createdAt);
     await service.generateTextDraft(input);
     expect(model).toHaveBeenCalledTimes(1);
   });

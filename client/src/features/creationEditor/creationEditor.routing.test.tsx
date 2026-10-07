@@ -230,6 +230,18 @@ describe("creation editor route and shell", () => {
     ]);
   });
 
+  it("uses the chosen article illustration as the video source while keeping an explicitly changed shot image", () => {
+    const original = { id: 81, shotNo: null, imageUrl: "/article.png", status: "pending" as const };
+    const replacement = { id: 82, shotNo: 2, imageUrl: "/replacement.png", status: "selected" as const };
+    const provenance = { versionId: "v1", sourcePlatform: "xiaohongshu", groupId: "g1", segmentIds: [], sourceParagraphIds: [], confirmedRevision: 1, referenceImageId: 81 };
+    const imported = shot(1, { stableShotId: "article-1", publishingVideo: provenance });
+    const edited = shot(2, { stableShotId: "article-2", publishingVideo: provenance, imageId: 82, imageUrl: replacement.imageUrl });
+    const projected = applyTimelineImageReferences([imported, edited], [original, replacement], []);
+    expect(projected.map(item => item.imageId)).toEqual([81, 82]);
+    expect(projected[0].imageUrl).toBe(original.imageUrl);
+    expect(projected[0].imageVersions?.map(image => image.id)).toEqual([81]);
+  });
+
   it("keeps storyImages visible when material state has no current image", () => {
     const images = resolveCreationEditorImages(
       {

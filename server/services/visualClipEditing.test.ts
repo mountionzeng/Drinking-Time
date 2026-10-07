@@ -24,6 +24,7 @@ import {
   undoVisualEditForStory,
   withPlayheadShot,
   insertVisualImageClipForStory,
+  placeImageRevisionForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
   moveShotSingleForStory,
@@ -466,6 +467,26 @@ describe("moveVisualClipForStory", () => {
 
 describe("insertVisualImageClipForStory", () => {
   beforeEach(() => resetMemoryStateForTesting());
+
+  it("initializes a story timeline and retains both revision assets on replay", async () => {
+    const story = await createStory({ userId: USER_ID, title: "改图", body: {
+      shots: [{ shotNo: 1, stableShotId: "revision-shot", durationSec: 4 }],
+    } });
+    const attributes = { projectId: null, storyId: story.id, userId: USER_ID,
+      shotNo: "1", shotIdentity: "revision-shot", prompt: "test",
+      generationType: "initial" as const, isCurrent: false };
+    const source = await createGeneratedImage({ ...attributes, imageUrl: "/source.png" });
+    const image = await createGeneratedImage({ ...attributes, imageUrl: "/revision.png", parentImageId: source.id });
+    const request = { storyId: story.id, userId: USER_ID, sourceImageId: source.id,
+      imageId: image.id, stableShotId: "revision-shot" };
+    expect(await placeImageRevisionForStory(request)).toMatchObject({ status: "ok", changed: true });
+    expect(await placeImageRevisionForStory(request)).toMatchObject({ status: "ok", changed: false });
+    expect(await getGeneratedImageById(source.id)).toMatchObject({ imageUrl: "/source.png", isCurrent: false });
+    expect(await getGeneratedImageById(image.id)).toMatchObject({ parentImageId: source.id, isCurrent: false });
+    const timeline = await getStoryTimeline(story.id, USER_ID);
+    expect((timeline!.items as VisualEditDocument["items"])[0].imageClips).toHaveLength(1);
+    expect(await placeImageRevisionForStory({ ...request, userId: USER_ID + 1 })).toMatchObject({ status: "error" });
+  });
 
   it("按绝对帧落一张一帧图片，其它素材一个不动，版本只 +1", async () => {
     const storyId = await seedStory();

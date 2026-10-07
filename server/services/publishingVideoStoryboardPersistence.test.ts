@@ -10,6 +10,8 @@ import {
   buildPublishingVideoPreview,
   canonicalizePublishingVideoParagraphs,
 } from "../../shared/publishingVideoStoryboard";
+import { buildPublishingArticleVideoPreview } from "../../shared/publishingArticleVideo";
+import { imagePackParagraphs } from "../../shared/articleIllustrations";
 
 function publishingState() {
   const empty = emptyPublishingDraftState(100);
@@ -113,6 +115,94 @@ afterAll(async () => {
 });
 
 describe("publishing video preview persistence", () => {
+  it("persists a supplemental shot with an illustration generation reference, not a ready video frame", async () => {
+    const publishing = publishingState();
+    const body = publishing.drafts.xiaohongshu!.content.body;
+    const story = await db.createStory({ userId: 31, title: "supplement", body: { _revision: 1, shots: [], publishing } });
+    const image = await db.createGeneratedImage({ userId: 31, storyId: story.id, projectId: null, shotNo: "PUBLISHING-COVER", imageUrl: "data:image/png;base64,QQ==", imageKey: null, prompt: "修伞铺全景", generationType: "initial", isCurrent: false });
+    const generate = vi.fn<NonNullable<Parameters<typeof persistence.generateAndPersistPublishingVideoPreview>[0]["generate"]>>(async input => ({
+      preview: buildPublishingArticleVideoPreview({ rows: input.articleRows!, requirements: new Map(), supplements: [{
+        anchorRowId: input.articleRows![0].id, sourceRowId: input.articleRows![0].id, position: "after",
+        reason: "全景看不清关键动作", subject: "阿宁的手", action: "钉好松动木条", imageRequirement: "手部近景，保留人物与画风", videoRequirement: "固定镜头完成钉木条动作", soundRequirement: "敲击声",
+      }], now: 400 }), modelLabel: "test",
+    }));
+    const input = { storyId: story.id, userId: 31, articleLayout: { body, illustrations: [{ assetId: image.id, after: null }] }, generate };
+    const result = await persistence.generateAndConfirmPublishingVideoStoryboard(input);
+    expect(result.status).toBe("confirmed");
+    if (result.status !== "confirmed") throw new Error("not confirmed");
+    expect(result.shots).toHaveLength(2);
+    expect(result.shots[1]).toMatchObject({ dialogue: "", shotType: "补充镜头", publishingVideo: { continuityImageId: image.id } });
+    const { getStoryMaterialState } = await import("./storyMaterials");
+    const material = await getStoryMaterialState(story.id, 31);
+    expect(material?.shots[0].currentImage?.id).toBe(image.id);
+    expect(material?.shots[1]).toMatchObject({ currentImage: null, imageVersions: [], relatedImages: [], imageGenerationReference: { id: image.id } });
+    const reopened = await persistence.generateAndConfirmPublishingVideoStoryboard(input);
+    expect(reopened.reused).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries selected illustrations into real material projection and reopens without regenerating or overwriting edits", async () => {
+    const publishing = publishingState();
+    const body = publishing.drafts.xiaohongshu!.content.body;
+    const story = await db.createStory({ userId: 31, title: "article image reuse", body: { _revision: 1, shots: [], publishing } });
+    const images = await Promise.all([1, 2].map(index => db.createGeneratedImage({
+      userId: 31, storyId: story.id, projectId: null, shotNo: `PUBLISHING-COVER-${index}`,
+      imageUrl: `data:image/png;base64,${index === 1 ? "QQ==" : "Qg=="}`, imageKey: null,
+      prompt: `原插图 ${index} 的画面`, generationType: "initial", isCurrent: false,
+    })));
+    const articleLayout = { body, illustrations: [
+      { assetId: images[0].id, after: null },
+      { assetId: images[1].id, after: imagePackParagraphs(body)[1].anchor },
+    ] };
+    const generate = vi.fn<NonNullable<Parameters<typeof persistence.generateAndPersistPublishingVideoPreview>[0]["generate"]>>(async input => ({
+      preview: buildPublishingArticleVideoPreview({ rows: input.articleRows!, requirements: new Map(), now: 200 }), modelLabel: "test",
+    }));
+    const first = await persistence.generateAndConfirmPublishingVideoStoryboard({
+      storyId: story.id, userId: 31, articleLayout, narrativeSpec: "video10", operationToken: "article-first", generate,
+    });
+    expect(first.status).toBe("confirmed");
+    if (first.status !== "confirmed") throw new Error("not confirmed");
+    expect(first.shots.map(shot => shot.scriptText).join("\n\n")).toBe(body);
+    expect(first.shots.map(shot => (shot.publishingVideo as any).referenceImageId)).toEqual(images.map(image => image.id));
+    expect(generate.mock.calls[0][0].articleRows?.map(row => row.referencePrompt)).toEqual(images.map(image => image.prompt));
+    const { getStoryMaterialState } = await import("./storyMaterials");
+    const materials = await getStoryMaterialState(story.id, 31);
+    expect(materials?.shots.map(shot => shot.currentImage?.id)).toEqual(images.map(image => image.id));
+    expect(materials?.shots.map(shot => shot.currentImage?.imageUrl)).toEqual(images.map(image => image.imageUrl));
+    expect((await db.getGeneratedImageById(images[0].id))?.shotNo).toBe("PUBLISHING-COVER-1");
+
+    const saved = await db.getStoryById(story.id, 31);
+    const editedBody = structuredClone(saved!.body) as any;
+    editedBody.shots[0].scriptText = "我修改的原文";
+    editedBody.shots[0].videoPrompt = "我修改的镜头运动";
+    editedBody._revision = first.storyRevision + 1;
+    expect(await db.updateStoryBodyIfRevision({ id: story.id, userId: 31, expectedRevision: first.storyRevision, body: editedBody })).toBe(true);
+    const reopened = await persistence.generateAndConfirmPublishingVideoStoryboard({
+      storyId: story.id, userId: 31, articleLayout, narrativeSpec: "video10", operationToken: "article-reopen", generate,
+    });
+    expect(reopened.reused).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(reopened.status === "confirmed" && reopened.shots[0].scriptText).toBe("我修改的原文");
+    expect(reopened.status === "confirmed" && reopened.shots[0].videoPrompt).toBe("我修改的镜头运动");
+    const changedLayout = { ...articleLayout, illustrations: [articleLayout.illustrations[0], { assetId: images[1].id, after: imagePackParagraphs(body)[2].anchor }] };
+    const refreshed = await persistence.generateAndConfirmPublishingVideoStoryboard({ storyId: story.id, userId: 31, articleLayout: changedLayout, narrativeSpec: "video10", operationToken: "article-new-layout", generate });
+    expect(refreshed.status === "confirmed" && refreshed.shots[0].scriptText).toBe("我修改的原文");
+    expect(refreshed.status === "confirmed" && refreshed.shots[0].videoPrompt).toBe("我修改的镜头运动");
+  });
+
+  it("rejects another story's illustration and stale article text before compute or formal writes", async () => {
+    const publishing = publishingState();
+    const body = publishing.drafts.xiaohongshu!.content.body;
+    const story = await db.createStory({ userId: 31, title: "owned article", body: { _revision: 1, shots: [], publishing } });
+    const other = await db.createStory({ userId: 32, title: "other", body: {} });
+    const image = await db.createGeneratedImage({ userId: 32, storyId: other.id, projectId: null, shotNo: "SH01", imageUrl: "data:image/png;base64,QQ==", imageKey: null, prompt: "private", generationType: "initial", isCurrent: false });
+    const generate = vi.fn(async () => generatedPreview(body));
+    await expect(persistence.generateAndConfirmPublishingVideoStoryboard({ storyId: story.id, userId: 31, articleLayout: { body, illustrations: [{ assetId: image.id, after: null }] }, generate })).rejects.toThrow("选中的插图不可用");
+    await expect(persistence.generateAndConfirmPublishingVideoStoryboard({ storyId: story.id, userId: 31, articleLayout: { body: "未保存的修改", illustrations: [] }, generate })).rejects.toThrow("文字稿已经变化");
+    expect(generate).not.toHaveBeenCalled();
+    expect((await db.getStoryById(story.id, 31))?.body).toMatchObject({ _revision: 1, shots: [] });
+  });
+
   it("rejects a static album version before invoking video generation", async () => {
     const publishing = publishingState();
     const withAlbum = {

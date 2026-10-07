@@ -9,6 +9,7 @@ import {
   FilePenLine,
   Image as ImageIcon,
   ImagePlus,
+  Link2,
   Loader2,
   MessageCircleMore,
   RefreshCcw,
@@ -34,7 +35,7 @@ import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
 import {
-  StoryContextShareButton,
+  StoryContextShareDialog,
   InheritedStorySource,
 } from "@/features/storyAgent/views/StoryContextShare";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
@@ -45,6 +46,7 @@ import {
 } from "@shared/narrativeRhythm";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
+  publishingDraftBufferKey,
   computePublishingTextOperationRequestHash,
   getPublishingContentError,
   getXThreadStats,
@@ -96,6 +98,7 @@ import {
 } from "./publishingOperationScope";
 import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
 import { PublishingImagePack } from "../publishingAlbum/PublishingImagePack";
+import type { IllustrationPlacement } from "@shared/articleIllustrations";
 import {
   Popover,
   PopoverContent,
@@ -331,7 +334,10 @@ export default function PublishingDraftWorkspace({
   const selection = usePublishingPlatformSelection();
   const readQuery = trpc.publishingDraft.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
-    { enabled: Boolean(activeStoryId && activeStoryId > 0), retry: false }
+    {
+      enabled: Boolean(activeStoryId && activeStoryId > 0), retry: false,
+      refetchInterval: query => query.state.data?.coverRounds.some(round => round.qualityCheckPendingUntil) ? 1_500 : false,
+    }
   );
   const generateMut = trpc.publishingDraft.generate.useMutation();
   const convertMut = trpc.publishingDraft.convert.useMutation();
@@ -339,12 +345,13 @@ export default function PublishingDraftWorkspace({
   const repairFormattingMut =
     trpc.publishingDraft.repairFormatting.useMutation();
   const applyMut = trpc.publishingDraft.applyEdit.useMutation();
+  const adoptTextMut = trpc.textDrafts.adopt.useMutation({ retry: false });
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
   const confirmCoreMut = trpc.publishingDraft.confirmCoreChange.useMutation();
   const finishedProductQuery = trpc.publishingDraft.finishedProduct.useQuery(
     { storyId: activeStoryId ?? 0 },
-    { enabled: activeStoryId != null }
+    { enabled: Boolean(activeStoryId && activeStoryId > 0), retry: false }
   );
   const textDraftHistoryQuery = trpc.textDrafts.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
@@ -371,6 +378,7 @@ export default function PublishingDraftWorkspace({
     useState<PendingEditDecision | null>(null);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
   const [coverStudioOpen, setCoverStudioOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [activeCoverRoundId, setActiveCoverRoundId] = useState<string | null>(
     null
   );
@@ -395,6 +403,7 @@ export default function PublishingDraftWorkspace({
   const coverGenerationInFlightRef = useRef(false);
   const recoveredCoverOperationRef = useRef<string | null>(null);
   const videoBuildInFlightRef = useRef(false);
+  const selectedIllustrationsRef = useRef<{ scope: string; placements: IllustrationPlacement[] }>({ scope: "", placements: [] });
   const videoBuildOperationRef = useRef<{
     scope: string;
     token: string;
@@ -427,6 +436,7 @@ export default function PublishingDraftWorkspace({
   useEffect(() => {
     coverReferenceAnalysisRequestRef.current += 1;
     setCoverStudioOpen(false);
+    setShareOpen(false);
     setCoverStudioReturnToAlbum(false);
     setRewriteInstruction("");
     setActiveCoverRoundId(null);
@@ -451,6 +461,9 @@ export default function PublishingDraftWorkspace({
     const readData = readQuery.data;
     const remote = readData?.publishing;
     if (!readData || !remote || readData.storyId !== activeStoryId) return;
+    if (remote.revision >= publishing.revision) {
+      setGeneratedCoverRounds({ storyId: readData.storyId, rounds: readData.coverRounds });
+    }
     if (
       remote.revision > publishing.revision ||
       (remote.revision === publishing.revision &&
@@ -518,12 +531,19 @@ export default function PublishingDraftWorkspace({
           versionId,
         });
   const textDraftVersions = [...(textDraftHistoryQuery.data?.versions ?? [])]
-    .filter(version => version.status === "ready" && version.generated)
+    .filter(version => version.status === "ready" && version.generated && version.request.platform === platform)
     .reverse();
+  const editorBuffer = activeStoryId == null ? undefined : publishingBuffers[
+    publishingDraftBufferKey(activeStoryId, platform, versionId)
+  ];
+  // Legacy previews had no source ID: only an exact match can safely identify them.
+  const previewVersion = textDraftVersions.find(version =>
+    !version.adoption && (editorBuffer?.textDraftVersionId
+      ? version.id === editorBuffer.textDraftVersionId
+      : editorBuffer && publishingContentEquals(editorBuffer.content, version.generated!))
+  );
   const dirty = Boolean(
-    draft &&
-      editorContent &&
-      !publishingContentEquals(editorContent, draft.content)
+    editorContent && (previewVersion || !draft || !publishingContentEquals(editorContent, draft.content))
   );
   const tabs = existingPublishingTabs(publishing);
   const convertTargets = publishingConvertTargets(publishing);
@@ -535,6 +555,7 @@ export default function PublishingDraftWorkspace({
     rewriteMut.isPending ||
     repairFormattingMut.isPending ||
     applyMut.isPending ||
+    adoptTextMut.isPending ||
     confirmWordingMut.isPending ||
     confirmCoreMut.isPending;
   const finishedProductBusy = busy || updateFinishedProductMut.isPending;
@@ -602,14 +623,14 @@ export default function PublishingDraftWorkspace({
   const replaceContent = (next: PublishingDraftContent) => {
     if (activeStoryId == null) return;
     if (!draft) {
-      setPublishingBuffer(activeStoryId, platform, next, versionId);
+      setPublishingBuffer(activeStoryId, platform, next, versionId, previewVersion?.id);
       return;
     }
-    if (publishingContentEquals(next, draft.content)) {
+    if (!previewVersion && publishingContentEquals(next, draft.content)) {
       discardPublishingBuffer(activeStoryId, platform, versionId);
       return;
     }
-    setPublishingBuffer(activeStoryId, platform, next, versionId);
+    setPublishingBuffer(activeStoryId, platform, next, versionId, previewVersion?.id);
   };
 
   const generateOrConvert = async () => {
@@ -883,10 +904,35 @@ export default function PublishingDraftWorkspace({
   };
 
   const applyChanges = async () => {
-    if (!draft || !editorContent || !dirty || activeStoryId == null || busy)
+    if (!editorContent || !dirty || activeStoryId == null || busy)
       return;
     try {
       const storyId = await ensureActiveStoryPersisted();
+      if (previewVersion && textDraftHistoryQuery.data) {
+        const result = await adoptTextMut.mutateAsync({
+          storyId,
+          versionId: previewVersion.id,
+          expectedRevision: textDraftHistoryQuery.data.revision,
+          expectedPublishingRevision: publishing.revision,
+          content: editorContent,
+          feedback: "",
+        });
+        utils.textDrafts.read.setData({ storyId }, result.history);
+        const current = storySpineStore.getState();
+        if (current.activeStoryId !== storyId || current.publishing.activePlatform !== platform ||
+            (current.publishing.activeVersionId ?? "v1") !== versionId ||
+            current.publishing.revision > result.publishing.revision) return;
+        const remaining = current.publishingBuffers[publishingDraftBufferKey(storyId, platform, versionId)];
+        setPublishing(result.publishing);
+        if (remaining === editorBuffer) discardPublishingBuffer(storyId, platform, versionId);
+        await utils.publishingDraft.read.invalidate({ storyId });
+        toast.success("文稿已采用");
+        return;
+      }
+      if (!draft) {
+        toast.error("请从文字历史选择要采用的文稿");
+        return;
+      }
       const result = await applyMut.mutateAsync({
         storyId,
         platform,
@@ -1312,6 +1358,11 @@ export default function PublishingDraftWorkspace({
         versionId: targetVersionId,
         operationToken,
         narrativeSpec,
+        articleLayout: {
+          body: editorContent?.body ?? "",
+          illustrations: selectedIllustrationsRef.current.scope === `${storyId}:${targetVersionId}:${platform}`
+            ? selectedIllustrationsRef.current.placements : [],
+        },
       });
       if (
         !publishingStoryScopeMatches(
@@ -1619,9 +1670,6 @@ export default function PublishingDraftWorkspace({
           <h2 className="font-chat-brand mt-4 text-xl text-foreground">
             先从左侧打开一个故事
           </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            你可以继续讲自己的想法；只有点击生成后，文字稿才会出现在这里。
-          </p>
         </div>
       </section>
     );
@@ -1734,7 +1782,7 @@ export default function PublishingDraftWorkspace({
             <h1 className="font-chat-brand mt-1 text-xl text-foreground">
               {storyTitle?.trim() || "未命名故事"}
             </h1>
-            <button
+            {!editorContent ? <button
               type="button"
               onClick={() =>
                 window.dispatchEvent(new Event("dt:open-text-version-history"))
@@ -1742,7 +1790,7 @@ export default function PublishingDraftWorkspace({
               className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
             >
               文字历史
-            </button>
+            </button> : null}
             {legacyPublishingControlsVisible ? <PublishingVersionControls
               versions={finishedProduct?.versions ?? []}
               purpose={finishedProductPurpose}
@@ -1769,30 +1817,28 @@ export default function PublishingDraftWorkspace({
               onComplete={() => void updateFinishedProduct({ type: "complete" })}
               onAbandon={() => void updateFinishedProduct({ type: "abandon" })}
             /> : null}
-            {activeVersion?.album ? (
-              <nav className="mt-2 flex gap-1" aria-label="发布工作区子导航">
-                <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-1.5 text-[11px]">正文</span>
-                <button type="button" onClick={() => openCoverStudio(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">封面</button>
-                <button type="button" onClick={() => setAlbumWorkspaceOpen(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">画册</button>
-              </nav>
-            ) : null}
           </div>
           <div className="flex flex-col items-end gap-2">
             {activeStoryId != null && activeStoryId > 0 ? (
-              <StoryContextShareButton
-                key={activeStoryId}
-                storyId={activeStoryId}
-                article={editorContent ? { platform, ...editorContent } : undefined}
-              />
+              <ActionButton onClick={() => setShareOpen(true)}>
+                <Link2 className="h-4 w-4" />
+                分享链接
+              </ActionButton>
             ) : null}
-            <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
-              AI 帮你整理结构和措辞，但事实、判断与锋芒仍属于你。
-            </p>
           </div>
         </header>
 
         {activeStoryId != null && activeStoryId > 0 ? (
-          <InheritedStorySource key={`source-${activeStoryId}`} storyId={activeStoryId} />
+          <>
+            <StoryContextShareDialog
+              key={activeStoryId}
+              storyId={activeStoryId}
+              article={editorContent ? { platform, ...editorContent } : undefined}
+              open={shareOpen}
+              onOpenChange={setShareOpen}
+            />
+            <InheritedStorySource key={`source-${activeStoryId}`} storyId={activeStoryId} />
+          </>
         ) : null}
 
         <article
@@ -1844,13 +1890,9 @@ export default function PublishingDraftWorkspace({
                 <h2 className="font-chat-brand mt-5 text-2xl text-foreground">
                   {publishing.core
                     ? `把现有内容转为 ${adapter.label}`
-                    : "先聊清楚，再落笔"}
+                    : "暂无文稿"}
                 </h2>
-                <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                  {publishing.core
-                    ? "只适配这个平台的篇幅、节奏和排版，不改变已经确认的内容内核。"
-                    : "左侧对话只帮你厘清想法。系统不会判断“够了”就自动写稿，决定权在你。"}
-                </p>
+                {publishing.core ? <div className="mt-4">
                 <ActionButton
                   onClick={() => void generateOrConvert()}
                   disabled={busy}
@@ -1865,13 +1907,7 @@ export default function PublishingDraftWorkspace({
                     ? `转为 ${adapter.label}`
                     : `生成 ${adapter.label} 文字稿`}
                 </ActionButton>
-                {targetOptions.length > 0 ? (
-                  <p className="mt-4 text-[11px] text-muted-foreground">
-                    另外选择的{" "}
-                    {targetOptions.map(item => item.label).join("、")}{" "}
-                    不会在后台生成
-                  </p>
-                ) : null}
+                </div> : null}
               </div>
             </div>
           ) : (
@@ -1897,8 +1933,8 @@ export default function PublishingDraftWorkspace({
                         className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
                       >
                         {draft
-                          ? `版本 ${draft.revision} · 内核 ${draft.sourceCoreRevision}`
-                          : "新版本 · 尚未采用"}
+                          ? `文字历史 · 版本 ${draft.revision}`
+                          : "文字历史 · 待采用"}
                         <ChevronDown className="h-3 w-3" aria-hidden="true" />
                       </button>
                     </PopoverTrigger>
@@ -1908,9 +1944,6 @@ export default function PublishingDraftWorkspace({
                     >
                       <div className="px-2 pb-2 pt-1">
                         <p className="text-xs font-medium">文字版本</p>
-                        <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                          每一版都保留；点击可查看完整正文和当次改动。
-                        </p>
                       </div>
                       {textDraftVersions.length ? (
                         <div className="max-h-72 space-y-1 overflow-y-auto">
@@ -1960,7 +1993,7 @@ export default function PublishingDraftWorkspace({
                 {draft?.needsReview ? (
                   <span className="inline-flex items-center gap-1 text-[10px] text-rose-700">
                     <RefreshCcw className="h-3 w-3" />
-                    请先复核，不会自动改写
+                    待复核
                   </span>
                 ) : null}
               </div>
@@ -2075,6 +2108,7 @@ export default function PublishingDraftWorkspace({
                     </label>
                     <input
                       id="publishing-title"
+                      disabled={adoptTextMut.isPending}
                       value={editorContent.title}
                       onChange={event =>
                         replaceContent({
@@ -2108,6 +2142,7 @@ export default function PublishingDraftWorkspace({
                 </div>
                 <textarea
                   id="publishing-body"
+                  disabled={adoptTextMut.isPending}
                   value={editorContent.body}
                   aria-invalid={Boolean(contentError)}
                   onChange={event =>
@@ -2133,6 +2168,7 @@ export default function PublishingDraftWorkspace({
                 </label>
                 <input
                   id="publishing-tags"
+                  disabled={adoptTextMut.isPending}
                   value={editorContent.tags
                     .map(tag => `#${tag.replace(/^#+/, "")}`)
                     .join(" ")}
@@ -2160,13 +2196,17 @@ export default function PublishingDraftWorkspace({
                     ...coverRounds.flatMap((round, index) => round.candidates.map((asset, ordinal) => ({
                       id: asset.id, imageUrl: asset.imageUrl, label: `${round.outputKind === "body-texture" ? "花纹底图" : round.outputKind === "illustration" ? "横版插图" : "第"} ${index + 1} 轮 · ${ordinal + 1}`,
                       kind: round.outputKind, parentAssetId: round.parentAssetId,
-                      warning: round.qualityFlaggedAssetIds?.includes(asset.id) ? "疑似含字" : round.qualityCheckUnavailable ? "质检未完成" : undefined,
+                      warning: round.qualityFlaggedAssetIds?.includes(asset.id) ? "疑似含字" : round.qualityCheckPendingUntil ? "质检中" : round.qualityCheckUnavailable ? "质检未完成" : undefined,
                     }))),
                   ]}
                   adoptedCoverId={coverAsset?.id ?? null}
+                  onIllustrationsChange={placements => {
+                    selectedIllustrationsRef.current = { scope: `${activeStoryId}:${versionId}:${platform}`, placements };
+                  }}
                   onOpenCoverStudio={() => openCoverStudio(false)}
-                  coverBusy={busy || coverBusy || videoBusy || dirty}
+                  coverBusy={busy || coverBusy || videoBusy || dirty || !draft}
                   generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}
+                  generationError={persistedCoverGeneration?.error}
                   illustrationCost={coverEstimate.estimatedCny}
                   onGenerateCover={instruction => generateCover("fresh", undefined, "midjourney", undefined, instruction)}
                   onGenerateIllustration={(coverId, instruction) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "illustration" })}
@@ -2193,15 +2233,15 @@ export default function PublishingDraftWorkspace({
               >
                 <ActionButton
                   onClick={() => void applyChanges()}
-                  disabled={!dirty || busy || Boolean(contentError)}
+                  disabled={!dirty || (!draft && !previewVersion) || busy || Boolean(contentError)}
                   primary
                 >
-                  {applyMut.isPending ? (
+                  {applyMut.isPending || adoptTextMut.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Check className="h-4 w-4" />
                   )}
-                  应用修改
+                  {previewVersion ? "采用文稿" : "应用修改"}
                 </ActionButton>
                 {dirty ? (
                   <ActionButton onClick={discardChanges} disabled={busy}>
@@ -2216,24 +2256,13 @@ export default function PublishingDraftWorkspace({
                   <Clipboard className="h-4 w-4" />
                   复制文案
                 </ActionButton>
-                <ActionButton
-                  onClick={() => openCoverStudio(false)}
-                  disabled={busy || coverBusy || videoBusy || dirty}
-                >
-                  {coverBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ImageIcon className="h-4 w-4" />
-                  )}
-                  {studioCoverRounds.length > 0 ? "继续选封面" : "打开封面工作室"}
-                </ActionButton>
                 {coverAsset ? (
                   <ActionButton
                     onClick={() => void downloadCover()}
                     disabled={busy || coverBusy}
                   >
                     <Download className="h-4 w-4" />
-                    下载 {adapter.shortLabel} 封面
+                    下载原封面
                   </ActionButton>
                 ) : null}
                 {targetOptions.map(target => (
@@ -2245,16 +2274,7 @@ export default function PublishingDraftWorkspace({
                     一键转为 {target.label}
                   </ActionButton>
                 ))}
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  {videoPreparing ? (
-                    <span
-                      className="text-[11px] text-muted-foreground"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      正在生成剧本、图片要求和视频要求，完成后会直接打开故事版…
-                    </span>
-                  ) : null}
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2" aria-live="polite">
                   <ActionButton
                     onClick={openVideoSetup}
                     disabled={busy || videoBusy || dirty}
@@ -2283,12 +2303,12 @@ export default function PublishingDraftWorkspace({
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {selectedNarrativeSpec === "album9" ? "先定一下这套画册" : "先定一下这支片子的节奏"}
+              {selectedNarrativeSpec === "album9" ? "制作画册" : "制作视频"}
             </DialogTitle>
             <DialogDescription>
               {selectedNarrativeSpec === "album9"
-                ? "会新建独立画册版本，把中文作为可编辑文字层叠在底图上；不会建立镜头、时间线或进入剪辑台。"
-                : "这是一次新的视频故事版生成，不会覆盖当前文字和已有故事版。模型会按你的选择重新编排镜头。"}
+                ? "新建画册，文字可编辑。"
+                : "新建故事版，保留已有内容。"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-1">
@@ -2340,7 +2360,7 @@ export default function PublishingDraftWorkspace({
               onClick={() => setVideoSetupOpen(false)}
               disabled={busy || videoPreparing}
             >
-              先不生成
+              取消
             </ActionButton>
             <ActionButton
               onClick={confirmVideoSetup}
@@ -2352,7 +2372,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <ArrowRight className="h-4 w-4" />
               )}
-              {selectedNarrativeSpec === "album9" ? "制作画册" : "按这个节奏生成"}
+              {selectedNarrativeSpec === "album9" ? "生成画册" : "生成故事版"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
@@ -2419,16 +2439,14 @@ export default function PublishingDraftWorkspace({
               <div className="flex flex-wrap items-start justify-between gap-3 pr-7">
                 <div>
                   <DialogTitle className="font-chat-brand text-xl">
-                    封面工作室
+                    编辑封面
                   </DialogTitle>
                   <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
-                    一次生成 4
-                    张粗选图，全部展示；像素质检只把疑似含文字的标出来，不替你丢弃。你可以选一张，在这里直接说怎么改；只有点击“采用这张”后，它才会成为正式封面。
+                    选图后可修改或设为封面。
                   </DialogDescription>
                 </div>
                 <div className="rounded-full border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-3 py-1.5 text-[10px] text-muted-foreground">
-                  新一轮 ¥{coverEstimate.estimatedCny.toFixed(2)} · 含像素质检 ·
-                  选择与采用免费
+                  每轮 4 张 · ¥{coverEstimate.estimatedCny.toFixed(2)}
                 </div>
               </div>
             </div>
@@ -2444,10 +2462,7 @@ export default function PublishingDraftWorkspace({
                 />
                 <div>
                   <p className="text-xs font-medium text-foreground">
-                    探索期间，原正式封面会一直保留
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                    下游工作区现在仍读取这张图，候选不会提前混进去。
+                    当前封面
                   </p>
                 </div>
               </div>
@@ -2488,12 +2503,12 @@ export default function PublishingDraftWorkspace({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                    选择一个方向
+                    候选封面
                   </p>
                   <p className="text-[10px] text-muted-foreground">
                     {activeCoverRound.parentAssetId
-                      ? "这一轮基于上一张候选修改"
-                      : "这一轮从故事内核重新构思"}
+                      ? "修改版"
+                      : "新一轮"}
                   </p>
                 </div>
                 <div
@@ -2549,24 +2564,25 @@ export default function PublishingDraftWorkspace({
                     );
                   })}
                 </div>
-                {activeCoverRound.qualityCheckUnavailable ? (
+                {activeCoverRound.qualityCheckPendingUntil ? (
+                  <p role="status" className="mt-2 text-[11px] leading-5 text-amber-700">质检中 · 可选图</p>
+                ) : activeCoverRound.qualityCheckUnavailable ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    本轮没有经过像素质检（质检通道当时不可用），画面里的文字、Logo
-                    或水印不会被标出来，请自己确认后再采用。
+                    质检未完成，请检查文字与水印。
                   </p>
                 ) : (activeCoverRound.qualityFlaggedAssetIds?.length ?? 0) >
                   0 ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    {`本轮 ${activeCoverRound.candidates.length} 张全部保留可选；其中 ${activeCoverRound.qualityFlaggedAssetIds!.length} 张被像素质检标记为疑似含文字、Logo 或水印，仅作提示，是否采用由你决定。`}
+                    {`${activeCoverRound.qualityFlaggedAssetIds!.length} 张疑似含字或水印，仍可采用。`}
                   </p>
                 ) : (activeCoverRound.qualityRejectedCount ?? 0) > 0 ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    {`这是早期轮次：当时有 ${activeCoverRound.qualityRejectedCount} 张因检测到文字、Logo 或水印被隔离，未保留。`}
+                    {`旧轮次有 ${activeCoverRound.qualityRejectedCount} 张含字图片未保留。`}
                   </p>
                 ) : activeCoverRound.candidates.length !==
                   activeCoverRound.assetIds.length ? (
                   <p className="mt-2 text-[11px] text-rose-700">
-                    这一轮有图片资产暂时不可用，你仍可查看其他轮次或重新生成。
+                    部分图片暂不可用。
                   </p>
                 ) : null}
               </div>
@@ -2576,11 +2592,7 @@ export default function PublishingDraftWorkspace({
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <p className="font-chat-brand mt-3 text-base text-foreground">
-                  先看四个方向，再决定哪张值得留下
-                </p>
-                <p className="mx-auto mt-1.5 max-w-md text-[11px] leading-5 text-muted-foreground">
-                  Midjourney 会生成 4 张原生 3:4
-                  候选。每张都会在展示前检查文字、乱码、Logo、账号与水印；污染候选不会进入可选轮次，最终审美仍由你决定。
+                  暂无候选封面
                 </p>
               </div>
             )}
@@ -2589,10 +2601,10 @@ export default function PublishingDraftWorkspace({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                    美术参考图 · 可选
+                    风格参考图（可选）
                   </p>
                   <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                    系统只提取风格、色彩、光线、构图与材质，不复制图中的人物和内容。
+                    仅参考画风，不复制人物和内容。
                   </p>
                 </div>
                 <button
@@ -2640,9 +2652,6 @@ export default function PublishingDraftWorkspace({
                       <p className="truncate text-[11px] font-medium text-foreground">
                         {coverArtReference.label}
                       </p>
-                      <p className="mt-0.5 text-[9px] text-muted-foreground">
-                        以下是将参与生成的美术 DNA，可直接改写或清空。
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -2685,7 +2694,7 @@ export default function PublishingDraftWorkspace({
                 htmlFor="publishing-cover-feedback"
                 className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground"
               >
-                本轮补充要求 · 两个生成按钮都会参考
+                本轮要求
               </label>
               <textarea
                 id="publishing-cover-feedback"
@@ -2704,7 +2713,7 @@ export default function PublishingDraftWorkspace({
               {coverInstructions.length > 0 ? (
                 <div className="mt-2.5">
                   <p className="text-[9px] font-medium text-muted-foreground">
-                    后续每一轮都会继续参考
+                    持续要求
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {coverInstructions.map((instruction, index) => (
@@ -2743,11 +2752,6 @@ export default function PublishingDraftWorkspace({
                   </div>
                 </div>
               ) : null}
-              <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
-                {selectedCoverAsset
-                  ? "“修改这张”会保留主要构图；“不满意，换 4 张”会重新构思。两者都会使用上面的全部文字要求。"
-                  : "不选图也可以直接换一批；上面的文字会与已有要求一起用于下一轮。"}
-              </p>
             </div>
           </div>
 
@@ -2766,7 +2770,7 @@ export default function PublishingDraftWorkspace({
               disabled={coverBusy}
               className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
-              先保留这些候选
+              关闭
             </button>
             <ActionButton
               onClick={() => void generateCover("fresh")}
@@ -2778,7 +2782,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <RefreshCcw className="h-4 w-4" />
               )}
-              {studioCoverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 · ¥
+              {studioCoverRounds.length > 0 ? "重新生成" : "生成"} 4 张 · ¥
               {coverEstimate.estimatedCny.toFixed(2)}
             </ActionButton>
             {canUseCoverFallback ? (
@@ -2789,7 +2793,7 @@ export default function PublishingDraftWorkspace({
                 disabled={coverBusy}
               >
                 <Sparkles className="h-4 w-4" />
-                极速备用通道生成 1 张 · ¥
+                快速生成 1 张 · ¥
                 {coverFallbackEstimate.estimatedCny.toFixed(2)}
               </ActionButton>
             ) : null}
@@ -2803,15 +2807,10 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                {coverFeedback.trim() ? "按意见修改这张" : "基于这张再出 4 张"}·
+                修改选中图 · 4 张 ·
                 ¥{coverEstimate.estimatedCny.toFixed(2)}
               </ActionButton>
-            ) : (
-              <ActionButton onClick={() => {}} disabled>
-                <MessageCircleMore className="h-4 w-4" />
-                先选一张，再修改
-              </ActionButton>
-            )}
+            ) : null}
             {selectedCoverAsset ? (
               <ActionButton
                 onClick={() => void adoptCoverCandidate(false)}
@@ -2822,7 +2821,7 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                只采用这张
+                设为封面
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (

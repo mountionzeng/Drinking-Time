@@ -257,6 +257,8 @@ export type ShotMaterialState = {
   shotNo: number;
   cueCode?: string | null;
   currentImage: ImageAsset | null;
+  /** Source illustration for rendering a new composition; not a video start frame. */
+  imageGenerationReference?: ImageAsset | null;
   imageVersions: ImageAsset[];
   /**
    * Existing story images used by, or derived from inputs to, this shot.

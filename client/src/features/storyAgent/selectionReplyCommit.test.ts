@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { archiveMessagesFrom } from "./StoryAgentContext";
 import { commitSelectionReply } from "./selectionReplyCommit";
 import { normalizeChatMessages, type SelectionState } from "./types";
 describe("image revision conversation lifecycle", () => {
@@ -36,7 +37,7 @@ describe("image revision conversation lifecycle", () => {
       imageUrl: "/48.png",
     };
     expect(
-      normalizeChatMessages([
+      normalizeChatMessages(archiveMessagesFrom([
         {
           id: "r",
           role: "assistant",
@@ -44,7 +45,7 @@ describe("image revision conversation lifecycle", () => {
           timestamp: 2,
           imageRevision,
         },
-      ], [])[0].imageRevision
+      ], []), [])[0].imageRevision
     ).toEqual(imageRevision);
   });
 });

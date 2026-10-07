@@ -358,6 +358,7 @@ export function StoryboardReviewBoard({
   onRemoveTimelineVideoClip,
   onEditVideo,
   onEditImage,
+  onSelectImageForChat,
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel = null,
@@ -429,6 +430,7 @@ export function StoryboardReviewBoard({
     editMaskImageUrl?: string;
     reference?: {
       selection?: ShotRenderReferences;
+      referenceRevision?: boolean;
       imageUrl?: string;
       identityImageUrl?: string;
       contextImageUrls?: string[];
@@ -495,6 +497,7 @@ export function StoryboardReviewBoard({
   }) => Promise<void>;
   onEditVideo?: (target: VideoClipEditorTarget) => void;
   onEditImage?: (target: ImageClipEditorTarget) => void;
+  onSelectImageForChat?: (target: ImageClipEditorTarget) => void;
   onCopyVideo?: (target: VideoClipEditorTarget) => void;
   onPasteVideo?: (input: {
     stableShotId: string;
@@ -2097,14 +2100,14 @@ export function StoryboardReviewBoard({
   const currentCreationShots = useRef(creationShots);
   currentCreationShots.current = creationShots;
   const renderConfiguredShotImages = async (
-    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>
+    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>, skipCostConfirmation?: boolean
   ): Promise<StoryboardImageRerenderResult> => {
     if (!creationShot || !onGenerateShotImages || !canStartImageRenderRef.current(shot.shotNo)) return { status: "cancelled", message: "镜头正在渲染或尚未加载" };
     if (request?.imageId && !storyboardShotFrameImages(creationShot).some(frame => frame.id === request.imageId))
       return { status: "error", message: "所选图片已不属于这个镜头，请重新选择" };
     const pending = matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "");
     const effective = storyboardRenderShotWithDraft(creationShot, shot, pending);
-    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined,
+    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined, revisionProvider: request?.imageProvider, skipCostConfirmation,
       previousShots: creationShots.slice(0, Math.max(0, creationShots.indexOf(creationShot))),
       canStart: () => canStartImageRenderRef.current(shot.shotNo) && (!request?.imageId || currentCreationShots.current.some(current =>
         (current.stableShotId ?? current.shotIdentity) === (creationShot.stableShotId ?? creationShot.shotIdentity) &&
@@ -2140,6 +2143,12 @@ export function StoryboardReviewBoard({
           : `两条渲染线都在使用，请等待其中一条完成`;
       toast.info(message);
       return { status: "cancelled", message };
+    }
+    if (creationShot.publishingVideo?.continuityImageId && !creationShot.imageId && !request?.imageId) {
+      const stableId = storyShotInsertIdentity(shot, shotIndex) ?? String(shot.shotNo);
+      const settings = loadShotRenderSettings(storyId ?? 0, stableId, materialState);
+      return renderConfiguredShotImages(shot, creationShot, shotIndex,
+        { ...settings, count: 4 }, request, options.skipCostConfirmation);
     }
     const stableShotId = storyShotInsertIdentity(shot, shotIndex);
     const pendingDrafts = stableShotId
@@ -4143,6 +4152,7 @@ export function StoryboardReviewBoard({
                                           imageTarget,
                                           shot.shotNo
                                         );
+                                        if (imageEditTarget) onSelectImageForChat?.(imageEditTarget);
                                       })
                                     }
                                     onMouseEnter={event =>

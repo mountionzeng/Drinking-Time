@@ -33,6 +33,13 @@ const buttonClass =
 const compactButtonClass =
   "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--panel-border)] px-2 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
 
+const directionLabels: Record<StoryCapabilityGroupId, string> = {
+  tell_my_story: "自我梳理",
+  tell_someone: "分享经历",
+  keep_a_memory: "记录片段",
+  create_a_world: "虚构故事",
+};
+
 export function TextDraftVersions({
   storyId,
   input,
@@ -211,14 +218,15 @@ export function TextDraftVersions({
             id,
             platform,
             next.generated,
-            publishing.activeVersionId ?? "v1"
+            publishing.activeVersionId ?? "v1",
+            next.id
           );
         }
       }
       setDirectionOpen(false);
       setDirection(null);
-      if (next?.status === "ready")
-        toast.success("新版本已生成，正在右侧显示完整正文");
+      if (next?.status === "ready") toast.success("文稿已生成");
+      else if (next?.error) toast.error(next.error);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -293,10 +301,7 @@ export function TextDraftVersions({
 
   return (
     <>
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <p className="min-w-0 text-[10px] leading-4 text-muted-foreground">
-          继续补充，准备好再生成。
-        </p>
+      <div className="mt-1 flex justify-end">
         <button
           type="button"
           className={`${compactButtonClass} text-[var(--nayin-accent)]`}
@@ -308,12 +313,12 @@ export function TextDraftVersions({
           ) : (
             <Plus className="h-3 w-3" />
           )}
-          {busy ? "正在处理…" : "生成新版本"}
+          {busy ? "正在处理…" : versions.length ? "生成新稿" : "生成文稿"}
         </button>
       </div>
-      {versions.at(-1)?.status === "unknown" && (
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          上一轮结果未确认。再次生成会发起新的请求。
+      {versions.at(-1)?.error && (
+        <p role="status" className="mt-1 text-[10px] text-muted-foreground">
+          {versions.at(-1)?.error}
         </p>
       )}
       {query.isError && (
@@ -328,9 +333,9 @@ export function TextDraftVersions({
       <Dialog open={directionOpen} onOpenChange={setDirectionOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>这次想怎样讲？</DialogTitle>
+            <DialogTitle>生成文稿</DialogTitle>
             <DialogDescription>
-              只影响这一次新版本，不会改变这篇故事原有的用途。
+              写作方向（可选，仅用于本次）
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
@@ -341,7 +346,8 @@ export function TextDraftVersions({
                 <button
                   type="button"
                   key={option.id}
-                  onClick={() => setDirection(option.id)}
+                  aria-pressed={selected}
+                  onClick={() => setDirection(selected ? null : option.id)}
                   className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${
                     selected
                       ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)]"
@@ -352,10 +358,7 @@ export function TextDraftVersions({
                     <Icon className="h-4 w-4" />
                   </span>
                   <span>
-                    <span className="block text-sm font-medium">{option.label}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {option.description}
-                    </span>
+                    <span className="block text-sm font-medium">{directionLabels[option.id]}</span>
                   </span>
                 </button>
               );
@@ -364,22 +367,11 @@ export function TextDraftVersions({
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              className={buttonClass}
-              onClick={() => {
-                setDirection(null);
-                void generateVersion(null);
-              }}
-              disabled={busy}
-            >
-              不指定方向，直接生成
-            </button>
-            <button
-              type="button"
               className={`${buttonClass} border-[var(--nayin-accent)] bg-[var(--nayin-accent)] text-background hover:bg-[var(--nayin-accent)]`}
               onClick={() => void generateVersion()}
-              disabled={busy || direction === null}
+              disabled={busy}
             >
-              生成这一版
+              生成文稿
             </button>
           </div>
         </DialogContent>
@@ -409,7 +401,7 @@ export function TextDraftVersions({
               文字版本 · {PUBLISHING_PLATFORM_REGISTRY[platform].label}
             </DialogTitle>
             <DialogDescription>
-              旧稿与新增对话生成新稿。查看不等于采用；采用后的文字才参与偏好学习。
+              采用后才会更新正文并用于文风学习。
             </DialogDescription>
           </DialogHeader>
           <label className="text-xs">
@@ -448,7 +440,7 @@ export function TextDraftVersions({
           </div>
           {!versions.length && (
             <p className="text-sm text-muted-foreground">
-              还没有独立文字版本，关闭面板后点击“生成新版本”。
+              暂无文字版本
             </p>
           )}
           {selected?.error && (

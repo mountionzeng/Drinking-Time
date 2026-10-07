@@ -90,6 +90,7 @@ export type StoryboardImageRerenderActionReference = {
   imageId?: number | null;
   /** Original user wording; this must reach the image model unchanged. */
   instruction?: string | null;
+  imageProvider?: "midjourney" | "gpt-image";
 };
 
 export type ImageRevision = { storyId: number; stableShotId: string; shotNo: number; imageId: number; imageUrl: string };
@@ -207,6 +208,8 @@ export interface StoryShot {
   scriptText?: string;
   /** Immutable lineage for shots confirmed from a publishing-version preview. */
   publishingVideo?: {
+    referenceImageId?: number;
+    continuityImageId?: number;
     versionId: string;
     sourcePlatform?: string;
     groupId: string;
@@ -628,6 +631,9 @@ export function normalizeChatMessages(
               : {}),
             ...(typeof action.instruction === "string"
               ? { instruction: action.instruction }
+              : {}),
+            ...(action.imageProvider === "midjourney" || action.imageProvider === "gpt-image"
+              ? { imageProvider: action.imageProvider }
               : {}),
           };
         }

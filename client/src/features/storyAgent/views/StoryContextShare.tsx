@@ -70,14 +70,17 @@ export function InheritedStorySource({ storyId }: { storyId: number }) {
   );
 }
 
-export function StoryContextShareButton({
+export function StoryContextShareDialog({
   storyId,
   article,
+  open,
+  onOpenChange,
 }: {
   storyId: number;
   article?: StoryContextSnapshot["article"];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [includeConversation, setIncludeConversation] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const input = { storyId, article, includeConversation };
@@ -113,103 +116,95 @@ export function StoryContextShareButton({
     }
   };
   return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        邀请他改写
-      </Button>
-      <Dialog
-        open={open}
-        onOpenChange={value => {
-          if (!busy) setOpen(value);
-        }}
-      >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>让朋友从这段故事开始</DialogTitle>
-            <DialogDescription>
-              持有链接的人可以查看下面的内容，登录后创建自己的故事。链接可以转发，双方后续修改互不影响。
-            </DialogDescription>
-          </DialogHeader>
-          {link ? (
-            <div className="space-y-4 py-2">
-              <label className="block space-y-2 text-sm">
-                分享链接
-                <input
-                  aria-label="分享链接"
-                  readOnly
-                  value={link}
-                  onFocus={event => event.target.select()}
-                  className="w-full rounded-md border bg-muted/30 px-3 py-2 text-xs"
-                />
-              </label>
-              <Button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(link);
-                    toast.success("链接已复制");
-                  } catch {
-                    toast.error("请选中上方链接手动复制");
-                  }
-                }}
-              >
-                复制链接
-              </Button>
-              {/^(localhost|127\.0\.0\.1|\[::1\])$/.test(
-                window.location.hostname
-              ) ? (
-                <p className="text-xs text-muted-foreground">
-                  这是本机预览地址，只能在这台电脑打开。部署到可访问的网址后，生成的链接才能发给朋友。
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={includeConversation}
-                  disabled={busy}
-                  onChange={event =>
-                    setIncludeConversation(event.target.checked)
-                  }
-                />
-                同时分享本故事的聊天文字
-              </label>
-              {preview.isFetching ? (
-                <p role="status" className="py-8 text-sm text-muted-foreground">
-                  正在准备分享预览…
-                </p>
-              ) : preview.error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {preview.error.message}
-                </p>
-              ) : preview.data ? (
-                <StoryContextText snapshot={preview.data.snapshot} />
-              ) : null}
-              <Button
-                disabled={!preview.data || preview.isFetching || busy}
-                onClick={() => void createLink()}
-              >
-                {create.isPending ? "正在创建…" : "确认内容，创建链接"}
-              </Button>
-            </>
-          )}
-          {link || (preview.data?.activeLinks ?? 0) > 0 ? (
-            <div className="border-t pt-3 text-xs text-muted-foreground">
-              <button
-                className="underline focus-visible:ring-2 focus-visible:ring-ring"
+    <Dialog
+      open={open}
+      onOpenChange={value => {
+        if (!busy) onOpenChange(value);
+      }}
+    >
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>分享故事</DialogTitle>
+          <DialogDescription>
+            有链接即可阅读、转发；登录后可独立续写。
+          </DialogDescription>
+        </DialogHeader>
+        {typeof window !== "undefined" &&
+        /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname) ? (
+          <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            本机链接仅限这台电脑使用。
+          </p>
+        ) : null}
+        {link ? (
+          <div className="space-y-4 py-2">
+            <label className="block space-y-2 text-sm">
+              分享链接
+              <input
+                aria-label="分享链接"
+                readOnly
+                value={link}
+                onFocus={event => event.target.select()}
+                className="w-full rounded-md border bg-muted/30 px-3 py-2 text-xs"
+              />
+            </label>
+            <Button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link);
+                  toast.success("链接已复制");
+                } catch {
+                  toast.error("请选中上方链接手动复制");
+                }
+              }}
+            >
+              复制链接
+            </Button>
+          </div>
+        ) : (
+          <>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={includeConversation}
                 disabled={busy}
-                onClick={() => void stopSharing()}
-              >
-                停止这个故事的全部分享链接
-              </button>
-              <p className="mt-1">
-                停止后不能再打开或创建新故事，已经创建的故事会保留。
+                onChange={event => setIncludeConversation(event.target.checked)}
+              />
+              包含聊天记录
+            </label>
+            {preview.isFetching ? (
+              <p role="status" className="py-8 text-sm text-muted-foreground">
+                正在准备分享预览…
               </p>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </>
+            ) : preview.error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {preview.error.message}
+              </p>
+            ) : preview.data ? (
+              <StoryContextText snapshot={preview.data.snapshot} />
+            ) : null}
+            <Button
+              disabled={!preview.data || preview.isFetching || busy}
+              onClick={() => void createLink()}
+            >
+              {create.isPending ? "正在创建…" : "创建链接"}
+            </Button>
+          </>
+        )}
+        {link || (preview.data?.activeLinks ?? 0) > 0 ? (
+          <div className="border-t pt-3 text-xs text-muted-foreground">
+            <button
+              className="underline focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={busy}
+              onClick={() => void stopSharing()}
+            >
+              停用全部链接
+            </button>
+            <p className="mt-1">
+              已续写的副本保留。
+            </p>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
