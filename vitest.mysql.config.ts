@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Never inherit the application's database from the shell or .env.
+    // Fixtures and workers explicitly select their disposable database.
+    env: { DATABASE_URL: "" },
     minWorkers: 1,
     maxWorkers: 1,
     globalSetup: ["./vitest.globalSetup.ts"],

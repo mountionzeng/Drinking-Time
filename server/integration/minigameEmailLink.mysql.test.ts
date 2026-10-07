@@ -3,8 +3,15 @@ import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { withMysqlTestDatabase } from './mysqlTestHarness';
 const access = vi.hoisted(() => ({ getDb: vi.fn() }));
-vi.mock('../db', () => ({ getDb: access.getDb }));
-import { completeMinigameEmailLink, issueMinigameLinkChallenge } from '../services/accountIdentity';
+vi.mock('../repositories/runtime', async importOriginal => ({
+  ...(await importOriginal<typeof import('../repositories/runtime')>()),
+  getDb: access.getDb,
+}));
+vi.mock('../db', async importOriginal => ({
+  ...(await importOriginal<typeof import('../db')>()),
+  getDb: access.getDb,
+}));
+import { completeMinigameEmailLink, issueMinigameLinkChallenge, WECHAT_REGISTRATION_GIFT_MINOR } from '../services/accountIdentity';
 import { withMinigameAccountLock } from '../services/minigameAccountLock';
 import { resolveWechatAccount } from '../services/wechatAccount';
 import express from 'express';
@@ -21,7 +28,11 @@ async function fixture(run: (pool: mysql.Pool, source: number, target: number) =
     process.env.DATABASE_URL = database.databaseUrl;
     access.getDb.mockResolvedValue(drizzle(pool));
     try {
-      const source = await resolveWechatAccount(subject);
+      // Legacy linking requires an empty pre-gift account. Current WeChat
+      // registration grants credit and must not become eligible for a merge.
+      const [created] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO users (openId,loginMethod) VALUES ('wx:legacy-empty','wechat')");
+      const source = created.insertId;
+      await pool.execute("INSERT INTO account_identities (userId,provider,subject,verifiedAt) VALUES (?,'wechat',?,NOW())", [source, subject]);
       const [row] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO users (openId,email,loginMethod) VALUES ('legacy:old',?,'email')", [email]);
       await run(pool, source, row.insertId);
     } finally {
@@ -47,7 +58,7 @@ mysqlTest('verified optional linking retains the old account/data, revokes sourc
   const [story] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,title FROM stories');
   expect(story).toEqual([{ userId: target, title: '旧故事' }]);
   const [credit] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,balanceMinor FROM credit_accounts');
-  expect(credit).toEqual([{ userId: target, balanceMinor: 123456 }]);
+  expect(credit).toEqual([{ userId: target, balanceMinor: 123456 + WECHAT_REGISTRATION_GIFT_MINOR }]);
   const [users] = await pool.query<mysql.RowDataPacket[]>('SELECT sessionVersion FROM users WHERE id=?', [source]);
   expect(users[0].sessionVersion).toBe(2);
   const [audit] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM data_migration_receipts');
@@ -150,7 +161,7 @@ mysqlTest('audit failure rolls back identity movement, email registration, sessi
   expect(user[0].sessionVersion).toBe(1);
 }));
 
-mysqlTest('real HTTP/session/database chain: optional email link grants old-story access and invalidates the former token', async () => fixture(async (pool, source, target) => {
+mysqlTest('real HTTP/session/database chain: gifted WeChat login cannot transfer into an existing email account', async () => fixture(async (pool, source, target) => {
   const getUser = async (id: number) => {
     const [rows] = await pool.query<mysql.RowDataPacket[]>('SELECT id,sessionVersion FROM users WHERE id=?', [id]);
     return rows[0] ? { id: Number(rows[0].id), sessionVersion: Number(rows[0].sessionVersion) } : null;
@@ -182,12 +193,14 @@ mysqlTest('real HTTP/session/database chain: optional email link grants old-stor
     expect(await (await request('/stories', undefined, before)).json()).toEqual({ stories: [] });
     await request('/bind/email/otp/request', { email, confirm: true }, before);
     const response = await request('/bind/email', { email, otp: sentCode, code: 'fresh-test-code', confirm: true }, before);
-    expect(response.status).toBe(200);
-    const { token: after } = await response.json();
-    expect((await request('/stories', undefined, before)).status).toBe(401);
-    expect((await (await request('/stories', undefined, after)).json()).stories[0].title).toBe('旧故事');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'source_has_data' });
+    expect((await request('/stories', undefined, before)).status).toBe(200);
+    expect(await (await request('/stories', undefined, before)).json()).toEqual({ stories: [] });
     const { token: nextLogin } = await (await request('/login/wechat', { code: 'another-test-code' })).json();
-    expect((await (await request('/stories', undefined, nextLogin)).json()).stories[0].title).toBe('旧故事');
-    expect(await resolveWechatAccount(subject)).not.toBe(source);
+    expect(await (await request('/stories', undefined, nextLogin)).json()).toEqual({ stories: [] });
+    expect(await resolveWechatAccount(subject)).toBe(source);
+    const [credits] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,balanceMinor FROM credit_accounts');
+    expect(credits).toEqual([{ userId: source, balanceMinor: WECHAT_REGISTRATION_GIFT_MINOR }]);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }));
