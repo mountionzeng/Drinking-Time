@@ -3072,6 +3072,13 @@ describe("publishingDraft router", () => {
     expect(videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard).not.toHaveBeenCalled();
   });
 
+  it("passes article placements through the owner-scoped video entry", async () => {
+    const articleLayout = { body: "保留这段原文", illustrations: [{ assetId: 88, after: null }] };
+    await publishingDraftRouter.createCaller(context()).buildVideoStoryboard({ storyId: 7, versionId: "v1", articleLayout });
+    expect(videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard).toHaveBeenLastCalledWith(expect.objectContaining({ storyId: 7, userId: 3, articleLayout }));
+    await expect(publishingDraftRouter.createCaller(context()).buildVideoStoryboard({ storyId: 7, articleLayout: { ...articleLayout, illustrations: [{ assetId: -1, after: null }] } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("confirms a reviewed preview through the owner-scoped endpoint", async () => {
     videoPreviewMocks.confirmPublishingVideoStoryboard.mockResolvedValue({
       status: "confirmed",

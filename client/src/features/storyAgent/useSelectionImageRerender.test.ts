@@ -14,6 +14,28 @@ const selection: SelectionState = {
 };
 const changed = { isApprovalOnly: false, modifiedFullText: "猫看向镜头" };
 describe("selected image chat revision", () => {
+  it("explicit regeneration uses the original instruction without waiting for prompt interpretation", async () => {
+    const render = vi.fn().mockResolvedValue({ status: "success", imageId: 45 });
+    await renderSelectionRevision({
+      selection, storyId: 7, instruction: "木纹更精致",
+      regenerateImage: true, imageProvider: "gpt-image", render,
+    });
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenCalledWith(expect.objectContaining({ imageId: 44, instruction: "木纹更精致", imageProvider: "gpt-image" }));
+  });
+  it.each([
+    { storyId: 8 },
+    { instruction: "  " },
+    { selection: { ...selection, imageId: null } },
+    { selection: { ...selection, selection: { kind: "rect", x: 0, y: 0, width: 1, height: 1 } } },
+  ])("explicit regeneration still rejects invalid scope: %j", async override => {
+    const render = vi.fn();
+    expect(await renderSelectionRevision({
+      selection, storyId: 7, instruction: "更精致", result: changed,
+      originalText: "猫", regenerateImage: true, render, ...override,
+    } as Parameters<typeof renderSelectionRevision>[0])).toBeNull();
+    expect(render).not.toHaveBeenCalled();
+  });
   it("hands the exact original instruction and image to generation once, and returns the candidate", async () => {
     const render = vi
       .fn()

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VisualAssetKind } from "@shared/visualAssets";
+import { STORYBOARD_IMAGE_CANDIDATE_COUNT } from "@shared/imageRenderCost";
 import {
   quoteShotImages,
   shotImageRenderSettingsSchema,
@@ -34,6 +35,7 @@ export function shotRenderReferenceOptions(
       ...material.shots.flatMap(shot => [
         ...shot.imageVersions,
         ...(shot.relatedImages ?? []),
+        ...(shot.imageGenerationReference ? [shot.imageGenerationReference] : []),
       ]),
       ...(material.visualAssets?.images ?? []),
     ].map(image => [image.id, image])
@@ -123,9 +125,15 @@ export function loadShotRenderSettings(
           "null"
       )
     );
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return { ...parsed.data, count: STORYBOARD_IMAGE_CANDIDATE_COUNT };
   } catch {
     /* No saved preferences. */
+  }
+  const illustration = material?.shots.find(
+    shot => shot.stableShotId === stableShotId
+  )?.imageGenerationReference;
+  if (illustration) {
+    return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: [illustration.id], assets: {} } };
   }
   const binding = material?.visualAssets?.bindings.find(
     binding => binding.stableShotId === stableShotId
@@ -141,7 +149,7 @@ export function loadShotRenderSettings(
       ? { pet: material.visualAssets.defaultPet }
       : {};
   return {
-    count: 1,
+    count: STORYBOARD_IMAGE_CANDIDATE_COUNT,
     references: {
       imageIds: [],
       assets: Object.fromEntries(
@@ -183,7 +191,6 @@ export function ShotImageRenderControl({
       }
     }
   );
-  const [countText, setCountText] = useState(String(saved?.count ?? 1));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const references =
@@ -193,14 +200,10 @@ export function ShotImageRenderControl({
   const keys = selectedReferenceKeys(references);
   const chosen = keys.map(key => options.find(option => option.key === key));
   const missing = chosen.some(option => !option);
-  const count = Number(countText);
-  const validCount = Number.isInteger(count) && count >= 1 && count <= 8;
-  const save = (next: ShotRenderReferences, nextCount = count) => {
+  const count = STORYBOARD_IMAGE_CANDIDATE_COUNT;
+  const save = (next: ShotRenderReferences) => {
     const value = {
-      count:
-        Number.isInteger(nextCount) && nextCount >= 1 && nextCount <= 8
-          ? nextCount
-          : (saved?.count ?? 1),
+      count,
       references: next,
     };
     setSaved(value);
@@ -277,47 +280,25 @@ export function ShotImageRenderControl({
           </span>
         </button>
       </div>
-      <div className="grid grid-cols-[20px_12px] items-center justify-center rounded-xl border border-primary/30 bg-primary/10 px-1 py-1 text-primary @[80px]:flex @[80px]:rounded-full">
-        <button
-          type="button"
-          disabled={disabled || busy || !material || missing || !validCount}
-          aria-label={`渲染 ${label} 的 ${countText} 张图片`}
-          onClick={() => {
-            setError(null);
-            save(references);
-            void onRender({ count, references }).catch(cause =>
-              setError(cause instanceof Error ? cause.message : "渲染失败")
-            );
-          }}
-          className="col-span-2 flex justify-center whitespace-nowrap px-1 text-[10px] font-medium disabled:opacity-40 @[80px]:col-span-1"
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "渲染"}
-        </button>
-        <input
-          type="number"
-          min={1}
-          max={8}
-          step={1}
-          value={countText}
-          disabled={busy}
-          aria-label={`${label} 渲染张数`}
-          onChange={event => {
-            setCountText(event.target.value);
-            const n = Number(event.target.value);
-            if (n >= 1 && n <= 8 && Number.isInteger(n)) save(references, n);
-          }}
-          className="w-5 appearance-none bg-transparent text-center text-[10px] font-medium outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <span className="text-[10px]">张</span>
-      </div>
+      <button
+        type="button"
+        disabled={disabled || busy || !material || missing}
+        aria-label={`${label} 生成4张图`}
+        onClick={() => {
+          setError(null);
+          save(references);
+          void onRender({ count, references }).catch(cause =>
+            setError(cause instanceof Error ? cause.message : "渲染失败")
+          );
+        }}
+        className="flex min-h-7 max-w-full items-center justify-center gap-1 rounded-xl border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-medium leading-tight text-primary disabled:opacity-40 @[80px]:whitespace-nowrap @[80px]:rounded-full"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : null}
+        <span>{busy ? "生成中" : "生成4张图"}</span>
+      </button>
       <span className="text-[10px] text-muted-foreground">
-        {validCount
-          ? `MJ · 约 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`
-          : "请输入 1–8 的整数"}
+        {`MJ · 约 ¥${quoteShotImages(count).estimatedCny.toFixed(2)}`}
         {keys.length === 0 ? " · 不参考素材" : ""}
-      </span>
-      <span className="text-[10px] text-muted-foreground">
-        MJ 每次 4 张，全部保留
       </span>
       {error ? (
         <p role="alert" className="max-w-56 text-[10px] text-destructive">

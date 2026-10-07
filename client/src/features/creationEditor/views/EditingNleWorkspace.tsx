@@ -393,6 +393,7 @@ function EditingStoryboardPanel({
   attachProgress,
   onEditVideo,
   onEditImage,
+  onSelectImageForChat,
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel,
@@ -405,6 +406,7 @@ function EditingStoryboardPanel({
   attachProgress: string | null;
   onEditVideo: (target: VideoClipEditorTarget) => void;
   onEditImage: (target: ImageClipEditorTarget) => void;
+  onSelectImageForChat: (target: ImageClipEditorTarget) => void;
   onCopyVideo: (target: VideoClipEditorTarget) => void;
   onPasteVideo: (input: {
     stableShotId: string;
@@ -452,6 +454,7 @@ function EditingStoryboardPanel({
           boardTimeline={boardTimeline}
           onEditVideo={onEditVideo}
           onEditImage={onEditImage}
+          onSelectImageForChat={onSelectImageForChat}
           onCopyVideo={onCopyVideo}
           onPasteVideo={onPasteVideo}
           videoClipboardLabel={videoClipboardLabel}
@@ -1858,11 +1861,13 @@ export default function EditingNleWorkspace({
       item => (item.stableShotId ?? item.shotIdentity) === stableShotId
     );
     if (!shot || shot.shotNo === selectedShotNo) return;
-    selectShot(shot.shotNo);
+    // Follow the chat selection without replacing its exact candidate with the
+    // shot's adopted image (or a text selection when no image is adopted).
+    setSelectedShotNo(shot.shotNo);
   }, [
     activeSelection?.sourceType,
     activeSelection?.stableShotId,
-    selectShot,
+    setSelectedShotNo,
     selectedShotNo,
     shots,
   ]);
@@ -2697,6 +2702,7 @@ export default function EditingNleWorkspace({
             attachProgress={attachProgress}
             onEditVideo={openVideoEditor}
             onEditImage={openImageEditor}
+            onSelectImageForChat={selectImageForChat}
             onCopyVideo={copyVideo}
             onPasteVideo={pasteVideo}
             videoClipboardLabel={videoClipboard?.label ?? null}

@@ -44,6 +44,7 @@ import {
   VIDEO_PROMPT_ENGINEERING_VERSION,
 } from "./videoPromptEngineering";
 import { storyVideoContext } from "./videoShotContext";
+import { getStoryMaterialState } from "./storyMaterials";
 import {
   isStartEndShotVideoTake,
   refreshStartEndShotVideoTake,
@@ -471,16 +472,28 @@ export async function startShotVideoJob(
     (canonicalShotNo
       ? normalizeShotIdentity(`legacy-${canonicalShotNo}`)
       : null);
-
+  const isOwnedShotImage =
+    asset &&
+    asset.assignment === "shot" &&
+    isCurrentImageAsset(asset) &&
+    (asset.shotIdentity
+      ? asset.shotIdentity === stableShotId
+      : asset.canonicalShotNo === canonicalShotNo);
+  // A selected article illustration remains owned by the article. Only the
+  // authoritative current image of this exact shot may bypass shot ownership.
+  const isReferencedShotImage =
+    !isOwnedShotImage &&
+    asset &&
+    stableShotId &&
+    (await getStoryMaterialState(input.storyId, userId))?.shots.some(
+      shot =>
+        shot.stableShotId === stableShotId && shot.currentImage?.id === asset.id
+    );
   if (
     !asset ||
-    asset.assignment !== "shot" ||
-    !isCurrentImageAsset(asset) ||
     asset.availability === "missing" ||
-    (asset.shotIdentity &&
-      stableShotId &&
-      asset.shotIdentity !== stableShotId) ||
-    (!asset.shotIdentity && asset.canonicalShotNo !== canonicalShotNo)
+    asset.status === "rejected" ||
+    (!isOwnedShotImage && !isReferencedShotImage)
   ) {
     return { status: "error", error: "首帧图不存在或不属于当前镜头" };
   }

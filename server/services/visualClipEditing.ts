@@ -8,6 +8,7 @@
  * 这里改成服务端自己读—改—写：调用方只说「哪个 clip、去哪条轨、去哪一帧」。
  */
 import { createHash, randomUUID } from "node:crypto";
+import { placeImageRevision } from "../../shared/imageRevisionPlacement";
 import type {
   VisualEditOperationRef,
   VisualEditReceipt,
@@ -76,7 +77,7 @@ import {
   rebaseLatestVisualEditUndoAfterVersions,
   recordVisualEditUndo,
 } from "./visualEditUndoJournal";
-import { getStoryMaterialState } from "./storyMaterials";
+import { getStoryMaterialState, projectStoryTimelineDocument } from "./storyMaterials";
 import { normalizeLegacyOverlay } from "../../shared/legacyOverlayNormalization";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { shotIdentityFromShot } from "../../shared/shotIdentity";
@@ -228,6 +229,7 @@ async function withVisualEditDocument(
     storyId: number;
     userId: number;
     failureMessage: string;
+    initializeFromStory?: boolean;
     /** 撤销本身不进撤销栈，否则一次 Cmd+Z 会在两个状态之间来回跳。 */
     recordUndo?: boolean;
     operation?: VisualEditOperationRef;
@@ -319,14 +321,15 @@ async function withVisualEditDocument(
     }
     const story = aggregate.story;
     const row = aggregate.timeline;
-    const document = row ? visualDocumentFromTimeline(row) : null;
+    const document = row ? visualDocumentFromTimeline(row)
+      : input.initializeFromStory ? projectStoryTimelineDocument(story, null) : null;
     const loaded:
       | { document: VisualEditDocument; version: number }
-      | { error: string } = !row
+      | { error: string } = !row && !input.initializeFromStory
       ? ({ error: "这个故事还没有时间线" } as const)
       : !document
         ? ({ error: "时间线数据异常，无法编辑" } as const)
-        : { document, version: row.version };
+        : { document, version: row?.version ?? 0 };
     if ("error" in loaded) {
       return { status: "error", error: loaded.error, errorKind: "invalid" };
     }
@@ -548,6 +551,26 @@ export async function insertVisualImageClipForStory(input: {
     },
     document => insertVisualImageClip(document, input.clip)
   );
+}
+
+export async function placeImageRevisionForStory(input: {
+  storyId: number;
+  userId: number;
+  sourceImageId: number;
+  stableShotId: string;
+  imageId: number;
+}): Promise<VisualClipEditResult> {
+  const [source, image] = await Promise.all([
+    loadAuthorizedStoryImage({ ...input, imageId: input.sourceImageId }),
+    loadAuthorizedStoryImage(input),
+  ]);
+  if (!source || !image || image.parentImageId !== source.id) {
+    return { status: "error", error: "改图与原图的归属不匹配", errorKind: "invalid" };
+  }
+  return withVisualEditDocument({
+    storyId: input.storyId, userId: input.userId, failureMessage: "新图已入库，但放入图层失败",
+    initializeFromStory: true,
+  }, document => placeImageRevision(document, { ...input, imageUrl: image.imageUrl }));
 }
 
 export type ExtractedFramePlacementResult = VisualClipEditResult & {

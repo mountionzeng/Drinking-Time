@@ -341,6 +341,7 @@ export default function StoryAgentChat({
     [rerenderSelectionImage, rerenderingMessageId]
   );
   const [input, setInput] = useState("");
+  const [revisionProvider, setRevisionProvider] = useState<"midjourney" | "gpt-image">("gpt-image");
   const [photoAssetRequest, setPhotoAssetRequest] =
     useState<PhotoAssetRequest | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
@@ -417,16 +418,16 @@ export default function StoryAgentChat({
       ? `故事 #${remoteStoryId ?? activeStoryId}`
       : "新故事草稿");
   const inputPlaceholder =
-    interactionMode === "publishing"
+    activeSelection?.sourceType === "storyboard-image"
+      ? "描述这张图怎么改，例如：让小猫看向镜头…"
+    : interactionMode === "publishing"
       ? "先把真实想法说出来，聊聊会一次只追问一个关键点…"
       : soundDirector.active && soundDirector.session?.question
         ? "回答当前声音问题，或点击上面的选项…"
         : soundDirector.active && soundDirector.session?.complete
           ? "请在上方声音方案中修改；结束声音导演后可继续普通聊天"
           : activeSelection
-            ? activeSelection.sourceType === "storyboard-image"
-              ? "描述这张图怎么改，例如：让小猫看向镜头…"
-              : "告诉聊聊这处想怎么改…"
+            ? "告诉聊聊这处想怎么改…"
             : pendingMedia.length > 0
               ? pendingMedia.some(item => item.kind === "image")
                 ? "想提取哪部分？例如小猫、背景，或只保存图片…"
@@ -733,9 +734,27 @@ export default function StoryAgentChat({
     soundDirector.session?.workspace.revision,
   ]);
 
+  const handleRegenerateImage = async () => {
+    const text = input.trim();
+    if (!text) {
+      inputRef.current?.focus();
+      return;
+    }
+    if (activeSelection?.sourceType !== "storyboard-image" || isReplying || voice.isBusy ||
+      isImportingMedia || pendingMedia.length > 0 || soundDirector.active || mediaSubmissionRef.current) return;
+    mediaSubmissionRef.current = true;
+    setInput("");
+    try {
+      await sendSelectionEdit(text, { regenerateImage: true, imageProvider: revisionProvider });
+    } finally {
+      mediaSubmissionRef.current = false;
+      resizeAndFocusInput();
+    }
+  };
+
   const handleSubmit = async () => {
     const text = input.trim();
-    if (interactionMode === "publishing") {
+    if (interactionMode === "publishing" && activeSelection?.sourceType !== "storyboard-image") {
       if (!text || isReplying || voice.isBusy || isImportingMedia) return;
       setInput("");
       await sendMessage(text);
@@ -909,7 +928,7 @@ export default function StoryAgentChat({
         return;
       }
       setInput("");
-      await sendSelectionEdit(text);
+      await sendSelectionEdit(text, { imageProvider: revisionProvider });
       resizeAndFocusInput();
       return;
     }
@@ -1410,7 +1429,7 @@ export default function StoryAgentChat({
                       className="max-h-64 w-full rounded-lg object-contain"
                     />
                     <span className="text-[10px] text-muted-foreground">
-                      新版候选 · 点击继续修改；采用请在画面行选择
+                      新版图片 · 点击继续修改
                     </span>
                   </button>
                 ) : null}
@@ -2121,12 +2140,34 @@ export default function StoryAgentChat({
             )}
           </button>
         </div>
-        <TextDraftVersions
+        {activeSelection?.sourceType === "storyboard-image" ? (
+          <div className="mt-1 flex items-center justify-end gap-2">
+            <select
+              aria-label="改图模型"
+              value={revisionProvider}
+              onChange={event => setRevisionProvider(event.target.value as "midjourney" | "gpt-image")}
+              disabled={isReplying}
+              className="h-7 min-w-0 rounded-md border border-[var(--panel-border)] bg-background px-1 text-[11px]"
+            >
+              <option value="gpt-image">GPT Image · 改图</option>
+              <option value="midjourney">MJ · 重绘</option>
+            </select>
+            <button
+              type="button"
+              className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--panel-border)] px-2 text-[11px] font-medium text-[var(--nayin-accent)] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={() => void handleRegenerateImage()}
+              disabled={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
+            >
+              {isReplying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+              {isReplying ? "生成中…" : "重新生成图"}
+            </button>
+          </div>
+        ) : <TextDraftVersions
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
           blocked={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
-        />
+        />}
       </div>
     </div>
   );

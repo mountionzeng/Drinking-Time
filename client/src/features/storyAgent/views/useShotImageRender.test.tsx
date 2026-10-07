@@ -31,7 +31,7 @@ function setup() {
     .mockResolvedValue({ generatedCount: 4, imageId: 48, imageUrl: "/48.png" });
   const input = {
     label: "02",
-    settings: { count: 1, references: { imageIds: [44], assets: {} } },
+    settings: { count: 4, references: { imageIds: [44], assets: {} } },
     shot: {
       shotNo: 2,
       stableShotId: "shot-a",
@@ -58,6 +58,35 @@ function setup() {
   };
 }
 describe("MJ revision cost and submission", () => {
+  it("quotes GPT as one edit, never buys four tasks and preserves the chosen provider", async () => {
+    const { api, input, act } = setup();
+    input.generate.mockResolvedValue({ generatedCount: 1, imageId: 48, imageUrl: "/48.png" });
+    const pending = api.render({ ...input, revisionProvider: "gpt-image", skipCostConfirmation: true });
+    expect(input.generate).not.toHaveBeenCalled();
+    act("确认费用并渲染");
+    expect(await pending).toMatchObject({ status: "success", imageId: 48 });
+    expect(input.generate).toHaveBeenCalledTimes(1);
+    expect(input.generate.mock.calls[0][0]).toMatchObject({ imageProvider: "gpt-image", candidateCount: undefined, costConfirmation: { accepted: true, estimatedCny: 1.49 } });
+  });
+  it("submits one four-image task even when a caller carries legacy eight-image settings", async () => {
+    const { api, input } = setup();
+    input.settings.count = 8;
+    const result = await api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true });
+    expect(result.status).toBe("success");
+    expect(input.generate).toHaveBeenCalledTimes(1);
+    expect(input.generate.mock.calls[0][0]).toMatchObject({
+      candidateCount: 4,
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+    });
+  });
+  it("reuses a parent batch confirmation for a supplemental shot with the same selected reference", async () => {
+    const { api, input } = setup();
+    input.material = { ...input.material, shots: [{ stableShotId: "shot-a", imageVersions: [], imageGenerationReference: { id: 44, imageUrl: "/44.png" } }] } as unknown as StoryMaterialState;
+    const result = await api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true });
+    expect(result.status).toBe("success");
+    expect(input.generate).toHaveBeenCalledTimes(1);
+    expect(input.generate.mock.calls[0][0]).toMatchObject({ reference: { selection: { imageIds: [44], assets: {} } }, imageProvider: "midjourney" });
+  });
   it("waits for confirmation then sends only the selected image and retains candidate response", async () => {
     const { api, input, act } = setup();
     const pending = api.render(input);
@@ -71,9 +100,9 @@ describe("MJ revision cost and submission", () => {
     expect(input.generate).toHaveBeenCalledTimes(1);
     expect(input.generate.mock.calls[0][0]).toMatchObject({
       imageProvider: "midjourney",
-      candidateCount: 4,
+      candidateCount: undefined,
       explicitInstruction: expect.stringContaining("让小猫看向镜头"),
-      reference: { selection: { imageIds: [44], assets: {} } },
+      reference: { selection: { imageIds: [44], assets: {} }, referenceRevision: true },
       costConfirmation: { accepted: true, estimatedCny: 0.68 },
     });
   });

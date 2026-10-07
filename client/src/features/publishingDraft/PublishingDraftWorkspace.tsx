@@ -98,6 +98,7 @@ import {
 } from "./publishingOperationScope";
 import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
 import { PublishingImagePack } from "../publishingAlbum/PublishingImagePack";
+import type { IllustrationPlacement } from "@shared/articleIllustrations";
 import {
   Popover,
   PopoverContent,
@@ -402,6 +403,7 @@ export default function PublishingDraftWorkspace({
   const coverGenerationInFlightRef = useRef(false);
   const recoveredCoverOperationRef = useRef<string | null>(null);
   const videoBuildInFlightRef = useRef(false);
+  const selectedIllustrationsRef = useRef<{ scope: string; placements: IllustrationPlacement[] }>({ scope: "", placements: [] });
   const videoBuildOperationRef = useRef<{
     scope: string;
     token: string;
@@ -1356,6 +1358,11 @@ export default function PublishingDraftWorkspace({
         versionId: targetVersionId,
         operationToken,
         narrativeSpec,
+        articleLayout: {
+          body: editorContent?.body ?? "",
+          illustrations: selectedIllustrationsRef.current.scope === `${storyId}:${targetVersionId}:${platform}`
+            ? selectedIllustrationsRef.current.placements : [],
+        },
       });
       if (
         !publishingStoryScopeMatches(
@@ -2193,6 +2200,9 @@ export default function PublishingDraftWorkspace({
                     }))),
                   ]}
                   adoptedCoverId={coverAsset?.id ?? null}
+                  onIllustrationsChange={placements => {
+                    selectedIllustrationsRef.current = { scope: `${activeStoryId}:${versionId}:${platform}`, placements };
+                  }}
                   onOpenCoverStudio={() => openCoverStudio(false)}
                   coverBusy={busy || coverBusy || videoBusy || dirty || !draft}
                   generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}

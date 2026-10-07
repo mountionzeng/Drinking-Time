@@ -75,6 +75,7 @@ export default function StoryboardPanel({
   headerAction,
   onEditVideo,
   onEditImage,
+  onSelectImageForChat,
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel = null,
@@ -86,6 +87,7 @@ export default function StoryboardPanel({
   headerAction?: ReactNode;
   onEditVideo?: (target: VideoClipEditorTarget) => void;
   onEditImage?: (target: ImageClipEditorTarget) => void;
+  onSelectImageForChat?: (target: ImageClipEditorTarget) => void;
   onCopyVideo?: (target: VideoClipEditorTarget) => void;
   onPasteVideo?: (input: {
     stableShotId: string;
@@ -370,6 +372,7 @@ export default function StoryboardPanel({
       onRemoveTimelineVideoClip={removeTimelineVideoClip}
       onEditVideo={onEditVideo}
       onEditImage={onEditImage}
+      onSelectImageForChat={onSelectImageForChat}
       onCopyVideo={onCopyVideo}
       onPasteVideo={onPasteVideo}
       videoClipboardLabel={videoClipboardLabel}

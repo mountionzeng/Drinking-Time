@@ -120,7 +120,7 @@ export function visualTrackId(layer: number): string {
 }
 
 /** 非法 trackId 返回 null，绝不猜一个层号——猜出来的层会把素材放到用户没选的地方。 */
-function parseVisualTrackId(trackId: string): number | null {
+export function parseVisualTrackId(trackId: string): number | null {
   if (!trackId.startsWith(TRACK_ID_PREFIX)) return null;
   const raw = trackId.slice(TRACK_ID_PREFIX.length);
   if (!/^\d+$/.test(raw)) return null;

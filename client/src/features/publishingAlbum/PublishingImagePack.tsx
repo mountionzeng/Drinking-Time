@@ -71,6 +71,7 @@ export function PublishingImagePack({
   scope, storyId, versionId, hasAlbum, title, body, assets: coverAssets, adoptedCoverId,
   onOpenCoverStudio, coverBusy, advancedEditor, advancedOpen, onAdvancedOpenChange,
   onGenerateIllustration, onGenerateCover, onGenerateTexture, illustrationCost, generationStartedAt, generationError,
+  onIllustrationsChange,
 }: {
   scope: string;
   storyId: number;
@@ -91,9 +92,11 @@ export function PublishingImagePack({
   onGenerateTexture?(coverId: number, instruction: string): Promise<void>;
   illustrationCost?: number;
   generationStartedAt?: number;
+  onIllustrationsChange?(placements: IllustrationPlacement[]): void;
 }) {
   const key = `publishing-image-pack:${scope}`;
   const [settings, setSettings] = useState(() => readSettings(key, adoptedCoverId));
+  useEffect(() => { onIllustrationsChange?.(settings.illustrations); }, [onIllustrationsChange, settings.illustrations]);
   const albumQuery = trpc.publishingDraft.readAlbum.useQuery(
     { storyId, versionId }, { enabled: hasAlbum && storyId > 0, retry: false },
   );
@@ -112,6 +115,8 @@ export function PublishingImagePack({
     return Array.from(all.values());
   }, [coverAssets, albumQuery.data]);
   const cover = assets.find(asset => asset.id === settings.coverId);
+  const referenceCovers = coverAssets.filter(asset => !asset.kind);
+  const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
   const selectedIllustrations = settings.illustrations.map(placement => assets.find(asset => asset.id === placement.assetId));
   const paragraphs = useMemo(() => imagePackParagraphs(body), [body]);
   const bodyTexture = assets.find(asset => asset.id === settings.bodyTextureId && asset.kind === "body-texture");
@@ -209,6 +214,22 @@ export function PublishingImagePack({
   }, [options, signature, needsCover, missingIllustration, missingTexture, palettePending, renderAttempt]);
 
   function update(patch: Partial<Settings>) { setSettings(value => ({ ...value, ...patch })); }
+  function referenceCoverPicker() {
+    return referenceCovers.length ? <div className="space-y-2">
+      <p className="text-xs">选择参考封面</p>
+      <div className="grid max-h-64 grid-cols-3 gap-2 overflow-y-auto" role="group" aria-label="参考封面">
+        {referenceCovers.map(asset => <button key={asset.id} type="button" disabled={coverBusy}
+          aria-label={`参考封面：${asset.label}`} onClick={() => update({ coverId: asset.id })}
+          className="min-w-0 rounded-md border border-[var(--panel-border)] p-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-40">
+          <img src={asset.imageUrl} alt="" className="aspect-[3/4] w-full rounded object-cover" />
+          <span className="block truncate">{asset.label}</span>
+          {asset.warning ? <span className="text-[10px] text-amber-700">{asset.warning}</span> : null}
+        </button>)}
+      </div>
+    </div> : <button type="button" className={control} disabled={coverBusy} onClick={() => {
+      setIllustrationSetup(false); setTextureSetup(false); setCoverSetup(true);
+    }}>先生成封面</button>;
+  }
   function toggleIllustration(assetId: number) {
     setSettings(value => ({ ...value, illustrations: value.illustrations.some(item => item.assetId === assetId)
       ? value.illustrations.filter(item => item.assetId !== assetId)
@@ -302,11 +323,13 @@ export function PublishingImagePack({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs">正文插图（可多选）</p>
             {onGenerateIllustration ? <Popover open={illustrationSetup} onOpenChange={setIllustrationSetup}>
-              <PopoverTrigger asChild><button type="button" className={control} disabled={!cover || coverBusy || !coverAssets.some(asset => asset.id === cover.id)}>生成插图</button></PopoverTrigger>
-              <PopoverContent align="end" className="w-80 space-y-3">
+              <PopoverTrigger asChild><button type="button" className={control} disabled={coverBusy}>生成插图</button></PopoverTrigger>
+              <PopoverContent aria-label="生成插图" align="end" className="w-80 space-y-3">
                 <p className="text-sm font-medium">生成横版插图 · 16:9</p>
+                {generationCover ? <>
                 <textarea aria-label="插图内容" className={`${control} w-full`} rows={3} value={illustrationInstruction} onChange={event => setIllustrationInstruction(event.target.value)} maxLength={1000} placeholder="想画什么？留空则根据文章内容生成" />
-                <button type="button" className={control} disabled={!cover || coverBusy || illustrationCost == null} onClick={() => { if (cover) { setIllustrationSetup(false); void onGenerateIllustration(cover.id, illustrationInstruction); } }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setIllustrationSetup(false); void onGenerateIllustration(generationCover.id, illustrationInstruction); }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                </> : referenceCoverPicker()}
               </PopoverContent>
             </Popover> : null}
           </div>
@@ -329,11 +352,13 @@ export function PublishingImagePack({
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs">整套底图{cover && !palette ? <span className="text-muted-foreground"> · {theme?.error ? "取色未完成" : "取色中…"}</span> : null}</p>
             {onGenerateTexture ? <Popover open={textureSetup} onOpenChange={setTextureSetup}>
-              <PopoverTrigger asChild><button type="button" className={control} disabled={!cover || coverBusy || !coverAssets.some(asset => asset.id === cover.id)}>生成底图</button></PopoverTrigger>
-              <PopoverContent align="end" className="w-80 space-y-3">
+              <PopoverTrigger asChild><button type="button" className={control} disabled={coverBusy}>生成底图</button></PopoverTrigger>
+              <PopoverContent aria-label="生成底图" align="end" className="w-80 space-y-3">
                 <p className="text-sm font-medium">生成花纹底图 · 3:4</p>
+                {generationCover ? <>
                 <textarea aria-label="底图花纹要求" className={`${control} w-full`} rows={3} value={textureInstruction} onChange={event => setTextureInstruction(event.target.value)} maxLength={1000} placeholder="例如：细腻纸纹、淡淡水彩、稀疏植物纹样" />
-                <button type="button" className={control} disabled={!cover || coverBusy || illustrationCost == null} onClick={() => { if (cover) { setTextureSetup(false); void onGenerateTexture(cover.id, textureInstruction); } }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setTextureSetup(false); void onGenerateTexture(generationCover.id, textureInstruction); }}>确认生成 4 张 · ¥{illustrationCost?.toFixed(2)}</button>
+                </> : referenceCoverPicker()}
               </PopoverContent>
             </Popover> : null}
           </div>

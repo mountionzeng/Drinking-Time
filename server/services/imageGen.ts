@@ -92,6 +92,8 @@ export interface ImageGenOptions {
   fidelity?: ImageFidelity;
   /** MJ v7 Draft Mode：~10x 速度、半价，仍是 MJ 美术血统。双轨「快轨」用 */
   mjDraft?: boolean;
+  /** Regenerate from one selected image without changing providers or dropping the source. */
+  referenceRevision?: boolean;
   mjPollIntervalMs?: number;
   mjSubmitTimeoutMs?: number;
   mjTimeoutMs?: number;
@@ -213,6 +215,20 @@ function providerErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
   const cause = error.cause ? String(error.cause).trim() : "";
   return cause ? `${error.message}（${cause}）` : error.message;
+}
+
+/** Only DNS/connection setup failures prove that no HTTP request was sent. */
+function isConnectionSetupFailure(error: unknown): boolean {
+  for (let depth = 0; depth < 4 && error && typeof error === "object"; depth++) {
+    const detail = error as { code?: unknown; cause?: unknown };
+    if (typeof detail.code === "string") {
+      return ["UND_ERR_CONNECT_TIMEOUT", "ENOTFOUND", "EAI_AGAIN"].includes(
+        detail.code
+      );
+    }
+    error = detail.cause;
+  }
+  return false;
 }
 
 /**
@@ -1453,19 +1469,19 @@ async function generate302GptImageEdit(
     const form = new FormData();
     form.append(
       "model",
-      mask ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
+      mask || options.referenceRevision ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
     );
     form.append("prompt", prompt);
     form.append(
       "size",
-      mask
+      mask || options.referenceRevision
         ? STORYBOARD_MASKED_EDIT_PROFILE.size
         : gptImageSizeFor(options.aspectRatio)
     );
     form.append("n", "1");
     form.append(
       "quality",
-      mask
+      mask || options.referenceRevision
         ? STORYBOARD_MASKED_EDIT_PROFILE.quality
         : gptQualityFor(options.fidelity)
     );
@@ -1654,6 +1670,14 @@ export async function editImage(
     options.provider ?? ENV.imageProviderDefault
   );
 
+  if (options.referenceRevision) {
+    if (!["midjourney", "gpt-image"].includes(provider) || !ENV.api302Key || options.editMaskImageUrl || options.referenceContextImageUrls?.length) {
+      return { status: "error", message: "改图需要一张原图和可用的 MJ 或 GPT Image，不能混用额外参考图或蒙版" };
+    }
+    if (provider === "gpt-image") return generate302GptImageEdit(imageUrl, prompt, options, fetcher);
+    return generate302MidjourneyImage(prompt, { ...options, requireInputImage: true, imageWeight: 1.5 }, fetcher, [imageUrl]);
+  }
+
   // Masked local edits must use the 302 GPT-image edits endpoint. Do not route
   // through FLUX Kontext and never fall back to an unmasked full-frame redraw.
   if (options.editMaskImageUrl) {
@@ -1819,11 +1843,15 @@ async function generate302MidjourneyImage(
   // 读图失败不阻断，退化成纯文生图。
   let base64Array: string[] = [];
   let acceptedTaskId = "";
+  let submissionDidNotStart = false;
   if (inputImageUrls.length > 0) {
     try {
       base64Array = await Promise.all(
         inputImageUrls.map(async u => {
           const src = await readImageInput(u, fetcher);
+          if (options.referenceRevision) {
+            return `data:${src.mimeType};base64,${Buffer.from(src.bytes).toString("base64")}`;
+          }
           return toMidjourneyImagePrompt(
             src.bytes as Uint8Array,
             src.mimeType
@@ -1854,29 +1882,49 @@ async function generate302MidjourneyImage(
       "/mj/submit/imagine",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
-    const submitResponse = await withTimeout(
-      fetcher(submitUrl.toString(), {
-        method: "POST",
-        headers: build302Headers("midjourney"),
-        body: JSON.stringify({
-          base64Array,
-          botType: "MID_JOURNEY",
-          notifyHook: "",
-          prompt: midjourneyPromptFor(
-            prompt,
-            options.aspectRatio,
-            options.fidelity,
-            options.mjDraft,
-            options.characterRef,
-            options.styleRef,
-            options.characterWeight,
-            options.imageWeight
-          ),
-          state: "",
-        }),
+    const controller = new AbortController();
+    const deadline = Date.now() + submitTimeoutMs;
+    const request: RequestInit = {
+      method: "POST",
+      // A redirected POST may already be accepted before the next connection
+      // fails. Reject redirects so connection-only retries cannot buy twice.
+      redirect: "error",
+      signal: controller.signal,
+      headers: build302Headers("midjourney"),
+      body: JSON.stringify({
+        base64Array,
+        botType: "MID_JOURNEY",
+        notifyHook: "",
+        prompt: midjourneyPromptFor(
+          prompt,
+          options.aspectRatio,
+          options.fidelity,
+          options.mjDraft,
+          options.characterRef,
+          options.styleRef,
+          options.characterWeight,
+          options.imageWeight
+        ),
+        state: "",
       }),
-      submitTimeoutMs
-    );
+    };
+    let submitResponse: FetchResponseLike;
+    for (let attempt = 0; ; attempt++) {
+      submissionDidNotStart = false;
+      try {
+        submitResponse = await withTimeout(
+          fetcher(submitUrl.toString(), request),
+          Math.max(1, deadline - Date.now())
+        );
+        break;
+      } catch (error) {
+        submissionDidNotStart = isConnectionSetupFailure(error);
+        if (attempt === 0 && submissionDidNotStart && Date.now() < deadline)
+          continue;
+        controller.abort();
+        throw error;
+      }
+    }
 
     if (!submitResponse.ok) {
       recordFailure();
@@ -1914,15 +1962,14 @@ async function generate302MidjourneyImage(
         ? `cause: ${String(error.cause)}`
         : ""
     );
-    const message = providerErrorMessage(
-      error,
-      "302 Midjourney generation failed"
-    );
+    const message = submissionDidNotStart
+      ? "图片服务暂时无法连接，本次尚未提交生成任务，请稍后重试。"
+      : providerErrorMessage(error, "302 Midjourney generation failed");
     recordProviderFailure("midjourney", message);
     return {
       status: "error",
       message,
-      submissionUncertain: !acceptedTaskId,
+      submissionUncertain: !acceptedTaskId && !submissionDidNotStart,
       ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : {}),
     };
   }

@@ -7,7 +7,15 @@ vi.stubGlobal("React", React);
 
 const query = vi.hoisted(() => ({ data: undefined as any }));
 const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
+const generationPanels = vi.hoisted(() => new Map<string, React.ReactNode>());
 vi.mock("@/lib/trpc", () => ({ trpc: { publishingDraft: { readAlbum: { useQuery: () => query } } } }));
+vi.mock("@/components/ui/popover", async importOriginal => {
+  const original = await importOriginal<typeof import("@/components/ui/popover")>();
+  return { ...original, PopoverContent: (props: React.ComponentProps<typeof original.PopoverContent>) => {
+    if (props["aria-label"]) generationPanels.set(props["aria-label"], props.children);
+    return <original.PopoverContent {...props} />;
+  } };
+});
 vi.mock("./ImageCandidatePreview", () => ({ ImageCandidatePreview: ({ children, label, controls }: { children: React.ReactNode; label: string; controls?: React.ReactNode }) => {
   if (controls) previews.set(label, controls);
   return children;
@@ -20,7 +28,54 @@ const props = {
 };
 
 describe("article image pack entry", () => {
-  beforeEach(() => { query.data = undefined; previews.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+  beforeEach(() => { query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+
+  it.each(["生成插图", "生成底图"])("opens %s without a selected cover and offers an explicit reference choice", name => {
+    const html = renderToStaticMarkup(<PublishingImagePack {...props} assets={[
+      { id: 1, imageUrl: "/cover.png", label: "封面候选", warning: "质检未完成" },
+      { id: 2, imageUrl: "/texture.png", label: "已选底图", kind: "body-texture" },
+    ]} onGenerateIllustration={vi.fn()} onGenerateTexture={vi.fn()} illustrationCost={0.34} />);
+    const trigger = html.match(new RegExp(`<button\\b[^>]*>${name}</button>`))?.[0];
+    expect(trigger).toBeDefined();
+    expect(trigger).not.toContain('disabled=""');
+    const panel = renderToStaticMarkup(<>{generationPanels.get(name)}</>);
+    expect(panel).toContain("选择参考封面");
+    expect(panel).toContain('aria-label="参考封面：封面候选"');
+    expect(panel).toContain("质检未完成");
+    expect(panel).not.toContain("参考封面：已选底图");
+    expect(panel).not.toContain("确认生成");
+  });
+
+  it("requires a valid generation reference and offers cover generation when none exist", () => {
+    query.data = { assets: [{ id: 9, imageUrl: "/album.png" }], album: { pages: [] } };
+    renderToStaticMarkup(<PublishingImagePack {...props} adoptedCoverId={9} assets={[]}
+      onGenerateIllustration={vi.fn()} onGenerateTexture={vi.fn()} illustrationCost={0.34} />);
+    for (const name of ["生成插图", "生成底图"]) {
+      const panel = renderToStaticMarkup(<>{generationPanels.get(name)}</>);
+      expect(panel).toContain("先生成封面");
+      expect(panel).not.toContain("参考封面：画册底图");
+      expect(panel).not.toContain("确认生成");
+    }
+  });
+
+  it("keeps paid generation explicit after selecting an unchecked cover and disables it while busy", () => {
+    const assets = [{ id: 1, imageUrl: "/cover.png", label: "封面候选", warning: "质检未完成" }];
+    renderToStaticMarkup(<PublishingImagePack {...props} adoptedCoverId={1} assets={assets}
+      onGenerateIllustration={vi.fn()} onGenerateTexture={vi.fn()} illustrationCost={0.34} />);
+    for (const name of ["生成插图", "生成底图"]) {
+      const panel = renderToStaticMarkup(<>{generationPanels.get(name)}</>);
+      expect(panel).toContain("确认生成 4 张 · ¥0.34");
+      expect(panel).not.toContain("选择参考封面");
+      expect(panel).not.toContain('disabled=""');
+    }
+    const busy = renderToStaticMarkup(<PublishingImagePack {...props} coverBusy adoptedCoverId={1} assets={assets}
+      onGenerateIllustration={vi.fn()} onGenerateTexture={vi.fn()} illustrationCost={0.34} />);
+    for (const name of ["生成插图", "生成底图"]) {
+      expect(busy.match(new RegExp(`<button\\b[^>]*>${name}</button>`))?.[0]).toContain('disabled=""');
+      const panel = renderToStaticMarkup(<>{generationPanels.get(name)}</>);
+      expect(panel.match(/<button\b[^>]*>确认生成[^<]*<\/button>/)?.[0]).toContain('disabled=""');
+    }
+  });
 
   it("combines existing cover and album assets without duplicates and preserves quality warnings", () => {
     query.data = {

@@ -92,6 +92,7 @@ import {
   PublishingVideoStoryboardOperationConflictError,
 } from "../services/publishingVideoStoryboardPersistence";
 import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
+import { publishingArticleLayoutSchema } from "../../shared/publishingArticleVideo";
 import {
   initializePublishingAlbum,
   updatePublishingAlbumPageText,
@@ -1287,6 +1288,7 @@ export const publishingDraftRouter = router({
         storyId: z.number().int().positive(),
         versionId: z.string().trim().min(1).max(64).optional(),
         operationToken: z.string().trim().min(1).max(160).optional(),
+        articleLayout: publishingArticleLayoutSchema.optional(),
         /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
         narrativeSpec: z
           .enum(["video10", "video30", "video50"])
@@ -1301,6 +1303,7 @@ export const publishingDraftRouter = router({
           versionId: input.versionId,
           operationToken: input.operationToken,
           narrativeSpec: input.narrativeSpec,
+          articleLayout: input.articleLayout,
         });
       } catch (error) {
         throwPublishingError(error);
