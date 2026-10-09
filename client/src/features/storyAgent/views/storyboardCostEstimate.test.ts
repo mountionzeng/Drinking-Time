@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CreationEditorShot } from "@/features/creationEditor/types";
-import { storyboardShotCostEstimate, storyboardVideoCostEstimate } from "./storyboardReviewModel";
+import { storyboardShotCostEstimate, storyboardVideoCostEstimate, quickShotVideoRenderPlan } from "./storyboardReviewModel";
 
 const shot = {
   shotNo: 1,
@@ -52,4 +52,13 @@ it("does not advertise free local motion when the endpoints require different pi
   const moving = { ...shot, action: "", performance: "", environmentMotion: "", videoPrompt: "缓慢放大", cameraMove: "缓慢放大", generationParams: JSON.stringify({frameMode: "start_end", firstFrameImageId: 1, lastFrameImageId: 2, durationSec: 3, resolution: "1080p"}) } as CreationEditorShot;
   expect(storyboardVideoCostEstimate(moving)).toBe(1.87);
   expect(storyboardVideoCostEstimate({...moving, generationParams: undefined})).toBe(0);
+});
+
+it("quotes and submits the visible eight-second duration instead of a hidden ten-second cap", () => {
+  const longShot = { ...shot, durationMs: 12_000 };
+  expect(quickShotVideoRenderPlan(longShot, []).durationSec).toBe(8);
+  expect(storyboardVideoCostEstimate(longShot)).toBe(1.4);
+  const edited = { ...longShot, generationParams: JSON.stringify({durationSec: 4}) };
+  expect(quickShotVideoRenderPlan(edited, []).durationSec).toBe(4);
+  expect(storyboardVideoCostEstimate(edited)).toBe(0.7);
 });

@@ -238,16 +238,18 @@ export function StoryboardVoiceCell({
           disabled={!onGenerate || !narrationText.trim() || generating}
           onClick={() => void onGenerate?.(narrationText.trim())}
           onPointerDown={event => event.stopPropagation()}
-          className="inline-flex h-7 items-center gap-1 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)]/45 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+          className="inline-flex min-h-10 max-w-full flex-col items-center justify-center gap-0.5 rounded-sm border border-border bg-background px-1 py-1 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)]/45 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
         >
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
           {generating ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
             <Volume2 className="h-3 w-3" />
           )}
           {generating ? "生成中…" : "生成旁白"}
+          </span>
           {narrationText.trim() && (
-            <span className="text-[8px] font-normal tabular-nums text-muted-foreground">
+            <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
               约{" "}
               {formatComputeUnits(
                 estimateStoryNarrationCostMinor(narrationText)

@@ -209,6 +209,7 @@ import {
   storyboardImageGenerationReferences,
   storyboardRenderIntentSummary,
   storyboardShotCostEstimate,
+  storyboardVideoStartEndConfig,
   storyboardRenderShotWithDraft,
   storyboardRerenderRequestId,
   storyboardShotFrameImages,
@@ -2738,6 +2739,11 @@ export function StoryboardReviewBoard({
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
     );
+    if (stableShotId && startEndTuningOverridesRef.current[stableShotId]) {
+      effectiveShot = { ...effectiveShot, generationParams: storyboardStartEndTuningGenerationParams(
+        effectiveShot.generationParams, startEndTuningOverridesRef.current[stableShotId]
+      ) };
+    }
     if (options.sourceImage) {
       effectiveShot = {
         ...effectiveShot,
@@ -5055,6 +5061,7 @@ export function StoryboardReviewBoard({
                           shot,
                           index
                         );
+                        const usesStartEndVideo = creationShot ? Boolean(storyboardVideoStartEndConfig(creationShot, creationShots)) : false;
                         const matrixVideoBlockReason = creationShot
                           ? storyboardVideoRenderBlockReason(
                               storyboardRenderShotWithDraft(
@@ -5222,7 +5229,7 @@ export function StoryboardReviewBoard({
                                     </label>
                                     <select
                                       id={`shot-${shot.shotNo}-duration`}
-                                      value={
+                                      value={Math.max(usesStartEndVideo ? 1 : 3,
                                         startEndTuningOverrides[
                                           creationShot.stableShotId ??
                                             creationShot.shotIdentity ??
@@ -5232,7 +5239,7 @@ export function StoryboardReviewBoard({
                                           creationShot.generationParams,
                                           creationShot.durationMs
                                         )
-                                      }
+                                      )}
                                       disabled={!onUpdateShotFields}
                                       onPointerDown={event =>
                                         event.stopPropagation()
@@ -5250,9 +5257,9 @@ export function StoryboardReviewBoard({
                                         );
                                       }}
                                       className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                      title="首尾帧视频时长；Vidu Q2 单次上限 8 秒"
+                                      title="本次生成时长；首尾帧支持1至8秒，普通视频支持3至8秒"
                                     >
-                                      {STORYBOARD_START_END_DURATION_OPTIONS.map(
+                                      {STORYBOARD_START_END_DURATION_OPTIONS.filter(seconds => usesStartEndVideo || seconds >= 3).map(
                                         seconds => (
                                           <option key={seconds} value={seconds}>
                                             {`${seconds} 秒`}
@@ -5324,13 +5331,14 @@ export function StoryboardReviewBoard({
                                         creationShot
                                       );
                                     }}
-                                    className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                    className="inline-flex min-h-10 w-full flex-col items-center justify-center gap-0.5 py-1 rounded-sm border border-border bg-background px-1 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
                                     aria-label={`按视频要求渲染 ${shotLabel} 视频`}
                                     title={
                                       matrixVideoBlockReason ??
                                       "先保存本镜文字并确认算力消耗，再生成候选 Take"
                                     }
                                   >
+                                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
                                     {continuityCheckingByShot[shot.shotNo] ===
                                     "video" ? (
                                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -5348,7 +5356,8 @@ export function StoryboardReviewBoard({
                                     "video"
                                       ? "检查人物"
                                       : "渲染视频"}
-                                    <span className="font-normal tabular-nums text-muted-foreground">
+                                    </span>
+                                    <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
                                       约{" "}
                                       {formatComputeQuote(
                                         matrixCostEstimate(shot).videoCny

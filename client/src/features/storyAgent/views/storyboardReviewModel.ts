@@ -370,7 +370,7 @@ export function quickShotVideoRenderPlan(
       : "low";
   const durationSec = Math.max(
     3,
-    Math.min(10, Math.round((shot.durationMs ?? 5_000) / 1_000))
+    storyboardStartEndDurationSec(shot.generationParams, shot.durationMs ?? 5_000)
   );
   const estimate = estimateShotVideoCost({ durationSec, motion });
   const renderDecision = decideVideoRenderStrategy({
@@ -397,11 +397,10 @@ export function quickShotVideoRenderPlan(
 }
 
 /** Mirrors the start/end route chosen at submit; the server confirms after saving drafts. */
-export function storyboardVideoCostEstimate(
+export function storyboardVideoStartEndConfig(
   shot: CreationEditorShot,
   neighbors: readonly CreationEditorShot[] = []
-): number {
-  const plan = quickShotVideoRenderPlan(shot, []);
+) {
   const frames = storyboardShotFrameImages(shot);
   const index = neighbors.findIndex(
     candidate =>
@@ -432,7 +431,16 @@ export function storyboardVideoCostEstimate(
       shot.durationMs
     ) ??
     shot.generationParams;
-  const config = parseStartEndVideoConfig(params, shot.durationMs);
+  return parseStartEndVideoConfig(params, shot.durationMs);
+}
+
+export function storyboardVideoCostEstimate(
+  shot: CreationEditorShot,
+  neighbors: readonly CreationEditorShot[] = []
+): number {
+  const plan = quickShotVideoRenderPlan(shot, []);
+  const frames = storyboardShotFrameImages(shot);
+  const config = storyboardVideoStartEndConfig(shot, neighbors);
   if (plan.renderDecision.strategy === "local-transform") {
     const allFrames = [...frames, ...neighbors.flatMap(storyboardShotFrameImages)];
     const first = allFrames.find(frame => frame.id === config?.firstFrameImageId);
