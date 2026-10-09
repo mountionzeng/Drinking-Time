@@ -57,6 +57,7 @@ function entryLabel(entryType: string, operationType?: string): string {
   if (entryType === "consumption")
     return operationType ? operationLabel(operationType) : "AI 生成";
   if (entryType === "gift") return "赠送算力";
+  if (entryType === "purchase") return "充值算力";
   if (entryType === "refund") return "费用退回";
   if (entryType === "release") return "预占释放";
   return "额度调整";

@@ -9,6 +9,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 import { useComputeBalance } from "./useComputeBalance";
+import { RechargeDialog } from "./RechargeDialog";
 
 /**
  * 外壳**不调任何 hook**，未登录时直接返回 null，内核压根不挂载。
@@ -118,26 +119,23 @@ function ComputeBalanceBadgeInner({
           账目对不上，请联系我们，先别继续生成
         </span>
       ) : balance.unprovisioned ? (
-        // 数字照常给——钱要看得见。但不喊警告：这个账户还没领过赠送卡，
-        // 而聊天、写正文、读来信本来就不消耗额度（R12）。
         compact ? null : (
           <span className="text-[10px] leading-4 text-muted-foreground">
-            还没领算力，聊天和写字不受影响
+            暂无算力，浏览和手动编辑不受影响
           </span>
         )
       ) : balance.depleted ? (
-        // 文案按 R12 写：只有付费调用被拦，别让人以为整个产品用不了了。
-        // 邮箱是设计里指定的续充联系方式，不能省——省了用户就不知道找谁。
         <span className="text-[10px] leading-4 text-amber-700">
           {compact
             ? "额度用完，付费生成暂停"
-            : "额度用完了。聊天、读写都不受影响，需要续充请联系 mountionzeng@gmail.com"}
+            : "额度用完了，浏览和手动编辑不受影响"}
         </span>
       ) : balance.reservedText && !compact ? (
         <span className="text-[10px] leading-4 text-muted-foreground">
           另有 {balance.reservedText} 正在生成中占用
         </span>
       ) : null}
+      <RechargeDialog />
     </span>
   );
 }

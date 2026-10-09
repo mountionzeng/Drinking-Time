@@ -66,6 +66,7 @@ import { storyAgentRouter } from "./storyAgent";
 import { storyContextShareRouter } from "./storyContextShare";
 import { creationAgentRouter } from "./creationAgent";
 import { computeAccountRouter } from "./computeAccount";
+import { computePaymentRouter } from "./computePayment";
 import { personalMemoryRouter } from "./personalMemory";
 import { publishingDraftRouter } from "./publishingDraft";
 import { textDraftsRouter } from "./textDrafts";
@@ -331,6 +332,7 @@ export const appRouter = router({
   personalMemory: personalMemoryRouter,
 
   computeAccount: computeAccountRouter,
+  computePayment: computePaymentRouter,
 
   shiguangStoryAccess: shiguangStoryAccessRouter,
 

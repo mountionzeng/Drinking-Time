@@ -445,7 +445,8 @@ export async function applyComputeSettlement(
 
 export type AppendCreditEntryInput = {
   userId: number;
-  entryType: CreditLedgerEntry["entryType"];
+  // Purchases require an order and the dedicated atomic settlement transaction.
+  entryType: Exclude<CreditLedgerEntry["entryType"], "purchase">;
   /** 带符号金额（微元）：赠送/退款为正，人工扣减为负 */
   amountMinor: number;
   /** 业务幂等键。重复写入被唯一约束挡下 */
@@ -473,6 +474,9 @@ export type AppendCreditEntryResult =
 export async function appendCreditLedgerEntry(
   input: AppendCreditEntryInput
 ): Promise<AppendCreditEntryResult> {
+  if ((input.entryType as string) === "purchase") {
+    throw new Error("充值必须通过订单结算入账");
+  }
   if (!Number.isSafeInteger(input.amountMinor)) {
     throw new Error(`账本金额必须是安全整数微元：${input.amountMinor}`);
   }

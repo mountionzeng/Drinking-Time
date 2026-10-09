@@ -15,6 +15,7 @@ import {
   settleOperation,
 } from "./computeLedger";
 import { getAccountStatement } from "./computeStatement";
+import { appendCreditLedgerEntry } from "../repositories/computeLedger";
 
 async function makeUser(openId: string): Promise<number> {
   await upsertUser({
@@ -49,6 +50,13 @@ const textOperation = (operationId: string, maxYuan: number) => ({
 describe("computeLedger", () => {
   beforeEach(() => {
     resetMemoryStateForTesting();
+  });
+
+  it("拒绝绕过支付订单直接写 purchase 流水", async () => {
+    await expect(appendCreditLedgerEntry({
+      userId: 1, entryType: "purchase" as never, amountMinor: 10_000_000,
+      idempotencyKey: "forged-purchase",
+    })).rejects.toThrow("充值必须通过订单结算入账");
   });
 
   it("本机开发不因余额拦截，但仍按实际成本记入不可变账本", async () => {

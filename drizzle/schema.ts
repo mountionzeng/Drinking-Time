@@ -2072,6 +2072,7 @@ export const creditLedgerEntries = mysqlTable(
       "consumption",
       "refund",
       "release",
+      "purchase",
     ]).notNull(),
     /** 带符号金额，微元 */
     amountMinor: bigint("amountMinor", { mode: "number" }).notNull(),
@@ -2105,6 +2106,29 @@ export const creditLedgerEntries = mysqlTable(
 
 export type CreditLedgerEntry = typeof creditLedgerEntries.$inferSelect;
 export type InsertCreditLedgerEntry = typeof creditLedgerEntries.$inferInsert;
+
+/** Real-money orders are MySQL-only. Credit is posted atomically with paid status. */
+export const computePaymentOrders = mysqlTable("compute_payment_orders", {
+  orderId: varchar("orderId", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "restrict" }),
+  requestId: varchar("requestId", { length: 36 }).notNull(),
+  channel: mysqlEnum("channel", ["wechat", "alipay"]).notNull(),
+  merchantId: varchar("merchantId", { length: 64 }).notNull(),
+  /** Channel money is integer fen; ledger money is integer micro-yuan. */
+  amountFen: int("amountFen").notNull(),
+  creditMinor: bigint("creditMinor", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 8 }).default("CNY").notNull(),
+  status: mysqlEnum("status", ["pending", "paid"]).default("pending").notNull(),
+  providerTransactionId: varchar("providerTransactionId", { length: 128 }),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  requestUnique: uniqueIndex("compute_payment_orders_request_unique").on(table.userId, table.requestId),
+  transactionUnique: uniqueIndex("compute_payment_orders_transaction_unique").on(table.channel, table.providerTransactionId),
+  userIndex: index("compute_payment_orders_user_index").on(table.userId, table.createdAt),
+}));
+
+export type ComputePaymentOrder = typeof computePaymentOrders.$inferSelect;
 
 /**
  * BillingOperations — 业务层的一次付费操作。

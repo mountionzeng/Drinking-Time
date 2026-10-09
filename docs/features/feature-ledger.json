@@ -3699,7 +3699,8 @@
         "server/_core/oauth.ts",
         "minigame/src/accountView.ts",
         "client/src/pages/LoginPage.tsx",
-        "client/src/features/auth/views/AuthEntryPanel.tsx"
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "client/src/features/computeAccount/RechargeDialog.tsx"
       ],
       "owners": [
         "server/services/accountIdentity.ts",
@@ -3736,7 +3737,10 @@
         "server/_core/shiguangComputeBridge.ts",
         "server/_core/shiguangComputeBridgeRoutes.ts",
         "server/services/computeRequestAccess.ts",
-        "server/services/googleAuthConfig.ts"
+        "server/services/googleAuthConfig.ts",
+        "server/repositories/computePayments.ts",
+        "server/routers/computePayment.ts",
+        "client/src/features/computeAccount/RechargeDialog.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3778,7 +3782,11 @@
         "docs/qa/2026-09-29-local-release-production.md",
         "server/services/googleAuthConfig.test.ts",
         "scripts/check-google-login.ts",
-        "docs/qa/2026-10-09-production-google-login.md"
+        "docs/qa/2026-10-09-production-google-login.md",
+        "server/integration/computePayments.mysql.test.ts",
+        "server/repositories/computePayments.test.ts",
+        "server/routers.computePayment.test.ts",
+        "docs/handoff/2026-10-09-web-recharge-foundation.md"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3805,9 +3813,15 @@
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站已于 2026-10-09 启用同一托管链路并完成原账号真实登录，其他真实账号本轮未手测。",
-        "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。"
+        "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
+        "2026-10-09 新增网页充值未开放状态入口及 MySQL 订单原子入账基础，未部署生产；商户渠道、档位、付款页金额展示待确认，验签适配器、真实下单、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不可视为已支持收款。"
       ],
       "history": [
+        {
+          "date": "2026-10-09",
+          "kind": "feature",
+          "summary": "按用户继续推进授权，增加网页充值入口和独立 computePayment 路由，支付保持关闭；订单、purchase 流水和余额同事务落库，禁止通用账本入口直接 purchase，MySQL 双进程并发与交易号去重回滚验证通过。电脑及手机本地浏览器验证入口，原计费工作树保持不变；商户准备及剩余链路见充值基础交接文档。"
+        },
         {
           "date": "2026-09-29",
           "kind": "fix",
