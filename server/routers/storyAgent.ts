@@ -1,3 +1,4 @@
+import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { placeImageRevisionForStory } from "../services/visualClipEditing";
@@ -100,7 +101,6 @@ import {
   estimateStoryboardMaskedEditCost,
 } from "../../shared/imageRenderCost";
 import {
-  generateStoryVoice302,
   type StoryVoice302Result,
 } from "../services/storyVoice302";
 import { getActiveStyles } from "../services/styleLibrary";
@@ -172,6 +172,8 @@ function storyVoiceGenerationKey(input: {
 }
 
 function generateStoryVoiceOnce(input: {
+  userId: number;
+  storyId: number;
   key: string;
   text: string;
   provider?: string;
@@ -184,11 +186,7 @@ function generateStoryVoiceOnce(input: {
   if (cached) recentStoryVoiceGenerations.delete(input.key);
   const existing = inFlightStoryVoiceGenerations.get(input.key);
   if (existing) return existing;
-  const pending = generateStoryVoice302({
-    text: input.text,
-    provider: input.provider,
-    voice: input.voice,
-  })
+  const pending = generateBilledStoryboardVoice(input)
     .then(result => {
       recentStoryVoiceGenerations.set(input.key, {
         result,
@@ -1100,6 +1098,8 @@ export const storyAgentRouter = router({
       }
 
       const voice = await generateStoryVoiceOnce({
+        userId: ctx.user.id,
+        storyId: input.storyId,
         key: storyVoiceGenerationKey({
           userId: ctx.user.id,
           storyId: input.storyId,

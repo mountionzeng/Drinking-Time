@@ -1,3 +1,4 @@
+import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
@@ -72,6 +73,7 @@ async function startServer() {
   // 迁移工具都不应该意外开始消费任务。独立 kill switch：
   // PERSONAL_MEMORY_RUNNER_PAUSED=true 时启动即暂停，不 claim 任何任务，
   // 但已经 pending 的任务原样留着，不受影响。
+  const stopMediaBillingRecovery = startMediaBillingRecovery();
   const personalMemoryJobRunner = startPersonalMemoryJobRunner();
   if (process.env.PERSONAL_MEMORY_RUNNER_PAUSED === "true") {
     personalMemoryJobRunner.pause();
@@ -83,6 +85,7 @@ async function startServer() {
   const handleShutdownSignal = (signal: NodeJS.Signals) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopMediaBillingRecovery();
     console.log(`[Server] 收到 ${signal}，停止提炼 runner...`);
     stopPersonalMemoryJobRunner()
       .catch(error => console.error("[Server] 停止提炼 runner 失败：", error))

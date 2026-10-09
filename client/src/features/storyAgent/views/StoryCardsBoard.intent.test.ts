@@ -1507,7 +1507,7 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain('displayMode="matrix"');
     expect(boardSource).not.toContain("视频制作表格行");
     expect(boardSource).toContain("<ShotImageRenderControl");
-    expect(boardSource).toContain("渲染视频");
+    expect(boardSource).toContain("<StoryboardVideoButtonContent");
     expect(boardSource).toContain("explicitInstruction");
     expect(boardSource).toContain("quickShotVideoRenderPlan");
     expect(boardSource).toContain("estimateShotVideoCost");

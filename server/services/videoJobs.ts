@@ -1,3 +1,14 @@
+import {
+  mediaBillingEnabled,
+  mediaOperationId,
+  reserveMedia,
+  recordMediaResult,
+  finishVideoBilling,
+  recoverVideoReceipt,
+} from "./mediaComputeBilling";
+import { settleOperation } from "./computeLedger";
+import { fromYuan } from "../../shared/computeMoney";
+import { estimateShotVideoCost } from "../../shared/shotDirector";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -354,6 +365,7 @@ function sanitizeApprovedVideoPrompt(raw: string): string {
 }
 
 function snapshot(input: {
+  computeOperationId?: string | null;
   submitUrl?: string;
   submittedParameters?: Record<string, unknown>;
   sourceImageId: number;
@@ -378,6 +390,7 @@ function snapshot(input: {
       ? "inline-image"
       : input.storyStyleReferenceImageUrl;
   return {
+    computeOperationId: input.computeOperationId,
     provider: "302",
     model: providerStatus.model,
     durationSec: input.durationSec,
@@ -631,133 +644,206 @@ export async function startShotVideoJob(
     return { status: "ok", take: existing };
   }
 
-  const sourceImage = await materializeImageInput(asset.imageUrl);
-  const promptDirector: VideoSubmissionPromptDirectorResult =
-    input.directorPromptApproved
-      ? {
-          prompt: deterministicPrompt,
-          source: "editor-approved",
-          model: "",
-          analysis: null,
-          materialProfile: null,
-          engineering: preparedEngineering,
-          fallbackReason: "用户已在故事版确认并应用导演方案",
-        }
-      : isMjVideo
-        ? await directVideoPrompt({
-            imageInput: sourceImage,
-            identityImageInput,
-            storyStyleImageInput,
-            fallbackPrompt: deterministicPrompt,
-            shotNo: input.shotNo,
-            draftPrompt: input.prompt,
-            subtitle: input.subtitle,
-            storyTitle: story?.title,
-            ...context,
-          })
-        : {
-            prompt: preparedEngineering.finalPrompt,
-            source: "deterministic-fallback",
+  const computeOperationId = mediaBillingEnabled()
+    ? mediaOperationId("video", userId, `${input.storyId}:${idempotencyKey}`)
+    : null;
+  if (computeOperationId) {
+    try {
+      const reservation = await reserveMedia({
+        operationId: computeOperationId,
+        userId,
+        storyId: input.storyId,
+        requestHash: idempotencyKey,
+        maxCostMinor: fromYuan(
+          estimateShotVideoCost({ durationSec, motion }).estimatedCny
+        ),
+      });
+      if (reservation.outcome === "replayed") {
+        const previous = await findVideoTakeByIdempotencyKey(
+          input.storyId,
+          userId,
+          idempotencyKey
+        );
+        return previous
+          ? { status: "ok", take: previous }
+          : {
+              status: "error",
+              error: "视频正在生成或结果待核对，不会重复提交",
+            };
+      }
+    } catch (error) {
+      return {
+        status: "error",
+        error: error instanceof Error ? error.message : "视频预占失败",
+      };
+    }
+  }
+  let providerStarted = false;
+  try {
+    const sourceImage = await materializeImageInput(asset.imageUrl);
+    const promptDirector: VideoSubmissionPromptDirectorResult =
+      input.directorPromptApproved
+        ? {
+            prompt: deterministicPrompt,
+            source: "editor-approved",
             model: "",
             analysis: null,
             materialProfile: null,
             engineering: preparedEngineering,
-            fallbackReason: "当前视频供应商不是 MJ-Video",
-          };
-  const videoPrompt =
-    isMjVideo && !input.directorPromptApproved
-      ? compileMjVideoProviderPrompt(promptDirector.engineering)
-      : promptDirector.prompt;
+            fallbackReason: "用户已在故事版确认并应用导演方案",
+          }
+        : isMjVideo
+          ? await directVideoPrompt({
+              imageInput: sourceImage,
+              identityImageInput,
+              storyStyleImageInput,
+              fallbackPrompt: deterministicPrompt,
+              shotNo: input.shotNo,
+              draftPrompt: input.prompt,
+              subtitle: input.subtitle,
+              storyTitle: story?.title,
+              ...context,
+            })
+          : {
+              prompt: preparedEngineering.finalPrompt,
+              source: "deterministic-fallback",
+              model: "",
+              analysis: null,
+              materialProfile: null,
+              engineering: preparedEngineering,
+              fallbackReason: "当前视频供应商不是 MJ-Video",
+            };
+    const videoPrompt =
+      isMjVideo && !input.directorPromptApproved
+        ? compileMjVideoProviderPrompt(promptDirector.engineering)
+        : promptDirector.prompt;
 
-  const take = await createVideoTake({
-    storyId: input.storyId,
-    userId,
-    stableShotId,
-    sourceImageId: input.imageId,
-    promptCompilationId,
-    status: "submitted",
-    provider: "302",
-    model: providerStatus.model || "unconfigured",
-    prompt: videoPrompt,
-    subtitle: input.subtitle ?? null,
-    durationSec,
-    aspectRatio,
-    parameterSnapshot: snapshot({
+    const take = await createVideoTake({
+      storyId: input.storyId,
+      userId,
+      stableShotId,
       sourceImageId: input.imageId,
-      previousReference,
-      nextReference,
-      characterReferenceImageUrl: input.characterReferenceImageUrl,
-      storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
+      promptCompilationId,
+      status: "submitted",
+      provider: "302",
+      model: providerStatus.model || "unconfigured",
+      prompt: videoPrompt,
+      subtitle: input.subtitle ?? null,
       durationSec,
       aspectRatio,
-      motion,
-      rerenderRequestId: input.rerenderRequestId,
-      promptDirector,
-    }),
-    idempotencyKey,
-    extractionCapability: "unavailable",
-  });
-
-  const submitted = await submitShotVideo({
-    prompt: videoPrompt,
-    sourceImage,
-    subtitle: input.subtitle,
-    durationSec,
-    aspectRatio,
-    motion,
-  });
-
-  if (submitted.status !== "ok") {
-    const error = explainVideoProviderError(submitted.message);
-    const unknownSubmission = isUnknownVideoSubmissionFailure(
-      submitted.message
-    );
-    const errorMessage = unknownSubmission
-      ? `${error}；付费提交结果未知，为避免重复扣费，请不要直接重试。`
-      : error;
-    const failed = await updateVideoTake(take.id, userId, {
-      status: unknownSubmission ? "unfollowable" : "failed",
-      errorMessage,
-      taskId: submitted.taskId ?? null,
+      parameterSnapshot: snapshot({
+        computeOperationId,
+        sourceImageId: input.imageId,
+        previousReference,
+        nextReference,
+        characterReferenceImageUrl: input.characterReferenceImageUrl,
+        storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
+        durationSec,
+        aspectRatio,
+        motion,
+        rerenderRequestId: input.rerenderRequestId,
+        promptDirector,
+      }),
+      idempotencyKey,
+      extractionCapability: "unavailable",
     });
-    return { status: "error", error: errorMessage, take: failed ?? take };
-  }
 
-  const managed = submitted.videoUrl
-    ? await materializeVideoUrl(submitted.videoUrl, take.id)
-    : null;
-  const submittedPrompt =
-    typeof submitted.submittedParameters?.prompt === "string"
-      ? submitted.submittedParameters.prompt
-      : videoPrompt;
-  const updated = await updateVideoTake(take.id, userId, {
-    status: submitted.videoUrl ? "available" : "processing",
-    prompt: submittedPrompt,
-    taskId: submitted.taskId ?? null,
-    videoUrl:
-      managed?.status === "ok"
-        ? managed.videoUrl
-        : (submitted.videoUrl ?? null),
-    videoKey: managed?.status === "ok" ? managed.videoKey : null,
-    extractionCapability:
-      managed?.status === "ok" ? "available" : "unavailable",
-    parameterSnapshot: snapshot({
-      submitUrl: submitted.submitUrl,
-      submittedParameters: submitted.submittedParameters,
-      sourceImageId: input.imageId,
-      previousReference,
-      nextReference,
-      characterReferenceImageUrl: input.characterReferenceImageUrl,
-      storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
+    providerStarted = true;
+    const submitted = await submitShotVideo({
+      prompt: videoPrompt,
+      sourceImage,
+      subtitle: input.subtitle,
       durationSec,
       aspectRatio,
       motion,
-      taskId: submitted.taskId,
-      promptDirector,
-    }),
-  });
+    });
 
-  return { status: "ok", take: updated ?? take };
+    if (submitted.status !== "ok") {
+      const error = explainVideoProviderError(submitted.message);
+      const unknownSubmission = submitted.submissionState !== "not_submitted";
+      if (computeOperationId)
+        await settleOperation({
+          operationId: computeOperationId,
+          outcome: {
+            kind: unknownSubmission
+              ? "submission_unknown"
+              : "not_charged_failure",
+          },
+        });
+      const errorMessage = unknownSubmission
+        ? `${error}；付费提交结果未知，为避免重复扣费，请不要直接重试。`
+        : error;
+      const failed = await updateVideoTake(take.id, userId, {
+        status: unknownSubmission ? "unfollowable" : "failed",
+        errorMessage,
+        taskId: submitted.taskId ?? null,
+      });
+      return { status: "error", error: errorMessage, take: failed ?? take };
+    }
+
+    if (computeOperationId) {
+      await recordMediaResult(computeOperationId, "302", {
+        taskId: submitted.taskId,
+        videoUrl: submitted.videoUrl,
+        takeId: take.id,
+      });
+      if (submitted.videoUrl)
+        await finishVideoBilling(take, { videoUrl: submitted.videoUrl });
+    }
+    // Persist the task before downloading; a failed download cannot lose its receipt.
+    await updateVideoTake(take.id, userId, {
+      taskId: submitted.taskId ?? null,
+      status: "processing",
+    });
+    const managed = submitted.videoUrl
+      ? await materializeVideoUrl(submitted.videoUrl, take.id)
+      : null;
+    const submittedPrompt =
+      typeof submitted.submittedParameters?.prompt === "string"
+        ? submitted.submittedParameters.prompt
+        : videoPrompt;
+    const updated = await updateVideoTake(take.id, userId, {
+      status: submitted.videoUrl ? "available" : "processing",
+      prompt: submittedPrompt,
+      taskId: submitted.taskId ?? null,
+      videoUrl:
+        managed?.status === "ok"
+          ? managed.videoUrl
+          : (submitted.videoUrl ?? null),
+      videoKey: managed?.status === "ok" ? managed.videoKey : null,
+      extractionCapability:
+        managed?.status === "ok" ? "available" : "unavailable",
+      parameterSnapshot: snapshot({
+        computeOperationId,
+        submitUrl: submitted.submitUrl,
+        submittedParameters: submitted.submittedParameters,
+        sourceImageId: input.imageId,
+        previousReference,
+        nextReference,
+        characterReferenceImageUrl: input.characterReferenceImageUrl,
+        storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
+        durationSec,
+        aspectRatio,
+        motion,
+        taskId: submitted.taskId,
+        promptDirector,
+      }),
+    });
+
+    return { status: "ok", take: updated ?? take };
+  } catch (error) {
+    if (computeOperationId)
+      await settleOperation({
+        operationId: computeOperationId,
+        outcome: {
+          kind: providerStarted ? "submission_unknown" : "not_charged_failure",
+        },
+      });
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : "视频提交失败",
+    };
+  }
 }
 
 export async function refreshVideoTakeStatus(
@@ -766,8 +852,9 @@ export async function refreshVideoTakeStatus(
 ): Promise<
   { status: "ok"; take: VideoTake } | { status: "error"; error: string }
 > {
-  const take = await getVideoTakeById(takeId, userId);
+  let take = await getVideoTakeById(takeId, userId);
   if (!take) return { status: "error", error: "视频任务不存在或无权操作" };
+  take = await recoverVideoReceipt(take);
   if (isLocalMotionVideoTake(take)) {
     return refreshLocalMotionVideoTake(take, userId);
   }
@@ -787,6 +874,7 @@ export async function refreshVideoTakeStatus(
     ? await refreshRunwayVideoExpandTask(take.taskId)
     : await refreshShotVideoTask(take.taskId);
   if (refreshed.status === "available") {
+    await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
     const mjCandidateVideoUrls =
       "candidateVideoUrls" in refreshed &&
       Array.isArray(refreshed.candidateVideoUrls)
@@ -895,6 +983,7 @@ export async function refreshVideoTakeStatus(
     return { status: "ok", take: updated ?? take };
   }
 
+  await finishVideoBilling(take, { unknown: true });
   const updated = await updateVideoTake(take.id, userId, {
     status: statusForRefresh(refreshed.status),
     errorMessage: explainVideoProviderError(refreshed.message),

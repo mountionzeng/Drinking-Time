@@ -1,4 +1,4 @@
-import { guardComputeFetch } from "./computeRequestAccess";
+import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
@@ -42,6 +42,7 @@ export type ShotVideoSubmitResult =
   | {
       status: "error";
       message: string;
+      submissionState?: "not_submitted" | "unknown";
       taskId?: string;
     };
 
@@ -367,17 +368,24 @@ export async function submitShotVideo(
 ): Promise<ShotVideoSubmitResult> {
   const providerStatus = getShotVideoProviderStatus();
   if (providerStatus.missing.includes("API302_KEY")) {
-    return { status: "error", message: "API302_KEY 未配置，无法生成视频。" };
+    return {
+      status: "error",
+      submissionState: "not_submitted",
+      message: "API302_KEY 未配置，无法生成视频。",
+    };
   }
   if (providerStatus.missing.includes("VIDEO_302_MODEL")) {
     return {
       status: "error",
+      submissionState: "not_submitted",
       message:
         "VIDEO_302_MODEL 未配置。已准备好视频包，但还不知道要调用哪个 302 视频模型。",
     };
   }
 
-  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
+  const fetcher = guardComputeFetch(
+    (options.fetcher ?? globalThis.fetch) as Fetcher
+  );
   const { url, body } = buildSubmitRequest(input);
   const headers = videoHeaders(providerStatus.submitPath);
 
@@ -394,6 +402,12 @@ export async function submitShotVideo(
     if (!response.ok) {
       return {
         status: "error",
+        submissionState:
+          response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500
+            ? "unknown"
+            : "not_submitted",
         message: failureMessage(json, `视频提交失败 HTTP ${response.status}`),
       };
     }
@@ -405,6 +419,7 @@ export async function submitShotVideo(
     ) {
       return {
         status: "error",
+        submissionState: "unknown",
         message: failureMessage(
           json,
           `MJ-Video 提交失败：code ${responseCode}`
@@ -427,6 +442,7 @@ export async function submitShotVideo(
     if (!taskId) {
       return {
         status: "error",
+        submissionState: "unknown",
         message: failureMessage(json, "视频接口没有返回 videoUrl 或 taskId"),
       };
     }
@@ -441,6 +457,8 @@ export async function submitShotVideo(
   } catch (error) {
     return {
       status: "error",
+      submissionState:
+        error instanceof ComputeAccessError ? "not_submitted" : "unknown",
       message: error instanceof Error ? error.message : "视频生成失败",
     };
   }
@@ -467,7 +485,9 @@ export async function refreshShotVideoTask(
     };
   }
 
-  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
+  const fetcher = guardComputeFetch(
+    (options.fetcher ?? globalThis.fetch) as Fetcher
+  );
   try {
     const url = endpoint(buildPath(pollPath, { taskId }));
     const response = await withTimeout(
@@ -527,7 +547,9 @@ export async function generateShotVideo(
   input: ShotVideoInput,
   options: { fetcher?: Fetcher } = {}
 ): Promise<ShotVideoResult> {
-  const fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
+  const fetcher = guardComputeFetch(
+    (options.fetcher ?? globalThis.fetch) as Fetcher
+  );
   const submitted = await submitShotVideo(input, { fetcher });
   if (submitted.status !== "ok") return submitted;
   if (submitted.videoUrl) {

@@ -20,6 +20,8 @@ function operationLabel(operationType: string): string {
     "text.generate": "文字生成",
     "image.generate": "图片生成",
     "video.generate": "视频生成",
+    "media.video": "故事版视频",
+    "media.voice": "故事版旁白",
     personal_memory_extraction: "记忆整理",
     "tts.narration": "故事朗读",
     "audio.scene-generation": "故事配音",

@@ -271,13 +271,13 @@ export async function createVideoTakeIdempotently(
 ): Promise<{ take: VideoTake; created: boolean }> {
   const db = await getDb();
   if (!db) {
-    const existing = await findVideoTakeByIdempotencyKey(
-      data.storyId,
-      data.userId,
-      data.idempotencyKey
-    );
-    if (existing) return { take: existing, created: false };
-    return { take: await createVideoTake(data), created: true };
+    return withMemoryVideoTakeSubmissionClaim(async () => {
+      const existing = await findVideoTakeByIdempotencyKey(
+        data.storyId, data.userId, data.idempotencyKey
+      );
+      if (existing) return { take: existing, created: false };
+      return { take: await createVideoTake(data), created: true };
+    });
   }
 
   return db.transaction(async tx => {

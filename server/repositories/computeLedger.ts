@@ -1,5 +1,5 @@
 /** Persistence operations for computeLedger. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, inArray, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, gt, inArray, or, sql } from "drizzle-orm";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   creditAccounts,
@@ -918,4 +918,17 @@ export async function listProviderAttemptsForOperation(
     .from(providerAttempts)
     .where(eq(providerAttempts.billingOperationId, operation.id))
     .orderBy(providerAttempts.attemptIndex);
+}
+
+/** Bounded keyset scan for media recovery; no business content is loaded. */
+export async function listUnsettledMediaOperations(afterId = 0, limit = 25): Promise<BillingOperation[]> {
+  const db = await getDb();
+  const statuses = ["reserved", "submitted", "submission_unknown"] as const;
+  if (!db) return memoryState.billingOperations.filter(row =>
+    row.id > afterId && ["media.voice", "media.video"].includes(row.operationType) && statuses.some(status => status === row.status)
+  ).sort((a, b) => a.id - b.id).slice(0, limit);
+  return db.select().from(billingOperations).where(and(
+    gt(billingOperations.id, afterId), inArray(billingOperations.operationType, ["media.voice", "media.video"]),
+    inArray(billingOperations.status, [...statuses]),
+  )).orderBy(asc(billingOperations.id)).limit(limit);
 }

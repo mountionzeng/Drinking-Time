@@ -1478,6 +1478,11 @@
           "date": "2026-10-09",
           "kind": "fix",
           "summary": "镜头报价按首尾帧、邻镜补帧、时长与分辨率选用与服务端相同的Vidu计算；不同首尾图不得误标本地免费。生成旁白和渲染视频标注约算力，合计明确不含旁白与提示词整理。真实供应商实收和该入口余额扣账尚未验证。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "镜头旁白及普通/首尾帧视频报价接入真实账本；重复请求共享预占，后台查原任务完成结算，旧任务不追扣。抽出视频按钮费用标签与草稿报价纯函数，保持大文件边界；自动化使用模拟供应商，未发真实付费成片。"
         }
       ]
     },
@@ -3759,7 +3764,10 @@
         "server/services/semanticAnnotation.ts",
         "client/src/features/computeAccount/computeBalanceRefresh.ts",
         "shared/videoRenderCost.ts",
-        "shared/narrationCost.ts"
+        "shared/narrationCost.ts",
+        "server/services/mediaComputeBilling.ts",
+        "server/services/storyboardVoiceBilling.ts",
+        "server/services/mediaBillingRecovery.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3813,7 +3821,10 @@
         "docs/qa/2026-10-08-web-paid-call-billing-http.json",
         "docs/qa/2026-10-09-combined-release.md",
         "client/src/features/computeAccount/computeBalanceRefresh.test.ts",
-        "shared/renderComputeCost.test.ts"
+        "shared/renderComputeCost.test.ts",
+        "server/services/mediaComputeBilling.test.ts",
+        "server/integration/mediaBilling.mysql.test.ts",
+        "docs/qa/2026-10-09-media-compute-settlement.md"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3845,7 +3856,7 @@
         "2026-10-09 网页充值入口及 MySQL 订单原子入账基础已上线，真实收款仍关闭；商户渠道、档位、付款页金额展示待确认，验签适配器、真实下单、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不可视为已支持收款。",
         "2026-10-09 文本/视觉统一推理预占结算已合并上线，Claude 用量、未知提交保留与停止重发、同号幂等及语义标注计费已回归；真实供应商实收核对仍未验收。供应商价格依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
         "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。",
-        "2026-10-09 审计发现镜头表 generateStoryShotVoice 与视频任务提交/查询没有完整逐任务预占结算；供应商准入守卫只检查余额，不等于扣账。报价表与余额刷新修复不能冒充已完成真实视频/TTS扣费验收；本轮未发真实付费请求。"
+        "故事版旁白及普通/首尾帧视频已接入预占、持久回执、成功结算与后台查单；当前按生成前产品报价计费，并非供应商实际账单。无任务号的未知提交保留预占待人工核对，旧任务不追扣。本轮未发真实付费生成，供应商实收仍未验收。"
       ],
       "history": [
         {
@@ -3992,6 +4003,11 @@
           "date": "2026-10-09",
           "kind": "fix",
           "summary": "渲染报价抽到共享函数，按Vidu首尾帧规格预估；修正合计二次浮点向上取整。旁白与渲染按钮标注预计算力，操作成功/失败后立即失效余额/明细，进行中每秒同步余额；保留未知实际供应商成本与镜头扣账缺口。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "故事版旁白及视频接入原子预占与持久回执，关闭网页后后台只查询原任务并结算；明确未收费失败释放，未知保留预占。旁白成功后Story CAS失败可复用回执，明确拒绝允许用户重试；视频下载失败仍按产品报价结算。修复本地首尾帧任务并发创建，保持免费动画与旧任务不追扣；验证与发布状态见本次QA。"
         }
       ]
     },

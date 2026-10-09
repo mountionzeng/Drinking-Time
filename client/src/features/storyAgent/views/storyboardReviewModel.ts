@@ -1600,3 +1600,17 @@ export function storyboardStartEndTuningGenerationParams(
   }
   return Object.keys(current).length > 0 ? JSON.stringify(current) : "";
 }
+
+
+export function storyboardDraftCostEstimate(
+  source: CreationEditorShot | undefined,
+  shot: StoryShot,
+  pending: Parameters<typeof storyboardRenderShotWithDraft>[2],
+  tuning: Parameters<typeof storyboardStartEndTuningGenerationParams>[1],
+  neighbors: readonly CreationEditorShot[],
+  imageCount: number
+) {
+  const effective = source ? storyboardRenderShotWithDraft(source, shot, pending) : undefined;
+  if (effective) effective.generationParams = storyboardStartEndTuningGenerationParams(effective.generationParams, tuning);
+  return storyboardShotCostEstimate(effective, { neighbors, imageCount });
+}

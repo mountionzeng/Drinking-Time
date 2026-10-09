@@ -19,10 +19,7 @@ export class StoryVoice302Error extends Error {
     | "submission_unknown";
 
   constructor(
-    outcome:
-      | "not_charged_failure"
-      | "charged_failure"
-      | "submission_unknown",
+    outcome: "not_charged_failure" | "charged_failure" | "submission_unknown",
     message: string
   ) {
     super(message);
@@ -39,7 +36,7 @@ function positiveInteger(value: string, fallback: number): number {
 function safeOption(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized || normalized.length > 80 || !/^[\w.-]+$/i.test(normalized)) {
-    throw new Error(`${label}配置无效`);
+    throw new StoryVoice302Error("not_charged_failure", `${label}配置无效`);
   }
   return normalized;
 }
@@ -54,20 +51,28 @@ export async function generateStoryVoice302(input: {
   fetcher?: StoryVoiceFetch;
 }): Promise<StoryVoice302Result> {
   const narration = input.text.trim();
-  if (!narration) throw new Error("旁白文字不能为空");
+  if (!narration)
+    throw new StoryVoice302Error("not_charged_failure", "旁白文字不能为空");
   if (narration.length > 5_000) {
-    throw new Error("单镜旁白不能超过 5000 个字符");
+    throw new StoryVoice302Error(
+      "not_charged_failure",
+      "单镜旁白不能超过 5000 个字符"
+    );
   }
 
   const apiKey = input.apiKey ?? ENV.api302Key;
-  if (!apiKey.trim()) throw new Error("尚未配置 302 API Key");
+  if (!apiKey.trim())
+    throw new StoryVoice302Error("not_charged_failure", "尚未配置 302 API Key");
   const provider = safeOption(
     input.provider ?? ENV.tts302Provider,
     "语音服务商"
   );
   const voice = safeOption(input.voice ?? ENV.tts302Voice, "语音音色");
-  const baseUrl = (input.baseUrl ?? ENV.api302BaseUrl).trim().replace(/\/+$/, "");
-  if (!baseUrl) throw new Error("302 API 地址未配置");
+  const baseUrl = (input.baseUrl ?? ENV.api302BaseUrl)
+    .trim()
+    .replace(/\/+$/, "");
+  if (!baseUrl)
+    throw new StoryVoice302Error("not_charged_failure", "302 API 地址未配置");
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -90,7 +95,11 @@ export async function generateStoryVoice302(input: {
     );
     if (!response.ok) {
       throw new StoryVoice302Error(
-        "not_charged_failure",
+        response.status === 408 ||
+        response.status === 429 ||
+        response.status >= 500
+          ? "submission_unknown"
+          : "not_charged_failure",
         `302 语音生成失败（HTTP ${response.status}）`
       );
     }
@@ -114,7 +123,8 @@ export async function generateStoryVoice302(input: {
     }
     return { audioUrl, provider, voice };
   } catch (error) {
-    if (error instanceof ComputeAccessError) throw new StoryVoice302Error("not_charged_failure", error.message);
+    if (error instanceof ComputeAccessError)
+      throw new StoryVoice302Error("not_charged_failure", error.message);
     if (error instanceof Error && error.name === "AbortError") {
       throw new StoryVoice302Error(
         "submission_unknown",
@@ -128,7 +138,10 @@ export async function generateStoryVoice302(input: {
         "302 语音请求连接中断；结果未知，不会自动重试"
       );
     }
-    throw error;
+    throw new StoryVoice302Error(
+      "submission_unknown",
+      "302 语音响应无法确认，不会自动重试"
+    );
   } finally {
     clearTimeout(timeout);
   }

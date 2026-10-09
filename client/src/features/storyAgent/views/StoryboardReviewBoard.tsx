@@ -146,6 +146,7 @@ import {
 import {
   StoryboardFieldVersionSelect,
   StoryboardCostCell,
+  StoryboardVideoButtonContent,
   StoryboardMatrixFieldCell,
   StoryboardVoiceCell,
   STORYBOARD_MATRIX_VISIBLE_ROWS,
@@ -209,6 +210,7 @@ import {
   storyboardImageGenerationReferences,
   storyboardRenderIntentSummary,
   storyboardShotCostEstimate,
+  storyboardDraftCostEstimate,
   storyboardVideoStartEndConfig,
   storyboardRenderShotWithDraft,
   storyboardRerenderRequestId,
@@ -2683,26 +2685,12 @@ export function StoryboardReviewBoard({
     const identity =
       storyShotInsertIdentity(shot, index) ?? String(shot.shotNo);
     const source = creationShotByNo.get(shot.shotNo);
-    const effective = source
-      ? storyboardRenderShotWithDraft(
-          source,
-          shot,
-          matrixDraftsRef.current.get(identity)
-        )
-      : undefined;
-    if (effective) {
-      effective.generationParams = storyboardStartEndTuningGenerationParams(
-        effective.generationParams,
-        startEndTuningOverrides[
-          effective.stableShotId ?? effective.shotIdentity ?? ""
-        ] ?? {}
-      );
-    }
-    return storyboardShotCostEstimate(effective, {
-      neighbors: creationShots,
-      imageCount: loadShotRenderSettings(storyId ?? 0, identity, materialState)
-        .count,
-    });
+    return storyboardDraftCostEstimate(
+      source, shot, matrixDraftsRef.current.get(identity),
+      startEndTuningOverrides[source?.stableShotId ?? source?.shotIdentity ?? ""] ?? {},
+      creationShots,
+      loadShotRenderSettings(storyId ?? 0, identity, materialState).count
+    );
   };
 
   const rerenderShotVideo = async (
@@ -5338,31 +5326,11 @@ export function StoryboardReviewBoard({
                                       "先保存本镜文字并确认算力消耗，再生成候选 Take"
                                     }
                                   >
-                                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                                    {continuityCheckingByShot[shot.shotNo] ===
-                                    "video" ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : rerenderingShotNos.includes(
-                                        shot.shotNo
-                                      ) ||
-                                      generatingVideoShotNos.includes(
-                                        shot.shotNo
-                                      ) ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Video className="h-3 w-3" />
-                                    )}
-                                    {continuityCheckingByShot[shot.shotNo] ===
-                                    "video"
-                                      ? "检查人物"
-                                      : "渲染视频"}
-                                    </span>
-                                    <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
-                                      约{" "}
-                                      {formatComputeQuote(
-                                        matrixCostEstimate(shot).videoCny
-                                      )}
-                                    </span>
+                                    <StoryboardVideoButtonContent
+                                      checking={continuityCheckingByShot[shot.shotNo] === "video"}
+                                      busy={rerenderingShotNos.includes(shot.shotNo) || generatingVideoShotNos.includes(shot.shotNo)}
+                                      estimatedCny={matrixCostEstimate(shot).videoCny}
+                                    />
                                   </button>
                                 </div>
                               ) : null

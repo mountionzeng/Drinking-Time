@@ -1,7 +1,7 @@
 import { estimateStoryNarrationCostMinor } from "@shared/narrationCost";
 import { formatComputeUnits } from "@shared/computeMoney";
 import { formatComputeQuote } from "@shared/computeMoney";
-import { GripVertical, Loader2, Volume2 } from "lucide-react";
+import { GripVertical, Loader2, Volume2, Video } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -505,4 +505,21 @@ export function StoryboardMatrixFieldCell({
       ) : null}
     </div>
   );
+}
+
+
+export function StoryboardVideoButtonContent({ checking, busy, estimatedCny }: {
+  checking: boolean;
+  busy: boolean;
+  estimatedCny: number;
+}) {
+  return <>
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      {checking || busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Video className="h-3 w-3" />}
+      {checking ? "检查人物" : "渲染视频"}
+    </span>
+    <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
+      约 {formatComputeQuote(estimatedCny)}
+    </span>
+  </>;
 }

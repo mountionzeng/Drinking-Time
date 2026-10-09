@@ -1,12 +1,19 @@
+import {
+  mediaBillingEnabled,
+  mediaOperationId,
+  reserveMedia,
+  recordMediaResult,
+  finishVideoBilling,
+  recoverVideoReceipt,
+} from "./mediaComputeBilling";
+import { settleOperation } from "./computeLedger";
+import { fromYuan } from "../../shared/computeMoney";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
 import type { VideoTake } from "../../drizzle/schema";
-import {
-  canonicalizeShotNo,
-  type ImageAsset,
-} from "../../shared/imageAsset";
+import { canonicalizeShotNo, type ImageAsset } from "../../shared/imageAsset";
 import {
   START_END_NEIGHBOR_FRAME_POLICY_VERSION,
   isStartEndVideoTakeSnapshot,
@@ -31,10 +38,7 @@ import {
   updateVideoTake,
 } from "../db";
 import { prepareStoryImagePairForVidu } from "./editingTransitionWorkflow";
-import {
-  getStoryImageAssets,
-  materializeImageInput,
-} from "./imageAssets";
+import { getStoryImageAssets, materializeImageInput } from "./imageAssets";
 import { localVideoDir, materializeVideoUrl } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
 import { directVideoPrompt } from "./videoPromptDirector";
@@ -46,7 +50,6 @@ import {
   refreshViduTransition,
   submitViduTransition,
   uploadFileToVidu,
-  ViduSubmissionError,
 } from "./videoTransition302";
 
 type RecordValue = Record<string, unknown>;
@@ -176,9 +179,7 @@ export function composeStartEndShotEditorDraft(shot: RecordValue): string {
     ["承接上一镜", text(shot.transitionIn)],
     ["进入下一镜", text(shot.transitionOut)],
   ].filter((entry): entry is [string, string] => Boolean(entry[1]));
-  const lines = directorEntries.map(
-    ([label, value]) => `${label}：${value}`
-  );
+  const lines = directorEntries.map(([label, value]) => `${label}：${value}`);
   if (text(shot.action)) {
     lines.splice(
       1,
@@ -344,9 +345,7 @@ async function resolveStartEndShot(
   const cueCode = text(shot.cueCode) || displayShotCode(shot);
   const previousShot = shots[shotIndex - 1];
   const nextShot = shots[shotIndex + 1];
-  const previousStableShotId = previousShot
-    ? stableShotIdOf(previousShot)
-    : "";
+  const previousStableShotId = previousShot ? stableShotIdOf(previousShot) : "";
   const nextStableShotId = nextShot ? stableShotIdOf(nextShot) : "";
   const previousLastFrame = frameForShotBoundary(
     previousShot,
@@ -364,9 +363,10 @@ async function resolveStartEndShot(
     assetBelongsToShot(asset, stableShotId, shot)
   );
   const currentAssetIds = new Set(currentAssets.map(asset => asset.id));
-  const referenceFrame = frameReferenceIds(shot)
-    .map(imageId => currentAssets.find(asset => asset.id === imageId) ?? null)
-    .find((asset): asset is ImageAsset => Boolean(asset)) ?? null;
+  const referenceFrame =
+    frameReferenceIds(shot)
+      .map(imageId => currentAssets.find(asset => asset.id === imageId) ?? null)
+      .find((asset): asset is ImageAsset => Boolean(asset)) ?? null;
   const currentOrigin: ResolvedFrameOrigin = {
     source: "current",
     stableShotId,
@@ -534,11 +534,7 @@ function estimateForResolved(
     lastFrame: {
       imageId: resolved.lastFrame.id,
       imageUrl: resolved.lastFrame.imageUrl,
-      label: frameLabel(
-        "last",
-        resolved.lastFrame,
-        resolved.lastFrameOrigin
-      ),
+      label: frameLabel("last", resolved.lastFrame, resolved.lastFrameOrigin),
       source: resolved.lastFrameOrigin.source,
       sourceStableShotId: resolved.lastFrameOrigin.stableShotId,
       sourceCueCode: resolved.lastFrameOrigin.cueCode,
@@ -751,6 +747,39 @@ export async function startEndShotVideoJob(
     return { status: "ok", take, estimate };
   }
 
+  const computeOperationId = mediaBillingEnabled()
+    ? mediaOperationId("video", userId, `${input.storyId}:${key}`)
+    : null;
+  if (computeOperationId) {
+    try {
+      const reservation = await reserveMedia({
+        operationId: computeOperationId,
+        userId,
+        storyId: input.storyId,
+        requestHash: key,
+        maxCostMinor: fromYuan(estimate.estimatedCny),
+      });
+      if (reservation.outcome === "replayed") {
+        return {
+          status: "error",
+          error: "视频正在生成或结果待核对，不会重复提交",
+          take,
+          estimate,
+        };
+      }
+      take = await patchTake(take, userId, {}, { computeOperationId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "视频预占失败";
+      take = await patchTake(
+        take,
+        userId,
+        { status: "failed", errorMessage: message },
+        { submissionState: "not_submitted" }
+      );
+      return { status: "error", error: message, take, estimate };
+    }
+  }
+  let providerStarted = false;
   let frames: Awaited<ReturnType<typeof prepareStoryImagePairForVidu>> | null =
     null;
   let taskId: string | null = null;
@@ -782,6 +811,7 @@ export async function startEndShotVideoJob(
       ? await materializeImageInput(resolved.characterReferenceImageUrl)
       : undefined;
     const uploadFrames = async () => {
+      providerStarted = true;
       const firstImageUrl = await uploadFileToVidu(frames!.firstFrame);
       const lastImageUrl = await uploadFileToVidu(frames!.lastFrame);
       return { firstImageUrl, lastImageUrl };
@@ -830,6 +860,11 @@ export async function startEndShotVideoJob(
       model: resolved.config.model,
     });
     taskId = submitted.taskId;
+    if (computeOperationId)
+      await recordMediaResult(computeOperationId, "302", {
+        taskId,
+        takeId: take.id,
+      });
     take = await patchTake(
       take,
       userId,
@@ -851,9 +886,15 @@ export async function startEndShotVideoJob(
       );
       return { status: "ok", take, estimate };
     }
-    const unknown =
-      error instanceof ViduSubmissionError &&
-      error.submissionState === "unknown";
+    // Uploads may already have incurred cost even if video submission was rejected.
+    const unknown = providerStarted;
+    if (computeOperationId)
+      await settleOperation({
+        operationId: computeOperationId,
+        outcome: {
+          kind: unknown ? "submission_unknown" : "not_charged_failure",
+        },
+      });
     const message =
       error instanceof Error ? error.message : "首尾帧视频提交失败";
     take = await patchTake(
@@ -888,10 +929,11 @@ export async function refreshStartEndShotVideoTake(
 ): Promise<
   { status: "ok"; take: VideoTake } | { status: "error"; error: string }
 > {
-  const current = await getVideoTakeById(take.id, userId);
+  let current = await getVideoTakeById(take.id, userId);
   if (!current || !isStartEndShotVideoTake(current)) {
     return { status: "error", error: "首尾帧视频任务不存在或无权操作" };
   }
+  current = await recoverVideoReceipt(current);
   if (current.status === "available") return { status: "ok", take: current };
   if (!current.taskId) {
     const state = snapshot(current).submissionState;
@@ -904,6 +946,7 @@ export async function refreshStartEndShotVideoTake(
 
   const refreshed = await refreshViduTransition(current.taskId);
   if (refreshed.status === "available") {
+    await finishVideoBilling(current, { videoUrl: refreshed.videoUrl });
     const managed = await materializeVideoUrl(refreshed.videoUrl, current.id);
     if (managed.status !== "ok") {
       const failed = await patchTake(
@@ -965,6 +1008,7 @@ export async function refreshStartEndShotVideoTake(
     );
     return { status: "ok", take: processing };
   }
+  await finishVideoBilling(current, { unknown: true });
   const failed = await patchTake(
     current,
     userId,

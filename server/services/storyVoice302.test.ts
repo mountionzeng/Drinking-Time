@@ -77,4 +77,13 @@ describe("generateStoryVoice302", () => {
       })
     ).rejects.toThrow("没有返回可播放的音频地址");
   });
+  it.each([408, 429, 500, 504])("keeps HTTP %s as an unknown submission", async status => {
+    await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response("{}", { status }) }))
+      .rejects.toMatchObject({ outcome: "submission_unknown" });
+  });
+  it("does not release a malformed successful response", async () => {
+    await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response("invalid json") }))
+      .rejects.toMatchObject({ outcome: "submission_unknown" });
+  });
+
 });

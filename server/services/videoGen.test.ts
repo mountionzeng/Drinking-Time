@@ -158,6 +158,7 @@ describe("generateShotVideo", () => {
 
     expect(result).toEqual({
       status: "error",
+      submissionState: "not_submitted",
       message:
         "VIDEO_302_MODEL 未配置。已准备好视频包，但还不知道要调用哪个 302 视频模型。",
     });
