@@ -15,7 +15,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { LegacyStoryRecovery } from "./views/LegacyStoryRecovery";
-import { importLegacyStoryDraft } from "./legacyStoryRecovery";
+import { restoreLegacyDraftToCurrentAccount } from "./restoreLegacyDraftToCurrentAccount";
+import { artTargetFrom } from "./storyAgentUtils";
 import { useSelectionImageRerender, renderSelectionRevision } from "./useSelectionImageRerender";
 import { selectionBelongsToStory } from "./selectionStoryScope";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
@@ -1005,43 +1006,6 @@ function reconcileRestoredVisualItems(
   });
 }
 
-function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
-  const richestCard = [...cards].sort((left, right) => {
-    const leftScore =
-      left.content.length +
-      (left.sourceQuote?.length ?? 0) +
-      left.sensoryDetails.join("").length;
-    const rightScore =
-      right.content.length +
-      (right.sourceQuote?.length ?? 0) +
-      right.sensoryDetails.join("").length;
-    return rightScore - leftScore;
-  })[0];
-  if (richestCard) {
-    return [
-      richestCard.content,
-      richestCard.sourceQuote ? `原话：${richestCard.sourceQuote}` : "",
-      richestCard.sensoryDetails.length
-        ? `感官细节：${richestCard.sensoryDetails.join("、")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("；")
-      .slice(0, 360);
-  }
-  const firstShot = shots[0];
-  return firstShot
-    ? [
-        firstShot.subject,
-        firstShot.action,
-        firstShot.location,
-        firstShot.timeLight,
-      ]
-        .filter(Boolean)
-        .join("；")
-        .slice(0, 360)
-    : "";
-}
 
 export function StoryAgentProvider({
   userId,
@@ -4537,20 +4501,8 @@ export function StoryAgentProvider({
     <StoryAgentActionsContext.Provider value={stableActions}>
       <StoryAgentContext.Provider value={value}>
         <div className="flex h-full min-h-0 flex-col">
-          <LegacyStoryRecovery key={userId} userId={userId!} onImport={key => {
-            const current = storySpineStore.getState();
-            if (!projectId || current.accountId !== userId || current.saveStatus === "saving" || current.saveStatus === "error" || current.isReplying || current.isGeneratingScript) {
-              toast.error("请等当前故事保存完成后再导入"); return false;
-            }
-            try {
-              importLegacyStoryDraft({ storage: window.localStorage, sourceKey: key, userId: userId!, projectId, confirmed: true });
-              current.bindAccountScope(null);
-              storySpineStore.getState().bindAccountScope(userId);
-              return true;
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : "无法导入旧草稿，原内容已保留"); return false;
-            }
-          }} />
+          <LegacyStoryRecovery key={userId} userId={userId!}
+            onImport={key => restoreLegacyDraftToCurrentAccount(key, userId!, projectId)} />
           <div className="min-h-0 flex-1">{children}</div>
         </div>
       </StoryAgentContext.Provider>

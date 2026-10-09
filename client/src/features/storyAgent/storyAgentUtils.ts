@@ -5,7 +5,7 @@
  * （生成 ID、压缩标题、清洗画布项、文件转 base64），不依赖任何 React 状态，
  * 所以单独成文件，方便复用与单测。
  */
-import type { StoryCard, VisualCanvasItem } from './types';
+import type { StoryCard, StoryShot, VisualCanvasItem } from './types';
 import { validateGeneratedTitle } from '@shared/textTitle';
 
 // 生成一个带前缀的弱唯一 ID：前缀-时间戳-随机串。够本地用，不追求全局唯一。
@@ -122,4 +122,42 @@ export function fileToBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+export function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
+  const richestCard = [...cards].sort((left, right) => {
+    const leftScore =
+      left.content.length +
+      (left.sourceQuote?.length ?? 0) +
+      left.sensoryDetails.join("").length;
+    const rightScore =
+      right.content.length +
+      (right.sourceQuote?.length ?? 0) +
+      right.sensoryDetails.join("").length;
+    return rightScore - leftScore;
+  })[0];
+  if (richestCard) {
+    return [
+      richestCard.content,
+      richestCard.sourceQuote ? `原话：${richestCard.sourceQuote}` : "",
+      richestCard.sensoryDetails.length
+        ? `感官细节：${richestCard.sensoryDetails.join("、")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("；")
+      .slice(0, 360);
+  }
+  const firstShot = shots[0];
+  return firstShot
+    ? [
+        firstShot.subject,
+        firstShot.action,
+        firstShot.location,
+        firstShot.timeLight,
+      ]
+        .filter(Boolean)
+        .join("；")
+        .slice(0, 360)
+    : "";
 }

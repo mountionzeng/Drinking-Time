@@ -287,7 +287,8 @@
         "client/src/features/storyAgent/selectionStoryScope.ts",
         "client/src/features/storyAgent/storyAgentPersistence.ts",
         "client/src/features/storyAgent/legacyStoryRecovery.ts",
-        "client/src/features/storyAgent/spine/storySpine.ts"
+        "client/src/features/storyAgent/spine/storySpine.ts",
+        "client/src/features/storyAgent/restoreLegacyDraftToCurrentAccount.ts"
       ],
       "evidence": [
         "server/routers.storyAgent.test.ts",
@@ -403,6 +404,11 @@
           "date": "2026-09-18",
           "kind": "refactor",
           "summary": "本地集合类型由初始化工厂推导，39 个 ID 计数器通过显式对应表初始化和恢复，测试重置复用工厂并保留共享对象身份。旧数据、归属和写盘安全机制不变；临时文件回归覆盖全部集合、缺失/落后/超前计数器及侧车文件兼容性。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "refactor",
+          "summary": "发布前恢复大文件体积门禁：把旧草稿确认后的导入处理抽到独立模块，并将已有 artTargetFrom 纯函数移入 storyAgentUtils；保持账号校验、存储失败处理与原内容保留语义，相关58项回归通过。"
         }
       ]
     },
@@ -3795,7 +3801,8 @@
         "server/services/computeMetering.test.ts",
         "server/services/semanticAnnotation.billing.test.ts",
         "server/services/personalMemoryExtraction.test.ts",
-        "docs/qa/2026-10-08-web-paid-call-billing-http.json"
+        "docs/qa/2026-10-08-web-paid-call-billing-http.json",
+        "docs/qa/2026-10-09-combined-release.md"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3829,6 +3836,11 @@
         "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注沿用工作树中的用户扣费归属，合并前仍需确认；个人记忆提炼继续由平台账户承担。"
       ],
       "history": [
+        {
+          "date": "2026-10-09",
+          "kind": "validation",
+          "summary": "按用户要求将10月8日至9日的登录修复、草稿隔离、统一推理计费和充值基础收拢至主干准备整体发布；修正充值迁移基线数量为28并加入支付表校验。发布验收记录见 docs/qa/2026-10-09-combined-release.md。"
+        },
         {
           "date": "2026-10-09",
           "kind": "feature",
