@@ -97,13 +97,13 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 log "⑦ 健康检查 $HEALTH_URL"
-if health; then
+if health && pnpm exec tsx scripts/check-google-login.ts; then
   log "✅ 更新成功，服务健康。当前提交 $NEW_SHA；MySQL 备份在 $APP_DIR/backups/。"
   exit 0
 fi
 
 # 健康检查失败 → 自动回滚保住线上
-log "❌ 健康检查失败，自动回滚到 $OLD_SHA …"
+log "❌ 健康或 Google 登录入口检查失败，自动回滚到 $OLD_SHA …"
 [ -n "$OLD_SHA" ] || die "没有记录到回滚点，无法自动回滚。请 pm2 logs $PM2_APP 排查。"
 git checkout "$OLD_SHA" || die "回滚 checkout 失败，请人工处理（当前在 $NEW_SHA）。"
 bash -lc "cd '$APP_DIR' && pnpm install --frozen-lockfile && pnpm run build"

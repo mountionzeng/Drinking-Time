@@ -178,6 +178,7 @@ export const ENV = {
   vision302Model: process.env.VISION_302_MODEL ?? "", // 302.ai 视觉模型，如 gemini-3-pro-preview
 
   // ── Google OAuth ──
+  googleAuthProvider: process.env.GOOGLE_AUTH_PROVIDER ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", // Google OAuth Client ID
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "", // Google OAuth Client Secret
   supabaseAuthUrl: process.env.SUPABASE_AUTH_URL ?? "",

@@ -157,7 +157,8 @@ describe("邮箱邀请码登录", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID.",
+      error: "google_auth_not_configured",
+      message: "Google 登录暂不可用，请使用邮箱登录或联系管理员。",
     });
   });
 

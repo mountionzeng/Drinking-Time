@@ -29,6 +29,7 @@ import { sdk } from "./sdk";
 
 let server: Server;
 let baseUrl = "";
+const originalAppOrigin = ENV.appOrigin;
 
 async function post(
   path: string,
@@ -80,10 +81,35 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetMemoryStateForTesting();
+  ENV.isProduction = false;
+  ENV.googleAuthProvider = "";
+  ENV.appOrigin = originalAppOrigin;
   ENV.supabaseAuthUrl = "";
   ENV.supabaseAuthPublishableKey = "";
   ENV.googleInviteRequired = true;
   vi.restoreAllMocks();
+});
+
+describe("Google production configuration guard", () => {
+  it("does not redirect users to direct Google when production hosted config is lost", async () => {
+    ENV.isProduction = true;
+    ENV.appOrigin = "https://www.drinkingtime.top";
+    const response = await fetch(`${baseUrl}/api/auth/google`, { redirect: "manual" });
+    expect(response.status).toBe(503);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const config = await fetch(`${baseUrl}/api/auth/google/config`).then(r => r.json());
+    expect(config).toMatchObject({ configured: false, provider: "supabase" });
+  });
+
+  it("reports the same hosted callback actually used by the login route", async () => {
+    ENV.supabaseAuthUrl = "https://project.supabase.co";
+    ENV.supabaseAuthPublishableKey = "public-test-key";
+    const config = await fetch(`${baseUrl}/api/auth/google/config`).then(r => r.json());
+    const response = await fetch(`${baseUrl}/api/auth/google`, { redirect: "manual" });
+    const callback = new URL(new URL(response.headers.get("location")!).searchParams.get("redirect_to")!);
+    expect(config).toMatchObject({ configured: true, provider: "supabase", redirectUri: `${callback.origin}${callback.pathname}` });
+  });
 });
 
 /**
@@ -606,6 +632,7 @@ describe("Supabase 托管 Google 登录", () => {
     expect(await response.json()).toEqual({ ok: true });
     const user = await getUserByOpenId(`email:${newEmail}`);
     expect(user?.email).toBe(newEmail);
+    expect(user?.id).not.toBe((await getUserByOpenId(`email:${email}`))!.id);
     const session = await sdk.verifySession(sessionCookieFrom(response));
     expect(session?.openId).toBe(`email:${newEmail}`);
   });

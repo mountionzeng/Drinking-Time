@@ -3718,7 +3718,8 @@
         "drizzle/0021_google_login_identity.sql",
         "server/_core/shiguangComputeBridge.ts",
         "server/_core/shiguangComputeBridgeRoutes.ts",
-        "server/services/computeRequestAccess.ts"
+        "server/services/computeRequestAccess.ts",
+        "server/services/googleAuthConfig.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3757,7 +3758,10 @@
         "server/services/computeProviderBoundary.test.ts",
         "server/integration/computeAccess.mysql.test.ts",
         "docs/qa/2026-09-29-production-web-restore.md",
-        "docs/qa/2026-09-29-local-release-production.md"
+        "docs/qa/2026-09-29-local-release-production.md",
+        "server/services/googleAuthConfig.test.ts",
+        "scripts/check-google-login.ts",
+        "docs/qa/2026-10-09-production-google-login.md"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3777,13 +3781,13 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "2026-09-29 正式站已获授权恢复并通过公网与浏览器表单验收；公开测试站仍停用、原余额保持零。真实邮箱验证码/Google 登录尚未在本次验收；详见恢复 QA。",
+        "2026-09-29 正式站已获授权恢复并通过公网与浏览器表单验收；公开测试站仍停用、原余额保持零。真实邮箱验证码尚未在本次验收；Google 已于 2026-10-09 修复并完成原账号真实登录；详见恢复 QA。",
         "本轮补齐正式环境供应商提交前的零余额准入检查；它不替代原有预占结算，也不宣称所有正余额调用已完成逐笔计费。正式站余额保持零，不新增充值或自动赠送入口；未接入账本的正余额消费仍须后续补齐。",
         "真实微信端已经接入余额与逐笔账单展示，微信账号下次成功登录会幂等领取固定 10 算力（¥5 账本额度）；赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
-        "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。",
+        "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站已于 2026-10-09 启用同一托管链路并完成原账号真实登录，其他真实账号本轮未手测。",
         "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。"
       ],
       "history": [
@@ -3886,6 +3890,11 @@
           "date": "2026-09-24",
           "kind": "implementation",
           "summary": "与文字任务核对TokenHub计价记录后，在手机独立仓库接入采访追问、整理记忆、正文生成逐尝试用量持久化；我的页面显示最近10次预计算力，空回复重试汇总，超时和缺失回执保留待核对。只估算不扣款、不冒充供应商实收，页面不展示人民币。手机858项测试及类型检查通过；未部署、未开启开关、未发真实付费调用，完整共享钱包扣账和跨端联调仍未完成。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "正式站 Google 400 已定位为 www 回调未登记，且阿里云直连 Google token API 超时；补配置解析防止托管配置缺失时静默退回直连，诊断接口返回实际两段回调，正式环境要求固定 HTTPS origin。新增配置与 HTTP 路由回归，保留账号归属、邀请开关及账号隔离；发布脚本加入真实入口与上游重定向检查。88 项账号/认证测试及类型检查通过，正式回调白名单与真实登录验收状态见本次 QA。 用户确认后仅为三个经唯一性核对的原邮箱账号补登记身份；已保存正式站回调并部署基于线上9ceba9c的最小后端补丁。服务器和本机公网入口检查通过，真实Google登录及刷新成功，身份仍为原userId 1，4用户/1故事不变。没有部署计费工作树或合并账号。"
         }
       ]
     },

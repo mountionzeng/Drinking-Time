@@ -12,6 +12,7 @@ import {
 } from "../services/accountIdentity";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
+import { googleAuthConfig } from "../services/googleAuthConfig";
 import { hashInviteCode } from "../services/inviteAccess";
 import {
   authenticateWithPassword,
@@ -477,30 +478,26 @@ export function registerOAuthRoutes(app: Express) {
   );
 
   app.get("/api/auth/google/config", (req: Request, res: Response) => {
-    const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
     res.setHeader("Cache-Control", "no-store");
-    res.json({
-      configured: Boolean(
-        (ENV.supabaseAuthUrl && ENV.supabaseAuthPublishableKey) ||
-          (ENV.googleClientId && ENV.googleClientSecret)
-      ),
-      redirectUri,
-    });
+    res.json(googleAuthConfig(ENV, getOrigin(req)));
   });
 
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const config = googleAuthConfig(ENV, getOrigin(req));
+    if (!config.configured) {
+      res.status(503).json({ error: config.error, message: "Google 登录暂不可用，请使用邮箱登录或联系管理员。" });
+      return;
+    }
     const returnTo = allowedLoginReturnPath(getQueryParam(req, "returnTo"));
     // Keep bearer share paths out of third-party OAuth URLs.
     res.cookie(GOOGLE_RETURN_COOKIE, returnTo ?? "/", {
       ...getSessionCookieOptions(req), path: "/api/auth", maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
     });
-    if (ENV.supabaseAuthUrl && ENV.supabaseAuthPublishableKey) {
+    if (config.provider === "supabase") {
       const state = randomBytes(24).toString("base64url");
-      const callbackUrl = new URL(
-        "/auth/supabase/callback",
-        getOrigin(req)
-      );
+      const callbackUrl = new URL(config.redirectUri);
       callbackUrl.searchParams.set("state", state);
       res.cookie(GOOGLE_OAUTH_STATE_COOKIE, state, {
         ...getSessionCookieOptions(req),
@@ -516,13 +513,7 @@ export function registerOAuthRoutes(app: Express) {
       );
       return;
     }
-    if (!ENV.googleClientId) {
-      res
-        .status(503)
-        .json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
-      return;
-    }
-    const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
+    const redirectUri = config.redirectUri;
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", ENV.googleClientId);
     url.searchParams.set("redirect_uri", redirectUri);
@@ -611,8 +602,13 @@ export function registerOAuthRoutes(app: Express) {
       res.redirect(302, "/login?error=missing_code");
       return;
     }
+    const config = googleAuthConfig(ENV, getOrigin(req));
+    if (!config.configured || config.provider !== "direct") {
+      res.redirect(302, "/login?error=oauth_failed");
+      return;
+    }
     try {
-      const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
+      const redirectUri = config.redirectUri;
 
       // Exchange code → tokens
       const tokenRes = await axios.post<{ access_token: string }>(
@@ -623,7 +619,8 @@ export function registerOAuthRoutes(app: Express) {
           client_secret: ENV.googleClientSecret,
           redirect_uri: redirectUri,
           grant_type: "authorization_code",
-        }
+        },
+        { timeout: 12_000 }
       );
 
       // Get user info from Google
@@ -634,6 +631,7 @@ export function registerOAuthRoutes(app: Express) {
         email_verified: boolean;
       }>("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: { Authorization: `Bearer ${tokenRes.data.access_token}` },
+        timeout: 12_000,
       });
 
       const { sub, email, name, email_verified } = userRes.data;
