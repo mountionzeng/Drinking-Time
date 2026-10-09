@@ -1,0 +1,177 @@
+{
+  "date": "2026-10-08",
+  "scope": "隔离的真实 HTTP 计费验收；不是完整工作室 UI 或生产 MySQL 验收",
+  "runtime": "development + LOCAL_COMPUTE_UNLIMITED（余额不足场景临时关闭不限额）",
+  "transport": "Node 原生 fetch 经 127.0.0.1 TCP 连接本地模拟供应商，未 mock fetch",
+  "sourceBranch": "codex/web-paid-call-billing",
+  "portClosed": true,
+  "limitations": [
+    "未连接真实模型或核对供应商实收",
+    "未验证 production 的共享 MySQL 准入",
+    "未验证完整浏览器工作流"
+  ],
+  "url": "http://127.0.0.1:52301",
+  "ledgerPath": "/tmp/web-billing-http-smoke/data-0Zajct/local-persist.json",
+  "cases": [
+    {
+      "name": "success",
+      "passed": true,
+      "httpStatus": 200,
+      "chargedMinor": 15000
+    },
+    {
+      "name": "claude",
+      "passed": true,
+      "httpStatus": 200,
+      "chargedMinor": 15000
+    },
+    {
+      "name": "vision",
+      "passed": true,
+      "httpStatus": 200,
+      "chargedMinor": 15000
+    },
+    {
+      "name": "missing usage",
+      "passed": true,
+      "chargedMinor": 105000
+    },
+    {
+      "name": "explicit rejection",
+      "passed": true,
+      "chargedMinor": 0,
+      "heldMinor": 0
+    },
+    {
+      "name": "gateway",
+      "passed": true,
+      "httpStatus": 502,
+      "chargedMinor": 0,
+      "heldMinor": 105000,
+      "requests": 1
+    },
+    {
+      "name": "disconnect",
+      "passed": true,
+      "httpStatus": 502,
+      "chargedMinor": 0,
+      "heldMinor": 105000,
+      "requests": 1
+    },
+    {
+      "name": "timeout",
+      "passed": true,
+      "httpStatus": 502,
+      "chargedMinor": 0,
+      "heldMinor": 105000,
+      "requests": 1
+    },
+    {
+      "name": "invalid-json",
+      "passed": true,
+      "httpStatus": 502,
+      "chargedMinor": 0,
+      "heldMinor": 105000,
+      "requests": 1
+    },
+    {
+      "name": "concurrent replay and nested inference",
+      "passed": true,
+      "submissions": 3,
+      "providerRequests": 1,
+      "chargedMinor": 15000
+    },
+    {
+      "name": "insufficient balance",
+      "passed": true,
+      "providerRequests": 0
+    },
+    {
+      "name": "annotation missing usage",
+      "passed": true,
+      "status": "settled",
+      "chargedMinor": 50000
+    },
+    {
+      "name": "annotation cost over hold",
+      "passed": true,
+      "status": "exception",
+      "chargedMinor": 50000
+    }
+  ],
+  "providerCalls": {
+    "success": 1,
+    "claude": 1,
+    "vision": 1,
+    "missing": 2,
+    "rejected": 1,
+    "gateway": 1,
+    "disconnect": 1,
+    "timeout": 1,
+    "invalid-json": 1,
+    "slow": 1,
+    "overage": 1
+  },
+  "observations": [
+    {
+      "mode": "success",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "claude",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "vision",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "missing",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "rejected",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "gateway",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "disconnect",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "timeout",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "invalid-json",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "slow",
+      "model": "http-smoke-model",
+      "maxTokens": 100
+    },
+    {
+      "mode": "missing",
+      "model": "http-smoke-model",
+      "maxTokens": 1024
+    },
+    {
+      "mode": "overage",
+      "model": "http-smoke-model",
+      "maxTokens": 1024
+    }
+  ]
+}

@@ -1284,6 +1284,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         await assertProjectOwner(input.projectId, ctx.user.id);
         try {
           const result = await saveSnapshot({
+            userId: ctx.user.id,
             projectId: input.projectId,
             sessionId: input.sessionId,
             state: input.state as ProjectState,

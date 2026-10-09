@@ -571,10 +571,12 @@ describe("完整链路：批准供应商后真的走通预占→模型→结算�
     const { attemptPersonalMemoryExtraction } = await import("./personalMemoryExtraction");
     await attemptPersonalMemoryExtraction(event.id, 7, "op-e2e-1");
     const balanceAfterFirst = await getAccountBalance(platformUserId);
-    await attemptPersonalMemoryExtraction(event.id, 7, "op-e2e-1");
+    const replay = await attemptPersonalMemoryExtraction(event.id, 7, "op-e2e-1");
     const balanceAfterSecond = await getAccountBalance(platformUserId);
     // 同一个 operationId 重放：预占是幂等的，第二次不产生新的扣费。
     expect(balanceAfterSecond.availableMinor).toBe(balanceAfterFirst.availableMinor);
+    expect(replay.kind).toBe("billing_rejected");
+    expect(mockRunInference).toHaveBeenCalledTimes(1);
   });
 
   it("模型返回非 JSON 时——model_failed，不写任何理解", async () => {

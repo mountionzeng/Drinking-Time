@@ -5,12 +5,16 @@
  * failures (10-minute cooldown).
  */
 
-import { type InvokeResult, type Message, type ResponseFormat } from '../_core/llm';
+import { type Message, type ResponseFormat } from '../_core/llm';
 import { ENV } from '../_core/env';
 import { createSemanticAnnotation } from '../db';
 import type { SemanticAnnotation } from '../db';
 import { type EditDiff } from '../_core/editDiff';
-import { runInference } from '../_core/inferenceOrchestrator';
+import { inferenceFailureOutcome, runInference, type InferenceOutcome } from '../_core/inferenceOrchestrator';
+import { createHash } from 'node:crypto';
+import { fromYuan } from '../../shared/computeMoney';
+import { inferenceVerifiedCostMinor } from '../_core/inferenceBilling';
+import { runMeteredCompute } from './computeMetering';
 
 const ANNOTATION_TIMEOUT_MS = 30_000;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -161,6 +165,8 @@ export interface InlineCorrection {
 }
 
 export interface GenerateAnnotationParams {
+  /** 触发保存的用户；标注费用记在这次保存上。 */
+  userId: number;
   diff: EditDiff;
   snapshotId: number;
   previousSnapshotId: number | null;
@@ -178,8 +184,9 @@ async function invokeAnnotationLLM(params: {
   responseFormat: ResponseFormat;
   maxTokens: number;
   temperature: number;
-}): Promise<InvokeResult> {
-  const outcome = await runInference({
+  signal: AbortSignal;
+}): Promise<InferenceOutcome> {
+  return runInference({
     useCase: 'text',
     messages: params.messages,
     candidates: { fallback302Model: ENV.llmModel },
@@ -190,14 +197,21 @@ async function invokeAnnotationLLM(params: {
     // 标注是纯分析，没有工具调用也没有业务写入，可以安全重发。
     replaySafe: true,
     deadlineMs: ANNOTATION_TIMEOUT_MS,
+    signal: params.signal,
   });
-  return outcome.result;
+}
+
+/** 输入有界（diff + 3 条历史 + 1024 输出 token），用保守固定上界预占。 */
+function maxCostMinorPerAnnotation(): number {
+  const override = Number(process.env.SEMANTIC_ANNOTATION_MAX_COST_YUAN);
+  return fromYuan(Number.isFinite(override) && override > 0 ? override : 0.05);
 }
 
 export async function generateAnnotation(
   params: GenerateAnnotationParams,
 ): Promise<SemanticAnnotation> {
-  const { diff, snapshotId, previousSnapshotId, previousAnnotations, inlineCorrection } = params;
+  const { userId, diff, snapshotId, previousSnapshotId, previousAnnotations, inlineCorrection } =
+    params;
 
   if (isCircuitOpen()) {
     console.warn('[semanticAnnotation] Circuit breaker open, using fallback');
@@ -205,31 +219,64 @@ export async function generateAnnotation(
   }
 
   try {
-    const llmPromise = invokeAnnotationLLM({
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是一位创意分析助手。通过分析用户对故事内容的编辑，推断其美学偏好和创作风格。仅返回 JSON。',
-        },
-        {
-          role: 'user',
-          content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
-        },
-      ],
-      responseFormat: { type: 'json_object' },
-      maxTokens: 1024,
-      temperature: 0.3,
+    const messages: Message[] = [
+      {
+        role: 'system',
+        content:
+          '你是一位创意分析助手。通过分析用户对故事内容的编辑，推断其美学偏好和创作风格。仅返回 JSON。',
+      },
+      {
+        role: 'user',
+        content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
+      },
+    ];
+    const requestHash = createHash('sha256').update(JSON.stringify(messages)).digest('hex');
+    const maxCostMinor = maxCostMinorPerAnnotation();
+
+    const metered = await runMeteredCompute({
+      userId,
+      // 一个快照只提交一次；已有操作由恢复/对账处理，不重发供应商请求。
+      operationId: `semantic_annotation:${snapshotId}`,
+      operationType: 'semantic_annotation',
+      requestHash,
+      maxCostMinor,
+      run: () => {
+        const controller = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => {
+              const error = new DOMException('Annotation LLM timeout', 'TimeoutError');
+              controller.abort(error);
+              reject(error);
+            },
+            ANNOTATION_TIMEOUT_MS,
+          );
+        });
+        return Promise.race([
+          invokeAnnotationLLM({
+            messages,
+            responseFormat: { type: 'json_object' },
+            maxTokens: 1024,
+            temperature: 0.3,
+            signal: controller.signal,
+          }),
+          timeoutPromise,
+        ]).finally(() => clearTimeout(timer));
+      },
+      costOf: outcome => inferenceVerifiedCostMinor(outcome, maxCostMinor),
+      failureOutcome: inferenceFailureOutcome,
     });
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error('Annotation LLM timeout')),
-        ANNOTATION_TIMEOUT_MS,
-      ),
-    );
+    if (metered.kind === 'insufficient_balance' || metered.kind === 'rejected' || metered.kind === 'replayed') {
+      // 余额不足或已有操作均非供应商故障；保存照常成功，不计入熔断。
+      console.warn('[semanticAnnotation] Not submitted, using fallback', { userId, kind: metered.kind });
+      return createFallbackAnnotation(diff, snapshotId, previousSnapshotId);
+    }
+    if (metered.kind === 'conflict') throw new Error(`Billing conflict: ${metered.reason}`);
+    if (metered.kind === 'failed') throw metered.error;
 
-    const result = await Promise.race([llmPromise, timeoutPromise]);
+    const result = metered.value.result;
     const rawContent = result.choices[0]?.message?.content;
     const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
     const parsed = JSON.parse(text) as { factualChanges?: unknown; inferredPreferences?: unknown };

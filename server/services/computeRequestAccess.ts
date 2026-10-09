@@ -7,12 +7,38 @@ export class ComputeAccessError extends TRPCError {}
 type ComputePrincipal = {
   userId: number | null;
   reservedOperations: Set<string>;
+  /** Set only inside runMeteredCompute: nested provider calls are already billed. */
+  enclosingOperationId?: string;
 };
 const principal = new AsyncLocalStorage<ComputePrincipal>();
 
 /** Identity comes from authenticated server context, never request parameters. */
 export function withComputeUser<T>(userId: number | null, run: () => T): T {
   return principal.run({ userId, reservedOperations: new Set() }, run);
+}
+
+/** Runs inside one reserved operation; its hold also admits nested calls. */
+export function withMeteredOperation<T>(
+  userId: number,
+  operationId: string,
+  run: () => T
+): T {
+  return principal.run(
+    { userId, reservedOperations: new Set([operationId]), enclosingOperationId: operationId },
+    run
+  );
+}
+
+/** `metered` means an enclosing operation already holds and will settle the money. */
+export function currentComputeBillingScope(): {
+  userId: number | null;
+  metered: boolean;
+} {
+  const current = principal.getStore();
+  return {
+    userId: current?.userId ?? null,
+    metered: current?.enclosingOperationId !== undefined,
+  };
 }
 
 /** Called only after the ledger has atomically reserved this user's money. */

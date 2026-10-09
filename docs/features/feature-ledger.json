@@ -3740,7 +3740,11 @@
         "server/services/googleAuthConfig.ts",
         "server/repositories/computePayments.ts",
         "server/routers/computePayment.ts",
-        "client/src/features/computeAccount/RechargeDialog.tsx"
+        "client/src/features/computeAccount/RechargeDialog.tsx",
+        "server/services/computeMetering.ts",
+        "server/_core/inferenceOrchestrator.ts",
+        "server/_core/inferenceBilling.ts",
+        "server/services/semanticAnnotation.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3786,7 +3790,12 @@
         "server/integration/computePayments.mysql.test.ts",
         "server/repositories/computePayments.test.ts",
         "server/routers.computePayment.test.ts",
-        "docs/handoff/2026-10-09-web-recharge-foundation.md"
+        "docs/handoff/2026-10-09-web-recharge-foundation.md",
+        "server/_core/inferenceBilling.test.ts",
+        "server/services/computeMetering.test.ts",
+        "server/services/semanticAnnotation.billing.test.ts",
+        "server/services/personalMemoryExtraction.test.ts",
+        "docs/qa/2026-10-08-web-paid-call-billing-http.json"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3802,7 +3811,8 @@
       "dependencies": [
         "invite-access-monitoring",
         "mobile-cross-device-chat-document",
-        "project-ownership"
+        "project-ownership",
+        "text-compute-provider-routing"
       ],
       "replaces": [],
       "knownGaps": [
@@ -3814,7 +3824,9 @@
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站已于 2026-10-09 启用同一托管链路并完成原账号真实登录，其他真实账号本轮未手测。",
         "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
-        "2026-10-09 新增网页充值未开放状态入口及 MySQL 订单原子入账基础，未部署生产；商户渠道、档位、付款页金额展示待确认，验签适配器、真实下单、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不可视为已支持收款。"
+        "2026-10-09 新增网页充值未开放状态入口及 MySQL 订单原子入账基础，未部署生产；商户渠道、档位、付款页金额展示待确认，验签适配器、真实下单、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不可视为已支持收款。",
+        "2026-10-08 工作树已将文本/视觉推理接入预占结算并修复 Claude 用量、未知提交释放、同号重发与语义标注截断费用；尚未合并或部署，生产 MySQL 与真实供应商账单核对未验收。供应商价格仍依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
+        "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注沿用工作树中的用户扣费归属，合并前仍需确认；个人记忆提炼继续由平台账户承担。"
       ],
       "history": [
         {
@@ -3926,6 +3938,21 @@
           "date": "2026-10-09",
           "kind": "fix",
           "summary": "正式站 Google 400 已定位为 www 回调未登记，且阿里云直连 Google token API 超时；补配置解析防止托管配置缺失时静默退回直连，诊断接口返回实际两段回调，正式环境要求固定 HTTPS origin。新增配置与 HTTP 路由回归，保留账号归属、邀请开关及账号隔离；发布脚本加入真实入口与上游重定向检查。88 项账号/认证测试及类型检查通过，正式回调白名单与真实登录验收状态见本次 QA。 用户确认后仅为三个经唯一性核对的原邮箱账号补登记身份；已保存正式站回调并部署基于线上9ceba9c的最小后端补丁。服务器和本机公网入口检查通过，真实Google登录及刷新成功，身份仍为原userId 1，用户仍为4；随后刷新暴露旧本机草稿自动恢复串账号问题，新增userId 1的故事#101，最终2故事，原userId 11故事未移动；#101已私有备份并按用户要求保留，详见QA后续修复。没有部署计费工作树或合并账号。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "refactor",
+          "summary": "抽出 server/services/computeMetering.ts 的 runMeteredCompute（预占→供应商调用→成功按实际成本结算/失败释放），个人记忆提炼改用它，行为不变。新增4项包装器测试（成功结算、余额不足不调用、失败不扣费、同号不同参冲突），个人记忆27项与账本20项测试通过。尚未接入网页版其他付费调用路径。"
+        },
+        {
+          "date": "2026-10-08",
+          "kind": "fix",
+          "summary": "接手统一推理计费工作树，Claude Messages 将普通与缓存输入及输出 token 归一后结算；断连、超时、提交后取消及408/5xx保留预占，在计费链中停止自动重发，明确未收费失败仍释放。通用包装器阻止活动、未知与终态同号操作再次执行，个人记忆维持平台账户归属；语义标注复用统一成本函数，缺用量不记零、超额交由账本异常处理，并在截止时取消请求。回归先复现失败后修复；全量server测试2447通过、58跳过、6失败，6项均在干净主干相同无模型凭据条件下复现于routers.storyAgent.test.ts。测试临时设置JWT_SECRET；TypeScript与feature:validate通过。未发真实付费调用，未合并或部署，状态保持observing。"
+        },
+        {
+          "date": "2026-10-08",
+          "kind": "validation",
+          "summary": "按用户要求开临时127.0.0.1:52301端口，以原生fetch、工作树真实计费代码、临时本地账本和本地模拟供应商完成13项HTTP验收：文本/Claude/视觉、缺失用量、明确拒绝、504/断连/超时/损坏JSON、并发同号与嵌套、余额不足及语义标注缺用量/超额全部通过；3次同号提交只调用供应商1次并扣费1次。端口已关闭，主仓3000与真实数据未改动。不代表真实供应商、生产MySQL或完整工作室UI验收，保持observing。"
         }
       ]
     },
