@@ -34,22 +34,53 @@ export async function verifySupabaseGoogleToken(input: {
     throw new Error("supabase_auth_not_configured");
   }
 
-  const response = await axios.get<{
+  type UserResponse = {
     id?: string;
     email?: string;
     email_confirmed_at?: string | null;
     app_metadata?: { provider?: string; providers?: string[] };
     user_metadata?: { full_name?: string; name?: string };
     identities?: Array<{ provider?: string }>;
-  }>(`${normalizedBaseUrl(input.supabaseUrl)}/auth/v1/user`, {
-    headers: {
-      apikey: input.publishableKey,
-      Authorization: `Bearer ${input.accessToken}`,
-    },
-    timeout: 12_000,
-  });
+  };
+  const url = `${normalizedBaseUrl(input.supabaseUrl)}/auth/v1/user`;
+  let user: UserResponse | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await axios.get<UserResponse>(url, {
+        headers: {
+          apikey: input.publishableKey,
+          Authorization: `Bearer ${input.accessToken}`,
+        },
+        timeout: 6_000,
+      });
+      user = response.data;
+      break;
+    } catch (error) {
+      const transient =
+        axios.isAxiosError(error) &&
+        ([
+          "ENOTFOUND",
+          "EAI_AGAIN",
+          "ECONNRESET",
+          "ECONNABORTED",
+          "ETIMEDOUT",
+        ].includes(error.code ?? "") ||
+          (error.response?.status ?? 0) >= 500);
+      if (transient && attempt === 0) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        continue;
+      }
+      // Axios errors include Authorization headers. Never pass the raw error
+      // (or a cause containing it) to route logging or client responses.
+      throw new Error(
+        transient
+          ? "supabase_auth_temporarily_unavailable"
+          : "supabase_auth_verification_failed"
+      );
+    }
+  }
+  if (!user) throw new Error("supabase_auth_verification_failed");
 
-  const user = response.data;
   const providers = new Set([
     user.app_metadata?.provider,
     ...(user.app_metadata?.providers ?? []),
