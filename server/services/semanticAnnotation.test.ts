@@ -10,7 +10,14 @@ vi.mock('../db', () => ({
   createSemanticAnnotation: vi.fn(),
 }));
 
+vi.mock('./computeMetering', () => ({
+  runMeteredCompute: vi.fn(),
+}));
+
 import { createSemanticAnnotation } from '../db';
+import { runMeteredCompute } from './computeMetering';
+
+const mockMetered = vi.mocked(runMeteredCompute);
 
 const mockCreateAnnotation = vi.mocked(createSemanticAnnotation);
 const originalOpenAINext = {
@@ -112,6 +119,16 @@ function makeAnnotation(overrides?: Partial<SemanticAnnotation>): SemanticAnnota
 
 describe('generateAnnotation', () => {
   beforeEach(() => {
+    // 计费层直通：真正跑 run，结算结果固定为已结算。
+    mockMetered.mockReset();
+    mockMetered.mockImplementation(async (input) => {
+      try {
+        const value = await input.run();
+        return { kind: 'completed', value, settlement: { outcome: 'settled' } } as never;
+      } catch (error) {
+        return { kind: 'failed', error };
+      }
+    });
     vi.clearAllMocks();
     resetCircuitBreaker();
     // 默认「Next 未配置」，让回退通道成为被测路径；需要 Next 的用例自行打开。
@@ -143,6 +160,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff(),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -168,6 +186,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff(),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -196,6 +215,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(savedAnnotation);
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff({
         cards: {
           deleted: [{ id: '1', title: '伤感' }, { id: '2', title: '思念' }],
@@ -229,6 +249,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation());
 
     await generateAnnotation({
+      userId: 1,
       diff: makeDiff(),
       snapshotId: 11,
       previousSnapshotId: 10,
@@ -261,6 +282,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff({ cards: { deleted: [{ id: '1' }], added: [], modified: [] } }),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -294,6 +316,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff(),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -309,6 +332,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
     const result = await generateAnnotation({
+      userId: 1,
       diff: makeDiff(),
       snapshotId: 10,
       previousSnapshotId: 5,
@@ -324,7 +348,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = { userId: 1, snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
 
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -341,7 +365,7 @@ describe('generateAnnotation', () => {
 
     // Trip the breaker
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = { userId: 1, snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -367,7 +391,7 @@ describe('generateAnnotation', () => {
 
     // Trip the breaker
     const diff = makeDiff();
-    const base = { snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+    const base = { userId: 1, snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
     await generateAnnotation({ diff, ...base });
@@ -391,6 +415,7 @@ describe('generateAnnotation', () => {
     mockCreateAnnotation.mockImplementationOnce(async (data) => makeAnnotation(data as Partial<SemanticAnnotation>));
 
     await generateAnnotation({
+      userId: 1,
       diff: makeDiff({
         cards: { deleted: [{ id: '1' }], added: [{ id: '2' }], modified: [] },
         shots: { deleted: [], added: [], modified: [{ old: { shotNo: 1 }, new: { shotNo: 1, shotType: 'close' } }] },
@@ -405,5 +430,47 @@ describe('generateAnnotation', () => {
     expect(facts.some((f) => f.includes('删除了 1 张卡片'))).toBe(true);
     expect(facts.some((f) => f.includes('新增了 1 张卡片'))).toBe(true);
     expect(facts.some((f) => f.includes('修改了 1 个镜头'))).toBe(true);
+  });
+
+  describe('计费', () => {
+    it('按保存者和快照预占，结算按实际用量', async () => {
+      stubTransport(() => makeLLMResponse(['变更'], ['偏好']));
+      mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
+
+      await generateAnnotation({
+        userId: 42,
+        diff: makeDiff(),
+        snapshotId: 77,
+        previousSnapshotId: 5,
+        previousAnnotations: [],
+      });
+
+      expect(mockMetered).toHaveBeenCalledTimes(1);
+      const input = mockMetered.mock.calls[0][0];
+      expect(input.userId).toBe(42);
+      expect(input.operationId).toBe('semantic_annotation:77');
+      expect(input.operationType).toBe('semantic_annotation');
+      expect(input.maxCostMinor).toBeGreaterThan(0);
+    });
+
+    it('余额不足时不调用模型、不计入熔断，返回 diff 摘要', async () => {
+      const calls = stubTransport(() => makeLLMResponse(['x'], ['y']));
+      mockMetered.mockImplementation(async () => ({
+        kind: 'insufficient_balance',
+        availableMinor: 0,
+        requiredMinor: 1,
+      }));
+      mockCreateAnnotation.mockImplementation(async (data) =>
+        makeAnnotation(data as Partial<SemanticAnnotation>),
+      );
+      const base = { userId: 1, snapshotId: 10, previousSnapshotId: 5, previousAnnotations: [] };
+
+      for (let i = 0; i < 4; i++) {
+        const result = await generateAnnotation({ diff: makeDiff(), ...base });
+        expect(result.status).toBe('pending');
+      }
+      expect(calls).toHaveLength(0);
+      expect(isCircuitOpen()).toBe(false);
+    });
   });
 });

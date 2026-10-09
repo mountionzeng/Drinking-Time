@@ -1,4 +1,18 @@
-import { guardComputeFetch, assertComputeRequestAccess } from "../services/computeRequestAccess";
+import { randomUUID } from "node:crypto";
+import {
+  ComputeAccessError,
+  assertComputeRequestAccess,
+  currentComputeBillingScope,
+  guardComputeFetch,
+} from "../services/computeRequestAccess";
+import { runMeteredCompute } from "../services/computeMetering";
+import type { ProviderOutcome } from "../services/computeBilling";
+import {
+  estimateInferenceMaxCostMinor,
+  inferenceRequestHash,
+  inferenceVerifiedCostMinor,
+  shouldMeterInference,
+} from "./inferenceBilling";
 import {
   describeModelCapabilities,
   resolveComputeCandidates,
@@ -61,6 +75,17 @@ export class InferenceError extends Error {
     this.attempts = attempts;
     this.category = attempts[attempts.length - 1]?.category ?? "unknown";
   }
+}
+
+/** A timeout, lost body, or cancellation after submission cannot prove zero cost. */
+export function inferenceFailureOutcome(error: unknown): Extract<
+  ProviderOutcome, { kind: "not_charged_failure" | "submission_unknown" }
+> {
+  if (error instanceof ComputeAccessError) return { kind: "not_charged_failure" };
+  if (error instanceof InferenceError && error.attempts.every(attempt => !attempt.acceptanceUnknown)) {
+    return { kind: "not_charged_failure" };
+  }
+  return { kind: "submission_unknown" };
 }
 
 export type InferenceProtocol = "openai-compatible" | "claude-messages";
@@ -459,7 +484,7 @@ async function attemptOpenAiCompatible(
         category,
         aborted,
         // 连接在发出后断开时无法判断网关是否已受理。
-        acceptanceUnknown: !aborted,
+        acceptanceUnknown: !(error instanceof ComputeAccessError),
       },
     };
   }
@@ -477,8 +502,8 @@ async function attemptOpenAiCompatible(
         errorCode,
         retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
-        // 网关明确拒绝 = 未受理。
-        acceptanceUnknown: false,
+        // Gateway timeouts/server errors do not prove the upstream rejected it.
+        acceptanceUnknown: response.status === 408 || response.status >= 500,
       },
     };
   }
@@ -489,7 +514,30 @@ async function attemptOpenAiCompatible(
 type ClaudeMessageResponse = {
   content?: Array<{ type?: string; text?: string }>;
   model?: string;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
 };
+
+function normalizeClaudeUsage(usage: ClaudeMessageResponse["usage"]): InvokeResult["usage"] {
+  if (!usage) return undefined;
+  // Anthropic reports cached input separately from input_tokens.
+  const input = [
+    usage.input_tokens,
+    usage.cache_creation_input_tokens ?? 0,
+    usage.cache_read_input_tokens ?? 0,
+  ];
+  if (![...input, usage.output_tokens].every(n => Number.isSafeInteger(n) && n >= 0)) {
+    return undefined;
+  }
+  const prompt_tokens = input.reduce((sum, n) => sum + n, 0);
+  const total_tokens = prompt_tokens + usage.output_tokens;
+  if (!Number.isSafeInteger(total_tokens)) return undefined;
+  return { prompt_tokens, completion_tokens: usage.output_tokens, total_tokens };
+}
 
 function toAnthropicMessages(messages: Message[]) {
   return messages
@@ -561,7 +609,7 @@ async function attemptClaudeMessages(
         model: candidate.model,
         category,
         aborted,
-        acceptanceUnknown: !aborted,
+        acceptanceUnknown: !(error instanceof ComputeAccessError),
       },
     };
   }
@@ -579,7 +627,7 @@ async function attemptClaudeMessages(
         errorCode,
         retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
-        acceptanceUnknown: false,
+        acceptanceUnknown: response.status === 408 || response.status >= 500,
       },
     };
   }
@@ -599,6 +647,7 @@ async function attemptClaudeMessages(
       id: "",
       created: Math.floor(Date.now() / 1000),
       model: data.model || candidate.model,
+      usage: normalizeClaudeUsage(data.usage),
       choices: [
         {
           index: 0,
@@ -635,10 +684,54 @@ function attemptSummary(error: AttemptError): string {
 
 // ── 编排 ──
 
+/**
+ * Every text/vision call is billed here: reserve the worst-case cost, run the
+ * candidate chain, settle on the tokens the answering provider reported.
+ * Calls nested inside runMeteredCompute are already billed by the caller.
+ */
 export async function runInference(
   request: InferenceRequest
 ): Promise<InferenceOutcome> {
   await assertComputeRequestAccess();
+  const scope = currentComputeBillingScope();
+  if (scope.metered || scope.userId === null || !shouldMeterInference()) {
+    return runInferenceChain(request, scope.metered);
+  }
+
+  const resolved =
+    request.explicitCandidates ??
+    resolveComputeCandidates(request.useCase, request.candidates);
+  if (resolved.length === 0) return runInferenceChain(request);
+
+  const maxCostMinor = estimateInferenceMaxCostMinor(request, resolved);
+  const metered = await runMeteredCompute({
+    userId: scope.userId,
+    operationId: `inference:${randomUUID()}`,
+    operationType: `inference.${request.useCase}`,
+    requestHash: inferenceRequestHash(request, resolved),
+    maxCostMinor,
+    run: () => runInferenceChain({ ...request, explicitCandidates: resolved }, true),
+    costOf: outcome => inferenceVerifiedCostMinor(outcome, maxCostMinor),
+    failureOutcome: inferenceFailureOutcome,
+  });
+  if (metered.kind === "completed") return metered.value;
+  if (metered.kind === "failed") throw metered.error;
+  if (metered.kind === "insufficient_balance") {
+    throw new ComputeAccessError({
+      code: "FORBIDDEN",
+      message: "算力余额不足，无法调用 AI。你仍可查看和手工编辑已有内容。",
+    });
+  }
+  throw new ComputeAccessError({
+    code: "SERVICE_UNAVAILABLE",
+    message: "暂时无法核对算力余额，请稍后再试。",
+  });
+}
+
+async function runInferenceChain(
+  request: InferenceRequest,
+  stopOnUnknownSubmission = false
+): Promise<InferenceOutcome> {
   const now = request.now ?? (() => Date.now());
   const startedAt = now();
   const chainDeadlineAt =
@@ -731,6 +824,12 @@ export async function runInference(
 
     failures.push(attempt.error);
     console.warn("[inference] attempt failed", redactedAttemptLog(attempt.error, latencyMs));
+
+    // One hold covers one accepted request. Textual replay safety does not prove
+    // financial replay safety after the first provider may have accepted it.
+    if (stopOnUnknownSubmission && attempt.error.acceptanceUnknown) {
+      throw new InferenceError("LLM submission outcome unknown; reconciliation required", failures);
+    }
 
     if (attempt.error.aborted) {
       // 调用方取消 → 立刻终止整条候选链，不再尝试任何供应商。

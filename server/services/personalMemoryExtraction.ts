@@ -1,4 +1,3 @@
-import { withComputeUser, noteComputeReservation } from "./computeRequestAccess";
 /**
  * 从单条经历生成带证据的理解（U5）。
  *
@@ -14,7 +13,7 @@ import { withComputeUser, noteComputeReservation } from "./computeRequestAccess"
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { ENV } from "../_core/env";
-import { runInference } from "../_core/inferenceOrchestrator";
+import { inferenceFailureOutcome, runInference } from "../_core/inferenceOrchestrator";
 import { parseJsonLoose } from "../_core/llmJson";
 import type { Message } from "../_core/llm";
 import {
@@ -24,7 +23,7 @@ import {
 } from "../_core/textComputeProvider";
 import { fromYuan } from "../../shared/computeMoney";
 import { resolveTextPrice } from "../../shared/textComputePricing";
-import { reserveForOperation, settleOperation } from "./computeLedger";
+import { runMeteredCompute } from "./computeMetering";
 import {
   getChatMessageContentForPersonalMemory,
   getPersonalMemoryEventById,
@@ -523,65 +522,70 @@ export async function attemptPersonalMemoryExtraction(
     )
     .digest("hex");
 
-  const reservation = await reserveForOperation({
-    userId: platformUserId,
-    operationId,
-    operationType: "personal_memory_extraction",
-    requestHash,
-    maxCostMinor: maxCostMinorPerExtraction(),
-    quoteExpiresAt: null,
-  });
-  if (reservation.outcome === "insufficient_balance") {
-    return {
-      kind: "billing_rejected",
-      reason: `平台账户余额不足（可用 ${reservation.availableMinor} 微元，需要 ${reservation.requiredMinor} 微元）——请运营侧充值后自动重试`,
-    };
-  }
-  if (reservation.outcome === "no_trusted_max_cost" || reservation.outcome === "quote_expired") {
-    return { kind: "billing_rejected", reason: reservation.outcome };
-  }
-  if (reservation.outcome === "conflict") {
-    return { kind: "model_failed", errorKind: "billing_conflict", message: reservation.reason };
-  }
-  // reserved 或 replayed 都继续往下走：replayed 说明这个 operationId 之前
-  // 已经预占过（同一个任务重试），复用同一笔预占重新尝试调用。
-
   const messages = buildExtractionMessages({
     content: subject.content,
     isBehaviorSignal: subject.isBehaviorSignal,
     candidates,
   });
 
-  try {
-    const outcome = await withComputeUser(platformUserId, async () => {
-      noteComputeReservation(platformUserId, operationId);
-      return runInference({
-      useCase: "text",
-      messages,
-      candidates: { fallback302Model: ENV.llmModel },
-      explicitCandidates: candidateProviders,
-      responseFormat: { type: "json_object" },
-      maxTokens: 800,
-      temperature: 0.2,
-      // 个人记忆内容不得跨供应商重放——即使传了多个候选，这里也不允许失败后
-      // 换一家供应商重发同一份用户原话。
-      replaySafe: false,
-      deadlineMs: EXTRACTION_TIMEOUT_MS,
-      });
-    });
+  const metered = await runMeteredCompute({
+    userId: platformUserId,
+    operationId,
+    operationType: "personal_memory_extraction",
+    requestHash,
+    maxCostMinor: maxCostMinorPerExtraction(),
+    quoteExpiresAt: null,
+    failureOutcome: inferenceFailureOutcome,
+    run: () =>
+      runInference({
+        useCase: "text",
+        messages,
+        candidates: { fallback302Model: ENV.llmModel },
+        explicitCandidates: candidateProviders,
+        responseFormat: { type: "json_object" },
+        maxTokens: 800,
+        temperature: 0.2,
+        // 个人记忆内容不得跨供应商重放——即使传了多个候选，这里也不允许失败后
+        // 换一家供应商重发同一份用户原话。
+        replaySafe: false,
+        deadlineMs: EXTRACTION_TIMEOUT_MS,
+      }),
+    costOf: outcome =>
+      estimateVerifiedCostMinor({
+        usage: outcome.result.usage,
+        provider: outcome.provider,
+        model: outcome.model,
+      }),
+  });
+  if (metered.kind === "insufficient_balance") {
+    return {
+      kind: "billing_rejected",
+      reason: `平台账户余额不足（可用 ${metered.availableMinor} 微元，需要 ${metered.requiredMinor} 微元）——请运营侧充值后自动重试`,
+    };
+  }
+  if (metered.kind === "rejected") {
+    return { kind: "billing_rejected", reason: metered.reason };
+  }
+  if (metered.kind === "conflict") {
+    return { kind: "model_failed", errorKind: "billing_conflict", message: metered.reason };
+  }
+  if (metered.kind === "replayed") {
+    return { kind: "billing_rejected", reason: `操作已存在（${metered.status}），需恢复已有结果或对账，不能重新提交` };
+  }
+  if (metered.kind === "failed") {
+    const error = metered.error;
+    return {
+      kind: "model_failed",
+      errorKind:
+        error instanceof Error && "category" in error
+          ? String((error as { category: unknown }).category)
+          : "unknown",
+      message: error instanceof Error ? error.message.slice(0, 200) : "调用失败",
+    };
+  }
 
-    await settleOperation({
-      operationId,
-      outcome: {
-        kind: "succeeded",
-        verifiedCostMinor: estimateVerifiedCostMinor({
-          usage: outcome.result.usage,
-          provider: outcome.provider,
-          model: outcome.model,
-        }),
-      },
-    });
-
+  {
+    const outcome = metered.value;
     const text = outcome.result.choices[0]?.message.content;
     const rawText = typeof text === "string" ? text : "";
     let parsed: unknown;
@@ -600,18 +604,5 @@ export async function attemptPersonalMemoryExtraction(
       isBehaviorSignal: subject.isBehaviorSignal,
     });
     return { kind: "completed", mutations };
-  } catch (error) {
-    await settleOperation({
-      operationId,
-      outcome: { kind: "not_charged_failure" },
-    });
-    return {
-      kind: "model_failed",
-      errorKind:
-        error instanceof Error && "category" in error
-          ? String((error as { category: unknown }).category)
-          : "unknown",
-      message: error instanceof Error ? error.message.slice(0, 200) : "调用失败",
-    };
   }
 }

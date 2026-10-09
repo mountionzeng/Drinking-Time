@@ -30,6 +30,7 @@ describe('editContext service', () => {
       };
 
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 1,
         sessionId: 'session-1',
         state,
@@ -61,6 +62,7 @@ describe('editContext service', () => {
 
       // Save first snapshot
       await saveSnapshot({
+        userId: 1,
         projectId: 2,
         sessionId: 'session-2',
         state: firstState,
@@ -68,6 +70,7 @@ describe('editContext service', () => {
 
       // Save second snapshot
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 2,
         sessionId: 'session-2',
         state: secondState,
@@ -87,6 +90,7 @@ describe('editContext service', () => {
 
       // Save first snapshot
       await saveSnapshot({
+        userId: 1,
         projectId: 3,
         sessionId: 'session-3',
         state,
@@ -94,6 +98,7 @@ describe('editContext service', () => {
 
       // Save second snapshot with identical state
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 3,
         sessionId: 'session-3',
         state,
@@ -112,6 +117,7 @@ describe('editContext service', () => {
       };
 
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 4,
         sessionId: 'session-4',
         state,
@@ -132,6 +138,7 @@ describe('editContext service', () => {
       };
 
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 5,
         sessionId: 'session-5',
         state,
@@ -152,7 +159,7 @@ describe('editContext service', () => {
       const state1: ProjectState = {
         cards: [{ id: '1', title: 'Card 1' }],
       };
-      const result1 = await saveSnapshot({ projectId, sessionId, state: state1 });
+      const result1 = await saveSnapshot({ userId: 1, projectId, sessionId, state: state1 });
       expect(result1.hasDiff).toBe(true);
 
       // Snapshot 2: Add a card
@@ -162,7 +169,7 @@ describe('editContext service', () => {
           { id: '2', title: 'Card 2' },
         ],
       };
-      const result2 = await saveSnapshot({ projectId, sessionId, state: state2 });
+      const result2 = await saveSnapshot({ userId: 1, projectId, sessionId, state: state2 });
       expect(result2.hasDiff).toBe(true);
       expect(result2.diffSummary?.cardsChanged).toBe(1);
 
@@ -170,7 +177,7 @@ describe('editContext service', () => {
       const state3: ProjectState = {
         cards: [{ id: '2', title: 'Card 2' }],
       };
-      const result3 = await saveSnapshot({ projectId, sessionId, state: state3 });
+      const result3 = await saveSnapshot({ userId: 1, projectId, sessionId, state: state3 });
       expect(result3.hasDiff).toBe(true);
       expect(result3.diffSummary?.cardsChanged).toBe(1);
     });
@@ -215,7 +222,7 @@ describe('editContext service', () => {
         cards: [{ id: '1', title: 'Integration test card' }],
       };
 
-      const result = await saveSnapshot({ projectId, sessionId, state });
+      const result = await saveSnapshot({ userId: 1, projectId, sessionId, state });
       expect(result.snapshotId).toBeGreaterThan(0);
 
       // Try to retrieve annotations (will be empty until U5 creates them)
@@ -234,7 +241,7 @@ describe('editContext service', () => {
       };
 
       // First snapshot (baseline)
-      await saveSnapshot({ projectId: 200, sessionId: 'auto-1', state });
+      await saveSnapshot({ userId: 1, projectId: 200, sessionId: 'auto-1', state });
 
       mockGenerate.mockClear();
 
@@ -242,7 +249,7 @@ describe('editContext service', () => {
       const stateB: ProjectState = {
         cards: [{ id: '1', title: 'Card A' }, { id: '2', title: 'Card B' }],
       };
-      await saveSnapshot({ projectId: 200, sessionId: 'auto-1', state: stateB });
+      await saveSnapshot({ userId: 1, projectId: 200, sessionId: 'auto-1', state: stateB });
       expect(mockGenerate).toHaveBeenCalledTimes(1);
 
       mockGenerate.mockClear();
@@ -251,7 +258,7 @@ describe('editContext service', () => {
       const stateC: ProjectState = {
         cards: [{ id: '1', title: 'Card A' }, { id: '2', title: 'Card B' }, { id: '3', title: 'Card C' }],
       };
-      await saveSnapshot({ projectId: 200, sessionId: 'auto-1', state: stateC, autoSave: true });
+      await saveSnapshot({ userId: 1, projectId: 200, sessionId: 'auto-1', state: stateC, autoSave: true });
       expect(mockGenerate).not.toHaveBeenCalled();
     });
 
@@ -261,6 +268,7 @@ describe('editContext service', () => {
       };
 
       const result = await saveSnapshot({
+        userId: 1,
         projectId: 201,
         sessionId: 'auto-2',
         state,
@@ -275,8 +283,8 @@ describe('editContext service', () => {
       const stateA: ProjectState = { cards: [{ id: '1', title: 'A' }] };
       const stateB: ProjectState = { cards: [{ id: '2', title: 'B' }] };
 
-      await saveSnapshot({ projectId: 202, sessionId: 'auto-3', state: stateA, autoSave: true });
-      const result = await saveSnapshot({ projectId: 202, sessionId: 'auto-3', state: stateB, autoSave: true });
+      await saveSnapshot({ userId: 1, projectId: 202, sessionId: 'auto-3', state: stateA, autoSave: true });
+      const result = await saveSnapshot({ userId: 1, projectId: 202, sessionId: 'auto-3', state: stateB, autoSave: true });
 
       expect(result.hasDiff).toBe(true);
       expect(result.diffSummary?.cardsChanged).toBe(2); // 1 deleted + 1 added

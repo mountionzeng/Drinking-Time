@@ -20,6 +20,8 @@ export interface InlineCorrection {
 }
 
 export interface SaveSnapshotInput {
+  /** 保存者；显式保存触发的语义标注按此用户扣费。 */
+  userId: number;
   projectId: number;
   sessionId: string;
   state: ProjectState;
@@ -46,7 +48,7 @@ export interface SaveSnapshotResult {
 export async function saveSnapshot(
   input: SaveSnapshotInput,
 ): Promise<SaveSnapshotResult> {
-  const { projectId, sessionId, state, autoSave = false, inlineCorrection } = input;
+  const { userId, projectId, sessionId, state, autoSave = false, inlineCorrection } = input;
 
   // Query previous snapshot for this project
   const previousSnapshot = await getLatestEditSnapshot(projectId);
@@ -102,6 +104,7 @@ export async function saveSnapshot(
   if (!autoSave && diff !== null && previousSnapshotId !== null) {
     const recentAnnotations = await getRecentSemanticAnnotations(projectId, 3);
     await generateAnnotation({
+      userId,
       diff,
       snapshotId: snapshot.id,
       previousSnapshotId,

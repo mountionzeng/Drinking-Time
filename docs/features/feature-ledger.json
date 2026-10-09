@@ -3718,7 +3718,11 @@
         "drizzle/0021_google_login_identity.sql",
         "server/_core/shiguangComputeBridge.ts",
         "server/_core/shiguangComputeBridgeRoutes.ts",
-        "server/services/computeRequestAccess.ts"
+        "server/services/computeRequestAccess.ts",
+        "server/services/computeMetering.ts",
+        "server/_core/inferenceOrchestrator.ts",
+        "server/_core/inferenceBilling.ts",
+        "server/services/semanticAnnotation.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3757,7 +3761,12 @@
         "server/services/computeProviderBoundary.test.ts",
         "server/integration/computeAccess.mysql.test.ts",
         "docs/qa/2026-09-29-production-web-restore.md",
-        "docs/qa/2026-09-29-local-release-production.md"
+        "docs/qa/2026-09-29-local-release-production.md",
+        "server/_core/inferenceBilling.test.ts",
+        "server/services/computeMetering.test.ts",
+        "server/services/semanticAnnotation.billing.test.ts",
+        "server/services/personalMemoryExtraction.test.ts",
+        "docs/qa/2026-10-08-web-paid-call-billing-http.json"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3773,7 +3782,8 @@
       "dependencies": [
         "invite-access-monitoring",
         "mobile-cross-device-chat-document",
-        "project-ownership"
+        "project-ownership",
+        "text-compute-provider-routing"
       ],
       "replaces": [],
       "knownGaps": [
@@ -3784,7 +3794,9 @@
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站仍保持原配置且未发布。",
-        "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。"
+        "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
+        "2026-10-08 工作树已将文本/视觉推理接入预占结算并修复 Claude 用量、未知提交释放、同号重发与语义标注截断费用；尚未合并或部署，生产 MySQL 与真实供应商账单核对未验收。供应商价格仍依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
+        "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注沿用工作树中的用户扣费归属，合并前仍需确认；个人记忆提炼继续由平台账户承担。"
       ],
       "history": [
         {
@@ -3886,6 +3898,21 @@
           "date": "2026-09-24",
           "kind": "implementation",
           "summary": "与文字任务核对TokenHub计价记录后，在手机独立仓库接入采访追问、整理记忆、正文生成逐尝试用量持久化；我的页面显示最近10次预计算力，空回复重试汇总，超时和缺失回执保留待核对。只估算不扣款、不冒充供应商实收，页面不展示人民币。手机858项测试及类型检查通过；未部署、未开启开关、未发真实付费调用，完整共享钱包扣账和跨端联调仍未完成。"
+        },
+        {
+          "date": "2026-09-30",
+          "kind": "refactor",
+          "summary": "抽出 server/services/computeMetering.ts 的 runMeteredCompute（预占→供应商调用→成功按实际成本结算/失败释放），个人记忆提炼改用它，行为不变。新增4项包装器测试（成功结算、余额不足不调用、失败不扣费、同号不同参冲突），个人记忆27项与账本20项测试通过。尚未接入网页版其他付费调用路径。"
+        },
+        {
+          "date": "2026-10-08",
+          "kind": "fix",
+          "summary": "接手统一推理计费工作树，Claude Messages 将普通与缓存输入及输出 token 归一后结算；断连、超时、提交后取消及408/5xx保留预占，在计费链中停止自动重发，明确未收费失败仍释放。通用包装器阻止活动、未知与终态同号操作再次执行，个人记忆维持平台账户归属；语义标注复用统一成本函数，缺用量不记零、超额交由账本异常处理，并在截止时取消请求。回归先复现失败后修复；全量server测试2447通过、58跳过、6失败，6项均在干净主干相同无模型凭据条件下复现于routers.storyAgent.test.ts。测试临时设置JWT_SECRET；TypeScript与feature:validate通过。未发真实付费调用，未合并或部署，状态保持observing。"
+        },
+        {
+          "date": "2026-10-08",
+          "kind": "validation",
+          "summary": "按用户要求开临时127.0.0.1:52301端口，以原生fetch、工作树真实计费代码、临时本地账本和本地模拟供应商完成13项HTTP验收：文本/Claude/视觉、缺失用量、明确拒绝、504/断连/超时/损坏JSON、并发同号与嵌套、余额不足及语义标注缺用量/超额全部通过；3次同号提交只调用供应商1次并扣费1次。端口已关闭，主仓3000与真实数据未改动。不代表真实供应商、生产MySQL或完整工作室UI验收，保持observing。"
         }
       ]
     },
