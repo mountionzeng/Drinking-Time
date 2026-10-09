@@ -1,5 +1,6 @@
 import { useState } from "react";
 import AuthEntryPanel from "@/features/auth/views/AuthEntryPanel";
+import PhoneLoginPanel from "@/features/auth/views/PhoneLoginPanel";
 import { readMobileReturnPath } from "@/features/auth/mobileReturnPath";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { formatTodayIdentity } from "@/features/nayin/dailyPresentation";
@@ -9,7 +10,8 @@ import WuxingParticles from "@/features/nayin/views/WuxingParticles";
 import { WuxingPourContent } from "@/features/nayin/views/WuxingPourReveal";
 
 export default function LoginPage() {
-  const [method, setMethod] = useState<"email" | "wechat">("email");
+  const [method, setMethod] = useState<"email" | "wechat" | "phone">("email");
+  const [phoneBusy, setPhoneBusy] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const { today, visualTheme } = useNayin();
   const returnPath =
@@ -63,8 +65,17 @@ export default function LoginPage() {
             />
           </div>
           <div className="w-full max-w-sm pb-8">
-            <LoginMethodTabs method={method} onChange={setMethod} />
-            {method === "email" ? (
+            <LoginMethodTabs
+              method={method}
+              onChange={setMethod}
+              disabled={phoneBusy}
+            />
+            {method === "phone" ? (
+              <PhoneLoginPanel
+                returnPath={returnPath}
+                onBusyChange={setPhoneBusy}
+              />
+            ) : method === "email" ? (
               <AuthEntryPanel returnPath={returnPath} variant="email" />
             ) : (
               <AuthEntryPanel returnPath={returnPath} variant="pairing" />
@@ -96,17 +107,19 @@ export default function LoginPage() {
           </p>
           <nav
             aria-label="登录方式"
-            className="shiguang-login-tabs mb-7 grid grid-cols-2"
+            className="shiguang-login-tabs mb-7 grid grid-cols-3"
           >
             {(
               [
                 ["email", "邮箱登录"],
+                ["phone", "手机号登录"],
                 ["wechat", "微信登录"],
               ] as const
             ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
+                disabled={phoneBusy}
                 aria-current={method === value ? "page" : undefined}
                 onClick={() => setMethod(value)}
                 className={`shiguang-login-tab px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "is-active text-foreground" : "text-muted-foreground hover:text-foreground"}`}
@@ -116,7 +129,12 @@ export default function LoginPage() {
             ))}
           </nav>
 
-          {method === "email" ? (
+          {method === "phone" ? (
+            <PhoneLoginPanel
+              returnPath={returnPath}
+              onBusyChange={setPhoneBusy}
+            />
+          ) : method === "email" ? (
             <AuthEntryPanel returnPath={returnPath} variant="email" />
           ) : (
             <AuthEntryPanel returnPath={returnPath} variant="pairing" />
@@ -130,24 +148,28 @@ export default function LoginPage() {
 function LoginMethodTabs({
   method,
   onChange,
+  disabled,
 }: {
-  method: "email" | "wechat";
-  onChange: (method: "email" | "wechat") => void;
+  method: "email" | "wechat" | "phone";
+  onChange: (method: "email" | "wechat" | "phone") => void;
+  disabled?: boolean;
 }) {
   return (
     <nav
       aria-label="登录方式"
-      className="mb-8 grid grid-cols-2 border-b border-border"
+      className="mb-8 grid grid-cols-3 border-b border-border"
     >
       {(
         [
           ["email", "邮箱登录"],
+          ["phone", "手机号登录"],
           ["wechat", "微信登录"],
         ] as const
       ).map(([value, label]) => (
         <button
           key={value}
           type="button"
+          disabled={disabled}
           aria-current={method === value ? "page" : undefined}
           onClick={() => onChange(value)}
           className={`border-b-2 px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}

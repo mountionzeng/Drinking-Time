@@ -1815,7 +1815,7 @@ export const accountIdentities = mysqlTable(
     userId: int("userId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    provider: mysqlEnum("provider", ["email", "wechat", "google"])
+    provider: mysqlEnum("provider", ["email", "wechat", "google", "phone"])
       .default("email")
       .notNull(),
     /** 标准化后的身份标识：邮箱走小写 trim，微信以后放 openid */
@@ -1834,6 +1834,18 @@ export const accountIdentities = mysqlTable(
 
 export type AccountIdentity = typeof accountIdentities.$inferSelect;
 export type InsertAccountIdentity = typeof accountIdentities.$inferInsert;
+
+/** One current SMS challenge per phone; never store the plaintext code. */
+export const phoneLoginChallenges = mysqlTable("phone_login_challenges", {
+  phone: varchar("phone", { length: 16 }).primaryKey(),
+  challengeId: varchar("challengeId", { length: 36 }).notNull(),
+  codeHash: varchar("codeHash", { length: 64 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  attemptCount: int("attemptCount").default(0).notNull(),
+  sentAt: timestamp("sentAt"),
+  consumedAt: timestamp("consumedAt"),
+});
+export type PhoneLoginChallenge = typeof phoneLoginChallenges.$inferSelect;
 
 /**
  * AccountCredentials — 密码等可校验凭据。

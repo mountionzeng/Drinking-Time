@@ -48,13 +48,14 @@ vi.mock("@/features/auth/views/AuthEntryPanel", () => ({
 }));
 
 describe("LoginPage", () => {
-  it("uses the Shiguang identity and keeps the two focused login paths", () => {
+  it("uses the Shiguang identity and includes phone login alongside existing paths", () => {
     themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(<LoginPage />);
 
     expect(html).toContain('aria-label="拾光家忆"');
     expect(html).toContain("拾光");
     expect(html).toContain("邮箱登录");
+    expect(html).toContain("手机号登录");
     expect(html).toContain("微信登录");
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('data-testid="auth-entry">email');
@@ -70,6 +71,7 @@ describe("LoginPage", () => {
     const html = renderToStaticMarkup(<LoginPage />);
 
     expect(html).toContain('data-testid="nayin-login-hero"');
+    expect(html).toContain("手机号登录");
     expect(html).toContain('data-testid="nayin-ambience"');
     expect(html).toContain('data-testid="nayin-particles"');
     expect(html).toContain("长流水");

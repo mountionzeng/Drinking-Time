@@ -54,6 +54,7 @@ import {
   DevicePairingCode,
   AccountVerificationChallenge,
   AccountRateLimit,
+  PhoneLoginChallenge,
 } from "../../drizzle/schema";
 import {
   createEmptyPromptLineageLocalState,
@@ -121,6 +122,7 @@ function createEmptyMemoryCollections() {
     accountIdentities: [] as AccountIdentity[],
     accountCredentials: [] as AccountCredential[],
     accountVerificationChallenges: [] as AccountVerificationChallenge[],
+    phoneLoginChallenges: [] as PhoneLoginChallenge[],
     devicePairingCodes: [] as DevicePairingCode[],
     accountRateLimits: [] as AccountRateLimit[],
   };
@@ -550,6 +552,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as AccountCredential[];
+  memoryState.phoneLoginChallenges = (raw.phoneLoginChallenges ?? []).map(item => ({
+    ...item,
+    expiresAt: toDate(item.expiresAt),
+    sentAt: item.sentAt ? toDate(item.sentAt) : null,
+    consumedAt: item.consumedAt ? toDate(item.consumedAt) : null,
+  })) as PhoneLoginChallenge[];
   memoryState.accountVerificationChallenges = (
     raw.accountVerificationChallenges ?? []
   ).map(item => ({

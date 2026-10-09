@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-09T03:00:00.000Z",
+  "updatedAt": "2026-10-09T11:00:00.000Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -5165,6 +5165,69 @@
           "date": "2026-09-28",
           "kind": "fix",
           "summary": "真实浏览器验收发现两处缺陷并修好：一是引导会和每日来信叠在一起（来信自己决定弹出时机，只看 props 漏判），改为开场前后都按 aria-modal 特征盯 DOM，一出现就让开且不写 seen，下次进来照讲；二是左侧聊聊栏几乎占满屏高时说明卡被挤到视口外，新增 cardAnchorRect 对超高锚点只取顶部一段定位，高亮框仍框住整块。三种视口下七步全部在屏、无控制台报错，定向单测增至 43 项。"
+        }
+      ]
+    },
+    {
+      "id": "phone-sms-login",
+      "name": "手机号短信验证码登录",
+      "status": "observing",
+      "userValue": "用户可用中国大陆手机号和短信验证码登录网页版；首次验证建立独立账号，继续使用既有故事工作区。",
+      "entryPoints": [
+        "client/src/pages/LoginPage.tsx",
+        "server/_core/phoneLoginRoutes.ts"
+      ],
+      "owners": [
+        "shared/phoneLogin.ts",
+        "client/src/features/auth/views/PhoneLoginPanel.tsx",
+        "server/services/phoneLogin.ts",
+        "server/services/phoneSms.ts",
+        "server/repositories/phoneLogin.ts",
+        "server/repositories/accounts.ts",
+        "server/_core/oauth.ts",
+        "drizzle/schema.ts",
+        "drizzle/0028_phone_login.sql"
+      ],
+      "evidence": [
+        "server/services/phoneLogin.test.ts",
+        "server/_core/phoneLoginRoutes.test.ts",
+        "server/_core/oauth.account.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "client/src/pages/LoginPage.test.tsx",
+        "server/integration/phoneLogin.mysql.test.ts",
+        "server/integration/migrationBaseline.mysql.test.ts",
+        "scripts/check-phone-login.ts",
+        "docs/qa/2026-10-09-phone-login.md"
+      ],
+      "invariants": [
+        "手机号必须先通过验证码验证，才可建立账号或会话；不自动合并邮箱、Google、微信账号或赠送算力。",
+        "验证码五分钟有效、一次性使用、五次错误锁住当前挑战；只存带独立密钥的摘要，重发替换旧挑战。",
+        "供应商明确接受后才激活验证码；失败或超时不假报成功、不自动重试收费，不记录明文验证码或供应商凭据。",
+        "每手机号、IP 和全站发送/验证限流须持久化；MySQL 消费使用行锁防止跨进程重放。",
+        "原邮箱/Google及微信短码入口继续保留；手机号登录复用30天HttpOnly和会话版本校验，跳转沿用现有返回白名单。",
+        "配置缺失或开关关闭时明确提示未开放；生产环境需要真实数据库，不能回退本机数据完成手机号登录。"
+      ],
+      "dependencies": [
+        "account-compute-gift-payments",
+        "story-ownership",
+        "recent-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "腾讯云已登录企业认证账号，但短信服务未开通；停在接受短信服务协议的确认步骤。真实签名模板、发送凭据、收信及手机号端到端仍待完成。",
+        "2026-10-09已在一次性真实MySQL与受限账号完成29条迁移和跨进程验证码测试；正式库0028迁移与发布尚未执行，正式服务器无短信配置。",
+        "首版仅支持中国大陆+86手机号；手机号绑定已有账号、换号/找回和国际号码尚未提供。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-09",
+          "kind": "feature",
+          "summary": "按用户要求先新增手机号登录，小程序扫码确认留后续。实现三入口表单、短信配置探测、腾讯云发送、HMAC验证码、持久化限流/挑战与独立身份、会话及受控回跳；修正无昵称新账号token被拒绝的默认显示名。85项定向测试通过，2项MySQL条件跳过；主仓3000浏览器未配置态、类型/构建/迁移校验通过，未发真实短信或部署。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "verification",
+          "summary": "按用户要求继续推进：一次性真实MySQL验证29条迁移、跨进程单次消费/错误次数持久化及手机号身份唯一性，2项均通过并关闭实例。只读核查正式服务器无短信配置；腾讯云企业账号可进入但尚未开通短信，协议接受等待当次明确确认。顺序审查修正被拒重发消耗全站预算的问题、前端请求无超时和配置迟到回填，新增只读auth:check-phone配置自检；未接受协议、购买或发短信。"
         }
       ]
     }

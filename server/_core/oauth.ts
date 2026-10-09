@@ -12,6 +12,7 @@ import {
 } from "../services/accountIdentity";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
+import { registerPhoneLoginRoutes } from "./phoneLoginRoutes";
 import { googleAuthConfig } from "../services/googleAuthConfig";
 import { hashInviteCode } from "../services/inviteAccess";
 import {
@@ -127,7 +128,7 @@ async function establishUserSession(
   const user = await db.getUserById(userId);
   if (!user) throw new Error("账号不存在，无法建立会话");
   const sessionToken = await sdk.createSessionToken(user.openId, {
-    name: displayName ?? user.name ?? user.email?.split("@")[0] ?? "",
+    name: (displayName ?? user.name ?? user.email?.split("@")[0]) || "拾光用户",
     expiresInMs: ACCOUNT_SESSION_TTL_MS,
     sessionVersion: Number(user.sessionVersion ?? 1),
   });
@@ -239,6 +240,7 @@ function respondNeedsManualMapping(res: Response) {
 }
 
 export function registerOAuthRoutes(app: Express) {
+  registerPhoneLoginRoutes(app, establishUserSession);
   // ── 统一账号：邮箱验证码 ────────────────────────────────────────────
   app.post(
     "/api/auth/account/otp/request",

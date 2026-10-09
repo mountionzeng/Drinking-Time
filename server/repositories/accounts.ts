@@ -139,7 +139,7 @@ export async function linkEmailIdentity(input: {
   return { kind: "linked" };
 }
 
-export type LoginIdentityProvider = "google";
+export type LoginIdentityProvider = "google" | "phone";
 
 export async function getLoginIdentity(
   provider: LoginIdentityProvider,

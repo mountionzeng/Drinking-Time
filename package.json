@@ -9,6 +9,7 @@
     "env:status": "tsx scripts/env-status.ts",
     "env:check": "tsx scripts/env-status.ts --check",
     "auth:check-google": "tsx scripts/check-google-login.ts",
+    "auth:check-phone": "tsx scripts/check-phone-login.ts",
     "verify:merge": "pnpm env:check && pnpm migration:verify && pnpm miniprogram:check && pnpm check && pnpm feature:validate && pnpm test && pnpm build && pnpm env:check",
     "check:images": "tsx scripts/check-image-pipeline.ts",
     "preview:3000": "PORT=3000 NODE_ENV=development tsx watch scripts/preview-server.ts",

@@ -48,6 +48,21 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads phone challenges with expiration, delivery and consumption state intact", async () => {
+    vi.resetModules();
+    const file = persistPath + ".phone-login";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const row = { phone: "+8613800000000", challengeId: "test-challenge", codeHash: "a".repeat(64),
+      expiresAt: "2026-10-09T10:05:00.000Z", sentAt: "2026-10-09T10:00:00.000Z",
+      consumedAt: "2026-10-09T10:01:00.000Z", attemptCount: 2 };
+    await writeFile(file, JSON.stringify({ phoneLoginChallenges: [row] }));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.phoneLoginChallenges[0]).toEqual({ ...row, expiresAt: new Date(row.expiresAt), sentAt: new Date(row.sentAt), consumedAt: new Date(row.consumedAt) });
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8")).phoneLoginChallenges).toEqual([row]);
+  });
   it("reloads share snapshots, revocation dates and import receipts from disk", async () => {
     vi.resetModules();
     const file = persistPath + ".story-sharing";
@@ -100,7 +115,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

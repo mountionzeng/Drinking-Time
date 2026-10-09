@@ -34,6 +34,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
           "account_identities",
           "account_credentials",
           "account_verification_challenges",
+          "phone_login_challenges",
           "account_rate_limits",
           "gift_cards",
           "credit_accounts",
@@ -58,7 +59,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         const [migrationRows] = await connection.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS count FROM __drizzle_migrations",
         );
-        expect(Number(migrationRows[0]?.count)).toBe(28);
+        expect(Number(migrationRows[0]?.count)).toBe(29);
       } finally {
         await connection.end();
       }
