@@ -66,6 +66,9 @@ function RechargeAvailability() {
       >
         {availability.data.contactEmail}
       </a>
+      <p className="text-muted-foreground">
+        微信号：<span className="select-all">JaneZ_0831</span>
+      </p>
     </div>
   );
 }
