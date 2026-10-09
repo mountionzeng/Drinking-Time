@@ -5,6 +5,7 @@
  * 账户在两块屏幕上显示两个数字，是最伤信任的一类 bug。
  */
 import { formatComputeBalance, formatComputeUnits } from "@shared/computeMoney";
+import { useIsMutating } from "@tanstack/react-query";
 import { trpc } from "@/lib/trpc";
 
 export type ComputeBalanceView = {
@@ -63,13 +64,14 @@ export function classifyComputeBalance(amounts: ComputeBalanceAmounts): {
 }
 
 export function useComputeBalance(enabled = true): ComputeBalanceView {
+  const pendingMutations = useIsMutating();
   const query = trpc.computeAccount.balance.useQuery(undefined, {
     enabled,
     retry: false,
     // 回到页面立即刷新；前台短轮询同步其他设备已结算的用量。
     refetchOnWindowFocus: true,
-    staleTime: 30_000,
-    refetchInterval: 5_000,
+    staleTime: 0,
+    refetchInterval: pendingMutations > 0 ? 1_000 : 5_000,
   });
 
   const data = query.data ?? null;

@@ -1,3 +1,4 @@
+import { estimateViduQ2TransitionCny } from "@shared/videoRenderCost";
 import { quoteShotImages } from "@shared/shotImageRender";
 /** Pure rules for the storyboard review workspace. */
 import type { CSSProperties } from "react";
@@ -395,6 +396,60 @@ export function quickShotVideoRenderPlan(
   };
 }
 
+/** Mirrors the start/end route chosen at submit; the server confirms after saving drafts. */
+export function storyboardVideoCostEstimate(
+  shot: CreationEditorShot,
+  neighbors: readonly CreationEditorShot[] = []
+): number {
+  const plan = quickShotVideoRenderPlan(shot, []);
+  const frames = storyboardShotFrameImages(shot);
+  const index = neighbors.findIndex(
+    candidate =>
+      (candidate.stableShotId ?? candidate.shotIdentity) ===
+      (shot.stableShotId ?? shot.shotIdentity)
+  );
+  const source = (candidate: CreationEditorShot | undefined) =>
+    candidate
+      ? {
+          generationParams: candidate.generationParams,
+          images: storyboardShotFrameImages(candidate),
+          stableShotId:
+            candidate.stableShotId ?? candidate.shotIdentity ?? null,
+          cueCode: candidate.cueCode ?? String(candidate.shotNo),
+        }
+      : null;
+  const params =
+    storyboardStartEndGenerationParams(
+      shot.generationParams,
+      frames,
+      shot.durationMs
+    ) ??
+    storyboardInheritedStartEndGenerationParams(
+      shot.generationParams,
+      frames,
+      source(index >= 0 ? neighbors[index - 1] : undefined),
+      source(index >= 0 ? neighbors[index + 1] : undefined),
+      shot.durationMs
+    ) ??
+    shot.generationParams;
+  const config = parseStartEndVideoConfig(params, shot.durationMs);
+  if (plan.renderDecision.strategy === "local-transform") {
+    const allFrames = [...frames, ...neighbors.flatMap(storyboardShotFrameImages)];
+    const first = allFrames.find(frame => frame.id === config?.firstFrameImageId);
+    const last = allFrames.find(frame => frame.id === config?.lastFrameImageId);
+    // Distinct endpoints force paid generation on the server, even for a simple pan.
+    if (!config || config.firstFrameImageId === config.lastFrameImageId ||
+      (first && last && first.imageUrl === last.imageUrl)) return 0;
+  }
+  return config
+    ? estimateViduQ2TransitionCny({
+        durationSec: config.durationSec,
+        resolution: config.resolution,
+        uploadCount: 2,
+      }).estimatedCny
+    : plan.estimatedCny;
+}
+
 export type StoryboardShotCostEstimate = {
   imageCny: number;
   videoCny: number;
@@ -405,18 +460,33 @@ export type StoryboardShotCostEstimate = {
 /** Current application-chain estimate shown before any paid submission. */
 export function storyboardShotCostEstimate(
   shot: CreationEditorShot | undefined,
-  options: { singleImageFallback?: boolean; imageCount?: number }
+  options: {
+    singleImageFallback?: boolean;
+    imageCount?: number;
+    neighbors?: readonly CreationEditorShot[];
+  }
 ): StoryboardShotCostEstimate {
   const imageEstimate = options.singleImageFallback
     ? estimateStoryboardMaskedEditCost()
     : estimateStoryboardImageCost();
-  const videoCny = shot ? quickShotVideoRenderPlan(shot, []).estimatedCny : 0;
-  const imageCny = options.imageCount !== undefined ? quoteShotImages(options.imageCount).estimatedCny : imageEstimate.estimatedCny;
+  const videoCny = shot
+    ? storyboardVideoCostEstimate(shot, options.neighbors)
+    : 0;
+  const imageCny =
+    options.imageCount !== undefined
+      ? quoteShotImages(options.imageCount).estimatedCny
+      : imageEstimate.estimatedCny;
   return {
     imageCny,
     videoCny,
-    totalCny: Math.ceil((imageCny + videoCny) * 100) / 100,
-    imageCandidateCount: options.imageCount !== undefined ? quoteShotImages(options.imageCount).candidateCount : (options.singleImageFallback ? 1 : 4),
+    // Each component is already rounded to cents. Avoid a second floating-point ceil.
+    totalCny: (Math.round(imageCny * 100) + Math.round(videoCny * 100)) / 100,
+    imageCandidateCount:
+      options.imageCount !== undefined
+        ? quoteShotImages(options.imageCount).candidateCount
+        : options.singleImageFallback
+          ? 1
+          : 4,
   };
 }
 

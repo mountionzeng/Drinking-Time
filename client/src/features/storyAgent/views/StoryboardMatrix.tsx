@@ -1,3 +1,5 @@
+import { estimateStoryNarrationCostMinor } from "@shared/narrationCost";
+import { formatComputeUnits } from "@shared/computeMoney";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { GripVertical, Loader2, Volume2 } from "lucide-react";
 import {
@@ -244,6 +246,14 @@ export function StoryboardVoiceCell({
             <Volume2 className="h-3 w-3" />
           )}
           {generating ? "生成中…" : "生成旁白"}
+          {narrationText.trim() && (
+            <span className="text-[8px] font-normal tabular-nums text-muted-foreground">
+              约{" "}
+              {formatComputeUnits(
+                estimateStoryNarrationCostMinor(narrationText)
+              )}
+            </span>
+          )}
         </button>
         {shot.voiceAudioUrl && !audioStale ? (
           <audio

@@ -85,5 +85,6 @@ describe("StoryboardMatrixFieldCell accessibility", () => {
     expect(html).toContain("背景音 / 音效");
     expect(html).toContain("纸张摩擦声");
     expect(html).toContain("生成旁白");
+    expect(html).toContain("0.04 算力");
   });
 });

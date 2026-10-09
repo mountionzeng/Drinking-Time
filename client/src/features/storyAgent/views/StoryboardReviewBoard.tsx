@@ -2677,6 +2677,33 @@ export function StoryboardReviewBoard({
       });
   };
 
+  const matrixCostEstimate = (shot: StoryShot) => {
+    const index = shots.indexOf(shot);
+    const identity =
+      storyShotInsertIdentity(shot, index) ?? String(shot.shotNo);
+    const source = creationShotByNo.get(shot.shotNo);
+    const effective = source
+      ? storyboardRenderShotWithDraft(
+          source,
+          shot,
+          matrixDraftsRef.current.get(identity)
+        )
+      : undefined;
+    if (effective) {
+      effective.generationParams = storyboardStartEndTuningGenerationParams(
+        effective.generationParams,
+        startEndTuningOverrides[
+          effective.stableShotId ?? effective.shotIdentity ?? ""
+        ] ?? {}
+      );
+    }
+    return storyboardShotCostEstimate(effective, {
+      neighbors: creationShots,
+      imageCount: loadShotRenderSettings(storyId ?? 0, identity, materialState)
+        .count,
+    });
+  };
+
   const rerenderShotVideo = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
@@ -5321,6 +5348,12 @@ export function StoryboardReviewBoard({
                                     "video"
                                       ? "检查人物"
                                       : "渲染视频"}
+                                    <span className="font-normal tabular-nums text-muted-foreground">
+                                      约{" "}
+                                      {formatComputeQuote(
+                                        matrixCostEstimate(shot).videoCny
+                                      )}
+                                    </span>
                                   </button>
                                 </div>
                               ) : null
@@ -5343,7 +5376,7 @@ export function StoryboardReviewBoard({
                 >
                   <span className="block">预计费用</span>
                   <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
-                    当前图片与视频链路 · 提交前仍会确认
+                    图片与视频预估（不含旁白及提示词整理）· 提交前确认
                   </span>
                 </div>
                 {hasMatrixLeadingGap ? (
@@ -5362,12 +5395,7 @@ export function StoryboardReviewBoard({
                   <StoryboardCostCell
                     key={`matrix-cost-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}`}
                     selected={selectedShotNo === shot.shotNo}
-                    estimate={storyboardShotCostEstimate(
-                      creationShotByNo.get(shot.shotNo),
-                      {
-                        imageCount: loadShotRenderSettings(storyId ?? 0, storyShotInsertIdentity(shot, shots.indexOf(shot)) ?? String(shot.shotNo), materialState).count,
-                      }
-                    )}
+                    estimate={matrixCostEstimate(shot)}
                   />
                 ))}
               </div>

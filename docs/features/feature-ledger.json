@@ -1356,7 +1356,8 @@
         "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
         "docs/qa/2026-10-05-article-video-coverage.md",
-        "docs/qa/2026-10-05-mj-connection-retry.md"
+        "docs/qa/2026-10-05-mj-connection-retry.md",
+        "client/src/features/storyAgent/views/storyboardCostEstimate.test.ts"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -1472,6 +1473,11 @@
           "date": "2026-08-20",
           "kind": "verification",
           "summary": "静态画册分流后视频 router 输入明确收窄为 video10、video30、video50；album9 在进入视频服务前被拒绝，原视频预览、生成和确认回归测试保持通过。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "镜头报价按首尾帧、邻镜补帧、时长与分辨率选用与服务端相同的Vidu计算；不同首尾图不得误标本地免费。生成旁白和渲染视频标注约算力，合计明确不含旁白与提示词整理。真实供应商实收和该入口余额扣账尚未验证。"
         }
       ]
     },
@@ -3750,7 +3756,10 @@
         "server/services/computeMetering.ts",
         "server/_core/inferenceOrchestrator.ts",
         "server/_core/inferenceBilling.ts",
-        "server/services/semanticAnnotation.ts"
+        "server/services/semanticAnnotation.ts",
+        "client/src/features/computeAccount/computeBalanceRefresh.ts",
+        "shared/videoRenderCost.ts",
+        "shared/narrationCost.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3802,7 +3811,9 @@
         "server/services/semanticAnnotation.billing.test.ts",
         "server/services/personalMemoryExtraction.test.ts",
         "docs/qa/2026-10-08-web-paid-call-billing-http.json",
-        "docs/qa/2026-10-09-combined-release.md"
+        "docs/qa/2026-10-09-combined-release.md",
+        "client/src/features/computeAccount/computeBalanceRefresh.test.ts",
+        "shared/renderComputeCost.test.ts"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -3833,7 +3844,8 @@
         "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
         "2026-10-09 网页充值入口及 MySQL 订单原子入账基础已上线，真实收款仍关闭；商户渠道、档位、付款页金额展示待确认，验签适配器、真实下单、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不可视为已支持收款。",
         "2026-10-09 文本/视觉统一推理预占结算已合并上线，Claude 用量、未知提交保留与停止重发、同号幂等及语义标注计费已回归；真实供应商实收核对仍未验收。供应商价格依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
-        "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。"
+        "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。",
+        "2026-10-09 审计发现镜头表 generateStoryShotVoice 与视频任务提交/查询没有完整逐任务预占结算；供应商准入守卫只检查余额，不等于扣账。报价表与余额刷新修复不能冒充已完成真实视频/TTS扣费验收；本轮未发真实付费请求。"
       ],
       "history": [
         {
@@ -3975,6 +3987,11 @@
           "date": "2026-10-08",
           "kind": "validation",
           "summary": "按用户要求开临时127.0.0.1:52301端口，以原生fetch、工作树真实计费代码、临时本地账本和本地模拟供应商完成13项HTTP验收：文本/Claude/视觉、缺失用量、明确拒绝、504/断连/超时/损坏JSON、并发同号与嵌套、余额不足及语义标注缺用量/超额全部通过；3次同号提交只调用供应商1次并扣费1次。端口已关闭，主仓3000与真实数据未改动。不代表真实供应商、生产MySQL或完整工作室UI验收，保持observing。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "渲染报价抽到共享函数，按Vidu首尾帧规格预估；修正合计二次浮点向上取整。旁白与渲染按钮标注预计算力，操作成功/失败后立即失效余额/明细，进行中每秒同步余额；保留未知实际供应商成本与镜头扣账缺口。"
         }
       ]
     },

@@ -1,3 +1,5 @@
+import { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
+export { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
 import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * Paid narration workflow for formal Timeline subtitles (U5).
@@ -15,7 +17,7 @@ import {
 } from "node:crypto";
 import type { StoryAudioAsset } from "../../drizzle/schema";
 import type { VisualEditOperationRef } from "../../shared/visualEditReceipt";
-import { fromYuan, toYuan } from "../../shared/computeMoney";
+import { toYuan } from "../../shared/computeMoney";
 import { normalizeAudioState } from "../../shared/timelineAudioModel";
 import { normalizeSubtitleState } from "../../shared/timelineSubtitleModel";
 import { ENV } from "../_core/env";
@@ -55,7 +57,6 @@ const NARRATION_OPERATION_TYPE = "tts.narration";
 const NARRATION_PRICE_VERSION = "tts-302-cny-v1";
 const NARRATION_QUOTE_TTL_MS = 5 * 60 * 1_000;
 const NARRATION_PREPARED_RECOVERY_GRACE_MS = 10 * 60 * 1_000;
-const NARRATION_PRICE_PER_100_CHARS_MINOR = fromYuan(0.02);
 
 type NarrationQuoteClaims = {
   version: 1;
@@ -162,15 +163,6 @@ function sha256(value: string): string {
 
 function narrationTextHash(text: string): string {
   return sha256(text.trim());
-}
-
-/** Product-side maximum charge. Provider changes require a new price version. */
-export function estimateStoryNarrationCostMinor(text: string): number {
-  const characters = Array.from(text.trim()).length;
-  return Math.max(
-    NARRATION_PRICE_PER_100_CHARS_MINOR,
-    Math.ceil(characters / 100) * NARRATION_PRICE_PER_100_CHARS_MINOR
-  );
 }
 
 function quoteSigningKey(): string {

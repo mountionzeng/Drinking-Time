@@ -1,12 +1,21 @@
 import { trpc } from "@/lib/trpc";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { refreshComputeAfterMutation } from "@/features/computeAccount/computeBalanceRefresh";
+import {
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient: QueryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onSettled: () => refreshComputeAfterMutation(queryClient),
+  }),
+});
 
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CreationEditorShot } from "@/features/creationEditor/types";
-import { storyboardShotCostEstimate } from "./storyboardReviewModel";
+import { storyboardShotCostEstimate, storyboardVideoCostEstimate } from "./storyboardReviewModel";
 
 const shot = {
   shotNo: 1,
@@ -32,4 +32,24 @@ describe("storyboardShotCostEstimate", () => {
     expect(estimate.imageCny).toBe(1.49);
     expect(estimate.totalCny).toBe(2.37);
   });
+});
+
+
+describe("start/end storyboard estimate", () => {
+  it("uses Vidu resolution and duration instead of the generic 0.175/sec rate", () => {
+    const configured = { ...shot, generationParams: JSON.stringify({frameMode: "start_end", firstFrameImageId: 1, lastFrameImageId: 2, durationSec: 3, resolution: "1080p"}) };
+    expect(storyboardVideoCostEstimate(configured)).toBe(1.87);
+    expect(storyboardShotCostEstimate(configured, {}).totalCny).toBe(2.55);
+  });
+  it("derives the same default 1080p route when two frames select start/end automatically", () => {
+    const configured = { ...shot, imageVersions: [{id: 1, imageUrl: "/first.png"}, {id: 2, imageUrl: "/last.png"}] } as CreationEditorShot;
+    expect(storyboardVideoCostEstimate(configured)).toBe(2.54);
+  });
+});
+
+
+it("does not advertise free local motion when the endpoints require different pixels", () => {
+  const moving = { ...shot, action: "", performance: "", environmentMotion: "", videoPrompt: "缓慢放大", cameraMove: "缓慢放大", generationParams: JSON.stringify({frameMode: "start_end", firstFrameImageId: 1, lastFrameImageId: 2, durationSec: 3, resolution: "1080p"}) } as CreationEditorShot;
+  expect(storyboardVideoCostEstimate(moving)).toBe(1.87);
+  expect(storyboardVideoCostEstimate({...moving, generationParams: undefined})).toBe(0);
 });
