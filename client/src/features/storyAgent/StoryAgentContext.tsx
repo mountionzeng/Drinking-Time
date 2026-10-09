@@ -14,6 +14,8 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { LegacyStoryRecovery } from "./views/LegacyStoryRecovery";
+import { importLegacyStoryDraft } from "./legacyStoryRecovery";
 import { useSelectionImageRerender, renderSelectionRevision } from "./useSelectionImageRerender";
 import { selectionBelongsToStory } from "./selectionStoryScope";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
@@ -1042,12 +1044,14 @@ function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
 }
 
 export function StoryAgentProvider({
+  userId,
   projectId,
   onActiveStoryChange,
   editingCommandRunner,
   interactionMode = "story",
   children,
 }: {
+  userId: number | null;
   projectId: number | null;
   // 把"当前打开的故事"向上同步给共享真相源（U4）——故事是唯一单位，
   // Creation 侧（Shot Table / creation 聊天）跟随这个值。
@@ -1139,6 +1143,8 @@ export function StoryAgentProvider({
   const returningGreeting = useStorySpine(state => state.returningGreeting);
   const activeSelection = useStorySpine(state => state.activeSelection);
   const hydratedFor = useStorySpine(state => state.hydratedFor);
+  const accountId = useStorySpine(state => state.accountId);
+  const ownsScope = userId !== null && accountId === userId;
 
   const setMessages = useStorySpine(state => state.setMessages);
   const setCards = useStorySpine(state => state.setCards);
@@ -1192,7 +1198,7 @@ export function StoryAgentProvider({
   const storyConversationQuery = trpc.storyConversation.list.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
     {
-      enabled: Boolean(activeStoryId && activeStoryId > 0),
+      enabled: ownsScope && Boolean(activeStoryId && activeStoryId > 0),
       refetchOnWindowFocus: false,
     }
   );
@@ -1202,23 +1208,27 @@ export function StoryAgentProvider({
   useEffect(() => {
     if (!onActiveStoryChange) return;
     onActiveStoryChange(
-      activeStoryId && activeStoryId > 0 ? activeStoryId : null
+      ownsScope && activeStoryId && activeStoryId > 0 ? activeStoryId : null
     );
-  }, [activeStoryId, onActiveStoryChange]);
+  }, [ownsScope, activeStoryId, onActiveStoryChange]);
   const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
   const recentStoryOpenedForProjectRef = useRef<number | null>(null);
+  useEffect(() => {
+    storySpineStore.getState().bindAccountScope(userId);
+    recentStoryOpenedForProjectRef.current = null;
+  }, [userId]);
 
   // Hydrate from localStorage when projectId becomes available / changes
   useEffect(() => {
-    if (projectId === null) return;
+    if (!ownsScope || projectId === null) return;
     if (hydratedFor === projectId) return;
-    let persisted = loadState(projectId);
+    let persisted = loadState(projectId, userId);
     // This project's slot is empty — likely the projectId drifted after a server
     // reset. Pull back the story stranded under the old projectId instead of
     // showing a blank workspace.
     const slotEmpty = !hasStoryWork(persisted);
     if (slotEmpty) {
-      const orphan = findOrphanStory(projectId);
+      const orphan = findOrphanStory(projectId, userId);
       if (orphan) {
         persisted = orphan;
         toast.success("已从本地备份恢复上次的故事");
@@ -1274,6 +1284,8 @@ export function StoryAgentProvider({
     setServerRevision(restoredRevision);
     setHydratedFor(projectId);
   }, [
+    ownsScope,
+    userId,
     hydratedFor,
     projectId,
     setActiveStoryId,
@@ -1305,7 +1317,7 @@ export function StoryAgentProvider({
   // Story loading is now handled explicitly via loadStory() from the story list.
 
   useEffect(() => {
-    if (!activeStoryId || activeStoryId <= 0 || !storyConversationQuery.data) {
+    if (!ownsScope || !activeStoryId || activeStoryId <= 0 || !storyConversationQuery.data) {
       return;
     }
     const projection = storyConversationQuery.data;
@@ -1317,12 +1329,12 @@ export function StoryAgentProvider({
         candidates: projection.candidates,
       })
     );
-  }, [activeStoryId, setMessages, storyConversationQuery.data]);
+  }, [ownsScope, activeStoryId, setMessages, storyConversationQuery.data]);
 
   // Persist on change
   useEffect(() => {
-    const key = storageKey(projectId);
-    if (!key || hydratedFor !== projectId) return;
+    const key = storageKey(projectId, userId);
+    if (!ownsScope || !key || hydratedFor !== projectId) return;
     const data: PersistedState = {
       messages,
       cards,
@@ -1352,6 +1364,8 @@ export function StoryAgentProvider({
       // ignore quota errors
     }
   }, [
+    ownsScope,
+    userId,
     projectId,
     messages,
     cards,
@@ -1391,13 +1405,14 @@ export function StoryAgentProvider({
 
   // ── Auto-save: 5-minute timer ───────────────────────────────────────
   useEffect(() => {
-    if (projectId === null) return;
+    if (!ownsScope || projectId === null || hydratedFor !== projectId) return;
 
     const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
     const INACTIVITY_THRESHOLD_MS = 2_000;
 
     const timerId = setInterval(() => {
       const current = storySpineStore.getState();
+      if (current.accountId !== userId || current.hydratedFor !== projectId) return;
       // Skip while Agent is actively generating
       if (current.isReplying || current.isGeneratingScript) return;
 
@@ -1455,7 +1470,7 @@ export function StoryAgentProvider({
     }, AUTO_SAVE_INTERVAL_MS);
 
     return () => clearInterval(timerId);
-  }, [projectId, saveSnapshotMut]);
+  }, [ownsScope, userId, hydratedFor, projectId, saveSnapshotMut]);
 
   const saveArchiveStory = useCallback(
     (snapshot: {
@@ -1505,6 +1520,7 @@ export function StoryAgentProvider({
       const save = async () => {
         try {
           const latestState = storySpineStore.getState();
+          if (userId === null || latestState.accountId !== userId) return undefined;
           const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
           if (
             !canPersistStorySnapshot({
@@ -1579,6 +1595,7 @@ export function StoryAgentProvider({
             return saved.id;
           }
         } catch (error) {
+          if (storySpineStore.getState().accountId !== userId || storySpineStore.getState().storyScopeEpoch !== snapshotScopeEpoch) return undefined;
           console.warn("save archive story failed", error);
           // 保留远端 ID 原样重试。失败就清 id 会让下一次保存把整篇故事另存成
           // 新副本（服务端对查不到的 id 会降级新建）——服务器重启抖动时曾一小时
@@ -1596,6 +1613,7 @@ export function StoryAgentProvider({
       return queued;
     },
     [
+      userId,
       projectId,
       setActiveStoryId,
       setLastSavedAt,
@@ -1646,6 +1664,7 @@ export function StoryAgentProvider({
   );
 
   useEffect(() => {
+    if (!ownsScope || projectId === null) return;
     if (projectId !== null && hydratedFor !== projectId) return;
     if (isReplying || isGeneratingScript) return;
     if (!canPersistStoryToActiveScope(remoteStoryId, activeStoryId)) return;
@@ -1697,12 +1716,15 @@ export function StoryAgentProvider({
     if (currentHash === storySpineStore.getState().lastArchiveSaveHash) return;
 
     const timerId = window.setTimeout(() => {
+      if (storySpineStore.getState().accountId !== userId) return;
       setLastArchiveSaveHash(currentHash);
       void saveArchiveStory(snapshot);
     }, 1_500);
 
     return () => window.clearTimeout(timerId);
   }, [
+    ownsScope,
+    userId,
     messages,
     cards,
     scripts,
@@ -2749,6 +2771,7 @@ export function StoryAgentProvider({
 
   const refreshStoryList = useCallback(
     async (options?: { allowRecentColdEntryCache?: boolean }) => {
+      if (userId === null || storySpineStore.getState().accountId !== userId) return false;
       setIsLoadingStories(true);
       try {
         const data = await utils.storyAgent.storyList.fetch(
@@ -2757,6 +2780,7 @@ export function StoryAgentProvider({
             ? coldEntryStoryListFetchOptions()
             : undefined
         );
+        if (storySpineStore.getState().accountId !== userId) return false;
         const items: StoryListItem[] = (data.stories ?? []).map(s => ({
           id: s.id,
           title: s.title,
@@ -2785,11 +2809,11 @@ export function StoryAgentProvider({
         console.warn("refreshStoryList failed", error);
         return false;
       } finally {
-        setIsLoadingStories(false);
+        if (storySpineStore.getState().accountId === userId) setIsLoadingStories(false);
       }
       return true;
     },
-    [utils.storyAgent.storyList]
+    [userId, utils.storyAgent.storyList]
   );
 
   const clearCurrentStory = useCallback(() => {
@@ -2826,6 +2850,7 @@ export function StoryAgentProvider({
       id: number,
       options?: { silent?: boolean; expectedActiveStoryId?: number | null }
     ) => {
+      if (userId === null || storySpineStore.getState().accountId !== userId) return;
       const hasExpectedStory =
         options !== undefined && "expectedActiveStoryId" in options;
       if (
@@ -2998,6 +3023,7 @@ export function StoryAgentProvider({
               id,
               suggestedTitle,
             });
+            if (storySpineStore.getState().storyLoadEpoch !== loadEpoch) return;
             if (renamed.status === "ok" || renamed.status === "skipped") {
               if (
                 storyScopeMatches(id, storySpineStore.getState().activeStoryId)
@@ -3016,6 +3042,7 @@ export function StoryAgentProvider({
         }
 
         // Auto-open panels if the loaded story has shots (previously generated storyboard).
+        if (storySpineStore.getState().storyLoadEpoch !== loadEpoch) return;
         if (restoredShots.length > 0) {
           const currentPanels = storySpineStore.getState().visibleStoryPanels;
           const panelsToAdd: Array<
@@ -3033,11 +3060,12 @@ export function StoryAgentProvider({
           }
         }
       } catch (error) {
+        if (storySpineStore.getState().storyLoadEpoch !== loadEpoch) return;
         console.error("loadStory failed", error);
         toast.error("加载故事失败");
       }
     },
-    [setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
+    [userId, setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
   );
   const refreshRecentStoryListRef = useRef(refreshStoryList);
   const loadStoryRef = useRef(loadStory);
@@ -3046,6 +3074,7 @@ export function StoryAgentProvider({
 
   useEffect(() => {
     if (
+      !ownsScope ||
       projectId === null ||
       hydratedFor !== projectId ||
       recentStoryOpenedForProjectRef.current === projectId
@@ -3099,7 +3128,7 @@ export function StoryAgentProvider({
     return () => {
       cancelled = true;
     };
-  }, [hydratedFor, projectId]);
+  }, [ownsScope, hydratedFor, projectId]);
 
   useEffect(() => {
     if (!activeStoryId || activeStoryId < 1) return;
@@ -4502,10 +4531,28 @@ export function StoryAgentProvider({
     []
   );
 
+  if (!ownsScope) return null;
+
   return (
     <StoryAgentActionsContext.Provider value={stableActions}>
       <StoryAgentContext.Provider value={value}>
-        {children}
+        <div className="flex h-full min-h-0 flex-col">
+          <LegacyStoryRecovery key={userId} userId={userId!} onImport={key => {
+            const current = storySpineStore.getState();
+            if (!projectId || current.accountId !== userId || current.saveStatus === "saving" || current.saveStatus === "error" || current.isReplying || current.isGeneratingScript) {
+              toast.error("请等当前故事保存完成后再导入"); return false;
+            }
+            try {
+              importLegacyStoryDraft({ storage: window.localStorage, sourceKey: key, userId: userId!, projectId, confirmed: true });
+              current.bindAccountScope(null);
+              storySpineStore.getState().bindAccountScope(userId);
+              return true;
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "无法导入旧草稿，原内容已保留"); return false;
+            }
+          }} />
+          <div className="min-h-0 flex-1">{children}</div>
+        </div>
       </StoryAgentContext.Provider>
     </StoryAgentActionsContext.Provider>
   );

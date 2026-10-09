@@ -3,7 +3,7 @@
  *
  * 从 StoryAgentContext「大脑」里拆出来的一块：定义「持久化状态」的形状（PersistedState），
  * 以及如何从 localStorage 读取、清洗、评分、判断「这个故事到底有没有真实进展」。
- * 状态按 projectId 分键存储，刷新后对话还在。一律纯函数 + 直接读 localStorage，不碰 React。
+ * 状态按账号及 projectId 分键存储，刷新后对话还在。一律纯函数 + 直接读 localStorage，不碰 React。
  */
 import {
   type ChatMessage,
@@ -76,9 +76,11 @@ export interface PersistedState {
   publishingBuffers?: PublishingDraftBufferMap;
 }
 
-// localStorage 的键：每个 projectId 一个槽位；没有 projectId 就返回 null（不存）。
-export const storageKey = (projectId: number | null) =>
-  projectId ? `dt:storyAgent:${projectId}` : null;
+// localStorage 按账号与 projectId 分槽；身份未就绪时不读写缓存。
+export const storageKey = (projectId: number | null, userId: number | null) =>
+  projectId && userId && Number.isSafeInteger(userId) && userId > 0
+    ? `dt:storyAgent:user:${userId}:project:${projectId}`
+    : null;
 
 // 全新空状态：不放开场白。原先这里会先播一条聊聊的自我介绍 + 邀请，
 // 但下方「新故事 · 第一步」卡已经在引导用户选方向，开场白只是把第一屏占满。
@@ -350,9 +352,9 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
   };
 }
 
-// 按 projectId 从 localStorage 读出并清洗；读不到 / 解析失败都安全回退空状态。
-export function loadState(projectId: number | null): PersistedState {
-  const key = storageKey(projectId);
+// 只读取当前账号对应项目的缓存；读不到 / 解析失败都安全回退空状态。
+export function loadState(projectId: number | null, userId: number | null): PersistedState {
+  const key = storageKey(projectId, userId);
   if (!key) return emptyState();
   try {
     const raw = localStorage.getItem(key);
@@ -369,7 +371,7 @@ export function storyWorkScore(state: PersistedState): number {
     state.cards.length * 100 +
     state.storyShots.length * 80 +
     state.scripts.length * 60 +
-    Math.max(0, state.messages.length - 1) * 20 +
+    Math.max(state.messages.some(message => message.role === "user") ? 1 : 0, state.messages.length - 1) * 20 +
     (state.visualCanvasItems?.length ?? 0) * 40 +
     (state.artDirection?.candidates.length ?? 0) * 25 +
     (state.artDirection?.recipe ? 80 : 0) +
@@ -417,17 +419,20 @@ export function hasLiveStoryWork(state: {
   );
 }
 
-// projectId 会在本地 / 部署间漂移。当前槽位空时，从旧 projectId 的槽位里捞出「最实」的那个故事，
+// projectId 会在本地 / 部署间漂移。当前槽位空时，只从同一账号旧 projectId 的槽位恢复故事，
 // 避免用户的工作看起来凭空消失。只读不删，源槽位保持不动。
 export function findOrphanStory(
-  currentProjectId: number
+  currentProjectId: number,
+  userId: number | null
 ): PersistedState | null {
-  const currentKey = storageKey(currentProjectId);
+  const currentKey = storageKey(currentProjectId, userId);
+  if (!currentKey) return null;
+  const prefix = `dt:storyAgent:user:${userId}:project:`;
   let best: { state: PersistedState; score: number; savedAt: number } | null =
     null;
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (!key || !key.startsWith("dt:storyAgent:") || key === currentKey)
+    if (!key || !key.startsWith(prefix) || key === currentKey)
       continue;
     try {
       const raw = localStorage.getItem(key);

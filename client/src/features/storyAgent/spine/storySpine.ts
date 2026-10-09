@@ -84,6 +84,7 @@ type StorySpineData = {
    */
   playheadMs: number;
   hydratedFor: number | null;
+  accountId: number | null;
   sessionId: string;
   lastSnapshotHash: string;
   lastArchiveSaveHash: string;
@@ -171,6 +172,7 @@ type StorySpineActions = {
     replacement: StoryScopeReplacement
   ) => boolean;
   resetStorySpine: () => void;
+  bindAccountScope: (userId: number | null) => void;
 };
 
 export type StorySpineState = StorySpineData & StorySpineActions;
@@ -220,6 +222,7 @@ function initialData(): StorySpineData {
     activeSelection: null,
     playheadMs: 0,
     hydratedFor: null,
+    accountId: null,
     sessionId: sessionId(),
     lastSnapshotHash: "",
     lastArchiveSaveHash: "",
@@ -339,6 +342,11 @@ export const useStorySpine = create<StorySpineState>()(set => {
       return replaced;
     },
     resetStorySpine: () => set(initialData()),
+    bindAccountScope: userId => set(state => state.accountId === userId ? state : {
+      ...initialData(), accountId: userId,
+      storyScopeEpoch: state.storyScopeEpoch + 1,
+      storyLoadEpoch: state.storyLoadEpoch + 1,
+    }),
   };
 });
 

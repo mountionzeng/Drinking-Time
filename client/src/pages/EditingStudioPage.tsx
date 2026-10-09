@@ -620,6 +620,7 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
+  const { user } = useAuth();
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
@@ -850,6 +851,7 @@ export default function EditingStudioPage() {
       />
       <div className="relative z-10 min-h-0 flex-1">
         <StoryAgentProvider
+          userId={user?.id ?? null}
           projectId={currentProjectId}
           editingCommandRunner={runEditingCommand}
           interactionMode={interactionMode}

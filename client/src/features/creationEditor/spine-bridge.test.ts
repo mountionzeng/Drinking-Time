@@ -57,7 +57,7 @@ describe("creation editor spine boundary", () => {
     );
     expect(storyContext).toContain("const loadStoryRef = useRef(loadStory)");
     expect(storyContext).toMatch(
-      /refreshRecentStoryListRef\.current[\s\S]*?loadStoryRef\.current[\s\S]*?\}, \[hydratedFor, projectId\]\);/
+      /refreshRecentStoryListRef\.current[\s\S]*?loadStoryRef\.current[\s\S]*?\}, \[ownsScope, hydratedFor, projectId\]\);/
     );
   });
 

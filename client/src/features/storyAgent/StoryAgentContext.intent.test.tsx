@@ -103,6 +103,12 @@ describe('StoryAgentContext intent state', () => {
 
   it('exposes shared confirmedIntent state and controls from context', async () => {
     const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
+    const spine = await import('./spine/storySpine');
+    const { storySpineStore } = spine;
+    storySpineStore.getState().bindAccountScope(1);
+    const subscription = vi.spyOn(spine, 'useStorySpine').mockImplementation(
+      ((selector: (state: ReturnType<typeof storySpineStore.getState>) => unknown) => selector(storySpineStore.getState())) as typeof spine.useStorySpine,
+    );
 
     function Inspector() {
       const ctx = useStoryAgent();
@@ -118,7 +124,7 @@ describe('StoryAgentContext intent state', () => {
     }
 
     const html = renderToStaticMarkup(
-      <StoryAgentProvider projectId={null}>
+      <StoryAgentProvider userId={1} projectId={null}>
         <Inspector />
       </StoryAgentProvider>,
     );
@@ -126,6 +132,7 @@ describe('StoryAgentContext intent state', () => {
     expect(html).toContain('&quot;confirmedIntent&quot;:null');
     expect(html).toContain('&quot;canSet&quot;:true');
     expect(html).toContain('&quot;canClear&quot;:true');
+    subscription.mockRestore();
   });
 
   it('resolves generateScript intent from context when no override is passed', async () => {

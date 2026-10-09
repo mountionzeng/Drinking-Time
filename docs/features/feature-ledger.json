@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T02:00:00.000Z",
+  "updatedAt": "2026-10-09T03:00:00.000Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -274,7 +274,8 @@
       "userValue": "同一项目中的不同故事不会互相覆盖镜头、素材和编辑状态。",
       "entryPoints": [
         "server/routers/storyAgent.ts",
-        "server/routers/creationAgent.ts"
+        "server/routers/creationAgent.ts",
+        "client/src/features/storyAgent/views/LegacyStoryRecovery.tsx"
       ],
       "owners": [
         "server/repositories/stories.ts",
@@ -283,7 +284,10 @@
         "server/repositories/runtime.ts",
         "server/services/storySync.ts",
         "server/services/storyMaterials.ts",
-        "client/src/features/storyAgent/selectionStoryScope.ts"
+        "client/src/features/storyAgent/selectionStoryScope.ts",
+        "client/src/features/storyAgent/storyAgentPersistence.ts",
+        "client/src/features/storyAgent/legacyStoryRecovery.ts",
+        "client/src/features/storyAgent/spine/storySpine.ts"
       ],
       "evidence": [
         "server/routers.storyAgent.test.ts",
@@ -298,7 +302,9 @@
         "server/repositories/stateCompatibility.test.ts",
         "server/services/storySync.publishing.test.ts",
         "server/services/storySync.preserve-rationale.test.ts",
-        "docs/qa/2026-10-03-editor-button-audit.md"
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "client/src/features/storyAgent/legacyStoryRecovery.test.ts",
+        "docs/qa/2026-10-09-production-google-login.md"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -307,7 +313,8 @@
         "同一 Story 内的时间线视频按 takeId 直接引用素材仓库资产；Take 的 stableShotId 只记录生成来源，删除来源镜头不得让仍引用该 takeId 的其它镜头失去播放能力。",
         "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。",
         "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。",
-        "聊天选区属于故事：切换故事必须清除 activeSelection，且读取侧按 storyId 兜底——storyId 与当前故事不符的选区一律读成「没有选区」，不渲染也不随消息发送。"
+        "聊天选区属于故事：切换故事必须清除 activeSelection，且读取侧按 storyId 兜底——storyId 与当前故事不符的选区一律读成「没有选区」，不渲染也不随消息发送。",
+        "网页草稿只能自动恢复当前账号的缓存；归属不明旧缓存必须明确确认后复制，原内容保留，不覆盖当前草稿或复用旧远端故事ID。"
       ],
       "dependencies": [],
       "replaces": [
@@ -317,6 +324,11 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "经用户批准修复旧projectId缓存跨账号自动恢复：新键按账号隔离，切换身份重置内存并拒绝迟到加载/保存，旧缓存只经确认复制导入，保留原文和发布草稿版本。539项相关测试及main:3000提示/取消验收通过；真实双账号切换未手测。正式误恢复故事#101已私有备份并保留，已发布最小前端补丁，公网资源校验及正式Chrome刷新验收通过，仍为4用户/2故事且归属不变。"
+        },
         {
           "date": "2026-10-03",
           "kind": "fix",
@@ -3234,6 +3246,11 @@
       "knownGaps": [],
       "history": [
         {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "最近故事自动进入增加账号就绪条件；同账号草稿继续自动恢复，旧无归属缓存经用户授权改为明确确认后导入，保留原缓存。539项相关回归通过。"
+        },
+        {
           "date": "2026-10-02",
           "kind": "fix",
           "summary": "承接分享后支持 /editing?storyId= 指定独立故事，等待项目初始化后加载；手动切换优先，沿用加载epoch和归属校验。保留没有指定ID时的最近故事进入行为，解析/现有入口和全量回归通过，主仓浏览器确认。"
@@ -3894,7 +3911,7 @@
         {
           "date": "2026-10-09",
           "kind": "fix",
-          "summary": "正式站 Google 400 已定位为 www 回调未登记，且阿里云直连 Google token API 超时；补配置解析防止托管配置缺失时静默退回直连，诊断接口返回实际两段回调，正式环境要求固定 HTTPS origin。新增配置与 HTTP 路由回归，保留账号归属、邀请开关及账号隔离；发布脚本加入真实入口与上游重定向检查。88 项账号/认证测试及类型检查通过，正式回调白名单与真实登录验收状态见本次 QA。 用户确认后仅为三个经唯一性核对的原邮箱账号补登记身份；已保存正式站回调并部署基于线上9ceba9c的最小后端补丁。服务器和本机公网入口检查通过，真实Google登录及刷新成功，身份仍为原userId 1，4用户/1故事不变。没有部署计费工作树或合并账号。"
+          "summary": "正式站 Google 400 已定位为 www 回调未登记，且阿里云直连 Google token API 超时；补配置解析防止托管配置缺失时静默退回直连，诊断接口返回实际两段回调，正式环境要求固定 HTTPS origin。新增配置与 HTTP 路由回归，保留账号归属、邀请开关及账号隔离；发布脚本加入真实入口与上游重定向检查。88 项账号/认证测试及类型检查通过，正式回调白名单与真实登录验收状态见本次 QA。 用户确认后仅为三个经唯一性核对的原邮箱账号补登记身份；已保存正式站回调并部署基于线上9ceba9c的最小后端补丁。服务器和本机公网入口检查通过，真实Google登录及刷新成功，身份仍为原userId 1，用户仍为4；随后刷新暴露旧本机草稿自动恢复串账号问题，新增userId 1的故事#101，最终2故事，原userId 11故事未移动；#101已私有备份并按用户要求保留，详见QA后续修复。没有部署计费工作树或合并账号。"
         }
       ]
     },

@@ -6,6 +6,7 @@ import {
   CreationAgentProvider,
   useCreationAgent,
 } from "@/features/creationAgent/CreationAgentContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import ShotImageWorkspace from "@/features/creationAgent/views/ShotImageWorkspace";
 import ShotTable from "@/features/analysis/views/ShotTable";
 import {
@@ -191,6 +192,7 @@ function CreationWorkspaceInner({
 }
 
 export default function CreationPage() {
+  const { user } = useAuth();
   // 与 Analysis 共用同一套项目数据：取当前项目 id，让 /creation 显示同一项目的镜头。
   const {
     currentProjectId,
@@ -202,6 +204,7 @@ export default function CreationPage() {
 
   return (
     <StoryAgentProvider
+      userId={user?.id ?? null}
       projectId={currentProjectId}
       onActiveStoryChange={setActiveStoryId}
     >
