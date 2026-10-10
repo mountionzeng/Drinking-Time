@@ -21,6 +21,20 @@ describe("compute payment admission", () => {
       );
       await expect(caller.availability()).resolves.toMatchObject({
         available: false,
+        plans: [
+          {
+            amountFen: 1990,
+            computeUnits: 20,
+            interval: "month",
+            rollover: true,
+          },
+          {
+            amountFen: 19900,
+            computeUnits: 200,
+            interval: "month",
+            rollover: true,
+          },
+        ],
       });
       await expect(caller.createOrder()).rejects.toMatchObject({
         code: "PRECONDITION_FAILED",
