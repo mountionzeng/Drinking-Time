@@ -204,6 +204,20 @@
       "when": 1791542382607,
       "tag": "0028_phone_login",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1791590400000,
+      "tag": "0029_memory_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1791709581165,
+      "tag": "0030_text_source_lineage",
+      "breakpoints": true
     }
   ]
 }

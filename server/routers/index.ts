@@ -69,7 +69,11 @@ import { computeAccountRouter } from "./computeAccount";
 import { computePaymentRouter } from "./computePayment";
 import { personalMemoryRouter } from "./personalMemory";
 import { publishingDraftRouter } from "./publishingDraft";
+import { textSourceLineageRouter } from "./textSourceLineage";
+import { downstreamRegenerationRouter } from "./downstreamRegeneration";
+import { creationFlowRouter } from "./creationFlow";
 import { textDraftsRouter } from "./textDrafts";
+import { memoryWarehouseRouter } from "./memoryWarehouse";
 import { visualAssetsRouter } from "./visualAssets";
 import { timelineMediaRouter } from "./timelineMedia";
 import { storySoundDirectorRouter } from "./storySoundDirector";
@@ -1169,6 +1173,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   storyContextShare: storyContextShareRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,
+  textSourceLineage: textSourceLineageRouter,
+  downstreamRegeneration: downstreamRegenerationRouter,
+  creationFlow: creationFlowRouter,
+  memoryWarehouse: memoryWarehouseRouter,
   visualAssets: visualAssetsRouter,
 
   // Subtitle + multi-audio-track narrow commands (one write path per U1/U3).

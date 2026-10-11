@@ -76,6 +76,7 @@ import {
   hasStoryWork,
   activeStoryIdFrom,
   hasLiveStoryWork,
+  shouldSaveArchiveStory,
   remapPublishingBuffers,
   reconcilePublishingBuffersFromState,
   setPublishingBuffer as putPublishingBuffer,
@@ -472,7 +473,7 @@ interface StoryAgentContextValue {
     platform: PublishingPlatformId,
     versionId?: string
   ) => void;
-  ensureActiveStoryPersisted: () => Promise<number>;
+  ensureActiveStoryPersisted: (forceSave?: boolean) => Promise<number>;
   confirmedIntent: StoryIntent | null;
   setConfirmedIntent: (intent: StoryIntent | null) => void;
   clearIntent: () => void;
@@ -1456,8 +1457,8 @@ export function StoryAgentProvider({
       publishing?: PublishingDraftState;
       publishingBuffers?: Record<string, PublishingDraftBuffer>;
       baseRevision?: number;
-    }): Promise<number | undefined> => {
-      if (!hasLiveStoryWork(snapshot)) return Promise.resolve(undefined);
+    }, saveReason: "automatic" | "explicit" = "automatic"): Promise<number | undefined> => {
+      if (!shouldSaveArchiveStory(snapshot, saveReason)) return Promise.resolve(undefined);
       const current = storySpineStore.getState();
       const snapshotScopeEpoch = current.storyScopeEpoch;
       const latest =
@@ -1715,12 +1716,12 @@ export function StoryAgentProvider({
     setLastArchiveSaveHash,
   ]);
 
-  const ensureActiveStoryPersisted = useCallback(async (): Promise<number> => {
+  const ensureActiveStoryPersisted = useCallback(async (forceSave = false): Promise<number> => {
     const current = storySpineStore.getState();
-    if (current.activeStoryId && current.activeStoryId > 0) {
+    if (!forceSave && current.activeStoryId && current.activeStoryId > 0) {
       return current.activeStoryId;
     }
-    if (current.activeStoryId !== -1) {
+    if (current.activeStoryId !== -1 && !(forceSave && current.activeStoryId && current.activeStoryId > 0)) {
       throw new Error("请先开始或打开一个故事");
     }
     const savedId = await saveArchiveStory({
@@ -1741,7 +1742,7 @@ export function StoryAgentProvider({
       publishing: current.publishing,
       publishingBuffers: current.publishingBuffers,
       baseRevision: current.serverRevision,
-    });
+    }, "explicit");
     if (!savedId) throw new Error("故事保存失败，请稍后重试");
     return savedId;
   }, [saveArchiveStory]);

@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { PUBLISHING_PLATFORM_IDS } from "./publishingDraft";
+import {
+  memoryCardSelectionSchema,
+  memoryCardSnapshotSchema,
+} from "./memoryWarehouse";
 
 export const textDraftContentSchema = z.object({
   title: z.string().max(160),
@@ -27,6 +31,7 @@ export const textDraftRequestSchema = z.object({
   messages: z.array(textDraftMessageSchema).max(200),
   instruction: z.string().max(8_000),
   source: textSourceSchema,
+  memoryCardIds: memoryCardSelectionSchema.optional(),
 });
 export type TextDraftRequest = z.infer<typeof textDraftRequestSchema>;
 export type TextDraftMessage = z.infer<typeof textDraftMessageSchema>;
@@ -58,6 +63,7 @@ export const textDraftVersionSchema = z.object({
   systemPrompt: z.string(),
   modelMessage: z.string(),
   modelLabel: z.string().optional(),
+  memoryCards: z.array(memoryCardSnapshotSchema).optional(),
   originalLearningEnabled: z.boolean().optional(),
   generated: textDraftContentSchema.optional(),
   observation: writingObservationSchema.optional(),

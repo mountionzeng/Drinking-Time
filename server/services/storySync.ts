@@ -86,6 +86,10 @@ const SERVER_OWNED_BODY_FIELDS = [
   "visualAssets",
   "finishedProduct",
   "textDraftHistory",
+  "textSourceLineage",
+  "storyboardTextSource",
+  "creationFlowReceipts",
+  "creationFlowCommandReceipts",
 ] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [
@@ -455,7 +459,7 @@ export function prepareStoryBody(
   for (const field of SERVER_OWNED_BODY_FIELDS) {
     if (hasOwn(existing, field)) {
       prepared[field] = existing[field];
-    } else if (field === "textDraftHistory") {
+    } else if (["textDraftHistory", "textSourceLineage", "storyboardTextSource", "creationFlowReceipts", "creationFlowCommandReceipts"].includes(field)) {
       // Generic saves cannot fabricate model results or adopted learning evidence.
       delete prepared[field];
     }

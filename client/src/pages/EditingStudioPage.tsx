@@ -6,6 +6,7 @@
  */
 import {
   Clapperboard,
+  BookOpen,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -13,6 +14,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
+import MemoryWarehouse from "@/features/memoryWarehouse/MemoryWarehouse";
+import { OPEN_MEMORY_WAREHOUSE } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
   Dialog,
   DialogContent,
@@ -325,9 +328,30 @@ function EditingStudioBody({
     useState<VideoClipEditorTarget | null>(null);
   const previousStoryIdRef = useRef<number | null>(null);
   const hasEnteredStoryRef = useRef(false);
+  const creationFlowOrigin = useRef<StudioWorkspace | null>(null);
   const dirtyBuffers = Object.values(publishingBuffers).filter(
     buffer => buffer.storyId === activeStoryId
   );
+
+  useEffect(() => { creationFlowOrigin.current = null; }, [activeStoryId]);
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ storyId: number; target: string }>).detail;
+      if (detail?.storyId !== activeStoryId) return;
+      if (detail.target === "origin") {
+        if (creationFlowOrigin.current) onWorkspaceChange(creationFlowOrigin.current);
+        creationFlowOrigin.current = null;
+        return;
+      }
+      if (!["memory", "publishing", "storyboard", "editing"].includes(detail.target)) return;
+      creationFlowOrigin.current ??= workspace;
+      setChatCollapsed(false);
+      onWorkspaceChange(detail.target === "memory" ? "publishing" : detail.target as StudioWorkspace);
+      if (detail.target === "memory") window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE));
+    };
+    window.addEventListener("dt:creation-flow-focus", navigate);
+    return () => window.removeEventListener("dt:creation-flow-focus", navigate);
+  }, [activeStoryId, workspace, onWorkspaceChange]);
 
   useEffect(() => {
     const previousStoryId = previousStoryIdRef.current;
@@ -467,6 +491,7 @@ function EditingStudioBody({
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
+      <MemoryWarehouse onOpenWriting={() => onWorkspaceChange("publishing")} />
       <div className="flex h-full min-h-0">
         {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
         <div
@@ -809,6 +834,15 @@ export default function EditingStudioPage() {
                 >
                   <MediaLibraryIllustration />
                   <span className="shiguang-nav-label">素材仓库</span>
+                </button>
+              </div>
+            ) : option.id === "publishing" && workspace === "publishing" ? (
+              <div className="editing-media-subnav flex flex-col items-center" role="group" aria-label="文字子类目">
+                <span className="editing-media-subnav-stem" aria-hidden="true" />
+                <button type="button" aria-controls="writing-memory-warehouse" aria-haspopup="dialog"
+                  onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}
+                  className="editing-media-subnav-button shiguang-toolbar-button inline-flex min-h-8 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35">
+                  <BookOpen className="h-4 w-4" /><span className="shiguang-nav-label">记忆仓库</span>
                 </button>
               </div>
             ) : undefined,

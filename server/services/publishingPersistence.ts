@@ -2187,6 +2187,7 @@ export async function writeFinishedProductState(params: {
         purpose: params.command.purpose,
         current: {
           textVersionId: publishing.activeVersionId ?? "v1",
+          textSource: publishing.versions?.find(v => v.versionId === publishing.activeVersionId)?.textSource,
           images: media.images,
           videos: media.videos,
         },

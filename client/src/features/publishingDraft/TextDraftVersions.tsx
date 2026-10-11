@@ -90,6 +90,8 @@ export function TextDraftVersions({
     }
   );
   const generate = trpc.textDrafts.generate.useMutation({ retry: false });
+  const sourceQuery = trpc.textSourceLineage.impact.useQuery({ storyId: storyId ?? 0 }, { enabled: open && Boolean(storyId && storyId > 0), retry: false });
+  const currentSource = sourceQuery.data?.current;
   const adopt = trpc.textDrafts.adopt.useMutation({ retry: false });
   const learning = trpc.textDrafts.setLearning.useMutation({ retry: false });
   const platform = publishing.activePlatform;
@@ -428,6 +430,7 @@ export function TextDraftVersions({
                 onClick={() => selectVersion(version)}
               >
                 文字 {version.sequence}
+                {currentSource && "textDraftId" in currentSource && currentSource.textDraftId === version.id ? " · 当前来源" : ""}
                 {version.adoption
                   ? " · 已采用"
                   : version.status === "ready"
@@ -451,11 +454,18 @@ export function TextDraftVersions({
           {selected && edited && (
             <>
               <p className="text-xs text-muted-foreground">
-                {selected.request.parentId
+                {selected.memoryCards?.length ? `使用 ${selected.memoryCards.length} 张记忆卡片` : selected.request.parentId
                   ? `基于文字 ${versions.find(v => v.id === selected.request.parentId)?.sequence ?? "历史版本"}`
                   : "首次整理"}{" "}
                 · 新增或修改对话 {selected.conversationDelta.length} 条
               </p>
+              {selected.memoryCards?.length ? <details className="rounded-md border px-3 py-2 text-xs">
+                <summary className="cursor-pointer font-medium">本次使用的记忆</summary>
+                <ol className="mt-2 space-y-3">{selected.memoryCards.map((card, index) => <li key={card.id}>
+                  <p className="font-medium">{index + 1}. {card.title} · {card.kind === "conversation" ? "聊天记忆" : card.kind === "thought" ? "一个思绪" : "一件事"}{card.origin === "assistant" ? " · 助手整理" : ""}</p>
+                  <p className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">{card.content}</p>
+                </li>)}</ol>
+              </details> : null}
               <details className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
                 <summary className="cursor-pointer font-medium">
                   本次改动

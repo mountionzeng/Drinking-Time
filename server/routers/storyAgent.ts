@@ -1,4 +1,5 @@
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
+import { syncStoryChatMemories, syncStoryChatMemoriesSafely } from "../services/chatMemoryWarehouse";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { placeImageRevisionForStory } from "../services/visualClipEditing";
@@ -871,6 +872,7 @@ export const storyAgentRouter = router({
               body: storyPromptLineageBody(saved),
             });
           }
+          if (saved) await syncStoryChatMemoriesSafely({ storyId: saved.id, userId: ctx.user.id });
           return saved
             ? composeStoryWorkspace(saved, ctx.user.id, syncConflict)
             : null;
@@ -924,6 +926,7 @@ export const storyAgentRouter = router({
         throw error;
       }
       const saved = await getStoryById(newId, ctx.user.id);
+      if (saved) await syncStoryChatMemoriesSafely({ storyId: newId, userId: ctx.user.id });
       return saved ? composeStoryWorkspace(saved, ctx.user.id) : null;
     }),
 
@@ -931,6 +934,7 @@ export const storyAgentRouter = router({
   storyDelete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      if (await getStoryById(input.id, ctx.user.id)) await syncStoryChatMemories({ storyId: input.id, userId: ctx.user.id });
       await deleteStory(input.id, ctx.user.id);
       return { ok: true };
     }),

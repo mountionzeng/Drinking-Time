@@ -10,6 +10,10 @@ import {
   withLocalAggregateMutationLock,
 } from "./runtime";
 
+export async function phoneLoginStorageReady() {
+  return Boolean(await getDb());
+}
+
 export async function replacePhoneChallenge(row: PhoneLoginChallenge) {
   const db = await getDb();
   if (db) {

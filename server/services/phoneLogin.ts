@@ -22,10 +22,10 @@ import {
 import {
   consumePhoneChallenge,
   markPhoneChallengeSent,
+  phoneLoginStorageReady,
   replacePhoneChallenge,
 } from "../repositories/phoneLogin";
 import { generateOtpCode } from "./accountSecurity";
-import { getDb } from "../repositories/runtime";
 import {
   phoneSmsConfig,
   phoneSmsConfigured,
@@ -47,7 +47,7 @@ async function phoneInput(value: unknown) {
   if (!phone) throw new PhoneLoginError("invalid_phone", 400);
   if (!phoneSmsConfigured())
     throw new PhoneLoginError("sms_not_configured", 503);
-  if (process.env.NODE_ENV === "production" && !(await getDb()))
+  if (process.env.NODE_ENV === "production" && !(await phoneLoginStorageReady()))
     throw new PhoneLoginError("phone_login_unavailable", 503);
   return phone;
 }

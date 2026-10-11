@@ -1,5 +1,6 @@
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { syncStoryChatMemoriesSafely } from "./chatMemoryWarehouse";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import type { SelectionContext } from "../../shared/selectionContext";
 import {
@@ -957,6 +958,7 @@ export async function appendMobileStoryConversationTurn(
       };
     });
   }
+  await syncStoryChatMemoriesSafely(owner);
   return {
     status: "appended",
     turn,
@@ -1240,6 +1242,7 @@ export async function appendStoryConversationTurn(
     // 跨聚合那一跳：消息与 outbox 已经安全落盘，这里只是把它搬进统一足迹索引。
     // 失败不影响用户的这次保存——下一次调用会从水位续投。
     await drainPersonalMemoryOutbox();
+    await syncStoryChatMemoriesSafely(owner);
     return listStoryConversation(owner);
   }
 
@@ -1425,6 +1428,7 @@ export async function appendStoryConversationTurn(
       .where(eq(storyConversations.id, conversation.id));
   });
 
+  await syncStoryChatMemoriesSafely(owner);
   return listStoryConversation(owner);
 }
 

@@ -55,6 +55,8 @@ import {
   AccountVerificationChallenge,
   AccountRateLimit,
   PhoneLoginChallenge,
+  MemoryCard,
+  DownstreamRegenerationCandidateRow,
 } from "../../drizzle/schema";
 import {
   createEmptyPromptLineageLocalState,
@@ -83,6 +85,8 @@ export const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 function createEmptyMemoryCollections() {
   return {
+    memoryCards: [] as MemoryCard[],
+    downstreamRegenerationCandidates: [] as DownstreamRegenerationCandidateRow[],
     users: [] as User[],
     accessSessions: [] as AccessSession[],
     projects: [] as Project[],
@@ -336,6 +340,11 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     updatedAt: toDate(item.updatedAt),
   })) as Reference[];
 
+  memoryState.memoryCards = (raw.memoryCards ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+  })) as MemoryCard[];
+  memoryState.downstreamRegenerationCandidates = (raw.downstreamRegenerationCandidates ?? []) as DownstreamRegenerationCandidateRow[];
   memoryState.shots = (raw.shots ?? []).map(item => ({
     ...item,
     // 存量镜头无 storyId → 显式置 null（而非 undefined），便于按 storyId 过滤（U1/U2）

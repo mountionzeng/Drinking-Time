@@ -43,7 +43,7 @@ export async function getStoryTimeline(
   storyId: number,
   userId: number
 ): Promise<
-  (StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }) | null
+  (StoryTimeline & { overlays?: unknown; visualLayerState?: unknown; extensions?: Record<string, unknown> }) | null
 > {
   const db = await getDb();
   if (!db) {

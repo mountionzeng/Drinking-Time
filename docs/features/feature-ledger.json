@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-09T11:00:00.000Z",
+  "updatedAt": "2026-10-11T09:49:01.745Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -936,7 +936,8 @@
         "server/services/publishingPersistence.ts",
         "shared/finishedProductVersion.ts",
         "client/src/features/publishingDraft/PublishingVersionControls.tsx",
-        "server/services/publishingCoverQuality.ts"
+        "server/services/publishingCoverQuality.ts",
+        "shared/textSourceLineage.ts"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -951,7 +952,10 @@
         "docs/qa/2026-10-02-generation-latency.md",
         "docs/qa/2026-10-03-editor-ui-simplification.md",
         "docs/qa/2026-10-03-editor-button-audit.md",
-        "docs/qa/2026-10-05-editor-stable-baseline.md"
+        "docs/qa/2026-10-05-editor-stable-baseline.md",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/routers.textSourceLineage.test.ts",
+        "server/routers.downstreamRegeneration.test.ts"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -976,7 +980,8 @@
       "knownGaps": [
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
-        "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。"
+        "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
+        "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。"
       ],
       "history": [
         {
@@ -1098,6 +1103,11 @@
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "发布工作台新增独立静态画册子视图和“正文 / 封面 / 画册”导航；album9 创建画册版本后留在发布区，只有 video10/30/50 继续调用原视频交接并进入剪辑台。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "记忆驱动流程为明确采用的发布版本与成品快照补充独立文字来源；影响查询逐项列出发布稿和成品，不自动采用新版。现有发布工作台与正文采用保留，跨版本素材最新版解析延期，本次仅验证引用及旧稿可恢复。"
         }
       ]
     },
@@ -3759,7 +3769,7 @@
         "server/routers/computePayment.ts",
         "client/src/features/computeAccount/RechargeDialog.tsx",
         "server/services/computeMetering.ts",
-      "server/services/computeSubscriptionPlans.ts",
+        "server/services/computeSubscriptionPlans.ts",
         "server/_core/inferenceOrchestrator.ts",
         "server/_core/inferenceBilling.ts",
         "server/services/semanticAnnotation.ts",
@@ -3854,7 +3864,7 @@
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站已于 2026-10-09 启用同一托管链路并完成原账号真实登录，其他真实账号本轮未手测。",
         "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
-    "2026-10-10 网页充值窗口已明确展示两档月订阅：¥19.9 对应20算力、¥199对应200算力，余额可结转；单次充值价格仍未确定。真实收款仍关闭：支付宝应用AppID/签名密钥、周期扣款权限、验签回调、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不能视为已支持收款或自动续费。",
+        "2026-10-10 网页充值窗口已明确展示两档月订阅：¥19.9 对应20算力、¥199对应200算力，余额可结转；单次充值价格仍未确定。真实收款仍关闭：支付宝应用AppID/签名密钥、周期扣款权限、验签回调、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不能视为已支持收款或自动续费。",
         "2026-10-09 文本/视觉统一推理预占结算已合并上线，Claude 用量、未知提交保留与停止重发、同号幂等及语义标注计费已回归；真实供应商实收核对仍未验收。供应商价格依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
         "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。",
         "故事版旁白及普通/首尾帧视频已接入预占、持久回执、成功结算与后台查单；当前按生成前产品报价计费，并非供应商实际账单。无任务号的未知提交保留预占待人工核对，旧任务不追扣。本轮未发真实付费生成，供应商实收仍未验收。"
@@ -4014,11 +4024,11 @@
           "date": "2026-10-09",
           "kind": "fix",
           "summary": "媒体计费发布后的真实Google复验遇到阿里云DNS瞬时ENOTFOUND，独立健康探测随后恢复；身份校验GET增加一次有界网络重试，401等明确拒绝不重试，错误日志不再携带Axios认证请求头。保持已验证邮箱、Google身份和账号归属规则。"
-      },
-      {
-        "date": "2026-10-10",
-        "kind": "feature",
-        "summary": "充值窗口展示用户确认的两档支付宝月订阅：¥19.9到账20算力、¥199到账200算力，并明确未用算力结转。目录由服务端维护，浏览器不接触结算额度。因支付宝应用签名和周期扣款权限尚未配置，按钮仍禁用且不会创建订单、签约或扣款；单次充值暂不显示未经确认的价格。"
+        },
+        {
+          "date": "2026-10-10",
+          "kind": "feature",
+          "summary": "充值窗口展示用户确认的两档支付宝月订阅：¥19.9到账20算力、¥199到账200算力，并明确未用算力结转。目录由服务端维护，浏览器不接触结算额度。因支付宝应用签名和周期扣款权限尚未配置，按钮仍禁用且不会创建订单、签约或扣款；单次充值暂不显示未经确认的价格。"
         }
       ]
     },
@@ -4721,7 +4731,9 @@
         "client/src/features/creationEditor/soundDirector/useStorySoundDirector.test.tsx",
         "client/src/features/creationEditor/soundDirector/SoundDirectorQuestionCard.test.tsx",
         "client/src/features/creationEditor/soundDirector/SoundPlanTable.test.tsx",
-        "client/src/features/creationEditor/timelineMedia/AddTimelineMediaMenu.test.tsx"
+        "client/src/features/creationEditor/timelineMedia/AddTimelineMediaMenu.test.tsx",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/routers.downstreamRegeneration.test.ts"
       ],
       "invariants": [
         "所有自动问题和方案行必须引用当前 Story、镜头、字幕、人物、正式 Timeline 或用户回答证据；不得为填满轨道而创造人物、台词、事件或声音。",
@@ -4740,7 +4752,8 @@
       "knownGaps": [
         "豆包 TTS/复刻能力合同已建立并默认 fail closed；当前账号 entitlement、官方音色白名单、价格版本及样本地域/留存/删除/DSAR 条款尚未核验，真实 TTS/复刻 smoke 未授权，相关控件继续禁用。",
         "本人音色克隆向导、可信报价、付费生成、素材库落地和人物对白子轨尚未接入。",
-        "跨标签页冲突当前要求用户显式载入最新版后重新应用本地输入，尚未提供自动字段级合并。"
+        "跨标签页冲突当前要求用户显式载入最新版后重新应用本地输入，尚未提供自动字段级合并。",
+        "共享声音最新版自动解析不在本次记忆驱动生产范围，留后续计划。"
       ],
       "history": [
         {
@@ -4802,6 +4815,11 @@
           "date": "2026-09-29",
           "kind": "fix",
           "summary": "为 MySQL 的声音方案版本、行级付费操作和音色激活幂等写入补上一次唯一键竞争后的完整事务重试：重试会重新读取既有操作或重新计算版本号，避免双标签页/客户端重试将有效请求返回 500。TypeScript 和声音定向回归通过；本机未配置 MySQL，真实并发仍在正式迁移后的受限核查项。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "verification",
+          "summary": "记忆驱动候选只调整结构，时间线采用保留原有声音轨与扩展数据，不调用声音供应商或自动重生成；对话接入 StoryAgentChat，声音导演原有报价/确认与 partial 状态保持。"
         }
       ]
     },
@@ -5028,7 +5046,10 @@
         "server/services/agentRuntime.ts",
         "client/src/features/storyAgent/storyAgentPersistence.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
-        "server/_core/agentChannel.ts"
+        "server/_core/agentChannel.ts",
+        "shared/textSourceLineage.ts",
+        "server/repositories/textSourceLineage.ts",
+        "server/routers/textSourceLineage.ts"
       ],
       "evidence": [
         "server/services/textDraftHistory.test.ts",
@@ -5041,7 +5062,9 @@
         "server/_core/agentChannel.test.ts",
         "server/services/agentRuntime.test.ts",
         "docs/qa/2026-10-03-editor-button-audit.md",
-        "docs/qa/2026-10-05-editor-stable-baseline.md"
+        "docs/qa/2026-10-05-editor-stable-baseline.md",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/routers.textSourceLineage.test.ts"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -5063,7 +5086,8 @@
         "首批4张技巧卡是有来源链接的编辑性归纳，不宣称已完成作品逐段核验；未覆盖全部写作场景。",
         "独立文字版本已接入正文区明确采用；旧跨平台转换和改写服务保留，学习仍为提示词证据推断。",
         "首版检索最近100个故事，每个平台最多6份原文及6份采用证据；每故事最多100次记录及5MB正文容量。",
-        "面板未采用编辑只暂存在当前页面，刷新会丢失；生成记录和已采用稿持久保存。"
+        "面板未采用编辑只暂存在当前页面，刷新会丢失；生成记录和已采用稿持久保存。",
+        "文字来源/候选链路登记 observing；真实浏览器与模型已验证短故事主路径，完整验收矩阵及新候选MySQL并发待补齐。"
       ],
       "history": [
         {
@@ -5120,6 +5144,21 @@
           "date": "2026-09-30",
           "kind": "improvement",
           "summary": "附件和语音输入改为输入框左侧纵向工具列，进一步释放横向输入空间；发送保持右下角，交互和生成流程不变。类型检查、组件测试及主仓3000浏览器实测通过。"
+        },
+        {
+          "date": "2026-10-10",
+          "kind": "feature",
+          "summary": "接入记忆仓库选卡生成入口：服务端读取当前账号所选卡片，隔离旧稿/未选聊天/学习样本，保存有序内容快照并在文字历史展示。本次生成只形成待采用版本，保留已有正文和采用流程。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "新增独立当前文字来源及下游来源追溯，设为当前来源不改变发布 vN 或正文；记忆添加后生成新文稿保留旧快照。文字历史沿用既有入口显示当前来源，聊天可显式生成、选择来源及查询影响。类型、组件与接口回归通过；浏览器验收因访问策略限制未完成。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "verification",
+          "summary": "在主仓浏览器用两张虚构记忆生成文字1并通过自然语言设为当前来源，来源切换约1.208秒且不再调用意图模型；文字历史显示当前来源和两张卡片快照，发布区未自动采用。浏览器截图与真实生成时延见记忆驱动生产QA。"
         }
       ]
     },
@@ -5203,7 +5242,9 @@
         "server/integration/phoneLogin.mysql.test.ts",
         "server/integration/migrationBaseline.mysql.test.ts",
         "scripts/check-phone-login.ts",
-        "docs/qa/2026-10-09-phone-login.md"
+        "docs/qa/2026-10-09-phone-login.md",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/repositories/boundaries.test.ts"
       ],
       "invariants": [
         "手机号必须先通过验证码验证，才可建立账号或会话；不自动合并邮箱、Google、微信账号或赠送算力。",
@@ -5234,6 +5275,179 @@
           "date": "2026-10-09",
           "kind": "verification",
           "summary": "按用户要求继续推进：一次性真实MySQL验证29条迁移、跨进程单次消费/错误次数持久化及手机号身份唯一性，2项均通过并关闭实例。只读核查正式服务器无短信配置；腾讯云企业账号可进入但尚未开通短信，协议接受等待当次明确确认。顺序审查修正被拒重发消耗全站预算的问题、前端请求无超时和配置迟到回填，新增只读auth:check-phone配置自检；未接受协议、购买或发短信。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "refactor",
+          "summary": "全量回归发现生产数据库可用性检查直接引用 runtime；改经 phoneLoginStorageReady 仓储函数调用，保持无真实数据库时拒绝生产登录的行为。手机号登录与仓储边界定向测试通过，不涉及真实短信或配置修改。"
+        }
+      ]
+    },
+    {
+      "id": "writing-memory-warehouse",
+      "name": "聊天自动记忆仓库与自由组合故事",
+      "status": "observing",
+      "userValue": "所有已提交的文字聊天自动成为账号记忆；从已有聊天中自由选取、排序、复用，默认组合成独立的新故事。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/routers/memoryWarehouse.ts"
+      ],
+      "owners": [
+        "shared/memoryWarehouse.ts",
+        "client/src/features/memoryWarehouse/MemoryWarehouse.tsx",
+        "server/repositories/memoryCards.ts",
+        "server/routers/memoryWarehouse.ts",
+        "server/services/textDraftHistory.ts",
+        "server/services/textDraftPrompt.ts",
+        "shared/textDraftHistory.ts",
+        "drizzle/0029_memory_cards.sql",
+        "server/repositories/runtime.ts",
+        "server/services/chatMemoryWarehouse.ts",
+        "server/services/storyConversation.ts",
+        "server/routers/storyAgent.ts",
+        "server/services/memoryComposition.ts",
+        "client/src/features/memoryWarehouse/memorySelectionStore.ts",
+        "client/src/features/storyAgent/storyAgentPersistence.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx"
+      ],
+      "evidence": [
+        "server/routers.memoryWarehouse.test.ts",
+        "server/services/textDraftHistory.test.ts",
+        "docs/qa/2026-10-10-memory-warehouse.md",
+        "server/services/chatMemoryWarehouse.test.ts",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/routers.downstreamRegeneration.test.ts",
+        "server/routers.creationFlow.test.ts",
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts"
+      ],
+      "invariants": [
+        "按用户2026-10-10明确修正：用户与助手已保存的文字聊天自动收录，打开仓库补齐旧聊天；保留双方来源及原文，不将助手说法推断为用户事实，不改动独立的长期理解/每日来信采集开关。",
+        "仓库按登录账号隔离，来源故事必须属于当前用户；不依赖来源故事生存，删除来源故事不删除已存卡片。",
+        "选卡成文仅使用所选卡片及写作要求，不混入当前聊天、旧稿、分享来源或文风样本；保存选择顺序、卡片内容与来源快照。",
+        "生成、查看不等于采用；保留原有文字历史、正文缓冲和显式采用规则。",
+        "卡片保存幂等，归档可恢复，不改写已生成文章的来源快照；助手整理与思绪保留来源和类型，不冒充用户原话或既成事实。",
+        "重复同步不得重复入库或恢复已归档记忆；长消息分段保留完整原文。聊天修改另存内容快照，已生成文章的来源快照不随之改写。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "independent-text-versions"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "主仓本地入口、表单、真实模型选卡成文与自动回归已验证；MySQL迁移/并发验收尚未执行。",
+        "当前筛选针对每页50段记忆，支持翻页与跨页选择，单次最多20段；暂不提供全文检索、已存卡片原位编辑和手机仓库入口（手机已提交文字聊天可被收录）。",
+        "未保存的卡片表单仅在当前页面保留，刷新会丢失；已保存卡片及文章来源快照持久保存。",
+        "收录在聊天成功保存后执行；若镜像写入中断，聊天仍可正常保存，下次打开仓库自动补齐并显示同步失败重试入口。尚无持续后台重试队列。",
+        "已验证虚构记忆生成短稿、来源选择、候选及对话返回仓库；完整重组/歧义/无障碍浏览器矩阵待补齐，见 memory-driven-production。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-10",
+          "kind": "feature",
+          "summary": "新增文字子入口记忆仓库、聊天与输入框存卡、手动记事/思绪、归档恢复、跨故事选卡排序及现有文字历史生成/采用链路；账号级独立表与本地集合保留不可变来源快照。79项定向回归通过，包括独立进程重载持久化验证；浏览器验证表单并修复窄窗口弹层挤压。未自动迁移旧聊天，未发起真实付费生成。"
+        },
+        {
+          "date": "2026-10-10",
+          "kind": "decision",
+          "summary": "用户明确纠正上一版理解：随便聊的所有内容本身就是记忆，取消逐条主动存卡前提，记忆自由组合成不同故事。此授权替代上一版主动入库限制，保留账号隔离、来源、归档及文字采用约束。"
+        },
+        {
+          "date": "2026-10-10",
+          "kind": "feature",
+          "summary": "新增无模型聊天自动收录、分页历史补齐、原文分段、旧/新消息去重和归档不复活；接入桌面保存、桌面与手机完成对话以及删除故事前收录。仓库默认组合成新故事，仍可选择当前故事生成新稿；长原话折叠并限制列表高度。自动测试覆盖原话来源、长文不丢、跨账号、分页、普通保存/完整对话与同记忆跨故事复用。11个文件146项回归、类型/构建/账本/迁移检查通过；本机浏览器已自动补齐484段聊天记忆，并验证多选、排序和新故事目标。尚未进行真实付费生成或MySQL验收。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "记忆组合提取为 memoryWarehouse.compose 共享操作，仓库和 StoryAgentChat 复用同一有序选择；生成前确认聊天镜像完成，失败返回 memory_pending。保留独立新故事/当前故事选择、不可变记忆快照、归档及账号隔离。对话查找在账号全部未归档卡片内匹配名称或片段，重名先澄清。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "fix",
+          "summary": "修复组合成新故事时只有标题而被自动空内容保护拒绝保存的问题：显式保存允许创建空故事，自动空工作区仍不保存；失败保留选卡。真实浏览器两张虚构记忆生成独立文字，耗时39.158秒；对话返回仓库604毫秒，命令及助手回复自动入库，详情见记忆驱动生产QA。"
+        }
+      ]
+    },
+    {
+      "id": "memory-driven-production",
+      "name": "记忆驱动文字来源与下游候选",
+      "status": "observing",
+      "userValue": "在现有对话中组合记忆、生成独立文字版本、选择当前来源并查看影响；分镜和时间线先形成候选，用户确认后才采用，旧稿可恢复。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/memoryWarehouse/MemoryWarehouse.tsx",
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "server/routers/creationFlow.ts",
+        "server/routers/textSourceLineage.ts",
+        "server/routers/downstreamRegeneration.ts"
+      ],
+      "owners": [
+        "shared/textSourceLineage.ts",
+        "shared/creationFlowCommand.ts",
+        "shared/downstreamRegenerationCandidate.ts",
+        "server/repositories/textSourceLineage.ts",
+        "server/repositories/downstreamRegenerationCandidates.ts",
+        "server/services/memoryComposition.ts",
+        "server/services/creationFlowCommands.ts",
+        "server/services/downstreamRegenerationCandidates.ts",
+        "server/services/publishingVideoStoryboardPersistence.ts",
+        "server/repositories/timelines.ts",
+        "server/services/storySync.ts",
+        "client/src/features/storyAgent/useCreationFlowChat.ts",
+        "client/src/features/memoryWarehouse/memorySelectionStore.ts",
+        "drizzle/0030_text_source_lineage.sql"
+      ],
+      "evidence": [
+        "server/routers.textSourceLineage.test.ts",
+        "server/routers.downstreamRegeneration.test.ts",
+        "server/routers.creationFlow.test.ts",
+        "client/src/features/storyAgent/useCreationFlowChat.test.ts",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "server/repositories/stateCompatibility.test.ts",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "command:pnpm check",
+        "command:pnpm test",
+        "command:pnpm build",
+        "command:pnpm feature:validate",
+        "client/src/features/storyAgent/storyConversationStore.test.ts",
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts"
+      ],
+      "invariants": [
+        "文字草稿 ID、发布 vN、候选 ID 分离；没有来源记录的历史作品显示未知，不猜测来源。",
+        "当前文字来源只影响后续显式请求，不自动采用发布稿、分镜、时间线或成品；选择或排序记忆不生成文字。",
+        "候选保存在独立集合/表，用户和故事双重归属，正式版本与来源指纹发生变化时拒绝旧确认。",
+        "结构候选不生成媒体；保留现有素材引用、声音轨、旧稿快照及镜头历史。恢复也生成待确认候选并保留新增镜头引用。",
+        "采用使用正式权威写入器与 CAS，正式内容和采用回执一起提交；回执可恢复，重复 token、未知结果和并发确认不重复生成或采用。",
+        "确认绑定候选提案、版本、用户、故事、会话和期限；模型只返回类型化提案，重名、指代不清或未经要求的动作先澄清。",
+        "只复用既有入口和 StoryAgentChat，不新增流程专属按钮；所有已有付费与媒体生成确认边界保留。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "writing-memory-warehouse",
+        "independent-text-versions",
+        "publishing-workspace",
+        "publishing-video-storyboard",
+        "timeline-subtitle-audio-editing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "主仓浏览器已实测真实成文、来源切换、分镜/时间线候选、采用、恢复、刷新及返回仓库；U6 完整 AE1–AE6、视觉断点及键盘/屏幕阅读器矩阵尚未全部验收。",
+        "真实文字及结构模型已用虚构短故事验证；广泛自然语言、文学质量与大故事耗时仍待观察。MySQL 新候选事务/跨进程并发未实测，0030 未应用正式库。",
+        "AE3 仅覆盖引用及历史保留；素材自动使用最新修改、跨媒体预览解析和重新导出提示留下一份计划。",
+        "首版只接 StoryAgentChat 五类操作；发布稿继续走已有明确采用入口，其他聊天入口与素材自然语言操作不在此版扩展。",
+        "每故事最多100个候选、每候选200个操作别名、500个对话操作回执；真实大故事容量和长时间使用体验尚待验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "按修订计划顺序完成 Phase0 决策、U1–U5 接口/结构候选/对话入口；0030 保存候选及来源，确认复用候选行，无需0031。全量595文件5135测试通过（15文件61项条件跳过），最终37项定向回归通过，类型/构建/迁移基线通过；浏览器验收受策略阻断，状态observing。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "fix",
+          "summary": "电脑实测后移除明确来源切换和候选请求的意图模型等待；非记忆操作不读取500卡目录。来源切换1.208秒、查看影响1.023秒、时间线确认1.114秒（含工具开销）。完成指令与对话同回执保存，结构刷新合并规范对话，修复连续操作丢确认记录；候选指纹按保存的JSON计算并忽略派生SH编号，修复刷新误判失效。时间线详情改用镜头名称。真实短文39.158秒、两次5镜头时间线20.534/20.616秒，生成等待不宣称已优化；采用、旧稿恢复、再次恢复与刷新通过，截图和回归详见QA。"
         }
       ]
     }

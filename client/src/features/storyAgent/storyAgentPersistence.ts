@@ -419,6 +419,13 @@ export function hasLiveStoryWork(state: {
   );
 }
 
+export function shouldSaveArchiveStory(
+  snapshot: Parameters<typeof hasLiveStoryWork>[0],
+  reason: "automatic" | "explicit" = "automatic"
+) {
+  return reason === "explicit" || hasLiveStoryWork(snapshot);
+}
+
 // projectId 会在本地 / 部署间漂移。当前槽位空时，只从同一账号旧 projectId 的槽位恢复故事，
 // 避免用户的工作看起来凭空消失。只读不删，源槽位保持不动。
 export function findOrphanStory(

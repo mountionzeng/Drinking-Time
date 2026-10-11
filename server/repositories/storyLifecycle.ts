@@ -13,6 +13,7 @@ import {
   videoTakeRanges,
   videoTimelineSelections,
   storyTimelines,
+  downstreamRegenerationCandidates,
   shotDerivationDrafts,
   storyOperations,
   storyPromptStates,
@@ -123,6 +124,7 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
       memoryState.storyTimelines = memoryState.storyTimelines.filter(
         timeline => !(timeline.storyId === id && timeline.userId === userId)
       );
+      memoryState.downstreamRegenerationCandidates = memoryState.downstreamRegenerationCandidates.filter(row => !(row.storyId === id && row.userId === userId));
       memoryState.shotDerivationDrafts =
         memoryState.shotDerivationDrafts.filter(
           draft => !(draft.storyId === id && draft.userId === userId)
@@ -200,6 +202,7 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
     .where(
       and(eq(storyTimelines.storyId, id), eq(storyTimelines.userId, userId))
     );
+  await db.delete(downstreamRegenerationCandidates).where(and(eq(downstreamRegenerationCandidates.storyId, id), eq(downstreamRegenerationCandidates.userId, userId)));
   await db
     .delete(videoTimelineSelections)
     .where(

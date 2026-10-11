@@ -30,7 +30,7 @@ export const STUDIO_TOUR_STEPS: ReadonlyArray<StudioTourStep> = [
     id: "publishing",
     anchor: "workspace-publishing",
     title: "文字",
-    body: "把一件小事整理成能发出去的成稿。写好的正文会留在这篇故事里，后面做画面和声音都从它出发。",
+    body: "随便聊的内容都会自动收进按钮下面的「记忆仓库」。挑选不同记忆、调整顺序，就能组合成不同的新故事；同一段记忆可以反复使用。",
   },
   {
     id: "editing",

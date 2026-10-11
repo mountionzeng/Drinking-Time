@@ -1,3 +1,4 @@
+import { readyTextSource } from "../repositories/textSourceLineage";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -40,6 +41,8 @@ import {
 } from "./writingTechniqueLibrary";
 import { canonicalizePublishingDraftState } from "./publishingPersistence";
 import { normalizeFinishedProductState } from "../../shared/finishedProductVersion";
+import { readMemoryCards } from "../repositories/memoryCards";
+import type { MemoryCardSnapshot } from "../../shared/memoryWarehouse";
 
 type Owner = { storyId: number; userId: number };
 const record = (value: unknown): Record<string, unknown> =>
@@ -219,6 +222,19 @@ export async function generateTextDraft(
       throw conflict("生成标识已用于另一份内容");
     return getTextDraftHistory(owner);
   }
+  let memoryCards: MemoryCardSnapshot[] | undefined;
+  if (request.memoryCardIds) {
+    if (request.parentId || request.basis || request.messages.length || request.source !== "unknown")
+      throw bad("选卡创作请从空白新稿开始，不能混入旧稿或聊天");
+    const rows = await readMemoryCards(userId, request.memoryCardIds);
+    memoryCards = request.memoryCardIds.map(id => {
+      const row = rows.find(card => card.id === id && !card.archived);
+      if (!row) throw bad("所选记忆已归档或不存在，请重新选择");
+      const { userId: _owner, archived: _archived, createdAt, ...card } = row;
+      return { ...card, createdAt: createdAt.getTime() };
+    });
+    if (JSON.stringify(memoryCards).length > 80_000) throw bad("所选记忆内容过长，请减少卡片数量");
+  }
   const parent = request.parentId
     ? initial.versions.find(version => version.id === request.parentId)
     : null;
@@ -231,13 +247,13 @@ export async function generateTextDraft(
     throw bad("来源文字版本不存在或平台不一致");
   // New/legacy stories may not have a migrated conversation yet. A missing
   // aggregate is normal; ownership and storage failures must still propagate.
-  const durable = (await loadStoryPromptAggregate(owner))?.messages ?? [];
+  const durable = memoryCards ? [] : (await loadStoryPromptAggregate(owner))?.messages ?? [];
   const messages = new Map<
     string,
     ReturnType<typeof normalizeMessages>[number]
   >();
   for (const message of [
-    ...normalizeMessages(body.messages),
+    ...normalizeMessages(memoryCards ? [] : body.messages),
     ...normalizeMessages(durable),
     ...request.messages,
   ])
@@ -251,14 +267,14 @@ export async function generateTextDraft(
     snapshot
   );
   if (
-    !request.basis &&
+    !memoryCards && !request.basis &&
     !snapshot.some(message => message.role === "user") &&
     !request.instruction.trim()
   )
     throw bad("先在聊天框说说想写的内容");
   if (snapshot.length > 300 || JSON.stringify(snapshot).length > 100_000)
     throw bad("本次对话太长，请整理材料后再生成；内容未被截断");
-  const { adoptions: evidence, originalSamples } = await writingEvidence(
+  const { adoptions: evidence, originalSamples } = memoryCards ? { adoptions: [], originalSamples: [] } : await writingEvidence(
     owner,
     request.platform
   );
@@ -267,7 +283,8 @@ export async function generateTextDraft(
     delta,
     evidence,
     originalSamples,
-    inheritedStoryReference(body)
+    memoryCards ? "" : inheritedStoryReference(body),
+    memoryCards
   );
   if (prompt.modelMessage.length > 160_000)
     throw bad("写作上下文过长，请缩短本次材料");
@@ -303,6 +320,7 @@ export async function generateTextDraft(
           request,
           conversationSnapshot: snapshot,
           conversationDelta: delta,
+          ...(memoryCards ? { memoryCards } : {}),
           promptVersion: WRITING_PROMPT_VERSION,
           libraryVersion: WRITING_LIBRARY_VERSION,
           ...prompt,
@@ -490,6 +508,7 @@ export async function adoptTextDraft(
         now: Date.now(),
       })
     );
+    next.versions = next.versions?.map(item => item.versionId === next.activeVersionId ? { ...item, textSource: readyTextSource(body, version.id) } : item);
     body.publishing = next;
     version.adoption = {
       content,

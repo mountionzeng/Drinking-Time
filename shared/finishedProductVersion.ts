@@ -1,3 +1,4 @@
+import { normalizeTextSource, type TextSourceSnapshot } from "./textSourceLineage";
 export const FINISHED_PRODUCT_SCHEMA_VERSION = 1 as const;
 
 export type FinishedProductLayer = "text" | "image" | "video";
@@ -19,6 +20,7 @@ export type FinishedProductVideoReference = {
 };
 
 export type FinishedProductVersion = {
+  textSource?: TextSourceSnapshot;
   id: string;
   sequence: number;
   status: FinishedProductStatus;
@@ -49,6 +51,7 @@ export type FinishedProductReceipt = {
 };
 
 export type FinishedProductCurrentSnapshot = {
+  textSource?: TextSourceSnapshot;
   textVersionId: string;
   images: readonly FinishedProductImageReference[];
   videos: readonly FinishedProductVideoReference[];
@@ -131,6 +134,7 @@ export function normalizeFinishedProductState(value: unknown): FinishedProductSt
       status,
       purpose,
       textVersionId,
+      textSource: normalizeTextSource(version.textSource),
       images: normalizeFinishedProductImageSnapshot(
         version.images as FinishedProductImageReference[]
       ),
@@ -290,6 +294,7 @@ export function replaceFinishedProductLayer(
   layer: FinishedProductLayer,
   replacement: {
     textVersionId?: string;
+    textSource?: TextSourceSnapshot;
     images?: readonly FinishedProductImageReference[];
     videos?: readonly FinishedProductVideoReference[];
   }
@@ -299,6 +304,7 @@ export function replaceFinishedProductLayer(
     ...version,
     textVersionId:
       layer === "text" && textVersionId ? textVersionId : version.textVersionId,
+    textSource: layer === "text" ? normalizeTextSource(replacement.textSource) : version.textSource,
     images:
       layer === "image" && replacement.images
         ? normalizeFinishedProductImageSnapshot(replacement.images)
@@ -383,6 +389,7 @@ export function applyFinishedProductCommand(
 
   const current = {
     textVersionId: command.current.textVersionId.trim(),
+    textSource: normalizeTextSource(command.current.textSource),
     images: normalizeFinishedProductImageSnapshot(command.current.images),
     videos: normalizeFinishedProductVideoSnapshot(command.current.videos),
   };
@@ -432,6 +439,7 @@ export function applyFinishedProductCommand(
         status: "editing",
         purpose: requiredPurpose(command.purpose),
         textVersionId: current.textVersionId,
+        textSource: current.textSource,
         images: current.images,
         videos: current.videos,
         imageVersion: null,

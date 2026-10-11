@@ -48,6 +48,7 @@ import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
 import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
+import { OPEN_MEMORY_WAREHOUSE, requestMemoryCard } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
@@ -67,6 +68,7 @@ import ChatImageRemixTray from "./ChatImageRemixTray";
 import type { PhotoAssetRequest } from "./ChatPhotoAssets";
 import AssetSwapProposalCard from "./AssetSwapProposalCard";
 import { useAssetSwapProposal } from "../useAssetSwapProposal";
+import { useCreationFlowChat } from "../useCreationFlowChat";
 import { chatImageRefsStore } from "../chatImageRefsStore";
 import { useChatImageRemix } from "../useChatImageRemix";
 import { routeSelectionSubmission } from "../selectionSubmissionRouter";
@@ -271,6 +273,7 @@ export default function StoryAgentChat({
     Record<string, StoryboardImageRerenderResult>
   >({});
   const creationEditor = useOptionalCreationEditor();
+  const creationFlow = useCreationFlowChat(creationEditor?.refetch, Boolean(creationEditor?.isSaving || creationEditor?.timelineWritePending));
   const soundDirector = useStorySoundDirector(
     creationEditor?.activeStoryId ?? remoteStoryId ?? activeStoryId ?? null
   );
@@ -754,6 +757,10 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = input.trim();
+    if (text && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
+      if (creationFlow.busy) return;
+      if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
+    }
     if (interactionMode === "publishing" && activeSelection?.sourceType !== "storyboard-image") {
       if (!text || isReplying || voice.isBusy || isImportingMedia) return;
       setInput("");
@@ -1601,6 +1608,7 @@ export default function StoryAgentChat({
           ))}
         </AnimatePresence>
 
+        {creationFlow.busy ? <p role="status" aria-live="polite" className="text-xs text-muted-foreground py-2">正在处理创作指令…</p> : null}
         {soundDirector.active ? (
           <div className="space-y-2" aria-live="polite">
             <SoundDirectorQuestionCard director={soundDirector} />
@@ -2162,12 +2170,23 @@ export default function StoryAgentChat({
               {isReplying ? "生成中…" : "重新生成图"}
             </button>
           </div>
-        ) : <TextDraftVersions
+        ) : null}
+        <div className={activeSelection?.sourceType === "storyboard-image" ? "hidden" : "flex items-start justify-end gap-2"}>
+        <button type="button" disabled={!input.trim() || isReplying}
+          className="mt-1 inline-flex h-7 shrink-0 items-center rounded-md border border-[var(--panel-border)] px-2 text-[11px] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-45"
+          onClick={() => requestMemoryCard({ content: input, origin: "note", sourceStoryId: (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (remoteStoryId ?? activeStoryId) : null })}>
+          单独记一条
+        </button>
+        <TextDraftVersions
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
           blocked={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
-        />}
+        />
+        </div>
+        <button type="button" className="mt-1 rounded text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}>
+          聊天会自动收进记忆仓库 · 查看记忆
+        </button>
       </div>
     </div>
   );

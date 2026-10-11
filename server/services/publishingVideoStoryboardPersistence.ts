@@ -49,6 +49,7 @@ import {
 } from "../../shared/publishingArticleVideo";
 import { normalizeImagePackBody } from "../../shared/articleIllustrations";
 import { getStoryImageAssets } from "./imageAssets";
+import { normalizeTextSource, type TextSourceSnapshot } from "../../shared/textSourceLineage";
 
 const CLAIM_TTL_MS = 5 * 60_000;
 const MAX_CAS_ATTEMPTS = 4;
@@ -1241,6 +1242,7 @@ export async function confirmPublishingVideoStoryboard(input: {
       {
         ...body,
         shots: nextShots,
+        storyboardTextSource: normalizeTextSource(context.version.textSource),
         publishing,
         storyboardFieldVersions,
         artDirection: storyStyleReference(body, coverAssetId, now),
@@ -1253,6 +1255,7 @@ export async function confirmPublishingVideoStoryboard(input: {
       {
         ...body,
         publishing,
+        storyboardTextSource: normalizeTextSource(context.version.textSource),
       }
     );
     try {
@@ -1279,4 +1282,20 @@ export async function confirmPublishingVideoStoryboard(input: {
   throw new PublishingVideoStoryboardOperationConflictError(
     "确认期间故事持续被修改，请刷新后重试"
   );
+}
+
+/** Text-source candidates have no publishing vN. Preserve the publication while
+ * using the same Story CAS and field-history boundary as preview confirmation. */
+export async function applyTextSourceStoryboardCandidate(input: {
+  storyId: number; userId: number; expectedRevision: number;
+  body: Record<string, unknown>; shots: Record<string, unknown>[]; source: TextSourceSnapshot;
+}) {
+  const oldShots = Array.isArray(input.body.shots) ? input.body.shots : [];
+  const next = {
+    ...input.body, shots: input.shots, storyboardTextSource: input.source,
+    ...(input.body.publishing ? { publishing: { ...storyBodyRecord(input.body.publishing), activeVideoStoryboardVersionId: null, activeVideoStoryboardGroupId: null } } : {}),
+    _storyboardRevision: Number(input.body._storyboardRevision ?? 0) + 1,
+    storyboardFieldVersions: recordStoryboardFieldVersions({ state: input.body.storyboardFieldVersions, beforeShots: oldShots, afterShots: input.shots, fields: STORYBOARD_VERSIONED_FIELDS, now: Date.now(), source: "generated", initializeFrom: oldShots.length ? "before" : "after" }),
+  };
+  return persistPreparedStoryBody({ ...input, body: prepareStoryBody(next, input.expectedRevision + 1, next) });
 }

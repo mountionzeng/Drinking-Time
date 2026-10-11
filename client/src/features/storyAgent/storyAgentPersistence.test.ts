@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  shouldSaveArchiveStory,
   emptyState,
   getPublishingBuffer,
   normalizePublishingBuffers,
@@ -12,6 +13,13 @@ import {
   publishingBufferContentHash,
   storyWorkScore,
 } from "./storyAgentPersistence";
+
+it("creates an explicitly requested empty story without auto-saving empty workspaces", () => {
+  const snapshot = emptyState();
+  expect(shouldSaveArchiveStory(snapshot)).toBe(false);
+  expect(shouldSaveArchiveStory(snapshot, "explicit")).toBe(true);
+  expect(shouldSaveArchiveStory({ ...snapshot, messages: [{ id: "user", role: "user", content: "雨天的记忆", timestamp: 1 }] })).toBe(true);
+});
 
 describe("storyAgent publishing persistence", () => {
   it("retains the generated version identity and edited content across local reloads", () => {

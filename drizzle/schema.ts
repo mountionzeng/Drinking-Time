@@ -14,6 +14,16 @@ import {
   foreignKey,
 } from "drizzle-orm/mysql-core";
 import type { PublishingDraftState } from "../shared/publishingDraft";
+import type { DownstreamRegenerationCandidate } from "../shared/downstreamRegenerationCandidate";
+
+export const downstreamRegenerationCandidates = mysqlTable("downstream_regeneration_candidates", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  revision: int("revision").notNull(),
+  data: json("data").$type<DownstreamRegenerationCandidate>().notNull(),
+}, table => [index("regeneration_story_owner_idx").on(table.storyId, table.userId)]);
+export type DownstreamRegenerationCandidateRow = typeof downstreamRegenerationCandidates.$inferSelect;
 
 /**
  * Core user table backing auth flow.
@@ -37,6 +47,20 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+/** Explicitly saved writing material; independent of stories and inferred memory. */
+export const memoryCards = mysqlTable("memory_cards", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  content: text("content").notNull(),
+  kind: mysqlEnum("kind", ["event", "thought", "conversation"]).notNull(),
+  origin: mysqlEnum("origin", ["note", "user", "assistant"]).notNull(),
+  sourceStoryId: int("sourceStoryId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  archived: mysqlBoolean("archived").default(false).notNull(),
+}, table => [index("memory_cards_user_created_idx").on(table.userId, table.createdAt, table.id)]);
+export type MemoryCard = typeof memoryCards.$inferSelect;
 
 /**
  * AccessSessions — 已登录用户的轻量访问时长记录。

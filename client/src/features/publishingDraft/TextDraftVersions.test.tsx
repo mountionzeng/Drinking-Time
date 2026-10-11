@@ -13,6 +13,9 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({}),
+    textSourceLineage: {
+      impact: { useQuery: () => ({ data: { current: null } }) },
+    },
     textDrafts: {
       read: {
         useQuery: () => ({

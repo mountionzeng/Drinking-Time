@@ -1,3 +1,4 @@
+import { normalizeTextSource, type TextSourceSnapshot } from "./textSourceLineage";
 import {
   isNarrativeSpecId,
   type NarrativeSpecId,
@@ -436,6 +437,7 @@ export type PublishingConversationSnapshot = {
 };
 
 export type PublishingStoryVersion = {
+  textSource?: TextSourceSnapshot;
   versionId: string;
   sequence: number;
   displayName: string;
@@ -1455,6 +1457,7 @@ function normalizeStoryVersion(
     : {};
   return {
     versionId,
+    ...(obj.textSource == null ? {} : { textSource: normalizeTextSource(obj.textSource) }),
     sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
     displayName: cleanString(obj.displayName).trim() || `V${index + 1}`,
     displayNameSource:
