@@ -9,6 +9,7 @@ import {
   generateTextDraft,
   getTextDraftHistory,
   setTextDraftLearning,
+  reviseTextDraft,
 } from "../services/textDraftHistory";
 
 const owner = z.object({ storyId: z.number().int().positive() });
@@ -35,6 +36,18 @@ export const textDraftsRouter = router({
     )
     .mutation(({ input, ctx }) =>
       adoptTextDraft({ ...input, userId: ctx.user.id })
+    ),
+  revise: protectedProcedure
+    .input(
+      owner.extend({
+        versionId: z.string().min(1).max(100),
+        operationToken: z.string().uuid(),
+        expectedRevision: z.number().int().nonnegative(),
+        content: textDraftContentSchema,
+      })
+    )
+    .mutation(({ input, ctx }) =>
+      reviseTextDraft({ ...input, userId: ctx.user.id })
     ),
   setLearning: protectedProcedure
     .input(

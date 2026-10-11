@@ -2,7 +2,10 @@ import { readyTextSource } from "../repositories/textSourceLineage";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getStoryById, listUserStorySummariesPage } from "../repositories/stories";
+import {
+  getStoryById,
+  listUserStorySummariesPage,
+} from "../repositories/stories";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import {
   readTextDraftHistory,
@@ -129,7 +132,9 @@ async function writingEvidence(input: Owner, platform: string) {
   const originalSeen = new Set<string>();
   for (let offset = 0; offset < page.stories.length; offset += 4) {
     const batch = page.stories.slice(offset, offset + 4);
-    const stories = await Promise.all(batch.map(item => getStoryById(item.id, input.userId)));
+    const stories = await Promise.all(
+      batch.map(item => getStoryById(item.id, input.userId))
+    );
     // Process in the original recency order, regardless of read completion order.
     for (const story of stories) {
       if (!story) continue;
@@ -139,7 +144,8 @@ async function writingEvidence(input: Owner, platform: string) {
         if (
           version.originalLearningEnabled !== false &&
           originalSamples.length < 6 &&
-          (version.request.source === "own" || version.request.source === "liked")
+          (version.request.source === "own" ||
+            version.request.source === "liked")
         ) {
           const messages = version.request.messages.filter(
             message => message.role === "user"
@@ -224,7 +230,12 @@ export async function generateTextDraft(
   }
   let memoryCards: MemoryCardSnapshot[] | undefined;
   if (request.memoryCardIds) {
-    if (request.parentId || request.basis || request.messages.length || request.source !== "unknown")
+    if (
+      request.parentId ||
+      request.basis ||
+      request.messages.length ||
+      request.source !== "unknown"
+    )
       throw bad("选卡创作请从空白新稿开始，不能混入旧稿或聊天");
     const rows = await readMemoryCards(userId, request.memoryCardIds);
     memoryCards = request.memoryCardIds.map(id => {
@@ -233,7 +244,8 @@ export async function generateTextDraft(
       const { userId: _owner, archived: _archived, createdAt, ...card } = row;
       return { ...card, createdAt: createdAt.getTime() };
     });
-    if (JSON.stringify(memoryCards).length > 80_000) throw bad("所选记忆内容过长，请减少卡片数量");
+    if (JSON.stringify(memoryCards).length > 80_000)
+      throw bad("所选记忆内容过长，请减少卡片数量");
   }
   const parent = request.parentId
     ? initial.versions.find(version => version.id === request.parentId)
@@ -247,7 +259,9 @@ export async function generateTextDraft(
     throw bad("来源文字版本不存在或平台不一致");
   // New/legacy stories may not have a migrated conversation yet. A missing
   // aggregate is normal; ownership and storage failures must still propagate.
-  const durable = memoryCards ? [] : (await loadStoryPromptAggregate(owner))?.messages ?? [];
+  const durable = memoryCards
+    ? []
+    : ((await loadStoryPromptAggregate(owner))?.messages ?? []);
   const messages = new Map<
     string,
     ReturnType<typeof normalizeMessages>[number]
@@ -267,17 +281,17 @@ export async function generateTextDraft(
     snapshot
   );
   if (
-    !memoryCards && !request.basis &&
+    !memoryCards &&
+    !request.basis &&
     !snapshot.some(message => message.role === "user") &&
     !request.instruction.trim()
   )
     throw bad("先在聊天框说说想写的内容");
   if (snapshot.length > 300 || JSON.stringify(snapshot).length > 100_000)
     throw bad("本次对话太长，请整理材料后再生成；内容未被截断");
-  const { adoptions: evidence, originalSamples } = memoryCards ? { adoptions: [], originalSamples: [] } : await writingEvidence(
-    owner,
-    request.platform
-  );
+  const { adoptions: evidence, originalSamples } = memoryCards
+    ? { adoptions: [], originalSamples: [] }
+    : await writingEvidence(owner, request.platform);
   const prompt = compileTextDraftPrompt(
     request,
     delta,
@@ -351,7 +365,11 @@ export async function generateTextDraft(
       history: [],
       maxTokens: 4500,
       responseFormat: { type: "json_object" },
-      execution: { reasoningEffort: "low", deadlineMs: 90_000, replaySafe: false },
+      execution: {
+        reasoningEffort: "low",
+        deadlineMs: 90_000,
+        replaySafe: false,
+      },
       fallback: () => null,
     });
     output = z
@@ -390,17 +408,41 @@ export async function generateTextDraft(
     const definite =
       error instanceof z.ZodError ||
       (error instanceof TRPCError && error.code === "BAD_REQUEST") ||
-      Boolean(inference?.attempts.length && inference.attempts.every(attempt =>
-        !attempt.acceptanceUnknown && ["auth", "invalid_request", "rate_limit", "content_safety", "context_length"].includes(attempt.category)
-      ));
+      Boolean(
+        inference?.attempts.length &&
+          inference.attempts.every(
+            attempt =>
+              !attempt.acceptanceUnknown &&
+              [
+                "auth",
+                "invalid_request",
+                "rate_limit",
+                "content_safety",
+                "context_length",
+              ].includes(attempt.category)
+          )
+      );
     // Keep provider diagnostics without storing credentials, prompts or raw responses.
     const reason = inference
-      ? ({ auth: "模型服务认证失败", invalid_request: "模型服务拒绝了请求参数", timeout: "模型服务超时", network: "模型服务连接中断", rate_limit: "模型服务繁忙", server_error: "模型服务暂时不可用", content_safety: "模型服务未接受此内容", context_length: "素材超出模型长度限制", aborted: "生成已中断", unknown: "未能确认生成结果" }[inference.category])
-      : error instanceof z.ZodError || (error instanceof TRPCError && error.code === "BAD_REQUEST")
+      ? {
+          auth: "模型服务认证失败",
+          invalid_request: "模型服务拒绝了请求参数",
+          timeout: "模型服务超时",
+          network: "模型服务连接中断",
+          rate_limit: "模型服务繁忙",
+          server_error: "模型服务暂时不可用",
+          content_safety: "模型服务未接受此内容",
+          context_length: "素材超出模型长度限制",
+          aborted: "生成已中断",
+          unknown: "未能确认生成结果",
+        }[inference.category]
+      : error instanceof z.ZodError ||
+          (error instanceof TRPCError && error.code === "BAD_REQUEST")
         ? "生成结果未通过校验"
         : "未能确认生成结果";
     console.warn("[textDrafts] generation failed", {
-      storyId: owner.storyId, versionId: claimed.id,
+      storyId: owner.storyId,
+      versionId: claimed.id,
       attempts: inference?.attempts,
       category: inference?.category ?? (definite ? "validation" : "unknown"),
     });
@@ -508,7 +550,11 @@ export async function adoptTextDraft(
         now: Date.now(),
       })
     );
-    next.versions = next.versions?.map(item => item.versionId === next.activeVersionId ? { ...item, textSource: readyTextSource(body, version.id) } : item);
+    next.versions = next.versions?.map(item =>
+      item.versionId === next.activeVersionId
+        ? { ...item, textSource: readyTextSource(body, version.id) }
+        : item
+    );
     body.publishing = next;
     version.adoption = {
       content,
@@ -519,6 +565,68 @@ export async function adoptTextDraft(
     return next;
   });
   return { history: result.history, publishing: result.value };
+}
+
+/** Manual revisions share the desktop history; no generation or implicit adoption. */
+export async function reviseTextDraft(
+  input: Owner & {
+    versionId: string;
+    operationToken: string;
+    expectedRevision: number;
+    content: TextDraftContent;
+  }
+) {
+  const content = textDraftContentSchema.parse(input.content);
+  const id = `manual-${input.operationToken}`;
+  const requestHash = hash({ versionId: input.versionId, content });
+  const result = await mutateHistory(input, history => {
+    const replay = history.versions.find(version => version.id === id);
+    if (replay) {
+      if (replay.requestHash !== requestHash)
+        throw conflict("保存请求已使用，内容不同，请重新保存");
+      return id;
+    }
+    if (history.revision !== input.expectedRevision)
+      throw conflict("文字版本已更新，你的修改仍保留，请读取最新版本后再保存");
+    if (history.versions.length >= 100)
+      throw bad("当前故事已保存100个文字版本，请新建故事继续；修改仍保留");
+    const source = history.versions.find(
+      version => version.id === input.versionId
+    );
+    if (!source || source.status !== "ready" || !source.generated)
+      throw bad("这份文字稿还不能编辑");
+    const now = Date.now();
+    history.versions.push({
+      ...structuredClone(source),
+      id,
+      sequence:
+        Math.max(0, ...history.versions.map(version => version.sequence)) + 1,
+      requestHash,
+      createdAt: now,
+      completedAt: now,
+      status: "ready",
+      request: {
+        ...structuredClone(source.request),
+        operationToken: input.operationToken,
+        expectedRevision: input.expectedRevision,
+        parentId: source.id,
+        basis: source.adoption?.content ?? source.generated,
+        instruction: "手动修订",
+      },
+      generated: content,
+      adoption: undefined,
+      observation: undefined,
+      error: undefined,
+      conversationDelta: [],
+      modelLabel: "手动修订",
+      systemPrompt: "",
+      modelMessage: "",
+      promptVersion: "manual-revision-v1",
+      originalLearningEnabled: false,
+    });
+    return id;
+  });
+  return { history: result.history, versionId: result.value };
 }
 
 export async function setTextDraftLearning(

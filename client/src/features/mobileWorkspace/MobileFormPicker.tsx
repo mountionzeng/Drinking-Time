@@ -5,14 +5,14 @@
  * 和电脑端顶栏那个选择器是同一套（含主题过渡）；「跟随当天五行」＝传 null。
  * 换外形只改外观，不动出生信息、真实日期、纳音计算、账号或内容。
  *
- * 预览图用设计稿那张水彩横排图。聊天里的聊聊仍是带 11 个表情的 SVG，
- * 因为水彩图只有静态形象——拿它进聊天，等回信时就没有脸可换了。
+ * 预览与纳音聊天头像共用同一套手绘饮品线稿。
  */
 import React from "react";
 
 import { useNayin } from "@/features/nayin/NayinContext";
 import { cn } from "@/lib/utils";
-import { LIAOLIAO_FORMS, liaoliaoSpriteStyle } from "./liaoliaoForms";
+import { LIAOLIAO_FORMS } from "./liaoliaoForms";
+import { LiaoliaoMascot } from "./LiaoliaoMascot";
 import { MobileNotConnected, MobileSheet } from "./MobileSheet";
 
 export function MobileFormPicker({
@@ -47,10 +47,10 @@ export function MobileFormPicker({
                 )}
                 onClick={() => setPreviewElement(form.element)}
               >
-                <span
-                  aria-hidden="true"
-                  className="size-12 shrink-0"
-                  style={liaoliaoSpriteStyle(form.element)}
+                <LiaoliaoMascot
+                  element={form.element}
+                  visualTheme="nayin"
+                  size={48}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] text-foreground">

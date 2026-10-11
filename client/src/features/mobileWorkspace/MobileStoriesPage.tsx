@@ -1,14 +1,3 @@
-/**
- * 「故事」页：正在继续的那个在上，以前的故事在下。
- *
- * 从原来那张浮层面板（MobileStoryPanel）升成一整页，信息层级按设计稿：
- * 当前故事给出标题、摘要、最近时间和当前版本，并直接提供「继续聊聊」；
- * 旧故事用标题 + 摘要 + 时间的简洁列表，帮人认出是哪一段。
- *
- * 数据全部来自既有的 `storyAgent.storyList`，不另造一份故事数据。
- * 「查看版本」目前没有可用的版本列表接口（`publishingDraft.readBody` 只给
- * 当前这一份），所以它明确显示「尚未接入」，不编造版本号。
- */
 import { Plus } from "lucide-react";
 import React from "react";
 
@@ -25,27 +14,25 @@ export function MobileStoriesPage({
   stories,
   activeStoryId,
   creating = false,
-  currentVersionLabel,
   onCreateStory,
   onSelectStory,
-  onContinueChat,
-  onViewVersions,
+  onOpenStage,
 }: {
   stories: readonly MobileStorySummary[];
   activeStoryId: number | null;
   creating?: boolean;
-  /** 当前故事的版本名，取自正文文档；读不到就不显示。 */
-  currentVersionLabel?: string | null;
   onCreateStory?: () => void;
   onSelectStory: (storyId: number) => void;
-  onContinueChat: () => void;
-  onViewVersions: () => void;
+  onOpenStage: (stage: "memory" | "text") => void;
 }) {
   const current = stories.find(story => story.id === activeStoryId) ?? null;
   const others = stories.filter(story => story.id !== activeStoryId);
 
   return (
-    <section aria-label="故事" className="h-full overflow-y-auto px-5 pb-6 pt-4">
+    <section
+      aria-label="故事"
+      className="h-full overflow-y-auto px-5 pb-6 pt-4"
+    >
       <div className="flex items-center justify-between gap-3">
         <h1 className="font-chat-brand text-[28px] leading-none text-foreground">
           故事
@@ -79,24 +66,22 @@ export function MobileStoriesPage({
             {storyExcerpt(current)}
           </p>
           <div className="mt-3 text-xs text-muted-foreground">
-            {[currentVersionLabel, mobileStoryMeta(current)]
-              .filter(Boolean)
-              .join(" · ")}
+            {mobileStoryMeta(current)}
           </div>
           <div className="mt-4 flex items-center justify-between gap-3">
             <Button
               type="button"
               className="min-h-11 rounded-xl"
-              onClick={onContinueChat}
+              onClick={() => onOpenStage("memory")}
             >
-              继续聊聊 →
+              查看记忆 →
             </Button>
             <button
               type="button"
               className="min-h-11 px-1 text-sm text-muted-foreground"
-              onClick={onViewVersions}
+              onClick={() => onOpenStage("text")}
             >
-              查看版本 ›
+              查看文字稿 ›
             </button>
           </div>
         </article>

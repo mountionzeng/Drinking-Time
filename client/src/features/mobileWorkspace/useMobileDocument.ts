@@ -207,7 +207,7 @@ export function useMobileDocument(input: {
   const stateRef = useRef<MobileDocumentState | null>(null);
   const query = trpc.publishingDraft.readBody.useQuery(
     { storyId: input.storyId },
-    { enabled: input.storyId > 0, retry: false, refetchOnWindowFocus: false }
+    { enabled: input.storyId > 0, retry: false, refetchOnWindowFocus: true }
   );
   const saveMutation = trpc.publishingDraft.saveBody.useMutation();
   const initMutation = trpc.publishingDraft.initBody.useMutation();

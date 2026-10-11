@@ -1,4 +1,11 @@
-import { ArrowUp, Copy, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  BookPlus,
+  Copy,
+  Loader2,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   type FormEvent,
@@ -154,6 +161,8 @@ export function MobileChatView({
   replyMaxHeight,
   onArchive,
   onReplyHeightChange,
+  draftValue,
+  onDraftChange,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
@@ -165,8 +174,13 @@ export function MobileChatView({
   onArchive?: () => void;
   /** 把话语框实际需要的高度报给外壳，好让它把面板留够。 */
   onReplyHeightChange?: (height: number) => void;
+  /** 页面切换时由故事工作区保留尚未发送的输入。 */
+  draftValue?: string;
+  onDraftChange?: (draft: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = draftValue ?? localDraft;
+  const setDraft = onDraftChange ?? setLocalDraft;
   const [announcement, setAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const replyRef = useRef<HTMLDivElement>(null);
@@ -282,10 +296,10 @@ export function MobileChatView({
               <li
                 key={message.id}
                 className={cn(
-                  "max-w-[85%] whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed shadow-sm",
+                  "whitespace-pre-wrap break-words px-3.5 py-2.5 text-base leading-[1.85]",
                   message.role === "user"
-                    ? "ml-auto rounded-2xl rounded-tr-sm bg-primary text-primary-foreground"
-                    : "mr-auto rounded-2xl rounded-tl-sm border border-border/70 bg-background/90 text-foreground"
+                    ? "ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-muted text-foreground"
+                    : "mr-auto w-full text-foreground"
                 )}
               >
                 {message.content}
@@ -362,11 +376,13 @@ export function MobileChatView({
           {onArchive ? (
             <Button
               type="button"
-              variant="outline"
-              className="h-11 shrink-0 whitespace-nowrap rounded-2xl px-3 text-xs"
+              variant="ghost"
+              aria-label="存入故事"
+              title="存入故事"
+              className="size-11 shrink-0 rounded-full"
               onClick={onArchive}
             >
-              存入故事
+              <BookPlus aria-hidden="true" className="size-5" />
             </Button>
           ) : null}
           <Button

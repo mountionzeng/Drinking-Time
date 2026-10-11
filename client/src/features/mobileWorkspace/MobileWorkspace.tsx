@@ -20,20 +20,23 @@ import {
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import type { NayinElement } from "@/features/nayin/nayin";
+import type { VisualThemeMode } from "@/features/nayin/visualTheme";
 import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import { LiaoliaoMascot, LiaoliaoThinkingDots } from "./LiaoliaoMascot";
 import { MobileArchiveSheet } from "./MobileArchiveSheet";
-import { MobileNotConnected, MobileSheet } from "./MobileSheet";
 import { MobileMePage } from "./MobileMePage";
 import { MobileNavBar } from "./MobileNavBar";
 import { MobileStoriesPage } from "./MobileStoriesPage";
+import {
+  MobileStoryWorkspace,
+  type MobileStoryStage,
+} from "./MobileStoryWorkspace";
 import { type MobilePage } from "./liaoliaoForms";
 import { MobileChatView, mobileChatPeekReply } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
-import { MobileDocumentView } from "./MobileDocumentView";
 import { type MobileStorySummary } from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
@@ -140,6 +143,9 @@ export function MobileWorkspaceFrame({
   onNavigate,
   pageView,
   element = "metal",
+  visualTheme = "shiguang",
+  chatOnly = false,
+  storyTitle,
 }: {
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
@@ -170,6 +176,9 @@ export function MobileWorkspaceFrame({
   /** 当天的纳音五行。由调用方从 useNayin() 取好传进来，
       外壳本身不碰 context，才能脱离 NayinProvider 单测。 */
   element?: NayinElement;
+  visualTheme?: VisualThemeMode;
+  chatOnly?: boolean;
+  storyTitle?: string;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -247,38 +256,79 @@ export function MobileWorkspaceFrame({
     <div
       ref={shellRef}
       className="mobile-workspace-page"
+      data-nav-style={visualTheme}
       style={{ "--mobile-viewport-height": "100dvh" } as CSSProperties}
     >
       <div className="relative mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden bg-background">
         {/* 聊聊拉开时把这行收掉，正文多露一截；收起面板它自己回来 */}
-        <header
-          aria-hidden={page !== "chat" || activeView === "chat"}
-          className={cn(
-            "flex min-w-0 items-center gap-3 overflow-hidden px-4",
-            "transition-[max-height,opacity,padding] duration-200 ease-out",
-            page !== "chat" || activeView === "chat"
-              ? "pointer-events-none max-h-0 pt-0 pb-0 opacity-0"
-              : "max-h-16 pt-3 pb-1 opacity-100"
-          )}
-        >
-          {/*
+        {!chatOnly && (
+          <header
+            aria-hidden={page !== "chat" || activeView === "chat"}
+            className={cn(
+              "flex min-w-0 items-center gap-3 overflow-hidden px-4",
+              "transition-[max-height,opacity,padding] duration-200 ease-out",
+              page !== "chat" || activeView === "chat"
+                ? "pointer-events-none max-h-0 pt-0 pb-0 opacity-0"
+                : "max-h-16 pt-3 pb-1 opacity-100"
+            )}
+          >
+            {/*
             品牌名和故事名都撤了：微信顶栏已经写着来处，故事名在「聊点其他的」
             那张菜单里看得到，正文页最该留给正文本身。顶栏只剩余额。
           */}
-          <span className="min-w-0 flex-1" />
-          {/* 钱在两块屏幕上都得一直看得见。由调用方传进来——外壳自己不碰
+            <span className="min-w-0 flex-1" />
+            {/* 钱在两块屏幕上都得一直看得见。由调用方传进来——外壳自己不碰
               tRPC，否则脱离 Provider 单渲（本文件的测试就是）会当场抛错，
               和 element 那个 prop 是同一个道理。 */}
-          {balanceSlot}
-        </header>
+            {balanceSlot}
+          </header>
+        )}
 
         {/* chat 页正文常驻；故事页和我页换成整页内容。 */}
         <div className="min-h-0 flex-1 overflow-hidden">
-          {page === "chat" ? documentView ?? children : pageView}
+          {page === "chat" ? (
+            chatOnly && chatView ? (
+              <section
+                className="flex h-full min-h-0 flex-col"
+                aria-label="聊天工作区"
+              >
+                <header className="flex shrink-0 items-center gap-3 border-b border-border/50 px-4 py-2">
+                  <LiaoliaoMascot
+                    element={element}
+                    visualTheme={visualTheme}
+                    size={40}
+                    thinking={waitingForReply}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h1 className="truncate font-chat-brand text-lg">
+                      {storyTitle || "聊聊"}
+                    </h1>
+                    {waitingForReply && (
+                      <span className="text-xs text-muted-foreground">
+                        正在想…
+                      </span>
+                    )}
+                  </div>
+                  {waitingForReply && <LiaoliaoThinkingDots />}
+                </header>
+                <div className="min-h-0 flex-1">
+                  {chatView({
+                    dense: false,
+                    replyMaxHeight: replyCap,
+                    onReplyHeightChange: setPeekReplyH,
+                  })}
+                </div>
+              </section>
+            ) : (
+              (documentView ?? children)
+            )
+          ) : (
+            pageView
+          )}
         </div>
 
         {/* 聊聊：常驻输入条 / 半屏 / 全屏 */}
-        {chatView && page === "chat" && activeView === "chat" && (
+        {!chatOnly && chatView && page === "chat" && activeView === "chat" && (
           <button
             type="button"
             aria-label="收起聊聊"
@@ -288,123 +338,136 @@ export function MobileWorkspaceFrame({
             onClick={() => onViewChange("document")}
           />
         )}
-        {chatView && page === "chat" && (
-        <div
-          ref={sheetRef}
-          className={cn(
-            "absolute inset-x-0 bottom-[64px] z-30 flex flex-col rounded-t-[20px] bg-background",
-            "shadow-[0_-10px_30px_-12px_rgba(76,60,20,0.3)]",
-            dragRef.current ? "" : "transition-[height] duration-200 ease-out"
-          )}
-          style={{ height: sheetHeight }}
-        >
+        {!chatOnly && chatView && page === "chat" && (
           <div
-            className="shrink-0 cursor-grab touch-none px-4 pt-2"
-            onPointerDown={event => {
-              if ((event.target as HTMLElement).closest("[data-sheet-action]"))
-                return;
-              dragRef.current = {
-                y: event.clientY,
-                h: sheetRef.current?.getBoundingClientRect().height ?? 0,
-              };
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={event => {
-              const drag = dragRef.current;
-              if (!drag) return;
-              const next = Math.max(
-                SHEET_PEEK_PX,
-                Math.min(
-                  sheetStopHeight("full", shellHeight()),
-                  drag.h + (drag.y - event.clientY)
-                )
-              );
-              setDragHeight(next);
-            }}
-            onPointerUp={() => {
-              const drag = dragRef.current;
-              if (!drag) return;
-              dragRef.current = null;
-              settle(
-                sheetRef.current?.getBoundingClientRect().height ?? SHEET_PEEK_PX
-              );
-            }}
-            onPointerCancel={() => {
-              dragRef.current = null;
-              setDragHeight(null);
+            ref={sheetRef}
+            className={cn(
+              "absolute inset-x-0 z-30 flex flex-col rounded-t-[20px] bg-background",
+              "shadow-[0_-10px_30px_-12px_rgba(76,60,20,0.3)]",
+              dragRef.current ? "" : "transition-[height] duration-200 ease-out"
+            )}
+            style={{
+              height: sheetHeight,
+              bottom: "var(--mobile-nav-height)",
+              maxHeight: "calc(100% - var(--mobile-nav-height))",
             }}
           >
-            <span className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-border" />
-            <div className="flex min-h-11 items-center gap-2.5">
-              {/*
+            <div
+              className="shrink-0 cursor-grab touch-none px-4 pt-2"
+              onPointerDown={event => {
+                if (
+                  (event.target as HTMLElement).closest("[data-sheet-action]")
+                )
+                  return;
+                dragRef.current = {
+                  y: event.clientY,
+                  h: sheetRef.current?.getBoundingClientRect().height ?? 0,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={event => {
+                const drag = dragRef.current;
+                if (!drag) return;
+                const next = Math.max(
+                  SHEET_PEEK_PX,
+                  Math.min(
+                    sheetStopHeight("full", shellHeight()),
+                    drag.h + (drag.y - event.clientY)
+                  )
+                );
+                setDragHeight(next);
+              }}
+              onPointerUp={() => {
+                const drag = dragRef.current;
+                if (!drag) return;
+                dragRef.current = null;
+                settle(
+                  sheetRef.current?.getBoundingClientRect().height ??
+                    SHEET_PEEK_PX
+                );
+              }}
+              onPointerCancel={() => {
+                dragRef.current = null;
+                setDragHeight(null);
+              }}
+            >
+              <span className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-border" />
+              <div className="flex min-h-11 items-center gap-2.5">
+                {/*
                 抬头这只就是「聊聊」本人，用的是用户认可的那版造型。
                 等回信时让**它**动起来，而不是在下面另画一只——两只一模一样的
                 上下排着，看起来像复制粘贴，也说不清楚哪只才是在等。
               */}
-              <button
-                type="button"
-                data-sheet-action="character"
-                aria-label={
-                  activeView === "document" ? "展开聊天" : "收起聊天"
-                }
-                className="-m-1 shrink-0 rounded-full p-1"
-                // 写正文时按下去不能夺走正文的焦点：一失焦面板就长回来，
-                // 抬头随之下移，手指落下时点到的已经不是杯子了。
-                onPointerDown={event => event.preventDefault()}
-                onClick={() =>
-                  onViewChange(activeView === "document" ? "chat" : "document")
-                }
-              >
-                {/*
+                <button
+                  type="button"
+                  data-sheet-action="character"
+                  aria-label={
+                    activeView === "document" ? "展开聊天" : "收起聊天"
+                  }
+                  className="-m-1 shrink-0 rounded-full p-1"
+                  // 写正文时按下去不能夺走正文的焦点：一失焦面板就长回来，
+                  // 抬头随之下移，手指落下时点到的已经不是杯子了。
+                  onPointerDown={event => event.preventDefault()}
+                  onClick={() =>
+                    onViewChange(
+                      activeView === "document" ? "chat" : "document"
+                    )
+                  }
+                >
+                  {/*
                   这版造型只有「安静」一个静态形象，没有「想着呢」那张脸，
                   所以思考反馈是身体的轻微起伏加旁边的三点，两者都跟着
                   waitingForReply 走——回答到达、失败或中断都会自己停。
                   缺的表情素材与补齐方案见交接文档。
                 */}
-                <LiaoliaoMascot
-                  element={element}
-                  size={44}
-                  thinking={waitingForReply}
-                />
-              </button>
-              {/* 名字**始终**露着，不再只在展开档才出现 */}
-              <span className="min-w-0">
-                <span className="block font-chat-brand text-[17px] leading-none text-primary">
-                  聊聊
+                  <LiaoliaoMascot
+                    element={element}
+                    visualTheme={visualTheme}
+                    size={44}
+                    thinking={waitingForReply}
+                  />
+                </button>
+                {/* 名字**始终**露着，不再只在展开档才出现 */}
+                <span className="min-w-0">
+                  <span className="block font-chat-brand text-[17px] leading-none text-primary">
+                    聊聊
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-none text-muted-foreground">
+                    {waitingForReply ? "正在想…" : "在这儿"}
+                  </span>
                 </span>
-                <span className="mt-1 block text-[11px] leading-none text-muted-foreground">
-                  {waitingForReply ? "正在想…" : "在这儿"}
-                </span>
-              </span>
-              {waitingForReply ? <LiaoliaoThinkingDots /> : null}
-              <button
-                type="button"
-                data-sheet-action="toggle"
-                className="ml-auto min-h-11 shrink-0 px-1.5 text-xs text-muted-foreground"
-                onClick={() =>
-                  onViewChange(activeView === "document" ? "chat" : "document")
-                }
-              >
-                {stop === "peek" ? "展开聊天" : "收起"}
-              </button>
+                {waitingForReply ? <LiaoliaoThinkingDots /> : null}
+                <button
+                  type="button"
+                  data-sheet-action="toggle"
+                  className="ml-auto min-h-11 shrink-0 px-1.5 text-xs text-muted-foreground"
+                  onClick={() =>
+                    onViewChange(
+                      activeView === "document" ? "chat" : "document"
+                    )
+                  }
+                >
+                  {stop === "peek" ? "展开聊天" : "收起"}
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {yieldingToDocument
+                ? null
+                : chatView({
+                    dense: stop === "peek",
+                    replyMaxHeight: replyCap,
+                    onReplyHeightChange: setPeekReplyH,
+                  })}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {yieldingToDocument
-              ? null
-              : chatView({
-                  dense: stop === "peek",
-                  replyMaxHeight: replyCap,
-                  onReplyHeightChange: setPeekReplyH,
-                })}
-          </div>
-        </div>
         )}
 
-        {/* 底部导航：三个固定槽位，当前页那格留空 */}
+        {/* 三个入口常驻，当前页高亮；两套主题共享导航行为。 */}
         <MobileNavBar
           current={page}
           element={element}
+          visualTheme={visualTheme}
           onNavigate={onNavigate ?? (() => {})}
         />
 
@@ -423,7 +486,6 @@ export function MobileWorkspaceFrame({
     </div>
   );
 }
-
 
 export function MobileEmptyState({
   onCreateStory,
@@ -476,7 +538,12 @@ export function MobileStoryListError({
       <p className="mt-2 max-w-sm text-sm leading-6 text-destructive">
         {message}
       </p>
-      <Button type="button" variant="outline" className="mt-4" onClick={onRetry}>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-4"
+        onClick={onRetry}
+      >
         <RefreshCw aria-hidden="true" />
         重试 Story 列表
       </Button>
@@ -502,6 +569,12 @@ function MobileSelectedStoryWorkspace({
   onStoryChange,
   onCreateStory,
   creatingStory = false,
+  page,
+  onNavigate,
+  storyOpen,
+  onStoryOpenChange,
+  stage,
+  onStageChange,
 }: {
   userId: number;
   activeStoryId: number;
@@ -511,18 +584,25 @@ function MobileSelectedStoryWorkspace({
   onStoryChange: (storyId: number) => void;
   onCreateStory?: () => void;
   creatingStory?: boolean;
+  page: MobilePage;
+  onNavigate: (page: MobilePage) => void;
+  storyOpen: boolean;
+  onStoryOpenChange: (open: boolean) => void;
+  stage: MobileStoryStage;
+  onStageChange: (stage: MobileStoryStage) => void;
 }) {
   const story = stories.find(candidate => candidate.id === activeStoryId);
-  const { element } = useNayin();
+  const { element, visualTheme } = useNayin();
   const { user } = useAuth();
-  const [page, setPage] = useState<MobilePage>("chat");
   const [letterOpen, setLetterOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [versionsOpen, setVersionsOpen] = useState(false);
-  const conversation = useMobileConversation({ userId, storyId: activeStoryId });
+  const [chatDraft, setChatDraft] = useState("");
+  const conversation = useMobileConversation({
+    userId,
+    storyId: activeStoryId,
+  });
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const [documentEditing, setDocumentEditing] = useState(false);
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -530,7 +610,11 @@ function MobileSelectedStoryWorkspace({
   if (!story) return null;
 
   const requestStoryChange = (storyId: number) => {
-    if (storyId === activeStoryId) return;
+    if (storyId === activeStoryId) {
+      onStoryOpenChange(true);
+      onNavigate("stories");
+      return;
+    }
     if (!document.hasUnsavedChanges) {
       onStoryChange(storyId);
       return;
@@ -552,17 +636,25 @@ function MobileSelectedStoryWorkspace({
       const nextStoryId = pendingStoryId;
       setPendingStoryId(null);
       setAnnouncement(
-        action === "save" ? "正文已保存，正在切换 Story" : "修改已放弃，正在切换 Story"
+        action === "save"
+          ? "正文已保存，正在切换 Story"
+          : "修改已放弃，正在切换 Story"
       );
-      onStoryChange(nextStoryId);
+      if (nextStoryId === -1) onCreateStory?.();
+      else onStoryChange(nextStoryId);
       return;
     }
     setPendingStoryId(null);
+    onStageChange("text");
+    onStoryOpenChange(true);
+    onNavigate("stories");
     setAnnouncement("正文未能安全保存，已留在当前 Story");
   };
 
   return (
     <MobileWorkspaceFrame
+      chatOnly
+      storyTitle={story.title}
       activeView={activeView}
       onViewChange={onViewChange}
       balanceSlot={
@@ -573,44 +665,54 @@ function MobileSelectedStoryWorkspace({
         />
       }
       element={element}
+      visualTheme={visualTheme}
       page={page}
-      onNavigate={setPage}
+      onNavigate={page => {
+        if (page === "stories") onStoryOpenChange(false);
+        onNavigate(page);
+      }}
       pageView={
         page === "stories" ? (
-          <MobileStoriesPage
-            activeStoryId={activeStoryId}
-            creating={creatingStory}
-            currentVersionLabel={
-              document.state?.document?.versionId
-                ? `编辑中 · ${document.state.document?.versionId}`
-                : null
-            }
-            stories={stories}
-            onContinueChat={() => setPage("chat")}
-            onCreateStory={onCreateStory}
-            onSelectStory={storyId => {
-              requestStoryChange(storyId);
-              setPage("chat");
-            }}
-            onViewVersions={() => setVersionsOpen(true)}
-          />
+          storyOpen ? (
+            <MobileStoryWorkspace
+              userId={userId}
+              storyId={activeStoryId}
+              title={story.title}
+              stage={stage}
+              onStageChange={onStageChange}
+              onBack={() => onStoryOpenChange(false)}
+              document={document}
+              conversation={conversation}
+            />
+          ) : (
+            <MobileStoriesPage
+              activeStoryId={activeStoryId}
+              creating={creatingStory}
+              stories={stories}
+              onOpenStage={stage => {
+                onStageChange(stage);
+                onStoryOpenChange(true);
+              }}
+              onCreateStory={
+                onCreateStory
+                  ? () => {
+                      if (document.hasUnsavedChanges) setPendingStoryId(-1);
+                      else onCreateStory();
+                    }
+                  : undefined
+              }
+              onSelectStory={storyId => {
+                requestStoryChange(storyId);
+              }}
+            />
+          )
         ) : page === "me" ? (
           <MobileMePage
             onOpenLetter={() => {
-              setPage("chat");
               setLetterOpen(true);
             }}
           />
         ) : null
-      }
-      documentEditing={documentEditing}
-      documentView={
-        <MobileDocumentView
-          controller={document}
-          storyTitle={story.title}
-          suppressConflictDialog={pendingStoryId !== null}
-          onEditingChange={setDocumentEditing}
-        />
       }
       waitingForReply={
         conversation.isSubmitting ||
@@ -620,6 +722,8 @@ function MobileSelectedStoryWorkspace({
       chatView={({ dense, replyMaxHeight, onReplyHeightChange }) => (
         <MobileChatView
           controller={conversation}
+          draftValue={chatDraft}
+          onDraftChange={setChatDraft}
           storyTitle={story.title}
           dense={dense}
           replyMaxHeight={replyMaxHeight}
@@ -644,23 +748,6 @@ function MobileSelectedStoryWorkspace({
             stories={stories}
             onOpenChange={setArchiveOpen}
           />
-
-          <MobileSheet
-            open={versionsOpen}
-            title={story.title}
-            onOpenChange={setVersionsOpen}
-          >
-            {document.state?.document?.versionId ? (
-              <p className="rounded-xl bg-muted px-4 py-3 text-sm leading-6">
-                编辑中 · {document.state.document?.versionId}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">正在读取版本…</p>
-            )}
-            <div className="mt-3">
-              <MobileNotConnected what="只读得到当前这份可编辑正文。列出成品和历史版本还没有对应接口，所以这里不列，也不编版本号。" />
-            </div>
-          </MobileSheet>
 
           <Dialog
             open={pendingStoryId !== null}
@@ -732,6 +819,9 @@ export function MobileWorkspace({ userId }: { userId: number }) {
   });
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [activeView, setActiveView] = useState<MobileWorkspaceView>("document");
+  const [page, setPage] = useState<MobilePage>("chat");
+  const [storyOpen, setStoryOpen] = useState(false);
+  const [stages, setStages] = useState<Record<number, MobileStoryStage>>({});
   const coldEntryResolvedRef = useRef(false);
   const stories = (storyListQuery.data?.stories ?? []) as MobileStorySummary[];
 
@@ -756,7 +846,11 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       const created = await storyUpsert.mutateAsync({ title: "新的故事" });
       const newId = created?.id ?? null;
       await storyListQuery.refetch();
-      if (newId !== null) setActiveStoryId(newId);
+      if (newId !== null) {
+        setActiveStoryId(newId);
+        setStoryOpen(true);
+        setPage("stories");
+      }
     } catch (error) {
       setCreateError(
         error instanceof Error ? error.message : "新建失败，请重试"
@@ -824,7 +918,19 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       userId={userId}
       onCreateStory={() => void createStory()}
       creatingStory={storyUpsert.isPending}
-      onStoryChange={setActiveStoryId}
+      page={page}
+      storyOpen={storyOpen}
+      onStoryOpenChange={setStoryOpen}
+      stage={stages[activeStoryId] ?? "memory"}
+      onStageChange={stage =>
+        setStages(current => ({ ...current, [activeStoryId]: stage }))
+      }
+      onNavigate={setPage}
+      onStoryChange={storyId => {
+        setActiveStoryId(storyId);
+        setStoryOpen(true);
+        setPage("stories");
+      }}
       onViewChange={setActiveView}
     />
   );

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-11T09:49:01.745Z",
+  "updatedAt": "2026-10-11T14:49:32.281Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -4053,7 +4053,12 @@
         "server/services/publishingPersistence.ts",
         "server/_core/productionReadiness.ts",
         "client/src/features/mobileWorkspace/MobileArchiveSheet.tsx",
-        "client/src/features/mobileWorkspace/MobileDailyLetter.tsx"
+        "client/src/features/mobileWorkspace/MobileDailyLetter.tsx",
+        "client/src/features/mobileWorkspace/LiaoliaoMascot.tsx",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx",
+        "client/src/features/mobileWorkspace/MobileFormPicker.tsx",
+        "client/src/features/mobileWorkspace/MobileNavBar.tsx",
+        "client/src/index.css"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -4072,7 +4077,11 @@
         "server/_core/productionReadiness.test.ts",
         "scripts/deploy-mobile-readiness.test.ts",
         "scripts/verify-drizzle-migration-baseline.ts",
-        "scripts/run-mysql-integration.ts"
+        "scripts/run-mysql-integration.ts",
+        "docs/qa/2026-10-11-mobile-me.md",
+        "docs/qa/2026-10-11-mobile-navigation.md",
+        "docs/qa/2026-10-11-mobile-story-stages.md",
+        "docs/qa/2026-10-11-mobile-synced-editing.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4080,12 +4089,15 @@
         "原网址根路径只负责按手机或电脑分流；手机进入 /m，电脑继续进入 /editing，显式工作区深链接不得被设备判断改写。",
         "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
-        "手机 MVP 只暴露“聊聊”和发布工作台当前版本、当前平台的长文正文；正文保存不得改动标题、标签、当前选择、其他版本或平台，也不得把图片、分镜、预览、素材、时间线或视频能力带入首版。"
+        "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。"
       ],
       "dependencies": [
         "story-ownership",
         "project-ownership",
-        "recent-story-entry"
+        "recent-story-entry",
+        "shiguang-illustration-theme",
+        "personal-memory-daily-letter",
+        "account-compute-gift-payments"
       ],
       "replaces": [],
       "knownGaps": [
@@ -4130,6 +4142,36 @@
           "date": "2026-09-14",
           "kind": "fix",
           "summary": "手机正文保存响应丢失时先读回权威正文，只有 story/version/platform、正文完全相同且 revision 确实推进才确认成功；故事归档写入复用同一确认规则，无法证明时保留不确定状态，避免用户重试后重复追加。每日来信编辑和重读同步刷新画像与版本上下文，翻旧信不再误把今天标记为已读。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "fix",
+          "summary": "修复手机聊天抬头忽略视觉主题、在拾光家忆界面误显五行咖啡杯的问题：从 NayinContext 传递 visualTheme，拾光使用既有小忆水彩小鸟，纳音保留五行水彩外形；两套主题继续按真实请求状态显示起伏、三点和等待提示。定向 3 文件 28 项测试与 TypeScript 通过，主仓 localhost:3000/m 实际页面已核验小鸟头像；既有真机与公网跨端缺口不变，保持 observing。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "手机“我”页补齐账号名称、用户信息/最近来信摘要、内嵌日历和两套界面风格选择；复用现有账号/记忆接口和手机小忆/五行插图，保留出生信息、来信、电脑登录及原动画。日历不离开手机工作区；33项回归、类型检查及320/390px浏览器验证通过，真机与公网仍待验收。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "fix",
+          "summary": "按用户截图明确指定，手机纳音形象由水彩五形态改为项目既有WuxingDrinkIcon手绘饮品线稿；聊天头像、账号头像、主题卡、外形行及五种选择预览统一，拾光小忆与真实请求驱动的起伏/三点保持。24项手机回归及类型检查通过，390px浏览器确认五种图标与截图一致。未上线、未调用付费模型。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "按用户确认重设计手机底部导航：三入口常驻与当前页标识，拾光复用书本/小忆/纸卡材质重新构图，纳音使用手绘书页/饮品/个人轮廓；共享导航高度包含安全区，聊天输入避免遮挡。24项回归及320/390px浏览器切页验证通过；全项目类型受并行文字来源代码错误阻挡，详见QA。未部署。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "按用户确认将手机故事内容分为记忆、文字稿、视频三段浏览，选故事不再跳聊聊；聊天独占阅读区，余额与充值保留在我页，存入故事改为紧凑图标，切页保留未发送输入。正文复用原CAS/恢复/切故事裁决，未安全保存时返回当前文字稿。手机74项回归及全项目类型检查通过，320/390px本机浏览器验证通过，未部署或调用生成。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "恢复原故事首页和从内容入口进入详情的层级，修复当前导航不响应；新增记忆/文字修订编辑器，账号切换及退出清理其恢复草稿。当前正文重进详情和窗口聚焦时读取最新权威内容，原CAS保护不变。"
         }
       ]
     },
@@ -4390,7 +4432,9 @@
         "server/services/emotionDailyLetters.ts",
         "shared/personalMemory.ts",
         "drizzle/schema.ts",
-        "drizzle/0020_daily_letter_attempt_claim.sql"
+        "drizzle/0020_daily_letter_attempt_claim.sql",
+        "client/src/features/personalMemory/PersonalMemorySummary.tsx",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
@@ -4433,7 +4477,8 @@
         "client/src/pages/PersonalMemoryPage.test.tsx",
         "client/src/app/shell/TopBar.test.tsx",
         "client/src/app/router/AppRouter.test.tsx",
-        "drizzle/0020_daily_letter_attempt_claim.sql"
+        "drizzle/0020_daily_letter_attempt_claim.sql",
+        "docs/qa/2026-10-11-mobile-me.md"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -4458,7 +4503,7 @@
         "真实用户捕获仍默认关闭；在用户级暂停捕获与清除已采集记录入口完成前，不开放白名单之外的账号。",
         "派生理解 runner 仍受平台预算、供应商 allowlist 与独立暂停开关限制；当前本地账号没有自动提炼结果时，来信不会凭空声称已经学会。",
         "历史确定性回填仍保持 dry-run，歧义图片采用不会写入；来源删除后的历史来信段落级隐私 overlay 尚未完成。",
-        "手机 Web 足迹入口、真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。"
+        "手机 Web 足迹入口已接入并通过本机浏览器验证；真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。"
       ],
       "history": [
         {
@@ -4540,6 +4585,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/memoryEvents、memoryLetters、memoryInsights、memoryRows、emotionLetters；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。删除未被页面调用的 PersonalMemoryTimeline 旧组件及过期测试 mock，当前 PersonalMemoryDay 入口保留。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "手机“我”页复用个人足迹摘要，增加适合手机的字号及点击区域；日历使用现有页面的内嵌模式在手机底部弹层打开，保留原独立日历入口与采集规则。主仓浏览器读到真实三天摘要和当日来信，33项相关回归及类型通过，真实双设备验收仍待完成。"
         }
       ]
     },
@@ -4851,7 +4901,11 @@
         "client/src/features/storyAgent/spine/storySpine.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
         "shared/publishingDraft.ts",
-        "server/repositories/stories.ts"
+        "server/repositories/stories.ts",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx",
+        "client/src/features/mobileWorkspace/LiaoliaoMascot.tsx",
+        "client/src/features/mobileWorkspace/MobileFormPicker.tsx",
+        "client/src/features/mobileWorkspace/MobileNavBar.tsx"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
@@ -4865,7 +4919,9 @@
         "client/src/features/storyAgent/spine/selectors.test.ts",
         "client/src/features/storyAgent/views/ChatAssistantAvatar.test.tsx",
         "shared/publishingDraft.test.ts",
-        "server/routers.storyAgent.test.ts"
+        "server/routers.storyAgent.test.ts",
+        "docs/qa/2026-10-11-mobile-me.md",
+        "docs/qa/2026-10-11-mobile-navigation.md"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -4954,6 +5010,21 @@
           "date": "2026-09-29",
           "kind": "fix",
           "summary": "按实机截图收敛两处细节：文字工作区抬头把中英混杂的“Publishing Draft · 小红书”改成固定文案“发布文案区”，两套主题共用同一行不再拼接平台名；顶栏“今日来信”入口在拾光主题下换成新绘的羽毛笔水彩图标（daily-letter-quill.svg，因图像生成工具当时不可用改为手绘 SVG，沿用 nav-export-v2 的色板/线条风格），独立成新文件不复用原 nav-writing-v2.png，“文字”面板按钮图标与纳音主题图标均未受影响。定向 53 个文件 256 项测试与 TypeScript 通过，主仓 3000 双主题浏览器验收通过。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "手机“我”页接入拾光家忆/纳音五行原生单选，沿用手机LiaoliaoMascot素材与NayinProvider本机保存。浏览器验证双向切换及刷新保持，320px无横向溢出；切换仅改变视觉，仍不跨设备同步主题偏好。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "fix",
+          "summary": "按用户截图明确指定，手机纳音形象由水彩五形态改为项目既有WuxingDrinkIcon手绘饮品线稿；聊天头像、账号头像、主题卡、外形行及五种选择预览统一，拾光小忆与真实请求驱动的起伏/三点保持。24项手机回归及类型检查通过，390px浏览器确认五种图标与截图一致。未上线、未调用付费模型。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "improvement",
+          "summary": "按用户确认重设计手机底部导航：三入口常驻与当前页标识，拾光复用书本/小忆/纸卡材质重新构图，纳音使用手绘书页/饮品/个人轮廓；共享导航高度包含安全区，聊天输入避免遮挡。24项回归及320/390px浏览器切页验证通过；全项目类型受并行文字来源代码错误阻挡，详见QA。未部署。"
         }
       ]
     },
@@ -5064,7 +5135,8 @@
         "docs/qa/2026-10-03-editor-button-audit.md",
         "docs/qa/2026-10-05-editor-stable-baseline.md",
         "docs/qa/2026-10-11-memory-driven-production.md",
-        "server/routers.textSourceLineage.test.ts"
+        "server/routers.textSourceLineage.test.ts",
+        "docs/qa/2026-10-11-mobile-synced-editing.md"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -5086,7 +5158,7 @@
         "首批4张技巧卡是有来源链接的编辑性归纳，不宣称已完成作品逐段核验；未覆盖全部写作场景。",
         "独立文字版本已接入正文区明确采用；旧跨平台转换和改写服务保留，学习仍为提示词证据推断。",
         "首版检索最近100个故事，每个平台最多6份原文及6份采用证据；每故事最多100次记录及5MB正文容量。",
-        "面板未采用编辑只暂存在当前页面，刷新会丢失；生成记录和已采用稿持久保存。",
+        "桌面面板未采用编辑仍暂存在当前页面；手机可显式保存为新手动文字版本，未保存输入有账号/故事隔离的本机恢复。保存修订不自动采用到发布稿。",
         "文字来源/候选链路登记 observing；真实浏览器与模型已验证短故事主路径，完整验收矩阵及新候选MySQL并发待补齐。"
       ],
       "history": [
@@ -5159,6 +5231,11 @@
           "date": "2026-10-11",
           "kind": "verification",
           "summary": "在主仓浏览器用两张虚构记忆生成文字1并通过自然语言设为当前来源，来源切换约1.208秒且不再调用意图模型；文字历史显示当前来源和两张卡片快照，发布区未自动采用。浏览器截图与真实生成时延见记忆驱动生产QA。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "新增textDrafts.revise手动修订能力，手机编辑标题/正文保存到共同历史，保留来源版本与记忆快照，重试幂等、账号隔离、历史CAS、100版本及5MB上限；不调用模型、不自动采用或学习，旧稿与发布正文保持。"
         }
       ]
     },
@@ -5319,7 +5396,8 @@
         "docs/qa/2026-10-11-memory-driven-production.md",
         "server/routers.downstreamRegeneration.test.ts",
         "server/routers.creationFlow.test.ts",
-        "client/src/features/storyAgent/storyAgentPersistence.test.ts"
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts",
+        "docs/qa/2026-10-11-mobile-synced-editing.md"
       ],
       "invariants": [
         "按用户2026-10-10明确修正：用户与助手已保存的文字聊天自动收录，打开仓库补齐旧聊天；保留双方来源及原文，不将助手说法推断为用户事实，不改动独立的长期理解/每日来信采集开关。",
@@ -5336,8 +5414,8 @@
       "replaces": [],
       "knownGaps": [
         "主仓本地入口、表单、真实模型选卡成文与自动回归已验证；MySQL迁移/并发验收尚未执行。",
-        "当前筛选针对每页50段记忆，支持翻页与跨页选择，单次最多20段；暂不提供全文检索、已存卡片原位编辑和手机仓库入口（手机已提交文字聊天可被收录）。",
-        "未保存的卡片表单仅在当前页面保留，刷新会丢失；已保存卡片及文章来源快照持久保存。",
+        "当前筛选针对每页50段记忆，支持翻页与跨页选择，单次最多20段；暂不提供全文检索。手机已有当前故事记忆入口和修订保存：新修订为用户记事，原文归档，已生成文章的来源快照保持不变。",
+        "桌面未保存的卡片表单仅在当前页面保留；手机修订表单按账号/故事在本机恢复，退出或切换账号清除。已保存卡片及文章来源快照持久保存。",
         "收录在聊天成功保存后执行；若镜像写入中断，聊天仍可正常保存，下次打开仓库自动补齐并显示同步失败重试入口。尚无持续后台重试队列。",
         "已验证虚构记忆生成短稿、来源选择、候选及对话返回仓库；完整重组/歧义/无障碍浏览器矩阵待补齐，见 memory-driven-production。"
       ],
@@ -5366,6 +5444,11 @@
           "date": "2026-10-11",
           "kind": "fix",
           "summary": "修复组合成新故事时只有标题而被自动空内容保护拒绝保存的问题：显式保存允许创建空故事，自动空工作区仍不保存；失败保留选卡。真实浏览器两张虚构记忆生成独立文字，耗时39.158秒；对话返回仓库604毫秒，命令及助手回复自动入库，详情见记忆驱动生产QA。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "按手机可编辑要求增加forStory、syncStory和revise共享接口；读取当前故事及其文字来源卡片，分页与归属检查。修订事务保存新用户记事并归档原文，同一请求幂等、旧源冲突拒绝，重同步不复活归档原文，文章来源快照不变。MySQL事务路径尚待真实库验收。"
         }
       ]
     },
@@ -5448,6 +5531,65 @@
           "date": "2026-10-11",
           "kind": "fix",
           "summary": "电脑实测后移除明确来源切换和候选请求的意图模型等待；非记忆操作不读取500卡目录。来源切换1.208秒、查看影响1.023秒、时间线确认1.114秒（含工具开销）。完成指令与对话同回执保存，结构刷新合并规范对话，修复连续操作丢确认记录；候选指纹按保存的JSON计算并忽略派生SH编号，修复刷新误判失效。时间线详情改用镜头名称。真实短文39.158秒、两次5镜头时间线20.534/20.616秒，生成等待不宣称已优化；采用、旧稿恢复、再次恢复与刷新通过，截图和回归详见QA。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-story-stage-browsing",
+      "name": "手机故事阶段与同步文字修订",
+      "status": "working",
+      "userValue": "保留故事首页，在详情里阅读与修订记忆、文字稿，保存到电脑共用的数据；视频先查看。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
+      ],
+      "owners": [
+        "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "client/src/features/mobileWorkspace/MobileChatView.tsx",
+        "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx",
+        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx"
+      ],
+      "evidence": [
+        "client/src/features/mobileWorkspace/MobileStoryWorkspace.test.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.test.tsx",
+        "client/src/features/mobileWorkspace/useMobileDocument.test.tsx",
+        "docs/qa/2026-10-11-mobile-story-stages.md",
+        "docs/qa/2026-10-11-mobile-synced-editing.md",
+        "server/routers.memoryWarehouse.test.ts",
+        "server/services/textDraftHistory.test.ts"
+      ],
+      "invariants": [
+        "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
+        "读取复用账号和Story归属校验，同一故事的权威数据与电脑一致，不创建手机副本。",
+        "切换阶段、查看历史和打开视频不得自动生成、采用、覆盖或触发付费请求。",
+        "记忆组合展示生成时保留的来源快照，并区分用户原话和助手整理。",
+        "当前发布正文保留编辑、CAS冲突和恢复能力；按用户2026-10-11追加授权，独立文字历史可保存为新修订，不改原稿、不自动采用。记忆修订保留原文归档和已生成文章的来源快照。",
+        "选故事留在故事工作区；已有未保存正文仍须明确保存、放弃或取消后才能切换或新建。",
+        "底部故事入口始终返回原故事首页；从查看记忆/查看文字稿进入详情，详情默认阅读，编辑控件仅在需要时打开。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "手机支持记忆标题/内容修订、独立文字版本标题/正文修订及当前发布正文编辑；重新组合记忆、生成/采用独立文字、制作视频仍在电脑端。用户明确视频先查看。",
+        "阶段选择按故事保留在本次页面会话内，刷新后重新从记忆开始。",
+        "视频控件通过渲染测试，本机抽验的两个虚构故事素材接口为空；未验收真实素材播放或真机网络兼容性。",
+        "iOS/Android软件键盘和公网跨设备验收仍继承手机工作区已有缺口。",
+        "同步指保存后读取同一权威数据，非逐字实时协作。新增手动修订的MySQL事务并发与真实双设备公网验收待完成；浏览器只验证编辑/取消，持久保存由隔离服务测试验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "用户明确点击三段切换故事工作内容。实现三段浏览、单选择器历史版本、默认完整文字阅读及已有视频控件；无发布正文时优先展示已有文字版本。修复故事切换重置到聊聊的问题，74项手机测试及类型检查通过，主仓3000端口320/390px人工验证。"
+        },
+        {
+          "date": "2026-10-11",
+          "kind": "feature",
+          "summary": "用户要求恢复原故事首页，并明确文字与记忆可同步编辑、视频先查看。恢复当前故事卡片/以前故事列表，详情由记忆/文字稿入口进入，当前底部故事按钮也能回首页。补齐记忆分页/单条阅读/修订，独立文字手动新修订及账号隔离草稿恢复；所有保存共用电脑仓储，原文/旧稿保留，无模型调用。"
         }
       ]
     }

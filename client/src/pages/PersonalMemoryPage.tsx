@@ -15,7 +15,11 @@ export function monthDays(month: string): Array<string | null> {
   return days;
 }
 
-export default function PersonalMemoryPage() {
+export default function PersonalMemoryPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
   const [selected, setSelected] = useState(() => {
     const match = window.location.hash.match(/^#day-(\d{4}-\d{2}-\d{2})$/);
@@ -86,16 +90,30 @@ export default function PersonalMemoryPage() {
   };
   const name = user.data?.name || "用户信息";
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="nayin-strip" />
-      <div className="mx-auto max-w-2xl px-5 py-7 sm:px-10 sm:py-10">
-        <a
-          href="/editing"
-          className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft size={16} />
-          返回工作区
-        </a>
+    <main
+      className={
+        embedded
+          ? "text-foreground"
+          : "min-h-screen bg-background text-foreground"
+      }
+    >
+      {!embedded && <div className="nayin-strip" />}
+      <div
+        className={
+          embedded
+            ? "mx-auto max-w-2xl"
+            : "mx-auto max-w-2xl px-5 py-7 sm:px-10 sm:py-10"
+        }
+      >
+        {!embedded && (
+          <a
+            href="/editing"
+            className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft size={16} />
+            返回工作区
+          </a>
+        )}
         <header className="mb-10 mt-7 flex items-center gap-4">
           <div
             aria-hidden="true"

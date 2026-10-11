@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { MobileNavBar } from "./MobileNavBar";
 
 import {
   MobileEmptyState,
@@ -12,6 +13,54 @@ import {
 } from "./MobileWorkspace";
 
 describe("MobileWorkspace", () => {
+  it("lets the selected story navigation return from a detail to the story home", () => {
+    const navigate = vi.fn();
+    const tree = MobileNavBar({
+      current: "stories",
+      element: "metal",
+      visualTheme: "shiguang",
+      onNavigate: navigate,
+    });
+    function clickSelected(node: React.ReactNode) {
+      React.Children.forEach(node, child => {
+        if (
+          !React.isValidElement<{
+            children?: React.ReactNode;
+            onClick?: () => void;
+            "aria-current"?: string;
+          }>(child)
+        )
+          return;
+        if (child.type === "button" && child.props["aria-current"] === "page")
+          child.props.onClick?.();
+        else clickSelected(child.props.children);
+      });
+    }
+    clickSelected(tree);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("stories");
+  });
+  it("gives the dedicated chat its full reading area without a document or floating sheet", () => {
+    const chatView = vi.fn(() => <p>完整聊天内容</p>);
+    const html = renderToStaticMarkup(
+      <MobileWorkspaceFrame
+        chatOnly
+        storyTitle="旧伞"
+        activeView="document"
+        onViewChange={vi.fn()}
+        documentView={<p>不应叠在聊天背后的正文</p>}
+        chatView={chatView}
+        overlays={<p>恢复与保存对话框</p>}
+      />
+    );
+    expect(html).toContain("完整聊天内容");
+    expect(html).toContain("恢复与保存对话框");
+    expect(html).not.toContain("不应叠在聊天背后的正文");
+    expect(html).not.toContain("data-sheet-action");
+    expect(chatView).toHaveBeenCalledWith(
+      expect.objectContaining({ dense: false })
+    );
+  });
   it("cold-opens the first server-ordered Story", () => {
     expect(
       resolveMobileInitialStoryId([
@@ -41,9 +90,8 @@ describe("MobileWorkspace", () => {
     expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
   });
 
-  // 底部导航：三个固定槽位，当前页那格留空——不画图标文字、不可点、不可聚焦，
-  // 另外两个入口的位置不因此移动。当前在哪页靠页面标题认，不靠导航高亮。
-  it("hides only the current entry and keeps all three slots in place", () => {
+  // 三个入口常驻可见，当前页有可访问的状态标识。
+  it("keeps every entry visible and identifies the current page", () => {
     for (const page of ["stories", "chat", "me"] as const) {
       const html = renderToStaticMarkup(
         <MobileWorkspaceFrame
@@ -55,19 +103,22 @@ describe("MobileWorkspace", () => {
           chatView={() => <p>对话内容</p>}
         />
       );
-      const nav = /<nav[^>]*aria-label="手机工作区"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
+      const nav =
+        /<nav[^>]*aria-label="手机工作区"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
       const buttons = nav.match(/<button/g) ?? [];
 
-      // 槽位永远是三个，当前页那格只是留空
       expect(buttons).toHaveLength(3);
-      // 当前那格不可点也不可聚焦
-      expect(nav).toMatch(/<button[^>]*aria-hidden="true"[^>]*disabled[^>]*>/);
-      expect(nav).toContain('tabindex="-1"');
-      // 另外两个入口都在
-      const others = (["stories", "chat", "me"] as const).filter(p => p !== page);
-      for (const other of others) {
-        expect(nav).toContain({ stories: "故事", chat: "聊聊", me: "我" }[other]);
-      }
+      expect(nav.match(/aria-current="page"/g)).toHaveLength(1);
+      expect(nav).not.toContain("invisible");
+      expect(nav).not.toContain("disabled");
+      expect(nav).not.toContain('tabindex="-1"');
+      for (const label of ["故事", "聊聊", "我"]) expect(nav).toContain(label);
+      const currentButton = nav.match(
+        /<button[^>]*aria-current="page"[\s\S]*?<\/button>/
+      )?.[0];
+      expect(currentButton).toContain(
+        { stories: "故事", chat: "聊聊", me: "我" }[page]
+      );
     }
   });
 
@@ -169,31 +220,49 @@ describe("MobileWorkspace", () => {
   // 认可的那版造型只有一个静态形象，没有「想着呢」那张脸，所以思考反馈是
   // 身体起伏 + 三点 + 一句状态字。三者都只在等回信时出现，回信到达／失败／
   // 中断后 waitingForReply 落回 false，就都得停。
-  it("shows thinking feedback only while a reply is in flight", () => {
-    const render = (waitingForReply: boolean) =>
-      renderToStaticMarkup(
-        <MobileWorkspaceFrame
-          activeView="document"
-          onViewChange={vi.fn()}
-          documentView={<p>正文内容</p>}
-          chatView={() => <p>对话内容</p>}
-          waitingForReply={waitingForReply}
-        />
-      );
+  it.each(["shiguang", "nayin"] as const)(
+    "uses the %s avatar and shows thinking feedback only while a reply is in flight",
+    visualTheme => {
+      const render = (waitingForReply: boolean) =>
+        renderToStaticMarkup(
+          <MobileWorkspaceFrame
+            activeView="document"
+            onViewChange={vi.fn()}
+            documentView={<p>正文内容</p>}
+            chatView={() => <p>对话内容</p>}
+            waitingForReply={waitingForReply}
+            visualTheme={visualTheme}
+            element="earth"
+          />
+        );
 
-    const waiting = render(true);
-    const idle = render(false);
+      const waiting = render(true);
+      const idle = render(false);
 
-    // 造型本身没换身体，只是加了「想着呢」的可读状态和起伏
-    expect(waiting).toMatch(/aria-label="聊聊 · [^"]*· 想着呢"/);
-    expect(waiting).toContain("liaoliao-thinking");
-    expect(waiting).toContain("正在想…");
+      for (const html of [waiting, idle]) {
+        if (visualTheme === "shiguang") {
+          expect(html).toContain("/shiguang/xiaoyi-avatar.png");
+          expect(html).toContain("聊聊 · 小忆");
+          expect(html).not.toContain("/liaoliao/five-forms.png");
+        } else {
+          expect(html).toContain('viewBox="0 0 90 100"');
+          expect(html).not.toContain("/liaoliao/five-forms.png");
+          expect(html).toContain("聊聊 · 土 · 咖啡杯");
+          expect(html).not.toContain("/shiguang/xiaoyi-avatar.png");
+        }
+      }
 
-    // 回答到达／失败／中断后，三样都得停
-    expect(idle).not.toContain("想着呢");
-    expect(idle).not.toContain("liaoliao-thinking");
-    expect(idle).not.toContain("正在想…");
-  });
+      // 造型本身没换身体，只是加了「想着呢」的可读状态和起伏
+      expect(waiting).toMatch(/aria-label="聊聊 · [^"]*· 想着呢"/);
+      expect(waiting).toContain("liaoliao-thinking");
+      expect(waiting).toContain("正在想…");
+
+      // 回答到达／失败／中断后，三样都得停
+      expect(idle).not.toContain("想着呢");
+      expect(idle).not.toContain("liaoliao-thinking");
+      expect(idle).not.toContain("正在想…");
+    }
+  );
 
   // 真机（安卓 + 微信内置浏览器）：键盘一起来，常驻输入条加话语框把正文压掉
   // 200 多像素，连正文自己的「保存正文」状态条都被盖住。写字的时候正文最大。
@@ -264,10 +333,7 @@ describe("MobileWorkspace", () => {
 
   it("still renders the document when there is no conversation to attach", () => {
     const html = renderToStaticMarkup(
-      <MobileWorkspaceFrame
-        activeView="document"
-        onViewChange={vi.fn()}
-      >
+      <MobileWorkspaceFrame activeView="document" onViewChange={vi.fn()}>
         <p>加载中</p>
       </MobileWorkspaceFrame>
     );

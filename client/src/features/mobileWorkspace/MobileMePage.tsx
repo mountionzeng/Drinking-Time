@@ -19,8 +19,11 @@ import EmotionAnalysisInvitePanel from "@/features/analysis/views/EmotionAnalysi
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import { useNayin } from "@/features/nayin/NayinContext";
+import PersonalMemorySummary from "@/features/personalMemory/PersonalMemorySummary";
+import PersonalMemoryPage from "@/pages/PersonalMemoryPage";
 import { trpc } from "@/lib/trpc";
-import { liaoliaoForm, liaoliaoSpriteStyle } from "./liaoliaoForms";
+import { LiaoliaoMascot } from "./LiaoliaoMascot";
+import { liaoliaoForm } from "./liaoliaoForms";
 import { MobileDesktopLogin } from "./MobileDesktopLogin";
 import { MobileFormPicker } from "./MobileFormPicker";
 import { MobileSheet } from "./MobileSheet";
@@ -60,13 +63,15 @@ function Row({
 
 export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
   const { user, logout } = useAuth();
-  const { today, element, previewElement } = useNayin();
+  const { today, element, previewElement, visualTheme, setVisualTheme } =
+    useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const utils = trpc.useUtils();
 
   const [formPickerOpen, setFormPickerOpen] = useState(false);
   const [desktopLoginOpen, setDesktopLoginOpen] = useState(false);
   const [birthOpen, setBirthOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
     enabled: Boolean(user?.id),
@@ -95,43 +100,82 @@ export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
       </h1>
 
       <div className="mt-4 flex items-center gap-3 border-b border-border/70 pb-5">
-        <span
-          aria-hidden="true"
-          className="size-14 shrink-0 rounded-full border border-border/70"
-          style={liaoliaoSpriteStyle(element)}
-        />
+        <LiaoliaoMascot element={element} visualTheme={visualTheme} />
         {/*
           访客账号的 email 是 null，但它**是**一个已登录的身份（openId 形如
           guest:…），故事和余额都挂在它名下。原来这里直接写「未登录」，
           等于告诉用户「你没登录」——然后他看见自己的故事都在，只会更糊涂。
         */}
-        <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          {user?.email ?? (user ? "访客身份 · 未绑定邮箱" : "未登录")}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-lg text-foreground">
+            {user?.name || "访客"}
+          </p>
+          <p className="mt-1 break-all text-sm text-muted-foreground">
+            {user?.email ?? (user ? "访客身份 · 未绑定邮箱" : "未登录")}
+          </p>
+        </div>
       </div>
 
       <section aria-label="算力余额" className="border-b border-border/70 py-5">
-        <h2 className="font-chat-brand text-lg text-foreground">还剩多少</h2>
+        <h2 className="font-chat-brand text-lg text-foreground">算力余额</h2>
         <div className="mt-2">
           <ComputeBalanceBadge enabled={Boolean(user?.id)} />
         </div>
       </section>
 
-      <Row
-        title="今天的来信"
-        hint="今天写给你的那封"
-        onClick={onOpenLetter}
+      <PersonalMemorySummary
+        compact={false}
+        onOpenAll={() => setCalendarOpen(true)}
       />
+
+      <fieldset className="border-b border-border/70 py-5">
+        <legend className="float-left mb-3 w-full font-chat-brand text-lg text-foreground">
+          界面风格
+        </legend>
+        <div className="grid clear-both grid-cols-2 gap-3">
+          {(
+            [
+              { mode: "shiguang", title: "拾光家忆", hint: "手绘记忆 · 小忆" },
+              { mode: "nayin", title: "纳音五行", hint: "每日五行 · 饮品" },
+            ] as const
+          ).map(({ mode, title, hint }) => (
+            <label key={mode} className="relative cursor-pointer">
+              <input
+                type="radio"
+                name="mobile-visual-theme"
+                value={mode}
+                aria-label={title}
+                checked={visualTheme === mode}
+                onChange={() => setVisualTheme(mode)}
+                className="peer sr-only"
+              />
+              <span className="flex h-full flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 text-center transition-colors peer-checked:border-[var(--nayin-accent)] peer-checked:bg-muted peer-checked:ring-1 peer-checked:ring-[var(--nayin-accent)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-[var(--nayin-accent)] motion-reduce:transition-none">
+                <LiaoliaoMascot
+                  element={element}
+                  visualTheme={mode}
+                  size={52}
+                />
+                <span>
+                  <strong className="block text-base font-medium">
+                    {title}
+                  </strong>
+                  <small className="mt-1 block text-xs text-muted-foreground">
+                    {hint}
+                  </small>
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <Row title="今天的来信" hint="今天写给你的那封" onClick={onOpenLetter} />
 
       <Row
         title="聊聊的外形"
         hint={`${currentForm.label}${previewElement ? "" : " · 跟随当天五行"}`}
         leading={
-          <span
-            aria-hidden="true"
-            className="size-11 shrink-0"
-            style={liaoliaoSpriteStyle(element)}
-          />
+          <LiaoliaoMascot element={element} visualTheme="nayin" size={44} />
         }
         onClick={() => setFormPickerOpen(true)}
       />
@@ -166,6 +210,13 @@ export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
         open={formPickerOpen}
         onOpenChange={setFormPickerOpen}
       />
+      <MobileSheet
+        open={calendarOpen}
+        onOpenChange={setCalendarOpen}
+        title="我的日历"
+      >
+        {calendarOpen ? <PersonalMemoryPage embedded /> : null}
+      </MobileSheet>
       <MobileDesktopLogin
         email={user?.email}
         open={desktopLoginOpen}

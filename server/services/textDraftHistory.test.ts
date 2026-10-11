@@ -60,6 +60,51 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it("saves manual revisions to shared history without generation, adoption or changing the source", async () => {
+    const input = await setup();
+    const initial = await service.generateTextDraft(input);
+    const original = structuredClone(initial.versions[0]);
+    model.mockClear();
+    const edit = {
+      userId: input.userId,
+      storyId: input.storyId,
+      versionId: original.id,
+      operationToken: crypto.randomUUID(),
+      expectedRevision: initial.revision,
+      content: {
+        title: "手动修订标题",
+        body: "手机上手动补充的文字",
+        tags: [],
+      },
+    };
+    const result = await service.reviseTextDraft(edit);
+    expect(result.history.versions[0]).toEqual(original);
+    expect(result.history.versions[1]).toMatchObject({
+      generated: edit.content,
+      request: { parentId: original.id },
+      originalLearningEnabled: false,
+    });
+    expect(result.history.versions[1].adoption).toBeUndefined();
+    expect(
+      (await service.getTextDraftHistory(input)).versions[1].generated
+    ).toEqual(edit.content);
+    expect((await service.reviseTextDraft(edit)).history.versions).toHaveLength(
+      2
+    );
+    expect(model).not.toHaveBeenCalled();
+    await expect(
+      service.reviseTextDraft({ ...edit, userId: 999 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      service.reviseTextDraft({ ...edit, operationToken: crypto.randomUUID() })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      service.reviseTextDraft({
+        ...edit,
+        content: { ...edit.content, body: "不同内容" },
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
   it("reads writing evidence with bounded concurrency without changing owner filtering", async () => {
     const input = await setup();
     for (let i = 0; i < 8; i++) await setup(input.userId);
@@ -68,30 +113,58 @@ describe("independent text versions with real Story CAS persistence", () => {
     const read = stories.getStoryById;
     let active = 0;
     let peak = 0;
-    const spy = vi.spyOn(stories, "getStoryById").mockImplementation(async (id, userId) => {
-      expect(userId).toBe(input.userId);
-      active++;
-      peak = Math.max(peak, active);
-      await new Promise(resolve => setTimeout(resolve, 5));
-      try { return await read(id, userId); } finally { active--; }
-    });
+    const spy = vi
+      .spyOn(stories, "getStoryById")
+      .mockImplementation(async (id, userId) => {
+        expect(userId).toBe(input.userId);
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        try {
+          return await read(id, userId);
+        } finally {
+          active--;
+        }
+      });
     try {
       const history = await service.generateTextDraft(input);
       expect(history.versions[0].status).toBe("ready");
       expect(peak).toBe(4);
-      expect(model.mock.calls[0][0].responseFormat).toEqual({ type: "json_object" });
+      expect(model.mock.calls[0][0].responseFormat).toEqual({
+        type: "json_object",
+      });
       expect(JSON.parse(model.mock.calls[0][0].message).evidence).toEqual([]);
-    } finally { spy.mockRestore(); }
+    } finally {
+      spy.mockRestore();
+    }
   });
   it("uses the imported background as source material without recording it as recipient conversation", async () => {
     const input = await setup();
-    const { createStoryContextSnapshot, buildInheritedStoryInput } = await import("./storyContextSnapshot");
-    const source = createStoryContextSnapshot({ title: "来源故事", logline: "", theme: "", arc: "", summary: "", body: { messages: [{ role: "user", content: "原作者在海边长大。" }] } }, { includeConversation: true });
-    await db.updateStory(input.storyId, input.userId, { body: { ...(buildInheritedStoryInput(source, input.userId).body as object), _revision: 0 } });
+    const { createStoryContextSnapshot, buildInheritedStoryInput } =
+      await import("./storyContextSnapshot");
+    const source = createStoryContextSnapshot(
+      {
+        title: "来源故事",
+        logline: "",
+        theme: "",
+        arc: "",
+        summary: "",
+        body: { messages: [{ role: "user", content: "原作者在海边长大。" }] },
+      },
+      { includeConversation: true }
+    );
+    await db.updateStory(input.storyId, input.userId, {
+      body: {
+        ...(buildInheritedStoryInput(source, input.userId).body as object),
+        _revision: 0,
+      },
+    });
     const history = await service.generateTextDraft(input);
     const prompt = JSON.parse(model.mock.calls[0][0].message);
     expect(prompt.sourceStoryReference).toContain("原作者在海边长大");
-    expect(JSON.stringify(history.versions[0].conversationSnapshot)).not.toContain("原作者在海边长大");
+    expect(
+      JSON.stringify(history.versions[0].conversationSnapshot)
+    ).not.toContain("原作者在海边长大");
     expect(prompt.originalSamples).toEqual([]);
   });
   it("rejects oversized persisted messages before creating an unreadable history", async () => {
@@ -212,17 +285,33 @@ describe("independent text versions with real Story CAS persistence", () => {
     ["auth", 401, false, "failed", "认证失败"],
     ["network", undefined, true, "unknown", "连接中断"],
     ["timeout", undefined, false, "unknown", "超时"],
-  ] as const)("records a safe %s diagnostic and preserves uncertain billing", async (category, status, acceptanceUnknown, expectedStatus, message) => {
-    const input = await setup();
-    model.mockRejectedValue(new InferenceError("raw-secret-not-for-users", [{ provider: "openai-next", model: "test", category, status, acceptanceUnknown, aborted: category === "timeout" }]));
-    const result = await service.generateTextDraft(input);
-    expect(result.versions[0].status).toBe(expectedStatus);
-    expect(result.versions[0].error).toContain(message);
-    expect(result.versions[0].error).not.toContain("raw-secret");
-    expect(result.versions[0].completedAt).toBeGreaterThanOrEqual(result.versions[0].createdAt);
-    await service.generateTextDraft(input);
-    expect(model).toHaveBeenCalledTimes(1);
-  });
+  ] as const)(
+    "records a safe %s diagnostic and preserves uncertain billing",
+    async (category, status, acceptanceUnknown, expectedStatus, message) => {
+      const input = await setup();
+      model.mockRejectedValue(
+        new InferenceError("raw-secret-not-for-users", [
+          {
+            provider: "openai-next",
+            model: "test",
+            category,
+            status,
+            acceptanceUnknown,
+            aborted: category === "timeout",
+          },
+        ])
+      );
+      const result = await service.generateTextDraft(input);
+      expect(result.versions[0].status).toBe(expectedStatus);
+      expect(result.versions[0].error).toContain(message);
+      expect(result.versions[0].error).not.toContain("raw-secret");
+      expect(result.versions[0].completedAt).toBeGreaterThanOrEqual(
+        result.versions[0].createdAt
+      );
+      await service.generateTextDraft(input);
+      expect(model).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it("adopts final edits atomically and uses only adopted, enabled, same-owner evidence", async () => {
     const input = await setup();
@@ -458,16 +547,46 @@ describe("writing prompt contracts", () => {
 describe("memory-card article generation", () => {
   it("uses selected cards in order, saves snapshots and excludes unrelated chat and old drafts", async () => {
     const { randomUUID } = await import("node:crypto");
-    const { insertMemoryCard, archiveMemoryCard } = await import("../repositories/memoryCards");
+    const { insertMemoryCard, archiveMemoryCard } = await import(
+      "../repositories/memoryCards"
+    );
     const request = await setup();
-    const first = await insertMemoryCard(request.userId, { id: randomUUID(), title: "童年的雨", content: "我在屋檐下听雨。", kind: "event", origin: "user", sourceStoryId: null });
-    const second = await insertMemoryCard(request.userId, { id: randomUUID(), title: "想到的事", content: "想再回去看看。", kind: "thought", origin: "assistant", sourceStoryId: null });
-    await db.updateStory(request.storyId, request.userId, { body: { _revision: 0, shots: [], messages: [{ id: "unselected", role: "user", content: "不应混入的出差记忆" }] } });
-    const selectedRequest = { ...request, messages: [], memoryCardIds: [second.id, first.id] };
+    const first = await insertMemoryCard(request.userId, {
+      id: randomUUID(),
+      title: "童年的雨",
+      content: "我在屋檐下听雨。",
+      kind: "event",
+      origin: "user",
+      sourceStoryId: null,
+    });
+    const second = await insertMemoryCard(request.userId, {
+      id: randomUUID(),
+      title: "想到的事",
+      content: "想再回去看看。",
+      kind: "thought",
+      origin: "assistant",
+      sourceStoryId: null,
+    });
+    await db.updateStory(request.storyId, request.userId, {
+      body: {
+        _revision: 0,
+        shots: [],
+        messages: [
+          { id: "unselected", role: "user", content: "不应混入的出差记忆" },
+        ],
+      },
+    });
+    const selectedRequest = {
+      ...request,
+      messages: [],
+      memoryCardIds: [second.id, first.id],
+    };
     const history = await service.generateTextDraft(selectedRequest);
     const version = history.versions[0];
     const prompt = JSON.parse(model.mock.calls[0][0].message);
-    expect(prompt.selectedMemoryCards.map((card: { id: string }) => card.id)).toEqual([second.id, first.id]);
+    expect(
+      prompt.selectedMemoryCards.map((card: { id: string }) => card.id)
+    ).toEqual([second.id, first.id]);
     expect(prompt.conversationDelta).toEqual([]);
     expect(prompt.basis).toBeNull();
     expect(prompt.originalSamples).toEqual([]);
@@ -480,20 +599,50 @@ describe("memory-card article generation", () => {
     expect(reloaded.versions[0].memoryCards).toEqual(version.memoryCards);
     await service.generateTextDraft(selectedRequest);
     expect(model).toHaveBeenCalledTimes(1);
-    expect(normalizePublishingDraftState((await db.getStoryById(request.storyId, request.userId))!.body).drafts).toEqual({});
+    expect(
+      normalizePublishingDraftState(
+        (await db.getStoryById(request.storyId, request.userId))!.body
+      ).drafts
+    ).toEqual({});
   });
   it("rejects foreign, missing, archived cards and mixed chat before invoking the model", async () => {
     const { randomUUID } = await import("node:crypto");
-    const { insertMemoryCard, archiveMemoryCard } = await import("../repositories/memoryCards");
-    const request = { ...await setup(), messages: [] };
-    const other = await insertMemoryCard(999, { id: randomUUID(), title: "私有记忆", content: "其他账号的内容", kind: "event", origin: "note", sourceStoryId: null });
+    const { insertMemoryCard, archiveMemoryCard } = await import(
+      "../repositories/memoryCards"
+    );
+    const request = { ...(await setup()), messages: [] };
+    const other = await insertMemoryCard(999, {
+      id: randomUUID(),
+      title: "私有记忆",
+      content: "其他账号的内容",
+      kind: "event",
+      origin: "note",
+      sourceStoryId: null,
+    });
     for (const id of [other.id, randomUUID()]) {
-      await expect(service.generateTextDraft({ ...request, memoryCardIds: [id] })).rejects.toThrow("所选记忆");
+      await expect(
+        service.generateTextDraft({ ...request, memoryCardIds: [id] })
+      ).rejects.toThrow("所选记忆");
     }
-    const own = await insertMemoryCard(request.userId, { id: randomUUID(), title: "思绪", content: "自己的内容", kind: "thought", origin: "note", sourceStoryId: null });
-    await expect(service.generateTextDraft({ ...request, messages: [{ id: "m1", role: "user", content: "混入聊天" }], memoryCardIds: [own.id] })).rejects.toThrow("不能混入");
+    const own = await insertMemoryCard(request.userId, {
+      id: randomUUID(),
+      title: "思绪",
+      content: "自己的内容",
+      kind: "thought",
+      origin: "note",
+      sourceStoryId: null,
+    });
+    await expect(
+      service.generateTextDraft({
+        ...request,
+        messages: [{ id: "m1", role: "user", content: "混入聊天" }],
+        memoryCardIds: [own.id],
+      })
+    ).rejects.toThrow("不能混入");
     await archiveMemoryCard(request.userId, own.id, true);
-    await expect(service.generateTextDraft({ ...request, memoryCardIds: [own.id] })).rejects.toThrow("所选记忆");
+    await expect(
+      service.generateTextDraft({ ...request, memoryCardIds: [own.id] })
+    ).rejects.toThrow("所选记忆");
     expect(model).not.toHaveBeenCalled();
     expect((await service.getTextDraftHistory(request)).versions).toEqual([]);
   });
@@ -503,15 +652,39 @@ it("reuses automatic chat memories across independent stories without consuming 
   const { syncStoryChatMemories } = await import("./chatMemoryWarehouse");
   const { listMemoryCards } = await import("../repositories/memoryCards");
   const source = await setup();
-  await db.updateStory(source.storyId, source.userId, { body: { _revision: 0, shots: [], messages: [{ id: "memory-one", role: "user", content: "放学回家的小路上有一棵桂花树。" }] } });
+  await db.updateStory(source.storyId, source.userId, {
+    body: {
+      _revision: 0,
+      shots: [],
+      messages: [
+        {
+          id: "memory-one",
+          role: "user",
+          content: "放学回家的小路上有一棵桂花树。",
+        },
+      ],
+    },
+  });
   await syncStoryChatMemories(source);
   const cards = await listMemoryCards(source.userId, 0, 100, false);
   expect(cards).toHaveLength(1);
   const first = await setup();
   const second = await setup();
-  const firstResult = await service.generateTextDraft({ ...first, messages: [], memoryCardIds: [cards[0].id], instruction: "写放学路上的故事" });
-  const secondResult = await service.generateTextDraft({ ...second, messages: [], memoryCardIds: [cards[0].id], instruction: "写一篇关于秋天的文章" });
-  expect(firstResult.versions[0].memoryCards).toEqual(secondResult.versions[0].memoryCards);
+  const firstResult = await service.generateTextDraft({
+    ...first,
+    messages: [],
+    memoryCardIds: [cards[0].id],
+    instruction: "写放学路上的故事",
+  });
+  const secondResult = await service.generateTextDraft({
+    ...second,
+    messages: [],
+    memoryCardIds: [cards[0].id],
+    instruction: "写一篇关于秋天的文章",
+  });
+  expect(firstResult.versions[0].memoryCards).toEqual(
+    secondResult.versions[0].memoryCards
+  );
   expect(firstResult.versions[0].memoryCards![0].kind).toBe("conversation");
   expect(firstResult.versions[0].adoption).toBeUndefined();
   expect(secondResult.versions[0].adoption).toBeUndefined();

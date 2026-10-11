@@ -1,45 +1,50 @@
 /**
- * 聊聊本人：用户认可的那版造型（水彩五形态）。
- *
- * 素材是一张五格横排透明图，五种外形轮廓各不相同。**它只有「安静」这一个静态
- * 形象，没有表情**——所以「正在想」不能靠换脸表示。这里的做法是：身体保持认可
- * 的造型不变，思考反馈由**身体的轻微起伏** + 旁边的**三点气泡**承担，两者都直接
- * 跟着真实请求状态走，请求结束就停。
- *
- * 缺的素材与补齐方案写在 `docs/handoff/2026-09-10-dk-launch-followups.md`；
- * 拿到「想着呢」那版图之后，这里把 `thinking` 换成对应的一格即可，
- * 调用方不用改。
+ * 聊聊头像：拾光家忆用小忆水彩小鸟，纳音五行复用手绘饮品线稿。
+ * 思考反馈沿用身体起伏与三点气泡，只跟随真实请求状态，不改饮品造型。
  */
 import React from "react";
 
 import type { NayinElement } from "@/features/nayin/nayin";
+import type { VisualThemeMode } from "@/features/nayin/visualTheme";
+import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import { cn } from "@/lib/utils";
-import { liaoliaoForm, liaoliaoSpriteStyle } from "./liaoliaoForms";
+import { liaoliaoForm } from "./liaoliaoForms";
 
 export function LiaoliaoMascot({
   element,
+  visualTheme,
   size = 56,
   thinking = false,
   className,
 }: {
   element: NayinElement;
+  visualTheme: VisualThemeMode;
   size?: number;
   /** 正在等回信：身体轻轻起伏，旁边出三点。跟着真实请求，不是装饰。 */
   thinking?: boolean;
   className?: string;
 }) {
   const form = liaoliaoForm(element);
+  const isShiguang = visualTheme === "shiguang";
   return (
     <span
-      aria-label={`聊聊 · ${form.label}${thinking ? " · 想着呢" : ""}`}
+      aria-label={`聊聊 · ${isShiguang ? "小忆" : form.label}${thinking ? " · 想着呢" : ""}`}
       className={cn(
         "inline-block shrink-0 bg-contain bg-center bg-no-repeat",
         thinking && "liaoliao-thinking",
         className
       )}
       role="img"
-      style={{ ...liaoliaoSpriteStyle(element), width: size, height: size }}
-    />
+      style={{
+        ...(isShiguang
+          ? { backgroundImage: "url('/shiguang/xiaoyi-avatar.png')" }
+          : {}),
+        width: size,
+        height: size,
+      }}
+    >
+      {!isShiguang && <WuxingDrinkIcon element={element} size={size} />}
+    </span>
   );
 }
 
