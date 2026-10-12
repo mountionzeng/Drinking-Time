@@ -20,7 +20,7 @@ function page(text = "你好"): PublishingAlbumExportPage {
 }
 
 describe("publishing album export", () => {
-  it("waits for the exact font, draws the shared glyph plan, and returns PNG", async () => {
+  it.each(["remote", "local"])("waits for the font and renders %s background without unnecessary network access", async source => {
     const order: string[] = [];
     const repository = {
       load: vi.fn(async () => { order.push("font-load"); }),
@@ -38,12 +38,16 @@ describe("publishing album export", () => {
       toBlob: (callback: (blob: Blob | null) => void) => callback(new Blob(["png"], { type: "image/png" })),
     } as any;
     const fontsReady = Promise.resolve().then(() => { order.push("fonts-ready"); });
+    const background = new Blob(["image"], { type: "image/png" });
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, blob: async () => background } as Response));
+    const createBitmap = vi.fn(async () => ({ width: 900, height: 1200, close: vi.fn() } as any));
     const blob = await renderPublishingAlbumPagePng({
       page: page(), repository,
+      backgroundBlob: source === "local" ? background : undefined,
       dependencies: {
         fontsReady,
-        fetcher: vi.fn(async () => ({ ok: true, status: 200, blob: async () => new Blob(["image"], { type: "image/png" }) } as Response)),
-        createBitmap: vi.fn(async () => ({ width: 900, height: 1200, close: vi.fn() } as any)),
+        fetcher,
+        createBitmap,
         createCanvas: () => canvas,
       },
     });
@@ -51,6 +55,8 @@ describe("publishing album export", () => {
     expect(context.drawImage).toHaveBeenCalledTimes(1);
     expect(context.fillText.mock.calls.map(call => call[0]).join("")).toBe("你好");
     expect(blob.type).toBe("image/png");
+    expect(fetcher).toHaveBeenCalledTimes(source === "local" ? 0 : 1);
+    expect(createBitmap).toHaveBeenCalledWith(background);
   });
 
   it("rejects unsafe controls and missing glyphs instead of exporting a wrong fallback", async () => {

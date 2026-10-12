@@ -73,6 +73,8 @@ function canvasToBlob(canvas: CanvasLike): Promise<Blob> {
 
 export async function renderPublishingAlbumPagePng(input: {
   page: PublishingAlbumExportPage;
+  /** Locally composed pixels need no fetch (production CSP blocks blob fetches). */
+  backgroundBlob?: Blob;
   width?: number;
   height?: number;
   repository?: PublishingAlbumFontRepository;
@@ -90,10 +92,13 @@ export async function renderPublishingAlbumPagePng(input: {
   if (missing.length > 0) throw new Error(`所选字体缺少字形：${missing.slice(0, 8).join("")}`);
   await (input.dependencies?.fontsReady ?? document.fonts.ready);
 
-  const fetcher = input.dependencies?.fetcher ?? globalThis.fetch;
-  const response = await fetcher(input.page.backgroundUrl, { credentials: "include" });
-  if (!response.ok) throw new Error(`画册底图读取失败（HTTP ${response.status}）`);
-  const blob = await response.blob();
+  let blob = input.backgroundBlob;
+  if (!blob) {
+    const fetcher = input.dependencies?.fetcher ?? globalThis.fetch;
+    const response = await fetcher(input.page.backgroundUrl, { credentials: "include" });
+    if (!response.ok) throw new Error(`画册底图读取失败（HTTP ${response.status}）`);
+    blob = await response.blob();
+  }
   if (!blob.type.startsWith("image/")) throw new Error("画册底图不是可用图片");
   const createBitmap = input.dependencies?.createBitmap ?? globalThis.createImageBitmap;
   const bitmap = await createBitmap(blob);

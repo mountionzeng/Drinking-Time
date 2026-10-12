@@ -176,6 +176,7 @@ export async function makeImagePack(
         const first = preparedBlocks[0];
         // One PNG render per page, regardless of the number of text/image blocks.
         const blob = first ? await renderPublishingAlbumPagePng({
+          backgroundBlob: background,
           page: { ...first, plan: { ...first.plan, text: page.text, graphemes: preparedBlocks.flatMap(block => block.plan.graphemes) } }, repository,
         }) : background;
         assertCurrent();
