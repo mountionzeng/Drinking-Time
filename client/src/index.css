@@ -2620,3 +2620,12 @@ select option {
   border: 1px solid rgba(53, 106, 79, 0.4);
   filter: saturate(1.14) contrast(1.08);
 }
+
+/* Phone image studio: generous touch targets, one task visible at a time. */
+.mobile-image-pack button:not([aria-label^="预览第"]):not([aria-label^="选"]),
+.mobile-image-pack select,
+.mobile-image-pack input:not([type="checkbox"]) {
+  min-height: 44px;
+}
+.mobile-image-pack textarea, .mobile-image-pack input, .mobile-image-pack select { font-size: 16px; }
+.mobile-image-pack [hidden] { display: none; }

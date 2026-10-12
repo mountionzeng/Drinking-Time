@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 /** A portal keeps the enlargement outside the horizontal strip's clipping. */
-export function ImageCandidatePreview({ children, preview, label, controls }: {
+export function ImageCandidatePreview({ children, preview, label, controls, touchOnly = false }: {
   children: ReactNode;
   preview: ReactNode;
   label: string;
   controls?: ReactNode;
+  touchOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const content = useRef<HTMLDivElement>(null);
@@ -21,12 +23,24 @@ export function ImageCandidatePreview({ children, preview, label, controls }: {
   }
   useEffect(() => () => clearTimeout(closeTimer.current), []);
   function focusControl() { content.current?.querySelector<HTMLElement>("select, button")?.focus(); }
+  if (touchOnly) return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger asChild>{children}</DialogTrigger>
+    <DialogContent showCloseButton={false} className="max-h-[96dvh] max-w-[calc(100%-1rem)] gap-3 overflow-y-auto p-3 sm:max-w-3xl">
+      <div className="flex items-center justify-between gap-3">
+        <DialogTitle className="text-sm">{label}</DialogTitle>
+        <DialogClose className="min-h-11 shrink-0 rounded-full border px-4 text-sm">关闭预览</DialogClose>
+      </div>
+      <DialogDescription className="sr-only">图片大图预览，可长按保存图片。</DialogDescription>
+      <div className="[&_img]:mx-auto [&_img]:max-h-[75dvh] [&_img]:w-full [&_img]:object-contain [&_canvas]:max-h-[75dvh] [&_canvas]:w-full [&_canvas]:object-contain">{preview}</div>
+      {controls ? <div className="border-t pt-3">{controls}</div> : null}
+    </DialogContent>
+  </Dialog>;
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverAnchor asChild>
       <span className="inline-flex shrink-0"
-        onPointerEnter={event => { if (event.pointerType === "mouse") { cancelClose(); if (!open) engaged.current = false; setOpen(true); } }}
+        onPointerEnter={event => { if (!touchOnly && event.pointerType === "mouse") { cancelClose(); if (!open) engaged.current = false; setOpen(true); } }}
         onPointerLeave={leave}
-        onFocus={() => { if (!controls) setOpen(true); }} onBlur={() => { if (!controls) setOpen(false); }}>
+        onFocus={() => { if (!controls && !touchOnly) setOpen(true); }} onBlur={() => { if (!controls) setOpen(false); }}>
         {controls ? <PopoverTrigger asChild onClick={event => {
           // Clicking a hovered preview should open its editor, not toggle it closed.
           event.preventDefault(); cancelClose(); engaged.current = true; setOpen(true);

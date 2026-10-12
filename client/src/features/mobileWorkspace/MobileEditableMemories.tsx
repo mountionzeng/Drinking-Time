@@ -5,9 +5,15 @@ import type { MobileEditSeed } from "./MobileSyncedEditor";
 export function MobileEditableMemories({
   storyId,
   onEdit,
+  onMakeArtwork,
 }: {
   storyId: number;
   onEdit: (seed: MobileEditSeed) => void;
+  onMakeArtwork?: (card: {
+    id: string;
+    title: string;
+    content: string;
+  }) => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
@@ -83,6 +89,15 @@ export function MobileEditableMemories({
             </button>
           </div>
           <h2 className="my-4 font-chat-brand text-xl">{card.title}</h2>
+          {onMakeArtwork && card.content.trim() ? (
+            <button
+              type="button"
+              className="mb-3 min-h-11 text-sm text-primary"
+              onClick={() => onMakeArtwork(card)}
+            >
+              制作图文 · 配图、排版与分享 →
+            </button>
+          ) : null}
           <p className="whitespace-pre-wrap break-words font-serif text-base leading-8">
             {card.content}
           </p>

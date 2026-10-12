@@ -205,6 +205,8 @@ describe("architecture boundaries", () => {
     "storyAgent.storyList",
     "emotionAnalysis.getProfile",
     "emotionAnalysis.listDailyLetters",
+    // Account-wide memory library: only pagination/archive filters, no Story scope.
+    "memoryWarehouse.list",
   ]);
 
   // `utils.a.b.invalidate()` / `.invalidate(undefined)` / `.invalidate({})` all

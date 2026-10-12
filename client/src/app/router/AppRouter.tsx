@@ -10,6 +10,7 @@ import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
 import StoryEditorPage from "@/features/shiguang/StoryEditorPage";
+import SharedArtworkPage from "@/pages/SharedArtworkPage";
 import SharedStoryPage from "@/pages/SharedStoryPage";
 import { canAcceptStoryShare } from "@shared/storyContextShare";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -71,6 +72,7 @@ function AdminGuard({ children }: { children: ReactNode }) {
 export default function AppRouter() {
   return (
     <Switch>
+      <Route path="/p/:token">{params => <SharedArtworkPage key={params.token} token={params.token} />}</Route>
       <Route path="/s/:token">{params => <SharedStoryPage key={params.token} token={params.token} />}</Route>
       <Route path="/auth/supabase/callback">
         <SupabaseAuthCallbackPage />

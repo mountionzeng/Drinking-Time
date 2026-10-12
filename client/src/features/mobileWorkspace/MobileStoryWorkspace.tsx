@@ -1,4 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
+import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
+import { useMobileStageSwipe } from "./useMobileStageSwipe";
+import { STORY_STAGE_ORDER } from "./mobileStageSwipe";
 import { ArrowLeft } from "lucide-react";
 import type { TextDraftVersion } from "@shared/textDraftHistory";
 import { trpc } from "@/lib/trpc";
@@ -13,6 +16,7 @@ import {
   useMobileSyncedEditor,
   type MobileEditSeed,
 } from "./MobileSyncedEditor";
+import { MobileImageStudio, type MobileArtworkSource } from "./MobileImageStudio";
 import { MobileEditableMemories } from "./MobileEditableMemories";
 
 export const MOBILE_STORY_STAGES = [
@@ -29,39 +33,48 @@ export function MobileStoryStageBar({
   stage: MobileStoryStage;
   onChange: (stage: MobileStoryStage) => void;
 }) {
+  const motionId = useId();
+  const reducedMotion = useReducedMotion();
   return (
-    <nav
-      aria-label="故事制作阶段"
-      className="flex shrink-0 items-center px-5 pb-3"
-    >
-      {MOBILE_STORY_STAGES.map((item, index) => (
-        <React.Fragment key={item.id}>
-          {index > 0 && (
-            <span aria-hidden="true" className="h-px flex-1 bg-border" />
-          )}
-          <button
-            type="button"
-            aria-pressed={stage === item.id}
-            onClick={() => onChange(item.id)}
-            className={cn(
-              "flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-              stage === item.id
-                ? "font-medium text-primary"
-                : "text-muted-foreground"
-            )}
-          >
-            <span
-              aria-hidden="true"
+    <LayoutGroup id={motionId}>
+      <nav
+        aria-label="故事制作阶段"
+        className="mx-5 mb-4 grid shrink-0 grid-cols-3 border-b border-border/40"
+      >
+        {MOBILE_STORY_STAGES.map(item => {
+          const active = stage === item.id;
+          return (
+            <motion.button
+              key={item.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onChange(item.id)}
+              whileTap={reducedMotion ? undefined : { scale: 0.97 }}
               className={cn(
-                "size-2 rounded-full border border-current",
-                stage === item.id && "bg-current"
+                "relative flex min-h-16 items-center justify-center pb-2 font-serif text-lg transition-colors duration-300 motion-reduce:transition-none focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                active ? "text-primary" : "text-muted-foreground hover:text-foreground"
               )}
-            />
-            {item.label}
-          </button>
-        </React.Fragment>
-      ))}
-    </nav>
+            >
+              <motion.span
+                className="pl-[0.16em] tracking-[0.16em]"
+                animate={{ y: active && !reducedMotion ? -2 : 0 }}
+                transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {item.label}
+              </motion.span>
+              {active ? (
+                <motion.span
+                  aria-hidden="true"
+                  layoutId="stage-underline"
+                  className="absolute bottom-0 h-[2px] w-6 rounded-full bg-primary"
+                  transition={{ duration: reducedMotion ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
+                />
+              ) : null}
+            </motion.button>
+          );
+        })}
+      </nav>
+    </LayoutGroup>
   );
 }
 
@@ -95,7 +108,17 @@ export function MobileStoryWorkspace({
   );
   const [versionChoice, setSelectedVersion] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [imageStudio, setImageStudio] = useState(false);
+  const [memoryArtwork, setMemoryArtwork] = useState<MobileArtworkSource>();
   const editor = useMobileSyncedEditor(userId, storyId);
+  const reducedMotion = useReducedMotion();
+  const [direction, setDirection] = useState(1);
+  function changeStage(next: MobileStoryStage) {
+    if (next === stage) return;
+    setDirection(STORY_STAGE_ORDER.indexOf(next) > STORY_STAGE_ORDER.indexOf(stage) ? 1 : -1);
+    onStageChange(next);
+  }
+  const swipe = useMobileStageSwipe(stage, changeStage, (stage === "text" && editing) || Boolean(editor.draft) || document.state?.status === "conflict");
   useEffect(() => { void document.retryLoad(); }, [storyId]);
   const versions = history.data?.versions ?? [];
   const selectedVersion =
@@ -112,9 +135,14 @@ export function MobileStoryWorkspace({
   const content = selected?.adoption?.content ?? selected?.generated;
   return (
     <>
+      {imageStudio ? <MobileImageStudio userId={userId} storyId={storyId}
+        source={memoryArtwork ?? (selectedVersion !== "current" && content ? { id: selectedVersion, content } : undefined)}
+        onBack={() => { setImageStudio(false); void document.retryLoad(); }} /> : null}
       <section
+        {...swipe}
+        style={{ touchAction: "pan-y pinch-zoom" }}
         aria-label={`${title}的故事工作区`}
-        className="flex h-full min-h-0 flex-col"
+        className={cn("h-full min-h-0 flex-col", imageStudio ? "hidden" : "flex")}
       >
         <header className="flex shrink-0 items-center gap-2 px-3 py-2">
           <button
@@ -127,7 +155,11 @@ export function MobileStoryWorkspace({
           </button>
           <h1 className="min-w-0 truncate font-chat-brand text-xl">{title}</h1>
         </header>
-        <MobileStoryStageBar stage={stage} onChange={onStageChange} />
+        <MobileStoryStageBar stage={stage} onChange={changeStage} />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <motion.div key={stage} className="flex min-h-0 min-w-0 flex-1 flex-col"
+          initial={reducedMotion ? false : { opacity: 0.5, x: direction * 16 }}
+          animate={{ opacity: 1, x: 0 }} transition={{ duration: reducedMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}>
         {stage === "video" ? (
           <MobileStoryVideos storyId={storyId} />
         ) : (
@@ -152,6 +184,10 @@ export function MobileStoryWorkspace({
                 onEdit={editor.open}
                 versions={versions}
                 conversation={conversation}
+                onMakeArtwork={card => {
+                  setMemoryArtwork({ id: `memory:${card.id}`, kind: "memory", content: { title: card.title, body: card.content, tags: [] } });
+                  setImageStudio(true);
+                }}
               />
             ) : (
               <>
@@ -206,6 +242,10 @@ export function MobileStoryWorkspace({
                     </button>
                   )}
                 </div>
+                {(content?.body || (selectedVersion === "current" && document.state?.body)) && <div className="px-5 py-2">
+                  <button type="button" disabled={document.hasUnsavedChanges || Boolean(editor.draft)} onClick={() => { setMemoryArtwork(undefined); setImageStudio(true); }} className="min-h-11 text-sm text-primary disabled:opacity-40">制作图文 · 配图、排版与分享 →</button>
+                  {document.hasUnsavedChanges ? <p className="text-xs text-muted-foreground">先保存文字修改，再制作图文。</p> : null}
+                </div>}
                 <div className="min-h-0 flex-1">
                   {selectedVersion === "current" &&
                   (editing || document.state?.status === "conflict") ? (
@@ -273,6 +313,8 @@ export function MobileStoryWorkspace({
             )}
           </>
         )}
+        </motion.div>
+        </div>
       </section>
       <MobileSyncedEditor
         storyId={storyId}
@@ -288,11 +330,13 @@ function MobileStoryMemories({
   onEdit,
   versions,
   conversation,
+  onMakeArtwork,
 }: {
   storyId: number;
   onEdit: (seed: MobileEditSeed) => void;
   versions: TextDraftVersion[];
   conversation: MobileConversationController;
+  onMakeArtwork: (card: { id: string; title: string; content: string }) => void;
 }) {
   const [sourceChoice, setSource] = useState<string | null>(null);
   const combinations = versions.filter(version => version.memoryCards?.length);
@@ -327,7 +371,7 @@ function MobileStoryMemories({
         </p>
       )}
       {source === "current" ? (
-        <MobileEditableMemories storyId={storyId} onEdit={onEdit} />
+        <MobileEditableMemories storyId={storyId} onEdit={onEdit} onMakeArtwork={onMakeArtwork} />
       ) : cards ? (
         cards.map(card => (
           <article key={card.id} className="border-b border-border/60 py-4">
@@ -340,6 +384,7 @@ function MobileStoryMemories({
             </p>
             <h2 className="mb-2 text-base">{card.title}</h2>
             <p className={readable}>{card.content}</p>
+            {card.content.trim() ? <button type="button" className="mt-2 min-h-11 text-sm text-primary" onClick={() => onMakeArtwork({ ...card, id: `${source}:${card.id}` })}>制作图文 →</button> : null}
           </article>
         ))
       ) : (
@@ -372,6 +417,7 @@ function MobileStoryMemories({
                 {message.role === "user" ? "我的原话" : "聊聊整理"}
               </p>
               <p className={readable}>{message.content}</p>
+              {message.content.trim() ? <button type="button" className="mt-2 min-h-11 text-sm text-primary" onClick={() => onMakeArtwork({ id: `chat:${message.id}`, title: message.role === "user" ? "我的原话" : "聊聊整理", content: message.content })}>制作图文 →</button> : null}
             </article>
           ))}
         </>

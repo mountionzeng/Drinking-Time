@@ -1,3 +1,4 @@
+import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clipboard, Download, ImagePlus, Loader2, Share2 } from "lucide-react";
@@ -72,8 +73,11 @@ export function PublishingImagePack({
   scope, storyId, versionId, hasAlbum, title, body, assets: coverAssets, adoptedCoverId,
   onOpenCoverStudio, coverBusy, advancedEditor, advancedOpen, onAdvancedOpenChange,
   onGenerateIllustration, onGenerateCover, onGenerateTexture, illustrationCost, generationStartedAt, generationError,
-  onIllustrationsChange,
+  onIllustrationsChange, mobile = false, shareEpoch = 0, contentKind = "article",
 }: {
+  contentKind?: "article" | "memory";
+  mobile?: boolean;
+  shareEpoch?: number;
   scope: string;
   storyId: number;
   versionId: string;
@@ -82,7 +86,7 @@ export function PublishingImagePack({
   body: string;
   assets: PackAsset[];
   adoptedCoverId: number | null;
-  onOpenCoverStudio(): void;
+  onOpenCoverStudio?(): void;
   coverBusy: boolean;
   generationError?: string;
   advancedEditor?: ReactNode;
@@ -96,7 +100,14 @@ export function PublishingImagePack({
   onIllustrationsChange?(placements: IllustrationPlacement[]): void;
 }) {
   const key = `publishing-image-pack:${scope}`;
-  const [settings, setSettings] = useState(() => readSettings(key, adoptedCoverId));
+  const [settings, setSettings] = useState(() => {
+    const value = readSettings(key, adoptedCoverId);
+    if (mobile && adoptedCoverId == null) {
+      try { if (!localStorage.getItem(key)) value.includeCover = false; } catch { value.includeCover = false; }
+    }
+    return value;
+  });
+  const [mobileStep, setMobileStep] = useState<"preview" | "images" | "layout">("preview");
   useEffect(() => { onIllustrationsChange?.(settings.illustrations); }, [onIllustrationsChange, settings.illustrations]);
   const albumQuery = trpc.publishingDraft.readAlbum.useQuery(
     { storyId, versionId }, { enabled: hasAlbum && storyId > 0, retry: false },
@@ -191,12 +202,15 @@ export function PublishingImagePack({
   useEffect(() => {
     setError("");
     setProgress(null);
-    if (!options.body.trim() || needsCover || missingIllustration || missingTexture || palettePending) return;
+    // Equivalent assets from a background refetch must not restart rendering
+    // and unmount the share dialog. Render only when actual inputs change.
+    const renderOptions: ImagePackOptions = JSON.parse(signature);
+    if (!renderOptions.body.trim() || needsCover || missingIllustration || missingTexture || palettePending) return;
     const controller = new AbortController();
     setProgress("正在更新图片…");
     // Coalesce typing and quick candidate changes before starting PNG work.
     const timer = window.setTimeout(() => {
-      void makeImagePack(options, (done, total) => {
+      void makeImagePack(renderOptions, (done, total) => {
         if (!controller.signal.aborted) setProgress(`排版 ${done}/${total}`);
       }, controller.signal).then(pages => {
         if (controller.signal.aborted || currentSignature.current !== signature) return;
@@ -212,7 +226,7 @@ export function PublishingImagePack({
       });
     }, 500);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [options, signature, needsCover, missingIllustration, missingTexture, palettePending, renderAttempt]);
+  }, [signature, needsCover, missingIllustration, missingTexture, palettePending, renderAttempt]);
 
   function update(patch: Partial<Settings>) { setSettings(value => ({ ...value, ...patch })); }
   function referenceCoverPicker() {
@@ -280,34 +294,38 @@ export function PublishingImagePack({
   }
 
   return (
-    <section className="mt-7 rounded-xl border border-[var(--panel-border)]" aria-label="文章图片制作">
+    <section className={mobile ? "mobile-image-pack" : "mt-7 rounded-xl border border-[var(--panel-border)]"} aria-label="文章图片制作">
       {generationError && !coverBusy ? <p role="alert" className="px-4 pt-3 text-xs text-destructive">{generationError}</p> : null}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
         <div>
-          <h2 className="font-chat-brand text-lg">把文章做成图片</h2>
+          <h2 className="font-chat-brand text-lg">{contentKind === "memory" ? "把记忆做成图片" : "把文章做成图片"}</h2>
           <p className="mt-1 text-xs text-muted-foreground" role="status">已有图片 {assets.length} 张{output ? ` · 成品 ${output.pages.length} 张${stale ? "（待更新）" : ""}` : ""}</p>
         </div>
       </header>
+      {mobile ? <nav aria-label="图文制作步骤" className="grid grid-cols-3 border-b border-border px-3">
+        {([['preview', '预览'], ['images', '配图'], ['layout', '排版']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={mobileStep === id} onClick={() => setMobileStep(id)} className={`min-h-12 text-sm ${mobileStep === id ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}>{label}</button>)}
+      </nav> : null}
       <div className="space-y-4 p-4">
         {generationStartedAt != null ? <GenerationWait key={generationStartedAt} startedAt={generationStartedAt} /> : null}
+        <div hidden={mobile && mobileStep !== "images"} className="space-y-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs">封面</p>
           <div className="flex items-center gap-2">
-          <button type="button" disabled={coverBusy} className={control} onClick={onOpenCoverStudio}>编辑封面</button>
-          <Popover open={coverSetup} onOpenChange={setCoverSetup}>
+          {onOpenCoverStudio ? <button type="button" disabled={coverBusy} className={control} onClick={onOpenCoverStudio}>编辑封面</button> : null}
+          {contentKind !== "memory" ? <Popover open={coverSetup} onOpenChange={setCoverSetup}>
             <PopoverTrigger asChild><button type="button" disabled={coverBusy} className={control}><ImagePlus className="mr-1 inline h-3.5 w-3.5" />生成封面</button></PopoverTrigger>
-            <PopoverContent align="end" className="w-80 space-y-3">
+            <PopoverContent align="end" className={`w-80 max-w-[calc(100vw-2rem)] space-y-3 ${mobile ? "[&_textarea]:text-base [&_button]:min-h-11" : ""}`}>
               <p className="text-sm font-medium">生成封面</p>
               <textarea aria-label="封面生成要求" value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)} maxLength={1000} rows={3} className={`${control} w-full`} placeholder="想要怎样的画面？留空则根据文章生成" />
               {onGenerateCover ? <button type="button" className={control} disabled={coverBusy || illustrationCost == null} onClick={() => { setCoverSetup(false); void onGenerateCover(coverInstruction); }}>确认生成 4 张 · {illustrationCost == null ? "" : formatComputeQuote(illustrationCost)}</button> : null}
             </PopoverContent>
-          </Popover>
+          </Popover> : null}
           </div>
         </div>
         {assets.length ? (
             <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="已有图片">
               {assets.filter(asset => !asset.kind).map(asset => (
-                <ImageCandidatePreview key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
+                <ImageCandidatePreview touchOnly={mobile} key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
                 <button type="button" aria-label={`选为封面：${asset.label}`} aria-pressed={settings.coverId === asset.id}
                   onClick={() => { update({ coverId: asset.id, includeCover: true }); setIllustrationSetup(false); }}
                   className={`relative w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${settings.coverId === asset.id ? "border-[var(--nayin-accent)]" : "border-transparent"}`}>
@@ -325,7 +343,7 @@ export function PublishingImagePack({
             <p className="text-xs">正文插图（可多选）</p>
             {onGenerateIllustration ? <Popover open={illustrationSetup} onOpenChange={setIllustrationSetup}>
               <PopoverTrigger asChild><button type="button" className={control} disabled={coverBusy}>生成插图</button></PopoverTrigger>
-              <PopoverContent aria-label="生成插图" align="end" className="w-80 space-y-3">
+              <PopoverContent aria-label="生成插图" align="end" className={`w-80 max-w-[calc(100vw-2rem)] space-y-3 ${mobile ? "[&_textarea]:text-base [&_button]:min-h-11" : ""}`}>
                 <p className="text-sm font-medium">生成横版插图 · 16:9</p>
                 {generationCover ? <>
                 <textarea aria-label="插图内容" className={`${control} w-full`} rows={3} value={illustrationInstruction} onChange={event => setIllustrationInstruction(event.target.value)} maxLength={1000} placeholder="想画什么？留空则根据文章内容生成" />
@@ -338,7 +356,7 @@ export function PublishingImagePack({
             {illustrations.map(asset => {
               const placement = settings.illustrations.find(item => item.assetId === asset.id);
               const needsPosition = placement && resolveIllustrationOffset(paragraphs, placement.after) === null;
-              return <ImageCandidatePreview key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />} controls={illustrationControls(asset, placement)}><button type="button" className={`w-32 shrink-0 rounded border-2 p-1 focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${placement ? "border-[var(--nayin-accent)]" : "border-transparent"}`} aria-label={`选用插图：${asset.label}`} aria-pressed={Boolean(placement)} onClick={() => addIllustration(asset.id)}>
+              return <ImageCandidatePreview touchOnly={mobile} key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />} controls={illustrationControls(asset, placement)}><button type="button" className={`w-32 shrink-0 rounded border-2 p-1 focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${placement ? "border-[var(--nayin-accent)]" : "border-transparent"}`} aria-label={`选用插图：${asset.label}`} aria-pressed={Boolean(placement)} onClick={() => addIllustration(asset.id)}>
               <img src={asset.imageUrl} alt={asset.label} className="aspect-video w-full object-contain" />
               {placement ? <span className={`block text-[10px] ${needsPosition ? "text-destructive" : ""}`}>{needsPosition ? "请重新定位" : "已插入"}</span> : null}
               {asset.kind !== "illustration" ? <span className="text-[10px] text-muted-foreground">保留的原配图</span> : null}
@@ -354,7 +372,7 @@ export function PublishingImagePack({
             <p className="text-xs">整套底图{cover && !palette ? <span className="text-muted-foreground"> · {theme?.error ? "取色未完成" : "取色中…"}</span> : null}</p>
             {onGenerateTexture ? <Popover open={textureSetup} onOpenChange={setTextureSetup}>
               <PopoverTrigger asChild><button type="button" className={control} disabled={coverBusy}>生成底图</button></PopoverTrigger>
-              <PopoverContent aria-label="生成底图" align="end" className="w-80 space-y-3">
+              <PopoverContent aria-label="生成底图" align="end" className={`w-80 max-w-[calc(100vw-2rem)] space-y-3 ${mobile ? "[&_textarea]:text-base [&_button]:min-h-11" : ""}`}>
                 <p className="text-sm font-medium">生成花纹底图 · 3:4</p>
                 {generationCover ? <>
                 <textarea aria-label="底图花纹要求" className={`${control} w-full`} rows={3} value={textureInstruction} onChange={event => setTextureInstruction(event.target.value)} maxLength={1000} placeholder="例如：细腻纸纹、淡淡水彩、稀疏植物纹样" />
@@ -365,19 +383,20 @@ export function PublishingImagePack({
           </div>
           {theme?.url === cover?.imageUrl && theme?.error ? <p role="alert" className="text-xs text-destructive">{theme.error} <button type="button" onClick={() => setThemeRetry(value => value + 1)}>重试取色</button></p> : null}
           <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="正文纹理">
-            {assets.filter(asset => asset.kind === "body-texture").map(asset => <ImageCandidatePreview key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
+            {assets.filter(asset => asset.kind === "body-texture").map(asset => <ImageCandidatePreview touchOnly={mobile} key={asset.id} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
               <button type="button" className={`w-20 shrink-0 rounded-lg border-2 p-1 text-xs ${bodyTexture?.id === asset.id ? "border-[var(--nayin-accent)]" : "border-transparent"}`} aria-label={`选用底图：${asset.label}`} aria-pressed={bodyTexture?.id === asset.id} onClick={() => { update({ bodyTextureId: asset.id }); setSelectedPage(settings.includeCover ? 1 : 0); }}>
                 <img src={asset.imageUrl} alt={asset.label} className="aspect-[3/4] w-full rounded object-cover" />
                 {asset.warning ? <span className="text-[10px] text-amber-700">{asset.warning}</span> : null}
               </button>
             </ImageCandidatePreview>)}
-            {materials.map(({texture, seed}) => <ImageCandidatePreview key={`${texture}:${seed}`} label={`${IMAGE_PACK_TEXTURES[texture]} ${seed + 1}`} preview={<MaterialSwatch palette={palette ?? IMAGE_PACK_STYLES.sage} texture={texture} seed={seed} />}><button type="button" className={`w-20 shrink-0 rounded-lg border-2 p-1 text-xs transition-colors ${settings.bodyTextureId == null && settings.texture === texture && settings.textureSeed === seed ? "border-[var(--nayin-accent)]" : "border-transparent"}`} aria-label={`选用底图：${IMAGE_PACK_TEXTURES[texture]} ${seed + 1}`} aria-pressed={settings.bodyTextureId == null && settings.texture === texture && settings.textureSeed === seed} onClick={() => { update({ texture, textureSeed: seed, bodyTextureId: null }); setSelectedPage(settings.includeCover ? 1 : 0); }}>
+            {materials.map(({texture, seed}) => <ImageCandidatePreview touchOnly={mobile} key={`${texture}:${seed}`} label={`${IMAGE_PACK_TEXTURES[texture]} ${seed + 1}`} preview={<MaterialSwatch palette={palette ?? IMAGE_PACK_STYLES.sage} texture={texture} seed={seed} />}><button type="button" className={`w-20 shrink-0 rounded-lg border-2 p-1 text-xs transition-colors ${settings.bodyTextureId == null && settings.texture === texture && settings.textureSeed === seed ? "border-[var(--nayin-accent)]" : "border-transparent"}`} aria-label={`选用底图：${IMAGE_PACK_TEXTURES[texture]} ${seed + 1}`} aria-pressed={settings.bodyTextureId == null && settings.texture === texture && settings.textureSeed === seed} onClick={() => { update({ texture, textureSeed: seed, bodyTextureId: null }); setSelectedPage(settings.includeCover ? 1 : 0); }}>
               <MaterialSwatch palette={palette ?? IMAGE_PACK_STYLES.sage} texture={texture} seed={seed} /><span className="block py-1">{IMAGE_PACK_TEXTURES[texture]} · {seed + 1}</span>
             </button></ImageCandidatePreview>)}
           </div>
           <button type="button" className="text-xs text-muted-foreground underline" disabled={palettePending} onClick={() => update({ materialBatch: settings.materialBatch + 1 })}>换一组免费纹理</button>
         </div>
-        <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">排版设置</summary>
+        </div>
+        <details open={mobile ? mobileStep === "layout" : undefined} hidden={mobile && mobileStep !== "layout"} className="text-xs"><summary className="cursor-pointer text-muted-foreground">排版设置</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 text-xs">封面文字
             <input aria-label="封面文字" value={options.title} onChange={event => update({ title: event.target.value })} maxLength={200} className={control} placeholder="默认使用文章标题，也可以自己填写" />
@@ -404,23 +423,29 @@ export function PublishingImagePack({
         </p> : null}
         {error ? <p role="alert" className="text-xs text-destructive">{error} <button type="button" className="underline" onClick={() => setRenderAttempt(value => value + 1)}>重试排版</button></p> : null}
         {output ? (
-          <div className="border-t border-[var(--panel-border)] pt-4">
+          <div hidden={mobile && mobileStep !== "preview"} className="border-t border-[var(--panel-border)] pt-4">
             <h3 className="mb-2 text-sm font-medium">成品预览</h3>
             {stale ? <p className="mb-3 text-xs text-muted-foreground">正在更新…</p> : null}
             <div className="flex gap-2 overflow-x-auto pb-3" aria-label="成品图片列表">
-              {output.pages.map((page, index) => <ImageCandidatePreview key={page.url} label={`成品 ${index + 1} · ${page.label}`} preview={<img src={page.url} alt={page.label} />}><button type="button" onClick={() => setSelectedPage(index)} aria-pressed={selectedPage === index} aria-label={`预览第 ${index + 1} 张：${page.label}`}
+              {output.pages.map((page, index) => <ImageCandidatePreview touchOnly={mobile} key={page.url} label={`成品 ${index + 1} · ${page.label}`} preview={<img src={page.url} alt={page.label} />}><button type="button" onClick={() => setSelectedPage(index)} aria-pressed={selectedPage === index} aria-label={`预览第 ${index + 1} 张：${page.label}`}
                 className={`w-24 shrink-0 rounded-md border-2 p-1 ${selectedPage === index ? "border-[var(--nayin-accent)]" : "border-transparent"}`}>
                 <img src={page.url} alt={`第 ${index + 1} 张 ${page.label}`} className="aspect-[3/4] w-full rounded" />
                 <span className="text-[10px]">{index + 1} · {page.label}</span>
               </button></ImageCandidatePreview>)}
             </div>
-            {selected ? <img src={selected.url} alt={`当前预览：${selected.label}`} className="mx-auto mb-4 w-full max-w-sm rounded-lg border border-[var(--panel-border)]" /> : null}
+            {selected ? mobile ? <ImageCandidatePreview touchOnly label={`成品 ${selectedPage + 1} · ${selected.label}`} preview={<img src={selected.url} alt={selected.label} />}>
+              <button type="button" aria-label={`放大当前图片：${selected.label}`} className="mx-auto mb-4 block w-full max-w-sm cursor-zoom-in">
+                <img src={selected.url} alt={`当前预览：${selected.label}`} className="w-full rounded-lg border border-[var(--panel-border)]" />
+              </button>
+            </ImageCandidatePreview> : <img src={selected.url} alt={`当前预览：${selected.label}`} className="mx-auto mb-4 w-full max-w-sm rounded-lg border border-[var(--panel-border)]" /> : null}
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={!ready} onClick={() => { for (const page of output.pages) downloadPublishingAlbumBlob(page.blob, page.filename); }} className={control}><Download className="mr-1 inline h-3.5 w-3.5" />下载整套</button>
-              <button type="button" disabled={!ready} onClick={() => void copy()} className={control}><Clipboard className="mr-1 inline h-3.5 w-3.5" />复制当前图片</button>
+              {!mobile ? <button type="button" disabled={!ready} onClick={() => { for (const page of output.pages) downloadPublishingAlbumBlob(page.blob, page.filename); }} className={control}><Download className="mr-1 inline h-3.5 w-3.5" />下载整套</button> : null}
+              {!mobile ? <button type="button" disabled={!ready} onClick={() => void copy()} className={control}><Clipboard className="mr-1 inline h-3.5 w-3.5" />复制当前图片</button> : null}
               {canShareImages ? <button type="button" disabled={!ready} onClick={() => void share()} className={control}><Share2 className="mr-1 inline h-3.5 w-3.5" />分享图片</button> : null}
               {selected ? <a href={ready ? selected.url : undefined} download={selected.filename} aria-disabled={!ready} className={control}>下载当前图片</a> : null}
+              {mobile && ready ? <ArtworkShareDialog key={`${output.signature}:${shareEpoch}`} storyId={storyId} title={options.title} pages={output.pages} /> : null}
             </div>
+            {mobile ? <p className="mt-3 text-xs leading-6 text-muted-foreground">长按预览图可保存到手机；也可逐张下载后发布到社交平台。{!canShareImages ? "此浏览器暂不支持直接分享图片。" : ""}</p> : null}
           </div>
         ) : null}
         {advancedEditor ? <details open={advancedOpen} onToggle={event => onAdvancedOpenChange?.(event.currentTarget.open)} className="border-t border-[var(--panel-border)] pt-3"><summary className="cursor-pointer text-xs text-muted-foreground">逐页编辑画册</summary>{advancedOpen ? advancedEditor : null}</details> : null}

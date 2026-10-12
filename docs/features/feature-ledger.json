@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-11T14:49:32.281Z",
+  "updatedAt": "2026-10-12T06:00:00.000Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -4081,7 +4081,8 @@
         "docs/qa/2026-10-11-mobile-me.md",
         "docs/qa/2026-10-11-mobile-navigation.md",
         "docs/qa/2026-10-11-mobile-story-stages.md",
-        "docs/qa/2026-10-11-mobile-synced-editing.md"
+        "docs/qa/2026-10-11-mobile-synced-editing.md",
+        "docs/qa/2026-10-12-mobile-release.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4102,7 +4103,6 @@
       "replaces": [],
       "knownGaps": [
         "尚未获得授权把本分支部署到真实公网 HTTPS，因此 Secure Cookie、登录返回 /m 和不同账号隔离仍缺真实域名证据。",
-        "尚未在一次性/生产 MySQL 上完成两进程正文 CAS 与同 turn generation claim；未设置 TEST_MYSQL_DATABASE_URL 时命令会失败关闭并拒绝执行，当前未执行，不能算发布通过。",
         "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
         "生产迁移 ledger/schema、备份、expand/dual-read/enforce 和 rollback-safe point 尚未在获批的真实环境核对。"
@@ -4172,6 +4172,11 @@
           "date": "2026-10-11",
           "kind": "improvement",
           "summary": "恢复原故事首页和从内容入口进入详情的层级，修复当前导航不响应；新增记忆/文字修订编辑器，账号切换及退出清理其恢复草稿。当前正文重进详情和窗口聚焦时读取最新权威内容，原CAS保护不变。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "按用户新增范围，手机文字稿接入图文制作；进入或切换界面不触发付费，只有明确确认出图才提交。当前正文未保存时禁用制作入口，原保存与恢复能力保持。"
         }
       ]
     },
@@ -5548,7 +5553,9 @@
         "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
         "client/src/features/mobileWorkspace/MobileChatView.tsx",
         "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx",
-        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx"
+        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
+        "client/src/features/mobileWorkspace/mobileStageSwipe.ts",
+        "client/src/features/mobileWorkspace/useMobileStageSwipe.ts"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.test.tsx",
@@ -5557,7 +5564,11 @@
         "docs/qa/2026-10-11-mobile-story-stages.md",
         "docs/qa/2026-10-11-mobile-synced-editing.md",
         "server/routers.memoryWarehouse.test.ts",
-        "server/services/textDraftHistory.test.ts"
+        "server/services/textDraftHistory.test.ts",
+        "client/src/features/mobileWorkspace/mobileStageSwipe.test.ts",
+        "client/src/features/mobileWorkspace/useMobileStageSwipe.test.tsx",
+        "docs/qa/2026-10-12-mobile-stage-swipe.md",
+        "docs/qa/2026-10-12-mobile-release.md"
       ],
       "invariants": [
         "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
@@ -5566,11 +5577,13 @@
         "记忆组合展示生成时保留的来源快照，并区分用户原话和助手整理。",
         "当前发布正文保留编辑、CAS冲突和恢复能力；按用户2026-10-11追加授权，独立文字历史可保存为新修订，不改原稿、不自动采用。记忆修订保留原文归档和已生成文章的来源快照。",
         "选故事留在故事工作区；已有未保存正文仍须明确保存、放弃或取消后才能切换或新建。",
-        "底部故事入口始终返回原故事首页；从查看记忆/查看文字稿进入详情，详情默认阅读，编辑控件仅在需要时打开。"
+        "底部故事入口始终返回原故事首页；从查看记忆/查看文字稿进入详情，详情默认阅读，编辑控件仅在需要时打开。",
+        "记忆/文字稿/视频支持点击及触屏水平轻扫，边界不循环；垂直阅读、长按选择、表单编辑、媒体控件及系统边缘返回不触发切页；尊重减少动态效果偏好。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
-        "story-ownership"
+        "story-ownership",
+        "mobile-artwork-production-sharing"
       ],
       "replaces": [],
       "knownGaps": [
@@ -5590,6 +5603,102 @@
           "date": "2026-10-11",
           "kind": "feature",
           "summary": "用户要求恢复原故事首页，并明确文字与记忆可同步编辑、视频先查看。恢复当前故事卡片/以前故事列表，详情由记忆/文字稿入口进入，当前底部故事按钮也能回首页。补齐记忆分页/单条阅读/修订，独立文字手动新修订及账号隔离草稿恢复；所有保存共用电脑仓储，原文/旧稿保留，无模型调用。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "用户追加授权手机图文制作：文字稿内按需打开预览/配图/排版，复用电脑图片候选与生成服务，保留费用确认和已受理任务恢复；历史稿可先用已有图片排版，显式采用后才按该正文购买新配图。下载PNG、系统图片分享及独立匿名作品链接接入；视频仍只查看。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "新增触屏左右轻扫切换阶段；保留细线圆点，选中圆点平滑移动，正文按方向16px轻移与220ms淡入。新增方向、边界、垂直锁定、多指/取消、编辑保护、误点击拦截测试；13文件92项及类型检查通过，390px浏览器验证点击与布局。真机手势手感待验证。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "refactor",
+          "summary": "用户要求重做阶段栏视觉：移除流程圆点和连线，改为等宽书页目录式衬线标签、24px短下划线共享布局滑动（300ms）、选中文字2px轻提和按压反馈。保留触屏切页及编辑保护，减少动态效果设置继续生效。9项阶段测试、类型检查通过，390px截图验证。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-artwork-production-sharing",
+      "name": "手机图文制作与匿名作品分享",
+      "status": "observing",
+      "userValue": "在手机记忆或文字稿中排版成图片，下载或调用系统分享，并创建无需登录的成品阅读链接；文字稿可购买生成新配图。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
+        "client/src/pages/SharedArtworkPage.tsx"
+      ],
+      "owners": [
+        "client/src/features/mobileWorkspace/MobileImageStudio.tsx",
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx",
+        "client/src/features/publishingAlbum/ArtworkShareDialog.tsx",
+        "server/routers/artworkShare.ts",
+        "server/repositories/artworkShares.ts",
+        "shared/artworkShare.ts",
+        "drizzle/0031_artwork_shares.sql",
+        "client/src/features/publishingAlbum/artworkShareImages.ts",
+        "client/src/features/publishingAlbum/ArtworkAuthor.tsx",
+        "client/src/features/publishingAlbum/ImageCandidatePreview.tsx",
+        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx"
+      ],
+      "evidence": [
+        "client/src/features/mobileWorkspace/MobileImageStudio.test.tsx",
+        "server/routers.artworkShare.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "docs/qa/2026-10-12-mobile-artwork.md",
+        "client/src/features/publishingAlbum/artworkShareImages.test.ts",
+        "server/integration/artworkShares.mysql.test.ts",
+        "docs/qa/2026-10-12-mobile-release.md"
+      ],
+      "invariants": [
+        "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
+        "手机与电脑复用同一Story图片候选和生成服务；正文未保存时不得进入制作，历史稿采用必须明确确认。",
+        "分享只包含最终图片、作品标题和用户已确认公开的昵称/头像，不包含聊天、邮箱、账号标识、原图URL或Story内部数据；公开读取无需登录，创建和停止必须验证归属。当前头像由昵称生成，昵称取服务端登录用户。",
+        "链接固定到确认时的图片快照；持有链接的人可以查看和转发。停止后拒绝新读取，已保存图片不能收回。",
+        "令牌仅以哈希落库；发布限制9张、输入合计8MiB和单故事10个有效链接；同令牌重试幂等，图片由服务端解码重编码去元数据。",
+        "分享不自动发布到第三方；系统分享由用户选择目标应用和收件人。",
+        "原桌面画册、文字分享和视频制作能力保留，未修改其接口语义。",
+        "记忆图文使用用户选中的单条当前记忆、历史来源快照或聊天内容；按记忆标识隔离排版设置，不自动采用为发布正文，不自动生成文字或购买图片。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document",
+        "publishing-workspace",
+        "publishing-static-album",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "本地一次性MySQL迁移与跨进程分享事务已通过；正式部署和公网匿名链接将在本次发布验收中记录。",
+        "真机iOS/Android保存到相册、第三方分享面板和微信内置浏览器兼容性待验收；本机浏览器已实际下载PNG。",
+        "快捷排版设置按账号/故事/版本保存在本机；生成候选共用服务器，排版设置本身不跨设备同步。",
+        "当前手机支持快捷字体、封面文字、段落插图与纹理排版；电脑的高级逐页手绘布局编辑器未搬入。",
+        "停止链接以故事为单位；不支持单独撤销某一个链接。",
+        "历史稿采用遵守现有标题冲突及已采用版本不可重写约束，冲突需回正文处理，不能静默替换。",
+        "账号暂无个人头像图片字段，作品页使用昵称生成的文字头像；本机已生成并打开5页作品链接，未向公网或第三方平台发布，未购买图片生成。",
+        "记忆阶段支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "用户要求搬入电脑配图与排版能力，并明确链接为无需登录的图文作品。实现手机三页渐进界面、PNG与系统分享、确认后匿名作品快照、撤销和归属/幂等保护。首轮116条相关测试和新增4条手机生成门禁测试通过，类型检查通过；本机390px展示32张既有素材、5张排版成品并下载PNG。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "fix",
+          "summary": "修复手机点图没有放大入口，候选/成品/公开页统一支持可关闭大图；复现5张PNG超8MiB导致分享失败，新增WebP压缩与大小预算且保留原PNG下载，生成进度和成功链接可见。按用户确认加入昵称与文字头像；相同渲染输入的后台刷新不再中断分享。17文件75测试与类型检查通过，本机390px验证同一套5图成功生成链接并打开。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "扩展图文入口到记忆阶段：单条记忆阅读中仅增加一个入口，历史记忆快照和聊天也可制作；直接使用所选内容，沿用大图预览、下载与作者作品链接，按记忆独立保存快捷排版。新增有/无文字稿的隔离测试，13文件98项通过。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "verification",
+          "summary": "隔离发布候选通过普通601文件5184项、小程序215项、真实MySQL16文件62项、类型和生产构建。新增分享真实MySQL跨进程权限、重复提交、内容冲突、10链接并发限额、撤销清空和删故事失效测试；补齐本地集合与32迁移基线断言。"
         }
       ]
     }

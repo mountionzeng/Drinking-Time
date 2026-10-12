@@ -340,6 +340,18 @@ export const stories = mysqlTable(
 export type Story = typeof stories.$inferSelect;
 export type InsertStory = typeof stories.$inferInsert;
 
+/** Immutable, revocable rendered artwork; no chat or account data. */
+export const artworkShares = mysqlTable("artwork_shares", {
+  tokenHash: varchar("tokenHash", { length: 64 }).primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+  snapshot: json("snapshot").$type<import("../shared/artworkShare").ArtworkSnapshot>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+}, table => ({ ownerIndex: index("artwork_shares_owner").on(table.userId, table.storyId) }));
+export type ArtworkShare = typeof artworkShares.$inferSelect;
+
 /** Revocable, text-only snapshots; raw bearer tokens are never stored. */
 export const storyContextShares = mysqlTable("story_context_shares", {
   tokenHash: varchar("tokenHash", { length: 64 }).primaryKey(),

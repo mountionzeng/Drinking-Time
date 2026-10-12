@@ -22,6 +22,7 @@ import {
   EmotionDailyLetter,
   Story,
   StoryContextShare,
+  ArtworkShare,
   StoryContextShareImport,
   StorySoundWorkspaceRecord,
   StorySoundPlanVersionRecord,
@@ -97,6 +98,7 @@ function createEmptyMemoryCollections() {
     emotionDailyLetters: [] as EmotionDailyLetter[],
     stories: [] as Story[],
     storyContextShares: [] as StoryContextShare[],
+    artworkShares: [] as ArtworkShare[],
     storyContextShareImports: [] as StoryContextShareImport[],
     storySoundWorkspaces: [] as StorySoundWorkspaceRecord[],
     storySoundPlanVersions: [] as StorySoundPlanVersionRecord[],
@@ -386,6 +388,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as Story[];
+  memoryState.artworkShares = (raw.artworkShares ?? []).map(item => ({
+    ...item, createdAt: toDate(item.createdAt), revokedAt: item.revokedAt ? toDate(item.revokedAt) : null,
+  })) as ArtworkShare[];
   memoryState.storyContextShares = (raw.storyContextShares ?? []).map(item => ({
     ...item,
     createdAt: toDate(item.createdAt),

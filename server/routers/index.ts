@@ -63,6 +63,7 @@ import {
   storyConversationRouter,
 } from "./promptLineage";
 import { storyAgentRouter } from "./storyAgent";
+import { artworkShareRouter } from "./artworkShare";
 import { storyContextShareRouter } from "./storyContextShare";
 import { creationAgentRouter } from "./creationAgent";
 import { computeAccountRouter } from "./computeAccount";
@@ -1171,6 +1172,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: storyAgentRouter,
   storyContextShare: storyContextShareRouter,
+  artworkShare: artworkShareRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,
   textSourceLineage: textSourceLineageRouter,
