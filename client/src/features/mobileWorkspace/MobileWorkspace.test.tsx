@@ -13,32 +13,19 @@ import {
 } from "./MobileWorkspace";
 
 describe("MobileWorkspace", () => {
-  it("lets the selected story navigation return from a detail to the story home", () => {
-    const navigate = vi.fn();
-    const tree = MobileNavBar({
-      current: "stories",
-      element: "metal",
-      visualTheme: "shiguang",
-      onNavigate: navigate,
-    });
-    function clickSelected(node: React.ReactNode) {
-      React.Children.forEach(node, child => {
-        if (
-          !React.isValidElement<{
-            children?: React.ReactNode;
-            onClick?: () => void;
-            "aria-current"?: string;
-          }>(child)
-        )
-          return;
-        if (child.type === "button" && child.props["aria-current"] === "page")
-          child.props.onClick?.();
-        else clickSelected(child.props.children);
-      });
+  it("moves between stories and me through one header button", () => {
+    for (const current of ["stories", "me"] as const) {
+      const navigate = vi.fn();
+      const tree = MobileNavBar({ current, onNavigate: navigate });
+      tree.props.children.props.onClick();
+      expect(navigate).toHaveBeenCalledWith(
+        current === "me" ? "stories" : "me"
+      );
+      const html = renderToStaticMarkup(tree);
+      expect(html.match(/<button/g)).toHaveLength(1);
+      expect(html).toContain(current === "me" ? "返回故事" : "我");
+      expect(html).not.toContain("mobile-bottom-nav");
     }
-    clickSelected(tree);
-    expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledWith("stories");
   });
   it("gives the dedicated chat its full reading area without a document or floating sheet", () => {
     const chatView = vi.fn(() => <p>完整聊天内容</p>);
@@ -90,35 +77,19 @@ describe("MobileWorkspace", () => {
     expect(html).not.toMatch(/时间线|预览|素材|图片|分镜/);
   });
 
-  // 三个入口常驻可见，当前页有可访问的状态标识。
-  it("keeps every entry visible and identifies the current page", () => {
-    for (const page of ["stories", "chat", "me"] as const) {
+  it("removes the full-width bottom navigation from all mobile themes", () => {
+    for (const visualTheme of ["shiguang", "nayin"] as const) {
       const html = renderToStaticMarkup(
         <MobileWorkspaceFrame
           activeView="document"
           onViewChange={vi.fn()}
-          page={page}
+          page="stories"
+          visualTheme={visualTheme}
           pageView={<p>页面内容</p>}
-          documentView={<p>正文内容</p>}
-          chatView={() => <p>对话内容</p>}
         />
       );
-      const nav =
-        /<nav[^>]*aria-label="手机工作区"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
-      const buttons = nav.match(/<button/g) ?? [];
-
-      expect(buttons).toHaveLength(3);
-      expect(nav.match(/aria-current="page"/g)).toHaveLength(1);
-      expect(nav).not.toContain("invisible");
-      expect(nav).not.toContain("disabled");
-      expect(nav).not.toContain('tabindex="-1"');
-      for (const label of ["故事", "聊聊", "我"]) expect(nav).toContain(label);
-      const currentButton = nav.match(
-        /<button[^>]*aria-current="page"[\s\S]*?<\/button>/
-      )?.[0];
-      expect(currentButton).toContain(
-        { stories: "故事", chat: "聊聊", me: "我" }[page]
-      );
+      expect(html).not.toContain("mobile-bottom-nav");
+      expect(html).toContain("页面内容");
     }
   });
 

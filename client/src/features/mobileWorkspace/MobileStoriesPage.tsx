@@ -1,5 +1,5 @@
-import { Plus } from "lucide-react";
 import React from "react";
+import { MobileNavBar } from "./MobileNavBar";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,15 +13,13 @@ function storyExcerpt(story: MobileStorySummary): string {
 export function MobileStoriesPage({
   stories,
   activeStoryId,
-  creating = false,
-  onCreateStory,
+  onOpenMe,
   onSelectStory,
   onOpenStage,
 }: {
   stories: readonly MobileStorySummary[];
   activeStoryId: number | null;
-  creating?: boolean;
-  onCreateStory?: () => void;
+  onOpenMe: () => void;
   onSelectStory: (storyId: number) => void;
   onOpenStage: (stage: "memory" | "text") => void;
 }) {
@@ -37,18 +35,7 @@ export function MobileStoriesPage({
         <h1 className="font-chat-brand text-[28px] leading-none text-foreground">
           故事
         </h1>
-        {onCreateStory ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 rounded-xl"
-            disabled={creating}
-            onClick={onCreateStory}
-          >
-            <Plus aria-hidden="true" />
-            {creating ? "正在新建…" : "新故事"}
-          </Button>
-        ) : null}
+        <MobileNavBar current="stories" onNavigate={onOpenMe} />
       </div>
       <p className="mt-2 text-sm leading-7 text-muted-foreground">
         把聊过的，慢慢写成故事。

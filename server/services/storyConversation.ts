@@ -39,6 +39,10 @@ import {
   type ShotDraft,
   type StoryCardContextPayload,
 } from "../archive/storyAgent";
+import {
+  replyAsWritingCompanion,
+  type WritingCompanionContext,
+} from "./writingCompanion";
 
 type ConversationOwner = {
   storyId: number;
@@ -77,6 +81,11 @@ export type GenerateMobileStoryConversationTurnInput = MobileTurnIdentity & {
   assistantClientMessageId: string;
   userContent: string;
   retryFailed?: boolean;
+  /**
+   * 写不下去时点开聊聊带来的正文与停笔位置。有它时这一轮按「帮写」立场回复。
+   * 不参与 requestHash：它是生成上下文，不是这一轮对话内容本身。
+   */
+  writingContext?: WritingCompanionContext;
   /** Deterministic clock override for tests. */
   now?: number;
 };
@@ -88,6 +97,8 @@ type MobileReplyInput = ConversationOwner & {
   currentShots: ShotDraft[];
   storyCards: StoryCardContextPayload[];
   existingCardCount: number;
+  writingContext?: WritingCompanionContext;
+  storyTitle?: string | null;
 };
 
 type MobileReplyResult = {
@@ -700,7 +711,14 @@ export async function generateMobileStoryConversationTurn(
   const generateReply =
     dependencies.generateReply ??
     (async (replyInput: MobileReplyInput) =>
-      replyFromStoryAgent({
+      replyInput.writingContext
+        ? replyAsWritingCompanion({
+            message: replyInput.message,
+            history: replyInput.history,
+            writingContext: replyInput.writingContext,
+            storyTitle: replyInput.storyTitle,
+          })
+        : replyFromStoryAgent({
         message: replyInput.message,
         history: replyInput.history,
         summary: replyInput.summary,
@@ -716,6 +734,8 @@ export async function generateMobileStoryConversationTurn(
       message: input.userContent,
       history,
       ...mobileReplyStoryContext(story),
+      writingContext: input.writingContext,
+      storyTitle: story.title,
     });
     const assistantContent = generated.reply?.trim();
     if (!assistantContent || generated.modelLabel === "请求失败") {

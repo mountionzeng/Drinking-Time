@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArrowDown,
@@ -58,7 +58,11 @@ export default function MemoryWarehouse({
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
   const accountId = useStorySpine(state => state.accountId);
-  const [selected, setSelected] = useMemorySelection(memorySelectionKey(accountId, activeStoryId));
+  const contextKey = memorySelectionKey(accountId, activeStoryId);
+  const [accountScopeKey, setAccountScopeKey] = useState<string | null>(null);
+  const showAll = accountScopeKey === contextKey;
+  const hasStory = activeStoryId !== null && activeStoryId > 0;
+  const [selected, setSelected] = useMemorySelection(contextKey);
   const [instruction, setInstruction] = useState("");
   const [target, setTarget] = useState<"new" | "current">("new");
   const [syncing, setSyncing] = useState(false);
@@ -74,17 +78,49 @@ export default function MemoryWarehouse({
   const saveLock = useRef(false);
   const generationLock = useRef(false);
   const alive = useRef(true);
-  const query = trpc.memoryWarehouse.list.useQuery(
+  const allQuery = trpc.memoryWarehouse.list.useQuery(
     { offset, archived },
-    { enabled: open, retry: false, refetchInterval: open ? 5000 : false }
+    {
+      enabled: open && showAll,
+      retry: false,
+      refetchInterval: open && showAll ? 5000 : false,
+    }
   );
+  const storyQuery = trpc.memoryWarehouse.forStory.useQuery(
+    { storyId: hasStory ? activeStoryId : 1, offset, archived },
+    {
+      enabled: open && !showAll && hasStory,
+      retry: false,
+      refetchInterval: open && !showAll && hasStory ? 5000 : false,
+    }
+  );
+  const query = showAll ? allQuery : storyQuery;
+  const visibleData = showAll || hasStory ? query.data : undefined;
   const save = trpc.memoryWarehouse.save.useMutation({ retry: false });
   const archive = trpc.memoryWarehouse.archive.useMutation({ retry: false });
   const generate = trpc.memoryWarehouse.compose.useMutation({ retry: false });
   const sync = trpc.memoryWarehouse.sync.useMutation({ retry: false });
+  const syncStory = trpc.memoryWarehouse.syncStory.useMutation({ retry: false });
+  const syncStoryRef = useRef(syncStory.mutateAsync);
+  syncStoryRef.current = syncStory.mutateAsync;
   const syncRef = useRef(sync.mutateAsync);
   syncRef.current = sync.mutateAsync;
   const busy = starting || generate.isPending;
+
+  useEffect(() => {
+    setOffset(0);
+    setSearch("");
+    setArchived(false);
+    setAccountScopeKey(null);
+  }, [contextKey]);
+
+  const invalidateMemories = () =>
+    Promise.all([
+      utils.memoryWarehouse.list.invalidate(),
+      hasStory
+        ? utils.memoryWarehouse.forStory.invalidate({ storyId: activeStoryId })
+        : Promise.resolve(),
+    ]);
 
   useEffect(() => {
     if (!open) return;
@@ -93,14 +129,18 @@ export default function MemoryWarehouse({
     setSyncError(false);
     void (async () => {
       try {
-        let afterId: number | null = 0;
-        while (afterId !== null && !cancelled) {
-          const result: { nextAfterId: number | null } = await syncRef.current({
-            afterId,
-          });
-          afterId = result.nextAfterId;
+        if (showAll) {
+          let afterId: number | null = 0;
+          while (afterId !== null && !cancelled) {
+            const result: { nextAfterId: number | null } = await syncRef.current({
+              afterId,
+            });
+            afterId = result.nextAfterId;
+          }
+        } else if (hasStory) {
+          await syncStoryRef.current({ storyId: activeStoryId });
         }
-        if (!cancelled) await Promise.all([utils.memoryWarehouse.list.invalidate({ archived: false }), utils.memoryWarehouse.list.invalidate({ archived: true })]);
+        if (!cancelled) await invalidateMemories();
       } catch {
         if (!cancelled) setSyncError(true);
       } finally {
@@ -110,7 +150,7 @@ export default function MemoryWarehouse({
     return () => {
       cancelled = true;
     };
-  }, [open, syncAttempt, utils]);
+  }, [open, syncAttempt, utils, showAll, activeStoryId, accountId]);
 
   useEffect(() => {
     alive.current = true;
@@ -142,12 +182,15 @@ export default function MemoryWarehouse({
     if (!draft || saveLock.current) return;
     saveLock.current = true;
     try {
-      await save.mutateAsync(draft);
+      const sourceStoryId =
+        draft.sourceStoryId ??
+        (!showAll ? await ensureActiveStoryPersisted() : null);
+      await save.mutateAsync({ ...draft, sourceStoryId });
       setDraft(null);
       setOffset(0);
       setArchived(false);
       setSearch("");
-      await Promise.all([utils.memoryWarehouse.list.invalidate({ archived: false }), utils.memoryWarehouse.list.invalidate({ archived: true })]);
+      await invalidateMemories();
       toast.success("已存入记忆仓库");
     } catch (error) {
       toast.error(
@@ -162,7 +205,7 @@ export default function MemoryWarehouse({
     try {
       await archive.mutateAsync({ id, archived: value });
       setSelected(cards => cards.filter(card => card.id !== id));
-      await Promise.all([utils.memoryWarehouse.list.invalidate({ archived: false }), utils.memoryWarehouse.list.invalidate({ archived: true })]);
+      await invalidateMemories();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "操作失败");
     }
@@ -260,7 +303,7 @@ export default function MemoryWarehouse({
     });
   }
   const cards =
-    query.data?.cards.filter(card =>
+    visibleData?.cards.filter(card =>
       `${card.title}\n${card.content}`.includes(search.trim())
     ) ?? [];
 
@@ -281,26 +324,35 @@ export default function MemoryWarehouse({
             记忆仓库
           </DialogTitle>
           <DialogDescription>
-            随便聊的内容都会成为记忆。选取不同片段，自由组合成不同的故事。
+            {showAll
+              ? "正在查看账号全部记忆，可跨故事选取片段。"
+              : "只显示当前故事的聊天和已引用的记忆。"}
+            选取不同片段，自由组合成不同的故事。
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-2">
-            <button
+            <select
               className={button}
-              aria-pressed={!archived}
-              onClick={() => {
+              aria-label="记忆范围"
+              value={showAll ? "account" : "story"}
+              onChange={event => {
+                setAccountScopeKey(
+                  event.target.value === "account" ? contextKey : null
+                );
                 setArchived(false);
                 setOffset(0);
+                setSearch("");
               }}
             >
-              全部记忆
-            </button>
+              <option value="story">当前故事</option>
+              <option value="account">账号全部记忆</option>
+            </select>
             <button
               className={button}
               aria-pressed={archived}
               onClick={() => {
-                setArchived(true);
+                setArchived(value => !value);
                 setOffset(0);
               }}
             >
@@ -317,7 +369,7 @@ export default function MemoryWarehouse({
                 content: "",
                 kind: "event",
                 origin: "note",
-                sourceStoryId: null,
+                sourceStoryId: hasStory && !showAll ? activeStoryId : null,
               })
             }
           >
@@ -327,7 +379,9 @@ export default function MemoryWarehouse({
         </div>
         {syncing && (
           <p role="status" className="text-xs text-muted-foreground">
-            正在收录聊天记忆，包括以前聊过的内容…
+            {showAll
+              ? "正在收录账号的聊天记忆…"
+              : "正在收录当前故事的聊天记忆…"}
           </p>
         )}
         {syncError && (
@@ -483,6 +537,8 @@ export default function MemoryWarehouse({
                         ? "我的原话"
                         : "随手记"}{" "}
                     · {new Date(card.createdAt).toLocaleDateString("zh-CN")}
+                    {!showAll && card.sourceStoryId !== activeStoryId &&
+                      " · 已引用到当前故事"}
                   </p>
                   {card.content.length > 240 ? <details className="mt-2 text-sm leading-6">
                     <summary className="cursor-pointer whitespace-pre-wrap break-words text-muted-foreground">{Array.from(card.content).slice(0, 180).join("")}… <span className="text-xs underline">展开原话</span></summary>
@@ -512,8 +568,8 @@ export default function MemoryWarehouse({
               <span>第 {offset / 50 + 1} 页</span>
               <button
                 className={button}
-                disabled={query.data?.nextOffset == null || query.isFetching}
-                onClick={() => setOffset(query.data!.nextOffset!)}
+                disabled={visibleData?.nextOffset == null || query.isFetching}
+                onClick={() => setOffset(visibleData!.nextOffset!)}
               >
                 下一页
               </button>

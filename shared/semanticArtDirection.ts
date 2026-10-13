@@ -1,3 +1,4 @@
+import type { ColorDesign } from "./colorHarmony";
 export const SEMANTIC_ART_NORMALIZER_VERSION = "semantic-art-v1";
 export const SEMANTIC_ART_CATALOG_VERSION = "2026-08-31.1";
 
@@ -34,6 +35,7 @@ export type NormalizedSemanticArtEvidence = {
 };
 
 export type SemanticArtCard = {
+  colorDesign?: ColorDesign;
   id: string;
   version: string;
   scope: SemanticArtScope;

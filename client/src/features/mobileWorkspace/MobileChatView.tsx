@@ -163,6 +163,8 @@ export function MobileChatView({
   onReplyHeightChange,
   draftValue,
   onDraftChange,
+  greeting,
+  composerDisabled = false,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
@@ -177,6 +179,8 @@ export function MobileChatView({
   /** 页面切换时由故事工作区保留尚未发送的输入。 */
   draftValue?: string;
   onDraftChange?: (draft: string) => void;
+  greeting?: string;
+  composerDisabled?: boolean;
 }) {
   const [localDraft, setLocalDraft] = useState("");
   const draft = draftValue ?? localDraft;
@@ -219,7 +223,7 @@ export function MobileChatView({
 
   const send = () => {
     const content = draft.trim();
-    if (!content || !controller.canSend) return;
+    if (!content || !controller.canSend || composerDisabled) return;
     setDraft("");
     setAnnouncement("消息已提交");
     void controller.submit(content);
@@ -282,6 +286,7 @@ export function MobileChatView({
         ) : null}
 
         {controller.historyState === "empty" ? (
+          greeting ? <p className="whitespace-pre-line px-2 text-base leading-8">{greeting}</p> :
           <div className="mx-auto flex min-h-48 max-w-xs flex-col items-center justify-center text-center">
             <div className="font-chat-brand text-2xl text-foreground">聊聊</div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -361,7 +366,7 @@ export function MobileChatView({
           <Textarea
             aria-label="给聊聊发送消息"
             className="max-h-32 min-h-11 resize-none rounded-2xl bg-background px-4 py-3 leading-5 shadow-sm"
-            disabled={controller.historyState === "loading"}
+            disabled={controller.historyState === "loading" || composerDisabled}
             placeholder="继续聊聊…"
             rows={1}
             value={draft}

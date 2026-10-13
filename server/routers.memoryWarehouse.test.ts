@@ -9,6 +9,7 @@ import { deleteStory } from "./repositories/storyLifecycle";
 import { insertMemoryCard, readMemoryCards } from "./repositories/memoryCards";
 import type { TrpcContext } from "./_core/context";
 import type { MemoryCardInput } from "../shared/memoryWarehouse";
+import { readyDraft } from "./testing/creationFlowFixtures";
 
 process.env.DATABASE_URL = "";
 const caller = (id: number | null) =>
@@ -26,6 +27,115 @@ const input = (): MemoryCardInput => ({
 beforeEach(() => resetMemoryStateForTesting());
 
 describe("explicit memory warehouse", () => {
+  it("keeps story memories and their archive separate from unrelated stories and standalone notes", async () => {
+    const own = await createStory({ userId: 11, title: "当前故事", body: {} });
+    const other = await createStory({
+      userId: 11,
+      title: "其他故事",
+      body: {},
+    });
+    const current = await caller(11).save({
+      ...input(),
+      sourceStoryId: own.id,
+    });
+    const archived = await caller(11).save({
+      ...input(),
+      sourceStoryId: own.id,
+    });
+    await caller(11).archive({ id: archived.id, archived: true });
+    const unrelated = await caller(11).save({
+      ...input(),
+      sourceStoryId: other.id,
+    });
+    await caller(11).save(input());
+    await caller(12).save(input());
+    const unrelatedArchive = await caller(11).save({
+      ...input(),
+      sourceStoryId: other.id,
+    });
+    await caller(11).archive({ id: unrelatedArchive.id, archived: true });
+
+    expect(
+      (await caller(11).forStory({ storyId: own.id })).cards.map(
+        card => card.id
+      )
+    ).toEqual([current.id]);
+    expect(
+      (
+        await caller(11).forStory({ storyId: own.id, archived: true })
+      ).cards.map(card => card.id)
+    ).toEqual([archived.id]);
+    expect(
+      (await caller(11).forStory({ storyId: other.id })).cards.map(
+        card => card.id
+      )
+    ).toEqual([unrelated.id]);
+    expect((await caller(11).list({})).cards).toHaveLength(3);
+    await expect(
+      caller(12).forStory({ storyId: own.id, archived: true })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+  it("retains explicitly composed source memories without importing unrelated conversations", async () => {
+    const source = await createStory({
+      userId: 11,
+      title: "来源故事",
+      body: {},
+    });
+    const linked = await caller(11).save({
+      ...input(),
+      sourceStoryId: source.id,
+    });
+    await caller(11).save({ ...input(), sourceStoryId: source.id });
+    const composed = await createStory({
+      userId: 11,
+      title: "组合故事",
+      body: {
+        textDraftHistory: {
+          schemaVersion: 1,
+          revision: 1,
+          versions: [
+            {
+              ...readyDraft("composed"),
+              memoryCards: [
+                { ...linked, createdAt: linked.createdAt.getTime() },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(
+      (await caller(11).forStory({ storyId: composed.id })).cards.map(
+        card => card.id
+      )
+    ).toEqual([linked.id]);
+    await caller(11).archive({ id: linked.id, archived: true });
+    expect((await caller(11).forStory({ storyId: composed.id })).cards).toEqual(
+      []
+    );
+    expect(
+      (
+        await caller(11).forStory({ storyId: composed.id, archived: true })
+      ).cards.map(card => card.id)
+    ).toEqual([linked.id]);
+  });
+  it("paginates within the story rather than filtering an account-wide page", async () => {
+    const own = await createStory({ userId: 11, title: "当前故事", body: {} });
+    for (let i = 0; i < 51; i++)
+      await caller(11).save({ ...input(), sourceStoryId: own.id });
+    for (let i = 0; i < 3; i++) await caller(11).save(input());
+    const first = await caller(11).forStory({ storyId: own.id });
+    const second = await caller(11).forStory({
+      storyId: own.id,
+      offset: first.nextOffset!,
+    });
+    expect(first.cards).toHaveLength(50);
+    expect(second.cards).toHaveLength(1);
+    expect(second.nextOffset).toBeNull();
+    const cards = [...first.cards, ...second.cards];
+    expect(new Set(cards.map(card => card.id)).size).toBe(51);
+    expect(cards.every(card => card.sourceStoryId === own.id)).toBe(true);
+  });
   it("revises a memory across clients, retains the archived original and rejects stale or foreign saves", async () => {
     const story = await createStory({
       userId: 11,

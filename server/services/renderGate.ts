@@ -6,6 +6,8 @@
  * 模型级安全约束，不得再偷偷补写色调、服装或审美方向。
  */
 import { getActiveStyles, styleToFragments } from "./styleLibrary";
+import { colorDesignSummary, colorDesignFromSummary, type ColorDesign } from "../../shared/colorHarmony";
+import { selectColorHarmonyDirection } from "./colorHarmonyDirection";
 import { artRecipePrompt, type ArtRecipeDNA } from "../../shared/artDirection";
 import type { SemanticArtSelection } from "../../shared/semanticArtDirection";
 import {
@@ -13,7 +15,7 @@ import {
   getRecentEditPreferences,
   getRecentChatCorrections,
 } from "../db";
-import { artRepositoryPromptBlocks } from "./artRepository";
+import { artRepositoryPromptBlocks, type CuratedArtDna } from "./artRepository";
 import { selectSemanticArtDirection } from "./semanticArtDirectionCatalog";
 import { normalizeSemanticArtEvidence } from "./semanticEvidenceNormalizer";
 import {
@@ -189,7 +191,7 @@ function canAutoDirectStoryFrameComposition(ctx: RenderContext): boolean {
   ) {
     return false;
   }
-  const directionText = [ctx.prompt, ...(ctx.userInstructions ?? [])]
+  const directionText = [ctx.prompt, ctx.intent, ...(ctx.userInstructions ?? [])]
     .filter(Boolean)
     .join("\n");
   return !EXPLICIT_COMPOSITION_PATTERN.test(directionText);
@@ -376,9 +378,19 @@ function productConstraintBlock(ctx: RenderContext): string[] {
 }
 
 /** 编译最终提示词；所有静态图片入口必须直接或通过 renderViaGate 使用它。 */
-export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
+export type CompiledImagePrompt = { prompt: string; colorDesign?: ColorDesign };
+
+function withoutPreviousColorSection(prompt: string): string {
+  let inColorSection = false;
+  return prompt.split("\n").filter(line => {
+    if (line.startsWith("【")) inColorSection = line.startsWith("【配色关系】");
+    return !inColorSection;
+  }).join("\n").replace(/配色方法〔[^〕]*〕/gu, summary => colorDesignFromSummary(summary) ? "" : summary).trim();
+}
+
+export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledImagePrompt> {
   if (ctx.preservePrompt) {
-    return ctx.prompt.trim().slice(0, promptMaxLengthFor(ctx));
+    return { prompt: ctx.prompt.trim().slice(0, promptMaxLengthFor(ctx)) };
   }
   const additions: string[] = [];
   const instructions = cleanInstructions(ctx);
@@ -395,17 +407,29 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   additions.push(
     "【内容主权】严格保留上游提供的人物关系、事件、场景关系与核心含义：不得增删人物、改变他们之间的关系、或反转事情的走向与含义。注意：原文没有明确写出的外观——性别、年龄、发型、体型、衣着、配色、光线与氛围——不属于故事事实，而是留给美术决定的空缺。"
   );
-  if (instructions.length > 0) {
+  const localInstruction = (text: string) => /(?:亮面|暗面|重心).{0,12}(?:侧边|一侧|左|右)|别这么居中/u.test(text);
+  for (const [heading, values] of [
+    ["用户持续要求", instructions.filter(text => !localInstruction(text))],
+    ["本镜头用户要求", instructions.filter(localInstruction)],
+  ] as const) {
+    if (!values.length) continue;
     additions.push(
-      `【用户持续要求】${instructions.join("；")}。这些要求必须完整落实。这些是用户本人的美术指令，优先级高于你的默认想象：凡是原文未明写的外观，一律按用户所说执行，不得因为「可能改变故事事实」而打折扣或忽略。只有当某条要求与原文明确写出的事实直接冲突时才不执行它，并且照常完成其余要求。`
+      `【${heading}】${values.join("；")}。这些要求必须完整落实。这些是用户本人的美术指令，优先级高于你的默认想象：凡是原文未明写的外观，一律按用户所说执行，不得因为「可能改变故事事实」而打折扣或忽略。只有当某条要求与原文明确写出的事实直接冲突时才不执行它，并且照常完成其余要求。`
     );
   }
   additions.push(...productConstraintBlock(ctx));
+  const protectedAdditions = additions.join("\n");
   const lockedStyle = ctx.lockedVisualAssets?.kinds.includes("style") === true;
+  let dominant: ColorDesign | undefined = colorDesignFromSummary(ctx.prompt);
+  let language = "";
+  let essentialArt = "";
+  const supplements: ColorDesign[] = [];
+  let matchedDna: CuratedArtDna[] = [];
+  const automaticBlocks: string[] = [];
   if (!ctx.authoredBrief && !lockedStyle) {
     const compositionDirection = automaticStoryFrameDirection(ctx);
-    if (compositionDirection) additions.push(compositionDirection);
-    additions.push(textArtSignalBlock(textSignals));
+    if (compositionDirection) automaticBlocks.push(compositionDirection);
+    automaticBlocks.push(textArtSignalBlock(textSignals));
     const temporalBlock = temporalVisualPromptBlock({
       text: [ctx.prompt, ...instructions].filter(Boolean).join("\n"),
       currentDate: ctx.currentDate,
@@ -414,10 +438,12 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
         ctx.referencePolicy === "preserve-identity" ||
         ctx.referencePolicy === "preserve-composition",
     });
-    if (temporalBlock) additions.push(temporalBlock);
-    additions.push(
+    if (temporalBlock) automaticBlocks.push(temporalBlock);
+    automaticBlocks.push(
       ...(await artRepositoryPromptBlocks(
-        `${ctx.prompt}\n${ctx.emotion ?? ""}\n${instructions.join("\n")}`
+        `${ctx.prompt}\n${ctx.emotion ?? ""}\n${instructions.join("\n")}`,
+        undefined,
+        matched => { matchedDna = matched; }
       ))
     );
   }
@@ -425,17 +451,23 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   if (ctx.authoredBrief || lockedStyle) {
     // 用户自己定了美术，不再叠加流派、谱系与跃迁指令。
   } else if (ctx.artDirection) {
+    dominant = ctx.artDirection.colorDesign ?? dominant;
+    language = artRecipePrompt(ctx.artDirection);
     const recipe = artRecipePrompt(ctx.artDirection);
     if (recipe) {
       additions.push("【故事视觉配方】", recipe);
+      essentialArt = `【故事视觉配方】\n${recipe}`;
     }
   } else {
     const style = pickStyle(ctx);
     if (style) {
+      dominant = style.colorDesign ?? dominant;
       const dna = styleToFragments(style)
         .map(f => `${f.tag}：${f.text}`)
         .join("；");
       if (dna) additions.push(`【美术流派·${style.name}】${dna}`);
+      if (dna) essentialArt = `【美术流派·${style.name}】${dna}`;
+      language = dna;
     } else {
       const selection = selectSemanticArtDirection({
         normalized: normalizeSemanticArtEvidence({
@@ -446,7 +478,30 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
         purpose: ctx.outputPurpose ?? "story-frame",
       });
       additions.push(...semanticArtBlocks(selection));
+      dominant = dominant ?? selection.main?.colorDesign;
+      language = selection.main?.providerFragments.join("；") ?? "";
+      if (selection.auxiliary?.colorDesign) supplements.push(selection.auxiliary.colorDesign);
     }
+  }
+
+  let colorDesign: ColorDesign | undefined;
+  let colorBlock = "";
+  if (!ctx.authoredBrief && !lockedStyle) {
+    const joint = selectColorHarmonyDirection({
+      instructions: [...(ctx.userInstructions ?? []), ctx.intent ?? ""].join("\n"),
+      story: ctx.prompt,
+      emotion: ctx.emotion,
+      dominant,
+      language: [language, ...instructions].filter(Boolean).join("；"),
+      supplements: [...supplements, ...matchedDna.flatMap(dna => dna.colorDesign ? [dna.colorDesign] : [])],
+      paletteLocked: Boolean(ctx.artDirection?.palette.length) || /(?:红|蓝|绿|黄|紫|黑|白|橙|粉|棕|灰|暖|冷)色|红衣|blue|red|green/iu.test([ctx.prompt, ...instructions, language].join(" ")),
+      referenceLocked: ctx.storyboardReferenceTruth || ctx.referencePolicy === "preserve-identity" || ctx.referencePolicy === "preserve-composition" || Boolean(ctx.referenceImages?.length && ctx.referencePolicy !== "style-only") || Boolean(ctx.lockedVisualAssets?.kinds.length),
+    });
+    colorDesign = joint.colorDesign;
+    if (colorDesign) colorBlock = `【配色关系】${colorDesignSummary(colorDesign)}。只在允许改变的区域协调主次；不重染人物、服装或已确认物件，不增添新色板。`;
+    if (joint.shotDirection) additions.push(`【本镜头明暗安排】${joint.shotDirection}`);
+    additions.push(...automaticBlocks.filter(block => !block.startsWith("【自动构图导演】") || !EXPLICIT_COMPOSITION_PATTERN.test(language)).map(block => language && block.startsWith("【自动构图导演】")
+      ? block.split("\n").filter(line => !line.startsWith("视觉手法：")).join("\n") : block));
   }
 
   // 矫正循环：读取用户最近拒绝的图片信号 + 聊天矫正，生成负面约束
@@ -474,11 +529,24 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     0,
     promptMaxLengthFor(ctx) - hardConstraints.length - 1
   );
-  const body = [ctx.prompt.trim(), additions.join("\n")]
+  const sourceContent = colorBlock ? withoutPreviousColorSection(ctx.prompt) : ctx.prompt.trim();
+  let body = [sourceContent, additions.join("\n")]
     .filter(Boolean)
-    .join("\n")
-    .slice(0, bodyBudget);
-  return [body, hardConstraints].filter(Boolean).join("\n");
+    .join("\n");
+  if (body.length > bodyBudget) {
+    colorBlock = "";
+    const reserved = [protectedAdditions, essentialArt].filter(Boolean).join("\n").slice(0, bodyBudget);
+    const contentBudget = Math.max(0, bodyBudget - reserved.length - 1);
+    body = [ctx.prompt.trim().slice(0, contentBudget), reserved].filter(Boolean).join("\n");
+  }
+  if (colorBlock && body.length + colorBlock.length + 1 <= bodyBudget) body += `\n${colorBlock}`;
+  else colorDesign = undefined;
+  return { prompt: [body, hardConstraints].filter(Boolean).join("\n"), ...(colorDesign ? { colorDesign } : {}) };
+}
+
+/** Backward-compatible string API using the same authoritative compilation. */
+export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
+  return (await compileImagePrompt(ctx)).prompt;
 }
 
 /**
@@ -639,8 +707,8 @@ function promptMaxLengthFor(ctx: RenderContext): number {
 
 export async function renderViaGate<R>(
   ctx: RenderContext,
-  render: (prompt: string) => Promise<R>
+  render: (prompt: string, compiled: CompiledImagePrompt) => Promise<R>
 ): Promise<R> {
-  const prompt = await engineerImagePrompt(ctx);
-  return render(prompt);
+  const compiled = await compileImagePrompt(ctx);
+  return render(compiled.prompt, compiled);
 }

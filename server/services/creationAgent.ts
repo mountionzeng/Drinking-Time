@@ -442,6 +442,7 @@ function hasStoryCharacterAnchor(story?: { body: unknown } | null): boolean {
 // ── Deterministic single-image generation (no LLM tool call) ──
 
 export type GenerateNextImageInput = {
+  intent?: string;
   /** 出图提示词（焦点镜头的 promptDraft 或由镜头内容拼成）。 */
   prompt: string;
   shotNo: string;
@@ -680,10 +681,12 @@ export async function generateNextImage(
       : undefined;
 
   let genResult: Awaited<ReturnType<typeof generateImage>>;
+  let compiledPrompt = directedPrompt;
   try {
     genResult = await renderViaGate(
       {
         prompt: directedPrompt,
+        intent: input.intent,
         shotNo: targetShotNo,
         projectId: input.projectId,
         storyId: input.storyId ?? undefined,
@@ -708,6 +711,7 @@ export async function generateNextImage(
       },
       async prompt => {
         const generateAttempt = (attemptPrompt: string) => {
+        compiledPrompt = attemptPrompt;
         const editBase =
           continuitySource ?? lockedAssets?.sceneRef ?? lockedAssets?.petRef;
         if (editBase) {
@@ -833,7 +837,7 @@ export async function generateNextImage(
       shotIdentity: stableShotId,
       imageKey: genResult.imageKey ?? null,
       imageUrl: genResult.imageUrl,
-      prompt: directedPrompt,
+      prompt: compiledPrompt,
       promptCompilationId,
       parentImageId: continuityAsset?.id ?? null,
       isCurrent: !lockedAssets,
@@ -941,6 +945,7 @@ export async function replyFromCreationAgent(
       : { prompt: generateCall.prompt };
     // 与确定性单图路径共用底层（renderViaGate + 落库），LLM 工具调用只多一句回复包装。
     const genResult = await generateNextImage({
+      intent: input.message,
       prompt: scenePrompt.prompt,
       shotNo: targetShotNo,
       projectId: input.projectId,
@@ -1057,6 +1062,7 @@ export async function replyFromCreationAgent(
           typeof reviseStoryBody?.styleIndex === "number"
             ? reviseStoryBody.styleIndex
             : undefined;
+        let revisedPrompt = directedPrompt;
         const revised = await renderViaGate<ImageGenResult>(
           {
             prompt: directedPrompt,
@@ -1072,11 +1078,13 @@ export async function replyFromCreationAgent(
               ? "preserve-identity"
               : "preserve-composition",
           },
-          prompt =>
-            editImage(source, prompt, {
+          prompt => {
+            revisedPrompt = prompt;
+            return editImage(source, prompt, {
               provider: input.imageProvider,
               ...injection,
-            })
+            });
+          }
         );
         if (revised.status === "ok" && revised.imageUrl) {
           const dbImage = await createGeneratedImage({
@@ -1087,7 +1095,7 @@ export async function replyFromCreationAgent(
             shotIdentity: stableShotId,
             imageKey: revised.imageKey ?? null,
             imageUrl: revised.imageUrl,
-            prompt: directedPrompt,
+            prompt: revisedPrompt,
             promptCompilationId,
             parentImageId: asset.id,
             isCurrent: true,

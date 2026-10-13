@@ -49,6 +49,7 @@ import {
   generateImage as generateMobileImage,
 } from "../services/imageGen";
 import { renderViaGate } from "../services/renderGate";
+import { normalizeColorDesign } from "../../shared/colorHarmony";
 import {
   getStoryImageAssets,
   materializeImageInput,
@@ -547,6 +548,7 @@ export const storyAgentRouter = router({
                   .optional(),
                 recipe: z
                   .object({
+                    colorDesign: z.unknown().transform(normalizeColorDesign).optional(),
                     style: z.array(z.string()).optional(),
                     palette: z.array(z.string()).optional(),
                     light: z.array(z.string()).optional(),

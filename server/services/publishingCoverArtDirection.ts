@@ -2,6 +2,7 @@ import { normalizePublishingDraftState } from "../../shared/publishingDraft";
 import { resolvePublishingStoryboardCoverSource } from "./publishingStoryboardCoverSource";
 
 const REUSABLE_COVER_ART_SECTIONS = [
+  "配色关系",
   "用户持续要求",
   "文本美术信号",
   "时间、季节与服装",

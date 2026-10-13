@@ -69,6 +69,7 @@ export async function main(argv = process.argv.slice(2)) {
         material: result.analysis.materialsAndTextures,
         mood: result.analysis.mood,
         artTags: result.analysis.artTags,
+        colorDesign: result.analysis.colorDesign,
         matchTags: [
           ...result.analysis.visualStyle,
           ...result.analysis.mood,

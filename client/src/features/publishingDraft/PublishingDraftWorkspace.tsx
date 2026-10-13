@@ -1,3 +1,8 @@
+import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
+import {
+  insertParagraphAtCursor,
+  replaceWritingSelection,
+} from "@/features/writingCompanion/writingCompanionText";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
@@ -377,6 +382,7 @@ export default function PublishingDraftWorkspace({
   const utils = trpc.useUtils();
   const [pendingDecision, setPendingDecision] =
     useState<PendingEditDecision | null>(null);
+  const bodyEditorRef = useRef<HTMLTextAreaElement>(null);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
   const [coverStudioOpen, setCoverStudioOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -2131,6 +2137,32 @@ export default function PublishingDraftWorkspace({
                   >
                     正文
                   </label>
+                  <WritingCompanionButton
+                    key={`${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}`}
+                    disabled={busy}
+                    resolveStoryId={ensureActiveStoryPersisted}
+                    getSnapshot={() => {
+                      const editor = bodyEditorRef.current;
+                      const start = editor?.selectionStart ?? editorContent.body.length;
+                      const end = editor?.selectionEnd ?? start;
+                      return {
+                        draft: editorContent.body,
+                        cursor: start,
+                        ...(end > start ? { selection: { start, end } } : {}),
+                        scope: `${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}:${draft?.bodyRevision ?? draft?.revision ?? 0}`,
+                      };
+                    }}
+                    onInsert={(paragraph, snapshot) => {
+                      const result = snapshot.selection
+                        ? replaceWritingSelection(editorContent.body, snapshot.selection, paragraph)
+                        : insertParagraphAtCursor(editorContent.body, snapshot.cursor, paragraph);
+                      replaceContent({ ...editorContent, body: result.body });
+                      requestAnimationFrame(() => {
+                        bodyEditorRef.current?.focus();
+                        bodyEditorRef.current?.setSelectionRange(result.cursor, result.cursor);
+                      });
+                    }}
+                  />
                   {xThreadStats ? (
                     <span
                       className={`text-[10px] ${contentError ? "text-rose-700" : "text-muted-foreground"}`}
@@ -2142,6 +2174,7 @@ export default function PublishingDraftWorkspace({
                   ) : null}
                 </div>
                 <textarea
+                  ref={bodyEditorRef}
                   id="publishing-body"
                   disabled={adoptTextMut.isPending}
                   value={editorContent.body}

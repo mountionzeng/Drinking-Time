@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { normalizeColorDesign, type ColorDesign } from "../../shared/colorHarmony";
 import {
   ART_REFERENCE_TAG_FIELDS,
   normalizeArtReferenceTags,
@@ -20,6 +21,7 @@ export type ArtRepositoryProfile = {
 };
 
 export type CuratedArtDna = {
+  colorDesign?: ColorDesign;
   style: string[];
   palette: string[];
   light: string[];
@@ -109,6 +111,7 @@ export function sanitizeCuratedArtDna(
     mood: visualOnly(input.mood),
     matchTags: clean(input.matchTags),
     ...(tags ? { artTags: tags } : {}),
+    ...(normalizeColorDesign(input.colorDesign) ? { colorDesign: normalizeColorDesign(input.colorDesign) } : {}),
   };
 }
 
@@ -283,7 +286,8 @@ export function curatedDnaPromptBlock(dnaList: CuratedArtDna[]): string {
 
 export async function artRepositoryPromptBlocks(
   context: string,
-  repositoryDir = resolveArtRepositoryDir()
+  repositoryDir = resolveArtRepositoryDir(),
+  onMatched?: (dna: CuratedArtDna[]) => void
 ): Promise<string[]> {
   const [profile, catalog] = await Promise.all([
     loadArtRepositoryProfile(repositoryDir),
@@ -293,6 +297,7 @@ export async function artRepositoryPromptBlocks(
   if (profile) blocks.push(curatorProfilePromptBlock(profile));
   if (catalog) {
     const matched = matchCuratedArtDna(catalog, context);
+    onMatched?.(matched);
     const matchedBlock = curatedDnaPromptBlock(matched);
     if (matchedBlock) blocks.push(matchedBlock);
   }

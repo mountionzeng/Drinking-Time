@@ -220,3 +220,60 @@ describe("runMobileConversationTurn", () => {
     expect(api.generate).not.toHaveBeenCalled();
   });
 });
+
+describe("writing companion turn recovery", () => {
+  it("retries with the original draft, question and identity after reload", async () => {
+    const initial = {
+      ...turn(),
+      writingContext: {
+        draft: "那天下雨",
+        cursor: 4,
+        openingQuestion: "你在哪里？",
+        scope: "8:v1",
+      },
+    };
+    const api = {
+      generate: vi.fn(async () => completedServerTurn(initial)),
+      status: vi.fn(async () => ({ status: "missing" as const, turn: null })),
+      append: vi.fn(async () => ({ status: "appended" as const })),
+    };
+    const result = await runMobileConversationTurn({
+      turn: initial,
+      api,
+      recoverFirst: true,
+    });
+    expect(api.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientTurnId: initial.clientTurnId,
+        requestHash: initial.requestHash,
+        writingContext: initial.writingContext,
+      })
+    );
+    expect(result.status).toBe("synced");
+  });
+  it("restores the assistant text when both generation and append finished before reconnect", async () => {
+    const initial = turn();
+    const api = {
+      generate: vi.fn(),
+      status: vi.fn(async () => ({
+        status: "completed" as const,
+        turn: {
+          assistantContent: "雨里发生了什么？",
+          appendStatus: "appended" as const,
+        },
+      })),
+      append: vi.fn(),
+    };
+    const result = await runMobileConversationTurn({
+      turn: initial,
+      api,
+      recoverFirst: true,
+    });
+    expect(result).toMatchObject({
+      status: "synced",
+      assistantContent: "雨里发生了什么？",
+    });
+    expect(api.generate).not.toHaveBeenCalled();
+    expect(api.append).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,5 @@
 import { and, eq, inArray, or } from "drizzle-orm";
+import { colorDesignSummary } from "../../shared/colorHarmony";
 import {
   artPromptLibraries,
   artPromptLibraryItems,
@@ -224,6 +225,7 @@ function joinLibraryTexts(values: readonly string[]): string {
 
 function styleEntryToLibraryDraft(entry: StyleEntry): ArtPromptLibraryImportDraft {
   const recipe = [
+    colorDesignSummary(entry.colorDesign),
     cleanLibraryText(entry.one_liner),
     cleanLibraryText(entry.signature)
       ? `signature: ${cleanLibraryText(entry.signature)}`

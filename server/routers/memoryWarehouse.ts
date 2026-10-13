@@ -34,6 +34,7 @@ export const memoryWarehouseRouter = router({
       z.object({
         storyId: z.number().int().positive(),
         offset: z.number().int().nonnegative().default(0),
+        archived: z.boolean().default(false),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -52,7 +53,8 @@ export const memoryWarehouseRouter = router({
         ctx.user.id,
         input.storyId,
         ids,
-        input.offset
+        input.offset,
+        input.archived
       );
       return {
         cards: rows.slice(0, 50),

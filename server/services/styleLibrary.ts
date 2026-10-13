@@ -16,6 +16,7 @@ import { z } from "zod";
 import { ENV } from "../_core/env";
 import type { FragmentForPrompt } from "./shotPromptComposer";
 import { createLibraryLoader } from "./libraryLoader";
+import { normalizeColorDesign } from "../../shared/colorHarmony";
 import {
   strField,
   strArrField,
@@ -30,6 +31,7 @@ import {
 // ── zod schema：镜像 _TEMPLATE.yaml 字段。空标量/缺字段都收敛到安全默认（字段助手见 libraryFields）──
 
 const StyleEntrySchema = z.object({
+  colorDesign: z.unknown().transform(normalizeColorDesign).optional(),
   // 必填：缺 id/name 直接判为无效条目（跳过）
   id: z.string().min(1),
   name: z.string().min(1),
@@ -188,6 +190,7 @@ export function getSemanticArtCards(dir?: string): SemanticArtCard[] {
     return [
       {
         id: entry.id,
+        ...(entry.colorDesign ? { colorDesign: entry.colorDesign } : {}),
         version: metadata.version,
         scope: metadata.scope,
         concepts: metadata.concepts,

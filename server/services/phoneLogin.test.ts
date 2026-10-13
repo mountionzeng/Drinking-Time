@@ -178,6 +178,21 @@ describe("phone OTP login", () => {
       )?.attemptCount
     ).toBe(1);
   });
+  it("caps each phone at two sends per rolling day, matching the Tencent app", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    await requestPhoneLoginCode(phone, "ip");
+    vi.setSystemTime(start + 61000);
+    await requestPhoneLoginCode(phone, "ip");
+    vi.setSystemTime(start + 122000);
+    await expect(requestPhoneLoginCode(phone, "ip")).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(axios.post).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(start + 86400001);
+    await requestPhoneLoginCode(phone, "ip");
+    expect(axios.post).toHaveBeenCalledTimes(3);
+  });
   it("does not activate a failed SMS or leak provider details", async () => {
     vi.mocked(axios.post).mockRejectedValue(
       new Error("secret-key and plaintext code")

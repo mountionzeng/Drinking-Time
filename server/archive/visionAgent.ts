@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { COLOR_DESIGN_VALUES, normalizeColorDesign, type ColorDesign } from "../../shared/colorHarmony";
 import {
   normalizeArtReferenceTags,
   type ArtReferenceTags,
@@ -43,6 +44,7 @@ export type VisionAnalysisResult = {
     negativePrompt: string;
     confidence: number;
     artTags?: ArtReferenceTags;
+    colorDesign?: ColorDesign;
   };
 };
 
@@ -134,7 +136,7 @@ const stringArray = (value: unknown): string[] =>
 const stringValue = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
-function normalizeAnalysis(raw: unknown): VisionAnalysisResult["analysis"] {
+function normalizeAnalysis(raw: unknown, purpose?: VisionAnalyzeParams["purpose"]): VisionAnalysisResult["analysis"] {
   const obj =
     raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const confidenceRaw = Number(obj.confidence);
@@ -157,6 +159,7 @@ function normalizeAnalysis(raw: unknown): VisionAnalysisResult["analysis"] {
       ? Math.max(0, Math.min(1, confidenceRaw))
       : 0,
     ...(obj.artTags ? { artTags: normalizeArtReferenceTags(obj.artTags) } : {}),
+    ...(purpose === "art-curation" && normalizeColorDesign(obj.colorDesign) ? { colorDesign: normalizeColorDesign(obj.colorDesign) } : {}),
   };
 }
 
@@ -169,6 +172,7 @@ function buildSystemPrompt(purpose?: VisionAnalyzeParams["purpose"]) {
     "参考图的主体、人物、物体、地点和情节可以客观描述，但不得在 promptDraft 中写成必须复制的内容；promptDraft 只保留可泛化的构图、光线、材料、情绪和制作方法。",
     "不要编造看不见的事实。看不清时用“无法确定”或降低 confidence。",
     ...(purpose === "art-curation" ? [
+      `先观察整体与局部色域、主辅面积、纯度、明暗块面连断、边缘与媒介叠色方式；开放观察仍放 artTags。可确定的泛化方法可另写 analysis.colorDesign，字段及可选值如下：${JSON.stringify(COLOR_DESIGN_VALUES)}。只填有依据的枚举键值；未知留空。局部关系必须指定 marks 或 accents 尺度。不得填色名、百分比、具体位置、作者姓名、源图物件、路径或指令；不要臆造作者时期或固定艺术家色板。`,
       "策展提取使用开放、多选、可交叉的标签，不强制每张图片归入唯一流派。允许混合媒介、近似描述和自定义标签；某一维度不确定就留空，继续提取其他可见维度，不因为分不清流派而否定整张图。",
       "先自由观察，再归类；分类是索引，不是提取范围。主动保留图中有依据而预设分类未覆盖的特征，例如光的扩散、透明感、视觉重量、图底关系、重复节奏或边缘软硬；示例不是必填清单，不可为了新颖而编造。额外特征用简短 freeTags 保存，有可执行方法时同时写入对应的光线、构图、笔触或材质字段，让它既可检索又可复用；不要把全部自由标签直接拼成生成指令。",
       "艺术家参照只表示可能的视觉亲缘，不是在鉴定作者：artistReferences 写姓名和可观察的相似依据，不能凭签名或水印断言作者，无法支持就留空。姓名仅留在 artistReferences，其他字段和 promptDraft 用不含姓名的可观察画面特征表达。",
@@ -394,7 +398,7 @@ export async function analyzeVisionReference(
     return buildFallbackVisionResult(text, modelLabel, params);
   }
 
-  const analysis = normalizeAnalysis(parsed.analysis ?? DEFAULT_ANALYSIS);
+  const analysis = normalizeAnalysis(parsed.analysis ?? DEFAULT_ANALYSIS, params.purpose);
   const fallbackCard = [
     analysis.subject ? `主体：${analysis.subject}` : "",
     analysis.environment ? `场景：${analysis.environment}` : "",

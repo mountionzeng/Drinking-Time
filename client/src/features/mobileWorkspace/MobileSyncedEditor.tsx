@@ -1,3 +1,5 @@
+import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
+import { insertParagraphAtCursor } from "@/features/writingCompanion/writingCompanionText";
 import React, { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { trpc } from "@/lib/trpc";
@@ -80,6 +82,7 @@ export function MobileSyncedEditor({
   const [discarding, setDiscarding] = useState(false);
   const [saving, setSaving] = useState(false);
   const lock = useRef(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!draft) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -196,6 +199,7 @@ export function MobileSyncedEditor({
           内容
         </label>
         <textarea
+          ref={bodyRef}
           id="mobile-edit-content"
           className="min-h-0 flex-1 resize-none rounded-lg border bg-background p-3 font-serif text-base leading-8"
           value={draft.content}
@@ -225,6 +229,33 @@ export function MobileSyncedEditor({
           <Button variant="ghost" disabled={saving} onClick={close}>
             {discarding ? "确认放弃" : "取消"}
           </Button>
+          {/* 记忆和文字稿都能叫小忆帮写：按用户 2026-10-12 的话，两者都可改写。 */}
+          <WritingCompanionButton
+              key={`${storyId}:${draft.kind}:${draft.id}:${draft.token}`}
+              disabled={saving}
+              resolveStoryId={() => storyId}
+              getSnapshot={() => ({
+                draft: draft.content,
+                cursor: bodyRef.current?.selectionStart ?? draft.content.length,
+                scope: `${storyId}:${draft.kind}:${draft.id}:${draft.token}`,
+              })}
+              onInsert={(paragraph, snapshot) => {
+                const result = insertParagraphAtCursor(
+                  draft.content,
+                  snapshot.cursor,
+                  paragraph
+                );
+                setDiscarding(false);
+                update({ ...draft, content: result.body });
+                requestAnimationFrame(() => {
+                  bodyRef.current?.focus();
+                  bodyRef.current?.setSelectionRange(
+                    result.cursor,
+                    result.cursor
+                  );
+                });
+              }}
+            />
           <Button
             disabled={
               saving || !dirty || !draft.title.trim() || !draft.content.trim()

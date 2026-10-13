@@ -33,6 +33,18 @@ const analysisPayload = {
 };
 
 describe("analyzeVisionReference compatible vision", () => {
+  it("accepts bounded colour methods only for art curation", async () => {
+    const payload = { ...analysisPayload, analysis: { ...analysisPayload.analysis, colorDesign: { harmony: "analogous", valueMasses: "broken", application: "/private/SENTINEL", artist: "SENTINEL" } } };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify(payload) } }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const curated = await analyzeVisionReference({ imageDataUrl: "data:image/png;base64,dGVzdA==", purpose: "art-curation" });
+    expect(curated.analysis.colorDesign).toEqual({ harmony: "analogous", valueMasses: "broken" });
+    expect(JSON.stringify(fetchMock.mock.calls[0])).toContain("analysis.colorDesign");
+    fetchMock.mockClear();
+    const photo = await analyzeVisionReference({ imageDataUrl: "data:image/png;base64,dGVzdA==" });
+    expect(photo.analysis.colorDesign).toBeUndefined();
+    expect(JSON.stringify(fetchMock.mock.calls[0])).not.toContain("analysis.colorDesign");
+  });
   const originalEnv = {
     forgeApiKey: ENV.forgeApiKey,
     llmModel: ENV.llmModel,

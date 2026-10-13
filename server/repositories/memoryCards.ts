@@ -112,7 +112,8 @@ export async function listStoryMemoryCards(
   userId: number,
   storyId: number,
   linkedIds: string[],
-  offset: number
+  offset: number,
+  archived = false
 ) {
   const db = await getDb();
   if (db)
@@ -122,7 +123,7 @@ export async function listStoryMemoryCards(
       .where(
         and(
           eq(memoryCards.userId, userId),
-          eq(memoryCards.archived, false),
+          eq(memoryCards.archived, archived),
           linkedIds.length
             ? or(
                 eq(memoryCards.sourceStoryId, storyId),
@@ -140,7 +141,7 @@ export async function listStoryMemoryCards(
       .filter(
         card =>
           card.userId === userId &&
-          !card.archived &&
+          card.archived === archived &&
           (card.sourceStoryId === storyId || linked.has(card.id))
       )
       .sort(

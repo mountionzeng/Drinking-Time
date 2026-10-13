@@ -10,6 +10,7 @@ import {
 
 function controller(): MobileConversationController {
   return {
+    recoveryReady: true,
     historyState: "loaded",
     historyError: null,
     messages: [

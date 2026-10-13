@@ -10,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
+import { insertParagraphAtCursor } from "@/features/writingCompanion/writingCompanionText";
 import { useMobileDocument } from "./useMobileDocument";
 
 export type MobileDocumentController = ReturnType<typeof useMobileDocument>;
@@ -131,6 +133,7 @@ export function MobileDocumentView({
   const [dismissedConflictId, setDismissedConflictId] = useState<string | null>(
     null
   );
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const copyButtonRef = useRef<HTMLButtonElement>(null);
   const conflict = controller.state?.conflict ?? null;
   const conflictId = useMemo(() => {
@@ -143,7 +146,11 @@ export function MobileDocumentView({
       latest?.bodyRevision ?? "missing",
       conflict.localBody.length,
     ].join(":");
-  }, [conflict, controller.state?.recovery?.scopeKey, controller.state?.storyId]);
+  }, [
+    conflict,
+    controller.state?.recovery?.scopeKey,
+    controller.state?.storyId,
+  ]);
   const conflictOpen =
     !suppressConflictDialog &&
     conflict !== null &&
@@ -178,7 +185,7 @@ export function MobileDocumentView({
           <>
             <h2 className="text-base font-semibold">这个故事还没有正文</h2>
             <p className="max-w-sm text-sm leading-6 text-muted-foreground">
-              可以直接在这里从空白写起，也可以先在下面「聊聊」几句再回来。
+              可以从空白写起，停笔时点一下正文旁的小忆。
             </p>
             <Button
               type="button"
@@ -221,6 +228,7 @@ export function MobileDocumentView({
     >
       <div className="min-h-0 flex-1 px-3 pt-3">
         <textarea
+          ref={bodyRef}
           aria-label="正文内容"
           // 正文直接落在纸上：不画框、不加底色和阴影 —— 这一屏就是让人读字的。
           // 行高比默认松（2 而不是 1.75），长段落读起来才不挤。
@@ -244,6 +252,35 @@ export function MobileDocumentView({
           >
             {controller.state.error || statusText}
           </p>
+          <WritingCompanionButton
+            key={`${controller.state.userId}:${controller.state.storyId}:${controller.state.document?.versionId}:${controller.state.document?.platform}`}
+            disabled={
+              controller.state.status === "conflict" || controller.isSaving
+            }
+            resolveStoryId={() => controller.state!.storyId}
+            getSnapshot={() => ({
+              draft: controller.state!.body,
+              cursor:
+                bodyRef.current?.selectionStart ??
+                controller.state!.body.length,
+              scope: `${controller.state!.storyId}:${controller.state!.document?.versionId}:${controller.state!.document?.platform}:${controller.state!.document?.bodyRevision}`,
+            })}
+            onInsert={(paragraph, snapshot) => {
+              const result = insertParagraphAtCursor(
+                controller.state!.body,
+                snapshot.cursor,
+                paragraph
+              );
+              controller.editBody(result.body);
+              requestAnimationFrame(() => {
+                bodyRef.current?.focus();
+                bodyRef.current?.setSelectionRange(
+                  result.cursor,
+                  result.cursor
+                );
+              });
+            }}
+          />
           {controller.state.status === "conflict" ? (
             <Button
               type="button"

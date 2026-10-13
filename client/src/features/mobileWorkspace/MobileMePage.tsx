@@ -1,3 +1,4 @@
+import { MobileNavBar } from "./MobileNavBar";
 /**
  * 「我」页。
  *
@@ -61,7 +62,13 @@ function Row({
   );
 }
 
-export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
+export function MobileMePage({
+  onOpenLetter,
+  onBack,
+}: {
+  onOpenLetter: () => void;
+  onBack?: () => void;
+}) {
   const { user, logout } = useAuth();
   const { today, element, previewElement, visualTheme, setVisualTheme } =
     useNayin();
@@ -95,9 +102,12 @@ export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
 
   return (
     <section aria-label="我" className="h-full overflow-y-auto px-5 pb-6 pt-4">
-      <h1 className="font-chat-brand text-[28px] leading-none text-foreground">
-        我
-      </h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="font-chat-brand text-[28px] leading-none text-foreground">
+          我
+        </h1>
+        {onBack && <MobileNavBar current="me" onNavigate={onBack} />}
+      </div>
 
       <div className="mt-4 flex items-center gap-3 border-b border-border/70 pb-5">
         <LiaoliaoMascot element={element} visualTheme={visualTheme} />
@@ -150,11 +160,20 @@ export function MobileMePage({ onOpenLetter }: { onOpenLetter: () => void }) {
                 className="peer sr-only"
               />
               <span className="flex h-full flex-col items-center gap-2 rounded-2xl border border-border px-2 py-4 text-center transition-colors peer-checked:border-[var(--nayin-accent)] peer-checked:bg-muted peer-checked:ring-1 peer-checked:ring-[var(--nayin-accent)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-[var(--nayin-accent)] motion-reduce:transition-none">
-                <LiaoliaoMascot
-                  element={element}
-                  visualTheme={mode}
-                  size={52}
-                />
+                {mode === "shiguang" ? (
+                  <img
+                    src="/shiguang/xiaoyi-theme-avatar.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="size-[52px] object-contain"
+                  />
+                ) : (
+                  <LiaoliaoMascot
+                    element={element}
+                    visualTheme={mode}
+                    size={52}
+                  />
+                )}
                 <span>
                   <strong className="block text-base font-medium">
                     {title}

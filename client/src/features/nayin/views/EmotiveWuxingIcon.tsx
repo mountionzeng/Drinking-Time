@@ -488,11 +488,16 @@ function Limb({
   );
 }
 
-function browPaths(cx: number, cy: number, kind: BrowStyle): string[] {
+function browPaths(
+  cx: number,
+  cy: number,
+  kind: BrowStyle,
+  spacing = 1
+): string[] {
   const by = cy + FACE.browDy;
   const h = FACE.browHalf;
-  const lx = cx - FACE.eyeDx;
-  const rx = cx + FACE.eyeDx;
+  const lx = cx - FACE.eyeDx * spacing;
+  const rx = cx + FACE.eyeDx * spacing;
   const arch = (x: number, dy: number) =>
     `M${n(x - h)},${n(by + 0.6 + dy)} Q${n(x)},${n(by - 1.4 + dy)} ${n(x + h)},${n(by + 0.6 + dy)}`;
 
@@ -527,7 +532,7 @@ interface Circle {
   r: number;
 }
 
-function eyeShapes(cx: number, cy: number, kind: EyeStyle) {
+function eyeShapes(cx: number, cy: number, kind: EyeStyle, spacing = 1) {
   const ey = cy + FACE.eyeDy;
   const r = FACE.eyeR;
   const h = 3.4;
@@ -538,7 +543,7 @@ function eyeShapes(cx: number, cy: number, kind: EyeStyle) {
     lights: [] as Circle[],
   };
 
-  [cx - FACE.eyeDx, cx + FACE.eyeDx].forEach((x, i) => {
+  [cx - FACE.eyeDx * spacing, cx + FACE.eyeDx * spacing].forEach((x, i) => {
     switch (kind) {
       case "dot":
         res.dots.push({ cx: x, cy: ey, r });
@@ -642,18 +647,26 @@ function Face({
   rig,
   spec,
   ink,
+  scale = 1,
+  spacing = 1,
 }: {
   rig: ElementRig;
   spec: FaceSpec;
   ink: string;
+  scale?: number;
+  spacing?: number;
 }) {
   const { x: cx, y: cy } = rig.face;
-  const brows = browPaths(cx, cy, spec.brow);
-  const eyes = eyeShapes(cx, cy, spec.eyes);
-  const mouth = mouthShape(cx, cy, spec.mouth);
+  const brows = browPaths(cx, cy, spec.brow, spacing);
+  const eyes = eyeShapes(cx, cy, spec.eyes, spacing);
+  const mouth = mouthShape(cx, cy + FACE.mouthDy * (spacing - 1), spec.mouth);
 
   return (
-    <g stroke={ink} color={ink}>
+    <g
+      stroke={ink}
+      color={ink}
+      transform={`translate(${cx} ${cy}) scale(${scale}) translate(${-cx} ${-cy})`}
+    >
       {brows.map((d, i) => (
         <path key={`brow-${i}`} d={d} strokeWidth={FACE.browSW} fill="none" />
       ))}
@@ -724,7 +737,7 @@ function Face({
         [-1, 1].map(sgn => (
           <ellipse
             key={`blush-${sgn}`}
-            cx={n(cx + sgn * FACE.blushDx)}
+            cx={n(cx + sgn * FACE.blushDx * spacing)}
             cy={n(cy + FACE.blushDy)}
             rx={FACE.blushRx}
             ry={FACE.blushRy}
@@ -735,7 +748,7 @@ function Face({
         ))}
       {spec.tear && (
         <path
-          d={`M${n(cx - FACE.eyeDx - 1.2)},${n(cy + FACE.eyeDy + 3.4)} c-1.6,3 -0.6,5.2 1.4,5.2 c2,0 2.8,-2.2 1.2,-5.2 z`}
+          d={`M${n(cx - FACE.eyeDx * spacing - 1.2)},${n(cy + FACE.eyeDy + 3.4)} c-1.6,3 -0.6,5.2 1.4,5.2 c2,0 2.8,-2.2 1.2,-5.2 z`}
           fill="#9AC5D6"
           strokeWidth={0.7}
         />
@@ -788,6 +801,9 @@ interface EmotiveWuxingIconProps {
    */
   plain?: boolean;
   title?: string;
+  /** Mobile companion proportions; defaults preserve all existing avatars. */
+  faceScale?: number;
+  faceSpacing?: number;
 }
 
 export default function EmotiveWuxingIcon({
@@ -800,6 +816,8 @@ export default function EmotiveWuxingIcon({
   awake = false,
   plain = false,
   title,
+  faceScale = 1,
+  faceSpacing = 1,
 }: EmotiveWuxingIconProps) {
   const reducedMotion = useReducedMotion();
   const resolved = mood ?? resolveEmotionMood(emotion);
@@ -859,7 +877,13 @@ export default function EmotiveWuxingIcon({
                 kind="leg"
                 feet={pose.feet}
               />
-              <Face rig={rig} spec={faceSpec} ink={faceInk} />
+              <Face
+                rig={rig}
+                spec={faceSpec}
+                ink={faceInk}
+                scale={faceScale}
+                spacing={faceSpacing}
+              />
             </>
           )}
         </svg>

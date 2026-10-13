@@ -1006,8 +1006,7 @@
  * scroll regions. The JS-updated variable handles browsers whose keyboard does
  * not immediately recompute dvh; the CSS fallbacks still work without JS. */
 .mobile-workspace-page {
-  --mobile-nav-content-height: 72px;
-  --mobile-nav-height: calc(var(--mobile-nav-content-height) + 11px + env(safe-area-inset-bottom, 0px));
+  --mobile-nav-height: calc(22px + env(safe-area-inset-bottom, 0px));
   width: 100%;
   height: var(--mobile-viewport-height, 100vh);
   min-height: 20rem;
@@ -1047,119 +1046,6 @@
 
 .mobile-workspace-composer {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
-}
-
-/* 手机底部：三个入口常驻，插画属于导航，不覆盖正文或输入区。 */
-.mobile-workspace-page[data-nav-style="shiguang"] {
-  --mobile-nav-content-height: 78px;
-}
-.mobile-bottom-nav {
-  position: relative;
-  z-index: 40;
-  flex-shrink: 0;
-  height: var(--mobile-nav-height);
-  padding: 5px 12px calc(5px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--nayin-border);
-  background: var(--background);
-}
-.mobile-bottom-nav-items {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  max-width: 480px;
-  margin-inline: auto;
-}
-.mobile-bottom-nav-button {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--mobile-nav-content-height);
-  gap: 3px;
-  border-radius: 16px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.mobile-bottom-nav-art {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 42px;
-  border-radius: 18px;
-  transition: background-color 180ms ease, transform 180ms ease;
-}
-.mobile-bottom-nav-button[aria-current="page"] {
-  color: var(--nayin-accent-dim);
-}
-.mobile-bottom-nav[data-style="nayin"] .mobile-bottom-nav-button[aria-current="page"] .mobile-bottom-nav-art {
-  background: color-mix(in srgb, var(--nayin-accent) 12%, transparent);
-}
-.mobile-bottom-nav-label {
-  position: relative;
-  font-size: 13px;
-  line-height: 20px;
-  letter-spacing: .1em;
-}
-.mobile-bottom-nav-button[aria-current="page"] .mobile-bottom-nav-label::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  left: -10px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.mobile-bottom-nav[data-style="shiguang"] {
-  border-top: 1px solid #dcdccf;
-  background: #faf8f0 url('/shiguang/home-paper.jpg') center bottom / cover;
-}
-.mobile-bottom-nav[data-style="shiguang"] .mobile-bottom-nav-art {
-  width: 56px;
-  height: 48px;
-}
-.mobile-bottom-nav-art > img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.mobile-bottom-nav[data-style="shiguang"] .mobile-bottom-nav-label {
-  font-family: 'Noto Serif SC', serif;
-  font-size: 13px;
-}
-.mobile-nav-personal-mark {
-  position: relative;
-  display: inline-flex;
-  justify-content: center;
-  width: 54px;
-  height: 42px;
-  color: #537565;
-}
-.mobile-nav-personal-mark img {
-  height: 100%;
-  width: 100%;
-  object-fit: contain;
-}
-.mobile-nav-personal-mark svg {
-  position: absolute;
-  width: 19px;
-  height: 24px;
-  top: 10px;
-  left: 18px;
-}
-.mobile-bottom-nav-button:active .mobile-bottom-nav-art {
-  transform: translateY(-2px) scale(.97);
-}
-.mobile-bottom-nav-button:focus-visible {
-  outline: 2px solid var(--nayin-accent);
-  outline-offset: -2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .mobile-bottom-nav-art { transition: none; }
-  .mobile-bottom-nav-button:active .mobile-bottom-nav-art { transform: none; }
 }
 
 @media (max-width: 390px) {

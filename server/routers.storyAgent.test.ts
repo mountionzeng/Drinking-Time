@@ -303,6 +303,7 @@ describe("storyAgent tRPC router", () => {
           title: "宋人山水",
           description: "水墨留白",
           libraryVersionId: 7,
+          recipe: { colorDesign: { harmony: "analogous", valueMasses: "connected" } },
           items: [
             {
               dimension: "composition",
@@ -335,6 +336,7 @@ describe("storyAgent tRPC router", () => {
           artStyle: expect.objectContaining({
             source: "library",
             libraryVersionId: 7,
+            recipe: { colorDesign: { harmony: "analogous", valueMasses: "connected" } },
           }),
         }),
         cards: [expect.objectContaining({ title: "等待能力" })],

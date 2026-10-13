@@ -1,3 +1,4 @@
+import { normalizeColorDesign, commonColorDesign, colorDesignsConflict, type ColorDesign } from "./colorHarmony";
 export type ArtReferencePurpose = "fact" | "aesthetic" | "both";
 export type ArtReferenceSource =
   | "message-photo"
@@ -40,6 +41,7 @@ export type ArtReferenceMaterial = {
 };
 
 export type ArtRecipeDNA = {
+  colorDesign?: ColorDesign;
   style: string[];
   palette: string[];
   light: string[];
@@ -162,6 +164,7 @@ function normalizeRecipeDNA(value: unknown): ArtRecipeDNA {
     composition: stringList(obj.composition),
     material: stringList(obj.material),
     negative: stringList(obj.negative),
+    ...(normalizeColorDesign(obj.colorDesign) ? { colorDesign: normalizeColorDesign(obj.colorDesign) } : {}),
   };
 }
 
@@ -390,7 +393,8 @@ export function referencesForShot(
   });
 }
 
-const POSITIVE_FIELDS: Array<keyof Omit<ArtRecipeDNA, "negative">> = [
+type RecipeArrayKey = Exclude<keyof ArtRecipeDNA, "colorDesign">;
+const POSITIVE_FIELDS: Array<Exclude<RecipeArrayKey, "negative">> = [
   "style",
   "palette",
   "light",
@@ -400,7 +404,7 @@ const POSITIVE_FIELDS: Array<keyof Omit<ArtRecipeDNA, "negative">> = [
 
 function rankedValues(
   candidates: ArtDirectionCandidate[],
-  field: keyof ArtRecipeDNA,
+  field: RecipeArrayKey,
   limit: number
 ): string[] {
   const counts = new Map<string, number>();
@@ -433,6 +437,7 @@ export function deriveStoryArtRecipe(
   const negativeFromRejected = POSITIVE_FIELDS.flatMap(field =>
     rejected.flatMap(candidate => candidate.recipe[field])
   ).filter(value => !likedPositive.has(value));
+  const colorDesign = commonColorDesign(liked.map(candidate => candidate.recipe.colorDesign));
 
   return {
     style: rankedValues(liked, "style", 5),
@@ -444,6 +449,7 @@ export function deriveStoryArtRecipe(
       new Set([...rankedValues(liked, "negative", 6), ...negativeFromRejected])
     ).slice(0, 10),
     version: previousVersion + 1,
+    ...(colorDesign ? { colorDesign } : {}),
     sourceCandidateIds: liked.map(candidate => candidate.id),
     updatedAt: now,
   };
@@ -461,6 +467,7 @@ export function artCandidatesNeedConvergence(
   for (let i = 0; i < liked.length; i += 1) {
     const left = positiveSet(liked[i]);
     for (let j = i + 1; j < liked.length; j += 1) {
+      if (colorDesignsConflict(liked[i].recipe.colorDesign, liked[j].recipe.colorDesign)) return true;
       const right = positiveSet(liked[j]);
       const union = new Set([...Array.from(left), ...Array.from(right)]);
       if (union.size === 0) continue;

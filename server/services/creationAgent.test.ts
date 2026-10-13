@@ -360,15 +360,20 @@ describe("replyFromCreationAgent image actions", () => {
     expect(result.generatedImage?.imageId).toBe(13);
     expect(result.generatedImage?.intent).toBe("解释候选人如何处理模糊问题");
     expect(result.generatedImage?.rationale).toBe("这一镜应该用空巷承接她的冷静判断");
-    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining("no people"),
-      }),
+    expect(renderViaGate).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: baseInput.message, prompt: expect.stringContaining("no people") }),
+      expect.any(Function),
     );
     expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
       expect.objectContaining({
+        prompt: "rendered prompt",
+      }),
+    );
+    expect(renderViaGate).toHaveBeenCalledWith(
+      expect.objectContaining({
         prompt: expect.stringContaining("雨后的窄巷积水反光"),
       }),
+      expect.any(Function),
     );
     expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
       expect.objectContaining({

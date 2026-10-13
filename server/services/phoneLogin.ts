@@ -79,7 +79,8 @@ export async function requestPhoneLoginCode(value: unknown, ip: string) {
   // IP first prevents a single requester from creating unlimited per-phone limiter rows.
   await limit("send:ip", privateSubject(ip), 3600, 20);
   await limit("send:minute", privateSubject(phone), 60, 1);
-  await limit("send:day", privateSubject(phone), 86400, 10);
+  // Match the Tencent SMS app's same-number daily cap to avoid provider rejects.
+  await limit("send:day", privateSubject(phone), 86400, 2);
   // Rejected resends must not exhaust the shared daily sending budget.
   await limit("send:global", "all", 86400, 500);
   const code = generateOtpCode(),

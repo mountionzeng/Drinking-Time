@@ -8,7 +8,17 @@ export type MobileConversationTurnStatus =
   | "synced"
   | "persistence-failed";
 
+export type MobileWritingContext = {
+  draft: string;
+  cursor: number;
+  selection?: { start: number; end: number };
+  openingQuestion?: string | null;
+  /** Local editor identity; never used as authorization. */
+  scope?: string;
+};
+
 export type MobileConversationRecoveryTurn = {
+  writingContext?: MobileWritingContext;
   userId: number;
   storyId: number;
   clientTurnId: string;
@@ -217,7 +227,41 @@ function normalizeRecoveryTurn(
   ) {
     return null;
   }
+  const context = turn.writingContext;
+  // Do not silently downgrade a writing retry into an ordinary conversation.
+  if (
+    context !== undefined &&
+    (!context ||
+      typeof context !== "object" ||
+      typeof context.draft !== "string" ||
+      context.draft.length > 20_000 ||
+      !Number.isInteger(context.cursor) ||
+      context.cursor < 0 ||
+      (context.selection !== undefined &&
+        (!context.selection ||
+          !Number.isInteger(context.selection.start) ||
+          !Number.isInteger(context.selection.end) ||
+          context.selection.start < 0 ||
+          context.selection.end <= context.selection.start ||
+          context.selection.end > context.draft.length)) ||
+      (context.openingQuestion != null &&
+        (typeof context.openingQuestion !== "string" ||
+          context.openingQuestion.length > 500)) ||
+      (context.scope !== undefined && typeof context.scope !== "string"))
+  )
+    return null;
   const normalized = {
+    ...(context
+      ? {
+          writingContext: {
+            draft: context.draft,
+            cursor: context.cursor,
+            selection: context.selection,
+            openingQuestion: context.openingQuestion,
+            scope: context.scope,
+          },
+        }
+      : {}),
     userId,
     storyId,
     clientTurnId: turn.clientTurnId.trim(),

@@ -3,6 +3,7 @@ const MOBILE_RECOVERY_PREFIXES = [
   "dt:mobile:document:v1:",
   "dt:mobile:conversation:v1:",
   "dt:mobile:revision:v1:",
+  "dt:mobile:new-story:v1:",
 ] as const;
 
 function positiveUserId(value: unknown): value is number {

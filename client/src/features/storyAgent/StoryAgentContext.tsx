@@ -162,14 +162,7 @@ export type GenerationProfileArg = {
     title?: string;
     description?: string | null;
     libraryVersionId?: number | null;
-    recipe?: {
-      style?: string[];
-      palette?: string[];
-      light?: string[];
-      composition?: string[];
-      material?: string[];
-      negative?: string[];
-    } | null;
+    recipe?: Partial<import("@shared/artDirection").ArtRecipeDNA> | null;
     items?: Array<{
       dimension?: string;
       content?: string;

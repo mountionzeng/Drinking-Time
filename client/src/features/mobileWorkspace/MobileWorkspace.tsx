@@ -28,7 +28,6 @@ import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBad
 import { LiaoliaoMascot, LiaoliaoThinkingDots } from "./LiaoliaoMascot";
 import { MobileArchiveSheet } from "./MobileArchiveSheet";
 import { MobileMePage } from "./MobileMePage";
-import { MobileNavBar } from "./MobileNavBar";
 import { MobileStoriesPage } from "./MobileStoriesPage";
 import {
   MobileStoryWorkspace,
@@ -40,6 +39,7 @@ import { MobileDailyLetter } from "./MobileDailyLetter";
 import { type MobileStorySummary } from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
+import { MobileNewStoryCompanion } from "./MobileNewStoryCompanion";
 
 export type MobileWorkspaceView = "chat" | "document";
 
@@ -140,7 +140,6 @@ export function MobileWorkspaceFrame({
   children,
   overlays,
   page = "chat",
-  onNavigate,
   pageView,
   element = "metal",
   visualTheme = "shiguang",
@@ -170,7 +169,6 @@ export function MobileWorkspaceFrame({
   overlays?: ReactNode;
   /** 当前在哪一页。只有 chat 页画正文和聊聊面板。 */
   page?: MobilePage;
-  onNavigate?: (page: MobilePage) => void;
   /** 非 chat 页的内容（故事页 / 我页）。 */
   pageView?: ReactNode;
   /** 当天的纳音五行。由调用方从 useNayin() 取好传进来，
@@ -285,7 +283,7 @@ export function MobileWorkspaceFrame({
         )}
 
         {/* chat 页正文常驻；故事页和我页换成整页内容。 */}
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden pb-12">
           {page === "chat" ? (
             chatOnly && chatView ? (
               <section
@@ -463,14 +461,6 @@ export function MobileWorkspaceFrame({
           </div>
         )}
 
-        {/* 三个入口常驻，当前页高亮；两套主题共享导航行为。 */}
-        <MobileNavBar
-          current={page}
-          element={element}
-          visualTheme={visualTheme}
-          onNavigate={onNavigate ?? (() => {})}
-        />
-
         {/*
           浮层（故事菜单、每日来信、「我」、正文未保存裁决）挂在这里。
 
@@ -568,7 +558,6 @@ function MobileSelectedStoryWorkspace({
   onViewChange,
   onStoryChange,
   onCreateStory,
-  creatingStory = false,
   page,
   onNavigate,
   storyOpen,
@@ -583,7 +572,6 @@ function MobileSelectedStoryWorkspace({
   onViewChange: (view: MobileWorkspaceView) => void;
   onStoryChange: (storyId: number) => void;
   onCreateStory?: () => void;
-  creatingStory?: boolean;
   page: MobilePage;
   onNavigate: (page: MobilePage) => void;
   storyOpen: boolean;
@@ -667,10 +655,6 @@ function MobileSelectedStoryWorkspace({
       element={element}
       visualTheme={visualTheme}
       page={page}
-      onNavigate={page => {
-        if (page === "stories") onStoryOpenChange(false);
-        onNavigate(page);
-      }}
       pageView={
         page === "stories" ? (
           storyOpen ? (
@@ -687,20 +671,12 @@ function MobileSelectedStoryWorkspace({
           ) : (
             <MobileStoriesPage
               activeStoryId={activeStoryId}
-              creating={creatingStory}
               stories={stories}
               onOpenStage={stage => {
                 onStageChange(stage);
                 onStoryOpenChange(true);
               }}
-              onCreateStory={
-                onCreateStory
-                  ? () => {
-                      if (document.hasUnsavedChanges) setPendingStoryId(-1);
-                      else onCreateStory();
-                    }
-                  : undefined
-              }
+              onOpenMe={() => onNavigate("me")}
               onSelectStory={storyId => {
                 requestStoryChange(storyId);
               }}
@@ -708,6 +684,10 @@ function MobileSelectedStoryWorkspace({
           )
         ) : page === "me" ? (
           <MobileMePage
+            onBack={() => {
+              onStoryOpenChange(false);
+              onNavigate("stories");
+            }}
             onOpenLetter={() => {
               setLetterOpen(true);
             }}
@@ -813,13 +793,22 @@ function MobileSelectedStoryWorkspace({
 }
 
 export function MobileWorkspace({ userId }: { userId: number }) {
+  return (
+    <>
+      <MobileWorkspaceContent userId={userId} />
+      <MobileNewStoryCompanion key={userId} userId={userId} />
+    </>
+  );
+}
+
+function MobileWorkspaceContent({ userId }: { userId: number }) {
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
   });
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [activeView, setActiveView] = useState<MobileWorkspaceView>("document");
-  const [page, setPage] = useState<MobilePage>("chat");
+  const [page, setPage] = useState<MobilePage>("stories");
   const [storyOpen, setStoryOpen] = useState(false);
   const [stages, setStages] = useState<Record<number, MobileStoryStage>>({});
   const coldEntryResolvedRef = useRef(false);
@@ -917,7 +906,6 @@ export function MobileWorkspace({ userId }: { userId: number }) {
       stories={stories}
       userId={userId}
       onCreateStory={() => void createStory()}
-      creatingStory={storyUpsert.isPending}
       page={page}
       storyOpen={storyOpen}
       onStoryOpenChange={setStoryOpen}

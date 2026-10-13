@@ -52,6 +52,7 @@ function catalog(): ArtRepositoryCatalog {
 }
 
 const analysis = {
+  colorDesign: { harmony: "analogous", valueMasses: "connected" },
   visualStyle: ["套色版画"],
   colorPalette: ["赭红"],
   lighting: "平面色层",
@@ -84,7 +85,7 @@ describe("art reference analysis", () => {
     const saved = mocks.write.mock.calls[0][1] as ArtRepositoryCatalog;
     expect(saved.assets["first.jpg"]).toMatchObject({
       status: "ready",
-      dna: { style: ["套色版画"], composition: ["不对称的横向节奏"] },
+      dna: { style: ["套色版画"], composition: ["不对称的横向节奏"], colorDesign: analysis.colorDesign },
     });
     expect(saved.assets["second.jpg"].status).toBe("pending-analysis");
   });

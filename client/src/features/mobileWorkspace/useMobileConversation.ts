@@ -8,6 +8,7 @@ import {
   mergeMobileConversationProjection,
   saveMobileConversationRecovery,
   type MobileConversationRecoveryTurn,
+  type MobileWritingContext,
   type MobileConversationStorage,
 } from "./mobileConversationStore";
 
@@ -29,6 +30,7 @@ export type MobileConversationApi = {
     assistantClientMessageId: string;
     userContent: string;
     retryFailed?: boolean;
+    writingContext?: MobileWritingContext;
   }): Promise<MobileTurnApiResult>;
   status(input: {
     storyId: number;
@@ -62,6 +64,7 @@ function turnGenerationInput(
 ) {
   return {
     ...turnLookupInput(turn),
+    ...(turn.writingContext ? { writingContext: turn.writingContext } : {}),
     userClientMessageId: turn.userClientMessageId,
     assistantClientMessageId: turn.assistantClientMessageId,
     userContent: turn.userContent,
@@ -97,14 +100,6 @@ export async function runMobileConversationTurn(input: {
   const appendCompleted = async (
     response: MobileTurnApiResult
   ): Promise<MobileConversationRecoveryTurn> => {
-    if (response.turn?.appendStatus === "appended") {
-      return emit(
-        applyMobileConversationTurnEvent(current, {
-          type: "synced",
-          now: now(),
-        })
-      );
-    }
     const assistantContent = response.turn?.assistantContent?.trim();
     if (!assistantContent) {
       return markUnknown("服务端已完成生成，但没有可恢复的回答");
@@ -116,6 +111,14 @@ export async function runMobileConversationTurn(input: {
         now: now(),
       })
     );
+    if (response.turn?.appendStatus === "appended") {
+      return emit(
+        applyMobileConversationTurnEvent(current, {
+          type: "synced",
+          now: now(),
+        })
+      );
+    }
     try {
       await input.api.append(turnLookupInput(current));
       return emit(
@@ -404,7 +407,7 @@ export function useMobileConversation(input: {
   );
 
   const submit = useCallback(
-    async (content: string) => {
+    async (content: string, writingContext?: MobileWritingContext) => {
       if (
         !query.data ||
         query.isError ||
@@ -417,6 +420,7 @@ export function useMobileConversation(input: {
         storyId: input.storyId,
         userContent: content,
       });
+      if (writingContext) turn.writingContext = writingContext;
       persistTurn(turn);
       return run(turn);
     },
@@ -482,6 +486,7 @@ export function useMobileConversation(input: {
 
   return {
     historyState,
+    recoveryReady: recoveryState.scopeKey === currentScopeKey,
     historyError: query.error
       ? errorMessage(query.error, "聊天记录加载失败")
       : null,

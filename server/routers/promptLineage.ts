@@ -21,6 +21,13 @@ import {
   StoryConversationIdempotencyConflictError,
 } from "../services/storyConversation";
 import {
+  composeWritingParagraph,
+  openWritingCompanion,
+  WRITING_DRAFT_MAX,
+  WRITING_EXCHANGE_MAX,
+  WritingCompanionInputError,
+} from "../services/writingCompanion";
+import {
   bindStoryArtPromptLibraryVersion,
   listArtPromptLibraries,
 } from "../services/artPromptLibrary";
@@ -331,6 +338,43 @@ export const artPromptLibraryRouter = router({
     }),
 });
 
+const writingDraftShape = {
+  draft: z.string().max(WRITING_DRAFT_MAX),
+  cursor: z.number().int().min(0),
+};
+
+const writingContextSchema = z.object({
+  ...writingDraftShape,
+  selection: z
+    .object({ start: z.number().int().min(0), end: z.number().int().min(1) })
+    .optional(),
+  openingQuestion: z.string().trim().max(500).nullish(),
+});
+
+async function assertOwnedWritingStory(storyId: number, userId: number) {
+  const story = await getStoryById(storyId, userId);
+  if (!story) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+  }
+  return story;
+}
+
+function throwWritingCompanionError(error: unknown): never {
+  // 算力不足、未登录等已经是带状态码的 TRPCError，原样交给前端。
+  if (error instanceof TRPCError) throw error;
+  if (error instanceof WritingCompanionInputError) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message:
+      error instanceof Error && error.message
+        ? error.message
+        : "聊聊这次没接上，请再试一次。",
+    cause: error,
+  });
+}
+
 export const storyConversationRouter = router({
   list: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive() }))
@@ -414,6 +458,7 @@ export const storyConversationRouter = router({
         assistantClientMessageId: z.string().trim().min(1).max(128),
         userContent: z.string().trim().min(1),
         retryFailed: z.boolean().optional(),
+        writingContext: writingContextSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -487,6 +532,70 @@ export const storyConversationRouter = router({
           throw new TRPCError({ code: "CONFLICT", message: error.message });
         }
         throwPromptLineageError(error);
+      }
+    }),
+
+  /**
+   * 写不下去时点开聊聊：读正文判断写到哪一步，只问一个问题。
+   * 用 mutation 而不是 query：每次都是一次付费推理，不能被缓存失效或窗口聚焦悄悄重发。
+   * 开场问题不落库，不进聊天记录也不进记忆。
+   */
+  writingCompanionOpen: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        ...writingDraftShape,
+        selection: z
+          .object({ start: z.number().int().min(0), end: z.number().int().min(1) })
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await assertOwnedWritingStory(input.storyId, ctx.user.id);
+      try {
+        return await openWritingCompanion({
+          draft: input.draft,
+          cursor: input.cursor,
+          selection: input.selection,
+          storyTitle: story.title,
+        });
+      } catch (error) {
+        throwWritingCompanionError(error);
+      }
+    }),
+
+  /** 把这次对话里用户亲口说的整理成一段草稿。只返回文字，不写正文。 */
+  writingCompanionCompose: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        ...writingDraftShape,
+        selection: z
+          .object({ start: z.number().int().min(0), end: z.number().int().min(1) })
+          .optional(),
+        exchanges: z
+          .array(
+            z.object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string().trim().min(1).max(4_000),
+            })
+          )
+          .min(1)
+          .max(WRITING_EXCHANGE_MAX * 2),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await assertOwnedWritingStory(input.storyId, ctx.user.id);
+      try {
+        return await composeWritingParagraph({
+          draft: input.draft,
+          cursor: input.cursor,
+          selection: input.selection,
+          exchanges: input.exchanges,
+          storyTitle: story.title,
+        });
+      } catch (error) {
+        throwWritingCompanionError(error);
       }
     }),
 });

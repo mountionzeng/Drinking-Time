@@ -1,4 +1,5 @@
 import type { ArtRecipeDNA } from "./artDirection";
+import { colorDesignSummary } from "./colorHarmony";
 
 export const ART_PROMPT_LIBRARY_DIMENSIONS = [
   "visual_style",
@@ -147,6 +148,7 @@ export function artRecipeToLibraryItems(
     { dimension: "composition", content: join(recipe.composition) },
     { dimension: "material", content: join(recipe.material) },
     { dimension: "negative_prompt", content: join(recipe.negative) },
+    { dimension: "art_style_recipe", content: colorDesignSummary(recipe.colorDesign) },
   ];
   return items.filter(item => item.content);
 }

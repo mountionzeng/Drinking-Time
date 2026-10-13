@@ -425,6 +425,11 @@
       ],
       "owners": [
         "shared/selectionContext.ts",
+        "client/src/features/writingCompanion/WritingCompanionButton.tsx",
+        "client/src/features/writingCompanion/writingCompanionText.ts",
+        "server/services/writingCompanion.ts",
+        "server/routers/promptLineage.ts",
+        "client/src/features/mobileWorkspace/mobileConversationStore.ts",
         "client/src/features/storyAgent/hooks/useSelectionCapture.ts",
         "client/src/features/storyAgent/selectionLifecycle.ts",
         "client/src/features/storyAgent/selectionSubmissionRouter.ts",
@@ -467,7 +472,10 @@
         "server/routers.storyAgent.test.ts",
         "shared/imageRevisionPlacement.test.ts",
         "server/services/visualClipEditing.test.ts",
-        "docs/qa/2026-10-05-image-revision-layer.md"
+        "docs/qa/2026-10-05-image-revision-layer.md",
+        "server/services/writingCompanion.test.ts",
+        "client/src/features/writingCompanion/WritingCompanionButton.test.tsx",
+        "client/src/features/writingCompanion/writingCompanionText.test.ts"
       ],
       "invariants": [
         "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
@@ -523,6 +531,11 @@
           "date": "2026-10-07",
           "kind": "refactor",
           "summary": "发布整理：将改图会话消息构造与结果汇总移到现有辅助模块，减少两处大型Context的职责，不提高冻结行数基线；保留故事作用域校验、候选历史、失败提示和费用行为。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "桌面发布正文选中文字后可直接交给小忆围绕该段对话；选区是唯一改写范围，选区外逐字保留，用户确认后才替换本地编辑缓冲，Story/版本/正文变化或选区漂移会阻止应用。选区模式的开场提示不调用模型，省去一轮等待；生成速度仍取决于对话模型。相关定向测试与类型检查通过。"
         }
       ]
     },
@@ -1857,7 +1870,9 @@
         "server/services/semanticArtDirectionCatalog.ts",
         "server/services/temporalVisualContext.ts",
         "server/services/renderGate.ts",
-        "shared/semanticArtDirection.ts"
+        "shared/semanticArtDirection.ts",
+        "shared/colorHarmony.ts",
+        "server/services/colorHarmonyDirection.ts"
       ],
       "evidence": [
         "server/services/styleLibrary.test.ts",
@@ -1867,7 +1882,9 @@
         "server/services/temporalVisualContext.test.ts",
         "server/services/renderGate.test.ts",
         "server/services/publishingCoverArtDirection.test.ts",
-        "shared/semanticArtDirection.test.ts"
+        "shared/semanticArtDirection.test.ts",
+        "shared/colorHarmony.test.ts",
+        "server/services/colorHarmony.integration.test.ts"
       ],
       "invariants": [
         "新增和大改卡片默认保持 draft；只有用户筛选或校准后才转 active。",
@@ -1883,13 +1900,19 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "12 张历史 draft 与 3 张历史手动 active 卡仍等待用户逐项筛选，旧 affinity 字段不参与新的语义自动选择。"
+        "12 张历史 draft 与 3 张历史手动 active 卡仍等待用户逐项筛选，旧 affinity 字段不参与新的语义自动选择。",
+        "联合方法已接通；真实 active 卡未自动回填，方法与视觉美观度仍待用户筛选和付费样图验收。"
       ],
       "history": [
         {
           "date": "2026-08-31",
           "kind": "feature",
           "summary": "建立确定性语义证据归一器、低置信度跳过的主辅卡选择器和 9 张具有自动选择元数据的基础美术卡。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "新增可选 colorDesign，表达整体／局部关系、尺度、面积、纯度、明暗块面和用色方法；YAML 手动及语义路径传递到同一次编译，内部出处不输出。配方、版本、liked 共识与已有美术库受控文本摘要兼容旧数据；不改现有 active 卡或选择名额。"
         },
         {
           "date": "2026-09-01",
@@ -1927,19 +1950,26 @@
         "server/services/renderGate.ts",
         "server/services/publishingCoverStoryboardPrompt.ts",
         "server/routers/publishingDraft.ts",
-        "server/services/imageGen.ts"
+        "server/services/imageGen.ts",
+        "server/services/colorHarmonyDirection.ts",
+        "server/services/publishingCoverArtDirection.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
         "server/services/renderGate.test.ts",
         "server/services/publishingCoverStoryboardPrompt.test.ts",
         "server/routers.publishingDraft.test.ts",
-        "server/services/imageGen.test.ts"
+        "server/services/imageGen.test.ts",
+        "server/services/renderGate.colorHarmony.test.ts",
+        "server/services/colorHarmonyDirection.test.ts",
+        "server/services/colorHarmony.integration.test.ts",
+        "docs/qa/2026-10-11-color-harmony.md"
       ],
       "invariants": [
         "每个静态图入口只经过一次权威编译。",
         "provider adapter 不再追加第二套美术规则。",
-        "最终硬规则不可被用户或参考图覆盖。"
+        "最终硬规则不可被用户或参考图覆盖。",
+        "联合方法不绑定情绪色名，不增加模型调用；全局配色与镜头局部位置分开，preservePrompt/authoredBrief/style 锁不新增规则。"
       ],
       "dependencies": [
         "prompt-lineage"
@@ -1956,6 +1986,11 @@
           "date": "2026-08-10",
           "kind": "refactor",
           "summary": "将封面、故事与镜头静态图规则收敛到 renderGate。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "单次编译统一选取配色关系和主导媒介，颜色修正不关闭开放构图探索；首次聊天 intent 透传，实际编译文本落库。新配色块受长度预算限制，封面继承只携带全局方法，局部亮面位置不传续页。离线链路测试通过；真实视觉质量待另行费用确认后验收。"
         },
         {
           "date": "2026-08-11",
@@ -2088,13 +2123,15 @@
         "shared/artReferenceTags.ts",
         "server/archive/visionAgent.ts",
         "scripts/analyze-art-references.ts",
-        "art-repository/catalog.json"
+        "art-repository/catalog.json",
+        "shared/colorHarmony.ts"
       ],
       "evidence": [
         "server/services/artRepository.test.ts",
         "server/services/artRepository.catalog.test.ts",
         "server/archive/visionAgent.test.ts",
-        "scripts/analyze-art-references.test.ts"
+        "scripts/analyze-art-references.test.ts",
+        "server/services/colorHarmony.integration.test.ts"
       ],
       "invariants": [
         "线上只消费清洗后且状态为 ready 的 DNA。",
@@ -2115,6 +2152,11 @@
           "date": "2026-08-10",
           "kind": "feature",
           "summary": "建立去重导入、待分析目录和清洗后 DNA 读取边界。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "仅 art-curation 提取有界 colorDesign，脚本保存与运行时二次清洗保留合法维度；复用同批 ready 匹配，不重复读取或传原图。普通照片路径不接收新字段；仅模拟测试，未重分析真实 99 张图、未改变目录状态或权利信息。"
         },
         {
           "date": "2026-10-01",
@@ -4064,7 +4106,15 @@
         "client/src/features/mobileWorkspace/MobileMePage.tsx",
         "client/src/features/mobileWorkspace/MobileFormPicker.tsx",
         "client/src/features/mobileWorkspace/MobileNavBar.tsx",
-        "client/src/index.css"
+        "client/src/index.css",
+        "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
+        "client/src/features/mobileWorkspace/XiaoyiBird.tsx",
+        "client/src/features/mobileWorkspace/newStorySession.ts",
+        "client/src/features/mobileWorkspace/xiaoyiGestures.ts",
+        "client/src/features/mobileWorkspace/NayinCompanion.tsx",
+        "client/src/features/mobileWorkspace/nayinCompanionMotion.ts",
+        "client/src/features/mobileWorkspace/mobileNewStoryCompanion.css",
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -4088,7 +4138,12 @@
         "docs/qa/2026-10-11-mobile-navigation.md",
         "docs/qa/2026-10-11-mobile-story-stages.md",
         "docs/qa/2026-10-11-mobile-synced-editing.md",
-        "docs/qa/2026-10-12-mobile-release.md"
+        "docs/qa/2026-10-12-mobile-release.md",
+        "client/src/features/mobileWorkspace/MobileNewStoryCompanion.test.tsx",
+        "client/src/features/mobileWorkspace/newStorySession.test.ts",
+        "docs/qa/2026-10-12-mobile-xiaoyi.md",
+        "client/src/features/mobileWorkspace/nayinCompanionMotion.test.ts",
+        "docs/qa/2026-10-13-evening-release.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4186,6 +4241,46 @@
           "date": "2026-10-12",
           "kind": "verification",
           "summary": "用户授权main发布；真实MySQL62项回归、生产32迁移、全表数据摘要与备份回滚预检通过。正式域名已登录手机和电脑均读取同一账号故事与对话；两台真实设备双向保存、键盘及系统交互仍待真机验收。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "refactor",
+          "summary": "用户明确确认手机底部只保留故事/我，冷启动改为故事首页，帮写从正文旁小忆进入；共同对话/记忆、正文和修订保存保持。恢复记录新增原始帮写上下文，补齐已追加回答的文本恢复。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户确认的草图接入底部中央常驻小忆，拾光新增表情/转身/招手与开合动效；独立新故事在首句发送才创建，复用既有对话权威存储与轮次恢复，收起/切页保留输入，账号切换清理。纳音独立五套动效仍待逐个设计；真实首句供应商及真机键盘仍待验收，见QA。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户要求补齐纳音金木水火土五套常驻角色动效，复用既有手绘饮品与EmotiveWuxingIcon五官手脚；五种随机身体动作、眨眼/热气与独立开合节奏，隐藏页面/打开聊天暂停待机，减少动态效果时即时定位。新故事创建、草稿、数据同步与现有导航外观不变。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户要求将手机纳音常驻角色身体面积放大两倍（边长乘√2），五官反向缩放保持原屏幕尺寸、间距增至1.35倍；共享表情组件新增默认不变的可选比例参数，其他头像与小鸟不受影响。类型检查通过，本地浏览器检查咖啡杯静置/开合布局。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户要求调整咖啡杯待机：下藏44px，只露杯口和缓慢热气，随机动作时弹出约60px展示表情并回落；聊天展开恢复完整角色。减少动态效果关闭热气循环和位移过渡，其他四形态不变。类型检查、本地静置截图及随机动作触发验证通过。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户确认的咖啡杯交互扩展另外四种角色：金露泡沫、木露茶面热气、水露椰顶吸管、火露壶盖热气；按外形分别下藏62/38/54/52px，随机弹出保留各自身体动作，再落回各自深度。展开恢复完整角色，减少动态效果关闭循环和过渡。本地逐一核验四种待机轮廓，茶壶随机探头与打开新故事聊天验证通过；仅CSS修改，数据链路不变。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户两张截图明确授权，六种手机外观移除整条底部故事/我导航；故事页右上角的新故事按钮改为我，我页提供返回故事，新故事使用常驻角色入口。角色锚点下移并以中央小弧面保留遮挡，删除旧底栏样式，正文滚动区保留角色避让。32项定向回归与类型检查通过，本地纳音/拾光实际验证顶部往返和底栏移除；未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
         }
       ]
     },
@@ -5039,6 +5134,11 @@
           "date": "2026-10-11",
           "kind": "improvement",
           "summary": "按用户确认重设计手机底部导航：三入口常驻与当前页标识，拾光复用书本/小忆/纸卡材质重新构图，纳音使用手绘书页/饮品/个人轮廓；共享导航高度包含安全区，聊天输入避免遮挡。24项回归及320/390px浏览器切页验证通过；全项目类型受并行文字来源代码错误阻挡，详见QA。未部署。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "按用户提供的枝叶水彩小鸟，只替换手机“我”页拾光家忆风格卡的头像；卡片布局、纳音饮品头像、其它头像和主题切换语义保持。主仓 3000 浏览器目视确认，未改故事或个人数据。"
         }
       ]
     },
@@ -5352,7 +5452,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "腾讯云已登录企业认证账号，但短信服务未开通；停在接受短信服务协议的确认步骤。真实签名模板、发送凭据、收信及手机号端到端仍待完成。",
+        "腾讯云短信服务与独立应用已开通，应用频率限制为每号码自然日2条、相同内容30秒1条；控制台暂无实名资质、签名或正文模板。模板必须在提交签名申请后才能创建，签名申请依赖实名资质及真实主体信息；服务端发送凭据和独立HMAC密钥未配置，真实短信及手机号端到端仍待验收。",
         "2026-10-09已在一次性真实MySQL与受限账号完成29条迁移和跨进程验证码测试；正式库0028迁移与发布尚未执行，正式服务器无短信配置。",
         "首版仅支持中国大陆+86手机号；手机号绑定已有账号、换号/找回和国际号码尚未提供。"
       ],
@@ -5366,6 +5466,11 @@
           "date": "2026-10-09",
           "kind": "verification",
           "summary": "按用户要求继续推进：一次性真实MySQL验证29条迁移、跨进程单次消费/错误次数持久化及手机号身份唯一性，2项均通过并关闭实例。只读核查正式服务器无短信配置；腾讯云企业账号可进入但尚未开通短信，协议接受等待当次明确确认。顺序审查修正被拒重发消耗全站预算的问题、前端请求无超时和配置迟到回填，新增只读auth:check-phone配置自检；未接受协议、购买或发短信。"
+        },
+        {
+          "date": "2026-10-09",
+          "kind": "verification",
+          "summary": "用户同意腾讯云短信服务协议后完成服务开通，并创建独立应用「拾光网页登录」（SDKAppID 1401205913）；未领取免费试用或购买套餐。配置每号码自然日最多2条、相同内容30秒最多1条，控制台确认成功且提示10分钟生效。只读检查发现尚无实名资质、签名或模板；控制台要求先提交签名申请，模板才能创建，签名申请又依赖实名资质及真实签名主体。服务端手机号发送日上限同步收紧为2条并加回归测试；资质审核、短信模板、服务端凭据、真实收信、正式库迁移与发布仍未完成。"
         },
         {
           "date": "2026-10-11",
@@ -5411,7 +5516,10 @@
         "server/routers.downstreamRegeneration.test.ts",
         "server/routers.creationFlow.test.ts",
         "client/src/features/storyAgent/storyAgentPersistence.test.ts",
-        "docs/qa/2026-10-11-mobile-synced-editing.md"
+        "docs/qa/2026-10-11-mobile-synced-editing.md",
+        "client/src/features/memoryWarehouse/MemoryWarehouse.test.tsx",
+        "docs/qa/2026-10-12-memory-warehouse-story-scope.md",
+        "docs/qa/2026-10-13-evening-release.md"
       ],
       "invariants": [
         "按用户2026-10-10明确修正：用户与助手已保存的文字聊天自动收录，打开仓库补齐旧聊天；保留双方来源及原文，不将助手说法推断为用户事实，不改动独立的长期理解/每日来信采集开关。",
@@ -5419,7 +5527,8 @@
         "选卡成文仅使用所选卡片及写作要求，不混入当前聊天、旧稿、分享来源或文风样本；保存选择顺序、卡片内容与来源快照。",
         "生成、查看不等于采用；保留原有文字历史、正文缓冲和显式采用规则。",
         "卡片保存幂等，归档可恢复，不改写已生成文章的来源快照；助手整理与思绪保留来源和类型，不冒充用户原话或既成事实。",
-        "重复同步不得重复入库或恢复已归档记忆；长消息分段保留完整原文。聊天修改另存内容快照，已生成文章的来源快照不随之改写。"
+        "重复同步不得重复入库或恢复已归档记忆；长消息分段保留完整原文。聊天修改另存内容快照，已生成文章的来源快照不随之改写。",
+        "故事内仓库默认读取当前故事及已主动用于文字版本的来源记忆；账号全部记忆须显式切换范围。切换故事重置范围，未保存故事不得回退显示账号缓存，归档和分页遵循同一范围。"
       ],
       "dependencies": [
         "story-ownership",
@@ -5463,6 +5572,16 @@
           "date": "2026-10-11",
           "kind": "feature",
           "summary": "按手机可编辑要求增加forStory、syncStory和revise共享接口；读取当前故事及其文字来源卡片，分页与归属检查。修订事务保存新用户记事并归档原文，同一请求幂等、旧源冲突拒绝，重同步不复活归档原文，文章来源快照不变。MySQL事务路径尚待真实库验收。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "fix",
+          "summary": "修复桌面故事内仓库直接列出账号全部对话的问题：默认复用forStory与syncStory，保留显式账号范围和已引用来源；原全部记忆控件改为范围选择，不新增按钮。故事内新增记事绑定来源，归档/分页及切换故事遵循范围。22项定向回归通过，包含跨故事、账号缓存、未保存工作区、归档与来源引用。浏览器访问被安全策略阻止，未完成本轮电脑验收。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
         }
       ]
     },
@@ -5717,6 +5836,72 @@
           "date": "2026-10-12",
           "kind": "verification",
           "summary": "合入main并正式部署，0031及前置迁移通过且原有业务数据逐表摘要不变。公网发现CSP阻止fetch(blob:)，改为直接传递本地图像Blob，81项相关回归与构建通过；390px正式端实际渲染/放大/下载1800×2400 PNG，并确认匿名作品链接返回1080×1440 WebP。保留真机、系统分享和付费供应商验收缺口。"
+        }
+      ]
+    },
+    {
+      "id": "writing-companion",
+      "name": "小忆正文伴写",
+      "status": "working",
+      "userValue": "在停笔处和小忆短聊，把亲口说的整理成一段，确认后放回手机或电脑正文。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/features/mobileWorkspace/MobileDocumentView.tsx",
+        "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx"
+      ],
+      "owners": [
+        "client/src/features/writingCompanion/WritingCompanionButton.tsx",
+        "client/src/features/writingCompanion/writingCompanionText.ts",
+        "server/services/writingCompanion.ts",
+        "server/routers/promptLineage.ts",
+        "client/src/features/mobileWorkspace/useMobileConversation.ts",
+        "client/src/features/mobileWorkspace/mobileConversationStore.ts"
+      ],
+      "evidence": [
+        "server/services/writingCompanion.test.ts",
+        "client/src/features/writingCompanion/WritingCompanionButton.test.tsx",
+        "client/src/features/writingCompanion/writingCompanionText.test.ts",
+        "client/src/features/writingCompanion/writingCompanionRecovery.test.ts",
+        "client/src/features/mobileWorkspace/useMobileConversation.test.tsx",
+        "docs/qa/2026-10-12-writing-companion.md",
+        "docs/qa/2026-10-13-evening-release.md"
+      ],
+      "invariants": [
+        "入口关闭时不挂载查询或触发推理；开场只在用户点开时执行，接口不自动重试。",
+        "用户回答走已有整轮生成/追加机制，落入共同故事会话；开场提问与整理段落不落库、不进入用户记忆。",
+        "段落须经用户确认插入本地编辑缓冲并正常保存；不得绕过原有正文冲突保护、修订及平台隔离。",
+        "正文或Story/版本/修订改变时拒绝按旧光标插入，保留段落供复制。",
+        "桌面有明确文字选区时，选区成为唯一改写范围；选区外内容逐字保留，用户确认后才替换。未选中文字仍沿用停笔处插入。",
+        "未同步回答必须保存原正文/光标/问题及相同轮次身份，重开优先恢复，不能改为普通聊天重发。",
+        "提示词贴近原文和用户事实，每轮最多一个问题；不诱导伤感、不编造对白和动机。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document",
+        "publishing-workspace",
+        "writing-memory-warehouse",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "真机软件键盘、中文IME、断网重连仍待验收。",
+        "普通停笔模式的真实供应商开场已验收；选区改写开场是本地即时提示；多轮与段落质量、实际算力不足提示仍待产品验收。选区模式只免去开场推理，多轮回答仍由供应商响应速度决定。",
+        "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-12",
+          "kind": "feature",
+          "summary": "接手伴写交接，补齐懒挂载浮层、两端三个正文编辑入口、显式插入与旧快照保护、原上下文恢复；用户明确确认底部改为故事/我。20文件160项、类型检查通过，390px真实开场及1440px桌面入口验证；未部署。"
+        },
+        {
+          "date": "2026-10-12",
+          "kind": "improvement",
+          "summary": "桌面发布正文捕获 textarea 选区；小忆显示局部改写提示并免模型开场，确认后只替换选中段落，选区以相同会话身份保存供断线恢复。无选区仍在光标处插入，失效选区失败关闭。服务、编辑边界、恢复及桌面/手机回归共110项通过，pnpm check通过；本轮未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
         }
       ]
     }

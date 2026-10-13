@@ -20,6 +20,19 @@ era_culture:                # 画面内部的时代与文化坐标，不等于�
 signature:                  # 低分辨率仍能一眼认出的视觉签名
 negative: []                # 最容易翻车成什么
 
+# 可选、颜色无关的联合方法；示例仅供筛选，不自动启用。
+# 枚举权威：shared/colorHarmony.ts。未知维度省略；不填作者、色名、位置或百分比。
+# colorDesign:
+#   harmony: analogous
+#   localHarmony: complementary
+#   localScale: marks
+#   areaBalance: dominantAccent
+#   saturation: restrained
+#   valueContrast: soft
+#   valueMasses: connected
+#   edges: selective
+#   application: dryLayers  # 须与主导媒介相容，例如彩铅；不是所有卡的默认
+
 # 人工策展线索：方便你筛选和补卡。它们不会单独触发自动套风格。
 selection_context:
   moods: []                 # 当下情绪；必须能从本轮表达找到证据
