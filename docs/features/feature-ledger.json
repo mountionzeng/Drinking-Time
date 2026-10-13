@@ -993,7 +993,8 @@
         "docs/qa/2026-10-13-desktop-writing-workflow.md",
         "server/_core/httpConnectionPool.test.ts",
         "docs/qa/2026-10-13-image-network-proxy.md",
-        "docs/qa/2026-10-13-mobile-writing-workflow.md"
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "docs/qa/2026-10-13-unified-writing-release.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1023,6 +1024,11 @@
         "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -4225,7 +4231,8 @@
         "client/src/features/mobileWorkspace/companionAttention.test.tsx",
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
         "docs/qa/2026-10-13-mobile-refinement-release.md",
-        "docs/qa/2026-10-13-mobile-writing-workflow.md"
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "docs/qa/2026-10-13-unified-writing-release.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4250,6 +4257,11 @@
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -5914,7 +5926,8 @@
         "docs/qa/2026-10-13-mobile-content-library.md",
         "client/src/features/mobileWorkspace/mobileStageMotion.test.ts",
         "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx",
-        "docs/qa/2026-10-13-mobile-writing-workflow.md"
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "docs/qa/2026-10-13-unified-writing-release.md"
       ],
       "invariants": [
         "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
@@ -5941,6 +5954,11 @@
         "聊天目录按时间间隔分段并引用原话，不做AI话题归纳；没有原始时间的记录显示较早的聊天。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -6131,7 +6149,8 @@
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
         "server/routers.mobileWritingWorkflow.test.ts",
         "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.test.ts",
-        "client/src/features/mobileWorkspace/mobileConversationStore.test.ts"
+        "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
+        "docs/qa/2026-10-13-unified-writing-release.md"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6157,6 +6176,11 @@
         "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -6248,7 +6272,8 @@
         "docs/qa/2026-10-13-mobile-memory-followup.md",
         "client/src/features/mobileWorkspace/MobileCompanionActions.test.tsx",
         "docs/qa/2026-10-13-mobile-context-actions.md",
-        "docs/qa/2026-10-13-mobile-writing-workflow.md"
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "docs/qa/2026-10-13-unified-writing-release.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -6271,6 +6296,11 @@
         "当前正文追加共用现有saveBody接口，不额外生成独立文字历史版本；真机大视频上传尚未验收。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "verification",
+          "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
