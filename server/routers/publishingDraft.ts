@@ -34,7 +34,10 @@ import {
   PUBLISHING_COVER_PROFILE,
 } from "../../shared/imageRenderCost";
 import { protectedProcedure, router } from "../_core/trpc";
-import { invokeAgent } from "../_core/agentChannel";
+import {
+  imagePromptPreparationError,
+  invokeImagePromptCompiler,
+} from "../services/imagePromptCompiler";
 import {
   createGeneratedImage,
   getGeneratedImageById,
@@ -2266,8 +2269,7 @@ export const publishingDraftRouter = router({
         if (!generation.taskId && coverProvider !== "gpt-image") {
           let compiled;
           try {
-            compiled = await invokeAgent(
-            [
+            compiled = await invokeImagePromptCompiler([
               {
                 role: "system",
                 content:
@@ -2282,20 +2284,16 @@ export const publishingDraftRouter = router({
                     : COVER_PROMPT_COMPILER_SYSTEM,
               },
               { role: "user", content: prompt },
-            ],
-              400,
-              undefined,
-              { reasoningEffort: "low", deadlineMs: 45_000, replaySafe: false }
-            );
+            ]);
             if (!compiled.text.trim()) throw new Error("Empty compiled image prompt");
-          } catch {
+          } catch (error) {
             // No image provider call has happened yet. Release the claim instead
             // of leaving a phantom pending/uncertain paid image task behind.
             const failed = await writePublishingDraftState({
               storyId: input.storyId, userId: ctx.user.id,
               operation: {
                 type: "update_cover_generation", operationToken, status: "failed",
-                error: "配图准备失败，尚未提交出图，请重试。",
+                error: imagePromptPreparationError(error),
               },
             });
             return {

@@ -1,4 +1,4 @@
-import { invokeAgent } from "../_core/agentChannel";
+import { invokeImagePromptCompiler } from "./imagePromptCompiler";
 
 export const PUBLISHING_COVER_ART_SUFFIX =
   "A single coherent stylized artwork, material qualities specific to its chosen medium, plain unmarked surfaces throughout.";
@@ -12,13 +12,10 @@ export async function compilePublishingCoverStoryboardPrompt(input: {
 }): Promise<string> {
   if (input.provider === "gpt-image") return input.prompt.trim();
 
-  const compiled = await invokeAgent(
-    [
-      { role: "system", content: COVER_PROMPT_COMPILER_SYSTEM },
-      { role: "user", content: input.prompt },
-    ],
-    400
-  );
+  const compiled = await invokeImagePromptCompiler([
+    { role: "system", content: COVER_PROMPT_COMPILER_SYSTEM },
+    { role: "user", content: input.prompt },
+  ]);
   const text = compiled.text.trim();
   if (!text) {
     throw new Error(

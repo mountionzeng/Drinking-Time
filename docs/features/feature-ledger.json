@@ -950,7 +950,9 @@
         "shared/finishedProductVersion.ts",
         "client/src/features/publishingDraft/PublishingVersionControls.tsx",
         "server/services/publishingCoverQuality.ts",
-        "shared/textSourceLineage.ts"
+        "shared/textSourceLineage.ts",
+        "server/services/imagePromptCompiler.ts",
+        "server/services/publishingCoverStoryboardPrompt.ts"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -968,7 +970,11 @@
         "docs/qa/2026-10-05-editor-stable-baseline.md",
         "docs/qa/2026-10-11-memory-driven-production.md",
         "server/routers.textSourceLineage.test.ts",
-        "server/routers.downstreamRegeneration.test.ts"
+        "server/routers.downstreamRegeneration.test.ts",
+        "server/services/imagePromptCompiler.test.ts",
+        "server/services/imagePromptCompiler.provider.test.ts",
+        "server/services/publishingCoverStoryboardPrompt.test.ts",
+        "docs/qa/2026-10-13-cover-prompt-preparation.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -994,9 +1000,15 @@
         "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
         "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
-        "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。"
+        "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。",
+        "配图提示词已切到现有轻量模型配置；模型目录和模拟传输回归通过，但新路径的真实推理耗时、网关参数兼容性及美术质量仍待实测，本次未调用付费推理或出图。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "修复配图准备误用通用聊天模型：短美术简报编译复用IMAGE_PROMPT_302_MODEL配置，通过既有推理/计费边界，默认30秒期限；保留完整美术要求，拒绝空白或截断结果，超时不自动重放并明确提示尚未提交出图。相关135项回归、类型检查与构建通过；真实45.5秒失败已定位在文字准备，模型目录只读确认nano存在，不宣称实测提速或出图成功。"
+        },
         {
           "date": "2026-10-05",
           "kind": "verification",

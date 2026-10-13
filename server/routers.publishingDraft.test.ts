@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
+import { InferenceError } from "./_core/inferenceOrchestrator";
 import {
   estimatePublishingCoverCost,
   estimatePublishingCoverFallbackCost,
@@ -36,8 +37,8 @@ const staticImageQualityMocks = vi.hoisted(() => ({
 const conversationMocks = vi.hoisted(() => ({
   listStoryConversation: vi.fn(),
 }));
-const agentChannelMocks = vi.hoisted(() => ({
-  invokeAgent: vi.fn(),
+const imagePromptCompilerMocks = vi.hoisted(() => ({
+  invokeImagePromptCompiler: vi.fn(),
 }));
 const modelMocks = vi.hoisted(() => ({
   generatePublishingDraft: vi.fn(),
@@ -64,9 +65,9 @@ vi.mock("./db", () => dbMocks);
 vi.mock("./services/imageGen", () => imageGenMocks);
 vi.mock("./services/staticImageQualityGate", () => staticImageQualityMocks);
 vi.mock("./services/storyConversation", () => conversationMocks);
-vi.mock("./_core/agentChannel", async importOriginal => {
-  const original = await importOriginal<typeof import("./_core/agentChannel")>();
-  return { ...original, ...agentChannelMocks };
+vi.mock("./services/imagePromptCompiler", async importOriginal => {
+  const original = await importOriginal<typeof import("./services/imagePromptCompiler")>();
+  return { ...original, ...imagePromptCompilerMocks };
 });
 vi.mock("./services/publishingDraft", async importOriginal => {
   const original =
@@ -185,7 +186,7 @@ function emptyPublishingForGeneration() {
 }
 
 describe("publishingDraft router", () => {
-  it("releases an image claim when prompt compilation fails before provider submission", async () => {
+  it.each(["network", "timeout"] as const)("releases an image claim after a compiler %s failure before provider submission", async category => {
     const state = { ...publishing, drafts: { xiaohongshu: {
       platform: "xiaohongshu" as const, content: { title: "雨天", body: "修伞", tags: [] },
       revision: 1, sourceCoreRevision: 1, needsReview: false, updatedAt: 1,
@@ -196,13 +197,17 @@ describe("publishingDraft router", () => {
       generation = operation.type === "claim_cover_generation" ? operation.generation : { ...generation, status: operation.status, error: operation.error };
       return { storyId: 7, storyRevision: 3, publishing: { ...state, revision: 2, coverGeneration: generation } };
     });
-    agentChannelMocks.invokeAgent.mockRejectedValueOnce(new Error("connection ended"));
+    imagePromptCompilerMocks.invokeImagePromptCompiler.mockRejectedValueOnce(new InferenceError("connection ended", [{
+      provider: "openai-next", model: "test", category, aborted: false, acceptanceUnknown: true,
+    }]));
     const result = await publishingDraftRouter.createCaller(context()).generateCover({ storyId: 7, platform: "xiaohongshu", basePublishingRevision: 1, costConfirmation: { accepted: true, estimatedCny: COVER_CNY } });
     expect(result).toMatchObject({ status: "error", publishing: { coverGeneration: { status: "failed", taskId: null } } });
     expect(result.status === "error" && result.error).toContain("尚未提交出图");
+    if (category === "timeout") expect(result.status === "error" && result.error).toContain("超时");
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
-    expect(agentChannelMocks.invokeAgent).toHaveBeenCalledWith(expect.any(Array), 400, undefined, { reasoningEffort: "low", deadlineMs: 45_000, replaySafe: false });
+    expect(imageGenMocks.generateDraftImage).not.toHaveBeenCalled();
+    expect(imagePromptCompilerMocks.invokeImagePromptCompiler).toHaveBeenCalledWith(expect.any(Array));
   });
 
   beforeEach(() => {
@@ -217,7 +222,7 @@ describe("publishingDraft router", () => {
     conversationMocks.listStoryConversation.mockResolvedValue({
       messages: [{ id: 9, role: "user", content: "服务端对话里的判断" }],
     });
-    agentChannelMocks.invokeAgent.mockResolvedValue({
+    imagePromptCompilerMocks.invokeImagePromptCompiler.mockResolvedValue({
       text: "A compiled English cover scene.",
       modelLabel: "agent-test",
     });
@@ -1716,9 +1721,9 @@ describe("publishingDraft router", () => {
       /Handcrafted tempera and gouache|one continuous vertical scene|quiet empty space near the top/
     );
     expect(
-      agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.[0]?.content
+      imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.[0]?.content
     ).toContain("Preserve the chosen medium");
-    const submittedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+    const submittedPrompt = imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
     expect(submittedPrompt).toMatch(
@@ -2284,7 +2289,7 @@ describe("publishingDraft router", () => {
       costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
     });
 
-    const submittedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+    const submittedPrompt = imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
     expect(submittedPrompt).toContain("底层机制保质期长");
@@ -2389,7 +2394,7 @@ describe("publishingDraft router", () => {
       );
       expect((imageGenMocks.editImage.mock.calls[0]?.[2] as { imageWeight: number }).imageWeight).toBeLessThan(1);
     }
-    const revisedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+    const revisedPrompt = imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
     expect(revisedPrompt).toMatch(/人物更小[\s\S]*禁止可读文字/);
@@ -2409,7 +2414,7 @@ describe("publishingDraft router", () => {
         expect(revisedPrompt).toContain("rgb(190, 170, 150)");
         expect(revisedPrompt).not.toContain("cover prompt");
         expect(revisedPrompt).not.toContain("【四图探索梯度】");
-        expect(agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.[0]?.content).toContain("never a scene");
+        expect(imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.[0]?.content).toContain("never a scene");
       } else expect(revisedPrompt).toContain("16:9横版正文插图");
       expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(expect.objectContaining({
         operation: expect.objectContaining({ type: "claim_cover_generation", generation: expect.objectContaining({ outputKind, referenceAssetId: 52 }) }),
@@ -2451,7 +2456,7 @@ describe("publishingDraft router", () => {
     expect(result).toMatchObject({ status: "ok", coverRound: { id: round.id } });
     expect(dbMocks.getStoryById).not.toHaveBeenCalled();
     expect(dbMocks.getRecentRejectionSignals).not.toHaveBeenCalled();
-    expect(agentChannelMocks.invokeAgent).not.toHaveBeenCalled();
+    expect(imagePromptCompilerMocks.invokeImagePromptCompiler).not.toHaveBeenCalled();
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
   });
