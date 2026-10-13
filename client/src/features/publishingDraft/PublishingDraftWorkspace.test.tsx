@@ -27,6 +27,7 @@ const api = vi.hoisted(() => ({
   finishedProductData: undefined as any,
   textDraftHistory: undefined as any,
   buildVideoStoryboardPending: false,
+  applyEditPending: false,
 }));
 
 vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
@@ -76,7 +77,7 @@ vi.mock("@/lib/trpc", () => {
         convert: { useMutation: mutation },
         rewrite: { useMutation: mutation },
         repairFormatting: { useMutation: mutation },
-        applyEdit: { useMutation: mutation },
+        applyEdit: { useMutation: () => ({ ...mutation(), isPending: api.applyEditPending }) },
         confirmWordingChange: { useMutation: mutation },
         confirmCoreChange: { useMutation: mutation },
         refreshPlatformContext: { useMutation: mutation },
@@ -149,6 +150,7 @@ describe("PublishingDraftWorkspace", () => {
       finishedProduct: emptyFinishedProductState(),
     };
     api.buildVideoStoryboardPending = false;
+    api.applyEditPending = false;
   });
 
   it("explains that a disconnected local service never submitted the paid image job", () => {
@@ -223,9 +225,10 @@ describe("PublishingDraftWorkspace", () => {
       content: { ...generated, body: "修好旧木架" }, updatedAt: 1,
     } };
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
-    const adoptButton = html.match(/<button[^>]*>.*?<\/button>/g)?.find(button => button.includes("采用文稿"));
+    const adoptButton = html.match(/<button[^>]*>.*?<\/button>/g)?.find(button => button.includes("保存"));
     expect(adoptButton).toBeDefined();
     expect(adoptButton).not.toContain('disabled=""');
+    expect(html).toContain("文字历史 · 新版本 · 待保存");
     expect(html).toMatch(/<textarea[^>]*>修好旧木架<\/textarea>/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*<svg[^]*?生成封面<\/button>/);
   });
@@ -262,6 +265,9 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).not.toContain("按要求重写");
     expect(html).not.toContain("只修格式");
     expect(html).toContain("复制文案");
+    expect(html).not.toContain("应用修改");
+    expect(html).toMatch(/role="status"[^>]*>[\s\S]*?已保存<\/span>/);
+    expect(html.indexOf("复制文案")).toBeLessThan(html.indexOf('id="publishing-title"'));
     expect(html.match(/分享链接<\/button>/g)).toHaveLength(1);
     expect(html.match(/编辑封面<\/button>/g)).toHaveLength(1);
     expect(html.match(/aria-label="打开文字版本历史"/g)).toHaveLength(1);
@@ -400,7 +406,8 @@ describe("PublishingDraftWorkspace", () => {
     expect(coverButton).not.toContain("animate-spin");
   });
 
-  it("lets the user discard an unsaved rewrite so cover and video work are not blocked", () => {
+  it.each([false, true])("keeps unsaved changes actionable without claiming they are saved (saving=%s)", saving => {
+    api.applyEditPending = saving;
     story.publishing = upsertPublishingPlatformDraft(
       emptyPublishingDraftState(1),
       {
@@ -430,6 +437,11 @@ describe("PublishingDraftWorkspace", () => {
 
     expect(html).toContain("改写预览");
     expect(html).toContain("放弃修改");
+    expect(html).not.toContain("已保存");
+    const saveButton = html.match(/<button[^>]*>.*?<\/button>/g)?.find(button => button.includes(saving ? "正在保存…" : "保存"));
+    expect(saveButton).toBeDefined();
+    if (saving) expect(saveButton).toContain('disabled=""');
+    else expect(saveButton).not.toContain('disabled=""');
   });
 
   it("restores four paid candidates without selecting or adopting one", () => {

@@ -265,6 +265,47 @@ export function useMobileDocument(input: {
   const state = container.scope === currentScope ? container.state : null;
   stateRef.current = state;
 
+  useEffect(() => {
+    const adopted = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          storyId: number;
+          baselineBody?: string;
+          baselineBodyRevision?: number;
+          publishingVersionId: string;
+          content?: { body: string };
+        }>
+      ).detail;
+      if (detail.storyId !== input.storyId || detail.baselineBody === undefined)
+        return;
+      void utils.publishingDraft.readBody
+        .fetch({ storyId: input.storyId })
+        .then(document => {
+          commit(currentScope, current => {
+            if (
+              !current ||
+              current.body !== detail.baselineBody ||
+              current.document?.bodyRevision !== detail.baselineBodyRevision ||
+              current.document?.versionId !== detail.publishingVersionId ||
+              document.body !== detail.content?.body
+            )
+              return current;
+            return hydrateMobileDocumentState({
+              userId: input.userId,
+              storyId: input.storyId,
+              document,
+              recoveryRecords: [],
+            });
+          });
+        })
+        .catch(() => {
+          /* normal read/conflict recovery remains available */
+        });
+    };
+    window.addEventListener("dt:mobile-text-adopted", adopted);
+    return () => window.removeEventListener("dt:mobile-text-adopted", adopted);
+  }, [commit, currentScope, input.storyId, input.userId, utils]);
+
   const editBody = useCallback(
     (body: string) => {
       commit(currentScope, current =>

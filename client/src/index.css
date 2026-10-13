@@ -2471,43 +2471,6 @@ select option {
   }
 }
 
-/* ── 聊聊气泡外侧的头像 ────────────────────────────────
-   气泡是 rounded-2xl + rounded-tl-sm，左上角那个直角就是「话从这儿出来」
-   的方向；头像贴着它上沿对齐，视线才连得上。
-   纳音主题里装的是 EmotiveWuxingIcon（自带 SVG 尺寸），所以只给外框定位，
-   不强行裁它。 */
-.chat-assistant-avatar {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  margin-top: 0.125rem;
-}
-
-.chat-assistant-avatar img {
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  object-fit: cover;
-}
-
-[data-visual-theme="shiguang"] .chat-assistant-avatar {
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(201, 225, 211, 0.88);
-  box-shadow: 0 1px 4px rgba(47, 91, 69, 0.2);
-}
-
-[data-visual-theme="shiguang"] .chat-assistant-avatar-shiguang {
-  width: 118%;
-  height: 118%;
-  max-width: none;
-  max-height: none;
-  border: 1px solid rgba(53, 106, 79, 0.4);
-  filter: saturate(1.14) contrast(1.08);
-}
-
 /* Phone image studio: generous touch targets, one task visible at a time. */
 .mobile-image-pack button:not([aria-label^="预览第"]):not([aria-label^="选"]),
 .mobile-image-pack select,

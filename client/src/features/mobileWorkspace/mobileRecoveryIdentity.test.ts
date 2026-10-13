@@ -56,6 +56,7 @@ describe("mobile recovery identity", () => {
     storage.setItem("dt:mobile:conversation:v1:7:42", "用户 A 对话");
     storage.setItem("dt:mobile:revision:v1:7:42", "用户 A 修订");
     storage.setItem("dt:mobile:new-story:v1:7:session", "用户 A 新故事草稿");
+    storage.setItem("dt:desktop:chat-queue:7:42", "用户 A 电脑排队消息");
     storage.setItem("dt:mobile:document:v1:8:99", "用户 B 正文");
     storage.setItem("unrelated", "保留");
 
@@ -69,6 +70,7 @@ describe("mobile recovery identity", () => {
     expect(storage.getItem("dt:mobile:conversation:v1:7:42")).toBeNull();
     expect(storage.getItem("dt:mobile:revision:v1:7:42")).toBeNull();
     expect(storage.getItem("dt:mobile:new-story:v1:7:session")).toBeNull();
+    expect(storage.getItem("dt:desktop:chat-queue:7:42")).toBeNull();
     expect(storage.getItem("dt:mobile:document:v1:8:99")).toBe("用户 B 正文");
     expect(storage.getItem("unrelated")).toBe("保留");
   });
@@ -94,6 +96,7 @@ describe("mobile recovery identity", () => {
     storage.setItem("dt:mobile:document:v1:7:42", "正文");
     storage.setItem("dt:mobile:conversation:v1:7:42", "对话");
     storage.setItem("dt:mobile:revision:v1:7:42", "修订");
+    storage.setItem("dt:desktop:chat-queue:7:42", "电脑排队消息");
 
     clearMobileRecoveryForUser(storage, 7);
 

@@ -1,8 +1,4 @@
-import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
-import {
-  insertParagraphAtCursor,
-  replaceWritingSelection,
-} from "@/features/writingCompanion/writingCompanionText";
+import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
@@ -87,7 +83,6 @@ import {
   buildPublishableText,
   existingPublishingTabs,
   getPublishingEditorContent,
-  getPublishingStatus,
   publishingContentEquals,
   publishingConvertTargets,
   publishingErrorMessage,
@@ -336,6 +331,7 @@ export default function PublishingDraftWorkspace({
     discardPublishingBuffer,
     ensureActiveStoryPersisted,
     loadStory,
+    clearSelection,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
   const readQuery = trpc.publishingDraft.read.useQuery(
@@ -383,6 +379,12 @@ export default function PublishingDraftWorkspace({
   const [pendingDecision, setPendingDecision] =
     useState<PendingEditDecision | null>(null);
   const bodyEditorRef = useRef<HTMLTextAreaElement>(null);
+  const articleTopRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const showGenerated = () => requestAnimationFrame(() => articleTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    window.addEventListener("dt:show-generated-text", showGenerated);
+    return () => window.removeEventListener("dt:show-generated-text", showGenerated);
+  }, []);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
   const [coverStudioOpen, setCoverStudioOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -556,15 +558,17 @@ export default function PublishingDraftWorkspace({
   const convertTargets = publishingConvertTargets(publishing);
   const sourcePlatform =
     tabs.find(candidate => candidate !== platform) ?? tabs[0];
+  const saving =
+    applyMut.isPending ||
+    adoptTextMut.isPending ||
+    confirmWordingMut.isPending ||
+    confirmCoreMut.isPending;
   const busy =
     generateMut.isPending ||
     convertMut.isPending ||
     rewriteMut.isPending ||
     repairFormattingMut.isPending ||
-    applyMut.isPending ||
-    adoptTextMut.isPending ||
-    confirmWordingMut.isPending ||
-    confirmCoreMut.isPending;
+    saving;
   const finishedProductBusy = busy || updateFinishedProductMut.isPending;
   const coverBusy =
     coverGenerationMode !== null ||
@@ -611,18 +615,11 @@ export default function PublishingDraftWorkspace({
     activeCoverRound?.candidates.find(
       candidate => candidate.id === selectedCoverAssetId
     ) ?? null;
-  const status = draft ? getPublishingStatus(draft, dirty) : null;
   const contentError = editorContent
     ? getPublishingContentError(platform, editorContent)
     : null;
   const xThreadStats =
     platform === "x" && editorContent ? getXThreadStats(editorContent) : null;
-  const statusStyle =
-    status?.tone === "editing"
-      ? "bg-amber-500/10 text-amber-700"
-      : status?.tone === "review"
-        ? "bg-rose-500/10 text-rose-700"
-        : "bg-emerald-500/10 text-emerald-700";
   // 文字生成改由左侧聊天触发。旧的发布管理、平台热点和局部改写仍保留
   // 在数据与服务端中，但不再打断当前的“聊天 → 完整新稿”主流程。
   const legacyPublishingControlsVisible = false;
@@ -933,7 +930,7 @@ export default function PublishingDraftWorkspace({
         setPublishing(result.publishing);
         if (remaining === editorBuffer) discardPublishingBuffer(storyId, platform, versionId);
         await utils.publishingDraft.read.invalidate({ storyId });
-        toast.success("文稿已采用");
+        toast.success("新版本已保存");
         return;
       }
       if (!draft) {
@@ -1918,20 +1915,50 @@ export default function PublishingDraftWorkspace({
               </div>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div
+            <div ref={articleTopRef} className="flex min-h-0 flex-1 flex-col">
+              <header
+                aria-label="文稿操作"
                 className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                <div className="flex items-center gap-2">
-                  {status ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {dirty || saving ? (
+                    <ActionButton
+                      onClick={() => void applyChanges()}
+                      disabled={!dirty || (!draft && !previewVersion) || busy || Boolean(contentError)}
+                      primary
+                    >
+                      {saving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Check className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      {saving ? "正在保存…" : "保存"}
+                    </ActionButton>
+                  ) : draft ? (
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-medium ${statusStyle}`}
+                      className="inline-flex h-9 items-center gap-1.5 px-2 text-xs text-[var(--nayin-accent)]"
                       role="status"
                     >
-                      {status.label}
+                      <Check className="h-4 w-4" aria-hidden="true" />
+                      已保存
                     </span>
                   ) : null}
+                  <ActionButton
+                    onClick={() => void copyText()}
+                    disabled={busy || Boolean(contentError)}
+                  >
+                    <Clipboard className="h-4 w-4" />
+                    复制文案
+                  </ActionButton>
+                  {dirty ? (
+                    <ActionButton onClick={discardChanges} disabled={busy}>
+                      <Undo2 className="h-4 w-4" />
+                      放弃修改
+                    </ActionButton>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
@@ -1939,8 +1966,8 @@ export default function PublishingDraftWorkspace({
                         aria-label="打开文字版本历史"
                         className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
                       >
-                        {draft
-                          ? `文字历史 · 版本 ${draft.revision}`
+                        {previewVersion ? "文字历史 · 新版本 · 待保存" : draft
+                          ? "文字历史"
                           : "文字历史 · 待采用"}
                         <ChevronDown className="h-3 w-3" aria-hidden="true" />
                       </button>
@@ -1996,14 +2023,14 @@ export default function PublishingDraftWorkspace({
                       </button>
                     </PopoverContent>
                   </Popover>
+                  {draft?.needsReview ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-rose-700">
+                      <RefreshCcw className="h-3 w-3" />
+                      内核已变化，建议复核
+                    </span>
+                  ) : null}
                 </div>
-                {draft?.needsReview ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-rose-700">
-                    <RefreshCcw className="h-3 w-3" />
-                    待复核
-                  </span>
-                ) : null}
-              </div>
+              </header>
 
               {legacyPublishingControlsVisible && trendPlatform && platformContext ? (
                 <PublishingTrendTagPicker
@@ -2137,10 +2164,9 @@ export default function PublishingDraftWorkspace({
                   >
                     正文
                   </label>
-                  <WritingCompanionButton
+                  <DesktopWritingContext
                     key={`${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}`}
-                    disabled={busy}
-                    resolveStoryId={ensureActiveStoryPersisted}
+                    storyId={activeStoryId!}
                     getSnapshot={() => {
                       const editor = bodyEditorRef.current;
                       const start = editor?.selectionStart ?? editorContent.body.length;
@@ -2151,16 +2177,6 @@ export default function PublishingDraftWorkspace({
                         ...(end > start ? { selection: { start, end } } : {}),
                         scope: `${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}:${draft?.bodyRevision ?? draft?.revision ?? 0}`,
                       };
-                    }}
-                    onInsert={(paragraph, snapshot) => {
-                      const result = snapshot.selection
-                        ? replaceWritingSelection(editorContent.body, snapshot.selection, paragraph)
-                        : insertParagraphAtCursor(editorContent.body, snapshot.cursor, paragraph);
-                      replaceContent({ ...editorContent, body: result.body });
-                      requestAnimationFrame(() => {
-                        bodyEditorRef.current?.focus();
-                        bodyEditorRef.current?.setSelectionRange(result.cursor, result.cursor);
-                      });
                     }}
                   />
                   {xThreadStats ? (
@@ -2176,6 +2192,10 @@ export default function PublishingDraftWorkspace({
                 <textarea
                   ref={bodyEditorRef}
                   id="publishing-body"
+                  onSelect={() => {
+                    clearSelection();
+                    window.dispatchEvent(new Event("dt:writing-selection-change"));
+                  }}
                   disabled={adoptTextMut.isPending}
                   value={editorContent.body}
                   aria-invalid={Boolean(contentError)}
@@ -2265,31 +2285,6 @@ export default function PublishingDraftWorkspace({
                 className="flex flex-wrap items-center gap-2 border-t bg-[var(--nayin-surface)]/45 px-4 py-3"
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                <ActionButton
-                  onClick={() => void applyChanges()}
-                  disabled={!dirty || (!draft && !previewVersion) || busy || Boolean(contentError)}
-                  primary
-                >
-                  {applyMut.isPending || adoptTextMut.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4" />
-                  )}
-                  {previewVersion ? "采用文稿" : "应用修改"}
-                </ActionButton>
-                {dirty ? (
-                  <ActionButton onClick={discardChanges} disabled={busy}>
-                    <Undo2 className="h-4 w-4" />
-                    放弃修改
-                  </ActionButton>
-                ) : null}
-                <ActionButton
-                  onClick={() => void copyText()}
-                  disabled={busy || Boolean(contentError)}
-                >
-                  <Clipboard className="h-4 w-4" />
-                  复制文案
-                </ActionButton>
                 {coverAsset ? (
                   <ActionButton
                     onClick={() => void downloadCover()}

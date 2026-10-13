@@ -1,4 +1,5 @@
 import React from "react";
+vi.mock("./MobileTextDraftFlow", () => ({ MobileTextDraftFlow: () => <button>预览并保存</button> }));
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {

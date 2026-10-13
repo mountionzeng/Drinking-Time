@@ -1,6 +1,7 @@
 import { computeStoryConversationTurnRequestHash } from "@shared/promptLineage";
 
 export type MobileConversationTurnStatus =
+  | "queued"
   | "replying"
   | "generation-failed"
   | "generation-unknown"
@@ -9,6 +10,7 @@ export type MobileConversationTurnStatus =
   | "persistence-failed";
 
 export type MobileWritingContext = {
+  fullDraft?: boolean;
   draft: string;
   cursor: number;
   selection?: { start: number; end: number };
@@ -68,8 +70,17 @@ export type MobileConversationStorage = Pick<
   "getItem" | "setItem" | "removeItem"
 >;
 
+/** A failed or unknown earlier turn pauses later messages; only never-submitted turns may start. */
+export function nextMobileQueuedTurn(
+  turns: readonly MobileConversationRecoveryTurn[]
+) {
+  const first = turns.find(turn => turn.status !== "synced");
+  return first?.status === "queued" ? first : null;
+}
+
 const RECOVERY_PREFIX = "dt:mobile:conversation:v1:";
 const TURN_STATUSES = new Set<MobileConversationTurnStatus>([
+  "queued",
   "replying",
   "generation-failed",
   "generation-unknown",
@@ -254,6 +265,7 @@ function normalizeRecoveryTurn(
     ...(context
       ? {
           writingContext: {
+            ...(context.fullDraft === true ? { fullDraft: true } : {}),
             draft: context.draft,
             cursor: context.cursor,
             selection: context.selection,

@@ -60,6 +60,26 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it("generates a selected rewrite as a complete unsaved version, preserving everything outside the selection", async () => {
+    const input = await setup();
+    const basis = { title: "我的标题", body: "前文不能动。原句。后文不能动。", tags: ["原标签"] };
+    const start = basis.body.indexOf("原句");
+    model.mockResolvedValueOnce(modelResult("新的表达。"));
+    const history = await service.generateTextDraft({ ...input, basis, selection: { start, end: start + 3 } });
+    expect(history.versions[0].generated).toEqual({ ...basis, body: "前文不能动。新的表达。后文不能动。" });
+    expect(history.versions[0].adoption).toBeUndefined();
+    expect(model.mock.calls[0][0].systemPrompt).toContain("draft.body 只返回选区的新文字");
+    const prompt = JSON.parse(model.mock.calls[0][0].message);
+    expect(prompt.selectedText).toBe("原句。");
+    const savedStory = await db.getStoryById(input.storyId, input.userId);
+    expect(normalizePublishingDraftState((savedStory!.body as Record<string, unknown>).publishing).drafts.xiaohongshu).toBeUndefined();
+  });
+  it("rejects an invalid selection before creating a receipt or calling a model", async () => {
+    const input = await setup();
+    await expect(service.generateTextDraft({ ...input, basis: { title: "", body: "原文", tags: [] }, selection: { start: 0, end: 20 } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(model).not.toHaveBeenCalled();
+    expect((await service.getTextDraftHistory(input)).versions).toHaveLength(0);
+  });
   it("saves manual revisions to shared history without generation, adoption or changing the source", async () => {
     const input = await setup();
     const initial = await service.generateTextDraft(input);

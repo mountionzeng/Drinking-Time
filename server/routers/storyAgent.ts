@@ -222,12 +222,19 @@ async function syncStoryPromptLineageAfterMutation(input: {
   }
 }
 
+import { replyAsWritingCompanion, WritingCompanionInputError } from "../services/writingCompanion";
+
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
   chat: protectedProcedure
     .input(
       z.object({
         message: z.string().min(1),
+        writingContext: z.object({
+          draft: z.string().max(20_000),
+          cursor: z.number().int().nonnegative(),
+          selection: z.object({ start: z.number().int().nonnegative(), end: z.number().int().positive() }).optional(),
+        }).optional(),
         storyId: z.number().int().positive().optional(),
         history: z
           .array(
@@ -324,6 +331,20 @@ export const storyAgentRouter = router({
       await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
       if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+      if (input.writingContext) {
+        if (!story) throw new TRPCError({ code: "BAD_REQUEST", message: "请先保存当前故事" });
+        try {
+          return { ...await replyAsWritingCompanion({
+            message: input.message,
+            history: input.history ?? [],
+            writingContext: { ...input.writingContext, fullDraft: true },
+            storyTitle: story.title,
+          }), configured: true };
+        } catch (error) {
+          if (error instanceof WritingCompanionInputError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw error;
+        }
+      }
       return replyFromStoryAgent({
         referenceContext: inheritedStoryReference(story?.body),
         message: input.message,

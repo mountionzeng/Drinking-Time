@@ -28,6 +28,12 @@ export const textDraftRequestSchema = z.object({
   platform: z.enum(PUBLISHING_PLATFORM_IDS),
   parentId: z.string().max(100).nullable(),
   basis: textDraftContentSchema.nullable(),
+  selection: z
+    .object({
+      start: z.number().int().nonnegative(),
+      end: z.number().int().positive(),
+    })
+    .optional(),
   messages: z.array(textDraftMessageSchema).max(200),
   instruction: z.string().max(8_000),
   source: textSourceSchema,

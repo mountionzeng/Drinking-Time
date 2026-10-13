@@ -20,6 +20,7 @@ import {
   type MemoryFollowupSource,
 } from "./mobileMemoryFollowup";
 import { MobileMemoryFollowupChat } from "./MobileMemoryFollowupChat";
+import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
 import { MobileChatView } from "./MobileChatView";
 import { useMobileConversation } from "./useMobileConversation";
 import { NayinCompanion } from "./NayinCompanion";
@@ -231,6 +232,27 @@ export function MobileNewStoryCompanion({
     }
     setOpen(next);
   }
+  useEffect(() => {
+    const openFromEditor = (event: Event) => {
+      const source = (event as CustomEvent<MemoryFollowupSource>).detail;
+      if (memoryLocked || busy || unsynced || session.draft.trim()) {
+        setError("还有未发送或未同步的内容，请先处理当前对话。");
+        setOpen(true);
+        return;
+      }
+      if (
+        activeMemory?.id !== source.id ||
+        activeMemory?.storyId !== source.storyId
+      )
+        memoryBaseline.current = null;
+      setActiveMemory(source);
+      setError(null);
+      setOpen(true);
+    };
+    window.addEventListener("dt:open-mobile-companion", openFromEditor);
+    return () =>
+      window.removeEventListener("dt:open-mobile-companion", openFromEditor);
+  }, [memoryLocked, busy, unsynced, session.draft, activeMemory]);
   const height = Math.max(180, Math.min(560, viewport.height - 130));
   const dockBottom = 0;
   const attention = companionAttention(
@@ -386,18 +408,36 @@ export function MobileNewStoryCompanion({
                 onThinkingChange={setMemoryThinking}
                 onLocked={setMemoryLocked}
                 onActionLocked={setActionLocked}
+                onTextSaved={setActiveMemory}
               />
             </div>
           )}
           {!activeMemory && (
-            <MobileCompanionActions
-              storyId={session.storyId}
-              draft={session.draft}
-              setDraft={draft => setSession(current => ({ ...current, draft }))}
-              messages={conversation.messages}
-              disabled={busy || unsynced}
-              onLocked={setActionLocked}
-            />
+            <>
+              {session.storyId && (
+                <MobileTextDraftFlow
+                  key={`${userId}:${session.storyId}`}
+                  userId={userId}
+                  storyId={session.storyId}
+                  messages={conversation.messages.map(
+                    ({ id, role, content }) => ({ id, role, content })
+                  )}
+                  instruction={session.draft}
+                  disabled={busy || unsynced || actionLocked}
+                  onLocked={setActionLocked}
+                />
+              )}
+              <MobileCompanionActions
+                storyId={session.storyId}
+                draft={session.draft}
+                setDraft={draft =>
+                  setSession(current => ({ ...current, draft }))
+                }
+                messages={conversation.messages}
+                disabled={busy || unsynced || actionLocked}
+                onLocked={setActionLocked}
+              />
+            </>
           )}
           <footer
             className="mobile-xiaoyi-footer"

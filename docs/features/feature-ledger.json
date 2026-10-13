@@ -965,7 +965,8 @@
         "server/services/publishingCoverQuality.ts",
         "shared/textSourceLineage.ts",
         "server/services/imagePromptCompiler.ts",
-        "server/services/publishingCoverStoryboardPrompt.ts"
+        "server/services/publishingCoverStoryboardPrompt.ts",
+        "server/_core/httpConnectionPool.ts"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -989,7 +990,10 @@
         "server/services/publishingCoverStoryboardPrompt.test.ts",
         "docs/qa/2026-10-13-cover-prompt-preparation.md",
         "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
-        "docs/qa/2026-10-13-desktop-writing-workflow.md"
+        "docs/qa/2026-10-13-desktop-writing-workflow.md",
+        "server/_core/httpConnectionPool.test.ts",
+        "docs/qa/2026-10-13-image-network-proxy.md",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1012,13 +1016,28 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
+        "电脑聊天提议→生成候选→右侧预览→显式保存→刷新已在故事1206实测通过；其他文字操作的完整DOM交互与真实冲突恢复仍待验证。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
         "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
         "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。",
-        "配图提示词已切到现有轻量模型配置；模型目录和模拟传输回归通过，但新路径的真实推理耗时、网关参数兼容性及美术质量仍待实测，本次未调用付费推理或出图。"
+        "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户授权将电脑聊天/正文伴写流程合并到手机底部唯一小忆：全文或选区直接传入同一提议服务，显式生成候选、全文预览、确认采用到共享发布正文；保留旧稿、候选恢复与发布修订冲突保护。手机增加顺序发送队列，未知/失败轮次阻塞后续并保留原上下文。隔离真实路由验证聊天/生成不自动采用、保存后读取一致、选区外保留及跨端冲突；浏览器390px检查单一聊天入口和既有候选预览，未调用付费模型、未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "用户授权后在主仓3000真实点击聊天提议、生成新版本、右侧预览、保存并刷新，完整流程通过。候选f9f48bf4-b424-4de4-99d3-de9c7dd78cf2生成75.9秒，刷新正文与预览逐字一致；旧稿保留在文字历史、8张配图保留。修复助手think前导块泄漏到回复显示及候选序号/稿件修订号混用；2项先红后绿、5文件62项和类型检查通过。没有部署，生成时延仍偏长。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "确认图片文字准备和聊天持续失败源于后端裸Undici连接池绕过系统代理：直连DNS超时、同地址经现有代理返回200。连接池尊重环境代理，并仅在macOS development自动读取已启用的本机HTTP/HTTPS代理；loopback绕过、生产不探测系统，保留费用与任务恢复。13项先红后绿，9文件234项及类型/构建通过；实际模块无凭据HEAD验证连通；授权实测提示词约5秒完成、约9秒保存MJ任务1791895494709750。原任务查询一度在Node/curl下超时或空响应，最终21:02恢复完成4张928×1232候选（资产1893–1896），已目视核验且未采用正式封面。全程约17分30秒，查询时延及质检未完成仍为限制；仅恢复原任务，无新一轮重购。清理后32项定向回归及账本校验通过。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -1571,7 +1590,8 @@
         "server/services/videoPromptDirector.ts",
         "server/services/visionChannel.ts",
         "server/archive/visionAgent.ts",
-        "server/services/imageGen.ts"
+        "server/services/imageGen.ts",
+        "server/_core/httpConnectionPool.ts"
       ],
       "evidence": [
         "server/_core/textComputeProvider.test.ts",
@@ -1590,7 +1610,9 @@
         "server/services/visionChannel.test.ts",
         "server/archive/visionAgent.test.ts",
         "server/services/imageGen.test.ts",
-        "server/services/videoJobs.test.ts"
+        "server/services/videoJobs.test.ts",
+        "server/_core/httpConnectionPool.test.ts",
+        "docs/qa/2026-10-13-image-network-proxy.md"
       ],
       "invariants": [
         "OpenAI Next 只承接 OpenAI 兼容的文本与多模态 chat/completions。",
@@ -1607,6 +1629,11 @@
         "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "确认图片文字准备和聊天持续失败源于后端裸Undici连接池绕过系统代理：直连DNS超时、同地址经现有代理返回200。连接池尊重环境代理，并仅在macOS development自动读取已启用的本机HTTP/HTTPS代理；loopback绕过、生产不探测系统，保留费用与任务恢复。13项先红后绿，9文件234项及类型/构建通过；实际模块无凭据HEAD验证连通；授权实测提示词约5秒完成、约9秒保存MJ任务1791895494709750。原任务查询一度在Node/curl下超时或空响应，最终21:02恢复完成4张928×1232候选（资产1893–1896），已目视核验且未采用正式封面。全程约17分30秒，查询时延及质检未完成仍为限制；仅恢复原任务，无新一轮重购。清理后32项定向回归及账本校验通过。"
+        },
         {
           "date": "2026-08-14",
           "kind": "feature",
@@ -4197,7 +4224,8 @@
         "docs/qa/2026-10-13-chat-balance-error.md",
         "client/src/features/mobileWorkspace/companionAttention.test.tsx",
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
-        "docs/qa/2026-10-13-mobile-refinement-release.md"
+        "docs/qa/2026-10-13-mobile-refinement-release.md",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4205,7 +4233,8 @@
         "原网址根路径只负责按手机或电脑分流；手机进入 /m，电脑继续进入 /editing，显式工作区深链接不得被设备判断改写。",
         "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
-        "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。"
+        "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。",
+        "手机新增与电脑相同的文字候选生成/预览/显式采用入口；人工正文仍走body-only，候选采用走已有textDrafts.adopt并校验发布修订，不自动修改正式正文。"
       ],
       "dependencies": [
         "story-ownership",
@@ -4221,6 +4250,11 @@
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户授权将电脑聊天/正文伴写流程合并到手机底部唯一小忆：全文或选区直接传入同一提议服务，显式生成候选、全文预览、确认采用到共享发布正文；保留旧稿、候选恢复与发布修订冲突保护。手机增加顺序发送队列，未知/失败轮次阻塞后续并保留原上下文。隔离真实路由验证聊天/生成不自动采用、保存后读取一致、选区外保留及跨端冲突；浏览器390px检查单一聊天入口和既有候选预览，未调用付费模型、未部署。"
+        },
         {
           "date": "2026-09-01",
           "kind": "decision",
@@ -5879,7 +5913,8 @@
         "docs/qa/2026-10-12-mobile-release.md",
         "docs/qa/2026-10-13-mobile-content-library.md",
         "client/src/features/mobileWorkspace/mobileStageMotion.test.ts",
-        "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx"
+        "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md"
       ],
       "invariants": [
         "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
@@ -5898,7 +5933,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "手机支持记忆标题/内容修订、独立文字版本标题/正文修订及当前发布正文编辑；重新组合记忆、生成/采用独立文字、制作视频仍在电脑端。用户明确视频先查看。",
+        "手机支持记忆标题/内容修订、独立文字版本标题/正文修订及当前发布正文编辑；重新组合记忆和制作视频仍在电脑端；手机已支持聊天生成文字候选、预览和显式保存。用户明确视频先查看。",
         "阶段选择按故事保留在本次页面会话内，刷新后重新从记忆开始。",
         "视频控件通过渲染测试，本机抽验的两个虚构故事素材接口为空；未验收真实素材播放或真机网络兼容性。",
         "iOS/Android软件键盘和公网跨设备验收仍继承手机工作区已有缺口。",
@@ -5906,6 +5941,11 @@
         "聊天目录按时间间隔分段并引用原话，不做AI话题归纳；没有原始时间的记录显示较早的聊天。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户授权将电脑聊天/正文伴写流程合并到手机底部唯一小忆：全文或选区直接传入同一提议服务，显式生成候选、全文预览、确认采用到共享发布正文；保留旧稿、候选恢复与发布修订冲突保护。手机增加顺序发送队列，未知/失败轮次阻塞后续并保留原上下文。隔离真实路由验证聊天/生成不自动采用、保存后读取一致、选区外保留及跨端冲突；浏览器390px检查单一聊天入口和既有候选预览，未调用付费模型、未部署。"
+        },
         {
           "date": "2026-10-11",
           "kind": "feature",
@@ -6037,7 +6077,7 @@
       "id": "writing-companion",
       "name": "小忆正文伴写",
       "status": "working",
-      "userValue": "手机在停笔处短聊并确认插入；电脑直接和左侧小忆讨论右侧全文或选区，生成待保存新版本，确认后保存。",
+      "userValue": "手机与电脑共用一个聊天入口讨论当前全文或选区，先给修改提议，生成待保存版本，预览后显式保存到共同正文。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
         "client/src/features/mobileWorkspace/MobileDocumentView.tsx",
@@ -6061,7 +6101,14 @@
         "client/src/features/publishingDraft/textDraftBasis.ts",
         "shared/textDraftHistory.ts",
         "server/services/textDraftHistory.ts",
-        "server/services/textDraftPrompt.ts"
+        "server/services/textDraftPrompt.ts",
+        "shared/assistantReplyText.ts",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/mobileWorkspace/MobileTextDraftFlow.tsx",
+        "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
+        "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
+        "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts"
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
@@ -6079,16 +6126,22 @@
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
         "client/src/features/publishingDraft/textDraftBasis.test.ts",
-        "server/services/textDraftHistory.test.ts"
+        "server/services/textDraftHistory.test.ts",
+        "shared/assistantReplyText.test.ts",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "server/routers.mobileWritingWorkflow.test.ts",
+        "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.test.ts",
+        "client/src/features/mobileWorkspace/mobileConversationStore.test.ts"
       ],
       "invariants": [
-        "入口关闭时不挂载查询或触发推理；手机开场仅在用户点开时执行。电脑端直接共享左侧聊天，注册正文/选区不触发开场读稿推理；所有推理接口不自动重试。",
+        "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
         "用户回答走已有整轮生成/追加机制，落入共同故事会话；开场提问与整理段落不落库、不进入用户记忆。",
-        "手机段落须经用户确认插入本地编辑缓冲并正常保存；电脑讨论只给提议，点击生成新版本后预览，再点击保存才采用。不得绕过正文冲突保护、修订和平台隔离。",
-        "手机正文或Story/版本/修订改变时拒绝按旧光标插入，保留段落供复制；电脑生成期间正文或作用域改变时不覆盖当前编辑，候选保留在文字历史。",
-        "桌面明确文字选区是唯一改写范围，服务端机械保留选区外原文；无选区按当前未保存全文生成新版本。两种情况均需显式保存，历史原稿保留。",
+        "两端讨论只给提议，点击生成新版本才产生候选；预览并显式保存才采用到共享正文，原文与历史快照保留，不得绕过正文冲突保护、修订和平台隔离。",
+        "正文或作用域在生成期间变化不得被候选静默覆盖；采用使用生成前捕获的发布修订号，冲突须查看最新正文并明确核对。",
+        "两端明确文字选区是唯一改写范围，服务端机械保留选区外原文；无选区按当前未保存全文生成新版本，均需显式保存。",
         "未同步回答必须保存原正文/光标/问题及相同轮次身份，重开优先恢复，不能改为普通聊天重发。",
-        "提示词贴近原文和用户事实，每轮最多一个问题；不诱导伤感、不编造对白和动机。"
+        "提示词贴近原文和用户事实，每轮最多一个问题；不诱导伤感、不编造对白和动机。",
+        "手机连续输入按顺序排队，失败或未知提交暂停后续；刷新后排队内容需用户继续发送，保留相同轮次身份和写作上下文。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
@@ -6099,11 +6152,21 @@
       "replaces": [],
       "knownGaps": [
         "真机软件键盘、中文IME、断网重连仍待验收。",
-        "普通停笔模式的真实供应商开场已验收；选区改写开场是本地即时提示；多轮与段落质量、实际算力不足提示仍待产品验收。选区模式只免去开场推理，多轮回答仍由供应商响应速度决定。",
         "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。",
-        "电脑顺序队列经模拟延迟/失败/恢复验收；2026-10-13真实试聊收到提交结果不确定错误，主用/备用AI域名本机DNS均超时，消息保留且队列暂停。真实建议、候选生成耗时与质量尚未验收，未提交后续生成，也未替用户保存。"
+        "电脑真实四步流程已通过并刷新验证；候选生成75.9秒仍偏慢，选区真实付费改写及多用户/MySQL并发尚未验收。旧失败队列需显式核对后继续，不能自动重放未知提交。",
+        "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户授权将电脑聊天/正文伴写流程合并到手机底部唯一小忆：全文或选区直接传入同一提议服务，显式生成候选、全文预览、确认采用到共享发布正文；保留旧稿、候选恢复与发布修订冲突保护。手机增加顺序发送队列，未知/失败轮次阻塞后续并保留原上下文。隔离真实路由验证聊天/生成不自动采用、保存后读取一致、选区外保留及跨端冲突；浏览器390px检查单一聊天入口和既有候选预览，未调用付费模型、未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "用户授权后在主仓3000真实点击聊天提议、生成新版本、右侧预览、保存并刷新，完整流程通过。候选f9f48bf4-b424-4de4-99d3-de9c7dd78cf2生成75.9秒，刷新正文与预览逐字一致；旧稿保留在文字历史、8张配图保留。修复助手think前导块泄漏到回复显示及候选序号/稿件修订号混用；2项先红后绿、5文件62项和类型检查通过。没有部署，生成时延仍偏长。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -6184,7 +6247,8 @@
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
         "docs/qa/2026-10-13-mobile-memory-followup.md",
         "client/src/features/mobileWorkspace/MobileCompanionActions.test.tsx",
-        "docs/qa/2026-10-13-mobile-context-actions.md"
+        "docs/qa/2026-10-13-mobile-context-actions.md",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -6207,6 +6271,11 @@
         "当前正文追加共用现有saveBody接口，不额外生成独立文字历史版本；真机大视频上传尚未验收。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户授权将电脑聊天/正文伴写流程合并到手机底部唯一小忆：全文或选区直接传入同一提议服务，显式生成候选、全文预览、确认采用到共享发布正文；保留旧稿、候选恢复与发布修订冲突保护。手机增加顺序发送队列，未知/失败轮次阻塞后续并保留原上下文。隔离真实路由验证聊天/生成不自动采用、保存后读取一致、选区外保留及跨端冲突；浏览器390px检查单一聊天入口和既有候选预览，未调用付费模型、未部署。"
+        },
         {
           "date": "2026-10-13",
           "kind": "feature",
@@ -6261,52 +6330,6 @@
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "新增我的语言，三语词典与手机上下文、持久化及跨标签同步；本地字体覆盖中英法并保留手写Logo。类型、154项定向测试、构建通过，390px浏览器验证法语导航、原文保留和英文刷新持久化。"
-        }
-      ]
-    },
-    {
-      "id": "shiguang-public-landing",
-      "name": "拾光公开产品介绍页",
-      "status": "observing",
-      "userValue": "任何人无需登录即可了解拾光的创作理念与手机、电脑分工，并从同一页面进入既有制作登录入口。",
-      "entryPoints": [
-        "client/src/pages/ShiguangLandingPage.tsx"
-      ],
-      "owners": [
-        "client/src/pages/ShiguangLandingPage.tsx",
-        "client/src/pages/ShiguangLandingPage.css",
-        "client/public/shiguang/landing/",
-        "client/src/app/router/AppRouter.tsx"
-      ],
-      "evidence": [
-        "client/src/pages/ShiguangLandingPage.test.tsx",
-        "client/src/app/router/AppRouter.test.tsx",
-        "docs/qa/2026-10-13-shiguang-public-landing.md"
-      ],
-      "invariants": [
-        "介绍页无需登录即可读取，不得加载、展示或探测任何账号、Story、聊天或私人媒体数据。",
-        "开始制作统一进入既有 /login；登录后的设备分流、返回白名单和工作区权限不在介绍页复制实现。",
-        "页面只介绍已经存在的能力，不编造用户评价、统计数字、免费承诺或尚未完成的产品能力。",
-        "尊重 prefers-reduced-motion；移动端不得依赖悬停或横向滚动才能理解内容。"
-      ],
-      "dependencies": [
-        "shiguang-illustration-theme"
-      ],
-      "replaces": [],
-      "knownGaps": [
-        "按用户要求先本地评审，尚未部署正式站；公网、真机 Safari、微信内置浏览器和 Android Chrome 待上线前验收。",
-        "当前手机与电脑工作区通过文字和界面式演示表达，后续可在不暴露私人数据的前提下换成正式产品录屏。"
-      ],
-      "history": [
-        {
-          "date": "2026-10-13",
-          "kind": "feature",
-          "summary": "新增无需登录的 /shiguang 本地介绍页：以用户指定的水彩晕染、长纸、书页边缘和枝条资产建立公开叙事，说明手机接住个人与家人思绪、电脑生成私人影像；主按钮复用既有 /login。路由与页面13项测试、TypeScript通过，主仓3000完成1440px与390px浏览器检查；按用户要求暂不部署。"
-        },
-        {
-          "date": "2026-10-13",
-          "kind": "fix",
-          "summary": "本地视觉评审收敛装饰与动画，修复独立页面标题，并使用用户指定的 A080 paper.webp 作底纹。进一步恢复鸿雷拙书 Logo，采用本机 TW-Sung 标题与 Noto Sans SC 轻字重正文，生成页面文字 WOFF 子集并调整字号、字距；浏览器首屏已确认排版无横向溢出，等待用户评审。"
         }
       ]
     }

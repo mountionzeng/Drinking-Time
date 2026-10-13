@@ -215,6 +215,16 @@ export async function generateTextDraft(
   input: TextDraftRequest & { userId: number }
 ) {
   const { userId, ...request } = input;
+  if (
+    request.selection &&
+    (!request.basis ||
+      request.selection.end <= request.selection.start ||
+      request.selection.end > request.basis.body.length ||
+      !request.basis.body
+        .slice(request.selection.start, request.selection.end)
+        .trim())
+  )
+    throw bad("所选文字已变化，请重新选择后生成");
   const owner = { storyId: input.storyId, userId };
   const requestHash = hash(request);
   const story = await owned(owner);
@@ -393,9 +403,18 @@ export async function generateTextDraft(
     if (request.basis)
       output.draft = {
         ...output.draft,
+        ...(request.selection
+          ? {
+              body:
+                request.basis.body.slice(0, request.selection.start) +
+                output.draft.body +
+                request.basis.body.slice(request.selection.end),
+            }
+          : {}),
         title: request.basis.title,
         tags: [...request.basis.tags],
       };
+    output.draft = textDraftContentSchema.parse(output.draft);
     if (request.platform === "x") output.draft.title = "";
     const contentError = getPublishingContentError(
       request.platform,

@@ -214,6 +214,14 @@ describe("storySpine", () => {
     expect(storySpineStore.getState().activeStoryId).toBe(20);
   });
 
+  it("releases the previous story's reply lock when starting a new scope", () => {
+    storySpineStore.getState().setIsReplying(true);
+    const previous = storySpineStore.getState().storyLoadEpoch;
+    storySpineStore.getState().beginStoryLoad();
+    expect(storySpineStore.getState().isReplying).toBe(false);
+    expect(storySpineStore.getState().storyLoadEpoch).toBe(previous + 1);
+  });
+
   it("derives a Story ScopeKey from activeStoryId, or null when no story is active", () => {
     expect(currentStoryScopeKey({ activeStoryId: null })).toBeNull();
     expect(currentStoryScopeKey({ activeStoryId: 20 })).toEqual({

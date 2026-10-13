@@ -6,6 +6,7 @@ import type { StoryIntent } from "./intentTypes";
 import StoryAgentChat from "./views/StoryAgentChat";
 
 vi.stubGlobal("React", React);
+vi.mock("./views/ChatAssistantAvatar", () => ({ default: () => <span aria-hidden="true" /> }));
 vi.mock("./useCreationFlowChat", () => ({ useCreationFlowChat: () => ({ busy: false, submit: async () => false }) }));
 
 // This suite tests intent bubbles; the independent version panel owns its RPC context.

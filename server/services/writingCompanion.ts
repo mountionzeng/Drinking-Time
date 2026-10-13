@@ -16,6 +16,7 @@
 import type { Message } from "../_core/llm";
 import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
+import { stripAssistantReasoning } from "../../shared/assistantReplyText";
 
 export type WritingStage = "blank" | "opening" | "developing" | "closing";
 
@@ -167,6 +168,7 @@ function draftContextMessage(input: {
   cursor: number;
   selection?: WritingSelection;
   storyTitle?: string | null;
+  fullDraft?: boolean;
 }): string {
   const selected = selectedText(input);
   if (selected) {
@@ -188,7 +190,11 @@ function draftContextMessage(input: {
     `这一步怎么帮：${STAGE_GUIDANCE[reading.stage]}`,
     "",
     "【他目前写下的正文】",
-    reading.totalChars > 0 ? draftWithCursorMarker(input) : "（还是空白）",
+    reading.totalChars > 0
+      ? input.fullDraft
+        ? `${input.draft.slice(0, clampCursor(input.draft, input.cursor))}${CURSOR_MARKER}${input.draft.slice(clampCursor(input.draft, input.cursor))}`
+        : draftWithCursorMarker(input)
+      : "（还是空白）",
   ]
     .filter(line => line !== "")
     .join("\n");
@@ -203,9 +209,9 @@ export type WritingCompanionInvoke = (
 const COMPANION_MAX_TOKENS = 1_600;
 
 function plainReply(raw: string): string {
-  let text = (raw ?? "").trim();
+  let text = stripAssistantReasoning(raw ?? "");
   const fence = text.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
-  if (fence) text = fence[1].trim();
+  if (fence) text = stripAssistantReasoning(fence[1]);
   return text.replace(/^["“「]|["”」]$/g, "").trim();
 }
 
@@ -252,6 +258,8 @@ export async function openWritingCompanion(
 
 export type WritingCompanionContext = WritingDraftInput & {
   openingQuestion?: string | null;
+  /** Desktop chat follows the whole visible article, including unsaved edits. */
+  fullDraft?: boolean;
 };
 
 /**
@@ -265,7 +273,15 @@ export async function replyAsWritingCompanion(
     writingContext: WritingCompanionContext;
     storyTitle?: string | null;
   },
-  invoke: WritingCompanionInvoke = invokeAgent
+  invoke: WritingCompanionInvoke = (messages, maxTokens) =>
+    invokeAgent(
+      messages,
+      maxTokens,
+      undefined,
+      input.writingContext.fullDraft
+        ? { deadlineMs: 45_000, reasoningEffort: "low", replaySafe: false }
+        : undefined
+    )
 ): Promise<{ reply: string; modelLabel: string }> {
   const opening = input.writingContext.openingQuestion?.trim();
   const hasSelection = Boolean(selectedText(input.writingContext));
@@ -275,13 +291,26 @@ export async function replyAsWritingCompanion(
       content: [
         COMPANION_RULES,
         "",
-        hasSelection
-          ? "用户正在改写明确选中的文字。先接住他提出的改写方向；只有方向确实不清楚时才问一个简短问题。方向已经明确就告诉他可以点「整理成一段」。"
-          : "【这一轮】先用一句话接住他刚说的（用他自己的词，不复述全部），再至多问一个更具体的问题。",
-        ...(hasSelection
-          ? ["选区之外的正文只能用于理解语境，绝不能改写或带入结果。"]
-          : ["如果他已经说出了足够写成一段的内容，就不要再问，告诉他可以点「整理成一段」。"]),
-        "不超过 80 个汉字，只输出你要说的话。",
+        ...(input.writingContext.fullDraft
+          ? [
+              "你正在和用户共同查看当前这篇正文。优先回应他对结构、逻辑和表达的修改要求；要求明确就给出简短、具体的修改提议，不要先问无关的经历或感受。",
+              "此时只讨论方案，不修改正文。用户认可后点击「生成新版本」，系统会根据这段对话生成新文章；满意后点击「保存」。不要指引他点击整理成一段。",
+              ...(hasSelection
+                ? ["选中的文字是唯一允许修改的范围，其他正文只用于理解上下文。"]
+                : []),
+              "不超过 180 个汉字，只输出你要说的话。",
+            ]
+          : [
+              hasSelection
+                ? "用户正在改写明确选中的文字。先接住他提出的改写方向；只有方向确实不清楚时才问一个简短问题。方向已经明确就告诉他可以点「整理成一段」。"
+                : "【这一轮】先用一句话接住他刚说的（用他自己的词，不复述全部），再至多问一个更具体的问题。",
+              ...(hasSelection
+                ? ["选区之外的正文只能用于理解语境，绝不能改写或带入结果。"]
+                : [
+                    "如果他已经说出了足够写成一段的内容，就不要再问，告诉他可以点「整理成一段」。",
+                  ]),
+              "不超过 80 个汉字，只输出你要说的话。",
+            ]),
       ].join("\n"),
     },
     {
@@ -293,7 +322,9 @@ export async function replyAsWritingCompanion(
     },
     ...input.history.slice(-10).map(turn => ({
       role: turn.role,
-      content: turn.content,
+      content: turn.role === "assistant"
+        ? stripAssistantReasoning(turn.content)
+        : turn.content,
     })),
     ...(opening ? [{ role: "assistant" as const, content: opening }] : []),
     { role: "user", content: input.message.trim() },

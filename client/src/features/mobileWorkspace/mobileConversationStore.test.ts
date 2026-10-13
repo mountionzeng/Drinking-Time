@@ -21,29 +21,62 @@ function memoryStorage() {
 describe("mobile conversation recovery store", () => {
   it("keeps same-time persisted turns in question-answer order, regardless of client IDs", () => {
     const messages = [
-      { id: 9, role: "user" as const, content: "第一问", clientMessageId: "user-z" },
-      { id: 10, role: "assistant" as const, content: "第一答", clientMessageId: "assistant-z" },
-      { id: 11, role: "user" as const, content: "第二问", clientMessageId: "user-a" },
-      { id: 12, role: "assistant" as const, content: "第二答", clientMessageId: "assistant-a" },
+      {
+        id: 9,
+        role: "user" as const,
+        content: "第一问",
+        clientMessageId: "user-z",
+      },
+      {
+        id: 10,
+        role: "assistant" as const,
+        content: "第一答",
+        clientMessageId: "assistant-z",
+      },
+      {
+        id: 11,
+        role: "user" as const,
+        content: "第二问",
+        clientMessageId: "user-a",
+      },
+      {
+        id: 12,
+        role: "assistant" as const,
+        content: "第二答",
+        clientMessageId: "assistant-a",
+      },
     ].map(message => ({ ...message, createdAt: "2026-10-13T08:00:00.000Z" }));
     const merged = mergeMobileConversationProjection({
       serverMessages: [...messages].reverse(),
       recoveryTurns: [],
     });
     expect(merged.messages.map(message => message.content)).toEqual([
-      "第一问", "第一答", "第二问", "第二答",
+      "第一问",
+      "第一答",
+      "第二问",
+      "第二答",
     ]);
   });
 
   it("keeps a local question before its answer when both have the same timestamp", () => {
     const turn = applyMobileConversationTurnEvent(
       createMobileConversationRecoveryTurn({
-        userId: 1, storyId: 2, userContent: "问题", idFactory: () => "same-time", now: 100,
+        userId: 1,
+        storyId: 2,
+        userContent: "问题",
+        idFactory: () => "same-time",
+        now: 100,
       }),
       { type: "generation_completed", assistantContent: "回答", now: 100 }
     );
-    const merged = mergeMobileConversationProjection({ serverMessages: [], recoveryTurns: [turn] });
-    expect(merged.messages.map(message => message.content)).toEqual(["问题", "回答"]);
+    const merged = mergeMobileConversationProjection({
+      serverMessages: [],
+      recoveryTurns: [turn],
+    });
+    expect(merged.messages.map(message => message.content)).toEqual([
+      "问题",
+      "回答",
+    ]);
   });
 
   it("fixes one logical identity before generation and models both durability phases", () => {
@@ -172,5 +205,52 @@ describe("mobile conversation recovery store", () => {
     expect(loadMobileConversationRecovery(storage, 41, 73)).toHaveLength(1);
     expect(loadMobileConversationRecovery(storage, 42, 73)).toEqual([]);
     expect(loadMobileConversationRecovery(storage, 41, 74)).toEqual([]);
+  });
+});
+
+describe("mobile sequential queue", () => {
+  it("retains queued messages and their exact draft context across recovery", async () => {
+    const storage = memoryStorage();
+    const turn = createMobileConversationRecoveryTurn({
+      userId: 2,
+      storyId: 7,
+      userContent: "第二个想法",
+    });
+    turn.status = "queued";
+    turn.writingContext = {
+      draft: "发送时的未保存正文",
+      cursor: 9,
+      fullDraft: true,
+      selection: { start: 0, end: 2 },
+    };
+    saveMobileConversationRecovery(storage, 2, 7, [turn]);
+    expect(loadMobileConversationRecovery(storage, 2, 7)).toEqual([turn]);
+    expect(loadMobileConversationRecovery(storage, 3, 7)).toEqual([]);
+  });
+  it("never skips an earlier unknown or failed turn to send a later queued message", async () => {
+    const { nextMobileQueuedTurn } = await import("./mobileConversationStore");
+    const first = createMobileConversationRecoveryTurn({
+      userId: 2,
+      storyId: 7,
+      userContent: "第一条",
+    });
+    const second = {
+      ...createMobileConversationRecoveryTurn({
+        userId: 2,
+        storyId: 7,
+        userContent: "第二条",
+      }),
+      status: "queued" as const,
+    };
+    for (const status of [
+      "replying",
+      "generation-unknown",
+      "generation-failed",
+      "persistence-failed",
+    ] as const)
+      expect(nextMobileQueuedTurn([{ ...first, status }, second])).toBeNull();
+    expect(nextMobileQueuedTurn([{ ...first, status: "synced" }, second])).toBe(
+      second
+    );
   });
 });

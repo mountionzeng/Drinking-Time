@@ -29,6 +29,7 @@ import {
 } from "./MobileImageStudio";
 import { MobileMemoryConversation } from "./MobileMemoryConversation";
 import { MobileEditableMemories } from "./MobileEditableMemories";
+import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
 
 export const MOBILE_STORY_STAGES = [
   { id: "memory", label: "回忆" },
@@ -182,6 +183,22 @@ export function MobileStoryWorkspace({
       kind: "text",
       origin: "note",
       content: `${content?.title || title}${document.hasUnsavedChanges ? "（含未保存修改）" : ""}\n${contextBody || "当前没有可用文字。"}`,
+      text: {
+        content: {
+          title: content?.title ?? "",
+          body: contextBody ?? "",
+          tags: content?.tags ?? [],
+        },
+        parentId: selected?.id ?? null,
+        platform:
+          selected?.request?.platform ?? document.state?.document?.platform,
+        ...(selectedVersion === "current" && document.state?.document
+          ? {
+              versionId: document.state.document.versionId,
+              bodyRevision: document.state.document.bodyRevision,
+            }
+          : {}),
+      },
     });
     return () => selectContext(null);
   }, [
@@ -192,6 +209,9 @@ export function MobileStoryWorkspace({
     content?.title,
     title,
     document.hasUnsavedChanges,
+    document.state?.document?.versionId,
+    document.state?.document?.bodyRevision,
+    selected,
     selectContext,
   ]);
   return (
@@ -336,6 +356,21 @@ export function MobileStoryWorkspace({
                         </button>
                       )}
                     </div>
+                    {selected?.status === "ready" &&
+                      !selected.adoption &&
+                      content && (
+                        <MobileTextDraftFlow
+                          key={`${userId}:${storyId}:${selected.id}`}
+                          userId={userId}
+                          storyId={storyId}
+                          previewVersion={selected}
+                          messages={[]}
+                          instruction=""
+                          disabled={
+                            document.hasUnsavedChanges || Boolean(editor.draft)
+                          }
+                        />
+                      )}
                     {(content?.body ||
                       (selectedVersion === "current" &&
                         document.state?.body)) && (

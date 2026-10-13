@@ -47,7 +47,11 @@ import {
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
+import { useDesktopChatQueue } from "../useDesktopChatQueue";
+import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
+import { useStorySpine } from "../spine/storySpine";
 import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
+import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { OPEN_MEMORY_WAREHOUSE, requestMemoryCard } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
   displayAssistantName,
@@ -277,6 +281,15 @@ export default function StoryAgentChat({
   const soundDirector = useStorySoundDirector(
     creationEditor?.activeStoryId ?? remoteStoryId ?? activeStoryId ?? null
   );
+  const writingSource = useDesktopWritingSession(state => state.session);
+  const accountId = useStorySpine(state => state.accountId);
+  const scopeEpoch = useStorySpine(state => state.storyScopeEpoch);
+  const writingSession = writingSource?.storyId === activeStoryId && writingSource.accountId === accountId && writingSource.epoch === scopeEpoch
+    ? writingSource : null;
+  const chatQueue = useDesktopChatQueue({
+    blocked: isReplying || creationFlow.busy || soundDirector.active,
+    run: async item => sendMessage(item.text, undefined, undefined, { clientMessageId: item.id, writingContext: item.writingContext }),
+  });
   const activeSelectionReadiness = activeSelection
     ? selectionReadiness(
         activeSelection,
@@ -726,6 +739,7 @@ export default function StoryAgentChat({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [
     messages,
+    chatQueue.items,
     isReplying,
     returningGreeting,
     showJobIntake,
@@ -757,14 +771,23 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = input.trim();
+    const ordinaryText = !pendingMedia.length && !soundDirector.active &&
+      activeSelection == null;
+    if (text && ordinaryText && !voice.isBusy && !isImportingMedia &&
+      (writingSession || isReplying || chatQueue.items.length > 0)) {
+      if (chatQueue.enqueue(text, writingSession?.getSnapshot())) {
+        setInput("");
+        resizeAndFocusInput();
+      }
+      return;
+    }
     if (text && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
       if (creationFlow.busy) return;
       if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
     }
     if (interactionMode === "publishing" && activeSelection?.sourceType !== "storyboard-image") {
-      if (!text || isReplying || voice.isBusy || isImportingMedia) return;
-      setInput("");
-      await sendMessage(text);
+      if (!text || voice.isBusy || isImportingMedia) return;
+      if (chatQueue.enqueue(text)) setInput("");
       resizeAndFocusInput();
       return;
     }
@@ -941,8 +964,7 @@ export default function StoryAgentChat({
     }
 
     if (selectionRoute.kind === "ordinary-chat") {
-      setInput("");
-      await sendMessage(text);
+      if (chatQueue.enqueue(text)) setInput("");
       resizeAndFocusInput();
       return;
     }
@@ -1161,10 +1183,24 @@ export default function StoryAgentChat({
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  const renderQueueStatus = (id: string) => {
+    const item = chatQueue.items.find(message => message.id === id);
+    if (!item) return null;
+    return <div className="mt-1 flex items-center gap-2 text-[10px] opacity-80">
+      <span>{item.status === "failed" ? "未收到完整回复，已暂停" : item.status === "sending" ? "等待回复" : "排队中"}</span>
+      {item.status !== "sending" && <button type="button" onClick={() => {
+        void navigator.clipboard.writeText(item.text).then(() => toast.success("已复制，原消息仍保留在队列中"), () => toast.error("请选中文字复制"));
+      }}>复制</button>}
+      {item.status !== "sending" && <button type="button" onClick={() => chatQueue.takeBack(item.id)}>
+        {item.status === "failed" ? "已核对，移出队列" : "取消排队"}
+      </button>}
+    </div>;
   };
 
   const lastAssistantId = [...messages]
@@ -1373,7 +1409,7 @@ export default function StoryAgentChat({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start desktop-companion-reply"}`}
             >
               {m.role === "assistant" ? (
                 <ChatAssistantAvatar
@@ -1385,7 +1421,7 @@ export default function StoryAgentChat({
               ) : null}
               <div
                 className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${
-                  m.role === "user" ? "rounded-tr-sm" : "rounded-tl-sm border"
+                  m.role === "user" ? "rounded-tr-sm" : "desktop-companion-bubble border"
                 }`}
                 style={
                   m.role === "user"
@@ -1401,8 +1437,7 @@ export default function StoryAgentChat({
                       }
                 }
               >
-                {/* 头像已经挪到气泡外侧（见 ChatAssistantAvatar），
-                    这里不再画第二个，也不重复署名「聊聊」。 */}
+                {/* The opaque reply covers the character's lower body, never its text. */}
                 {m.selectionQuote && (
                   <div className="mb-1.5">
                     <SelectionContextCard
@@ -1456,7 +1491,7 @@ export default function StoryAgentChat({
                   >
                     {tokenizeChatMessageText(
                       m.role === "assistant"
-                        ? displayAssistantName(m.content)
+                        ? displayAssistantName(stripAssistantReasoning(m.content))
                         : m.content
                     ).map((segment, index) =>
                       segment.emphasis ? (
@@ -1472,6 +1507,7 @@ export default function StoryAgentChat({
                     )}
                   </p>
                 )}
+                {m.role === "user" && renderQueueStatus(m.id)}
                 {m.promptCandidate ? (
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <div className="text-[10px] text-muted-foreground">
@@ -1815,16 +1851,16 @@ export default function StoryAgentChat({
                 style={{ borderColor: "var(--panel-border)" }}
               />
             </div>
-            <div className="flex items-start justify-start gap-2">
+            <div className="desktop-companion-reply flex items-start justify-start gap-2">
               <ChatAssistantAvatar
                 visualTheme={visualTheme}
                 element={element}
                 animated
               />
               <div
-                className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2 text-[12.5px] leading-relaxed"
+                className="desktop-companion-bubble max-w-[85%] rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed"
                 style={{
-                  background: "var(--nayin-glow)",
+                  background: "var(--card)",
                   borderColor: "var(--nayin-accent-dim)",
                   color: "var(--foreground)",
                 }}
@@ -1835,11 +1871,24 @@ export default function StoryAgentChat({
           </motion.div>
         )}
 
+        {chatQueue.items.filter(item => !messages.some(message => message.id === item.id)).map(item => (
+          <div key={item.id} className="flex justify-end">
+            <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-[var(--nayin-accent)] px-3 py-2 text-[12.5px] text-[var(--background)]">
+              <p className="whitespace-pre-wrap">{item.text}</p>
+              {renderQueueStatus(item.id)}
+            </div>
+          </div>
+        ))}
+        {chatQueue.paused && chatQueue.items.length > 0 && <div role="status" className="text-[11px] text-muted-foreground">
+          <p>待发内容和原来的文字上下文已保留。请核对未完成的消息后继续。</p>
+          <button type="button" disabled={chatQueue.items.some(item => item.status === "failed")} onClick={chatQueue.resume}
+            className="mt-1 text-[var(--nayin-accent)] disabled:opacity-40">继续发送排队消息</button>
+        </div>}
         {isReplying && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex items-start justify-start gap-2"
+            className="desktop-companion-reply flex items-start justify-start gap-2"
           >
             <ChatAssistantAvatar
               visualTheme={visualTheme}
@@ -1848,7 +1897,7 @@ export default function StoryAgentChat({
               animated
             />
             <div
-              className="rounded-2xl rounded-tl-sm px-3 py-2 border flex items-center gap-2"
+              className="desktop-companion-bubble rounded-2xl px-3 py-2 border flex items-center gap-2"
               style={{
                 background: "var(--card)",
                 borderColor: "var(--panel-border)",
@@ -1875,6 +1924,13 @@ export default function StoryAgentChat({
         className="border-t px-3 pb-3 flex flex-col gap-2"
         style={{ borderColor: "var(--panel-border)" }}
       >
+        {writingSession && !activeSelection && <section aria-label="当前文字上下文" className="min-w-0 pt-2 text-[11px] text-muted-foreground">
+          {writingSession.snapshot.selection
+            ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
+                已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
+              </span>
+            : <span>正在聊右侧这篇文字</span>}
+        </section>}
         {interactionMode === "publishing" ? (
           <div className="pt-2.5">
             <PublishingPlatformPicker compact />
@@ -2110,7 +2166,6 @@ export default function StoryAgentChat({
             onKeyDown={handleKey}
             placeholder={inputPlaceholder}
             disabled={
-              isReplying ||
               isImportingMedia ||
               (soundDirector.active && !soundDirector.session?.question)
             }
@@ -2128,7 +2183,7 @@ export default function StoryAgentChat({
               (!input.trim() &&
                 (interactionMode === "publishing" ||
                   pendingMedia.length === 0)) ||
-              isReplying ||
+              (isReplying && (pendingMedia.length > 0 || Boolean(activeSelection && !writingSession))) ||
               (soundDirector.active && !soundDirector.session?.question) ||
               voice.isBusy ||
               isImportingMedia
@@ -2141,7 +2196,7 @@ export default function StoryAgentChat({
             }}
             aria-label="发送"
           >
-            {isReplying || isImportingMedia ? (
+            {isImportingMedia ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Send className="h-3.5 w-3.5" />
@@ -2181,7 +2236,7 @@ export default function StoryAgentChat({
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
-          blocked={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
+          blocked={isReplying || chatQueue.items.length > 0 || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
         />
         </div>
         <button type="button" className="mt-1 rounded text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}>

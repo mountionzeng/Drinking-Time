@@ -9,8 +9,8 @@ describe("ChatAssistantAvatar", () => {
       <ChatAssistantAvatar visualTheme="shiguang" element="water" />
     );
 
-    expect(html).toContain("/shiguang/xiaoyi-avatar.png");
-    expect(html).toContain("chat-assistant-avatar-shiguang");
+    expect(html).toContain("/shiguang/companion/wave.webp");
+    expect(html).toContain("desktop-companion-bird");
     expect(html).not.toContain("<svg");
   });
 
@@ -40,6 +40,7 @@ describe("ChatAssistantAvatar", () => {
       <ChatAssistantAvatar visualTheme="shiguang" element="metal" />
     );
 
-    expect(html).toContain("chat-assistant-avatar");
+    expect(html).toContain("desktop-companion-peek");
+    expect(html).not.toContain("desktop-companion-edge");
   });
 });

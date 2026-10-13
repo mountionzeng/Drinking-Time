@@ -24,6 +24,11 @@ import type {
 } from "@shared/textDraftHistory";
 import { resolveTextDraftBasis } from "./textDraftBasis";
 import {
+  getPublishingEditorContent,
+  publishingContentEquals,
+} from "./publishingDraftViewModel";
+import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
+import {
   CAPABILITY_GROUPS,
   type StoryCapabilityGroupId,
 } from "@/features/storyAgent/views/StoryCapabilityMenu";
@@ -49,12 +54,9 @@ export function TextDraftVersions({
   input: string;
   blocked: boolean;
 }) {
-  const { publishing, publishingBuffers, messages } = useStoryAgent();
-  const {
-    ensureActiveStoryPersisted,
-    setPublishing,
-    setPublishingBuffer,
-  } = useStoryAgentActions();
+  const { publishing, publishingBuffers } = useStoryAgent();
+  const { ensureActiveStoryPersisted, setPublishing, setPublishingBuffer } =
+    useStoryAgentActions();
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [directionOpen, setDirectionOpen] = useState(false);
@@ -90,7 +92,10 @@ export function TextDraftVersions({
     }
   );
   const generate = trpc.textDrafts.generate.useMutation({ retry: false });
-  const sourceQuery = trpc.textSourceLineage.impact.useQuery({ storyId: storyId ?? 0 }, { enabled: open && Boolean(storyId && storyId > 0), retry: false });
+  const sourceQuery = trpc.textSourceLineage.impact.useQuery(
+    { storyId: storyId ?? 0 },
+    { enabled: open && Boolean(storyId && storyId > 0), retry: false }
+  );
   const currentSource = sourceQuery.data?.current;
   const adopt = trpc.textDrafts.adopt.useMutation({ retry: false });
   const learning = trpc.textDrafts.setLearning.useMutation({ retry: false });
@@ -164,26 +169,65 @@ export function TextDraftVersions({
         storyId && storyId > 0 ? storyId : await ensureActiveStoryPersisted();
       if (origin && origin > 0 && currentScope.current !== origin) return;
       if (!scopeMatches(id)) return;
+      const requestScope = storySpineStore.getState();
+      const requestVersionId = requestScope.publishing.activeVersionId ?? "v1";
+      const requestStillCurrent = () => {
+        const current = storySpineStore.getState();
+        return (
+          alive.current &&
+          scopeMatches(id) &&
+          current.accountId === requestScope.accountId &&
+          current.storyScopeEpoch === requestScope.storyScopeEpoch &&
+          current.storyLoadEpoch === requestScope.storyLoadEpoch &&
+          (current.publishing.activeVersionId ?? "v1") === requestVersionId
+        );
+      };
       const history = await utils.textDrafts.read.fetch({ storyId: id });
-      if (!scopeMatches(id)) return;
+      if (!requestStillCurrent()) return;
+      const fresh = storySpineStore.getState();
       const freshLatest = [...history.versions]
         .reverse()
         .find(v => v.status === "ready" && v.request.platform === platform);
       const buffer =
-        publishingBuffers?.[
-          publishingDraftBufferKey(
-            id,
-            platform,
-            publishing.activeVersionId ?? "v1"
-          )
+        fresh.publishingBuffers?.[
+          publishingDraftBufferKey(id, platform, requestVersionId)
         ];
+      const visibleContent = getPublishingEditorContent({
+        state: fresh.publishing,
+        buffers: fresh.publishingBuffers,
+        storyId: id,
+        platform,
+        versionId: requestVersionId,
+      });
+      const sourceRef = fresh.publishing.versions?.find(
+        version => version.versionId === requestVersionId
+      )?.textSource;
+      const visibleParentId =
+        buffer?.textDraftVersionId ??
+        (sourceRef && "textDraftId" in sourceRef
+          ? sourceRef.textDraftId
+          : null);
       const { basis, parentId } = resolveTextDraftBasis({
         selected,
         latest: freshLatest,
         edited,
         buffer: buffer?.content,
-        published: publishing.drafts[platform]?.content,
+        published: fresh.publishing.drafts[platform]?.content,
+        visible: visibleContent
+          ? { content: visibleContent, parentId: visibleParentId }
+          : undefined,
       });
+      const writing = useDesktopWritingSession.getState().session;
+      const writingSnapshot =
+        writing?.storyId === id &&
+        writing.accountId === fresh.accountId &&
+        writing.epoch === fresh.storyScopeEpoch
+          ? writing.getSnapshot()
+          : null;
+      const selection =
+        writingSnapshot?.draft === basis?.body
+          ? writingSnapshot?.selection
+          : undefined;
       const selectedDirection = CAPABILITY_GROUPS.find(
         option => option.id === selectedDirectionId
       );
@@ -202,27 +246,46 @@ export function TextDraftVersions({
         platform,
         parentId,
         basis: basis?.body.trim() ? basis : null,
-        messages: messages
+        ...(selection ? { selection } : {}),
+        messages: fresh.messages
           .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => ({ id: m.id, role: m.role, content: m.content })),
         instruction,
         source,
       });
       utils.textDrafts.read.setData({ storyId: id }, result);
-      if (!alive.current || !scopeMatches(id)) return;
+      if (!requestStillCurrent()) return;
       const next = result.versions.at(-1);
       if (next) {
         setSelectedId(next.id);
         setEdited(next.generated ?? null);
         setFeedback("");
         if (next.status === "ready" && next.generated) {
-          setPublishingBuffer(
-            id,
+          const current = storySpineStore.getState();
+          const nowVisible = getPublishingEditorContent({
+            state: current.publishing,
+            buffers: current.publishingBuffers,
+            storyId: id,
             platform,
-            next.generated,
-            publishing.activeVersionId ?? "v1",
-            next.id
-          );
+            versionId: requestVersionId,
+          });
+          if (
+            nowVisible === visibleContent ||
+            (nowVisible &&
+              visibleContent &&
+              publishingContentEquals(nowVisible, visibleContent))
+          ) {
+            setPublishingBuffer(
+              id,
+              platform,
+              next.generated,
+              requestVersionId,
+              next.id
+            );
+            window.dispatchEvent(new Event("dt:show-generated-text"));
+          } else {
+            toast.info("新版本已生成，可从文字历史查看；你刚才的编辑仍保留。");
+          }
         }
       }
       setDirectionOpen(false);
@@ -307,7 +370,11 @@ export function TextDraftVersions({
         <button
           type="button"
           className={`${compactButtonClass} text-[var(--nayin-accent)]`}
-          onClick={() => setDirectionOpen(true)}
+          onClick={() =>
+            versions.length
+              ? void generateVersion(null)
+              : setDirectionOpen(true)
+          }
           disabled={blocked || busy || query.isError}
         >
           {busy ? (
@@ -315,7 +382,7 @@ export function TextDraftVersions({
           ) : (
             <Plus className="h-3 w-3" />
           )}
-          {busy ? "正在处理…" : versions.length ? "生成新稿" : "生成文稿"}
+          {busy ? "正在处理…" : versions.length ? "生成新版本" : "生成文章"}
         </button>
       </div>
       {versions.at(-1)?.error && (
@@ -335,9 +402,14 @@ export function TextDraftVersions({
       <Dialog open={directionOpen} onOpenChange={setDirectionOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>生成文稿</DialogTitle>
+            <DialogTitle>
+              {versions.length ? "生成新版本" : "生成文章"}
+            </DialogTitle>
             <DialogDescription>
-              写作方向（可选，仅用于本次）
+              {versions.length
+                ? "为当前故事生成新的文字版本，旧版本会保留。"
+                : "把当前故事的内容整理成第一篇文章。"}
+              写作方向可选。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
@@ -360,7 +432,9 @@ export function TextDraftVersions({
                     <Icon className="h-4 w-4" />
                   </span>
                   <span>
-                    <span className="block text-sm font-medium">{directionLabels[option.id]}</span>
+                    <span className="block text-sm font-medium">
+                      {directionLabels[option.id]}
+                    </span>
                   </span>
                 </button>
               );
@@ -430,7 +504,11 @@ export function TextDraftVersions({
                 onClick={() => selectVersion(version)}
               >
                 文字 {version.sequence}
-                {currentSource && "textDraftId" in currentSource && currentSource.textDraftId === version.id ? " · 当前来源" : ""}
+                {currentSource &&
+                "textDraftId" in currentSource &&
+                currentSource.textDraftId === version.id
+                  ? " · 当前来源"
+                  : ""}
                 {version.adoption
                   ? " · 已采用"
                   : version.status === "ready"
@@ -442,9 +520,7 @@ export function TextDraftVersions({
             ))}
           </div>
           {!versions.length && (
-            <p className="text-sm text-muted-foreground">
-              暂无文字版本
-            </p>
+            <p className="text-sm text-muted-foreground">暂无文字版本</p>
           )}
           {selected?.error && (
             <p role="alert" className="text-sm text-destructive">
@@ -454,28 +530,56 @@ export function TextDraftVersions({
           {selected && edited && (
             <>
               <p className="text-xs text-muted-foreground">
-                {selected.memoryCards?.length ? `使用 ${selected.memoryCards.length} 张记忆卡片` : selected.request.parentId
-                  ? `基于文字 ${versions.find(v => v.id === selected.request.parentId)?.sequence ?? "历史版本"}`
-                  : "首次整理"}{" "}
+                {selected.memoryCards?.length
+                  ? `使用 ${selected.memoryCards.length} 张记忆卡片`
+                  : selected.request.parentId
+                    ? `基于文字 ${versions.find(v => v.id === selected.request.parentId)?.sequence ?? "历史版本"}`
+                    : "首次整理"}{" "}
                 · 新增或修改对话 {selected.conversationDelta.length} 条
               </p>
-              {selected.memoryCards?.length ? <details className="rounded-md border px-3 py-2 text-xs">
-                <summary className="cursor-pointer font-medium">本次使用的记忆</summary>
-                <ol className="mt-2 space-y-3">{selected.memoryCards.map((card, index) => <li key={card.id}>
-                  <p className="font-medium">{index + 1}. {card.title} · {card.kind === "conversation" ? "聊天记忆" : card.kind === "thought" ? "一个思绪" : "一件事"}{card.origin === "assistant" ? " · 助手整理" : ""}</p>
-                  <p className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">{card.content}</p>
-                </li>)}</ol>
-              </details> : null}
-              <details className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
+              {selected.memoryCards?.length ? (
+                <details className="rounded-md border px-3 py-2 text-xs">
+                  <summary className="cursor-pointer font-medium">
+                    本次使用的记忆
+                  </summary>
+                  <ol className="mt-2 space-y-3">
+                    {selected.memoryCards.map((card, index) => (
+                      <li key={card.id}>
+                        <p className="font-medium">
+                          {index + 1}. {card.title} ·{" "}
+                          {card.kind === "conversation"
+                            ? "聊天记忆"
+                            : card.kind === "thought"
+                              ? "一个思绪"
+                              : "一件事"}
+                          {card.origin === "assistant" ? " · 助手整理" : ""}
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">
+                          {card.content}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ) : null}
+              <details
+                className="rounded-md border px-3 py-2 text-xs"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
                 <summary className="cursor-pointer font-medium">
                   本次改动
                 </summary>
                 {selected.conversationDelta.length ? (
                   <div className="mt-2 space-y-2 text-muted-foreground">
                     {selected.conversationDelta.map(message => (
-                      <p key={message.id} className="whitespace-pre-wrap leading-5">
+                      <p
+                        key={message.id}
+                        className="whitespace-pre-wrap leading-5"
+                      >
                         <span className="font-medium text-foreground">
-                          {message.role === "assistant" ? "助手整理：" : "你的补充："}
+                          {message.role === "assistant"
+                            ? "助手整理："
+                            : "你的补充："}
                         </span>
                         {message.content}
                       </p>

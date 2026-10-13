@@ -7,6 +7,7 @@ import {
   loadMobileConversationRecovery,
   mergeMobileConversationProjection,
   saveMobileConversationRecovery,
+  nextMobileQueuedTurn,
   type MobileConversationRecoveryTurn,
   type MobileWritingContext,
   type MobileConversationStorage,
@@ -239,7 +240,11 @@ export async function runMobileConversationTurn(input: {
 }
 
 function browserStorage(): MobileConversationStorage | null {
-  return typeof window === "undefined" ? null : window.localStorage;
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function scopeKey(userId: number, storyId: number): string {
@@ -266,7 +271,10 @@ export function useMobileConversation(input: {
     scopeKey: string;
     turns: MobileConversationRecoveryTurn[];
   }>({ scopeKey: "", turns: [] });
+  const recoveryRef = useRef(recoveryState);
+  recoveryRef.current = recoveryState;
   const [inFlightVersion, setInFlightVersion] = useState(0);
+  const [queueEnabled, setQueueEnabled] = useState(false);
   const inFlightScopes = useRef(new Set<string>());
 
   const query = trpc.storyConversation.list.useQuery(
@@ -274,15 +282,37 @@ export function useMobileConversation(input: {
     { enabled: input.storyId > 0, retry: false, refetchOnWindowFocus: false }
   );
   const generateMutation =
-    trpc.storyConversation.generateMobileTurn.useMutation();
-  const appendMutation = trpc.storyConversation.appendMobileTurn.useMutation();
+    trpc.storyConversation.generateMobileTurn.useMutation({ retry: false });
+  const appendMutation = trpc.storyConversation.appendMobileTurn.useMutation({
+    retry: false,
+  });
   const utils = trpc.useUtils();
 
   useEffect(() => {
-    const turns = storage
+    const stored = storage
       ? loadMobileConversationRecovery(storage, input.userId, input.storyId)
       : [];
+    const turns = stored.map(turn =>
+      turn.status === "replying"
+        ? { ...turn, status: "generation-unknown" as const }
+        : turn.status === "persisting"
+          ? { ...turn, status: "persistence-failed" as const }
+          : turn
+    );
+    if (storage && turns.some((turn, index) => turn !== stored[index])) {
+      try {
+        saveMobileConversationRecovery(
+          storage,
+          input.userId,
+          input.storyId,
+          turns
+        );
+      } catch {
+        /* Keep in-memory recovery. */
+      }
+    }
     setRecoveryState({ scopeKey: currentScopeKey, turns });
+    setQueueEnabled(false);
   }, [currentScopeKey, input.storyId, input.userId, storage]);
 
   const currentRecoveryTurns =
@@ -337,7 +367,10 @@ export function useMobileConversation(input: {
           turn.storyId
         );
       } else if (turnScope === scopeRef.current) {
-        turns = recoveryState.scopeKey === turnScope ? recoveryState.turns : [];
+        turns =
+          recoveryRef.current.scopeKey === turnScope
+            ? recoveryRef.current.turns
+            : [];
       }
       const existingIndex = turns.findIndex(
         candidate => candidate.clientTurnId === turn.clientTurnId
@@ -354,6 +387,7 @@ export function useMobileConversation(input: {
         );
       }
       if (turnScope === scopeRef.current) {
+        recoveryRef.current = { scopeKey: turnScope, turns: next };
         setRecoveryState({ scopeKey: turnScope, turns: next });
       }
     },
@@ -388,13 +422,17 @@ export function useMobileConversation(input: {
         });
         persistTurn(result);
         if (result.status === "synced") {
+          void utils.memoryWarehouse.forStory.invalidate({
+            storyId: initial.storyId,
+          });
+          void utils.memoryWarehouse.list.invalidate();
           try {
             await query.refetch();
           } catch {
             // The append is authoritative; keep the synced recovery until a
             // later successful projection refetch removes it by message IDs.
           }
-        }
+        } else if (turnScope === scopeRef.current) setQueueEnabled(false);
         return result;
       } finally {
         inFlightScopes.current.delete(turnScope);
@@ -408,11 +446,7 @@ export function useMobileConversation(input: {
 
   const submit = useCallback(
     async (content: string, writingContext?: MobileWritingContext) => {
-      if (
-        !query.data ||
-        query.isError ||
-        inFlightScopes.current.has(currentScopeKey)
-      ) {
+      if (!query.data || query.isError) {
         return null;
       }
       const turn = createMobileConversationRecoveryTurn({
@@ -421,8 +455,10 @@ export function useMobileConversation(input: {
         userContent: content,
       });
       if (writingContext) turn.writingContext = writingContext;
+      turn.status = "queued";
       persistTurn(turn);
-      return run(turn);
+      setQueueEnabled(true);
+      return turn;
     },
     [
       currentScopeKey,
@@ -435,12 +471,37 @@ export function useMobileConversation(input: {
     ]
   );
 
+  useEffect(() => {
+    if (
+      !queueEnabled ||
+      inFlightScopes.current.has(currentScopeKey) ||
+      !query.data ||
+      query.isError
+    )
+      return;
+    const next = nextMobileQueuedTurn(currentRecoveryTurns);
+    if (next) void run(next);
+  }, [
+    queueEnabled,
+    currentScopeKey,
+    currentRecoveryTurns,
+    inFlightVersion,
+    query.data,
+    query.isError,
+    run,
+  ]);
+
   const retryTurn = useCallback(
     (clientTurnId: string) => {
       const turn = currentRecoveryTurns.find(
         candidate => candidate.clientTurnId === clientTurnId
       );
       if (!turn) return Promise.resolve(null);
+      if (turn.status === "queued") {
+        setQueueEnabled(true);
+        return Promise.resolve(turn);
+      }
+      setQueueEnabled(true);
       return run(turn, {
         retryFailed: turn.status === "generation-failed",
         recoverFirst:
@@ -452,6 +513,7 @@ export function useMobileConversation(input: {
 
   const discardRecoveryTurn = useCallback(
     (clientTurnId: string) => {
+      setQueueEnabled(false);
       const next = currentRecoveryTurns.filter(
         turn => turn.clientTurnId !== clientTurnId
       );
@@ -492,8 +554,7 @@ export function useMobileConversation(input: {
       : null,
     messages: projection.messages,
     recoveryTurns: currentRecoveryTurns,
-    canSend:
-      (historyState === "empty" || historyState === "loaded") && !isSubmitting,
+    canSend: historyState === "empty" || historyState === "loaded",
     isSubmitting,
     submit,
     retryTurn,

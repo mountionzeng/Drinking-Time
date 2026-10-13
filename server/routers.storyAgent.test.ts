@@ -57,6 +57,11 @@ const storyAgentMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./archive/storyAgent", () => storyAgentMocks);
+const writingMocks = vi.hoisted(() => ({ reply: vi.fn(async () => ({ reply: "可以，保留前后文，只调整这一段。", modelLabel: "mock-writing" })) }));
+vi.mock("./services/writingCompanion", async importOriginal => ({
+  ...await importOriginal<typeof import("./services/writingCompanion")>(),
+  replyAsWritingCompanion: writingMocks.reply,
+}));
 
 const creationAgentMocks = vi.hoisted(() => ({
   runJsonAgent: vi.fn(),
@@ -272,6 +277,27 @@ describe("storyAgent tRPC router", () => {
       storyId: id, message: "读取他的背景",
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(storyAgentMocks.replyFromStoryAgent).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared writing service in the existing chat with the visible editor and selection", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const { id } = await createStory({ userId: 42, title: "当前文章", body: {} });
+    const writingContext = { draft: "前文。选中句。后文。", cursor: 3, selection: { start: 3, end: 7 } };
+    const history = [{ role: "assistant" as const, content: "上一轮回复" }];
+    const result = await appRouter.createCaller(createAuthContext()).storyAgent.chat({
+      storyId: id, message: "这里口语一点", history, writingContext,
+    });
+    expect(result.reply).toContain("只调整这一段");
+    expect(writingMocks.reply).toHaveBeenCalledWith({ message: "这里口语一点", history, writingContext: { ...writingContext, fullDraft: true }, storyTitle: "当前文章" });
+    expect(storyAgentMocks.replyFromStoryAgent).not.toHaveBeenCalled();
+    writingMocks.reply.mockClear();
+    await expect(appRouter.createCaller(createAuthContext(43)).storyAgent.chat({
+      storyId: id, message: "读这篇文章", writingContext,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(appRouter.createCaller(createAuthContext()).storyAgent.chat({
+      message: "没有故事", writingContext,
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(writingMocks.reply).not.toHaveBeenCalled();
   });
 
   it("wraps classification and summary procedures", async () => {

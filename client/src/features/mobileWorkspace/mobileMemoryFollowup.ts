@@ -1,4 +1,7 @@
 import { createContext, useContext, useEffect } from "react";
+import type { TextDraftContent } from "@shared/textDraftHistory";
+import type { PublishingPlatformId } from "@shared/publishingDraft";
+import type { MobileWritingContext } from "./mobileConversationStore";
 export type MemoryFollowupSource = {
   kind?: "memory" | "text" | "video";
   title?: string;
@@ -7,7 +10,35 @@ export type MemoryFollowupSource = {
   id: string;
   content: string;
   origin: "user" | "assistant" | "note";
+  text?: {
+    content: TextDraftContent;
+    parentId: string | null;
+    platform?: PublishingPlatformId;
+    versionId?: string;
+    bodyRevision?: number;
+    selection?: { start: number; end: number };
+  };
 };
+export function mobileWritingContext(
+  source: MemoryFollowupSource
+): MobileWritingContext | undefined {
+  if (source.kind !== "text") return undefined;
+  const draft = source.text?.content.body ?? source.content;
+  return {
+    draft,
+    cursor: draft.length,
+    selection: source.text?.selection,
+    scope: source.id,
+    fullDraft: true,
+  };
+}
+
+/** Every entry opens the same mounted chat, including entries inside editors. */
+export function openMobileCompanion(source: MemoryFollowupSource) {
+  window.dispatchEvent(
+    new CustomEvent("dt:open-mobile-companion", { detail: source })
+  );
+}
 export const MobileMemoryFollowup = createContext<{
   source: MemoryFollowupSource | null;
   select: (source: MemoryFollowupSource | null) => void;

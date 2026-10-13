@@ -197,9 +197,28 @@ function StoryTexts({ storyId }: { storyId: number }) {
   const { source, select } = useContext(MobileMemoryFollowup);
   useEffect(() => () => select(null), [select]);
   function opened(open: boolean, id: string, body: string) {
-    if (open)
-      select({ storyId, id, kind: "text", origin: "note", content: body });
-    else if (source?.id === id && source.storyId === storyId) select(null);
+    if (open) {
+      const version = history.data?.versions.find(v => `text:${v.id}` === id);
+      const content = version?.adoption?.content ?? version?.generated;
+      select({
+        storyId,
+        id,
+        kind: "text",
+        origin: "note",
+        content: body,
+        text: {
+          content: content ?? { title: "", body, tags: [] },
+          parentId: version?.id ?? null,
+          platform: version?.request.platform ?? current.data?.platform,
+          ...(id === "text:current" && current.data
+            ? {
+                versionId: current.data.versionId,
+                bodyRevision: current.data.bodyRevision,
+              }
+            : {}),
+        },
+      });
+    } else if (source?.id === id && source.storyId === storyId) select(null);
   }
   const history = trpc.textDrafts.read.useQuery({ storyId }, { retry: false });
   const current = trpc.publishingDraft.readBody.useQuery(

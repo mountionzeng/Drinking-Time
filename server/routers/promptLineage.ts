@@ -345,6 +345,7 @@ const writingDraftShape = {
 
 const writingContextSchema = z.object({
   ...writingDraftShape,
+  fullDraft: z.boolean().optional(),
   selection: z
     .object({ start: z.number().int().min(0), end: z.number().int().min(1) })
     .optional(),

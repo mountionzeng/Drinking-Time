@@ -53,7 +53,7 @@ describe("independent text version controls", () => {
     const html = renderToStaticMarkup(
       <TextDraftVersions storyId={1} input="新的补充" blocked={false} />
     );
-    expect(html).toContain("生成文稿");
+    expect(html).toContain("生成文章");
     expect(html).not.toContain("继续补充，准备好再生成。");
     expect(html).not.toContain("文字版本");
     expect(fixture.mutate).not.toHaveBeenCalled();
@@ -63,7 +63,7 @@ describe("independent text version controls", () => {
       <TextDraftVersions storyId={1} input="" blocked />
     );
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>/);
-    expect(html).toContain("生成文稿");
+    expect(html).toContain("生成文章");
   });
   it("shows a retry affordance instead of treating unreadable history as empty", () => {
     fixture.error = true;

@@ -322,7 +322,7 @@ export const useStorySpine = create<StorySpineState>()(set => {
       let loadEpoch = 0;
       set(state => {
         loadEpoch = state.storyLoadEpoch + 1;
-        return { storyLoadEpoch: loadEpoch };
+        return { storyLoadEpoch: loadEpoch, isReplying: false };
       });
       return loadEpoch;
     },

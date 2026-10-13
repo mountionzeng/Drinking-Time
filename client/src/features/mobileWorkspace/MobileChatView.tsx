@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { useMobileConversation } from "./useMobileConversation";
 import type { MobileConversationRecoveryTurn } from "./mobileConversationStore";
 
@@ -79,6 +80,8 @@ async function copyText(text: string): Promise<void> {
 
 function recoveryStatus(turn: MobileConversationRecoveryTurn): string {
   switch (turn.status) {
+    case "queued":
+      return "消息已排队";
     case "replying":
       return "正在生成回复…";
     case "generation-failed":
@@ -106,6 +109,19 @@ function MobileTurnRecovery({
   onAnnounce: (message: string) => void;
 }) {
   const t = useUiText();
+
+  if (turn.status === "queued")
+    return (
+      <div className="px-4 text-xs text-muted-foreground">
+        <button
+          type="button"
+          className="min-h-11 text-primary"
+          onClick={onRetry}
+        >
+          {t("继续发送排队消息")}
+        </button>
+      </div>
+    );
 
   const canRetry =
     turn.status === "generation-failed" ||
@@ -219,7 +235,11 @@ export function MobileChatView({
   // 等回信的样子由面板抬头那只小人代言（MobileWorkspaceFrame 的 waitingForReply）。
   // 这里只负责一件事：replying 的轮次不要再以故障卡片的样子重复出现一遍。
   const visibleRecoveryTurns = controller.recoveryTurns.filter(
-    turn => turn.status !== "replying"
+    (turn, index, turns) =>
+      turn.status !== "replying" &&
+      (turn.status !== "queued" ||
+        (!controller.isSubmitting &&
+          index === turns.findIndex(item => item.status !== "synced")))
   );
 
   useEffect(() => {
@@ -319,7 +339,14 @@ export function MobileChatView({
                     : "mr-auto w-full text-foreground"
                 )}
               >
-                {message.content}
+                {message.role === "assistant"
+                  ? stripAssistantReasoning(message.content)
+                  : message.content}
+                {message.turnStatus === "queued" && (
+                  <span className="ml-2 text-[10px] opacity-60">
+                    {t("排队中")}
+                  </span>
+                )}
               </li>
             ))}
           </ol>

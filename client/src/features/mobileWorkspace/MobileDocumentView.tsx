@@ -1,6 +1,6 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { Copy, Loader2, RefreshCw, Save } from "lucide-react";
-import React, { type Ref, useMemo, useRef, useState } from "react";
+import React, { type Ref, useContext, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
-import { insertParagraphAtCursor } from "@/features/writingCompanion/writingCompanionText";
+import { MobileMemoryFollowup } from "./mobileMemoryFollowup";
 import { useMobileDocument } from "./useMobileDocument";
 
 export type MobileDocumentController = ReturnType<typeof useMobileDocument>;
@@ -135,6 +134,7 @@ export function MobileDocumentView({
   const t = useUiText();
 
   const [announcement, setAnnouncement] = useState("");
+  const { source, select } = useContext(MobileMemoryFollowup);
   const [dismissedConflictId, setDismissedConflictId] = useState<string | null>(
     null
   );
@@ -192,7 +192,7 @@ export function MobileDocumentView({
               {t("这个故事还没有正文")}
             </h2>
             <p className="max-w-sm text-sm leading-6 text-muted-foreground">
-              {t("可以从空白写起，停笔时点一下正文旁的小忆。")}
+              {t("可以从空白写起，也可以点下方小忆聊聊。")}
             </p>
             <Button
               type="button"
@@ -246,6 +246,19 @@ export function MobileDocumentView({
           value={controller.state.body}
           onBlur={() => onEditingChange?.(false)}
           onChange={event => controller.editBody(event.target.value)}
+          onSelect={event => {
+            if (!source?.text || source.storyId !== controller.state?.storyId)
+              return;
+            const { selectionStart: start, selectionEnd: end } =
+              event.currentTarget;
+            select({
+              ...source,
+              text: {
+                ...source.text,
+                selection: end > start ? { start, end } : undefined,
+              },
+            });
+          }}
           onFocus={() => onEditingChange?.(true)}
         />
       </div>
@@ -259,35 +272,6 @@ export function MobileDocumentView({
           >
             {t(controller.state.error || statusText)}
           </p>
-          <WritingCompanionButton
-            key={`${controller.state.userId}:${controller.state.storyId}:${controller.state.document?.versionId}:${controller.state.document?.platform}`}
-            disabled={
-              controller.state.status === "conflict" || controller.isSaving
-            }
-            resolveStoryId={() => controller.state!.storyId}
-            getSnapshot={() => ({
-              draft: controller.state!.body,
-              cursor:
-                bodyRef.current?.selectionStart ??
-                controller.state!.body.length,
-              scope: `${controller.state!.storyId}:${controller.state!.document?.versionId}:${controller.state!.document?.platform}:${controller.state!.document?.bodyRevision}`,
-            })}
-            onInsert={(paragraph, snapshot) => {
-              const result = insertParagraphAtCursor(
-                controller.state!.body,
-                snapshot.cursor,
-                paragraph
-              );
-              controller.editBody(result.body);
-              requestAnimationFrame(() => {
-                bodyRef.current?.focus();
-                bodyRef.current?.setSelectionRange(
-                  result.cursor,
-                  result.cursor
-                );
-              });
-            }}
-          />
           {controller.state.status === "conflict" ? (
             <Button
               type="button"

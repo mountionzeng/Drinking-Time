@@ -43,6 +43,9 @@ vi.mock("@/lib/trpc", () => ({
     }),
   },
 }));
+vi.mock("./MobileTextDraftFlow", () => ({
+  MobileTextDraftFlow: () => <div />,
+}));
 import { MobileMemoryFollowupChat } from "./MobileMemoryFollowupChat";
 const source = {
   storyId: 7,
@@ -54,12 +57,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   mock.submit.mockResolvedValue({ status: "synced" });
 });
-function setup() {
+function setup(selectedSource = source) {
   const setDraft = vi.fn();
   renderToStaticMarkup(
     <MobileMemoryFollowupChat
       userId={4}
-      source={source}
+      source={selectedSource}
       onLocked={() => {}}
       draft=""
       setDraft={setDraft}
@@ -121,4 +124,26 @@ it("labels text context and video metadata without claiming to see frames", () =
     "不代表已观看或识别视频画面"
   );
   expect(video.content).toContain("原字幕");
+});
+
+it("uses the same whole-draft proposal mode as desktop and sends only the user's words", async () => {
+  setup({
+    ...source,
+    kind: "text",
+    text: {
+      content: { title: "标题", body: "完整正文", tags: [] },
+      parentId: "v1",
+      selection: { start: 0, end: 2 },
+    },
+  } as any);
+  await mock.props.controller.submit("把这段写简洁一点");
+  expect(mock.submit).toHaveBeenCalledWith(
+    "把这段写简洁一点",
+    expect.objectContaining({
+      draft: "完整正文",
+      fullDraft: true,
+      selection: { start: 0, end: 2 },
+    })
+  );
+  expect(mock.props.greeting).toContain("提议");
 });

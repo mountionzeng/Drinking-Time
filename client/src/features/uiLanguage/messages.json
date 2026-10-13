@@ -2486,5 +2486,89 @@
   "我说": {
     "en": "Me",
     "fr": "Moi"
+  },
+  "正在讨论当前文字": {
+    "en": "Discussing this text",
+    "fr": "À propos de ce texte"
+  },
+  "正在讨论选中的文字": {
+    "en": "Discussing the selected passage",
+    "fr": "À propos du passage sélectionné"
+  },
+  "这篇文字想怎么改？我先给你一个提议。": {
+    "en": "What would you like to change? I’ll suggest an approach first.",
+    "fr": "Que souhaitez-vous changer ? Je vous proposerai d’abord une idée."
+  },
+  "生成新版本": {
+    "en": "Generate new version",
+    "fr": "Générer une nouvelle version"
+  },
+  "生成文章": {
+    "en": "Generate article",
+    "fr": "Générer un texte"
+  },
+  "查看新版本": {
+    "en": "View new version",
+    "fr": "Voir la nouvelle version"
+  },
+  "检查生成结果": {
+    "en": "Check generation result",
+    "fr": "Vérifier le résultat"
+  },
+  "继续修改": {
+    "en": "Continue editing",
+    "fr": "Continuer à modifier"
+  },
+  "预览并保存": {
+    "en": "Preview and save",
+    "fr": "Prévisualiser et enregistrer"
+  },
+  "重新读取文字历史": {
+    "en": "Reload text history",
+    "fr": "Recharger l’historique des textes"
+  },
+  "新版本预览": {
+    "en": "New version preview",
+    "fr": "Aperçu de la nouvelle version"
+  },
+  "新版本正文": {
+    "en": "New version text",
+    "fr": "Texte de la nouvelle version"
+  },
+  "电脑和手机都能看到，旧版本已保留。": {
+    "en": "Available on desktop and mobile. Earlier versions are kept.",
+    "fr": "Disponible sur ordinateur et mobile. Les anciennes versions sont conservées."
+  },
+  "确认满意后再保存，原文仍保留。": {
+    "en": "Save when you’re satisfied. The original is kept.",
+    "fr": "Enregistrez quand le résultat vous convient. L’original est conservé."
+  },
+  "保存新版本": {
+    "en": "Save new version",
+    "fr": "Enregistrer la nouvelle version"
+  },
+  "查看其他位置保存的最新正文": {
+    "en": "View the latest text saved elsewhere",
+    "fr": "Voir le dernier texte enregistré ailleurs"
+  },
+  "已核对，保存这版": {
+    "en": "Reviewed — save this version",
+    "fr": "Vérifié : enregistrer cette version"
+  },
+  "可以从空白写起，也可以点下方小忆聊聊。": {
+    "en": "Start writing, or tap Xiaoyi below to talk.",
+    "fr": "Commencez à écrire ou touchez Xiaoyi en bas pour discuter."
+  },
+  "排队中": {
+    "en": "Queued",
+    "fr": "En attente"
+  },
+  "继续发送排队消息": {
+    "en": "Continue queued messages",
+    "fr": "Envoyer les messages en attente"
+  },
+  "重试本次生成": {
+    "en": "Retry this request",
+    "fr": "Réessayer cette demande"
   }
 }

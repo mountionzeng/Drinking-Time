@@ -1,31 +1,35 @@
-/**
- * ChatAssistantAvatar — 「聊聊」回复气泡左边的那个头像。
- *
- * 按主题分：
- * - 拾光家忆：小忆水彩小鸟（和浏览器页签、手机端同一个形象）。
- * - 纳音五行：复用 EmotiveWuxingIcon，跟着当天五行变色、随情绪做表情。
- *
- * 注意和 2026-09-15 那次「去掉重复的助手头像」不是一回事：当时去掉的是
- * **气泡内部**的头像 + 「聊聊」署名（面板抬头已经有了，画两遍吵）。
- * 这里是气泡**外侧**的对话头像，标准聊天布局，不进气泡。
- */
-import React from "react";
+/** Desktop-only companion peeking over the edge of a reply. */
+import React, { useEffect, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import EmotiveWuxingIcon, {
+  resolveEmotionMood,
   type WuxingMood,
 } from "@/features/nayin/views/EmotiveWuxingIcon";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
+import {
+  BIRD_POSES,
+  type BirdPose,
+} from "@/features/mobileWorkspace/xiaoyiGestures";
+import "./desktopCompanion.css";
 
-export const CHAT_AVATAR_SIZE = 28;
+export const CHAT_AVATAR_SIZE = 52;
 
-type ChatAssistantAvatarProps = {
+type Props = {
   visualTheme: VisualThemeMode;
   element: NayinElement;
-  /** 故事卡片的 emotion 文本，交给 EmotiveWuxingIcon 自己归类 */
   emotion?: string | null;
-  /** 直接指定姿势（等回信时用 thinking），优先于 emotion */
   mood?: WuxingMood;
   animated?: boolean;
+};
+const BIRD_MOODS: Partial<Record<WuxingMood, BirdPose>> = {
+  thinking: "curious",
+  trust: "front",
+  joy: "smile",
+  anticipation: "hello",
+  surprise: "curious",
+  sadness: "blink",
+  groundedness: "front",
 };
 
 export default function ChatAssistantAvatar({
@@ -34,28 +38,65 @@ export default function ChatAssistantAvatar({
   emotion,
   mood,
   animated = false,
-}: ChatAssistantAvatarProps) {
+}: Props) {
+  const reduced = useReducedMotion();
+  const [idleMood, setIdleMood] = useState<WuxingMood>("neutral");
+  const resolved = mood ?? resolveEmotionMood(emotion);
+  useEffect(() => {
+    setIdleMood("neutral");
+    if (!animated || reduced || resolved !== "neutral") return;
+    let timer: ReturnType<typeof setTimeout>;
+    let reset: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(
+        () => {
+          if (!document.hidden) {
+            setIdleMood(Math.random() < 0.5 ? "trust" : "anticipation");
+            reset = setTimeout(() => setIdleMood("neutral"), 2200);
+          }
+          schedule();
+        },
+        9000 + Math.random() * 6000
+      );
+    };
+    schedule();
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(reset);
+    };
+  }, [animated, reduced, resolved]);
+  const expression = resolved === "neutral" ? idleMood : resolved;
+  const frame = BIRD_POSES[BIRD_MOODS[expression] ?? "turn"];
   return (
     <span
-      className="chat-assistant-avatar"
+      className="desktop-companion-peek"
       data-testid="chat-assistant-avatar"
+      data-theme={visualTheme}
+      data-mood={expression}
+      data-animated={animated && !reduced}
       aria-hidden="true"
     >
-      {visualTheme === "shiguang" ? (
-        <img
-          className="chat-assistant-avatar-shiguang"
-          src="/shiguang/xiaoyi-avatar.png"
-          alt=""
-        />
-      ) : (
-        <EmotiveWuxingIcon
-          element={element}
-          size={CHAT_AVATAR_SIZE}
-          mood={mood}
-          emotion={emotion}
-          animated={animated}
-        />
-      )}
+      <span className="desktop-companion-character">
+        {visualTheme === "shiguang" ? (
+          <span
+            className="desktop-companion-bird"
+            style={{
+              backgroundImage: `url('/shiguang/companion/${frame.sheet}.webp')`,
+              backgroundPosition: `${frame.x} ${frame.y}`,
+            }}
+          />
+        ) : (
+          <EmotiveWuxingIcon
+            element={element}
+            size={CHAT_AVATAR_SIZE}
+            mood={expression}
+            animated={false}
+            showLegs={false}
+            faceScale={0.9}
+            faceSpacing={1.08}
+          />
+        )}
+      </span>
     </span>
   );
 }

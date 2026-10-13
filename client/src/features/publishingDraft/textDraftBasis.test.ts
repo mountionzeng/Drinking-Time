@@ -38,6 +38,12 @@ const version = (adopted = false): TextDraftVersion => ({
     : {}),
 });
 describe("text draft generation basis", () => {
+  it("uses the article visible beside chat even after viewing another historical candidate", () => {
+    expect(resolveTextDraftBasis({
+      selected: version(), latest: { ...version(), id: "v3" }, edited: content("旧面板草稿"),
+      visible: { content: content("用户右侧正在看的文章"), parentId: "v2" },
+    })).toEqual({ parentId: "v2", basis: content("用户右侧正在看的文章") });
+  });
   it("uses the latest unadopted candidate after reload instead of stale published text", () => {
     expect(
       resolveTextDraftBasis({

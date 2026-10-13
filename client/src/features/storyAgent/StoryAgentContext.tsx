@@ -14,6 +14,9 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import type { WritingCompanionSnapshot } from "@/features/writingCompanion/writingCompanionText";
+
+type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot };
 import { LegacyStoryRecovery } from "./views/LegacyStoryRecovery";
 import { restoreLegacyDraftToCurrentAccount } from "./restoreLegacyDraftToCurrentAccount";
 import { artTargetFrom } from "./storyAgentUtils";
@@ -480,8 +483,9 @@ interface StoryAgentContextValue {
   sendMessage: (
     text: string,
     photoBase64?: string,
-    photoMimeType?: string
-  ) => Promise<void>;
+    photoMimeType?: string,
+    options?: ChatSendOptions
+  ) => Promise<boolean>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
   /** Inline-edit a single card's content; persists locally + to the server. */
@@ -1827,12 +1831,26 @@ export function StoryAgentProvider({
     async (
       text: string,
       photoBase64?: string,
-      photoMimeType = "image/jpeg"
+      photoMimeType = "image/jpeg",
+      options?: ChatSendOptions
     ) => {
+      // A queued turn must see the preceding reply, not a captured React render.
+      const current = storySpineStore.getState();
+      const { messages, cards, scripts, storyShots, characters, remoteStoryId,
+        storyTitle, storyLogline, storyTheme, storyArc, visualCanvasItems,
+        visualPreference, artDirection, publishing, confirmedIntent,
+        pendingIntentDraft, activeSelection, activeStoryId, isReplying } = current;
+      const isCurrent = () => {
+        const latest = storySpineStore.getState();
+        return latest.accountId === current.accountId && latest.storyScopeEpoch === current.storyScopeEpoch &&
+          latest.storyLoadEpoch === current.storyLoadEpoch &&
+          (latest.activeStoryId === activeStoryId || (activeStoryId === -1 && (latest.activeStoryId ?? 0) > 0));
+      };
       const trimmed = text.trim();
-      if ((!trimmed && !photoBase64) || isReplying) return;
+      if ((!trimmed && !photoBase64) || isReplying) return false;
       const requestStoryId = activeStoryId;
       const shouldRecognizeIntent =
+        !options?.writingContext &&
         interactionMode === "story" &&
         shouldTriggerIntentRecognition({
           messages,
@@ -1882,17 +1900,14 @@ export function StoryAgentProvider({
           }
         }
         if (
-          !storyScopeMatches(
-            requestStoryId,
-            storySpineStore.getState().activeStoryId
-          )
+          !isCurrent()
         ) {
-          return;
+          return false;
         }
 
         const userContent = trimmed || "帮我看看这张照片";
         const userMsg: ChatMessage = {
-          id: newId("msg"),
+          id: options?.clientMessageId ?? newId("msg"),
           role: "user",
           content: userContent,
           timestamp: Date.now(),
@@ -1907,6 +1922,7 @@ export function StoryAgentProvider({
           activeSelection?.sourceType === "timeline-range";
         if (
           editingCommandRunner &&
+          !options?.writingContext &&
           trimmed &&
           !photoBase64 &&
           (interactionMode === "story" || selectedVideoForEditing)
@@ -1930,10 +1946,7 @@ export function StoryAgentProvider({
             );
             if (outcome?.handled) {
               if (
-                storyScopeMatches(
-                  requestStoryId,
-                  storySpineStore.getState().activeStoryId
-                )
+                isCurrent()
               ) {
                 const replyMsg: ChatMessage = {
                   id: newId("msg"),
@@ -1984,7 +1997,7 @@ export function StoryAgentProvider({
                   arc: storyArc,
                 });
               }
-              return;
+              return isCurrent();
             }
           } catch (err) {
             console.warn("[sendMessage] 剪辑指令通道失败，回落普通聊天:", err);
@@ -1993,7 +2006,7 @@ export function StoryAgentProvider({
 
         // Capture snapshot of current state before Agent generation.
         // Errors are silent — snapshot failure must never block message send.
-        if (interactionMode === "story" && projectId !== null) {
+        if (!options?.writingContext && interactionMode === "story" && projectId !== null) {
           try {
             const snapshotResult = await saveSnapshotMut.mutateAsync({
               projectId,
@@ -2034,7 +2047,9 @@ export function StoryAgentProvider({
           }
         }
 
+        if (!isCurrent()) return false;
         const result = (await chatMut.mutateAsync({
+          writingContext: options?.writingContext,
           storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
           message: userContent,
           interactionMode,
@@ -2098,12 +2113,9 @@ export function StoryAgentProvider({
           confirmedIntent: buildChatIntentPayload(confirmedIntent),
         })) as StoryAgentChatResult;
         if (
-          !storyScopeMatches(
-            requestStoryId,
-            storySpineStore.getState().activeStoryId
-          )
+          !isCurrent()
         ) {
-          return;
+          return false;
         }
         let nextCards = cards;
         let spawnedCardId: string | undefined;
@@ -2179,6 +2191,7 @@ export function StoryAgentProvider({
         // 具体构造逻辑抽到了 ./inheritedPhoto（纯函数，便于单测）；返回 null 表示这一轮不挂图。
         // 持久化避开 TDZ：用稳定的 setVisualCanvasItems + 把新数组显式传进 saveArchiveStory，
         // 不碰后面才声明的 persistVisualCanvas（它在 sendMessage 之后定义，放进依赖数组会触发 TDZ）。
+        if (!isCurrent()) return false;
         const inheritedRef = buildInheritedPhotoReference({
           photoUrlForStore,
           spawnedCardId,
@@ -2307,33 +2320,17 @@ export function StoryAgentProvider({
             );
           }
         }
+        return result.configured !== false;
       } catch (err) {
         console.error("storyAgent.chat failed", err);
         toast.error("Agent 暂时没接上，再试一次？");
+        return false;
       } finally {
-        setIsReplying(false);
+        if (isCurrent()) setIsReplying(false);
       }
     },
     [
       projectId,
-      isReplying,
-      messages,
-      confirmedIntent,
-      pendingIntentDraft,
-      cards,
-      storyShots,
-      scripts,
-      characters,
-      remoteStoryId,
-      storyTitle,
-      publishing,
-      storyLogline,
-      storyTheme,
-      storyArc,
-      visualCanvasItems,
-      visualPreference,
-      artDirection,
-      activeStoryId,
       appendConversationTurnMut,
       storyAutoRenameMut,
       renameStory,
@@ -2342,7 +2339,6 @@ export function StoryAgentProvider({
       recognizeIntentFromHistory,
       editingCommandRunner,
       interactionMode,
-      activeSelection,
       setStoryTitle,
       utils.promptLineage.getStoryProjection,
       // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
@@ -2701,6 +2697,7 @@ export function StoryAgentProvider({
   );
 
   const resetConversation = useCallback(() => {
+    storySpineStore.getState().beginStoryLoad();
     const fresh = emptyState();
     setMessages(fresh.messages);
     setCards([]);

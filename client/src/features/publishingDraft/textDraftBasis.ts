@@ -10,7 +10,10 @@ export function resolveTextDraftBasis(input: {
   edited: TextDraftContent | null;
   buffer?: TextDraftContent;
   published?: TextDraftContent;
+  visible?: { content: TextDraftContent; parentId: string | null };
 }): { parentId: string | null; basis: TextDraftContent | null } {
+  if (input.visible)
+    return { parentId: input.visible.parentId, basis: input.visible.content };
   const version =
     input.selected?.status === "ready" ? input.selected : input.latest;
   if (input.buffer)

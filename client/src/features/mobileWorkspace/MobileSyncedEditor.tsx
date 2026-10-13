@@ -1,6 +1,5 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
-import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
-import { insertParagraphAtCursor } from "@/features/writingCompanion/writingCompanionText";
+import { openMobileCompanion } from "./mobileMemoryFollowup";
 import React, { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { trpc } from "@/lib/trpc";
@@ -232,33 +231,37 @@ export function MobileSyncedEditor({
           <Button variant="ghost" disabled={saving} onClick={close}>
             {discarding ? t("确认放弃") : t("取消")}
           </Button>
-          {/* 记忆和文字稿都能叫小忆帮写：按用户 2026-10-12 的话，两者都可改写。 */}
-          <WritingCompanionButton
-            key={`${storyId}:${draft.kind}:${draft.id}:${draft.token}`}
+          <Button
+            variant="ghost"
             disabled={saving}
-            resolveStoryId={() => storyId}
-            getSnapshot={() => ({
-              draft: draft.content,
-              cursor: bodyRef.current?.selectionStart ?? draft.content.length,
-              scope: `${storyId}:${draft.kind}:${draft.id}:${draft.token}`,
-            })}
-            onInsert={(paragraph, snapshot) => {
-              const result = insertParagraphAtCursor(
-                draft.content,
-                snapshot.cursor,
-                paragraph
-              );
-              setDiscarding(false);
-              update({ ...draft, content: result.body });
-              requestAnimationFrame(() => {
-                bodyRef.current?.focus();
-                bodyRef.current?.setSelectionRange(
-                  result.cursor,
-                  result.cursor
-                );
+            onClick={() => {
+              const start = bodyRef.current?.selectionStart ?? 0;
+              const end = bodyRef.current?.selectionEnd ?? 0;
+              openMobileCompanion({
+                storyId,
+                id: `${draft.kind}:${draft.id}`,
+                kind: draft.kind,
+                origin: "note",
+                title: draft.title,
+                content: draft.content,
+                ...(draft.kind === "text"
+                  ? {
+                      text: {
+                        content: {
+                          title: draft.title,
+                          body: draft.content,
+                          tags: draft.tags,
+                        },
+                        parentId: draft.id,
+                        ...(end > start ? { selection: { start, end } } : {}),
+                      },
+                    }
+                  : {}),
               });
             }}
-          />
+          >
+            {t("小忆")}
+          </Button>
           <Button
             disabled={
               saving || !dirty || !draft.title.trim() || !draft.content.trim()

@@ -167,6 +167,74 @@ describe("openWritingCompanion", () => {
 });
 
 describe("replyAsWritingCompanion", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns the proposal without provider reasoning markup", async () => {
+    const invoke = fakeInvoke("<think>Internal planning</think>\n建议按四个环节连接全文。");
+    const result = await replyAsWritingCompanion({
+      message: "帮我理顺逻辑",
+      history: [],
+      writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
+    }, invoke);
+    expect(result.reply).toBe("建议按四个环节连接全文。");
+  });
+
+  it("does not present an unfinished reasoning block as a successful reply", async () => {
+    await expect(replyAsWritingCompanion({
+      message: "帮我理顺逻辑",
+      history: [],
+      writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
+    }, fakeInvoke("<think>Incomplete internal output"))).rejects.toThrow("模型没有返回有效回答");
+  });
+
+  it("bounds desktop proposal latency and does not replay an uncertain submission", async () => {
+    const invoke = vi.spyOn(agentChannel, "invokeAgent").mockResolvedValue({
+      text: "建议把四个环节按因果关系连接，再生成新版本。",
+      modelLabel: "test",
+    });
+    await replyAsWritingCompanion({
+      message: "帮我理顺逻辑",
+      history: [],
+      writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0][3]).toEqual({
+      deadlineMs: 45_000,
+      reasoningEffort: "low",
+      replaySafe: false,
+    });
+    const prompt = JSON.stringify(invoke.mock.calls[0][0]);
+    expect(prompt).toContain("此时只讨论方案，不修改正文");
+    expect(prompt).toContain("生成新版本");
+  });
+
+  it("keeps the existing mobile execution options", async () => {
+    const invoke = vi.spyOn(agentChannel, "invokeAgent").mockResolvedValue({
+      text: "那天你看见了什么？",
+      modelLabel: "test",
+    });
+    await replyAsWritingCompanion({
+      message: "我又想起了一点",
+      history: [],
+      writingContext: { draft: "现有正文", cursor: 4 },
+    });
+    expect(invoke.mock.calls[0][3]).toBeUndefined();
+  });
+
+  it("reads the entire visible desktop draft even when the cursor is at its beginning", async () => {
+    const invoke = fakeInvoke("我能看到文章结尾。");
+    const draft = `开头${"一段内容。".repeat(800)}尚未保存的文章结尾`;
+    await replyAsWritingCompanion(
+      {
+        message: "看看全文逻辑",
+        history: [],
+        writingContext: { draft, cursor: 0, fullDraft: true },
+      },
+      invoke
+    );
+    expect(systemText(invoke)).toContain("尚未保存的文章结尾");
+    expect(systemText(invoke)).not.toContain("后文省略");
+  });
   it("replays the unsaved opening question before the user's answer", async () => {
     const invoke = fakeInvoke("她说晒过的被子有太阳味。那你当时在做什么？");
     await replyAsWritingCompanion(
