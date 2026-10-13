@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-12T06:00:00.000Z",
+  "updatedAt": "2026-10-13T12:30:00.000Z",
   "features": [
     {
       "id": "story-context-sharing",
@@ -449,7 +449,12 @@
         "server/services/imageGen.ts",
         "shared/imageRevisionPlacement.ts",
         "server/services/visualClipEditing.ts",
-        "server/routers/creationAgent.ts"
+        "server/routers/creationAgent.ts",
+        "client/src/features/writingCompanion/DesktopWritingContext.tsx",
+        "client/src/features/writingCompanion/desktopWritingSession.ts",
+        "shared/textDraftHistory.ts",
+        "server/services/textDraftHistory.ts",
+        "server/services/textDraftPrompt.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
@@ -475,7 +480,10 @@
         "docs/qa/2026-10-05-image-revision-layer.md",
         "server/services/writingCompanion.test.ts",
         "client/src/features/writingCompanion/WritingCompanionButton.test.tsx",
-        "client/src/features/writingCompanion/writingCompanionText.test.ts"
+        "client/src/features/writingCompanion/writingCompanionText.test.ts",
+        "client/src/features/storyAgent/desktopChatQueue.test.ts",
+        "docs/qa/2026-10-13-desktop-writing-workflow.md",
+        "server/services/textDraftHistory.test.ts"
       ],
       "invariants": [
         "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
@@ -497,6 +505,11 @@
         "302 MJ Edits在不带透明区域的整图实测原样返回，衍生V1被拒绝；产品不接这条无效路径。MJ选项为参考重绘，不能保证精确局部修改；视觉提示词整理不可用时保留用户原始要求，不切换图片模型。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "电脑右侧全文/选区自动传入左侧聊天，切换焦点保留选择。按用户确认的提议→新版本→保存流程取代桌面段落插入；选区生成只取替换文字，服务端机械保留前后缀，再由用户保存。手机段落能力及图片/视频选区路由保持，过期账号/故事或正文编辑不被异步结果覆盖。回归和浏览器证据见本次QA。"
+        },
         {
           "date": "2026-08-31",
           "kind": "decision",
@@ -974,7 +987,9 @@
         "server/services/imagePromptCompiler.test.ts",
         "server/services/imagePromptCompiler.provider.test.ts",
         "server/services/publishingCoverStoryboardPrompt.test.ts",
-        "docs/qa/2026-10-13-cover-prompt-preparation.md"
+        "docs/qa/2026-10-13-cover-prompt-preparation.md",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "docs/qa/2026-10-13-desktop-writing-workflow.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1004,6 +1019,16 @@
         "配图提示词已切到现有轻量模型配置；模型目录和模拟传输回归通过，但新路径的真实推理耗时、网关参数兼容性及美术质量仍待实测，本次未调用付费推理或出图。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "电脑正文伴写合入左侧聊天，自动读取未保存全文或选区；生成新版本直接展示候选并标明待保存，顶部统一保存/已保存状态，保留旧稿与既有采用/CAS边界。手机界面保持；本地回归及浏览器验证见QA，真实推理遇DNS阻碍，未生成候选或部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "按用户要求将电脑端应用修改/采用文稿、复制文案和放弃修改移至文章顶部；无未保存内容时用已保存状态替代保存按钮，保存期间显示正在保存并禁止重复操作。保留既有保存/采用接口、待复核提示和手机界面；28项工作台与视图模型回归、类型检查通过，主仓3000浏览器确认已保存状态和顶部排版。"
+        },
         {
           "date": "2026-10-13",
           "kind": "fix",
@@ -3838,7 +3863,9 @@
         "shared/narrationCost.ts",
         "server/services/mediaComputeBilling.ts",
         "server/services/storyboardVoiceBilling.ts",
-        "server/services/mediaBillingRecovery.ts"
+        "server/services/mediaBillingRecovery.ts",
+        "server/services/payments/alipay.ts",
+        "server/_core/alipayNotifyRoute.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -3924,12 +3951,17 @@
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
         "Supabase 托管 Google 登录已在测试站通过原账号和第二个全新账号的真实验收：原账号保留 2 个故事与余额，新账号为 ¥0 且无故事，数据隔离符合预期。测试站已按用户要求开放 Google 直接注册；邮箱验证码真实发送、移动端完整验收仍未在本轮验证，正式站已于 2026-10-09 启用同一托管链路并完成原账号真实登录，其他真实账号本轮未手测。",
         "手机共享余额及签名预占/结算接口已实现但默认关闭、未部署；手机文字/图片/语音尚未接入实际扣账，须确认供应商费用依据、重试对账及部署配置，旧手机余额字段只保留兼容。",
-        "2026-10-10 网页充值窗口已明确展示两档月订阅：¥19.9 对应20算力、¥199对应200算力，余额可结转；单次充值价格仍未确定。真实收款仍关闭：支付宝应用AppID/签名密钥、周期扣款权限、验签回调、主动查单、退款和实际支付验收尚未完成。createOrder 始终拒绝，不能视为已支持收款或自动续费。",
         "2026-10-09 文本/视觉统一推理预占结算已合并上线，Claude 用量、未知提交保留与停止重发、同号幂等及语义标注计费已回归；真实供应商实收核对仍未验收。供应商价格依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
         "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。",
-        "故事版旁白及普通/首尾帧视频已接入预占、持久回执、成功结算与后台查单；当前按生成前产品报价计费，并非供应商实际账单。无任务号的未知提交保留预占待人工核对，旧任务不追扣。本轮未发真实付费生成，供应商实收仍未验收。"
+        "故事版旁白及普通/首尾帧视频已接入预占、持久回执、成功结算与后台查单；当前按生成前产品报价计费，并非供应商实际账单。无任务号的未知提交保留预占待人工核对，旧任务不追扣。本轮未发真实付费生成，供应商实收仍未验收。",
+        "支付宝网页一次性支付接入代码已具备服务器定价、订单、RSA2签名、回调验签和幂等入账；生产仍没有 App 私钥、支付宝验签公钥、商户 PID、公网 notify_url 和小额真实验收，因此开关保持关闭。自动续费仍需要商家扣款／周期扣款权限、授权协议、取消/失败处理和真实验收，不能以电脑网站支付代替。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "补齐支付宝电脑网站支付的默认关闭接入：服务器从不可变套餐目录取价，创建 MySQL 订单并生成 RSA2 签名跳转；回调仅在签名、AppID、商户 PID、金额和成功状态均一致时事务入账。普通网页支付显示为购买本月套餐，自动续费继续单独关闭，等待周期扣款资质和授权链路。"
+        },
         {
           "date": "2026-10-09",
           "kind": "fix",
@@ -5387,7 +5419,9 @@
         "docs/qa/2026-10-05-editor-stable-baseline.md",
         "docs/qa/2026-10-11-memory-driven-production.md",
         "server/routers.textSourceLineage.test.ts",
-        "docs/qa/2026-10-11-mobile-synced-editing.md"
+        "docs/qa/2026-10-11-mobile-synced-editing.md",
+        "docs/qa/2026-10-13-desktop-writing-workflow.md",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -5396,7 +5430,8 @@
         "同一 operationToken 与请求内容只认领一次；模型调用位于持久化重试之外，不确定结果不自动重提。",
         "原有表达与采用反馈分开存储及解释；不确定或参考资料不是强偏好证据，未采用生成稿不作为认可样本。",
         "用户可停用文风参考证据；按用户和平台隔离、去重；技巧库不吸收用户私密原句。",
-        "保留人工标题、平台约束和修订冲突检测，不自动触发图片、视频或语音生成。"
+        "保留人工标题、平台约束和修订冲突检测，不自动触发图片、视频或语音生成。",
+        "电脑生成依据为当前可见且包含未保存编辑的正文，历史面板旧选中项不能覆盖它；选区生成机械保留选区外内容，生成后须显式保存。"
       ],
       "dependencies": [
         "story-ownership",
@@ -5410,9 +5445,15 @@
         "独立文字版本已接入正文区明确采用；旧跨平台转换和改写服务保留，学习仍为提示词证据推断。",
         "首版检索最近100个故事，每个平台最多6份原文及6份采用证据；每故事最多100次记录及5MB正文容量。",
         "桌面面板未采用编辑仍暂存在当前页面；手机可显式保存为新手动文字版本，未保存输入有账号/故事隔离的本机恢复。保存修订不自动采用到发布稿。",
-        "文字来源/候选链路登记 observing；真实浏览器与模型已验证短故事主路径，完整验收矩阵及新候选MySQL并发待补齐。"
+        "文字来源/候选链路登记 observing；真实浏览器与模型已验证短故事主路径，完整验收矩阵及新候选MySQL并发待补齐。",
+        "2026-10-13新版提议→候选→保存流程已通过自动化回归，真实供应商验收受本机DNS超时阻碍；没有生成或采用测试候选。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "电脑已有文章时一键生成新版本，不再重复选择创作方向；读取可见正文、选区及最新聊天。新候选进入右侧待保存缓冲，生成期间继续编辑则只留历史，不覆盖输入。保存复用采用接口，旧版本保留。新增选区请求及服务端范围保护，原有幂等认领/CAS/文风来源不变；真实验收结果见QA。"
+        },
         {
           "date": "2026-10-05",
           "kind": "refactor",
@@ -5996,7 +6037,7 @@
       "id": "writing-companion",
       "name": "小忆正文伴写",
       "status": "working",
-      "userValue": "在停笔处和小忆短聊，把亲口说的整理成一段，确认后放回手机或电脑正文。",
+      "userValue": "手机在停笔处短聊并确认插入；电脑直接和左侧小忆讨论右侧全文或选区，生成待保存新版本，确认后保存。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
         "client/src/features/mobileWorkspace/MobileDocumentView.tsx",
@@ -6008,7 +6049,19 @@
         "server/services/writingCompanion.ts",
         "server/routers/promptLineage.ts",
         "client/src/features/mobileWorkspace/useMobileConversation.ts",
-        "client/src/features/mobileWorkspace/mobileConversationStore.ts"
+        "client/src/features/mobileWorkspace/mobileConversationStore.ts",
+        "client/src/features/writingCompanion/DesktopWritingContext.tsx",
+        "client/src/features/writingCompanion/desktopWritingSession.ts",
+        "client/src/features/storyAgent/desktopChatQueue.ts",
+        "client/src/features/storyAgent/useDesktopChatQueue.ts",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.tsx",
+        "client/src/features/storyAgent/views/desktopCompanion.css",
+        "server/routers/storyAgent.ts",
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "client/src/features/publishingDraft/textDraftBasis.ts",
+        "shared/textDraftHistory.ts",
+        "server/services/textDraftHistory.ts",
+        "server/services/textDraftPrompt.ts"
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
@@ -6017,14 +6070,23 @@
         "client/src/features/writingCompanion/writingCompanionRecovery.test.ts",
         "client/src/features/mobileWorkspace/useMobileConversation.test.tsx",
         "docs/qa/2026-10-12-writing-companion.md",
-        "docs/qa/2026-10-13-evening-release.md"
+        "docs/qa/2026-10-13-evening-release.md",
+        "client/src/features/storyAgent/desktopChatQueue.test.ts",
+        "server/routers.storyAgent.test.ts",
+        "client/src/features/storyAgent/views/ChatAssistantAvatar.test.tsx",
+        "client/src/features/storyAgent/spine/storySpine.test.ts",
+        "docs/qa/2026-10-13-desktop-writing-workflow.md",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "client/src/features/publishingDraft/textDraftBasis.test.ts",
+        "server/services/textDraftHistory.test.ts"
       ],
       "invariants": [
-        "入口关闭时不挂载查询或触发推理；开场只在用户点开时执行，接口不自动重试。",
+        "入口关闭时不挂载查询或触发推理；手机开场仅在用户点开时执行。电脑端直接共享左侧聊天，注册正文/选区不触发开场读稿推理；所有推理接口不自动重试。",
         "用户回答走已有整轮生成/追加机制，落入共同故事会话；开场提问与整理段落不落库、不进入用户记忆。",
-        "段落须经用户确认插入本地编辑缓冲并正常保存；不得绕过原有正文冲突保护、修订及平台隔离。",
-        "正文或Story/版本/修订改变时拒绝按旧光标插入，保留段落供复制。",
-        "桌面有明确文字选区时，选区成为唯一改写范围；选区外内容逐字保留，用户确认后才替换。未选中文字仍沿用停笔处插入。",
+        "手机段落须经用户确认插入本地编辑缓冲并正常保存；电脑讨论只给提议，点击生成新版本后预览，再点击保存才采用。不得绕过正文冲突保护、修订和平台隔离。",
+        "手机正文或Story/版本/修订改变时拒绝按旧光标插入，保留段落供复制；电脑生成期间正文或作用域改变时不覆盖当前编辑，候选保留在文字历史。",
+        "桌面明确文字选区是唯一改写范围，服务端机械保留选区外原文；无选区按当前未保存全文生成新版本。两种情况均需显式保存，历史原稿保留。",
         "未同步回答必须保存原正文/光标/问题及相同轮次身份，重开优先恢复，不能改为普通聊天重发。",
         "提示词贴近原文和用户事实，每轮最多一个问题；不诱导伤感、不编造对白和动机。"
       ],
@@ -6038,9 +6100,15 @@
       "knownGaps": [
         "真机软件键盘、中文IME、断网重连仍待验收。",
         "普通停笔模式的真实供应商开场已验收；选区改写开场是本地即时提示；多轮与段落质量、实际算力不足提示仍待产品验收。选区模式只免去开场推理，多轮回答仍由供应商响应速度决定。",
-        "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。"
+        "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。",
+        "电脑顺序队列经模拟延迟/失败/恢复验收；2026-10-13真实试聊收到提交结果不确定错误，主用/备用AI域名本机DNS均超时，消息保留且队列暂停。真实建议、候选生成耗时与质量尚未验收，未提交后续生成，也未替用户保存。"
       ],
       "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户确认合并电脑主聊天与正文伴写：移除右侧独立帮写入口，自动读取当前未保存全文/选区，免开场读稿推理。对话先提修改方案，生成新版本直接进入待保存预览，确认保存才采用；选区外由后端机械保留，历史和并发编辑均受保护。电脑顺序队列按账号/故事隔离，失败暂停不重放。头像沿用杯子/鸟素材，以真实气泡遮住下半部；手机界面保留。自动化与真实浏览器证据见本次QA；真实推理遭网络阻碍，未宣称效果或耗时通过。"
+        },
         {
           "date": "2026-10-12",
           "kind": "feature",
@@ -6193,6 +6261,52 @@
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "新增我的语言，三语词典与手机上下文、持久化及跨标签同步；本地字体覆盖中英法并保留手写Logo。类型、154项定向测试、构建通过，390px浏览器验证法语导航、原文保留和英文刷新持久化。"
+        }
+      ]
+    },
+    {
+      "id": "shiguang-public-landing",
+      "name": "拾光公开产品介绍页",
+      "status": "observing",
+      "userValue": "任何人无需登录即可了解拾光的创作理念与手机、电脑分工，并从同一页面进入既有制作登录入口。",
+      "entryPoints": [
+        "client/src/pages/ShiguangLandingPage.tsx"
+      ],
+      "owners": [
+        "client/src/pages/ShiguangLandingPage.tsx",
+        "client/src/pages/ShiguangLandingPage.css",
+        "client/public/shiguang/landing/",
+        "client/src/app/router/AppRouter.tsx"
+      ],
+      "evidence": [
+        "client/src/pages/ShiguangLandingPage.test.tsx",
+        "client/src/app/router/AppRouter.test.tsx",
+        "docs/qa/2026-10-13-shiguang-public-landing.md"
+      ],
+      "invariants": [
+        "介绍页无需登录即可读取，不得加载、展示或探测任何账号、Story、聊天或私人媒体数据。",
+        "开始制作统一进入既有 /login；登录后的设备分流、返回白名单和工作区权限不在介绍页复制实现。",
+        "页面只介绍已经存在的能力，不编造用户评价、统计数字、免费承诺或尚未完成的产品能力。",
+        "尊重 prefers-reduced-motion；移动端不得依赖悬停或横向滚动才能理解内容。"
+      ],
+      "dependencies": [
+        "shiguang-illustration-theme"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "按用户要求先本地评审，尚未部署正式站；公网、真机 Safari、微信内置浏览器和 Android Chrome 待上线前验收。",
+        "当前手机与电脑工作区通过文字和界面式演示表达，后续可在不暴露私人数据的前提下换成正式产品录屏。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "新增无需登录的 /shiguang 本地介绍页：以用户指定的水彩晕染、长纸、书页边缘和枝条资产建立公开叙事，说明手机接住个人与家人思绪、电脑生成私人影像；主按钮复用既有 /login。路由与页面13项测试、TypeScript通过，主仓3000完成1440px与390px浏览器检查；按用户要求暂不部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "本地视觉评审收敛装饰与动画，修复独立页面标题，并使用用户指定的 A080 paper.webp 作底纹。进一步恢复鸿雷拙书 Logo，采用本机 TW-Sung 标题与 Noto Sans SC 轻字重正文，生成页面文字 WOFF 子集并调整字号、字距；浏览器首屏已确认排版无横向溢出，等待用户评审。"
         }
       ]
     }

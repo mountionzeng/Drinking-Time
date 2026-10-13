@@ -28,9 +28,7 @@ import { localVideoDir } from "../services/videoMedia";
 import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
 import { registerPersonalMemoryMediaRoute } from "./personalMemoryMediaRoute";
-import {
-  findAvailablePort,
-} from "./portPolicy";
+import { findAvailablePort } from "./portPolicy";
 import { validateDevelopmentServerStartup } from "./devServerPreflight";
 import { configureHttpConnectionPool } from "./httpConnectionPool";
 import {
@@ -48,6 +46,7 @@ import {
   createSecurityHeadersMiddleware,
 } from "./securityHeaders";
 import { createRequestOriginMiddleware } from "./requestOrigin";
+import { createAlipayNotifyRoute } from "./alipayNotifyRoute";
 import {
   startPersonalMemoryJobRunner,
   stopPersonalMemoryJobRunner,
@@ -114,12 +113,18 @@ async function startServer() {
       appOrigin: process.env.APP_ORIGIN ?? "",
     })
   );
+  // Payment callbacks use provider signatures, not browser origin or JSON parsing.
+  app.use(
+    "/api",
+    express.urlencoded({ limit: "64kb", extended: false }),
+    createAlipayNotifyRoute()
+  );
   // Cookie-free game namespace has its own strict bearer authentication.
-  app.use('/api/minigame', minigameRoutes());
+  app.use("/api/minigame", minigameRoutes());
   // 拾光家忆云函数用 HMAC 调用，不依赖浏览器 Cookie，也不受浏览器 Origin 门禁。
-  app.use('/api/shiguang', shiguangDesktopBridgeRoutes());
-  app.use('/api/shiguang', shiguangComputeBridgeRoutes());
-  app.use('/api/shiguang', shiguangBridgeRoutes());
+  app.use("/api/shiguang", shiguangDesktopBridgeRoutes());
+  app.use("/api/shiguang", shiguangComputeBridgeRoutes());
+  app.use("/api/shiguang", shiguangBridgeRoutes());
   app.use(
     "/api",
     createRequestOriginMiddleware({
@@ -182,7 +187,10 @@ async function startServer() {
         const buf = Buffer.from(await upstream.arrayBuffer());
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(full, buf);
-        res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/png");
+        res.setHeader(
+          "Content-Type",
+          upstream.headers.get("content-type") ?? "image/png"
+        );
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         res.end(buf);
         return;
@@ -190,7 +198,7 @@ async function startServer() {
     } catch (err) {
       console.warn(
         "[/api/images] 远程回源失败：",
-        err instanceof Error ? err.message : String(err),
+        err instanceof Error ? err.message : String(err)
       );
     }
     res.status(404).end();
@@ -203,7 +211,7 @@ async function startServer() {
     express.static(localImageDir(), {
       maxAge: "7d",
       fallthrough: false,
-    }),
+    })
   );
   app.get("/api/videos/:file", async (req, res) => {
     const file = String(req.params.file ?? "");
@@ -411,7 +419,9 @@ async function startServer() {
   const port = await findAvailablePort(preferredPort);
 
   // Development auth is relaxed; production is exposed only through nginx.
-  const host = ["development", "production"].includes(process.env.NODE_ENV ?? "")
+  const host = ["development", "production"].includes(
+    process.env.NODE_ENV ?? ""
+  )
     ? "127.0.0.1"
     : undefined;
   server.listen(port, host, () => {

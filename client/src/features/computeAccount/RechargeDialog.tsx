@@ -65,7 +65,7 @@ function RechargeAvailability() {
     );
   return (
     <div className="space-y-3 text-sm">
-      <SubscriptionPlans plans={availability.data.plans} />
+      <SubscriptionPlans availability={availability.data} />
       <section
         aria-label={t("单次充值算力")}
         className="space-y-2 border-t border-border pt-4"
