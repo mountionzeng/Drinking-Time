@@ -4143,7 +4143,9 @@
         "client/src/features/mobileWorkspace/newStorySession.test.ts",
         "docs/qa/2026-10-12-mobile-xiaoyi.md",
         "client/src/features/mobileWorkspace/nayinCompanionMotion.test.ts",
-        "docs/qa/2026-10-13-evening-release.md"
+        "docs/qa/2026-10-13-evening-release.md",
+        "server/archive/storyAgent.test.ts",
+        "docs/qa/2026-10-13-chat-balance-error.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4281,6 +4283,11 @@
           "date": "2026-10-13",
           "kind": "verification",
           "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "修复生产算力不足被故事/发布聊天伪装成网络卡顿的问题。ComputeAccessError原样传递，手机失败轮次提示到我查看余额并可恢复后重试；不改余额或数据。新回归旧代码2项失败，修复后113项与类型检查通过。"
         }
       ]
     },

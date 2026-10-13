@@ -10,6 +10,7 @@
  * - No annotations (cold start) → vanilla prompt (no edit context block)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ComputeAccessError } from "../services/computeRequestAccess";
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -2179,5 +2180,13 @@ describe("storyAgent 阶段C · proposePromptRevision 提议候选", () => {
         content: "少年在阳台上抽烟",
       },
     ]);
+  });
+});
+
+describe("compute admission failures remain actionable", () => {
+  it.each(["story", "publishing"] as const)("preserves the balance error in %s chat instead of a network fallback", async interactionMode => {
+    const error = new ComputeAccessError({code:"FORBIDDEN",message:"算力余额不足，无法调用 AI。你仍可查看和手工编辑已有内容。"});
+    mockInvokeLLM.mockRejectedValue(error);
+    await expect(replyFromStoryAgent({message:"我有点困困的。",interactionMode})).rejects.toBe(error);
   });
 });
