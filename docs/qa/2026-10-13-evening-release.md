@@ -6,4 +6,13 @@
 
 保留账号/故事隔离、显式采用与保存、线上用户数据。真实手机键盘与流畅性、付费模型多轮体验仍待验收。现有3000与4321均指向主仓，本次未启动其他服务。
 
-发布记录待部署完成追加。
+## 正式发布结果
+
+- main 已提交并推送：`a03d32d877bb0ce7e1e34c1a53543fba335a9105`。正式服务器运行同一代码与本地验证的构建。
+- 通过已有阿里云 ECS 云助手发布，主机 `8.160.186.193`，应用 `/opt/Drinking-Time`，PM2 `drinking-time`。SSH 在握手前断开，未改变防火墙或访问权限。
+- 备份目录 `/root/drinking-time-evening-20261013/`：`before-runtime.tgz`、校验摘要、MySQL完整SQL、部署前后数据库摘要及 rollback.py。目录仅root可读。
+- 77张业务表逐表行数与内容摘要完全一致；32条迁移记录一致；`.env`摘要不变。没有执行迁移或覆盖用户数据。
+- 回滚预检通过。需要回滚时服务器执行 `python3 /root/drinking-time-evening-20261013/rollback.py`；只恢复应用，保留数据库新写入，禁止自动用SQL全库覆盖。
+- 服务器通过真实HTTPS域名验证 `/m`、`/editing` 均200且HTML与候选一致；index-CrbZAFYZ.js和index-B5WQa3Wh.css逐字节匹配；`/readyz`为ready/mysql/authentication required。Google重定向配置检查通过。
+- 本机内置浏览器访问正式站报ERR_CONNECTION_CLOSED，因此部署后登录态手机/电脑交互未完成复验；上线前本机UI验收见其他QA，不能替代真机与生产登录态验收。
+
