@@ -1,3 +1,7 @@
+import {
+  UiLanguageProvider,
+  useUiText,
+} from "@/features/uiLanguage/UiLanguage";
 import { BookOpenText, Loader2, RefreshCw } from "lucide-react";
 import {
   type CSSProperties,
@@ -39,6 +43,11 @@ import { MobileDailyLetter } from "./MobileDailyLetter";
 import { type MobileStorySummary } from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
+import {
+  MobileMemoryFollowup,
+  type MemoryFollowupSource,
+} from "./mobileMemoryFollowup";
+import { MobileCompanionActivity } from "./mobileCompanionActivity";
 import { MobileNewStoryCompanion } from "./MobileNewStoryCompanion";
 
 export type MobileWorkspaceView = "chat" | "document";
@@ -178,6 +187,8 @@ export function MobileWorkspaceFrame({
   chatOnly?: boolean;
   storyTitle?: string;
 }) {
+  const t = useUiText();
+
   const shellRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ y: number; h: number } | null>(null);
@@ -288,7 +299,7 @@ export function MobileWorkspaceFrame({
             chatOnly && chatView ? (
               <section
                 className="flex h-full min-h-0 flex-col"
-                aria-label="聊天工作区"
+                aria-label={t("聊天工作区")}
               >
                 <header className="flex shrink-0 items-center gap-3 border-b border-border/50 px-4 py-2">
                   <LiaoliaoMascot
@@ -299,11 +310,11 @@ export function MobileWorkspaceFrame({
                   />
                   <div className="min-w-0 flex-1">
                     <h1 className="truncate font-chat-brand text-lg">
-                      {storyTitle || "聊聊"}
+                      {storyTitle || t("聊聊")}
                     </h1>
                     {waitingForReply && (
                       <span className="text-xs text-muted-foreground">
-                        正在想…
+                        {t("正在想…")}
                       </span>
                     )}
                   </div>
@@ -329,7 +340,7 @@ export function MobileWorkspaceFrame({
         {!chatOnly && chatView && page === "chat" && activeView === "chat" && (
           <button
             type="button"
-            aria-label="收起聊聊"
+            aria-label={t("收起聊聊")}
             // 不压暗：拉开面板正是为了同时读正文，压暗等于把要读的东西盖住。
             // 这层只用来「点空白处收起」。
             className="absolute inset-0 z-20"
@@ -400,7 +411,7 @@ export function MobileWorkspaceFrame({
                   type="button"
                   data-sheet-action="character"
                   aria-label={
-                    activeView === "document" ? "展开聊天" : "收起聊天"
+                    activeView === "document" ? t("展开聊天") : t("收起聊天")
                   }
                   className="-m-1 shrink-0 rounded-full p-1"
                   // 写正文时按下去不能夺走正文的焦点：一失焦面板就长回来，
@@ -428,10 +439,10 @@ export function MobileWorkspaceFrame({
                 {/* 名字**始终**露着，不再只在展开档才出现 */}
                 <span className="min-w-0">
                   <span className="block font-chat-brand text-[17px] leading-none text-primary">
-                    聊聊
+                    {t("聊聊")}
                   </span>
                   <span className="mt-1 block text-[11px] leading-none text-muted-foreground">
-                    {waitingForReply ? "正在想…" : "在这儿"}
+                    {waitingForReply ? t("正在想…") : t("在这儿")}
                   </span>
                 </span>
                 {waitingForReply ? <LiaoliaoThinkingDots /> : null}
@@ -445,7 +456,7 @@ export function MobileWorkspaceFrame({
                     )
                   }
                 >
-                  {stop === "peek" ? "展开聊天" : "收起"}
+                  {stop === "peek" ? t("展开聊天") : t("收起")}
                 </button>
               </div>
             </div>
@@ -486,12 +497,14 @@ export function MobileEmptyState({
   creating?: boolean;
   error?: string | null;
 }) {
+  const t = useUiText();
+
   return (
     <div className="flex h-full flex-col items-center justify-center px-7 text-center">
       <BookOpenText aria-hidden="true" className="size-9 text-primary" />
-      <h1 className="mt-4 text-lg font-semibold">还没有故事</h1>
+      <h1 className="mt-4 text-lg font-semibold">{t("还没有故事")}</h1>
       <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-        新建一个，就从这里开始聊。电脑上也能接着写同一个故事。
+        {t("新建一个，就从这里开始聊。电脑上也能接着写同一个故事。")}
       </p>
       {onCreateStory ? (
         <Button
@@ -503,7 +516,7 @@ export function MobileEmptyState({
           {creating ? (
             <Loader2 aria-hidden="true" className="animate-spin" />
           ) : null}
-          {creating ? "正在新建…" : "新建一个故事"}
+          {creating ? t("正在新建…") : t("新建一个故事")}
         </Button>
       ) : null}
       {error ? (
@@ -522,9 +535,11 @@ export function MobileStoryListError({
   message: string;
   onRetry: () => void;
 }) {
+  const t = useUiText();
+
   return (
     <div className="flex h-full flex-col items-center justify-center px-7 text-center">
-      <h1 className="text-lg font-semibold">Story 暂时无法读取</h1>
+      <h1 className="text-lg font-semibold">{t("Story 暂时无法读取")}</h1>
       <p className="mt-2 max-w-sm text-sm leading-6 text-destructive">
         {message}
       </p>
@@ -535,7 +550,7 @@ export function MobileStoryListError({
         onClick={onRetry}
       >
         <RefreshCw aria-hidden="true" />
-        重试 Story 列表
+        {t("重试 Story 列表")}
       </Button>
     </div>
   );
@@ -579,6 +594,8 @@ function MobileSelectedStoryWorkspace({
   stage: MobileStoryStage;
   onStageChange: (stage: MobileStoryStage) => void;
 }) {
+  const t = useUiText();
+
   const story = stories.find(candidate => candidate.id === activeStoryId);
   const { element, visualTheme } = useNayin();
   const { user } = useAuth();
@@ -663,6 +680,7 @@ function MobileSelectedStoryWorkspace({
               storyId={activeStoryId}
               title={story.title}
               stage={stage}
+              motionStyle={visualTheme === "shiguang" ? "shiguang" : element}
               onStageChange={onStageChange}
               onBack={() => onStoryOpenChange(false)}
               document={document}
@@ -670,6 +688,7 @@ function MobileSelectedStoryWorkspace({
             />
           ) : (
             <MobileStoriesPage
+              visualTheme={visualTheme}
               activeStoryId={activeStoryId}
               stories={stories}
               onOpenStage={stage => {
@@ -744,9 +763,11 @@ function MobileSelectedStoryWorkspace({
               }}
             >
               <DialogHeader className="text-left">
-                <DialogTitle>切换 Story 前处理正文</DialogTitle>
+                <DialogTitle>{t("切换 Story 前处理正文")}</DialogTitle>
                 <DialogDescription>
-                  当前正文还有未保存的修改。请选择保存、放弃修改，或留在这里继续编辑。
+                  {t(
+                    "当前正文还有未保存的修改。请选择保存、放弃修改，或留在这里继续编辑。"
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2 sm:grid sm:grid-cols-3">
@@ -758,7 +779,7 @@ function MobileSelectedStoryWorkspace({
                   disabled={resolvingSwitch}
                   onClick={() => void finishSwitch("cancel")}
                 >
-                  取消
+                  {t("取消")}
                 </Button>
                 <Button
                   type="button"
@@ -767,7 +788,7 @@ function MobileSelectedStoryWorkspace({
                   disabled={resolvingSwitch}
                   onClick={() => void finishSwitch("discard")}
                 >
-                  放弃修改
+                  {t("放弃修改")}
                 </Button>
                 <Button
                   type="button"
@@ -778,7 +799,7 @@ function MobileSelectedStoryWorkspace({
                   {resolvingSwitch ? (
                     <Loader2 aria-hidden="true" className="animate-spin" />
                   ) : null}
-                  保存正文
+                  {t("保存正文")}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -794,14 +815,35 @@ function MobileSelectedStoryWorkspace({
 
 export function MobileWorkspace({ userId }: { userId: number }) {
   return (
-    <>
-      <MobileWorkspaceContent userId={userId} />
-      <MobileNewStoryCompanion key={userId} userId={userId} />
-    </>
+    <UiLanguageProvider>
+      <MobileWorkspaceScoped key={userId} userId={userId} />
+    </UiLanguageProvider>
+  );
+}
+function MobileWorkspaceScoped({ userId }: { userId: number }) {
+  const [idleAnimations, setIdleAnimations] = useState(false);
+  const [memorySource, setMemorySource] = useState<MemoryFollowupSource | null>(
+    null
+  );
+  return (
+    <MobileMemoryFollowup.Provider
+      value={{ source: memorySource, select: setMemorySource }}
+    >
+      <MobileCompanionActivity.Provider value={setIdleAnimations}>
+        <MobileWorkspaceContent userId={userId} />
+        <MobileNewStoryCompanion
+          key={userId}
+          userId={userId}
+          idleAnimations={idleAnimations}
+        />
+      </MobileCompanionActivity.Provider>
+    </MobileMemoryFollowup.Provider>
   );
 }
 
 function MobileWorkspaceContent({ userId }: { userId: number }) {
+  const t = useUiText();
+
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
@@ -854,7 +896,7 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         onViewChange={setActiveView}
       >
         <MobileStoryListError
-          message={storyListQuery.error.message || "请检查网络后重试"}
+          message={storyListQuery.error.message || t("请检查网络后重试")}
           onRetry={() => void storyListQuery.refetch()}
         />
       </MobileWorkspaceFrame>
@@ -867,7 +909,7 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         activeView={activeView}
         onViewChange={setActiveView}
       >
-        <MobileWorkspaceLoading label="正在读取 Story…" />
+        <MobileWorkspaceLoading label={t("正在读取 Story…")} />
       </MobileWorkspaceFrame>
     );
   }
@@ -893,7 +935,7 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         activeView={activeView}
         onViewChange={setActiveView}
       >
-        <MobileWorkspaceLoading label="正在打开最近的 Story…" />
+        <MobileWorkspaceLoading label={t("正在打开最近的 Story…")} />
       </MobileWorkspaceFrame>
     );
   }

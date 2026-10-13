@@ -1,3 +1,4 @@
+import { ComputeAccessError } from "./computeRequestAccess";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { computeStoryConversationTurnRequestHash } from "../../shared/promptLineage";
@@ -62,6 +63,19 @@ describe("mobile Story conversation turns", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "";
     resetMemoryStateForTesting();
+  });
+
+  it("keeps balance failures actionable and retries the same turn after access is restored", async () => {
+    const {story} = await seedStory();
+    const input = {...turnInput(story.id,"balance","我有点困困的。"),userId:801};
+    const generateReply = vi.fn().mockRejectedValueOnce(new ComputeAccessError({code:"FORBIDDEN",message:"算力余额不足，无法调用 AI。"}));
+    const failed = await generateMobileStoryConversationTurn(input,{generateReply});
+    expect(failed).toMatchObject({status:"failed",turn:{failureMessage:expect.stringContaining("算力余额不足")}});
+    expect(failed.turn?.failureMessage).toContain("无需重发");
+    expect(failed.turn?.assistantContent).toBeFalsy();
+    generateReply.mockResolvedValueOnce({reply:"那就先休息一会儿。"});
+    const recovered = await generateMobileStoryConversationTurn({...input,retryFailed:true},{generateReply});
+    expect(recovered).toMatchObject({status:"completed",turn:{assistantContent:"那就先休息一会儿。",generationAttempt:2}});
   });
 
   it("generates from owned durable history and appends one complete logical turn", async () => {

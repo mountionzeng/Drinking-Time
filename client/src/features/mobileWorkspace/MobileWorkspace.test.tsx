@@ -372,3 +372,9 @@ describe("MobileWorkspace", () => {
     expect(html).toContain("新建失败，请重试");
   });
 });
+
+// These interaction tests invoke components with a lightweight hook harness.
+vi.mock("@/features/uiLanguage/UiLanguage", async importOriginal => {
+  const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+  return {...actual, useUiText: () => (source: string, values?: (string | number)[]) => actual.translateUi("zh", source, values)};
+});

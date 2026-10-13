@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import React, { useContext, useEffect, useRef, useState } from "react";
+import { MobileMemoryFollowup } from "./mobileMemoryFollowup";
 import { trpc } from "@/lib/trpc";
 import type { MobileEditSeed } from "./MobileSyncedEditor";
 
@@ -15,6 +17,10 @@ export function MobileEditableMemories({
     content: string;
   }) => void;
 }) {
+  const t = useUiText();
+
+  const { select } = useContext(MobileMemoryFollowup);
+  useEffect(() => () => select(null), [select, storyId]);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [syncError, setSyncError] = useState(false);
@@ -40,29 +46,44 @@ export function MobileEditableMemories({
   }, [storyId]);
   const cards = query.data?.cards ?? [];
   const card = cards.find(card => card.id === selected);
+  const contextCard = card ?? cards[0];
+  useEffect(() => {
+    select({
+      storyId,
+      id: contextCard?.id ?? "memory:empty",
+      content: contextCard?.content ?? "当前没有可用的回忆存档。",
+      origin: contextCard?.origin ?? "note",
+    });
+  }, [
+    select,
+    storyId,
+    contextCard?.id,
+    contextCard?.content,
+    contextCard?.origin,
+  ]);
   return (
     <div>
       {syncError && (
         <p role="alert" className="mb-3 text-sm">
-          部分聊天还未收录。
+          {t("部分聊天还未收录。")}
           <button
             className="min-h-11 px-2 underline"
             onClick={() => void synchronize()}
           >
-            重试
+            {t("重试")}
           </button>
         </p>
       )}
       {query.isLoading ? (
-        <p role="status">正在读取记忆…</p>
+        <p role="status">{t("正在读取记忆…")}</p>
       ) : query.isError ? (
         <p role="alert">
-          记忆暂未读到。
+          {t("记忆暂未读到。")}
           <button
             className="min-h-11 px-2 underline"
             onClick={() => void query.refetch()}
           >
-            重试
+            {t("重试")}
           </button>
         </p>
       ) : card ? (
@@ -70,9 +91,12 @@ export function MobileEditableMemories({
           <div className="flex items-center justify-between">
             <button
               className="min-h-11 text-sm text-muted-foreground"
-              onClick={() => setSelected(null)}
+              onClick={() => {
+                setSelected(null);
+                select(null);
+              }}
             >
-              ‹ 全部记忆
+              {t("‹ 全部记忆")}
             </button>
             <button
               className="min-h-11 px-2 text-sm text-primary"
@@ -85,7 +109,7 @@ export function MobileEditableMemories({
                 })
               }
             >
-              编辑
+              {t("编辑")}
             </button>
           </div>
           <h2 className="my-4 font-chat-brand text-xl">{card.title}</h2>
@@ -95,7 +119,7 @@ export function MobileEditableMemories({
               className="mb-3 min-h-11 text-sm text-primary"
               onClick={() => onMakeArtwork(card)}
             >
-              制作图文 · 配图、排版与分享 →
+              {t("制作图文 · 配图、排版与分享 →")}
             </button>
           ) : null}
           <p className="whitespace-pre-wrap break-words font-serif text-base leading-8">
@@ -107,22 +131,30 @@ export function MobileEditableMemories({
           {!cards.length && (
             <p className="py-6 text-sm text-muted-foreground">
               {sync.isPending
-                ? "正在收录聊天记忆…"
-                : "还没有记忆，可以先到“聊聊”记下一段。"}
+                ? t("正在收录聊天记忆…")
+                : t("还没有记忆，可以先到“聊聊”记下一段。")}
             </p>
           )}
           {cards.map(card => (
             <button
               key={card.id}
               className="block w-full border-b border-border/60 py-4 text-left"
-              onClick={() => setSelected(card.id)}
+              onClick={() => {
+                setSelected(card.id);
+                select({
+                  storyId,
+                  id: card.id,
+                  content: card.content,
+                  origin: card.origin,
+                });
+              }}
             >
               <span className="text-xs text-muted-foreground">
                 {card.origin === "assistant"
-                  ? "聊聊整理"
+                  ? t("聊聊整理")
                   : card.origin === "user"
-                    ? "我的原话"
-                    : "我的记事 / 修订"}
+                    ? t("我的原话")
+                    : t("我的记事 / 修订")}
               </span>
               <span className="mt-2 block line-clamp-2 font-chat-brand text-lg">
                 {card.title}
@@ -138,7 +170,7 @@ export function MobileEditableMemories({
                 className="min-h-11 text-sm"
                 onClick={() => setOffset(Math.max(0, offset - 50))}
               >
-                上一页
+                {t("上一页")}
               </button>
             )}
             {query.data?.nextOffset != null && (
@@ -146,7 +178,7 @@ export function MobileEditableMemories({
                 className="ml-auto min-h-11 text-sm"
                 onClick={() => setOffset(query.data!.nextOffset!)}
               >
-                下一页
+                {t("下一页")}
               </button>
             )}
           </div>

@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { WritingCompanionButton } from "@/features/writingCompanion/WritingCompanionButton";
 import { insertParagraphAtCursor } from "@/features/writingCompanion/writingCompanionText";
 import React, { useEffect, useRef, useState } from "react";
@@ -72,6 +73,8 @@ export function MobileSyncedEditor({
   editor: ReturnType<typeof useMobileSyncedEditor>;
   onTextSaved: (versionId: string) => void;
 }) {
+  const t = useUiText();
+
   const { draft, update } = editor;
   const utils = trpc.useUtils();
   const reviseText = trpc.textDrafts.revise.useMutation({ retry: false });
@@ -172,17 +175,17 @@ export function MobileSyncedEditor({
       >
         <DialogHeader className="text-left">
           <DialogTitle>
-            {draft.kind === "memory" ? "编辑记忆" : "编辑文字稿"}
+            {draft.kind === "memory" ? t("编辑记忆") : t("编辑文字稿")}
           </DialogTitle>
           <DialogDescription>
             {draft.kind === "memory"
-              ? "保存为修订记忆，原文保留在归档中。"
-              : "保存为新的文字版本，旧稿保留。"}
-            电脑端也能看到。
+              ? t("保存为修订记忆，原文保留在归档中。")
+              : t("保存为新的文字版本，旧稿保留。")}
+            {t("电脑端也能看到。")}
           </DialogDescription>
         </DialogHeader>
         <label className="sr-only" htmlFor="mobile-edit-title">
-          标题
+          {t("标题")}
         </label>
         <input
           id="mobile-edit-title"
@@ -196,7 +199,7 @@ export function MobileSyncedEditor({
           }}
         />
         <label className="sr-only" htmlFor="mobile-edit-content">
-          内容
+          {t("内容")}
         </label>
         <textarea
           ref={bodyRef}
@@ -212,7 +215,7 @@ export function MobileSyncedEditor({
         />
         {editor.storageError && (
           <p role="alert" className="text-sm text-destructive">
-            本机无法保留草稿，请先复制内容再离开。
+            {t("本机无法保留草稿，请先复制内容再离开。")}
           </p>
         )}
         {error && (
@@ -222,47 +225,47 @@ export function MobileSyncedEditor({
         )}
         {discarding && (
           <p className="text-sm text-muted-foreground">
-            还有未保存修改，再点一次将放弃。
+            {t("还有未保存修改，再点一次将放弃。")}
           </p>
         )}
         <div className="flex shrink-0 justify-between gap-3">
           <Button variant="ghost" disabled={saving} onClick={close}>
-            {discarding ? "确认放弃" : "取消"}
+            {discarding ? t("确认放弃") : t("取消")}
           </Button>
           {/* 记忆和文字稿都能叫小忆帮写：按用户 2026-10-12 的话，两者都可改写。 */}
           <WritingCompanionButton
-              key={`${storyId}:${draft.kind}:${draft.id}:${draft.token}`}
-              disabled={saving}
-              resolveStoryId={() => storyId}
-              getSnapshot={() => ({
-                draft: draft.content,
-                cursor: bodyRef.current?.selectionStart ?? draft.content.length,
-                scope: `${storyId}:${draft.kind}:${draft.id}:${draft.token}`,
-              })}
-              onInsert={(paragraph, snapshot) => {
-                const result = insertParagraphAtCursor(
-                  draft.content,
-                  snapshot.cursor,
-                  paragraph
+            key={`${storyId}:${draft.kind}:${draft.id}:${draft.token}`}
+            disabled={saving}
+            resolveStoryId={() => storyId}
+            getSnapshot={() => ({
+              draft: draft.content,
+              cursor: bodyRef.current?.selectionStart ?? draft.content.length,
+              scope: `${storyId}:${draft.kind}:${draft.id}:${draft.token}`,
+            })}
+            onInsert={(paragraph, snapshot) => {
+              const result = insertParagraphAtCursor(
+                draft.content,
+                snapshot.cursor,
+                paragraph
+              );
+              setDiscarding(false);
+              update({ ...draft, content: result.body });
+              requestAnimationFrame(() => {
+                bodyRef.current?.focus();
+                bodyRef.current?.setSelectionRange(
+                  result.cursor,
+                  result.cursor
                 );
-                setDiscarding(false);
-                update({ ...draft, content: result.body });
-                requestAnimationFrame(() => {
-                  bodyRef.current?.focus();
-                  bodyRef.current?.setSelectionRange(
-                    result.cursor,
-                    result.cursor
-                  );
-                });
-              }}
-            />
+              });
+            }}
+          />
           <Button
             disabled={
               saving || !dirty || !draft.title.trim() || !draft.content.trim()
             }
             onClick={() => void save()}
           >
-            {saving ? "正在保存…" : "保存修改"}
+            {saving ? t("正在保存…") : t("保存修改")}
           </Button>
         </div>
       </DialogContent>

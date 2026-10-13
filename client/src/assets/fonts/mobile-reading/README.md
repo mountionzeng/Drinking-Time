@@ -1,0 +1,1 @@
+Derived from ../publishing-album/noto-serif-sc/NotoSerifSC[wght].ttf (OFL). Variable weights 200–900, Chinese and Latin including French accents. UI characters load together; other code points load on demand in disjoint Unicode ranges. Generated with fontTools subset; no external font service.

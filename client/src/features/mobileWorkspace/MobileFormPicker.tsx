@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 「聊聊的外形」：五种外形任选，或跟随当天五行。
  *
@@ -22,13 +23,17 @@ export function MobileFormPicker({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useUiText();
+
   const { element, previewElement, setPreviewElement } = useNayin();
 
   return (
     <MobileSheet
       open={open}
-      title="聊聊的外形"
-      description="五种外形，都是聊聊。换外形只改样子，不改出生信息、纳音计算和你的内容。"
+      title={t("聊聊的外形")}
+      description={t(
+        "五种外形，都是聊聊。换外形只改样子，不改出生信息、纳音计算和你的内容。"
+      )}
       onOpenChange={onOpenChange}
     >
       <ul className="space-y-2">
@@ -58,10 +63,10 @@ export function MobileFormPicker({
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {selected
-                      ? "当前选择"
+                      ? t("当前选择")
                       : element === form.element
-                        ? "今天的五行"
-                        : "点击使用"}
+                        ? t("今天的五行")
+                        : t("点击使用")}
                   </span>
                 </span>
               </button>
@@ -77,10 +82,10 @@ export function MobileFormPicker({
       >
         <span>
           <span className="block text-[15px] text-foreground">
-            跟随当天五行
+            {t("跟随当天五行")}
           </span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            恢复自动外形
+            {t("恢复自动外形")}
           </span>
         </span>
         <span aria-hidden="true" className="text-muted-foreground">
@@ -89,7 +94,11 @@ export function MobileFormPicker({
       </button>
 
       <div className="mt-4">
-        <MobileNotConnected what="外形只在这台设备、这次打开期间生效。跨设备同步和长期保存还没有做，重新打开会回到当天五行。" />
+        <MobileNotConnected
+          what={t(
+            "外形只在这台设备、这次打开期间生效。跨设备同步和长期保存还没有做，重新打开会回到当天五行。"
+          )}
+        />
       </div>
     </MobileSheet>
   );

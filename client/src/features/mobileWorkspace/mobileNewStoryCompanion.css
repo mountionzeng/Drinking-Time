@@ -77,6 +77,96 @@
   inset: 0;
   z-index: 50;
   background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  --atmosphere-ink: #6c9baa;
+  --atmosphere-time: 12s;
+  --atmosphere-rise: -12px;
+  --atmosphere-turn: 2deg;
+}
+/* Two quiet layers, behind both the dialogue and the character. */
+.mobile-xiaoyi-overlay::before,
+.mobile-xiaoyi-overlay::after {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  pointer-events: none;
+}
+.mobile-xiaoyi-overlay::before {
+  background:
+    radial-gradient(ellipse at 18% 8%, color-mix(in srgb, var(--atmosphere-ink) 24%, transparent), transparent 55%),
+    radial-gradient(ellipse at 90% 35%, color-mix(in srgb, var(--atmosphere-ink) 14%, transparent), transparent 55%);
+}
+.mobile-xiaoyi-overlay::after {
+  opacity: 0.55;
+  animation: xiaoyi-atmosphere var(--atmosphere-time) ease-in-out infinite alternate;
+  background-repeat: no-repeat;
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="metal"] {
+  --atmosphere-ink: #b18b46;
+  --atmosphere-time: 13s;
+  --atmosphere-rise: -25px;
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="metal"]::after {
+  background-image:
+    radial-gradient(circle at 18% 17%, transparent 12px, #b18b4640 13px, transparent 15px),
+    radial-gradient(circle at 78% 9%, transparent 6px, #b18b4638 7px, transparent 9px),
+    radial-gradient(circle at 87% 32%, transparent 18px, #b18b4630 19px, transparent 21px);
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="wood"] {
+  --atmosphere-ink: #78935d;
+  --atmosphere-time: 15s;
+  --atmosphere-turn: -4deg;
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="wood"]::after {
+  background-image:
+    radial-gradient(ellipse 8px 23px at 17% 16%, #78935d38 65%, transparent 75%),
+    radial-gradient(ellipse 17px 6px at 83% 10%, #78935d40 65%, transparent 75%),
+    radial-gradient(ellipse 7px 19px at 90% 34%, #78935d30 65%, transparent 75%);
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="water"]::after {
+  background-image:
+    radial-gradient(ellipse 110px 35px at 15% 14%, transparent 72%, #6c9baa38 74%, transparent 77%, transparent 89%, #6c9baa28 91%, transparent 94%),
+    radial-gradient(ellipse 145px 46px at 90% 32%, transparent 72%, #6c9baa30 74%, transparent 77%, transparent 89%, #6c9baa24 91%, transparent 94%);
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="fire"] {
+  --atmosphere-ink: #bc7163;
+  --atmosphere-time: 9s;
+  --atmosphere-rise: -18px;
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="fire"]::after {
+  background-image:
+    radial-gradient(ellipse 55px 90px at 14% 21%, #bc716330, transparent 75%),
+    radial-gradient(ellipse 65px 100px at 86% 8%, #d3a16c40, transparent 75%);
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="earth"] {
+  --atmosphere-ink: #a1856e;
+  --atmosphere-time: 16s;
+  --atmosphere-rise: -30px;
+  --atmosphere-turn: -2deg;
+}
+.mobile-xiaoyi-overlay[data-theme="nayin"][data-element="earth"]::after {
+  background-image:
+    radial-gradient(ellipse 20px 130px at 17% 16%, #f8eedb80, transparent 75%),
+    radial-gradient(ellipse 27px 100px at 81% 23%, #f8eedb80, transparent 75%);
+}
+.mobile-xiaoyi-overlay[data-theme="shiguang"] {
+  --atmosphere-ink: #c6aa70;
+  --atmosphere-time: 18s;
+  --atmosphere-rise: -16px;
+  --atmosphere-turn: -1deg;
+}
+.mobile-xiaoyi-overlay[data-theme="shiguang"]::after {
+  background-image:
+    radial-gradient(circle at 16% 12%, #fff4d6 1px, #d4b87960 2px, transparent 5px),
+    radial-gradient(circle at 76% 7%, #fff4d6 1px, #d4b87950 2px, transparent 4px),
+    radial-gradient(circle at 88% 29%, #fff4d6 2px, #d4b87950 3px, transparent 6px),
+    radial-gradient(circle at 34% 32%, #fff4d6 1px, transparent 4px);
+}
+@keyframes xiaoyi-atmosphere {
+  from { transform: translateY(6px) rotate(0deg); opacity: 0.35; }
+  to { transform: translateY(var(--atmosphere-rise)) rotate(var(--atmosphere-turn)); opacity: 0.7; }
 }
 .mobile-xiaoyi-dialog {
   position: fixed;
@@ -149,19 +239,9 @@
 .mobile-xiaoyi-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px 10px;
-  border-bottom: 1px solid var(--nayin-border);
+  justify-content: flex-end;
+  padding: 0 10px;
   flex-shrink: 0;
-}
-.mobile-xiaoyi-header h2 {
-  font-size: 17px;
-  font-weight: 500;
-}
-.mobile-xiaoyi-header p {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  margin-top: 3px;
 }
 .mobile-xiaoyi-close {
   display: flex;
@@ -202,7 +282,8 @@
 @media (prefers-reduced-motion: reduce) {
   .xiaoyi-bird,
   .mobile-xiaoyi-dialog,
-  .mobile-xiaoyi-overlay {
+  .mobile-xiaoyi-overlay,
+  .mobile-xiaoyi-overlay::after {
     animation: none !important;
   }
 }
@@ -445,15 +526,23 @@
   }
 }
 
-/* A small curved foreground hides the companion; there is no bottom nav bar. */
-.mobile-xiaoyi-dock-edge {
-  position: fixed;
-  z-index: 40;
+/* Scale the entire docked character, including gestures, around the screen edge.
+   The viewport itself masks the lower body instead of a raised foreground strip. */
+.mobile-xiaoyi-launcher[data-open="false"] {
+  left: calc(50% - 84px);
+  width: 168px;
+  height: 124px;
+}
+.mobile-xiaoyi-visual {
+  position: absolute;
   bottom: 0;
-  left: calc(50% - 76px);
-  width: 152px;
-  height: calc(22px + env(safe-area-inset-bottom, 0px));
-  background: var(--background);
-  border-radius: 50% 50% 0 0 / 12px 12px 0 0;
-  pointer-events: none;
+  left: 50%;
+  margin-left: -42px;
+  width: 84px;
+  height: 84px;
+  transform-origin: center bottom;
+}
+.mobile-xiaoyi-launcher[data-open="false"] .mobile-xiaoyi-visual {
+  bottom: -44px;
+  transform: scale(2);
 }

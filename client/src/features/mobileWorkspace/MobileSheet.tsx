@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 底部弹层：选目标、预览、外形、电脑登录都用它。
  *
@@ -31,9 +32,7 @@ export function MobileSheet({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="left-1/2 top-auto bottom-0 flex max-h-[93dvh] w-full max-w-xl translate-x-[-50%] translate-y-0 flex-col gap-0 rounded-t-[23px] rounded-b-none border-x-0 border-b-0 p-0"
-      >
+      <DialogContent className="left-1/2 top-auto bottom-0 flex max-h-[93dvh] w-full max-w-xl translate-x-[-50%] translate-y-0 flex-col gap-0 rounded-t-[23px] rounded-b-none border-x-0 border-b-0 p-0">
         <DialogHeader className="shrink-0 space-y-1 border-b border-border/70 px-5 pb-3 pt-4 text-left">
           <DialogTitle className="font-chat-brand text-[21px] leading-tight">
             {title}
@@ -66,12 +65,15 @@ export function MobileSheet({
  * 不用示例数据、假余额、模拟成功冒充真实功能。
  */
 export function MobileNotConnected({ what }: { what: string }) {
+  const t = useUiText();
+
   return (
     <p
       className="rounded-xl border border-dashed border-border px-4 py-3 text-sm leading-6 text-muted-foreground"
       role="note"
     >
-      <span className="font-medium text-foreground">尚未接入</span>：{what}
+      <span className="font-medium text-foreground">{t("尚未接入")}</span>：
+      {what}
     </p>
   );
 }

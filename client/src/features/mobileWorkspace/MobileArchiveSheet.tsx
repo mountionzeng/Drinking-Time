@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 「存入故事」：把**聊聊整理出的正文**预览后，存进目标故事的可编辑版本。
  *
@@ -63,6 +64,8 @@ export function MobileArchiveSheet({
   sourceBody: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useUiText();
+
   const [step, setStep] = useState<Step>("target");
   const [targetId, setTargetId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -114,12 +117,12 @@ export function MobileArchiveSheet({
     }
     setError(null);
     const request = {
-        storyId: targetId,
-        versionId: document.versionId,
-        platform: document.platform,
-        baseBodyRevision: document.bodyRevision,
-        body: composeArchivedBody(document.body, addition, mode),
-      };
+      storyId: targetId,
+      versionId: document.versionId,
+      platform: document.platform,
+      baseBodyRevision: document.bodyRevision,
+      body: composeArchivedBody(document.body, addition, mode),
+    };
     try {
       const result = await saveMobilePublishingBody({
         request,
@@ -161,12 +164,12 @@ export function MobileArchiveSheet({
   return (
     <MobileSheet
       open={open}
-      title={step === "done" ? "已存入" : "存入故事"}
+      title={step === "done" ? t("已存入") : t("存入故事")}
       description={
         step === "target"
-          ? "把聊聊整理出的正文，存进另一个故事的可编辑版本。"
+          ? t("把聊聊整理出的正文，存进另一个故事的可编辑版本。")
           : step === "preview"
-            ? "确认目标，并改成你想留下的样子。"
+            ? t("确认目标，并改成你想留下的样子。")
             : undefined
       }
       onOpenChange={onOpenChange}
@@ -178,7 +181,7 @@ export function MobileArchiveSheet({
             disabled={!hasSource || !targetDoc.data}
             onClick={() => setStep("preview")}
           >
-            下一步：预览正文
+            {t("下一步：预览正文")}
           </Button>
         ) : step === "preview" ? (
           <Button
@@ -193,10 +196,10 @@ export function MobileArchiveSheet({
               <Loader2 aria-hidden="true" className="animate-spin" />
             ) : null}
             {mode === "replace"
-              ? "确认替换并存入"
+              ? t("确认替换并存入")
               : mode === "append"
-                ? "确认追加并存入"
-                : "先选择追加或替换"}
+                ? t("确认追加并存入")
+                : t("先选择追加或替换")}
           </Button>
         ) : (
           <Button
@@ -204,7 +207,7 @@ export function MobileArchiveSheet({
             className="min-h-12 w-full rounded-xl"
             onClick={() => onOpenChange(false)}
           >
-            返回聊天
+            {t("返回聊天")}
           </Button>
         )
       }
@@ -214,25 +217,29 @@ export function MobileArchiveSheet({
           {hasSource ? (
             <div className="rounded-xl bg-muted px-4 py-3">
               <div className="text-[11px] tracking-[0.07em] text-muted-foreground">
-                要存走的正文
+                {t("要存走的正文")}
               </div>
               <p className="mt-1.5 line-clamp-3 text-sm leading-7 text-foreground">
                 {sourceBody}
               </p>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                这是当前故事的正文，也就是聊聊整理出来、你改过的那份。
+                {t("这是当前故事的正文，也就是聊聊整理出来、你改过的那份。")}
               </p>
             </div>
           ) : (
-            <MobileNotConnected what="当前故事还没有正文可存。先在「聊聊」页把正文写出来或整理出来，再回来存。" />
+            <MobileNotConnected
+              what={t(
+                "当前故事还没有正文可存。先在「聊聊」页把正文写出来或整理出来，再回来存。"
+              )}
+            />
           )}
 
           <div className="mt-5 text-[11px] tracking-[0.07em] text-muted-foreground">
-            存到哪个故事
+            {t("存到哪个故事")}
           </div>
           {others.length === 0 ? (
             <p className="mt-2 text-sm leading-7 text-muted-foreground">
-              还没有别的故事可以存。
+              {t("还没有别的故事可以存。")}
             </p>
           ) : (
             <ul className="mt-2 space-y-2">
@@ -265,14 +272,17 @@ export function MobileArchiveSheet({
           {targetId ? (
             <>
               <div className="mt-5 text-[11px] tracking-[0.07em] text-muted-foreground">
-                目标版本
+                {t("目标版本")}
               </div>
               <div className="mt-2">
                 {targetDoc.isFetching ? (
-                  <p className="text-sm text-muted-foreground">正在读取版本…</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("正在读取版本…")}
+                  </p>
                 ) : targetDoc.isError ? (
                   <p className="text-sm text-destructive">
-                    读不到这个故事的正文：{targetDoc.error.message}
+                    {t("读不到这个故事的正文：")}
+                    {targetDoc.error.message}
                   </p>
                 ) : targetDoc.data ? (
                   <p className="rounded-xl bg-muted px-4 py-3 text-sm leading-6">
@@ -281,7 +291,11 @@ export function MobileArchiveSheet({
                 ) : null}
               </div>
               <div className="mt-3">
-                <MobileNotConnected what="只能存进当前可编辑的那一份正文。列出成品和历史版本还没有对应接口，所以这里不列——也因此不会覆盖成品。" />
+                <MobileNotConnected
+                  what={t(
+                    "只能存进当前可编辑的那一份正文。列出成品和历史版本还没有对应接口，所以这里不列——也因此不会覆盖成品。"
+                  )}
+                />
               </div>
             </>
           ) : null}
@@ -295,29 +309,30 @@ export function MobileArchiveSheet({
             className="min-h-11 text-sm text-muted-foreground"
             onClick={() => setStep("target")}
           >
-            ‹ 返回选择
+            {t("‹ 返回选择")}
           </button>
           <div className="mt-2 rounded-xl bg-muted px-4 py-3 text-sm leading-7">
-            目标故事：
+            {t("目标故事：")}
             <strong className="font-medium text-foreground">
               {targetStory?.title ?? "—"}
             </strong>
             <br />
-            目标版本：{versionLabel ?? "—"}
+            {t("目标版本：")}
+            {versionLabel ?? "—"}
           </div>
 
           <div className="mt-4 text-[11px] tracking-[0.07em] text-muted-foreground">
-            真正将要写入的正文 · 可修改
+            {t("真正将要写入的正文 · 可修改")}
           </div>
           <textarea
-            aria-label="要存入的正文"
+            aria-label={t("要存入的正文")}
             className="mt-2 h-48 w-full resize-y rounded-xl border border-border/70 bg-background px-3.5 py-3 text-[15px] leading-7 outline-none"
             value={draft}
             onChange={event => setDraft(event.target.value)}
           />
 
           <div className="mt-5 text-[11px] tracking-[0.07em] text-muted-foreground">
-            怎么存
+            {t("怎么存")}
           </div>
           <div className="mt-2 flex gap-2">
             {(["append", "replace"] as const).map(option => (
@@ -333,7 +348,7 @@ export function MobileArchiveSheet({
                 )}
                 onClick={() => setMode(option)}
               >
-                {option === "append" ? "追加到末尾" : "替换该版本正文"}
+                {option === "append" ? t("追加到末尾") : t("替换该版本正文")}
               </button>
             ))}
           </div>
@@ -344,17 +359,20 @@ export function MobileArchiveSheet({
             )}
           >
             {mode === "append"
-              ? "保留目标故事的原正文，把这段接在末尾。"
+              ? t("保留目标故事的原正文，把这段接在末尾。")
               : mode === "replace"
-                ? "会把目标版本的原正文整段换掉。请先核对目标和内容。"
-                : "两种方式产品还没有拍板，所以没有默认值，请明确选一个。"}
+                ? t("会把目标版本的原正文整段换掉。请先核对目标和内容。")
+                : t("两种方式产品还没有拍板，所以没有默认值，请明确选一个。")}
           </p>
           <p className="mt-2 text-xs leading-6 text-muted-foreground">
-            原聊天保留；当前故事的正文也不会被改动，这里只是复制过去。
+            {t("原聊天保留；当前故事的正文也不会被改动，这里只是复制过去。")}
           </p>
 
           {error ? (
-            <p className="mt-4 text-sm leading-6 text-destructive" role="status">
+            <p
+              className="mt-4 text-sm leading-6 text-destructive"
+              role="status"
+            >
               {error}
             </p>
           ) : null}
@@ -365,7 +383,7 @@ export function MobileArchiveSheet({
         <div className="py-6 text-center">
           <p className="text-[15px] leading-7 text-foreground">{savedInto}</p>
           <p className="mt-4 text-xs leading-6 text-muted-foreground">
-            原聊天与当前故事的正文都保留。
+            {t("原聊天与当前故事的正文都保留。")}
           </p>
         </div>
       ) : null}

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { MOOD_MOTION } from "@/features/nayin/views/EmotiveWuxingIcon";
+import type { CompanionAttention } from "./companionAttention";
 import {
   BIRD_GESTURES,
   BIRD_POSES,
@@ -7,7 +9,24 @@ import {
   type BirdPose,
 } from "./xiaoyiGestures";
 
-export function XiaoyiBird({ active }: { active: boolean }) {
+const BIRD_ATTENTION_MOTION = {
+  listening: {
+    ...MOOD_MOTION.trust,
+    transition: { ...MOOD_MOTION.trust.transition, duration: 3.6 },
+  },
+  thinking: {
+    ...MOOD_MOTION.thinking,
+    transition: { ...MOOD_MOTION.thinking.transition, duration: 4.2 },
+  },
+};
+
+export function XiaoyiBird({
+  active,
+  attention = "idle",
+}: {
+  active: boolean;
+  attention?: CompanionAttention;
+}) {
   const reduced = useReducedMotion();
   const [pose, setPose] = useState<BirdPose>("turn");
   const [gesture, setGesture] = useState<number | null>(null);
@@ -55,12 +74,26 @@ export function XiaoyiBird({ active }: { active: boolean }) {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, [active, reduced]);
-  const frame = BIRD_POSES[pose];
+  const frame =
+    BIRD_POSES[
+      attention === "thinking"
+        ? "curious"
+        : attention === "listening"
+          ? "front"
+          : pose
+    ];
   return (
-    <span
+    <motion.span
+      initial={false}
+      animate={
+        !reduced && attention !== "idle"
+          ? BIRD_ATTENTION_MOTION[attention]
+          : { rotate: 0, transition: { duration: 0 } }
+      }
       aria-hidden="true"
       className="xiaoyi-bird"
-      data-gesture={gesture ?? ""}
+      data-attention={attention}
+      data-gesture={attention === "idle" ? (gesture ?? "") : ""}
       style={{
         backgroundImage: `url('/shiguang/companion/${frame.sheet}.webp')`,
         backgroundPosition: `${frame.x} ${frame.y}`,

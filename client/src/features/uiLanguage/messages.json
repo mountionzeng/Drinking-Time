@@ -1,0 +1,2490 @@
+{
+  "小忆": {
+    "en": "Xiaoyi",
+    "fr": "Xiaoyi"
+  },
+  " · 想着呢": {
+    "en": " · Thinking",
+    "fr": " · Réflexion"
+  },
+  "已存入": {
+    "en": "Saved",
+    "fr": "Enregistré"
+  },
+  "存入故事": {
+    "en": "Save to a story",
+    "fr": "Enregistrer dans une histoire"
+  },
+  "把聊聊整理出的正文，存进另一个故事的可编辑版本。": {
+    "en": "Copy this draft into another story’s editable version.",
+    "fr": "Copiez ce texte dans la version modifiable d’une autre histoire."
+  },
+  "确认目标，并改成你想留下的样子。": {
+    "en": "Check the destination and edit before saving.",
+    "fr": "Vérifiez la destination et ajustez le texte."
+  },
+  "下一步：预览正文": {
+    "en": "Next: preview",
+    "fr": "Suivant : aperçu"
+  },
+  "确认替换并存入": {
+    "en": "Replace and save",
+    "fr": "Remplacer et enregistrer"
+  },
+  "确认追加并存入": {
+    "en": "Append and save",
+    "fr": "Ajouter et enregistrer"
+  },
+  "先选择追加或替换": {
+    "en": "Choose append or replace",
+    "fr": "Choisissez ajouter ou remplacer"
+  },
+  "返回聊天": {
+    "en": "Back to chat",
+    "fr": "Retour au dialogue"
+  },
+  "要存走的正文": {
+    "en": "Text to save",
+    "fr": "Texte à enregistrer"
+  },
+  "这是当前故事的正文，也就是聊聊整理出来、你改过的那份。": {
+    "en": "This is the current story’s draft, including your edits.",
+    "fr": "Voici le texte actuel de l’histoire, avec vos modifications."
+  },
+  "当前故事还没有正文可存。先在「聊聊」页把正文写出来或整理出来，再回来存。": {
+    "en": "No draft yet. Write one in chat before saving it here.",
+    "fr": "Aucun texte pour le moment. Rédigez-le dans le dialogue avant de l’enregistrer ici."
+  },
+  "存到哪个故事": {
+    "en": "Destination story",
+    "fr": "Histoire de destination"
+  },
+  "还没有别的故事可以存。": {
+    "en": "No other stories yet.",
+    "fr": "Aucune autre histoire pour le moment."
+  },
+  "目标版本": {
+    "en": "Destination version",
+    "fr": "Version de destination"
+  },
+  "正在读取版本…": {
+    "en": "Loading versions…",
+    "fr": "Chargement des versions…"
+  },
+  "读不到这个故事的正文：": {
+    "en": "Could not load this story’s draft:",
+    "fr": "Impossible de charger le texte :"
+  },
+  "只能存进当前可编辑的那一份正文。列出成品和历史版本还没有对应接口，所以这里不列——也因此不会覆盖成品。": {
+    "en": "Only the current editable draft can be updated. Finished works and previous versions stay unchanged.",
+    "fr": "Seul le texte modifiable actuel peut être mis à jour. Les œuvres finales et les anciennes versions sont conservées."
+  },
+  "‹ 返回选择": {
+    "en": "‹ Back to selection",
+    "fr": "‹ Retour au choix"
+  },
+  "目标故事：": {
+    "en": "Destination story: ",
+    "fr": "Histoire de destination : "
+  },
+  "目标版本：": {
+    "en": "Destination version: ",
+    "fr": "Version de destination : "
+  },
+  "真正将要写入的正文 · 可修改": {
+    "en": "Text to be saved · editable",
+    "fr": "Texte à enregistrer · modifiable"
+  },
+  "要存入的正文": {
+    "en": "Text to save",
+    "fr": "Texte à enregistrer"
+  },
+  "怎么存": {
+    "en": "Save method",
+    "fr": "Mode d’enregistrement"
+  },
+  "追加到末尾": {
+    "en": "Append to the end",
+    "fr": "Ajouter à la fin"
+  },
+  "替换该版本正文": {
+    "en": "Replace this version’s text",
+    "fr": "Remplacer le texte de cette version"
+  },
+  "保留目标故事的原正文，把这段接在末尾。": {
+    "en": "Keep the original text and append this passage.",
+    "fr": "Conservez le texte original et ajoutez ce passage à la fin."
+  },
+  "会把目标版本的原正文整段换掉。请先核对目标和内容。": {
+    "en": "This replaces the entire target draft. Check the destination and text first.",
+    "fr": "Le texte cible sera entièrement remplacé. Vérifiez la destination et le contenu."
+  },
+  "两种方式产品还没有拍板，所以没有默认值，请明确选一个。": {
+    "en": "Choose how you want to save the text.",
+    "fr": "Choisissez comment enregistrer le texte."
+  },
+  "原聊天保留；当前故事的正文也不会被改动，这里只是复制过去。": {
+    "en": "This copies the text. The original chat and draft stay unchanged.",
+    "fr": "Le texte sera copié. Le dialogue et le texte d’origine seront conservés."
+  },
+  "原聊天与当前故事的正文都保留。": {
+    "en": "The original chat and draft are kept.",
+    "fr": "Le dialogue et le texte d’origine sont conservés."
+  },
+  "待恢复的对话": {
+    "en": "Conversation to recover",
+    "fr": "Dialogue à récupérer"
+  },
+  "重新同步": {
+    "en": "Sync again",
+    "fr": "Synchroniser à nouveau"
+  },
+  "重试": {
+    "en": "Retry",
+    "fr": "Réessayer"
+  },
+  "内容已复制": {
+    "en": "Copied",
+    "fr": "Copié"
+  },
+  "复制失败，请长按正文复制": {
+    "en": "Could not copy. Press and hold the text to copy it.",
+    "fr": "Copie impossible. Appuyez longuement sur le texte pour le copier."
+  },
+  "复制内容": {
+    "en": "Copy text",
+    "fr": "Copier le texte"
+  },
+  "移除提示": {
+    "en": "Dismiss",
+    "fr": "Fermer"
+  },
+  "正在读取聊天记录…": {
+    "en": "Loading conversation…",
+    "fr": "Chargement du dialogue…"
+  },
+  "聊天记录加载失败": {
+    "en": "Could not load conversation",
+    "fr": "Chargement du dialogue impossible"
+  },
+  "重试聊天记录": {
+    "en": "Reload conversation",
+    "fr": "Recharger le dialogue"
+  },
+  "聊聊": {
+    "en": "Chat",
+    "fr": "Dialogue"
+  },
+  "从一个念头开始，电脑上也能继续这段对话。": {
+    "en": "Start with a thought. Continue on your computer anytime.",
+    "fr": "Commencez par une idée. Retrouvez le dialogue sur votre ordinateur."
+  },
+  "聊聊说的话": {
+    "en": "Assistant’s reply",
+    "fr": "Réponse de l’assistant"
+  },
+  "给聊聊发送消息": {
+    "en": "Message the assistant",
+    "fr": "Écrire à l’assistant"
+  },
+  "继续聊聊…": {
+    "en": "Keep chatting…",
+    "fr": "Continuons à discuter…"
+  },
+  "发送消息": {
+    "en": "Send message",
+    "fr": "Envoyer un message"
+  },
+  "发送": {
+    "en": "Send",
+    "fr": "Envoyer"
+  },
+  "聊天内容操作": {
+    "en": "Conversation actions",
+    "fr": "Actions du dialogue"
+  },
+  "导入本地文件": {
+    "en": "Import a file",
+    "fr": "Importer un fichier"
+  },
+  "标记为记忆": {
+    "en": "Save as a memory",
+    "fr": "Garder en souvenir"
+  },
+  "加入某段文字": {
+    "en": "Add to a draft",
+    "fr": "Ajouter à un texte"
+  },
+  "聊天操作预览": {
+    "en": "Preview action",
+    "fr": "Aperçu de l’action"
+  },
+  "目标故事": {
+    "en": "Destination story",
+    "fr": "Histoire de destination"
+  },
+  "选择故事": {
+    "en": "Choose a story",
+    "fr": "Choisir une histoire"
+  },
+  "故事未加载。": {
+    "en": "Stories not loaded.",
+    "fr": "Histoires non chargées."
+  },
+  "图片 ≤30MB、视频 ≤200MB；TXT / MD 放入输入框。": {
+    "en": "Images ≤30 MB, videos ≤200 MB; TXT / MD fills the message box.",
+    "fr": "Images ≤30 Mo, vidéos ≤200 Mo ; TXT / MD remplit le message."
+  },
+  "本地文件": {
+    "en": "Local file",
+    "fr": "Fichier local"
+  },
+  "素材说明": {
+    "en": "Media description",
+    "fr": "Description du média"
+  },
+  "素材说明（可选）": {
+    "en": "Media description (optional)",
+    "fr": "Description du média (facultatif)"
+  },
+  "视频镜头": {
+    "en": "Video shot",
+    "fr": "Plan vidéo"
+  },
+  "选择镜头": {
+    "en": "Choose a shot",
+    "fr": "Choisir un plan"
+  },
+  "选取聊天内容": {
+    "en": "Choose conversation text",
+    "fr": "Choisir un passage"
+  },
+  "自己填写": {
+    "en": "Write your own",
+    "fr": "Saisir un texte"
+  },
+  "输入框": {
+    "en": "Message box",
+    "fr": "Champ de message"
+  },
+  "当前上下文": {
+    "en": "Current context",
+    "fr": "Contexte actuel"
+  },
+  "小忆回复": {
+    "en": "Xiaoyi’s reply",
+    "fr": "Réponse de Xiaoyi"
+  },
+  "已保存内容": {
+    "en": "Saved content",
+    "fr": "Contenu enregistré"
+  },
+  "我的话": {
+    "en": "My words",
+    "fr": "Mes mots"
+  },
+  "记忆标题": {
+    "en": "Memory title",
+    "fr": "Titre du souvenir"
+  },
+  "记忆标题（可选）": {
+    "en": "Memory title (optional)",
+    "fr": "Titre du souvenir (facultatif)"
+  },
+  "要保存的内容": {
+    "en": "Content to save",
+    "fr": "Contenu à enregistrer"
+  },
+  "目标文字版本": {
+    "en": "Destination draft",
+    "fr": "Texte de destination"
+  },
+  "选择一段文字": {
+    "en": "Choose a draft",
+    "fr": "Choisir un texte"
+  },
+  "当前正文 · 补充到末尾": {
+    "en": "Current draft · append",
+    "fr": "Texte actuel · ajouter à la fin"
+  },
+  "· 版本": {
+    "en": "· Version",
+    "fr": "· Version"
+  },
+  "文字未加载。": {
+    "en": "Drafts not loaded.",
+    "fr": "Textes non chargés."
+  },
+  "这个故事还没有可加入的文字版本，请先选择已有文字的故事。": {
+    "en": "This story has no draft yet. Choose a story with an existing draft.",
+    "fr": "Cette histoire n’a pas encore de texte. Choisissez-en une qui en possède un."
+  },
+  "目标已重新读取，请核对合并预览后再保存。": {
+    "en": "Destination reloaded. Check the merged preview before saving.",
+    "fr": "Destination rechargée. Vérifiez l’aperçu avant d’enregistrer."
+  },
+  "读取失败，补充内容仍保留，请重试。": {
+    "en": "Could not load. Your additions are kept; please retry.",
+    "fr": "Chargement impossible. Vos ajouts sont conservés ; réessayez."
+  },
+  "重新读取目标": {
+    "en": "Reload destination",
+    "fr": "Recharger la destination"
+  },
+  "当前正文未读取成功。": {
+    "en": "Could not load the current draft.",
+    "fr": "Impossible de charger le texte actuel."
+  },
+  "预览合并后的文字": {
+    "en": "Preview combined text",
+    "fr": "Aperçu du texte combiné"
+  },
+  "补充到当前正文末尾；保留已有段落，并同步到电脑。": {
+    "en": "Append to the current draft, keeping existing paragraphs and syncing to desktop.",
+    "fr": "Ajouter à la fin du texte, conserver les paragraphes existants et synchroniser sur ordinateur."
+  },
+  "补充到末尾，另存新版本，不自动采用。": {
+    "en": "Append and save a new version without making it active.",
+    "fr": "Ajouter à la fin et créer une version sans l’activer automatiquement."
+  },
+  "完成": {
+    "en": "Done",
+    "fr": "Terminé"
+  },
+  "取消": {
+    "en": "Cancel",
+    "fr": "Annuler"
+  },
+  "正在保存…": {
+    "en": "Saving…",
+    "fr": "Enregistrement…"
+  },
+  "导入": {
+    "en": "Import",
+    "fr": "Importer"
+  },
+  "保存记忆": {
+    "en": "Save memory",
+    "fr": "Enregistrer le souvenir"
+  },
+  "确认加入": {
+    "en": "Confirm addition",
+    "fr": "Confirmer l’ajout"
+  },
+  "‹ 故事": {
+    "en": "‹ Stories",
+    "fr": "‹ Histoires"
+  },
+  "全部": {
+    "en": "All ",
+    "fr": "Tous les "
+  },
+  "按故事收在一起，点开即可阅读或播放。": {
+    "en": "Grouped by story. Open to read or play.",
+    "fr": "Regroupés par histoire. Ouvrez pour lire ou regarder."
+  },
+  "进入故事 ›": {
+    "en": "Open story ›",
+    "fr": "Ouvrir l’histoire ›"
+  },
+  "还没有": {
+    "en": "No items yet: ",
+    "fr": "Aucun élément pour le moment : "
+  },
+  "上一页": {
+    "en": "Previous",
+    "fr": "Précédent"
+  },
+  "下一页": {
+    "en": "Next",
+    "fr": "Suivant"
+  },
+  "暂时没有读到。": {
+    "en": "Could not load this yet.",
+    "fr": "Chargement indisponible pour le moment."
+  },
+  "正在读取回忆…": {
+    "en": "Loading memories…",
+    "fr": "Chargement des souvenirs…"
+  },
+  "还没有收录的回忆。": {
+    "en": "No saved memories yet.",
+    "fr": "Aucun souvenir enregistré."
+  },
+  "正在读取文字…": {
+    "en": "Loading drafts…",
+    "fr": "Chargement des textes…"
+  },
+  "当前正文": {
+    "en": "Current draft",
+    "fr": "Texte actuel"
+  },
+  "文字": {
+    "en": "Drafts",
+    "fr": "Textes"
+  },
+  "还没有文字。": {
+    "en": "No drafts yet.",
+    "fr": "Aucun texte pour le moment."
+  },
+  "正在读取视频…": {
+    "en": "Loading videos…",
+    "fr": "Chargement des vidéos…"
+  },
+  "生成中": {
+    "en": "Generating",
+    "fr": "Création en cours"
+  },
+  "视频暂不可播放": {
+    "en": "Video unavailable",
+    "fr": "Vidéo indisponible"
+  },
+  "还没有视频。": {
+    "en": "No videos yet.",
+    "fr": "Aucune vidéo pour le moment."
+  },
+  "你的每日回信": {
+    "en": "Your daily letter",
+    "fr": "Votre lettre du jour"
+  },
+  "收起回信": {
+    "en": "Close letter",
+    "fr": "Fermer la lettre"
+  },
+  "正在把信取出来…": {
+    "en": "Opening your letter…",
+    "fr": "Ouverture de votre lettre…"
+  },
+  "今天的信": {
+    "en": "Today’s letter",
+    "fr": "Lettre du jour"
+  },
+  "这封信还没结合你的八字。想让它更贴着你写，去「我」里补上出生 信息，只填一次。": {
+    "en": "Add your birth details in Profile for a more personal letter.",
+    "fr": "Ajoutez vos informations de naissance dans Profil pour une lettre plus personnelle."
+  },
+  "把信收好，继续聊": {
+    "en": "Keep the letter and continue",
+    "fr": "Garder la lettre et continuer"
+  },
+  "想翻回哪一天": {
+    "en": "Choose a day",
+    "fr": "Choisir une date"
+  },
+  "你在这天说的话": {
+    "en": "Your words that day",
+    "fr": "Vos mots ce jour-là"
+  },
+  "那天，你这样说": {
+    "en": "What you said that day",
+    "fr": "Ce que vous disiez ce jour-là"
+  },
+  "整理中": {
+    "en": "Organizing",
+    "fr": "Organisation en cours"
+  },
+  "修改": {
+    "en": "Edit",
+    "fr": "Modifier"
+  },
+  "写一点": {
+    "en": "Write a little",
+    "fr": "Écrire quelques mots"
+  },
+  "今天发生了什么，或者你现在是什么感受？": {
+    "en": "What happened today, or how are you feeling?",
+    "fr": "Que s’est-il passé aujourd’hui, ou comment vous sentez-vous ?"
+  },
+  "记下这句": {
+    "en": "Save these words",
+    "fr": "Garder ces mots"
+  },
+  "先放着": {
+    "en": "Maybe later",
+    "fr": "Plus tard"
+  },
+  "这一天还没有写下新话，所以来信不会翻出以前的具体事情。": {
+    "en": "Nothing new was written this day, so the letter will not recall specific past events.",
+    "fr": "Aucun nouveau mot ce jour-là : la lettre ne reprendra pas d’événements passés précis."
+  },
+  "只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。": {
+    "en": "Past writing is used only when it relates to something new you write today.",
+    "fr": "Vos anciens textes ne sont utilisés que s’ils sont liés à ce que vous écrivez aujourd’hui."
+  },
+  "这天聊过的故事": {
+    "en": "Stories from this day",
+    "fr": "Histoires de ce jour"
+  },
+  "那天，也聊过这些故事": {
+    "en": "Other stories from that day",
+    "fr": "Autres histoires de ce jour-là"
+  },
+  "未命名故事": {
+    "en": "Untitled story",
+    "fr": "Histoire sans titre"
+  },
+  "聊会儿的回信": {
+    "en": "Your reply letter",
+    "fr": "Votre lettre en retour"
+  },
+  "这一天的回信还没有生成。": {
+    "en": "No letter has been created for this day.",
+    "fr": "Aucune lettre créée pour ce jour."
+  },
+  "第": {
+    "en": "No. ",
+    "fr": "N° "
+  },
+  "版": {
+    "en": "version",
+    "fr": "version"
+  },
+  "正在重新读…": {
+    "en": "Reading again…",
+    "fr": "Nouvelle lecture…"
+  },
+  "用最新记忆，再读一遍": {
+    "en": "Read again with the latest memories",
+    "fr": "Relire avec les derniers souvenirs"
+  },
+  "电脑登录": {
+    "en": "Desktop sign-in",
+    "fr": "Connexion sur ordinateur"
+  },
+  "在电脑上，继续和聊聊说话。": {
+    "en": "Continue chatting on your computer.",
+    "fr": "Continuez le dialogue sur votre ordinateur."
+  },
+  "换一个码": {
+    "en": "Get a new code",
+    "fr": "Nouveau code"
+  },
+  "生成登录码": {
+    "en": "Create sign-in code",
+    "fr": "Créer un code de connexion"
+  },
+  "将授权电脑登录与本机相同的账号": {
+    "en": "Sign in on desktop with this same account",
+    "fr": "Connecter l’ordinateur avec ce même compte"
+  },
+  "点下面的按钮，生成短时登录码。": {
+    "en": "Tap below to create a temporary sign-in code.",
+    "fr": "Touchez ci-dessous pour créer un code temporaire."
+  },
+  "在电脑上打开登录页，输入这个码。": {
+    "en": "Enter this code on the desktop sign-in page.",
+    "fr": "Saisissez ce code sur la page de connexion de l’ordinateur."
+  },
+  "电脑验证通过后，进入同一个账号。": {
+    "en": "After verification, your computer opens the same account.",
+    "fr": "Après vérification, l’ordinateur ouvre le même compte."
+  },
+  "这个码已过期，请换一个。": {
+    "en": "This code expired. Get a new one.",
+    "fr": "Ce code a expiré. Demandez-en un autre."
+  },
+  "电脑那边输入并验证成功后才算登录。手机这边看不到结果，所以这里不会 显示「已登录」。": {
+    "en": "Sign-in completes after desktop verification. Its status is not shown here.",
+    "fr": "La connexion se termine après vérification sur ordinateur. Son état n’est pas affiché ici."
+  },
+  "我在手机上的正文": {
+    "en": "My mobile draft",
+    "fr": "Mon texte sur mobile"
+  },
+  "（空白正文）": {
+    "en": "(Empty draft)",
+    "fr": "(Texte vide)"
+  },
+  "服务器上的最新正文": {
+    "en": "Latest saved draft",
+    "fr": "Dernier texte enregistré"
+  },
+  "暂时无法读取最新正文": {
+    "en": "Latest draft unavailable",
+    "fr": "Dernier texte indisponible"
+  },
+  "复制我的正文": {
+    "en": "Copy my draft",
+    "fr": "Copier mon texte"
+  },
+  "载入最新正文": {
+    "en": "Load latest draft",
+    "fr": "Charger le dernier texte"
+  },
+  "正在读取正文…": {
+    "en": "Loading text…",
+    "fr": "Chargement du texte…"
+  },
+  "这个故事还没有正文": {
+    "en": "This story has no draft yet",
+    "fr": "Cette histoire n’a pas encore de texte"
+  },
+  "可以从空白写起，停笔时点一下正文旁的小忆。": {
+    "en": "Start writing, then tap Xiaoyi when you want to chat.",
+    "fr": "Commencez à écrire, puis touchez Xiaoyi pour discuter."
+  },
+  "正在准备…": {
+    "en": "Preparing…",
+    "fr": "Préparation…"
+  },
+  "开始写正文": {
+    "en": "Start writing",
+    "fr": "Commencer à écrire"
+  },
+  "正文加载失败": {
+    "en": "Could not load text",
+    "fr": "Chargement du texte impossible"
+  },
+  "重试正文": {
+    "en": "Reload text",
+    "fr": "Recharger le texte"
+  },
+  "正文内容": {
+    "en": "Draft text",
+    "fr": "Contenu du texte"
+  },
+  "在这里继续正文…": {
+    "en": "Continue writing here…",
+    "fr": "Continuez à écrire ici…"
+  },
+  "处理冲突": {
+    "en": "Resolve conflict",
+    "fr": "Résoudre le conflit"
+  },
+  "保存正文": {
+    "en": "Save text",
+    "fr": "Enregistrer le texte"
+  },
+  "正文出现版本冲突": {
+    "en": "Draft version conflict",
+    "fr": "Conflit de versions"
+  },
+  "其他设备上的正文已经变化。手机内容不会覆盖它，请先复制恢复或载入最新版。": {
+    "en": "This draft changed on another device. Copy your text or load the latest version before continuing.",
+    "fr": "Ce texte a changé sur un autre appareil. Copiez votre texte ou chargez la dernière version avant de continuer."
+  },
+  "手机正文已复制": {
+    "en": "Mobile draft copied",
+    "fr": "Texte mobile copié"
+  },
+  "已载入服务器上的最新正文": {
+    "en": "Latest saved draft loaded",
+    "fr": "Dernier texte enregistré chargé"
+  },
+  "暂不处理": {
+    "en": "Not now",
+    "fr": "Pas maintenant"
+  },
+  "部分聊天还未收录。": {
+    "en": "Some messages have not been saved as memories yet.",
+    "fr": "Certains messages ne sont pas encore enregistrés comme souvenirs."
+  },
+  "正在读取记忆…": {
+    "en": "Loading memories…",
+    "fr": "Chargement des souvenirs…"
+  },
+  "记忆暂未读到。": {
+    "en": "Memories unavailable.",
+    "fr": "Souvenirs indisponibles."
+  },
+  "‹ 全部记忆": {
+    "en": "‹ All memories",
+    "fr": "‹ Tous les souvenirs"
+  },
+  "编辑": {
+    "en": "Edit",
+    "fr": "Modifier"
+  },
+  "制作图文 · 配图、排版与分享 →": {
+    "en": "Create artwork · images, layout & sharing →",
+    "fr": "Créer une œuvre · images, mise en page et partage →"
+  },
+  "正在收录聊天记忆…": {
+    "en": "Saving conversation memories…",
+    "fr": "Enregistrement des souvenirs du dialogue…"
+  },
+  "还没有记忆，可以先到“聊聊”记下一段。": {
+    "en": "No memories yet. Start with a conversation.",
+    "fr": "Aucun souvenir pour le moment. Commencez par un dialogue."
+  },
+  "聊聊整理": {
+    "en": "Assistant’s summary",
+    "fr": "Résumé de l’assistant"
+  },
+  "我的原话": {
+    "en": "My original words",
+    "fr": "Mes mots d’origine"
+  },
+  "我的记事 / 修订": {
+    "en": "My notes / revisions",
+    "fr": "Mes notes / révisions"
+  },
+  "聊聊的外形": {
+    "en": "Companion appearance",
+    "fr": "Apparence du compagnon"
+  },
+  "五种外形，都是聊聊。换外形只改样子，不改出生信息、纳音计算和你的内容。": {
+    "en": "Five looks for the same companion. Your birth details, calculations and content stay unchanged.",
+    "fr": "Cinq apparences pour le même compagnon. Vos informations, calculs et contenus sont conservés."
+  },
+  "当前选择": {
+    "en": "Selected",
+    "fr": "Sélectionné"
+  },
+  "今天的五行": {
+    "en": "Today’s element",
+    "fr": "Élément du jour"
+  },
+  "点击使用": {
+    "en": "Tap to use",
+    "fr": "Toucher pour choisir"
+  },
+  "跟随当天五行": {
+    "en": "Follow today’s element",
+    "fr": "Suivre l’élément du jour"
+  },
+  "恢复自动外形": {
+    "en": "Use automatic appearance",
+    "fr": "Apparence automatique"
+  },
+  "外形只在这台设备、这次打开期间生效。跨设备同步和长期保存还没有做，重新打开会回到当天五行。": {
+    "en": "This appearance lasts for this session on this device. Reopening restores today’s element.",
+    "fr": "Cette apparence s’applique à cette session sur cet appareil. La réouverture rétablit l’élément du jour."
+  },
+  "手机图文制作": {
+    "en": "Mobile artwork studio",
+    "fr": "Atelier mobile"
+  },
+  "返回记忆": {
+    "en": "Back to memory",
+    "fr": "Retour au souvenir"
+  },
+  "返回文字稿": {
+    "en": "Back to draft",
+    "fr": "Retour au texte"
+  },
+  "制作图文": {
+    "en": "Create artwork",
+    "fr": "Créer une œuvre"
+  },
+  "正在读取图片…": {
+    "en": "Loading images…",
+    "fr": "Chargement des images…"
+  },
+  "图片暂时没有读到。": {
+    "en": "Images unavailable.",
+    "fr": "Images indisponibles."
+  },
+  "先写好正文，再把它做成图片。": {
+    "en": "Write your text first, then turn it into artwork.",
+    "fr": "Écrivez votre texte avant de le transformer en image."
+  },
+  "把这段记忆做成图文，可选已有配图或纸张纹理。需要生成新配图时，请在文字稿阶段制作。": {
+    "en": "Use existing images or paper textures for this memory. Generate new images in the draft stage.",
+    "fr": "Utilisez des images existantes ou des textures de papier. Créez de nouvelles images à l’étape Texte."
+  },
+  "正在排版这份文字稿，可使用已有图片。生成新配图前，需要先将它采用为当前发布稿。": {
+    "en": "Use existing images for this layout. To generate new images, first make this the current publishing draft.",
+    "fr": "Utilisez des images existantes. Pour en créer de nouvelles, définissez ce texte comme version de publication actuelle."
+  },
+  "采用这份文字来配图": {
+    "en": "Use this draft for images",
+    "fr": "Utiliser ce texte pour les images"
+  },
+  "上次生成尚未结束。恢复只接着读取同一任务。": {
+    "en": "The last generation is unfinished. Resume checks the same task.",
+    "fr": "La dernière création est inachevée. Reprendre consulte la même tâche."
+  },
+  "恢复上次生成": {
+    "en": "Resume generation",
+    "fr": "Reprendre la création"
+  },
+  "正式封面": {
+    "en": "Final cover",
+    "fr": "Couverture finale"
+  },
+  "插图": {
+    "en": "Illustration",
+    "fr": "Illustration"
+  },
+  "底图": {
+    "en": "Background",
+    "fr": "Fond"
+  },
+  "封面": {
+    "en": "Cover",
+    "fr": "Couverture"
+  },
+  "疑似含字": {
+    "en": "May contain text",
+    "fr": "Texte possible"
+  },
+  "质检中": {
+    "en": "Checking quality",
+    "fr": "Contrôle qualité"
+  },
+  "质检未完成": {
+    "en": "Quality check incomplete",
+    "fr": "Contrôle qualité incomplet"
+  },
+  "管理作品链接": {
+    "en": "Manage artwork links",
+    "fr": "Gérer les liens des œuvres"
+  },
+  "停止后，这个故事之前创建的所有图文作品链接将无法再打开。别人已保存的图片不受影响。": {
+    "en": "Disabling links makes all previous artwork links for this story inaccessible. Downloaded images remain available.",
+    "fr": "La désactivation rend tous les anciens liens de cette histoire inaccessibles. Les images déjà téléchargées restent disponibles."
+  },
+  "停止这个故事的作品链接": {
+    "en": "Disable this story’s artwork links",
+    "fr": "Désactiver les liens de cette histoire"
+  },
+  "采用这份文字来配图？": {
+    "en": "Use this draft for images?",
+    "fr": "Utiliser ce texte pour les images ?"
+  },
+  "这会更新电脑和手机共用的当前发布稿。原文字版本保留，采用本身不会购买图片生成。": {
+    "en": "This updates the publishing draft on mobile and desktop. The original is kept; adopting it does not buy image generation.",
+    "fr": "Le texte de publication sera mis à jour sur mobile et ordinateur. L’original est conservé ; cette action n’achète aucune génération d’image."
+  },
+  "正在采用…": {
+    "en": "Applying…",
+    "fr": "Application…"
+  },
+  "确认采用": {
+    "en": "Confirm",
+    "fr": "Confirmer"
+  },
+  "停止这些作品链接？": {
+    "en": "Disable these artwork links?",
+    "fr": "Désactiver ces liens ?"
+  },
+  "此故事所有旧图文链接都会失效；之后可以重新创建新链接。": {
+    "en": "All previous artwork links for this story will stop working. You can create new links later.",
+    "fr": "Tous les anciens liens de cette histoire seront désactivés. Vous pourrez en créer de nouveaux."
+  },
+  "旧作品链接已停止": {
+    "en": "Previous artwork links disabled",
+    "fr": "Anciens liens désactivés"
+  },
+  "确认停止": {
+    "en": "Disable links",
+    "fr": "Désactiver les liens"
+  },
+  "我": {
+    "en": "Profile",
+    "fr": "Profil"
+  },
+  "访客": {
+    "en": "Guest",
+    "fr": "Invité"
+  },
+  "访客身份 · 未绑定邮箱": {
+    "en": "Guest account · no email linked",
+    "fr": "Compte invité · aucun e-mail associé"
+  },
+  "未登录": {
+    "en": "Not signed in",
+    "fr": "Non connecté"
+  },
+  "算力余额": {
+    "en": "Credit balance",
+    "fr": "Solde de crédits"
+  },
+  "我的日历": {
+    "en": "My calendar",
+    "fr": "Mon calendrier"
+  },
+  "今天的来信与过往记录": {
+    "en": "Daily letters and past entries",
+    "fr": "Lettres du jour et souvenirs passés"
+  },
+  "我的风格": {
+    "en": "My style",
+    "fr": "Mon style"
+  },
+  "已选": {
+    "en": "Selected",
+    "fr": "Sélectionné"
+  },
+  "五行杯子风格": {
+    "en": "Five element cups",
+    "fr": "Tasses des cinq éléments"
+  },
+  "用手机授权电脑登录同一账号": {
+    "en": "Sign in on desktop with this account",
+    "fr": "Connecter l’ordinateur avec ce compte"
+  },
+  "出生信息": {
+    "en": "Birth details",
+    "fr": "Informations de naissance"
+  },
+  "来信会按这些资料写。改完之后，今天的信会重新算一遍。": {
+    "en": "Letters use these details. Updating them recalculates today’s letter.",
+    "fr": "Les lettres utilisent ces informations. Les modifier recalcule la lettre du jour."
+  },
+  "只填一次。不填也能读信，只是那封信不会贴着你写。": {
+    "en": "Fill in once for more personal letters. This is optional.",
+    "fr": "À remplir une fois pour des lettres plus personnelles. Facultatif."
+  },
+  "退出登录": {
+    "en": "Sign out",
+    "fr": "Se déconnecter"
+  },
+  "今天的来信": {
+    "en": "Today’s letter",
+    "fr": "Lettre du jour"
+  },
+  "今天写给你的那封": {
+    "en": "A letter for you today",
+    "fr": "Une lettre pour vous aujourd’hui"
+  },
+  "改完之后，今天的信会重新算一遍。": {
+    "en": "Updating this recalculates today’s letter.",
+    "fr": "La modification recalcule la lettre du jour."
+  },
+  "正在读取原聊天…": {
+    "en": "Loading original conversation…",
+    "fr": "Chargement du dialogue d’origine…"
+  },
+  "聊天暂未读到。": {
+    "en": "Conversation unavailable.",
+    "fr": "Dialogue indisponible."
+  },
+  "聊天目录": {
+    "en": "Conversation contents",
+    "fr": "Sommaire du dialogue"
+  },
+  "那时聊到 · 点一句查看，找小忆接着聊": {
+    "en": "Topics we discussed · tap a line, then continue with Xiaoyi",
+    "fr": "Sujets abordés · touchez une phrase, puis continuez avec Xiaoyi"
+  },
+  "查看这段对话": {
+    "en": "View this conversation",
+    "fr": "Voir ce dialogue"
+  },
+  "这个故事还没有已保存的聊天。手写记事和修订可以在“回忆存档”里查看。": {
+    "en": "No saved conversation yet. Find notes and revisions in the memory archive.",
+    "fr": "Aucun dialogue enregistré. Retrouvez notes et révisions dans les archives des souvenirs."
+  },
+  "小忆回应": {
+    "en": "Xiaoyi’s response",
+    "fr": "Réponse de Xiaoyi"
+  },
+  "制作图文 →": {
+    "en": "Create artwork →",
+    "fr": "Créer une œuvre →"
+  },
+  "新想法连同来源引用追加到这个故事，原回忆保留。": {
+    "en": "New thoughts and their source are added to this story. The original memory is kept.",
+    "fr": "Les nouvelles idées et leur source sont ajoutées à cette histoire. Le souvenir original est conservé."
+  },
+  "手机工作区": {
+    "en": "Mobile workspace",
+    "fr": "Espace mobile"
+  },
+  "返回故事": {
+    "en": "Back to stories",
+    "fr": "Retour aux histoires"
+  },
+  "收起小忆": {
+    "en": "Close Xiaoyi",
+    "fr": "Fermer Xiaoyi"
+  },
+  "找小忆，聊一个新故事": {
+    "en": "Start a new story with Xiaoyi",
+    "fr": "Nouvelle histoire avec Xiaoyi"
+  },
+  "这段新故事，慢慢聊": {
+    "en": "Take your time with this new story",
+    "fr": "Prenez votre temps pour cette nouvelle histoire"
+  },
+  "从一件小事开始，聊一个新故事": {
+    "en": "A new story starts with a small moment",
+    "fr": "Une nouvelle histoire commence par un petit moment"
+  },
+  "收起": {
+    "en": "Close",
+    "fr": "Fermer"
+  },
+  "第一句话已保留，重试聊天记录后继续发送。": {
+    "en": "Your first message is kept. Reload the conversation to send it.",
+    "fr": "Votre premier message est conservé. Rechargez le dialogue pour l’envoyer."
+  },
+  "我在呢。\n今天想从哪件小事聊起？": {
+    "en": "I’m here.\nWhat little moment shall we start with?",
+    "fr": "Je suis là.\nPar quel petit moment commencer ?"
+  },
+  "正在建立故事…": {
+    "en": "Creating story…",
+    "fr": "Création de l’histoire…"
+  },
+  "小忆正在听…": {
+    "en": "Xiaoyi is listening…",
+    "fr": "Xiaoyi vous écoute…"
+  },
+  "对话保存在故事里，电脑也能接着看": {
+    "en": "Saved in your story, also available on desktop",
+    "fr": "Enregistré dans votre histoire, accessible aussi sur ordinateur"
+  },
+  "发送第一句话后，才会建立故事": {
+    "en": "Your story begins when you send your first message",
+    "fr": "Votre histoire commence avec votre premier message"
+  },
+  "另聊一个": {
+    "en": "Start another",
+    "fr": "Commencer une autre"
+  },
+  "尚未接入": {
+    "en": "Not available yet",
+    "fr": "Pas encore disponible"
+  },
+  "故事": {
+    "en": "Stories",
+    "fr": "Histoires"
+  },
+  "全部内容": {
+    "en": "All content",
+    "fr": "Tous les contenus"
+  },
+  "回忆": {
+    "en": "Memories",
+    "fr": "Souvenirs"
+  },
+  "视频": {
+    "en": "Videos",
+    "fr": "Vidéos"
+  },
+  "正在继续": {
+    "en": "Continue your story",
+    "fr": "Continuer votre histoire"
+  },
+  "查看记忆 →": {
+    "en": "View memories →",
+    "fr": "Voir les souvenirs →"
+  },
+  "查看文字稿 ›": {
+    "en": "View drafts ›",
+    "fr": "Voir les textes ›"
+  },
+  "还没有正在继续的故事。": {
+    "en": "No story in progress yet.",
+    "fr": "Aucune histoire en cours."
+  },
+  "以前的故事": {
+    "en": "Previous stories",
+    "fr": "Histoires précédentes"
+  },
+  "以前的故事会出现在这里。": {
+    "en": "Your previous stories will appear here.",
+    "fr": "Vos histoires précédentes apparaîtront ici."
+  },
+  "开启新故事，或回到以前的故事": {
+    "en": "Start a new story or return to an earlier one",
+    "fr": "Commencez une histoire ou retrouvez-en une précédente"
+  },
+  "正在新建…": {
+    "en": "Creating…",
+    "fr": "Création…"
+  },
+  "开启新故事": {
+    "en": "Start a new story",
+    "fr": "Commencer une histoire"
+  },
+  "回到以前的故事": {
+    "en": "Return to previous stories",
+    "fr": "Retrouver les histoires précédentes"
+  },
+  "还没有故事，先开一个吧": {
+    "en": "No stories yet. Start your first one.",
+    "fr": "Aucune histoire. Commencez la première."
+  },
+  "还没动过": {
+    "en": "Not started",
+    "fr": "Pas encore commencé"
+  },
+  "故事制作阶段": {
+    "en": "Story stages",
+    "fr": "Étapes de l’histoire"
+  },
+  "返回故事列表": {
+    "en": "Back to story list",
+    "fr": "Retour à la liste des histoires"
+  },
+  "文字历史暂未读到。": {
+    "en": "Draft history unavailable.",
+    "fr": "Historique des textes indisponible."
+  },
+  "文字版本": {
+    "en": "Draft versions",
+    "fr": "Versions du texte"
+  },
+  " · 未保存": {
+    "en": " · Unsaved",
+    "fr": " · Non enregistré"
+  },
+  "文字稿": {
+    "en": "Draft",
+    "fr": "Texte"
+  },
+  " · 已采用": {
+    "en": " · Active",
+    "fr": " · Adopté"
+  },
+  " · 待采用": {
+    "en": " · Not adopted",
+    "fr": " · À adopter"
+  },
+  " · 未完成": {
+    "en": " · Incomplete",
+    "fr": " · Inachevé"
+  },
+  "阅读": {
+    "en": "Read",
+    "fr": "Lire"
+  },
+  "先保存文字修改，再制作图文。": {
+    "en": "Save your changes before creating artwork.",
+    "fr": "Enregistrez vos modifications avant de créer l’œuvre."
+  },
+  "文字稿阅读": {
+    "en": "Read draft",
+    "fr": "Lire le texte"
+  },
+  "有未保存修改，可在编辑中保存。": {
+    "en": "You have unsaved changes. Save them in Edit.",
+    "fr": "Modifications non enregistrées. Enregistrez-les dans Modifier."
+  },
+  "还没有正文，点编辑开始写。": {
+    "en": "No text yet. Tap Edit to start writing.",
+    "fr": "Aucun texte. Touchez Modifier pour commencer."
+  },
+  "重新读取正文": {
+    "en": "Reload draft",
+    "fr": "Recharger le texte"
+  },
+  "正在读取文字历史…": {
+    "en": "Loading draft history…",
+    "fr": "Chargement de l’historique…"
+  },
+  "这份文字稿正在生成。": {
+    "en": "This draft is being created.",
+    "fr": "Ce texte est en cours de création."
+  },
+  "这份文字稿尚未生成成功，已有正文不受影响。": {
+    "en": "This draft could not be created. Existing text is unchanged.",
+    "fr": "La création de ce texte a échoué. Le texte existant est conservé."
+  },
+  "记忆来源": {
+    "en": "Memory source",
+    "fr": "Source des souvenirs"
+  },
+  "原始聊天 · 目录与上下文": {
+    "en": "Original chat · contents & context",
+    "fr": "Dialogue d’origine · sommaire et contexte"
+  },
+  "回忆存档 · 记事、修订与图文": {
+    "en": "Memory archive · notes, revisions & artwork",
+    "fr": "Archives · notes, révisions et œuvres"
+  },
+  "使用的记忆 ·": {
+    "en": "memories used ·",
+    "fr": "souvenirs utilisés ·"
+  },
+  "段": {
+    "en": "passages",
+    "fr": "passages"
+  },
+  "这份文字稿使用的记忆组合，按生成时的顺序保留。": {
+    "en": "Memories used in this draft, in their original order.",
+    "fr": "Souvenirs utilisés pour ce texte, dans leur ordre d’origine."
+  },
+  "这段故事留下的聊天；不同记忆可以组合成不同文字稿。": {
+    "en": "Conversations behind this story. Combine memories into different drafts.",
+    "fr": "Les dialogues de cette histoire. Combinez des souvenirs pour créer différents textes."
+  },
+  "我的记事": {
+    "en": "My notes",
+    "fr": "Mes notes"
+  },
+  "查看这个故事已有的视频素材。新的视频制作继续在电脑工作区完成。": {
+    "en": "View this story’s existing videos. Create new videos in the desktop workspace.",
+    "fr": "Regardez les vidéos de cette histoire. Créez de nouvelles vidéos sur ordinateur."
+  },
+  "视频暂时没有读到。": {
+    "en": "Videos unavailable.",
+    "fr": "Vidéos indisponibles."
+  },
+  " · 已用于时间线": {
+    "en": " · On the timeline",
+    "fr": " · Sur la timeline"
+  },
+  "这个故事还没有视频素材。文字稿准备好后，可以在电脑上继续制作视频。": {
+    "en": "No videos yet. Once the draft is ready, continue video creation on desktop.",
+    "fr": "Aucune vidéo. Une fois le texte prêt, poursuivez la création vidéo sur ordinateur."
+  },
+  "编辑记忆": {
+    "en": "Edit memory",
+    "fr": "Modifier le souvenir"
+  },
+  "编辑文字稿": {
+    "en": "Edit draft",
+    "fr": "Modifier le texte"
+  },
+  "保存为修订记忆，原文保留在归档中。": {
+    "en": "Save a revised memory. The original stays in the archive.",
+    "fr": "Enregistrer un souvenir révisé. L’original reste dans les archives."
+  },
+  "保存为新的文字版本，旧稿保留。": {
+    "en": "Save a new draft version, keeping the old one.",
+    "fr": "Enregistrer une nouvelle version en conservant l’ancienne."
+  },
+  "电脑端也能看到。": {
+    "en": "Also available on desktop.",
+    "fr": "Également disponible sur ordinateur."
+  },
+  "标题": {
+    "en": "Title",
+    "fr": "Titre"
+  },
+  "内容": {
+    "en": "Content",
+    "fr": "Contenu"
+  },
+  "本机无法保留草稿，请先复制内容再离开。": {
+    "en": "This device cannot keep your draft. Copy it before leaving.",
+    "fr": "Cet appareil ne peut pas conserver le brouillon. Copiez-le avant de quitter."
+  },
+  "还有未保存修改，再点一次将放弃。": {
+    "en": "Unsaved changes. Tap again to discard.",
+    "fr": "Modifications non enregistrées. Touchez à nouveau pour abandonner."
+  },
+  "确认放弃": {
+    "en": "Discard changes",
+    "fr": "Abandonner les modifications"
+  },
+  "保存修改": {
+    "en": "Save changes",
+    "fr": "Enregistrer les modifications"
+  },
+  "聊天工作区": {
+    "en": "Chat workspace",
+    "fr": "Espace de dialogue"
+  },
+  "正在想…": {
+    "en": "Thinking…",
+    "fr": "Réflexion…"
+  },
+  "收起聊聊": {
+    "en": "Close chat",
+    "fr": "Fermer le dialogue"
+  },
+  "展开聊天": {
+    "en": "Open chat",
+    "fr": "Ouvrir le dialogue"
+  },
+  "收起聊天": {
+    "en": "Close chat",
+    "fr": "Fermer le dialogue"
+  },
+  "在这儿": {
+    "en": "Here",
+    "fr": "Ici"
+  },
+  "还没有故事": {
+    "en": "No stories yet",
+    "fr": "Aucune histoire"
+  },
+  "新建一个，就从这里开始聊。电脑上也能接着写同一个故事。": {
+    "en": "Create a story and start chatting here. Continue the same story on desktop.",
+    "fr": "Créez une histoire et discutez ici. Retrouvez la même histoire sur ordinateur."
+  },
+  "新建一个故事": {
+    "en": "Create a story",
+    "fr": "Créer une histoire"
+  },
+  "Story 暂时无法读取": {
+    "en": "Stories unavailable",
+    "fr": "Histoires indisponibles"
+  },
+  "重试 Story 列表": {
+    "en": "Reload stories",
+    "fr": "Recharger les histoires"
+  },
+  "切换 Story 前处理正文": {
+    "en": "Save your draft before switching",
+    "fr": "Enregistrer le texte avant de changer"
+  },
+  "当前正文还有未保存的修改。请选择保存、放弃修改，或留在这里继续编辑。": {
+    "en": "You have unsaved changes. Save, discard, or stay here to keep editing.",
+    "fr": "Modifications non enregistrées. Enregistrez, abandonnez ou restez pour continuer."
+  },
+  "放弃修改": {
+    "en": "Discard changes",
+    "fr": "Abandonner les modifications"
+  },
+  "请检查网络后重试": {
+    "en": "Check your connection and retry",
+    "fr": "Vérifiez votre connexion et réessayez"
+  },
+  "正在读取 Story…": {
+    "en": "Loading story…",
+    "fr": "Chargement de l’histoire…"
+  },
+  "正在打开最近的 Story…": {
+    "en": "Opening your latest story…",
+    "fr": "Ouverture de votre dernière histoire…"
+  },
+  "正在读余额…": {
+    "en": "Loading balance…",
+    "fr": "Chargement du solde…"
+  },
+  "算力": {
+    "en": "Credits",
+    "fr": "Crédits"
+  },
+  "余额没读到，点这里重试": {
+    "en": "Balance unavailable. Tap to retry.",
+    "fr": "Solde indisponible. Touchez pour réessayer."
+  },
+  "本机": {
+    "en": "Local",
+    "fr": "Local"
+  },
+  "不限额": {
+    "en": "Unlimited",
+    "fr": "Illimité"
+  },
+  "本机累计使用": {
+    "en": "Local usage: ",
+    "fr": "Utilisation locale : "
+  },
+  "（仅已接入账本的调用）": {
+    "en": "(tracked requests only)",
+    "fr": "(requêtes comptabilisées uniquement)"
+  },
+  "账目对不上，请联系我们，先别继续生成": {
+    "en": "Balance mismatch. Contact us before generating more.",
+    "fr": "Solde incohérent. Contactez-nous avant de continuer."
+  },
+  "暂无算力，浏览和手动编辑不受影响": {
+    "en": "No credits yet. Browsing and manual editing remain available.",
+    "fr": "Aucun crédit. Lecture et modification manuelle restent disponibles."
+  },
+  "额度用完，付费生成暂停": {
+    "en": "Credits used up; paid generation paused",
+    "fr": "Crédits épuisés ; création payante suspendue"
+  },
+  "额度用完了，浏览和手动编辑不受影响": {
+    "en": "Credits used up. Browsing and manual editing remain available.",
+    "fr": "Crédits épuisés. Lecture et modification manuelle restent disponibles."
+  },
+  "另有": {
+    "en": "Also ",
+    "fr": "Également "
+  },
+  "正在生成中占用": {
+    "en": "reserved for generation",
+    "fr": "réservés à la création"
+  },
+  "返回工作区": {
+    "en": "Back to workspace",
+    "fr": "Retour à l’espace de travail"
+  },
+  "来信与日常，都在这里。": {
+    "en": "Your letters and everyday moments.",
+    "fr": "Vos lettres et moments du quotidien."
+  },
+  "资料与记忆": {
+    "en": "Profile & memories",
+    "fr": "Profil et souvenirs"
+  },
+  "当前账号": {
+    "en": "Current account",
+    "fr": "Compte actuel"
+  },
+  "自动记忆尚未开启，新聊天暂不会整理成长期理解。": {
+    "en": "Automatic memory is off. New chats will not build long-term insights.",
+    "fr": "La mémoire automatique est désactivée. Les nouveaux dialogues ne créeront pas de compréhension durable."
+  },
+  "系统推断可以纠正；忘记理解不会删除原始聊天与作品。": {
+    "en": "You can correct insights. Forgetting them does not delete chats or works.",
+    "fr": "Vous pouvez corriger les interprétations. Les oublier ne supprime pas les dialogues ni les œuvres."
+  },
+  "正在读取…": {
+    "en": "Loading…",
+    "fr": "Chargement…"
+  },
+  "重新读取记忆": {
+    "en": "Reload memories",
+    "fr": "Recharger les souvenirs"
+  },
+  "还没有形成可展示的理解。": {
+    "en": "No insights to display yet.",
+    "fr": "Aucune interprétation à afficher."
+  },
+  "个人日历": {
+    "en": "Personal calendar",
+    "fr": "Calendrier personnel"
+  },
+  "月": {
+    "en": "month",
+    "fr": "mois"
+  },
+  "上个月": {
+    "en": "Previous month",
+    "fr": "Mois précédent"
+  },
+  "今天": {
+    "en": "Today",
+    "fr": "Aujourd’hui"
+  },
+  "下个月": {
+    "en": "Next month",
+    "fr": "Mois suivant"
+  },
+  "一二三四五六日": {
+    "en": "MTWTFSS",
+    "fr": "LMMJVSD"
+  },
+  "，有新内容": {
+    "en": ", new content",
+    "fr": ", nouveau contenu"
+  },
+  "小圆点 · 当天有原话、感悟或采用的作品": {
+    "en": "Dot · words, reflections or adopted works from that day",
+    "fr": "Point · mots, réflexions ou œuvres adoptées ce jour-là"
+  },
+  "正在读取日期标记…": {
+    "en": "Loading calendar markers…",
+    "fr": "Chargement des repères…"
+  },
+  "日期标记未完整加载，点击重试": {
+    "en": "Calendar markers incomplete. Tap to retry.",
+    "fr": "Repères incomplets. Touchez pour réessayer."
+  },
+  "当天的来信与记录": {
+    "en": "Letters and entries for this day",
+    "fr": "Lettres et notes du jour"
+  },
+  "这一天暂未读到，点击重试": {
+    "en": "Could not load this day. Tap to retry.",
+    "fr": "Chargement impossible pour ce jour. Touchez pour réessayer."
+  },
+  "正在展开这一天…": {
+    "en": "Opening this day…",
+    "fr": "Ouverture de cette journée…"
+  },
+  "写给你的一封信": {
+    "en": "A letter for you",
+    "fr": "Une lettre pour vous"
+  },
+  "这一天还没到，来信也还在路上。": {
+    "en": "This day is still ahead; its letter is on its way.",
+    "fr": "Ce jour est à venir ; sa lettre est en chemin."
+  },
+  "这一天还没有保存的来信。": {
+    "en": "No saved letter for this day.",
+    "fr": "Aucune lettre enregistrée pour ce jour."
+  },
+  "打开完整来信": {
+    "en": "Open full letter",
+    "fr": "Ouvrir la lettre complète"
+  },
+  "我的语言": {
+    "en": "My language",
+    "fr": "Ma langue"
+  },
+  "界面语言": {
+    "en": "Interface language",
+    "fr": "Langue de l’interface"
+  },
+  "金": {
+    "en": "Metal",
+    "fr": "Métal"
+  },
+  "木": {
+    "en": "Wood",
+    "fr": "Bois"
+  },
+  "水": {
+    "en": "Water",
+    "fr": "Eau"
+  },
+  "火": {
+    "en": "Fire",
+    "fr": "Feu"
+  },
+  "土": {
+    "en": "Earth",
+    "fr": "Terre"
+  },
+  "金 · 啤酒杯": {
+    "en": "Metal · Beer glass",
+    "fr": "Métal · Verre à bière"
+  },
+  "木 · 茶碗": {
+    "en": "Wood · Tea bowl",
+    "fr": "Bois · Bol à thé"
+  },
+  "水 · 椰子": {
+    "en": "Water · Coconut",
+    "fr": "Eau · Noix de coco"
+  },
+  "火 · 茶壶": {
+    "en": "Fire · Teapot",
+    "fr": "Feu · Théière"
+  },
+  "土 · 咖啡杯": {
+    "en": "Earth · Coffee cup",
+    "fr": "Terre · Tasse à café"
+  },
+  "充值算力": {
+    "en": "Add credits",
+    "fr": "Ajouter des crédits"
+  },
+  "算力用于 AI 生成，登录、浏览和手动编辑不受余额影响。": {
+    "en": "Credits power AI generation. Sign-in, browsing and manual editing do not require credits.",
+    "fr": "Les crédits servent à la création par IA. Connexion, lecture et modification manuelle restent accessibles."
+  },
+  "正在查询充值状态…": {
+    "en": "Checking payment status…",
+    "fr": "Vérification du paiement…"
+  },
+  "暂时无法查询充值状态，请重试。": {
+    "en": "Could not check payment status. Please retry.",
+    "fr": "Impossible de vérifier le paiement. Réessayez."
+  },
+  "单次充值算力": {
+    "en": "One-time credit purchase",
+    "fr": "Achat ponctuel de crédits"
+  },
+  "单次充值不自动续费。具体档位将在支付宝收银台启用时一并公布。": {
+    "en": "One-time purchases do not renew. Amounts will be announced when Alipay checkout opens.",
+    "fr": "Les achats ponctuels ne sont pas renouvelés. Les montants seront annoncés à l’ouverture du paiement Alipay."
+  },
+  "微信号：": {
+    "en": "WeChat: ",
+    "fr": "WeChat : "
+  },
+  "正在生成配图 · 已等待": {
+    "en": "Generating images · elapsed ",
+    "fr": "Création des images · durée "
+  },
+  "分": {
+    "en": "min",
+    "fr": "min"
+  },
+  "秒": {
+    "en": "s",
+    "fr": "s"
+  },
+  "选择参考封面": {
+    "en": "Choose reference cover",
+    "fr": "Choisir une couverture de référence"
+  },
+  "参考封面": {
+    "en": "Reference cover",
+    "fr": "Couverture de référence"
+  },
+  "先生成封面": {
+    "en": "Create a cover first",
+    "fr": "Créez d’abord une couverture"
+  },
+  "插入正文": {
+    "en": "Insert into text",
+    "fr": "Insérer dans le texte"
+  },
+  "插入位置": {
+    "en": "Insertion point",
+    "fr": "Emplacement"
+  },
+  "请重新选择位置": {
+    "en": "Choose the position again",
+    "fr": "Choisissez à nouveau l’emplacement"
+  },
+  "正文开头（默认）": {
+    "en": "Beginning of text (default)",
+    "fr": "Début du texte (par défaut)"
+  },
+  "原位置无法定位，请重新选择段落。": {
+    "en": "Original position not found. Choose a paragraph again.",
+    "fr": "Emplacement d’origine introuvable. Choisissez un autre paragraphe."
+  },
+  "移除插图": {
+    "en": "Remove illustration",
+    "fr": "Retirer l’illustration"
+  },
+  "文章图片制作": {
+    "en": "Text artwork studio",
+    "fr": "Atelier de mise en image"
+  },
+  "把记忆做成图片": {
+    "en": "Turn memories into images",
+    "fr": "Mettre un souvenir en image"
+  },
+  "把文章做成图片": {
+    "en": "Turn writing into images",
+    "fr": "Mettre un texte en image"
+  },
+  "已有图片": {
+    "en": "Existing images",
+    "fr": "Images existantes"
+  },
+  "张": {
+    "en": "images",
+    "fr": "images"
+  },
+  "（待更新）": {
+    "en": "(update pending)",
+    "fr": "(mise à jour en attente)"
+  },
+  "图文制作步骤": {
+    "en": "Artwork steps",
+    "fr": "Étapes de création"
+  },
+  "预览": {
+    "en": "Preview",
+    "fr": "Aperçu"
+  },
+  "配图": {
+    "en": "Images",
+    "fr": "Images"
+  },
+  "排版": {
+    "en": "Layout",
+    "fr": "Mise en page"
+  },
+  "编辑封面": {
+    "en": "Edit cover",
+    "fr": "Modifier la couverture"
+  },
+  "生成封面": {
+    "en": "Create cover",
+    "fr": "Créer une couverture"
+  },
+  "封面生成要求": {
+    "en": "Cover instructions",
+    "fr": "Consignes pour la couverture"
+  },
+  "想要怎样的画面？留空则根据文章生成": {
+    "en": "Describe the image, or leave blank to use your text.",
+    "fr": "Décrivez l’image, ou laissez vide pour utiliser le texte."
+  },
+  "确认生成 4 张 ·": {
+    "en": "Create 4 images ·",
+    "fr": "Créer 4 images ·"
+  },
+  "封面 · ": {
+    "en": "Cover · ",
+    "fr": "Couverture · "
+  },
+  "暂无配图": {
+    "en": "No images yet",
+    "fr": "Aucune image"
+  },
+  "画册图片读取失败，请刷新后重试。封面候选仍可使用。": {
+    "en": "Could not load album images. Refresh and retry. Cover candidates are still available.",
+    "fr": "Images de l’album indisponibles. Actualisez et réessayez. Les couvertures restent disponibles."
+  },
+  "正文插图（可多选）": {
+    "en": "Text illustrations (multiple selection)",
+    "fr": "Illustrations du texte (choix multiple)"
+  },
+  "生成插图": {
+    "en": "Create illustration",
+    "fr": "Créer une illustration"
+  },
+  "生成横版插图 · 16:9": {
+    "en": "Create landscape illustration · 16:9",
+    "fr": "Créer une illustration paysage · 16:9"
+  },
+  "插图内容": {
+    "en": "Illustration description",
+    "fr": "Description de l’illustration"
+  },
+  "想画什么？留空则根据文章内容生成": {
+    "en": "What should we draw? Leave blank to use your text.",
+    "fr": "Que souhaitez-vous illustrer ? Laissez vide pour utiliser le texte."
+  },
+  "横版插图候选": {
+    "en": "Landscape candidates",
+    "fr": "Propositions en paysage"
+  },
+  "请重新定位": {
+    "en": "Choose a new position",
+    "fr": "Choisir un nouvel emplacement"
+  },
+  "已插入": {
+    "en": "Inserted",
+    "fr": "Inséré"
+  },
+  "保留的原配图": {
+    "en": "Original images kept",
+    "fr": "Images d’origine conservées"
+  },
+  "来自其他封面": {
+    "en": "From another cover",
+    "fr": "D’une autre couverture"
+  },
+  "不可用。": {
+    "en": "unavailable.",
+    "fr": "indisponible."
+  },
+  "整套底图": {
+    "en": "Background for all pages",
+    "fr": "Fond de toutes les pages"
+  },
+  "取色未完成": {
+    "en": "Color sampling incomplete",
+    "fr": "Prélèvement des couleurs incomplet"
+  },
+  "取色中…": {
+    "en": "Sampling colors…",
+    "fr": "Prélèvement des couleurs…"
+  },
+  "生成底图": {
+    "en": "Create background",
+    "fr": "Créer un fond"
+  },
+  "生成花纹底图 · 3:4": {
+    "en": "Create textured background · 3:4",
+    "fr": "Créer un fond texturé · 3:4"
+  },
+  "底图花纹要求": {
+    "en": "Background instructions",
+    "fr": "Consignes pour le fond"
+  },
+  "例如：细腻纸纹、淡淡水彩、稀疏植物纹样": {
+    "en": "For example: fine paper, light watercolor, sparse leaves",
+    "fr": "Ex. : papier fin, aquarelle légère, feuillage discret"
+  },
+  "重试取色": {
+    "en": "Retry color sampling",
+    "fr": "Réessayer les couleurs"
+  },
+  "正文纹理": {
+    "en": "Text page texture",
+    "fr": "Texture des pages"
+  },
+  "换一组免费纹理": {
+    "en": "More free textures",
+    "fr": "Autres textures gratuites"
+  },
+  "排版设置": {
+    "en": "Layout settings",
+    "fr": "Réglages de mise en page"
+  },
+  "封面文字": {
+    "en": "Cover text",
+    "fr": "Texte de couverture"
+  },
+  "默认使用文章标题，也可以自己填写": {
+    "en": "Uses the title by default, or write your own.",
+    "fr": "Le titre est utilisé par défaut ; vous pouvez le remplacer."
+  },
+  "用已有图片作插图": {
+    "en": "Use an existing image",
+    "fr": "Utiliser une image existante"
+  },
+  "添加已有图片作插图": {
+    "en": "Add an existing illustration",
+    "fr": "Ajouter une illustration existante"
+  },
+  "选择图片添加": {
+    "en": "Choose an image",
+    "fr": "Choisir une image"
+  },
+  "整套字体": {
+    "en": "Font for all pages",
+    "fr": "Police de toutes les pages"
+  },
+  "包含封面": {
+    "en": "Include cover",
+    "fr": "Inclure la couverture"
+  },
+  "设置仅存本机": {
+    "en": "Settings saved on this device",
+    "fr": "Réglages enregistrés sur cet appareil"
+  },
+  "请选择封面，或在排版设置中取消封面。": {
+    "en": "Choose a cover or disable it in layout settings.",
+    "fr": "Choisissez une couverture ou désactivez-la dans les réglages."
+  },
+  "底图不可用，请重选。": {
+    "en": "Background unavailable. Choose another.",
+    "fr": "Fond indisponible. Choisissez-en un autre."
+  },
+  "插图不可用，请重选。": {
+    "en": "Illustration unavailable. Choose another.",
+    "fr": "Illustration indisponible. Choisissez-en une autre."
+  },
+  "重试排版": {
+    "en": "Retry layout",
+    "fr": "Réessayer la mise en page"
+  },
+  "成品预览": {
+    "en": "Artwork preview",
+    "fr": "Aperçu de l’œuvre"
+  },
+  "正在更新…": {
+    "en": "Updating…",
+    "fr": "Mise à jour…"
+  },
+  "成品图片列表": {
+    "en": "Finished images",
+    "fr": "Images finales"
+  },
+  "下载整套": {
+    "en": "Download all",
+    "fr": "Tout télécharger"
+  },
+  "复制当前图片": {
+    "en": "Copy current image",
+    "fr": "Copier cette image"
+  },
+  "分享图片": {
+    "en": "Share images",
+    "fr": "Partager les images"
+  },
+  "下载当前图片": {
+    "en": "Download current image",
+    "fr": "Télécharger cette image"
+  },
+  "长按预览图可保存到手机；也可逐张下载后发布到社交平台。": {
+    "en": "Press and hold an image to save it, or download each page to share elsewhere.",
+    "fr": "Appuyez longuement pour enregistrer l’image, ou téléchargez les pages pour les partager."
+  },
+  "此浏览器暂不支持直接分享图片。": {
+    "en": "This browser does not support direct image sharing.",
+    "fr": "Ce navigateur ne permet pas le partage direct d’images."
+  },
+  "逐页编辑画册": {
+    "en": "Edit album pages",
+    "fr": "Modifier les pages de l’album"
+  },
+  "分享作品链接": {
+    "en": "Share artwork link",
+    "fr": "Partager le lien de l’œuvre"
+  },
+  "分享这套图文": {
+    "en": "Share this artwork",
+    "fr": "Partager cette œuvre"
+  },
+  "将昵称、头像、作品标题和下方": {
+    "en": "Create a public page with your nickname, avatar, title and these ",
+    "fr": "Créer une page publique avec votre pseudo, votre avatar, le titre et ces "
+  },
+  "张成品图片做成网页。无需登录，持有链接的人都能查看和转发。之后修改原稿不会改变这份作品。": {
+    "en": "finished images. Anyone with the link can view and forward it without signing in. Later draft edits will not change this artwork.",
+    "fr": "images finales. Toute personne disposant du lien peut consulter et partager la page sans connexion. Les modifications ultérieures du texte ne changeront pas cette œuvre."
+  },
+  "我的图文作品": {
+    "en": "My artwork",
+    "fr": "Mon œuvre"
+  },
+  "这是本地预览环境，生成的链接只能在当前电脑访问。正式站部署后才能发给别人。": {
+    "en": "This is a local preview. Links work only on this computer until deployed to the public site.",
+    "fr": "Ceci est un aperçu local. Les liens ne fonctionnent que sur cet ordinateur avant publication sur le site."
+  },
+  "链接已生成，可以复制或打开查看。": {
+    "en": "Link created. Copy it or open the page.",
+    "fr": "Lien créé. Copiez-le ou ouvrez la page."
+  },
+  "作品链接": {
+    "en": "Artwork link",
+    "fr": "Lien de l’œuvre"
+  },
+  "请长按上方链接复制": {
+    "en": "Press and hold the link above to copy it",
+    "fr": "Appuyez longuement sur le lien pour le copier"
+  },
+  "已复制链接": {
+    "en": "Link copied",
+    "fr": "Lien copié"
+  },
+  "复制链接": {
+    "en": "Copy link",
+    "fr": "Copier le lien"
+  },
+  "打开作品": {
+    "en": "Open artwork",
+    "fr": "Ouvrir l’œuvre"
+  },
+  "请复制链接后发送": {
+    "en": "Copy the link to send it",
+    "fr": "Copiez le lien pour l’envoyer"
+  },
+  "发送给朋友": {
+    "en": "Send to a friend",
+    "fr": "Envoyer à un ami"
+  },
+  "正在准备图片…": {
+    "en": "Preparing images…",
+    "fr": "Préparation des images…"
+  },
+  "确认图片并生成链接": {
+    "en": "Confirm images and create link",
+    "fr": "Confirmer et créer le lien"
+  },
+  "关闭预览": {
+    "en": "Close preview",
+    "fr": "Fermer l’aperçu"
+  },
+  "图片大图预览，可长按保存图片。": {
+    "en": "Full-size preview. Press and hold to save.",
+    "fr": "Aperçu agrandi. Appuyez longuement pour enregistrer."
+  },
+  "来源已删除": {
+    "en": "Source deleted",
+    "fr": "Source supprimée"
+  },
+  "正在确认来源…": {
+    "en": "Checking source…",
+    "fr": "Vérification de la source…"
+  },
+  "查看来源": {
+    "en": "View source",
+    "fr": "Voir la source"
+  },
+  "这条记录的原内容已经不可显示。": {
+    "en": "The original content is no longer available.",
+    "fr": "Le contenu original n’est plus disponible."
+  },
+  "这一天的每日来信": {
+    "en": "This day’s letter",
+    "fr": "Lettre de ce jour"
+  },
+  "打开每日来信": {
+    "en": "Open daily letter",
+    "fr": "Ouvrir la lettre du jour"
+  },
+  "系统推断": {
+    "en": "System inference",
+    "fr": "Interprétation du système"
+  },
+  "用户确认": {
+    "en": "User confirmed",
+    "fr": "Confirmé par vous"
+  },
+  "依据": {
+    "en": "Based on",
+    "fr": "Fondé sur"
+  },
+  "当前": {
+    "en": "Current",
+    "fr": "Actuel"
+  },
+  "起的": {
+    "en": "from",
+    "fr": "depuis"
+  },
+  "条记录": {
+    "en": "entries",
+    "fr": "notes"
+  },
+  "纠正系统理解": {
+    "en": "Correct interpretation",
+    "fr": "Corriger l’interprétation"
+  },
+  "保存纠正": {
+    "en": "Save correction",
+    "fr": "Enregistrer la correction"
+  },
+  "这条理解已不可显示": {
+    "en": "This insight is no longer available",
+    "fr": "Cette interprétation n’est plus disponible"
+  },
+  "纠正": {
+    "en": "Correct",
+    "fr": "Corriger"
+  },
+  "暂不使用": {
+    "en": "Pause use",
+    "fr": "Suspendre l’utilisation"
+  },
+  "恢复使用": {
+    "en": "Resume use",
+    "fr": "Réactiver"
+  },
+  "忘记": {
+    "en": "Forget",
+    "fr": "Oublier"
+  },
+  "年柱": {
+    "en": "Year pillar",
+    "fr": "Pilier de l’année"
+  },
+  "月柱": {
+    "en": "Month pillar",
+    "fr": "Pilier du mois"
+  },
+  "日柱": {
+    "en": "Day pillar",
+    "fr": "Pilier du jour"
+  },
+  "聊会儿写给你的信": {
+    "en": "A letter for you",
+    "fr": "Une lettre pour vous"
+  },
+  "问题被好好看见，答案会慢慢浮出来。": {
+    "en": "When a question is heard, answers can slowly emerge.",
+    "fr": "Quand une question est entendue, les réponses peuvent émerger."
+  },
+  "再聊聊": {
+    "en": "Keep talking",
+    "fr": "Continuer à discuter"
+  },
+  "先在这台设备聊会儿": {
+    "en": "Start chatting on this device",
+    "fr": "Commencer sur cet appareil"
+  },
+  "关于你": {
+    "en": "About you",
+    "fr": "À propos de vous"
+  },
+  "你的生日": {
+    "en": "Your birthday",
+    "fr": "Votre date de naissance"
+  },
+  "要按你的生日推今天的干支，先留一个再点。": {
+    "en": "Add your birthday to calculate today’s reference.",
+    "fr": "Ajoutez votre date de naissance pour calculer la référence du jour."
+  },
+  "出生地（选填）": {
+    "en": "Birthplace (optional)",
+    "fr": "Lieu de naissance (facultatif)"
+  },
+  "例如：北京": {
+    "en": "For example: Beijing",
+    "fr": "Par exemple : Pékin"
+  },
+  "现在在哪里（选填）": {
+    "en": "Current location (optional)",
+    "fr": "Lieu actuel (facultatif)"
+  },
+  "例如：上海": {
+    "en": "For example: Shanghai",
+    "fr": "Par exemple : Shanghai"
+  },
+  "今天想说什么": {
+    "en": "What’s on your mind today?",
+    "fr": "Que souhaitez-vous dire aujourd’hui ?"
+  },
+  "按月份看看以前说过的话": {
+    "en": "Browse past words by month",
+    "fr": "Parcourir vos mots par mois"
+  },
+  "还没有以前说过的话": {
+    "en": "No past entries yet",
+    "fr": "Aucune note précédente"
+  },
+  "和以前的自己聊聊": {
+    "en": "Talk with your past self",
+    "fr": "Dialoguer avec votre passé"
+  },
+  "修改这句话": {
+    "en": "Edit these words",
+    "fr": "Modifier ces mots"
+  },
+  "可以说“接着上次那件事”，也可以直接写今天的新感受。": {
+    "en": "Continue an earlier thought, or write how you feel today.",
+    "fr": "Reprenez une idée précédente, ou décrivez votre ressenti du jour."
+  },
+  "今天发生了什么，或者此刻是什么感受？": {
+    "en": "What happened today, or how do you feel now?",
+    "fr": "Que s’est-il passé aujourd’hui, ou comment vous sentez-vous ?"
+  },
+  "拆开看看": {
+    "en": "Open the letter",
+    "fr": "Ouvrir la lettre"
+  },
+  "正在写今天的回信，通常要十几秒。": {
+    "en": "Writing today’s letter. This usually takes a few moments.",
+    "fr": "Rédaction de la lettre du jour. Cela prend généralement quelques instants."
+  },
+  "先不改": {
+    "en": "Keep for now",
+    "fr": "Garder pour l’instant"
+  },
+  "生日": {
+    "en": "Birthday",
+    "fr": "Date de naissance"
+  },
+  "· 更新于": {
+    "en": "· Updated",
+    "fr": "· Mis à jour"
+  },
+  "情绪分析": {
+    "en": "Mood reflection",
+    "fr": "Réflexion sur l’humeur"
+  },
+  "长期底盘": {
+    "en": "Personal background",
+    "fr": "Contexte personnel"
+  },
+  "如果你愿意，可以留下出生日期。聊会儿会把它作为长期背景线索，结合今天的农历、社会角色和日常节奏，给出一份不诊断、不算命的今日参考。": {
+    "en": "Optionally add your birth date. It is used with the lunar calendar and everyday context for a daily reflection, without diagnosis or fortune-telling.",
+    "fr": "Vous pouvez ajouter votre date de naissance. Elle sert de contexte avec le calendrier lunaire et le quotidien pour une réflexion, sans diagnostic ni prédiction."
+  },
+  "修改出生日期": {
+    "en": "Edit birth date",
+    "fr": "Modifier la date de naissance"
+  },
+  "填好日期后，这里会先预览一条今日情绪参考。": {
+    "en": "Enter a date to preview today’s mood reflection.",
+    "fr": "Saisissez une date pour un aperçu de la réflexion du jour."
+  },
+  "生成并保存": {
+    "en": "Create and save",
+    "fr": "Créer et enregistrer"
+  },
+  "今日情绪日程": {
+    "en": "Today’s mood schedule",
+    "fr": "Rythme émotionnel du jour"
+  },
+  "三个参照": {
+    "en": "Three references",
+    "fr": "Trois repères"
+  },
+  "已记录到情绪分析": {
+    "en": "Saved to mood reflections",
+    "fr": "Enregistré dans les réflexions"
+  },
+  "更新": {
+    "en": "Update",
+    "fr": "Mettre à jour"
+  },
+  "设置生日": {
+    "en": "Set birthday",
+    "fr": "Définir la date de naissance"
+  },
+  "公历生日": {
+    "en": "Gregorian birth date",
+    "fr": "Date de naissance grégorienne"
+  },
+  "设置出生时间": {
+    "en": "Set birth time",
+    "fr": "Définir l’heure de naissance"
+  },
+  "时辰": {
+    "en": "Birth time",
+    "fr": "Heure de naissance"
+  },
+  "可以不填": {
+    "en": "Optional",
+    "fr": "Facultatif"
+  },
+  "出生时辰": {
+    "en": "Time of birth",
+    "fr": "Heure de naissance"
+  },
+  "按公历选择年月日，农历与三柱会自动换算。": {
+    "en": "Choose a Gregorian date. Lunar date and pillars are calculated automatically.",
+    "fr": "Choisissez une date grégorienne. La date lunaire et les piliers sont calculés automatiquement."
+  },
+  "左边选小时，右边选分钟；不确定也可以先留空。": {
+    "en": "Choose hours on the left and minutes on the right, or leave blank if unsure.",
+    "fr": "Choisissez l’heure à gauche et les minutes à droite, ou laissez vide en cas de doute."
+  },
+  "上一年": {
+    "en": "Previous year",
+    "fr": "Année précédente"
+  },
+  "输入出生年份": {
+    "en": "Enter birth year",
+    "fr": "Saisir l’année de naissance"
+  },
+  "年": {
+    "en": "year",
+    "fr": "année"
+  },
+  "下一年": {
+    "en": "Next year",
+    "fr": "Année suivante"
+  },
+  "前一天": {
+    "en": "Previous day",
+    "fr": "Jour précédent"
+  },
+  "后一天": {
+    "en": "Next day",
+    "fr": "Jour suivant"
+  },
+  "小时": {
+    "en": "Hours",
+    "fr": "Heures"
+  },
+  "上午": {
+    "en": "AM",
+    "fr": "Matin"
+  },
+  "下午": {
+    "en": "PM",
+    "fr": "Après-midi"
+  },
+  "分钟": {
+    "en": "Minutes",
+    "fr": "Minutes"
+  },
+  "分钟减一": {
+    "en": "One minute earlier",
+    "fr": "Une minute de moins"
+  },
+  "分钟加一": {
+    "en": "One minute later",
+    "fr": "Une minute de plus"
+  },
+  "暂不填写出生时间": {
+    "en": "Leave birth time blank",
+    "fr": "Ne pas renseigner l’heure"
+  },
+  "不填写具体时间": {
+    "en": "No exact time",
+    "fr": "Sans heure précise"
+  },
+  "确定": {
+    "en": "Confirm",
+    "fr": "Confirmer"
+  },
+  "聊聊 · {0}{1}": {
+    "en": "Companion · {0}{1}",
+    "fr": "Compagnon · {0}{1}"
+  },
+  "{0}的聊聊": {
+    "en": "{0}’s companion",
+    "fr": "Compagnon de {0}"
+  },
+  "{0} · 版本 {1}": {
+    "en": "{0} · Version {1}",
+    "fr": "{0} · Version {1}"
+  },
+  "视频 {0}": {
+    "en": "Video {0}",
+    "fr": "Vidéo {0}"
+  },
+  "{0}的回信": {
+    "en": "Letter for {0}",
+    "fr": "Lettre pour {0}"
+  },
+  "今天 · {0}": {
+    "en": "Today · {0}",
+    "fr": "Aujourd’hui · {0}"
+  },
+  "说于 {0}": {
+    "en": "Written {0}",
+    "fr": "Écrit le {0}"
+  },
+  "改于 {0}": {
+    "en": "Edited {0}",
+    "fr": "Modifié le {0}"
+  },
+  " · 更新于 {0}": {
+    "en": " · Updated {0}",
+    "fr": " · Mis à jour le {0}"
+  },
+  "{0} 后过期 · 只能用一次": {
+    "en": "Expires in {0} · single use",
+    "fr": "Expire dans {0} · usage unique"
+  },
+  "{0}的正文": {
+    "en": "Draft for {0}",
+    "fr": "Texte de {0}"
+  },
+  "{0}的对话": {
+    "en": "Conversation: {0}",
+    "fr": "Dialogue : {0}"
+  },
+  "{0}的新想法": {
+    "en": "New thoughts on {0}",
+    "fr": "Nouvelles idées sur {0}"
+  },
+  "看到这段{0}，你又想到了什么？": {
+    "en": "What does this {0} bring to mind?",
+    "fr": "Qu’évoque pour vous ce contenu : {0} ?"
+  },
+  "找小忆，接着这段{0}聊": {
+    "en": "Continue this {0} with Xiaoyi",
+    "fr": "Continuer avec Xiaoyi : {0}"
+  },
+  "这段{0}，让你想到了什么？": {
+    "en": "What does this {0} make you think of?",
+    "fr": "À quoi vous fait penser ce contenu : {0} ?"
+  },
+  "{0}的故事工作区": {
+    "en": "Story workspace: {0}",
+    "fr": "Espace de l’histoire : {0}"
+  },
+  "视频素材 {0}": {
+    "en": "Video clip {0}",
+    "fr": "Séquence vidéo {0}"
+  },
+  "本机开发不限额，累计使用 {0}": {
+    "en": "Local development, unlimited. Used {0}",
+    "fr": "Développement local, illimité. Utilisé : {0}"
+  },
+  "可用余额 {0}": {
+    "en": "Available balance {0}",
+    "fr": "Solde disponible : {0}"
+  },
+  "参考封面：{0}": {
+    "en": "Reference cover: {0}",
+    "fr": "Couverture de référence : {0}"
+  },
+  "插图位置：{0}": {
+    "en": "Illustration position: {0}",
+    "fr": "Emplacement de l’illustration : {0}"
+  },
+  "插入位置：{0}": {
+    "en": "Insert at: {0}",
+    "fr": "Insérer à : {0}"
+  },
+  "原文：{0}": {
+    "en": "Original: {0}",
+    "fr": "Original : {0}"
+  },
+  "移除插图：{0}": {
+    "en": "Remove illustration: {0}",
+    "fr": "Retirer l’illustration : {0}"
+  },
+  " · 成品 {0} 张{1}": {
+    "en": " · {0} finished images{1}",
+    "fr": " · {0} images finales{1}"
+  },
+  "选为封面：{0}": {
+    "en": "Use as cover: {0}",
+    "fr": "Choisir comme couverture : {0}"
+  },
+  "选用插图：{0}": {
+    "en": "Use illustration: {0}",
+    "fr": "Choisir l’illustration : {0}"
+  },
+  "选用底图：{0}": {
+    "en": "Use background: {0}",
+    "fr": "Choisir le fond : {0}"
+  },
+  "选用底图：{0} {1}": {
+    "en": "Use background: {0} {1}",
+    "fr": "Choisir le fond : {0} {1}"
+  },
+  "成品 {0} · {1}": {
+    "en": "Image {0} · {1}",
+    "fr": "Image {0} · {1}"
+  },
+  "预览第 {0} 张：{1}": {
+    "en": "Preview image {0}: {1}",
+    "fr": "Aperçu de l’image {0} : {1}"
+  },
+  "第 {0} 张 {1}": {
+    "en": "Image {0} {1}",
+    "fr": "Image {0} {1}"
+  },
+  "放大当前图片：{0}": {
+    "en": "Enlarge image: {0}",
+    "fr": "Agrandir l’image : {0}"
+  },
+  "当前预览：{0}": {
+    "en": "Current preview: {0}",
+    "fr": "Aperçu actuel : {0}"
+  },
+  "将分享的第 {0} 张": {
+    "en": "Image {0} to share",
+    "fr": "Image {0} à partager"
+  },
+  "第 {0} 张作品": {
+    "en": "Artwork image {0}",
+    "fr": "Image de l’œuvre {0}"
+  },
+  "放大将分享的第 {0} 张": {
+    "en": "Enlarge shared image {0}",
+    "fr": "Agrandir l’image à partager {0}"
+  },
+  "放大预览：{0}": {
+    "en": "Enlarged preview: {0}",
+    "fr": "Aperçu agrandi : {0}"
+  },
+  "{0}月": {
+    "en": "Month {0}",
+    "fr": "Mois {0}"
+  },
+  "{0}点": {
+    "en": "{0} h",
+    "fr": "{0} h"
+  },
+  "{0}分": {
+    "en": "{0} min",
+    "fr": "{0} min"
+  },
+  "Close": {
+    "en": "Close",
+    "fr": "Fermer"
+  },
+  "{0} 个镜头": {
+    "en": "{0} shots",
+    "fr": "{0} plans"
+  },
+  "还没有摘要。": {
+    "en": "No summary yet.",
+    "fr": "Aucun résumé pour le moment."
+  },
+  "较早的聊天": {
+    "en": "Earlier conversation",
+    "fr": "Dialogue précédent"
+  },
+  "细纸": {
+    "en": "Fine paper",
+    "fr": "Papier fin"
+  },
+  "宣纸": {
+    "en": "Rice paper",
+    "fr": "Papier de riz"
+  },
+  "织纹": {
+    "en": "Linen",
+    "fr": "Toile"
+  },
+  "记忆": {
+    "en": "memory",
+    "fr": "souvenir"
+  },
+  "与服务器一致": {
+    "en": "Up to date",
+    "fr": "À jour"
+  },
+  "有未保存修改": {
+    "en": "Unsaved changes",
+    "fr": "Modifications non enregistrées"
+  },
+  "已保存，可在电脑继续": {
+    "en": "Saved. Continue on desktop.",
+    "fr": "Enregistré. Retrouvez-le sur ordinateur."
+  },
+  "保存失败，正文仍保留在本机": {
+    "en": "Save failed. Your draft is kept on this device.",
+    "fr": "Enregistrement impossible. Votre texte reste sur cet appareil."
+  },
+  "无法确认是否保存，正文仍保留在本机": {
+    "en": "Save not confirmed. Your draft is kept locally.",
+    "fr": "Enregistrement non confirmé. Votre texte est conservé localement."
+  },
+  "发现其他设备上的新正文，请先处理冲突": {
+    "en": "Updated on another device. Resolve the conflict first.",
+    "fr": "Modifié sur un autre appareil. Résolvez d’abord le conflit."
+  },
+  "接着这段{0}聊": {
+    "en": "Continue from this {0}",
+    "fr": "Continuer à partir de ce contenu : {0}"
+  },
+  "正在生成配图 · 已等待 {0} 分 {1} 秒": {
+    "en": "Generating images · elapsed {0} min {1} s",
+    "fr": "Création des images · durée {0} min {1} s"
+  },
+  "已有图片 {0} 张": {
+    "en": "{0} existing images",
+    "fr": "{0} images existantes"
+  },
+  "我说": {
+    "en": "Me",
+    "fr": "Moi"
+  }
+}

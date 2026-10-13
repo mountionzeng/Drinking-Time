@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -32,6 +33,8 @@ export function MobileImageStudio({
   source?: MobileArtworkSource;
   onBack(): void;
 }) {
+  const t = useUiText();
+
   const utils = trpc.useUtils();
   const read = trpc.publishingDraft.read.useQuery(
     { storyId },
@@ -147,51 +150,58 @@ export function MobileImageStudio({
     }
   }
   return (
-    <section aria-label="手机图文制作" className="flex h-full min-h-0 flex-col">
+    <section
+      aria-label={t("手机图文制作")}
+      className="flex h-full min-h-0 flex-col"
+    >
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <button
           type="button"
-          aria-label={isMemory ? "返回记忆" : "返回文字稿"}
+          aria-label={isMemory ? t("返回记忆") : t("返回文字稿")}
           className="grid size-11 place-items-center"
           disabled={busy}
           onClick={onBack}
         >
           <ArrowLeft size={20} />
         </button>
-        <h1 className="font-chat-brand text-xl">制作图文</h1>
+        <h1 className="font-chat-brand text-xl">{t("制作图文")}</h1>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto pb-8">
         {read.isLoading ? (
           <p role="status" className="p-5">
-            正在读取图片…
+            {t("正在读取图片…")}
           </p>
         ) : read.isError ? (
           <p role="alert" className="p-5">
-            图片暂时没有读到。
+            {t("图片暂时没有读到。")}
             <button className={button} onClick={() => void read.refetch()}>
-              重试
+              {t("重试")}
             </button>
           </p>
         ) : !content?.body.trim() ? (
-          <p className="p-5 text-sm">先写好正文，再把它做成图片。</p>
+          <p className="p-5 text-sm">{t("先写好正文，再把它做成图片。")}</p>
         ) : data && publishing ? (
           <>
             {isMemory ? (
               <p className="px-5 pt-4 text-xs leading-6 text-muted-foreground">
-                把这段记忆做成图文，可选已有配图或纸张纹理。需要生成新配图时，请在文字稿阶段制作。
+                {t(
+                  "把这段记忆做成图文，可选已有配图或纸张纹理。需要生成新配图时，请在文字稿阶段制作。"
+                )}
               </p>
             ) : null}
             {!isMemory && !sourceMatches ? (
               <div className="space-y-2 px-5 pt-4 text-sm leading-6">
                 <p>
-                  正在排版这份文字稿，可使用已有图片。生成新配图前，需要先将它采用为当前发布稿。
+                  {t(
+                    "正在排版这份文字稿，可使用已有图片。生成新配图前，需要先将它采用为当前发布稿。"
+                  )}
                 </p>
                 <button
                   className={button}
                   disabled={busy}
                   onClick={() => setConfirmAdopt(true)}
                 >
-                  采用这份文字来配图
+                  {t("采用这份文字来配图")}
                 </button>
               </div>
             ) : null}
@@ -202,7 +212,7 @@ export function MobileImageStudio({
             ) : null}
             {!isMemory && recoverable ? (
               <div className="px-5 pt-4 text-sm leading-6">
-                <p>上次生成尚未结束。恢复只接着读取同一任务。</p>
+                <p>{t("上次生成尚未结束。恢复只接着读取同一任务。")}</p>
                 <button
                   className={button}
                   disabled={busy || !sourceMatches}
@@ -210,7 +220,7 @@ export function MobileImageStudio({
                     void generateImages("", undefined, undefined, true)
                   }
                 >
-                  恢复上次生成
+                  {t("恢复上次生成")}
                 </button>
               </div>
             ) : null}
@@ -236,7 +246,7 @@ export function MobileImageStudio({
                       {
                         id: data.coverAsset.id,
                         imageUrl: data.coverAsset.imageUrl,
-                        label: "正式封面",
+                        label: t("正式封面"),
                       },
                     ]
                   : []),
@@ -244,15 +254,15 @@ export function MobileImageStudio({
                   round.candidates.map((asset, ordinal) => ({
                     id: asset.id,
                     imageUrl: asset.imageUrl,
-                    label: `${round.outputKind === "illustration" ? "插图" : round.outputKind === "body-texture" ? "底图" : "封面"} ${index + 1} · ${ordinal + 1}`,
+                    label: `${round.outputKind === "illustration" ? t("插图") : round.outputKind === "body-texture" ? t("底图") : t("封面")} ${index + 1} · ${ordinal + 1}`,
                     kind: round.outputKind,
                     parentAssetId: round.parentAssetId,
                     warning: round.qualityFlaggedAssetIds?.includes(asset.id)
-                      ? "疑似含字"
+                      ? t("疑似含字")
                       : round.qualityCheckPendingUntil
-                        ? "质检中"
+                        ? t("质检中")
                         : round.qualityCheckUnavailable
-                          ? "质检未完成"
+                          ? t("质检未完成")
                           : undefined,
                   }))
                 ),
@@ -285,13 +295,15 @@ export function MobileImageStudio({
             />
             <details className="mx-5 mt-6 border-t border-border pt-4 text-sm">
               <summary className="cursor-pointer text-muted-foreground">
-                管理作品链接
+                {t("管理作品链接")}
               </summary>
               <p className="my-3 text-xs leading-6">
-                停止后，这个故事之前创建的所有图文作品链接将无法再打开。别人已保存的图片不受影响。
+                {t(
+                  "停止后，这个故事之前创建的所有图文作品链接将无法再打开。别人已保存的图片不受影响。"
+                )}
               </p>
               <button className={button} onClick={() => setConfirmRevoke(true)}>
-                停止这个故事的作品链接
+                {t("停止这个故事的作品链接")}
               </button>
               {message ? (
                 <p role="status" className="mt-2">
@@ -305,9 +317,11 @@ export function MobileImageStudio({
       <Dialog open={confirmAdopt} onOpenChange={setConfirmAdopt}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>采用这份文字来配图？</DialogTitle>
+            <DialogTitle>{t("采用这份文字来配图？")}</DialogTitle>
             <DialogDescription>
-              这会更新电脑和手机共用的当前发布稿。原文字版本保留，采用本身不会购买图片生成。
+              {t(
+                "这会更新电脑和手机共用的当前发布稿。原文字版本保留，采用本身不会购买图片生成。"
+              )}
             </DialogDescription>
           </DialogHeader>
           {error ? (
@@ -320,16 +334,16 @@ export function MobileImageStudio({
             disabled={busy}
             onClick={() => void useSource()}
           >
-            {busy ? "正在采用…" : "确认采用"}
+            {busy ? t("正在采用…") : t("确认采用")}
           </button>
         </DialogContent>
       </Dialog>
       <Dialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>停止这些作品链接？</DialogTitle>
+            <DialogTitle>{t("停止这些作品链接？")}</DialogTitle>
             <DialogDescription>
-              此故事所有旧图文链接都会失效；之后可以重新创建新链接。
+              {t("此故事所有旧图文链接都会失效；之后可以重新创建新链接。")}
             </DialogDescription>
           </DialogHeader>
           <button
@@ -339,7 +353,7 @@ export function MobileImageStudio({
               void revoke
                 .mutateAsync({ storyId })
                 .then(() => {
-                  setMessage("旧作品链接已停止");
+                  setMessage(t("旧作品链接已停止"));
                   setShareEpoch(value => value + 1);
                   setConfirmRevoke(false);
                 })
@@ -349,7 +363,7 @@ export function MobileImageStudio({
                 });
             }}
           >
-            确认停止
+            {t("确认停止")}
           </button>
         </DialogContent>
       </Dialog>

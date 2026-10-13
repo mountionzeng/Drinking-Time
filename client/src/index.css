@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./styles/shot-stage-illustration.css";
+@import "./styles/mobile-reading-font.css";
 
 @keyframes timeline-heartbeat {
   0%,

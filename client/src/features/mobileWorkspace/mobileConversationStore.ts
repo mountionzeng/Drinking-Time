@@ -346,6 +346,8 @@ export function mergeMobileConversationProjection(input: {
         role: "user" | "assistant";
       } => message.role === "user" || message.role === "assistant"
     )
+    // A persisted turn shares one timestamp; numeric IDs retain append order.
+    .sort((left, right) => left.id - right.id)
     .map(message => ({
       id: message.clientMessageId ?? `server-message:${message.id}`,
       role: message.role,
@@ -383,9 +385,8 @@ export function mergeMobileConversationProjection(input: {
       serverIds.add(turn.assistantClientMessageId);
     }
   }
-  messages.sort(
-    (left, right) =>
-      left.timestamp - right.timestamp || left.id.localeCompare(right.id)
-  );
+  // Stable ties preserve server append order and local user/assistant insertion
+  // order. Client IDs sort "assistant-" before "user-", reversing each turn.
+  messages.sort((left, right) => left.timestamp - right.timestamp);
   return { messages, remainingRecoveryTurns };
 }

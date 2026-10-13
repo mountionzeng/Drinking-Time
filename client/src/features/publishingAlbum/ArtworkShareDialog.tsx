@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -24,6 +25,8 @@ export function ArtworkShareDialog({
   title: string;
   pages: Array<ImagePackResult & { url: string }>;
 }) {
+  const t = useUiText();
+
   const [open, setOpen] = useState(false);
   const [token] = useState(() => crypto.randomUUID());
   const [link, setLink] = useState("");
@@ -66,7 +69,7 @@ export function ArtworkShareDialog({
   return (
     <>
       <button className={button} onClick={() => setOpen(true)}>
-        分享作品链接
+        {t("分享作品链接")}
       </button>
       <Dialog
         open={open}
@@ -76,30 +79,37 @@ export function ArtworkShareDialog({
       >
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>分享这套图文</DialogTitle>
+            <DialogTitle>{t("分享这套图文")}</DialogTitle>
             <DialogDescription>
-              将昵称、头像、作品标题和下方 {pages.length}{" "}
-              张成品图片做成网页。无需登录，持有链接的人都能查看和转发。之后修改原稿不会改变这份作品。
+              {t("将昵称、头像、作品标题和下方")}
+              {pages.length}{" "}
+              {t(
+                "张成品图片做成网页。无需登录，持有链接的人都能查看和转发。之后修改原稿不会改变这份作品。"
+              )}
             </DialogDescription>
           </DialogHeader>
           <ArtworkAuthor name={artworkAuthorName(me.data?.name)} />
-          <p className="font-serif text-lg">{title.trim() || "我的图文作品"}</p>
+          <p className="font-serif text-lg">
+            {title.trim() || t("我的图文作品")}
+          </p>
           <div className="flex gap-3 overflow-x-auto py-2">
             {pages.map((page, i) => (
               <ImageCandidatePreview
                 touchOnly
                 key={page.url}
-                label={`将分享的第 ${i + 1} 张`}
-                preview={<img src={page.url} alt={`第 ${i + 1} 张作品`} />}
+                label={t("将分享的第 {0} 张", [i + 1])}
+                preview={
+                  <img src={page.url} alt={t("第 {0} 张作品", [i + 1])} />
+                }
               >
                 <button
                   type="button"
-                  aria-label={`放大将分享的第 ${i + 1} 张`}
+                  aria-label={t("放大将分享的第 {0} 张", [i + 1])}
                   className="w-32 shrink-0 cursor-zoom-in"
                 >
                   <img
                     src={page.url}
-                    alt={`将分享的第 ${i + 1} 张`}
+                    alt={t("将分享的第 {0} 张", [i + 1])}
                     className="w-32 shrink-0 rounded object-contain"
                   />
                 </button>
@@ -109,7 +119,9 @@ export function ArtworkShareDialog({
           {window.location.hostname === "localhost" ||
           window.location.hostname === "127.0.0.1" ? (
             <p className="text-sm text-amber-700">
-              这是本地预览环境，生成的链接只能在当前电脑访问。正式站部署后才能发给别人。
+              {t(
+                "这是本地预览环境，生成的链接只能在当前电脑访问。正式站部署后才能发给别人。"
+              )}
             </p>
           ) : null}
           {error ? (
@@ -120,10 +132,10 @@ export function ArtworkShareDialog({
           {link ? (
             <div className="space-y-3">
               <p role="status" className="text-sm">
-                链接已生成，可以复制或打开查看。
+                {t("链接已生成，可以复制或打开查看。")}
               </p>
               <label className="block text-sm">
-                作品链接
+                {t("作品链接")}
                 <input
                   readOnly
                   value={link}
@@ -136,16 +148,16 @@ export function ArtworkShareDialog({
                   className={button}
                   onClick={() => {
                     if (!navigator.clipboard?.writeText) {
-                      setError("请长按上方链接复制");
+                      setError(t("请长按上方链接复制"));
                       return;
                     }
                     void navigator.clipboard
                       .writeText(link)
                       .then(() => setCopied(true))
-                      .catch(() => setError("请长按上方链接复制"));
+                      .catch(() => setError(t("请长按上方链接复制")));
                   }}
                 >
-                  {copied ? "已复制链接" : "复制链接"}
+                  {copied ? t("已复制链接") : t("复制链接")}
                 </button>
                 <a
                   className={`${button} inline-flex items-center`}
@@ -153,7 +165,7 @@ export function ArtworkShareDialog({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  打开作品
+                  {t("打开作品")}
                 </a>
                 {typeof navigator.share === "function" ? (
                   <button
@@ -163,11 +175,11 @@ export function ArtworkShareDialog({
                         .share({ title, url: link })
                         .catch(cause => {
                           if (cause?.name !== "AbortError")
-                            setError("请复制链接后发送");
+                            setError(t("请复制链接后发送"));
                         })
                     }
                   >
-                    发送给朋友
+                    {t("发送给朋友")}
                   </button>
                 ) : null}
               </div>
@@ -178,7 +190,7 @@ export function ArtworkShareDialog({
               disabled={busy}
               onClick={() => void publish()}
             >
-              {busy ? progress || "正在准备图片…" : "确认图片并生成链接"}
+              {busy ? progress || t("正在准备图片…") : t("确认图片并生成链接")}
             </button>
           )}
         </DialogContent>

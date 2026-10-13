@@ -4114,7 +4114,12 @@
         "client/src/features/mobileWorkspace/NayinCompanion.tsx",
         "client/src/features/mobileWorkspace/nayinCompanionMotion.ts",
         "client/src/features/mobileWorkspace/mobileNewStoryCompanion.css",
-        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx",
+        "client/src/features/mobileWorkspace/mobileCompanionActivity.ts",
+        "client/src/features/mobileWorkspace/companionAttention.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
+        "client/src/features/nayin/views/EmotiveWuxingIcon.tsx",
+        "client/src/features/mobileWorkspace/mobileConversationStore.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -4143,7 +4148,11 @@
         "client/src/features/mobileWorkspace/newStorySession.test.ts",
         "docs/qa/2026-10-12-mobile-xiaoyi.md",
         "client/src/features/mobileWorkspace/nayinCompanionMotion.test.ts",
-        "docs/qa/2026-10-13-evening-release.md"
+        "docs/qa/2026-10-13-evening-release.md",
+        "server/archive/storyAgent.test.ts",
+        "docs/qa/2026-10-13-chat-balance-error.md",
+        "client/src/features/mobileWorkspace/companionAttention.test.tsx",
+        "client/src/features/mobileWorkspace/mobileConversationStore.test.ts"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4281,6 +4290,111 @@
           "date": "2026-10-13",
           "kind": "verification",
           "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求六套底部角色整体缩放2倍，移除悬空遮挡条并以屏幕底边裁切；聊天展开仍保持原尺寸和安全区。类型检查通过，本地主仓374×774茶壶贴边与开合验证，真机安全区仍待验收。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求，小忆六套随机探头仅在故事首页启用；汇总、故事详情及我页暂停计时且保留藏起姿态与点击聊天。回首页恢复，聊天会话不卸载。类型检查与33项回归通过，本地验证首页true、文字汇总false且docked=true。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户截图将故事首页标题换为拾光文字Logo，复用现有Honglei Zhuoshu品牌字体，颜色使用primary随六种界面主题变化；其他导航及内容不变。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户明确修正：首页文字Logo随主题显示，纳音五行显示Drinking Time，拾光家忆显示拾光；继续使用主题primary色，英文尺寸适配手机宽度。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "首页Logo与三入口间距由20px缩至4px，中英文统一Honglei Zhuoshu品牌字体。已核对字体包含Drinking Time与拾光全部字形，避免英文回退为其他字体。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求将纳音英文Logo从28px放大1.5倍至42px，中文尺寸保持36px。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求将中文拾光Logo从36px放大1.5倍至54px，英文保持42px，沿用主题色与品牌字体。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "按用户确认，小忆在选中回忆后改为同故事续聊；首页保留新故事。引用与新想法追加保存，不覆盖旧回忆；保留待发输入、未同步轮次与账号隔离。52项回归及本地引用/收起草稿验证通过，真实生成质量待验收。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "修复生产算力不足被故事/发布聊天伪装成网络卡顿的问题。ComputeAccessError原样传递，手机失败轮次提示到我查看余额并可恢复后重试；不改余额或数据。新回归旧代码2项失败，修复后113项与类型检查通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求将首页中文拾光Logo由54px增至62px，增加6px顶部内距下移；沿用品牌字体和主题色，与下方入口保持4px间距，英文样式不变。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "用户明确要求将界面风格与聊聊外形合并为我的风格：保留拾光入口，纳音大选项内直接展示五个饮品小按钮，点击同时选择五行与纳音主题，保留跟随当天五行。复用现有上下文切换，不改出生信息或数据。 类型检查与账本校验通过，浏览器逐个验证五杯选择、自动五行和拾光切换。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户截图将我的风格中拾光家忆与纳音五行两个外框统一为等宽等高网格，保留五杯选择和自动跟随逻辑。本地浏览器实测两框均337×182px。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求将我的风格收为与我的日历一致的单行入口，显示当前选择；六种风格与自动跟随移入既有底部弹层。类型检查通过，本地验证打开、选木、收起后摘要更新，再恢复原金风格。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户截图移除小忆聊天弹层顶部可见名称和引导副标题，将工具栏收为44px收起按钮；保留读屏标题、开合动画、聊天与来源上下文。类型检查、6项定向测试及浏览器标题隐藏验证通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求将首页我的入口改成48px无文字圆形个人图标，23px细线人像配主题淡色背景、边框与图标色；保留三语读屏名称和原有跳转，返回故事按钮不变。26项定向测试、类型检查及浏览器无可见文字/主题色核验通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求移除小忆聊天底部可见转圈与等待文字，改由对话上方既有六个角色表达状态：倾听复用 trust 小幅点头，提交中复用 thinking 歪头，小鸟沿用 front/curious 原画帧，角度不超过3°；收起、失败和完成后退出思考，尊重减少动态效果偏好，屏幕阅读器仍保留状态提示。记忆补聊接入真实 isSubmitting，恢复锁不冒充推理。TypeScript及5文件32项聚焦测试通过；localhost:3000/m浏览器验证倾听旋转、无底部spinner、收起回idle，未调用付费推理，未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户反馈将小鸟倾听与思考动画周期放慢至原来的1.5倍（3.6秒/4.2秒），保留原画、摆动幅度及状态逻辑，五行角色不受影响。companionAttention 8项回归通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "修复手机同一轮问答时间相同时按clientMessageId字母排序导致回答先于提问的问题；同时间服务端记录按数值ID追加顺序，本地恢复记录保留提问后回答的插入顺序，原文和持久数据不变。新增同时间多轮及本地恢复回归，先复现失败再修复，5文件30项测试通过；localhost:3000/m确认用户现有三轮对话逐轮恢复为一问一答，未调用生成，未部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户截图要求，聊天框展开时五行杯子统一隐藏双腿和脚尖，保留杯身、托盘、手臂、表情及倾听/思考动画；通过共享图标的showLegs可选属性控制，默认仍显示，首页收起形态和其他头像保持原状。 16项相关回归和TypeScript检查通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求为小忆聊天共用遮罩增加8px背景模糊，沿用打开/收起淡入淡出；聊天正文和上方角色位于遮罩之上保持清晰，含WebKit兼容声明。localhost:3000/m浏览器核验backdrop-filter与层级并截图检查，六种风格共用该遮罩。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "聊天遮罩在背景模糊上增加六种轻量主题氛围：金色气泡、木色叶影、水色涟漪、火色暖光、土色蒸汽、拾光纸色光点。以两层CSS伪元素实现缓慢位移和呼吸，位于正文及角色下方、禁用指针事件、随遮罩收起卸载，减少动态效果偏好下静止。9项相关回归及TypeScript通过，浏览器核验当前水主题涟漪样式和动画并截图。"
         }
       ]
     },
@@ -4699,6 +4813,11 @@
           "date": "2026-10-11",
           "kind": "improvement",
           "summary": "手机“我”页复用个人足迹摘要，增加适合手机的字号及点击区域；日历使用现有页面的内嵌模式在手机底部弹层打开，保留原独立日历入口与采集规则。主仓浏览器读到真实三天摘要和当日来信，33项相关回归及类型通过，真实双设备验收仍待完成。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "用户明确要求合并手机我页的用户信息摘要和今天来信：首屏仅保留我的日历一行，今天来信入口移入日历弹层，既有日历历史、资料与记忆说明继续使用原页面；不改变数据、生成或访问权限。 类型检查、账本校验与本地日历/来信往返验证通过。"
         }
       ]
     },
@@ -5683,7 +5802,9 @@
         "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx",
         "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
         "client/src/features/mobileWorkspace/mobileStageSwipe.ts",
-        "client/src/features/mobileWorkspace/useMobileStageSwipe.ts"
+        "client/src/features/mobileWorkspace/useMobileStageSwipe.ts",
+        "client/src/features/mobileWorkspace/mobileStageMotion.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryConversation.tsx"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.test.tsx",
@@ -5696,7 +5817,10 @@
         "client/src/features/mobileWorkspace/mobileStageSwipe.test.ts",
         "client/src/features/mobileWorkspace/useMobileStageSwipe.test.tsx",
         "docs/qa/2026-10-12-mobile-stage-swipe.md",
-        "docs/qa/2026-10-12-mobile-release.md"
+        "docs/qa/2026-10-12-mobile-release.md",
+        "docs/qa/2026-10-13-mobile-content-library.md",
+        "client/src/features/mobileWorkspace/mobileStageMotion.test.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx"
       ],
       "invariants": [
         "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
@@ -5719,7 +5843,8 @@
         "阶段选择按故事保留在本次页面会话内，刷新后重新从记忆开始。",
         "视频控件通过渲染测试，本机抽验的两个虚构故事素材接口为空；未验收真实素材播放或真机网络兼容性。",
         "iOS/Android软件键盘和公网跨设备验收仍继承手机工作区已有缺口。",
-        "同步指保存后读取同一权威数据，非逐字实时协作。新增手动修订的MySQL事务并发与真实双设备公网验收待完成；浏览器只验证编辑/取消，持久保存由隔离服务测试验证。"
+        "同步指保存后读取同一权威数据，非逐字实时协作。新增手动修订的MySQL事务并发与真实双设备公网验收待完成；浏览器只验证编辑/取消，持久保存由隔离服务测试验证。",
+        "聊天目录按时间间隔分段并引用原话，不做AI话题归纳；没有原始时间的记录显示较早的聊天。"
       ],
       "history": [
         {
@@ -5751,6 +5876,16 @@
           "date": "2026-10-12",
           "kind": "verification",
           "summary": "随main正式上线。390×844浏览器验证原故事首页、记忆阅读和三个阶段点击切换；线上当前抽验故事无正文与视频，空状态正确，不触发模型或跳聊聊。触摸轻扫由11项方向/手势测试覆盖，真实设备手感仍待验收。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "按用户要求阶段标签统一回忆/文字/视频；接入拾光与纳音五行六种短过渡，沿用滑动与编辑保护。47项相关测试及类型检查通过，本地详情切换验证。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "improvement",
+          "summary": "用户明确要求回忆默认展示原始聊天并通过小目录定位原话/前后文。按真实时间间隔分段，目录引用用户原话，不推断情境；点句滚动居中高亮并保留前后文，未同步恢复消息不作为原聊天。存档编辑、历史记忆组合与图文入口保留。16项相关测试、类型检查通过，本地点击目录定位与高亮已验证。"
         }
       ]
     },
@@ -5902,6 +6037,144 @@
           "date": "2026-10-13",
           "kind": "verification",
           "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-account-content-library",
+      "name": "手机账号内容汇总",
+      "status": "working",
+      "userValue": "从故事首页查看账号已收录回忆、全部故事的文字版本与视频素材。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
+      ],
+      "owners": [
+        "client/src/features/mobileWorkspace/MobileContentLibrary.tsx"
+      ],
+      "evidence": [
+        "client/src/features/mobileWorkspace/MobileContentLibrary.test.tsx",
+        "docs/qa/2026-10-13-mobile-content-library.md"
+      ],
+      "invariants": [
+        "账号与故事归属复用现有受保护接口，不创建手机数据副本。",
+        "汇总阅读不得自动生成、采用、写入或触发付费请求；返回故事编辑沿用冲突保护。",
+        "分页可以访问所有故事，不能用前几条冒充全部内容。"
+      ],
+      "dependencies": [
+        "mobile-story-stage-browsing",
+        "writing-memory-warehouse"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "回忆显示已收录且未归档的卡片，旧聊天补录沿用原仓库同步入口。",
+        "当前没有故事的账号仍走原空白欢迎页；已删除全部故事但保留回忆的账号尚无此汇总入口。",
+        "真实视频播放、真机流畅性尚待验收；本轮仅本地，未部署。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "用户授权替换首页说明为三个汇总入口；账号回忆分页、每页5故事的正文/历史文字和视频浏览。47项回归、类型及本地阅读翻页通过。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-memory-followup",
+      "name": "手机上下文续聊与内容保存",
+      "status": "working",
+      "userValue": "从当前回忆、文字或视频接着聊，并将聊天内容保存为记忆、加入文字或导入本地素材。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileMemoryConversation.tsx",
+        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
+        "client/src/features/mobileWorkspace/MobileContentLibrary.tsx"
+      ],
+      "owners": [
+        "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
+        "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
+        "client/src/features/mobileWorkspace/MobileCompanionActions.tsx"
+      ],
+      "evidence": [
+        "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
+        "docs/qa/2026-10-13-mobile-memory-followup.md",
+        "client/src/features/mobileWorkspace/MobileCompanionActions.test.tsx",
+        "docs/qa/2026-10-13-mobile-context-actions.md"
+      ],
+      "invariants": [
+        "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
+        "来源助手回复不当作用户事实；打开入口不调用模型，发送才触发已有对话生成和自动收录。",
+        "未发送或未同步内容不得被切换来源静默丢弃；账号切换清理上下文。",
+        "上下文随当前阶段和所选内容变化；视频仅使用字幕、说明和素材记录，不冒充画面识别。",
+        "标记记忆保留内容角色；加入独立文字保存新修订，加入当前正文仅追加并校验版本/平台/正文修订号；打开和导入不自动触发付费生成。"
+      ],
+      "dependencies": [
+        "mobile-story-stage-browsing",
+        "mobile-cross-device-chat-document",
+        "writing-memory-warehouse"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "来源使用消息内文本引用，尚无结构化外键或来源跳转。",
+        "没有来源故事或原故事已删除的卡片不能在原故事续聊。",
+        "未调用付费模型实测续聊质量，真实断网与真机键盘尚待验收。",
+        "本地文件支持图片、视频、TXT/MD；不解析PDF/DOCX、不做OCR或视频理解。媒体需已有故事，视频需已有镜头，网络中断后需检查素材库避免重复导入。",
+        "当前正文追加共用现有saveBody接口，不额外生成独立文字历史版本；真机大视频上传尚未验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "用户确认补充同一故事；接入原聊天/存档/全部回忆选择到常驻小忆，新增输入与来源引用通过原有可靠对话链保存。52项测试、类型与本地收起恢复验证通过。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "用户授权当前回忆/文字/视频自动作为上下文，接入本地文件、记忆保存和文字追加。复用带归属校验的导入/记忆/修订/正文CAS接口；10文件122项及新增15项定向检查通过，主仓3000手机浏览器验证阶段上下文、操作入口与当前正文选择。未向真实数据提交验收内容或调用付费模型。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-ui-language",
+      "name": "手机界面语言与统一字体",
+      "status": "observing",
+      "userValue": "在我的语言选择中文、英文或法语，手机常用界面即时切换，并在本机记住选择，三语文字使用一致的本地字体。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileMePage.tsx"
+      ],
+      "owners": [
+        "client/src/features/uiLanguage/UiLanguage.tsx",
+        "client/src/features/uiLanguage/messages.json",
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "client/src/styles/mobile-reading-font.css",
+        "scripts/generate-mobile-reading-font.py"
+      ],
+      "evidence": [
+        "client/src/features/uiLanguage/UiLanguage.test.tsx",
+        "docs/qa/2026-10-13-mobile-language.md",
+        "command:pnpm check",
+        "command:pnpm build"
+      ],
+      "invariants": [
+        "仅翻译显式界面文案，不改写用户回忆、聊天、作品或接口内容。",
+        "切换语言不卸载编辑工作区或清空待发内容。",
+        "中文、English、Français选项使用原生名称，语言切换始终可逆。",
+        "手机主题与作品自选字体不因语言选择被改写；Logo保留手写字体。",
+        "本地存储失效时仍允许会话内切换；共享组件在手机Provider外默认中文。"
+      ],
+      "dependencies": [
+        "mobile-cross-device-chat-document"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "浏览器级偏好，尚无账号级跨设备同步；电脑工作区暂无语言入口。",
+        "服务端自由文本诊断、生成内容和历法专有名词保留来源文本，未控制模型输出语言。",
+        "真实iOS/Android与法语母语审校尚待验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "新增我的语言，三语词典与手机上下文、持久化及跨标签同步；本地字体覆盖中英法并保留手写Logo。类型、154项定向测试、构建通过，390px浏览器验证法语导航、原文保留和英文刷新持久化。"
         }
       ]
     }

@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarHeart,
@@ -64,6 +65,8 @@ function BirthDatePillarsLine({
   pillars: BirthDatePillars | null;
   className?: string;
 }) {
+  const t = useUiText();
+
   if (!pillars) return null;
   return (
     <p
@@ -71,15 +74,15 @@ function BirthDatePillarsLine({
       aria-label={pillars.label}
     >
       <span>
-        年柱{" "}
+        {t("年柱")}{" "}
         <strong className="font-medium text-foreground">{pillars.year}</strong>
       </span>
       <span>
-        月柱{" "}
+        {t("月柱")}{" "}
         <strong className="font-medium text-foreground">{pillars.month}</strong>
       </span>
       <span>
-        日柱{" "}
+        {t("日柱")}{" "}
         <strong className="font-medium text-foreground">{pillars.day}</strong>
       </span>
     </p>
@@ -156,6 +159,8 @@ export default function EmotionAnalysisInvitePanel({
   onSaveProfile,
   onPreviewChange,
 }: EmotionAnalysisInvitePanelProps) {
+  const t = useUiText();
+
   const [localProfile, setLocalProfile] =
     useState<EmotionAnalysisProfile | null>(() =>
       persistLocalProfile
@@ -396,14 +401,14 @@ export default function EmotionAnalysisInvitePanel({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-medium leading-none text-foreground">
-                  聊会儿写给你的信
+                  {t("聊会儿写给你的信")}
                 </h2>
                 {profileLoading && (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                问题被好好看见，答案会慢慢浮出来。
+                {t("问题被好好看见，答案会慢慢浮出来。")}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap justify-end gap-2">
@@ -413,7 +418,7 @@ export default function EmotionAnalysisInvitePanel({
                 className="rounded-md border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{ borderColor: "var(--nayin-border)" }}
               >
-                再聊聊
+                {t("再聊聊")}
               </button>
             </div>
           </div>
@@ -424,7 +429,7 @@ export default function EmotionAnalysisInvitePanel({
             <div>
               <div className="flex items-center gap-2 text-base font-medium text-foreground">
                 <CalendarHeart className="h-3.5 w-3.5 text-nayin" />
-                {guestMode ? "先在这台设备聊会儿" : "关于你"}
+                {guestMode ? t("先在这台设备聊会儿") : t("关于你")}
               </div>
               <div className="mt-3 space-y-3">
                 <div
@@ -437,7 +442,7 @@ export default function EmotionAnalysisInvitePanel({
                 >
                   <div className="grid gap-3 sm:grid-cols-[6.5rem_minmax(0,1fr)] sm:items-center">
                     <span className="whitespace-nowrap text-[11px] text-muted-foreground">
-                      你的生日
+                      {t("你的生日")}
                     </span>
                     <div className="min-w-0">
                       <BirthMomentDial
@@ -456,7 +461,7 @@ export default function EmotionAnalysisInvitePanel({
                           className="mt-2 text-[11px] leading-relaxed"
                           style={{ color: "var(--nayin-accent-dim)" }}
                         >
-                          要按你的生日推今天的干支，先留一个再点。
+                          {t("要按你的生日推今天的干支，先留一个再点。")}
                         </p>
                       )}
                     </div>
@@ -465,7 +470,7 @@ export default function EmotionAnalysisInvitePanel({
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="grid items-center gap-3 sm:grid-cols-[6.5rem_minmax(0,1fr)]">
                     <span className="whitespace-nowrap text-[11px] text-muted-foreground">
-                      出生地（选填）
+                      {t("出生地（选填）")}
                     </span>
                     <div className="relative">
                       <MapPin className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
@@ -473,7 +478,7 @@ export default function EmotionAnalysisInvitePanel({
                         type="text"
                         value={birthPlace}
                         onChange={event => setBirthPlace(event.target.value)}
-                        placeholder="例如：北京"
+                        placeholder={t("例如：北京")}
                         maxLength={80}
                         className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
                         style={{ borderColor: "var(--nayin-border)" }}
@@ -482,7 +487,7 @@ export default function EmotionAnalysisInvitePanel({
                   </label>
                   <label className="grid items-center gap-3 sm:grid-cols-[7.5rem_minmax(0,1fr)]">
                     <span className="whitespace-nowrap text-[11px] text-muted-foreground">
-                      现在在哪里（选填）
+                      {t("现在在哪里（选填）")}
                     </span>
                     <div className="relative">
                       <MapPin className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
@@ -492,7 +497,7 @@ export default function EmotionAnalysisInvitePanel({
                         onChange={event =>
                           setCurrentLocation(event.target.value)
                         }
-                        placeholder="例如：上海"
+                        placeholder={t("例如：上海")}
                         maxLength={80}
                         className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
                         style={{ borderColor: "var(--nayin-border)" }}
@@ -513,7 +518,7 @@ export default function EmotionAnalysisInvitePanel({
                   className="flex items-center gap-2 text-base font-medium text-foreground"
                 >
                   <MessageCircle className="h-3.5 w-3.5 text-nayin" />
-                  今天想说什么
+                  {t("今天想说什么")}
                 </label>
                 <button
                   type="button"
@@ -522,12 +527,12 @@ export default function EmotionAnalysisInvitePanel({
                   className="flex items-center gap-2 text-base font-medium text-foreground transition hover:text-nayin focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   title={
                     messageHistory.length > 0
-                      ? "按月份看看以前说过的话"
-                      : "还没有以前说过的话"
+                      ? t("按月份看看以前说过的话")
+                      : t("还没有以前说过的话")
                   }
                 >
                   <History className="h-3.5 w-3.5 text-nayin" />
-                  和以前的自己聊聊
+                  {t("和以前的自己聊聊")}
                 </button>
               </div>
               <textarea
@@ -536,10 +541,10 @@ export default function EmotionAnalysisInvitePanel({
                 onChange={event => setUserMessage(event.target.value)}
                 placeholder={
                   editingMessageId
-                    ? "修改这句话"
+                    ? t("修改这句话")
                     : conversationMode === "history"
-                      ? "可以说“接着上次那件事”，也可以直接写今天的新感受。"
-                      : "今天发生了什么，或者此刻是什么感受？"
+                      ? t("可以说“接着上次那件事”，也可以直接写今天的新感受。")
+                      : t("今天发生了什么，或者此刻是什么感受？")
                 }
                 ref={messageInputRef}
                 rows={3}
@@ -588,11 +593,11 @@ export default function EmotionAnalysisInvitePanel({
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
-                拆开看看
+                {t("拆开看看")}
               </button>
               {saving && (
                 <span className="text-[11px] text-muted-foreground">
-                  正在写今天的回信，通常要十几秒。
+                  {t("正在写今天的回信，通常要十几秒。")}
                 </span>
               )}
               {activeProfile && (
@@ -618,7 +623,7 @@ export default function EmotionAnalysisInvitePanel({
                   }}
                   className="h-10 rounded-md px-3 text-xs text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  先不改
+                  {t("先不改")}
                 </button>
               )}
             </div>
@@ -644,11 +649,13 @@ export default function EmotionAnalysisInvitePanel({
             </div>
 
             <p className="mt-3 text-[10px] text-muted-foreground/75">
-              生日 {activeProfile.birthDate}
+              {t("生日")}
+              {activeProfile.birthDate}
               {activeProfile.analysisSeed.birthShichen
                 ? ` · ${activeProfile.analysisSeed.birthShichen}`
                 : ""}{" "}
-              · 更新于 {formatSavedDate(activeProfile.savedAt)}
+              {t("· 更新于")}
+              {formatSavedDate(activeProfile.savedAt)}
             </p>
             <BirthDatePillarsLine pillars={birthDatePillars} className="mt-1" />
           </div>
@@ -671,19 +678,23 @@ export default function EmotionAnalysisInvitePanel({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-medium text-foreground">情绪分析</h2>
+            <h2 className="text-sm font-medium text-foreground">
+              {t("情绪分析")}
+            </h2>
             <span
               className="rounded-full border px-2 py-0.5 text-[10px] leading-none text-muted-foreground"
               style={{ borderColor: "var(--nayin-border)" }}
             >
-              长期底盘
+              {t("长期底盘")}
             </span>
             {profileLoading && (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             )}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            如果你愿意，可以留下出生日期。聊会儿会把它作为长期背景线索，结合今天的农历、社会角色和日常节奏，给出一份不诊断、不算命的今日参考。
+            {t(
+              "如果你愿意，可以留下出生日期。聊会儿会把它作为长期背景线索，结合今天的农历、社会角色和日常节奏，给出一份不诊断、不算命的今日参考。"
+            )}
           </p>
         </div>
         {activeProfile && !editing && (
@@ -691,7 +702,7 @@ export default function EmotionAnalysisInvitePanel({
             type="button"
             onClick={() => setEditing(true)}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="修改出生日期"
+            aria-label={t("修改出生日期")}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -704,7 +715,7 @@ export default function EmotionAnalysisInvitePanel({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
                 <CalendarHeart className="h-3.5 w-3.5 text-nayin" />
-                你的生日
+                {t("你的生日")}
               </span>
               <BirthDatePillarsLine pillars={birthDatePillars} />
             </div>
@@ -722,7 +733,7 @@ export default function EmotionAnalysisInvitePanel({
             <p className="text-xs leading-relaxed text-muted-foreground">
               {preview
                 ? preview.dailyReference.summary
-                : "填好日期后，这里会先预览一条今日情绪参考。"}
+                : t("填好日期后，这里会先预览一条今日情绪参考。")}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -740,7 +751,7 @@ export default function EmotionAnalysisInvitePanel({
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
-                生成并保存
+                {t("生成并保存")}
               </button>
               {activeProfile && (
                 <button
@@ -752,7 +763,7 @@ export default function EmotionAnalysisInvitePanel({
                   }}
                   className="h-9 rounded-md px-3 text-xs text-muted-foreground transition hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  取消
+                  {t("取消")}
                 </button>
               )}
             </div>
@@ -765,7 +776,7 @@ export default function EmotionAnalysisInvitePanel({
           <div className="rounded-md bg-foreground/[0.025] p-3">
             <div className="flex items-center gap-2 text-xs font-medium text-foreground">
               <Clock3 className="h-3.5 w-3.5 text-nayin" />
-              今日情绪日程
+              {t("今日情绪日程")}
             </div>
             <div className="mt-2 space-y-2">
               {shownProfile.dailyReference.schedule.map(item => (
@@ -801,7 +812,7 @@ export default function EmotionAnalysisInvitePanel({
           <div className="rounded-md bg-foreground/[0.025] p-3">
             <div className="flex items-center gap-2 text-xs font-medium text-foreground">
               <ShieldCheck className="h-3.5 w-3.5 text-nayin" />
-              三个参照
+              {t("三个参照")}
             </div>
             <div className="mt-2 space-y-2">
               {shownProfile.dailyReference.lenses.map(lens => (
@@ -823,13 +834,19 @@ export default function EmotionAnalysisInvitePanel({
 
       {shownProfile && (
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          <span>已记录到情绪分析</span>
-          <span>生日 {shownProfile.birthDate}</span>
+          <span>{t("已记录到情绪分析")}</span>
+          <span>
+            {t("生日")}
+            {shownProfile.birthDate}
+          </span>
           {shownProfile.analysisSeed.birthShichen && (
             <span>{shownProfile.analysisSeed.birthShichen}</span>
           )}
           <span>{shownProfile.analysisSeed.lifeStage}</span>
-          <span>更新 {formatSavedDate(shownProfile.savedAt)}</span>
+          <span>
+            {t("更新")}
+            {formatSavedDate(shownProfile.savedAt)}
+          </span>
         </div>
       )}
 

@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -110,6 +111,8 @@ export default function BirthMomentDial({
   onBirthTimeChange,
   variant = "compact",
 }: BirthMomentDialProps) {
+  const t = useUiText();
+
   const maxParts = useMemo(
     () =>
       parseDate(maxDate) ?? {
@@ -215,12 +218,12 @@ export default function BirthMomentDial({
           onClick={() => openPicker("date")}
           className={`${triggerClass} flex w-full items-center gap-3 rounded-md border bg-background text-foreground transition hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
           style={{ borderColor: "var(--nayin-border)" }}
-          aria-label="设置生日"
+          aria-label={t("设置生日")}
         >
           <CalendarDays className="h-3.5 w-3.5 shrink-0 text-nayin" />
           <span className="min-w-0">
             <span className="block text-[9px] leading-none text-muted-foreground">
-              公历生日
+              {t("公历生日")}
             </span>
             <span className="mt-1 block truncate text-sm">
               {formatVisibleDate(birthDate)}
@@ -232,17 +235,17 @@ export default function BirthMomentDial({
           onClick={() => openPicker("time")}
           className={`${triggerClass} flex w-full items-center gap-3 rounded-md border bg-background text-foreground transition hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
           style={{ borderColor: "var(--nayin-border)" }}
-          aria-label="设置出生时间"
+          aria-label={t("设置出生时间")}
         >
           <Clock3 className="h-3.5 w-3.5 shrink-0 text-nayin" />
           <span className="min-w-0">
             <span className="block text-[9px] leading-none text-muted-foreground">
-              时辰
+              {t("时辰")}
             </span>
             <span className="mt-1 block truncate text-sm">
               {birthTime
                 ? `${birthTime} · ${shichenFromTime(birthTime)}`
-                : "可以不填"}
+                : t("可以不填")}
             </span>
           </span>
         </button>
@@ -257,12 +260,12 @@ export default function BirthMomentDial({
         >
           <DialogHeader className="pr-8 text-left">
             <DialogTitle className="text-xl font-medium">
-              {mode === "date" ? "你的生日" : "出生时辰"}
+              {mode === "date" ? t("你的生日") : t("出生时辰")}
             </DialogTitle>
             <DialogDescription className="text-xs leading-5">
               {mode === "date"
-                ? "按公历选择年月日，农历与三柱会自动换算。"
-                : "左边选小时，右边选分钟；不确定也可以先留空。"}
+                ? t("按公历选择年月日，农历与三柱会自动换算。")
+                : t("左边选小时，右边选分钟；不确定也可以先留空。")}
             </DialogDescription>
           </DialogHeader>
 
@@ -274,7 +277,7 @@ export default function BirthMomentDial({
                   onClick={() => updateDate({ year: draftDate.year - 1 })}
                   disabled={draftDate.year <= 1900}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
-                  aria-label="上一年"
+                  aria-label={t("上一年")}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
@@ -295,16 +298,16 @@ export default function BirthMomentDial({
                     }}
                     className="h-9 w-[74px] rounded-full border bg-transparent px-2 text-center text-lg font-normal outline-none transition focus:ring-2 focus:ring-ring"
                     style={{ borderColor: "var(--nayin-border)" }}
-                    aria-label="输入出生年份"
+                    aria-label={t("输入出生年份")}
                   />
-                  <span className="text-lg">年</span>
+                  <span className="text-lg">{t("年")}</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => updateDate({ year: draftDate.year + 1 })}
                   disabled={draftDate.year >= maxParts.year}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
-                  aria-label="下一年"
+                  aria-label={t("下一年")}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -330,10 +333,11 @@ export default function BirthMomentDial({
                             ? "var(--nayin-accent)"
                             : "transparent",
                         }}
-                        aria-label={`${month}月`}
+                        aria-label={t("{0}月", [month])}
                         aria-pressed={selected}
                       >
-                        {month}月
+                        {month}
+                        {t("月")}
                       </button>
                     );
                   }
@@ -343,14 +347,14 @@ export default function BirthMomentDial({
                   style={{ background: "var(--nayin-glow)" }}
                 >
                   <span className="text-[10px] text-muted-foreground">
-                    {draftDate.month} 月
+                    {draftDate.month} {t("月")}
                   </span>
                   <div className="mt-1 flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => updateDate({ day: draftDate.day - 1 })}
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background"
-                      aria-label="前一天"
+                      aria-label={t("前一天")}
                     >
                       <Minus className="h-3 w-3" />
                     </button>
@@ -361,7 +365,7 @@ export default function BirthMomentDial({
                       type="button"
                       onClick={() => updateDate({ day: draftDate.day + 1 })}
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background"
-                      aria-label="后一天"
+                      aria-label={t("后一天")}
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -406,7 +410,7 @@ export default function BirthMomentDial({
                               ? "var(--nayin-accent)"
                               : "transparent",
                           }}
-                          aria-label={`${clockHour}点`}
+                          aria-label={t("{0}点", [clockHour])}
                           aria-pressed={selected}
                         >
                           {clockHour}
@@ -419,12 +423,12 @@ export default function BirthMomentDial({
                     style={{ background: "var(--nayin-glow)" }}
                   >
                     <span className="text-[9px] text-muted-foreground">
-                      小时
+                      {t("小时")}
                     </span>
                     <div className="mt-1 flex items-center gap-1 text-[10px]">
                       {[
-                        { label: "上午", afternoon: false },
-                        { label: "下午", afternoon: true },
+                        { label: t("上午"), afternoon: false },
+                        { label: t("下午"), afternoon: true },
                       ].map(item => {
                         const selected =
                           hasTime && draftHour >= 12 === item.afternoon;
@@ -485,7 +489,7 @@ export default function BirthMomentDial({
                             ? "var(--nayin-accent)"
                             : "transparent",
                         }}
-                        aria-label={`${minute}分`}
+                        aria-label={t("{0}分", [minute])}
                         aria-pressed={selected}
                       >
                         {String(minute).padStart(2, "0")}
@@ -497,7 +501,7 @@ export default function BirthMomentDial({
                     style={{ background: "var(--nayin-glow)" }}
                   >
                     <span className="text-[9px] text-muted-foreground">
-                      分钟
+                      {t("分钟")}
                     </span>
                     <strong className="mt-1 text-xl font-medium tabular-nums text-foreground">
                       {String(draftMinute).padStart(2, "0")}
@@ -510,7 +514,7 @@ export default function BirthMomentDial({
                           setHasTime(true);
                         }}
                         className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background"
-                        aria-label="分钟减一"
+                        aria-label={t("分钟减一")}
                       >
                         <Minus className="h-3 w-3" />
                       </button>
@@ -521,7 +525,7 @@ export default function BirthMomentDial({
                           setHasTime(true);
                         }}
                         className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background"
-                        aria-label="分钟加一"
+                        aria-label={t("分钟加一")}
                       >
                         <Plus className="h-3 w-3" />
                       </button>
@@ -532,14 +536,14 @@ export default function BirthMomentDial({
               <p className="mt-3 text-center text-xs tabular-nums text-muted-foreground">
                 {hasTime
                   ? `${draftTime} · ${draftShichen}`
-                  : "暂不填写出生时间"}
+                  : t("暂不填写出生时间")}
               </p>
               <button
                 type="button"
                 onClick={() => setHasTime(false)}
                 className="mx-auto mt-1 block text-[10px] text-muted-foreground underline decoration-transparent underline-offset-4 transition hover:decoration-current"
               >
-                不填写具体时间
+                {t("不填写具体时间")}
               </button>
             </div>
           )}
@@ -553,7 +557,7 @@ export default function BirthMomentDial({
               onClick={() => setOpen(false)}
               className="h-9 px-3 text-xs text-muted-foreground transition hover:text-foreground"
             >
-              先不改
+              {t("先不改")}
             </button>
             <button
               type="button"
@@ -561,7 +565,7 @@ export default function BirthMomentDial({
               className="h-9 rounded-md px-4 text-xs font-medium text-white transition hover:opacity-90"
               style={{ background: "var(--nayin-accent)" }}
             >
-              确定
+              {t("确定")}
             </button>
           </div>
         </DialogContent>

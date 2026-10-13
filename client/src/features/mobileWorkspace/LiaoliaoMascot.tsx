@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 聊聊头像：拾光家忆用小忆水彩小鸟，纳音五行复用手绘饮品线稿。
  * 思考反馈沿用身体起伏与三点气泡，只跟随真实请求状态，不改饮品造型。
@@ -24,11 +25,16 @@ export function LiaoliaoMascot({
   thinking?: boolean;
   className?: string;
 }) {
+  const t = useUiText();
+
   const form = liaoliaoForm(element);
   const isShiguang = visualTheme === "shiguang";
   return (
     <span
-      aria-label={`聊聊 · ${isShiguang ? "小忆" : form.label}${thinking ? " · 想着呢" : ""}`}
+      aria-label={t("聊聊 · {0}{1}", [
+        isShiguang ? t("小忆") : t(form.label),
+        thinking ? t(" · 想着呢") : "",
+      ])}
       className={cn(
         "inline-block shrink-0 bg-contain bg-center bg-no-repeat",
         thinking && "liaoliao-thinking",

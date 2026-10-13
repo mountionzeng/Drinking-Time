@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 「电脑登录」：在手机上签发一个短命配对码，抄到电脑上就进同一个账号。
  *
@@ -42,6 +43,8 @@ export function MobileDesktopLogin({
   email?: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useUiText();
+
   const [state, setState] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const mountedRef = useRef(true);
@@ -95,8 +98,8 @@ export function MobileDesktopLogin({
   return (
     <MobileSheet
       open={open}
-      title="电脑登录"
-      description="在电脑上，继续和聊聊说话。"
+      title={t("电脑登录")}
+      description={t("在电脑上，继续和聊聊说话。")}
       onOpenChange={onOpenChange}
       footer={
         <Button
@@ -110,12 +113,12 @@ export function MobileDesktopLogin({
           ) : state.kind === "ready" ? (
             <RefreshCw aria-hidden="true" />
           ) : null}
-          {state.kind === "ready" ? "换一个码" : "生成登录码"}
+          {state.kind === "ready" ? t("换一个码") : t("生成登录码")}
         </Button>
       }
     >
       <div className="rounded-xl bg-muted px-4 py-3 text-sm leading-7">
-        将授权电脑登录与本机相同的账号
+        {t("将授权电脑登录与本机相同的账号")}
         {email ? (
           <>
             <br />
@@ -125,9 +128,9 @@ export function MobileDesktopLogin({
       </div>
 
       <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-sm leading-7 text-muted-foreground">
-        <li>点下面的按钮，生成短时登录码。</li>
-        <li>在电脑上打开登录页，输入这个码。</li>
-        <li>电脑验证通过后，进入同一个账号。</li>
+        <li>{t("点下面的按钮，生成短时登录码。")}</li>
+        <li>{t("在电脑上打开登录页，输入这个码。")}</li>
+        <li>{t("电脑验证通过后，进入同一个账号。")}</li>
       </ol>
 
       {state.kind === "ready" ? (
@@ -137,12 +140,15 @@ export function MobileDesktopLogin({
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             {expired
-              ? "这个码已过期，请换一个。"
-              : `${formatPairingRemaining(state.expiresAt - now)} 后过期 · 只能用一次`}
+              ? t("这个码已过期，请换一个。")
+              : t("{0} 后过期 · 只能用一次", [
+                  formatPairingRemaining(state.expiresAt - now),
+                ])}
           </p>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
-            电脑那边输入并验证成功后才算登录。手机这边看不到结果，所以这里不会
-            显示「已登录」。
+            {t(
+              "电脑那边输入并验证成功后才算登录。手机这边看不到结果，所以这里不会 显示「已登录」。"
+            )}
           </p>
         </div>
       ) : null}

@@ -3,14 +3,19 @@ import { useReducedMotion } from "framer-motion";
 import type { NayinElement } from "@/features/nayin/nayin";
 import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { NAYIN_COMPANION_MOTION } from "./nayinCompanionMotion";
+import type { CompanionAttention } from "./companionAttention";
 
 /** Only the mobile launcher moves; shared logos and chat avatars stay unchanged. */
 export function NayinCompanion({
   element,
   active,
+  docked = active,
+  attention = "idle",
 }: {
   element: NayinElement;
   active: boolean;
+  docked?: boolean;
+  attention?: CompanionAttention;
 }) {
   const reduced = useReducedMotion();
   const [gesture, setGesture] = useState<number | null>(null);
@@ -52,7 +57,8 @@ export function NayinCompanion({
     <span
       className="nayin-companion"
       data-element={element}
-      data-docked={active}
+      data-attention={attention}
+      data-docked={docked}
       data-playing={playing}
       data-gesture={playing ? gesture : ""}
       aria-hidden="true"
@@ -60,12 +66,19 @@ export function NayinCompanion({
       <EmotiveWuxingIcon
         element={element}
         mood={
-          playing ? NAYIN_COMPANION_MOTION[element].moods[gesture] : "neutral"
+          attention === "thinking"
+            ? "thinking"
+            : attention === "listening"
+              ? "trust"
+              : playing
+                ? NAYIN_COMPANION_MOTION[element].moods[gesture]
+                : "neutral"
         }
         size={76 * Math.SQRT2}
         faceScale={1 / Math.SQRT2}
         faceSpacing={1.35}
-        animated={false}
+        showLegs={docked}
+        animated={attention !== "idle"}
       />
     </span>
   );

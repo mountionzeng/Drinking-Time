@@ -51,7 +51,15 @@ const document = {
 } as unknown as MobileDocumentController;
 const conversation = {
   historyState: "empty",
-  messages: [],
+  messages: [
+    {
+      id: "chat-1",
+      role: "user",
+      content: "爷爷把旧伞修好了。",
+      timestamp: 1791800000000,
+      source: "server",
+    },
+  ],
 } as unknown as MobileConversationController;
 function renderStage(
   stage: "memory" | "text" | "video",
@@ -125,10 +133,11 @@ describe("mobile story stages", () => {
     expect(html).not.toContain("这是完整的历史文字。");
   });
 
-  it("shows the exact memory combination and distinguishes user words", () => {
+  it("defaults to original conversation with an index and retains the archive entry", () => {
     const html = renderStage("memory");
     expect(html).toContain("爷爷把旧伞修好了。");
-    expect(html).toContain("我的原话");
+    expect(html).toContain("聊天目录");
+    expect(html).toContain("回忆存档");
     expect(html).not.toContain("这是完整的历史文字。");
   });
 

@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * MobileDailyLetter — 每日来信的手机版。
  *
@@ -92,6 +93,8 @@ export function MobileDailyLetter({
   stories?: readonly DailyLetterStorySummary[];
   onOpenStory?: (storyId: number) => void;
 }) {
+  const t = useUiText();
+
   const { user } = useAuth();
   const { today } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
@@ -268,7 +271,7 @@ export function MobileDailyLetter({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="你的每日回信"
+      aria-label={t("你的每日回信")}
       // 不要借 .mobile-workspace-page：那是工作区外壳的类，自带一层渐变底
       // （盖不住下面的内容）和 overflow:hidden（信一长就滚不动）。
       className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain"
@@ -292,12 +295,12 @@ export function MobileDailyLetter({
             <h1 className="font-chat-brand mt-1.5 text-2xl font-normal text-foreground">
               {isToday
                 ? dailyLetterGreeting(new Date().getHours())
-                : `${dailyLetterDateLabel(selectedDate)}的回信`}
+                : t("{0}的回信", [dailyLetterDateLabel(selectedDate)])}
             </h1>
           </div>
           <button
             type="button"
-            aria-label="收起回信"
+            aria-label={t("收起回信")}
             className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
             onClick={closeLetter}
           >
@@ -307,7 +310,7 @@ export function MobileDailyLetter({
 
         {loading ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
-            正在把信取出来…
+            {t("正在把信取出来…")}
           </p>
         ) : !profile ? (
           // 没有八字也要有信可读。
@@ -328,7 +331,7 @@ export function MobileDailyLetter({
               compact
             />
 
-            <section aria-label="今天的信" className="py-6">
+            <section aria-label={t("今天的信")} className="py-6">
               <p className="mb-4 text-[13px] leading-6 text-muted-foreground">
                 {publicLetter.attention}
               </p>
@@ -343,8 +346,9 @@ export function MobileDailyLetter({
                 ))}
               </div>
               <p className="mt-6 text-[11px] leading-5 text-muted-foreground/80">
-                这封信还没结合你的八字。想让它更贴着你写，去「我」里补上出生
-                信息，只填一次。
+                {t(
+                  "这封信还没结合你的八字。想让它更贴着你写，去「我」里补上出生 信息，只填一次。"
+                )}
               </p>
             </section>
 
@@ -357,7 +361,7 @@ export function MobileDailyLetter({
                 className="min-h-11 px-2 text-xs text-muted-foreground"
                 onClick={closeLetter}
               >
-                把信收好，继续聊
+                {t("把信收好，继续聊")}
               </button>
             </div>
           </>
@@ -375,7 +379,7 @@ export function MobileDailyLetter({
                 htmlFor="mobile-letter-date"
                 className="shrink-0 text-xs text-muted-foreground"
               >
-                想翻回哪一天
+                {t("想翻回哪一天")}
               </label>
               <select
                 id="mobile-letter-date"
@@ -390,7 +394,7 @@ export function MobileDailyLetter({
               >
                 {letterDates.map(date => (
                   <option key={date} value={date}>
-                    {date === profileDate ? `今天 · ${date}` : date}
+                    {date === profileDate ? t("今天 · {0}", [date]) : date}
                   </option>
                 ))}
               </select>
@@ -413,12 +417,12 @@ export function MobileDailyLetter({
             />
 
             <section
-              aria-label="你在这天说的话"
+              aria-label={t("你在这天说的话")}
               className="border-b py-5"
               style={{ borderColor: "var(--nayin-border)" }}
             >
               <div className="flex items-center justify-between gap-3">
-                <SectionTitle>那天，你这样说</SectionTitle>
+                <SectionTitle>{t("那天，你这样说")}</SectionTitle>
                 {editingMessage ? null : (
                   <button
                     type="button"
@@ -426,7 +430,11 @@ export function MobileDailyLetter({
                     className="min-h-11 px-2 text-xs text-muted-foreground transition disabled:opacity-50"
                     onClick={beginEditing}
                   >
-                    {!selectedLetter ? "整理中" : selectedMessage ? "修改" : "写一点"}
+                    {!selectedLetter
+                      ? t("整理中")
+                      : selectedMessage
+                        ? t("修改")
+                        : t("写一点")}
                   </button>
                 )}
               </div>
@@ -438,7 +446,7 @@ export function MobileDailyLetter({
                     maxLength={800}
                     rows={5}
                     value={messageDraft}
-                    placeholder="今天发生了什么，或者你现在是什么感受？"
+                    placeholder={t("今天发生了什么，或者你现在是什么感受？")}
                     className="w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-8 text-foreground outline-none placeholder:text-muted-foreground/55"
                     onChange={event => setMessageDraft(event.target.value)}
                   />
@@ -451,18 +459,21 @@ export function MobileDailyLetter({
                       onClick={() => void saveMessage()}
                     >
                       {rewriteMut.isPending ? (
-                        <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                        <Loader2
+                          aria-hidden="true"
+                          className="size-3.5 animate-spin"
+                        />
                       ) : (
                         <Check aria-hidden="true" className="size-3.5" />
                       )}
-                      记下这句
+                      {t("记下这句")}
                     </button>
                     <button
                       type="button"
                       className="min-h-11 px-2 text-xs text-muted-foreground"
                       onClick={() => setEditingMessage(false)}
                     >
-                      先放着
+                      {t("先放着")}
                     </button>
                   </div>
                 </div>
@@ -470,29 +481,37 @@ export function MobileDailyLetter({
                 <>
                   <p className="mt-2 text-[15px] leading-8 text-foreground">
                     {selectedMessage ||
-                      "这一天还没有写下新话，所以来信不会翻出以前的具体事情。"}
+                      t(
+                        "这一天还没有写下新话，所以来信不会翻出以前的具体事情。"
+                      )}
                   </p>
                   {saidAt || editedAt ? (
                     <p className="mt-1 text-[9px] text-muted-foreground/65">
-                      {saidAt ? `说于 ${dailyLetterTimestampLabel(saidAt)}` : ""}
+                      {saidAt
+                        ? t("说于 {0}", [dailyLetterTimestampLabel(saidAt)])
+                        : ""}
                       {saidAt && editedAt ? " · " : ""}
-                      {editedAt ? `改于 ${dailyLetterTimestampLabel(editedAt)}` : ""}
+                      {editedAt
+                        ? t("改于 {0}", [dailyLetterTimestampLabel(editedAt)])
+                        : ""}
                     </p>
                   ) : null}
                 </>
               )}
               <p className="mt-3 text-[10px] leading-5 text-muted-foreground/70">
-                只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。
+                {t(
+                  "只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。"
+                )}
               </p>
             </section>
 
             {relatedStories.length > 0 && onOpenStory ? (
               <section
-                aria-label="这天聊过的故事"
+                aria-label={t("这天聊过的故事")}
                 className="border-b py-5"
                 style={{ borderColor: "var(--nayin-border)" }}
               >
-                <SectionTitle>那天，也聊过这些故事</SectionTitle>
+                <SectionTitle>{t("那天，也聊过这些故事")}</SectionTitle>
                 <ul className="mt-2">
                   {relatedStories.map(story => {
                     const detail =
@@ -508,7 +527,7 @@ export function MobileDailyLetter({
                           }}
                         >
                           <span className="truncate text-[15px] font-medium text-foreground">
-                            {story.title.trim() || "未命名故事"}
+                            {story.title.trim() || t("未命名故事")}
                           </span>
                           {detail ? (
                             <span className="truncate text-xs text-muted-foreground">
@@ -523,7 +542,7 @@ export function MobileDailyLetter({
               </section>
             ) : null}
 
-            <section aria-label="聊会儿的回信" className="py-6">
+            <section aria-label={t("聊会儿的回信")} className="py-6">
               {selectedReference?.summary ? (
                 <div className="space-y-4">
                   {dailyLetterParagraphs(selectedReference.summary).map(
@@ -539,14 +558,17 @@ export function MobileDailyLetter({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  这一天的回信还没有生成。
+                  {t("这一天的回信还没有生成。")}
                 </p>
               )}
 
               <p className="mt-5 text-[9px] text-muted-foreground/60">
-                第 {selectedLetter?.revision ?? 1} 版
+                {t("第")}
+                {selectedLetter?.revision ?? 1} {t("版")}
                 {selectedLetter?.updatedAt
-                  ? ` · 更新于 ${dailyLetterTimestampLabel(selectedLetter.updatedAt)}`
+                  ? t(" · 更新于 {0}", [
+                      dailyLetterTimestampLabel(selectedLetter.updatedAt),
+                    ])
                   : ""}
               </p>
 
@@ -568,11 +590,19 @@ export function MobileDailyLetter({
                   onClick={() => void rereadLetter()}
                 >
                   {rereadMut.isPending ? (
-                    <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                    <Loader2
+                      aria-hidden="true"
+                      className="size-3.5 animate-spin"
+                    />
                   ) : (
-                    <RefreshCw aria-hidden="true" className="size-3.5 text-nayin" />
+                    <RefreshCw
+                      aria-hidden="true"
+                      className="size-3.5 text-nayin"
+                    />
                   )}
-                  {rereadMut.isPending ? "正在重新读…" : "用最新记忆，再读一遍"}
+                  {rereadMut.isPending
+                    ? t("正在重新读…")
+                    : t("用最新记忆，再读一遍")}
                 </button>
               ) : null}
             </section>
@@ -586,7 +616,7 @@ export function MobileDailyLetter({
                 className="min-h-11 px-2 text-xs text-muted-foreground"
                 onClick={closeLetter}
               >
-                把信收好，继续聊
+                {t("把信收好，继续聊")}
               </button>
             </div>
           </>

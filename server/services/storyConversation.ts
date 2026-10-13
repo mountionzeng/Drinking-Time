@@ -1,3 +1,4 @@
+import { ComputeAccessError } from "./computeRequestAccess";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { syncStoryChatMemoriesSafely } from "./chatMemoryWarehouse";
@@ -747,7 +748,9 @@ export async function generateMobileStoryConversationTurn(
       clientTurnId: input.clientTurnId,
       requestHash: input.requestHash,
       claimToken,
-      failureMessage: error instanceof Error ? error.message : "模型生成失败",
+      failureMessage: error instanceof ComputeAccessError && error.code === "FORBIDDEN"
+        ? `${error.message} 请在“我”的算力余额中查看，补充余额后可重试这条消息，无需重发。`
+        : error instanceof Error ? error.message : "模型生成失败",
       now: inputNow(input.now),
     });
     return mobileTurnResult(owner, turn);

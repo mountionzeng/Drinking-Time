@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ExternalLink, ImageIcon, Mail } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import type { PersonalMemoryTimelineItem } from "@shared/personalMemory";
@@ -8,6 +9,8 @@ import {
 } from "./personalMemoryViewModel";
 
 function SourceAction({ item }: { item: PersonalMemoryTimelineItem }) {
+  const t = useUiText();
+
   const sourceQuery = trpc.personalMemory.resolveSource.useQuery(
     { eventId: item.id },
     { enabled: false, retry: false }
@@ -26,7 +29,9 @@ function SourceAction({ item }: { item: PersonalMemoryTimelineItem }) {
 
   if (item.contentScrubbed) {
     return (
-      <span className="text-[11px] text-muted-foreground">来源已删除</span>
+      <span className="text-[11px] text-muted-foreground">
+        {t("来源已删除")}
+      </span>
     );
   }
   if (sourceQuery.data && sourceQuery.data.availability !== "accessible") {
@@ -46,12 +51,14 @@ function SourceAction({ item }: { item: PersonalMemoryTimelineItem }) {
       className="inline-flex min-h-9 items-center gap-1 text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-60"
     >
       <ExternalLink className="h-3 w-3" aria-hidden="true" />
-      {sourceQuery.isFetching ? "正在确认来源…" : "查看来源"}
+      {sourceQuery.isFetching ? t("正在确认来源…") : t("查看来源")}
     </button>
   );
 }
 
 function EventCard({ item }: { item: PersonalMemoryTimelineItem }) {
+  const t = useUiText();
+
   const time = new Intl.DateTimeFormat("zh-CN", {
     timeZone: "Asia/Shanghai",
     hour: "2-digit",
@@ -80,7 +87,7 @@ function EventCard({ item }: { item: PersonalMemoryTimelineItem }) {
         ) : null}
       </div>
       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">
-        {item.excerpt ?? "这条记录的原内容已经不可显示。"}
+        {item.excerpt ?? t("这条记录的原内容已经不可显示。")}
       </p>
       <SourceAction item={item} />
     </article>
@@ -92,6 +99,8 @@ export default function PersonalMemoryDay({
 }: {
   group: PersonalMemoryDayGroup;
 }) {
+  const t = useUiText();
+
   return (
     <section
       id={`day-${group.occurredOn}`}
@@ -115,7 +124,7 @@ export default function PersonalMemoryDay({
           >
             <div className="flex items-center gap-2 text-xs font-medium">
               <Mail className="h-4 w-4" aria-hidden="true" />
-              这一天的每日来信
+              {t("这一天的每日来信")}
             </div>
             <button
               type="button"
@@ -126,7 +135,7 @@ export default function PersonalMemoryDay({
                 )
               }
             >
-              打开每日来信
+              {t("打开每日来信")}
             </button>
           </article>
         ) : null}

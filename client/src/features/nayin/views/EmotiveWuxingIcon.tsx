@@ -360,7 +360,7 @@ const POSES: Record<WuxingMood, Pose> = {
 
 // ─── 每个姿势的身体小动画（framer-motion）────────────────
 
-const MOOD_MOTION: Record<WuxingMood, TargetAndTransition> = {
+export const MOOD_MOTION: Record<WuxingMood, TargetAndTransition> = {
   neutral: {
     scale: [1, 1.02, 1],
     transition: { duration: 3.2, repeat: Infinity, ease: "easeInOut" },
@@ -804,6 +804,8 @@ interface EmotiveWuxingIconProps {
   /** Mobile companion proportions; defaults preserve all existing avatars. */
   faceScale?: number;
   faceSpacing?: number;
+  /** Hide feet when the mobile companion sits above an open chat. */
+  showLegs?: boolean;
 }
 
 export default function EmotiveWuxingIcon({
@@ -818,6 +820,7 @@ export default function EmotiveWuxingIcon({
   title,
   faceScale = 1,
   faceSpacing = 1,
+  showLegs = true,
 }: EmotiveWuxingIconProps) {
   const reducedMotion = useReducedMotion();
   const resolved = mood ?? resolveEmotionMood(emotion);
@@ -863,20 +866,24 @@ export default function EmotiveWuxingIcon({
             <>
               <Limb rig={rig} spec={pose.armL} side={-1} kind="arm" />
               <Limb rig={rig} spec={pose.armR} side={1} kind="arm" />
-              <Limb
-                rig={rig}
-                spec={pose.legL}
-                side={-1}
-                kind="leg"
-                feet={pose.feet}
-              />
-              <Limb
-                rig={rig}
-                spec={pose.legR}
-                side={1}
-                kind="leg"
-                feet={pose.feet}
-              />
+              {showLegs && (
+                <>
+                  <Limb
+                    rig={rig}
+                    spec={pose.legL}
+                    side={-1}
+                    kind="leg"
+                    feet={pose.feet}
+                  />
+                  <Limb
+                    rig={rig}
+                    spec={pose.legR}
+                    side={1}
+                    kind="leg"
+                    feet={pose.feet}
+                  />
+                </>
+              )}
               <Face
                 rig={rig}
                 spec={faceSpec}

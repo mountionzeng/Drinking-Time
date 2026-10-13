@@ -1,3 +1,4 @@
+import { ComputeAccessError } from "../services/computeRequestAccess";
 import { type Message } from "../_core/llm";
 import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import { parseJsonLoose } from "../_core/llmJson";
@@ -290,6 +291,7 @@ export async function replyFromStoryAgent(params: {
             : undefined,
       };
     } catch (error) {
+      if (error instanceof ComputeAccessError) throw error;
       console.error(
         "[publishingChat] conversational call failed:",
         error instanceof Error ? error.message : error
@@ -431,6 +433,8 @@ export async function replyFromStoryAgent(params: {
   try {
     ({ text, modelLabel } = await replyPromise);
   } catch (err) {
+    // Admission failures are actionable; do not disguise them as a model/network hiccup.
+    if (err instanceof ComputeAccessError) throw err;
     // 通道层已对临时性错误自动重试；走到这里说明仍然没接上。
     // 不向上抛错——否则前端只会弹一句吞掉真实原因的「Agent 暂时没接上」并断掉对话。
     // 改为优雅兜底：用聊聊的口吻说一句「刚刚没接住」，对话不中断；真实原因记进服务端日志供排查。

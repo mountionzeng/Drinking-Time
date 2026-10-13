@@ -19,6 +19,33 @@ function memoryStorage() {
 }
 
 describe("mobile conversation recovery store", () => {
+  it("keeps same-time persisted turns in question-answer order, regardless of client IDs", () => {
+    const messages = [
+      { id: 9, role: "user" as const, content: "第一问", clientMessageId: "user-z" },
+      { id: 10, role: "assistant" as const, content: "第一答", clientMessageId: "assistant-z" },
+      { id: 11, role: "user" as const, content: "第二问", clientMessageId: "user-a" },
+      { id: 12, role: "assistant" as const, content: "第二答", clientMessageId: "assistant-a" },
+    ].map(message => ({ ...message, createdAt: "2026-10-13T08:00:00.000Z" }));
+    const merged = mergeMobileConversationProjection({
+      serverMessages: [...messages].reverse(),
+      recoveryTurns: [],
+    });
+    expect(merged.messages.map(message => message.content)).toEqual([
+      "第一问", "第一答", "第二问", "第二答",
+    ]);
+  });
+
+  it("keeps a local question before its answer when both have the same timestamp", () => {
+    const turn = applyMobileConversationTurnEvent(
+      createMobileConversationRecoveryTurn({
+        userId: 1, storyId: 2, userContent: "问题", idFactory: () => "same-time", now: 100,
+      }),
+      { type: "generation_completed", assistantContent: "回答", now: 100 }
+    );
+    const merged = mergeMobileConversationProjection({ serverMessages: [], recoveryTurns: [turn] });
+    expect(merged.messages.map(message => message.content)).toEqual(["问题", "回答"]);
+  });
+
   it("fixes one logical identity before generation and models both durability phases", () => {
     const turn = createMobileConversationRecoveryTurn({
       userId: 11,

@@ -1,0 +1,102 @@
+import { createContext, useContext, useEffect } from "react";
+export type MemoryFollowupSource = {
+  kind?: "memory" | "text" | "video";
+  title?: string;
+  stableShotId?: string;
+  storyId: number;
+  id: string;
+  content: string;
+  origin: "user" | "assistant" | "note";
+};
+export const MobileMemoryFollowup = createContext<{
+  source: MemoryFollowupSource | null;
+  select: (source: MemoryFollowupSource | null) => void;
+}>({ source: null, select: () => {} });
+export function memoryFollowupMessage(
+  source: MemoryFollowupSource,
+  thought: string
+) {
+  const role =
+    source.origin === "assistant"
+      ? "小忆当时的回应（不是我的事实陈述）"
+      : source.origin === "user"
+        ? "我当时说的话"
+        : "已保存的记事";
+  const label = companionSourceLabel(source);
+  return `我想接着这段${label}聊。请围绕我的新想法回应，需要时只问一个简短问题，不要擅自生成文字稿或视频，也不要编造经历。\n\n【引用${source.kind && source.kind !== "memory" ? label : "旧回忆"} · ${role} · 来源 ${source.id}】\n${source.content}\n【引用结束】\n\n【这次的新想法】\n${thought.trim()}`;
+}
+
+export const memoryFollowupKey = (userId: number) =>
+  `dt:mobile:new-story:v1:${userId}:memory-followup`;
+export function readMemoryFollowup(
+  storage: Pick<Storage, "getItem"> | null,
+  userId: number
+): {
+  source: MemoryFollowupSource | null;
+  draft: string;
+  baseline: string[] | null;
+} {
+  const empty = { source: null, draft: "", baseline: null };
+  try {
+    const value = JSON.parse(
+      storage?.getItem(memoryFollowupKey(userId)) ?? "null"
+    );
+    const s = value?.source;
+    if (
+      !s ||
+      !Number.isSafeInteger(s.storyId) ||
+      s.storyId <= 0 ||
+      typeof s.id !== "string" ||
+      typeof s.content !== "string" ||
+      !["user", "assistant", "note"].includes(s.origin) ||
+      typeof value.draft !== "string"
+    )
+      return empty;
+    return {
+      source: s,
+      draft: value.draft,
+      baseline:
+        Array.isArray(value.baseline) &&
+        value.baseline.every((x: unknown) => typeof x === "string")
+          ? value.baseline
+          : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+export function companionSourceLabel(source: MemoryFollowupSource) {
+  return source.kind === "text"
+    ? "文字"
+    : source.kind === "video"
+      ? "视频"
+      : "回忆";
+}
+export function videoFollowupSource(
+  storyId: number,
+  video: {
+    id: number;
+    stableShotId: string;
+    subtitle: string | null;
+    prompt: string;
+    videoUrl: string | null;
+  }
+): MemoryFollowupSource {
+  return {
+    storyId,
+    id: `video:${video.id}`,
+    kind: "video",
+    origin: "note",
+    stableShotId: video.stableShotId,
+    content: `视频素材 ${video.id}\n字幕：${video.subtitle || "无"}\n制作说明：${video.prompt || "无"}\n素材地址：${video.videoUrl || "尚未就绪"}\n以上是素材记录，不代表已观看或识别视频画面。`,
+  };
+}
+export function useCompanionPageContext(source: MemoryFollowupSource | null) {
+  const { select } = useContext(MobileMemoryFollowup);
+  const serialized = JSON.stringify(source);
+  useEffect(() => {
+    select(JSON.parse(serialized));
+    return () => select(null);
+  }, [select, serialized]);
+}

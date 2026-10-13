@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { Copy, Loader2, RefreshCw, Save } from "lucide-react";
 import React, { type Ref, useMemo, useRef, useState } from "react";
 
@@ -68,6 +69,8 @@ export function MobileDocumentConflictDetails({
   onLoadLatest: () => void;
   copyButtonRef?: Ref<HTMLButtonElement>;
 }) {
+  const t = useUiText();
+
   return (
     <div className="min-h-0 space-y-3">
       <section aria-labelledby="mobile-local-document-heading">
@@ -75,10 +78,10 @@ export function MobileDocumentConflictDetails({
           id="mobile-local-document-heading"
           className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground"
         >
-          我在手机上的正文
+          {t("我在手机上的正文")}
         </h3>
         <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-xl border border-amber-700/20 bg-amber-50 p-3 font-sans text-sm leading-5 text-amber-950">
-          {localBody || "（空白正文）"}
+          {localBody || t("（空白正文）")}
         </pre>
       </section>
       <section aria-labelledby="mobile-latest-document-heading">
@@ -86,10 +89,10 @@ export function MobileDocumentConflictDetails({
           id="mobile-latest-document-heading"
           className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground"
         >
-          服务器上的最新正文
+          {t("服务器上的最新正文")}
         </h3>
         <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-muted/60 p-3 font-sans text-sm leading-5 text-foreground">
-          {latestBody ?? "暂时无法读取最新正文"}
+          {latestBody ?? t("暂时无法读取最新正文")}
         </pre>
       </section>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -101,7 +104,7 @@ export function MobileDocumentConflictDetails({
           onClick={onCopyLocal}
         >
           <Copy aria-hidden="true" />
-          复制我的正文
+          {t("复制我的正文")}
         </Button>
         <Button
           type="button"
@@ -110,7 +113,7 @@ export function MobileDocumentConflictDetails({
           disabled={latestBody === null}
           onClick={onLoadLatest}
         >
-          载入最新正文
+          {t("载入最新正文")}
         </Button>
       </div>
     </div>
@@ -129,6 +132,8 @@ export function MobileDocumentView({
   /** 正文进入／离开编辑（输入框拿到／失去焦点）。外壳据此让聊天面板闪开。 */
   onEditingChange?: (editing: boolean) => void;
 }) {
+  const t = useUiText();
+
   const [announcement, setAnnouncement] = useState("");
   const [dismissedConflictId, setDismissedConflictId] = useState<string | null>(
     null
@@ -160,11 +165,11 @@ export function MobileDocumentView({
   if (controller.loadState === "loading") {
     return (
       <section
-        aria-label={`${storyTitle}的正文`}
+        aria-label={t("{0}的正文", [storyTitle])}
         className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
       >
         <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-        正在读取正文…
+        {t("正在读取正文…")}
       </section>
     );
   }
@@ -178,14 +183,16 @@ export function MobileDocumentView({
 
     return (
       <section
-        aria-label={`${storyTitle}的正文`}
+        aria-label={t("{0}的正文", [storyTitle])}
         className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
       >
         {notWrittenYet ? (
           <>
-            <h2 className="text-base font-semibold">这个故事还没有正文</h2>
+            <h2 className="text-base font-semibold">
+              {t("这个故事还没有正文")}
+            </h2>
             <p className="max-w-sm text-sm leading-6 text-muted-foreground">
-              可以从空白写起，停笔时点一下正文旁的小忆。
+              {t("可以从空白写起，停笔时点一下正文旁的小忆。")}
             </p>
             <Button
               type="button"
@@ -196,13 +203,13 @@ export function MobileDocumentView({
               {controller.initializing ? (
                 <Loader2 aria-hidden="true" className="animate-spin" />
               ) : null}
-              {controller.initializing ? "正在准备…" : "开始写正文"}
+              {controller.initializing ? t("正在准备…") : t("开始写正文")}
             </Button>
           </>
         ) : (
           <>
             <p className="text-sm text-destructive">
-              {controller.loadError || "正文加载失败"}
+              {controller.loadError || t("正文加载失败")}
             </p>
             <Button
               type="button"
@@ -210,7 +217,7 @@ export function MobileDocumentView({
               onClick={() => void controller.retryLoad()}
             >
               <RefreshCw aria-hidden="true" />
-              重试正文
+              {t("重试正文")}
             </Button>
           </>
         )}
@@ -223,18 +230,18 @@ export function MobileDocumentView({
 
   return (
     <section
-      aria-label={`${storyTitle}的正文`}
+      aria-label={t("{0}的正文", [storyTitle])}
       className="flex h-full min-h-0 flex-col"
     >
       <div className="min-h-0 flex-1 px-3 pt-3">
         <textarea
           ref={bodyRef}
-          aria-label="正文内容"
+          aria-label={t("正文内容")}
           // 正文直接落在纸上：不画框、不加底色和阴影 —— 这一屏就是让人读字的。
           // 行高比默认松（2 而不是 1.75），长段落读起来才不挤。
           className="h-full min-h-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-4 py-3 font-serif text-base leading-[2] text-foreground outline-none transition placeholder:text-muted-foreground disabled:text-muted-foreground disabled:opacity-60"
           disabled={controller.state.status === "conflict"}
-          placeholder="在这里继续正文…"
+          placeholder={t("在这里继续正文…")}
           spellCheck={false}
           value={controller.state.body}
           onBlur={() => onEditingChange?.(false)}
@@ -250,7 +257,7 @@ export function MobileDocumentView({
             role="status"
             aria-live="polite"
           >
-            {controller.state.error || statusText}
+            {t(controller.state.error || statusText)}
           </p>
           <WritingCompanionButton
             key={`${controller.state.userId}:${controller.state.storyId}:${controller.state.document?.versionId}:${controller.state.document?.platform}`}
@@ -287,7 +294,7 @@ export function MobileDocumentView({
               className="min-h-11 rounded-xl"
               onClick={() => setDismissedConflictId(null)}
             >
-              处理冲突
+              {t("处理冲突")}
             </Button>
           ) : (
             <Button
@@ -301,7 +308,7 @@ export function MobileDocumentView({
               ) : (
                 <Save aria-hidden="true" />
               )}
-              保存正文
+              {t("保存正文")}
             </Button>
           )}
         </div>
@@ -322,9 +329,11 @@ export function MobileDocumentView({
           }}
         >
           <DialogHeader className="text-left">
-            <DialogTitle>正文出现版本冲突</DialogTitle>
+            <DialogTitle>{t("正文出现版本冲突")}</DialogTitle>
             <DialogDescription>
-              其他设备上的正文已经变化。手机内容不会覆盖它，请先复制恢复或载入最新版。
+              {t(
+                "其他设备上的正文已经变化。手机内容不会覆盖它，请先复制恢复或载入最新版。"
+              )}
             </DialogDescription>
           </DialogHeader>
           {conflict ? (
@@ -334,13 +343,13 @@ export function MobileDocumentView({
               localBody={conflict.localBody}
               onCopyLocal={() => {
                 void copyDocumentText(conflict.localBody)
-                  .then(() => setAnnouncement("手机正文已复制"))
-                  .catch(() => setAnnouncement("复制失败，请长按正文复制"));
+                  .then(() => setAnnouncement(t("手机正文已复制")))
+                  .catch(() => setAnnouncement(t("复制失败，请长按正文复制")));
               }}
               onLoadLatest={() => {
                 controller.discard();
                 setDismissedConflictId(conflictId);
-                setAnnouncement("已载入服务器上的最新正文");
+                setAnnouncement(t("已载入服务器上的最新正文"));
               }}
             />
           ) : null}
@@ -351,7 +360,7 @@ export function MobileDocumentView({
               className="min-h-11"
               onClick={() => setDismissedConflictId(conflictId)}
             >
-              暂不处理
+              {t("暂不处理")}
             </Button>
           </DialogFooter>
         </DialogContent>

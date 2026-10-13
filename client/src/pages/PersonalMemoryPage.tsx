@@ -1,3 +1,4 @@
+import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -20,6 +21,9 @@ export default function PersonalMemoryPage({
 }: {
   embedded?: boolean;
 }) {
+  const t = useUiText();
+  const { language } = useUiLanguage();
+
   const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
   const [selected, setSelected] = useState(() => {
     const match = window.location.hash.match(/^#day-(\d{4}-\d{2}-\d{2})$/);
@@ -111,7 +115,7 @@ export default function PersonalMemoryPage({
             className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft size={16} />
-            返回工作区
+            {t("返回工作区")}
           </a>
         )}
         <header className="mb-10 mt-7 flex items-center gap-4">
@@ -124,7 +128,7 @@ export default function PersonalMemoryPage({
           <div className="min-w-0 flex-1">
             <h1 className="font-serif text-2xl">{name}</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              来信与日常，都在这里。
+              {t("来信与日常，都在这里。")}
             </p>
           </div>
           <button
@@ -132,27 +136,29 @@ export default function PersonalMemoryPage({
             aria-expanded={manage}
             className="min-h-11 px-2 text-xs text-muted-foreground hover:text-foreground"
           >
-            {manage ? "收起" : "资料与记忆"}
+            {manage ? t("收起") : t("资料与记忆")}
           </button>
         </header>
         {manage && (
           <section
-            aria-label="资料与记忆"
+            aria-label={t("资料与记忆")}
             className="mb-8 space-y-4 border-b pb-6"
           >
-            <p className="text-sm">{user.data?.email || "当前账号"}</p>
+            <p className="text-sm">{user.data?.email || t("当前账号")}</p>
             {summary.data?.captureEnabled === false && (
               <p className="text-xs text-muted-foreground">
-                自动记忆尚未开启，新聊天暂不会整理成长期理解。
+                {t("自动记忆尚未开启，新聊天暂不会整理成长期理解。")}
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              系统推断可以纠正；忘记理解不会删除原始聊天与作品。
+              {t("系统推断可以纠正；忘记理解不会删除原始聊天与作品。")}
             </p>
             {insights.isLoading ? (
-              <p role="status">正在读取…</p>
+              <p role="status">{t("正在读取…")}</p>
             ) : insights.isError ? (
-              <button onClick={() => insights.refetch()}>重新读取记忆</button>
+              <button onClick={() => insights.refetch()}>
+                {t("重新读取记忆")}
+              </button>
             ) : insights.data?.length ? (
               insights.data.map(insight => (
                 <PersonalMemoryInsightActions
@@ -167,22 +173,23 @@ export default function PersonalMemoryPage({
               ))
             ) : (
               <p className="text-sm text-muted-foreground">
-                还没有形成可展示的理解。
+                {t("还没有形成可展示的理解。")}
               </p>
             )}
           </section>
         )}
-        <section aria-label="个人日历">
+        <section aria-label={t("个人日历")}>
           <div className="mb-5 flex items-center justify-between">
             <h2 className="font-serif text-xl">
-              {Number(month.slice(5))} 月{" "}
-              <span className="ml-2 text-sm text-muted-foreground">
-                {month.slice(0, 4)}
-              </span>
+              {new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : language, {
+                month: "long",
+                year: "numeric",
+                timeZone: "UTC",
+              }).format(new Date(month + "-01T00:00:00Z"))}
             </h2>
             <div className="flex items-center gap-1">
               <button
-                aria-label="上个月"
+                aria-label={t("上个月")}
                 onClick={() => changeMonth(-1)}
                 className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"
               >
@@ -195,10 +202,10 @@ export default function PersonalMemoryPage({
                 }}
                 className="h-11 px-3 text-xs"
               >
-                今天
+                {t("今天")}
               </button>
               <button
-                aria-label="下个月"
+                aria-label={t("下个月")}
                 onClick={() => changeMonth(1)}
                 className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"
               >
@@ -207,9 +214,12 @@ export default function PersonalMemoryPage({
             </div>
           </div>
           <div className="grid grid-cols-7 text-center text-xs text-muted-foreground">
-            {"一二三四五六日".split("").map(label => (
-              <span key={label} className="pb-3">
-                {label}
+            {Array.from({ length: 7 }, (_, index) => (
+              <span key={index} className="pb-3">
+                {new Intl.DateTimeFormat(
+                  language === "zh" ? "zh-CN" : language,
+                  { weekday: "short", timeZone: "UTC" }
+                ).format(new Date(Date.UTC(2026, 0, 5 + index)))}
               </span>
             ))}
           </div>
@@ -218,7 +228,7 @@ export default function PersonalMemoryPage({
               date ? (
                 <button
                   key={date}
-                  aria-label={date + (marked.has(date) ? "，有新内容" : "")}
+                  aria-label={date + (marked.has(date) ? t("，有新内容") : "")}
                   aria-pressed={selected === date}
                   aria-current={date === today ? "date" : undefined}
                   onClick={() => setSelected(date)}
@@ -244,14 +254,14 @@ export default function PersonalMemoryPage({
             )}
           </div>
           <p className="mt-5 text-center text-xs text-muted-foreground">
-            小圆点 · 当天有原话、感悟或采用的作品
+            {t("小圆点 · 当天有原话、感悟或采用的作品")}
           </p>
           {timeline.isFetching && (
             <p
               role="status"
               className="mt-2 text-center text-xs text-muted-foreground"
             >
-              正在读取日期标记…
+              {t("正在读取日期标记…")}
             </p>
           )}
           {timeline.isError && (
@@ -259,12 +269,12 @@ export default function PersonalMemoryPage({
               className="mt-2 text-xs underline"
               onClick={() => timeline.refetch()}
             >
-              日期标记未完整加载，点击重试
+              {t("日期标记未完整加载，点击重试")}
             </button>
           )}
         </section>
         <section
-          aria-label="当天的来信与记录"
+          aria-label={t("当天的来信与记录")}
           aria-live="polite"
           className="mt-8 border-t pt-7"
         >
@@ -279,16 +289,18 @@ export default function PersonalMemoryPage({
                 void day.refetch();
               }}
             >
-              这一天暂未读到，点击重试
+              {t("这一天暂未读到，点击重试")}
             </button>
           ) : letters.isLoading || day.isLoading ? (
             <p role="status" className="text-sm text-muted-foreground">
-              正在展开这一天…
+              {t("正在展开这一天…")}
             </p>
           ) : (
             <>
               <article>
-                <h2 className="mb-4 font-serif text-xl">写给你的一封信</h2>
+                <h2 className="mb-4 font-serif text-xl">
+                  {t("写给你的一封信")}
+                </h2>
                 {reference?.summary ? (
                   <p className="whitespace-pre-wrap text-sm leading-8">
                     {reference.summary}
@@ -296,8 +308,8 @@ export default function PersonalMemoryPage({
                 ) : (
                   <p className="text-sm leading-7 text-muted-foreground">
                     {selected > today
-                      ? "这一天还没到，来信也还在路上。"
-                      : "这一天还没有保存的来信。"}
+                      ? t("这一天还没到，来信也还在路上。")
+                      : t("这一天还没有保存的来信。")}
                   </p>
                 )}
                 {letter && (
@@ -305,7 +317,7 @@ export default function PersonalMemoryPage({
                     className="mt-4 inline-block py-2 text-xs text-muted-foreground underline"
                     href={"/editing?letterDate=" + selected}
                   >
-                    打开完整来信
+                    {t("打开完整来信")}
                   </a>
                 )}
               </article>

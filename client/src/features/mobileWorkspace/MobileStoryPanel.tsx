@@ -1,3 +1,9 @@
+import {
+  translateUi,
+  useUiLanguage,
+  useUiText,
+  type UiLanguage,
+} from "@/features/uiLanguage/UiLanguage";
 /**
  * MobileStoryPanel — 手机上的故事面板，顶掉原来 header 里那个 <select>。
  *
@@ -43,10 +49,25 @@ export type MobileStorySummary = {
 };
 
 /** 「2 小时前 · 0 个镜头」。卡片数常年是 0，只会占位，所以不放。 */
-export function mobileStoryMeta(story: MobileStorySummary): string {
-  const when = formatStoryTimestamp(story.updatedAt ?? story.createdAt);
+export function mobileStoryMeta(
+  story: MobileStorySummary,
+  language: UiLanguage = "zh"
+): string {
+  const timestamp = story.updatedAt ?? story.createdAt;
+  const date = timestamp ? new Date(timestamp) : null;
+  const when =
+    language === "zh"
+      ? formatStoryTimestamp(timestamp)
+      : date && Number.isFinite(date.getTime())
+        ? new Intl.DateTimeFormat(language, {
+            month: "short",
+            day: "numeric",
+          }).format(date)
+        : "";
   const shots =
-    typeof story.shotCount === "number" ? `${story.shotCount} 个镜头` : "";
+    typeof story.shotCount === "number"
+      ? translateUi(language, "{0} 个镜头", [story.shotCount])
+      : "";
   return [when, shots].filter(Boolean).join(" · ");
 }
 
@@ -69,12 +90,17 @@ export function MobileStoryPanel({
   onCreateStory?: () => void;
   onSelectStory: (storyId: number) => void;
 }) {
+  const t = useUiText();
+  const { language } = useUiLanguage();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[calc(100%-1.5rem)] gap-0 p-0 sm:max-w-sm">
         <DialogHeader className="sr-only">
-          <DialogTitle>故事</DialogTitle>
-          <DialogDescription>开启新故事，或回到以前的故事</DialogDescription>
+          <DialogTitle>{t("故事")}</DialogTitle>
+          <DialogDescription>
+            {t("开启新故事，或回到以前的故事")}
+          </DialogDescription>
         </DialogHeader>
 
         {onCreateStory ? (
@@ -90,7 +116,7 @@ export function MobileStoryPanel({
             >
               <Plus className="size-3.5" />
             </span>
-            {creating ? "正在新建…" : "开启新故事"}
+            {creating ? t("正在新建…") : t("开启新故事")}
           </button>
         ) : null}
 
@@ -103,12 +129,12 @@ export function MobileStoryPanel({
         <div className="mx-1 h-px bg-border" />
 
         <div className="px-4 pb-1.5 pt-2.5 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-          回到以前的故事
+          {t("回到以前的故事")}
         </div>
 
         {stories.length === 0 ? (
           <p className="px-4 pb-4 pt-1 text-xs text-muted-foreground">
-            还没有故事，先开一个吧
+            {t("还没有故事，先开一个吧")}
           </p>
         ) : (
           <ul className="max-h-[52vh] overflow-y-auto overscroll-contain pb-2">
@@ -127,7 +153,7 @@ export function MobileStoryPanel({
                     onClick={() => onSelectStory(story.id)}
                   >
                     <span className="text-[15px] font-medium leading-[1.35] text-foreground">
-                      {story.title?.trim() || "未命名故事"}
+                      {story.title?.trim() || t("未命名故事")}
                     </span>
                     {excerpt ? (
                       <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
@@ -135,7 +161,7 @@ export function MobileStoryPanel({
                       </span>
                     ) : null}
                     <span className="font-mono text-[11px] text-muted-foreground/80">
-                      {mobileStoryMeta(story) || "还没动过"}
+                      {mobileStoryMeta(story, language) || t("还没动过")}
                     </span>
                   </button>
                 </li>

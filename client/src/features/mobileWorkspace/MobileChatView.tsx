@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ArrowUp,
   BookPlus,
@@ -104,6 +105,8 @@ function MobileTurnRecovery({
   onDiscard: () => void;
   onAnnounce: (message: string) => void;
 }) {
+  const t = useUiText();
+
   const canRetry =
     turn.status === "generation-failed" ||
     turn.status === "generation-unknown" ||
@@ -113,7 +116,7 @@ function MobileTurnRecovery({
 
   return (
     <aside
-      aria-label="待恢复的对话"
+      aria-label={t("待恢复的对话")}
       className="mx-3 rounded-xl border border-amber-700/20 bg-amber-50/80 p-3 text-sm text-amber-950"
     >
       <div className="flex items-start gap-2">
@@ -129,7 +132,7 @@ function MobileTurnRecovery({
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" size="sm" onClick={onRetry}>
             <RefreshCw aria-hidden="true" />
-            {turn.status === "persistence-failed" ? "重新同步" : "重试"}
+            {turn.status === "persistence-failed" ? t("重新同步") : t("重试")}
           </Button>
           <Button
             type="button"
@@ -137,16 +140,16 @@ function MobileTurnRecovery({
             variant="outline"
             onClick={() => {
               void copyText(copyValue)
-                .then(() => onAnnounce("内容已复制"))
-                .catch(() => onAnnounce("复制失败，请长按正文复制"));
+                .then(() => onAnnounce(t("内容已复制")))
+                .catch(() => onAnnounce(t("复制失败，请长按正文复制")));
             }}
           >
             <Copy aria-hidden="true" />
-            复制内容
+            {t("复制内容")}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onDiscard}>
             <Trash2 aria-hidden="true" />
-            移除提示
+            {t("移除提示")}
           </Button>
         </div>
       ) : null}
@@ -182,6 +185,8 @@ export function MobileChatView({
   greeting?: string;
   composerDisabled?: boolean;
 }) {
+  const t = useUiText();
+
   const [localDraft, setLocalDraft] = useState("");
   const draft = draftValue ?? localDraft;
   const setDraft = onDraftChange ?? setLocalDraft;
@@ -250,7 +255,7 @@ export function MobileChatView({
 
   return (
     <section
-      aria-label={`${storyTitle}的聊聊`}
+      aria-label={t("{0}的聊聊", [storyTitle])}
       className="flex h-full min-h-0 flex-col"
     >
       <div
@@ -265,14 +270,14 @@ export function MobileChatView({
         {controller.historyState === "loading" ? (
           <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-            正在读取聊天记录…
+            {t("正在读取聊天记录…")}
           </div>
         ) : null}
 
         {controller.historyState === "error" ? (
           <div className="mx-auto flex min-h-40 max-w-sm flex-col items-center justify-center gap-3 text-center">
             <p className="text-sm text-destructive">
-              {controller.historyError || "聊天记录加载失败"}
+              {controller.historyError || t("聊天记录加载失败")}
             </p>
             <Button
               type="button"
@@ -280,19 +285,26 @@ export function MobileChatView({
               onClick={() => void controller.reloadHistory()}
             >
               <RefreshCw aria-hidden="true" />
-              重试聊天记录
+              {t("重试聊天记录")}
             </Button>
           </div>
         ) : null}
 
         {controller.historyState === "empty" ? (
-          greeting ? <p className="whitespace-pre-line px-2 text-base leading-8">{greeting}</p> :
-          <div className="mx-auto flex min-h-48 max-w-xs flex-col items-center justify-center text-center">
-            <div className="font-chat-brand text-2xl text-foreground">聊聊</div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              从一个念头开始，电脑上也能继续这段对话。
+          greeting ? (
+            <p className="whitespace-pre-line px-2 text-base leading-8">
+              {greeting}
             </p>
-          </div>
+          ) : (
+            <div className="mx-auto flex min-h-48 max-w-xs flex-col items-center justify-center text-center">
+              <div className="font-chat-brand text-2xl text-foreground">
+                {t("聊聊")}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {t("从一个念头开始，电脑上也能继续这段对话。")}
+              </p>
+            </div>
+          )
         ) : null}
 
         {controller.historyState === "loaded" ? (
@@ -347,7 +359,7 @@ export function MobileChatView({
           data-sheet-action="latest-reply"
           role="log"
           aria-live="polite"
-          aria-label="聊聊说的话"
+          aria-label={t("聊聊说的话")}
           tabIndex={0}
           style={
             replyMaxHeight ? { maxHeight: `${replyMaxHeight}px` } : undefined
@@ -364,10 +376,10 @@ export function MobileChatView({
       >
         <div className="mx-auto flex max-w-2xl items-end gap-2">
           <Textarea
-            aria-label="给聊聊发送消息"
+            aria-label={t("给聊聊发送消息")}
             className="max-h-32 min-h-11 resize-none rounded-2xl bg-background px-4 py-3 leading-5 shadow-sm"
             disabled={controller.historyState === "loading" || composerDisabled}
-            placeholder="继续聊聊…"
+            placeholder={t("继续聊聊…")}
             rows={1}
             value={draft}
             onChange={event => setDraft(event.target.value)}
@@ -382,8 +394,8 @@ export function MobileChatView({
             <Button
               type="button"
               variant="ghost"
-              aria-label="存入故事"
-              title="存入故事"
+              aria-label={t("存入故事")}
+              title={t("存入故事")}
               className="size-11 shrink-0 rounded-full"
               onClick={onArchive}
             >
@@ -393,7 +405,7 @@ export function MobileChatView({
           <Button
             type="submit"
             size="icon-lg"
-            aria-label="发送消息"
+            aria-label={t("发送消息")}
             className="size-11 rounded-full"
             disabled={!draft.trim() || !controller.canSend}
           >
@@ -403,7 +415,7 @@ export function MobileChatView({
               // 确认稿里发送是一支向上的箭头
               <ArrowUp aria-hidden="true" />
             )}
-            <span className="sr-only">发送</span>
+            <span className="sr-only">{t("发送")}</span>
           </Button>
         </div>
       </form>

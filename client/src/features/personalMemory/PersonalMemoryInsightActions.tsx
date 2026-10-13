@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from "react";
 import { Archive, Check, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -35,6 +36,8 @@ export default function PersonalMemoryInsightActions({
   insight: InsightCard;
   onChanged: () => Promise<unknown>;
 }) {
+  const t = useUiText();
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(insight.text ?? "");
   const archiveMut = trpc.personalMemory.archiveInsight.useMutation();
@@ -81,18 +84,19 @@ export default function PersonalMemoryInsightActions({
     >
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
         <span className="rounded-full bg-[var(--muted)] px-2 py-1">
-          {insight.origin === "inferred" ? "系统推断" : "用户确认"}
+          {insight.origin === "inferred" ? t("系统推断") : t("用户确认")}
         </span>
         <span>{CATEGORY_LABELS[insight.category]}</span>
         <span>
-          依据 {insight.earliestEvidenceOn ?? "当前"} 起的{" "}
-          {insight.evidenceCount} 条记录
+          {t("依据")}
+          {insight.earliestEvidenceOn ?? t("当前")} {t("起的")}{" "}
+          {insight.evidenceCount} {t("条记录")}
         </span>
       </div>
       {editing ? (
         <div className="mt-3">
           <label className="sr-only" htmlFor={`insight-${insight.lineageKey}`}>
-            纠正系统理解
+            {t("纠正系统理解")}
           </label>
           <textarea
             id={`insight-${insight.lineageKey}`}
@@ -109,7 +113,7 @@ export default function PersonalMemoryInsightActions({
               className="inline-flex min-h-10 items-center gap-1 rounded-full bg-foreground px-4 text-xs text-background disabled:opacity-50"
             >
               <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              保存纠正
+              {t("保存纠正")}
             </button>
             <button
               type="button"
@@ -117,13 +121,13 @@ export default function PersonalMemoryInsightActions({
               className="inline-flex min-h-10 items-center gap-1 rounded-full border px-4 text-xs"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
-              取消
+              {t("取消")}
             </button>
           </div>
         </div>
       ) : (
         <p className="mt-3 text-sm leading-6 text-foreground">
-          {insight.text ?? "这条理解已不可显示"}
+          {insight.text ?? t("这条理解已不可显示")}
         </p>
       )}
       {!editing ? (
@@ -137,7 +141,7 @@ export default function PersonalMemoryInsightActions({
                 className="inline-flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs"
               >
                 <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                纠正
+                {t("纠正")}
               </button>
               <button
                 type="button"
@@ -151,7 +155,7 @@ export default function PersonalMemoryInsightActions({
                 className="inline-flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs"
               >
                 <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-                暂不使用
+                {t("暂不使用")}
               </button>
             </>
           ) : (
@@ -167,7 +171,7 @@ export default function PersonalMemoryInsightActions({
               className="inline-flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              恢复使用
+              {t("恢复使用")}
             </button>
           )}
           <button
@@ -177,11 +181,11 @@ export default function PersonalMemoryInsightActions({
             className="inline-flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            忘记
+            {t("忘记")}
           </button>
           {pending ? (
             <span className="self-center text-xs text-muted-foreground">
-              正在保存…
+              {t("正在保存…")}
             </span>
           ) : null}
           {mutationError ? (

@@ -1,9 +1,25 @@
-import React, { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { MobileCompanionActions } from "./MobileCompanionActions";
+import React, {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { trpc } from "@/lib/trpc";
+import {
+  MobileMemoryFollowup,
+  companionSourceLabel,
+  memoryFollowupKey,
+  readMemoryFollowup,
+  type MemoryFollowupSource,
+} from "./mobileMemoryFollowup";
+import { MobileMemoryFollowupChat } from "./MobileMemoryFollowupChat";
 import { MobileChatView } from "./MobileChatView";
 import { useMobileConversation } from "./useMobileConversation";
 import { NayinCompanion } from "./NayinCompanion";
@@ -12,6 +28,7 @@ import {
   NAYIN_COMPANION_MOTION,
 } from "./nayinCompanionMotion";
 import { XiaoyiBird } from "./XiaoyiBird";
+import { companionAttention } from "./companionAttention";
 import {
   canStartAnotherStory,
   emptyNewStorySession,
@@ -29,10 +46,48 @@ function sessionStorage() {
 }
 
 /** Independent from the viewed story. Keeping this mounted preserves in-flight turns on close. */
-export function MobileNewStoryCompanion({ userId }: { userId: number }) {
+export function MobileNewStoryCompanion({
+  userId,
+  idleAnimations = false,
+}: {
+  userId: number;
+  idleAnimations?: boolean;
+}) {
+  const t = useUiText();
+
   const { element, visualTheme } = useNayin();
   const reduced = useReducedMotion();
+  const [actionLocked, setActionLocked] = useState(false);
   const [open, setOpen] = useState(false);
+  const { source: memorySource } = useContext(MobileMemoryFollowup);
+  const [restoredMemory] = useState(() =>
+    readMemoryFollowup(sessionStorage(), userId)
+  );
+  const [activeMemory, setActiveMemory] = useState<MemoryFollowupSource | null>(
+    restoredMemory.source
+  );
+  const [memoryLocked, setMemoryLocked] = useState(
+    Boolean(restoredMemory.draft.trim())
+  );
+  const [memoryThinking, setMemoryThinking] = useState(false);
+  const [memoryDraft, setMemoryDraft] = useState(restoredMemory.draft);
+  const memoryBaseline = useRef<Set<string> | null>(
+    restoredMemory.baseline ? new Set(restoredMemory.baseline) : null
+  );
+  useEffect(() => {
+    try {
+      sessionStorage()?.setItem(
+        memoryFollowupKey(userId),
+        JSON.stringify({
+          source: activeMemory,
+          draft: memoryDraft,
+          baseline: memoryBaseline.current ? [...memoryBaseline.current] : null,
+        })
+      );
+    } catch {
+      /* in-memory input stays usable */
+    }
+  }, [userId, activeMemory, memoryDraft, memoryLocked]);
   const [session, setSession] = useState(() =>
     readNewStorySession(sessionStorage(), userId)
   );
@@ -158,20 +213,56 @@ export function MobileNewStoryCompanion({ userId }: { userId: number }) {
         isSubmitting: creating,
         submit,
       };
+  function changeOpen(next: boolean) {
+    if (!next && actionLocked) return;
+    if (next) {
+      const different =
+        activeMemory?.id !== memorySource?.id ||
+        activeMemory?.storyId !== memorySource?.storyId;
+      if (!memoryLocked && !busy && !unsynced && !session.draft.trim()) {
+        if (different) memoryBaseline.current = null;
+        setActiveMemory(memorySource);
+        setError(null);
+      } else if (different) {
+        setError(
+          "还有未发送或未同步的内容，先继续当前对话；处理好后再切换回忆。"
+        );
+      }
+    }
+    setOpen(next);
+  }
   const height = Math.max(180, Math.min(560, viewport.height - 130));
   const dockBottom = 0;
+  const attention = companionAttention(
+    open,
+    activeMemory
+      ? memoryThinking
+      : creating ||
+          conversation.isSubmitting ||
+          (queued !== null && conversation.historyState !== "error")
+  );
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
-      <div className="mobile-xiaoyi-dock-edge" aria-hidden="true" />
+    <DialogPrimitive.Root open={open} onOpenChange={changeOpen}>
       <DialogPrimitive.Trigger asChild>
         <motion.button
           type="button"
           className="mobile-xiaoyi-launcher"
           data-open={open}
+          data-idle-animations={idleAnimations && !open}
           data-theme={visualTheme}
-          aria-label={open ? "收起小忆" : "找小忆，聊一个新故事"}
+          aria-label={
+            open
+              ? t("收起小忆")
+              : memorySource
+                ? t("找小忆，接着这段{0}聊", [
+                    t(companionSourceLabel(memorySource)),
+                  ])
+                : t("找小忆，聊一个新故事")
+          }
           style={{
-            bottom: `calc(${viewport.bottom + dockBottom}px + env(safe-area-inset-bottom, 0px))`,
+            bottom: open
+              ? `calc(${viewport.bottom}px + env(safe-area-inset-bottom, 0px))`
+              : `${viewport.bottom}px`,
           }}
           initial={false}
           animate={
@@ -193,18 +284,33 @@ export function MobileNewStoryCompanion({ userId }: { userId: number }) {
               : { type: "spring", stiffness: 190, damping: 22 }
           }
         >
-          {visualTheme === "shiguang" ? (
-            <XiaoyiBird active={!open} />
-          ) : (
-            <NayinCompanion element={element} active={!open} />
-          )}
-          <span className="sr-only">小忆</span>
+          <span className="mobile-xiaoyi-visual">
+            {visualTheme === "shiguang" ? (
+              <XiaoyiBird
+                active={!open && idleAnimations}
+                attention={attention}
+              />
+            ) : (
+              <NayinCompanion
+                element={element}
+                active={!open && idleAnimations}
+                docked={!open}
+                attention={attention}
+              />
+            )}
+          </span>
+          <span className="sr-only">{t("小忆")}</span>
         </motion.button>
       </DialogPrimitive.Trigger>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="mobile-xiaoyi-overlay" />
+        <DialogPrimitive.Overlay
+          className="mobile-xiaoyi-overlay"
+          data-theme={visualTheme}
+          data-element={element}
+        />
         <DialogPrimitive.Content
           className="mobile-xiaoyi-dialog"
+          aria-describedby={undefined}
           data-theme={visualTheme}
           style={
             {
@@ -230,20 +336,17 @@ export function MobileNewStoryCompanion({ userId }: { userId: number }) {
             composing.current = false;
           }}
         >
+          <DialogPrimitive.Title className="sr-only">
+            {t("小忆")}
+          </DialogPrimitive.Title>
           <header className="mobile-xiaoyi-header">
-            <div>
-              <DialogPrimitive.Title>小忆</DialogPrimitive.Title>
-              <DialogPrimitive.Description>
-                {session.storyId
-                  ? "这段新故事，慢慢聊"
-                  : "从一件小事开始，聊一个新故事"}
-              </DialogPrimitive.Description>
-            </div>
             <DialogPrimitive.Close
               ref={closeRef}
+              disabled={actionLocked}
               className="mobile-xiaoyi-close"
             >
-              收起 <ChevronDown size={16} />
+              {t("收起")}
+              <ChevronDown size={16} />
             </DialogPrimitive.Close>
           </header>
           {error && (
@@ -253,33 +356,61 @@ export function MobileNewStoryCompanion({ userId }: { userId: number }) {
           )}
           {queued && conversation.historyState === "error" && (
             <p role="status" className="px-4 text-sm">
-              第一句话已保留，重试聊天记录后继续发送。
+              {t("第一句话已保留，重试聊天记录后继续发送。")}
             </p>
           )}
-          <div className="min-h-0 flex-1">
+          <div
+            className="min-h-0 flex-1"
+            style={activeMemory ? { display: "none" } : undefined}
+          >
             <MobileChatView
               controller={controller}
-              composerDisabled={creating || queued !== null}
+              composerDisabled={creating || queued !== null || actionLocked}
               storyTitle="新故事"
-              greeting={"我在呢。\n今天想从哪件小事聊起？"}
+              greeting={t("我在呢。\n今天想从哪件小事聊起？")}
               draftValue={session.draft}
               onDraftChange={draft =>
                 setSession(current => ({ ...current, draft }))
               }
             />
           </div>
-          <footer className="mobile-xiaoyi-footer">
-            <span role="status">
-              {busy ? (
-                <>
-                  <Loader2 size={13} className="animate-spin" />{" "}
-                  {creating ? "正在建立故事…" : "小忆正在听…"}
-                </>
-              ) : session.storyId ? (
-                "对话保存在故事里，电脑也能接着看"
-              ) : (
-                "发送第一句话后，才会建立故事"
-              )}
+          {activeMemory && (
+            <div className="min-h-0 flex-1">
+              <MobileMemoryFollowupChat
+                key={`${userId}:${activeMemory.storyId}:${activeMemory.id}`}
+                userId={userId}
+                source={activeMemory}
+                draft={memoryDraft}
+                setDraft={setMemoryDraft}
+                baseline={memoryBaseline}
+                onThinkingChange={setMemoryThinking}
+                onLocked={setMemoryLocked}
+                onActionLocked={setActionLocked}
+              />
+            </div>
+          )}
+          {!activeMemory && (
+            <MobileCompanionActions
+              storyId={session.storyId}
+              draft={session.draft}
+              setDraft={draft => setSession(current => ({ ...current, draft }))}
+              messages={conversation.messages}
+              disabled={busy || unsynced}
+              onLocked={setActionLocked}
+            />
+          )}
+          <footer
+            className="mobile-xiaoyi-footer"
+            style={activeMemory ? { display: "none" } : undefined}
+          >
+            <span role="status" className={busy ? "sr-only" : undefined}>
+              {busy
+                ? creating
+                  ? t("正在建立故事…")
+                  : t("正在想…")
+                : session.storyId
+                  ? t("对话保存在故事里，电脑也能接着看")
+                  : t("发送第一句话后，才会建立故事")}
             </span>
             {session.storyId && (
               <button
@@ -297,7 +428,7 @@ export function MobileNewStoryCompanion({ userId }: { userId: number }) {
                   firstSend.current = false;
                 }}
               >
-                另聊一个
+                {t("另聊一个")}
               </button>
             )}
           </footer>
