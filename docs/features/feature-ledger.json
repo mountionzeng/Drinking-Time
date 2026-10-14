@@ -48,7 +48,8 @@
         "打开分享链接不创建故事、不调用付费模型；承接必须是明确操作。",
         "持有链接即可查看授权快照；登录正式账号后显式承接，创建独立故事。链接可转发，界面明确告知。",
         "分享固定到确认时的快照；停止链接不删除已建立的收件人故事。并发及重复承接只建一个副本。",
-        "登录返回仅允许既有手机入口和合法分享路径，不把原始分享 token 放入第三方 OAuth 地址或数据库。"
+        "登录返回仅允许既有手机入口和合法分享路径，不把原始分享 token 放入第三方 OAuth 地址或数据库。",
+        "2026-10-14起新链接仅含作品正文/标题/标签且默认只读，协助改写和独立承接需显式授权；旧快照与旧权限保持不变。"
       ],
       "dependencies": [
         "story-ownership",
@@ -106,6 +107,11 @@
           "date": "2026-10-07",
           "kind": "verification",
           "summary": "用户明确批准后备份并执行正式库0026，27项迁移完整，新增两张utf8mb4分享表；原有表结构、4个用户和1个故事不变。58项真实MySQL集成测试全通过，新网页部署后healthz/readyz/login/editing及主JS公网200，浏览器登录页可见。真实账号分享承接仍待验证。"
+        },
+        {
+          "date": "2026-10-14",
+          "kind": "feature",
+          "summary": "按用户授权将新分享收敛为作品本身；新增独立改写/承接授权与作者确认候选。复用共享权限能力；旧链接兼容，真实双账号浏览器仍待验证。"
         }
       ]
     },
@@ -6040,12 +6046,13 @@
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
         "手机与电脑复用同一Story图片候选和生成服务；正文未保存时不得进入制作，历史稿采用必须明确确认。",
-        "分享只包含最终图片、作品标题和用户已确认公开的昵称/头像，不包含聊天、邮箱、账号标识、原图URL或Story内部数据；公开读取无需登录，创建和停止必须验证归属。当前头像由昵称生成，昵称取服务端登录用户。",
+        "默认只读分享仅包含最终图片、作品标题和用户已确认公开的昵称/头像，不包含聊天、邮箱、账号标识、原图URL或Story内部数据；公开读取无需登录，创建和停止必须验证归属。当前头像由昵称生成，昵称取服务端登录用户。",
         "链接固定到确认时的图片快照；持有链接的人可以查看和转发。停止后拒绝新读取，已保存图片不能收回。",
         "令牌仅以哈希落库；发布限制9张、输入合计8MiB和单故事10个有效链接；同令牌重试幂等，图片由服务端解码重编码去元数据。",
         "分享不自动发布到第三方；系统分享由用户选择目标应用和收件人。",
-        "原桌面画册、文字分享和视频制作能力保留，未修改其接口语义。",
-        "记忆图文使用用户选中的单条当前记忆、历史来源快照或聊天内容；按记忆标识隔离排版设置，不自动采用为发布正文，不自动生成文字或购买图片。"
+        "原桌面画册和视频制作能力保留；新文字分享隐私范围与权限遵循 shared-story-collaboration。",
+        "记忆图文使用用户选中的单条当前记忆、历史来源快照或聊天内容；按记忆标识隔离排版设置，不自动采用为发布正文，不自动生成文字或购买图片。",
+        "2026-10-14可明确授权随图片附上经预览的作品文字供改写/另建故事；不附加作者私人记忆、聊天或内部标识。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
@@ -6088,6 +6095,11 @@
           "date": "2026-10-12",
           "kind": "verification",
           "summary": "合入main并正式部署，0031及前置迁移通过且原有业务数据逐表摘要不变。公网发现CSP阻止fetch(blob:)，改为直接传递本地图像Blob，81项相关回归与构建通过；390px正式端实际渲染/放大/下载1800×2400 PNG，并确认匿名作品链接返回1080×1440 WebP。保留真机、系统分享和付费供应商验收缺口。"
+        },
+        {
+          "date": "2026-10-14",
+          "kind": "feature",
+          "summary": "图文分享接入两项可选权限与接收方操作，仍保留匿名阅读、图片重编码和撤销；新的创作授权需正式账号使用。"
         }
       ]
     },
@@ -6360,6 +6372,59 @@
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "新增我的语言，三语词典与手机上下文、持久化及跨标签同步；本地字体覆盖中英法并保留手写Logo。类型、154项定向测试、构建通过，390px浏览器验证法语导航、原文保留和英文刷新持久化。"
+        }
+      ]
+    },
+    {
+      "id": "shared-story-collaboration",
+      "name": "分享权限、朋友改写候选与独立创作",
+      "status": "observing",
+      "userValue": "分享时控制接收者是否协助改写或另建故事，朋友改写由作者确认后采用，不泄露记忆。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryContextShare.tsx",
+        "client/src/features/publishingAlbum/ArtworkShareDialog.tsx",
+        "client/src/features/sharing/SharedWorkActions.tsx",
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx"
+      ],
+      "owners": [
+        "shared/sharePermissions.ts",
+        "server/repositories/sharedStoryActions.ts",
+        "server/routers/storyContextShare.ts",
+        "server/routers/artworkShare.ts",
+        "server/services/textDraftHistory.ts",
+        "client/src/features/sharing/SharePermissions.tsx",
+        "client/src/features/sharing/SharedWorkActions.tsx"
+      ],
+      "evidence": [
+        "server/routers.sharePermissions.test.ts",
+        "server/integration/sharedStoryActions.mysql.test.ts",
+        "client/src/features/sharing/SharedWorkActions.test.tsx",
+        "shared/loginReturnPath.test.ts",
+        "docs/qa/2026-10-14-share-permissions.md"
+      ],
+      "invariants": [
+        "新分享默认只读，两项权限独立且仅由分享者创建时明确授予；旧分享不扩权。",
+        "接收方仅取得已预览作品，不取得源故事记忆、聊天或历史稿。",
+        "提交候选不改变原稿；采用须作者登录、明确操作并通过版本冲突校验，协助改写默认不参与作者文风学习。",
+        "权限、撤销和源故事归属在持久化事务中重新检查；重复请求不重复建故事或候选，失败原子回滚。",
+        "独立故事属于接收者；停用链接不删除已建立副本。"
+      ],
+      "dependencies": [
+        "story-context-sharing",
+        "mobile-artwork-production-sharing",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "真实双账号浏览器提交/作者采用与正式站部署待验收。",
+        "权限对所有链接持有人生效，暂无指定收件人、逐条撤销或到期时间。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-14",
+          "kind": "implementation",
+          "summary": "实现文字与图文的共享权限、候选提交与独立承接；144项相关回归、全量5384项、2项真实MySQL并发测试及类型/构建通过。未部署、无AI调用。"
         }
       ]
     }

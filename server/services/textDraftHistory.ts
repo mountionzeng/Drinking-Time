@@ -579,7 +579,7 @@ export async function adoptTextDraft(
       content,
       feedback: input.feedback,
       adoptedAt: Date.now(),
-      learningEnabled: true,
+      learningEnabled: !version.contribution,
     };
     return next;
   });

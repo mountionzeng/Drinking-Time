@@ -320,7 +320,7 @@ export function MobileStoryWorkspace({
                         {[...versions].reverse().map(version => (
                           <option key={version.id} value={version.id}>
                             {t("文字稿")}
-                            {version.sequence}
+                            {version.sequence}{version.contribution ? ` · ${version.contribution.authorName}的改写` : ""}
                             {version.adoption
                               ? t(" · 已采用")
                               : version.status === "ready"

@@ -1,3 +1,5 @@
+import { SharePermissions } from "@/features/sharing/SharePermissions";
+import { VIEW_ONLY } from "@shared/sharePermissions";
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -81,9 +83,9 @@ export function StoryContextShareDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [includeConversation, setIncludeConversation] = useState(false);
+  const [permissions, setPermissions] = useState(VIEW_ONLY);
   const [link, setLink] = useState<string | null>(null);
-  const input = { storyId, article, includeConversation };
+  const input = { storyId, article, permissions };
   const preview = trpc.storyContextShare.preview.useQuery(input, {
     enabled: open && !link,
     retry: false,
@@ -126,7 +128,7 @@ export function StoryContextShareDialog({
         <DialogHeader>
           <DialogTitle>分享故事</DialogTitle>
           <DialogDescription>
-            有链接即可阅读、转发；登录后可独立续写。
+            有链接即可阅读、转发；你可以选择是否允许对方参与创作。
           </DialogDescription>
         </DialogHeader>
         {typeof window !== "undefined" &&
@@ -162,15 +164,7 @@ export function StoryContextShareDialog({
           </div>
         ) : (
           <>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={includeConversation}
-                disabled={busy}
-                onChange={event => setIncludeConversation(event.target.checked)}
-              />
-              包含聊天记录
-            </label>
+            <SharePermissions value={permissions} onChange={setPermissions} disabled={busy} />
             {preview.isFetching ? (
               <p role="status" className="py-8 text-sm text-muted-foreground">
                 正在准备分享预览…

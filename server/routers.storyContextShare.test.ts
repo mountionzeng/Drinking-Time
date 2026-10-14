@@ -66,11 +66,11 @@ async function fixture() {
   });
   const preview = await caller(10).preview({
     storyId: id,
-    includeConversation: true,
+    permissions: { rewrite: true, fork: true },
   });
   const created = await caller(10).create({
     storyId: id,
-    includeConversation: true,
+    permissions: { rewrite: true, fork: true },
     fingerprint: preview.fingerprint,
   });
   return { id, token: created.path.slice(3), preview };
@@ -127,7 +127,7 @@ describe("story context sharing", () => {
       cards: [],
       shots: [],
     });
-    expect(inheritedStoryReference(imported.body)).toContain("甲喜欢收集贝壳");
+    expect(inheritedStoryReference(imported.body)).toContain("甲和乙一起在海边长大");
     const next = prepareStoryBody(
       {
         shots: [],
@@ -145,7 +145,7 @@ describe("story context sharing", () => {
     expect(await getStoryById(id, 10)).toEqual(before);
     expect(
       inheritedStoryReference((await getStoryById(importedId, 20))?.body)
-    ).toContain("甲喜欢收集贝壳");
+    ).toContain("甲和乙一起在海边长大");
     expect((await caller(30).accept({ token })).storyId).not.toBe(importedId);
     const disk = JSON.parse(
       await readFile(process.env.LOCAL_PERSIST_PATH!, "utf8")
@@ -169,7 +169,7 @@ describe("story context sharing", () => {
       "甲和乙一起在海边长大。"
     );
     await caller(10).revoke({ storyId: id });
-    expect((await caller(10).preview({ storyId: id })).activeLinks).toBe(0);
+    expect(runtime.memoryState.storyContextShares.every(row => row.revokedAt)).toBe(true);
     await expect(caller(null).read({ token })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
@@ -223,7 +223,7 @@ describe("story context sharing", () => {
     await expect(
       caller(10).create({
         storyId: id,
-        includeConversation: true,
+        permissions: { rewrite: true, fork: true },
         fingerprint: preview.fingerprint,
       })
     ).rejects.toThrow("disk-full");

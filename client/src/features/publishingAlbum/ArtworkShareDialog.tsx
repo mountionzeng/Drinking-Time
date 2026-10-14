@@ -1,3 +1,5 @@
+import { SharePermissions } from "@/features/sharing/SharePermissions";
+import { VIEW_ONLY, type SharedWork } from "@shared/sharePermissions";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -20,7 +22,9 @@ export function ArtworkShareDialog({
   storyId,
   title,
   pages,
+  work,
 }: {
+  work?: SharedWork;
   storyId: number;
   title: string;
   pages: Array<ImagePackResult & { url: string }>;
@@ -28,7 +32,8 @@ export function ArtworkShareDialog({
   const t = useUiText();
 
   const [open, setOpen] = useState(false);
-  const [token] = useState(() => crypto.randomUUID());
+  const [token, setToken] = useState(() => crypto.randomUUID());
+  const [permissions, setPermissions] = useState(VIEW_ONLY);
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -55,6 +60,8 @@ export function ArtworkShareDialog({
         title: title.trim() || "我的图文作品",
         token,
         pages: prepared.current,
+        permissions,
+        work: permissions.rewrite || permissions.fork ? work : undefined,
       });
       setLink(new URL(result.path, window.location.origin).href);
     } catch (cause) {
@@ -116,6 +123,10 @@ export function ArtworkShareDialog({
               </ImageCandidatePreview>
             ))}
           </div>
+          {!link && work && <>
+            <SharePermissions value={permissions} disabled={busy} onChange={value => { setPermissions(value); setToken(crypto.randomUUID()); }} />
+            {(permissions.rewrite || permissions.fork) && <details className="text-sm"><summary className="cursor-pointer">同时分享的作品文字</summary><p className="mt-2 whitespace-pre-wrap leading-7">{work.body}</p></details>}
+          </>}
           {window.location.hostname === "localhost" ||
           window.location.hostname === "127.0.0.1" ? (
             <p className="text-sm text-amber-700">

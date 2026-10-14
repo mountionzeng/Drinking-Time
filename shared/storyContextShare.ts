@@ -1,3 +1,4 @@
+import { sharePermissionsSchema } from "./sharePermissions";
 import { z } from "zod";
 import { PUBLISHING_PLATFORM_IDS } from "./publishingDraft";
 
@@ -6,6 +7,7 @@ const text = z.string();
 export const storyContextSnapshotSchema = z
   .object({
     version: z.literal(1),
+    permissions: sharePermissionsSchema.optional(),
     title: text.max(255),
     logline: text,
     theme: text,

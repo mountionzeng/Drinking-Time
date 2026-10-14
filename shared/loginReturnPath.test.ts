@@ -20,6 +20,17 @@ describe("share login return path", () => {
   ])("rejects unsafe or unsupported path %s", value => {
     expect(allowedLoginReturnPath(value)).toBeNull();
   });
+  it("accepts only exact artwork paths, including after login", () => {
+    const artwork = "/p/12345678-1234-4234-8234-123456789abc";
+    expect(allowedLoginReturnPath(artwork)).toBe(artwork);
+    for (const value of [
+      artwork + "\n",
+      artwork + "?next=//evil",
+      artwork + "/..",
+      "https://evil.test" + artwork,
+    ])
+      expect(allowedLoginReturnPath(value)).toBeNull();
+  });
   it("requires a real account, including when development auto-creates guests", () => {
     expect(canAcceptStoryShare(null)).toBe(false);
     expect(

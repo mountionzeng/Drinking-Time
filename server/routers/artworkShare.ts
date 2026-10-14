@@ -1,3 +1,12 @@
+import {
+  shareContributionInput,
+  VIEW_ONLY,
+} from "../../shared/sharePermissions";
+import { canAcceptStoryShare } from "../../shared/storyContextShare";
+import {
+  forkSharedStory,
+  contributeSharedStory,
+} from "../repositories/sharedStoryActions";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { z } from "zod";
@@ -25,6 +34,14 @@ export const artworkShareRouter = router({
     .input(artworkShareCreateSchema)
     .mutation(async ({ ctx, input }) => {
       await own(input.storyId, ctx.user.id);
+      const permissions = input.permissions ?? VIEW_ONLY;
+      if ((permissions.rewrite || permissions.fork) && !input.work)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "请先确认允许对方使用的作品文字",
+        });
+      const work =
+        permissions.rewrite || permissions.fork ? input.work : undefined;
       const pages: ArtworkSnapshot["pages"] = [];
       for (const page of input.pages) {
         try {
@@ -62,9 +79,19 @@ export const artworkShareRouter = router({
         userId: ctx.user.id,
         storyId: input.storyId,
         fingerprint: hash(
-          JSON.stringify({ title: input.title, pages: input.pages })
+          JSON.stringify({
+            title: input.title,
+            pages: input.pages,
+            ...(input.permissions ? { permissions, work } : {}),
+          })
         ),
-        snapshot: { title: input.title, author: { name: artworkAuthorName(ctx.user.name) }, pages },
+        snapshot: {
+          title: input.title,
+          author: { name: artworkAuthorName(ctx.user.name) },
+          pages,
+          permissions,
+          ...(work ? { work } : {}),
+        },
         createdAt: new Date(),
         revokedAt: null,
       });
@@ -75,6 +102,42 @@ export const artworkShareRouter = router({
     .query(async ({ ctx, input }) => {
       ctx.res.setHeader("Cache-Control", "no-store");
       return readArtworkShare(hash(input.token));
+    }),
+  accept: protectedProcedure
+    .input(z.object({ token: artworkShareTokenSchema }))
+    .mutation(async ({ ctx, input }) => {
+      if (!canAcceptStoryShare(ctx.user))
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "请先登录，再创建自己的故事",
+        });
+      const storyId = await forkSharedStory(
+        "artwork",
+        hash(input.token),
+        ctx.user.id
+      );
+      if (!(await getStoryById(storyId, ctx.user.id)))
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "你之前创建的故事已删除",
+        });
+      return { storyId };
+    }),
+  contribute: protectedProcedure
+    .input(
+      z.object({ token: artworkShareTokenSchema }).merge(shareContributionInput)
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!canAcceptStoryShare(ctx.user))
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "请先登录，再提交改写",
+        });
+      return contributeSharedStory("artwork", hash(input.token), {
+        ...input,
+        userId: ctx.user.id,
+        authorName: artworkAuthorName(ctx.user.name),
+      });
     }),
   revoke: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive() }))

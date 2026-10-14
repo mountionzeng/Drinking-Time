@@ -69,6 +69,12 @@ export const textDraftVersionSchema = z.object({
   systemPrompt: z.string(),
   modelMessage: z.string(),
   modelLabel: z.string().optional(),
+  contribution: z
+    .object({
+      authorName: z.string().max(80),
+      userId: z.number().int().positive(),
+    })
+    .optional(),
   memoryCards: z.array(memoryCardSnapshotSchema).optional(),
   originalLearningEnabled: z.boolean().optional(),
   generated: textDraftContentSchema.optional(),

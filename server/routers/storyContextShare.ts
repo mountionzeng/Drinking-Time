@@ -1,3 +1,14 @@
+import {
+  sharePermissionsSchema,
+  sharedWorkSchema,
+  shareContributionInput,
+  VIEW_ONLY,
+} from "../../shared/sharePermissions";
+import {
+  forkSharedStory,
+  contributeSharedStory,
+} from "../repositories/sharedStoryActions";
+import { artworkAuthorName } from "../../shared/artworkShare";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -5,16 +16,11 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getStoryById } from "../repositories/stories";
 import {
   countStoryContextShares,
-  importStoryContextShare,
   insertStoryContextShare,
   readStoryContextShare,
   revokeStoryContextShares,
 } from "../repositories/storyContextShares";
-import { loadStoryPromptAggregate } from "../services/promptLineageStore";
-import {
-  createStoryContextSnapshot,
-  buildInheritedStoryInput,
-} from "../services/storyContextSnapshot";
+import { createStoryContextSnapshot } from "../services/storyContextSnapshot";
 import {
   storyContextSnapshotSchema,
   STORY_SHARE_TOKEN_PATTERN,
@@ -24,7 +30,8 @@ import {
 
 const ownerInput = z.object({ storyId: z.number().int().positive() });
 const previewInput = ownerInput.extend({
-  includeConversation: z.boolean().default(false),
+  permissions: sharePermissionsSchema.default(VIEW_ONLY),
+  includeConversation: z.literal(false).default(false),
   article: storyContextSnapshotSchema.shape.article.optional(),
 });
 const tokenInput = z.object({
@@ -45,32 +52,18 @@ async function prepareShare(
   userId: number
 ) {
   const story = await owned(input.storyId, userId);
-  const body = (story.body ?? {}) as Record<string, unknown>;
-  const messages = new Map<string, unknown>();
-  if (input.includeConversation) {
-    const durable =
-      (await loadStoryPromptAggregate({ storyId: story.id, userId }))
-        ?.messages ?? [];
-    for (const value of [
-      ...(Array.isArray(body.messages) ? body.messages : []),
-      ...durable,
-    ]) {
-      if (!value || typeof value !== "object") continue;
-      const message = value as Record<string, unknown>;
-      messages.set(
-        String(
-          message.clientMessageId ??
-            message.id ??
-            `${message.role}:${message.content}`
-        ),
-        message
-      );
-    }
-  }
-  const snapshot = createStoryContextSnapshot(
-    { ...story, body: { ...body, messages: [...messages.values()] } },
-    input
-  );
+  const snapshot = createStoryContextSnapshot(story, {
+    ...input,
+    workOnly: true,
+  });
+  if (!snapshot.article?.body.trim())
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "请先写好要分享的正文",
+    });
+  if (input.permissions.rewrite || input.permissions.fork)
+    sharedWorkSchema.parse(snapshot.article);
+  snapshot.permissions = input.permissions;
   return {
     snapshot,
     fingerprint: hash(JSON.stringify(snapshot)),
@@ -117,10 +110,10 @@ export const storyContextShareRouter = router({
           code: "UNAUTHORIZED",
           message: "请先登录，再创建属于你的故事",
         });
-      const storyId = await importStoryContextShare(
+      const storyId = await forkSharedStory(
+        "story",
         hash(input.token),
-        ctx.user.id,
-        share => buildInheritedStoryInput(share.snapshot, ctx.user.id)
+        ctx.user.id
       );
       if (!(await getStoryById(storyId, ctx.user.id)))
         throw new TRPCError({
@@ -128,6 +121,20 @@ export const storyContextShareRouter = router({
           message: "你之前创建的故事已删除",
         });
       return { storyId };
+    }),
+  contribute: protectedProcedure
+    .input(tokenInput.merge(shareContributionInput))
+    .mutation(async ({ ctx, input }) => {
+      if (!canAcceptStoryShare(ctx.user))
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "请先登录，再提交改写",
+        });
+      return contributeSharedStory("story", hash(input.token), {
+        ...input,
+        userId: ctx.user.id,
+        authorName: artworkAuthorName(ctx.user.name),
+      });
     }),
   revoke: protectedProcedure
     .input(ownerInput)

@@ -1,3 +1,9 @@
+import {
+  sharePermissionsSchema,
+  sharedWorkSchema,
+  type SharePermissions,
+  type SharedWork,
+} from "./sharePermissions";
 import { z } from "zod";
 
 export const ARTWORK_SHARE_MAX_PAGES = 9;
@@ -5,6 +11,8 @@ export const ARTWORK_SHARE_MAX_BYTES = 8 * 1024 * 1024;
 export const artworkShareTokenSchema = z.string().uuid();
 export type ArtworkSnapshot = {
   title: string;
+  permissions?: SharePermissions;
+  work?: SharedWork;
   author?: { name: string };
   pages: Array<{ dataUrl: string; width: number; height: number }>;
 };
@@ -14,6 +22,8 @@ export function artworkAuthorName(name?: string | null): string {
 }
 export const artworkShareCreateSchema = z
   .object({
+    permissions: sharePermissionsSchema.optional(),
+    work: sharedWorkSchema.optional(),
     storyId: z.number().int().positive(),
     token: artworkShareTokenSchema,
     title: z.string().trim().min(1).max(200),

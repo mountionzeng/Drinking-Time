@@ -54,6 +54,7 @@ export function createStoryContextSnapshot(
   >,
   options: {
     includeConversation: boolean;
+    workOnly?: boolean;
     article?: StoryContextSnapshot["article"];
   }
 ): StoryContextSnapshot {
@@ -61,6 +62,14 @@ export function createStoryContextSnapshot(
   const inherited = inheritedStorySnapshot(body);
   const publishing = normalizePublishingDraftState(body.publishing);
   const draft = publishing.drafts[publishing.activePlatform];
+  if (options.workOnly) {
+    const article = options.article !== undefined ? options.article : draft ? {
+      platform: publishing.activePlatform, ...pickText(draft.content, ["title", "body"]), tags: [...draft.content.tags],
+    } : null;
+    return validateSnapshot({ version: 1, title: article?.title || story.title,
+      article, logline: "", theme: "", arc: "", summary: "", referenceText: "", core: null,
+      cards: [], characters: [], intent: null, conversation: [] });
+  }
   const conversation: StoryContextSnapshot["conversation"] = [];
   if (options.includeConversation) {
     for (const value of rows(body.messages)) {

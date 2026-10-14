@@ -166,7 +166,9 @@ export function PublishingImagePack({
   mobile = false,
   shareEpoch = 0,
   contentKind = "article",
+  sharePlatform = "xiaohongshu",
 }: {
+  sharePlatform?: import("@shared/sharePermissions").SharedWork["platform"];
   contentKind?: "article" | "memory";
   mobile?: boolean;
   shareEpoch?: number;
@@ -1360,6 +1362,7 @@ export function PublishingImagePack({
                   key={`${output.signature}:${shareEpoch}`}
                   storyId={storyId}
                   title={options.title}
+                  work={{ title: options.title, body: options.body, tags: [], platform: sharePlatform }}
                   pages={output.pages}
                 />
               ) : null}

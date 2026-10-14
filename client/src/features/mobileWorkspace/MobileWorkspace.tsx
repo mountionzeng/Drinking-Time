@@ -859,7 +859,12 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
   useEffect(() => {
     if (!storyListQuery.data || coldEntryResolvedRef.current) return;
     coldEntryResolvedRef.current = true;
-    setActiveStoryId(resolveMobileInitialStoryId(storyListQuery.data.stories));
+    const requested = Number(new URLSearchParams(window.location.search).get("storyId"));
+    if (Number.isSafeInteger(requested) && requested > 0 && storyListQuery.data.stories.some(story => story.id === requested)) {
+      setActiveStoryId(requested);
+      setStoryOpen(true);
+      setStages(current => ({ ...current, [requested]: "text" }));
+    } else setActiveStoryId(resolveMobileInitialStoryId(storyListQuery.data.stories));
   }, [storyListQuery.data]);
 
   /**

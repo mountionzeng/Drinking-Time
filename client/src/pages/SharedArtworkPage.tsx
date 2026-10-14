@@ -1,3 +1,5 @@
+import { SharedWorkActions } from "@/features/sharing/SharedWorkActions";
+import { VIEW_ONLY } from "@shared/sharePermissions";
 import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { artworkShareTokenSchema } from "@shared/artworkShare";
@@ -77,6 +79,12 @@ export default function SharedArtworkPage({ token }: { token: string }) {
                 </figure>
               ))}
             </div>
+            <SharedWorkActions
+              kind="artwork"
+              token={token}
+              work={query.data.work}
+              permissions={query.data.permissions ?? VIEW_ONLY}
+            />
           </>
         ) : null}
       </div>

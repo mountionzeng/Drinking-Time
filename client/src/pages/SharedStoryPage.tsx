@@ -1,41 +1,21 @@
+import { SharedWorkActions } from "@/features/sharing/SharedWorkActions";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { mobileLoginHref } from "@/features/auth/mobileReturnPath";
 import { StoryContextText } from "@/features/storyAgent/views/StoryContextShare";
-import {
-  STORY_SHARE_TOKEN_PATTERN,
-  canAcceptStoryShare,
-} from "@shared/storyContextShare";
+import { STORY_SHARE_TOKEN_PATTERN } from "@shared/storyContextShare";
 
 export default function SharedStoryPage({ token }: { token: string }) {
-  const { user, loading } = useAuth();
-  const isAuthenticated = canAcceptStoryShare(user);
   const valid = STORY_SHARE_TOKEN_PATTERN.test(token);
   const shared = trpc.storyContextShare.read.useQuery(
     { token },
     { enabled: valid, retry: false, gcTime: 0, staleTime: 0 }
   );
-  const accept = trpc.storyContextShare.accept.useMutation();
-  const start = async () => {
-    if (!isAuthenticated) {
-      window.location.assign(mobileLoginHref(`/s/${token}`));
-      return;
-    }
-    try {
-      const { storyId } = await accept.mutateAsync({ token });
-      window.location.assign(`/editing?storyId=${storyId}`);
-    } catch {
-      /* The inline error keeps the story and retry action visible. */
-    }
-  };
   return (
     <main className="min-h-dvh bg-background px-5 py-10 text-foreground sm:py-16">
       <div className="mx-auto max-w-2xl space-y-8">
         <header className="space-y-2">
           <h1 className="font-chat-brand text-2xl">朋友分享的故事</h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            保留原文与背景，续写为自己的故事。
+            阅读分享的作品，按作者开放的权限参与创作。
           </p>
         </header>
         {!valid || shared.error ? (
@@ -47,24 +27,17 @@ export default function SharedStoryPage({ token }: { token: string }) {
         ) : shared.data ? (
           <>
             <StoryContextText snapshot={shared.data.snapshot} />
-            <div className="space-y-3 border-t pt-6">
-              <Button
-                size="lg"
-                disabled={loading || accept.isPending || shared.isFetching}
-                onClick={() => void start()}
-              >
-                {accept.isPending
-                  ? "正在创建你的故事…"
-                  : isAuthenticated
-                    ? "续写这个故事"
-                    : "登录后续写"}
-              </Button>
-              {accept.error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {accept.error.message}
-                </p>
-              ) : null}
-            </div>
+            <SharedWorkActions
+              kind="story"
+              token={token}
+              work={shared.data.snapshot.article}
+              permissions={
+                shared.data.snapshot.permissions ?? {
+                  rewrite: false,
+                  fork: true,
+                }
+              }
+            />
           </>
         ) : null}
       </div>

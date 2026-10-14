@@ -225,6 +225,7 @@ export function MobileImageStudio({
               </div>
             ) : null}
             <PublishingImagePack
+            sharePlatform={platform}
               key={`${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
               mobile
               contentKind={isMemory ? "memory" : "article"}
