@@ -147,11 +147,13 @@ function TeapotBody() {
       <path d="M42,25 L42,30" strokeWidth="1.2" />
       <path
         d="M22,30 C22,26 30,24 42,24 C54,24 62,26 62,30 Z"
+        className="dt-teapot-lid"
         fill="#E08775"
         strokeWidth="1.5"
       />
       <path
         d="M16,32 C14,52 18,72 32,80 C46,86 60,84 70,72 C78,62 78,46 74,32 Z"
+        className="dt-teapot-body"
         fill="#D6604A"
         strokeWidth="1.6"
       />
@@ -163,6 +165,7 @@ function TeapotBody() {
       <path d="M74,38 C84,40 86,58 76,62" strokeWidth="1.5" fill="none" />
       <path
         d="M44,90 c-2,-4 2,-6 0,-10 c4,4 6,2 4,8 c-1,4 -3,5 -4,2 z"
+        className="dt-teapot-ember"
         fill="#E89373"
         strokeWidth=".9"
         opacity=".7"

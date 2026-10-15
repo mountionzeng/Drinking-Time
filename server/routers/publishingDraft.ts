@@ -1791,11 +1791,35 @@ export const publishingDraftRouter = router({
         );
         const core = current.publishing.core;
         const draft = current.publishing.drafts[input.platform];
-        if (!core || !draft) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "当前平台还没有可修改的发布稿",
+        if (!draft) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "当前平台还没有可修改的发布稿" });
+        }
+        if (draft.revision !== input.baseDraftRevision) {
+          throw new PublishingDraftConflictError(input.platform, input.baseDraftRevision, draft.revision);
+        }
+        // Handwritten drafts have no inferred core. Saving them must not call AI.
+        // Seed the same minimal core used when adopting a standalone text version.
+        if (!core) {
+          const saved = await writePublishingDraftState({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operation: {
+              type: "initialize",
+              activePlatform: input.platform,
+              selectedPlatforms: current.publishing.selectedPlatforms,
+              basePublishingRevision: current.publishing.revision,
+              content: input.content,
+              core: { facts: [], thesis: input.content.body.slice(0, 2000), emotion: "", voiceTraits: [], visualConcept: "" },
+            },
           });
+          return {
+            ...saved,
+            status: "applied" as const,
+            assessment: { outcome: "wording_only" as const, reason: "保存手写正文" },
+            proposedCore: null,
+            usedModel: false,
+            modelLabel: "本地保存",
+          };
         }
         const classification = isTitleOnlyPublishingEdit(
           draft.appliedBaseline,

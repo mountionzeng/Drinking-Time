@@ -341,6 +341,10 @@ export default function PublishingDraftWorkspace({
       refetchInterval: query => query.state.data?.coverRounds.some(round => round.qualityCheckPendingUntil) ? 1_500 : false,
     }
   );
+  const initBodyMut = trpc.publishingDraft.initBody.useMutation({ retry: false });
+  const [startingBody, setStartingBody] = useState(false);
+  const startingBodyRef = useRef(false);
+  const focusNewBodyRef = useRef(false);
   const generateMut = trpc.publishingDraft.generate.useMutation();
   const convertMut = trpc.publishingDraft.convert.useMutation();
   const rewriteMut = trpc.publishingDraft.rewrite.useMutation();
@@ -564,6 +568,7 @@ export default function PublishingDraftWorkspace({
     confirmWordingMut.isPending ||
     confirmCoreMut.isPending;
   const busy =
+    startingBody ||
     generateMut.isPending ||
     convertMut.isPending ||
     rewriteMut.isPending ||
@@ -635,6 +640,36 @@ export default function PublishingDraftWorkspace({
       return;
     }
     setPublishingBuffer(activeStoryId, platform, next, versionId, previewVersion?.id);
+  };
+
+  useEffect(() => {
+    if (editorContent && focusNewBodyRef.current) {
+      focusNewBodyRef.current = false;
+      bodyEditorRef.current?.focus();
+    }
+  }, [editorContent]);
+
+  const startBlankBody = async () => {
+    if (busy || startingBodyRef.current) return;
+    startingBodyRef.current = true;
+    setStartingBody(true);
+    const accountId = storySpineStore.getState().accountId;
+    try {
+      const storyId = await ensureActiveStoryPersisted();
+      const scope = storySpineStore.getState();
+      if (scope.accountId !== accountId || scope.activeStoryId !== storyId) return;
+      await initBodyMut.mutateAsync({ storyId });
+      const result = await utils.publishingDraft.read.fetch({ storyId });
+      const current = storySpineStore.getState();
+      if (current.accountId !== accountId || current.activeStoryId !== storyId || current.storyScopeEpoch !== scope.storyScopeEpoch) return;
+      focusNewBodyRef.current = true;
+      setPublishing(result.publishing);
+    } catch (error) {
+      toast.error(publishingErrorMessage(error, "无法开始写正文，请重试"));
+    } finally {
+      startingBodyRef.current = false;
+      setStartingBody(false);
+    }
   };
 
   const generateOrConvert = async () => {
@@ -1886,16 +1921,27 @@ export default function PublishingDraftWorkspace({
           </div> : null}
 
           {!editorContent ? (
-            <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
-              <div className="max-w-md">
+            <div className="relative flex flex-1 items-center justify-center px-6 py-16 text-center">
+              {!publishing.core && (
+                <button
+                  type="button"
+                  aria-label="开始手写文稿"
+                  aria-busy={startingBody}
+                  disabled={busy}
+                  onClick={() => void startBlankBody()}
+                  className="absolute inset-0 rounded-[inherit] cursor-text transition-colors hover:bg-[var(--nayin-glow)]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--nayin-accent)] disabled:cursor-wait"
+                />
+              )}
+              <div className={publishing.core ? "max-w-md" : "pointer-events-none relative max-w-md"}>
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
                   <FilePenLine className="h-5 w-5" />
                 </div>
                 <h2 className="font-chat-brand mt-5 text-2xl text-foreground">
                   {publishing.core
                     ? `把现有内容转为 ${adapter.label}`
-                    : "暂无文稿"}
+                    : startingBody ? "正在准备…" : "点击这里，开始写文稿"}
                 </h2>
+                {!publishing.core && <p className="mt-3 text-sm text-muted-foreground">写下的内容会成为左侧聊天的上下文</p>}
                 {publishing.core ? <div className="mt-4">
                 <ActionButton
                   onClick={() => void generateOrConvert()}
@@ -2152,7 +2198,7 @@ export default function PublishingDraftWorkspace({
                       }
                       className="font-chat-brand mt-2 border-0 border-b bg-transparent px-0 pb-3 text-2xl text-foreground outline-none transition-colors focus:border-[var(--nayin-accent)]"
                       style={{ borderColor: "var(--panel-border)" }}
-                      placeholder={`${adapter.label}标题（可留空）`}
+                      placeholder="标题（可留空）"
                     />
                   </>
                 )}
@@ -2237,6 +2283,10 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
+                {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
+                  正文有未保存的修改，保存后即可生成图片。
+                  <button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>保存正文</button>
+                </p>}
                 <PublishingImagePack
                   key={`${activeStoryId}:${versionId}:${platform}`}
                   scope={`${activeStoryId}:${versionId}:${platform}`}

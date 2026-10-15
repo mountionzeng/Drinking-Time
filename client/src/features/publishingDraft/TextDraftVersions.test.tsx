@@ -1,11 +1,12 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyPublishingDraftState } from "@shared/publishingDraft";
+import { emptyPublishingDraftState, upsertPublishingPlatformDraft } from "@shared/publishingDraft";
 import { TextDraftVersions } from "./TextDraftVersions";
 
 vi.stubGlobal("React", React);
 const fixture = vi.hoisted(() => ({
+  publishing: null as ReturnType<typeof emptyPublishingDraftState> | null,
   error: false,
   pending: false,
   mutate: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
   useStoryAgent: () => ({
-    publishing: emptyPublishingDraftState(),
+    publishing: fixture.publishing ?? emptyPublishingDraftState(),
     publishingBuffers: {},
     messages: [],
   }),
@@ -44,11 +45,21 @@ vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
 }));
 
 beforeEach(() => {
+  fixture.publishing = null;
   fixture.error = false;
   fixture.pending = false;
   fixture.mutate.mockClear();
 });
 describe("independent text version controls", () => {
+  it("offers a new version for pasted text even without AI version history", () => {
+    fixture.publishing = upsertPublishingPlatformDraft(emptyPublishingDraftState(), {
+      platform: "xiaohongshu", content: { title: "", body: "手写正文", tags: [] }, activate: true,
+    });
+    const html = renderToStaticMarkup(<TextDraftVersions storyId={1} input="继续修改" blocked={false} />);
+    expect(html).toContain("生成新版本");
+    expect(html).not.toContain("生成文章");
+    expect(fixture.mutate).not.toHaveBeenCalled();
+  });
   it("renders one compact generation entry without taking over the composer", () => {
     const html = renderToStaticMarkup(
       <TextDraftVersions storyId={1} input="新的补充" blocked={false} />

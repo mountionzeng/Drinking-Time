@@ -84,6 +84,22 @@ beforeEach(() => {
   ai.text.mockResolvedValue(textResult());
 });
 describe("mobile uses the desktop proposal / candidate / explicit adoption workflow", () => {
+  it("saves a standalone pasted draft without inference and exposes it to publishing consumers", async () => {
+    const { api, storyId } = await setup();
+    const before = await api.publishingDraft.read({ storyId });
+    expect(before.publishing.core).toBeNull();
+    const content = { title: "", body: "我粘贴的正文，可以继续改写和生成图片。", tags: [] };
+    const baseDraftRevision = before.publishing.drafts.xiaohongshu!.revision;
+    const saved = await api.publishingDraft.applyEdit({ storyId, platform: "xiaohongshu", content, baseDraftRevision });
+    expect(saved.status).toBe("applied");
+    const after = await api.publishingDraft.read({ storyId });
+    expect(after.publishing.drafts.xiaohongshu!.content).toEqual(content);
+    expect(after.publishing.core?.thesis).toBe(content.body);
+    expect(ai.proposal).not.toHaveBeenCalled();
+    expect(ai.text).not.toHaveBeenCalled();
+    await expect(api.publishingDraft.applyEdit({ storyId, platform: "xiaohongshu", content, baseDraftRevision })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("carries full draft through the real mobile router; chat and generation do not save, explicit adoption survives a reread", async () => {
     const { api, storyId, document, source } = await setup();
     await api.textDrafts.read({ storyId });

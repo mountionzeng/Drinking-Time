@@ -103,6 +103,11 @@ export function TextDraftVersions({
   const versions = (query.data?.versions ?? []).filter(
     v => v.request.platform === platform
   );
+  const visibleDraft = getPublishingEditorContent({
+    state: publishing, buffers: publishingBuffers, storyId: storyId ?? -1,
+    platform, versionId: publishing.activeVersionId ?? "v1",
+  });
+  const hasExistingText = versions.length > 0 || Boolean(visibleDraft?.body.trim());
   const selected = versions.find(v => v.id === selectedId);
   const latest = [...versions].reverse().find(v => v.status === "ready");
   const busy =
@@ -371,7 +376,7 @@ export function TextDraftVersions({
           type="button"
           className={`${compactButtonClass} text-[var(--nayin-accent)]`}
           onClick={() =>
-            versions.length
+            hasExistingText
               ? void generateVersion(null)
               : setDirectionOpen(true)
           }
@@ -382,7 +387,7 @@ export function TextDraftVersions({
           ) : (
             <Plus className="h-3 w-3" />
           )}
-          {busy ? "正在处理…" : versions.length ? "生成新版本" : "生成文章"}
+          {busy ? "正在处理…" : hasExistingText ? "生成新版本" : "生成文章"}
         </button>
       </div>
       {versions.at(-1)?.error && (
@@ -403,10 +408,10 @@ export function TextDraftVersions({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {versions.length ? "生成新版本" : "生成文章"}
+              {hasExistingText ? "生成新版本" : "生成文章"}
             </DialogTitle>
             <DialogDescription>
-              {versions.length
+              {hasExistingText
                 ? "为当前故事生成新的文字版本，旧版本会保留。"
                 : "把当前故事的内容整理成第一篇文章。"}
               写作方向可选。

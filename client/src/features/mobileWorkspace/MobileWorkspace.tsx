@@ -294,7 +294,7 @@ export function MobileWorkspaceFrame({
         )}
 
         {/* chat 页正文常驻；故事页和我页换成整页内容。 */}
-        <div className="min-h-0 flex-1 overflow-hidden pb-12">
+        <div className="mobile-workspace-content min-h-0 flex-1 overflow-hidden pb-12">
           {page === "chat" ? (
             chatOnly && chatView ? (
               <section

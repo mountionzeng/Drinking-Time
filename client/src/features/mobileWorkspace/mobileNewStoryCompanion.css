@@ -296,7 +296,9 @@
   width: 84px;
   height: 84px;
   transform-origin: 50% 85%;
-  transition: transform 260ms ease-out;
+  scale: 1;
+  translate: 0 0;
+  transition: transform 260ms ease-out, scale 260ms ease-out, translate 260ms ease-out;
 }
 .nayin-companion[data-playing="true"] {
   animation-duration: 2.4s;
@@ -348,6 +350,34 @@
 }
 .nayin-companion[data-docked="true"] {
   transform: translateY(var(--nayin-hide-depth));
+}
+.nayin-companion[data-docked="true"][data-playing="false"] {
+  scale: 1.08;
+  translate: 0 -2px;
+}
+.nayin-companion[data-element="fire"][data-docked="true"][data-playing="false"] {
+  translate: 0 -6px;
+}
+.mobile-xiaoyi-launcher .dt-teapot-body {
+  d: path("M18,34 Q45,27 72,34 Q74,34 75,37 C78,52 77,63 70,72 C60,84 46,86 32,80 C20,73 15,55 16,38 Q16,34 18,34 Z");
+  translate: 0 0;
+  transition: d 260ms ease-out, translate 260ms ease-out;
+}
+.mobile-xiaoyi-launcher .dt-teapot-ember {
+  display: none;
+}
+.mobile-xiaoyi-launcher .nayin-companion[data-docked="true"][data-playing="false"] .dt-teapot-body {
+  d: path("M18,34 Q45,38 72,34 Q74,34 75,37 C78,52 77,63 70,72 C60,84 46,86 32,80 C20,73 15,55 16,38 Q16,34 18,34 Z");
+  /* Preserve the earlier 2px body offset while the whole character moves. */
+  translate: 0 0.8615px;
+}
+.mobile-xiaoyi-launcher .dt-teapot-lid {
+  d: path("M22,30 C22,26 30,24 42,24 C54,24 62,26 62,30 Q42,30 22,30 Z");
+  transition: d 260ms ease-out;
+}
+.mobile-xiaoyi-launcher .nayin-companion[data-docked="true"][data-playing="false"] .dt-teapot-lid {
+  /* Share the cup rim's quadratic arc from x22 to x62, without a gap. */
+  d: path("M22,34.549 C22,30.55 30,29 42,29 C54,29 62,31.21 62,35.207 Q42,37.073 22,34.549 Z");
 }
 .nayin-companion[data-docked="true"][data-playing="false"] .dt-steam {
   animation: nayin-coffee-steam 3.6s ease-in-out infinite;
@@ -476,11 +506,9 @@
   0%,
   100% {
     transform: translateY(0);
-    opacity: 0.8;
   }
   55% {
     transform: translate(1px, -4px);
-    opacity: 0.3;
   }
 }
 @keyframes nayin-blink {
@@ -498,11 +526,9 @@
   0%,
   100% {
     transform: none;
-    opacity: 1;
   }
   55% {
     transform: translateY(-5px);
-    opacity: 0.35;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -521,7 +547,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nayin-companion {
+  .nayin-companion,
+  .mobile-xiaoyi-launcher .dt-teapot-body,
+  .mobile-xiaoyi-launcher .dt-teapot-lid {
     transition: none;
   }
 }
@@ -532,6 +560,26 @@
   left: calc(50% - 84px);
   width: 168px;
   height: 124px;
+}
+/* A separate background veil softens the scroll edge. Keep it below the
+   character (z39), so neither its artwork nor animation opacity is masked. */
+.mobile-workspace-content {
+  position: relative;
+}
+.mobile-workspace-content::after {
+  content: "";
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  inset-inline: 0;
+  bottom: 48px;
+  height: 72px;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--background) 0%, transparent),
+    color-mix(in srgb, var(--background) 10%, transparent) 25%,
+    color-mix(in srgb, var(--background) 50%, transparent) 50%,
+    color-mix(in srgb, var(--background) 90%, transparent) 75%,
+    var(--background));
 }
 .mobile-xiaoyi-visual {
   position: absolute;

@@ -73,6 +73,7 @@ vi.mock("@/lib/trpc", () => {
           useQuery: () => ({ data: api.finishedProductData, refetch: vi.fn() }),
         },
         updateFinishedProduct: { useMutation: mutation },
+        initBody: { useMutation: mutation },
         generate: { useMutation: mutation },
         convert: { useMutation: mutation },
         rewrite: { useMutation: mutation },
@@ -208,10 +209,11 @@ describe("PublishingDraftWorkspace", () => {
     ).toBe(false);
   });
 
-  it("keeps the editor empty until the user explicitly generates a draft", () => {
+  it("offers a handwritten entry without creating a draft on page load", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
-    expect(html).toContain("暂无文稿");
+    expect(html).toContain("开始手写文稿");
+    expect(html).toContain("写下的内容会成为左侧聊天的上下文");
     expect(html).not.toContain("生成 小红书 文字稿");
     expect(html).not.toContain('id="publishing-body"');
     expect(html).toMatch(/<button[^>]*>[\s\S]*?分享链接<\/button>/);
