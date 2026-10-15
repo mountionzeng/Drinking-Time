@@ -4243,7 +4243,8 @@
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
         "docs/qa/2026-10-13-mobile-refinement-release.md",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
-        "docs/qa/2026-10-13-unified-writing-release.md"
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-15-writing-mobile-release.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4587,6 +4588,11 @@
           "date": "2026-10-14",
           "kind": "improvement",
           "summary": "按用户截图移除手机底部红色茶壶下方火苗/吊坠状装饰，仅在mobile-xiaoyi-launcher隐藏对应SVG path；其他部位、动画与共享桌面头像不变。功能账本验证通过，未部署。"
+        },
+        {
+          "date": "2026-10-15",
+          "kind": "verification",
+          "summary": "29f9241b已推送main并部署正式站，手机渐变/角色细节与电脑手写正文保存链路上线。5393项普通、64项真实MySQL、215项小程序测试与类型/构建通过。77张业务表、32条迁移记录及环境不变，完整备份和应用回滚预检完成。登录态电脑/手机读取同一虚构测试正文、版本入口及聊天展开收起通过；真机和新增付费生成未测。详见docs/qa/2026-10-15-writing-mobile-release.md。"
         }
       ]
     },
@@ -6252,7 +6258,8 @@
         "server/routers.mobileWritingWorkflow.test.ts",
         "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.test.ts",
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
-        "docs/qa/2026-10-13-unified-writing-release.md"
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-15-writing-mobile-release.md"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6322,6 +6329,11 @@
           "date": "2026-10-15",
           "kind": "fix",
           "summary": "修复 initBody 手写稿 core 为空导致电脑 applyEdit 拒绝保存、继而图片按钮持续禁用的断点：首次显式保存复用 initialize 写入正文及最小 core，不调用 AI，保留修订冲突检查。已有手写正文即显示生成新版本并复用 visible basis；标题改为通用占位，未保存时在配图区明确提示保存。真实浏览器保存用户粘贴正文并刷新保留；聊天上下文、生成新版本和出图确认面板可用。90 项相关测试及类型检查通过；此次未提交付费出图/试聊。"
+        },
+        {
+          "date": "2026-10-15",
+          "kind": "verification",
+          "summary": "29f9241b已推送main并部署正式站，手机渐变/角色细节与电脑手写正文保存链路上线。5393项普通、64项真实MySQL、215项小程序测试与类型/构建通过。77张业务表、32条迁移记录及环境不变，完整备份和应用回滚预检完成。登录态电脑/手机读取同一虚构测试正文、版本入口及聊天展开收起通过；真机和新增付费生成未测。详见docs/qa/2026-10-15-writing-mobile-release.md。"
         }
       ]
     },
