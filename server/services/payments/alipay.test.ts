@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createSign, createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createAlipayPagePayUrl,
@@ -44,6 +44,38 @@ describe("Alipay PC checkout", () => {
     expect(JSON.parse(parameters.biz_content)).toMatchObject({
       total_amount: "19.90",
     });
-    expect(verifyAlipaySignature(parameters, publicKey)).toBe(true);
+    // Outgoing OpenAPI requests include sign_type, unlike payment notifications.
+    const content = Object.keys(parameters)
+      .filter(key => key !== "sign")
+      .sort()
+      .map(key => `${key}=${parameters[key]}`)
+      .join("&");
+    expect(
+      createVerify("RSA-SHA256")
+        .update(content)
+        .verify(publicKey, parameters.sign, "base64")
+    ).toBe(true);
+  });
+  it("verifies notifications without sign_type and rejects altered amounts", () => {
+    const params = {
+      out_trade_no: "order-1",
+      total_amount: "19.90",
+      trade_status: "TRADE_SUCCESS",
+    };
+    const content = Object.keys(params)
+      .sort()
+      .map(key => `${key}=${params[key as keyof typeof params]}`)
+      .join("&");
+    const sign = createSign("RSA-SHA256")
+      .update(content)
+      .sign(privateKey, "base64");
+    const notification = { ...params, sign_type: "RSA2", sign };
+    expect(verifyAlipaySignature(notification, publicKey)).toBe(true);
+    expect(
+      verifyAlipaySignature(
+        { ...notification, total_amount: "199.00" },
+        publicKey
+      )
+    ).toBe(false);
   });
 });

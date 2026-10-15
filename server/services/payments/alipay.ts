@@ -10,12 +10,10 @@ export type AlipayConfig = Readonly<{
 }>;
 
 const canonical = (params: Record<string, string>) =>
-  Object.entries(params)
-    .filter(
-      ([key, value]) => key !== "sign" && key !== "sign_type" && value !== ""
-    )
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
+  Object.keys(params)
+    .filter(key => key !== "sign" && params[key] !== "")
+    .sort()
+    .map(key => `${key}=${params[key]}`)
     .join("&");
 
 function readKey(value: string) {
@@ -104,7 +102,9 @@ export function verifyAlipaySignature(
   const signature = params.sign;
   if (!signature) return false;
   const verifier = createVerify("RSA-SHA256");
-  verifier.update(canonical(params), "utf8");
+  // Alipay notifications exclude sign_type; outgoing API requests include it.
+  const { sign_type: _signType, ...notificationParams } = params;
+  verifier.update(canonical(notificationParams), "utf8");
   verifier.end();
   return verifier.verify(publicKey, signature, "base64");
 }
