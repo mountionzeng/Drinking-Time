@@ -8,6 +8,7 @@ import {
   contributeSharedStory,
 } from "../repositories/sharedStoryActions";
 import { createHash } from "node:crypto";
+import { archiveArtwork } from "../services/artworkArchive";
 import sharp from "sharp";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -30,6 +31,9 @@ async function own(storyId: number, userId: number) {
     throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
 }
 export const artworkShareRouter = router({
+  archive: protectedProcedure
+    .input(artworkShareCreateSchema)
+    .mutation(({ ctx, input }) => archiveArtwork({ ...input, userId: ctx.user.id })),
   create: protectedProcedure
     .input(artworkShareCreateSchema)
     .mutation(async ({ ctx, input }) => {

@@ -343,7 +343,7 @@ function EditingStudioBody({
         creationFlowOrigin.current = null;
         return;
       }
-      if (!["memory", "publishing", "storyboard", "editing"].includes(detail.target)) return;
+      if (!["memory", "publishing", "images", "storyboard", "editing"].includes(detail.target)) return;
       creationFlowOrigin.current ??= workspace;
       setChatCollapsed(false);
       onWorkspaceChange(detail.target === "memory" ? "publishing" : detail.target as StudioWorkspace);
@@ -540,17 +540,23 @@ function EditingStudioBody({
 
         {/* 右：文字稿、五个故事面板与剪辑台共享同一 Story。 */}
         <div className="relative min-w-0 flex-1 overflow-hidden">
-          {workspace === "publishing" ? (
-            <div id="publishing-draft-workspace" className="h-full">
-              <PublishingDraftWorkspace
-                onContinueToVideo={() => {
-                  // 成片生成完成后直接落到可连续播放的剪辑台，避免用户还要
-                  // 从故事版看板再找一次完整时间线。
-                  onWorkspaceChange("editing");
-                }}
-              />
-            </div>
-          ) : activeStoryId !== null ? (
+          {/* 切换栏目只隐藏工作区，保留未保存正文和模块编辑会话。 */}
+          <div
+            id={workspace === "images" ? "studio-images-workspace" : "publishing-draft-workspace"}
+            className="h-full"
+            hidden={workspace !== "publishing" && workspace !== "images"}
+          >
+            <PublishingDraftWorkspace
+              active={workspace === "publishing" || workspace === "images"}
+              view={workspace === "images" ? "images" : "text"}
+              onOpenWriting={() => onWorkspaceChange("publishing")}
+              onContinueToVideo={() => {
+                // 成片生成完成后直接落到可连续播放的剪辑台。
+                onWorkspaceChange("editing");
+              }}
+            />
+          </div>
+          {workspace === "publishing" || workspace === "images" ? null : activeStoryId !== null ? (
             <div
               id={
                 workspace === "editing"
@@ -819,7 +825,7 @@ export default function EditingStudioPage() {
               <div
                 className="editing-media-subnav flex flex-col items-center"
                 role="group"
-                aria-label="图像和声音子类目"
+                aria-label="视频子类目"
               >
                 <span
                   className="editing-media-subnav-stem"

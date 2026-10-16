@@ -11,6 +11,7 @@ function renderingEnvironment() {
   function createContext() {
     return {
       drawImage: vi.fn(), scale: vi.fn(), fillRect: vi.fn(), save: vi.fn(), restore: vi.fn(),
+      fillStyle: "", createPattern: vi.fn(() => null),
       translate: vi.fn(), rotate: vi.fn(), fillText: vi.fn(), strokeText: vi.fn(),
       measureText: vi.fn(() => ({ width: 36 })),
     };
@@ -44,6 +45,15 @@ const base = { title: "标题", fontId: "noto-serif-sc", style: "sage" as const,
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("multi-illustration PNG rendering", () => {
+  it.each([false, true])("matches the module editor's free-paper colors without tinting AI backgrounds (%s)", async aiBackground => {
+    const { contexts } = renderingEnvironment();
+    const palette = { paper: "#f4efe8", ink: "#231e18", accent: "#927254" };
+    const paperPalette = { paper: "#e4d1bd", ink: "#221c16", accent: "#927254" };
+    await makeImagePack({ ...base, body: "正文", palette, paperPalette,
+      bodyTextureUrl: aiBackground ? base.bodyTextureUrl : undefined }, vi.fn(), new AbortController().signal);
+    expect(contexts[0].fillStyle).toBe(aiBackground ? palette.paper : paperPalette.paper);
+    expect(contexts[0].drawImage).toHaveBeenCalledTimes(aiBackground ? 1 : 0);
+  });
   it("renders text on both sides of an image, checks every block, and closes all bitmaps", async () => {
     const { contexts, bitmaps, fetcher } = renderingEnvironment();
     const body = "前文\n后文";

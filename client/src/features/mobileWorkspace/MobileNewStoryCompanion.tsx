@@ -60,7 +60,8 @@ export function MobileNewStoryCompanion({
   const reduced = useReducedMotion();
   const [actionLocked, setActionLocked] = useState(false);
   const [open, setOpen] = useState(false);
-  const { source: memorySource } = useContext(MobileMemoryFollowup);
+  const { source: pageSource, moduleSource } = useContext(MobileMemoryFollowup);
+  const memorySource = moduleSource ?? pageSource;
   const [restoredMemory] = useState(() =>
     readMemoryFollowup(sessionStorage(), userId)
   );
@@ -72,6 +73,17 @@ export function MobileNewStoryCompanion({
   );
   const [memoryThinking, setMemoryThinking] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState(restoredMemory.draft);
+  useEffect(() => {
+    if (
+      !actionLocked &&
+      activeMemory?.kind === "layout" &&
+      memorySource?.kind === "layout" &&
+      activeMemory.id === memorySource.id &&
+      activeMemory.storyId === memorySource.storyId &&
+      activeMemory !== memorySource
+    )
+      setActiveMemory(memorySource);
+  }, [actionLocked, activeMemory, memorySource]);
   const memoryBaseline = useRef<Set<string> | null>(
     restoredMemory.baseline ? new Set(restoredMemory.baseline) : null
   );
@@ -220,7 +232,17 @@ export function MobileNewStoryCompanion({
       const different =
         activeMemory?.id !== memorySource?.id ||
         activeMemory?.storyId !== memorySource?.storyId;
-      if (!memoryLocked && !busy && !unsynced && !session.draft.trim()) {
+      if (
+        activeMemory?.kind === "layout" &&
+        memorySource?.kind === "layout" &&
+        !different &&
+        !actionLocked
+      ) {
+        // Queued turns already own immutable snapshots. Keep unsent words while
+        // following the currently selected module in the same layout session.
+        setActiveMemory(memorySource);
+        setError(null);
+      } else if (!memoryLocked && !busy && !unsynced && !session.draft.trim()) {
         if (different) memoryBaseline.current = null;
         setActiveMemory(memorySource);
         setError(null);

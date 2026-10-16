@@ -1,9 +1,19 @@
 import { createContext, useContext, useEffect } from "react";
+import {
+  layoutMemoryContextSchema,
+  type LayoutMemoryContext,
+} from "@shared/layoutOperationMemory";
+import {
+  layoutModuleContextSchema,
+  type LayoutModuleContext,
+} from "@shared/layoutModuleContext";
 import type { TextDraftContent } from "@shared/textDraftHistory";
 import type { PublishingPlatformId } from "@shared/publishingDraft";
 import type { MobileWritingContext } from "./mobileConversationStore";
 export type MemoryFollowupSource = {
-  kind?: "memory" | "text" | "video";
+  kind?: "memory" | "text" | "video" | "layout";
+  module?: LayoutModuleContext;
+  layoutMemory?: LayoutMemoryContext;
   title?: string;
   stableShotId?: string;
   storyId: number;
@@ -22,6 +32,15 @@ export type MemoryFollowupSource = {
 export function mobileWritingContext(
   source: MemoryFollowupSource
 ): MobileWritingContext | undefined {
+  if (source.kind === "layout" && (source.module || source.layoutMemory))
+    return {
+      draft: source.module?.pageText ?? "",
+      cursor: 0,
+      scope: source.module?.scope ?? source.layoutMemory!.scope,
+      fullDraft: true,
+      module: source.module,
+      layoutMemory: source.layoutMemory,
+    };
   if (source.kind !== "text") return undefined;
   const draft = source.text?.content.body ?? source.content;
   return {
@@ -42,6 +61,8 @@ export function openMobileCompanion(source: MemoryFollowupSource) {
 export const MobileMemoryFollowup = createContext<{
   source: MemoryFollowupSource | null;
   select: (source: MemoryFollowupSource | null) => void;
+  moduleSource?: MemoryFollowupSource | null;
+  selectModule?: (source: MemoryFollowupSource | null) => void;
 }>({ source: null, select: () => {} });
 export function memoryFollowupMessage(
   source: MemoryFollowupSource,
@@ -80,7 +101,14 @@ export function readMemoryFollowup(
       typeof s.id !== "string" ||
       typeof s.content !== "string" ||
       !["user", "assistant", "note"].includes(s.origin) ||
-      typeof value.draft !== "string"
+      typeof value.draft !== "string" ||
+      (s.kind === "layout" && !s.module && !s.layoutMemory) ||
+      (s.module !== undefined &&
+        (!layoutModuleContextSchema.safeParse(s.module).success ||
+          s.module.storyId !== s.storyId)) ||
+      (s.layoutMemory !== undefined &&
+        (!layoutMemoryContextSchema.safeParse(s.layoutMemory).success ||
+          s.layoutMemory.storyId !== s.storyId))
     )
       return empty;
     return {
@@ -98,11 +126,15 @@ export function readMemoryFollowup(
 }
 
 export function companionSourceLabel(source: MemoryFollowupSource) {
-  return source.kind === "text"
-    ? "文字"
-    : source.kind === "video"
-      ? "视频"
-      : "回忆";
+  return source.kind === "layout"
+    ? source.module
+      ? "排版模块"
+      : "排版"
+    : source.kind === "text"
+      ? "文字"
+      : source.kind === "video"
+        ? "视频"
+        : "回忆";
 }
 export function videoFollowupSource(
   storyId: number,

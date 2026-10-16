@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCreationFlowFocus,
   parseLocalEditingChatCommand,
   shouldDeferStoryboardImageCommand,
 } from "./editingChatCommands";
+
+describe("parseCreationFlowFocus", () => {
+  it.each([
+    ["打开文字", "publishing"],
+    ["打开图像", "images"],
+    ["去视频", "editing"],
+    ["返回图像和声音", "editing"],
+  ])("routes %s to its workspace", (command, target) => {
+    expect(parseCreationFlowFocus(command)).toBe(target);
+  });
+});
 
 describe("parseLocalEditingChatCommand", () => {
   it.each(["撤销", "把刚才的修改改回来", "取消上一步剪辑", "回到上一步"])(

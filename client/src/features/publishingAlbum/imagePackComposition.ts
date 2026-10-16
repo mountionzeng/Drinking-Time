@@ -18,6 +18,8 @@ export type ImagePackOptions = {
   fontId: string;
   style: keyof typeof IMAGE_PACK_STYLES;
   palette?: ImagePackPalette;
+  /** Derived free-paper colors; source selection already identifies the module draft. */
+  paperPalette?: ImagePackPalette;
   texture?: ImagePackTexture;
   textureSeed?: number;
   includeCover: boolean;
@@ -102,7 +104,7 @@ export async function makeImagePack(
   signal: AbortSignal,
 ): Promise<ImagePackResult[]> {
   const pages = planImagePack(options);
-  const style = options.palette ?? IMAGE_PACK_STYLES[options.style];
+  const style = (!options.bodyTextureUrl && options.paperPalette) || options.palette || IMAGE_PACK_STYLES[options.style];
   const bitmaps = new Map<string, ImageBitmap>();
   const results: ImagePackResult[] = [];
   const assertCurrent = () => signal.throwIfAborted();

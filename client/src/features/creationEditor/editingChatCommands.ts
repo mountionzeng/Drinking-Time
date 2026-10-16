@@ -2,13 +2,14 @@ export type LocalEditingChatCommand =
   | { type: "undo" }
   | { type: "capabilities" };
 
-export type CreationFlowFocus = "memory" | "publishing" | "storyboard" | "editing" | "origin";
+export type CreationFlowFocus = "memory" | "publishing" | "images" | "storyboard" | "editing" | "origin";
 export function parseCreationFlowFocus(text: string): CreationFlowFocus | null {
   const value = text.trim().replace(/[。！!]/g, "");
   if (/^(返回|回到|打开|去)(记忆|记忆仓库)$/.test(value)) return "memory";
   if (/^(返回|回到|打开|去)(文字|文章|文字区|文字历史)$/.test(value)) return "publishing";
   if (/^(返回|回到|打开|去)分镜$/.test(value)) return "storyboard";
-  if (/^(返回|回到|打开|去)(时间线|图像和声音)$/.test(value)) return "editing";
+  if (/^(返回|回到|打开|去)(图像|图片区|图像区)$/.test(value)) return "images";
+  if (/^(返回|回到|打开|去)(视频|视频区|时间线|图像和声音)$/.test(value)) return "editing";
   if (/^(回到|返回)(刚才|原来)(的)?(位置|环节|工作区)$/.test(value)) return "origin";
   return null;
 }

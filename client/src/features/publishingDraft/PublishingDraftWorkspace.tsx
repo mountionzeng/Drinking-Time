@@ -316,8 +316,14 @@ function ActionButton({
 
 export default function PublishingDraftWorkspace({
   onContinueToVideo,
+  view = "all",
+  onOpenWriting,
+  active = true,
 }: {
+  active?: boolean;
   onContinueToVideo?: () => void;
+  view?: "all" | "text" | "images";
+  onOpenWriting?: () => void;
 }) {
   const {
     activeStoryId,
@@ -1342,6 +1348,8 @@ export default function PublishingDraftWorkspace({
       coverGenerationInFlightRef.current = false;
       setCoverGenerationMode(current => (current === mode ? null : current));
       void utils.publishingDraft.read.invalidate({ storyId });
+      void utils.storyAgent.storyMaterialState.invalidate({ storyId });
+      void utils.storyAgent.storyImages.invalidate({ storyId });
     }
   };
 
@@ -1809,14 +1817,14 @@ export default function PublishingDraftWorkspace({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       className="h-full overflow-y-auto bg-[var(--nayin-surface-dim)]/45 p-3 sm:p-5"
-      aria-label="文字稿工作区"
+      aria-label={view === "images" ? "图像工作区" : "文字稿工作区"}
       data-story-panel="publishing-draft"
     >
-      <div className="mx-auto flex min-h-full max-w-5xl flex-col">
+      <div className={`mx-auto flex min-h-full flex-col ${view === "images" ? "w-full" : "max-w-5xl"}`}>
         <header className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">
-              发布文案区
+              {view === "images" ? "图像" : "发布文案区"}
             </p>
             <h1 className="font-chat-brand mt-1 text-xl text-foreground">
               {storyTitle?.trim() || "未命名故事"}
@@ -1881,7 +1889,7 @@ export default function PublishingDraftWorkspace({
         ) : null}
 
         <article
-          className="relative flex min-h-[560px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-[0_20px_60px_-48px_rgba(55,42,25,0.55)]"
+          className={view === "images" ? "relative flex min-h-0 flex-1 flex-col" : "relative flex min-h-[560px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-[0_20px_60px_-48px_rgba(55,42,25,0.55)]"}
           style={{ borderColor: "var(--nayin-border)" }}
         >
           {legacyPublishingControlsVisible ? <div
@@ -1920,7 +1928,12 @@ export default function PublishingDraftWorkspace({
             )}
           </div> : null}
 
-          {!editorContent ? (
+          {!editorContent && view === "images" ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+              <p className="text-sm text-muted-foreground">先准备一篇文字，再制作图片。</p>
+              <ActionButton onClick={() => onOpenWriting?.()}>去写文字</ActionButton>
+            </div>
+          ) : !editorContent ? (
             <div className="relative flex flex-1 items-center justify-center px-6 py-16 text-center">
               {!publishing.core && (
                 <button
@@ -1965,7 +1978,7 @@ export default function PublishingDraftWorkspace({
               <header
                 aria-label="文稿操作"
                 className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"
-                style={{ borderColor: "var(--panel-border)" }}
+                style={{ borderColor: "var(--panel-border)", display: view === "images" ? "none" : undefined }}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   {dirty || saving ? (
@@ -2089,7 +2102,8 @@ export default function PublishingDraftWorkspace({
                 />
               ) : null}
 
-              <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-6 sm:px-10 sm:py-8">
+              <div className={view === "images" ? "flex w-full flex-1 flex-col" : "mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-6 sm:px-10 sm:py-8"}>
+                <div className={view === "images" ? "hidden" : "flex flex-1 flex-col"} data-publishing-surface="text">
                 {legacyPublishingControlsVisible ? <section
                   className="mb-7 border-b border-[var(--panel-border)] pb-5"
                   aria-label="按要求重写文案"
@@ -2210,7 +2224,7 @@ export default function PublishingDraftWorkspace({
                   >
                     正文
                   </label>
-                  <DesktopWritingContext
+                  {active && view !== "images" && <DesktopWritingContext
                     key={`${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}`}
                     storyId={activeStoryId!}
                     getSnapshot={() => {
@@ -2224,7 +2238,7 @@ export default function PublishingDraftWorkspace({
                         scope: `${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}:${draft?.bodyRevision ?? draft?.revision ?? 0}`,
                       };
                     }}
-                  />
+                  />}
                   {xThreadStats ? (
                     <span
                       className={`text-[10px] ${contentError ? "text-rose-700" : "text-muted-foreground"}`}
@@ -2283,6 +2297,8 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
+                </div>
+                <div hidden={view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
                   正文有未保存的修改，保存后即可生成图片。
                   <button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>保存正文</button>
@@ -2290,6 +2306,8 @@ export default function PublishingDraftWorkspace({
                 <PublishingImagePack
                   key={`${activeStoryId}:${versionId}:${platform}`}
                   scope={`${activeStoryId}:${versionId}:${platform}`}
+                  active={active && view !== "text"}
+                  accountId={storySpineStore.getState().accountId}
                   storyId={activeStoryId}
                   versionId={versionId ?? "v1"}
                   hasAlbum={Boolean(activeVersion?.album)}
@@ -2329,13 +2347,14 @@ export default function PublishingDraftWorkspace({
                     />
                   ) : undefined}
                 />
+                </div>
               </div>
 
               <footer
-                className="flex flex-wrap items-center gap-2 border-t bg-[var(--nayin-surface)]/45 px-4 py-3"
+                className={view === "text" && targetOptions.length === 0 ? "hidden" : "flex flex-wrap items-center gap-2 border-t bg-[var(--nayin-surface)]/45 px-4 py-3"}
                 style={{ borderColor: "var(--panel-border)" }}
               >
-                {coverAsset ? (
+                {view !== "text" && coverAsset ? (
                   <ActionButton
                     onClick={() => void downloadCover()}
                     disabled={busy || coverBusy}
@@ -2344,7 +2363,7 @@ export default function PublishingDraftWorkspace({
                     下载原封面
                   </ActionButton>
                 ) : null}
-                {targetOptions.map(target => (
+                {view !== "images" && targetOptions.map(target => (
                   <ActionButton
                     key={target.id}
                     onClick={() => void convertTo(target.id)}
@@ -2353,7 +2372,7 @@ export default function PublishingDraftWorkspace({
                     一键转为 {target.label}
                   </ActionButton>
                 ))}
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2" aria-live="polite">
+                <div className={view === "text" ? "hidden" : "ml-auto flex flex-wrap items-center justify-end gap-2"} aria-live="polite">
                   <ActionButton
                     onClick={openVideoSetup}
                     disabled={busy || videoBusy || dirty}

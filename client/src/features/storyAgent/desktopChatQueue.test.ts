@@ -22,6 +22,61 @@ function deferred() {
 }
 
 describe("desktop sequential chat", () => {
+  it("freezes the module, crop and visual preview per send and restores that snapshot after reload", () => {
+    const saved = storage();
+    const queue = new DesktopChatQueue("a", saved);
+    const module = {
+      storyId: 7,
+      scope: "layout:v1",
+      moduleId: "image1",
+      kind: "image" as const,
+      page: 1,
+      pageCount: 2,
+      rect: { x: 30, y: 40, width: 200, height: 100 },
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      pageText: "页面文字",
+      pagePreview: "data:image/jpeg;base64,AAAA",
+    };
+    const layoutMemory = {
+      storyId: 7,
+      scope: module.scope,
+      total: 1,
+      recent: [
+        {
+          kind: "style" as const,
+          summary: "改成加粗浅色字",
+          undone: false,
+          at: 1,
+          sameSource: true,
+        },
+      ],
+    };
+    queue.enqueue("这块怎么改", {
+      draft: module.pageText,
+      cursor: 0,
+      scope: module.scope,
+      module,
+      layoutMemory,
+    });
+    module.page = 2;
+    module.crop.x = 0.25;
+    module.pagePreview = "data:image/jpeg;base64,BBBB";
+    layoutMemory.recent[0].undone = true;
+    const frozen = queue.snapshot().items[0].writingContext!.module!;
+    expect(frozen).toMatchObject({
+      page: 1,
+      crop: { x: 0 },
+      pagePreview: "data:image/jpeg;base64,AAAA",
+    });
+    expect(
+      new DesktopChatQueue("a", saved).snapshot().items[0].writingContext!
+        .module
+    ).toEqual(frozen);
+    expect(
+      new DesktopChatQueue("a", saved).snapshot().items[0].writingContext!
+        .layoutMemory!.recent[0].undone
+    ).toBe(false);
+  });
   it("accepts another message immediately while only one request runs, then sees the preceding reply", async () => {
     const queue = new DesktopChatQueue("user:story", storage());
     const first = deferred();

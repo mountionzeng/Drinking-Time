@@ -312,7 +312,8 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).not.toContain("shouldShowPublishingHandoff");
     expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
     expect(studioWorkspaces).toContain('label: "文字"');
-    expect(studioWorkspaces).toContain('label: "图像和声音"');
+    expect(studioWorkspaces).toContain('label: "图像"');
+    expect(studioWorkspaces).toContain('label: "视频"');
     expect(studioWorkspaces).not.toContain("...STORY_PANELS");
     expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
@@ -334,7 +335,7 @@ describe("creation editor spine boundary", () => {
     expect(storyLogoMenu).toContain("回到以前的故事");
     expect(storyLogoMenu).toContain("开启新故事");
     expect(editingPage).toContain("素材仓库");
-    expect(editingPage).toContain('aria-label="图像和声音子类目"');
+    expect(editingPage).toContain('aria-label="视频子类目"');
     expect(editingPage).toContain("<MediaLibraryIllustration />");
     expect(editingPage).not.toContain("nav-timeline-v2.png");
     expect(editingPage).not.toContain(">Timeline</span>");

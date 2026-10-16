@@ -219,6 +219,29 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toMatch(/<button[^>]*>[\s\S]*?分享链接<\/button>/);
   });
 
+  it("directs an empty image workspace to writing without starting generation", () => {
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace view="images" />);
+    expect(html).toContain("先准备一篇文字，再制作图片。");
+    expect(html).toContain("去写文字");
+    expect(html).not.toContain("开始手写文稿");
+  });
+
+  it("keeps both surfaces mounted and hides only the inactive one", () => {
+    story.publishingBuffers = { "7:xiaohongshu": {
+      storyId: 7, platform: "xiaohongshu", versionId: "v1",
+      content: { title: "未保存标题", body: "未保存正文", tags: [] }, updatedAt: 1,
+    } };
+    const writing = renderToStaticMarkup(<PublishingDraftWorkspace view="text" />);
+    const images = renderToStaticMarkup(<PublishingDraftWorkspace view="images" />);
+    expect(writing).toContain('<div hidden="" data-publishing-surface="images">');
+    expect(writing).toContain("文章图片制作");
+    expect(images).toContain('<div class="hidden" data-publishing-surface="text">');
+    expect(images).toContain('<div data-publishing-surface="images">');
+    expect(images).toContain("未保存正文");
+    expect(images).toContain("保存正文");
+    expect(images).toContain("进入视频制作");
+  });
+
   it("lets a first generated preview be adopted after editing, before any publishing draft exists", () => {
     const generated = { title: "雨天", body: "旧木架", tags: [] };
     api.textDraftHistory = { revision: 2, versions: [{ id: "text-1", status: "ready", conversationDelta: [], request: { platform: "xiaohongshu" }, generated }] };
@@ -281,7 +304,7 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).not.toContain("保存文字新版");
     expect(html).toContain("把文章做成图片");
     expect(html).toContain("已有图片 0 张");
-    expect(html).toContain("请选择封面");
+    expect(html).not.toContain("请选择封面");
     expect(html).not.toContain(">制作图片</button>");
     expect(html).toContain("本轮要求");
     expect(html).toContain("风格参考图（可选）");

@@ -1,7 +1,7 @@
 import type { StoryIntent } from "@/features/storyAgent/intentTypes";
 import { STORY_PANELS, type StoryPanel } from "@/features/analysis/storyPanels";
 
-export type StudioWorkspace = "publishing" | StoryPanel | "editing";
+export type StudioWorkspace = "publishing" | "images" | StoryPanel | "editing";
 export type StudioInteractionMode = "publishing" | "story";
 
 export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
@@ -15,9 +15,14 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
     illustrationSrc: "/shiguang/nav-writing-v2.png",
   },
   {
-    id: "editing",
-    label: "图像和声音",
+    id: "images",
+    label: "图像",
     illustrationSrc: "/shiguang/nav-image-sound-v2.png",
+  },
+  {
+    id: "editing",
+    label: "视频",
+    illustrationSrc: "/shiguang/nav-export-v2.svg",
   },
 ];
 
@@ -31,7 +36,7 @@ export function resolveStudioInteractionMode(
   workspace: StudioWorkspace,
   confirmedIntent: StoryIntent | null
 ): StudioInteractionMode {
-  return workspace === "publishing" &&
+  return (workspace === "publishing" || workspace === "images") &&
     confirmedIntent?.purpose === "social_post"
     ? "publishing"
     : "story";

@@ -58,6 +58,8 @@ export function writingCompanionErrorMessage(error: unknown): string {
 }
 
 export type WritingCompanionSnapshot = {
+  module?: import("@shared/layoutModuleContext").LayoutModuleContext;
+  layoutMemory?: import("@shared/layoutOperationMemory").LayoutMemoryContext;
   draft: string;
   cursor: number;
   scope: string;

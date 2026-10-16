@@ -1042,6 +1042,12 @@ export async function getStoryMaterialState(
   return {
     storyId,
     timeline,
+    // Covers (including illustration/texture candidates), style references and
+    // old/rejected candidates remain discoverable without becoming shot inputs.
+    // Standard asset views keep their existing separate warehouse category.
+    warehouseImages: images.filter(
+      image => image.kind !== "visual_asset" && image.availability !== "missing"
+    ),
     unassignedImages: images.filter(
       image =>
         image.assignment === "unassigned" &&

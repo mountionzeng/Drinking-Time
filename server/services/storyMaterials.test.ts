@@ -1208,6 +1208,7 @@ describe("getStoryMaterialState", () => {
 
     const materials = await getStoryMaterialState(story.id, 1);
 
+    expect(materials?.warehouseImages?.map(image => image.id)).toContain(cover.id);
     expect(materials?.unassignedImages.map(image => image.id)).not.toContain(
       cover.id
     );
@@ -1219,6 +1220,29 @@ describe("getStoryMaterialState", () => {
     expect(materials?.shots.map(shot => shot.currentImage?.id)).not.toContain(
       cover.id
     );
+  });
+
+  it("archives every story image independently of adoption, source version and shot assignment", async () => {
+    const story = await createStory({ userId: 1, projectId: null, title: "完整图片仓库", body: { shots: [] } });
+    const other = await createStory({ userId: 1, projectId: null, title: "其他故事", body: { shots: [] } });
+    const make = (shotNo: string, storyId = story.id, userId = 1) => createGeneratedImage({
+      projectId: null, storyId, userId, shotNo,
+      imageUrl: "data:image/png;base64,ARCHIVE", imageKey: null,
+      prompt: "历史候选", generationType: "initial", isCurrent: false,
+    });
+    // Article cover/illustration/texture rounds share the reserved cover marker.
+    const candidates = await Promise.all(Array.from({ length: 12 }, () => make(PUBLISHING_COVER_SHOT_NO)));
+    const orphan = await make("SH99");
+    const standardView = await make(VISUAL_ASSET_IMAGE_SHOT_NO);
+    await make(PUBLISHING_COVER_SHOT_NO, other.id);
+    await make(PUBLISHING_COVER_SHOT_NO, story.id, 2);
+    await createImageSignal({ userId: 1, storyId: story.id, imageId: candidates[0].id, action: "swipe_left", metadata: null });
+    const materials = await getStoryMaterialState(story.id, 1);
+    expect(materials?.warehouseImages?.map(image => image.id).sort((a,b) => a-b)).toEqual([...candidates.map(image => image.id), orphan.id].sort((a,b) => a-b));
+    expect(materials?.warehouseImages?.find(image => image.id === candidates[0].id)?.status).toBe("rejected");
+    expect(materials?.visualAssets?.images.map(image => image.id)).toEqual([standardView.id]);
+    expect(materials?.shots).toEqual([]);
+    expect(await getStoryMaterialState(story.id, 2)).toBeNull();
   });
 
   it("uses the active Storyboard version cover assetId to isolate a legacy SH01 cover", async () => {

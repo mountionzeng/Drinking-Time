@@ -1,4 +1,12 @@
 import { computeStoryConversationTurnRequestHash } from "@shared/promptLineage";
+import {
+  layoutMemoryContextSchema,
+  type LayoutMemoryContext,
+} from "@shared/layoutOperationMemory";
+import {
+  layoutModuleContextSchema,
+  type LayoutModuleContext,
+} from "@shared/layoutModuleContext";
 
 export type MobileConversationTurnStatus =
   | "queued"
@@ -10,6 +18,8 @@ export type MobileConversationTurnStatus =
   | "persistence-failed";
 
 export type MobileWritingContext = {
+  module?: LayoutModuleContext;
+  layoutMemory?: LayoutMemoryContext;
   fullDraft?: boolean;
   draft: string;
   cursor: number;
@@ -258,7 +268,13 @@ function normalizeRecoveryTurn(
       (context.openingQuestion != null &&
         (typeof context.openingQuestion !== "string" ||
           context.openingQuestion.length > 500)) ||
-      (context.scope !== undefined && typeof context.scope !== "string"))
+      (context.scope !== undefined && typeof context.scope !== "string") ||
+      (context.module !== undefined &&
+        (!layoutModuleContextSchema.safeParse(context.module).success ||
+          context.module.storyId !== storyId)) ||
+      (context.layoutMemory !== undefined &&
+        (!layoutMemoryContextSchema.safeParse(context.layoutMemory).success ||
+          context.layoutMemory.storyId !== storyId)))
   )
     return null;
   const normalized = {
@@ -271,6 +287,8 @@ function normalizeRecoveryTurn(
             selection: context.selection,
             openingQuestion: context.openingQuestion,
             scope: context.scope,
+            module: context.module,
+            layoutMemory: context.layoutMemory,
           },
         }
       : {}),

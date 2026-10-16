@@ -19,6 +19,58 @@ function memoryStorage() {
 }
 
 describe("mobile conversation recovery store", () => {
+  it("preserves module context and its preview during recovery, scoped to the account and story", () => {
+    const store = memoryStorage();
+    const turn = createMobileConversationRecoveryTurn({
+      userId: 1,
+      storyId: 2,
+      userContent: "怎么改",
+    });
+    turn.writingContext = {
+      draft: "正文",
+      cursor: 0,
+      fullDraft: true,
+      layoutMemory: {
+        storyId: 2,
+        scope: "layout:v1",
+        total: 1,
+        recent: [
+          {
+            kind: "style",
+            summary: "改成加粗浅色字",
+            undone: false,
+            at: 1,
+            sameSource: true,
+          },
+        ],
+      },
+      module: {
+        storyId: 2,
+        scope: "layout:v1",
+        moduleId: "m",
+        kind: "text",
+        page: 1,
+        pageCount: 1,
+        rect: { x: 1, y: 1, width: 100, height: 100 },
+        text: "选中内容",
+        pageText: "正文",
+        pagePreview: "data:image/jpeg;base64,AAAA",
+      },
+    };
+    saveMobileConversationRecovery(store, 1, 2, [turn]);
+    expect(
+      loadMobileConversationRecovery(store, 1, 2)[0].writingContext
+    ).toEqual(turn.writingContext);
+    expect(loadMobileConversationRecovery(store, 3, 2)).toEqual([]);
+    expect(loadMobileConversationRecovery(store, 1, 3)).toEqual([]);
+    turn.writingContext.module!.storyId = 99;
+    store.setItem(mobileConversationRecoveryKey(1, 2), JSON.stringify([turn]));
+    expect(loadMobileConversationRecovery(store, 1, 2)).toEqual([]);
+    turn.writingContext.module!.storyId = 2;
+    turn.writingContext.layoutMemory!.storyId = 99;
+    store.setItem(mobileConversationRecoveryKey(1, 2), JSON.stringify([turn]));
+    expect(loadMobileConversationRecovery(store, 1, 2)).toEqual([]);
+  });
   it("keeps same-time persisted turns in question-answer order, regardless of client IDs", () => {
     const messages = [
       {

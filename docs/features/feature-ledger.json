@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T12:30:00.000Z",
+  "updatedAt": "2026-10-16",
   "features": [
     {
       "id": "story-context-sharing",
@@ -117,7 +117,7 @@
     },
     {
       "id": "publishing-article-image-pack",
-      "name": "正文下方的一次整套图片制作",
+      "name": "文章整套图片制作",
       "status": "working",
       "userValue": "复用已有图片，把满意的文章制作成统一字体与配色的封面、插图正文和纸色正文图片，直接下载或复制发送。",
       "entryPoints": [
@@ -130,7 +130,9 @@
         "shared/articleIllustrations.ts",
         "client/src/features/publishingAlbum/imagePackMaterial.ts",
         "client/src/features/publishingAlbum/ImageCandidatePreview.tsx",
-        "server/routers/publishingDraft.ts"
+        "server/routers/publishingDraft.ts",
+        "client/src/features/publishingAlbum/ImagePackCopyDialog.tsx",
+        "client/src/features/publishingAlbum/imagePackCopy.ts"
       ],
       "evidence": [
         "client/src/features/publishingAlbum/imagePackComposition.test.ts",
@@ -147,7 +149,15 @@
         "docs/qa/2026-10-03-editor-ui-simplification.md",
         "docs/qa/2026-10-03-editor-button-audit.md",
         "docs/qa/2026-10-05-editor-stable-baseline.md",
-        "docs/qa/2026-10-05-image-pack-generation-entry.md"
+        "docs/qa/2026-10-05-image-pack-generation-entry.md",
+        "docs/qa/2026-10-16-image-pack-preview-navigation.md",
+        "docs/qa/2026-10-16-image-pack-modules.md",
+        "docs/qa/2026-10-16-three-workspaces.md",
+        "docs/qa/2026-10-16-image-layout-workspace.md",
+        "docs/qa/2026-10-16-image-paper-palette.md",
+        "client/src/features/publishingAlbum/imagePackCopy.test.ts",
+        "docs/qa/2026-10-16-image-pack-copy.md",
+        "docs/qa/2026-10-16-story-image-warehouse.md"
       ],
       "invariants": [
         "选图后自动本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
@@ -159,8 +169,11 @@
         "封面与正文共用配色和字体，实际 PNG 同时用于预览、下载和复制。",
         "文字或设置变化后旧输出禁用；取消或离开组件不得回填过期结果。",
         "快捷设置按故事、发布版本和平台隔离，旧逐页画册仍可展开编辑。",
+        "电脑成品预览使用左侧竖排缩略图，鼠标移入、键盘聚焦或点击均切换右侧大图，下载和复制跟随当前页；手机保留横排和点击放大。浏览切换仅改变本地选中页，不改写作品或触发生成。",
         "正文插图支持多选，每张默认正文开头，在对应大图预览下选择具体段落之后或单独移除；主页面不重复展示位置列表。点击已选图打开编辑而不取消选择，悬停预览可移入操作，支持键盘和点击打开/关闭。按正文文字顺序排版，图片可位于同页文字之间，空间不足自动换页，同位置按选图顺序排列。",
-        "位置绑定段落原文及重复次数，不绑定页码；前文增删后仍跟随原段落，目标原文变化、删除或重复数量改变时明确要求重新定位并禁用旧成品导出。旧开头设置自动迁移，旧中间页设置保留图片并要求指定段落；不猜测位置。"
+        "位置绑定段落原文及重复次数，不绑定页码；前文增删后仍跟随原段落，目标原文变化、删除或重复数量改变时明确要求重新定位并禁用旧成品导出。旧开头设置自动迁移，旧中间页设置保留图片并要求指定段落；不猜测位置。",
+        "免费本地纸纹参考所选封面与正文插图的代表色（封面权重2、各不同插图权重1），优先有足够面积的彩色区域，浅纸色与深墨色配对；候选、预览、模块和PNG一致。AI底图保持原样，不自动发起模型请求。",
+        "电脑排版与手机预览的复制面板提供全文文字、当前图片和任意选页；全文优先当前编辑模块，单图保持原PNG，多图明确合成为一张长图，另可下载所选独立图片。按页码顺序输出，空选择禁用，不声称剪贴板支持多张独立图片。"
       ],
       "dependencies": [
         "publishing-static-album",
@@ -169,8 +182,8 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "快捷插图按非空换行段落定位，不支持句中光标插入、拖拽或同一素材重复插入；目标段落改写后需手动重新定位。",
-        "设置仅保存在当前浏览器，刷新后自动重新排版 PNG，不提供跨设备成品保存。",
+        "自动排版的插图按非空换行段落定位，不支持句中光标插入、跨段落拖拽或同一素材重复插入；目标段落改写后需手动重新定位。成品自由移动与裁切见 publishing-image-modules。",
+        "设置仅保存在当前浏览器，刷新后自动重新排版 PNG，可显式存入素材仓库跨设备读取成品，编辑设置不跨设备同步。",
         "多文件下载、剪贴板与系统分享受浏览器支持限制；已核验真实MJ横版插图任务与成品，其他供应商及第三方实发仍未验收。",
         "取消与切版竞态尚未有自动化 DOM 交互测试，已有取消函数回归和真实浏览器改字失效、连续切换素材自动更新及导出禁用验证。",
         "生成模型仍可能偏离纯花纹要求，候选须人工选择；现有自动质检只检查文字污染，不应被当作纯花纹保证。实测与修正记录见QA文档。"
@@ -180,6 +193,11 @@
           "date": "2026-10-05",
           "kind": "fix",
           "summary": "修复未选参考封面时插图/底图入口直接置灰：入口可打开并在原生成小窗口选合法封面，无候选时引导生成封面；费用确认、模型、任务恢复及其他选图不变。六文件71项回归和类型检查通过，内置浏览器验证两入口、选图、两种付费确认及原底图保留；本轮未新购图片。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "improvement",
+          "summary": "按用户要求将电脑成品缩略图改为左侧竖排，鼠标移入立即切换右侧大图，兼容点击与键盘聚焦；缩略图纵向滚动，手机原横排与放大保持。15项现有回归及类型检查通过，主仓3000实看布局、点击切页和当前图片下载目标一致；真实鼠标仅悬停及手机真机待人工复验。本轮仅本地，无生成、保存、发布或部署。"
         },
         {
           "date": "2026-10-05",
@@ -270,6 +288,31 @@
           "date": "2026-10-02",
           "kind": "feature",
           "summary": "按用户最新截图需求，将素材清点、封面文字、单插图与整篇排版接到正文下方；复用现有字体/布局/PNG链路，无新接口和依赖。main:3000 以12张既有候选制作5张成品，验证改字禁用旧导出、单张下载与复制成功，旧画册编辑仍可展开。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "成品预览新增独立模块编辑入口，按段落和配图建立可移动、等比缩放、改字与可逆裁切的本机草稿；完成后同一PNG用于预览、复制和下载，原自动排版、正文、图片资产与手机入口保留。完整能力与验收登记于publishing-image-modules。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "电脑整套图片制作移入顶栏图像，保留全部封面、插图、底图、排版、下载及视频入口；切换栏目只隐藏，不销毁模块编辑会话。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "电脑图像内拆出图像/排版子栏目，素材生成与选图保留在图像；排版直接打开全宽编辑画布及右侧图片。保留旧画册及手机原导航、封面/插图/底图付费确认。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "improvement",
+          "summary": "免费细纸/宣纸/织纹由封面单图近白取色改为封面与已选插图共同取色，减轻白色混合并避开灰白背景；保持AI原底图与本机草稿。53项回归、类型和构建通过；主仓实看暖米色候选和四页恢复，真实1800×2400下载与画布一致。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "fix",
+          "summary": "补齐素材仓库漏显的发布封面/插图/底图及历史候选：独立warehouseImages读取当前故事完整图片，保持原镜头归属/采用和资产分类，按ID去重；两端生成后按storyId刷新仓库。75项相关测试、类型检查及主仓真实图片12/资产1入口验证，无生成或业务数据写入。"
         }
       ]
     },
@@ -311,7 +354,8 @@
         "server/services/storySync.preserve-rationale.test.ts",
         "docs/qa/2026-10-03-editor-button-audit.md",
         "client/src/features/storyAgent/legacyStoryRecovery.test.ts",
-        "docs/qa/2026-10-09-production-google-login.md"
+        "docs/qa/2026-10-09-production-google-login.md",
+        "docs/qa/2026-10-16-story-image-warehouse.md"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -415,6 +459,11 @@
           "date": "2026-10-09",
           "kind": "refactor",
           "summary": "发布前恢复大文件体积门禁：把旧草稿确认后的导入处理抽到独立模块，并将已有 artTargetFrom 纯函数移入 storyAgentUtils；保持账号校验、存储失败处理与原内容保留语义，相关58项回归通过。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "fix",
+          "summary": "补齐素材仓库漏显的发布封面/插图/底图及历史候选：独立warehouseImages读取当前故事完整图片，保持原镜头归属/采用和资产分类，按ID去重；两端生成后按storyId刷新仓库。75项相关测试、类型检查及主仓真实图片12/资产1入口验证，无生成或业务数据写入。"
         }
       ]
     },
@@ -681,7 +730,9 @@
         "client/src/features/storyAgent/views/useShotImageRender.tsx",
         "shared/imageRevisionPlacement.ts",
         "server/services/visualClipEditing.ts",
-        "server/routers/creationAgent.ts"
+        "server/routers/creationAgent.ts",
+        "shared/storyMaterial.ts",
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx"
       ],
       "evidence": [
         "client/src/features/creationEditor/rerender.test.ts",
@@ -700,7 +751,8 @@
         "client/src/features/storyAgent/selectionReplyCommit.test.ts",
         "shared/imageRevisionPlacement.test.ts",
         "server/services/visualClipEditing.test.ts",
-        "docs/qa/2026-10-05-image-revision-layer.md"
+        "docs/qa/2026-10-05-image-revision-layer.md",
+        "docs/qa/2026-10-16-story-image-warehouse.md"
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
@@ -708,7 +760,8 @@
         "抽帧轨删除必须按当前 Story 的 exact imageId 执行；服务端只接受带时间线抽帧标记的图片，不得删除普通镜头主图、来源视频或故事镜头。",
         "按2026-10-05用户明确要求，镜头表每次固定生成4张候选，仅提交一个MJ任务；旧张数设置不增加提交数，参考选择及费用确认保留。",
         "选图修改严格使用所选imageId；GPT返回一张、MJ返回四张候选，parentImageId回链原图，均不自动采用，不因短响应追加付费任务或切换模型。",
-        "按2026-10-05用户明确要求，选图改版的首张结果自动放为原图上方独立imageClip，继承时间范围；不改原图isCurrent，其余候选全部入库。落位失败保留图片且不重新付费生成。"
+        "按2026-10-05用户明确要求，选图改版的首张结果自动放为原图上方独立imageClip，继承时间范围；不改原图isCurrent，其余候选全部入库。落位失败保留图片且不重新付费生成。",
+        "素材仓库图片归档不依赖当前发布版本、镜头关联或是否采用；发布封面、插图、底图和旧/拒绝候选均可找回，保留原候选状态、不自动变为镜头输入。标准视图仍在资产分类，缺失文件不伪装为可用图片。"
       ],
       "dependencies": [
         "story-ownership",
@@ -718,7 +771,8 @@
       "knownGaps": [
         "固定四张MJ入口已在故事1202第02镜真实生成候选1880–1883，参考1877，全部落盘展示。当前网络可达不代表永久消除DNS/连接波动；构图、人物一致性的更广泛质量仍待验收。",
         "普通参考编辑虽已接异步任务号与查询，但generateForMobile尚未将受理回执持久化到Story供刷新恢复；本轮仅修供应商适配层，不代表端到端恢复完成。",
-        "镜头参考选择保存在本浏览器，不跨设备同步；关闭页面后不会继续提交尚未开始的图片，已受理任务仍缺少刷新恢复。"
+        "镜头参考选择保存在本浏览器，不跨设备同步；关闭页面后不会继续提交尚未开始的图片，已受理任务仍缺少刷新恢复。",
+        "本机临时上传和带文字的实时排版成品尚未作为故事图片归档；是否保存排版成品待用户选择。"
       ],
       "history": [
         {
@@ -785,6 +839,11 @@
           "date": "2026-10-05",
           "kind": "feat",
           "summary": "选图改版自动落为上层独立图片剪辑，原图和所有候选保留；支持无时间线故事的原子初始化、重复落位幂等、再次改图向上叠层、归属与来源校验。现有红伞1892通过主仓3000权限API放到第02镜上方，刷新后仍存在；136项定向测试及类型检查通过。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "fix",
+          "summary": "补齐素材仓库漏显的发布封面/插图/底图及历史候选：独立warehouseImages读取当前故事完整图片，保持原镜头归属/采用和资产分类，按ID去重；两端生成后按storyId刷新仓库。75项相关测试、类型检查及主仓真实图片12/资产1入口验证，无生成或业务数据写入。"
         }
       ]
     },
@@ -972,7 +1031,9 @@
         "shared/textSourceLineage.ts",
         "server/services/imagePromptCompiler.ts",
         "server/services/publishingCoverStoryboardPrompt.ts",
-        "server/_core/httpConnectionPool.ts"
+        "server/_core/httpConnectionPool.ts",
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/pages/editingStudioWorkspace.ts"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -1000,7 +1061,11 @@
         "server/_core/httpConnectionPool.test.ts",
         "docs/qa/2026-10-13-image-network-proxy.md",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
-        "docs/qa/2026-10-13-unified-writing-release.md"
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-16-three-workspaces.md",
+        "client/src/pages/editingStudioWorkspace.test.ts",
+        "client/src/app/shell/TopBar.test.tsx",
+        "docs/qa/2026-10-16-image-layout-workspace.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1015,7 +1080,8 @@
         "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
         "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
         "人工标题不能被转换、改写、格式修复或无效标题结果清空。",
-        "已保存的候选可先展示为质检中；后台检查必须绑定原版本和候选列表，未检查/超时/服务中断不得呈现为检查通过，也不自动重新购买生成或质检。"
+        "已保存的候选可先展示为质检中；后台检查必须绑定原版本和候选列表，未检查/超时/服务中断不得呈现为检查通过，也不自动重新购买生成或质检。",
+        "电脑版顶栏分为文字、图像、视频；图像承载封面、插图、底图、排版、成品预览、模块编辑与进入视频制作。栏目切换不卸载文字与图片编辑实例，保留未保存文字、模块输入和编辑会话；不发起付费生成。"
       ],
       "dependencies": [
         "story-ownership",
@@ -1189,6 +1255,16 @@
           "date": "2026-10-11",
           "kind": "feature",
           "summary": "记忆驱动流程为明确采用的发布版本与成品快照补充独立文字来源；影响查询逐项列出发布稿和成品，不自动采用新版。现有发布工作台与正文采用保留，跨版本素材最新版解析延期，本次仅验证引用及旧稿可恢复。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "按用户要求拆分文字/图像/视频入口，图片制作从文字下方迁入图像，原剪辑台与素材仓库归入视频。共享发布状态并保持编辑实例挂载；无正文时提供去写文字入口，同步聊天导航和首次引导。主仓3000实测未保存标题与模块输入跨三栏保留，临时内容已还原。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "图像工作区解除max-width与外层卡片限制，提供全宽排版空间，文字区保持原样。图像/排版子栏目切换保持同一模块编辑会话。"
         }
       ]
     },
@@ -5698,7 +5774,8 @@
         "client/src/features/studioTour/studioTourSteps.test.ts",
         "client/src/features/studioTour/studioTourStorage.test.ts",
         "client/src/features/studioTour/StudioTour.test.tsx",
-        "client/src/app/shell/TopBar.test.tsx"
+        "client/src/app/shell/TopBar.test.tsx",
+        "docs/qa/2026-10-16-three-workspaces.md"
       ],
       "invariants": [
         "只做说明，不代替用户操作：引导不点按钮、不改故事、不写业务数据。",
@@ -5727,6 +5804,11 @@
           "date": "2026-09-28",
           "kind": "fix",
           "summary": "真实浏览器验收发现两处缺陷并修好：一是引导会和每日来信叠在一起（来信自己决定弹出时机，只看 props 漏判），改为开场前后都按 aria-modal 特征盯 DOM，一出现就让开且不写 seen，下次进来照讲；二是左侧聊聊栏几乎占满屏高时说明卡被挤到视口外，新增 cardAnchorRect 对超高锚点只取顶部一段定位，高亮框仍框住整块。三种视口下七步全部在屏、无控制台报错，定向单测增至 43 项。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "首次引导增加图像栏目说明，原图像和声音更名为视频，保留原时间线、声音及素材仓库说明。"
         }
       ]
     },
@@ -6112,7 +6194,7 @@
       "id": "mobile-artwork-production-sharing",
       "name": "手机图文制作与匿名作品分享",
       "status": "working",
-      "userValue": "在手机记忆或文字稿中排版成图片，下载或调用系统分享，并创建无需登录的成品阅读链接；文字稿可购买生成新配图。",
+      "userValue": "在手机记忆或文字稿中排版成图片，触控编辑图文模块和页面，下载或调用系统分享，并创建无需登录的成品阅读链接；文字稿可购买生成新配图。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
         "client/src/pages/SharedArtworkPage.tsx"
@@ -6128,7 +6210,8 @@
         "client/src/features/publishingAlbum/artworkShareImages.ts",
         "client/src/features/publishingAlbum/ArtworkAuthor.tsx",
         "client/src/features/publishingAlbum/ImageCandidatePreview.tsx",
-        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx"
+        "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
+        "client/src/features/publishingAlbum/MobileModuleTools.tsx"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileImageStudio.test.tsx",
@@ -6137,7 +6220,10 @@
         "docs/qa/2026-10-12-mobile-artwork.md",
         "client/src/features/publishingAlbum/artworkShareImages.test.ts",
         "server/integration/artworkShares.mysql.test.ts",
-        "docs/qa/2026-10-12-mobile-release.md"
+        "docs/qa/2026-10-12-mobile-release.md",
+        "client/src/features/publishingAlbum/MobileModuleTools.test.tsx",
+        "docs/qa/2026-10-16-mobile-image-modules.md",
+        "docs/qa/2026-10-16-module-chat-memory.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -6148,19 +6234,21 @@
         "分享不自动发布到第三方；系统分享由用户选择目标应用和收件人。",
         "原桌面画册和视频制作能力保留；新文字分享隐私范围与权限遵循 shared-story-collaboration。",
         "记忆图文使用用户选中的单条当前记忆、历史来源快照或聊天内容；按记忆标识隔离排版设置，不自动采用为发布正文，不自动生成文字或购买图片。",
-        "2026-10-14可明确授权随图片附上经预览的作品文字供改写/另建故事；不附加作者私人记忆、聊天或内部标识。"
+        "2026-10-14可明确授权随图片附上经预览的作品文字供改写/另建故事；不附加作者私人记忆、聊天或内部标识。",
+        "手机排版复用电脑模块能力，轻点选择后拖动、44px四角触点缩放；文字/图片/页面操作通过底部面板访问，裁切显式开启。进入预览先保存待提交文字并渲染最新模块稿，失败留在排版且不允许导出过期图；切换预览/配图/排版保留模块会话与撤销。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
         "publishing-workspace",
         "publishing-static-album",
-        "story-ownership"
+        "story-ownership",
+        "publishing-image-modules"
       ],
       "replaces": [],
       "knownGaps": [
         "真机iOS/Android保存到相册、第三方分享面板和微信内置浏览器兼容性待验收；本机浏览器已实际下载PNG。",
         "快捷排版设置按账号/故事/版本保存在本机；生成候选共用服务器，排版设置本身不跨设备同步。",
-        "当前手机支持快捷字体、封面文字、段落插图与纹理排版；电脑的高级逐页手绘布局编辑器未搬入。",
+        "当前手机已支持图文模块移动、缩放、裁切、改字/样式、跨页、增删页及撤销；电脑旧高级逐页手绘画册编辑器未搬入。",
         "停止链接以故事为单位；不支持单独撤销某一个链接。",
         "历史稿采用遵守现有标题冲突及已采用版本不可重写约束，冲突需回正文处理，不能静默替换。",
         "账号暂无个人头像图片字段，作品页使用昵称生成的文字头像；本机已生成并打开5页作品链接，正式站已用通用文字创建匿名作品链接；未向第三方平台发送，未购买图片生成。",
@@ -6196,6 +6284,16 @@
           "date": "2026-10-14",
           "kind": "feature",
           "summary": "图文分享接入两项可选权限与接收方操作，仍保留匿名阅读、图片重编码和撤销；新的创作授权需正式账号使用。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按用户要求将桌面图文模块能力接入手机排版，改用轻点选择、放大触点、底部操作面板与显式裁切；新增本机上传入口，预览前提交最新模块稿，保留下载/分享/费用与隐私约束。7文件87项回归、类型与构建通过；390px实测改字样式、跨页、插删页、图片移动缩放裁切、撤销及1800×2400 PNG下载，测试修改已还原，真机手势与系统分享待验收。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "手机模块选择及完成编辑自动接入聊天上下文和本机操作记忆，沿用原生成费用确认、预览、下载与分享流程。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
         }
       ]
     },
@@ -6259,7 +6357,8 @@
         "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.test.ts",
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
         "docs/qa/2026-10-13-unified-writing-release.md",
-        "docs/qa/2026-10-15-writing-mobile-release.md"
+        "docs/qa/2026-10-15-writing-mobile-release.md",
+        "docs/qa/2026-10-16-module-chat-memory.md"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6334,6 +6433,11 @@
           "date": "2026-10-15",
           "kind": "verification",
           "summary": "29f9241b已推送main并部署正式站，手机渐变/角色细节与电脑手写正文保存链路上线。5393项普通、64项真实MySQL、215项小程序测试与类型/构建通过。77张业务表、32条迁移记录及环境不变，完整备份和应用回滚预检完成。登录态电脑/手机读取同一虚构测试正文、版本入口及聊天展开收起通过；真机和新增付费生成未测。详见docs/qa/2026-10-15-writing-mobile-release.md。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "新增排版讨论上下文：选中模块与有界页预览、操作记忆随每次发送固定，优先当前目标并保留原正文伴写入口；两端服务校验故事归属，只提建议不执行修改。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
         }
       ]
     },
@@ -6397,7 +6501,8 @@
         "client/src/features/mobileWorkspace/MobileCompanionActions.test.tsx",
         "docs/qa/2026-10-13-mobile-context-actions.md",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
-        "docs/qa/2026-10-13-unified-writing-release.md"
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-16-module-chat-memory.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -6439,6 +6544,11 @@
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "用户授权当前回忆/文字/视频自动作为上下文，接入本地文件、记忆保存和文字追加。复用带归属校验的导入/记忆/修订/正文CAS接口；10文件122项及新增15项定向检查通过，主仓3000手机浏览器验证阶段上下文、操作入口与当前正文选择。未向真实数据提交验收内容或调用付费模型。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "模块上下文作为独立优先来源接入原小忆；同一排版切换模块保留未发文字，队列保留发送时快照，取消后退回原来源。支持操作记忆单独发问与清除。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
         }
       ]
     },
@@ -6543,6 +6653,231 @@
           "date": "2026-10-14",
           "kind": "verification",
           "summary": "eeccb10d已推送并部署；受限MySQL64项、小程序215项通过，78文件一致、77业务表及32迁移不变，备份和回滚检查通过。正式站两真实账号实测文字分享、朋友候选、作者明确采用、独立承接及记忆/聊天隔离通过，未调用付费AI。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-image-modules",
+      "name": "成品图片的段落与配图模块编辑",
+      "status": "working",
+      "userValue": "在电脑或手机排版工作区直接加字、改字、加入配图、跨页移动模块和增删页面并自动重排页码，保留手动摆放并下载与画布一致的成品。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx"
+      ],
+      "owners": [
+        "client/src/features/publishingAlbum/ImagePackModuleEditor.tsx",
+        "client/src/features/publishingAlbum/imagePackModules.ts",
+        "client/src/features/publishingAlbum/imagePackModuleRenderer.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx",
+        "client/src/features/publishingAlbum/useLocalPackImages.ts",
+        "client/src/features/publishingAlbum/ModuleContextMenu.tsx",
+        "client/src/features/publishingAlbum/MobileModuleTools.tsx",
+        "client/src/features/publishingAlbum/ImagePackCopyDialog.tsx",
+        "client/src/features/publishingAlbum/imagePackCopy.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/imagePackModules.test.ts",
+        "client/src/features/publishingAlbum/imagePackModuleRenderer.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "docs/qa/2026-10-16-image-pack-modules.md",
+        "command:pnpm check",
+        "command:pnpm build",
+        "docs/qa/2026-10-16-three-workspaces.md",
+        "docs/qa/2026-10-16-image-layout-workspace.md",
+        "client/src/features/publishingAlbum/useLocalPackImages.test.ts",
+        "docs/qa/2026-10-16-image-paper-palette.md",
+        "docs/qa/2026-10-16-text-module-context-menu.md",
+        "docs/qa/2026-10-16-module-page-move.md",
+        "docs/qa/2026-10-16-page-context-menu.md",
+        "client/src/features/publishingAlbum/MobileModuleTools.test.tsx",
+        "docs/qa/2026-10-16-mobile-image-modules.md",
+        "client/src/features/publishingAlbum/imagePackCopy.test.ts",
+        "docs/qa/2026-10-16-image-pack-copy.md",
+        "docs/qa/2026-10-16-module-chat-memory.md"
+      ],
+      "invariants": [
+        "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
+        "四角等比缩放内容，对角固定；中央移动约束在页面内。图片四边改变原像素裁切范围，裁切保留原图且可以向外恢复，不拉伸原像素。",
+        "文字修改仅用于当前成品模块，不写回发布正文、正式封面、视频、原素材或既有分享快照，不调用模型。",
+        "画布、缩略图和1800×2400 PNG共用绘制器；文字输入实时预览，失焦时验证并提交本机草稿。下载、复制和分享现算当前完整文档，缺字、控制字符、布局错误或取消不能输出部分或过期成品。",
+        "本机模块稿和输入中草稿按故事/发布版本/平台scope及完整来源内容与设置隔离。来源变化时禁止把旧编辑套入新稿，旧草稿保留。",
+        "指针捕获支持移出模块继续拖动；pointercancel或Escape取消当前拖动，撤销/重做针对完整一次操作。",
+        "旧自动排版、逐页画册、手机制作入口和共享/费用流程保持原有行为。",
+        "新增文字和点击加入图片顺着当前页排列，空间不足新增页面，最多九页；超限报错且不改变当前文档。拖入图片与手动变换标记为自由摆放，自动排列避让并保留其位置；整理这一页是显式重排。旧稿无手动标记时一律保留原位置。",
+        "排版上传的PNG/JPG/WebP只存当前浏览器且按scope隔离，不加入正式封面、正文插图定位或视频资产引用。素材源允许列表验证后恢复新增图片；生成仍需报价确认，结果先入候选，不自动放入成品。",
+        "免费纸纹的派生配色不改变原模块草稿身份；正文、图片来源、字体、纹理与其他用户设置仍严格隔离，旧手动文字/位置及未提交文字不因配色算法升级而丢失。",
+        "文字模块右键与Shift+F10可切换正常/加粗提亮、半透明底色或删除；样式只作用当前模块，可撤销并本机恢复。正常用原深色字和可选浅纸底，提亮用浅色加粗字和可选深底；底色仅围住实际文字及内边距，不改变换行和模块几何。画布/缩略图/PNG共用绘制。",
+        "文字在图片上方绘制，指针目标使用相同顺序；仅改变显示叠层，不重排原文档或自动排版顺序。文字输入时保留原生文本右键菜单，打开模块菜单不触发拖动；图文叠放不当作意外重叠提示。",
+        "文字与图片均可通过右键或Shift+F10的移到其他页菜单选择已有页或新一页；移动整块且只保留一份，保留内容、样式、位置、尺寸和裁切并标记自由摆放，不自动整理其他模块或删除空页。新页最多九页，失败原子保留文档；一次撤销/重做恢复两页并跟随仍选中的模块，草稿与PNG使用同一文档。",
+        "左侧页面缩略图右键或Shift+F10支持在上方/下方插入空白页和删除整页，至少一页、最多九页；页面菜单开启时暂停悬停切页，文字输入或处理中禁用页面操作。增删只作用指定页，不重排其他模块；页码、模块移页目标及PNG文件序号按当前顺序连续更新，支持本机草稿和一次撤销/重做恢复整页内容。",
+        "手机先轻点选择模块，再拖中心移动和四角缩放；未选中模块允许滚动，44px触点与显式图片裁切模式避免误操作。文字样式、删除和跨页使用模块操作面板，插删页使用页面操作面板；与电脑共用变换、撤销和持久化语义。",
+        "手机改字面板保留未提交输入，完成或关闭前验证保存；进入预览前提交并使用最新完整模块稿，文字重新分页后跟随该模块所在页。预览失败留在排版显示错误，导出和分享使用已核对的最新PNG；切回排版不重置会话。",
+        "复制面板保留当前单图，并可复制当前全文文字或勾选任意页；全文按页码/模块顺序提取已编辑文字，保留段落与重复内容，不写回正文。图片在打开面板时由最新文档渲染，来源失效或关闭取消未完成任务，错误不得报告成功。",
+        "单张复制不重新编码，选多张时明确复制为一张长图，按页码顺序拼接；长图宽900px且每页1200px，最多九页，独立下载保留原PNG。剪贴板请求在点击时使用Promise图像数据发起；无权限/无支持时提示下载，全文入口仍保留。"
+      ],
+      "dependencies": [
+        "publishing-article-image-pack",
+        "publishing-static-album"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "电脑与手机均开放模块编辑，本机保存不跨设备同步；正文、选图或排版设置改变后使用新的来源基线，暂无旧模块稿管理列表。",
+        "支持新增文字、已有或本机上传图片、删除模块、右键跨页移动和显式整理当前页；自由摆放允许重叠，同类重叠时提示。跨页通过菜单选择目标页，尚无拖到缩略图跨页、图层面板；新增长段落超过单页会要求拆段，原文首次排版仍沿用长段缩小规则。",
+        "撤销/重做保留本次打开最近30步；刷新恢复成品、草稿及未完成文字输入，不恢复撤销栈。",
+        "已在主仓3000实测电脑鼠标交互及390px手机布局的点选、改字样式、跨页、插删页、图片移动/缩放/裁切、撤销和PNG下载；尚未部署正式站，未做iOS/Android真实触摸、软键盘或跨浏览器真机验收。",
+        "本机上传原文件限15MB，优化后限2MB；浏览器配额不足时明确告知仅当前会话保留。尚无本机图库删除管理、跨设备同步。上传格式/体积有自动化验证，原生文件选择器及真实付费生成未在本次验收中提交。",
+        "多图复制提供单张长图与独立图片下载，不支持浏览器剪贴板一次复制多个独立文件；已实读内置浏览器剪贴板核对全文、单图与离散页长图，第三方应用及手机真机粘贴仍待验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按用户极简模块编辑要求实现独立画布与本机恢复，新增几何/完整段落/来源隔离及同一绘制器PNG验证。相关66项回归和类型检查通过；浏览器真实拖动、裁切、缩放、改字撤销与1800×2400下载完成，刷新确认位置和未提交文字恢复，验收改动已还原。无AI调用、后端正文写入或部署。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "refactor",
+          "summary": "模块编辑随成品预览迁入图像栏目；实测输入中模块文字经过文字、视频、图像切换仍在，保留页选择与编辑状态。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按确认方案把排版铺成页缩略图/画布/图片三栏，减少套框，直接改字及加文字、点击/拖放图片、上传到本机图库；增加自动续页、手动位置保护、旧稿兼容、删除与整理，取消完成编辑/返回预览门槛。主仓3000实测新文字、插图、拖放、撤销和1800×2400下载；原文未写回。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "fix",
+          "summary": "接入免费纹理的多图派生配色，保留旧模块保存键及AI底图渲染。自动排版与模块画布/PNG颜色一致，配色升级不重置原模块稿，真实四页恢复与下载验证通过。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按用户要求增加文字模块右键删除、半透明底色及正常/加粗提亮两档，底色跟随文字且收在字周围；保留旧稿和撤销，文字在图片上层。46项回归和类型检查通过；主仓真实右键/键盘菜单、样式、叠图、下载、删除撤销验证。发现正文输入后停止页面操作，临时标题位置已还原，标题样式示例保留。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "模块右键菜单扩展到文字和图片，新增移到其他页及移到新一页；原子移动并保留几何、样式、裁切和其他内容，使用现有本机草稿与撤销重做。52项定向测试及类型检查通过，覆盖恢复、九页上限、失败不丢内容和跨页PNG绘制一致；主仓浏览器验证图片移页/撤销/重做及文字键盘移到新页，临时操作均已撤销，原五页保留。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按用户截图在页面缩略图增加右键上方/下方插入空白页与删除整页；页码、跨页目标和下载文件编号同步重排，保留至少一页、最多九页及原撤销和草稿语义。61项定向测试与类型检查通过；主仓实测右键、Shift+F10、前后插页、九页禁用、删除和撤销重做，临时操作全部撤销回用户当时的七页内容。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "手机排版接入同一模块编辑器，提供点选移动、44px缩放手柄、独立裁切模式、改字与图文/页面底部操作面板，选中工具固定在底部；开放上传及原生成流程。手机预览先提交最新文字和文档，返回编辑保留历史，本机恢复优先最新草稿。87项回归、类型和构建通过；手机尺寸浏览器完整走通编辑、移页、插删页、裁切缩放、撤销及PNG下载，临时内容和设置已还原。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "按用户要求把单图复制扩展成全文文字/当前图/选择图片面板，桌面排版和手机预览复用。全文取最新模块，选页按页码拼成长图并提供独立PNG下载；关闭取消合成，保留原单图质量。新增10项测试，6文件84项回归与类型检查通过；真实剪贴板核对全文逐字一致、第1/3页900×2400长图和单张1800×2400原图，无业务内容修改或对外发送。"
+        },
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "图文模块选择接入两端原聊天；完成编辑时被动记操作并区分撤销/其他来源版本，按账号/故事本机保留，可查看清除，不写回正文。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-module-chat-context",
+      "name": "图文模块对话与被动操作记忆",
+      "status": "working",
+      "userValue": "选中图文模块后直接向原聊天提问；没有聊天时也记住已完成的排版调整，之后根据用户实际操作提供更贴合的建议。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/ImagePackModuleEditor.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx"
+      ],
+      "owners": [
+        "shared/layoutModuleContext.ts",
+        "shared/layoutOperationMemory.ts",
+        "client/src/features/publishingAlbum/moduleCompanionContext.ts",
+        "client/src/features/publishingAlbum/ModuleSelectionBridge.tsx",
+        "client/src/features/publishingAlbum/layoutOperationMemory.ts",
+        "client/src/features/publishingAlbum/useLayoutOperationMemory.ts",
+        "client/src/features/publishingAlbum/LayoutMemoryDetails.tsx",
+        "server/services/writingCompanion.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/moduleCompanionContext.test.ts",
+        "client/src/features/publishingAlbum/layoutOperationMemory.test.ts",
+        "client/src/features/storyAgent/desktopChatQueue.test.ts",
+        "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
+        "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
+        "server/services/writingCompanion.test.ts",
+        "docs/qa/2026-10-16-module-chat-memory.md",
+        "command:pnpm check",
+        "command:pnpm build"
+      ],
+      "invariants": [
+        "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
+        "当前工作区/故事/来源约束上下文；换页、删除、取消及离开工作区不得继续拿旧选区当目标。手机保留原来源作回退，同排版切换选中模块保留未发输入。",
+        "每轮队列固定发送时的模块和操作记忆；两端服务先验证故事归属并拒绝跨故事上下文，再调用既有建议服务。",
+        "记录不依赖聊天，不调用模型；完成改字、移动、缩放、裁切、样式、增删模块/页面、跨页和整理才记一次，忽略无变化、取消、悬停与拖动中间帧。",
+        "本机按账号/故事保留最近100条，聊天取最近20条、详情显示最近6条；其他来源版本有标记，撤销/重做修改原事件解释，不能把已撤销尝试当成偏好。",
+        "操作摘要不存整份文档、原图URL或图片字节，改字片段有长度限制；清除记录不改作品，存储失败说明仅当前会话保留。",
+        "只在用户提问时建议，不自动改正文、模块或购买生成；历史内容及操作摘要是引用材料，当前用户要求优先于推测偏好，不把单次操作宣称为固定习惯。"
+      ],
+      "dependencies": [
+        "publishing-image-modules",
+        "writing-companion",
+        "mobile-memory-followup",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "本机记录不跨设备同步，不进行模型训练或全账号长期偏好聚合；仅从启用后记录，不能追溯旧操作。",
+        "只保留本故事最近100条、每次提供20条，不是无限历史；清除不追溯删除已发送对话或发送时固定的待发快照。",
+        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试，未部署；已通过模拟模型的真实路由与本机桌面/390px入口验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-16",
+          "kind": "feature",
+          "summary": "实现图文模块选择识别与无需聊天的被动排版操作记忆；两端共用有界上下文和建议服务，保留本机历史、撤销标记、来源隔离与查看清除。192项相关测试、类型及构建通过，真实浏览器验证刷新恢复和无选中时仍有历史；未发送真实AI请求。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-artwork-archive",
+      "name": "排版成品保存到素材仓库",
+      "status": "working",
+      "userValue": "把当前含文字的整套排版成品保存到故事素材仓库，跨设备读取，旧版本保留。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/ArchiveArtworkButton.tsx"
+      ],
+      "owners": [
+        "server/services/artworkArchive.ts",
+        "server/routers/artworkShare.ts",
+        "client/src/features/publishingAlbum/ArchiveArtworkButton.tsx"
+      ],
+      "evidence": [
+        "server/services/artworkArchive.test.ts",
+        "docs/qa/2026-10-16-artwork-archive.md"
+      ],
+      "invariants": [
+        "用户点击存入素材仓库才保存，不自动公开分享、购买生成或替换正式封面。",
+        "验证故事归属及全部页图片后保存；同故事相同成品内容去重，修改后的版本保留为新素材。",
+        "部分保存失败保留已保存页面，重试恢复剩余页面；旧成品不删除。",
+        "保存1080px以内WebP阅读副本，原1800×2400 PNG下载不变；模块可编辑草稿仍在本机。"
+      ],
+      "dependencies": [
+        "publishing-image-modules",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "并发去重仅保障当前单进程部署；多实例部署前需数据库唯一约束。",
+        "本轮服务测试验证入库、归属和失败重试；真实手机与跨设备成品保存尚待验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "按用户确认增加电脑排版与手机预览的显式成品入库按钮；路由测试覆盖重复与并发保存、内容版本、仓库读取、越权、坏图及部分失败重试。"
         }
       ]
     }

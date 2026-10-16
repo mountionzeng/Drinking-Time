@@ -118,19 +118,24 @@ describe("TopBar story panel controls", () => {
     const html = renderToStaticMarkup(
       <TopBar
         showStoryPanelNav={false}
-        panelToggle={{
-          label: "图像和声音",
+        panelToggles={[
+          { label: "文字", active: false, onToggle: vi.fn() },
+          { label: "图像", active: false, onToggle: vi.fn() },
+          {
+          label: "视频",
           active: true,
           onToggle: vi.fn(),
-          subnav: <div aria-label="图像和声音子类目">素材仓库</div>,
-        }}
+          subnav: <div aria-label="视频子类目">素材仓库</div>,
+        }]}
         accountActions={<button>导出成片</button>}
       />
     );
     expect(html.indexOf("导出成片")).toBeGreaterThan(html.indexOf('aria-label="剪辑面板切换"'));
     expect(html.indexOf("导出成片")).toBeLessThan(html.indexOf('aria-label="用户"'));
     expect(html).toContain("topbar-panel-subnav");
-    expect(html.indexOf('aria-label="图像和声音子类目"')).toBeGreaterThan(html.indexOf("图像和声音"));
+    expect(html.indexOf('aria-label="视频子类目"')).toBeGreaterThan(html.indexOf("视频"));
+    expect(html.indexOf("文字")).toBeLessThan(html.indexOf("图像"));
+    expect(html.indexOf("图像")).toBeLessThan(html.indexOf("视频"));
     expect(html).not.toContain("Timeline");
   });
 

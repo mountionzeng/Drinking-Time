@@ -825,9 +825,10 @@ function MobileWorkspaceScoped({ userId }: { userId: number }) {
   const [memorySource, setMemorySource] = useState<MemoryFollowupSource | null>(
     null
   );
+  const [moduleSource, setModuleSource] = useState<MemoryFollowupSource | null>(null);
   return (
     <MobileMemoryFollowup.Provider
-      value={{ source: memorySource, select: setMemorySource }}
+      value={{ source: memorySource, select: setMemorySource, moduleSource, selectModule: setModuleSource }}
     >
       <MobileCompanionActivity.Provider value={setIdleAnimations}>
         <MobileWorkspaceContent userId={userId} />

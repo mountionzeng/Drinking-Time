@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { paletteFromPixels } from "./imagePackMaterial";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { paletteFromPixels, paperPaletteFromImages, readImagePackPalettes } from "./imagePackMaterial";
 
 function luminance(hex: string) {
   const rgb = hex.slice(1).match(/../g)!.map(value => {
@@ -32,4 +32,69 @@ describe("cover-derived paper palette", () => {
     expect(paletteFromPixels([...blue, ...warm])).toEqual(paletteFromPixels(blue));
   });
 
+});
+
+describe("free paper follows selected images", () => {
+  it("combines cover and illustration colors, including illustration-only layouts", () => {
+    const warm = [170, 110, 65, 255], blue = [20, 70, 170, 255];
+    const combined = paperPaletteFromImages(warm, [blue]);
+    expect(combined).not.toEqual(paperPaletteFromImages(warm, []));
+    expect(combined).not.toEqual(paperPaletteFromImages(undefined, [blue]));
+    expect(paperPaletteFromImages(undefined, [blue])).toEqual(paperPaletteFromImages(blue, []));
+    expect(paperPaletteFromImages(warm, [[], [255, 255, 255, 255]])).toEqual(paperPaletteFromImages(warm, []));
+    expect(luminance(paperPaletteFromImages(warm, []).paper)).toBeLessThan(luminance(paletteFromPixels(warm).paper) - .1);
+  });
+
+  it("keeps visible tints readable across dark, light and saturated sources", () => {
+    for (const r of [0, 51, 102, 153, 204, 255]) {
+      for (const g of [0, 51, 102, 153, 204, 255]) {
+        for (const b of [0, 51, 102, 153, 204, 255]) {
+          const { paper, ink } = paperPaletteFromImages([r, g, b, 255], []);
+          expect((luminance(paper) + .05) / (luminance(ink) + .05)).toBeGreaterThan(7);
+        }
+      }
+    }
+  });
+
+  it("draws color from the artwork instead of neutral paper, without amplifying tiny colored marks", () => {
+    const neutral = [215, 214, 210, 255], ochre = [190, 135, 65, 255];
+    const mostlyPaper = [...Array(8).fill(neutral).flat(), ...ochre, ...ochre];
+    expect(paperPaletteFromImages(mostlyPaper, [])).toEqual(paperPaletteFromImages(ochre, []));
+    const tinyMark = [...Array(99).fill(neutral).flat(), ...ochre];
+    expect(paperPaletteFromImages(tinyMark, [])).toEqual(paperPaletteFromImages(neutral, []));
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function samplingEnvironment() {
+    const samples = [new Uint8ClampedArray([170, 110, 65, 255]), new Uint8ClampedArray([20, 70, 170, 255])];
+    const fetcher = vi.fn(async () => ({ ok: true, blob: async () => new Blob() }));
+    const close = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ close })));
+    vi.stubGlobal("document", { createElement: () => ({ getContext: () => ({
+      drawImage: vi.fn(), getImageData: () => ({ data: samples.shift()! }),
+    }) }) });
+    return { fetcher, close };
+  }
+
+  it("samples only the supplied selections, deduplicates URLs and closes decoded images", async () => {
+    const { fetcher, close } = samplingEnvironment();
+    const result = await readImagePackPalettes("/cover.png", ["/blue.png", "/blue.png", "/cover.png"], new AbortController().signal);
+    expect(fetcher.mock.calls.map(call => (call as unknown[])[0])).toEqual(["/cover.png", "/blue.png"]);
+    expect(result.palette).toEqual(paletteFromPixels([170, 110, 65, 255]));
+    expect(result.paperPalette).toEqual(paperPaletteFromImages([170, 110, 65, 255], [[20, 70, 170, 255]]));
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not return stale colors when selection changes during decode", async () => {
+    const { close } = samplingEnvironment();
+    const abort = new AbortController();
+    vi.mocked(createImageBitmap).mockImplementation(async () => {
+      abort.abort();
+      return { close } as unknown as ImageBitmap;
+    });
+    await expect(readImagePackPalettes("/cover.png", [], abort.signal)).rejects.toThrow();
+    expect(close).toHaveBeenCalledOnce();
+  });
 });

@@ -38,6 +38,104 @@ const longParagraph =
 const threeParagraphs = [longParagraph, longParagraph, longParagraph].join(
   "\n"
 );
+const layoutModule = {
+  storyId: 7,
+  scope: "layout:v1",
+  moduleId: "selected-text",
+  kind: "text" as const,
+  page: 2,
+  pageCount: 3,
+  rect: { x: 20, y: 30, width: 400, height: 200 },
+  text: "当前修改过的文字",
+  fontSize: 32,
+  emphasis: "bright" as const,
+  backdrop: true,
+  pageText: "当前修改过的文字\n旁边一段",
+  pagePreview: "data:image/jpeg;base64,AAAA",
+};
+
+describe("layout module advice", () => {
+  it("uses passive editing history even without a selection and treats reverted attempts as observations, not preferences", async () => {
+    const invoke = fakeInvoke("你刚才试过浅色字又撤销了，可以先保留正常文字。");
+    const layoutMemory = {
+      storyId: 7,
+      scope: "layout:v1",
+      total: 1,
+      recent: [
+        {
+          kind: "style" as const,
+          summary: "文字改成加粗浅色字",
+          undone: true,
+          at: 1,
+          sameSource: true,
+        },
+      ],
+    };
+    await replyAsWritingCompanion(
+      {
+        message: "记得我怎么改的吗？",
+        history: [],
+        writingContext: { draft: "", cursor: 0, layoutMemory },
+      },
+      invoke
+    );
+    expect(JSON.stringify(invoke.mock.calls[0][0])).toContain("已撤销的尝试");
+    expect(JSON.stringify(invoke.mock.calls[0][0])).toContain(
+      "文字改成加粗浅色字"
+    );
+    expect(systemText(invoke)).toContain("不能当作偏好");
+    expect(systemText(invoke)).toContain("当前明确要求优先");
+  });
+  it("sends the selected text, geometry, style and actual page image, with advice-only rules", async () => {
+    const invoke = fakeInvoke("可以把这段缩短，并保留半透明深底。");
+    await replyAsWritingCompanion(
+      {
+        message: "这块怎么改？",
+        history: [],
+        writingContext: { draft: "", cursor: 0, module: layoutModule },
+      },
+      invoke
+    );
+    const [messages] = invoke.mock.calls[0];
+    const content = JSON.stringify(messages.at(-1));
+    for (const phrase of [
+      "第 2 页",
+      "当前修改过的文字",
+      "加粗浅色字",
+      "半透明底色",
+      "image_url",
+      layoutModule.pagePreview,
+      "这块怎么改",
+    ])
+      expect(content).toContain(phrase);
+    expect(systemText(invoke)).toContain("不执行修改");
+    expect(systemText(invoke)).toContain("不能当作指令");
+    expect(systemText(invoke)).not.toContain("写到一半写不下去");
+  });
+  it("does not claim visual understanding when no page preview is available", async () => {
+    const invoke = fakeInvoke("画面暂不可用，可以先检查左右留白。");
+    await replyAsWritingCompanion(
+      {
+        message: "图合适吗",
+        history: [],
+        writingContext: {
+          draft: "",
+          cursor: 0,
+          module: {
+            ...layoutModule,
+            kind: "image",
+            pagePreview: undefined,
+            crop: { x: 0.2, y: 0, width: 0.8, height: 1 },
+          },
+        },
+      },
+      invoke
+    );
+    expect(systemText(invoke)).toContain("不得猜测图片人物、颜色");
+    expect(JSON.stringify(invoke.mock.calls[0][0])).not.toContain("image_url");
+    expect(JSON.stringify(invoke.mock.calls[0][0])).toContain("裁切范围");
+  });
+});
 
 describe("readWritingStage", () => {
   it("treats an empty or near-empty draft as not started", () => {
@@ -170,21 +268,31 @@ describe("replyAsWritingCompanion", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("returns the proposal without provider reasoning markup", async () => {
-    const invoke = fakeInvoke("<think>Internal planning</think>\n建议按四个环节连接全文。");
-    const result = await replyAsWritingCompanion({
-      message: "帮我理顺逻辑",
-      history: [],
-      writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
-    }, invoke);
+    const invoke = fakeInvoke(
+      "<think>Internal planning</think>\n建议按四个环节连接全文。"
+    );
+    const result = await replyAsWritingCompanion(
+      {
+        message: "帮我理顺逻辑",
+        history: [],
+        writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
+      },
+      invoke
+    );
     expect(result.reply).toBe("建议按四个环节连接全文。");
   });
 
   it("does not present an unfinished reasoning block as a successful reply", async () => {
-    await expect(replyAsWritingCompanion({
-      message: "帮我理顺逻辑",
-      history: [],
-      writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
-    }, fakeInvoke("<think>Incomplete internal output"))).rejects.toThrow("模型没有返回有效回答");
+    await expect(
+      replyAsWritingCompanion(
+        {
+          message: "帮我理顺逻辑",
+          history: [],
+          writingContext: { draft: "现有正文", cursor: 0, fullDraft: true },
+        },
+        fakeInvoke("<think>Incomplete internal output")
+      )
+    ).rejects.toThrow("模型没有返回有效回答");
   });
 
   it("bounds desktop proposal latency and does not replay an uncertain submission", async () => {
@@ -391,6 +499,95 @@ async function seedStory(userId: number) {
 
 describe("writing companion on the shared conversation", () => {
   afterEach(() => vi.restoreAllMocks());
+  it("carries module advice through both owned routes and rejects a cross-story module before inference", async () => {
+    const { caller, story } = await seedStory(908);
+    const invoke = vi.spyOn(agentChannel, "invokeAgent").mockResolvedValue({
+      text: "建议左对齐并留出一点空白。",
+      modelLabel: "test",
+    });
+    const writingContext = {
+      draft: layoutModule.pageText,
+      cursor: 0,
+      fullDraft: true,
+      module: { ...layoutModule, storyId: story.id },
+      layoutMemory: {
+        storyId: story.id,
+        scope: layoutModule.scope,
+        total: 1,
+        recent: [
+          {
+            kind: "style" as const,
+            summary: "改成加粗浅色字",
+            undone: false,
+            at: 1,
+            sameSource: true,
+          },
+        ],
+      },
+    };
+    const before = (await getStoryById(story.id, 908))?.body;
+    await caller.storyAgent.chat({
+      storyId: story.id,
+      message: "这块怎么改？",
+      writingContext,
+    });
+    const turn = {
+      storyId: story.id,
+      clientTurnId: "module-turn",
+      userClientMessageId: "module-user",
+      assistantClientMessageId: "module-assistant",
+      userContent: "这个怎么改？",
+    };
+    await caller.storyConversation.generateMobileTurn({
+      ...turn,
+      requestHash: computeStoryConversationTurnRequestHash(turn),
+      writingContext,
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    for (const call of invoke.mock.calls) {
+      expect(JSON.stringify(call[0])).toContain(layoutModule.pagePreview);
+      expect(JSON.stringify(call[0])).toContain("当前修改过的文字");
+      expect(JSON.stringify(call[0])).toContain("改成加粗浅色字");
+    }
+    expect((await getStoryById(story.id, 908))?.body).toEqual(before);
+    const wrong = {
+      ...writingContext,
+      module: { ...writingContext.module, storyId: story.id + 99 },
+    };
+    await expect(
+      caller.storyAgent.chat({
+        storyId: story.id,
+        message: "怎么改",
+        writingContext: wrong,
+      })
+    ).rejects.toThrow("不属于当前故事");
+    await expect(
+      caller.storyConversation.generateMobileTurn({
+        ...turn,
+        requestHash: computeStoryConversationTurnRequestHash(turn),
+        writingContext: wrong,
+      })
+    ).rejects.toThrow("不属于当前故事");
+    const wrongMemory = {
+      ...writingContext,
+      layoutMemory: { ...writingContext.layoutMemory, storyId: story.id + 99 },
+    };
+    await expect(
+      caller.storyAgent.chat({
+        storyId: story.id,
+        message: "怎么改",
+        writingContext: wrongMemory,
+      })
+    ).rejects.toThrow("不属于当前故事");
+    await expect(
+      caller.storyConversation.generateMobileTurn({
+        ...turn,
+        requestHash: computeStoryConversationTurnRequestHash(turn),
+        writingContext: wrongMemory,
+      })
+    ).rejects.toThrow("不属于当前故事");
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
   it("opens and composes through owned routes without persisting questions, prose or changing the story", async () => {
     const { caller, story } = await seedStory(905);
     const before = JSON.stringify(await getStoryById(story.id, 905));

@@ -1,12 +1,15 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
+import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Clipboard, Download, ImagePlus, Loader2, Share2 } from "lucide-react";
+import { Download, ImagePlus, Loader2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { installedPublishingAlbumFonts } from "@shared/publishingAlbumFonts";
 import { downloadPublishingAlbumBlob } from "./publishingAlbumExport";
+import { ImagePackCopyDialog } from "./ImagePackCopyDialog";
+import { imagePackCopyText } from "./imagePackCopy";
 import {
   IMAGE_PACK_STYLES,
   makeImagePack,
@@ -17,7 +20,7 @@ import {
 import {
   drawPaperMaterial,
   IMAGE_PACK_TEXTURES,
-  readCoverPalette,
+  readImagePackPalettes,
   type ImagePackPalette,
   type ImagePackTexture,
 } from "./imagePackMaterial";
@@ -28,6 +31,17 @@ import {
 } from "@/components/ui/popover";
 
 import { ImageCandidatePreview } from "./ImageCandidatePreview";
+import {
+  ImagePackModuleEditor,
+  type ImagePackModuleEditorHandle,
+} from "./ImagePackModuleEditor";
+import { makeModulePack } from "./imagePackModuleRenderer";
+import {
+  moduleStorageKey,
+  readModuleDocument,
+  type ModuleDocument,
+} from "./imagePackModules";
+import { useLocalPackImages } from "./useLocalPackImages";
 import {
   imagePackParagraphs,
   readIllustrationPlacements,
@@ -112,7 +126,10 @@ function GenerationWait({ startedAt }: { startedAt: number }) {
   return (
     <p className="text-xs leading-6 text-muted-foreground" role="status">
       <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
-      {t("正在生成配图 · 已等待 {0} 分 {1} 秒", [Math.floor(seconds / 60), seconds % 60])}
+      {t("正在生成配图 · 已等待 {0} 分 {1} 秒", [
+        Math.floor(seconds / 60),
+        seconds % 60,
+      ])}
     </p>
   );
 }
@@ -167,7 +184,11 @@ export function PublishingImagePack({
   shareEpoch = 0,
   contentKind = "article",
   sharePlatform = "xiaohongshu",
+  active = true,
+  accountId,
 }: {
+  accountId?: number | null;
+  active?: boolean;
   sharePlatform?: import("@shared/sharePermissions").SharedWork["platform"];
   contentKind?: "article" | "memory";
   mobile?: boolean;
@@ -196,9 +217,18 @@ export function PublishingImagePack({
   const t = useUiText();
 
   const key = `publishing-image-pack:${scope}`;
+  const localImages = useLocalPackImages(scope);
+  const [desktopSection, setDesktopSection] = useState<"images" | "layout">(
+    "layout"
+  );
+  const [layoutGenerate, setLayoutGenerate] = useState(false);
+  const [layoutInstruction, setLayoutInstruction] = useState("");
+  const libraryUpload = useRef<HTMLInputElement>(null);
+  const moduleEditor = useRef<ImagePackModuleEditorHandle>(null);
+  const [preparingPreview, setPreparingPreview] = useState(false);
   const [settings, setSettings] = useState(() => {
     const value = readSettings(key, adoptedCoverId);
-    if (mobile && adoptedCoverId == null) {
+    if (adoptedCoverId == null) {
       try {
         if (!localStorage.getItem(key)) value.includeCover = false;
       } catch {
@@ -238,6 +268,10 @@ export function PublishingImagePack({
     }
     return Array.from(all.values());
   }, [coverAssets, albumQuery.data]);
+  const layoutAssets = useMemo(
+    () => [...assets, ...localImages.images],
+    [assets, localImages.images]
+  );
   const cover = assets.find(asset => asset.id === settings.coverId);
   const referenceCovers = coverAssets.filter(asset => !asset.kind);
   const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
@@ -250,10 +284,20 @@ export function PublishingImagePack({
       asset.id === settings.bodyTextureId && asset.kind === "body-texture"
   );
   const [theme, setTheme] = useState<{
-    url: string;
+    source: string;
     palette?: ImagePackPalette;
+    paperPalette?: ImagePackPalette;
     error?: string;
   } | null>(null);
+  const colorSource = JSON.stringify({
+    coverUrl: cover?.imageUrl,
+    illustrationUrls: [
+      ...new Set(
+        selectedIllustrations.flatMap(asset => (asset ? [asset.imageUrl] : []))
+      ),
+    ],
+  });
+  const hasColorSource = Boolean(cover || selectedIllustrations.some(Boolean));
   const [themeRetry, setThemeRetry] = useState(0);
   const [illustrationSetup, setIllustrationSetup] = useState(false);
   const [illustrationInstruction, setIllustrationInstruction] = useState("");
@@ -278,25 +322,28 @@ export function PublishingImagePack({
       seed: settings.textureSeed,
     });
   useEffect(() => {
-    if (!cover) return;
+    if (!hasColorSource) return;
     const controller = new AbortController();
-    const url = cover.imageUrl;
-    setTheme({ url });
-    void readCoverPalette(url, controller.signal)
-      .then(palette => {
-        if (!controller.signal.aborted) setTheme({ url, palette });
+    const { coverUrl, illustrationUrls } = JSON.parse(colorSource);
+    setTheme({ source: colorSource });
+    void readImagePackPalettes(coverUrl, illustrationUrls, controller.signal)
+      .then(colors => {
+        if (!controller.signal.aborted)
+          setTheme({ source: colorSource, ...colors });
       })
       .catch(cause => {
         if (!controller.signal.aborted)
           setTheme({
-            url,
-            error: cause instanceof Error ? cause.message : "封面取色失败",
+            source: colorSource,
+            error: cause instanceof Error ? cause.message : "图片取色失败",
           });
       });
     return () => controller.abort();
-  }, [cover?.imageUrl, themeRetry]);
-  const palette = theme?.url === cover?.imageUrl ? theme?.palette : undefined;
-  const palettePending = Boolean(cover && !palette);
+  }, [colorSource, hasColorSource, themeRetry]);
+  const currentTheme = theme?.source === colorSource ? theme : null;
+  const palette = currentTheme?.palette;
+  const paperPalette = currentTheme?.paperPalette;
+  const palettePending = hasColorSource && !paperPalette;
   // Keep every paid illustration available when the user changes covers.
   // Partition in O(n), placing the current cover's candidates first.
   const availableIllustrations = assets.filter(
@@ -329,6 +376,7 @@ export function PublishingImagePack({
           assets.find(asset => asset.id === placement.assetId)?.imageUrl ?? "",
       })),
       palette,
+      paperPalette: bodyTexture ? undefined : paperPalette,
     }),
     [
       settings.title,
@@ -344,9 +392,44 @@ export function PublishingImagePack({
       assets,
       bodyTexture?.imageUrl,
       palette,
+      paperPalette,
     ]
   );
-  const signature = JSON.stringify(options);
+  const basis = JSON.stringify(options);
+  const storedModules = useMemo(() => {
+    try {
+      const storageKey = moduleStorageKey(scope, basis);
+      const availableUrls = layoutAssets.map(asset => asset.imageUrl);
+      return (
+        readModuleDocument(
+          localStorage.getItem(`${storageKey}:draft`),
+          JSON.parse(basis),
+          availableUrls
+        ) ??
+        readModuleDocument(
+          localStorage.getItem(storageKey),
+          JSON.parse(basis),
+          availableUrls
+        )
+      );
+    } catch {
+      return null;
+    }
+  }, [scope, basis, layoutAssets]);
+  const [moduleOverride, setModuleOverride] = useState<{
+    basis: string;
+    document: ModuleDocument;
+  } | null>(null);
+  const modules =
+    moduleOverride?.basis === basis ? moduleOverride.document : storedModules;
+  const [moduleSession, setModuleSession] = useState<{
+    basis: string;
+    options: ImagePackOptions;
+    initial: ModuleDocument | null;
+  } | null>(null);
+  const signature = JSON.stringify({ options, modules });
+  const currentBasis = useRef(basis);
+  currentBasis.current = basis;
   const [output, setOutput] = useState<{
     signature: string;
     pages: (ImagePackResult & { url: string })[];
@@ -360,7 +443,13 @@ export function PublishingImagePack({
   currentSignature.current = signature;
   const stale = output !== null && output.signature !== signature;
   const selected = output?.pages[selectedPage];
-  const ready = Boolean(selected && !stale && !progress);
+  const ready = Boolean(
+    selected &&
+      !stale &&
+      !progress &&
+      !preparingPreview &&
+      (!moduleSession || (mobile && mobileStep === "preview"))
+  );
   const shareFiles = useMemo(
     () =>
       output?.pages.map(
@@ -376,6 +465,27 @@ export function PublishingImagePack({
   const needsCover = settings.includeCover && !cover;
   const missingIllustration = selectedIllustrations.some(asset => !asset);
   const missingTexture = settings.bodyTextureId != null && !bodyTexture;
+
+  useEffect(() => {
+    if (
+      (mobile ? mobileStep === "layout" : desktopSection === "layout") &&
+      !moduleSession &&
+      output &&
+      !stale &&
+      !progress
+    )
+      setModuleSession({ basis, options: JSON.parse(basis), initial: modules });
+  }, [
+    mobile,
+    mobileStep,
+    desktopSection,
+    moduleSession,
+    output,
+    stale,
+    progress,
+    basis,
+    modules,
+  ]);
 
   useEffect(() => {
     try {
@@ -395,7 +505,10 @@ export function PublishingImagePack({
     setProgress(null);
     // Equivalent assets from a background refetch must not restart rendering
     // and unmount the share dialog. Render only when actual inputs change.
-    const renderOptions: ImagePackOptions = JSON.parse(signature);
+    const { options: renderOptions, modules: renderModules } = JSON.parse(
+      signature
+    ) as { options: ImagePackOptions; modules: ModuleDocument | null };
+    if (output?.signature === signature) return;
     if (
       !renderOptions.body.trim() ||
       needsCover ||
@@ -408,12 +521,17 @@ export function PublishingImagePack({
     setProgress("正在更新图片…");
     // Coalesce typing and quick candidate changes before starting PNG work.
     const timer = window.setTimeout(() => {
-      void makeImagePack(
-        renderOptions,
-        (done, total) => {
-          if (!controller.signal.aborted) setProgress(`排版 ${done}/${total}`);
-        },
-        controller.signal
+      void (
+        renderModules
+          ? makeModulePack(renderOptions, renderModules, controller.signal)
+          : makeImagePack(
+              renderOptions,
+              (done, total) => {
+                if (!controller.signal.aborted)
+                  setProgress(`排版 ${done}/${total}`);
+              },
+              controller.signal
+            )
       )
         .then(pages => {
           if (
@@ -455,6 +573,21 @@ export function PublishingImagePack({
 
   function update(patch: Partial<Settings>) {
     setSettings(value => ({ ...value, ...patch }));
+  }
+  async function changeMobileStep(step: "preview" | "images" | "layout") {
+    if (preparingPreview) return;
+    if (step === "preview" && moduleSession && moduleSession.basis === basis) {
+      setPreparingPreview(true);
+      try {
+        if (!(await moduleEditor.current?.prepare())) {
+          setMobileStep("layout");
+          return;
+        }
+      } finally {
+        setPreparingPreview(false);
+      }
+    }
+    setMobileStep(step);
   }
   function referenceCoverPicker() {
     return referenceCovers.length ? (
@@ -601,21 +734,6 @@ export function PublishingImagePack({
       </div>
     );
   }
-  async function copy() {
-    if (!ready || !selected) return;
-    try {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
-        throw new Error("此浏览器不支持复制图片，请下载当前图片");
-      await navigator.clipboard.write([
-        new ClipboardItem({ "image/png": selected.blob }),
-      ]);
-      toast.success("当前图片已复制，可以粘贴发送");
-    } catch (cause) {
-      toast.error(
-        cause instanceof Error ? cause.message : "复制失败，请下载图片"
-      );
-    }
-  }
   async function share() {
     if (!ready || !output) return;
     try {
@@ -631,11 +749,7 @@ export function PublishingImagePack({
 
   return (
     <section
-      className={
-        mobile
-          ? "mobile-image-pack"
-          : "mt-7 rounded-xl border border-[var(--panel-border)]"
-      }
+      className={mobile ? "mobile-image-pack" : "w-full"}
       aria-label={t("文章图片制作")}
     >
       {generationError && !coverBusy ? (
@@ -643,7 +757,7 @@ export function PublishingImagePack({
           {generationError}
         </p>
       ) : null}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div>
           <h2 className="font-chat-brand text-lg">
             {contentKind === "memory"
@@ -651,8 +765,8 @@ export function PublishingImagePack({
               : t("把文章做成图片")}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground" role="status">
-            {t("已有图片 {0} 张", [assets.length])}
-            {output
+            {t("已有图片 {0} 张", [layoutAssets.length])}
+            {output && mobile && mobileStep === "preview"
               ? t(" · 成品 {0} 张{1}", [
                   output.pages.length,
                   stale ? t("（待更新）") : "",
@@ -661,6 +775,29 @@ export function PublishingImagePack({
           </p>
         </div>
       </header>
+      {!mobile && (
+        <nav
+          aria-label="图像与排版"
+          className="mb-3 flex items-center gap-6 border-b border-[var(--panel-border)]"
+        >
+          {(
+            [
+              ["images", "图像"],
+              ["layout", "排版"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={desktopSection === id}
+              onClick={() => setDesktopSection(id)}
+              className={`pb-2 text-sm ${desktopSection === id ? "border-b-2 border-[var(--nayin-accent)] text-foreground" : "text-muted-foreground"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
       {mobile ? (
         <nav
           aria-label={t("图文制作步骤")}
@@ -677,7 +814,8 @@ export function PublishingImagePack({
               key={id}
               type="button"
               aria-pressed={mobileStep === id}
-              onClick={() => setMobileStep(id)}
+              disabled={preparingPreview}
+              onClick={() => void changeMobileStep(id)}
               className={`min-h-12 text-sm ${mobileStep === id ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
             >
               {label}
@@ -685,14 +823,88 @@ export function PublishingImagePack({
           ))}
         </nav>
       ) : null}
-      <div className="space-y-4 p-4">
+      <div className={mobile ? "space-y-4 p-4" : "space-y-4"}>
+        {localImages.warning && (
+          <p role="status" className="text-xs text-amber-700">
+            {localImages.warning}
+          </p>
+        )}
         {generationStartedAt != null ? (
           <GenerationWait
             key={generationStartedAt}
             startedAt={generationStartedAt}
           />
         ) : null}
-        <div hidden={mobile && mobileStep !== "images"} className="space-y-4">
+        <div
+          hidden={
+            mobile ? mobileStep !== "images" : desktopSection !== "images"
+          }
+          className="space-y-4"
+        >
+          {
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className={control}
+                onClick={() => libraryUpload.current?.click()}
+              >
+                上传图片
+              </button>
+              <span className="text-xs text-muted-foreground">
+                生成或上传图片，再到排版里组合。
+              </span>
+              <input
+                ref={libraryUpload}
+                aria-label="上传图像素材"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={async event => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  try {
+                    await localImages.upload(file);
+                  } catch (cause) {
+                    toast.error(
+                      cause instanceof Error ? cause.message : "上传失败"
+                    );
+                  }
+                }}
+              />
+            </div>
+          }
+          {localImages.images.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs text-muted-foreground">
+                本机上传 · 在排版中使用
+              </p>
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {localImages.images.map(asset => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    aria-label={`到排版使用：${asset.label}`}
+                    onClick={() =>
+                      mobile
+                        ? void changeMobileStep("layout")
+                        : setDesktopSection("layout")
+                    }
+                    className="w-24 shrink-0 text-left"
+                  >
+                    <img
+                      src={asset.imageUrl}
+                      alt={asset.label}
+                      className="w-full"
+                    />
+                    <span className="block truncate text-[10px]">
+                      {asset.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs">{t("封面")}</p>
             <div className="flex items-center gap-2">
@@ -1025,9 +1237,12 @@ export function PublishingImagePack({
                 </Popover>
               ) : null}
             </div>
-            {theme?.url === cover?.imageUrl && theme?.error ? (
+            <p className="text-xs text-muted-foreground">
+              {t("免费纹理随所选封面和插图配色")}
+            </p>
+            {currentTheme?.error ? (
               <p role="alert" className="text-xs text-destructive">
-                {theme.error}{" "}
+                {currentTheme.error}{" "}
                 <button
                   type="button"
                   onClick={() => setThemeRetry(value => value + 1)}
@@ -1080,7 +1295,7 @@ export function PublishingImagePack({
                   label={`${t(IMAGE_PACK_TEXTURES[texture])} ${seed + 1}`}
                   preview={
                     <MaterialSwatch
-                      palette={palette ?? IMAGE_PACK_STYLES.sage}
+                      palette={paperPalette ?? IMAGE_PACK_STYLES.sage}
                       texture={texture}
                       seed={seed}
                     />
@@ -1108,7 +1323,7 @@ export function PublishingImagePack({
                     }}
                   >
                     <MaterialSwatch
-                      palette={palette ?? IMAGE_PACK_STYLES.sage}
+                      palette={paperPalette ?? IMAGE_PACK_STYLES.sage}
                       texture={texture}
                       seed={seed}
                     />
@@ -1132,8 +1347,9 @@ export function PublishingImagePack({
           </div>
         </div>
         <details
-          open={mobile ? mobileStep === "layout" : undefined}
-          hidden={mobile && mobileStep !== "layout"}
+          hidden={
+            mobile ? mobileStep !== "layout" : desktopSection !== "images"
+          }
           className="text-xs"
         >
           <summary className="cursor-pointer text-muted-foreground">
@@ -1238,104 +1454,270 @@ export function PublishingImagePack({
         ) : null}
         {output ? (
           <div
-            hidden={mobile && mobileStep !== "preview"}
-            className="border-t border-[var(--panel-border)] pt-4"
+            hidden={
+              mobile ? mobileStep === "images" : desktopSection !== "layout"
+            }
+            className={
+              mobile ? "border-t border-[var(--panel-border)] pt-4" : ""
+            }
           >
-            <h3 className="mb-2 text-sm font-medium">{t("成品预览")}</h3>
+            <div
+              hidden={!mobile || mobileStep !== "preview"}
+              className="mb-2 flex items-center justify-between gap-2"
+            >
+              <h3 className="text-sm font-medium">{t("成品预览")}</h3>
+            </div>
+            <div hidden={mobile && mobileStep !== "layout"}>
+              {moduleSession && (
+                <ImagePackModuleEditor
+                  companion={{ storyId, accountId, active: active && !advancedOpen && (mobile ? mobileStep === "layout" : desktopSection === "layout") }}
+                  ref={moduleEditor}
+                  mobile={mobile}
+                  onPreview={() => void changeMobileStep("preview")}
+                  options={moduleSession.options}
+                  scope={scope}
+                  initial={moduleSession.initial}
+                  assets={layoutAssets}
+                  onUpload={localImages.upload}
+                  generationControls={
+                    <Popover
+                      open={layoutGenerate}
+                      onOpenChange={setLayoutGenerate}
+                    >
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`${mobile ? "min-h-11 text-sm" : "text-xs"} px-2 py-1.5`}
+                          disabled={coverBusy}
+                        >
+                          生成
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        className={`w-72 space-y-3 ${mobile ? "[&_button]:min-h-11 [&_textarea]:text-base" : ""}`}
+                      >
+                        <p className="text-sm">想加一张什么图片？</p>
+                        <textarea
+                          aria-label="排版配图要求"
+                          value={layoutInstruction}
+                          onChange={event =>
+                            setLayoutInstruction(event.target.value)
+                          }
+                          maxLength={1000}
+                          rows={3}
+                          className={`${control} w-full`}
+                        />
+                        <button
+                          type="button"
+                          className={control}
+                          disabled={
+                            coverBusy ||
+                            illustrationCost == null ||
+                            !(generationCover
+                              ? onGenerateIllustration
+                              : onGenerateCover)
+                          }
+                          onClick={() => {
+                            setLayoutGenerate(false);
+                            void (generationCover
+                              ? onGenerateIllustration?.(
+                                  generationCover.id,
+                                  layoutInstruction
+                                )
+                              : onGenerateCover?.(layoutInstruction));
+                          }}
+                        >
+                          确认生成 4 张 ·{" "}
+                          {illustrationCost == null
+                            ? ""
+                            : formatComputeQuote(illustrationCost)}
+                        </button>
+                        <p className="text-xs text-muted-foreground">
+                          {mobile
+                            ? "出图后会放进图片列表，轻点再加入成品。"
+                            : "出图后会放在右侧，选中再加入成品。"}
+                        </p>
+                      </PopoverContent>
+                    </Popover>
+                  }
+                  sourceChanged={moduleSession.basis !== basis}
+                  onClose={() => setModuleSession(null)}
+                  onApply={(document, pages, pageIndex) => {
+                    if (currentBasis.current !== moduleSession.basis)
+                      throw new Error(
+                        "正文或选图已变化，请返回预览后重新打开；模块草稿仍保留。"
+                      );
+                    try {
+                      localStorage.setItem(
+                        moduleStorageKey(scope, basis),
+                        JSON.stringify(document)
+                      );
+                    } catch {
+                      toast.error(
+                        "浏览器无法保存排版，当前图片可下载，但刷新后无法恢复。"
+                      );
+                    }
+                    const prepared = pages.map(page => ({
+                      ...page,
+                      url: URL.createObjectURL(page.blob),
+                    }));
+                    for (const url of previewUrls.current)
+                      URL.revokeObjectURL(url);
+                    previewUrls.current = prepared.map(page => page.url);
+                    setModuleOverride({ basis, document });
+                    setOutput({
+                      signature: JSON.stringify({
+                        options: moduleSession.options,
+                        modules: document,
+                      }),
+                      pages: prepared,
+                    });
+                    setSelectedPage(Math.min(pageIndex, pages.length - 1));
+                  }}
+                />
+              )}
+            </div>
             {stale ? (
               <p className="mb-3 text-xs text-muted-foreground">
                 {t("正在更新…")}
               </p>
             ) : null}
             <div
-              className="flex gap-2 overflow-x-auto pb-3"
-              aria-label={t("成品图片列表")}
+              hidden={mobile ? mobileStep !== "preview" : !!moduleSession}
+              className={
+                mobile
+                  ? ""
+                  : "mb-4 grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-4"
+              }
             >
-              {output.pages.map((page, index) => (
-                <ImageCandidatePreview
-                  touchOnly={mobile}
-                  key={page.url}
-                  label={t("成品 {0} · {1}", [index + 1, page.label])}
-                  preview={<img src={page.url} alt={page.label} />}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPage(index)}
-                    aria-pressed={selectedPage === index}
-                    aria-label={t("预览第 {0} 张：{1}", [
-                      index + 1,
-                      page.label,
-                    ])}
-                    className={`w-24 shrink-0 rounded-md border-2 p-1 ${selectedPage === index ? "border-[var(--nayin-accent)]" : "border-transparent"}`}
-                  >
-                    <img
-                      src={page.url}
-                      alt={t("第 {0} 张 {1}", [index + 1, page.label])}
-                      className="aspect-[3/4] w-full rounded"
-                    />
-                    <span className="text-[10px]">
-                      {index + 1} · {page.label}
-                    </span>
-                  </button>
-                </ImageCandidatePreview>
-              ))}
-            </div>
-            {selected ? (
-              mobile ? (
-                <ImageCandidatePreview
-                  touchOnly
-                  label={t("成品 {0} · {1}", [
-                    selectedPage + 1,
-                    selected.label,
-                  ])}
-                  preview={<img src={selected.url} alt={selected.label} />}
-                >
-                  <button
-                    type="button"
-                    aria-label={t("放大当前图片：{0}", [selected.label])}
-                    className="mx-auto mb-4 block w-full max-w-sm cursor-zoom-in"
-                  >
+              <div
+                className={
+                  mobile
+                    ? "flex gap-2 overflow-x-auto pb-3"
+                    : "flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-1"
+                }
+                aria-label={t("成品图片列表")}
+              >
+                {output.pages.map((page, index) => {
+                  const thumbnail = (
+                    <button
+                      key={page.url}
+                      type="button"
+                      onClick={() => setSelectedPage(index)}
+                      onPointerEnter={event => {
+                        if (!mobile && event.pointerType === "mouse")
+                          setSelectedPage(index);
+                      }}
+                      onFocus={() => {
+                        if (!mobile) setSelectedPage(index);
+                      }}
+                      aria-pressed={selectedPage === index}
+                      aria-label={t("预览第 {0} 张：{1}", [
+                        index + 1,
+                        page.label,
+                      ])}
+                      className={`${mobile ? "w-24" : "w-full"} shrink-0 rounded-md border-2 p-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${selectedPage === index ? "border-[var(--nayin-accent)]" : "border-transparent"}`}
+                    >
+                      <img
+                        src={page.url}
+                        alt={t("第 {0} 张 {1}", [index + 1, page.label])}
+                        className="aspect-[3/4] w-full rounded"
+                      />
+                      <span className="text-[10px]">
+                        {index + 1} · {page.label}
+                      </span>
+                    </button>
+                  );
+                  return mobile ? (
+                    <ImageCandidatePreview
+                      touchOnly
+                      key={page.url}
+                      label={t("成品 {0} · {1}", [index + 1, page.label])}
+                      preview={<img src={page.url} alt={page.label} />}
+                    >
+                      {thumbnail}
+                    </ImageCandidatePreview>
+                  ) : (
+                    thumbnail
+                  );
+                })}
+              </div>
+              <div className="min-w-0">
+                {selected ? (
+                  mobile ? (
+                    <ImageCandidatePreview
+                      touchOnly
+                      label={t("成品 {0} · {1}", [
+                        selectedPage + 1,
+                        selected.label,
+                      ])}
+                      preview={<img src={selected.url} alt={selected.label} />}
+                    >
+                      <button
+                        type="button"
+                        aria-label={t("放大当前图片：{0}", [selected.label])}
+                        className="mx-auto mb-4 block w-full max-w-sm cursor-zoom-in"
+                      >
+                        <img
+                          src={selected.url}
+                          alt={t("当前预览：{0}", [selected.label])}
+                          className="w-full rounded-lg border border-[var(--panel-border)]"
+                        />
+                      </button>
+                    </ImageCandidatePreview>
+                  ) : (
                     <img
                       src={selected.url}
                       alt={t("当前预览：{0}", [selected.label])}
-                      className="w-full rounded-lg border border-[var(--panel-border)]"
+                      className="mx-auto mb-4 w-full max-w-sm rounded-lg border border-[var(--panel-border)]"
                     />
-                  </button>
-                </ImageCandidatePreview>
-              ) : (
-                <img
-                  src={selected.url}
-                  alt={t("当前预览：{0}", [selected.label])}
-                  className="mx-auto mb-4 w-full max-w-sm rounded-lg border border-[var(--panel-border)]"
-                />
-              )
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {!mobile ? (
+                  )
+                ) : null}
+              </div>
+            </div>
+            <div
+              hidden={mobile ? mobileStep !== "preview" : !!moduleSession}
+              className="flex flex-wrap gap-2"
+            >
+              {mobile && (
                 <button
                   type="button"
-                  disabled={!ready}
-                  onClick={() => {
-                    for (const page of output.pages)
-                      downloadPublishingAlbumBlob(page.blob, page.filename);
-                  }}
                   className={control}
+                  disabled={preparingPreview}
+                  onClick={() => void changeMobileStep("layout")}
                 >
-                  <Download className="mr-1 inline h-3.5 w-3.5" />
-                  {t("下载整套")}
+                  编辑排版
                 </button>
-              ) : null}
-              {!mobile ? (
-                <button
-                  type="button"
-                  disabled={!ready}
-                  onClick={() => void copy()}
-                  className={control}
-                >
-                  <Clipboard className="mr-1 inline h-3.5 w-3.5" />
-                  {t("复制当前图片")}
-                </button>
-              ) : null}
+              )}
+              <button
+                type="button"
+                disabled={!ready}
+                onClick={() => {
+                  for (const page of output.pages)
+                    downloadPublishingAlbumBlob(page.blob, page.filename);
+                }}
+                className={control}
+              >
+                <Download className="mr-1 inline h-3.5 w-3.5" />
+                {t("下载整套")}
+              </button>
+              <ImagePackCopyDialog
+                className={control}
+                mobile={mobile}
+                disabled={!ready}
+                text={
+                  modules
+                    ? imagePackCopyText(modules)
+                    : [options.includeCover ? options.title : "", options.body]
+                        .filter(value => value.trim())
+                        .join("\n\n")
+                }
+                currentPageIndex={selectedPage}
+                loadPages={async () => output.pages}
+              />
+              <ArchiveArtworkButton storyId={storyId} title={options.title}
+                className={control} disabled={!ready} loadPages={async () => output.pages} />
               {canShareImages ? (
                 <button
                   type="button"
@@ -1362,12 +1744,17 @@ export function PublishingImagePack({
                   key={`${output.signature}:${shareEpoch}`}
                   storyId={storyId}
                   title={options.title}
-                  work={{ title: options.title, body: options.body, tags: [], platform: sharePlatform }}
+                  work={{
+                    title: options.title,
+                    body: options.body,
+                    tags: [],
+                    platform: sharePlatform,
+                  }}
                   pages={output.pages}
                 />
               ) : null}
             </div>
-            {mobile ? (
+            {mobile && mobileStep === "preview" ? (
               <p className="mt-3 text-xs leading-6 text-muted-foreground">
                 {t("长按预览图可保存到手机；也可逐张下载后发布到社交平台。")}
                 {!canShareImages ? t("此浏览器暂不支持直接分享图片。") : ""}
@@ -1377,6 +1764,7 @@ export function PublishingImagePack({
         ) : null}
         {advancedEditor ? (
           <details
+            hidden={!mobile && desktopSection !== "images"}
             open={advancedOpen}
             onToggle={event => onAdvancedOpenChange?.(event.currentTarget.open)}
             className="border-t border-[var(--panel-border)] pt-3"

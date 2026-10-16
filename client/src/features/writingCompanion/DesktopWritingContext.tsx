@@ -24,6 +24,8 @@ export function DesktopWritingContext(props: Props) {
       current.epoch === spine.storyScopeEpoch &&
       current.snapshot.draft === snapshot.draft &&
       current.snapshot.scope === snapshot.scope &&
+      current.snapshot.module === snapshot.module &&
+      current.snapshot.layoutMemory === snapshot.layoutMemory &&
       current.snapshot.cursor === snapshot.cursor &&
       current.snapshot.selection?.start === snapshot.selection?.start &&
       current.snapshot.selection?.end === snapshot.selection?.end

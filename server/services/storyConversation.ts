@@ -692,6 +692,10 @@ export async function generateMobileStoryConversationTurn(
   const input = normalizeMobileTurnInput(rawInput);
   const owner = { storyId: input.storyId, userId: input.userId };
   const { story } = await assertOwnedConversationAggregate(owner);
+  if (input.writingContext?.module && input.writingContext.module.storyId !== input.storyId)
+    throw new PromptLineageValidationError("选中模块不属于当前故事，请重新选择");
+  if (input.writingContext?.layoutMemory && input.writingContext.layoutMemory.storyId !== input.storyId)
+    throw new PromptLineageValidationError("操作记录不属于当前故事");
   const now = inputNow(input.now);
   const claimToken = nanoid();
   const claim = await claimMobileTurn(input, claimToken, now);

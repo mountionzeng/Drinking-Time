@@ -49,6 +49,8 @@ import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
 import { useDesktopChatQueue } from "../useDesktopChatQueue";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
+import { layoutModuleLabel } from "@shared/layoutModuleContext";
+import { LayoutMemoryDetails } from "@/features/publishingAlbum/LayoutMemoryDetails";
 import { useStorySpine } from "../spine/storySpine";
 import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
@@ -286,8 +288,9 @@ export default function StoryAgentChat({
   const scopeEpoch = useStorySpine(state => state.storyScopeEpoch);
   const writingSession = writingSource?.storyId === activeStoryId && writingSource.accountId === accountId && writingSource.epoch === scopeEpoch
     ? writingSource : null;
+  const layoutContext = Boolean(writingSession?.snapshot.module || writingSession?.snapshot.layoutMemory);
   const chatQueue = useDesktopChatQueue({
-    blocked: isReplying || creationFlow.busy || soundDirector.active,
+    blocked: isReplying || creationFlow.busy || (soundDirector.active && !layoutContext),
     run: async item => sendMessage(item.text, undefined, undefined, { clientMessageId: item.id, writingContext: item.writingContext }),
   });
   const activeSelectionReadiness = activeSelection
@@ -771,8 +774,8 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = input.trim();
-    const ordinaryText = !pendingMedia.length && !soundDirector.active &&
-      activeSelection == null;
+    const ordinaryText = !pendingMedia.length &&
+      (layoutContext || (!soundDirector.active && activeSelection == null));
     if (text && ordinaryText && !voice.isBusy && !isImportingMedia &&
       (writingSession || isReplying || chatQueue.items.length > 0)) {
       if (chatQueue.enqueue(text, writingSession?.getSnapshot())) {
@@ -1924,12 +1927,16 @@ export default function StoryAgentChat({
         className="border-t px-3 pb-3 flex flex-col gap-2"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        {writingSession && !activeSelection && <section aria-label="当前文字上下文" className="min-w-0 pt-2 text-[11px] text-muted-foreground">
-          {writingSession.snapshot.selection
+        {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 pt-2 text-[11px] text-muted-foreground">
+          {writingSession.snapshot.module ? <span className="block truncate">
+            已选中：{layoutModuleLabel(writingSession.snapshot.module)} · 可以问我怎么改
+            {!writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
+          </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
             ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
                 已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
               </span>
             : <span>正在聊右侧这篇文字</span>}
+          {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
         </section>}
         {interactionMode === "publishing" ? (
           <div className="pt-2.5">
@@ -1937,7 +1944,7 @@ export default function StoryAgentChat({
           </div>
         ) : null}
         {/* Quote block */}
-        {interactionMode === "story" && activeSelection && (
+        {interactionMode === "story" && activeSelection && !layoutContext && (
           <div className="mt-2.5">
             <SelectionContextCard
               selection={activeSelection}
@@ -2184,7 +2191,7 @@ export default function StoryAgentChat({
                 (interactionMode === "publishing" ||
                   pendingMedia.length === 0)) ||
               (isReplying && (pendingMedia.length > 0 || Boolean(activeSelection && !writingSession))) ||
-              (soundDirector.active && !soundDirector.session?.question) ||
+              (soundDirector.active && !layoutContext && !soundDirector.session?.question) ||
               voice.isBusy ||
               isImportingMedia
             }
@@ -2232,12 +2239,12 @@ export default function StoryAgentChat({
           onClick={() => requestMemoryCard({ content: input, origin: "note", sourceStoryId: (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (remoteStoryId ?? activeStoryId) : null })}>
           单独记一条
         </button>
-        <TextDraftVersions
+        {!layoutContext && <TextDraftVersions
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
           blocked={isReplying || chatQueue.items.length > 0 || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
-        />
+        />}
         </div>
         <button type="button" className="mt-1 rounded text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}>
           聊天会自动收进记忆仓库 · 查看记忆

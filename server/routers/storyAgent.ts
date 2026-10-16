@@ -223,6 +223,8 @@ async function syncStoryPromptLineageAfterMutation(input: {
 }
 
 import { replyAsWritingCompanion, WritingCompanionInputError } from "../services/writingCompanion";
+import { layoutModuleContextSchema } from "../../shared/layoutModuleContext";
+import { layoutMemoryContextSchema } from "../../shared/layoutOperationMemory";
 
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
@@ -231,6 +233,8 @@ export const storyAgentRouter = router({
       z.object({
         message: z.string().min(1),
         writingContext: z.object({
+          module: layoutModuleContextSchema.optional(),
+          layoutMemory: layoutMemoryContextSchema.optional(),
           draft: z.string().max(20_000),
           cursor: z.number().int().nonnegative(),
           selection: z.object({ start: z.number().int().nonnegative(), end: z.number().int().positive() }).optional(),
@@ -333,6 +337,10 @@ export const storyAgentRouter = router({
       if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
       if (input.writingContext) {
         if (!story) throw new TRPCError({ code: "BAD_REQUEST", message: "请先保存当前故事" });
+        if (input.writingContext.module && input.writingContext.module.storyId !== input.storyId)
+          throw new TRPCError({ code: "BAD_REQUEST", message: "选中模块不属于当前故事，请重新选择" });
+        if (input.writingContext.layoutMemory && input.writingContext.layoutMemory.storyId !== input.storyId)
+          throw new TRPCError({ code: "BAD_REQUEST", message: "操作记录不属于当前故事" });
         try {
           return { ...await replyAsWritingCompanion({
             message: input.message,

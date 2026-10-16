@@ -284,6 +284,8 @@ export type StoryMaterialState = {
   storyId: number;
   timeline: TimelineDocument;
   shots: ShotMaterialState[];
+  /** Complete story image archive, independent of shot assignment/adoption. */
+  warehouseImages?: ImageAsset[];
   unassignedImages: ImageAsset[];
   unassignedVideoTakes: VideoTakeAsset[];
   reusableVideoTakes: VideoTakeAsset[];

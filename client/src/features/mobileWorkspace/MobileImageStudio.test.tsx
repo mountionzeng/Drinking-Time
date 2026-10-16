@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   refetch: vi.fn(),
   invalidate: vi.fn(),
+  invalidateMaterials: vi.fn(),
 }));
 vi.mock("@/features/publishingAlbum/PublishingImagePack", () => ({
   PublishingImagePack: (props: any) => {
@@ -24,6 +25,10 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({
       publishingDraft: { readBody: { invalidate: mocks.invalidate } },
+      storyAgent: {
+        storyMaterialState: { invalidate: mocks.invalidateMaterials },
+        storyImages: { invalidate: mocks.invalidateMaterials },
+      },
     }),
     publishingDraft: {
       read: { useQuery: () => ({ data: mocks.data, refetch: mocks.refetch }) },
@@ -37,6 +42,7 @@ beforeEach(() => {
   mocks.mutate.mockReset().mockResolvedValue({ status: "ready" });
   mocks.refetch.mockReset();
   mocks.invalidate.mockReset();
+  mocks.invalidateMaterials.mockReset();
   mocks.pack = null;
   const publishing = upsertPublishingPlatformDraft(
     emptyPublishingDraftState(),
@@ -134,6 +140,7 @@ describe("mobile image studio", () => {
     resolve({ status: "ready" });
     await pending;
     expect(mocks.refetch).toHaveBeenCalled();
+    expect(mocks.invalidateMaterials).toHaveBeenCalledWith({ storyId: 3 });
   });
   it("does not generate from the wrong current text or silently overwrite it", async () => {
     expect(

@@ -34,18 +34,21 @@ describe("resolveStudioInteractionMode", () => {
     expect(resolveStudioInteractionMode("editing", socialPostIntent)).toBe(
       "story"
     );
+    expect(resolveStudioInteractionMode("images", socialPostIntent)).toBe("publishing");
   });
 
   it("keeps story navigation hidden while leaving writing and editing entry points", () => {
     expect(STUDIO_WORKSPACE_OPTIONS.map(option => option.label)).toEqual([
       "文字",
-      "图像和声音",
+      "图像",
+      "视频",
     ]);
     expect(
       STUDIO_WORKSPACE_OPTIONS.map(option => option.illustrationSrc)
     ).toEqual([
       "/shiguang/nav-writing-v2.png",
       "/shiguang/nav-image-sound-v2.png",
+      "/shiguang/nav-export-v2.svg",
     ]);
   });
 });

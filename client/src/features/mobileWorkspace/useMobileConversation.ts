@@ -454,7 +454,7 @@ export function useMobileConversation(input: {
         storyId: input.storyId,
         userContent: content,
       });
-      if (writingContext) turn.writingContext = writingContext;
+      if (writingContext) turn.writingContext = structuredClone(writingContext);
       turn.status = "queued";
       persistTurn(turn);
       setQueueEnabled(true);

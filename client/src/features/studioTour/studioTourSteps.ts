@@ -33,9 +33,15 @@ export const STUDIO_TOUR_STEPS: ReadonlyArray<StudioTourStep> = [
     body: "随便聊的内容都会自动收进按钮下面的「记忆仓库」。挑选不同记忆、调整顺序，就能组合成不同的新故事；同一段记忆可以反复使用。",
   },
   {
+    id: "images",
+    anchor: "workspace-images",
+    title: "图像",
+    body: "把文字做成图片：选封面、插图和底图，调整排版，预览和下载。打开「模块编辑」还能移动、缩放、改字和裁切。",
+  },
+  {
     id: "editing",
     anchor: "workspace-editing",
-    title: "图像和声音",
+    title: "视频",
     body: "剪辑台：看镜头、预览播放、调字幕和声音。按钮底下的「素材仓库」放着这篇故事的图片、视频和音频。",
   },
   {

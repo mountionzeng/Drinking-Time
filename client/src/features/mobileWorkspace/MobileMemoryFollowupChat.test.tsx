@@ -47,6 +47,7 @@ vi.mock("./MobileTextDraftFlow", () => ({
   MobileTextDraftFlow: () => <div />,
 }));
 import { MobileMemoryFollowupChat } from "./MobileMemoryFollowupChat";
+import type { MemoryFollowupSource } from "./mobileMemoryFollowup";
 const source = {
   storyId: 7,
   id: "original-3",
@@ -57,7 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mock.submit.mockResolvedValue({ status: "synced" });
 });
-function setup(selectedSource = source) {
+function setup(selectedSource: MemoryFollowupSource = source) {
   const setDraft = vi.fn();
   renderToStaticMarkup(
     <MobileMemoryFollowupChat
@@ -146,4 +147,39 @@ it("uses the same whole-draft proposal mode as desktop and sends only the user's
     })
   );
   expect(mock.props.greeting).toContain("提议");
+});
+
+it.each(["text", "image"] as const)(
+  "sends a selected %s module only when asked, through the existing reliable chat",
+  async kind => {
+    const module = {
+      storyId: 7,
+      scope: "layout:7:v1",
+      moduleId: "m1",
+      kind,
+      page: 2,
+      pageCount: 3,
+      rect: { x: 20, y: 30, width: 400, height: 200 },
+      text: kind === "text" ? "新改的模块文字" : undefined,
+      pageText: "本页文字",
+      pagePreview: "data:image/jpeg;base64,AAAA",
+    };
+    setup({ ...source, kind: "layout", module });
+    expect(mock.submit).not.toHaveBeenCalled();
+    expect(mock.props.greeting).toContain("这块");
+    await mock.props.controller.submit("这个怎么改更好？");
+    expect(mock.submit).toHaveBeenCalledWith(
+      "这个怎么改更好？",
+      expect.objectContaining({ module })
+    );
+    expect(mock.submit.mock.calls[0][0]).not.toContain("引用");
+  }
+);
+
+it("carries remembered editing operations into mobile chat even when no module is selected", async () => {
+  const layoutMemory = { storyId: 7, scope: "layout:v1", total: 1, recent: [{ kind: "move" as const, summary: "把文字往左移动", undone: false, at: 1, sameSource: true }] };
+  setup({ ...source, kind: "layout", layoutMemory });
+  expect(mock.submit).not.toHaveBeenCalled();
+  await mock.props.controller.submit("我之前怎么改的？");
+  expect(mock.submit).toHaveBeenCalledWith("我之前怎么改的？", expect.objectContaining({ layoutMemory }));
 });

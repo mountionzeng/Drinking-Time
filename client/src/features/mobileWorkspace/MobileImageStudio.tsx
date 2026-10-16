@@ -124,6 +124,8 @@ export function MobileImageStudio({
       await read.refetch();
     } finally {
       inFlight.current = false;
+      void utils.storyAgent.storyMaterialState.invalidate({ storyId });
+      void utils.storyAgent.storyImages.invalidate({ storyId });
     }
   }
   async function useSource() {
@@ -225,6 +227,7 @@ export function MobileImageStudio({
               </div>
             ) : null}
             <PublishingImagePack
+              accountId={userId}
             sharePlatform={platform}
               key={`${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
               mobile

@@ -566,7 +566,7 @@ export default function MaterialWarehousePanel({
         isCurrent: previous.isCurrent || row.isCurrent,
       });
     };
-    for (const image of materialState?.unassignedImages ?? []) {
+    for (const image of materialState?.warehouseImages ?? materialState?.unassignedImages ?? []) {
       addRow({
         image,
         shotNo: null,

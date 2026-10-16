@@ -82,12 +82,7 @@ export class DesktopChatQueue {
       createdAt: Date.now(),
       status: "queued",
       writingContext: writingContext
-        ? {
-            ...writingContext,
-            selection: writingContext.selection
-              ? { ...writingContext.selection }
-              : undefined,
-          }
+        ? structuredClone(writingContext)
         : undefined,
     };
     if (!item.text) return;

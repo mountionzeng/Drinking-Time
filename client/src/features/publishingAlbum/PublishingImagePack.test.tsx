@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PublishingImagePack } from "./PublishingImagePack";
 
 vi.stubGlobal("React", React);
+vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
 
 const query = vi.hoisted(() => ({ data: undefined as any }));
 const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
@@ -29,6 +30,17 @@ const props = {
 
 describe("article image pack entry", () => {
   beforeEach(() => { query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+
+  it("keeps mobile navigation and offers local uploads on both devices", () => {
+    const desktop = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
+    expect(desktop).toContain('aria-label="图像与排版"');
+    expect(desktop).toContain("上传图片");
+    const mobile = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} mobile />);
+    expect(mobile).toContain('aria-label="图文制作步骤"');
+    expect(mobile).not.toContain('aria-label="图像与排版"');
+    expect(mobile).toContain("上传图片");
+    expect(mobile).toContain('aria-label="上传图像素材"');
+  });
 
   it.each(["生成插图", "生成底图"])("opens %s without a selected cover and offers an explicit reference choice", name => {
     const html = renderToStaticMarkup(<PublishingImagePack {...props} assets={[
@@ -88,13 +100,14 @@ describe("article image pack entry", () => {
     expect(html).toContain("质检未完成");
     expect(html).toContain("疑似含字");
     expect(html).toMatch(/aria-label="封面文字"[^>]*value="文章标题"/);
-    expect(html).toContain("请选择封面");
+    expect(html).not.toContain("请选择封面");
     expect(html).not.toContain(">制作图片</button>");
     expect(html).not.toContain("下载整套");
     expect(html).not.toContain('aria-label="整套配色"');
     expect(html).toContain("正文纹理");
     expect(html.match(/aria-label="选用底图：/g)).toHaveLength(6);
     expect(html).toContain("换一组免费纹理");
+    expect(html).toContain("免费纹理随所选封面和插图配色");
     expect(html).toContain("排版设置</summary>");
   });
 
@@ -105,6 +118,8 @@ describe("article image pack entry", () => {
       advancedEditor={<Advanced />} advancedOpen={false} />);
     expect(html).toContain("暂无配图");
     expect(html).toContain("包含封面");
+    expect(html).not.toContain("请选择封面");
+    expect(html.match(/<input\b[^>]*type="checkbox"[^>]*>/)?.[0]).not.toContain("checked");
     expect(html).toContain("逐页编辑画册");
     expect(advanced).not.toHaveBeenCalled();
     const expanded = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]}

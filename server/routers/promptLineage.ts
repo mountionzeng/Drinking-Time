@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { layoutModuleContextSchema } from "../../shared/layoutModuleContext";
+import { layoutMemoryContextSchema } from "../../shared/layoutOperationMemory";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getStoryById } from "../db";
@@ -344,6 +346,8 @@ const writingDraftShape = {
 };
 
 const writingContextSchema = z.object({
+  module: layoutModuleContextSchema.optional(),
+  layoutMemory: layoutMemoryContextSchema.optional(),
   ...writingDraftShape,
   fullDraft: z.boolean().optional(),
   selection: z
