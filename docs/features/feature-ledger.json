@@ -157,7 +157,8 @@
         "docs/qa/2026-10-16-image-paper-palette.md",
         "client/src/features/publishingAlbum/imagePackCopy.test.ts",
         "docs/qa/2026-10-16-image-pack-copy.md",
-        "docs/qa/2026-10-16-story-image-warehouse.md"
+        "docs/qa/2026-10-16-story-image-warehouse.md",
+        "docs/qa/2026-10-17-layout-release.md"
       ],
       "invariants": [
         "选图后自动本地免费排版，不自动发起模型请求、购买图片或发布到第三方。",
@@ -313,6 +314,11 @@
           "date": "2026-10-16",
           "kind": "fix",
           "summary": "补齐素材仓库漏显的发布封面/插图/底图及历史候选：独立warehouseImages读取当前故事完整图片，保持原镜头归属/采用和资产分类，按ID去重；两端生成后按storyId刷新仓库。75项相关测试、类型检查及主仓真实图片12/资产1入口验证，无生成或业务数据写入。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "verification",
+          "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
         }
       ]
     },
@@ -6693,7 +6699,8 @@
         "docs/qa/2026-10-16-mobile-image-modules.md",
         "client/src/features/publishingAlbum/imagePackCopy.test.ts",
         "docs/qa/2026-10-16-image-pack-copy.md",
-        "docs/qa/2026-10-16-module-chat-memory.md"
+        "docs/qa/2026-10-16-module-chat-memory.md",
+        "docs/qa/2026-10-17-layout-release.md"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -6724,7 +6731,7 @@
         "电脑与手机均开放模块编辑，本机保存不跨设备同步；正文、选图或排版设置改变后使用新的来源基线，暂无旧模块稿管理列表。",
         "支持新增文字、已有或本机上传图片、删除模块、右键跨页移动和显式整理当前页；自由摆放允许重叠，同类重叠时提示。跨页通过菜单选择目标页，尚无拖到缩略图跨页、图层面板；新增长段落超过单页会要求拆段，原文首次排版仍沿用长段缩小规则。",
         "撤销/重做保留本次打开最近30步；刷新恢复成品、草稿及未完成文字输入，不恢复撤销栈。",
-        "已在主仓3000实测电脑鼠标交互及390px手机布局的点选、改字样式、跨页、插删页、图片移动/缩放/裁切、撤销和PNG下载；尚未部署正式站，未做iOS/Android真实触摸、软键盘或跨浏览器真机验收。",
+        "已在主仓3000实测电脑鼠标交互及390px手机布局的点选、改字样式、跨页、插删页、图片移动/缩放/裁切、撤销和PNG下载；未做iOS/Android真实触摸、软键盘或跨浏览器真机验收。",
         "本机上传原文件限15MB，优化后限2MB；浏览器配额不足时明确告知仅当前会话保留。尚无本机图库删除管理、跨设备同步。上传格式/体积有自动化验证，原生文件选择器及真实付费生成未在本次验收中提交。",
         "多图复制提供单张长图与独立图片下载，不支持浏览器剪贴板一次复制多个独立文件；已实读内置浏览器剪贴板核对全文、单图与离散页长图，第三方应用及手机真机粘贴仍待验证。"
       ],
@@ -6778,6 +6785,11 @@
           "date": "2026-10-16",
           "kind": "feature",
           "summary": "图文模块选择接入两端原聊天；完成编辑时被动记操作并区分撤销/其他来源版本，按账号/故事本机保留，可查看清除，不写回正文。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "verification",
+          "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
         }
       ]
     },
@@ -6810,7 +6822,8 @@
         "server/services/writingCompanion.test.ts",
         "docs/qa/2026-10-16-module-chat-memory.md",
         "command:pnpm check",
-        "command:pnpm build"
+        "command:pnpm build",
+        "docs/qa/2026-10-17-layout-release.md"
       ],
       "invariants": [
         "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
@@ -6831,13 +6844,18 @@
       "knownGaps": [
         "本机记录不跨设备同步，不进行模型训练或全账号长期偏好聚合；仅从启用后记录，不能追溯旧操作。",
         "只保留本故事最近100条、每次提供20条，不是无限历史；清除不追溯删除已发送对话或发送时固定的待发快照。",
-        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试，未部署；已通过模拟模型的真实路由与本机桌面/390px入口验收。"
+        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试；已通过模拟模型的真实路由与本机桌面/390px入口验收。"
       ],
       "history": [
         {
           "date": "2026-10-16",
           "kind": "feature",
           "summary": "实现图文模块选择识别与无需聊天的被动排版操作记忆；两端共用有界上下文和建议服务，保留本机历史、撤销标记、来源隔离与查看清除。192项相关测试、类型及构建通过，真实浏览器验证刷新恢复和无选中时仍有历史；未发送真实AI请求。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "verification",
+          "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
         }
       ]
     },
@@ -6856,7 +6874,8 @@
       ],
       "evidence": [
         "server/services/artworkArchive.test.ts",
-        "docs/qa/2026-10-16-artwork-archive.md"
+        "docs/qa/2026-10-16-artwork-archive.md",
+        "docs/qa/2026-10-17-layout-release.md"
       ],
       "invariants": [
         "用户点击存入素材仓库才保存，不自动公开分享、购买生成或替换正式封面。",
@@ -6878,6 +6897,11 @@
           "date": "2026-10-17",
           "kind": "feature",
           "summary": "按用户确认增加电脑排版与手机预览的显式成品入库按钮；路由测试覆盖重复与并发保存、内容版本、仓库读取、越权、坏图及部分失败重试。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "verification",
+          "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
         }
       ]
     }

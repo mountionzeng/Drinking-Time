@@ -13,7 +13,17 @@ The older unapproved /shiguang public landing page and independent Alipay worktr
 - TypeScript, 32 migration baseline entries, 62 release feature cards and production build passed.
 - Mini-program: 16 files / 215 tests passed.
 - Browser: explicitly saved the current four-page artwork; warehouse increased from 12 to 16 images, original content and layout preserved. No paid generation.
-- Dedicated MySQL integration and deployment results will be recorded after completion.
+- Dedicated MySQL integration: 17 files / 64 tests passed; restricted disposable account verified, temporary server stopped.
+
+## Production release
+
+- Application commit `f209b7c3418adc3a65c441cde30776e0835a9422` pushed to main and deployed on 2026-10-17 00:20 CST.
+- Cloud invocation `t-wl07089nnit9wjk` succeeded. Four changed files uploaded, all 78 deployed files match the tested build manifest.
+- Backup: `/root/drinking-time-layout-20261016/`, including original runtime, complete SQL dump/checksum and database snapshots. Rollback: `python3 /root/drinking-time-layout-20261016/rollback.py`; its read-only preflight passed.
+- All 77 business table snapshots, 32 migrations and environment unchanged. No migration, local business-data import or upload overwrite.
+- Public HTTPS healthz/readyz, /m, /editing and JS/CSS content hashes passed; authentication required, MySQL ready. Google entry/provider redirects passed. HTTP retains existing 301 redirect.
+- Desktop browser production check could not connect (`ERR_CONNECTION_CLOSED`); server-side public HTTPS verification passed after transient DNS retries. Do not count this release as logged-in production browser acceptance.
+- Local browser screenshot: `/tmp/layout-release-20261016/artwork-archived.png`.
 
 ## Limits
 
