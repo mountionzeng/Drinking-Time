@@ -102,6 +102,7 @@ export type PublishingVideoBuildResult =
 type PreviewContext = {
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
   storyId: number;
   userId: number;
   storyRevision: number;
@@ -190,6 +191,7 @@ async function loadPreviewContext(input: {
   versionId?: string;
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
 }): Promise<PreviewContext> {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) {
@@ -244,6 +246,7 @@ async function loadPreviewContext(input: {
       .update(
         JSON.stringify({
           planningVersion: ARTICLE_VIDEO_PLANNING_VERSION,
+          ...(input.creativeIntent ? { creativeIntent: input.creativeIntent } : {}),
           layout: input.articleLayout,
           narrativeSpec:
             input.narrativeSpec ?? version.narrativeSpec ?? "video30",
@@ -257,6 +260,7 @@ async function loadPreviewContext(input: {
   return {
     articleLayout: input.articleLayout,
     narrativeSpec: input.narrativeSpec,
+    creativeIntent: input.creativeIntent,
     storyId: input.storyId,
     userId: input.userId,
     storyRevision,
@@ -309,6 +313,7 @@ async function claimPreviewOperation(input: {
   versionId?: string;
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
   now: number;
 }): Promise<
   | { status: "claimed"; context: PreviewContext }
@@ -398,6 +403,7 @@ async function completePreviewOperation(input: {
       versionId: input.claimed.version.versionId,
       articleLayout: input.claimed.articleLayout,
       narrativeSpec: input.claimed.narrativeSpec,
+      creativeIntent: input.claimed.creativeIntent,
     });
     const aggregate =
       latest.version.videoStoryboard ??
@@ -533,6 +539,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
   storyId: number;
   userId: number;
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
   operationToken?: string;
   versionId?: string;
   articleLayout?: PublishingArticleLayout;
@@ -578,6 +585,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
     versionId: input.versionId,
     articleLayout: input.articleLayout,
     narrativeSpec: input.narrativeSpec,
+    creativeIntent: input.creativeIntent,
     now,
   });
   if (claim.status === "pending") {
@@ -614,6 +622,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
       // 规格决定镜头总数区间与单镜区间，模型据此改编而非逐段转写。
       // 本次传入的优先于 version 上的存量值 —— 用户刚在小界面选的就该立刻生效。
       narrativeSpec: input.narrativeSpec ?? claim.context.version.narrativeSpec,
+      creativeIntent: input.creativeIntent,
       coverVisualDescription: claim.context.core?.visualConcept ?? null,
       articleRows,
       now,
@@ -642,6 +651,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
   operationToken?: string;
   /** 用户在「进入视频制作」时选的规格；不传则沿用 version 上已存的 */
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
   articleLayout?: PublishingArticleLayout;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
@@ -692,6 +702,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
     versionId: generated.preview.source?.versionId ?? input.versionId ?? "",
     previewId: generated.preview.previewId,
     narrativeSpec: input.narrativeSpec,
+    creativeIntent: input.creativeIntent,
     operationToken: `${operationToken}:confirm`,
     now: input.now,
   });
@@ -970,6 +981,7 @@ export async function confirmPublishingVideoStoryboard(input: {
   previewId: string;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
+  creativeIntent?: string;
   operationToken?: string;
   now?: number;
 }): Promise<PublishingVideoConfirmationResult> {

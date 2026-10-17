@@ -9,8 +9,8 @@ describe("ChatAssistantAvatar", () => {
       <ChatAssistantAvatar visualTheme="shiguang" element="water" />
     );
 
-    expect(html).toContain("/shiguang/companion/wave.webp");
-    expect(html).toContain("desktop-companion-bird");
+    expect(html).toContain("/shiguang/xiaoyi-avatar.png");
+    expect(html).not.toContain("/shiguang/companion/");
     expect(html).not.toContain("<svg");
   });
 

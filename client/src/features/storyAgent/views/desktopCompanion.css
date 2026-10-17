@@ -1,78 +1,45 @@
+/* Keep the mobile artwork whole; the input rim sits just beneath it. */
 .desktop-companion-peek {
   position: relative;
   display: inline-block;
-  flex: 0 0 42px;
-  width: 42px;
-  height: 43px;
-  overflow: hidden;
-  isolation: isolate;
-  vertical-align: middle;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  vertical-align: bottom;
+  pointer-events: none;
 }
 .desktop-companion-character {
-  position: absolute;
-  width: 52px;
-  height: 52px;
-  left: -5px;
-  top: -3px;
-  transform-origin: 50% 85%;
-  transition: transform 650ms ease;
-}
-.desktop-companion-bird {
   display: block;
-  width: 58px;
-  height: 58px;
-  margin: -3px;
-  background-size: 200% 200%;
-  background-repeat: no-repeat;
+  width: 38px;
+  height: 38px;
+  transition: translate 180ms ease-out;
 }
-.desktop-companion-reply {
+.desktop-companion-input .desktop-companion-composer {
   position: relative;
-  isolation: isolate;
-  padding-top: 29px;
-  padding-left: 4px;
+  min-height: 38px;
+  margin-bottom: -3px;
 }
-.desktop-companion-reply > .desktop-companion-peek {
-  position: absolute;
-  z-index: -1;
-  top: 0;
-  left: 13px;
-  height: 48px;
+.desktop-companion-input .desktop-companion-composer > section,
+.desktop-companion-input .desktop-companion-composer > span:not(.desktop-companion-peek) {
+  padding-bottom: 7px;
 }
-.desktop-companion-reply > .desktop-companion-bubble {
-  position: relative;
-  max-width: 94%;
-  border-top-left-radius: 13px;
-  /* An opaque bubble covers the lower body, leaving all text in front. */
-  background: var(--card);
+.desktop-companion-input:focus-within .desktop-companion-character {
+  translate: 0 -2px;
 }
-.desktop-companion-peek[data-animated="true"] .desktop-companion-character {
-  animation: desktop-companion-breathe 5.8s ease-in-out infinite;
+.desktop-companion-peek[data-mood="thinking"][data-animated="true"] .desktop-companion-character {
+  animation: desktop-companion-float 2.8s ease-in-out infinite;
 }
-.desktop-companion-peek[data-mood="thinking"][data-animated="true"]
-  .desktop-companion-character {
-  animation: desktop-companion-think 4.8s ease-in-out infinite;
+.desktop-companion-peek[data-notifying="true"] .desktop-companion-character {
+  animation: desktop-companion-float 600ms ease-in-out 2;
 }
-@keyframes desktop-companion-breathe {
-  0%,
-  100% {
-    transform: translateY(1px) rotate(-2deg);
-  }
-  50% {
-    transform: translateY(-1px) rotate(1deg);
-  }
-}
-@keyframes desktop-companion-think {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-4deg);
-  }
-  55% {
-    transform: translateY(-2px) rotate(5deg);
-  }
+@keyframes desktop-companion-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .desktop-companion-peek .desktop-companion-character {
     animation: none !important;
     transition: none;
+    translate: none;
   }
 }

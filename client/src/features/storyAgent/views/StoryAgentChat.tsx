@@ -1,3 +1,4 @@
+import { creativeVersionIntent } from "@shared/creativeVersionIntent";
 /**
  * StoryAgentChat — Conversational guide that surfaces specific, sensory
  * memories and condenses them into story cards.
@@ -773,7 +774,11 @@ export default function StoryAgentChat({
   };
 
   const handleSubmit = async () => {
-    const text = input.trim();
+    const text = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if (text && creativeVersionIntent(text) && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
+      if (creationFlow.busy) return;
+      if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
+    }
     const ordinaryText = !pendingMedia.length &&
       (layoutContext || (!soundDirector.active && activeSelection == null));
     if (text && ordinaryText && !voice.isBusy && !isImportingMedia &&
@@ -1209,10 +1214,7 @@ export default function StoryAgentChat({
   const lastAssistantId = [...messages]
     .reverse()
     .find(message => message.role === "assistant")?.id;
-  const emotionForMessage = (spawnedCardId?: string) =>
-    spawnedCardId
-      ? cardRefs.find(card => card.id === spawnedCardId)?.emotion
-      : undefined;
+
 
   return (
     <div
@@ -1412,16 +1414,8 @@ export default function StoryAgentChat({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start desktop-companion-reply"}`}
+              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              {m.role === "assistant" ? (
-                <ChatAssistantAvatar
-                  visualTheme={visualTheme}
-                  element={element}
-                  emotion={emotionForMessage(m.spawnedCardId)}
-                  animated={m.id === lastAssistantId}
-                />
-              ) : null}
               <div
                 className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${
                   m.role === "user" ? "rounded-tr-sm" : "desktop-companion-bubble border"
@@ -1854,12 +1848,7 @@ export default function StoryAgentChat({
                 style={{ borderColor: "var(--panel-border)" }}
               />
             </div>
-            <div className="desktop-companion-reply flex items-start justify-start gap-2">
-              <ChatAssistantAvatar
-                visualTheme={visualTheme}
-                element={element}
-                animated
-              />
+            <div className="flex items-start justify-start gap-2">
               <div
                 className="desktop-companion-bubble max-w-[85%] rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed"
                 style={{
@@ -1887,57 +1876,11 @@ export default function StoryAgentChat({
           <button type="button" disabled={chatQueue.items.some(item => item.status === "failed")} onClick={chatQueue.resume}
             className="mt-1 text-[var(--nayin-accent)] disabled:opacity-40">继续发送排队消息</button>
         </div>}
-        {isReplying && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="desktop-companion-reply flex items-start justify-start gap-2"
-          >
-            <ChatAssistantAvatar
-              visualTheme={visualTheme}
-              element={element}
-              mood="thinking"
-              animated
-            />
-            <div
-              className="desktop-companion-bubble rounded-2xl px-3 py-2 border flex items-center gap-2"
-              style={{
-                background: "var(--card)",
-                borderColor: "var(--panel-border)",
-              }}
-            >
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse"
-                  style={{ animationDelay: "0.15s" }}
-                />
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse"
-                  style={{ animationDelay: "0.3s" }}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
+
       </div>
 
       {/* Input */}
-      <div
-        className="border-t px-3 pb-3 flex flex-col gap-2"
-        style={{ borderColor: "var(--panel-border)" }}
-      >
-        {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 pt-2 text-[11px] text-muted-foreground">
-          {writingSession.snapshot.module ? <span className="block truncate">
-            已选中：{layoutModuleLabel(writingSession.snapshot.module)} · 可以问我怎么改
-            {!writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
-          </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
-            ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
-                已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
-              </span>
-            : <span>正在聊右侧这篇文字</span>}
-          {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
-        </section>}
+      <div className="px-3 pb-3 flex flex-col gap-2">
         {interactionMode === "publishing" ? (
           <div className="pt-2.5">
             <PublishingPlatformPicker compact />
@@ -2159,6 +2102,31 @@ export default function StoryAgentChat({
               )}
             </button>
           </div>
+          <div className="desktop-companion-input min-w-0 flex-1">
+        <div className="desktop-companion-composer flex min-w-0 items-end gap-1.5 pl-3" data-testid="chat-composer-companion">
+          <ChatAssistantAvatar
+            key={`${accountId}:${activeStoryId}`}
+            visualTheme={visualTheme}
+            element={element}
+            mood={isReplying ? "thinking" : undefined}
+            notificationKey={lastAssistantId}
+            animated={isReplying}
+          />
+        {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+          {writingSession.snapshot.module ? <span className="block truncate">
+            已选中：{layoutModuleLabel(writingSession.snapshot.module)} · 可以问我怎么改
+            {!writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
+          </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
+            ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
+                已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
+              </span>
+            : <span>正在聊右侧这篇文字</span>}
+          {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
+        </section>}
+          {(!writingSession || (activeSelection && !layoutContext)) && <span className="text-[11px] text-muted-foreground" role="status">
+            {isReplying ? "正在回复…" : activeSelection ? "正在聊你选中的内容" : "想聊什么？"}
+          </span>}
+        </div>
           <textarea
             ref={inputRef}
             rows={3}
@@ -2176,13 +2144,14 @@ export default function StoryAgentChat({
               isImportingMedia ||
               (soundDirector.active && !soundDirector.session?.question)
             }
-            className="min-h-[68px] max-h-40 flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
+            className="relative z-[1] block w-full min-h-[68px] max-h-40 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
             style={{
               borderColor: "var(--panel-border)",
               // @ts-expect-error custom prop for tailwind ring color via inline style
               "--tw-ring-color": "var(--nayin-accent)",
             }}
           />
+          </div>
           <button
             type="button"
             onClick={handleSubmit}

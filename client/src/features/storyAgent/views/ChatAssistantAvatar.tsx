@@ -1,101 +1,40 @@
-/** Desktop-only companion peeking over the edge of a reply. */
-import React, { useEffect, useState } from "react";
+/** One desktop composer companion, using the same artwork as mobile. */
+import React, { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import EmotiveWuxingIcon, {
-  resolveEmotionMood,
-  type WuxingMood,
-} from "@/features/nayin/views/EmotiveWuxingIcon";
+import { LiaoliaoMascot } from "@/features/mobileWorkspace/LiaoliaoMascot";
+import type { WuxingMood } from "@/features/nayin/views/EmotiveWuxingIcon";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
-import {
-  BIRD_POSES,
-  type BirdPose,
-} from "@/features/mobileWorkspace/xiaoyiGestures";
 import "./desktopCompanion.css";
 
-export const CHAT_AVATAR_SIZE = 52;
-
+export const CHAT_AVATAR_SIZE = 38;
 type Props = {
   visualTheme: VisualThemeMode;
   element: NayinElement;
-  emotion?: string | null;
   mood?: WuxingMood;
   animated?: boolean;
+  notificationKey?: string;
 };
-const BIRD_MOODS: Partial<Record<WuxingMood, BirdPose>> = {
-  thinking: "curious",
-  trust: "front",
-  joy: "smile",
-  anticipation: "hello",
-  surprise: "curious",
-  sadness: "blink",
-  groundedness: "front",
-};
-
 export default function ChatAssistantAvatar({
-  visualTheme,
-  element,
-  emotion,
-  mood,
-  animated = false,
+  visualTheme, element, mood, animated = false, notificationKey,
 }: Props) {
   const reduced = useReducedMotion();
-  const [idleMood, setIdleMood] = useState<WuxingMood>("neutral");
-  const resolved = mood ?? resolveEmotionMood(emotion);
+  const previousNotification = useRef(notificationKey);
+  const [notifying, setNotifying] = useState(false);
   useEffect(() => {
-    setIdleMood("neutral");
-    if (!animated || reduced || resolved !== "neutral") return;
-    let timer: ReturnType<typeof setTimeout>;
-    let reset: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      timer = setTimeout(
-        () => {
-          if (!document.hidden) {
-            setIdleMood(Math.random() < 0.5 ? "trust" : "anticipation");
-            reset = setTimeout(() => setIdleMood("neutral"), 2200);
-          }
-          schedule();
-        },
-        9000 + Math.random() * 6000
-      );
-    };
-    schedule();
-    return () => {
-      clearTimeout(timer);
-      clearTimeout(reset);
-    };
-  }, [animated, reduced, resolved]);
-  const expression = resolved === "neutral" ? idleMood : resolved;
-  const frame = BIRD_POSES[BIRD_MOODS[expression] ?? "turn"];
+    const changed = Boolean(notificationKey && previousNotification.current !== notificationKey);
+    previousNotification.current = notificationKey;
+    setNotifying(changed && !reduced);
+    if (!changed || reduced) return;
+    const timer = setTimeout(() => setNotifying(false), 1200);
+    return () => clearTimeout(timer);
+  }, [notificationKey, reduced]);
   return (
-    <span
-      className="desktop-companion-peek"
-      data-testid="chat-assistant-avatar"
-      data-theme={visualTheme}
-      data-mood={expression}
-      data-animated={animated && !reduced}
-      aria-hidden="true"
-    >
+    <span className="desktop-companion-peek" data-testid="chat-assistant-avatar"
+      data-notifying={notifying && !reduced} data-theme={visualTheme}
+      data-mood={mood ?? "neutral"} data-animated={animated && !reduced} aria-hidden="true">
       <span className="desktop-companion-character">
-        {visualTheme === "shiguang" ? (
-          <span
-            className="desktop-companion-bird"
-            style={{
-              backgroundImage: `url('/shiguang/companion/${frame.sheet}.webp')`,
-              backgroundPosition: `${frame.x} ${frame.y}`,
-            }}
-          />
-        ) : (
-          <EmotiveWuxingIcon
-            element={element}
-            size={CHAT_AVATAR_SIZE}
-            mood={expression}
-            animated={false}
-            showLegs={false}
-            faceScale={0.9}
-            faceSpacing={1.08}
-          />
-        )}
+        <LiaoliaoMascot visualTheme={visualTheme} element={element} size={CHAT_AVATAR_SIZE} />
       </span>
     </span>
   );

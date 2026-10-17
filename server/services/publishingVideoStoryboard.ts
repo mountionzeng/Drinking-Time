@@ -1,3 +1,4 @@
+import { STORY_VISUAL_NARRATIVE_DIRECTION } from "./storyVisualNarrative";
 import type {
   PublishingPlatformId,
   PublishingNarrativeIntent,
@@ -274,6 +275,7 @@ function generationPrompt(
     "你是短片编剧兼分镜导演。把用户已确认的发布正文**改编**成短片剧本 —— 不是逐段转写。",
     "文字是阅读单位，镜头是观看单位，两者不是一回事：读者能停下来回看，观众不能。一段长自省在影视里可能就是一个静止长镜头；「后来」「那天之后」这类过渡句往往一个转场就过去了，不需要单独一镜。",
     budgetLine,
+    STORY_VISUAL_NARRATIVE_DIRECTION,
     "**镜头总数由上面的规格决定，不由段落数决定。** 允许多段合成一镜，允许某些段落完全不进入成片 —— 时间不够时，优先保住最能打动人的那几个具体时刻，砍掉铺垫、过渡和重复表达。不要为了覆盖所有段落而把每一镜都压得看不清。",
     "shots 里的每一镜都要给 beat（开场/起势/转折/收束），标明它在整片里承担的位置；同一段落拆出的多镜可以属于不同 beat。",
     "输入中的 paragraphId 必须原样返回且每个只出现一次；但**允许某个段落的 shots 为空数组**，表示这段不进入成片。",
@@ -446,6 +448,7 @@ async function runPublishingVideoStoryboardTextCompute(input: {
 
 export async function generatePublishingVideoStoryboardPreview(input: {
   body: string;
+  creativeIntent?: string;
   platform: PublishingPlatformId;
   core: PublishingStoryCore | null;
   narrativeIntent?: PublishingNarrativeIntent;
@@ -466,6 +469,8 @@ export async function generatePublishingVideoStoryboardPreview(input: {
     // inference, so adjacent batches cannot invent contradictory mini-stories.
     const result = await runPublishingVideoStoryboardTextCompute({
       systemPrompt: [
+        STORY_VISUAL_NARRATIVE_DIRECTION,
+        ...(input.creativeIntent ? ["creativeIntent 是用户本次视频意图。按其用途组织画面、动作、声音和节奏，不把哄人开心自动等同喜剧；仅朗读时保留原文。时长随文字和节奏展开，不强套10/30/50秒；用户明确说的时长作为偏好，不能为凑时长删原文。只制定分镜，不生成或购买媒体。"] : []),
         "你是短片分镜导演。先通读完整故事并看全部插图，判断观众已经看懂了什么、还缺什么，再组织整片的推进、景别变化和因果衔接。每个输入行保留一个原图镜头，不删减、不改写正文。",
         "当前原文与已选图片是最高优先级的事实。保持原文的人称、人物关系和情绪基调；旧 storyCore 只作辅助，不能给平静故事强加压抑、恐惧或其他原文没有的情绪。画面要求与动作中用人物名字称呼，不猜测或更改性别。提示词使用自然语言，不写行 id、资产编号或内部字段名。",
         "不要固定套环境→特写模板，不要求每段都有特写。检查重复远景、看不清的关键动作、缺少反应或结果、突然转场等真实缺口；只有补镜能提供新的必要信息时才补。已经完整就返回空 supplements。不要仅为凑镜头数或目标秒数添镜头。",
@@ -479,7 +484,8 @@ export async function generatePublishingVideoStoryboardPreview(input: {
         rows: rows.map(({ referenceImageUrl, ...row }) => row),
         storyCore: input.core,
         narrativeIntent: input.narrativeIntent,
-        targetDurationSec: spec.totalMs == null ? null : spec.totalMs / 1000,
+        creativeIntent: input.creativeIntent,
+        targetDurationSec: input.creativeIntent || spec.totalMs == null ? null : spec.totalMs / 1000,
         maxSupplements,
       },
       maxTokens: Math.min(

@@ -2399,6 +2399,12 @@ describe("publishingDraft router", () => {
     )?.content;
     expect(revisedPrompt).toMatch(/人物更小[\s\S]*禁止可读文字/);
     expect(revisedPrompt).toContain("【用户持续要求】像一张风景画");
+    if (outputKind === "illustration") {
+      expect(revisedPrompt).toContain("【叙事任务与景别】");
+      expect(revisedPrompt).toContain("【构图设计】");
+      expect(imagePromptCompilerMocks.invokeImagePromptCompiler).toHaveBeenCalledTimes(1);
+    }
+    if (outputKind === "body-texture") expect(revisedPrompt).not.toContain("【叙事任务与景别】");
     if (customArt) {
       expect(revisedPrompt).toContain("纸本拼贴");
       expect(revisedPrompt).toContain("粗纸纤维");

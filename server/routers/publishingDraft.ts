@@ -1,3 +1,4 @@
+import { STORY_VISUAL_NARRATIVE_DIRECTION } from "../services/storyVisualNarrative";
 import { randomUUID } from "node:crypto";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
 import { TRPCError } from "@trpc/server";
@@ -2131,6 +2132,7 @@ export const publishingDraftRouter = router({
               "像素中禁止文字、字符、标题、签名、Logo和水印。正文完全由程序另行排版。",
             ].join("\n") : outputKind === "illustration" ? [
               "为下文绘制一幅16:9横版正文插图，按文字选择新的场景和构图，不是封面，不照搬参考图的竖版布局。",
+              STORY_VISUAL_NARRATIVE_DIRECTION,
               draft.content.body,
               "继承所选封面的配色、笔触与材质：",
               extractPublishingCoverArtDirection(sourcePrompt) || sourcePrompt.slice(0, 6000),

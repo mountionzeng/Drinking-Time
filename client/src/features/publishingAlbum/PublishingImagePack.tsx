@@ -759,11 +759,6 @@ export function PublishingImagePack({
       ) : null}
       <header className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div>
-          <h2 className="font-chat-brand text-lg">
-            {contentKind === "memory"
-              ? t("把记忆做成图片")
-              : t("把文章做成图片")}
-          </h2>
           <p className="mt-1 text-xs text-muted-foreground" role="status">
             {t("已有图片 {0} 张", [layoutAssets.length])}
             {output && mobile && mobileStep === "preview"

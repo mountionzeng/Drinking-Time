@@ -302,7 +302,7 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).not.toContain("成品版本");
     expect(html).not.toContain("这次为什么要更新？");
     expect(html).not.toContain("保存文字新版");
-    expect(html).toContain("把文章做成图片");
+    expect(html).not.toContain("把文章做成图片");
     expect(html).toContain("已有图片 0 张");
     expect(html).not.toContain("请选择封面");
     expect(html).not.toContain(">制作图片</button>");

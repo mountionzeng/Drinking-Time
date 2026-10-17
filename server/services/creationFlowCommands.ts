@@ -1,3 +1,5 @@
+import { creativeVersionIntent } from "../../shared/creativeVersionIntent";
+import { generateTextDraft } from "./textDraftHistory";
 import { TRPCError } from "@trpc/server";
 import {
   creationFlowIntentAllows,
@@ -263,6 +265,10 @@ export async function executeCreationFlow(
         parsed.data.clarification || "请明确要操作的记忆、文字版本或候选。"
       );
     actions = parsed.data.actions;
+    if (actions.some(action => action.type === "forkDraft" && !creationFlowIntentAllows(action, input.text)))
+      throw new Clarification("请明确要执行的操作，当前作品尚未修改。");
+    if (actions.some(action => action.type === "forkDraft") && actions.length !== 1)
+      throw new Clarification("先保留并生成另一份文字，再决定是否更新图片或视频。");
     const needsMemories = actions.some(
       action =>
         action.type === "composeMemory" || action.type === "generateDraft"
@@ -272,6 +278,11 @@ export async function executeCreationFlow(
     // Resolve the entire proposal before claiming any side effect. Later
     // ambiguity must not leave a half-executed multi-action instruction.
     for (const action of actions) {
+      if (action.type === "forkDraft" && action.draft !== "$current") {
+        action.draft = unique(action.draft, resolved.drafts,
+          d => d.id === action.draft || d.generated?.title === action.draft ||
+            `文字版本${d.sequence}` === action.draft, "文字版本").id;
+      }
       if (action.type === "composeMemory") {
         const ids: string[] = [];
         for (const ref of action.references) {
@@ -374,6 +385,25 @@ export async function executeCreationFlow(
     for (const [index, action] of actions.entries()) {
       const operationToken = `${input.operationToken}:${index}`;
       const state = await ownedCreationStory(input);
+      if (action.type === "forkDraft") {
+        const publishing = normalizePublishingDraftState(state.body.publishing);
+        const history = readTextDraftHistory(state.body.textDraftHistory);
+        const parent = action.draft === "$current" ? null : history.versions.find(v => v.id === action.draft);
+        const basis = parent ? parent.adoption?.content ?? parent.generated : publishing.drafts[publishing.activePlatform]?.content;
+        if (!basis?.body.trim()) throw new Clarification("还没有可继续修改的文字，请先写下想法或指定文字版本。");
+        const saved = await generateTextDraft({
+          storyId: input.storyId, userId: input.userId, operationToken,
+          expectedRevision: history.revision, platform: parent?.request.platform ?? publishing.activePlatform,
+          parentId: parent?.id ?? null, basis, messages: [], source: "own",
+          instruction: action.instruction,
+        });
+        const draft = saved.versions.find(v => v.id === operationToken)!;
+        result.draftId = draft.id;
+        if (draft.status !== "ready") result.status = draft.status === "generating" ? "pending" : "failed";
+        lines.push(draft.status === "ready"
+          ? `已另存文字版本${draft.sequence}《${draft.generated!.title}》，可在文字历史中查看。原稿、图片和视频保留，未重新生成媒体。`
+          : draft.error || "新文字仍在生成，请查看文字历史。");
+      }
       if (action.type === "composeMemory") {
         selected = action.references;
         result.selectedMemoryIds = selected;
@@ -578,6 +608,19 @@ export async function runCreationFlow(input: Input) {
     return previous.result
       ? remember(input, previous.result)
       : reply(input, "pending", "指令已提交，请查看结果；不会自动重复生成。");
+  }
+  const versionIntent = creativeVersionIntent(input.text);
+  if (versionIntent === "clarify") return reply(input, "clarification", "直接修改当前作品，还是保留原版再试一版？");
+  if (versionIntent === "fork") {
+    if (/图片|图像|视频|配图|封面/.test(input.text))
+      return reply(input, "clarification", "想另做文字，还是另做图片或视频？请指定要保留和变化的内容。");
+    // Named old drafts require exact resolution; never substitute the current draft.
+    const named = input.text.match(/(?:基于|用|在)(?:之前的?|上次的?)?[《“]([^》”]+)[》”]/);
+    const numbered = input.text.match(/文字版本\s*([1-9]\d*)/);
+    if (!named && !numbered && /上次|之前|温柔版|旧版/.test(input.text))
+      return reply(input, "clarification", "请用《完整标题》或文字版本编号指定原稿，避免选错版本。");
+    return executeCreationFlow(input, { actions: [{ type: "forkDraft",
+      draft: named?.[1] ?? (numbered ? `文字版本${numbered[1]}` : "$current"), instruction: input.text }] });
   }
   // Exact, explicit commands need no model or account-wide memory catalog.
   // Anchor the whole sentence so negations and compound requests still go

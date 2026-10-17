@@ -1,3 +1,4 @@
+import { replyToMobileCreativeIntent } from "./mobileCreativeConversation";
 import { ComputeAccessError } from "./computeRequestAccess";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -734,7 +735,11 @@ export async function generateMobileStoryConversationTurn(
       }));
   let generated: MobileReplyResult;
   try {
-    generated = await generateReply({
+    const creativeReply = await replyToMobileCreativeIntent({
+      ...owner, clientTurnId: input.clientTurnId, message: input.userContent,
+      history, writingContext: input.writingContext,
+    });
+    generated = creativeReply !== null ? { reply: creativeReply } : await generateReply({
       ...owner,
       message: input.userContent,
       history,

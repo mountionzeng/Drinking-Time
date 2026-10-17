@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { creativeVersionIntent } from "./creativeVersionIntent";
 import { PUBLISHING_PLATFORM_IDS } from "./publishingDraft";
 const ref = z.string().min(1).max(200);
 export const creationFlowCommandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("forkDraft"), draft: ref, instruction: z.string().max(8000) }).strict(),
   z
     .object({
       type: z.literal("composeMemory"),
@@ -35,6 +37,7 @@ export function creationFlowIntentAllows(
   action: CreationFlowCommand,
   text: string
 ) {
+  if (action.type === "forkDraft") return creativeVersionIntent(text) === "fork";
   const veto = (verbs: string) =>
     new RegExp(`(?:不要|别|不必|不用|不想)[^，。；;]*(${verbs})`).test(text);
   if (action.type === "generateDraft")
@@ -95,6 +98,7 @@ export type CreationFlowResult = {
 /** Explicit command boundary. Ordinary recollection stays in story chat. */
 export function isCreationFlowRequest(text: string, hasConfirmation = false) {
   const value = text.trim();
+  if (creativeVersionIntent(value)) return true;
   if (
     hasConfirmation &&
     /^(确认|确认采用|采用|好的|好|是|是的|yes)[。！!\s]*$/i.test(value)

@@ -319,6 +319,11 @@
           "date": "2026-10-17",
           "kind": "verification",
           "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "refactor",
+          "summary": "按用户截图移除图像工作区重复的栏目名、故事标题及把文章/记忆做成图片介绍标题，保留图像/排版切换、素材数量与分享等原操作。 相关两文件34项回归通过，主仓3000浏览器确认标题消失，截图 /tmp/layout-headings-removed.png。"
         }
       ]
     },
@@ -1271,6 +1276,11 @@
           "date": "2026-10-16",
           "kind": "refactor",
           "summary": "图像工作区解除max-width与外层卡片限制，提供全宽排版空间，文字区保持原样。图像/排版子栏目切换保持同一模块编辑会话。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "refactor",
+          "summary": "按用户截图移除图像工作区重复的栏目名、故事标题及把文章/记忆做成图片介绍标题，保留图像/排版切换、素材数量与分享等原操作。 相关两文件34项回归通过，主仓3000浏览器确认标题消失，截图 /tmp/layout-headings-removed.png。"
         }
       ]
     },
@@ -1511,7 +1521,9 @@
         "client/src/features/creationEditor/CreationEditorContext.tsx",
         "client/src/features/storyAgent/views/ShotImageRenderControl.tsx",
         "client/src/features/storyAgent/views/useShotImageRender.tsx",
-        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
+        "server/services/mobileCreativeConversation.ts",
+        "server/services/storyConversation.ts"
       ],
       "evidence": [
         "server/services/publishingVideoStoryboard.test.ts",
@@ -1530,7 +1542,9 @@
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
         "docs/qa/2026-10-05-article-video-coverage.md",
         "docs/qa/2026-10-05-mj-connection-retry.md",
-        "client/src/features/storyAgent/views/storyboardCostEstimate.test.ts"
+        "client/src/features/storyAgent/views/storyboardCostEstimate.test.ts",
+        "server/services/mobileCreativeConversation.test.ts",
+        "server/services/storyConversation.mobile.test.ts"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -1554,7 +1568,8 @@
         "Story body 与外部资产/材料索引跨存储写入缺少 staged record、指针 CAS 和幂等对账边界。",
         "旧封面占位镜头与正式版本级封面来源仍需更完整的历史数据兼容盘点。",
         "本次视频付费确认已取消，供应商提交复用原图由自动化测试验证，未新增付费成片；既有故事版计划时长、首尾帧时长选择与普通视频供应商时长提示仍不统一。",
-        "整片补镜已验证一篇真实故事的规划与参考链路；首次输出出现人称/情绪偏差，已加强原文优先提示但尚未再次真实推理验收。第02补镜已真实生成四张候选，其他补镜与成片未付费生成；改排版后的旧补镜沿用保留策略，可能需用户整理。"
+        "整片补镜已验证一篇真实故事的规划与参考链路；首次输出出现人称/情绪偏差，已加强原文优先提示但尚未再次真实推理验收。第02补镜已真实生成四张候选，其他补镜与成片未付费生成；改排版后的旧补镜沿用保留策略，可能需用户整理。",
+        "手机视频意图当前生成的是分镜预览并在原聊天展示，不自动采用到正式时间线；仅使用后台可读取的已保存正文和确认封面，浏览器本地插图位置未同步，整套图片/视频版本切换仍未完成。"
       ],
       "history": [
         {
@@ -1656,6 +1671,21 @@
           "date": "2026-10-09",
           "kind": "fix",
           "summary": "镜头旁白及普通/首尾帧视频报价接入真实账本；重复请求共享预占，后台查原任务完成结算，旧任务不追扣。抽出视频按钮费用标签与草稿报价纯函数，保持大文件边界；自动化使用模拟供应商，未发真实付费成片。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "在原手机整轮聊天后台接入明确文字另存与开放式视频意图问答，无手机前端改动。文字使用原历史和父稿；视频仅规划并持久化预览，聊天返回分镜内容，不覆盖正式分镜、不生成媒体。已有整轮幂等回执复用，意图加入图文预览请求指纹，视频规划不套固定时长。自动化模拟模型验证，不宣称真机/真实模型通过。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "fix",
+          "summary": "手机原聊天协议接入版本与视频意图；识别现有引用信封中的本轮新想法，引用内容不触发操作，版本追问保留原指令。排版本地图片无后台映射时明确提示范围，未保存正文拒绝生成，保持所有手机前端文件原样。新增手机引用、礼貌请求、选区与未保存保护测试；真实模型及手机端到端验收仍待完成。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "fix",
+          "summary": "手机原聊天入口在主仓3000实测：换个感觉追问后保留原版，真实生成文字稿2，刷新后下拉可选且原稿保留；开放式视频用途回答真实生成持久化分镜预览，原文旁白保留。修复空标题回复书名号，51项回归与主仓类型检查通过；手机前端未改，未合并上线。本机选图同步、正式分镜采用及真机触摸仍待实现或验收。"
         }
       ]
     },
@@ -2110,7 +2140,8 @@
         "server/routers/publishingDraft.ts",
         "server/services/imageGen.ts",
         "server/services/colorHarmonyDirection.ts",
-        "server/services/publishingCoverArtDirection.ts"
+        "server/services/publishingCoverArtDirection.ts",
+        "server/services/storyVisualNarrative.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
@@ -2121,7 +2152,9 @@
         "server/services/renderGate.colorHarmony.test.ts",
         "server/services/colorHarmonyDirection.test.ts",
         "server/services/colorHarmony.integration.test.ts",
-        "docs/qa/2026-10-11-color-harmony.md"
+        "docs/qa/2026-10-11-color-harmony.md",
+        "server/services/publishingVideoStoryboard.test.ts",
+        "server/services/publishingCoverStoryboardPrompt.test.ts"
       ],
       "invariants": [
         "每个静态图入口只经过一次权威编译。",
@@ -2137,7 +2170,8 @@
       ],
       "knownGaps": [
         "2026-10-01 封面构图与媒介修正已通过编译器、网关和路由回归；尚未运行真实付费出图对比，候选画面的多样性仍需视觉验收。",
-        "302/Forge 存储 503 时参考图拿不到公网 URL，MJ 的 --oref 人物锁无法生效（scripts/check-302-storage.ts 可探测）。"
+        "302/Forge 存储 503 时参考图拿不到公网 URL，MJ 的 --oref 人物锁无法生效（scripts/check-302-storage.ts 可探测）。",
+        "当前是提示词层的叙事指导，不新增持久化全故事镜头规划；单轮插图仍是替代候选，不保证多轮生成覆盖连续剧情。真实生成的叙事效果待付费样图验收。"
       ],
       "history": [
         {
@@ -2194,6 +2228,16 @@
           "date": "2026-10-01",
           "kind": "fix",
           "summary": "排查发现封面仍强制居中安全区，封面与继承封面的故事镜头编译器还无条件追加蛋彩、水粉、竖向场景和顶部留白。改为边距保护、按内容展开构图；两入口共用媒介中立的编译规则，保留用户及已确认配方的媒介与构图，只在开放维度探索。通过 76 项相关回归，不增加模型调用或修改既有候选。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "在美术工作树补充按叙事任务选择景别的共用规则，接入全文插图简报及两条视频分镜路径，英文编译保留叙事目的与景别。保留用户构图、已选原图及角色事实；纹理底图不注入叙事。未发起付费生成，未合并部署。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "在已有叙事规则内增加基于情绪与叙事任务的形状、位置、尺度、数量、疏密、遮挡、留白和观看路径设计；英文编译保留可见排布及已确认数量。不新增模型调用、候选或自动重试，继续复用原请求。按用户对耗时的要求增加单次编译/请求回归断言；实际供应商延迟未计时，不宣称提速。"
         }
       ]
     },
@@ -6026,7 +6070,10 @@
         "server/services/storySync.ts",
         "client/src/features/storyAgent/useCreationFlowChat.ts",
         "client/src/features/memoryWarehouse/memorySelectionStore.ts",
-        "drizzle/0030_text_source_lineage.sql"
+        "drizzle/0030_text_source_lineage.sql",
+        "shared/creativeVersionIntent.ts",
+        "server/services/mobileCreativeConversation.ts",
+        "server/services/storyConversation.ts"
       ],
       "evidence": [
         "server/routers.textSourceLineage.test.ts",
@@ -6041,7 +6088,10 @@
         "command:pnpm build",
         "command:pnpm feature:validate",
         "client/src/features/storyAgent/storyConversationStore.test.ts",
-        "client/src/features/storyAgent/storyAgentPersistence.test.ts"
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts",
+        "shared/creativeVersionIntent.test.ts",
+        "server/services/mobileCreativeConversation.test.ts",
+        "server/services/storyConversation.mobile.test.ts"
       ],
       "invariants": [
         "文字草稿 ID、发布 vN、候选 ID 分离；没有来源记录的历史作品显示未知，不猜测来源。",
@@ -6066,7 +6116,9 @@
         "真实文字及结构模型已用虚构短故事验证；广泛自然语言、文学质量与大故事耗时仍待观察。MySQL 新候选事务/跨进程并发未实测，0030 未应用正式库。",
         "AE3 仅覆盖引用及历史保留；素材自动使用最新修改、跨媒体预览解析和重新导出提示留下一份计划。",
         "首版只接 StoryAgentChat 五类操作；发布稿继续走已有明确采用入口，其他聊天入口与素材自然语言操作不在此版扩展。",
-        "每故事最多100个候选、每候选200个操作别名、500个对话操作回执；真实大故事容量和长时间使用体验尚待验证。"
+        "每故事最多100个候选、每候选200个操作别名、500个对话操作回执；真实大故事容量和长时间使用体验尚待验证。",
+        "对话另存目前接通文字历史；图片/视频独立方案快照、按名称切换整套排版与时间线仍未实现。桌面与手机真实浏览器流程待验证。",
+        "手机视频意图当前生成的是分镜预览并在原聊天展示，不自动采用到正式时间线；仅使用后台可读取的已保存正文和确认封面，浏览器本地插图位置未同步，整套图片/视频版本切换仍未完成。"
       ],
       "history": [
         {
@@ -6078,6 +6130,26 @@
           "date": "2026-10-11",
           "kind": "fix",
           "summary": "电脑实测后移除明确来源切换和候选请求的意图模型等待；非记忆操作不读取500卡目录。来源切换1.208秒、查看影响1.023秒、时间线确认1.114秒（含工具开销）。完成指令与对话同回执保存，结构刷新合并规范对话，修复连续操作丢确认记录；候选指纹按保存的JSON计算并忽略派生SH编号，修复刷新误判失效。时间线详情改用镜头名称。真实短文39.158秒、两次5镜头时间线20.534/20.616秒，生成等待不宣称已优化；采用、旧稿恢复、再次恢复与刷新通过，截图和回归详见QA。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "对话支持明确保留原稿再生成文字版本，复用文字历史与幂等生成；指定文字编号/完整标题解析，歧义先澄清。普通编辑不触发分支，文字另存不更新媒体。修复文字编辑队列优先吞掉版本指令；未保存内容阻止另存。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "feature",
+          "summary": "在原手机整轮聊天后台接入明确文字另存与开放式视频意图问答，无手机前端改动。文字使用原历史和父稿；视频仅规划并持久化预览，聊天返回分镜内容，不覆盖正式分镜、不生成媒体。已有整轮幂等回执复用，意图加入图文预览请求指纹，视频规划不套固定时长。自动化模拟模型验证，不宣称真机/真实模型通过。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "fix",
+          "summary": "手机原聊天协议接入版本与视频意图；识别现有引用信封中的本轮新想法，引用内容不触发操作，版本追问保留原指令。排版本地图片无后台映射时明确提示范围，未保存正文拒绝生成，保持所有手机前端文件原样。新增手机引用、礼貌请求、选区与未保存保护测试；真实模型及手机端到端验收仍待完成。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "fix",
+          "summary": "手机原聊天入口在主仓3000实测：换个感觉追问后保留原版，真实生成文字稿2，刷新后下拉可选且原稿保留；开放式视频用途回答真实生成持久化分镜预览，原文旁白保留。修复空标题回复书名号，51项回归与主仓类型检查通过；手机前端未改，未合并上线。本机选图同步、正式分镜采用及真机触摸仍待实现或验收。"
         }
       ]
     },
@@ -6364,7 +6436,8 @@
         "client/src/features/mobileWorkspace/mobileConversationStore.test.ts",
         "docs/qa/2026-10-13-unified-writing-release.md",
         "docs/qa/2026-10-15-writing-mobile-release.md",
-        "docs/qa/2026-10-16-module-chat-memory.md"
+        "docs/qa/2026-10-16-module-chat-memory.md",
+        "client/src/features/storyAgent/views/StoryAgentChat.layout.test.ts"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6444,6 +6517,26 @@
           "date": "2026-10-16",
           "kind": "feature",
           "summary": "新增排版讨论上下文：选中模块与有界页预览、操作记忆随每次发送固定，优先当前目标并保留原正文伴写入口；两端服务校验故事归属，只提建议不执行修改。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "improvement",
+          "summary": "按用户要求移除桌面回复/问候/等待气泡上的重复头像，只在输入框上方既有上下文行保留一个杯子或小鸟。新回复到达触发短动画，系统减少动态效果时停用；模块/选区提示保留。主仓3000目视与DOM确认唯一头像，5项组件/布局测试和类型检查通过；未合并或上线。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "improvement",
+          "summary": "进一步将唯一头像与输入框边缘结合：头像从输入框上沿露头，聚焦输入时上探5px，提示文字随输入框布局；头像不进入消息列表。主仓3000浏览器点击输入框并截图验证，未发送消息或调用模型。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "improvement",
+          "summary": "按用户要求移除桌面输入区上方分隔线，保留输入框边框和探头头像交互。"
+        },
+        {
+          "date": "2026-10-17",
+          "kind": "improvement",
+          "summary": "按用户要求桌面聊天头像直接复用手机版LiaoliaoMascot：纳音手绘饮品、拾光水彩小鸟完整显示，去除额外表情五官、半脸裁切和旋转摇摆。保留唯一输入框上沿头像及2px轻微上浮，减少动态效果时停用。主仓3000目视通过，未合并上线。"
         }
       ]
     },

@@ -31,6 +31,9 @@ describe("publishing cover storyboard prompt", () => {
     );
     const [messages] = compileMock.mock.calls[0];
     expect(messages[0].content).toContain("Preserve the chosen medium");
+    expect(messages[0].content).toContain("Preserve the narrative purpose and its chosen shot scale");
+    expect(messages[0].content).toContain("keep confirmed subject counts");
+    expect(compileMock).toHaveBeenCalledTimes(1);
     expect(messages[1].content).toContain("【艺术谱系】朴素主义");
     expect(result).not.toContain("Handcrafted tempera and gouache");
     expect(result).not.toContain("vertical scene");

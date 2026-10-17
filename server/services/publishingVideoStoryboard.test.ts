@@ -164,6 +164,9 @@ describe("publishing video storyboard generation", () => {
     rows[0].referencePrompt = "原图的水彩画面";
     const fetch = vi.fn(async (_url: string, init: RequestInit) => {
       const request = JSON.parse(String(init.body));
+      expect(request.messages[0].content).toContain("【叙事任务与景别】");
+      expect(request.messages[0].content).toContain("【构图设计】");
+      expect(request.messages[0].content).toContain("用户明确指定的景别、构图及已选原图优先");
       expect(request.messages[1].content).toContainEqual({ type: "image_url", image_url: { url: rows[0].referenceImageUrl, detail: "low" } });
       return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ paragraphs: [{
         paragraphId: rows[0].id, scriptText: "模型想改写正文", visualTreatment: "缓慢推进", shots: [{ subject: "阿宁", action: "修伞", imageRequirement: "原图水彩质感和旧木架", videoRequirement: "阿宁轻轻修补木架，镜头缓慢推进", soundRequirement: "雨声" }],

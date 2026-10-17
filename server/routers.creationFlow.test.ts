@@ -352,3 +352,54 @@ it("duplicate memory titles and unrequested model actions cannot change the Stor
   expect(await getStoryById(input.storyId, 41)).toEqual(before);
   expect(model).toHaveBeenCalledTimes(3);
 });
+
+it("clarifies a vague style change without model calls or history mutation", async () => {
+  const input = await setup();
+  const before = await getStoryById(input.storyId, 41);
+  const result = await caller.run({ ...input, text: "换个感觉" });
+  expect(result.status).toBe("clarification");
+  expect(result.message).toContain("保留原版");
+  expect(model).not.toHaveBeenCalled();
+  expect((await getStoryById(input.storyId, 41))?.body).toEqual(before?.body);
+});
+
+it("rejects a proposed fork for a local edit even through the execute endpoint", async () => {
+  const input = await setup();
+  const result = await caller.execute({ ...input, text: "加一句话", proposal: { actions: [
+    { type: "forkDraft", draft: "$current", instruction: "rewrite" },
+  ] } });
+  expect(result.status).toBe("clarification");
+  expect(model).not.toHaveBeenCalled();
+});
+
+it("never silently substitutes current text for an unknown named version", async () => {
+  const input = await setup();
+  const result = await caller.run({ ...input, text: "用《不存在的稿》再写一版，原版留着" });
+  expect(result.status).toBe("clarification");
+  expect(result.message).toContain("没有找到");
+  expect(model).not.toHaveBeenCalled();
+});
+
+it("forks named text once, preserves the parent and does not change shots or timeline", async () => {
+  const input = await setup();
+  const before = (await getStoryById(input.storyId, 41))!.body as any;
+  const timelineBefore = await getStoryTimeline(input.storyId, 41);
+  model.mockResolvedValue({ parsed: {
+    draft: { title: "另一种雨夜", body: "雨夜里也有笑声。", tags: [] },
+    observation: { originalExpression: "", adoptionLearning: "", confidence: "insufficient", choices: [] },
+  }, modelLabel: "test" });
+  const request = { ...input, text: "用文字版本1再写一个搞笑版，原版留着" };
+  const result = await caller.run(request);
+  expect(result.status).toBe("completed");
+  expect(result.draftId).toBeTruthy();
+  const repeated = await caller.run(request);
+  expect(repeated.draftId).toBe(result.draftId);
+  expect(model).toHaveBeenCalledTimes(1);
+  const after = (await getStoryById(input.storyId, 41))!.body as any;
+  expect(after.textDraftHistory.versions).toHaveLength(2);
+  expect(after.textDraftHistory.versions[0]).toEqual(before.textDraftHistory.versions[0]);
+  expect(after.textDraftHistory.versions[1].request.parentId).toBe("draft-a");
+  expect(after.shots).toEqual(before.shots.map((shot: any) => ({ ...shot, shotIdentity: shot.stableShotId })));
+  expect(after.publishing).toEqual(before.publishing);
+  expect(await getStoryTimeline(input.storyId, 41)).toEqual(timelineBefore);
+});

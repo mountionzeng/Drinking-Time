@@ -65,6 +65,19 @@ describe("mobile Story conversation turns", () => {
     resetMemoryStateForTesting();
   });
 
+  it("handles video intent in the unchanged mobile turn protocol and reuses the turn", async () => {
+    const { story } = await seedStory();
+    const input = {...turnInput(story.id, "video-intent", "把图文做成视频"), userId: 801};
+    const generateReply = vi.fn();
+    const first = await generateMobileStoryConversationTurn(input, {generateReply});
+    expect(first).toMatchObject({status:"completed", turn:{assistantContent:"你想把这些图文做成什么样的视频？"}});
+    const repeated = await generateMobileStoryConversationTurn(input, {generateReply});
+    expect(repeated.turn?.assistantContent).toBe(first.turn?.assistantContent);
+    expect(generateReply).not.toHaveBeenCalled();
+    await appendMobileStoryConversationTurn(input);
+    expect((await getMobileStoryConversationTurnStatus(input)).turn?.appendStatus).toBe("appended");
+  });
+
   it("keeps balance failures actionable and retries the same turn after access is restored", async () => {
     const {story} = await seedStory();
     const input = {...turnInput(story.id,"balance","我有点困困的。"),userId:801};

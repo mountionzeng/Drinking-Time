@@ -1823,12 +1823,14 @@ export default function PublishingDraftWorkspace({
       <div className={`mx-auto flex min-h-full flex-col ${view === "images" ? "w-full" : "max-w-5xl"}`}>
         <header className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
           <div>
-            <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">
-              {view === "images" ? "图像" : "发布文案区"}
-            </p>
-            <h1 className="font-chat-brand mt-1 text-xl text-foreground">
-              {storyTitle?.trim() || "未命名故事"}
-            </h1>
+            {view !== "images" && <>
+              <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">
+                发布文案区
+              </p>
+              <h1 className="font-chat-brand mt-1 text-xl text-foreground">
+                {storyTitle?.trim() || "未命名故事"}
+              </h1>
+            </>}
             {!editorContent ? <button
               type="button"
               onClick={() =>

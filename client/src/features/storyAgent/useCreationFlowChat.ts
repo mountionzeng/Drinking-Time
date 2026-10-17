@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { creativeVersionIntent } from "@shared/creativeVersionIntent";
 import { trpc } from "@/lib/trpc";
 import {
   isCreationFlowRequest,
@@ -70,10 +71,12 @@ export function useCreationFlowChat(
   const inFlight = useRef(false);
   const session = useRef(crypto.randomUUID());
   const confirmation = useRef<CreationFlowRequest["confirmation"]>(undefined);
+  const versionQuestion = useRef<string | null>(null);
   const pendingFocus = useRef<CreationFlowFocus | null>(null);
   useEffect(() => {
     session.current = crypto.randomUUID();
     confirmation.current = undefined;
+    versionQuestion.current = null;
     pendingFocus.current = null;
     setBusy(false);
     inFlight.current = false;
@@ -194,7 +197,7 @@ export function useCreationFlowChat(
       }
       return true;
     }
-    if ((confirmation.current || /^采用/.test(text)) && needsSaveChoice) {
+    if ((creativeVersionIntent(text) === "fork" || confirmation.current || /^采用/.test(text)) && needsSaveChoice) {
       answer("请先保存当前修改，再查看候选并确认采用，避免覆盖编辑中的内容。");
       return true;
     }
@@ -216,6 +219,7 @@ export function useCreationFlowChat(
         confirmation: isConfirmation ? confirmation.current : undefined,
       });
       await utils.textDrafts.read.invalidate({ storyId });
+      await utils.publishingDraft.finishedProduct.invalidate({ storyId });
       await utils.storyConversation.list.invalidate({ storyId });
       if (
         !creationFlowScopeMatches(captured, scope()) ||
@@ -225,6 +229,7 @@ export function useCreationFlowChat(
       if (result.selectedMemories)
         setMemorySelection(key, result.selectedMemories);
       confirmation.current = result.confirmation;
+      if (creativeVersionIntent(text) === "clarify" && result.status === "clarification") versionQuestion.current = text;
       if (result.adoptedCandidateId) {
         await loadStory(storyId, {
           silent: true,
@@ -265,5 +270,15 @@ export function useCreationFlowChat(
     }
     return true;
   }
-  return { submit, busy };
+  const resolveVersionReply = (text: string) => {
+    const original = versionQuestion.current;
+    if (!original) return text;
+    versionQuestion.current = null;
+    if (/^(直接改|直接修改|改当前|修改当前|直接修改当前作品)[。！!]*$/.test(text))
+      return `${original}，直接修改当前作品，不另存版本`;
+    if (/^(保留|保留原版|另做一版|保留原版再试一版|保留原版再做一版)[。！!]*$/.test(text))
+      return `${original}，原版保留，再做一版`;
+    return text;
+  };
+  return { submit, busy, resolveVersionReply };
 }
