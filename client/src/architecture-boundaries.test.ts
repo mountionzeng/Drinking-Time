@@ -204,6 +204,8 @@ describe("architecture boundaries", () => {
     "project.list",
     "storyAgent.storyList",
     "emotionAnalysis.getProfile",
+    // Balance belongs to the current authenticated account and has no input scope.
+    "computeAccount.balance",
     "emotionAnalysis.listDailyLetters",
     // Account-wide memory library: only pagination/archive filters, no Story scope.
     "memoryWarehouse.list",

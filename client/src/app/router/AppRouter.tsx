@@ -4,6 +4,7 @@ import EditingStudioPage from "@/pages/EditingStudioPage";
 import LoginPage from "@/pages/LoginPage";
 import MobileWorkspacePage from "@/pages/MobileWorkspacePage";
 import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
+import ShiguangLandingPage from "@/pages/ShiguangLandingPage";
 import PersonalMemoryPage from "@/pages/PersonalMemoryPage";
 import SupabaseAuthCallbackPage from "@/pages/SupabaseAuthCallbackPage";
 import NotFound from "@/pages/NotFound";
@@ -82,6 +83,9 @@ export default function AppRouter() {
       </Route>
       <Route path="/welcome">
         <WelcomePreviewPage />
+      </Route>
+      <Route path="/shiguang">
+        <ShiguangLandingPage />
       </Route>
       {/* 原网址按设备进入工作区；手机进入 /m，电脑进入完整剪辑工作室。 */}
       <Route path="/">

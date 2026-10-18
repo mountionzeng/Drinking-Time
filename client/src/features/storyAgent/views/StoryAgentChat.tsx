@@ -55,7 +55,7 @@ import { LayoutMemoryDetails } from "@/features/publishingAlbum/LayoutMemoryDeta
 import { useStorySpine } from "../spine/storySpine";
 import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
-import { OPEN_MEMORY_WAREHOUSE, requestMemoryCard } from "@/features/memoryWarehouse/memoryWarehouseEvents";
+import { requestMemoryCard } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
   displayAssistantName,
   type StoryboardImageRerenderActionReference,
@@ -2215,9 +2215,7 @@ export default function StoryAgentChat({
           blocked={isReplying || chatQueue.items.length > 0 || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
         />}
         </div>
-        <button type="button" className="mt-1 rounded text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}>
-          聊天会自动收进记忆仓库 · 查看记忆
-        </button>
+
       </div>
     </div>
   );

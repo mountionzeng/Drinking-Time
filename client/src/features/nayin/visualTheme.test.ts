@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   documentTitleForVisualTheme,
+  readVisualThemeEntry,
   readVisualThemeMode,
   VISUAL_THEME_STORAGE_KEY,
   writeVisualThemeMode,
@@ -30,6 +31,12 @@ describe("visual theme preference", () => {
     expect(
       readVisualThemeMode({ getItem: () => "unknown", setItem: vi.fn() })
     ).toBe("shiguang");
+  });
+
+  it("accepts only one explicit Nayin entry hint", () => {
+    expect(readVisualThemeEntry("?visualTheme=nayin")).toBe("nayin");
+    expect(readVisualThemeEntry("?visualTheme=shiguang")).toBeNull();
+    expect(readVisualThemeEntry("?visualTheme=nayin&visualTheme=nayin")).toBeNull();
   });
 
   it("persists a user choice without failing when storage is blocked", () => {

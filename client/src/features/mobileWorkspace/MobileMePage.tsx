@@ -68,9 +68,11 @@ function Row({
 export function MobileMePage({
   onOpenLetter,
   onBack,
+  pairingControl,
 }: {
   onOpenLetter: () => void;
   onBack?: () => void;
+  pairingControl?: React.ReactNode;
 }) {
   const t = useUiText();
 
@@ -277,11 +279,11 @@ export function MobileMePage({
         </div>
       </MobileSheet>
 
-      <Row
+      {pairingControl ? <div className="border-b border-border/70 py-3">{pairingControl}</div> : <Row
         title={t("电脑登录")}
         hint={t("用手机授权电脑登录同一账号")}
         onClick={() => setDesktopLoginOpen(true)}
-      />
+      />}
 
       <Row
         title={t("出生信息")}

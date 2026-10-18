@@ -1,3 +1,4 @@
+import { DailyLetterBody } from "@/features/analysis/views/DailyLetterBody";
 import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
@@ -302,9 +303,9 @@ export default function PersonalMemoryPage({
                   {t("写给你的一封信")}
                 </h2>
                 {reference?.summary ? (
-                  <p className="whitespace-pre-wrap text-sm leading-8">
-                    {reference.summary}
-                  </p>
+                  <div className="space-y-4">
+                    <DailyLetterBody summary={reference.summary} date={selected} className="text-sm leading-8" />
+                  </div>
                 ) : (
                   <p className="text-sm leading-7 text-muted-foreground">
                     {selected > today

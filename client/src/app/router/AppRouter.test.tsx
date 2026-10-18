@@ -21,6 +21,9 @@ vi.mock("@/pages/MobileWorkspacePage", () => ({
   default: () => "mobile-workspace",
 }));
 vi.mock("@/pages/WelcomePreviewPage", () => ({ default: () => "welcome" }));
+vi.mock("@/pages/ShiguangLandingPage", () => ({
+  default: () => "shiguang-landing",
+}));
 vi.mock("@/pages/PersonalMemoryPage", () => ({
   default: () => "personal-memory",
 }));
@@ -101,6 +104,14 @@ afterEach(() => {
 });
 
 describe("root workspace entry", () => {
+  it("keeps the public Shiguang introduction outside authentication", () => {
+    auth.isAuthenticated = false;
+    expect(renderRoute("/shiguang")).toMatchObject({
+      html: "shiguang-landing",
+      redirectTo: undefined,
+    });
+  });
+
   it("sends phone browsers from the original URL to the mobile workspace", () => {
     expect(
       resolveRootWorkspacePath({

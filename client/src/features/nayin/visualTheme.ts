@@ -1,4 +1,5 @@
 export const VISUAL_THEME_STORAGE_KEY = "drinking-time-visual-theme-v1";
+export const VISUAL_THEME_ENTRY_PARAMETER = "visualTheme";
 
 export type VisualThemeMode = "shiguang" | "nayin";
 
@@ -19,6 +20,11 @@ export function readVisualThemeMode(
   } catch {
     return "shiguang";
   }
+}
+
+export function readVisualThemeEntry(search: string): VisualThemeMode | null {
+  const values = new URLSearchParams(search).getAll(VISUAL_THEME_ENTRY_PARAMETER);
+  return values.length === 1 && values[0] === "nayin" ? "nayin" : null;
 }
 
 export function writeVisualThemeMode(

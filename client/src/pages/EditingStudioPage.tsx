@@ -803,6 +803,7 @@ export default function EditingStudioPage() {
     <div className="shiguang-workspace relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
       <TopBar
+          onOpenLetter={() => setDailyLetterOpen(true)}
         showStoryPanelNav={false}
         storyMenu={storyMenu}
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({

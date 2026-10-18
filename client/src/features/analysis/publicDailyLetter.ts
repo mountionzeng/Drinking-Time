@@ -63,6 +63,65 @@ const PUBLIC_DAILY_LETTERS: readonly Omit<PublicDailyLetter, "date">[] = [
   },
 ];
 
+const ENGLISH_DAILY_LETTERS: readonly Omit<PublicDailyLetter, "date">[] = [
+  {
+    "attention": "There is no need to plan the whole week at once. Take care of the next small part.",
+    "paragraphs": [
+      "Good morning. A new week is beginning, and you do not need to know where it will end. For today, it is enough to live this small part with care.",
+      "If there is a lot to do, choose one thing that would make the rest easier. Give it twenty minutes, then look at your list again.",
+      "What remains unfinished can wait until tomorrow. One day does not have to hold every answer."
+    ]
+  },
+  {
+    "attention": "Make the most important thing small enough to begin now.",
+    "paragraphs": [
+      "A simple thought for today: important things do not always need a grand beginning.",
+      "Make it a step you can finish in ten minutes. Write the first line, send the first message, or simply put what you need on the table.",
+      "Once you begin, the next step often becomes a little clearer."
+    ]
+  },
+  {
+    "attention": "Halfway through, you can pause and reconsider what matters.",
+    "paragraphs": [
+      "By the middle of the week, things may look different from what you expected. You can put them in a different order today.",
+      "Notice what is truly moving forward and what you are carrying simply because you started it. Setting something aside for now is also a decision.",
+      "Save your energy for what still matters."
+    ]
+  },
+  {
+    "attention": "You can explain a little less today and leave time for what you want to do.",
+    "paragraphs": [
+      "Some days we spend a lot of time explaining ourselves without getting closer to what we want to do.",
+      "Today, you can explain a little less. Take one step of your own and let the result speak for part of it.",
+      "Not everyone needs to understand you at once for things to keep growing."
+    ]
+  },
+  {
+    "attention": "Let the day end without carrying everything unfinished into the evening.",
+    "paragraphs": [
+      "This week may already have held a lot. Before today ends, take a few minutes to separate what is done from what is not.",
+      "You can acknowledge what you finished. For the rest, writing down the next step is enough; it does not need to stay in your mind all evening.",
+      "Leave work where work ends. The evening can still belong to your life."
+    ]
+  },
+  {
+    "attention": "Leave a little time that does not need to produce a result.",
+    "paragraphs": [
+      "Not every moment today needs to become an achievement. Take a short walk, enjoy a meal slowly, or simply open a window for a while.",
+      "These seemingly unproductive moments can give the day back to you.",
+      "Rest is not a pause in life. It is part of life itself."
+    ]
+  },
+  {
+    "attention": "Before summing up the week, notice what is worth taking into tomorrow.",
+    "paragraphs": [
+      "As a week ends, it is easy to judge it: did you do enough, did you get far enough? Today, leave it ungraded.",
+      "Choose one thing you would like to carry forward and one you can leave in this week. That is already a way of putting life in order.",
+      "When tomorrow begins, you do not have to start again from everything."
+    ]
+  }
+];
+
 function dayIndex(date: string): number {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return 0;
@@ -72,9 +131,9 @@ function dayIndex(date: string): number {
   return day === 0 ? 6 : day - 1;
 }
 
-export function publicDailyLetterForDate(date: string): PublicDailyLetter {
+export function publicDailyLetterForDate(date: string, language: string = "zh"): PublicDailyLetter {
   return {
     date,
-    ...PUBLIC_DAILY_LETTERS[dayIndex(date)],
+    ...(language === "en" ? ENGLISH_DAILY_LETTERS : PUBLIC_DAILY_LETTERS)[dayIndex(date)],
   };
 }

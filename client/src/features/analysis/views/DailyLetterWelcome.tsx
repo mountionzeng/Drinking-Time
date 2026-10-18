@@ -1,3 +1,5 @@
+import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
+import { DailyLetterBody } from "./DailyLetterBody";
 import {
   BookOpen,
   CalendarDays,
@@ -16,7 +18,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   dailyLetterDateLabel as dateLabel,
-  dailyLetterParagraphs as letterParagraphs,
   dailyLetterTimestampLabel as timestampLabel,
 } from "@/features/analysis/dailyLetterFormat";
 import {
@@ -164,6 +165,7 @@ export default function DailyLetterWelcome({
   onStartLetterStory?: (message: string) => void;
 }) {
   const { user } = useAuth();
+  const { language } = useUiLanguage();
   const { today, visualTheme } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
@@ -212,8 +214,8 @@ export default function DailyLetterWelcome({
     [profileQuery.data]
   );
   const publicLetter = useMemo(
-    () => publicDailyLetterForDate(today.cstDateStr),
-    [today.cstDateStr]
+    () => publicDailyLetterForDate(today.cstDateStr, language),
+    [today.cstDateStr, language]
   );
   const saveInitialProfile = useCallback(
     async (input: SaveEmotionAnalysisProfileInput) => {
@@ -975,11 +977,7 @@ export default function DailyLetterWelcome({
 
         <section className="py-6" aria-label="聊会儿的回信">
           <div className="space-y-4">
-            {letterParagraphs(selectedReference.summary).map(paragraph => (
-              <p key={paragraph} className="text-sm leading-7 text-foreground">
-                {paragraph}
-              </p>
-            ))}
+            <DailyLetterBody summary={selectedReference.summary} date={selectedDate} />
           </div>
           <p className="mt-5 text-[9px] text-muted-foreground/60">
             第 {selectedLetter?.revision ?? 1} 版

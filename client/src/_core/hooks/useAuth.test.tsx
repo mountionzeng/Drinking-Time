@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMocks = vi.hoisted(() => ({
-  currentUser: null as { id: number } | null,
+  currentUser: null as { id: number; openId?: string; loginMethod?: string } | null,
   mutateAsync: vi.fn<() => Promise<void>>(),
   setData: vi.fn(),
   invalidate: vi.fn<() => Promise<void>>(),
@@ -26,6 +26,7 @@ vi.mock("@/lib/trpc", () => ({
       },
     }),
     auth: {
+      claimLoginGift: { useMutation: () => ({ mutateAsync: vi.fn(async () => ({ kind: "duplicate" })) }) },
       me: {
         useQuery: () => ({
           data: authMocks.currentUser,

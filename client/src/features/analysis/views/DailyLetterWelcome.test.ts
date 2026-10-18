@@ -68,7 +68,7 @@ describe("DailyLetterWelcome", () => {
       "utf8"
     );
 
-    expect(source).toContain("publicDailyLetterForDate(today.cstDateStr)");
+    expect(source).toContain("publicDailyLetterForDate(today.cstDateStr, language)");
     expect(source).toContain("enabled: Boolean(user?.id)");
     expect(source).toContain("写给今天打开页面的你");
   });

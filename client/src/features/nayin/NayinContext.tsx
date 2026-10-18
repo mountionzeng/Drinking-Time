@@ -19,7 +19,9 @@ import {
 import { setThemeFavicon } from "./favicon";
 import {
   documentTitleForVisualTheme,
+  readVisualThemeEntry,
   readVisualThemeMode,
+  VISUAL_THEME_ENTRY_PARAMETER,
   writeVisualThemeMode,
   type VisualThemeMode,
 } from "./visualTheme";
@@ -76,11 +78,14 @@ function visualThemeStorage() {
 
 export function NayinProvider({ children }: { children: ReactNode }) {
   const [today, setToday] = useState<TodayNayin>(() => todayWithOverride());
+  const entryThemeRef = useRef<VisualThemeMode | null>(
+    typeof window === "undefined" ? null : readVisualThemeEntry(window.location.search)
+  );
   const [previewElement, setPreviewElementRaw] = useState<NayinElement | null>(
     null
   );
   const [visualTheme, setVisualThemeRaw] = useState<VisualThemeMode>(() =>
-    readVisualThemeMode(visualThemeStorage())
+    entryThemeRef.current ?? readVisualThemeMode(visualThemeStorage())
   );
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionTheme, setTransitionTheme] = useState<BeverageTheme | null>(
@@ -165,6 +170,18 @@ export function NayinProvider({ children }: { children: ReactNode }) {
     writeVisualThemeMode(visualThemeStorage(), mode);
   }, []);
 
+  // 英文介绍页的入口参数只使用一次；之后尊重用户在产品内手动选择的主题。
+  useEffect(() => {
+    const entryTheme = entryThemeRef.current;
+    if (!entryTheme) return;
+    writeVisualThemeMode(visualThemeStorage(), entryTheme);
+    // 未登录时子路由可能先重定向到登录页；仍保存入站时的主题选择。
+    if (readVisualThemeEntry(window.location.search) !== entryTheme) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete(VISUAL_THEME_ENTRY_PARAMETER);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   /**
    * 兜底：动画回调没来也要把过渡状态收掉。
    *
@@ -192,7 +209,10 @@ export function NayinProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-visual-theme", visualTheme);
-    document.title = documentTitleForVisualTheme(visualTheme);
+    // 公开介绍页自行管理标题，避免主题 Provider 在直达该路由时将它覆盖。
+    if (window.location.pathname !== "/shiguang") {
+      document.title = documentTitleForVisualTheme(visualTheme);
+    }
     return () => {
       document.documentElement.removeAttribute("data-visual-theme");
     };

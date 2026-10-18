@@ -1,4 +1,5 @@
-import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { DailyLetterBody } from "@/features/analysis/views/DailyLetterBody";
+import { useUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 /**
  * MobileDailyLetter — 每日来信的手机版。
  *
@@ -26,7 +27,6 @@ import {
 } from "@/features/analysis/emotionAnalysis";
 import {
   dailyLetterDateLabel,
-  dailyLetterParagraphs,
   dailyLetterTimestampLabel,
 } from "@/features/analysis/dailyLetterFormat";
 import {
@@ -94,6 +94,7 @@ export function MobileDailyLetter({
   onOpenStory?: (storyId: number) => void;
 }) {
   const t = useUiText();
+  const { language } = useUiLanguage();
 
   const { user } = useAuth();
   const { today } = useNayin();
@@ -131,8 +132,8 @@ export function MobileDailyLetter({
   // 接口给的是原始行，字段类型是 unknown。电脑端一律先过 normalize 再用，
   // 这里照做——绕过去用类型断言只会把问题推到运行时。
   const publicLetter = useMemo(
-    () => publicDailyLetterForDate(today.cstDateStr),
-    [today.cstDateStr]
+    () => publicDailyLetterForDate(today.cstDateStr, language),
+    [today.cstDateStr, language]
   );
   const letters = useMemo(
     () =>
@@ -545,16 +546,7 @@ export function MobileDailyLetter({
             <section aria-label={t("聊会儿的回信")} className="py-6">
               {selectedReference?.summary ? (
                 <div className="space-y-4">
-                  {dailyLetterParagraphs(selectedReference.summary).map(
-                    paragraph => (
-                      <p
-                        key={paragraph}
-                        className="text-[15px] leading-8 text-foreground"
-                      >
-                        {paragraph}
-                      </p>
-                    )
-                  )}
+                  <DailyLetterBody summary={selectedReference.summary} date={selectedDate} className="text-[15px] leading-8 text-foreground" />
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">

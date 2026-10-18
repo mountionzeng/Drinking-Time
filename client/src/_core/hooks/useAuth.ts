@@ -26,6 +26,22 @@ export function useAuth(options?: UseAuthOptions) {
     refetchOnWindowFocus: false,
   });
 
+  const loginGift = trpc.auth.claimLoginGift.useMutation({ retry: 1 });
+  const claimLoginGift = loginGift.mutateAsync;
+  const giftUserId = meQuery.data && meQuery.data.loginMethod !== "guest" &&
+    !meQuery.data.openId?.startsWith("guest:") && meQuery.data.openId !== "local-guest"
+    ? meQuery.data.id : null;
+  useEffect(() => {
+    if (giftUserId == null) return;
+    let current = true;
+    void claimLoginGift().then(() => {
+      if (current) void utils.computeAccount.balance.invalidate();
+    }).catch(() => {
+      // Gift delivery can retry on the next visit without blocking authentication.
+    });
+    return () => { current = false; };
+  }, [giftUserId, claimLoginGift, utils]);
+
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
       utils.auth.me.setData(undefined, null);

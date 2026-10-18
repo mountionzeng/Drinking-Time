@@ -1,3 +1,5 @@
+import { translateDailyLetter } from "../services/dailyLetterTranslation";
+import { claimWebLoginGift } from "../services/webLoginGift";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
@@ -289,6 +291,7 @@ export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    claimLoginGift: protectedProcedure.mutation(({ ctx }) => claimWebLoginGift(ctx.user)),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -962,6 +965,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     getProfile: protectedProcedure.query(async ({ ctx }) => {
       return getFreshEmotionAnalysisProfile(ctx.user.id);
     }),
+
+    translatedDailyLetter: protectedProcedure
+      .input(z.object({
+        letterDate: birthDateSchema,
+        language: z.enum(["en", "fr"]),
+        sourceKey: z.string().max(32),
+      }))
+      .query(({ ctx, input }) => translateDailyLetter(ctx.user.id, input.letterDate, input.language)),
 
     listDailyLetters: protectedProcedure
       .input(

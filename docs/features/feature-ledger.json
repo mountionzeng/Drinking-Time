@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-16",
+  "updatedAt": "2026-10-18",
   "features": [
     {
       "id": "story-context-sharing",
@@ -4035,7 +4035,10 @@
         "server/services/storyboardVoiceBilling.ts",
         "server/services/mediaBillingRecovery.ts",
         "server/services/payments/alipay.ts",
-        "server/_core/alipayNotifyRoute.ts"
+        "server/_core/alipayNotifyRoute.ts",
+        "server/services/webLoginGift.ts",
+        "server/routers/index.ts",
+        "client/src/_core/hooks/useAuth.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-27-production-beta-access-and-cost-controls-requirements.md",
@@ -4092,7 +4095,10 @@
         "shared/renderComputeCost.test.ts",
         "server/services/mediaComputeBilling.test.ts",
         "server/integration/mediaBilling.mysql.test.ts",
-        "docs/qa/2026-10-09-media-compute-settlement.md"
+        "docs/qa/2026-10-09-media-compute-settlement.md",
+        "server/services/webLoginGift.test.ts",
+        "server/routers.webLoginGift.test.ts",
+        "client/src/_core/hooks/useAuth.test.tsx"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -4124,9 +4130,14 @@
         "2026-10-09 文本/视觉统一推理预占结算已合并上线，Claude 用量、未知提交保留与停止重发、同号幂等及语义标注计费已回归；真实供应商实收核对仍未验收。供应商价格依赖配置或兜底价，token/图片预估并非供应商证明的最高费用。",
         "同号已存在操作只返回状态，不重新生成；已结算结果恢复及未知提交人工对账仍需业务恢复流程承接。显式保存的语义标注按保存用户扣费，随本次整体上线授权发布；个人记忆提炼继续由平台账户承担。",
         "故事版旁白及普通/首尾帧视频已接入预占、持久回执、成功结算与后台查单；当前按生成前产品报价计费，并非供应商实际账单。无任务号的未知提交保留预占待人工核对，旧任务不追扣。本轮未发真实付费生成，供应商实收仍未验收。",
-        "支付宝网页一次性支付接入代码已具备服务器定价、订单、RSA2签名、回调验签和幂等入账；生产仍没有 App 私钥、支付宝验签公钥、商户 PID、公网 notify_url 和小额真实验收，因此开关保持关闭。10月15日商家后台明确显示收款产品签约与应用关联均未完成。自动续费仍需要商家扣款／周期扣款权限、授权协议、取消/失败处理和真实验收，不能以电脑网站支付代替。"
+        "支付宝网页一次性支付已具备服务器定价、订单、RSA2签名、回调验签和幂等入账。2026-10-17用户后台截图确认电脑网站支付已开通、目标网页应用已绑定、企业账号角色为主账号且密钥配置完成；正式服务器已备份并写入配套RSA2密钥、AppID、商户PID和notify_url，密钥解析通过并重启。网页应用仍待审核上线与收银台跳转及支付回调验收，支付开关保持关闭，未执行真实付款。自动续费仍需独立周期扣款资质和授权链路，不能以电脑网站支付代替。"
       ],
       "history": [
+        {
+          "date": "2026-10-17",
+          "kind": "fix",
+          "summary": "核实用户截图中的产品签约、应用绑定和主账号权限；从本机下载原文件校验支付宝RSA2公钥，备份生产配置后写入配套密钥和回调地址，服务器Node密钥解析通过，重启已有PM2服务。支付开关保持关闭，待应用审核上线和端到端验收；未执行真实付款。"
+        },
         {
           "date": "2026-10-14",
           "kind": "fix",
@@ -4296,6 +4307,16 @@
           "date": "2026-10-10",
           "kind": "feature",
           "summary": "充值窗口展示用户确认的两档支付宝月订阅：¥19.9到账20算力、¥199到账200算力，并明确未用算力结转。目录由服务端维护，浏览器不接触结算额度。因支付宝应用签名和周期扣款权限尚未配置，按钮仍禁用且不会创建订单、签约或扣款；单次充值暂不显示未经确认的价格。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "网站正式登录账号（含已有账号）访问时一次性额外赠送5算力，访客排除；鉴权mutation仅为当前账号调用真实账本，按账号幂等，刷新/并发/消费后重访不重复赠送。保留微信注册10算力和已有余额。28项相关测试及类型检查通过；仅本地实现，正式站未部署和发放。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "本机累计使用算力显示改为四舍五入保留两位小数（4.147762 → 4.15），与余额显示位数一致；仅改变展示，不改变账本和计费精度。"
         }
       ]
     },
@@ -4986,7 +5007,9 @@
         "drizzle/schema.ts",
         "drizzle/0020_daily_letter_attempt_claim.sql",
         "client/src/features/personalMemory/PersonalMemorySummary.tsx",
-        "client/src/features/mobileWorkspace/MobileMePage.tsx"
+        "client/src/features/mobileWorkspace/MobileMePage.tsx",
+        "server/services/dailyLetterTranslation.ts",
+        "client/src/features/analysis/views/DailyLetterBody.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
@@ -5030,7 +5053,10 @@
         "client/src/app/shell/TopBar.test.tsx",
         "client/src/app/router/AppRouter.test.tsx",
         "drizzle/0020_daily_letter_attempt_claim.sql",
-        "docs/qa/2026-10-11-mobile-me.md"
+        "docs/qa/2026-10-11-mobile-me.md",
+        "server/services/dailyLetterTranslation.test.ts",
+        "client/src/features/analysis/views/DailyLetterBody.test.tsx",
+        "client/src/features/analysis/publicDailyLetter.test.ts"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -5055,7 +5081,8 @@
         "真实用户捕获仍默认关闭；在用户级暂停捕获与清除已采集记录入口完成前，不开放白名单之外的账号。",
         "派生理解 runner 仍受平台预算、供应商 allowlist 与独立暂停开关限制；当前本地账号没有自动提炼结果时，来信不会凭空声称已经学会。",
         "历史确定性回填仍保持 dry-run，歧义图片采用不会写入；来源删除后的历史来信段落级隐私 overlay 尚未完成。",
-        "手机 Web 足迹入口已接入并通过本机浏览器验证；真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。"
+        "手机 Web 足迹入口已接入并通过本机浏览器验证；真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。",
+        "来信翻译缓存为进程内一小时有界缓存，重启后或过期可能重新调用模型；私人来信真实供应商译文质量待验收。正文已接入，桌面外围旧文案和历法专名尚未全部翻译。"
       ],
       "history": [
         {
@@ -5147,6 +5174,11 @@
           "date": "2026-10-13",
           "kind": "improvement",
           "summary": "用户明确要求合并手机我页的用户信息摘要和今天来信：首屏仅保留我的日历一行，今天来信入口移入日历弹层，既有日历历史、资料与记忆说明继续使用原页面；不改变数据、生成或访问权限。 类型检查、账本校验与本地日历/来信往返验证通过。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "每日来信正文跟随界面语言提供英文阅读版（个人信同时支持法语）；桌面、手机、日历复用同一正文组件。服务器按当前账号读取原信，按账号/日期/语言/正文摘要缓存并合并并发翻译，切换语言不改写原信、原话和不可变版本。英文公共来信使用本地静态译文。新增11项模拟/渲染测试通过；真实付费翻译和正式部署尚未验收。"
         }
       ]
     },
@@ -5587,6 +5619,11 @@
           "date": "2026-10-12",
           "kind": "improvement",
           "summary": "按用户提供的枝叶水彩小鸟，只替换手机“我”页拾光家忆风格卡的头像；卡片布局、纳音饮品头像、其它头像和主题切换语义保持。主仓 3000 浏览器目视确认，未改故事或个人数据。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "英文介绍页进入制作区时，可通过一次性 visualTheme=nayin 参数明确选择纳音五行；初始化即生效并写入既有浏览器偏好，随即清除参数，避免覆盖用户后续手动切换。原有无偏好默认拾光与双主题单选不变；本地 /m 入口验证 data-visual-theme=nayin。"
         }
       ]
     },
@@ -6547,6 +6584,11 @@
           "date": "2026-10-17",
           "kind": "improvement",
           "summary": "按用户要求桌面聊天头像直接复用手机版LiaoliaoMascot：纳音手绘饮品、拾光水彩小鸟完整显示，去除额外表情五官、半脸裁切和旋转摇摆。保留唯一输入框上沿头像及2px轻微上浮，减少动态效果时停用。主仓3000目视通过，未合并上线。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "按用户要求移除桌面聊天底部“聊天会自动收进记忆仓库 · 查看记忆”提示入口；自动保存聊天及顶部记忆仓库保留。本地3000编辑页确认提示消失、顶部入口存在；尚未部署。"
         }
       ]
     },
@@ -6674,13 +6716,16 @@
         "client/src/features/uiLanguage/messages.json",
         "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
         "client/src/styles/mobile-reading-font.css",
-        "scripts/generate-mobile-reading-font.py"
+        "scripts/generate-mobile-reading-font.py",
+        "client/src/app/shell/TopBar.tsx",
+        "client/src/app/providers/AppProviders.tsx"
       ],
       "evidence": [
         "client/src/features/uiLanguage/UiLanguage.test.tsx",
         "docs/qa/2026-10-13-mobile-language.md",
         "command:pnpm check",
-        "command:pnpm build"
+        "command:pnpm build",
+        "client/src/app/shell/TopBar.test.tsx"
       ],
       "invariants": [
         "仅翻译显式界面文案，不改写用户回忆、聊天、作品或接口内容。",
@@ -6694,8 +6739,8 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "浏览器级偏好，尚无账号级跨设备同步；电脑工作区暂无语言入口。",
-        "服务端自由文本诊断、生成内容和历法专有名词保留来源文本，未控制模型输出语言。",
+        "浏览器级偏好，尚无账号级跨设备同步；电脑已提供语言入口，旧版工作区尚有未接入词典的文案，仍显示中文。",
+        "服务端自由文本诊断、生成内容和历法专有名词保留来源文本，每日来信正文另提供所选语言阅读版，其他模型输出语言尚未统一。",
         "真实iOS/Android与法语母语审校尚待验收。"
       ],
       "history": [
@@ -6703,6 +6748,11 @@
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "新增我的语言，三语词典与手机上下文、持久化及跨标签同步；本地字体覆盖中英法并保留手写Logo。类型、154项定向测试、构建通过，390px浏览器验证法语导航、原文保留和英文刷新持久化。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "电脑版头像菜单复用MobileMePage，提供语言、日历、风格、出生信息及退出；保留电脑授权手机登录、管理和引导。全局语言Provider用于共享设置，桌面不启用手机字体覆盖。浏览器点测中英切换、日历、六种风格入口及出生资料成功；11项定向测试、类型检查通过，未上线。"
         }
       ]
     },
@@ -6762,6 +6812,118 @@
           "date": "2026-10-14",
           "kind": "verification",
           "summary": "eeccb10d已推送并部署；受限MySQL64项、小程序215项通过，78文件一致、77业务表及32迁移不变，备份和回滚检查通过。正式站两真实账号实测文字分享、朋友候选、作者明确采用、独立承接及记忆/聊天隔离通过，未调用付费AI。"
+        }
+      ]
+    },
+    {
+      "id": "shiguang-public-landing",
+      "name": "拾光公开产品介绍页",
+      "status": "observing",
+      "userValue": "任何人无需登录即可用中文或英文了解拾光的创作理念与手机、电脑分工，并选择手机或电脑制作入口。",
+      "entryPoints": [
+        "client/src/pages/ShiguangLandingPage.tsx"
+      ],
+      "owners": [
+        "client/src/pages/ShiguangLandingPage.tsx",
+        "client/src/pages/ShiguangLandingPage.css",
+        "client/public/shiguang/landing/",
+        "client/src/app/router/AppRouter.tsx"
+      ],
+      "evidence": [
+        "client/src/pages/ShiguangLandingPage.test.tsx",
+        "client/src/app/router/AppRouter.test.tsx",
+        "docs/qa/2026-10-13-shiguang-public-landing.md"
+      ],
+      "invariants": [
+        "介绍页无需登录即可读取，不得加载、展示或探测任何账号、Story、聊天或私人媒体数据。",
+        "制作按钮先展示双端选择，再分别进入 https://www.drinkingtime.top/m 与 https://www.drinkingtime.top/editing；介绍页不复制登录或工作区权限实现。",
+        "页面只介绍已经存在的能力，不编造用户评价、统计数字、免费承诺或尚未完成的产品能力。",
+        "尊重 prefers-reduced-motion；移动端不得依赖悬停或横向滚动才能理解内容。"
+      ],
+      "dependencies": [
+        "shiguang-illustration-theme"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "按用户要求先本地评审，尚未部署正式站；公网、真机 Safari、微信内置浏览器和 Android Chrome 待上线前验收。",
+        "中英文双端示意均为独立本地演示账号的真实操作录屏；英文使用纳音主题，手机展示点开Logo，电脑展示镜头时长调整与文字排版，尚未展示完整影像生成流程。",
+        "英文介绍页已具备英文文案与纳音五行视觉，但产品工作区内的完整英文本地化尚未完成。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-13",
+          "kind": "feature",
+          "summary": "新增无需登录的 /shiguang 本地介绍页：以用户指定的水彩晕染、长纸、书页边缘和枝条资产建立公开叙事，说明手机接住个人与家人思绪、电脑生成私人影像；主按钮复用既有 /login。路由与页面13项测试、TypeScript通过，主仓3000完成1440px与390px浏览器检查；按用户要求暂不部署。"
+        },
+        {
+          "date": "2026-10-13",
+          "kind": "fix",
+          "summary": "本地视觉评审收敛装饰与动画，修复独立页面标题，并使用用户指定的 A080 paper.webp 作底纹。进一步恢复鸿雷拙书 Logo，采用本机 TW-Sung 标题与 Noto Sans SC 轻字重正文，生成页面文字 WOFF 子集并调整字号、字距；浏览器首屏已确认排版无横向溢出，等待用户评审。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "按用户反馈将理念区改为从感受被淹没出发的邀请：来拾光坐一会儿，在更辽阔、更安静的艺术世界里回应此刻的细微情绪；同步更新页面字体子集，保持本地评审状态。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "按用户截图移除双端介绍之间的圆点连线动画及页脚标语，清理对应样式并将双端和页脚网格改为两列；手机端收回装饰占位。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "按用户截图移除页眉与页脚 Logo 前的圆形「拾」印章，保留鸿雷拙书「拾光」字标并收紧间距。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "按用户要求将页眉右侧制作链接改为中文/EN 双语控件；中文版当前选中，英文版入口明确禁用并提示即将开放，待英文内容完成后接通切换。页面中的制作入口继续沿用 /login。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "用户指定制作入口改为先显示手机/电脑选择界面；两个页面按钮共用弹窗，选择后分别进入正式站 /m 和 /editing，弹窗支持键盘关闭与焦点返回。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "按用户截图从介绍页移除书页边缘、枝条和日常区长纸三处插图；日常区收为居中的纯文字布局，保留已指定的整页纸张底纹。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "按用户指定将 A048 book-wash.png 从首屏独立插图改为首屏背景层，移除重复叠加的装饰文字；保留纸张底纹、主文案和双端制作入口。13 项相关回归、TypeScript 与 1440/390px 本地浏览器检查通过，未部署。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "接通 /shiguang?lang=en 英文介绍页，翻译页面与制作弹窗文案，复用既有五行饮品线稿并改为纳音暖纸色板。英文制作入口给 /m 或 /editing 附带一次性 visualTheme=nayin；产品初始化后写入现有主题偏好并清理参数，之后仍尊重用户手动切换。20 项相关测试、TypeScript 与本地桌面/390px 浏览器验证通过；线上尚未部署，产品工作区仍以中文为主。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "按用户确认的 Nature changes. So do we. 重写英文页主张：纳音五行是观察自然与自身变化的语言，不作预测或贴标签；英文手机文案改为随时接住细微情绪，不再强调家人。英文制作弹窗从两张卡片收敛为暖纸上的两条编号路径，分别说明即时记录与之后制片；中文页和链接语义不变。20 项相关测试、TypeScript 与桌面/390px 弹窗浏览器验证通过，未部署。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "fix",
+          "summary": "用户澄清仅需改英文文案，撤回上一轮弹窗视觉重设计：恢复原有手机/电脑图标、两张入口卡片与弹窗尺寸；保留 Nature changes. So do we. 和手机随时接住情绪等英文文字调整。中文页、双端链接和纳音主题入口不变。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "将中文版双端区域的模拟界面替换为本地独立演示账号的真实产品屏幕录像：手机演示虚构回忆与继续聊聊，电脑演示虚构文字到图文排版。英文版保留原纳音风格示意，避免中文工作区录像破坏其美术设定。视频静音循环、内联播放、提供封面；减少动态效果时暂停并显示静态封面。未嵌入私人故事；15 项相关测试、TypeScript、1440/390px 浏览器检查通过，仍只在本地评审。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "按清晰度反馈重新双倍像素采集真实操作：手机780×1480展示点开小忆与输入，电脑2560×1600展示三镜头时长调整后切换排版、移动文字。素材只含独立演示故事及用户美术资产，无付费生成。修复视频网格裁切、改为完整显示并提供暂停/全屏控件；15项测试与TypeScript通过，保留本地评审及英文原样。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "按用户要求将英文页两块示意换为纳音五行真实录像：独立演示账号在纳音主题下点开饮品Logo、输入心情，以及调整镜头时长、切换排版。复用播放器的完整取景、暂停/全屏和减少动态效果支持，提供英文无障碍标签。中文素材及页面文案不变；录屏保留产品实际中文界面，不伪造完整英文化；仅本地评审。"
         }
       ]
     },

@@ -48,8 +48,10 @@ export const UiLanguageContext = createContext<{
 
 export function UiLanguageProvider({
   children,
+  mobileTypography = true,
 }: {
   children: React.ReactNode;
+  mobileTypography?: boolean;
 }) {
   const [language, setValue] = useState<UiLanguage>(readUiLanguage);
   const value = useMemo(
@@ -71,7 +73,7 @@ export function UiLanguageProvider({
     const previous = document.documentElement.lang;
     const previousMobile =
       document.documentElement.getAttribute("data-mobile-ui");
-    document.documentElement.setAttribute("data-mobile-ui", "true");
+    if (mobileTypography) document.documentElement.setAttribute("data-mobile-ui", "true");
     document.documentElement.lang = language === "zh" ? "zh-CN" : language;
     return () => {
       document.documentElement.lang = previous;
@@ -80,7 +82,7 @@ export function UiLanguageProvider({
       else
         document.documentElement.setAttribute("data-mobile-ui", previousMobile);
     };
-  }, [language]);
+  }, [language, mobileTypography]);
   useEffect(() => {
     const sync = (event: StorageEvent) => {
       if (event.key === UI_LANGUAGE_KEY || event.key === null)

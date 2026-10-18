@@ -46,8 +46,14 @@ vi.mock("@/_core/hooks/useAuth", () => ({
   }),
 }));
 
-vi.mock("@/features/personalMemory/PersonalMemorySummary", () => ({
-  default: () => <section aria-label="你的个人足迹摘要">查看全部足迹</section>,
+vi.mock("@/features/mobileWorkspace/MobileMePage", () => ({
+  MobileMePage: ({ pairingControl, onOpenLetter }: { pairingControl?: React.ReactNode; onOpenLetter: () => void }) => (
+    <section aria-label="我">
+      <button>我的语言</button><button onClick={onOpenLetter}>我的日历</button>
+      <button>我的风格</button><button>出生信息</button>
+      {pairingControl}<button>退出登录</button>
+    </section>
+  ),
 }));
 
 vi.mock("@/features/storyAgent/spine/selectors", () => ({
@@ -91,14 +97,9 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain("shiguang-toolbar-button");
     expect(html).toContain("shiguang-nav-label");
     expect(html).not.toContain('aria-label="纳音五行"');
-    expect(html).toContain("Display Style / 界面风格");
-    expect(html).toContain("拾光家忆");
-    expect(html).toContain("纳音五行");
-    expect(html).toContain('aria-label="界面风格"');
-    expect(html).toContain('aria-checked="true"');
-    expect(html.indexOf("退出登录")).toBeGreaterThan(
-      html.indexOf("Display Style")
-    );
+    for (const label of ["我的语言", "我的日历", "我的风格", "出生信息", "退出登录", "手机登录"]) {
+      expect(html).toContain(label);
+    }
     expect(html).toContain("素材仓库");
     expect(html).toContain("故事卡片");
     expect(html).toContain("故事版看板");
@@ -110,7 +111,6 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("默认分析项目");
     expect(html).not.toContain("DRINKING TIME");
     expect(html).toContain("用户管理");
-    expect(html).toContain("查看全部足迹");
   });
 
   it.each(["shiguang", "nayin"] as const)("keeps export beside the account and nests media tools below their parent in %s", visualTheme => {
@@ -181,9 +181,7 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain(">L</span>");
     expect(html).not.toContain("/shiguang/book-wash.png");
     expect(html).not.toContain("shiguang-member-avatar");
-    expect(html).toContain("Nayin Five Elements / 纳音五行");
     expect(html).not.toContain("Display Style / 界面风格");
-    expect(html).toContain("切换到拾光家忆界面");
   });
 
   it("supports English editing toggles and an action after Timeline", () => {

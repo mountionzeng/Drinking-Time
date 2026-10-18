@@ -4,7 +4,7 @@
  * 两端各写一遍的话，迟早会在「预占算不算在余额里」这种地方分叉——同一个
  * 账户在两块屏幕上显示两个数字，是最伤信任的一类 bug。
  */
-import { formatComputeBalance, formatComputeUnits } from "@shared/computeMoney";
+import { COMPUTE_UNITS_PER_YUAN, formatComputeBalance, toYuan } from "@shared/computeMoney";
 import { useIsMutating } from "@tanstack/react-query";
 import { trpc } from "@/lib/trpc";
 
@@ -86,7 +86,7 @@ export function useComputeBalance(enabled = true): ComputeBalanceView {
     localUnlimited: data?.billingMode === "local_unlimited",
     localCostText:
       data?.billingMode === "local_unlimited"
-        ? formatComputeUnits(data.lifetimeSpentMinor)
+        ? `${(toYuan(data.lifetimeSpentMinor) * COMPUTE_UNITS_PER_YUAN).toFixed(2)} 算力`
         : null,
     ...(data
       ? classifyComputeBalance(data)

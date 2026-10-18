@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from 'react';
+import { UiLanguageProvider } from '@/features/uiLanguage/UiLanguage';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import BeverageTransitionOverlay from '@/features/nayin/views/BeverageTransitionOverlay';
 import { Toaster } from '@/components/ui/sonner';
@@ -8,6 +9,7 @@ import { NayinProvider } from '@/features/nayin/NayinContext';
 export default function AppProviders({ children }: PropsWithChildren) {
   return (
     <ErrorBoundary>
+      <UiLanguageProvider mobileTypography={false}>
       <NayinProvider>
         <TooltipProvider>
           <Toaster />
@@ -15,6 +17,7 @@ export default function AppProviders({ children }: PropsWithChildren) {
           {children}
         </TooltipProvider>
       </NayinProvider>
+      </UiLanguageProvider>
     </ErrorBoundary>
   );
 }

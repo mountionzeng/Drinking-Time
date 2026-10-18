@@ -23,3 +23,11 @@ describe("publicDailyLetterForDate", () => {
     expect(text).not.toMatch(/年龄|住在|出生|八字|生肖|命运/);
   });
 });
+
+it("provides an English public letter for every weekday without AI", () => {
+  for (let day = 3; day <= 9; day++) {
+    const letter = publicDailyLetterForDate(`2026-08-0${day}`, "en");
+    expect(letter.paragraphs).toHaveLength(3);
+    expect([letter.attention, ...letter.paragraphs].join(" ")).not.toMatch(/[\u4e00-\u9fff]/u);
+  }
+});
