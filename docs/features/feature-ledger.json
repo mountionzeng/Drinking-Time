@@ -7210,7 +7210,8 @@
       ],
       "evidence": [
         "server/adminCompute.router.test.ts",
-        "client/src/pages/AdminComputePage.test.tsx"
+        "client/src/pages/AdminComputePage.test.tsx",
+        "docs/qa/2026-10-18-admin-compute-release.md"
       ],
       "invariants": [
         "仅adminProcedure允许跨账号查询；普通用户和匿名用户拒绝访问。",
@@ -7223,8 +7224,7 @@
       "replaces": [],
       "knownGaps": [
         "当前浏览器本地账号不是管理员，真实管理员页面视觉验收待完成。",
-        "明细沿用现有账单最多500偏移的查询边界；无全站成本汇总。",
-        "新后台尚未部署；正式账号和MySQL余额/赠送聚合已只读核对，接口端到端验收待部署。"
+        "明细沿用现有账单最多500偏移的查询边界；无全站成本汇总。"
       ],
       "history": [
         {
@@ -7241,6 +7241,11 @@
           "date": "2026-10-18",
           "kind": "verification",
           "summary": "用户指定Gmail账号为管理员。正式MySQL只读核对确认该账号已具admin角色，163账号为user，无需修改权限。两个账号余额与赠送聚合查询成功，未改账本。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "verification",
+          "summary": "e448b6ff已推送并部署正式站。95文件hash及77业务表/32迁移/环境一致，备份与应用回滚预检通过。正式MySQL两账号列表与账单余额一致，匿名/普通账号服务端拒绝跨账号查询；浏览器普通账号拦回创作页。管理员真实页面验收仍待切换登录。"
         }
       ]
     }
