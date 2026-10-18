@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { SubscriptionPlans } from "./SubscriptionPlans";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,7 @@ export function RechargeDialog() {
           充值算力
         </button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>充值算力</DialogTitle>
           <DialogDescription>
@@ -59,6 +60,19 @@ function RechargeAvailability() {
     );
   return (
     <div className="space-y-3 text-sm">
+      <SubscriptionPlans plans={availability.data.plans ?? []} />
+      <section
+        aria-label="单次充值算力"
+        className="space-y-3 border-t border-border pt-4"
+      >
+        <h3 className="font-medium">单次充值算力</h3>
+        <p className="text-muted-foreground">
+          按需购买，不开通自动续费。充值档位即将公布。
+        </p>
+        <Button variant="outline" className="w-full" disabled>
+          单次充值 · 待开放
+        </Button>
+      </section>
       <p role="status">{availability.data.message}</p>
       <a
         className="text-muted-foreground underline underline-offset-4 break-all"
