@@ -4098,7 +4098,8 @@
         "docs/qa/2026-10-09-media-compute-settlement.md",
         "server/services/webLoginGift.test.ts",
         "server/routers.webLoginGift.test.ts",
-        "client/src/_core/hooks/useAuth.test.tsx"
+        "client/src/_core/hooks/useAuth.test.tsx",
+        "docs/qa/2026-10-18-account-release.md"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -4317,6 +4318,11 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "本机累计使用算力显示改为四舍五入保留两位小数（4.147762 → 4.15），与余额显示位数一致；仅改变展示，不改变账本和计费精度。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "随d65e8fb1部署正式站；95个发布文件hash、77张业务表及32条迁移核对通过，备份/应用回滚预检完成。双端真实登录打开通过，5.00算力和桌面设置菜单可见。英文来信供应商返回提交未知，真实译文仍待核对调用后验收，未自动重试。详见docs/qa/2026-10-18-account-release.md。"
         }
       ]
     },
@@ -5056,7 +5062,8 @@
         "docs/qa/2026-10-11-mobile-me.md",
         "server/services/dailyLetterTranslation.test.ts",
         "client/src/features/analysis/views/DailyLetterBody.test.tsx",
-        "client/src/features/analysis/publicDailyLetter.test.ts"
+        "client/src/features/analysis/publicDailyLetter.test.ts",
+        "docs/qa/2026-10-18-account-release.md"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -5179,6 +5186,11 @@
           "date": "2026-10-18",
           "kind": "feature",
           "summary": "每日来信正文跟随界面语言提供英文阅读版（个人信同时支持法语）；桌面、手机、日历复用同一正文组件。服务器按当前账号读取原信，按账号/日期/语言/正文摘要缓存并合并并发翻译，切换语言不改写原信、原话和不可变版本。英文公共来信使用本地静态译文。新增11项模拟/渲染测试通过；真实付费翻译和正式部署尚未验收。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "随d65e8fb1部署正式站；95个发布文件hash、77张业务表及32条迁移核对通过，备份/应用回滚预检完成。双端真实登录打开通过，5.00算力和桌面设置菜单可见。英文来信供应商返回提交未知，真实译文仍待核对调用后验收，未自动重试。详见docs/qa/2026-10-18-account-release.md。"
         }
       ]
     },
@@ -6725,7 +6737,8 @@
         "docs/qa/2026-10-13-mobile-language.md",
         "command:pnpm check",
         "command:pnpm build",
-        "client/src/app/shell/TopBar.test.tsx"
+        "client/src/app/shell/TopBar.test.tsx",
+        "docs/qa/2026-10-18-account-release.md"
       ],
       "invariants": [
         "仅翻译显式界面文案，不改写用户回忆、聊天、作品或接口内容。",
@@ -6753,6 +6766,11 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "电脑版头像菜单复用MobileMePage，提供语言、日历、风格、出生信息及退出；保留电脑授权手机登录、管理和引导。全局语言Provider用于共享设置，桌面不启用手机字体覆盖。浏览器点测中英切换、日历、六种风格入口及出生资料成功；11项定向测试、类型检查通过，未上线。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "随d65e8fb1部署正式站；95个发布文件hash、77张业务表及32条迁移核对通过，备份/应用回滚预检完成。双端真实登录打开通过，5.00算力和桌面设置菜单可见。英文来信供应商返回提交未知，真实译文仍待核对调用后验收，未自动重试。详见docs/qa/2026-10-18-account-release.md。"
         }
       ]
     },
@@ -6832,7 +6850,8 @@
       "evidence": [
         "client/src/pages/ShiguangLandingPage.test.tsx",
         "client/src/app/router/AppRouter.test.tsx",
-        "docs/qa/2026-10-13-shiguang-public-landing.md"
+        "docs/qa/2026-10-13-shiguang-public-landing.md",
+        "docs/qa/2026-10-18-account-release.md"
       ],
       "invariants": [
         "介绍页无需登录即可读取，不得加载、展示或探测任何账号、Story、聊天或私人媒体数据。",
@@ -6924,6 +6943,11 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "按用户要求将英文页两块示意换为纳音五行真实录像：独立演示账号在纳音主题下点开饮品Logo、输入心情，以及调整镜头时长、切换排版。复用播放器的完整取景、暂停/全屏和减少动态效果支持，提供英文无障碍标签。中文素材及页面文案不变；录屏保留产品实际中文界面，不伪造完整英文化；仅本地评审。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "improvement",
+          "summary": "随d65e8fb1部署正式站；95个发布文件hash、77张业务表及32条迁移核对通过，备份/应用回滚预检完成。双端真实登录打开通过，5.00算力和桌面设置菜单可见。英文来信供应商返回提交未知，真实译文仍待核对调用后验收，未自动重试。详见docs/qa/2026-10-18-account-release.md。"
         }
       ]
     },
