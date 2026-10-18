@@ -1,3 +1,4 @@
+import AdminComputePage from "@/pages/AdminComputePage";
 import { Route, Switch, Redirect } from "wouter";
 import CreationPage from "@/pages/CreationPage";
 import EditingStudioPage from "@/pages/EditingStudioPage";
@@ -124,6 +125,7 @@ export default function AppRouter() {
           <MobileWorkspacePage />
         </AuthGuard>
       </Route>
+      <Route path="/admin/compute"><AdminGuard><AdminComputePage /></AdminGuard></Route>
       <Route path="/admin/users">
         <AdminGuard>
           <AdminVisitsPage />

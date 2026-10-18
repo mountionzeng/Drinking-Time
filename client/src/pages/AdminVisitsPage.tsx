@@ -128,6 +128,7 @@ export default function AdminVisitsPage() {
           >
             邀请
           </a>
+          <a href="/admin/compute" className="pb-3 text-xs text-muted-foreground hover:text-foreground">算力账单</a>
         </nav>
       </header>
 

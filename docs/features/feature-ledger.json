@@ -7193,6 +7193,56 @@
           "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
         }
       ]
+    },
+    {
+      "id": "admin-compute-monitoring",
+      "name": "管理员邮箱与算力账单",
+      "status": "observing",
+      "userValue": "管理员查询真实登录用户邮箱、累计赠送、消耗、预占与可用算力，展开逐笔账单。",
+      "entryPoints": [
+        "client/src/pages/AdminComputePage.tsx",
+        "server/routers/adminCompute.ts"
+      ],
+      "owners": [
+        "client/src/pages/AdminComputePage.tsx",
+        "server/routers/adminCompute.ts",
+        "server/repositories/adminCompute.ts"
+      ],
+      "evidence": [
+        "server/adminCompute.router.test.ts",
+        "client/src/pages/AdminComputePage.test.tsx"
+      ],
+      "invariants": [
+        "仅adminProcedure允许跨账号查询；普通用户和匿名用户拒绝访问。",
+        "只读；不改变用户登录、赠送、余额或原账本。",
+        "不暴露凭据、OpenID、聊天与故事；金额只代表已经接入账本的调用，不冒充供应商实收。"
+      ],
+      "dependencies": [
+        "invite-access-monitoring"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前浏览器本地账号不是管理员，真实管理员页面视觉验收待完成。",
+        "明细沿用现有账单最多500偏移的查询边界；无全站成本汇总。",
+        "新后台尚未部署；正式账号和MySQL余额/赠送聚合已只读核对，接口端到端验收待部署。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-18",
+          "kind": "feature",
+          "summary": "新增/admin/compute管理入口、精确邮箱筛选、分页用户列表和安全账单投影；不创建虚拟账号或修改登录规则。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "verification",
+          "summary": "新增服务端3项与页面2项测试通过；既有用户/邀请页及个人账单5项回归通过。类型检查、构建和功能账本验证通过。真实浏览器的普通账号被管理员路由正确拦回创作页；真实管理员视觉验收和正式MySQL数据核对尚待完成。"
+        },
+        {
+          "date": "2026-10-18",
+          "kind": "verification",
+          "summary": "用户指定Gmail账号为管理员。正式MySQL只读核对确认该账号已具admin角色，163账号为user，无需修改权限。两个账号余额与赠送聚合查询成功，未改账本。"
+        }
+      ]
     }
   ]
 }

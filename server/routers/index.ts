@@ -1,3 +1,4 @@
+import { adminComputeRouter } from "./adminCompute";
 import { translateDailyLetter } from "../services/dailyLetterTranslation";
 import { claimWebLoginGift } from "../services/webLoginGift";
 import { z } from "zod";
@@ -339,6 +340,7 @@ export const appRouter = router({
 
   personalMemory: personalMemoryRouter,
 
+  adminCompute: adminComputeRouter,
   computeAccount: computeAccountRouter,
   computePayment: computePaymentRouter,
 
