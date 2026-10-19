@@ -205,6 +205,10 @@ function ExportButton({
   const { visualTheme } = useNayin();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<{
+    storyId: number;
+    message: string;
+  } | null>(null);
   const exportStoryId = resolveExportStoryId(storyId, pendingStoryRequestId);
   const disabledReason =
     pendingStoryRequestId !== null
@@ -216,10 +220,11 @@ function ExportButton({
   const runExport = async () => {
     if (exportStoryId === null) return;
     setExporting(true);
+    setExportError(null);
     try {
       const result = await exportMut.mutateAsync({
         storyId: exportStoryId,
-        fallbackToLatestTake: true,
+        fallbackToLatestTake: false,
       });
       if (result.status === "ok") {
         const storyShots = storySpineStore.getState().storyShots;
@@ -238,9 +243,14 @@ function ExportButton({
         );
         window.open(result.videoUrl, "_blank");
       } else {
+        setExportError({ storyId: exportStoryId, message: result.error });
         toast.error(result.error);
       }
     } catch (error) {
+      setExportError({
+        storyId: exportStoryId,
+        message: error instanceof Error ? error.message : "导出失败",
+      });
       toast.error(error instanceof Error ? error.message : "导出失败");
     } finally {
       setExporting(false);
@@ -248,31 +258,38 @@ function ExportButton({
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => void runExport()}
-      disabled={exporting || exportStoryId === null}
-      title={disabledReason}
-      data-tour="export"
-      className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
-      style={{ background: "var(--nayin-accent)" }}
-    >
-      {exporting ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : visualTheme === "shiguang" ? (
-        <img
-          src="/shiguang/nav-export-v2.svg"
-          alt=""
-          aria-hidden="true"
-          className="shiguang-action-illustration"
-        />
-      ) : (
-        <Clapperboard className="h-4 w-4" />
+    <div className="flex flex-col items-end gap-2">
+      <button
+        type="button"
+        onClick={() => void runExport()}
+        disabled={exporting || exportStoryId === null}
+        title={disabledReason}
+        data-tour="export"
+        className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ background: "var(--nayin-accent)" }}
+      >
+        {exporting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : visualTheme === "shiguang" ? (
+          <img
+            src="/shiguang/nav-export-v2.svg"
+            alt=""
+            aria-hidden="true"
+            className="shiguang-action-illustration"
+          />
+        ) : (
+          <Clapperboard className="h-4 w-4" />
+        )}
+        <span className="shiguang-nav-label">
+          {exporting ? "合成中…" : "导出成片"}
+        </span>
+      </button>
+      {exportError?.storyId === exportStoryId && (
+        <p role="alert" className="max-w-xl text-sm text-destructive">
+          {exportError.message}
+        </p>
       )}
-      <span className="shiguang-nav-label">
-        {exporting ? "合成中…" : "导出成片"}
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -303,12 +320,14 @@ function EditingStudioBody({
   onWorkspaceChange,
   materialVisible,
   onMaterialVisibleChange,
+  pendingStoryRequestId,
 }: {
   workspace: StudioWorkspace;
   interactionMode: StudioInteractionMode;
   onWorkspaceChange: (workspace: StudioWorkspace) => void;
   materialVisible: boolean;
   onMaterialVisibleChange: (visible: boolean) => void;
+  pendingStoryRequestId: number | null;
 }) {
   const activeStoryId = useActiveStoryId();
   const storyShotCount = useStorySpine(state => state.storyShots.length);
@@ -333,21 +352,35 @@ function EditingStudioBody({
     buffer => buffer.storyId === activeStoryId
   );
 
-  useEffect(() => { creationFlowOrigin.current = null; }, [activeStoryId]);
+  useEffect(() => {
+    creationFlowOrigin.current = null;
+  }, [activeStoryId]);
   useEffect(() => {
     const navigate = (event: Event) => {
-      const detail = (event as CustomEvent<{ storyId: number; target: string }>).detail;
+      const detail = (event as CustomEvent<{ storyId: number; target: string }>)
+        .detail;
       if (detail?.storyId !== activeStoryId) return;
       if (detail.target === "origin") {
-        if (creationFlowOrigin.current) onWorkspaceChange(creationFlowOrigin.current);
+        if (creationFlowOrigin.current)
+          onWorkspaceChange(creationFlowOrigin.current);
         creationFlowOrigin.current = null;
         return;
       }
-      if (!["memory", "publishing", "images", "storyboard", "editing"].includes(detail.target)) return;
+      if (
+        !["memory", "publishing", "images", "storyboard", "editing"].includes(
+          detail.target
+        )
+      )
+        return;
       creationFlowOrigin.current ??= workspace;
       setChatCollapsed(false);
-      onWorkspaceChange(detail.target === "memory" ? "publishing" : detail.target as StudioWorkspace);
-      if (detail.target === "memory") window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE));
+      onWorkspaceChange(
+        detail.target === "memory"
+          ? "publishing"
+          : (detail.target as StudioWorkspace)
+      );
+      if (detail.target === "memory")
+        window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE));
     };
     window.addEventListener("dt:creation-flow-focus", navigate);
     return () => window.removeEventListener("dt:creation-flow-focus", navigate);
@@ -542,7 +575,11 @@ function EditingStudioBody({
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {/* 切换栏目只隐藏工作区，保留未保存正文和模块编辑会话。 */}
           <div
-            id={workspace === "images" ? "studio-images-workspace" : "publishing-draft-workspace"}
+            id={
+              workspace === "images"
+                ? "studio-images-workspace"
+                : "publishing-draft-workspace"
+            }
             className="h-full"
             hidden={workspace !== "publishing" && workspace !== "images"}
           >
@@ -556,7 +593,8 @@ function EditingStudioBody({
               }}
             />
           </div>
-          {workspace === "publishing" || workspace === "images" ? null : activeStoryId !== null ? (
+          {workspace === "publishing" ||
+          workspace === "images" ? null : activeStoryId !== null ? (
             <div
               id={
                 workspace === "editing"
@@ -572,6 +610,17 @@ function EditingStudioBody({
                   ?.label
               }
             >
+              {workspace === "editing" && (
+                <div
+                  className="flex shrink-0 justify-end border-b border-border px-4 py-2"
+                  aria-label="视频导出操作"
+                >
+                  <ExportButton
+                    storyId={activeStoryId}
+                    pendingStoryRequestId={pendingStoryRequestId}
+                  />
+                </div>
+              )}
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {workspace === "editing" ? (
                   <EditingNleWorkspace
@@ -803,7 +852,7 @@ export default function EditingStudioPage() {
     <div className="shiguang-workspace relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
       <TopBar
-          onOpenLetter={() => setDailyLetterOpen(true)}
+        onOpenLetter={() => setDailyLetterOpen(true)}
         showStoryPanelNav={false}
         storyMenu={storyMenu}
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
@@ -844,22 +893,30 @@ export default function EditingStudioPage() {
                 </button>
               </div>
             ) : option.id === "publishing" && workspace === "publishing" ? (
-              <div className="editing-media-subnav flex flex-col items-center" role="group" aria-label="文字子类目">
-                <span className="editing-media-subnav-stem" aria-hidden="true" />
-                <button type="button" aria-controls="writing-memory-warehouse" aria-haspopup="dialog"
-                  onClick={() => window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))}
-                  className="editing-media-subnav-button shiguang-toolbar-button inline-flex min-h-8 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35">
-                  <BookOpen className="h-4 w-4" /><span className="shiguang-nav-label">记忆仓库</span>
+              <div
+                className="editing-media-subnav flex flex-col items-center"
+                role="group"
+                aria-label="文字子类目"
+              >
+                <span
+                  className="editing-media-subnav-stem"
+                  aria-hidden="true"
+                />
+                <button
+                  type="button"
+                  aria-controls="writing-memory-warehouse"
+                  aria-haspopup="dialog"
+                  onClick={() =>
+                    window.dispatchEvent(new Event(OPEN_MEMORY_WAREHOUSE))
+                  }
+                  className="editing-media-subnav-button shiguang-toolbar-button inline-flex min-h-8 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span className="shiguang-nav-label">记忆仓库</span>
                 </button>
               </div>
             ) : undefined,
         }))}
-        accountActions={
-          <ExportButton
-            storyId={activeStoryId}
-            pendingStoryRequestId={pendingStoryRequestId}
-          />
-        }
         secondaryRow={
           workspace === "editing" ? null : (
             <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
@@ -903,6 +960,7 @@ export default function EditingStudioPage() {
             onWorkspaceChange={setWorkspace}
             materialVisible={materialVisible}
             onMaterialVisibleChange={setMaterialVisible}
+            pendingStoryRequestId={pendingStoryRequestId}
           />
         </StoryAgentProvider>
       </div>

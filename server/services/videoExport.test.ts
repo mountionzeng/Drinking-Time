@@ -84,8 +84,18 @@ describe("buildExportPlan", () => {
       })
     );
     expect(plan.parts).toMatchObject([
-      { kind: "source", stableShotId: "a", file: "take-11.mp4", durationSec: 1 },
-      { kind: "source", stableShotId: "a", file: "take-99.mp4", durationSec: 3 },
+      {
+        kind: "source",
+        stableShotId: "a",
+        file: "take-11.mp4",
+        durationSec: 1,
+      },
+      {
+        kind: "source",
+        stableShotId: "a",
+        file: "take-99.mp4",
+        durationSec: 3,
+      },
       { kind: "gap", durationSec: 1 },
     ]);
     expect(plan.totalSec).toBe(5);
@@ -162,7 +172,7 @@ describe("buildExportPlan", () => {
       },
     ]);
     expect(plan.skipped).toEqual([
-      { shotNo: 3, reason: "没有可用的当前视频" },
+      { shotNo: 3, reason: "没有可用的当前视频或图片" },
       { shotNo: 4, reason: "已从成片移除" },
     ]);
   });
@@ -510,7 +520,9 @@ describe("buildExportPlan", () => {
       .reduce((total, part) => total + part.durationSec, 0);
     expect(secondsBeforeLast).toBe(5);
     expect(plan.totalSec).toBe(8);
-    expect(plan.skipped).toEqual([{ shotNo: 1, reason: "没有可用的当前视频" }]);
+    expect(plan.skipped).toEqual([
+      { shotNo: 1, reason: "没有可用的当前视频或图片" },
+    ]);
   });
 
   it("同源且源时间接得上的相邻区间合并成一段", () => {
@@ -533,5 +545,92 @@ describe("buildExportPlan", () => {
 
     expect(plan.parts).toHaveLength(1);
     expect(plan.parts[0]).toMatchObject({ kind: "source", durationSec: 2 });
+  });
+});
+
+describe("static images in export", () => {
+  const item = {
+    stableShotId: "a",
+    included: true,
+    position: 0,
+    plannedDurationMs: 1000,
+    durationFrames: 30,
+    timelineStartFrame: 0,
+    transform,
+  };
+  it("holds the current image for the shot duration when no video is selected", () => {
+    const plan = buildExportPlan(
+      material({
+        shots: [{ stableShotId: "a", shotNo: 1, currentImage: { id: 7 } }],
+        items: [item],
+      })
+    );
+    expect(plan.parts).toEqual([
+      expect.objectContaining({
+        kind: "image",
+        imageId: 7,
+        durationFrames: 30,
+      }),
+    ]);
+  });
+  it("uses the shared image layer winner and includes independent image tails", () => {
+    const state = material({
+      shots: [{ stableShotId: "a", shotNo: 1, currentVideo: video(11) }],
+      items: [
+        {
+          ...item,
+          imageClips: [
+            {
+              id: "still",
+              imageId: 7,
+              offsetFrames: 0,
+              timelineStartFrame: 15,
+              durationFrames: 30,
+              visualLayer: 2,
+              transform,
+            },
+          ],
+        },
+      ],
+    });
+    const plan = buildExportPlan(state);
+    expect(plan.totalFrames).toBe(45);
+    expect(plan.parts.map(p => p.kind)).toEqual(["source", "image", "image"]);
+    state.timeline.visualLayerState = { count: 3, hidden: [2] };
+    expect(buildExportPlan(state).parts.some(p => p.kind === "image")).toBe(
+      false
+    );
+  });
+  it("preserves intentional gaps but diagnoses an empty shot as missing", () => {
+    const state = material({
+      shots: [{ stableShotId: "a", shotNo: 1 }],
+      items: [{ ...item, timelineStartFrame: 30 }],
+    });
+    expect(buildExportPlan(state).parts.map(p => p.kind)).toEqual([
+      "gap",
+      "missing",
+    ]);
+  });
+  it("never swaps a selected missing clip for another take or current image", () => {
+    const state = material({
+      shots: [{ stableShotId: "a", shotNo: 1, currentImage: { id: 7 } }],
+      items: [
+        {
+          ...item,
+          primaryVideoEdit: {
+            takeId: 999,
+            sourceStartSec: 0,
+            sourceEndSec: 1,
+            effects: {
+              playbackRate: 1,
+              reverse: false,
+              volume: 1,
+              muted: false,
+            },
+          },
+        },
+      ],
+    });
+    expect(buildExportPlan(state).parts[0].kind).toBe("missing");
   });
 });

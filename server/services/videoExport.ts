@@ -7,6 +7,7 @@
  * （统一分辨率/帧率/音轨，缺音补静音），再 concat 无损拼接——单段失败
  * 可定位，不会产出半坏的成片。
  */
+import { renderExportImage } from "./videoExportImage";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,6 +21,7 @@ import {
   STORY_TIMELINE_FPS,
   timelineMsToFrames,
   timelineOffsetMsToFrames,
+  timelineImageClipStartFrame,
   type StoryMaterialState,
   type TimelineTransform,
   type TimelineVideoEffects,
@@ -39,7 +41,7 @@ import {
 } from "../../shared/timelineSubtitleModel";
 import {
   buildTimelineLayout,
-  resolveTimelineDocumentFrame,
+  resolveTimelineVisualFrame,
   timelineTotalFrames,
   type TimelineLayoutRow,
 } from "../../shared/timelineLayout";
@@ -78,6 +80,16 @@ export type ExportSegment = {
  */
 export type ExportPart =
   | ({ kind: "source" } & ExportSegment)
+  | {
+      kind: "image";
+      imageId: number;
+      shotNo: number;
+      stableShotId: string;
+      startFrame: number;
+      durationFrames: number;
+      durationSec: number;
+      transform: TimelineTransform;
+    }
   | {
       kind: "gap";
       startFrame: number;
@@ -378,6 +390,10 @@ export function buildExportVisualAudioSources(
 /** 两段能不能合成一段：同一个源、而且源时间接得上。 */
 function continuous(previous: ExportSegment, next: ExportSegment): boolean {
   if (previous.file !== next.file) return false;
+  if (JSON.stringify(previous.transform) !== JSON.stringify(next.transform))
+    return false;
+  if (JSON.stringify(previous.effects) !== JSON.stringify(next.effects))
+    return false;
   if (previous.effects.reverse !== next.effects.reverse) return false;
   if (previous.effects.playbackRate !== next.effects.playbackRate) return false;
   const expected = previous.effects.reverse
@@ -426,8 +442,16 @@ export function buildExportPlan(
     material.timeline.items.filter(item => item.included !== false)
   );
   const overlays = material.timeline.overlays ?? [];
+  const imagePlacements = rows.flatMap(row =>
+    (row.item.imageClips ?? []).map(clip => ({
+      start: timelineImageClipStartFrame(clip, row.startFrame),
+      end:
+        timelineImageClipStartFrame(clip, row.startFrame) + clip.durationFrames,
+    }))
+  );
   const visualEndFrame = Math.max(
     timelineTotalFrames(rows),
+    ...imagePlacements.map(clip => clip.end),
     ...overlays.map(overlay => overlay.endFrame)
   );
   const totalFrames = timelineMediaTotalFrames({
@@ -455,6 +479,7 @@ export function buildExportPlan(
             overlay.endFrame,
           ])
         )
+        .concat(imagePlacements.flatMap(clip => [clip.start, clip.end]))
         .concat(totalFrames > 0 ? [0, totalFrames] : [])
     )
   ).sort((left, right) => left - right);
@@ -468,7 +493,7 @@ export function buildExportPlan(
     if (durationFrames <= 0) continue;
     const durationSec = framesToSec(durationFrames);
 
-    const resolved = resolveTimelineDocumentFrame({
+    const resolved = resolveTimelineVisualFrame({
       items: material.timeline.items,
       overlays,
       hiddenVisualLayers: material.timeline.visualLayerState?.hidden,
@@ -476,6 +501,20 @@ export function buildExportPlan(
     });
     if (resolved.kind === "gap") {
       parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
+      continue;
+    }
+    if (resolved.kind === "image") {
+      const { clip, stableShotId } = resolved.placement;
+      parts.push({
+        kind: "image",
+        imageId: clip.imageId,
+        stableShotId,
+        shotNo: byIdentity.get(stableShotId)?.shotNo ?? 0,
+        startFrame,
+        durationFrames,
+        durationSec,
+        transform: clip.transform ?? DEFAULT_TIMELINE_TRANSFORM,
+      });
       continue;
     }
     if (resolved.kind === "overlay") {
@@ -572,10 +611,27 @@ export function buildExportPlan(
     if (source.kind === "gap" || source.sourceTimeSec == null) {
       // 镜头里有切片、只是没盖住这一刻——那是创作者有意留的空档。
       // 整个镜头一点素材都没有则是缺素材，两者的诊断必须分开。
-      if ((item.visualClips?.length ?? 0) > 0) {
+      if (
+        (item.visualClips?.length ?? 0) > 0 ||
+        item.visualClipsReplacePrimary
+      ) {
         parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
       } else {
-        missing("没有可用的当前视频");
+        if (shot?.currentImage) {
+          parts.push({
+            kind: "image",
+            imageId: shot.currentImage.id,
+            shotNo,
+            stableShotId: item.stableShotId,
+            startFrame,
+            durationFrames,
+            durationSec,
+            transform:
+              item.imageTransforms?.[String(shot.currentImage.id)] ??
+              item.transform ??
+              DEFAULT_TIMELINE_TRANSFORM,
+          });
+        } else missing("没有可用的当前视频或图片");
       }
       continue;
     }
@@ -676,7 +732,7 @@ export function buildExportPlan(
       continue;
     }
     if (
-      part.kind !== "source" &&
+      (part.kind === "gap" || part.kind === "missing") &&
       previous?.kind === part.kind &&
       (part.kind === "gap" ||
         (previous.kind === "missing" &&
@@ -1022,7 +1078,7 @@ export async function exportStoryTimeline(params: {
     ? normalizeAudioState(extensions?.audioTracks)
     : legacyMedia.audioState;
 
-  const missingSourceMode = params.missingSourceMode ?? "relaxed";
+  const missingSourceMode = params.missingSourceMode ?? "strict";
   const plan = buildExportPlan(material, {
     fallbackToLatestTake: params.fallbackToLatestTake,
     missingSourceMode,
@@ -1036,6 +1092,22 @@ export async function exportStoryTimeline(params: {
     };
   }
   const missingParts = plan.parts.filter(part => part.kind === "missing");
+  const unsupportedImageText = plan.parts.find(
+    part =>
+      part.kind === "image" &&
+      material.timeline.items.some(
+        item =>
+          item.stableShotId === part.stableShotId &&
+          item.imageTextOverlays?.[String(part.imageId)]?.text?.trim()
+      )
+  );
+  if (unsupportedImageText) {
+    return {
+      status: "error",
+      error:
+        "当前图片包含自定义文字层，成片尚不支持此文字层；请先改用时间轴字幕后再导出，避免遗漏文字。",
+    };
+  }
   if (missingSourceMode === "strict" && missingParts.length > 0) {
     return {
       status: "error",
@@ -1080,6 +1152,43 @@ export async function exportStoryTimeline(params: {
         workDir,
         `part-${String(index).padStart(3, "0")}.mp4`
       );
+      if (planned.kind === "image") {
+        const imagePath = path.join(workDir, `image-${index}.png`);
+        await renderExportImage({
+          storyId: params.storyId,
+          userId: params.userId,
+          imageId: planned.imageId,
+          transform: planned.transform,
+          dimensions: dims,
+          outputPath: imagePath,
+        });
+        await runFfmpeg(
+          [
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            imagePath,
+            "-t",
+            planned.durationSec.toFixed(6),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "19",
+            "-pix_fmt",
+            "yuv420p",
+            "-an",
+            part,
+          ],
+          120_000
+        );
+        parts.push(part);
+        continue;
+      }
       // 有意的空档和缺素材占位都不去摸文件系统：直接生成等长的黑画面加静音，
       // 规格和真实片段完全一致，concat 时才不会串流失败。
       if (planned.kind !== "source") {
