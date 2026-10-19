@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { planImagePack, type ImagePackOptions } from "./imagePackComposition";
 import {
   imagePackParagraphs,
@@ -6,53 +5,19 @@ import {
 } from "./imagePackIllustrations";
 import { publishingAlbumGraphemes } from "./publishingAlbumLayout";
 
+// The server validates shared layouts with the same schema, so it lives in shared/.
+import {
+  moduleDocumentSchema,
+  type ImagePackModule,
+  type ModuleDocument,
+  type ModuleRect,
+} from "@shared/sharedLayout";
+export { moduleDocumentSchema };
+export type { ImagePackModule, ModuleDocument, ModuleRect };
+
 export const MODULE_PAGE = { width: 900, height: 1200 };
-const number = z.number().finite();
-const rectSchema = z.object({
-  x: number,
-  y: number,
-  width: number.positive(),
-  height: number.positive(),
-});
-export type ModuleRect = z.infer<typeof rectSchema>;
-const common = {
-  id: z.string(),
-  rect: rectSchema,
-  positioned: z.boolean().optional(),
-};
-const moduleSchema = z.discriminatedUnion("kind", [
-  z.object({
-    ...common,
-    kind: z.literal("text"),
-    text: z.string().max(12000),
-    fontSize: number.min(8).max(240),
-    contentWidth: number.positive(),
-    contentHeight: number.positive(),
-    alignment: z.enum(["start", "center"]),
-    emphasis: z.enum(["normal", "bright"]).optional(),
-    backdrop: z.boolean().optional(),
-  }),
-  z.object({
-    ...common,
-    kind: z.literal("image"),
-    imageUrl: z.string(),
-    crop: rectSchema,
-  }),
-]);
-export const moduleDocumentSchema = z.object({
-  version: z.literal(1),
-  flowVersion: z.literal(1).optional(),
-  pages: z
-    .array(
-      z.object({ label: z.string(), modules: z.array(moduleSchema).max(300) })
-    )
-    .min(1)
-    .max(9),
-});
-export type ImagePackModule = z.infer<typeof moduleSchema>;
 export type TextModule = Extract<ImagePackModule, { kind: "text" }>;
 export type ImageModule = Extract<ImagePackModule, { kind: "image" }>;
-export type ModuleDocument = z.infer<typeof moduleDocumentSchema>;
 
 /** Keep text readable over pictures, with the same stacking in canvas and hit targets. */
 export function modulePaintOrder(

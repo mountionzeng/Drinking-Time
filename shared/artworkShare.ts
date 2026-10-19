@@ -5,6 +5,10 @@ import {
   type SharedWork,
 } from "./sharePermissions";
 import { z } from "zod";
+import {
+  sharedLayoutPackageSchema,
+  type SharedLayoutPackage,
+} from "./sharedLayout";
 
 export const ARTWORK_SHARE_MAX_PAGES = 9;
 export const ARTWORK_SHARE_MAX_BYTES = 8 * 1024 * 1024;
@@ -15,6 +19,12 @@ export type ArtworkSnapshot = {
   work?: SharedWork;
   author?: { name: string };
   pages: Array<{ dataUrl: string; width: number; height: number }>;
+  /** Editable layout package. Server-only: never returned by the public read. */
+  layout?: SharedLayoutPackage;
+};
+/** What anyone holding the link sees. */
+export type PublicArtworkSnapshot = Omit<ArtworkSnapshot, "layout"> & {
+  hasLayout: boolean;
 };
 export function artworkAuthorName(name?: string | null): string {
   const value = name?.trim();
@@ -36,6 +46,7 @@ export const artworkShareCreateSchema = z
       )
       .min(1)
       .max(ARTWORK_SHARE_MAX_PAGES),
+    layout: sharedLayoutPackageSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (

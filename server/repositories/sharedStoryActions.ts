@@ -358,6 +358,23 @@ async function shareOrigin(userId: number, storyId: number) {
   return null;
 }
 
+/**
+ * The author's story a recipient copy may send work back to. Requires an
+ * active share with rewrite permission. Server-only: never returned to clients.
+ */
+export async function shareBackTarget(userId: number, storyId: number) {
+  const origin = await shareOrigin(userId, storyId);
+  if (!origin) throw denied();
+  if (origin.share.revokedAt) throw unavailable();
+  if (!source(origin.share, origin.kind).permissions.rewrite) throw denied();
+  return {
+    kind: origin.kind,
+    tokenHash: origin.tokenHash,
+    userId: origin.share.userId,
+    storyId: origin.share.storyId,
+  };
+}
+
 /** Whether this copy can be shared back to the original author right now. */
 export async function shareBackStatus(userId: number, storyId: number) {
   const origin = await shareOrigin(userId, storyId);

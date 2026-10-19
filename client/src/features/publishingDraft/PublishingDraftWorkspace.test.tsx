@@ -66,6 +66,11 @@ vi.mock("@/lib/trpc", () => {
           storyMaterialState: { invalidate: vi.fn() },
         },
       }),
+      artworkShare: {
+        layout: { useQuery: () => ({ data: undefined }) },
+        shareBackLayout: { useMutation: mutation },
+        resolveLayoutCandidate: { useMutation: mutation },
+      },
       publishingDraft: {
         readAlbum: { useQuery: () => ({ data: undefined }) },
         read: { useQuery: () => ({ data: api.readData }) },

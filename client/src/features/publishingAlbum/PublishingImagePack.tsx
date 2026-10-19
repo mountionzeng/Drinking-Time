@@ -1,6 +1,13 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
+import { SharedLayoutBar } from "./SharedLayoutBar";
+import {
+  buildSharedLayoutPackage,
+  sharedLayoutAssets,
+  sharedLayoutSettings,
+  type SharedLayoutStored,
+} from "./sharedLayoutClient";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, ImagePlus, Loader2, Share2 } from "lucide-react";
@@ -63,6 +70,18 @@ type Settings = {
 };
 
 function readSettings(key: string, coverId: number | null): Settings {
+  try {
+    return normalizeSettings(
+      JSON.parse(localStorage.getItem(key) ?? "null"),
+      coverId
+    );
+  } catch {
+    return normalizeSettings(null, coverId);
+  }
+}
+
+/** Validate saved or shared quick-layout settings against what this device supports. */
+function normalizeSettings(value: any, coverId: number | null): Settings {
   const fallback: Settings = {
     title: null,
     coverId,
@@ -76,7 +95,6 @@ function readSettings(key: string, coverId: number | null): Settings {
     materialBatch: 0,
   };
   try {
-    const value = JSON.parse(localStorage.getItem(key) ?? "null");
     if (!value || typeof value !== "object") return fallback;
     return {
       title: typeof value.title === "string" ? value.title : null,
@@ -226,6 +244,14 @@ export function PublishingImagePack({
   const libraryUpload = useRef<HTMLInputElement>(null);
   const moduleEditor = useRef<ImagePackModuleEditorHandle>(null);
   const [preparingPreview, setPreparingPreview] = useState(false);
+  // Whether this device already had quick-layout settings when the editor opened.
+  const [hadSettings] = useState(() => {
+    try {
+      return localStorage.getItem(key) != null;
+    } catch {
+      return true;
+    }
+  });
   const [settings, setSettings] = useState(() => {
     const value = readSettings(key, adoptedCoverId);
     if (adoptedCoverId == null) {
@@ -247,6 +273,15 @@ export function PublishingImagePack({
     { storyId, versionId },
     { enabled: hasAlbum && storyId > 0, retry: false }
   );
+  // Layouts (and their pictures) shared with this story by the author or a friend.
+  const layoutQuery = trpc.artworkShare.layout.useQuery(
+    { storyId },
+    { enabled: storyId > 0, retry: false, refetchOnWindowFocus: false }
+  );
+  const sharedAssets = useMemo(
+    () => sharedLayoutAssets(layoutQuery.data),
+    [layoutQuery.data]
+  );
   const assets = useMemo(() => {
     const all = new Map(coverAssets.map(asset => [asset.id, asset]));
     const warnings = new Map<number, string>();
@@ -266,8 +301,10 @@ export function PublishingImagePack({
           warning: warnings.get(asset.id),
         });
     }
+    for (const asset of sharedAssets)
+      if (!all.has(asset.id)) all.set(asset.id, asset);
     return Array.from(all.values());
-  }, [coverAssets, albumQuery.data]);
+  }, [coverAssets, albumQuery.data, sharedAssets]);
   const layoutAssets = useMemo(
     () => [...assets, ...localImages.images],
     [assets, localImages.images]
@@ -574,6 +611,96 @@ export function PublishingImagePack({
   function update(patch: Partial<Settings>) {
     setSettings(value => ({ ...value, ...patch }));
   }
+
+  // Hand-placed modules of an applied shared layout wait until its settings,
+  // pictures and derived paper colors resolve, then save under the new basis.
+  const [pendingLayoutModules, setPendingLayoutModules] =
+    useState<ModuleDocument | null>(null);
+  const paletteSettled =
+    !hasColorSource ||
+    Boolean(currentTheme?.paperPalette || currentTheme?.error);
+  useEffect(() => {
+    if (!pendingLayoutModules || !paletteSettled) return;
+    const urls = new Set(layoutAssets.map(asset => asset.imageUrl));
+    if (
+      pendingLayoutModules.pages.some(page =>
+        page.modules.some(
+          module => module.kind === "image" && !urls.has(module.imageUrl)
+        )
+      )
+    )
+      return;
+    setPendingLayoutModules(null);
+    const document = readModuleDocument(
+      JSON.stringify(pendingLayoutModules),
+      JSON.parse(basis),
+      [...urls]
+    );
+    if (!document) {
+      toast.error(t("这套排版的手动摆放无法套用，已改用自动排版"));
+      return;
+    }
+    try {
+      const storageKey = moduleStorageKey(scope, basis);
+      localStorage.removeItem(`${storageKey}:draft`);
+      localStorage.setItem(storageKey, JSON.stringify(document));
+    } catch {
+      /* The applied layout still shows for this session. */
+    }
+    setModuleOverride({ basis, document });
+  }, [pendingLayoutModules, paletteSettled, layoutAssets, basis, scope, t]);
+
+  /** Apply a whole shared layout page set; returns an undo. */
+  function applySharedLayout(layout: SharedLayoutStored) {
+    const previous = settings;
+    const previousOverride = moduleOverride;
+    setSettings(value => ({
+      ...normalizeSettings(
+        { ...value, ...sharedLayoutSettings(layout) },
+        adoptedCoverId
+      ),
+      materialBatch: value.materialBatch,
+    }));
+    setPendingLayoutModules(layout.modules);
+    setModuleOverride(null);
+    setModuleSession(null);
+    return () => {
+      setPendingLayoutModules(null);
+      setModuleOverride(previousOverride);
+      setModuleSession(null);
+      setSettings(previous);
+    };
+  }
+  // A friend's copy opens with the author's layout once, unless this device
+  // already has its own layout settings.
+  const seededLayout = useRef(hadSettings);
+  useEffect(() => {
+    const inherited = layoutQuery.data?.inherited;
+    if (seededLayout.current || !inherited) return;
+    seededLayout.current = true;
+    applySharedLayout(inherited);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutQuery.data]);
+
+  function buildLayoutPackage() {
+    return buildSharedLayoutPackage({
+      settings: {
+        title: settings.title?.slice(0, 200) ?? null,
+        style: settings.style,
+        fontId: settings.fontId,
+        texture: settings.texture,
+        textureSeed: settings.textureSeed,
+        includeCover: settings.includeCover,
+      },
+      coverUrl: cover?.imageUrl,
+      bodyTextureUrl: bodyTexture?.imageUrl,
+      illustrations: settings.illustrations.flatMap(placement => {
+        const asset = assets.find(item => item.id === placement.assetId);
+        return asset ? [{ imageUrl: asset.imageUrl, after: placement.after }] : [];
+      }),
+      modules,
+    });
+  }
   async function changeMobileStep(step: "preview" | "images" | "layout") {
     if (preparingPreview) return;
     if (step === "preview" && moduleSession && moduleSession.basis === basis) {
@@ -757,6 +884,13 @@ export function PublishingImagePack({
           {generationError}
         </p>
       ) : null}
+      <SharedLayoutBar
+        storyId={storyId}
+        candidates={layoutQuery.data?.candidates ?? []}
+        canShareBack={ready}
+        onApply={applySharedLayout}
+        buildPackage={buildLayoutPackage}
+      />
       <header className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div>
           <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -1734,9 +1868,10 @@ export function PublishingImagePack({
                   {t("下载当前图片")}
                 </a>
               ) : null}
-              {mobile && ready ? (
+              {ready ? (
                 <ArtworkShareDialog
                   key={`${output.signature}:${shareEpoch}`}
+                  loadLayout={buildLayoutPackage}
                   storyId={storyId}
                   title={options.title}
                   work={{

@@ -90,6 +90,7 @@ const SERVER_OWNED_BODY_FIELDS = [
   "storyboardTextSource",
   "creationFlowReceipts",
   "creationFlowCommandReceipts",
+  "sharedLayout",
 ] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { prepareArtworkShareImages } from "./artworkShareImages";
 import { artworkAuthorName } from "@shared/artworkShare";
+import type { SharedLayoutPackage } from "@shared/sharedLayout";
 import { ArtworkAuthor } from "./ArtworkAuthor";
 import { ImageCandidatePreview } from "./ImageCandidatePreview";
 import type { ImagePackResult } from "./imagePackComposition";
@@ -23,7 +24,10 @@ export function ArtworkShareDialog({
   title,
   pages,
   work,
+  loadLayout,
 }: {
+  /** Whole editable layout, sent only when the friend may rewrite or save a copy. */
+  loadLayout?(): Promise<SharedLayoutPackage>;
   work?: SharedWork;
   storyId: number;
   title: string;
@@ -41,6 +45,7 @@ export function ArtworkShareDialog({
   const [progress, setProgress] = useState("");
   const inFlight = useRef(false);
   const prepared = useRef<string[] | null>(null);
+  const preparedLayout = useRef<SharedLayoutPackage | null>(null);
   const create = trpc.artworkShare.create.useMutation();
   const me = trpc.auth.me.useQuery(undefined, { staleTime: 60_000 });
   async function publish() {
@@ -54,6 +59,12 @@ export function ArtworkShareDialog({
         pages.map(page => page.blob),
         (done, total) => setProgress(`正在准备图片 ${done}/${total}…`)
       );
+      const editable = permissions.rewrite || permissions.fork;
+      let layout: SharedLayoutPackage | undefined;
+      if (editable && loadLayout) {
+        setProgress("正在准备可编辑排版…");
+        layout = preparedLayout.current ??= await loadLayout();
+      }
       setProgress("正在生成链接…");
       const result = await create.mutateAsync({
         storyId,
@@ -61,7 +72,8 @@ export function ArtworkShareDialog({
         token,
         pages: prepared.current,
         permissions,
-        work: permissions.rewrite || permissions.fork ? work : undefined,
+        work: editable ? work : undefined,
+        layout,
       });
       setLink(new URL(result.path, window.location.origin).href);
     } catch (cause) {
@@ -125,6 +137,7 @@ export function ArtworkShareDialog({
           </div>
           {!link && work && <>
             <SharePermissions value={permissions} disabled={busy} onChange={value => { setPermissions(value); setToken(crypto.randomUUID()); }} />
+            {(permissions.rewrite || permissions.fork) && loadLayout && <p className="text-xs leading-6 text-muted-foreground">{t("对方会收到可编辑的整套排版和其中的图片，可以接着改，也可以把改好的排版分享回给你。")}</p>}
             {(permissions.rewrite || permissions.fork) && <details className="text-sm"><summary className="cursor-pointer">同时分享的作品文字</summary><p className="mt-2 whitespace-pre-wrap leading-7">{work.body}</p></details>}
           </>}
           {window.location.hostname === "localhost" ||

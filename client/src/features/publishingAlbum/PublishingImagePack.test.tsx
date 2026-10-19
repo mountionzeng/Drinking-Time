@@ -9,7 +9,12 @@ vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
 const query = vi.hoisted(() => ({ data: undefined as any }));
 const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
 const generationPanels = vi.hoisted(() => new Map<string, React.ReactNode>());
-vi.mock("@/lib/trpc", () => ({ trpc: { publishingDraft: { readAlbum: { useQuery: () => query } } } }));
+const layoutQuery = vi.hoisted(() => ({ data: undefined as any }));
+vi.mock("@/lib/trpc", () => ({ trpc: {
+  publishingDraft: { readAlbum: { useQuery: () => query } },
+  artworkShare: { layout: { useQuery: () => layoutQuery } },
+} }));
+vi.mock("./SharedLayoutBar", () => ({ SharedLayoutBar: () => null }));
 vi.mock("@/components/ui/popover", async importOriginal => {
   const original = await importOriginal<typeof import("@/components/ui/popover")>();
   return { ...original, PopoverContent: (props: React.ComponentProps<typeof original.PopoverContent>) => {
