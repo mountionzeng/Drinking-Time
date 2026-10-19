@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-18",
+  "updatedAt": "2026-10-19",
   "features": [
     {
       "id": "story-context-sharing",
@@ -1741,7 +1741,8 @@
         "server/services/imageGen.test.ts",
         "server/services/videoJobs.test.ts",
         "server/_core/httpConnectionPool.test.ts",
-        "docs/qa/2026-10-13-image-network-proxy.md"
+        "docs/qa/2026-10-13-image-network-proxy.md",
+        "docs/qa/2026-10-19-agent-connectivity-recovery.md"
       ],
       "invariants": [
         "OpenAI Next 只承接 OpenAI 兼容的文本与多模态 chat/completions。",
@@ -1755,7 +1756,8 @@
       "replaces": [],
       "knownGaps": [
         "本次新增的 Story Agent、登录 DeepSeek V4 与视觉统一执行器尚未使用轮换后的低额度 Key 做主仓 3000 真实 smoke；当前只完成 mock/契约回归。",
-        "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。"
+        "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。",
+        "2026-10-19正式站Next首选真实聊天已恢复；302旧备用域名不可达，原Claude模型在国内端点返回禁用，备用通道仍未恢复；历史未知提交需独立对账。"
       ],
       "history": [
         {
@@ -1807,6 +1809,11 @@
           "date": "2026-08-15",
           "kind": "verification",
           "summary": "统一语义标注、发布故事板转写、视觉导演、归档视觉和图片编辑身份提取；付费图片/视频、TTS 与转写 adapter 保持独立。"
+        },
+        {
+          "date": "2026-10-19",
+          "kind": "fix",
+          "summary": "正式站Agent连接故障确认：Next凭据未配置导致落到不可达302旧域名，国内端点原Claude模型又被禁用。按用户授权补齐现有Next/gpt-5.6-terra配置并重启上线；真实模型、浏览器独立虚构故事回复与卡片及正文伴写、HTTPS健康检查通过，84项定向回归与64张功能账本校验通过。应用与数据库未变，旧失败队列和未知计费不自动重放。详见恢复QA。"
         }
       ]
     },
@@ -6496,7 +6503,9 @@
         "docs/qa/2026-10-13-unified-writing-release.md",
         "docs/qa/2026-10-15-writing-mobile-release.md",
         "docs/qa/2026-10-16-module-chat-memory.md",
-        "client/src/features/storyAgent/views/StoryAgentChat.layout.test.ts"
+        "client/src/features/storyAgent/views/StoryAgentChat.layout.test.ts",
+        "docs/qa/2026-10-19-agent-connectivity-recovery.md",
+        "docs/qa/2026-10-19-chat-queue-ui.md"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6601,6 +6610,16 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "按用户要求移除桌面聊天底部“聊天会自动收进记忆仓库 · 查看记忆”提示入口；自动保存聊天及顶部记忆仓库保留。本地3000编辑页确认提示消失、顶部入口存在；尚未部署。"
+        },
+        {
+          "date": "2026-10-19",
+          "kind": "fix",
+          "summary": "正式站Agent连接故障确认：Next凭据未配置导致落到不可达302旧域名，国内端点原Claude模型又被禁用。按用户授权补齐现有Next/gpt-5.6-terra配置并重启上线；真实模型、浏览器独立虚构故事回复与卡片及正文伴写、HTTPS健康检查通过，84项定向回归与64张功能账本校验通过。应用与数据库未变，旧失败队列和未知计费不自动重放。详见恢复QA。"
+        },
+        {
+          "date": "2026-10-19",
+          "kind": "fix",
+          "summary": "按用户要求删除桌面聊天底部难懂的队列说明与继续发送排队消息按钮；需要恢复的首条待发消息旁显示发送，有失败消息时仍先核对，不自动重放未知请求。消息、原正文上下文与持久恢复保持。10项队列/布局测试及类型检查通过，主仓3000目视检查通过。"
         }
       ]
     },

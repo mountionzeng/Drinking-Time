@@ -1208,6 +1208,9 @@ export default function StoryAgentChat({
       {item.status !== "sending" && <button type="button" onClick={() => chatQueue.takeBack(item.id)}>
         {item.status === "failed" ? "已核对，移出队列" : "取消排队"}
       </button>}
+      {chatQueue.paused && item.status === "queued" && chatQueue.items[0]?.id === item.id &&
+        !chatQueue.items.some(message => message.status === "failed") &&
+        <button type="button" onClick={chatQueue.resume}>发送</button>}
     </div>;
   };
 
@@ -1871,11 +1874,6 @@ export default function StoryAgentChat({
             </div>
           </div>
         ))}
-        {chatQueue.paused && chatQueue.items.length > 0 && <div role="status" className="text-[11px] text-muted-foreground">
-          <p>待发内容和原来的文字上下文已保留。请核对未完成的消息后继续。</p>
-          <button type="button" disabled={chatQueue.items.some(item => item.status === "failed")} onClick={chatQueue.resume}
-            className="mt-1 text-[var(--nayin-accent)] disabled:opacity-40">继续发送排队消息</button>
-        </div>}
 
       </div>
 
