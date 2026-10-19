@@ -27,9 +27,11 @@ import type { ArtworkSnapshot } from "../../shared/artworkShare";
 import { buildInheritedStoryInput } from "../services/storyContextSnapshot";
 import {
   readTextDraftHistory,
+  textDraftContentSchema,
   textDraftVersionSchema,
   type TextDraftContent,
 } from "../../shared/textDraftHistory";
+import { normalizePublishingDraftState } from "../../shared/publishingDraft";
 import { getStoryRevision, prepareStoryBody } from "../services/storySync";
 
 export type ShareKind = "story" | "artwork";
@@ -211,6 +213,10 @@ async function withShare<T>(
   });
 }
 
+/**
+ * Co-editing copy. Either permission lets the recipient take a working copy:
+ * with `rewrite` the copy can later be shared back as a candidate for the author.
+ */
 export function forkSharedStory(
   kind: ShareKind,
   tokenHash: string,
@@ -218,7 +224,7 @@ export function forkSharedStory(
 ) {
   return withShare(kind, tokenHash, async (share, _story, storage) => {
     const data = source(share, kind);
-    if (!data.permissions.fork) throw denied();
+    if (!data.permissions.fork && !data.permissions.rewrite) throw denied();
     const prior = await storage.receipt(userId);
     if (prior) return prior;
     const snapshot =
@@ -306,5 +312,90 @@ export function contributeSharedStory(
     await storage.save(prepared);
     // Never return author ids, history, memories or unpublished text to the recipient.
     return { submitted: true as const };
+  });
+}
+
+/** Which share a recipient's copy came from. Server-only: never returned to clients. */
+async function shareOrigin(userId: number, storyId: number) {
+  const db = await getDb();
+  let tokenHash: string | undefined;
+  if (db) {
+    const [row] = await db
+      .select()
+      .from(storyContextShareImports)
+      .where(
+        and(
+          eq(storyContextShareImports.userId, userId),
+          eq(storyContextShareImports.storyId, storyId)
+        )
+      );
+    tokenHash = row?.tokenHash;
+  } else {
+    tokenHash = memoryState.storyContextShareImports.find(
+      row => row.userId === userId && row.storyId === storyId
+    )?.tokenHash;
+  }
+  if (!tokenHash) return null;
+  const find = async (kind: ShareKind) => {
+    if (db) {
+      const table = kind === "story" ? storyContextShares : artworkShares;
+      const [share] = await db
+        .select()
+        .from(table)
+        .where(eq(table.tokenHash, tokenHash!));
+      return share as Share | undefined;
+    }
+    const rows =
+      kind === "story"
+        ? memoryState.storyContextShares
+        : memoryState.artworkShares;
+    return rows.find(row => row.tokenHash === tokenHash) as Share | undefined;
+  };
+  for (const kind of ["story", "artwork"] as const) {
+    const share = await find(kind);
+    if (share) return { kind, tokenHash, share };
+  }
+  return null;
+}
+
+/** Whether this copy can be shared back to the original author right now. */
+export async function shareBackStatus(userId: number, storyId: number) {
+  const origin = await shareOrigin(userId, storyId);
+  if (!origin || origin.share.revokedAt) return { available: false as const };
+  const data = source(origin.share, origin.kind);
+  return { available: Boolean(data.permissions.rewrite && data.work) };
+}
+
+/**
+ * Sends the recipient's saved article back to the author as a candidate version
+ * labelled as co-edited. The author's text only changes after the author adopts it.
+ */
+export async function shareBackFork(input: {
+  userId: number;
+  storyId: number;
+  authorName: string;
+  operationToken: string;
+  body: Story["body"];
+}) {
+  const origin = await shareOrigin(input.userId, input.storyId);
+  if (!origin) throw denied();
+  const publishing = normalizePublishingDraftState(
+    (input.body as Record<string, unknown> | null)?.publishing
+  );
+  const draft = publishing.drafts[publishing.activePlatform];
+  if (!draft?.content.body.trim())
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "请先写好并保存正文，再分享回给作者",
+    });
+  return contributeSharedStory(origin.kind, origin.tokenHash, {
+    userId: input.userId,
+    authorName: input.authorName,
+    operationToken: input.operationToken,
+    content: textDraftContentSchema.parse({
+      title: draft.content.title,
+      body: draft.content.body,
+      tags: [...draft.content.tags],
+    }),
   });
 }

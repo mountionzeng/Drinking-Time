@@ -508,7 +508,7 @@ export function TextDraftVersions({
                 disabled={adopt.isPending}
                 onClick={() => selectVersion(version)}
               >
-                文字 {version.sequence}{version.contribution ? ` · ${version.contribution.authorName}的改写` : ""}
+                文字 {version.sequence}{version.contribution ? ` · 和${version.contribution.authorName}一起改的` : ""}
                 {currentSource &&
                 "textDraftId" in currentSource &&
                 currentSource.textDraftId === version.id

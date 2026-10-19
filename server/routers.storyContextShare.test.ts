@@ -14,6 +14,7 @@ import {
 } from "../shared/publishingDraft";
 import { inheritedStoryReference } from "../shared/storyContextShare";
 import { prepareStoryBody } from "./services/storySync";
+import { canonicalizePublishingDraftState } from "./services/publishingPersistence";
 import { readFile } from "node:fs/promises";
 
 vi.mock("./services/promptLineageStore", () => ({
@@ -229,6 +230,54 @@ describe("story context sharing", () => {
     ).rejects.toThrow("disk-full");
     expect(runtime.memoryState.storyContextShares).toHaveLength(1);
     persist.mockRestore();
+  });
+
+  it("lets the recipient share an edited copy back as a labelled candidate the author must adopt", async () => {
+    const { id, token } = await fixture();
+    const authorBefore = structuredClone(await getStoryById(id, 10));
+    const { storyId } = await caller(20).accept({ token });
+    expect(await caller(20).backStatus({ storyId })).toEqual({ available: true });
+    const copy = runtime.memoryState.stories.find(row => row.id === storyId)!;
+    // Same canonical write path as a real save: the active version owns the drafts.
+    (copy.body as Record<string, unknown>).publishing = canonicalizePublishingDraftState(
+      upsertPublishingPlatformDraft(
+        normalizePublishingDraftState((copy.body as Record<string, unknown>).publishing),
+        {
+          platform: "xiaohongshu",
+          content: { title: "海边的朋友", body: "乙改过的海边故事。", tags: ["成长"] },
+          activate: true,
+        }
+      )
+    );
+    const operationToken = crypto.randomUUID();
+    await expect(caller(20).shareBack({ storyId, operationToken })).resolves.toEqual({ submitted: true });
+    await expect(caller(20).shareBack({ storyId, operationToken })).resolves.toEqual({ submitted: true });
+    const author = (await getStoryById(id, 10))!;
+    const versions = (author.body as any).textDraftHistory.versions;
+    expect(versions).toHaveLength(1);
+    expect(versions[0].contribution.userId).toBe(20);
+    expect(versions[0].generated.body).toBe("乙改过的海边故事。");
+    expect(versions[0].originalLearningEnabled).toBe(false);
+    expect(versions[0].adoption).toBeUndefined();
+    expect((author.body as any).publishing).toEqual((authorBefore!.body as any).publishing);
+    // A stranger cannot use someone else's copy, nor their own unrelated story.
+    await expect(caller(30).shareBack({ storyId, operationToken: crypto.randomUUID() })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const own = await createStory({ userId: 30, title: "自己的", body: {} });
+    expect(await caller(30).backStatus({ storyId: own.id })).toEqual({ available: false });
+    await expect(caller(30).shareBack({ storyId: own.id, operationToken: crypto.randomUUID() })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await caller(10).revoke({ storyId: id });
+    expect(await caller(20).backStatus({ storyId })).toEqual({ available: false });
+    await expect(caller(20).shareBack({ storyId, operationToken: crypto.randomUUID() })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await getStoryById(storyId, 20)).not.toBeNull();
+  });
+
+  it("fork-only shares give a copy that cannot be shared back", async () => {
+    const { id } = await fixture();
+    const preview = await caller(10).preview({ storyId: id, permissions: { rewrite: false, fork: true } });
+    const { path } = await caller(10).create({ storyId: id, permissions: { rewrite: false, fork: true }, fingerprint: preview.fingerprint });
+    const { storyId } = await caller(20).accept({ token: path.slice(3) });
+    expect(await caller(20).backStatus({ storyId })).toEqual({ available: false });
+    await expect(caller(20).shareBack({ storyId, operationToken: crypto.randomUUID() })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("requires the exact preview and includes visible uncommitted article edits only in the share", async () => {

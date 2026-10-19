@@ -102,6 +102,8 @@ vi.mock("@/lib/trpc", () => {
       storyContextShare: {
         preview: { useQuery: () => ({ data: undefined }) },
         source: { useQuery: () => ({ data: null }) },
+        backStatus: { useQuery: () => ({ data: { available: false } }) },
+        shareBack: { useMutation: mutation },
         create: { useMutation: mutation },
         revoke: { useMutation: mutation },
       },

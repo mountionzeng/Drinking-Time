@@ -1,4 +1,5 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { ShareBackButton } from "@/features/sharing/ShareBackButton";
 import {
   MobileMemoryFollowup,
   useCompanionPageContext,
@@ -320,7 +321,7 @@ export function MobileStoryWorkspace({
                         {[...versions].reverse().map(version => (
                           <option key={version.id} value={version.id}>
                             {t("文字稿")}
-                            {version.sequence}{version.contribution ? ` · ${version.contribution.authorName}的改写` : ""}
+                            {version.sequence}{version.contribution ? ` · 和${version.contribution.authorName}一起改的` : ""}
                             {version.adoption
                               ? t(" · 已采用")
                               : version.status === "ready"
@@ -355,6 +356,11 @@ export function MobileStoryWorkspace({
                           {t("编辑")}
                         </button>
                       )}
+                      <ShareBackButton
+                        storyId={storyId}
+                        unsaved={document.hasUnsavedChanges || Boolean(editor.draft)}
+                        className="min-h-11 shrink-0 px-2 text-sm text-primary disabled:opacity-45"
+                      />
                     </div>
                     {selected?.status === "ready" &&
                       !selected.adoption &&

@@ -28,6 +28,10 @@ vi.mock("@/lib/trpc", () => ({
       syncStory: { useMutation: () => ({ mutateAsync: api.mutation }) },
     },
     storyAgent: { storyVideoAssets: { useQuery: api.videos } },
+    storyContextShare: {
+      backStatus: { useQuery: () => ({ data: { available: false } }) },
+      shareBack: { useMutation: () => ({ mutateAsync: api.mutation, isPending: false }) },
+    },
   },
 }));
 

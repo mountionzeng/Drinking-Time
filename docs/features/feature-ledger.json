@@ -6855,17 +6855,20 @@
         "server/routers/artworkShare.ts",
         "server/services/textDraftHistory.ts",
         "client/src/features/sharing/SharePermissions.tsx",
-        "client/src/features/sharing/SharedWorkActions.tsx"
+        "client/src/features/sharing/SharedWorkActions.tsx",
+        "client/src/features/sharing/ShareBackButton.tsx"
       ],
       "evidence": [
         "server/routers.sharePermissions.test.ts",
         "server/integration/sharedStoryActions.mysql.test.ts",
         "client/src/features/sharing/SharedWorkActions.test.tsx",
+        "server/routers.storyContextShare.test.ts",
         "shared/loginReturnPath.test.ts",
         "docs/qa/2026-10-14-share-permissions.md"
       ],
       "invariants": [
-        "新分享默认只读，两项权限独立且仅由分享者创建时明确授予；旧分享不扩权。",
+        "新分享默认只读，两项权限仅由分享者创建时明确授予；任一权限都可「拿来一起改」得到接收者副本，只有改写权限允许从副本「分享回给作者」。2026-10-19 经用户批准合并旧「帮作者改写」文本框入口，旧接口保留兼容。",
+        "分享回给作者只提交接收者已保存的正文，作为标明「和某某一起改的」候选版本；副本来源仅在服务端按承接回执查找，不返回给客户端；作者停用链接后不能再分享回。",
         "接收方仅取得已预览作品，不取得源故事记忆、聊天或历史稿。",
         "提交候选不改变原稿；采用须作者登录、明确操作并通过版本冲突校验，协助改写默认不参与作者文风学习。",
         "权限、撤销和源故事归属在持久化事务中重新检查；重复请求不重复建故事或候选，失败原子回滚。",
@@ -6880,7 +6883,8 @@
       "knownGaps": [
         "正式站双账号文字分享/候选提交/作者采用/独立承接已验收；图文分享/p跨账号完整操作及真机浏览器仍待进一步验收。",
         "权限对所有链接持有人生效，暂无指定收件人、逐条撤销或到期时间。",
-        "桌面快捷历史与文风说明沿用通用文案，完整历史已正确展示贡献者；部分公网操作等待较长，需继续观察。"
+        "桌面快捷历史与文风说明沿用通用文案，完整历史已正确展示贡献者；部分公网操作等待较长，需继续观察。",
+        "一起改目前只覆盖文字：副本不复制图片，图片还没有候选版本与作者采用流程；作者收到新版本暂无提醒；视频共创未开始。"
       ],
       "history": [
         {
@@ -6892,6 +6896,11 @@
           "date": "2026-10-14",
           "kind": "verification",
           "summary": "eeccb10d已推送并部署；受限MySQL64项、小程序215项通过，78文件一致、77业务表及32迁移不变，备份和回滚检查通过。正式站两真实账号实测文字分享、朋友候选、作者明确采用、独立承接及记忆/聊天隔离通过，未调用付费AI。"
+        },
+        {
+          "date": "2026-10-19",
+          "kind": "implementation",
+          "summary": "文字一起改：分享页合并为「拿来一起改」，副本内新增「分享回给作者」（电脑端在分享链接旁，手机端在版本栏编辑旁），作者版本标为「和某某一起改的」。新增分享回传、重放幂等、陌生人拒绝、只开承接不能回传、停用后拒绝等测试；未部署，未调用AI。"
         }
       ]
     },

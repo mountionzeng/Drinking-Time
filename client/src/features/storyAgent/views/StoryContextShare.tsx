@@ -1,4 +1,5 @@
 import { SharePermissions } from "@/features/sharing/SharePermissions";
+export { ShareBackButton } from "@/features/sharing/ShareBackButton";
 import { VIEW_ONLY } from "@shared/sharePermissions";
 import { useState } from "react";
 import { toast } from "sonner";

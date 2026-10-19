@@ -39,6 +39,7 @@ import { trpc } from "@/lib/trpc";
 import {
   StoryContextShareDialog,
   InheritedStorySource,
+  ShareBackButton,
 } from "@/features/storyAgent/views/StoryContextShare";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
@@ -1869,10 +1870,17 @@ export default function PublishingDraftWorkspace({
           </div>
           <div className="flex flex-col items-end gap-2">
             {activeStoryId != null && activeStoryId > 0 ? (
-              <ActionButton onClick={() => setShareOpen(true)}>
-                <Link2 className="h-4 w-4" />
-                分享链接
-              </ActionButton>
+              <div className="flex items-center gap-2">
+                <ShareBackButton
+                  storyId={activeStoryId}
+                  unsaved={dirty}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-45"
+                />
+                <ActionButton onClick={() => setShareOpen(true)}>
+                  <Link2 className="h-4 w-4" />
+                  分享链接
+                </ActionButton>
+              </div>
             ) : null}
           </div>
         </header>

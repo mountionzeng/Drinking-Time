@@ -21,9 +21,10 @@ describe("sharing controls", () => {
   it.each(["story", "artwork"] as const)("only shows authorized %s actions", kind => {
     const render = (rewrite: boolean, fork: boolean) => renderToStaticMarkup(<SharedWorkActions kind={kind} token="token" permissions={{ rewrite, fork }} work={work} />);
     expect(render(false, false)).toBe("");
-    expect(render(true, false)).toContain("帮作者改写");
-    expect(render(true, false)).not.toContain("另建我的故事");
-    expect(render(false, true)).not.toContain("帮作者改写");
-    expect(render(false, true)).toContain("另建我的故事");
+    expect(render(true, false)).toContain("拿来一起改");
+    expect(render(true, false)).toContain("分享回给作者");
+    expect(render(false, true)).toContain("拿来一起改");
+    expect(render(false, true)).not.toContain("分享回给作者");
+    expect(render(true, true)).not.toContain("帮作者改写");
   });
 });

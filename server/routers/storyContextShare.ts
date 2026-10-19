@@ -7,6 +7,8 @@ import {
 import {
   forkSharedStory,
   contributeSharedStory,
+  shareBackFork,
+  shareBackStatus,
 } from "../repositories/sharedStoryActions";
 import { artworkAuthorName } from "../../shared/artworkShare";
 import { createHash, randomBytes } from "node:crypto";
@@ -148,4 +150,27 @@ export const storyContextShareRouter = router({
     .query(async ({ ctx, input }) =>
       inheritedStorySnapshot((await owned(input.storyId, ctx.user.id)).body)
     ),
+  backStatus: protectedProcedure
+    .input(ownerInput)
+    .query(async ({ ctx, input }) => {
+      await owned(input.storyId, ctx.user.id);
+      return shareBackStatus(ctx.user.id, input.storyId);
+    }),
+  shareBack: protectedProcedure
+    .input(ownerInput.extend({ operationToken: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!canAcceptStoryShare(ctx.user))
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "请先登录，再分享回给作者",
+        });
+      const story = await owned(input.storyId, ctx.user.id);
+      return shareBackFork({
+        userId: ctx.user.id,
+        storyId: input.storyId,
+        authorName: artworkAuthorName(ctx.user.name),
+        operationToken: input.operationToken,
+        body: story.body,
+      });
+    }),
 });
