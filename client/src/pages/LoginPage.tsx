@@ -1,6 +1,5 @@
 import { useState } from "react";
 import AuthEntryPanel from "@/features/auth/views/AuthEntryPanel";
-import PhoneLoginPanel from "@/features/auth/views/PhoneLoginPanel";
 import { readMobileReturnPath } from "@/features/auth/mobileReturnPath";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { formatTodayIdentity } from "@/features/nayin/dailyPresentation";
@@ -10,8 +9,6 @@ import WuxingParticles from "@/features/nayin/views/WuxingParticles";
 import { WuxingPourContent } from "@/features/nayin/views/WuxingPourReveal";
 
 export default function LoginPage() {
-  const [method, setMethod] = useState<"email" | "wechat" | "phone">("email");
-  const [phoneBusy, setPhoneBusy] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const { today, visualTheme } = useNayin();
   const returnPath =
@@ -65,21 +62,8 @@ export default function LoginPage() {
             />
           </div>
           <div className="w-full max-w-sm pb-8">
-            <LoginMethodTabs
-              method={method}
-              onChange={setMethod}
-              disabled={phoneBusy}
-            />
-            {method === "phone" ? (
-              <PhoneLoginPanel
-                returnPath={returnPath}
-                onBusyChange={setPhoneBusy}
-              />
-            ) : method === "email" ? (
-              <AuthEntryPanel returnPath={returnPath} variant="email" />
-            ) : (
-              <AuthEntryPanel returnPath={returnPath} variant="pairing" />
-            )}
+            <LoginMethodTabs />
+            <AuthEntryPanel returnPath={returnPath} variant="email" />
           </div>
         </main>
       </div>
@@ -105,78 +89,56 @@ export default function LoginPage() {
           <p className="mb-3 text-center text-[10px] tracking-[0.28em] text-muted-foreground">
             把故事带回这一页
           </p>
-          <nav
-            aria-label="登录方式"
-            className="shiguang-login-tabs mb-7 grid grid-cols-3"
-          >
-            {(
-              [
-                ["email", "邮箱登录"],
-                ["phone", "手机号登录"],
-                ["wechat", "微信登录"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                disabled={phoneBusy}
-                aria-current={method === value ? "page" : undefined}
-                onClick={() => setMethod(value)}
-                className={`shiguang-login-tab px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "is-active text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-
-          {method === "phone" ? (
-            <PhoneLoginPanel
-              returnPath={returnPath}
-              onBusyChange={setPhoneBusy}
-            />
-          ) : method === "email" ? (
-            <AuthEntryPanel returnPath={returnPath} variant="email" />
-          ) : (
-            <AuthEntryPanel returnPath={returnPath} variant="pairing" />
-          )}
+          <LoginMethodTabs shiguang />
+          <AuthEntryPanel returnPath={returnPath} variant="email" />
         </section>
       </main>
     </div>
   );
 }
 
-function LoginMethodTabs({
-  method,
-  onChange,
-  disabled,
-}: {
-  method: "email" | "wechat" | "phone";
-  onChange: (method: "email" | "wechat" | "phone") => void;
-  disabled?: boolean;
-}) {
+function LoginMethodTabs({ shiguang = false }: { shiguang?: boolean }) {
+  const [highlightNotice, setHighlightNotice] = useState(false);
   return (
-    <nav
-      aria-label="登录方式"
-      className="mb-8 grid grid-cols-3 border-b border-border"
-    >
-      {(
-        [
-          ["email", "邮箱登录"],
-          ["phone", "手机号登录"],
-          ["wechat", "微信登录"],
-        ] as const
-      ).map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          disabled={disabled}
-          aria-current={method === value ? "page" : undefined}
-          onClick={() => onChange(value)}
-          className={`border-b-2 px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${method === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          {label}
-        </button>
-      ))}
-    </nav>
+    <>
+      <button
+        id="email-login-notice"
+        type="button"
+        onClick={() => setHighlightNotice(true)}
+        className={`mb-4 block w-full rounded text-center text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlightNotice ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}
+      >
+        目前仅支持邮箱登录
+      </button>
+      <nav
+        aria-label="登录方式"
+        className={
+          shiguang
+            ? "shiguang-login-tabs mb-7 grid grid-cols-3"
+            : "mb-8 grid grid-cols-3 border-b border-border"
+        }
+      >
+        {(
+          [
+            ["email", "邮箱登录"],
+            ["phone", "手机号登录"],
+            ["wechat", "微信登录"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-disabled={value !== "email" || undefined}
+            aria-describedby={
+              value !== "email" ? "email-login-notice" : undefined
+            }
+            aria-current={value === "email" ? "page" : undefined}
+            onClick={() => setHighlightNotice(value !== "email")}
+            className={`${shiguang ? "shiguang-login-tab" : "border-b-2"} px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === "email" ? (shiguang ? "is-active text-foreground" : "border-primary text-foreground") : "cursor-not-allowed border-transparent text-muted-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }

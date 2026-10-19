@@ -48,7 +48,7 @@ vi.mock("@/features/auth/views/AuthEntryPanel", () => ({
 }));
 
 describe("LoginPage", () => {
-  it("uses the Shiguang identity and includes phone login alongside existing paths", () => {
+  it("uses the Shiguang identity and keeps the email form as the login entry", () => {
     themeState.visualTheme = "shiguang";
     const html = renderToStaticMarkup(<LoginPage />);
 
@@ -65,6 +65,24 @@ describe("LoginPage", () => {
     expect(html).not.toContain("长流水");
     expect(html).not.toContain("Drinking Time");
   });
+
+  it.each(["shiguang", "nayin"] as const)(
+    "marks unavailable methods with the email-only explanation in %s",
+    theme => {
+      themeState.visualTheme = theme;
+      const html = renderToStaticMarkup(<LoginPage />);
+
+      expect(html).toContain('id="email-login-notice"');
+      expect(html).toContain("目前仅支持邮箱登录");
+      expect(html.match(/aria-disabled="true"/g)).toHaveLength(2);
+      expect(html.match(/aria-describedby="email-login-notice"/g)).toHaveLength(
+        2
+      );
+      expect(html).toContain('data-testid="auth-entry">email');
+      expect(html).not.toContain('data-testid="auth-entry">pairing');
+      expect(html).not.toContain('aria-label="手机号"');
+    }
+  );
 
   it("restores the original daily-drink login composition for Nayin", () => {
     themeState.visualTheme = "nayin";
