@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { StoryMenuCover } from "./StoryLogoMenu";
+import StoryLogoMenu, { StoryMenuCover } from "./StoryLogoMenu";
 
 vi.stubGlobal("React", React);
 
@@ -32,4 +32,13 @@ describe("StoryLogoMenu covers", () => {
 
     expect(html).not.toContain("/api/images/cover-42.jpg");
   });
+});
+
+it("uses the composer character as the menu trigger without a second logo", () => {
+  const html = renderToStaticMarkup(<StoryLogoMenu element="water" visualTheme="shiguang"
+    onNewStory={() => {}} placement="top" trigger={<span>existing companion</span>} />);
+  expect(html).toContain("existing companion");
+  expect(html).toContain('aria-haspopup="menu"');
+  expect(html).toContain('data-tour="story-menu"');
+  expect(html).not.toContain("nav-materials-v2.png");
 });

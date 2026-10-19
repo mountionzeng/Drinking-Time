@@ -45,6 +45,7 @@ interface TopBarStoryMenu {
 }
 
 interface TopBarProps {
+  hideStoryLogo?: boolean;
   onStoryPanelToggle?: () => void;
   showStoryPanelNav?: boolean;
   panelToggle?: TopBarPanelToggle;
@@ -63,6 +64,7 @@ interface TopBarProps {
 }
 
 export default function TopBar({
+  hideStoryLogo = false,
   onStoryPanelToggle,
   showStoryPanelNav = true,
   panelToggle,
@@ -105,7 +107,7 @@ export default function TopBar({
       >
         <div className="flex items-stretch gap-3">
           {/* 左：Logo，竖着居中，贯穿右边那两行 */}
-          <div className="flex shrink-0 items-center" data-tour="story-menu">
+          {!hideStoryLogo && <div className="flex shrink-0 items-center" data-tour="story-menu">
             <StoryLogoMenu
               element={element}
               visualTheme={visualTheme}
@@ -114,7 +116,7 @@ export default function TopBar({
               onOpenStory={storyMenu?.onOpenStory}
               onBrowseAll={storyMenu?.onBrowseAll}
             />
-          </div>
+          </div>}
 
           {/* 右：上下两行 */}
           <div className="flex min-w-0 flex-1 flex-col justify-center">

@@ -6508,7 +6508,8 @@
         "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.ts",
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
         "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
-        "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts"
+        "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts",
+        "client/src/app/shell/DesktopStoryMenuContext.ts"
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
@@ -6657,6 +6658,11 @@
           "date": "2026-10-19",
           "kind": "verification",
           "summary": "a2f25952已推送并部署正式站，移除桌面独立队列说明。5549项普通、64项真实MySQL、类型/构建/功能账本通过；95文件一致、77表摘要及32迁移与已恢复的Next环境配置不变。第一次Google上游检查瞬时失败触发自动应用回滚，复核及重发通过；正式浏览器和HTTPS检查通过，备份及回滚预检完成，详见chat-queue-ui QA。"
+        },
+        {
+          "date": "2026-10-19",
+          "kind": "improvement",
+          "summary": "按用户要求把桌面左上故事菜单迁至输入框头像，复用原新建/切换/全部故事路由与未保存保护；浮层向上展开并通过Portal避免聊天容器裁切，保留键盘/Escape/外部点击行为。头像按请求显示读取素材、思考和生成状态，拾光沿用原左上方Logo并按最新反馈微调至72×62px（同步点击范围），再左移4px、下移3px，上方留白收窄12px，靠输入框左侧并轻微重叠边缘以节省空间，纳音杯子缩至64px，复用手机版五官大小、间距与各五行表情，隐藏脚；平时保持普通杯子，悬停或键盘聚焦时才显示小表情，并尊重减少动画设置；精简顶部，今日来信保留账号菜单入口。15项定向测试与类型检查、本地实际展开菜单截图验证；未发起付费生成，未部署。"
         }
       ]
     },

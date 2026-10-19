@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 /**
  * StoryLogoMenu — 顶栏最左边那颗五行饮品 Logo，兼故事入口。
  *
@@ -38,6 +39,8 @@ export interface StoryLogoMenuStory {
 }
 
 export interface StoryLogoMenuProps {
+  trigger?: React.ReactNode | ((awake: boolean) => React.ReactNode);
+  placement?: "top" | "bottom";
   element: NayinElement;
   visualTheme?: VisualThemeMode;
   /** 已按最近修改排序的故事；组件只取前三条。 */
@@ -92,6 +95,8 @@ export default function StoryLogoMenu({
   onNewStory,
   onOpenStory,
   onBrowseAll,
+  trigger,
+  placement = "bottom",
 }: StoryLogoMenuProps) {
   const [open, setOpen] = useState(false);
   const [awake, setAwake] = useState(false);
@@ -127,7 +132,7 @@ export default function StoryLogoMenu({
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) close();
+      if (!wrapRef.current?.contains(event.target as Node) && !panelRef.current?.contains(event.target as Node)) close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -243,8 +248,12 @@ export default function StoryLogoMenu({
     "--tw-ring-color": `color-mix(in oklab, ${ink} 40%, transparent)`,
   } as React.CSSProperties;
 
+  const anchor = open && trigger ? buttonRef.current?.getBoundingClientRect() : null;
+  const renderMenu = (node: React.ReactNode) => trigger ? createPortal(node, document.body) : node;
+
   return (
     <div
+      data-tour={trigger ? "story-menu" : undefined}
       ref={wrapRef}
       className="relative shrink-0"
       onMouseEnter={handleEnter}
@@ -262,7 +271,7 @@ export default function StoryLogoMenu({
         onBlur={() => {
           if (!open) setAwake(false);
         }}
-        className={`grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
+        className={`grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${trigger ? (visualTheme === "shiguang" ? "h-[62px] w-[72px]" : "h-16 w-16") : visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
         style={{
           background: open
             ? `color-mix(in oklab, ${ink} 8%, transparent)`
@@ -271,7 +280,7 @@ export default function StoryLogoMenu({
           ...focusRing,
         }}
       >
-        {visualTheme === "shiguang" ? (
+        {(typeof trigger === "function" ? trigger(awake) : trigger) ?? (visualTheme === "shiguang" ? (
           <img
             src="/shiguang/nav-materials-v2.png"
             alt=""
@@ -289,17 +298,20 @@ export default function StoryLogoMenu({
             animated={false}
             title="聊聊"
           />
-        )}
+        ))}
       </button>
 
-      {open && interactive ? (
+      {open && interactive ? renderMenu(
         <div
           ref={panelRef}
+          onMouseEnter={clearTimers}
+          onMouseLeave={handleLeave}
           role="menu"
           aria-label="故事"
           onKeyDown={handlePanelKeyDown}
-          className="dt-panel absolute left-0 top-[calc(100%+6px)] z-50 flex w-80 max-w-[calc(100vw-24px)] flex-col gap-0.5 rounded-[14px] p-2"
+          className={`dt-panel absolute left-0 ${placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} z-50 flex w-80 max-w-[calc(100vw-24px)] max-h-[60vh] overflow-y-auto flex-col gap-0.5 rounded-[14px] p-2`}
           style={{
+            ...(anchor ? { position: "fixed", left: Math.max(12, Math.min(anchor.left, window.innerWidth - 332)), bottom: window.innerHeight - anchor.top + 6, maxHeight: Math.max(120, anchor.top - 18), zIndex: 100 } : {}),
             background: "var(--panel-bg)",
             border: "1px solid var(--nayin-border)",
             boxShadow: "0 10px 28px rgba(74, 46, 27, 0.12)",

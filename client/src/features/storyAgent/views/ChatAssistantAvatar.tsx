@@ -1,7 +1,8 @@
-/** One desktop composer companion, using the same artwork as mobile. */
+/** Desktop companion: original Shiguang logo or expressive Nayin cup. */
 import React, { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import { LiaoliaoMascot } from "@/features/mobileWorkspace/LiaoliaoMascot";
+import { NAYIN_COMPANION_MOTION } from "@/features/mobileWorkspace/nayinCompanionMotion";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import type { WuxingMood } from "@/features/nayin/views/EmotiveWuxingIcon";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
@@ -9,6 +10,8 @@ import "./desktopCompanion.css";
 
 export const CHAT_AVATAR_SIZE = 38;
 type Props = {
+  awake?: boolean;
+  activity?: "idle" | "reading" | "thinking" | "generating";
   visualTheme: VisualThemeMode;
   element: NayinElement;
   mood?: WuxingMood;
@@ -16,7 +19,7 @@ type Props = {
   notificationKey?: string;
 };
 export default function ChatAssistantAvatar({
-  visualTheme, element, mood, animated = false, notificationKey,
+  visualTheme, element, mood, awake = false, animated = false, notificationKey, activity = "idle",
 }: Props) {
   const reduced = useReducedMotion();
   const previousNotification = useRef(notificationKey);
@@ -31,10 +34,17 @@ export default function ChatAssistantAvatar({
   }, [notificationKey, reduced]);
   return (
     <span className="desktop-companion-peek" data-testid="chat-assistant-avatar"
-      data-notifying={notifying && !reduced} data-theme={visualTheme}
+      data-activity={activity} data-notifying={notifying && !reduced} data-theme={visualTheme}
       data-mood={mood ?? "neutral"} data-animated={animated && !reduced} aria-hidden="true">
       <span className="desktop-companion-character">
-        <LiaoliaoMascot visualTheme={visualTheme} element={element} size={CHAT_AVATAR_SIZE} />
+        {visualTheme === "shiguang" ? (
+          <img src="/shiguang/nav-materials-v2.png" alt="" width={CHAT_AVATAR_SIZE}
+            height={CHAT_AVATAR_SIZE} className="h-full w-full object-contain" />
+        ) : (
+          <EmotiveWuxingIcon element={element} size={64} plain={!awake} awake={awake}
+            faceScale={1 / Math.SQRT2} faceSpacing={1.35} showLegs={false}
+            mood={mood ?? NAYIN_COMPANION_MOTION[element].moods[0]} animated={(animated || awake) && !reduced} />
+        )}
       </span>
     </span>
   );

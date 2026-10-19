@@ -1,5 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, SelectionState } from "./types";
 import type { StoryIntent } from "./intentTypes";
@@ -398,6 +399,14 @@ vi.mock(
   })
 );
 
+function renderChat() {
+  return renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <StoryAgentChat />
+    </QueryClientProvider>
+  );
+}
+
 describe("StoryAgentChat intent soft confirm", () => {
   beforeEach(() => {
     fixtures.chatContextState.pendingIntentDraft = fixtures.jobIntent;
@@ -407,7 +416,7 @@ describe("StoryAgentChat intent soft confirm", () => {
   });
 
   it("renders the reflect-back bubble when a pending job intent exists", () => {
-    const html = renderToStaticMarkup(<StoryAgentChat />);
+    const html = renderChat();
 
     expect(html).toContain("听起来你是想做求职片");
     expect(html).toContain("对，按求职片来");
@@ -417,7 +426,7 @@ describe("StoryAgentChat intent soft confirm", () => {
   it("renders the world-building reflect-back bubble when a pending fiction intent exists", () => {
     fixtures.chatContextState.pendingIntentDraft = fixtures.fictionIntent;
 
-    const html = renderToStaticMarkup(<StoryAgentChat />);
+    const html = renderChat();
 
     expect(html).toContain("听起来你是想创造一个虚构故事世界");
     expect(html).toContain("对，创造另一个世界");
@@ -428,7 +437,7 @@ describe("StoryAgentChat intent soft confirm", () => {
   it("does not render the bubble while the assistant is replying", () => {
     fixtures.chatContextState.isReplying = true;
 
-    expect(renderToStaticMarkup(<StoryAgentChat />)).not.toContain(
+    expect(renderChat()).not.toContain(
       "听起来你是想做求职片"
     );
   });
@@ -446,7 +455,7 @@ describe("StoryAgentChat intent soft confirm", () => {
       stableShotId: "shot-1",
       storyId: 46,
     };
-    const html = renderToStaticMarkup(<StoryAgentChat />);
+    const html = renderChat();
 
     expect(html).toContain("当前故事");
     expect(html).toContain("虚构故事");

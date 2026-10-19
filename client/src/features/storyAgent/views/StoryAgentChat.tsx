@@ -1,3 +1,7 @@
+import { useContext } from "react";
+import { useIsMutating } from "@tanstack/react-query";
+import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
+import StoryLogoMenu from "@/app/shell/StoryLogoMenu";
 import { creativeVersionIntent } from "@shared/creativeVersionIntent";
 /**
  * StoryAgentChat — Conversational guide that surfaces specific, sensory
@@ -240,6 +244,8 @@ export default function StoryAgentChat({
   onOpenPublishingWorkspace?: () => void;
 }) {
   const { element, visualTheme } = useNayin();
+  const desktopStoryMenu = useContext(DesktopStoryMenuContext);
+
   const {
     messages,
     cardRefs,
@@ -257,6 +263,11 @@ export default function StoryAgentChat({
     publishing,
     activeSelection,
   } = useStoryAgentChatSlice();
+  const generatingCount = useIsMutating({ predicate: mutation => {
+    const route = JSON.stringify(mutation.options.mutationKey ?? []);
+    const input = mutation.state.variables as { storyId?: number } | undefined;
+    return input?.storyId === activeStoryId && /writingCompanionCompose|generate|render|Generate|Render/.test(route);
+  } });
   const {
     sendMessage,
     resetConversation,
@@ -2101,15 +2112,21 @@ export default function StoryAgentChat({
             </button>
           </div>
           <div className="desktop-companion-input min-w-0 flex-1">
-        <div className="desktop-companion-composer flex min-w-0 items-end gap-1.5 pl-3" data-testid="chat-composer-companion">
-          <ChatAssistantAvatar
-            key={`${accountId}:${activeStoryId}`}
-            visualTheme={visualTheme}
-            element={element}
-            mood={isReplying ? "thinking" : undefined}
-            notificationKey={lastAssistantId}
-            animated={isReplying}
-          />
+        <div className="desktop-companion-composer flex min-w-0 items-end gap-1.5 pl-3" data-testid="chat-composer-companion" data-theme={visualTheme}>
+          {desktopStoryMenu ? <StoryLogoMenu
+            {...desktopStoryMenu}
+            element={element} visualTheme={visualTheme} placement="top"
+            trigger={awake => <ChatAssistantAvatar awake={awake} visualTheme={visualTheme} element={element}
+              mood={isReplying ? "thinking" : undefined} notificationKey={lastAssistantId}
+              activity={generatingCount > 0 || creationFlow.busy ? "generating" : isImportingMedia || voice.isTranscribing ? "reading" : isReplying ? "thinking" : "idle"}
+              animated={isReplying || generatingCount > 0 || creationFlow.busy || isImportingMedia || voice.isTranscribing} />}
+          /> : <ChatAssistantAvatar visualTheme={visualTheme} element={element}
+              mood={isReplying ? "thinking" : undefined} notificationKey={lastAssistantId} animated={isReplying} />}
+          {(isReplying || generatingCount > 0 || creationFlow.busy || isImportingMedia || voice.isTranscribing) &&
+            <span role="status" aria-live="polite" className="shrink-0 text-[11px] text-muted-foreground">
+              {generatingCount > 0 || creationFlow.busy ? "正在生成…" : isImportingMedia ? "正在看你的素材…" : voice.isTranscribing ? "正在听你说…" : "正在思考…"}
+            </span>}
+
         {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
           {writingSession.snapshot.module ? <span className="block truncate">
             已选中：{layoutModuleLabel(writingSession.snapshot.module)} · 可以问我怎么改

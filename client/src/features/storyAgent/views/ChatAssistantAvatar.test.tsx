@@ -4,12 +4,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
 
 describe("ChatAssistantAvatar", () => {
-  it("uses the shiguang bird portrait in the illustration theme", () => {
+  it("retains the original shiguang story logo in the illustration theme", () => {
     const html = renderToStaticMarkup(
       <ChatAssistantAvatar visualTheme="shiguang" element="water" />
     );
 
-    expect(html).toContain("/shiguang/xiaoyi-avatar.png");
+    expect(html).toContain("/shiguang/nav-materials-v2.png");
     expect(html).not.toContain("/shiguang/companion/");
     expect(html).not.toContain("<svg");
   });

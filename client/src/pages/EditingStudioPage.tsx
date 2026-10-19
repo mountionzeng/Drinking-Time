@@ -1,3 +1,4 @@
+import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
 /**
  * EditingStudioPage — 剪辑工作室（聊天驱动剪辑，ChatCut 式交互）。
  * 左：聊聊创作对话（StoryAgentChat；未打开故事时显示故事列表）
@@ -40,9 +41,6 @@ import {
   recordTimelineUndoSnapshot,
 } from "@/features/creationEditor/timelineUndoStore";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
-import WuxingMotifIcon, {
-  WUXING_MOTIF_NAME,
-} from "@/features/nayin/views/WuxingMotifIcon";
 import {
   StoryAgentProvider,
   useStoryAgent,
@@ -70,8 +68,6 @@ import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
 import { editingCapabilityReply } from "@shared/editingActionCapabilities";
-import { normalizeEmotionAnalysisProfile } from "@/features/analysis/emotionAnalysis";
-import { publicDailyLetterForDate } from "@/features/analysis/publicDailyLetter";
 import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
@@ -88,60 +84,6 @@ import {
   type StudioInteractionMode,
   type StudioWorkspace,
 } from "./editingStudioWorkspace";
-
-function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
-  const { user } = useAuth();
-  const { today, element, visualTheme } = useNayin();
-  const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
-    enabled: Boolean(user?.id),
-    retry: false,
-  });
-  const profile = normalizeEmotionAnalysisProfile(profileQuery.data, "server");
-  const publicLetter = publicDailyLetterForDate(today.cstDateStr);
-  const attention = profile?.dailyReference.mindset || publicLetter.attention;
-  if (!attention) return null;
-
-  return (
-    <div
-      className="relative z-10 flex h-7 shrink-0 items-center gap-1.5 pb-1.5 text-[11px]"
-      aria-label="今日来信"
-    >
-      {/* 小物 + 「今日来信」本身就是读信入口，跟着当天的五行走：
-          木是茶叶、土是咖啡豆……和左边那颗 Logo 是同一套东西。 */}
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={
-          visualTheme === "shiguang"
-            ? "读信 · 今日来信"
-            : `读信 · 今日来信（${WUXING_MOTIF_NAME[element]}）`
-        }
-        title="读信"
-        className="group -ml-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {visualTheme === "shiguang" ? (
-          <img
-            src="/shiguang/daily-letter-quill.svg"
-            alt=""
-            aria-hidden="true"
-            className="shiguang-letter-illustration"
-          />
-        ) : (
-          <WuxingMotifIcon element={element} size={15} />
-        )}
-        <span className="font-chat-brand text-xs text-foreground">
-          今日来信
-        </span>
-      </button>
-      <span
-        className="min-w-0 truncate text-muted-foreground"
-        title={attention}
-      >
-        {attention}
-      </span>
-    </div>
-  );
-}
 
 function MediaLibraryIllustration() {
   return (
@@ -849,9 +791,10 @@ export default function EditingStudioPage() {
   );
 
   return (
-    <div className="shiguang-workspace relative flex h-screen flex-col overflow-hidden">
+    <div className="shiguang-workspace desktop-compact-workspace relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
       <TopBar
+        hideStoryLogo
         onOpenLetter={() => setDailyLetterOpen(true)}
         showStoryPanelNav={false}
         storyMenu={storyMenu}
@@ -917,11 +860,6 @@ export default function EditingStudioPage() {
               </div>
             ) : undefined,
         }))}
-        secondaryRow={
-          workspace === "editing" ? null : (
-            <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
-          )
-        }
         onReplayTour={() => {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
@@ -948,6 +886,7 @@ export default function EditingStudioPage() {
         }}
       />
       <div className="relative z-10 min-h-0 flex-1">
+        <DesktopStoryMenuContext.Provider value={storyMenu}>
         <StoryAgentProvider
           userId={user?.id ?? null}
           projectId={currentProjectId}
@@ -963,6 +902,7 @@ export default function EditingStudioPage() {
             pendingStoryRequestId={pendingStoryRequestId}
           />
         </StoryAgentProvider>
+        </DesktopStoryMenuContext.Provider>
       </div>
     </div>
   );

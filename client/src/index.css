@@ -2479,3 +2479,13 @@ select option {
 }
 .mobile-image-pack textarea, .mobile-image-pack input, .mobile-image-pack select { font-size: 16px; }
 .mobile-image-pack [hidden] { display: none; }
+
+/* Desktop creation keeps its story entrance on the composer companion. */
+.desktop-compact-workspace .app-topbar .shiguang-nav-illustration {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+}
+.desktop-compact-workspace .app-topbar .editing-media-subnav-stem {
+  height: 0.25rem;
+}
