@@ -768,7 +768,8 @@
         "docs/qa/2026-10-16-story-image-warehouse.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
         "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
-        "docs/qa/2026-10-20-story-creation-workflow.md"
+        "docs/qa/2026-10-20-story-creation-workflow.md",
+        "docs/qa/2026-10-20-story-workflow-release.md"
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
@@ -865,6 +866,11 @@
           "date": "2026-10-20",
           "kind": "improvement",
           "summary": "图像页接入故事级素材归档，跨版本展示历史候选、镜头及共享图片；同故事本机上传按原scope保存并只读归集，按ID去重，缺失文件明确标注且禁止加入排版。1202真实显示25张图片，隔离/去重/缺失/本机跨版本测试通过；不改原素材状态或归属。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "verification",
+          "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
         }
       ]
     },
@@ -1091,7 +1097,8 @@
         "client/src/app/shell/TopBar.test.tsx",
         "docs/qa/2026-10-16-image-layout-workspace.md",
         "docs/qa/2026-10-20-story-creation-workflow.md",
-        "client/src/features/publishingDraft/StudioCreateMenu.test.tsx"
+        "client/src/features/publishingDraft/StudioCreateMenu.test.tsx",
+        "docs/qa/2026-10-20-story-workflow-release.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1323,6 +1330,11 @@
           "date": "2026-10-20",
           "kind": "fix",
           "summary": "用户澄清“上排按钮最右边”指聊天输入框下方操作排，故将基于当前内容生成从页面顶栏移到聊天按钮排最右侧；移除顶栏专用插槽属性和跨组件聊天状态传递。入口放在图片选区隐藏分支之外，进入图片或排版仍保留；忙碌时菜单可打开并解释原因。主仓浏览器确认三按钮同排且生成菜单最右、顶栏无重复入口。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "verification",
+          "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
         }
       ]
     },
@@ -1970,7 +1982,8 @@
         "docs/qa/2026-10-19-video-export-check.md",
         "server/services/videoExport.integration.test.ts",
         "server/services/videoExportImage.test.ts",
-        "docs/qa/2026-10-20-story-creation-workflow.md"
+        "docs/qa/2026-10-20-story-creation-workflow.md",
+        "docs/qa/2026-10-20-story-workflow-release.md"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -2110,6 +2123,11 @@
           "date": "2026-10-20",
           "kind": "improvement",
           "summary": "聊天生成菜单可进入现有音乐确认窗口，默认整故事范围并带入输入框要求；无镜头时明确禁用。保持服务端权威报价、帧落点和用户确认；真实浏览器确认打开/整故事选中/取消，不提交生成。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "verification",
+          "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
         }
       ]
     },
@@ -7171,7 +7189,8 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "docs/qa/2026-10-17-layout-release.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
-        "docs/qa/2026-10-20-story-creation-workflow.md"
+        "docs/qa/2026-10-20-story-creation-workflow.md",
+        "docs/qa/2026-10-20-story-workflow-release.md"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -7266,6 +7285,11 @@
           "date": "2026-10-20",
           "kind": "improvement",
           "summary": "图库每张图片增加加入排版，切区并通过现有模块操作实际插入；保留原文稿、撤销及当前模块聊天上下文。允许无正文的空白模块稿与批量本机上传。真实验证有文案插图和无文案上传两图后插入，临时修改已还原；未写回共享正文。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "verification",
+          "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
         }
       ]
     },
