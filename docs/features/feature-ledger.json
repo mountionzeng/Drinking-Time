@@ -1030,6 +1030,7 @@
       "owners": [
         "server/routers/publishingDraft.ts",
         "server/services/publishingDraft.ts",
+        "shared/creativeExploration.ts",
         "shared/publishingDraft.ts",
         "server/services/imageGen.ts",
         "server/services/staticImageQualityGate.ts",
@@ -1050,6 +1051,7 @@
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "server/routers.publishingDraft.test.ts",
         "server/services/publishingDraft.test.ts",
+        "docs/qa/2026-10-20-exploration-release.md",
         "server/services/publishingPersistence.test.ts",
         "server/services/imageGen.test.ts",
         "server/services/staticImageQualityGate.test.ts",
@@ -1080,6 +1082,7 @@
       ],
       "invariants": [
         "平台稿相互隔离。",
+        "生成、转换与改写遵守共同探索原则，不强迫补结论或问答式采集；原有事实、标题、平台和操作范围约束保持。",
         "切换工作台不自动触发付费生成。",
         "生成结果只进入候选轮次，不自动覆盖正式封面。",
         "已受理的异步付费任务必须保存任务编号并恢复同一任务，不能自动重复提交。",
@@ -1111,6 +1114,11 @@
           "date": "2026-10-13",
           "kind": "verification",
           "summary": "85295d01已推送main并部署正式站；5373项普通、62项隔离MySQL、215项小程序测试及类型/构建/账本通过。78个发布文件与测试构建一致，手机/电脑HTTPS入口和Google跳转检查通过，77张业务表/迁移/环境摘要不变，备份及应用回滚验证通过。本机浏览器连接关闭，生产登录态完整点击与手机付费推理、真机键盘仍未复验；详见发布QA。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "旧发布稿生成、跨平台转换与改写接入共用探索原则，允许未完成的感受，不将创作变成问卷；保持各操作原有事实、标题、格式与平台范围。回归与发布记录见2026-10-20探索发布QA。"
         },
         {
           "date": "2026-10-13",
@@ -5753,6 +5761,7 @@
         "server/services/textDraftHistory.ts",
         "server/services/textDraftPrompt.ts",
         "server/services/writingTechniqueLibrary.ts",
+        "shared/creativeExploration.ts",
         "server/services/agentRuntime.ts",
         "client/src/features/storyAgent/storyAgentPersistence.ts",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
@@ -5764,6 +5773,8 @@
       "evidence": [
         "server/services/textDraftHistory.test.ts",
         "client/src/features/publishingDraft/textDraftBasis.test.ts",
+        "server/services/textDraftPrompt.test.ts",
+        "docs/qa/2026-10-20-exploration-release.md",
         "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
         "docs/qa/2026-09-29-independent-text-versions.md",
         "docs/qa/2026-10-02-generation-latency.md",
@@ -5782,6 +5793,7 @@
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
         "以旧稿和新增或修改的对话生成新稿；保存来源版本、完整输入及提示词/技巧库版本。",
+        "生成是共同探索后的表达整理，不要求完成问答才能成稿；用户明确纠正与新感悟优先，允许矛盾和未定感受，不强迫和解、升华或结论。",
         "服务端按 storyId 与 userId 校验归属，历史为服务端专属字段，普通故事保存不能伪造或覆盖学习证据。",
         "同一 operationToken 与请求内容只认领一次；模型调用位于持久化重试之外，不确定结果不自动重提。",
         "原有表达与采用反馈分开存储及解释；不确定或参考资料不是强偏好证据，未采用生成稿不作为认可样本。",
@@ -5809,6 +5821,11 @@
           "date": "2026-10-13",
           "kind": "improvement",
           "summary": "电脑已有文章时一键生成新版本，不再重复选择创作方向；读取可见正文、选区及最新聊天。新候选进入右侧待保存缓冲，生成期间继续编辑则只留历史，不覆盖输入。保存复用采用接口，旧版本保留。新增选区请求及服务端范围保护，原有幂等认领/CAS/文风来源不变；真实验收结果见QA。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "普通聊天、伴写与生成共用探索原则；text-draft-two-pass.2 明确以用户新理解纠正旧稿，不强迫问答或完整结论。旧稿/新对话/指令与选区/记忆边界回归通过；不更改来源隔离、显式采用或重试机制。完整发布验证见本次QA，真实模型效果待体验。"
         },
         {
           "date": "2026-10-05",
@@ -6490,6 +6507,8 @@
         "client/src/features/writingCompanion/WritingCompanionButton.tsx",
         "client/src/features/writingCompanion/writingCompanionText.ts",
         "server/services/writingCompanion.ts",
+        "server/archive/storyAgent.prompts.ts",
+        "shared/creativeExploration.ts",
         "server/routers/promptLineage.ts",
         "client/src/features/mobileWorkspace/useMobileConversation.ts",
         "client/src/features/mobileWorkspace/mobileConversationStore.ts",
@@ -6516,6 +6535,8 @@
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
+        "server/archive/storyAgent.prompts.intentModes.test.ts",
+        "docs/qa/2026-10-20-exploration-release.md",
         "client/src/features/writingCompanion/WritingCompanionButton.test.tsx",
         "client/src/features/writingCompanion/writingCompanionText.test.ts",
         "client/src/features/writingCompanion/writingCompanionRecovery.test.ts",
@@ -6551,6 +6572,7 @@
         "两端明确文字选区是唯一改写范围，服务端机械保留选区外原文；无选区按当前未保存全文生成新版本，均需显式保存。",
         "未同步回答必须保存原正文/光标/问题及相同轮次身份，重开优先恢复，不能改为普通聊天重发。",
         "提示词贴近原文和用户事实，每轮最多一个问题；不诱导伤感、不编造对白和动机。",
+        "聊天与写作是共同探索，不要求每轮提问或按照固定问卷推进；沉默/换话题不是认可或人格证据，跟随用户当前方向，明确要求直接推进允许的工作。",
         "手机连续输入按顺序排队，失败或未知提交暂停后续；刷新后排队内容需用户继续发送，保留相同轮次身份和写作上下文。"
       ],
       "dependencies": [
@@ -6567,6 +6589,11 @@
         "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。"
       ],
       "history": [
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "普通聊天、全文/选区伴写、模块讨论与段落整理统一共同探索原则；去掉必须每轮提问或按状态追问的要求，允许用户推翻旧解释。不修改生成/保存边界或调用次数。定向提示词回归通过，真实模型效果与发布验收见本次QA。"
+        },
         {
           "date": "2026-10-13",
           "kind": "verification",

@@ -20,6 +20,7 @@ import {
   validateGeneratedTitle,
 } from "../../shared/textTitle";
 import { runJsonAgent, type AgentTurn } from "./agentRuntime";
+import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 
 export class PublishingDraftModelOutputError extends Error {
   constructor(
@@ -368,6 +369,8 @@ export function compileGeneratePublishingDraftPrompt(params: {
   return {
     systemPrompt: [
       "你是个人发布稿编辑。你的工作是把用户已经说出的想法整理成大众能读懂的文字，同时保留鲜明的个人判断。",
+      CREATIVE_EXPLORATION_RULE,
+      "当前是用户主动发起的生成，直接整理为正文，不再开启采访，不要把正文写成问答记录。",
       "这不是批量营销稿：不要削弱批评，不要添加用户没说过的经历、数据或结论，不要把有棱角的话改成空泛鸡汤。",
       "严格保持事实来源身份、时态与确定程度：看到、听说、报道、计划、可能或小样本都不得升级成已确认、已执行、必然发生或普遍结论。事实边界优先于用户要求。",
       "默认写得清楚、直接、有个人判断：不要煽情、装深沉、堆比喻、滥用反问或制造虚假的宏大感；除非用户明确就是这样说话。",
@@ -427,6 +430,7 @@ export function compileConvertPublishingDraftPrompt(params: {
   return {
     systemPrompt: [
       "你是单平台文字适配编辑。只把现有稿件适配到一个目标平台。",
+      CREATIVE_EXPLORATION_RULE,
       "共享内核是不可变约束：事实、核心判断、情绪、结论与个人声音都不能被改写或弱化。",
       "严格保持事实来源身份、时态与确定程度：看到、听说、报道、计划、可能或小样本都不得升级成已确认、已执行、必然发生或普遍结论。事实边界优先于用户要求。",
       `来源平台：${sourceAdapter.label}`,
@@ -484,6 +488,7 @@ export function compileRevisePublishingDraftPrompt(params: {
   return {
     systemPrompt: [
       "你是用户直接指挥的发布稿改写编辑。只改当前平台的一份稿件，先准确执行用户这次提出的语言、节奏和篇幅要求。",
+      CREATIVE_EXPLORATION_RULE,
       "不得添加原稿和故事内核中没有的事实；不得偷偷弱化核心观点，也不得把个人表达改成营销话术。",
       "用户要求更克制、更直接或少一点修辞时，保留事实和具体判断即可，不必保留原稿的情绪强度、比喻或所谓“锋芒”。",
       "这类克制改写必须把观点落回具体动作与因果，不要把一种修辞替换成另一种修辞。删除“危险的信号”“背叛”“反噬”“尸体”“物理地基”“存在的根基”“守住……就是守住……”等宏大、拟人或口号式表达，除非用户明确要求保留某一句。",

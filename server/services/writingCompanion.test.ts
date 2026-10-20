@@ -225,7 +225,7 @@ describe("openWritingCompanion", () => {
     const system = systemText(invoke);
     expect(system).toContain(`${draft}${CURSOR_MARKER}`);
     expect(system).toContain("故事名：晒被子");
-    expect(system).toContain("每次只问一个问题");
+    expect(system).toContain("一次最多问一个问题");
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
@@ -266,6 +266,32 @@ describe("openWritingCompanion", () => {
 
 describe("replyAsWritingCompanion", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it.each([false, true])(
+    "keeps exploration optional and follows corrected understanding (fullDraft=%s)",
+    async fullDraft => {
+      const invoke = fakeInvoke("那就从你现在说的“被尊重”重新整理。");
+      await replyAsWritingCompanion(
+        {
+          message: "不是关心，我现在觉得当时需要的是被尊重。",
+          history: [{ role: "assistant", content: "你是不是理解了他的关心？" }],
+          writingContext: {
+            draft: "以前他总替我做决定。",
+            cursor: 0,
+            fullDraft,
+          },
+        },
+        invoke
+      );
+      const system = systemText(invoke);
+      expect(system).toContain("【共同探索 · 硬性原则】");
+      expect(system).toContain("不要求每轮都提问");
+      expect(system).toContain("用户明确的新感悟、纠正和当前要求优先");
+      expect(system).not.toContain("每次只问一个问题");
+      expect(invoke.mock.calls[0][0].at(-1)?.content).toContain("被尊重");
+      expect(invoke).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it("returns the proposal without provider reasoning markup", async () => {
     const invoke = fakeInvoke(

@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { buildAgentSystemPrompt } from "./storyAgent.prompts";
 
 describe("story agent intent modes", () => {
+  it("explores with the user instead of requiring a question-answer loop", () => {
+    const prompt = buildAgentSystemPrompt(0, 1);
+    expect(prompt).toContain("【共同探索 · 硬性原则】");
+    expect(prompt).toContain("不是固定的一问一答或问卷");
+    expect(prompt).toContain("不要求每轮都提问");
+    expect(prompt).toContain("没有顺着回答、沉默或换话题不代表认可");
+    expect(prompt).toContain("用户明确的新感悟、纠正和当前要求优先");
+    expect(prompt).toContain("明确要求就直接推进");
+  });
+
   it("helps self-reflection understand experience without optimizing for outsiders", () => {
     const prompt = buildAgentSystemPrompt(
       0,

@@ -6,6 +6,9 @@ vi.mock("./agentRuntime", () => runtimeMocks);
 import {
   PublishingDraftModelOutputError,
   classifyPublishingDraftEdit,
+  compileGeneratePublishingDraftPrompt,
+  compileConvertPublishingDraftPrompt,
+  compileRevisePublishingDraftPrompt,
   convertPublishingDraft,
   generatePublishingDraft,
   publishingTextOperationPolicy,
@@ -25,6 +28,40 @@ const core = {
 
 describe("publishing draft model operations", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("uses shared exploration rules in legacy generation, conversion and revision", () => {
+    const content = { title: "停在这里", body: "还没想清楚。", tags: [] };
+    const prompts = [
+      compileGeneratePublishingDraftPrompt({
+        platform: "xiaohongshu",
+        conversation: [],
+      }),
+      compileConvertPublishingDraftPrompt({
+        core,
+        sourceDraft: {
+          platform: "xiaohongshu",
+          content,
+          appliedBaseline: content,
+          revision: 1,
+          sourceCoreRevision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+        targetPlatform: "wechat_moments",
+      }),
+      compileRevisePublishingDraftPrompt({
+        core,
+        current: content,
+        platform: "xiaohongshu",
+        instruction: "保留没想清楚的部分",
+      }),
+    ];
+    for (const { systemPrompt } of prompts) {
+      expect(systemPrompt).toContain("【共同探索 · 硬性原则】");
+      expect(systemPrompt).toContain("保留尚未想清楚、矛盾或变化中的感受");
+      expect(systemPrompt).toContain("JSON");
+    }
+  });
 
   it("generates one core and only the explicitly requested platform", async () => {
     runtimeMocks.runJsonAgent.mockResolvedValue({
@@ -575,7 +612,8 @@ describe("publishing draft model operations", () => {
       expect(publishingTextOperationPolicy(operation)).toEqual({
         allowedFields,
         preservesAppliedTitle,
-        writesCanonicalDraft: operation === "generate" || operation === "convert",
+        writesCanonicalDraft:
+          operation === "generate" || operation === "convert",
       });
     }
   );
@@ -598,14 +636,16 @@ describe("publishing draft model operations", () => {
   });
 
   it("numbers an X thread locally and never invents an independent title", () => {
-    expect(repairPublishingDraftFormatting({
-      platform: "x",
-      content: {
-        title: "不该保留",
-        body: "第一条\n\n第二条",
-        tags: ["#AI"],
-      },
-    })).toEqual({
+    expect(
+      repairPublishingDraftFormatting({
+        platform: "x",
+        content: {
+          title: "不该保留",
+          body: "第一条\n\n第二条",
+          tags: ["#AI"],
+        },
+      })
+    ).toEqual({
       title: "",
       body: "1/2 第一条\n\n2/2 第二条",
       tags: ["AI"],
