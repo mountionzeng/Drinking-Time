@@ -6863,7 +6863,11 @@
         "shared/sharedLayout.ts",
         "server/services/sharedLayout.ts",
         "client/src/features/publishingAlbum/SharedLayoutBar.tsx",
-        "client/src/features/publishingAlbum/sharedLayoutClient.ts"
+        "client/src/features/publishingAlbum/sharedLayoutClient.ts",
+        "shared/shareBackInbox.ts",
+        "client/src/features/sharing/useShareBackNotices.ts",
+        "client/src/app/shell/StoryLogoMenu.tsx",
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
       ],
       "evidence": [
         "server/routers.sharePermissions.test.ts",
@@ -6873,7 +6877,11 @@
         "client/src/features/sharing/SharedWorkActions.test.tsx",
         "server/routers.storyContextShare.test.ts",
         "shared/loginReturnPath.test.ts",
-        "docs/qa/2026-10-14-share-permissions.md"
+        "docs/qa/2026-10-14-share-permissions.md",
+        "server/routers.shareBackInbox.test.ts",
+        "client/src/features/sharing/useShareBackNotices.test.ts",
+        "client/src/app/shell/StoryLogoMenu.test.tsx",
+        "client/src/features/mobileWorkspace/MobileStoriesPage.test.tsx"
       ],
       "invariants": [
         "新分享默认只读，两项权限仅由分享者创建时明确授予；任一权限都可「拿来一起改」得到接收者副本，只有改写权限允许从副本「分享回给作者」。2026-10-19 经用户批准合并旧「帮作者改写」文本框入口，旧接口保留兼容。",
@@ -6893,7 +6901,8 @@
         "正式站双账号文字分享/候选提交/作者采用/独立承接已验收；图文分享/p跨账号完整操作及真机浏览器仍待进一步验收。",
         "权限对所有链接持有人生效，暂无指定收件人、逐条撤销或到期时间。",
         "桌面快捷历史与文风说明沿用通用文案，完整历史已正确展示贡献者；部分公网操作等待较长，需继续观察。",
-        "排版一起改：副本按本机快捷排版继承，已有本机排版设置的设备不自动覆盖；分享来的封面图暂不进入封面候选列表，只作为插图/底图素材可选；作者收到新版本暂无提醒；视频共创未开始。"
+        "排版一起改：副本按本机快捷排版继承，已有本机排版设置的设备不自动覆盖；分享来的封面图暂不进入封面候选列表，只作为插图/底图素材可选；视频共创未开始。",
+        "分享回来提醒：只扫描作者最近更新的40个故事；「已看过」只记在本机浏览器，换设备会重新出现红点；正式站双账号提醒链路待验收。"
       ],
       "history": [
         {
@@ -6915,6 +6924,11 @@
           "date": "2026-10-19",
           "kind": "implementation",
           "summary": "排版与图片一起改（用户批准：可编辑分享附带整套排版包，只读分享仍只给成品图）：分享时打包快捷排版设置、手动模块摆放和最多12张图片（服务端重编码，原URL不外泄）；朋友副本首次打开自动套用并可见「来自某某的图片」；副本可「把排版分享回给作者」，作者在排版页看到「和某某一起改的排版」选择采用（可撤销）或忽略。电脑端也开放分享作品链接。新增服务端6项、客户端3项测试，相关24文件163项与类型检查、构建通过；未部署，未调用AI。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "implementation",
+          "summary": "朋友分享回来提醒作者：新增 storyContextShare.shareBackInbox（只返回作者自己故事里未采用/未忽略的文字版本与排版候选，不含对方userId/令牌）。电脑端故事菜单触发器出红点并在菜单内列出「某某 分享回了文字/排版」可直达故事；手机端故事页顶部出现「朋友分享回来的」卡片。采用或忽略后提醒自然消失，看过状态按用户存本机。新增服务端3项、客户端8项测试；无数据库迁移，未调用AI。"
         }
       ]
     },

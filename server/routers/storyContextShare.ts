@@ -15,7 +15,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
-import { getStoryById } from "../repositories/stories";
+import {
+  getStoryById,
+  listRecentUserStoryBodies,
+} from "../repositories/stories";
+import { collectShareBacks } from "../../shared/shareBackInbox";
 import {
   countStoryContextShares,
   insertStoryContextShare,
@@ -150,6 +154,10 @@ export const storyContextShareRouter = router({
     .query(async ({ ctx, input }) =>
       inheritedStorySnapshot((await owned(input.storyId, ctx.user.id)).body)
     ),
+  /** 作者自己的故事里，朋友分享回来、还没采用/忽略的文字和排版。 */
+  shareBackInbox: protectedProcedure.query(async ({ ctx }) => ({
+    notices: collectShareBacks(await listRecentUserStoryBodies(ctx.user.id)),
+  })),
   backStatus: protectedProcedure
     .input(ownerInput)
     .query(async ({ ctx, input }) => {

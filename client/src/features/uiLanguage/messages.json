@@ -2570,5 +2570,13 @@
   "重试本次生成": {
     "en": "Retry this request",
     "fr": "Réessayer cette demande"
+  },
+  "朋友分享回来的": {
+    "en": "Shared back by friends",
+    "fr": "Renvoyé par des amis"
+  },
+  "打开看看，采用或忽略": {
+    "en": "Open to adopt or ignore",
+    "fr": "Ouvrir pour adopter ou ignorer"
   }
 }

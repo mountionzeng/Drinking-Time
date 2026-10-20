@@ -27,6 +27,7 @@ import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
 import { resolveRecentStoryEntry } from "@/features/storyAgent/recentStoryEntry";
 import { trpc } from "@/lib/trpc";
+import { useShareBackNotices } from "@/features/sharing/useShareBackNotices";
 import { cn } from "@/lib/utils";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import { LiaoliaoMascot, LiaoliaoThinkingDots } from "./LiaoliaoMascot";
@@ -611,6 +612,19 @@ function MobileSelectedStoryWorkspace({
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const shareBackNotices = useShareBackNotices(userId);
+  // 首次渲染时记下哪些是新的，这样小红点在本次浏览里一直可见。
+  const [unreadShareBackIds, setUnreadShareBackIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    if (shareBackNotices.unread.length === 0) return;
+    setUnreadShareBackIds(current => {
+      const next = new Set(current);
+      for (const notice of shareBackNotices.unread) next.add(notice.id);
+      return next;
+    });
+  }, [shareBackNotices.unread]);
 
   if (!story) return null;
 
@@ -699,6 +713,9 @@ function MobileSelectedStoryWorkspace({
               onSelectStory={storyId => {
                 requestStoryChange(storyId);
               }}
+              shareBacks={shareBackNotices.notices}
+              unreadShareBackIds={unreadShareBackIds}
+              onShareBacksSeen={shareBackNotices.markSeen}
             />
           )
         ) : page === "me" ? (

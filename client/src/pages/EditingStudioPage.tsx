@@ -65,6 +65,7 @@ import {
 } from "@/features/storyAgent/recentStoryEntry";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import { trpc } from "@/lib/trpc";
+import { useShareBackNotices } from "@/features/sharing/useShareBackNotices";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
 import { editingCapabilityReply } from "@shared/editingActionCapabilities";
@@ -668,6 +669,7 @@ export default function EditingStudioPage() {
       new CustomEvent("dt:open-story", { detail: { storyId, requestId } })
     );
   }, []);
+  const shareBackNotices = useShareBackNotices(user?.id);
   const storyMenu = useMemo(
     () => ({
       stories: recentStories,
@@ -682,8 +684,17 @@ export default function EditingStudioPage() {
           })
         ),
       onOpenStory: openStory,
+      shareBacks: shareBackNotices.notices,
+      unreadShareBacks: shareBackNotices.unread.length,
+      onShareBacksSeen: shareBackNotices.markSeen,
     }),
-    [openStory, recentStories]
+    [
+      openStory,
+      recentStories,
+      shareBackNotices.notices,
+      shareBackNotices.unread.length,
+      shareBackNotices.markSeen,
+    ]
   );
   useEffect(() => {
     const settleStoryOpen = (event: Event) => {

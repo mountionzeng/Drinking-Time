@@ -20,6 +20,8 @@ import { formatStoryTimestamp } from "@/features/storyAgent/storyTimestamp";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { VisualThemeMode } from "@/features/nayin/visualTheme";
 import StoryCoverThumbnail from "@/features/storyAgent/views/StoryCoverThumbnail";
+import type { ShareBackNotice } from "@shared/shareBackInbox";
+import { shareBackLabel } from "@/features/sharing/useShareBackNotices";
 
 /** hover 的延迟不对称：进来要快，出去要慢，鼠标斜着划过去才不会误关。 */
 const OPEN_DELAY_MS = 90;
@@ -49,7 +51,15 @@ export interface StoryLogoMenuProps {
   onOpenStory?: (storyId: number) => void;
   /** 「查看全部故事」——回到聊聊里的故事列表。 */
   onBrowseAll?: () => void;
+  /** 朋友分享回来、作者还没采用/忽略的版本。 */
+  shareBacks?: ShareBackNotice[];
+  /** 其中本机还没看过的条数，用来亮小红点。 */
+  unreadShareBacks?: number;
+  /** 菜单展开时调用，把提醒记成已看过。 */
+  onShareBacksSeen?: () => void;
 }
+
+const SHARE_BACK_LIMIT = 3;
 
 export function StoryMenuCover({
   story,
@@ -95,6 +105,9 @@ export default function StoryLogoMenu({
   onNewStory,
   onOpenStory,
   onBrowseAll,
+  shareBacks = [],
+  unreadShareBacks = 0,
+  onShareBacksSeen,
   trigger,
   placement = "bottom",
 }: StoryLogoMenuProps) {
@@ -127,6 +140,11 @@ export default function StoryLogoMenu({
   }, [clearTimers]);
 
   useEffect(() => clearTimers, [clearTimers]);
+
+  // 展开面板就算看过了：提醒还留在面板里，只是小红点灭掉。
+  useEffect(() => {
+    if (open && unreadShareBacks > 0) onShareBacksSeen?.();
+  }, [open, unreadShareBacks, onShareBacksSeen]);
 
   // 点面板外面 / 按 Esc 关闭；Esc 把焦点还给按钮。
   useEffect(() => {
@@ -264,14 +282,14 @@ export default function StoryLogoMenu({
         type="button"
         aria-haspopup={interactive ? "menu" : undefined}
         aria-expanded={interactive ? open : undefined}
-        aria-label={`${visualTheme === "shiguang" ? "拾光" : "聊聊"} · 故事菜单`}
+        aria-label={`${visualTheme === "shiguang" ? "拾光" : "聊聊"} · 故事菜单${unreadShareBacks > 0 ? ` · ${unreadShareBacks} 个朋友分享回来的新版本` : ""}`}
         onClick={handleButtonClick}
         onKeyDown={handleButtonKeyDown}
         onFocus={() => setAwake(true)}
         onBlur={() => {
           if (!open) setAwake(false);
         }}
-        className={`grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${trigger ? (visualTheme === "shiguang" ? "h-[62px] w-[72px]" : "h-16 w-16") : visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
+        className={`relative grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${trigger ? (visualTheme === "shiguang" ? "h-[62px] w-[72px]" : "h-16 w-16") : visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
         style={{
           background: open
             ? `color-mix(in oklab, ${ink} 8%, transparent)`
@@ -299,6 +317,14 @@ export default function StoryLogoMenu({
             title="聊聊"
           />
         ))}
+        {unreadShareBacks > 0 ? (
+          <span
+            data-share-back-dot
+            aria-hidden="true"
+            className="pointer-events-none absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--panel-bg,white)]"
+            style={{ background: "#d9534f" }}
+          />
+        ) : null}
       </button>
 
       {open && interactive ? renderMenu(
@@ -348,6 +374,42 @@ export default function StoryLogoMenu({
             className="mx-1 my-1.5 h-px"
             style={{ background: "var(--nayin-border)" }}
           />
+
+          {shareBacks.length > 0 ? (
+            <>
+              <div className="px-3 pb-1.5 pt-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                朋友分享回来的
+              </div>
+              {shareBacks.slice(0, SHARE_BACK_LIMIT).map(notice => (
+                <button
+                  key={notice.id}
+                  type="button"
+                  role="menuitem"
+                  data-menu-item
+                  onClick={run(() => onOpenStory?.(notice.storyId))}
+                  className={`${itemBase} flex flex-col gap-[3px] px-3 py-[9px] focus-visible:ring-2`}
+                  style={focusRing}
+                  onMouseEnter={event => {
+                    event.currentTarget.style.background = `color-mix(in oklab, ${ink} 8%, transparent)`;
+                  }}
+                  onMouseLeave={event => {
+                    event.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <span className="text-[13.5px] font-medium leading-[1.35] text-foreground">
+                    {shareBackLabel(notice)}
+                  </span>
+                  <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
+                    {notice.storyTitle} · 打开看看，采用或忽略
+                  </span>
+                </button>
+              ))}
+              <div
+                className="mx-1 my-1.5 h-px"
+                style={{ background: "var(--nayin-border)" }}
+              />
+            </>
+          ) : null}
 
           <div className="px-3 pb-1.5 pt-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
             回到以前的故事

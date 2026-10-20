@@ -160,6 +160,29 @@ function listItemsWithCoverUrls(
   });
 }
 
+/**
+ * 最近修改的若干篇故事正文，只供服务端汇总（如「朋友分享回来了」提醒）。
+ * 协作版本写入会刷新 updatedAt，所以按最近修改取前 N 篇就能覆盖新提醒。
+ */
+export async function listRecentUserStoryBodies(
+  userId: number,
+  limit = 40
+): Promise<Array<Pick<Story, "id" | "title" | "body">>> {
+  const db = await getDb();
+  if (!db)
+    return memoryState.stories
+      .filter(s => s.userId === userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, limit)
+      .map(({ id, title, body }) => ({ id, title, body }));
+  return db
+    .select({ id: stories.id, title: stories.title, body: stories.body })
+    .from(stories)
+    .where(eq(stories.userId, userId))
+    .orderBy(desc(stories.updatedAt))
+    .limit(limit);
+}
+
 export async function listUserStories(
   userId: number
 ): Promise<StoryListItem[]> {

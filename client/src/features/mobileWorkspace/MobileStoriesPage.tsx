@@ -8,6 +8,8 @@ import { MobileNavBar } from "./MobileNavBar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { mobileStoryMeta, type MobileStorySummary } from "./MobileStoryPanel";
+import type { ShareBackNotice } from "@shared/shareBackInbox";
+import { shareBackLabel } from "@/features/sharing/useShareBackNotices";
 
 function storyExcerpt(story: MobileStorySummary): string {
   const text = story.logline?.trim() || story.summary?.trim() || "";
@@ -21,8 +23,16 @@ export function MobileStoriesPage({
   onSelectStory,
   onOpenStage,
   visualTheme = "shiguang",
+  shareBacks = [],
+  unreadShareBackIds,
+  onShareBacksSeen,
 }: {
   visualTheme?: "shiguang" | "nayin";
+  /** 朋友分享回来、还没采用/忽略的版本。 */
+  shareBacks?: readonly ShareBackNotice[];
+  unreadShareBackIds?: ReadonlySet<string>;
+  /** 卡片出现在屏幕上就记成已看过。 */
+  onShareBacksSeen?: () => void;
   stories: readonly MobileStorySummary[];
   activeStoryId: number | null;
   onOpenMe: () => void;
@@ -38,6 +48,10 @@ export function MobileStoriesPage({
     setCompanionActive(library === null);
     return () => setCompanionActive(false);
   }, [library, setCompanionActive]);
+  const unreadCount = unreadShareBackIds?.size ?? 0;
+  useEffect(() => {
+    if (!library && unreadCount > 0) onShareBacksSeen?.();
+  }, [library, unreadCount, onShareBacksSeen]);
   if (library)
     return (
       <MobileContentLibrary
@@ -88,6 +102,48 @@ export function MobileStoriesPage({
           </button>
         ))}
       </nav>
+
+      {shareBacks.length > 0 ? (
+        <section
+          aria-label={t("朋友分享回来的")}
+          className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4"
+        >
+          <div className="text-[11px] tracking-[0.07em] text-muted-foreground">
+            {t("朋友分享回来的")}
+          </div>
+          <ul className="mt-1">
+            {shareBacks.slice(0, 3).map(notice => (
+              <li key={notice.id}>
+                <button
+                  type="button"
+                  className="flex min-h-12 w-full items-center justify-between gap-3 py-2 text-left"
+                  onClick={() => onSelectStory(notice.storyId)}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-[15px] text-foreground">
+                      {unreadShareBackIds?.has(notice.id) ? (
+                        <span
+                          data-share-back-unread
+                          role="img"
+                          aria-label={t("新")}
+                          className="h-2 w-2 shrink-0 rounded-full bg-[#d9534f]"
+                        />
+                      ) : null}
+                      {shareBackLabel(notice)}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                      {notice.storyTitle} · {t("打开看看，采用或忽略")}
+                    </span>
+                  </span>
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    ›
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {current ? (
         <article className="mt-5 rounded-2xl border border-border/70 bg-background/70 p-5">

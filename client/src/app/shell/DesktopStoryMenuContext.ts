@@ -3,5 +3,5 @@ import type { StoryLogoMenuProps } from "./StoryLogoMenu";
 
 /** Reuse the studio's story routing and unsaved-work safeguards in the composer. */
 export const DesktopStoryMenuContext = createContext<Pick<StoryLogoMenuProps,
-  "stories" | "onNewStory" | "onOpenStory" | "onBrowseAll"
+  "stories" | "onNewStory" | "onOpenStory" | "onBrowseAll" | "shareBacks" | "unreadShareBacks" | "onShareBacksSeen"
 > | null>(null);
