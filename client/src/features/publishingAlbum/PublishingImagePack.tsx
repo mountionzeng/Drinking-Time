@@ -38,6 +38,9 @@ import {
 } from "@/components/ui/popover";
 
 import { ImageCandidatePreview } from "./ImageCandidatePreview";
+import { storyLibraryImages, readStoryLocalImages } from "./storyImageLibrary";
+import type { StudioCreateRequest } from "../publishingDraft/StudioCreateMenu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   ImagePackModuleEditor,
   type ImagePackModuleEditorHandle,
@@ -204,7 +207,11 @@ export function PublishingImagePack({
   sharePlatform = "xiaohongshu",
   active = true,
   accountId,
+  createRequest,
+  onCreateRequestHandled,
 }: {
+  createRequest?: StudioCreateRequest | null;
+  onCreateRequestHandled?: () => void;
   accountId?: number | null;
   active?: boolean;
   sharePlatform?: import("@shared/sharePermissions").SharedWork["platform"];
@@ -237,8 +244,11 @@ export function PublishingImagePack({
   const key = `publishing-image-pack:${scope}`;
   const localImages = useLocalPackImages(scope);
   const [desktopSection, setDesktopSection] = useState<"images" | "layout">(
-    "layout"
+    "images"
   );
+  const [storyGenerate, setStoryGenerate] = useState(false);
+  const [insertRequest, setInsertRequest] = useState<{ id: string; asset: PackAsset } | null>(null);
+  const [liveDocument, setLiveDocument] = useState<ModuleDocument | null>(null);
   const [layoutGenerate, setLayoutGenerate] = useState(false);
   const [layoutInstruction, setLayoutInstruction] = useState("");
   const libraryUpload = useRef<HTMLInputElement>(null);
@@ -282,6 +292,11 @@ export function PublishingImagePack({
     () => sharedLayoutAssets(layoutQuery.data),
     [layoutQuery.data]
   );
+  const materialQuery = trpc.storyAgent.storyMaterialState.useQuery(
+    { storyId },
+    { enabled: storyId > 0 && active, retry: false, refetchOnWindowFocus: true }
+  );
+  const storyAssets = useMemo(() => storyLibraryImages(storyId, materialQuery.data), [storyId, materialQuery.data]);
   const assets = useMemo(() => {
     const all = new Map(coverAssets.map(asset => [asset.id, asset]));
     const warnings = new Map<number, string>();
@@ -303,12 +318,18 @@ export function PublishingImagePack({
     }
     for (const asset of sharedAssets)
       if (!all.has(asset.id)) all.set(asset.id, asset);
+    for (const asset of storyAssets)
+      if (!all.has(asset.id)) all.set(asset.id, asset);
     return Array.from(all.values());
-  }, [coverAssets, albumQuery.data, sharedAssets]);
-  const layoutAssets = useMemo(
-    () => [...assets, ...localImages.images],
-    [assets, localImages.images]
-  );
+  }, [coverAssets, albumQuery.data, sharedAssets, storyAssets]);
+  const layoutAssets = useMemo(() => {
+    const all = new Map(assets.map(asset => [asset.id, asset]));
+    if (typeof localStorage !== "undefined") {
+      for (const asset of readStoryLocalImages(storyId, localStorage)) all.set(asset.id, asset);
+    }
+    for (const asset of localImages.images) all.set(asset.id, asset);
+    return [...all.values()];
+  }, [assets, localImages.images, storyId]);
   const cover = assets.find(asset => asset.id === settings.coverId);
   const referenceCovers = coverAssets.filter(asset => !asset.kind);
   const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
@@ -342,6 +363,21 @@ export function PublishingImagePack({
   const [textureInstruction, setTextureInstruction] = useState("");
   const [coverSetup, setCoverSetup] = useState(false);
   const [coverInstruction, setCoverInstruction] = useState("");
+  useEffect(() => {
+    if (!createRequest || createRequest.storyId !== storyId) return;
+    if (createRequest.kind === "layout") {
+      setDesktopSection("layout");
+      if (mobile) setMobileStep("layout");
+      onCreateRequestHandled?.();
+      return;
+    }
+    if (createRequest.kind !== "image") return;
+    setDesktopSection("images");
+    if (mobile) setMobileStep("images");
+    setCoverInstruction(createRequest.instruction.slice(0, 1000));
+    setStoryGenerate(true);
+    onCreateRequestHandled?.();
+  }, [createRequest, storyId, mobile, onCreateRequestHandled]);
   const materials = Object.keys(IMAGE_PACK_TEXTURES).flatMap(texture =>
     [0, 1].map(variant => ({
       texture: texture as ImagePackTexture,
@@ -457,8 +493,30 @@ export function PublishingImagePack({
     basis: string;
     document: ModuleDocument;
   } | null>(null);
+  const blankDocument = useMemo<ModuleDocument>(() => ({
+    version: 1, flowVersion: 1, pages: [{ label: "第 1 页", modules: [] }],
+  }), []);
   const modules =
-    moduleOverride?.basis === basis ? moduleOverride.document : storedModules;
+    (moduleOverride?.basis === basis ? moduleOverride.document : storedModules) ??
+    (!body.trim() ? blankDocument : null);
+  const usedImages = new Set((liveDocument ?? modules)?.pages.flatMap(page =>
+    page.modules.flatMap(module => module.kind === "image" ? [module.imageUrl] : [])
+  ) ?? []);
+  for (const placement of settings.illustrations) {
+    const asset = assets.find(item => item.id === placement.assetId);
+    if (asset) usedImages.add(asset.imageUrl);
+  }
+  if (settings.includeCover && cover) usedImages.add(cover.imageUrl);
+  function useImageInLayout(asset: PackAsset) {
+    if (asset.warning === "原文件缺失") return;
+    if (needsCover || missingTexture || missingIllustration) {
+      toast.error("当前排版有不可用的封面、底图或插图，请先在下方设置中重新选择。");
+      return;
+    }
+    setInsertRequest({ id: crypto.randomUUID(), asset });
+    setDesktopSection("layout");
+    if (mobile) setMobileStep("layout");
+  }
   const [moduleSession, setModuleSession] = useState<{
     basis: string;
     options: ImagePackOptions;
@@ -506,6 +564,7 @@ export function PublishingImagePack({
   useEffect(() => {
     if (
       (mobile ? mobileStep === "layout" : desktopSection === "layout") &&
+      !materialQuery.isLoading &&
       !moduleSession &&
       output &&
       !stale &&
@@ -514,6 +573,7 @@ export function PublishingImagePack({
       setModuleSession({ basis, options: JSON.parse(basis), initial: modules });
   }, [
     mobile,
+    materialQuery.isLoading,
     mobileStep,
     desktopSection,
     moduleSession,
@@ -523,6 +583,9 @@ export function PublishingImagePack({
     basis,
     modules,
   ]);
+  useEffect(() => {
+    if (error && insertRequest) setInsertRequest(null);
+  }, [error, insertRequest]);
 
   useEffect(() => {
     try {
@@ -547,7 +610,6 @@ export function PublishingImagePack({
     ) as { options: ImagePackOptions; modules: ModuleDocument | null };
     if (output?.signature === signature) return;
     if (
-      !renderOptions.body.trim() ||
       needsCover ||
       missingIllustration ||
       missingTexture ||
@@ -893,6 +955,7 @@ export function PublishingImagePack({
       />
       <header className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div>
+          <h2 className="font-chat-brand text-lg">这个故事的图片</h2>
           <p className="mt-1 text-xs text-muted-foreground" role="status">
             {t("已有图片 {0} 张", [layoutAssets.length])}
             {output && mobile && mobileStep === "preview"
@@ -903,7 +966,29 @@ export function PublishingImagePack({
               : ""}
           </p>
         </div>
+        <button type="button" className={control} onClick={() => {
+          setDesktopSection("images");
+          if (mobile) setMobileStep("images");
+          setStoryGenerate(true);
+        }}><ImagePlus className="mr-1 inline h-3.5 w-3.5" />生成图片</button>
       </header>
+      <Dialog open={storyGenerate} onOpenChange={setStoryGenerate}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>基于当前文案生成图片</DialogTitle>
+            <DialogDescription>生成后放入本故事的图片列表，选好再加入排版。</DialogDescription>
+          </DialogHeader>
+          <textarea aria-label="图片生成要求" value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)}
+            rows={4} maxLength={1000} placeholder="想要怎样的画面？也可以在聊天框里补充要求。" className={control} />
+          {coverBusy || !onGenerateCover ? <p role="status" className="text-xs text-muted-foreground">
+            {!body.trim() ? "先写好并保存文案，即可根据文案生成图片；已有图片可以直接排版。" : "请先保存当前文案，或等待正在进行的生成完成。"}
+          </p> : null}
+          <button type="button" className={control} disabled={coverBusy || !onGenerateCover || illustrationCost == null}
+            onClick={() => { setStoryGenerate(false); void onGenerateCover?.(coverInstruction); }}>
+            确认生成 4 张{illustrationCost != null ? ` · ${formatComputeQuote(illustrationCost)}` : ""}
+          </button>
+        </DialogContent>
+      </Dialog>
       {!mobile && (
         <nav
           aria-label="图像与排版"
@@ -911,7 +996,7 @@ export function PublishingImagePack({
         >
           {(
             [
-              ["images", "图像"],
+              ["images", "图片素材"],
               ["layout", "排版"],
             ] as const
           ).map(([id, label]) => (
@@ -970,6 +1055,11 @@ export function PublishingImagePack({
           }
           className="space-y-4"
         >
+          <p className="text-xs text-muted-foreground">上传和生成的故事图片集中在这里，加入排版后仍会保留。</p>
+          {materialQuery.isError && <p role="alert" className="text-xs text-destructive">
+            故事图片读取失败，当前版本图片仍可使用。
+            <button type="button" className="ml-2 underline" onClick={() => void materialQuery.refetch()}>重试</button>
+          </p>}
           {
             <div className="flex items-center gap-3">
               <button
@@ -986,54 +1076,45 @@ export function PublishingImagePack({
                 ref={libraryUpload}
                 aria-label="上传图像素材"
                 type="file"
+                multiple
                 accept="image/png,image/jpeg,image/webp"
                 className="hidden"
                 onChange={async event => {
-                  const file = event.target.files?.[0];
+                  const files = Array.from(event.target.files ?? []);
                   event.target.value = "";
-                  if (!file) return;
-                  try {
-                    await localImages.upload(file);
-                  } catch (cause) {
-                    toast.error(
-                      cause instanceof Error ? cause.message : "上传失败"
-                    );
+                  for (const file of files) {
+                    try {
+                      await localImages.upload(file);
+                    } catch (cause) {
+                      toast.error(`${file.name}：${cause instanceof Error ? cause.message : "上传失败"}`);
+                    }
                   }
                 }}
               />
             </div>
           }
-          {localImages.images.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs text-muted-foreground">
-                本机上传 · 在排版中使用
-              </p>
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {localImages.images.map(asset => (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    aria-label={`到排版使用：${asset.label}`}
-                    onClick={() =>
-                      mobile
-                        ? void changeMobileStep("layout")
-                        : setDesktopSection("layout")
-                    }
-                    className="w-24 shrink-0 text-left"
-                  >
-                    <img
-                      src={asset.imageUrl}
-                      alt={asset.label}
-                      className="w-full"
-                    />
-                    <span className="block truncate text-[10px]">
-                      {asset.label}
-                    </span>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4" aria-label="故事图片素材库">
+            {layoutAssets.map(asset => (
+              <article key={asset.id} className="min-w-0">
+                <ImageCandidatePreview touchOnly={mobile} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
+                  <button type="button" aria-label={`预览：${asset.label}`} className="w-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]">
+                    <img src={asset.imageUrl} alt={asset.label} loading="lazy" className="aspect-[4/3] w-full rounded-lg bg-muted/40 object-contain" />
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
+                </ImageCandidatePreview>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px]">{asset.label}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.id < 0 ? "本机上传" : "未用于排版"}</span>
+                </div>
+                {asset.warning && <p className="mt-1 text-[10px] text-amber-700">{asset.warning}</p>}
+                <button type="button" disabled={asset.warning === "原文件缺失" || Boolean(insertRequest)}
+                  onClick={() => useImageInLayout(asset)} className={`${control} mt-2 w-full`} aria-label={`加入排版：${asset.label}`}>加入排版</button>
+              </article>
+            ))}
+          </div>
+          {!layoutAssets.length && <p className="py-6 text-center text-sm text-muted-foreground">{materialQuery.isLoading ? "正在整理故事图片…" : "还没有图片，上传素材或根据文案生成一组。"}</p>}
+          <details>
+            <summary className="cursor-pointer py-3 text-xs text-muted-foreground">封面、插图和底图设置</summary>
+            <div className="space-y-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs">{t("封面")}</p>
             <div className="flex items-center gap-2">
@@ -1474,6 +1555,8 @@ export function PublishingImagePack({
               {t("换一组免费纹理")}
             </button>
           </div>
+            </div>
+          </details>
         </div>
         <details
           hidden={
@@ -1599,6 +1682,9 @@ export function PublishingImagePack({
             <div hidden={mobile && mobileStep !== "layout"}>
               {moduleSession && (
                 <ImagePackModuleEditor
+                  insertRequest={insertRequest}
+                  onInsertHandled={() => setInsertRequest(null)}
+                  onDocumentChange={setLiveDocument}
                   companion={{ storyId, accountId, active: active && !advancedOpen && (mobile ? mobileStep === "layout" : desktopSection === "layout") }}
                   ref={moduleEditor}
                   mobile={mobile}

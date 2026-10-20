@@ -15,7 +15,7 @@ import type { TimelineGeneratedAudioKind } from "./useTimelineMediaController";
 
 export type TimelineAudioCreationRequest =
   | { kind: "narration"; subtitleCueId: string; targetFrame: number }
-  | { kind: TimelineGeneratedAudioKind; targetFrame: number };
+  | { kind: TimelineGeneratedAudioKind; targetFrame: number; initialIntent?: string; initialScope?: TimelineAudioGenerationScope };
 
 export type TimelineAudioGenerationScope = "shot" | "from-shot" | "story";
 
@@ -104,9 +104,9 @@ export function TimelineAudioCreationDialog({
   const [scope, setScope] = useState<TimelineAudioGenerationScope>("shot");
 
   useEffect(() => {
-    setIntent("");
-    setScope("shot");
-  }, [request?.kind, request?.targetFrame]);
+    setIntent(request && request.kind !== "narration" ? request.initialIntent?.slice(0, 800) ?? "" : "");
+    setScope(request && request.kind !== "narration" ? request.initialScope ?? "shot" : "shot");
+  }, [request]);
 
   if (!request) return null;
   const copy = timelineAudioCreationCopy(request.kind);
@@ -137,7 +137,7 @@ export function TimelineAudioCreationDialog({
             添加声音 · {copy.label}
           </div>
           <DialogTitle className="pt-1 text-base">
-            {isNarration ? "让声音跟着字幕走" : `为当前镜头生成${copy.label}`}
+            {isNarration ? "让声音跟着字幕走" : `为${scope === "story" ? "整个故事" : "当前镜头"}生成${copy.label}`}
           </DialogTitle>
           <DialogDescription className="text-xs leading-5">
             {copy.description}

@@ -58,6 +58,7 @@ import { layoutModuleLabel } from "@shared/layoutModuleContext";
 import { LayoutMemoryDetails } from "@/features/publishingAlbum/LayoutMemoryDetails";
 import { useStorySpine } from "../spine/storySpine";
 import { TextDraftVersions } from "@/features/publishingDraft/TextDraftVersions";
+import { StudioCreateMenu } from "@/features/publishingDraft/StudioCreateMenu";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { requestMemoryCard } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
@@ -238,11 +239,14 @@ export default function StoryAgentChat({
   showHeader = true,
   interactionMode = "story",
   onOpenPublishingWorkspace,
+  showCreationActions = false,
 }: {
   showHeader?: boolean;
   interactionMode?: "story" | "publishing";
   onOpenPublishingWorkspace?: () => void;
+  showCreationActions?: boolean;
 }) {
+  const hasStudioShots = useStorySpine(state => state.storyShots.length > 0);
   const { element, visualTheme } = useNayin();
   const desktopStoryMenu = useContext(DesktopStoryMenuContext);
 
@@ -804,7 +808,7 @@ export default function StoryAgentChat({
       if (creationFlow.busy) return;
       if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
     }
-    if (interactionMode === "publishing" && activeSelection?.sourceType !== "storyboard-image") {
+    if (interactionMode === "publishing" && !pendingMedia.length && activeSelection?.sourceType !== "storyboard-image") {
       if (!text || voice.isBusy || isImportingMedia) return;
       if (chatQueue.enqueue(text)) setInput("");
       resizeAndFocusInput();
@@ -1229,21 +1233,23 @@ export default function StoryAgentChat({
     .reverse()
     .find(message => message.role === "assistant")?.id;
 
+  const creationBlocked = isReplying || chatQueue.items.length > 0 || voice.isBusy ||
+    isImportingMedia || pendingMedia.length > 0 || soundDirector.active;
 
   return (
     <div
       className="monitor-panel relative h-full flex flex-col"
       onDragEnter={
-        interactionMode === "story" ? handleMediaDragEnter : undefined
+        interactionMode === "story" || showCreationActions ? handleMediaDragEnter : undefined
       }
-      onDragOver={interactionMode === "story" ? handleMediaDragOver : undefined}
+      onDragOver={interactionMode === "story" || showCreationActions ? handleMediaDragOver : undefined}
       onDragLeave={
-        interactionMode === "story" ? handleMediaDragLeave : undefined
+        interactionMode === "story" || showCreationActions ? handleMediaDragLeave : undefined
       }
-      onDrop={interactionMode === "story" ? handleMediaDrop : undefined}
+      onDrop={interactionMode === "story" || showCreationActions ? handleMediaDrop : undefined}
       data-testid="story-agent-media-dropzone"
     >
-      {interactionMode === "story" && isMediaDragActive ? (
+      {(interactionMode === "story" || showCreationActions) && isMediaDragActive ? (
         <div
           className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-md border-2 border-dashed bg-background/92"
           style={{ borderColor: "var(--nayin-accent)" }}
@@ -2059,7 +2065,7 @@ export default function StoryAgentChat({
           className={`flex items-end gap-1.5 ${!activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
         >
           <div className="flex shrink-0 flex-col items-center gap-1">
-            {interactionMode === "story" ? (
+            {interactionMode === "story" || showCreationActions ? (
               <>
               <button
                 type="button"
@@ -2171,9 +2177,7 @@ export default function StoryAgentChat({
             type="button"
             onClick={handleSubmit}
             disabled={
-              (!input.trim() &&
-                (interactionMode === "publishing" ||
-                  pendingMedia.length === 0)) ||
+              (!input.trim() && pendingMedia.length === 0) ||
               (isReplying && (pendingMedia.length > 0 || Boolean(activeSelection && !writingSession))) ||
               (soundDirector.active && !layoutContext && !soundDirector.session?.question) ||
               voice.isBusy ||
@@ -2217,7 +2221,8 @@ export default function StoryAgentChat({
             </button>
           </div>
         ) : null}
-        <div className={activeSelection?.sourceType === "storyboard-image" ? "hidden" : "flex items-start justify-end gap-2"}>
+        <div className="flex flex-wrap items-start justify-end gap-2" data-testid="chat-creation-actions">
+        <div className={activeSelection?.sourceType === "storyboard-image" ? "hidden" : "contents"}>
         <button type="button" disabled={!input.trim() || isReplying}
           className="mt-1 inline-flex h-7 shrink-0 items-center rounded-md border border-[var(--panel-border)] px-2 text-[11px] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-45"
           onClick={() => requestMemoryCard({ content: input, origin: "note", sourceStoryId: (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (remoteStoryId ?? activeStoryId) : null })}>
@@ -2228,6 +2233,13 @@ export default function StoryAgentChat({
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
           blocked={isReplying || chatQueue.items.length > 0 || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
+        />}
+        </div>
+        {showCreationActions && <StudioCreateMenu
+          storyId={remoteStoryId ?? activeStoryId ?? null}
+          input={input}
+          blocked={creationBlocked}
+          hasShots={hasStudioShots}
         />}
         </div>
 

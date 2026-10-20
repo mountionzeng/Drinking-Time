@@ -948,9 +948,13 @@ export {
 export default function EditingNleWorkspace({
   videoEditorHandoffTarget = null,
   onVideoEditorHandoffHandled,
+  musicRequest,
+  onMusicRequestHandled,
 }: {
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
+  musicRequest?: import("@/features/publishingDraft/StudioCreateMenu").StudioCreateRequest | null;
+  onMusicRequestHandled?: () => void;
 }) {
   const creationEditor = useCreationEditor();
   const {
@@ -1434,6 +1438,11 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     setAudioCreationRequest(null);
   }, [editingStorySessionKey]);
+  useEffect(() => {
+    if (!musicRequest || musicRequest.storyId !== activeStoryId) return;
+    setAudioCreationRequest({ kind: "music", targetFrame: 0, initialScope: "story", initialIntent: musicRequest.instruction });
+    onMusicRequestHandled?.();
+  }, [musicRequest, activeStoryId, onMusicRequestHandled]);
 
   const copyVideo = useCallback((target: VideoClipEditorTarget) => {
     const payload = videoClipboardPayloadFromTarget(target);

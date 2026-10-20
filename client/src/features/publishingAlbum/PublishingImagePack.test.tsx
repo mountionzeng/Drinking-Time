@@ -11,6 +11,7 @@ const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
 const generationPanels = vi.hoisted(() => new Map<string, React.ReactNode>());
 const layoutQuery = vi.hoisted(() => ({ data: undefined as any }));
 vi.mock("@/lib/trpc", () => ({ trpc: {
+  storyAgent: { storyMaterialState: { useQuery: () => ({ data: undefined }) } },
   publishingDraft: { readAlbum: { useQuery: () => query } },
   artworkShare: { layout: { useQuery: () => layoutQuery } },
 } }));

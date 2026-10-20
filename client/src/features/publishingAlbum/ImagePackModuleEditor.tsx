@@ -171,7 +171,13 @@ export function ImagePackModuleEditor({
   ref,
   onPreview,
   companion,
+  insertRequest,
+  onInsertHandled,
+  onDocumentChange,
 }: {
+  insertRequest?: { id: string; asset: PackAsset } | null;
+  onInsertHandled?(): void;
+  onDocumentChange?(document: ModuleDocument): void;
   options: ImagePackOptions;
   scope: string;
   initial: ModuleDocument | null;
@@ -242,6 +248,20 @@ export function ImagePackModuleEditor({
     setCropMode(false);
   }, [selectedId, pageIndex]);
   useImperativeHandle(ref, () => ({ prepare: () => finish("preview") }));
+  const handledInsert = useRef<string | null>(null);
+  useEffect(() => {
+    if (history?.present) onDocumentChange?.(history.present);
+  }, [history?.present, onDocumentChange]);
+  useEffect(() => {
+    if (!insertRequest || handledInsert.current === insertRequest.id || !renderer || !history || busy) return;
+    handledInsert.current = insertRequest.id;
+    if (editing || sourceChanged) {
+      setError(editing ? "请先完成当前文字编辑，再从图片列表加入图片。" : "文案已变化，请先更新排版，再加入图片。");
+    } else {
+      void addImage(insertRequest.asset);
+    }
+    onInsertHandled?.();
+  }, [insertRequest, renderer, history, busy, editing, sourceChanged, onInsertHandled]);
   useEffect(() => {
     const abort = new AbortController();
     controller.current = abort;

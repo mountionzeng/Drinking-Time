@@ -55,6 +55,7 @@ vi.mock("@/lib/trpc", () => {
   });
   return {
     trpc: {
+      storyAgent: { storyMaterialState: { useQuery: () => ({ data: undefined }) } },
       useUtils: () => ({
         publishingDraft: {
           read: { setData: vi.fn() },
@@ -226,10 +227,10 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toMatch(/<button[^>]*>[\s\S]*?分享链接<\/button>/);
   });
 
-  it("directs an empty image workspace to writing without starting generation", () => {
+  it("opens the story image library without requiring a text draft or starting generation", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace view="images" />);
-    expect(html).toContain("先准备一篇文字，再制作图片。");
-    expect(html).toContain("去写文字");
+    expect(html).toContain("故事图片素材库");
+    expect(html).toContain("去写文案");
     expect(html).not.toContain("开始手写文稿");
   });
 

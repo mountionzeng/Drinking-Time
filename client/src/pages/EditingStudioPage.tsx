@@ -73,6 +73,7 @@ import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraftWorkspace";
+import { STUDIO_CREATE_EVENT, type StudioCreateRequest } from "@/features/publishingDraft/StudioCreateMenu";
 import StudioTour from "@/features/studioTour/StudioTour";
 import { STUDIO_TOUR_REPLAY_EVENT } from "@/features/studioTour/studioTourStorage";
 import {
@@ -283,6 +284,19 @@ function EditingStudioBody({
     setConfirmedIntent,
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [createRequest, setCreateRequest] = useState<StudioCreateRequest | null>(null);
+  useEffect(() => { setCreateRequest(null); }, [activeStoryId]);
+  useEffect(() => {
+    const create = (event: Event) => {
+      const request = (event as CustomEvent<StudioCreateRequest>).detail;
+      if (!request || request.storyId !== activeStoryId) return;
+      setChatCollapsed(false);
+      setCreateRequest(request);
+      onWorkspaceChange(request.kind === "image" || request.kind === "layout" ? "images" : "editing");
+    };
+    window.addEventListener(STUDIO_CREATE_EVENT, create);
+    return () => window.removeEventListener(STUDIO_CREATE_EVENT, create);
+  }, [activeStoryId, onWorkspaceChange]);
   const [pendingStoryAction, setPendingStoryAction] = useState<
     "back" | "new" | null
   >(null);
@@ -501,6 +515,7 @@ function EditingStudioBody({
           >
             {activeStoryId !== null ? (
               <StoryAgentChat
+                showCreationActions
                 showHeader={false}
                 interactionMode={interactionMode}
                 onOpenPublishingWorkspace={() =>
@@ -527,9 +542,12 @@ function EditingStudioBody({
             hidden={workspace !== "publishing" && workspace !== "images"}
           >
             <PublishingDraftWorkspace
+              createRequest={createRequest?.kind !== "music" ? createRequest : null}
+              onCreateRequestHandled={() => setCreateRequest(null)}
               active={workspace === "publishing" || workspace === "images"}
               view={workspace === "images" ? "images" : "text"}
               onOpenWriting={() => onWorkspaceChange("publishing")}
+              onOpenImages={() => onWorkspaceChange("images")}
               onContinueToVideo={() => {
                 // 成片生成完成后直接落到可连续播放的剪辑台。
                 onWorkspaceChange("editing");
@@ -567,6 +585,8 @@ function EditingStudioBody({
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {workspace === "editing" ? (
                   <EditingNleWorkspace
+                    musicRequest={createRequest?.kind === "music" ? createRequest : null}
+                    onMusicRequestHandled={() => setCreateRequest(null)}
                     videoEditorHandoffTarget={videoEditorHandoffTarget}
                     onVideoEditorHandoffHandled={() =>
                       setVideoEditorHandoffTarget(null)

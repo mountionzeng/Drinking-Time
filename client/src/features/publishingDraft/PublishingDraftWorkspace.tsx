@@ -1,4 +1,5 @@
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
+import type { StudioCreateRequest } from "./StudioCreateMenu";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
@@ -319,12 +320,18 @@ export default function PublishingDraftWorkspace({
   onContinueToVideo,
   view = "all",
   onOpenWriting,
+  onOpenImages,
   active = true,
+  createRequest,
+  onCreateRequestHandled,
 }: {
   active?: boolean;
   onContinueToVideo?: () => void;
   view?: "all" | "text" | "images";
   onOpenWriting?: () => void;
+  onOpenImages?: () => void;
+  createRequest?: StudioCreateRequest | null;
+  onCreateRequestHandled?: () => void;
 }) {
   const {
     activeStoryId,
@@ -1463,6 +1470,22 @@ export default function PublishingDraftWorkspace({
     setVideoSetupOpen(true);
   };
 
+  useEffect(() => {
+    if (!createRequest || createRequest.storyId !== activeStoryId || createRequest.kind !== "video") return;
+    onCreateRequestHandled?.();
+    if (!draft || dirty || !editorContent?.body.trim()) {
+      toast.info("请先在文字区保存当前文案，再制作视频。");
+      onOpenWriting?.();
+      return;
+    }
+    if (coverBusy || videoBusy) {
+      toast.info("当前生成还在进行，请完成后再制作视频。");
+      return;
+    }
+    setSelectedNarrativeSpec(activeVersion?.narrativeSpec ?? "video30");
+    setVideoSetupOpen(true);
+  }, [createRequest, activeStoryId, draft, dirty, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
+
   const confirmVideoSetup = async () => {
     setVideoSetupOpen(false);
     if (
@@ -1497,6 +1520,7 @@ export default function PublishingDraftWorkspace({
         setPublishing(initialized.publishing);
         await refreshPublishingRead(storyId);
         setAlbumWorkspaceOpen(true);
+        onOpenImages?.();
         toast.success("画册页面已建立；文字稿和视频故事板没有改变");
         return;
       }
@@ -1939,9 +1963,21 @@ export default function PublishingDraftWorkspace({
           </div> : null}
 
           {!editorContent && view === "images" ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-              <p className="text-sm text-muted-foreground">先准备一篇文字，再制作图片。</p>
-              <ActionButton onClick={() => onOpenWriting?.()}>去写文字</ActionButton>
+            <div className="p-4">
+              <p className="mb-4 text-xs text-muted-foreground">
+                先整理图片，也可以直接加入排版，再添加文字。
+                <button type="button" className="ml-2 underline" onClick={onOpenWriting}>去写文案</button>
+              </p>
+              <PublishingImagePack
+                key={`${activeStoryId}:${versionId}:${platform}`}
+                scope={`${activeStoryId}:${versionId}:${platform}`}
+                storyId={activeStoryId!} accountId={storySpineStore.getState().accountId}
+                versionId={versionId} hasAlbum={false}
+                title={storyTitle || ""} body="" assets={[]} adoptedCoverId={null}
+                coverBusy active={active}
+                createRequest={createRequest?.kind === "image" || createRequest?.kind === "layout" ? createRequest : null}
+                onCreateRequestHandled={onCreateRequestHandled}
+              />
             </div>
           ) : !editorContent ? (
             <div className="relative flex flex-1 items-center justify-center px-6 py-16 text-center">
@@ -2314,6 +2350,8 @@ export default function PublishingDraftWorkspace({
                   <button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>保存正文</button>
                 </p>}
                 <PublishingImagePack
+                  createRequest={createRequest?.kind === "image" || createRequest?.kind === "layout" ? createRequest : null}
+                  onCreateRequestHandled={onCreateRequestHandled}
                   key={`${activeStoryId}:${versionId}:${platform}`}
                   scope={`${activeStoryId}:${versionId}:${platform}`}
                   active={active && view !== "text"}

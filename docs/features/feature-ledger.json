@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-19",
+  "updatedAt": "2026-10-20",
   "features": [
     {
       "id": "story-context-sharing",
@@ -743,7 +743,9 @@
         "server/services/visualClipEditing.ts",
         "server/routers/creationAgent.ts",
         "shared/storyMaterial.ts",
-        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx"
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
+        "client/src/features/publishingAlbum/storyImageLibrary.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx"
       ],
       "evidence": [
         "client/src/features/creationEditor/rerender.test.ts",
@@ -763,7 +765,10 @@
         "shared/imageRevisionPlacement.test.ts",
         "server/services/visualClipEditing.test.ts",
         "docs/qa/2026-10-05-image-revision-layer.md",
-        "docs/qa/2026-10-16-story-image-warehouse.md"
+        "docs/qa/2026-10-16-story-image-warehouse.md",
+        "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "docs/qa/2026-10-20-story-creation-workflow.md"
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
@@ -783,7 +788,7 @@
         "固定四张MJ入口已在故事1202第02镜真实生成候选1880–1883，参考1877，全部落盘展示。当前网络可达不代表永久消除DNS/连接波动；构图、人物一致性的更广泛质量仍待验收。",
         "普通参考编辑虽已接异步任务号与查询，但generateForMobile尚未将受理回执持久化到Story供刷新恢复；本轮仅修供应商适配层，不代表端到端恢复完成。",
         "镜头参考选择保存在本浏览器，不跨设备同步；关闭页面后不会继续提交尚未开始的图片，已受理任务仍缺少刷新恢复。",
-        "本机临时上传和带文字的实时排版成品尚未作为故事图片归档；是否保存排版成品待用户选择。"
+        "本机上传可在同故事图库跨版本查看，但仍仅存当前浏览器；实时排版成品需要显式存入素材仓库后才成为服务端故事素材。"
       ],
       "history": [
         {
@@ -855,6 +860,11 @@
           "date": "2026-10-16",
           "kind": "fix",
           "summary": "补齐素材仓库漏显的发布封面/插图/底图及历史候选：独立warehouseImages读取当前故事完整图片，保持原镜头归属/采用和资产分类，按ID去重；两端生成后按storyId刷新仓库。75项相关测试、类型检查及主仓真实图片12/资产1入口验证，无生成或业务数据写入。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "图像页接入故事级素材归档，跨版本展示历史候选、镜头及共享图片；同故事本机上传按原scope保存并只读归集，按ID去重，缺失文件明确标注且禁止加入排版。1202真实显示25张图片，隔离/去重/缺失/本机跨版本测试通过；不改原素材状态或归属。"
         }
       ]
     },
@@ -1045,7 +1055,8 @@
         "server/services/publishingCoverStoryboardPrompt.ts",
         "server/_core/httpConnectionPool.ts",
         "client/src/pages/EditingStudioPage.tsx",
-        "client/src/pages/editingStudioWorkspace.ts"
+        "client/src/pages/editingStudioWorkspace.ts",
+        "client/src/features/publishingDraft/StudioCreateMenu.tsx"
       ],
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
@@ -1078,7 +1089,9 @@
         "docs/qa/2026-10-16-three-workspaces.md",
         "client/src/pages/editingStudioWorkspace.test.ts",
         "client/src/app/shell/TopBar.test.tsx",
-        "docs/qa/2026-10-16-image-layout-workspace.md"
+        "docs/qa/2026-10-16-image-layout-workspace.md",
+        "docs/qa/2026-10-20-story-creation-workflow.md",
+        "client/src/features/publishingDraft/StudioCreateMenu.test.tsx"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1107,7 +1120,8 @@
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
         "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
         "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。",
-        "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。"
+        "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。",
+        "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
       ],
       "history": [
         {
@@ -1289,6 +1303,26 @@
           "date": "2026-10-17",
           "kind": "refactor",
           "summary": "按用户截图移除图像工作区重复的栏目名、故事标题及把文章/记忆做成图片介绍标题，保留图像/排版切换、素材数量与分享等原操作。 相关两文件34项回归通过，主仓3000浏览器确认标题消失，截图 /tmp/layout-headings-removed.png。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "增加故事创作入口：聊天旁选择图片、视频或音乐后切到对应工作区，图片/音乐带入输入框要求并沿用既有生成确认。无正文时开放图库与空白排版，写作模式可走原媒体导入。保留原文字版本及工作区编辑状态。11文件107项回归、类型与构建通过，真实浏览器完成入口验收；未付费生成或部署。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "按用户要求将“基于当前内容生成”移至顶部按钮栏最右侧。通过Portal保留原聊天输入、故事范围与忙碌状态；聊天底部不重复展示。主仓浏览器确认顶栏位置，类型检查与功能账本校验通过。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "fix",
+          "summary": "将基于当前内容生成菜单改为工作台顶栏直接挂载，解除聊天组件生命周期和DOM插槽依赖。未选故事或忙碌时入口仍可打开并说明原因；忙碌时保留图文排版导航，生成继续沿用原确认流程。同故事聊天输入同步，切换故事不传旧输入。新增菜单回归，六文件56项测试与类型检查通过；主仓浏览器确认收起聊天、进入排版和打开图片设置后入口仍可见，未提交付费生成。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "fix",
+          "summary": "用户澄清“上排按钮最右边”指聊天输入框下方操作排，故将基于当前内容生成从页面顶栏移到聊天按钮排最右侧；移除顶栏专用插槽属性和跨组件聊天状态传递。入口放在图片选区隐藏分支之外，进入图片或排版仍保留；忙碌时菜单可打开并解释原因。主仓浏览器确认三按钮同排且生成菜单最右、顶栏无重复入口。"
         }
       ]
     },
@@ -1935,7 +1969,8 @@
         "scripts/backup-local-media.test.ts",
         "docs/qa/2026-10-19-video-export-check.md",
         "server/services/videoExport.integration.test.ts",
-        "server/services/videoExportImage.test.ts"
+        "server/services/videoExportImage.test.ts",
+        "docs/qa/2026-10-20-story-creation-workflow.md"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -2070,6 +2105,11 @@
           "date": "2026-10-19",
           "kind": "fix",
           "summary": "按用户确认的范围补齐静态图片成片编码，复用视觉图层解析与图片构图；默认缺素材报错，桌面取消最新候选兜底。隔离素材真实 FFmpeg 集成验证视频、图片、字幕、声音及有意空档，不修改业务故事。图片自定义文字层暂明确拦截，避免静默遗漏。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "聊天生成菜单可进入现有音乐确认窗口，默认整故事范围并带入输入框要求；无镜头时明确禁用。保持服务端权威报价、帧落点和用户确认；真实浏览器确认打开/整故事选中/取消，不提交生成。"
         }
       ]
     },
@@ -7129,7 +7169,9 @@
         "client/src/features/publishingAlbum/imagePackCopy.test.ts",
         "docs/qa/2026-10-16-image-pack-copy.md",
         "docs/qa/2026-10-16-module-chat-memory.md",
-        "docs/qa/2026-10-17-layout-release.md"
+        "docs/qa/2026-10-17-layout-release.md",
+        "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
+        "docs/qa/2026-10-20-story-creation-workflow.md"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -7219,6 +7261,11 @@
           "date": "2026-10-17",
           "kind": "verification",
           "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "图库每张图片增加加入排版，切区并通过现有模块操作实际插入；保留原文稿、撤销及当前模块聊天上下文。允许无正文的空白模块稿与批量本机上传。真实验证有文案插图和无文案上传两图后插入，临时修改已还原；未写回共享正文。"
         }
       ]
     },
