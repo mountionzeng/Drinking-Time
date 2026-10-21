@@ -1098,7 +1098,8 @@
         "docs/qa/2026-10-16-image-layout-workspace.md",
         "docs/qa/2026-10-20-story-creation-workflow.md",
         "client/src/features/publishingDraft/StudioCreateMenu.test.tsx",
-        "docs/qa/2026-10-20-story-workflow-release.md"
+        "docs/qa/2026-10-20-story-workflow-release.md",
+        "docs/qa/2026-10-21-desktop-memory-chat.md"
       ],
       "invariants": [
         "平台稿相互隔离。",
@@ -1335,6 +1336,11 @@
           "date": "2026-10-20",
           "kind": "verification",
           "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "refactor",
+          "summary": "按用户要求，文字栏目下的故事记忆入口移入左侧对话框，账号回忆独立放在顶栏；文字、图片、视频工作区及未保存缓冲继续保留，选卡成文后仍可返回文字工作区。"
         }
       ]
     },
@@ -4500,7 +4506,8 @@
         "docs/qa/2026-10-13-unified-writing-release.md",
         "docs/qa/2026-10-15-writing-mobile-release.md",
         "client/src/features/storyAgent/hooks/useVoiceInput.test.tsx",
-        "docs/qa/2026-10-21-mobile-story-chat.md"
+        "docs/qa/2026-10-21-mobile-story-chat.md",
+        "docs/qa/2026-10-21-desktop-memory-chat.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4861,6 +4868,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "af886aa2已推送并部署：主仓663文件5634项、独立发布候选27文件177项、类型/构建/65卡通过；95个目标文件SHA256一致，3个前端差异文件已上线，服务端包不变且PM2保持online。手机/电脑/健康入口200、匿名图片接口401。390/320px完整历史、引用返回与语音入口通过；MySQL65项未跑，真机与高级素材工具缺口详见QA。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "电脑前端跟进故事对话与账号回忆的入口关系；两端继续读取同一后端，无新数据副本。聊天目录复用时间分段规则；桌面查看旧消息时不再被后台刷新拉回最新，主动发送或点击最新后恢复跟随。"
         }
       ]
     },
@@ -6134,7 +6146,8 @@
       "entryPoints": [
         "client/src/pages/EditingStudioPage.tsx",
         "client/src/features/storyAgent/views/StoryAgentChat.tsx",
-        "server/routers/memoryWarehouse.ts"
+        "server/routers/memoryWarehouse.ts",
+        "client/src/features/storyAgent/views/StoryChatContents.tsx"
       ],
       "owners": [
         "shared/memoryWarehouse.ts",
@@ -6152,7 +6165,9 @@
         "server/services/memoryComposition.ts",
         "client/src/features/memoryWarehouse/memorySelectionStore.ts",
         "client/src/features/storyAgent/storyAgentPersistence.ts",
-        "client/src/features/storyAgent/StoryAgentContext.tsx"
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/StoryChatContents.tsx",
+        "client/src/features/storyAgent/conversationSections.ts"
       ],
       "evidence": [
         "server/routers.memoryWarehouse.test.ts",
@@ -6166,7 +6181,10 @@
         "docs/qa/2026-10-11-mobile-synced-editing.md",
         "client/src/features/memoryWarehouse/MemoryWarehouse.test.tsx",
         "docs/qa/2026-10-12-memory-warehouse-story-scope.md",
-        "docs/qa/2026-10-13-evening-release.md"
+        "docs/qa/2026-10-13-evening-release.md",
+        "client/src/features/storyAgent/views/StoryChatContents.test.tsx",
+        "client/src/features/memoryWarehouse/memoryWarehouseEvents.test.ts",
+        "docs/qa/2026-10-21-desktop-memory-chat.md"
       ],
       "invariants": [
         "按用户2026-10-10明确修正：用户与助手已保存的文字聊天自动收录，打开仓库补齐旧聊天；保留双方来源及原文，不将助手说法推断为用户事实，不改动独立的长期理解/每日来信采集开关。",
@@ -6175,7 +6193,8 @@
         "生成、查看不等于采用；保留原有文字历史、正文缓冲和显式采用规则。",
         "卡片保存幂等，归档可恢复，不改写已生成文章的来源快照；助手整理与思绪保留来源和类型，不冒充用户原话或既成事实。",
         "重复同步不得重复入库或恢复已归档记忆；长消息分段保留完整原文。聊天修改另存内容快照，已生成文章的来源快照不随之改写。",
-        "故事内仓库默认读取当前故事及已主动用于文字版本的来源记忆；账号全部记忆须显式切换范围。切换故事重置范围，未保存故事不得回退显示账号缓存，归档和分页遵循同一范围。"
+        "故事内仓库默认读取当前故事及已主动用于文字版本的来源记忆；账号全部记忆须显式切换范围。切换故事重置范围，未保存故事不得回退显示账号缓存，归档和分页遵循同一范围。",
+        "2026-10-21按用户要求，电脑顶栏回忆独立打开账号范围，故事对话框的记事入口显式打开当前故事范围；旧的无范围调用仍默认当前故事。正在整理卡片或生成时不得静默切换范围。"
       ],
       "dependencies": [
         "story-ownership",
@@ -6229,6 +6248,11 @@
           "date": "2026-10-13",
           "kind": "verification",
           "summary": "10月12日整合发布验证：613文件5278项、隔离真实MySQL62项、小程序215项、类型与构建通过；记忆仓库失效刷新限定当前故事。保留真机与付费供应商验收缺口。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "电脑账号回忆改为顶栏独立入口；原文字子类目的记忆仓库迁入左侧对话框，区分账号全部回忆与故事记事/文章来源。新增聊天目录、原文搜索、定位与回到最新；手机和电脑共用聊天时间分段规则，保留选卡排序成文、归档恢复及来源快照。"
         }
       ]
     },

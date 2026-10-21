@@ -8,33 +8,9 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { MobileMemoryFollowup } from "./mobileMemoryFollowup";
 import { useReducedMotion } from "framer-motion";
 import type { MobileConversationController } from "./MobileChatView";
-import type { MobileConversationViewMessage } from "./mobileConversationStore";
 
-export function conversationSections(
-  messages: readonly MobileConversationViewMessage[]
-) {
-  const groups: {
-    id: string;
-    timestamp: number;
-    messages: MobileConversationViewMessage[];
-  }[] = [];
-  for (const message of messages) {
-    if (message.source === "recovery") continue;
-    const previous = groups.at(-1);
-    const last = previous?.messages.at(-1);
-    if (
-      !previous ||
-      (last && message.timestamp - last.timestamp > 30 * 60_000)
-    ) {
-      groups.push({
-        id: message.id,
-        timestamp: message.timestamp,
-        messages: [message],
-      });
-    } else previous.messages.push(message);
-  }
-  return groups;
-}
+export { conversationSections } from "@/features/storyAgent/conversationSections";
+import { conversationSections } from "@/features/storyAgent/conversationSections";
 function timeLabel(timestamp: number, language: UiLanguage) {
   return Number.isFinite(timestamp) && timestamp > 946684800000
     ? new Date(timestamp).toLocaleString(

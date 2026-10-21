@@ -52,6 +52,7 @@ import {
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
+import StoryChatContents from "./StoryChatContents";
 import { useDesktopChatQueue } from "../useDesktopChatQueue";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
 import { layoutModuleLabel } from "@shared/layoutModuleContext";
@@ -399,6 +400,9 @@ export default function StoryAgentChat({
     rotated: boolean;
   } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageNodes = useRef(new Map<string, HTMLDivElement>());
+  const readingHistory = useRef(false);
+  useEffect(() => { readingHistory.current = false; }, [accountId, activeStoryId]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedImage =
@@ -749,7 +753,7 @@ export default function StoryAgentChat({
   // Auto-scroll on new messages
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || readingHistory.current) return;
     const isPristineStoryStart = false;
     if (isPristineStoryStart) {
       el.scrollTo({ top: 0, behavior: "auto" });
@@ -790,6 +794,7 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if (text || pendingMedia.length) readingHistory.current = false;
     if (text && creativeVersionIntent(text) && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
       if (creationFlow.busy) return;
       if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
@@ -1423,6 +1428,22 @@ export default function StoryAgentChat({
         </section>
       </div>
 
+      <StoryChatContents
+        key={`${accountId}:${activeStoryId}`}
+        messages={messages}
+        disabled={creationBlocked}
+        onLocate={id => {
+          const node = messageNodes.current.get(id);
+          if (!node) return;
+          readingHistory.current = true;
+          node.focus({ preventScroll: true });
+          node.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        }}
+        onLatest={() => {
+          readingHistory.current = false;
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" });
+        }}
+      />
       <div
         ref={scrollRef}
         className="monitor-panel-body story-chat-scroll-surface flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
@@ -1431,10 +1452,13 @@ export default function StoryAgentChat({
           {messages.map(m => (
             <motion.div
               key={m.id}
+              ref={node => { if (node) messageNodes.current.set(m.id, node); else messageNodes.current.delete(m.id); }}
+              tabIndex={-1}
+              data-chat-message-id={m.id}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex scroll-mt-3 items-start gap-2 rounded-md outline-none focus:ring-1 focus:ring-primary/40 ${m.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${

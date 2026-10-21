@@ -153,10 +153,25 @@ export default function MemoryWarehouse({
   }, [open, syncAttempt, utils, showAll, activeStoryId, accountId]);
 
   useEffect(() => {
-    alive.current = true;
-    const show = () => {
+    const show = (event: Event) => {
+      if (draftRef.current || saveLock.current || generationLock.current || busy) {
+        toast.info("请先处理当前记忆内容，再切换查看范围");
+        setOpen(true);
+        return;
+      }
+      const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
+      setAccountScopeKey(scope === "account" ? contextKey : null);
+      setOffset(0);
+      setSearch("");
+      setArchived(false);
       setOpen(true);
     };
+    window.addEventListener(OPEN_MEMORY_WAREHOUSE, show);
+    return () => window.removeEventListener(OPEN_MEMORY_WAREHOUSE, show);
+  }, [contextKey, busy]);
+
+  useEffect(() => {
+    alive.current = true;
     const remember = (event: Event) => {
       const seed = (event as CustomEvent<MemoryCardSeed>).detail;
       if (draftRef.current) toast.info("请先保存或取消正在整理的卡片");
@@ -169,11 +184,9 @@ export default function MemoryWarehouse({
         });
       setOpen(true);
     };
-    window.addEventListener(OPEN_MEMORY_WAREHOUSE, show);
     window.addEventListener(SAVE_MEMORY_CARD, remember);
     return () => {
       alive.current = false;
-      window.removeEventListener(OPEN_MEMORY_WAREHOUSE, show);
       window.removeEventListener(SAVE_MEMORY_CARD, remember);
     };
   }, []);
@@ -321,12 +334,12 @@ export default function MemoryWarehouse({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <BookOpen className="h-5 w-5" />
-            记忆仓库
+            {showAll ? "回忆" : "对话里的记事"}
           </DialogTitle>
           <DialogDescription>
             {showAll
-              ? "正在查看账号全部记忆，可跨故事选取片段。"
-              : "只显示当前故事的聊天和已引用的记忆。"}
+              ? "这个账号留下的全部回忆，可以跨故事选取片段。"
+              : "这个故事的聊天记事与文章来源；完整对话留在左侧聊天框。"}
             选取不同片段，自由组合成不同的故事。
           </DialogDescription>
         </DialogHeader>
@@ -335,6 +348,7 @@ export default function MemoryWarehouse({
             <select
               className={button}
               aria-label="记忆范围"
+              disabled={Boolean(draft) || busy || save.isPending}
               value={showAll ? "account" : "story"}
               onChange={event => {
                 setAccountScopeKey(
