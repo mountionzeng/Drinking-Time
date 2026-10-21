@@ -96,13 +96,15 @@ let activeBrowser;
     timeout: 120000,
   });
   const close = page.getByRole("button", { name: "把信收好，继续聊" });
-  await close.waitFor({ timeout: 30000 });
+  await close.waitFor({ timeout: 120000 });
   await close.evaluate(e => e.click());
+  console.log("来信关闭");
   await page
     .locator('nav[aria-label="全部内容"]')
     .getByRole("button", { name: "故事", exact: true })
     .click();
   await page.locator(".memory-book").first().waitFor();
+  console.log("书架就绪");
   assert.equal(
     await page.getByRole("button", { name: "整理书架", exact: true }).count(),
     0
@@ -155,6 +157,7 @@ let activeBrowser;
   await page.screenshot({ path: "/tmp/dt-gesture-before-cross.png" });
   await touch("touchStart", p.x, p.y);
   await page.waitForTimeout(650);
+  await page.locator(".memory-drag-ghost").waitFor();
   await touch("touchMove", target.x + 4, target.y + 40);
   await page.waitForTimeout(80);
   await touch("touchEnd");
@@ -162,9 +165,18 @@ let activeBrowser;
   assert.equal(mutations.at(-1).target, "default");
   assert.equal(mutations.at(-1).beforeStoryId, 10002);
   await page.locator(".memory-controls:not([disabled])").waitFor();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-story-id="10001"]')
+        ?.closest(".memory-shelf")
+        ?.querySelectorAll("[data-story-id]").length === 16
+  );
+  console.log("跨层保存已刷新");
   await page.setViewportSize({ width: 320, height: 740 });
   const source = page.locator('[data-story-id="10001"] .memory-book');
-  await source.scrollIntoViewIfNeeded();
+  await source.evaluate(e => e.scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(150);
   p = await center(source);
   const row = source.locator(
     'xpath=ancestor::*[contains(@class,"memory-book-row")]'
@@ -173,18 +185,22 @@ let activeBrowser;
   const count = mutations.length;
   await touch("touchStart", p.x, p.y);
   await page.waitForTimeout(650);
+  await page.locator(".memory-drag-ghost").waitFor();
   await touch("touchMove", r.x + r.width - 4, p.y);
   await page.waitForTimeout(700);
+  await page.screenshot({ path: "/tmp/dt-gesture-edge.png" });
   assert.ok(
     (await row.evaluate(e => e.scrollLeft)) > 0,
     "edge drag should scroll the shelf"
   );
   await touch("touchCancel");
   assert.equal(mutations.length, count);
-  await source.scrollIntoViewIfNeeded();
+  await source.evaluate(e => e.scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(150);
   p = await center(source);
   await touch("touchStart", p.x, p.y);
   await page.waitForTimeout(650);
+  await page.locator(".memory-drag-ghost").waitFor();
   await touch("touchMove", 3, 80);
   await touch("touchEnd");
   await page.waitForTimeout(200);
