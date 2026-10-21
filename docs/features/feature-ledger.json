@@ -6566,6 +6566,11 @@
           "date": "2026-10-21",
           "kind": "feature",
           "summary": "手机故事图片与文字快捷入口默认打开图库，沿用电脑的候选、生成报价及费用确认；无正文允许已有图片排版，禁止空正文付费生成。保留记忆的成品默认入口、历史稿采用、模块排版与分享；同账号同故事的跨版本本机上传合并，并排除同号账号的其它故事。320/390px图库、放大、生成确认取消及电脑入口实测通过。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "verification",
+          "summary": "图片功能提交08e9ce55及游标修正1d884528已推送并部署。主仓662文件5631项、发布候选独立29文件251项、小程序215项通过；候选类型/构建/65卡账本通过，95个目标文件线上SHA256一致，手机/电脑/健康入口200及匿名图片接口401。仅替换dist，保留回滚包；本轮未配置MySQL测试库，65项专项未跑，真机与真实付费生成仍待验收。"
         }
       ]
     },
@@ -6788,7 +6793,8 @@
       "owners": [
         "client/src/features/mobileWorkspace/MobileContentLibrary.tsx",
         "client/src/features/mobileWorkspace/MobileAccountImages.tsx",
-        "server/repositories/accountImages.ts"
+        "server/repositories/accountImages.ts",
+        "server/routers/storyAgent.ts"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileContentLibrary.test.tsx",
@@ -6804,13 +6810,14 @@
       ],
       "dependencies": [
         "mobile-story-stage-browsing",
-        "writing-memory-warehouse"
+        "writing-memory-warehouse",
+        "story-ownership"
       ],
       "replaces": [],
       "knownGaps": [
         "回忆显示已收录且未归档的卡片，旧聊天补录沿用原仓库同步入口。",
         "无故事账号可从欢迎页查看全部图片；其它内容汇总仍继承原入口限制。",
-        "真实视频播放、真机流畅性尚待验收；本轮仅本地，未部署。",
+        "真实视频播放、真机流畅性尚待验收；图片汇总于2026-10-21上线。",
         "账号图库汇总服务器 generated_images，包括历史候选；仅本机上传、排版导出成品不属于服务器生成记录，仍在对应故事的图文制作内使用。删除故事或归属无法确认的历史记录不暴露。"
       ],
       "history": [
@@ -6823,6 +6830,11 @@
           "date": "2026-10-21",
           "kind": "feature",
           "summary": "新增手机全部图片入口，账号级ID游标分页可覆盖全部故事与历史候选，双重归属校验且仅返回展示字段。大图预览、返回所属故事图片阶段及无故事入口可用；定向权限/分页及手机回归通过，320/390px主仓实测，未购买生成。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "verification",
+          "summary": "图片功能提交08e9ce55及游标修正1d884528已推送并部署。主仓662文件5631项、发布候选独立29文件251项、小程序215项通过；候选类型/构建/65卡账本通过，95个目标文件线上SHA256一致，手机/电脑/健康入口200及匿名图片接口401。仅替换dist，保留回滚包；本轮未配置MySQL测试库，65项专项未跑，真机与真实付费生成仍待验收。"
         }
       ]
     },
