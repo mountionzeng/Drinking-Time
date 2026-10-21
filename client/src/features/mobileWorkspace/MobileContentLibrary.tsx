@@ -7,8 +7,9 @@ import {
 import { trpc } from "@/lib/trpc";
 import type { MobileStorySummary } from "./MobileStoryPanel";
 import type { MobileStoryStage } from "./MobileStoryWorkspace";
+import { MobileAccountImages } from "./MobileAccountImages";
 
-const labels = { memory: "回忆", text: "文字", video: "视频" };
+const labels = { memory: "回忆", text: "文字", image: "图片", video: "视频" };
 const action = "min-h-11 text-sm text-primary";
 
 export function MobileContentLibrary({
@@ -40,6 +41,8 @@ export function MobileContentLibrary({
       </h1>
       {stage === "memory" ? (
         <AllMemories />
+      ) : stage === "image" ? (
+        <MobileAccountImages onOpenStory={onOpenStory} />
       ) : (
         <>
           <p className="mb-4 text-xs text-muted-foreground">

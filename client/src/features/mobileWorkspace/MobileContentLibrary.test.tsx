@@ -2,18 +2,20 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { MobileContentLibrary } from "./MobileContentLibrary";
+vi.stubGlobal("React", React);
 const api = vi.hoisted(() => ({
   memories: vi.fn(),
   text: vi.fn(),
   body: vi.fn(),
   videos: vi.fn(),
+  images: vi.fn(),
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     memoryWarehouse: { list: { useQuery: api.memories } },
     textDrafts: { read: { useQuery: api.text } },
     publishingDraft: { readBody: { useQuery: api.body } },
-    storyAgent: { storyVideoAssets: { useQuery: api.videos } },
+    storyAgent: { accountImages: { useQuery: api.images }, storyVideoAssets: { useQuery: api.videos } },
   },
 }));
 beforeEach(() => {
@@ -46,7 +48,7 @@ const stories = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   title: `故事${i + 1}`,
 }));
-function render(stage: "memory" | "text" | "video") {
+function render(stage: "memory" | "text" | "image" | "video") {
   return renderToStaticMarkup(
     <MobileContentLibrary
       stage={stage}
@@ -93,4 +95,22 @@ it("renders playable video without preloading and only queries video", () => {
   expect(html).toContain("/clip.mp4");
   expect(api.body).not.toHaveBeenCalled();
   expect(api.memories).not.toHaveBeenCalled();
+});
+
+it("reads the account image cursor without restricting to the supplied stories", () => {
+  api.images.mockReturnValue({ data: { items: [{ id: 200, storyId: 99, storyTitle: "更早的故事", imageUrl: "/image.webp" }], nextCursor: 200 } });
+  const html = render("image");
+  expect(api.images).toHaveBeenCalledWith({ before: undefined }, { retry: false });
+  expect(html).toContain("更早的故事");
+  expect(html).toContain("放大图片 200");
+  expect(html).toContain("下一页");
+  expect(api.text).not.toHaveBeenCalled();
+  expect(api.videos).not.toHaveBeenCalled();
+});
+it("distinguishes an empty image library from a failed read", () => {
+  api.images.mockReturnValue({ data: { items: [], nextCursor: null } });
+  expect(render("image")).toContain("图片，从一个故事开始");
+  api.images.mockReturnValue({ isError: true });
+  expect(render("image")).toContain("重试");
+  expect(render("image")).not.toContain("图片，从一个故事开始");
 });

@@ -10,7 +10,7 @@ import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import { useMobileStageSwipe } from "./useMobileStageSwipe";
 import { mobileStageMotion, type MobileStageStyle } from "./mobileStageMotion";
 import { STORY_STAGE_ORDER } from "./mobileStageSwipe";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Images } from "lucide-react";
 import type { TextDraftVersion } from "@shared/textDraftHistory";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
 export const MOBILE_STORY_STAGES = [
   { id: "memory", label: "回忆" },
   { id: "text", label: "文字" },
+  { id: "image", label: "图片" },
   { id: "video", label: "视频" },
 ] as const;
 export type MobileStoryStage = (typeof MOBILE_STORY_STAGES)[number]["id"];
@@ -54,7 +55,7 @@ export function MobileStoryStageBar({
     <LayoutGroup id={motionId}>
       <nav
         aria-label={t("故事制作阶段")}
-        className="mx-5 mb-4 grid shrink-0 grid-cols-3 border-b border-border/40"
+        className="mx-5 mb-4 grid shrink-0 grid-cols-4 border-b border-border/40"
       >
         {MOBILE_STORY_STAGES.map(item => {
           const active = stage === item.id;
@@ -131,7 +132,7 @@ export function MobileStoryWorkspace({
 
   const history = trpc.textDrafts.read.useQuery(
     { storyId },
-    { enabled: stage !== "video", retry: false }
+    { enabled: stage === "memory" || stage === "text", retry: false }
   );
   const [versionChoice, setSelectedVersion] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -267,6 +268,13 @@ export function MobileStoryWorkspace({
           >
             {stage === "video" ? (
               <MobileStoryVideos storyId={storyId} />
+            ) : stage === "image" ? (
+              document.hasUnsavedChanges || Boolean(editor.draft) ? (
+                <div className="px-5 py-8 text-sm leading-7">
+                  <p>{t("先保存文字修改，再制作图文。")}</p>
+                  <button className="min-h-11 text-primary" onClick={() => changeStage("text")}>{t("返回文字稿")}</button>
+                </div>
+              ) : <MobileImageStudio embedded storyId={storyId} userId={userId} onBack={() => changeStage("text")} />
             ) : (
               <>
                 {history.isError && (
@@ -388,11 +396,14 @@ export function MobileStoryWorkspace({
                           }
                           onClick={() => {
                             setMemoryArtwork(undefined);
-                            setImageStudio(true);
+                            if (selectedVersion === "current") changeStage("image");
+                            else setImageStudio(true);
                           }}
-                          className="min-h-11 text-sm text-primary disabled:opacity-40"
+                          className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-left text-primary transition-colors hover:bg-primary/10 disabled:opacity-40"
                         >
-                          {t("制作图文 · 配图、排版与分享 →")}
+                          <Images size={22} strokeWidth={1.4} className="shrink-0" />
+                          <span className="min-w-0 flex-1"><span className="block font-chat-brand text-lg">{t("把文字变成画面")}</span><span className="mt-1 block text-xs text-muted-foreground">{t("故事图片 · 配图、排版与分享")}</span></span>
+                          <ArrowUpRight size={17} className="shrink-0" />
                         </button>
                         {document.hasUnsavedChanges ? (
                           <p className="text-xs text-muted-foreground">

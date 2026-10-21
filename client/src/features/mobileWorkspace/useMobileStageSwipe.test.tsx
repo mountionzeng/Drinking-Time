@@ -41,7 +41,7 @@ it("switches once and consumes the synthetic card click after a swipe", () => {
   handlers.onPointerDown(point(250, 100));
   handlers.onPointerUp(point(120, 105, 250));
   handlers.onPointerUp(point(80, 105, 280));
-  expect(change.mock.calls).toEqual([["video"]]);
+  expect(change.mock.calls).toEqual([["image"]]);
   const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
   handlers.onClickCapture(click as unknown as React.MouseEvent<HTMLElement>);
   expect(click.preventDefault).toHaveBeenCalledOnce();

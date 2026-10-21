@@ -1,4 +1,5 @@
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
+import { listAccountImages } from "../repositories/accountImages";
 import { syncStoryChatMemories, syncStoryChatMemoriesSafely } from "../services/chatMemoryWarehouse";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
@@ -2746,6 +2747,10 @@ export const storyAgentRouter = router({
       });
       return { id: signal.id };
     }),
+
+  accountImages: protectedProcedure
+    .input(z.object({ before: z.number().int().positive().optional() }))
+    .query(({ ctx, input }) => listAccountImages(ctx.user.id, input.before)),
 
   // storyImages: 获取某个 story 的所有当前图片
   storyImages: protectedProcedure

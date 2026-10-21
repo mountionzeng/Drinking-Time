@@ -36,7 +36,7 @@ export function MobileStoriesPage({
   stories: readonly MobileStorySummary[];
   activeStoryId: number | null;
   onOpenMe: () => void;
-  onSelectStory: (storyId: number) => void;
+  onSelectStory: (storyId: number, stage?: MobileStoryStage) => void;
   onOpenStage: (stage: "memory" | "text") => void;
 }) {
   const t = useUiText();
@@ -59,7 +59,7 @@ export function MobileStoriesPage({
         stage={library}
         stories={stories}
         onBack={() => setLibrary(null)}
-        onOpenStory={onSelectStory}
+        onOpenStory={id => onSelectStory(id, library)}
       />
     );
   const current = stories.find(story => story.id === activeStoryId) ?? null;
@@ -81,11 +81,12 @@ export function MobileStoriesPage({
         </h1>
         <MobileNavBar current="stories" onNavigate={onOpenMe} />
       </div>
-      <nav aria-label={t("全部内容")} className="mt-1 flex gap-7">
+      <nav aria-label={t("全部内容")} className="mt-1 flex justify-between gap-2">
         {(
           [
             ["memory", t("回忆")],
             ["text", t("文字")],
+            ["image", t("图片")],
             ["video", t("视频")],
           ] as const
         ).map(([id, label]) => (

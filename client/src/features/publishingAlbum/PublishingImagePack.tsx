@@ -202,6 +202,7 @@ export function PublishingImagePack({
   generationError,
   onIllustrationsChange,
   mobile = false,
+  initialMobileStep = "preview",
   shareEpoch = 0,
   contentKind = "article",
   sharePlatform = "xiaohongshu",
@@ -217,6 +218,7 @@ export function PublishingImagePack({
   sharePlatform?: import("@shared/sharePermissions").SharedWork["platform"];
   contentKind?: "article" | "memory";
   mobile?: boolean;
+  initialMobileStep?: "preview" | "images" | "layout";
   shareEpoch?: number;
   scope: string;
   storyId: number;
@@ -274,7 +276,7 @@ export function PublishingImagePack({
     return value;
   });
   const [mobileStep, setMobileStep] = useState<"preview" | "images" | "layout">(
-    "preview"
+    initialMobileStep
   );
   useEffect(() => {
     onIllustrationsChange?.(settings.illustrations);
@@ -325,11 +327,11 @@ export function PublishingImagePack({
   const layoutAssets = useMemo(() => {
     const all = new Map(assets.map(asset => [asset.id, asset]));
     if (typeof localStorage !== "undefined") {
-      for (const asset of readStoryLocalImages(storyId, localStorage)) all.set(asset.id, asset);
+      for (const asset of readStoryLocalImages(storyId, localStorage, accountId)) all.set(asset.id, asset);
     }
     for (const asset of localImages.images) all.set(asset.id, asset);
     return [...all.values()];
-  }, [assets, localImages.images, storyId]);
+  }, [assets, localImages.images, storyId, accountId]);
   const cover = assets.find(asset => asset.id === settings.coverId);
   const referenceCovers = coverAssets.filter(asset => !asset.kind);
   const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
@@ -953,7 +955,7 @@ export function PublishingImagePack({
         onApply={applySharedLayout}
         buildPackage={buildLayoutPackage}
       />
-      <header className="flex flex-wrap items-center justify-between gap-3 py-3">
+      <header className={`flex flex-wrap items-center justify-between gap-3 py-3 ${mobile ? "px-4" : ""}`}>
         <div>
           <h2 className="font-chat-brand text-lg">这个故事的图片</h2>
           <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -1019,9 +1021,9 @@ export function PublishingImagePack({
         >
           {(
             [
-              ["preview", t("预览")],
-              ["images", t("配图")],
+              ["images", t("图库")],
               ["layout", t("排版")],
+              ["preview", t("成品")],
             ] as const
           ).map(([id, label]) => (
             <button

@@ -2823,3 +2823,18 @@ describe("storyAgent tRPC router", () => {
     expect(projectImages).toEqual([]);
   });
 });
+
+describe("account image library boundary", () => {
+  it("uses the authenticated account, hides private fields and rejects anonymous reads", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const story = await createStory({ userId: 9876, title: "图片归属验收", body: {} });
+    const other = await createStory({ userId: 9877, title: "另一个账号", body: {} });
+    const owned = await createGeneratedImage({ storyId: story.id, userId: 9876, imageUrl: "/owned.png", prompt: "private" });
+    await createGeneratedImage({ storyId: other.id, userId: 9877, imageUrl: "/other.png" });
+    const page = await appRouter.createCaller(createAuthContext(9876)).storyAgent.accountImages({});
+    expect(page.items.map(image => image.id)).toEqual([owned.id]);
+    expect(Object.keys(page.items[0]).sort()).toEqual(["createdAt", "id", "imageUrl", "storyId", "storyTitle"]);
+    await expect(appRouter.createCaller({ ...createAuthContext(), user: null }).storyAgent.accountImages({})).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(appRouter.createCaller(createAuthContext()).storyAgent.accountImages({ before: -1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});

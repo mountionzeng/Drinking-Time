@@ -29,12 +29,14 @@ export function MobileImageStudio({
   source,
   onBack,
   createRequest,
+  embedded = false,
 }: {
   storyId: number;
   userId: number;
   source?: MobileArtworkSource;
   onBack(): void;
   createRequest?: StudioCreateRequest;
+  embedded?: boolean;
 }) {
   const t = useUiText();
 
@@ -87,7 +89,7 @@ export function MobileImageStudio({
     coverId?: number,
     recover = false
   ) {
-    if (isMemory || !data || !content || !sourceMatches || inFlight.current)
+    if (isMemory || !data || !content?.body.trim() || !sourceMatches || inFlight.current)
       return;
     // Normal buttons cannot silently turn a new purchase into recovery of another task.
     if (recoverable && !recover) {
@@ -157,9 +159,10 @@ export function MobileImageStudio({
   return (
     <section
       aria-label={t("手机图文制作")}
+      data-stage-swipe="ignore"
       className="flex h-full min-h-0 flex-col"
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+      {!embedded && <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <button
           type="button"
           aria-label={isMemory ? t("返回记忆") : t("返回文字稿")}
@@ -170,7 +173,7 @@ export function MobileImageStudio({
           <ArrowLeft size={20} />
         </button>
         <h1 className="font-chat-brand text-xl">{t("制作图文")}</h1>
-      </header>
+      </header>}
       <div className="min-h-0 flex-1 overflow-y-auto pb-8">
         {read.isLoading ? (
           <p role="status" className="p-5">
@@ -183,8 +186,6 @@ export function MobileImageStudio({
               {t("重试")}
             </button>
           </p>
-        ) : !content?.body.trim() ? (
-          <p className="p-5 text-sm">{t("先写好正文，再把它做成图片。")}</p>
         ) : data && publishing ? (
           <>
             {isMemory ? (
@@ -235,6 +236,7 @@ export function MobileImageStudio({
             sharePlatform={platform}
               key={`${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
               mobile
+              initialMobileStep={isMemory ? "preview" : "images"}
               contentKind={isMemory ? "memory" : "article"}
               shareEpoch={shareEpoch}
               scope={`${userId}:${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
@@ -245,8 +247,8 @@ export function MobileImageStudio({
                   item => item.versionId === publishing.activeVersionId
                 )?.album
               )}
-              title={content.title}
-              body={content.body}
+              title={content?.title ?? ""}
+              body={content?.body ?? ""}
               adoptedCoverId={data.coverAsset?.id ?? null}
               assets={[
                 ...(data.coverAsset
@@ -276,7 +278,7 @@ export function MobileImageStudio({
                 ),
               ]}
               coverBusy={
-                isMemory || busy || Boolean(recoverable) || !sourceMatches
+                isMemory || !content?.body.trim() || busy || Boolean(recoverable) || !sourceMatches
               }
               generationError={isMemory ? undefined : receipt?.error}
               generationStartedAt={

@@ -1,4 +1,4 @@
-export const STORY_STAGE_ORDER = ["memory", "text", "video"] as const;
+export const STORY_STAGE_ORDER = ["memory", "text", "image", "video"] as const;
 export type StoryStage = (typeof STORY_STAGE_ORDER)[number];
 
 export function isHorizontalStageSwipe(

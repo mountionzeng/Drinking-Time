@@ -3,6 +3,7 @@ import {
   useUiText,
 } from "@/features/uiLanguage/UiLanguage";
 import { BookOpenText, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import {
   type CSSProperties,
   type ReactNode,
@@ -34,6 +35,7 @@ import { LiaoliaoMascot, LiaoliaoThinkingDots } from "./LiaoliaoMascot";
 import { MobileArchiveSheet } from "./MobileArchiveSheet";
 import { MobileMePage } from "./MobileMePage";
 import { MobileStoriesPage } from "./MobileStoriesPage";
+import { MobileContentLibrary } from "./MobileContentLibrary";
 import {
   MobileStoryWorkspace,
   type MobileStoryStage,
@@ -491,10 +493,12 @@ export function MobileWorkspaceFrame({
 
 export function MobileEmptyState({
   onCreateStory,
+  onOpenImages,
   creating = false,
   error = null,
 }: {
   onCreateStory?: () => void;
+  onOpenImages?: () => void;
   creating?: boolean;
   error?: string | null;
 }) {
@@ -520,6 +524,7 @@ export function MobileEmptyState({
           {creating ? t("正在新建…") : t("新建一个故事")}
         </Button>
       ) : null}
+      {onOpenImages && <button className="mt-3 min-h-11 text-sm text-primary" onClick={onOpenImages}>{t("查看全部图片")}</button>}
       {error ? (
         <p className="mt-3 text-sm text-destructive" role="alert">
           {error}
@@ -586,7 +591,7 @@ function MobileSelectedStoryWorkspace({
   stories: readonly MobileStorySummary[];
   activeView: MobileWorkspaceView;
   onViewChange: (view: MobileWorkspaceView) => void;
-  onStoryChange: (storyId: number) => void;
+  onStoryChange: (storyId: number, stage?: MobileStoryStage) => void;
   onCreateStory?: () => void;
   page: MobilePage;
   onNavigate: (page: MobilePage) => void;
@@ -610,6 +615,7 @@ function MobileSelectedStoryWorkspace({
   const document = useMobileDocument({ userId, storyId: activeStoryId });
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [pendingStoryId, setPendingStoryId] = useState<number | null>(null);
+  const [pendingStage, setPendingStage] = useState<MobileStoryStage>();
   const [resolvingSwitch, setResolvingSwitch] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const shareBackNotices = useShareBackNotices(userId);
@@ -628,17 +634,19 @@ function MobileSelectedStoryWorkspace({
 
   if (!story) return null;
 
-  const requestStoryChange = (storyId: number) => {
+  const requestStoryChange = (storyId: number, targetStage?: MobileStoryStage) => {
     if (storyId === activeStoryId) {
+      if (targetStage) onStageChange(targetStage);
       onStoryOpenChange(true);
       onNavigate("stories");
       return;
     }
     if (!document.hasUnsavedChanges) {
-      onStoryChange(storyId);
+      onStoryChange(storyId, targetStage);
       return;
     }
     setPendingStoryId(storyId);
+    setPendingStage(targetStage);
   };
 
   const finishSwitch = async (action: DirtyStorySwitchAction) => {
@@ -660,7 +668,7 @@ function MobileSelectedStoryWorkspace({
           : "修改已放弃，正在切换 Story"
       );
       if (nextStoryId === -1) onCreateStory?.();
-      else onStoryChange(nextStoryId);
+      else onStoryChange(nextStoryId, pendingStage);
       return;
     }
     setPendingStoryId(null);
@@ -710,8 +718,8 @@ function MobileSelectedStoryWorkspace({
                 onStoryOpenChange(true);
               }}
               onOpenMe={() => onNavigate("me")}
-              onSelectStory={storyId => {
-                requestStoryChange(storyId);
+              onSelectStory={(storyId, targetStage) => {
+                requestStoryChange(storyId, targetStage);
               }}
               shareBacks={shareBackNotices.notices}
               unreadShareBackIds={unreadShareBackIds}
@@ -870,9 +878,25 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
   const [activeView, setActiveView] = useState<MobileWorkspaceView>("document");
   const [page, setPage] = useState<MobilePage>("stories");
   const [storyOpen, setStoryOpen] = useState(false);
+  const [emptyImagesOpen, setEmptyImagesOpen] = useState(false);
   const [stages, setStages] = useState<Record<number, MobileStoryStage>>({});
   const coldEntryResolvedRef = useRef(false);
   const stories = (storyListQuery.data?.stories ?? []) as MobileStorySummary[];
+
+  async function openStory(storyId: number, targetStage?: MobileStoryStage) {
+    // 图库可能已读到另一台设备新建的故事，而首页列表仍是旧缓存。
+    if (!stories.some(story => story.id === storyId)) {
+      const fresh = await storyListQuery.refetch();
+      if (!fresh.data?.stories.some(story => story.id === storyId)) {
+        toast.error(t("暂时无法打开这个故事，请刷新后重试。"));
+        return;
+      }
+    }
+    if (targetStage) setStages(current => ({ ...current, [storyId]: targetStage }));
+    setActiveStoryId(storyId);
+    setStoryOpen(true);
+    setPage("stories");
+  }
 
   useEffect(() => {
     if (!storyListQuery.data || coldEntryResolvedRef.current) return;
@@ -943,11 +967,12 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         activeView={activeView}
         onViewChange={setActiveView}
       >
-        <MobileEmptyState
+        {emptyImagesOpen ? <MobileContentLibrary stage="image" stories={[]} onBack={() => setEmptyImagesOpen(false)} onOpenStory={storyId => void openStory(storyId, "image")} /> : <MobileEmptyState
           creating={storyUpsert.isPending}
           error={createError}
           onCreateStory={() => void createStory()}
-        />
+          onOpenImages={() => setEmptyImagesOpen(true)}
+        />}
       </MobileWorkspaceFrame>
     );
   }
@@ -979,11 +1004,7 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         setStages(current => ({ ...current, [activeStoryId]: stage }))
       }
       onNavigate={setPage}
-      onStoryChange={storyId => {
-        setActiveStoryId(storyId);
-        setStoryOpen(true);
-        setPage("stories");
-      }}
+      onStoryChange={(storyId, targetStage) => void openStory(storyId, targetStage)}
       onViewChange={setActiveView}
     />
   );

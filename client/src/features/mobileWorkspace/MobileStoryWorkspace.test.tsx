@@ -9,6 +9,8 @@ import {
 import type { MobileDocumentController } from "./MobileDocumentView";
 import type { MobileConversationController } from "./MobileChatView";
 
+vi.mock("./MobileImageStudio", () => ({ MobileImageStudio: ({ storyId }: { storyId: number }) => <div>故事图片 {storyId}</div> }));
+
 const api = vi.hoisted(() => ({
   history: vi.fn(),
   videos: vi.fn(),
@@ -67,7 +69,7 @@ const conversation = {
   ],
 } as unknown as MobileConversationController;
 function renderStage(
-  stage: "memory" | "text" | "video",
+  stage: "memory" | "text" | "image" | "video",
   controller = document
 ) {
   return renderToStaticMarkup(
@@ -98,13 +100,13 @@ describe("mobile story stages", () => {
     });
   });
 
-  it.each(["memory", "text", "video"] as const)(
-    "has exactly three stage choices and selects %s without implying completion",
+  it.each(["memory", "text", "image", "video"] as const)(
+    "has exactly four stage choices and selects %s without implying completion",
     stage => {
       const html = renderToStaticMarkup(
         <MobileStoryStageBar stage={stage} onChange={vi.fn()} />
       );
-      expect(html.match(/<button/g)).toHaveLength(3);
+      expect(html.match(/<button/g)).toHaveLength(4);
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
       expect(html).not.toContain("progressbar");
     }
@@ -179,4 +181,15 @@ describe("mobile story stages", () => {
     api.videos.mockReturnValue({ isError: true });
     expect(renderStage("video")).toContain("视频暂时没有读到");
   });
+});
+
+it("opens the shared image studio for this story without loading text history", () => {
+  const html = renderStage("image");
+  expect(html).toContain("故事图片 7");
+  expect(api.history).toHaveBeenCalledWith({ storyId: 7 }, expect.objectContaining({ enabled: false }));
+});
+it("preserves unsaved text before entering artwork", () => {
+  const html = renderStage("image", { ...document, hasUnsavedChanges: true });
+  expect(html).toContain("先保存文字修改");
+  expect(html).not.toContain("故事图片 7");
 });

@@ -6367,17 +6367,18 @@
         "client/src/features/mobileWorkspace/mobileStageMotion.test.ts",
         "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
-        "docs/qa/2026-10-13-unified-writing-release.md"
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-21-mobile-image-library.md"
       ],
       "invariants": [
-        "三段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
+        "回忆、文字、图片、视频四段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
         "读取复用账号和Story归属校验，同一故事的权威数据与电脑一致，不创建手机副本。",
         "切换阶段、查看历史和打开视频不得自动生成、采用、覆盖或触发付费请求。",
         "记忆组合展示生成时保留的来源快照，并区分用户原话和助手整理。",
         "当前发布正文保留编辑、CAS冲突和恢复能力；按用户2026-10-11追加授权，独立文字历史可保存为新修订，不改原稿、不自动采用。记忆修订保留原文归档和已生成文章的来源快照。",
         "选故事留在故事工作区；已有未保存正文仍须明确保存、放弃或取消后才能切换或新建。",
         "底部故事入口始终返回原故事首页；从查看记忆/查看文字稿进入详情，详情默认阅读，编辑控件仅在需要时打开。",
-        "记忆/文字稿/视频支持点击及触屏水平轻扫，边界不循环；垂直阅读、长按选择、表单编辑、媒体控件及系统边缘返回不触发切页；尊重减少动态效果偏好。"
+        "记忆/文字稿/图片/视频支持点击及触屏水平轻扫，边界不循环；垂直阅读、长按选择、表单编辑、媒体控件及系统边缘返回不触发切页；尊重减少动态效果偏好。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
@@ -6443,6 +6444,11 @@
           "date": "2026-10-13",
           "kind": "improvement",
           "summary": "用户明确要求回忆默认展示原始聊天并通过小目录定位原话/前后文。按真实时间间隔分段，目录引用用户原话，不推断情境；点句滚动居中高亮并保留前后文，未同步恢复消息不作为原聊天。存档编辑、历史记忆组合与图文入口保留。16项相关测试、类型检查通过，本地点击目录定位与高亮已验证。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "按用户要求增加图片阶段，汇总入口带上目标故事和阶段，沿用未保存正文的切换保护；文字页精修图文入口，当前正文进入故事图库，历史稿与记忆保留独立来源。四段导航/手势及未保存保护回归通过。"
         }
       ]
     },
@@ -6482,7 +6488,9 @@
         "docs/qa/2026-10-12-mobile-release.md",
         "client/src/features/publishingAlbum/MobileModuleTools.test.tsx",
         "docs/qa/2026-10-16-mobile-image-modules.md",
-        "docs/qa/2026-10-16-module-chat-memory.md"
+        "docs/qa/2026-10-16-module-chat-memory.md",
+        "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
+        "docs/qa/2026-10-21-mobile-image-library.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -6553,6 +6561,11 @@
           "date": "2026-10-16",
           "kind": "feature",
           "summary": "手机模块选择及完成编辑自动接入聊天上下文和本机操作记忆，沿用原生成费用确认、预览、下载与分享流程。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "手机故事图片与文字快捷入口默认打开图库，沿用电脑的候选、生成报价及费用确认；无正文允许已有图片排版，禁止空正文付费生成。保留记忆的成品默认入口、历史稿采用、模块排版与分享；同账号同故事的跨版本本机上传合并，并排除同号账号的其它故事。320/390px图库、放大、生成确认取消及电脑入口实测通过。"
         }
       ]
     },
@@ -6768,16 +6781,21 @@
       "id": "mobile-account-content-library",
       "name": "手机账号内容汇总",
       "status": "working",
-      "userValue": "从故事首页查看账号已收录回忆、全部故事的文字版本与视频素材。",
+      "userValue": "从故事首页查看账号已收录回忆、全部故事的文字版本、生成图片与视频素材；图片可放大并进入所属故事继续制作。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
       ],
       "owners": [
-        "client/src/features/mobileWorkspace/MobileContentLibrary.tsx"
+        "client/src/features/mobileWorkspace/MobileContentLibrary.tsx",
+        "client/src/features/mobileWorkspace/MobileAccountImages.tsx",
+        "server/repositories/accountImages.ts"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileContentLibrary.test.tsx",
-        "docs/qa/2026-10-13-mobile-content-library.md"
+        "docs/qa/2026-10-13-mobile-content-library.md",
+        "server/repositories/accountImages.test.ts",
+        "server/routers.storyAgent.test.ts",
+        "docs/qa/2026-10-21-mobile-image-library.md"
       ],
       "invariants": [
         "账号与故事归属复用现有受保护接口，不创建手机数据副本。",
@@ -6791,14 +6809,20 @@
       "replaces": [],
       "knownGaps": [
         "回忆显示已收录且未归档的卡片，旧聊天补录沿用原仓库同步入口。",
-        "当前没有故事的账号仍走原空白欢迎页；已删除全部故事但保留回忆的账号尚无此汇总入口。",
-        "真实视频播放、真机流畅性尚待验收；本轮仅本地，未部署。"
+        "无故事账号可从欢迎页查看全部图片；其它内容汇总仍继承原入口限制。",
+        "真实视频播放、真机流畅性尚待验收；本轮仅本地，未部署。",
+        "账号图库汇总服务器 generated_images，包括历史候选；仅本机上传、排版导出成品不属于服务器生成记录，仍在对应故事的图文制作内使用。删除故事或归属无法确认的历史记录不暴露。"
       ],
       "history": [
         {
           "date": "2026-10-13",
           "kind": "feature",
           "summary": "用户授权替换首页说明为三个汇总入口；账号回忆分页、每页5故事的正文/历史文字和视频浏览。47项回归、类型及本地阅读翻页通过。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "新增手机全部图片入口，账号级ID游标分页可覆盖全部故事与历史候选，双重归属校验且仅返回展示字段。大图预览、返回所属故事图片阶段及无故事入口可用；定向权限/分页及手机回归通过，320/390px主仓实测，未购买生成。"
         }
       ]
     },

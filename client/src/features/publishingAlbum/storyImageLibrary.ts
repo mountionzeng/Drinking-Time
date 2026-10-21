@@ -23,13 +23,17 @@ export function storyLibraryImages(storyId: number, material?: StoryMaterialStat
 }
 
 /** Read other versions without moving or rewriting their scoped upload storage. */
-export function readStoryLocalImages(storyId: number, storage: Pick<Storage, "length" | "key" | "getItem">): PackAsset[] {
+export function readStoryLocalImages(storyId: number, storage: Pick<Storage, "length" | "key" | "getItem">, accountId?: number | null): PackAsset[] {
   const images = new Map<number, PackAsset>();
   const prefix = `publishing-layout-images:${storyId}:`;
+  const accountPrefix = accountId == null ? null : `publishing-layout-images:${accountId}:${storyId}:`;
   try {
     for (let index = 0; index < storage.length; index++) {
       const key = storage.key(index);
-      if (!key?.startsWith(prefix)) continue;
+      if (!key) continue;
+      // 新键的前两段是账号、故事数字 ID；不能把同号账号的其它故事误作旧键。
+      const legacy = key.startsWith(prefix) && !/^\d+:/.test(key.slice(prefix.length));
+      if (!legacy && !(accountPrefix && key.startsWith(accountPrefix))) continue;
       try {
         const values = JSON.parse(storage.getItem(key) ?? "[]");
         if (!Array.isArray(values)) continue;

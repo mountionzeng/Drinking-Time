@@ -163,3 +163,11 @@ describe("mobile image studio", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 });
+
+it("opens the story gallery even without a publishing body, but cannot buy images", async () => {
+  mocks.data.publishing = emptyPublishingDraftState();
+  render();
+  expect(mocks.pack).toMatchObject({ storyId: 3, initialMobileStep: "images", body: "", coverBusy: true });
+  await mocks.pack.onGenerateCover?.("生成");
+  expect(mocks.mutate).not.toHaveBeenCalled();
+});

@@ -46,3 +46,17 @@ describe("story image library", () => {
     }).map(asset => asset.id)).toEqual([-1, -2]);
   });
 });
+
+it("includes this account's other versions without mixing same-number accounts or stories", () => {
+  const entries = [
+    ["publishing-layout-images:10:7:v1:x", -1],
+    ["publishing-layout-images:10:7:v2:x", -2],
+    ["publishing-layout-images:11:7:v1:x", -3],
+    ["publishing-layout-images:7:99:v1:x", -4],
+    ["publishing-layout-images:10:70:v1:x", -5],
+  ] as const;
+  const storage = { length: entries.length, key: (index: number) => entries[index]?.[0] ?? null,
+    getItem: (key: string) => JSON.stringify([{ id: entries.find(entry => entry[0] === key)?.[1], label: "本机图片", imageUrl: "data:image/png;base64,AAAA" }]) };
+  expect(readStoryLocalImages(7, storage, 10).map(image => image.id)).toEqual([-1, -2]);
+  expect(readStoryLocalImages(7, storage).map(image => image.id)).toEqual([]);
+});
