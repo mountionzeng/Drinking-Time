@@ -16,7 +16,7 @@
 - 定向8文件48项通过：目录分组/搜索/无用户消息、显式账号和故事事件、原仓库范围隔离、手机目录与阶段、顶栏及跨工作区桥接。
 - 主仓1440px浏览器：虚构故事的目录定位成功、焦点进入目标消息、阅读位置保持；顶栏回忆范围为account，故事记事入口范围为story。
 - 截图：/tmp/desktop-story-chat-directory.png。未发送模型请求、未购买生成、未编辑业务正文；打开仓库会按既有规则补齐聊天记忆。
-- 主仓全量665文件5,640项通过，18个MySQL文件65项跳过；新增隐藏推理过滤检查另经最终定向48项验证。TypeScript、65卡功能账本、33条迁移基线及环境门禁通过；1024px页面无横向溢出。独立发布构建结果待补充。
+- 主仓全量665文件5,640项通过，18个MySQL文件65项跳过；新增隐藏推理过滤检查另经最终定向48项验证。TypeScript、65卡功能账本、33条迁移基线及环境门禁通过；1024px页面无横向溢出。已提交源码的独立候选再次通过类型、8文件48项、65卡账本与生产构建；保留既有大包体积提示。
 
 ## Known gaps
 
@@ -27,4 +27,10 @@
 
 ## 发布
 
-待发布候选验证后记录。
+- 功能提交 `b8eedd33` 已推送main并部署 `https://www.drinkingtime.top`；仅包含本轮前端和文档，不包含其它写作功能的未提交改动。
+- 95个目标文件SHA256核对一致，差异仅3个前端文件。当前资源为 `index-CyVhoKGw.js` 和 `index-Dq9awsNT.css`，线上电脑和手机HTML已引用。
+- 服务端dist/index.js完全相同，无需重启；PM2保持online，PID459189、重启计数22。
+- `/healthz`、`/readyz`、`/editing`、`/m`为200；匿名`memoryWarehouse.list`为401。
+- `.env`哈希不变，没有数据库迁移、nginx或证书修改。服务器源码仍为a4763ff2，没有git pull。
+- 回滚：`/opt/Drinking-Time/dist.bak-20261021-desktop-memory-b8eedd33-public`及同前缀`-index.js`；清单：`dist.release-20261021-desktop-memory-b8eedd33.sha256`。
+- 本地和服务器临时发布目录、tarball已清理；回滚备份保留。
