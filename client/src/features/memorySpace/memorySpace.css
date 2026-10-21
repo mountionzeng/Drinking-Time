@@ -495,12 +495,16 @@
 }
 .memory-book-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 24px 7px;
+  gap: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  min-width: 0;
+  max-width: 100%;
   padding: 24px 12px 0;
   min-height: 236px;
-  background: repeating-linear-gradient(
+  background: linear-gradient(
     to bottom,
     transparent 0 199px,
     color-mix(in srgb, var(--ledge) 70%, white) 199px 201px,
@@ -522,12 +526,12 @@
 }
 .memory-book-stack[data-stack-view="album"] {
   width: 112px;
-  margin-inline: 5px;
+  margin-inline: 0;
 }
 .memory-book-stack[data-stack-view="horizontal"] {
   width: 136px;
-  gap: 4px;
-  margin-inline: 4px;
+  gap: 0;
+  margin-inline: 0;
 }
 .memory-book-item {
   position: relative;
@@ -823,18 +827,18 @@
   }
   .memory-book-row {
     padding-inline: 4px;
-    gap: 24px 6px;
+    gap: 0;
   }
   .memory-book-stack {
     width: 32px;
   }
   .memory-book-stack[data-stack-view="album"] {
     width: 98px;
-    margin-inline: 3px;
+    margin-inline: 0;
   }
   .memory-book-stack[data-stack-view="horizontal"] {
     width: 122px;
-    margin-inline: 2px;
+    margin-inline: 0;
   }
   .memory-book-item[data-book-view="vertical"] .memory-book-title {
     font-size: 13px;

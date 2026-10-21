@@ -35,6 +35,15 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("账号回忆书架", () => {
+  it("moves an edited older story to the front of the default shelf", async () => {
+    const newer = seed(1),
+      older = seed(2);
+    newer.createdAt = newer.updatedAt = new Date(2000);
+    older.createdAt = older.updatedAt = new Date(1000);
+    expect((await a.list()).books.map(book => book.id)).toEqual([1, 2]);
+    older.updatedAt = new Date(9000);
+    expect((await a.list()).books.map(book => book.id)).toEqual([2, 1]);
+  });
   it("persists all three arrangements per account without marking story content unread", async () => {
     seed();
     for (const view of ["horizontal", "vertical", "album"] as const) {
