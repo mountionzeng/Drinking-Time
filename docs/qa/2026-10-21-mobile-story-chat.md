@@ -30,4 +30,11 @@
 
 ## 发布
 
-待发布候选验证后补充提交、构建哈希及线上检查结果。
+- 功能提交 `af886aa2` 已推送 `main` 并部署正式站 `https://www.drinkingtime.top`。
+- 从该提交独立导出构建，未包含工作区其它写作功能的未提交改动。独立 TypeScript、27文件177项定向测试、65卡功能账本和生产构建通过；保留既有大包体积提示。
+- 目标清单95个文件，实际差异仅3个前端文件；新资源为 `index-vPljEC1n.js` 与 `index-BLrnqE3H.css`，手机和电脑HTML均已引用。
+- 线上95个目标文件SHA256一致，旧哈希资源继续保留。服务端 `dist/index.js` 与发布前完全相同，因此无需重启；PM2保持online。
+- `/healthz`、`/readyz`、`/m`、`/editing` 为200；匿名 `storyAgent.accountImages` 为401。
+- `.env`哈希未变；没有迁移、nginx或证书修改。服务器源码checkout仍为 `a4763ff2`，没有git pull。
+- 回滚：`/opt/Drinking-Time/dist.bak-20261021-mobile-chat-af886aa2-public` 及同前缀 `-index.js`；校验清单：`/opt/Drinking-Time/dist.release-20261021-mobile-chat-af886aa2.sha256`。
+- 临时发布目录和tarball已清理；主仓仍只有3000端口的一个dev server，无worktree残留。
