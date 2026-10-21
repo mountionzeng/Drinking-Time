@@ -16,6 +16,7 @@ type Props = {
   messages: readonly Choice[];
   disabled: boolean;
   onLocked: (locked: boolean) => void;
+  onNewStory?: () => void;
 };
 const button = "min-h-11 px-2 text-xs text-primary disabled:opacity-40";
 const field =
@@ -28,11 +29,13 @@ export function MobileCompanionActions(props: Props) {
   const [mode, setMode] = useState<"import" | "memory" | "text" | null>(null);
   return (
     <div className="shrink-0 border-t border-border/40 px-3">
-      <div className="flex justify-between" aria-label={t("聊天内容操作")}>
+      <div
+        className="flex flex-wrap justify-between gap-x-2"
+        aria-label={t("聊天内容操作")}
+      >
         {(
           [
             ["import", t("导入本地文件")],
-            ["memory", t("标记为记忆")],
             ["text", t("加入某段文字")],
           ] as const
         ).map(([id, label]) => (
@@ -48,6 +51,18 @@ export function MobileCompanionActions(props: Props) {
             {label}
           </button>
         ))}
+        {props.onNewStory && (
+          <button
+            type="button"
+            className={button}
+            disabled={
+              props.disabled || mode !== null || Boolean(props.draft.trim())
+            }
+            onClick={props.onNewStory}
+          >
+            {t("生成新的故事")}
+          </button>
+        )}
       </div>
       {mode && (
         <ActionEditor
@@ -119,7 +134,7 @@ export function ActionEditor({
   const [choice, setChoice] = useState(initialChoice?.id ?? "");
   const [body, setBody] = useState(initialChoice?.content ?? "");
   const [title, setTitle] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -152,6 +167,7 @@ export function ActionEditor({
     lock.current = true;
     setBusy(true);
     setStatus("");
+    const importedMedia: string[] = [];
     try {
       if (mode === "memory") {
         if (!body.trim() || body.trim().length > 12000)
@@ -210,37 +226,60 @@ export function ActionEditor({
           setStatus("已加入并另存一版文字，原稿保留。");
         }
       } else {
-        if (!file) throw new Error("请先选择文件。");
-        if (/\.(txt|md)$/i.test(file.name)) {
+        if (!files.length) throw new Error("请先选择文件。");
+        const textFiles = files.filter(
+          file =>
+            /\.(txt|md|csv|json|html|xml)$/i.test(file.name) ||
+            file.type.startsWith("text/")
+        );
+        const mediaFiles = files.filter(file => !textFiles.includes(file));
+        const importedText: string[] = [];
+        for (const file of textFiles) {
           if (file.size > 100000)
-            throw new Error("文本文件请控制在 100KB 内。");
+            throw new Error(`${file.name} 超过 100KB，请先拆分文件。`);
           const text = await file.text();
           if (!text.trim() || text.includes("\u0000"))
-            throw new Error("请使用 UTF-8 编码的纯文本文件。");
-          const next = [props.draft, text].filter(Boolean).join("\n\n");
-          if (next.length > 12000)
-            throw new Error("导入后超过 12000 字，请先拆分文件。");
-          props.setDraft(next);
-          setStatus("已放入输入框，可继续修改、发送或标记为记忆。");
-        } else {
+            throw new Error(`${file.name} 不是可读取的 UTF-8 文本文件。`);
+          importedText.push(`【文件：${file.name}】\n${text}`);
+        }
+        if (mediaFiles.length && !target)
+          throw new Error("请先选择故事，图片和视频会导入到该故事的素材库。");
+        const unsupported = mediaFiles.find(
+          file =>
+            !file.type.startsWith("image/") && !file.type.startsWith("video/")
+        );
+        if (unsupported)
+          throw new Error(
+            `${unsupported.name} 暂不支持解析。可导入图片、视频、TXT、MD、CSV、JSON、HTML、XML。`
+          );
+        for (const file of mediaFiles) {
+          const isVideo = file.type.startsWith("video/");
+          if (file.size > (isVideo ? 200 : 30) * 1024 * 1024)
+            throw new Error(
+              isVideo ? `${file.name} 超过 200MB。` : `${file.name} 超过 30MB。`
+            );
+        }
+        if (
+          mediaFiles.some(file => file.type.startsWith("video/")) &&
+          (!shot || !materials.data?.shots.some(s => s.stableShotId === shot))
+        )
+          throw new Error("请先选择视频所属镜头；没有镜头时需先在电脑端创建。");
+        const nextText = [
+          props.draft,
+          importedText.length
+            ? "请阅读我导入的文件文本，按文件逐项概括，并建议分别归类为回忆、文章文字、视频说明或其他；不要把推测当成事实。\n\n" +
+              importedText.join("\n\n")
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        if (nextText.length > 12000)
+          throw new Error("导入后超过 12000 字，请先拆分文件。");
+        for (const file of mediaFiles) {
           const video = file.type.startsWith("video/");
-          if (!file.type.startsWith("image/") && !video)
-            throw new Error("支持图片、视频，以及 TXT / Markdown 文本。");
-          if (!target) throw new Error("请选择素材所属的故事。");
-          if (file.size > (video ? 200 : 30) * 1024 * 1024)
-            throw new Error(
-              video ? "视频不能超过 200MB。" : "图片不能超过 30MB。"
-            );
-          if (
-            video &&
-            (!shot || !materials.data?.shots.some(s => s.stableShotId === shot))
-          )
-            throw new Error(
-              "请先选择视频所属镜头；没有镜头时需先在电脑端创建。"
-            );
           const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
-            reader.onerror = () => reject(new Error("文件读取失败"));
+            reader.onerror = () => reject(new Error(`${file.name} 读取失败`));
             reader.onload = () => resolve(String(reader.result).split(",")[1]);
             reader.readAsDataURL(file);
           });
@@ -253,7 +292,13 @@ export function ActionEditor({
             note: title.trim() || undefined,
           });
           if (result.status !== "ok")
-            throw new Error(result.error || "导入失败");
+            throw new Error(result.error || `${file.name} 导入失败`);
+          importedMedia.push(file.name);
+        }
+        if (importedText.length) {
+          props.setDraft(nextText);
+        }
+        if (importedMedia.length) {
           void utils.storyAgent.storyImages.invalidate({ storyId: target });
           void utils.storyAgent.storyVideoAssets.invalidate({
             storyId: target,
@@ -261,15 +306,15 @@ export function ActionEditor({
           void utils.storyAgent.storyMaterialState.invalidate({
             storyId: target,
           });
-          setStatus(
-            "素材已导入所选故事。尚未识别画面内容，可在聊天中补充说明。"
-          );
         }
+        setStatus(
+          `${importedText.length ? `已读取 ${importedText.length} 个文本文件并放入聊天输入框。` : ""}${importedMedia.length ? `已导入 ${importedMedia.length} 个图片/视频到故事素材。` : ""} 文本发送后 AI 才会整理；图片和视频当前只保存素材与说明，不会自动识别画面。`
+        );
       }
       setDone(true);
     } catch (error) {
       setStatus(
-        error instanceof Error ? error.message : "没有保存成功，请重试。"
+        `${error instanceof Error ? error.message : "没有保存成功，请重试。"}${importedMedia.length ? ` 已部分导入：${importedMedia.join("、")}。重试前请先检查素材库。` : ""}`
       );
     } finally {
       lock.current = false;
@@ -315,15 +360,24 @@ export function ActionEditor({
           {mode === "import" ? (
             <>
               <p className="text-xs text-muted-foreground">
-                {t("图片 ≤30MB、视频 ≤200MB；TXT / MD 放入输入框。")}
+                {t(
+                  "可多选：图片 ≤30MB、视频 ≤200MB、文本/CSV/JSON/HTML/XML ≤100KB。文本会进入聊天，媒体保存到故事素材。"
+                )}
               </p>
               <input
                 aria-label={t("本地文件")}
                 type="file"
-                accept="image/*,video/*,.txt,.md"
+                accept="image/*,video/*,text/*,.txt,.md,.csv,.json,.html,.xml"
+                multiple
                 className={field}
-                onChange={e => setFile(e.target.files?.[0] ?? null)}
+                onChange={e => setFiles(Array.from(e.target.files ?? []))}
               />
+              {files.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  已选择 {files.length} 个文件：
+                  {files.map(file => file.name).join("、")}
+                </p>
+              )}
               <input
                 aria-label={t("素材说明")}
                 placeholder={t("素材说明（可选）")}
@@ -332,7 +386,7 @@ export function ActionEditor({
                 value={title}
                 onChange={e => setTitle(e.target.value)}
               />
-              {file?.type.startsWith("video/") && (
+              {files.some(file => file.type.startsWith("video/")) && (
                 <label className="block text-xs">
                   {t("视频镜头")}
                   <select

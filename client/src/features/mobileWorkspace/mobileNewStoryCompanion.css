@@ -1,4 +1,13 @@
 /* Menu surface (z40) occludes the character's lower body at rest. */
+/* Menus and nested creation/confirmation dialogs must sit above the chat sheet. */
+body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-radix-popper-content-wrapper] {
+  z-index: 70 !important;
+}
+body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-slot="popover-content"],
+body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-slot="dialog-overlay"],
+body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-slot="dialog-content"] {
+  z-index: 70;
+}
 .mobile-xiaoyi-launcher {
   position: fixed;
   left: calc(50% - 42px);
@@ -593,4 +602,23 @@
 .mobile-xiaoyi-launcher[data-open="false"] .mobile-xiaoyi-visual {
   bottom: -44px;
   transform: scale(2);
+}
+
+/* Resting characters are 50% larger; keep the existing gesture and chat sizes.
+   Individual scale composes with the rigs' transform animations. */
+.mobile-xiaoyi-launcher[data-open="false"] .xiaoyi-bird {
+  scale: 1;
+  transition: scale 300ms ease-out;
+}
+.mobile-xiaoyi-launcher[data-open="false"] .xiaoyi-bird[data-gesture=""] {
+  scale: 1.5;
+}
+.mobile-xiaoyi-launcher[data-open="false"]
+  .nayin-companion[data-docked="true"][data-playing="false"] {
+  scale: 1.62; /* previous resting scale 1.08 × 1.5 */
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-xiaoyi-launcher[data-open="false"] .xiaoyi-bird {
+    transition: none;
+  }
 }

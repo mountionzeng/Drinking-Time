@@ -11,12 +11,13 @@ export type StudioCreateRequest = {
 };
 
 export function StudioCreateMenu({
-  storyId, input, blocked, hasShots,
+  storyId, input, blocked, hasShots, onCreate,
 }: {
   storyId: number | null;
   input: string;
   blocked: boolean;
   hasShots: boolean;
+  onCreate?: (request: StudioCreateRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const hasStory = storyId !== null && storyId > 0;
@@ -44,9 +45,9 @@ export function StudioCreateMenu({
           <button key={kind} type="button" disabled={!hasStory || (kind !== "layout" && blocked) || (kind === "music" && !hasShots)}
             onClick={() => {
               if (!storyId || storyId <= 0) return;
-              window.dispatchEvent(new CustomEvent<StudioCreateRequest>(STUDIO_CREATE_EVENT, {
-                detail: { id: crypto.randomUUID(), storyId, kind, instruction: input.trim() },
-              }));
+              const request = { id: crypto.randomUUID(), storyId, kind, instruction: input.trim() };
+              if (onCreate) onCreate(request);
+              else window.dispatchEvent(new CustomEvent<StudioCreateRequest>(STUDIO_CREATE_EVENT, { detail: request }));
               setOpen(false);
             }}
             className="flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-45">

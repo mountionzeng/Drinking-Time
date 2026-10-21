@@ -206,6 +206,10 @@ describe("architecture boundaries", () => {
     "emotionAnalysis.getProfile",
     // Balance belongs to the current authenticated account and has no input scope.
     "computeAccount.balance",
+    // Statement takes pagination only; account identity comes from authentication.
+    "computeAccount.statement",
+    // Public feedback takes category/pagination filters, never a story/account scope.
+    "feedback.list",
     "emotionAnalysis.listDailyLetters",
     // Account-wide memory library: only pagination/archive filters, no Story scope.
     "memoryWarehouse.list",

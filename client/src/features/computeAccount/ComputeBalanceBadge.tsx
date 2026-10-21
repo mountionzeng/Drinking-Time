@@ -1,3 +1,4 @@
+import { FeedbackDialog } from "./FeedbackDialog";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 余额的显示件。两端共用，只有排布密度不同（compact 给手机和顶栏）。
@@ -149,7 +150,10 @@ function ComputeBalanceBadgeInner({
           {balance.reservedText} {t("正在生成中占用")}
         </span>
       ) : null}
-      <RechargeDialog />
+      <span className="inline-flex flex-wrap items-center gap-3">
+        <RechargeDialog />
+        <FeedbackDialog />
+      </span>
     </span>
   );
 }

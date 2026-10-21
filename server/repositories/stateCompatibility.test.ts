@@ -48,6 +48,19 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads public feedback with dates, tags and reward recovery status intact", async () => {
+    vi.resetModules();
+    const file = persistPath + ".feedback";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const row = { id: "feedback-test", userId: 7, category: "bug", title: "Test feedback", content: "A test report", tags: ["mobile"], page: "/m", status: "adopting", reply: "Accepted", reviewedBy: 8, createdAt: "2026-10-20T10:00:00.000Z", updatedAt: "2026-10-20T11:00:00.000Z" };
+    await writeFile(file, JSON.stringify({ feedbackPosts: [row] }));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.feedbackPosts).toEqual([{ ...row, createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) }]);
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8")).feedbackPosts).toEqual([row]);
+  });
   it("reloads phone challenges with expiration, delivery and consumption state intact", async () => {
     vi.resetModules();
     const file = persistPath + ".phone-login";
@@ -115,7 +128,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

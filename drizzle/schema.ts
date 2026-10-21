@@ -2878,3 +2878,20 @@ export type EmotionDailyLetterAttempt =
   typeof emotionDailyLetterAttempts.$inferSelect;
 export type InsertEmotionDailyLetterAttempt =
   typeof emotionDailyLetterAttempts.$inferInsert;
+
+/** Public opt-in product feedback; private account information stays in users. */
+export const feedbackPosts = mysqlTable("feedback_posts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  category: mysqlEnum("category", ["bug", "suggestion", "praise"]).notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  content: text("content").notNull(),
+  tags: json("tags").$type<string[]>().notNull(),
+  page: varchar("page", { length: 32 }).notNull(),
+  status: mysqlEnum("status", ["open", "reviewing", "adopting", "adopted", "closed"]).default("open").notNull(),
+  reply: text("reply"),
+  reviewedBy: int("reviewedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("feedback_category_created_idx").on(table.category, table.createdAt)]);
+export type FeedbackPost = typeof feedbackPosts.$inferSelect;

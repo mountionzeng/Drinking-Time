@@ -6655,6 +6655,11 @@
         {
           "date": "2026-10-20",
           "kind": "improvement",
+          "summary": "手机首页六种底部角色在启用首页动作后350ms播放现有招呼（小鸟挥手、五行杯子各自动作），离开首页停止，返回重新触发；静态小鸟scale 1→1.5，杯子静态scale 1.08→1.62，保持原有聊天及动作尺寸、透明度与减少动态效果规则。本地390px截图检查小鸟与五杯静态，浏览器验证进入/离开/再次进入的六角色状态；11项定向测试、类型检查通过。未部署。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
           "summary": "普通聊天、全文/选区伴写、模块讨论与段落整理统一共同探索原则；去掉必须每轮提问或按状态追问的要求，允许用户推翻旧解释。不修改生成/保存边界或调用次数。定向与全量回归通过，edab6d44已部署，电脑/手机HTTPS入口与构建一致。真实模型效果仍待体验，发布验收见本次QA。"
         },
         {
@@ -6801,7 +6806,7 @@
       "id": "mobile-memory-followup",
       "name": "手机上下文续聊与内容保存",
       "status": "working",
-      "userValue": "从当前回忆、文字或视频接着聊，并将聊天内容保存为记忆、加入文字或导入本地素材。",
+      "userValue": "从当前回忆、文字或视频接着聊，并将聊天内容加入文字或导入本地素材；聊天沿用已有自动记忆收录。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileMemoryConversation.tsx",
         "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
@@ -6811,16 +6816,24 @@
         "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts",
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
         "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
-        "client/src/features/mobileWorkspace/MobileCompanionActions.tsx"
+        "client/src/features/mobileWorkspace/MobileCompanionActions.tsx",
+        "client/src/features/mobileWorkspace/MobileTextDraftFlow.tsx",
+        "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.ts",
+        "client/src/features/mobileWorkspace/MobileCreateMenu.tsx",
+        "client/src/features/publishingDraft/studioCreateHandoff.ts"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
         "docs/qa/2026-10-13-mobile-memory-followup.md",
         "client/src/features/mobileWorkspace/MobileCompanionActions.test.tsx",
+        "client/src/features/mobileWorkspace/mobileTextDraftWorkflow.test.ts",
         "docs/qa/2026-10-13-mobile-context-actions.md",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
         "docs/qa/2026-10-13-unified-writing-release.md",
-        "docs/qa/2026-10-16-module-chat-memory.md"
+        "docs/qa/2026-10-16-module-chat-memory.md",
+        "client/src/features/mobileWorkspace/MobileCreateMenu.test.tsx",
+        "client/src/features/publishingDraft/studioCreateHandoff.test.ts",
+        "docs/qa/2026-10-20-mobile-create-menu.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -6839,10 +6852,26 @@
         "来源使用消息内文本引用，尚无结构化外键或来源跳转。",
         "没有来源故事或原故事已删除的卡片不能在原故事续聊。",
         "未调用付费模型实测续聊质量，真实断网与真机键盘尚待验收。",
-        "本地文件支持图片、视频、TXT/MD；不解析PDF/DOCX、不做OCR或视频理解。媒体需已有故事，视频需已有镜头，网络中断后需检查素材库避免重复导入。",
-        "当前正文追加共用现有saveBody接口，不额外生成独立文字历史版本；真机大视频上传尚未验收。"
+        "本地导入现支持多选图片/视频及TXT/MD/CSV/JSON/HTML/XML纯文本（每个文本文件≤100KB），文字发送后由聊天模型按文件建议分类；PDF/DOCX及其他二进制文档仍不解析，图像/视频只导入素材库、不做视觉理解或AI自动分类。媒体需已有故事，视频需已有镜头；多文件上传中断可能产生部分成功，重试前需检查素材库。",
+        "当前正文追加共用现有saveBody接口，不额外生成独立文字历史版本；真机大视频上传尚未验收。",
+        "视频/音乐菜单进入现有网页制作工作区的新标签页；尚未重做为手机原生编辑页，真机弹窗与付费生成待验收。"
       ],
       "history": [
+        {
+          "date": "2026-10-20",
+          "kind": "fix",
+          "summary": "按用户要求纠正手机基于当前内容生成入口：复用网页四项制作菜单，不再依赖选中来源或误调文字生成。图片/排版使用手机图文工作区；视频/音乐携带账号隔离的短期请求在新标签进入现有制作工作区，复用storyId冷启动避免错故事。修复手机聊天遮挡菜单和确认窗；27项回归、类型检查、四项入口实点通过，未调用付费生成。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "按用户截图明确要求移除手机聊天操作区“标记为记忆”按钮；不删除已有记忆，不改自动收录和记忆仓库接口。"
+        },
+        {
+          "date": "2026-10-20",
+          "kind": "improvement",
+          "summary": "手机聊天增加生成新版本、基于当前内容生成和新故事对话入口；后两者分别复用候选生成的内容依据与现有新故事会话创建流程。导入改为多选，TXT/MD/CSV/JSON/HTML/XML进入聊天供用户发送后由模型整理，图片/视频复用素材导入接口。PDF/DOCX解析及图片/视频视觉分类仍未实现；定向测试和类型检查通过。"
+        },
         {
           "date": "2026-10-13",
           "kind": "verification",
@@ -7462,6 +7491,51 @@
           "date": "2026-10-18",
           "kind": "verification",
           "summary": "e448b6ff已推送并部署正式站。95文件hash及77业务表/32迁移/环境一致，备份与应用回滚预检通过。正式MySQL两账号列表与账单余额一致，匿名/普通账号服务端拒绝跨账号查询；浏览器普通账号拦回创作页。管理员真实页面验收仍待切换登录。"
+        }
+      ]
+    },
+    {
+      "id": "public-feedback-credit-rewards",
+      "name": "公开反馈、采用奖励与每日技术 BUG 检查",
+      "status": "partial",
+      "userValue": "用户提交和查看反馈，管理员采用后赠送5算力；独立Codex对话每日检查技术BUG。",
+      "entryPoints": [
+        "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
+        "client/src/features/computeAccount/FeedbackDialog.tsx",
+        "scripts/feedback-bugs.ts"
+      ],
+      "owners": [
+        "shared/feedback.ts",
+        "server/routers/feedback.ts",
+        "server/repositories/feedback.ts",
+        "client/src/features/computeAccount/FeedbackDialog.tsx",
+        "scripts/feedback-bugs.ts",
+        "drizzle/0032_feedback_rewards.sql"
+      ],
+      "evidence": [
+        "server/feedback.router.test.ts",
+        "docs/qa/2026-10-20-feedback-rewards.md"
+      ],
+      "invariants": [
+        "仅登录用户可阅读与提交反馈；公开投影不暴露邮箱或账号ID。",
+        "仅管理员可采用；每条反馈通过唯一账本幂等键只发一次5算力。",
+        "技术BUG自动任务不自动合并上线、采用反馈或发奖。",
+        "正式队列不可用必须报错，不能回退本地空队列。"
+      ],
+      "dependencies": [
+        "account-compute-gift-payments"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "未部署0032迁移和应用；未配置生产只读FEEDBACK_DATABASE_URL。",
+        "已建每日9点对话与自动化；线上轮询及真实修复尚未验收。",
+        "发奖并发通过本地隔离测试，生产MySQL尚未验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-20",
+          "kind": "feature",
+          "summary": "新增两端公开反馈入口、标签分类、管理员审核与幂等奖励，创建独立每日Codex检查对话；本地6项接口测试和两端窗口打开验证通过。"
         }
       ]
     }

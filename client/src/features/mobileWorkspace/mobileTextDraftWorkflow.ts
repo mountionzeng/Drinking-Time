@@ -16,6 +16,7 @@ export function mobileTextDraftRequest(input: {
   source?: MemoryFollowupSource;
   messages: TextDraftMessage[];
   instruction: string;
+  basisMode?: "conversation" | "current-content";
 }) {
   const { publishing, source } = input;
   if (source && source.storyId !== input.storyId)
@@ -32,14 +33,20 @@ export function mobileTextDraftRequest(input: {
     throw new Error("正文已在其他位置更新，请先重新读取正文。");
   }
   const basis =
-    source?.text?.content ??
-    (source?.kind === "text"
+    input.basisMode === "current-content" && source
       ? {
-          title: published?.content.title ?? source.title ?? "",
+          title: source.text?.content.title ?? source.title ?? "",
           body: source.content,
-          tags: published?.content.tags ?? [],
+          tags: source.text?.content.tags ?? [],
         }
-      : (published?.content ?? null));
+      : (source?.text?.content ??
+        (source?.kind === "text"
+          ? {
+              title: published?.content.title ?? source.title ?? "",
+              body: source.content,
+              tags: published?.content.tags ?? [],
+            }
+          : (published?.content ?? null)));
   const parent = publishing.versions?.find(
     v => v.versionId === versionId
   )?.textSource;

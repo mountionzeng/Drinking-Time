@@ -76,6 +76,26 @@ describe("mobile draft request", () => {
       ).toThrow("重新读取");
     }
   });
+  it("uses the selected memory content as the basis for a new text draft", () => {
+    const source = {
+      storyId: 8,
+      id: "memory:1",
+      kind: "memory" as const,
+      origin: "user" as const,
+      title: "外婆的厨房",
+      content: "小时候我常在外婆家的厨房帮忙。",
+    };
+    const request = mobileTextDraftRequest({
+      ...setup(),
+      source,
+      basisMode: "current-content",
+    });
+    expect(request.basis).toEqual({
+      title: "外婆的厨房",
+      body: source.content,
+      tags: [],
+    });
+  });
   it("keeps assistant memory quoted as context, while text requests carry a full-draft proposal context", () => {
     const source = {
       storyId: 8,

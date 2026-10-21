@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { MobileCreateMenu } from "./MobileCreateMenu";
 import {
   Dialog,
   DialogContent,
@@ -102,7 +103,9 @@ export function MobileTextDraftFlow({
       if (alive.current) setStorageError(true);
     }
   }
-  async function run() {
+  async function run(
+    mode: "conversation" | "current-content" = "conversation"
+  ) {
     if (lock.current || disabled) return;
     lock.current = true;
     setBusy(true);
@@ -199,6 +202,7 @@ export function MobileTextDraftFlow({
         source,
         messages,
         instruction,
+        basisMode: mode,
       });
       const record: MobileTextPreview = {
         token,
@@ -376,7 +380,7 @@ export function MobileTextDraftFlow({
             if (saved) {
               remember(null);
               setSaved(false);
-            } else void run();
+            } else void run("conversation");
           }}
         >
           {busy ? (
@@ -398,11 +402,11 @@ export function MobileTextDraftFlow({
                       : "检查生成结果"
                   : previewVersion
                     ? "预览并保存"
-                    : source?.kind === "text" || history.data?.versions.length
-                      ? "生成新版本"
-                      : "生成文章"
+                    : "生成新版本"
           )}
         </button>
+        {!previewVersion && <MobileCreateMenu userId={userId} storyId={storyId}
+          instruction={instruction} blocked={disabled || busy} />}
         {error && !open && (
           <p role="alert" className="text-left text-xs text-destructive">
             {error}

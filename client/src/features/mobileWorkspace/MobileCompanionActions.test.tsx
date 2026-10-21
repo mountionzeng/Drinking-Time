@@ -162,28 +162,56 @@ it("keeps failure visible without reporting success or invalidating data", async
 });
 it("imports UTF-8 text into the existing draft without sending or uploading", async () => {
   const { props, submit } = setup("import", {
-    6: {
-      name: "notes.md",
-      type: "text/plain",
-      size: 12,
-      text: async () => "补充内容",
-    },
+    6: [
+      {
+        name: "notes.md",
+        type: "text/plain",
+        size: 12,
+        text: async () => "补充内容",
+      },
+    ],
   });
   await submit();
-  expect(props.setDraft).toHaveBeenCalledWith("新想法\n\n补充内容");
+  expect(props.setDraft).toHaveBeenCalledWith(
+    expect.stringContaining("【文件：notes.md】\n补充内容")
+  );
+  expect(props.setDraft.mock.calls[0][0]).toContain("按文件逐项概括");
   expect(mock.upload).not.toHaveBeenCalled();
+});
+it("imports multiple text files together and preserves their filenames for AI organization", async () => {
+  const { props, submit } = setup("import", {
+    6: [
+      {
+        name: "memory.txt",
+        type: "text/plain",
+        size: 10,
+        text: async () => "一次旅行",
+      },
+      {
+        name: "notes.csv",
+        type: "text/csv",
+        size: 12,
+        text: async () => "日期,地点",
+      },
+    ],
+  });
+  await submit();
+  const imported = props.setDraft.mock.calls[0][0];
+  expect(imported).toContain("【文件：memory.txt】\n一次旅行");
+  expect(imported).toContain("【文件：notes.csv】\n日期,地点");
+  expect(imported).toContain("按文件逐项概括");
 });
 it("rejects oversized media before reading or uploading", async () => {
   const { submit } = setup("import", {
-    6: { name: "photo.png", type: "image/png", size: 31 * 1024 * 1024 },
+    6: [{ name: "photo.png", type: "image/png", size: 31 * 1024 * 1024 }],
   });
   await submit();
   expect(mock.upload).not.toHaveBeenCalled();
-  expect(mock.setters[7]).toHaveBeenCalledWith("图片不能超过 30MB。");
+  expect(mock.setters[7]).toHaveBeenCalledWith("photo.png 超过 30MB。");
 });
 it("requires an explicit valid shot for video imports", async () => {
   const { submit } = setup("import", {
-    6: { name: "clip.mp4", type: "video/mp4", size: 12 },
+    6: [{ name: "clip.mp4", type: "video/mp4", size: 12 }],
   });
   await submit();
   expect(mock.upload).not.toHaveBeenCalled();
@@ -245,7 +273,7 @@ it("uploads images to the chosen story and checks domain errors", async () => {
   );
   mock.upload.mockResolvedValue({ status: "error", error: "素材保存失败" });
   const { submit } = setup("import", {
-    6: { name: "photo.png", type: "image/png", size: 5 },
+    6: [{ name: "photo.png", type: "image/png", size: 5 }],
   });
   await submit();
   expect(mock.upload).toHaveBeenCalledWith(
@@ -262,6 +290,11 @@ it("uploads images to the chosen story and checks domain errors", async () => {
 
 // These interaction tests invoke components with a lightweight hook harness.
 vi.mock("@/features/uiLanguage/UiLanguage", async importOriginal => {
-  const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
-  return {...actual, useUiText: () => (source: string, values?: (string | number)[]) => actual.translateUi("zh", source, values)};
+  const actual =
+    await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+  return {
+    ...actual,
+    useUiText: () => (source: string, values?: (string | number)[]) =>
+      actual.translateUi("zh", source, values),
+  };
 });

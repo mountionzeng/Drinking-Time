@@ -1,3 +1,4 @@
+import { feedbackRouter } from "./feedback";
 import { adminComputeRouter } from "./adminCompute";
 import { translateDailyLetter } from "../services/dailyLetterTranslation";
 import { claimWebLoginGift } from "../services/webLoginGift";
@@ -340,6 +341,7 @@ export const appRouter = router({
 
   personalMemory: personalMemoryRouter,
 
+  feedback: feedbackRouter,
   adminCompute: adminComputeRouter,
   computeAccount: computeAccountRouter,
   computePayment: computePaymentRouter,

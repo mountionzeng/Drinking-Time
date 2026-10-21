@@ -13,6 +13,7 @@ import path from "node:path";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   User,
+  FeedbackPost,
   AccessSession,
   Project,
   Reference,
@@ -86,6 +87,7 @@ export const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 function createEmptyMemoryCollections() {
   return {
+    feedbackPosts: [] as FeedbackPost[],
     memoryCards: [] as MemoryCard[],
     downstreamRegenerationCandidates: [] as DownstreamRegenerationCandidateRow[],
     users: [] as User[],
@@ -341,6 +343,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as Reference[];
+
+  memoryState.feedbackPosts = (raw.feedbackPosts ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as FeedbackPost[];
 
   memoryState.memoryCards = (raw.memoryCards ?? []).map(item => ({
     ...item,

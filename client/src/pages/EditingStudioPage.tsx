@@ -74,6 +74,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraftWorkspace";
 import { STUDIO_CREATE_EVENT, type StudioCreateRequest } from "@/features/publishingDraft/StudioCreateMenu";
+import { readStudioCreateHandoff, clearStudioCreateHandoff } from "@/features/publishingDraft/studioCreateHandoff";
 import StudioTour from "@/features/studioTour/StudioTour";
 import { STUDIO_TOUR_REPLAY_EVENT } from "@/features/studioTour/studioTourStorage";
 import {
@@ -285,7 +286,31 @@ function EditingStudioBody({
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [createRequest, setCreateRequest] = useState<StudioCreateRequest | null>(null);
+  const { user: creationUser } = useAuth();
+  const handoffId = useRef(new URLSearchParams(window.location.search).get("createRequest"));
+  const handoffStarted = useRef(false);
+  const [incomingCreate, setIncomingCreate] = useState<StudioCreateRequest | null>(null);
+  useEffect(() => {
+    const id = handoffId.current;
+    if (!id || !creationUser || handoffStarted.current) return;
+    handoffStarted.current = true;
+    const request = readStudioCreateHandoff(sessionStorage, id, creationUser.id);
+    if (!request) {
+      toast.error("制作请求已过期，请返回手机聊天重新选择。");
+      return;
+    }
+    // StoryAgentProvider owns cold-entry story loading via the storyId URL.
+    // Do not race its account hydration with an early loadStory() call.
+    setIncomingCreate(request);
+  }, [creationUser]);
   useEffect(() => { setCreateRequest(null); }, [activeStoryId]);
+  useEffect(() => {
+    if (!incomingCreate || incomingCreate.storyId !== activeStoryId) return;
+    setCreateRequest(incomingCreate);
+    onWorkspaceChange("editing");
+    clearStudioCreateHandoff(sessionStorage, incomingCreate.id);
+    setIncomingCreate(null);
+  }, [incomingCreate, activeStoryId, onWorkspaceChange]);
   useEffect(() => {
     const create = (event: Event) => {
       const request = (event as CustomEvent<StudioCreateRequest>).detail;

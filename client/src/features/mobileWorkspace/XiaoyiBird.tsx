@@ -40,12 +40,12 @@ export function XiaoyiBird({
       timers.forEach(clearTimeout);
       timers = [];
     };
-    const schedule = () => {
+    const schedule = (greet = false) => {
       timers.push(
         setTimeout(
           () => {
             if (document.hidden) return;
-            const index = nextBirdGesture(previous);
+            const index = greet ? 3 : nextBirdGesture(previous);
             previous = index;
             setGesture(index);
             for (const [delay, frame] of BIRD_GESTURES[index])
@@ -57,7 +57,7 @@ export function XiaoyiBird({
               }, 2500)
             );
           },
-          6500 + Math.random() * 6500
+          greet ? 350 : 6500 + Math.random() * 6500
         )
       );
     };
@@ -65,7 +65,7 @@ export function XiaoyiBird({
       clear();
       setPose("turn");
       setGesture(null);
-      if (!document.hidden) schedule();
+      if (!document.hidden) schedule(true);
     };
     visibility();
     document.addEventListener("visibilitychange", visibility);

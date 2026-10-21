@@ -24,6 +24,7 @@ export function MobileMemoryFollowupChat({
   setDraft,
   baseline,
   onTextSaved,
+  onNewStory,
 }: {
   draft: string;
   setDraft: (draft: string) => void;
@@ -34,6 +35,7 @@ export function MobileMemoryFollowupChat({
   onActionLocked?: (locked: boolean) => void;
   onThinkingChange?: (thinking: boolean) => void;
   onTextSaved?: (source: MemoryFollowupSource) => void;
+  onNewStory?: () => void;
 }) {
   const t = useUiText();
 
@@ -193,6 +195,7 @@ export function MobileMemoryFollowupChat({
           setActionLocked(locked);
           onActionLocked?.(locked);
         }}
+        onNewStory={onNewStory}
       />
       {source.kind === "layout" ? (
         <p className="px-4 py-2 text-[11px] text-muted-foreground">

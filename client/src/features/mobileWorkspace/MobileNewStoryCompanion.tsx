@@ -31,7 +31,6 @@ import {
 import { XiaoyiBird } from "./XiaoyiBird";
 import { companionAttention } from "./companionAttention";
 import {
-  canStartAnotherStory,
   emptyNewStorySession,
   newStorySessionKey,
   readNewStorySession,
@@ -431,6 +430,12 @@ export function MobileNewStoryCompanion({
                 onLocked={setMemoryLocked}
                 onActionLocked={setActionLocked}
                 onTextSaved={setActiveMemory}
+                onNewStory={() => {
+                  setActiveMemory(null);
+                  setSession(emptyNewStorySession());
+                  setError(null);
+                  firstSend.current = false;
+                }}
               />
             </div>
           )}
@@ -458,6 +463,12 @@ export function MobileNewStoryCompanion({
                 messages={conversation.messages}
                 disabled={busy || unsynced || actionLocked}
                 onLocked={setActionLocked}
+                onNewStory={() => {
+                  setActiveMemory(null);
+                  setSession(emptyNewStorySession());
+                  setError(null);
+                  firstSend.current = false;
+                }}
               />
             </>
           )}
@@ -474,25 +485,6 @@ export function MobileNewStoryCompanion({
                   ? t("对话保存在故事里，电脑也能接着看")
                   : t("发送第一句话后，才会建立故事")}
             </span>
-            {session.storyId && (
-              <button
-                type="button"
-                disabled={
-                  !canStartAnotherStory({
-                    busy,
-                    draft: session.draft,
-                    unsynced,
-                  })
-                }
-                onClick={() => {
-                  setSession(emptyNewStorySession());
-                  setError(null);
-                  firstSend.current = false;
-                }}
-              >
-                {t("另聊一个")}
-              </button>
-            )}
           </footer>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

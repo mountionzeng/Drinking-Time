@@ -1,4 +1,70 @@
 {
+  "赚算力": { "en": "Earn credits", "fr": "Gagner des crédits" },
+  "说说哪里不好用，或分享你喜欢的地方。反馈被采用后，送你 5 算力。": {
+    "en": "Tell us what could improve or what you enjoy. Accepted feedback earns 5 credits.",
+    "fr": "Dites-nous ce qui peut être amélioré ou ce que vous aimez. Un avis retenu rapporte 5 crédits."
+  },
+  "反馈分类": { "en": "Filter feedback", "fr": "Filtrer les avis" },
+  "全部反馈": { "en": "All feedback", "fr": "Tous les avis" },
+  "写反馈": { "en": "Write feedback", "fr": "Donner un avis" },
+  "发布后其他用户也能看到，请勿填写邮箱、密码或私人故事。": {
+    "en": "Feedback is visible to other users. Do not include emails, passwords or private stories.",
+    "fr": "Votre avis sera visible par les autres utilisateurs. Ne partagez ni adresse e-mail, ni mot de passe, ni histoire privée."
+  },
+  "反馈类型": { "en": "Feedback type", "fr": "Type d’avis" },
+  "具体说说": { "en": "Tell us more", "fr": "Dites-nous en plus" },
+  "你做了什么？哪里出错？原本希望发生什么？": {
+    "en": "What did you do? What went wrong? What did you expect?",
+    "fr": "Qu’avez-vous fait ? Quel problème avez-vous rencontré ? Quel résultat attendiez-vous ?"
+  },
+  "你的想法、建议或喜欢的地方…": {
+    "en": "Your ideas, suggestions or favorite things…",
+    "fr": "Vos idées, suggestions ou coups de cœur…"
+  },
+  "标签（最多5个，用逗号分隔）": {
+    "en": "Tags (up to 5, separated by commas)",
+    "fr": "Étiquettes (5 maximum, séparées par des virgules)"
+  },
+  "例如：手机端，聊天，图片": {
+    "en": "For example: mobile, chat, images",
+    "fr": "Par exemple : mobile, discussion, images"
+  },
+  "发布反馈": { "en": "Publish feedback", "fr": "Publier l’avis" },
+  "反馈已发布，谢谢你帮我们变得更好。": {
+    "en": "Feedback published. Thank you for helping us improve.",
+    "fr": "Avis publié. Merci de nous aider à nous améliorer."
+  },
+  "反馈加载失败。": {
+    "en": "Could not load feedback.",
+    "fr": "Impossible de charger les avis."
+  },
+  "还没有反馈，来写第一条吧。": {
+    "en": "No feedback yet. Be the first!",
+    "fr": "Aucun avis pour le moment. Soyez le premier !"
+  },
+  "我的反馈": { "en": "My feedback", "fr": "Mon avis" },
+  "团队回复": { "en": "Team reply", "fr": "Réponse de l’équipe" },
+  "管理这条反馈": { "en": "Review this feedback", "fr": "Examiner cet avis" },
+  "标记处理中": { "en": "Mark in progress", "fr": "Marquer en cours" },
+  "回复并完成": { "en": "Reply and close", "fr": "Répondre et clôturer" },
+  "继续发放奖励": { "en": "Resume reward", "fr": "Reprendre la récompense" },
+  "采用并赠送 5 算力": {
+    "en": "Accept and award 5 credits",
+    "fr": "Retenir et offrir 5 crédits"
+  },
+  "技术 BUG": { "en": "Technical bug", "fr": "Bug technique" },
+  "操作建议": {
+    "en": "Usability suggestion",
+    "fr": "Suggestion d’utilisation"
+  },
+  "夸奖": { "en": "Praise", "fr": "Compliment" },
+  "待查看": { "en": "Awaiting review", "fr": "À examiner" },
+  "奖励发放中": { "en": "Awarding credits", "fr": "Attribution des crédits" },
+  "已采用 · 奖励 5 算力": {
+    "en": "Accepted · 5 credits awarded",
+    "fr": "Retenu · 5 crédits offerts"
+  },
+  "已回复": { "en": "Replied", "fr": "Répondu" },
   "小忆": {
     "en": "Xiaoyi",
     "fr": "Xiaoyi"

@@ -22,12 +22,14 @@ export function NayinCompanion({
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let previous = -1;
-    const schedule = () => {
+    const schedule = (greet = false) => {
       timer = setTimeout(
         () => {
           // Choose either of the other two poses; avoid consecutive repeats.
           const next =
-            previous < 0
+            greet
+              ? 0
+              : previous < 0
               ? Math.floor(Math.random() * 3)
               : (previous + 1 + Math.floor(Math.random() * 2)) % 3;
           previous = next;
@@ -37,13 +39,13 @@ export function NayinCompanion({
             schedule();
           }, 2400);
         },
-        6500 + Math.random() * 6500
+        greet ? 350 : 6500 + Math.random() * 6500
       );
     };
     const reset = () => {
       clearTimeout(timer);
       setGesture(null);
-      if (active && !reduced && !document.hidden) schedule();
+      if (active && !reduced && !document.hidden) schedule(true);
     };
     reset();
     document.addEventListener("visibilitychange", reset);

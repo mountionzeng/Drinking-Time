@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PublishingImagePack } from "@/features/publishingAlbum/PublishingImagePack";
+import type { StudioCreateRequest } from "@/features/publishingDraft/StudioCreateMenu";
 import {
   isRecoverablePublishingCoverGeneration,
   type PublishingDraftContent,
@@ -27,11 +28,13 @@ export function MobileImageStudio({
   userId,
   source,
   onBack,
+  createRequest,
 }: {
   storyId: number;
   userId: number;
   source?: MobileArtworkSource;
   onBack(): void;
+  createRequest?: StudioCreateRequest;
 }) {
   const t = useUiText();
 
@@ -227,6 +230,7 @@ export function MobileImageStudio({
               </div>
             ) : null}
             <PublishingImagePack
+              createRequest={createRequest}
               accountId={userId}
             sharePlatform={platform}
               key={`${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
