@@ -55,7 +55,8 @@ async function owned(storyId: number, userId: number) {
 
 async function prepareShare(
   input: z.infer<typeof previewInput>,
-  userId: number
+  userId: number,
+  name?: string | null
 ) {
   const story = await owned(input.storyId, userId);
   const snapshot = createStoryContextSnapshot(story, {
@@ -70,6 +71,7 @@ async function prepareShare(
   if (input.permissions.rewrite || input.permissions.fork)
     sharedWorkSchema.parse(snapshot.article);
   snapshot.permissions = input.permissions;
+  snapshot.author = { name: artworkAuthorName(name) };
   return {
     snapshot,
     fingerprint: hash(JSON.stringify(snapshot)),
@@ -80,13 +82,13 @@ export const storyContextShareRouter = router({
   preview: protectedProcedure
     .input(previewInput)
     .query(async ({ ctx, input }) => ({
-      ...(await prepareShare(input, ctx.user.id)),
+      ...(await prepareShare(input, ctx.user.id, ctx.user.name)),
       activeLinks: await countStoryContextShares(input.storyId, ctx.user.id),
     })),
   create: protectedProcedure
     .input(previewInput.extend({ fingerprint: z.string().length(64) }))
     .mutation(async ({ ctx, input }) => {
-      const prepared = await prepareShare(input, ctx.user.id);
+      const prepared = await prepareShare(input, ctx.user.id, ctx.user.name);
       if (prepared.fingerprint !== input.fingerprint)
         throw new TRPCError({
           code: "CONFLICT",

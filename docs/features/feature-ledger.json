@@ -7087,7 +7087,8 @@
         "shared/shareBackInbox.ts",
         "client/src/features/sharing/useShareBackNotices.ts",
         "client/src/app/shell/StoryLogoMenu.tsx",
-        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
+        "client/src/features/mobileWorkspace/MobileStoriesPage.tsx",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx"
       ],
       "evidence": [
         "server/routers.sharePermissions.test.ts",
@@ -7103,7 +7104,9 @@
         "client/src/app/shell/StoryLogoMenu.test.tsx",
         "client/src/features/mobileWorkspace/MobileStoriesPage.test.tsx",
         "docs/qa/2026-10-20-share-back-reminder.md",
-        "docs/qa/2026-10-20-exploration-release.md"
+        "docs/qa/2026-10-20-exploration-release.md",
+        "server/routers.displayName.test.ts",
+        "docs/qa/2026-10-21-display-name-sharing.md"
       ],
       "invariants": [
         "新分享默认只读，两项权限仅由分享者创建时明确授予；任一权限都可「拿来一起改」得到接收者副本，只有改写权限允许从副本「分享回给作者」。2026-10-19 经用户批准合并旧「帮作者改写」文本框入口，旧接口保留兼容。",
@@ -7163,6 +7166,11 @@
           "date": "2026-10-20",
           "kind": "verification",
           "summary": "用户要求推送和部署一并确认：远端main含70521c6d，从该提交干净归档构建成功，95个运行文件与正式站逐项SHA-256完全一致，目标应用已经部署，无需再次替换或重启。PM2在线，公网首页/电脑/手机/health/ready均200，收件箱未登录401；HTML/入口JS公网哈希一致。未带入本地其他工作，未改数据库或生产配置；用户自行继续双账号体验，详见分享回来提醒QA。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "手机我页增加自选名字与对外署名说明，沿用账号name；文字分享预览和新链接保存服务端署名快照，改名不追溯改旧分享，不按昵称合并人物。旧无署名链接兼容，权限与隐私边界不变；验证见自选名字QA。"
         }
       ]
     },

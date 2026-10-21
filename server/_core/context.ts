@@ -35,9 +35,10 @@ function readSessionCookie(req: CreateExpressContextOptions["req"]) {
 
 async function loadOrCreateGuestUser(openId: string, name = "Guest") {
   const signedInAt = new Date();
+  const existing = await getUserByOpenId(openId);
   await upsertUser({
     openId,
-    name,
+    name: existing?.name ?? name,
     loginMethod: "guest",
     lastSignedIn: signedInAt,
   });

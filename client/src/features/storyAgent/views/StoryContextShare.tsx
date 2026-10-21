@@ -29,6 +29,11 @@ export function StoryContextText({
         <h2 className="font-chat-brand text-xl">
           {snapshot.article?.title || snapshot.title}
         </h2>
+        {snapshot.author && (
+          <p className="break-words text-sm text-muted-foreground">
+            {snapshot.author.name} · 分享
+          </p>
+        )}
         <p className="whitespace-pre-wrap break-words text-sm leading-7">
           {snapshot.article?.body ||
             snapshot.summary ||
@@ -165,7 +170,11 @@ export function StoryContextShareDialog({
           </div>
         ) : (
           <>
-            <SharePermissions value={permissions} onChange={setPermissions} disabled={busy} />
+            <SharePermissions
+              value={permissions}
+              onChange={setPermissions}
+              disabled={busy}
+            />
             {preview.isFetching ? (
               <p role="status" className="py-8 text-sm text-muted-foreground">
                 正在准备分享预览…
@@ -194,9 +203,7 @@ export function StoryContextShareDialog({
             >
               停用全部链接
             </button>
-            <p className="mt-1">
-              已续写的副本保留。
-            </p>
+            <p className="mt-1">已续写的副本保留。</p>
           </div>
         ) : null}
       </DialogContent>

@@ -325,3 +325,29 @@ describe("story context sharing", () => {
     ).toBe("甲和乙一起在海边长大。");
   });
 });
+
+
+it("文字分享保存服务端署名快照，改名后旧链接不变且旧预览必须刷新", async () => {
+  const { id } = await fixture();
+  const named = (name: string) =>
+    storyContextShareRouter.createCaller({
+      user: { id: 10, name },
+      res: { setHeader: vi.fn() },
+      req: {},
+    } as unknown as TrpcContext);
+  const preview = await named("山间来信").preview({ storyId: id });
+  expect(preview.snapshot.author).toEqual({ name: "山间来信" });
+  const created = await named("山间来信").create({
+    storyId: id,
+    fingerprint: preview.fingerprint,
+  });
+  await expect(
+    named("新的笔名").create({ storyId: id, fingerprint: preview.fingerprint })
+  ).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(
+    (await caller(null).read({ token: created.path.slice(3) })).snapshot.author
+  ).toEqual({ name: "山间来信" });
+  expect(
+    (await named("新的笔名").preview({ storyId: id })).snapshot.author
+  ).toEqual({ name: "新的笔名" });
+});

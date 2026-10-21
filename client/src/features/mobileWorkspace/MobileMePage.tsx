@@ -78,6 +78,14 @@ export function MobileMePage({
 
   const { user, logout } = useAuth();
   const { language, setLanguage } = useUiLanguage();
+  const [nameOpen, setNameOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const saveName = trpc.auth.setDisplayName.useMutation({
+    onSuccess: async () => {
+      await utils.auth.me.invalidate();
+      setNameOpen(false);
+    },
+  });
   const [languageOpen, setLanguageOpen] = useState(false);
   const {
     today,
@@ -133,8 +141,27 @@ export function MobileMePage({
           等于告诉用户「你没登录」——然后他看见自己的故事都在，只会更糊涂。
         */}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-lg text-foreground">
-            {user?.name || t("访客")}
+          <button
+            type="button"
+            disabled={!user}
+            className="flex min-h-11 max-w-full items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-primary"
+            onClick={() => {
+              setNameDraft(user?.name === "Guest" ? "" : (user?.name ?? ""));
+              saveName.reset();
+              setNameOpen(true);
+            }}
+          >
+            <span className="truncate text-lg text-foreground">
+              {!user?.name || user.name === "Guest"
+                ? t("给自己起个名字")
+                : user.name}
+            </span>
+            <span className="shrink-0 text-xs text-primary">
+              {t("修改名字")}
+            </span>
+          </button>
+          <p className="text-sm leading-6 text-muted-foreground">
+            {t("名字由你自己定。分享故事时，对方会看到这个名字。")}
           </p>
           <p className="mt-1 break-all text-sm text-muted-foreground">
             {user?.email ?? (user ? t("访客身份 · 未绑定邮箱") : t("未登录"))}
@@ -142,6 +169,50 @@ export function MobileMePage({
         </div>
       </div>
 
+      <MobileSheet
+        open={nameOpen}
+        onOpenChange={open => {
+          if (!saveName.isPending) setNameOpen(open);
+        }}
+        title={t("我的名字")}
+        description={t(
+          "可以用昵称或笔名，不必是真名。新分享的故事会用这个名字署名，已发出的分享保留当时的名字。"
+        )}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={event => {
+            event.preventDefault();
+            if (nameDraft.trim() && !saveName.isPending)
+              saveName.mutate({ name: nameDraft.trim() });
+          }}
+        >
+          <label className="block space-y-2">
+            <span className="text-sm">{t("你希望别人怎么称呼你")}</span>
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={event => setNameDraft(event.target.value)}
+              maxLength={80}
+              disabled={saveName.isPending}
+              className="min-h-12 w-full rounded-lg border border-border bg-background px-3 text-foreground focus-visible:outline-primary"
+              placeholder={t("填写昵称或笔名")}
+            />
+          </label>
+          {saveName.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {saveName.error.message}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!nameDraft.trim() || saveName.isPending}
+            className="min-h-12 w-full rounded-lg bg-primary px-4 text-primary-foreground disabled:opacity-50"
+          >
+            {saveName.isPending ? t("正在保存…") : t("保存名字")}
+          </button>
+        </form>
+      </MobileSheet>
       <section
         aria-label={t("算力余额")}
         className="border-b border-border/70 py-5"
@@ -279,11 +350,15 @@ export function MobileMePage({
         </div>
       </MobileSheet>
 
-      {pairingControl ? <div className="border-b border-border/70 py-3">{pairingControl}</div> : <Row
-        title={t("电脑登录")}
-        hint={t("用手机授权电脑登录同一账号")}
-        onClick={() => setDesktopLoginOpen(true)}
-      />}
+      {pairingControl ? (
+        <div className="border-b border-border/70 py-3">{pairingControl}</div>
+      ) : (
+        <Row
+          title={t("电脑登录")}
+          hint={t("用手机授权电脑登录同一账号")}
+          onClick={() => setDesktopLoginOpen(true)}
+        />
+      )}
 
       <Row
         title={t("出生信息")}

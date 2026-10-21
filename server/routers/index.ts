@@ -1,3 +1,4 @@
+import { upsertUser } from "../repositories/users";
 import { memorySpaceRouter } from "./memorySpace";
 import { feedbackRouter } from "./feedback";
 import { adminComputeRouter } from "./adminCompute";
@@ -294,6 +295,15 @@ export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    setDisplayName: protectedProcedure
+      .input(z.object({
+        name: z.string().trim().min(1, "请填写名字").max(80, "名字最多80个字符")
+          .regex(/^[^\u0000-\u001f\u007f]+$/, "名字不能包含换行或控制字符"),
+      }).strict())
+      .mutation(async ({ ctx, input }) => {
+        await upsertUser({ openId: ctx.user.openId, name: input.name });
+        return { name: input.name };
+      }),
     claimLoginGift: protectedProcedure.mutation(({ ctx }) => claimWebLoginGift(ctx.user)),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);

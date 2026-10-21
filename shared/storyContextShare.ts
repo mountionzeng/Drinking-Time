@@ -7,6 +7,10 @@ const text = z.string();
 export const storyContextSnapshotSchema = z
   .object({
     version: z.literal(1),
+    author: z
+      .object({ name: text.max(80) })
+      .strict()
+      .optional(),
     permissions: sharePermissionsSchema.optional(),
     title: text.max(255),
     logline: text,
