@@ -167,7 +167,9 @@ function MemorySpaceContent({
               <div className="memory-view-bar">
                 <div className="memory-view-intro">
                   <span>我的藏书</span>
-                  <small>{data.books.length} 本故事，慢慢收藏</small>
+                  <small>
+                    {data.books.length} 本故事 · 点书旁的 ···，单独调整摆放
+                  </small>
                 </div>
                 <div
                   className="memory-view-options"
@@ -376,6 +378,21 @@ function Shelf({
   const visible = books.filter(book =>
     book.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
   );
+  // Consecutive horizontal books share a stack; every other book keeps its own footprint.
+  const groups: (typeof visible)[] = [];
+  for (const book of visible) {
+    const horizontal =
+      (book.view ?? data.shelfView ?? "vertical") === "horizontal";
+    const previous = groups.at(-1);
+    if (
+      horizontal &&
+      previous &&
+      previous.length < 3 &&
+      (previous[0].view ?? data.shelfView ?? "vertical") === "horizontal"
+    )
+      previous.push(book);
+    else groups.push([book]);
+  }
   return (
     <section className="memory-shelf" aria-label={name}>
       <header>
@@ -386,9 +403,13 @@ function Shelf({
         {children}
       </header>
       <div className="memory-book-row">
-        {Array.from({ length: Math.ceil(visible.length / 3) }, (_, group) => (
-          <div className="memory-book-stack" key={group}>
-            {visible.slice(group * 3, group * 3 + 3).map(book => {
+        {groups.map(group => (
+          <div
+            className="memory-book-stack"
+            key={group[0].id}
+            data-stack-view={group[0].view ?? data.shelfView ?? "vertical"}
+          >
+            {group.map(book => {
               const i = books.findIndex(b => b.id === book.id);
               return (
                 <article

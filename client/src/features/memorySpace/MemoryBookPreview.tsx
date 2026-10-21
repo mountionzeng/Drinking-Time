@@ -1,5 +1,5 @@
-import React from "react";
-import { Info, Clock3, Users, ArrowUpRight } from "lucide-react";
+import React, { useState } from "react";
+import { MoreHorizontal, Clock3, Users, ArrowUpRight } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -115,19 +115,31 @@ export function MemoryBookCover({
   onViewChange: (view: MemoryShelfView | null) => void;
 }) {
   const update = bookUpdate(book);
+  const [failedCover, setFailedCover] = useState<string | null>(null);
+  const cover =
+    book.coverUrl && failedCover !== book.coverUrl ? book.coverUrl : null;
   return (
     <>
       <Tooltip delayDuration={180}>
         <TooltipTrigger asChild>
           <button
             className="memory-book"
+            data-has-cover={Boolean(cover)}
             onClick={onRead}
             aria-label={`阅读${book.title}${update ? `，${update}` : ""}`}
           >
-            {book.coverUrl && <img src={book.coverUrl} alt="" loading="lazy" />}
+            {cover && (
+              <img
+                className="memory-book-art"
+                src={cover}
+                alt=""
+                loading="lazy"
+                onError={() => setFailedCover(cover)}
+              />
+            )}
             <span className="memory-book-paper">
               <span className="memory-book-edition" aria-hidden="true">
-                拾光 · 私人藏书
+                拾光
               </span>
               <span className="memory-book-title">{book.title}</span>
               <span className="memory-book-footer">
@@ -152,10 +164,10 @@ export function MemoryBookCover({
         <PopoverTrigger asChild>
           <button
             className="memory-book-info"
-            aria-label={`查看${book.title}的编辑概览`}
+            aria-label={`调整${book.title}的摆放与查看概览`}
           >
-            <Info size={13} />
-            <span>概览</span>
+            <MoreHorizontal size={16} />
+            <span className="sr-only">摆放与概览</span>
             {update && <i aria-hidden="true" />}
           </button>
         </PopoverTrigger>
@@ -165,7 +177,6 @@ export function MemoryBookCover({
           sideOffset={8}
           collisionPadding={12}
         >
-          <BookOverview book={book} />
           <label className="memory-book-orientation">
             这本书的摆放
             <select
@@ -181,6 +192,7 @@ export function MemoryBookCover({
               <option value="album">封面画册</option>
             </select>
           </label>
+          <BookOverview book={book} />
           <button className="memory-preview-read" onClick={onRead}>
             翻开故事
             <ArrowUpRight size={16} />

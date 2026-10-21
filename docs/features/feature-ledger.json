@@ -7693,7 +7693,9 @@
         "docs/qa/2026-10-21-memory-bookshelf-bindings.md",
         "client/src/features/memorySpace/activeEditingClock.test.ts",
         "server/routers.storyContextShare.test.ts",
-        "server/routers.sharedLayout.test.ts"
+        "server/routers.sharedLayout.test.ts",
+        "server/repositories/accountImages.test.ts",
+        "docs/qa/2026-10-21-bookshelf-art-direction.md"
       ],
       "invariants": [
         "手机和电脑共用账号级数据；书架排序不改变首页最近故事的权威顺序，移动书或删除书架层不得删除故事。",
@@ -7742,6 +7744,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "三种摆放与活跃编辑概览提交d656f559已推送部署。独立候选666文件5647项普通测试通过，相关MySQL跨进程回归另行通过；构建/类型/66卡/34条迁移基线通过。95个运行文件及公网HTML/JS/CSS哈希一致，主页面与健康200、匿名书架接口401；本轮无迁移和环境配置变更，回滚包已保留，验收记录见摆放QA。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "按整体纸感/手写字/淡色插画风格重做细层板和实体装帧，取消等宽书格；连续横放书成摞，与竖放和画册按实际占位混排。每本书从省略号直接改摆放；选定封面优先，无封面用该故事最新归属合法图片，书脊柔化图片色彩，画册直接用封面；保留排序、未读、共创概览和计时。验证见书架美术QA。"
         }
       ]
     }

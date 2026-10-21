@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, max } from "drizzle-orm";
 import { generatedImages, stories } from "../../drizzle/schema";
 import { ensureMemoryLoaded, getDb, memoryState } from "./runtime";
 
@@ -77,4 +77,50 @@ export async function listAccountImages(
   }
   const items = rows.slice(0, limit);
   return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
+}
+
+/** Latest rendered image per owned story, only used when no selected cover exists. */
+export async function latestStoryImageUrls(
+  userId: number
+): Promise<Map<number, string>> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const owned = new Set(
+      memoryState.stories.filter(s => s.userId === userId).map(s => s.id)
+    );
+    const result = new Map<number, string>();
+    for (const image of [...memoryState.generatedImages].sort(
+      (a, b) => b.id - a.id
+    )) {
+      if (
+        image.storyId != null &&
+        owned.has(image.storyId) &&
+        (image.userId == null || image.userId === userId) &&
+        image.imageUrl &&
+        !result.has(image.storyId)
+      )
+        result.set(image.storyId, image.imageUrl);
+    }
+    return result;
+  }
+  const latest = db
+    .select({ id: max(generatedImages.id).as("latestId") })
+    .from(generatedImages)
+    .innerJoin(stories, eq(stories.id, generatedImages.storyId))
+    .where(
+      and(
+        eq(stories.userId, userId),
+        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId))
+      )
+    )
+    .groupBy(generatedImages.storyId)
+    .as("latestStoryImages");
+  const rows = await db
+    .select({ storyId: generatedImages.storyId, url: generatedImages.imageUrl })
+    .from(generatedImages)
+    .innerJoin(latest, eq(generatedImages.id, latest.id));
+  return new Map(
+    rows.filter(row => row.storyId != null).map(row => [row.storyId!, row.url])
+  );
 }

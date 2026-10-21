@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GeneratedImage, Story } from "../../drizzle/schema";
-import { listAccountImages } from "./accountImages";
+import { listAccountImages, latestStoryImageUrls } from "./accountImages";
 
 const state = vi.hoisted(() => ({
   stories: [] as Story[],
@@ -75,4 +75,10 @@ describe("account image library", () => {
     ).toEqual(Array.from({ length: 60 }, (_, index) => 60 - index));
     expect(third.nextCursor).toBeNull();
   });
+});
+
+it("书架取每篇故事最新图片，并排除其他账号、孤立图片和无故事图片", async () => {
+  state.generatedImages = [picture(1, 1, 7), picture(2, 1, null), picture(3, 1, 8), picture(4, 2, 7), picture(5, null, 7), picture(6, 3, 7)];
+  expect([...await latestStoryImageUrls(7)]).toEqual([[3, "/image-6.png"], [1, "/image-2.png"]]);
+  expect([...await latestStoryImageUrls(99)]).toEqual([]);
 });

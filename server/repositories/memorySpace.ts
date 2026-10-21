@@ -1,3 +1,4 @@
+import { latestStoryImageUrls } from "./accountImages";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, or, asc, gt } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -153,8 +154,15 @@ async function sourceData(owner: number) {
       : memoryState.users.filter(u => accountIds.includes(u.id));
     people.forEach(p => names.set(p.id, p.name?.trim() || "朋友"));
   }
+  const [storyList, latestImages] = await Promise.all([
+    listUserStories(owner),
+    latestStoryImageUrls(owner),
+  ]);
   const covers = new Map(
-    (await listUserStories(owner)).map(s => [s.id, s.coverImageUrl])
+    storyList.map(s => [
+      s.id,
+      s.coverImageUrl ?? latestImages.get(s.id) ?? null,
+    ])
   );
   return { projected, links, names, covers };
 }
