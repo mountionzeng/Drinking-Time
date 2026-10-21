@@ -78,6 +78,7 @@ export function MobileContentLibrary({
               className={`min-h-11 border-b-2 pb-2 font-chat-brand text-lg ${media === kind ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}
               onClick={() => {
                 setMedia(kind);
+                setShowNotes(false);
                 setPage(0);
               }}
             >
@@ -86,11 +87,16 @@ export function MobileContentLibrary({
           ))}
         </nav>
       )}
-      {isMemory ? (
+      {stage === "warehouse" && media === "text" && !showNotes && (
+        <button className={action} onClick={() => setShowNotes(true)}>
+          {t("记事存档 ›")}
+        </button>
+      )}
+      {isMemory || showNotes ? (
         showNotes ? (
           <>
             <button className={action} onClick={() => setShowNotes(false)}>
-              ‹ 回到回忆
+              {stage === "warehouse" ? t("‹ 返回文字") : t("‹ 返回故事")}
             </button>
             <AllMemories />
           </>

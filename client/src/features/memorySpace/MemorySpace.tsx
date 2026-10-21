@@ -142,7 +142,10 @@ function MemorySpaceContent({
         <div
           className="memory-drag-ghost"
           role="status"
-          style={{ left: gesture.held.x, top: gesture.held.y }}
+          style={{
+            left: `clamp(116px, ${gesture.held.x}px, calc(100vw - 116px))`,
+            top: gesture.held.y,
+          }}
         >
           {gesture.held.title}
           <small>
@@ -150,30 +153,34 @@ function MemorySpaceContent({
           </small>
         </div>
       )}
-      <header className="memory-space-heading">
-        <div>
-          <p className="memory-space-eyebrow">留在这里的时光</p>
-          <h1>回忆</h1>
-        </div>
-        <button className="memory-link" onClick={onOpenNotes}>
-          记事工具
-        </button>
-      </header>
-      <nav className="memory-tabs" aria-label="回忆分类">
-        <button
-          aria-pressed={tab === "stories"}
-          onClick={() => setTab("stories")}
-        >
-          <BookOpen size={18} />
-          故事
-        </button>
-        <button
-          aria-pressed={tab === "people"}
-          onClick={() => setTab("people")}
-        >
-          <Users size={18} />人
-        </button>
-      </nav>
+      {!mobileGestures && (
+        <>
+          <header className="memory-space-heading">
+            <div>
+              <p className="memory-space-eyebrow">留在这里的时光</p>
+              <h1>回忆</h1>
+            </div>
+            <button className="memory-link" onClick={onOpenNotes}>
+              记事工具
+            </button>
+          </header>
+          <nav className="memory-tabs" aria-label="回忆分类">
+            <button
+              aria-pressed={tab === "stories"}
+              onClick={() => setTab("stories")}
+            >
+              <BookOpen size={18} />
+              故事
+            </button>
+            <button
+              aria-pressed={tab === "people"}
+              onClick={() => setTab("people")}
+            >
+              <Users size={18} />人
+            </button>
+          </nav>
+        </>
+      )}
       {error && (
         <p className="memory-error" role="alert">
           {error}
@@ -190,31 +197,40 @@ function MemorySpaceContent({
         <fieldset className="memory-controls" disabled={change.isPending}>
           {tab === "stories" ? (
             <>
-              <div className="memory-toolbar">
-                <input
-                  aria-label="搜索故事"
-                  placeholder="找一本故事…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-                {!mobileGestures && (
-                  <button
-                    className="memory-button"
-                    onClick={() => setOrganizing(!organizing)}
-                  >
-                    {organizing ? <Check size={15} /> : <Pencil size={15} />}
-                    {organizing ? "整理好了" : "整理书架"}
-                  </button>
-                )}
-              </div>
-              <div className="memory-view-bar">
-                <div className="memory-view-intro">
-                  <span>我的藏书</span>
-                  <small>
-                    {data.books.length} 本故事 · 横放、竖放、封面朝外，同架收藏
-                  </small>
-                </div>
-              </div>
+              {!mobileGestures && (
+                <>
+                  <div className="memory-toolbar">
+                    <input
+                      aria-label="搜索故事"
+                      placeholder="找一本故事…"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                    />
+                    {!mobileGestures && (
+                      <button
+                        className="memory-button"
+                        onClick={() => setOrganizing(!organizing)}
+                      >
+                        {organizing ? (
+                          <Check size={15} />
+                        ) : (
+                          <Pencil size={15} />
+                        )}
+                        {organizing ? "整理好了" : "整理书架"}
+                      </button>
+                    )}
+                  </div>
+                  <div className="memory-view-bar">
+                    <div className="memory-view-intro">
+                      <span>我的藏书</span>
+                      <small>
+                        {data.books.length} 本故事 ·
+                        横放、竖放、封面朝外，同架收藏
+                      </small>
+                    </div>
+                  </div>
+                </>
+              )}
               {mobileGestures && (
                 <p className="memory-hint">
                   {search

@@ -101,10 +101,32 @@ let activeBrowser;
   console.log("来信关闭");
   await page
     .locator('nav[aria-label="全部内容"]')
+    .getByRole("button", { name: "人", exact: true })
+    .click();
+  await page.locator(".memory-people").waitFor();
+  assert.equal(
+    await page.locator(".memory-space-heading, .memory-tabs").count(),
+    0
+  );
+  await page.screenshot({ path: "/tmp/dt-clean-mobile-people.png" });
+  await page.getByRole("button", { name: "‹ 故事", exact: true }).click();
+
+  await page
+    .locator('nav[aria-label="全部内容"]')
     .getByRole("button", { name: "故事", exact: true })
     .click();
   await page.locator(".memory-book").first().waitFor();
   console.log("书架就绪");
+  assert.equal(
+    await page
+      .locator(
+        ".memory-space-heading, .memory-tabs, .memory-toolbar, .memory-view-bar"
+      )
+      .count(),
+    0
+  );
+  await page.screenshot({ path: "/tmp/dt-clean-mobile-story.png" });
+
   assert.equal(
     await page.getByRole("button", { name: "整理书架", exact: true }).count(),
     0

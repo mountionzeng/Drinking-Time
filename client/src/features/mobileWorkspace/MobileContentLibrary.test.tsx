@@ -62,10 +62,13 @@ function render(stage: "memory" | "people" | "warehouse" | "text" | "image" | "v
     />
   );
 }
-it("opens the account bookshelf and retains the notes tool without fetching other media", () => {
+it("opens the bookshelf directly without duplicate headings or fetching other media", () => {
   const html = render("memory");
   expect(html).toContain("书架里的故事");
-  expect(html).toContain("记事工具");
+  expect(html).not.toContain("记事工具");
+  expect(html).not.toContain("留在这里的时光");
+  expect(html).not.toContain('aria-label="回忆分类"');
+  expect(html).not.toContain('aria-label="搜索故事"');
   expect(html).not.toContain("整理书架");
   expect(html).toContain("长按拖动换位置");
   expect(api.space).toHaveBeenCalled();
@@ -126,12 +129,16 @@ it("distinguishes an empty image library from a failed read", () => {
 it("opens people directly without displaying the bookshelf", () => {
   const html = render("people");
   expect(html).toContain("还没有人物");
+  expect(html).not.toContain("留在这里的时光");
+  expect(html).not.toContain("记事工具");
+  expect(html).not.toContain('aria-label="回忆分类"');
   expect(html).not.toContain("书架里的故事");
   expect(api.text).not.toHaveBeenCalled();
 });
 it("groups text, images and videos in the warehouse and initially reads only text", () => {
   const html = render("warehouse");
   expect(html).toContain('aria-label="仓库分类"');
+  expect(html).toContain("记事存档");
   expect(html).toContain("图片");
   expect(html).toContain("视频");
   expect(html).toContain("当前正文内容");
