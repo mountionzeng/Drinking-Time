@@ -7679,7 +7679,8 @@
         "drizzle/0033_account_memory_spaces.sql",
         "client/src/features/memorySpace/MemoryBookPreview.tsx",
         "client/src/features/memorySpace/StoryActivityTracker.tsx",
-        "client/src/features/memorySpace/activeEditingClock.ts"
+        "client/src/features/memorySpace/activeEditingClock.ts",
+        "client/src/features/memorySpace/bookArrangement.ts"
       ],
       "evidence": [
         "docs/plans/2026-10-21-memory-bookshelf-people.md",
@@ -7695,7 +7696,8 @@
         "server/routers.storyContextShare.test.ts",
         "server/routers.sharedLayout.test.ts",
         "server/repositories/accountImages.test.ts",
-        "docs/qa/2026-10-21-bookshelf-art-direction.md"
+        "docs/qa/2026-10-21-bookshelf-art-direction.md",
+        "client/src/features/memorySpace/bookArrangement.test.ts"
       ],
       "invariants": [
         "手机和电脑共用账号级数据；书架排序不改变首页最近故事的权威顺序，移动书或删除书架层不得删除故事。",
@@ -7754,6 +7756,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "书架美术fc409863已推送部署，25项回归、类型/构建/66卡校验和320/390/1440px混排检查通过。95运行文件及公网入口哈希一致，页面健康200、匿名书架401。临时摆放恢复，无迁移和配置修改，回滚保留；本轮未重跑MySQL集成，正式双账号/真机待验收。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "decision",
+          "summary": "用户再次明确要同一书架默认同时出现横放、竖放与正面画册，批准纠正原整体三模式设计。移除整体切换，未单本指定的书按层内位置自动混排；单本设置保留并优先，搜索不重排。旧shelfView数据/接口保留兼容，不改数据库；验证见书架美术QA补充。"
         }
       ]
     }

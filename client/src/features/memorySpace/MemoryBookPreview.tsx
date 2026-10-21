@@ -186,7 +186,7 @@ export function MemoryBookCover({
                 onViewChange((e.target.value || null) as MemoryShelfView | null)
               }
             >
-              <option value="">跟随书架</option>
+              <option value="">自动混排</option>
               <option value="horizontal">横向书脊</option>
               <option value="vertical">纵向书脊</option>
               <option value="album">封面画册</option>

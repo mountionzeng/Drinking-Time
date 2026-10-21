@@ -22,6 +22,7 @@ import {
   type MemorySpace as Space,
   type MemoryPerson,
 } from "@shared/memorySpace";
+import { mixedBookViews } from "./bookArrangement";
 import { MemoryBookCover } from "./MemoryBookPreview";
 import "./memorySpace.css";
 
@@ -168,37 +169,8 @@ function MemorySpaceContent({
                 <div className="memory-view-intro">
                   <span>我的藏书</span>
                   <small>
-                    {data.books.length} 本故事 · 点书旁的 ···，单独调整摆放
+                    {data.books.length} 本故事 · 横放、竖放、封面朝外，同架收藏
                   </small>
-                </div>
-                <div
-                  className="memory-view-options"
-                  role="group"
-                  aria-label="书本默认摆放方式"
-                >
-                  {(
-                    [
-                      ["horizontal", "横向书脊"],
-                      ["vertical", "纵向书脊"],
-                      ["album", "画册"],
-                    ] as const
-                  ).map(([view, label]) => (
-                    <button
-                      key={view}
-                      aria-pressed={(data.shelfView ?? "vertical") === view}
-                      onClick={() => void act({ kind: "setShelfView", view })}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`memory-view-icon memory-view-icon--${view}`}
-                      >
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                      {label}
-                    </button>
-                  ))}
                 </div>
               </div>
               {addingShelf ? (
@@ -266,7 +238,7 @@ function MemorySpaceContent({
               )}
               <div
                 className="memory-shelves"
-                data-view={data.shelfView ?? "vertical"}
+                data-view="mixed"
                 data-organizing={organizing}
               >
                 {data.shelves.map((shelf, index) => (
@@ -375,20 +347,20 @@ function Shelf({
   act: (op: MemorySpaceOperation) => Promise<boolean>;
   children?: React.ReactNode;
 }) {
+  const views = mixedBookViews(books);
   const visible = books.filter(book =>
     book.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
   );
   // Consecutive horizontal books share a stack; every other book keeps its own footprint.
   const groups: (typeof visible)[] = [];
   for (const book of visible) {
-    const horizontal =
-      (book.view ?? data.shelfView ?? "vertical") === "horizontal";
+    const horizontal = views.get(book.id) === "horizontal";
     const previous = groups.at(-1);
     if (
       horizontal &&
       previous &&
       previous.length < 3 &&
-      (previous[0].view ?? data.shelfView ?? "vertical") === "horizontal"
+      views.get(previous[0].id) === "horizontal"
     )
       previous.push(book);
     else groups.push([book]);
@@ -407,7 +379,7 @@ function Shelf({
           <div
             className="memory-book-stack"
             key={group[0].id}
-            data-stack-view={group[0].view ?? data.shelfView ?? "vertical"}
+            data-stack-view={views.get(group[0].id)}
           >
             {group.map(book => {
               const i = books.findIndex(b => b.id === book.id);
@@ -416,7 +388,7 @@ function Shelf({
                   key={book.id}
                   className="memory-book-item"
                   data-binding={book.id % 5}
-                  data-book-view={book.view ?? data.shelfView ?? "vertical"}
+                  data-book-view={views.get(book.id)}
                 >
                   <MemoryBookCover
                     book={book}
