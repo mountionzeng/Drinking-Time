@@ -6851,7 +6851,7 @@
       "id": "mobile-account-content-library",
       "name": "手机账号内容汇总",
       "status": "working",
-      "userValue": "从故事首页查看账号已收录回忆、全部故事的文字版本、生成图片与视频素材；图片可放大并进入所属故事继续制作。",
+      "userValue": "手机首页从故事、人、仓库进入账号书架、人物关系及文字/图片/视频汇总；图片可放大并进入所属故事继续制作。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
       ],
@@ -6866,7 +6866,9 @@
         "docs/qa/2026-10-13-mobile-content-library.md",
         "server/repositories/accountImages.test.ts",
         "server/routers.storyAgent.test.ts",
-        "docs/qa/2026-10-21-mobile-image-library.md"
+        "docs/qa/2026-10-21-mobile-image-library.md",
+        "client/src/features/mobileWorkspace/MobileStoriesPage.test.tsx",
+        "docs/qa/2026-10-21-mobile-library-navigation.md"
       ],
       "invariants": [
         "账号与故事归属复用现有受保护接口，不创建手机数据副本。",
@@ -6900,6 +6902,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "图片功能提交08e9ce55及游标修正1d884528已推送并部署。主仓662文件5631项、发布候选独立29文件251项、小程序215项通过；候选类型/构建/65卡账本通过，95个目标文件线上SHA256一致，手机/电脑/健康入口200及匿名图片接口401。仅替换dist，保留回滚包；本轮未配置MySQL测试库，65项专项未跑，真机与真实付费生成仍待验收。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "按用户授权将手机首页入口收为故事/人/仓库；人直达关系页，仓库内部切换文字/图片/视频，按当前媒体进入所属故事。保留分页、归属保护和原记事工具；12项回归及TypeScript通过，实页验证见导航QA。"
         }
       ]
     },
@@ -7771,6 +7778,11 @@
           "date": "2026-10-21",
           "kind": "improvement",
           "summary": "按用户要求默认书架改为单排横向滑动，横摞与各书组无间距，保持三种姿态混排；用户进一步明确默认故事按最近编辑时间倒序，新故事和重新编辑的旧故事排到前面，已有自定义层和手动顺序保留。25项回归和320/390/1440px实页检查通过；发布见书架美术QA。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "verification",
+          "summary": "紧密单排书架a57616b9已推送部署，95运行文件和公网入口哈希一致、页面与ready200；无迁移/配置变化。手机新增人物直接入口，桌面仍默认故事页。"
         }
       ]
     }

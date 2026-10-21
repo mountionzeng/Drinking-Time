@@ -51,3 +51,11 @@ describe("MobileStoriesPage share-back card", () => {
     expect(html).not.toContain("朋友分享回来的");
   });
 });
+
+it("shows only stories, people and warehouse in the account navigation", () => {
+  const html = render(new Set());
+  const nav = html.match(/<nav aria-label="全部内容"[^>]*>(.*?)<\/nav>/)?.[1] ?? "";
+  expect(nav.match(/<button /g)).toHaveLength(3);
+  for (const label of ["故事", "人", "仓库"]) expect(nav).toContain(label);
+  for (const label of ["回忆", "文字", "图片", "视频"]) expect(nav).not.toContain(label);
+});

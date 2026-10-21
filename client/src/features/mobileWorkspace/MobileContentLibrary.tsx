@@ -7,10 +7,23 @@ import {
 } from "./mobileMemoryFollowup";
 import { trpc } from "@/lib/trpc";
 import type { MobileStorySummary } from "./MobileStoryPanel";
-export type MobileLibraryStage = "memory" | "text" | "image" | "video";
+export type MobileLibraryStage =
+  | "memory"
+  | "people"
+  | "warehouse"
+  | "text"
+  | "image"
+  | "video";
 import { MobileAccountImages } from "./MobileAccountImages";
 
-const labels = { memory: "回忆", text: "文字", image: "图片", video: "视频" };
+const labels = {
+  memory: "故事",
+  people: "人",
+  warehouse: "仓库",
+  text: "文字",
+  image: "图片",
+  video: "视频",
+};
 const action = "min-h-11 text-sm text-primary";
 
 export function MobileContentLibrary({
@@ -22,13 +35,23 @@ export function MobileContentLibrary({
   stage: MobileLibraryStage;
   stories: readonly MobileStorySummary[];
   onBack: () => void;
-  onOpenStory: (id: number) => void;
+  onOpenStory: (id: number, stage?: "text" | "image" | "video") => void;
 }) {
   const t = useUiText();
 
+  const [media, setMedia] = useState<"text" | "image" | "video">("text");
   const [page, setPage] = useState(0);
   const [showNotes, setShowNotes] = useState(false);
   const pageSize = 5;
+  const isMemory = stage === "memory" || stage === "people";
+  const contentStage = stage === "warehouse" ? media : stage;
+  const openStory = (id: number) =>
+    onOpenStory(
+      id,
+      contentStage === "image" || contentStage === "video"
+        ? contentStage
+        : "text"
+    );
   return (
     <section
       aria-label={`${t("全部")}${t(labels[stage])}`}
@@ -37,14 +60,49 @@ export function MobileContentLibrary({
       <button className={action} onClick={onBack}>
         {t("‹ 故事")}
       </button>
-      {stage !== "memory" && <h1 className="my-4 font-chat-brand text-2xl">
-        {t("全部")}
-        {t(labels[stage])}
-      </h1>}
-      {stage === "memory" ? (
-        showNotes ? <><button className={action} onClick={() => setShowNotes(false)}>‹ 回到回忆</button><AllMemories /></> : <MemorySpace onOpenStory={onOpenStory} onOpenNotes={() => setShowNotes(true)} />
-      ) : stage === "image" ? (
-        <MobileAccountImages onOpenStory={onOpenStory} />
+      {!isMemory && (
+        <h1 className="my-4 font-chat-brand text-2xl">
+          {stage !== "warehouse" && t("全部")}
+          {t(labels[stage])}
+        </h1>
+      )}
+      {stage === "warehouse" && (
+        <nav
+          aria-label={t("仓库分类")}
+          className="mb-5 flex gap-8 border-b border-border"
+        >
+          {(["text", "image", "video"] as const).map(kind => (
+            <button
+              key={kind}
+              aria-pressed={media === kind}
+              className={`min-h-11 border-b-2 pb-2 font-chat-brand text-lg ${media === kind ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}
+              onClick={() => {
+                setMedia(kind);
+                setPage(0);
+              }}
+            >
+              {t(labels[kind])}
+            </button>
+          ))}
+        </nav>
+      )}
+      {isMemory ? (
+        showNotes ? (
+          <>
+            <button className={action} onClick={() => setShowNotes(false)}>
+              ‹ 回到回忆
+            </button>
+            <AllMemories />
+          </>
+        ) : (
+          <MemorySpace
+            initialTab={stage === "people" ? "people" : "stories"}
+            onOpenStory={openStory}
+            onOpenNotes={() => setShowNotes(true)}
+          />
+        )
+      ) : contentStage === "image" ? (
+        <MobileAccountImages onOpenStory={openStory} />
       ) : (
         <>
           <p className="mb-4 text-xs text-muted-foreground">
@@ -56,12 +114,12 @@ export function MobileContentLibrary({
                 <h2 className="font-chat-brand text-lg">{story.title}</h2>
                 <button
                   className={`${action} shrink-0`}
-                  onClick={() => onOpenStory(story.id)}
+                  onClick={() => openStory(story.id)}
                 >
                   {t("进入故事 ›")}
                 </button>
               </div>
-              {stage === "text" ? (
+              {contentStage === "text" ? (
                 <StoryTexts storyId={story.id} />
               ) : (
                 <StoryVideos storyId={story.id} />
@@ -71,7 +129,7 @@ export function MobileContentLibrary({
           {!stories.length && (
             <p>
               {t("还没有")}
-              {t(labels[stage])}。
+              {t(labels[contentStage])}。
             </p>
           )}
           <div className="mt-4 flex justify-between">

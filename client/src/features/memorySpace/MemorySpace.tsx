@@ -38,9 +38,11 @@ const date = (time: number | null) =>
 export function MemorySpace({
   onOpenStory,
   onOpenNotes,
+  initialTab = "stories",
 }: {
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
+  initialTab?: "stories" | "people";
 }) {
   const accountId = useStorySpine(s => s.accountId);
   return (
@@ -49,6 +51,7 @@ export function MemorySpace({
       accountId={accountId}
       onOpenStory={onOpenStory}
       onOpenNotes={onOpenNotes}
+      initialTab={initialTab}
     />
   );
 }
@@ -56,12 +59,14 @@ function MemorySpaceContent({
   accountId,
   onOpenStory,
   onOpenNotes,
+  initialTab = "stories",
 }: {
   accountId: number | null;
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
+  initialTab?: "stories" | "people";
 }) {
-  const [tab, setTab] = useState<"stories" | "people">("stories");
+  const [tab, setTab] = useState<"stories" | "people">(initialTab);
   const [organizing, setOrganizing] = useState(false);
   const [search, setSearch] = useState("");
   const [storyId, setStoryId] = useState<number | null>(null);

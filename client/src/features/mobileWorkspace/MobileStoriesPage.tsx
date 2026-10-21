@@ -66,9 +66,7 @@ export function MobileStoriesPage({
         stage={library}
         stories={stories}
         onBack={() => setLibrary(null)}
-        onOpenStory={id =>
-          onSelectStory(id, library === "memory" ? "text" : library)
-        }
+        onOpenStory={(id, stage) => onSelectStory(id, stage ?? "text")}
       />
     );
   const current = stories.find(story => story.id === activeStoryId) ?? null;
@@ -96,10 +94,9 @@ export function MobileStoriesPage({
       >
         {(
           [
-            ["memory", t("回忆")],
-            ["text", t("文字")],
-            ["image", t("图片")],
-            ["video", t("视频")],
+            ["memory", t("故事")],
+            ["people", t("人")],
+            ["warehouse", t("仓库")],
           ] as const
         ).map(([id, label]) => (
           <button

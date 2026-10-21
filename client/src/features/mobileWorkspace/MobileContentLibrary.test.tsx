@@ -52,7 +52,7 @@ const stories = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   title: `故事${i + 1}`,
 }));
-function render(stage: "memory" | "text" | "image" | "video") {
+function render(stage: "memory" | "people" | "warehouse" | "text" | "image" | "video") {
   return renderToStaticMarkup(
     <MobileContentLibrary
       stage={stage}
@@ -119,4 +119,20 @@ it("distinguishes an empty image library from a failed read", () => {
   api.images.mockReturnValue({ isError: true });
   expect(render("image")).toContain("重试");
   expect(render("image")).not.toContain("图片，从一个故事开始");
+});
+
+it("opens people directly without displaying the bookshelf", () => {
+  const html = render("people");
+  expect(html).toContain("还没有人物");
+  expect(html).not.toContain("书架里的故事");
+  expect(api.text).not.toHaveBeenCalled();
+});
+it("groups text, images and videos in the warehouse and initially reads only text", () => {
+  const html = render("warehouse");
+  expect(html).toContain('aria-label="仓库分类"');
+  expect(html).toContain("图片");
+  expect(html).toContain("视频");
+  expect(html).toContain("当前正文内容");
+  expect(api.images).not.toHaveBeenCalled();
+  expect(api.videos).not.toHaveBeenCalled();
 });
