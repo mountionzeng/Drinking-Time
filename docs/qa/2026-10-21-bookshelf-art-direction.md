@@ -16,5 +16,14 @@
 
 - 图库归属和书架回归3文件25项通过。
 - 浏览器320/390px与1440px宽屏检查：45本故事，横放两本成摞、竖放和画册同层，无页面横向溢出；单本设置可保存，悬停及概览保留。截图保留本机 `/tmp/shelf-art-mixed-ready.png`、`/tmp/shelf-art-320-ready.png`、`/tmp/shelf-art-wide.png`。
-- 生产构建、66卡账本和diff空白检查通过；类型检查仍在运行。
+- 生产构建、66卡账本和diff空白检查通过；TypeScript通过。
+- 测试临时修改的三本书已恢复跟随书架；未改变账号默认摆法和故事内容。
 - 真机及正式双账号未在本轮验收。
+
+## 发布记录
+
+应用提交 `fc409863` 已推送并从独立 git archive 构建上线，未混入其他会话工作。95 个运行文件中 4 个变化，组装与上线文件 SHA256 全部匹配，PM2 重启后 ready 为 mysql／authentication required。没有数据库迁移，`.env` 哈希未变，没有 nginx／证书修改或服务器 git pull。
+
+回滚文件为 `/opt/Drinking-Time/dist.bak-20261021-shelf-art-fc409863-public` 和同前缀 `-index.js`，发布清单为 `dist.release-20261021-shelf-art-fc409863.sha256`。服务器临时包与发布目录已清理。本轮未重跑 MySQL 集成测试，正式双账号与真机体验仍待验收。
+
+公网首页、手机、电脑与两个健康接口均200；匿名书架接口401；HTML及入口JS/CSS哈希与独立候选一致。环境检查只有主仓3000一个开发服务，无worktree残留。
