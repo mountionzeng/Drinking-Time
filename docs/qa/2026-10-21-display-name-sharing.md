@@ -20,3 +20,11 @@
 - 手机 390×844 浏览器核对首屏说明、修改弹层、空白禁用及填写后可保存；测试未更改用户真实名字。截图保留于本机 `/tmp/name-me-page.png`、`/tmp/name-edit-sheet.png`。
 - 功能账本 66 卡通过，环境只有主仓 3000 服务，无残留 worktree。
 - TypeScript、生产构建及 diff 空白检查通过。正式双账号、真机体验未验收。
+
+## 发布
+
+应用提交 `3c651e3a` 已推送并部署。独立 git archive 构建避免混入其他会话改动；95 个运行文件中 3 个变化，组装和上线 SHA256 全部通过。PM2 已重启在线，ready 为 mysql／authentication required；匿名修改名字接口返回 401。
+
+本轮没有数据库迁移；`.env` 哈希不变，不改 nginx／证书，服务器没有 git pull。回滚文件为 `/opt/Drinking-Time/dist.bak-20261021-name-3c651e3a-public` 和同前缀 `-index.js`，清单为 `dist.release-20261021-name-3c651e3a.sha256`。服务器临时发布目录和上传包已清理。
+
+公网首页、手机、电脑及两个健康接口均200；HTML及入口JS/CSS哈希与独立候选一致。
