@@ -1,5 +1,8 @@
 import React from "react";
-vi.mock("./MobileTextDraftFlow", () => ({ MobileTextDraftFlow: () => <button>预览并保存</button> }));
+import { MobileStoryMemories } from "./MobileStoryMemories";
+vi.mock("./MobileTextDraftFlow", () => ({
+  MobileTextDraftFlow: () => <button>预览并保存</button>,
+}));
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,7 +12,11 @@ import {
 import type { MobileDocumentController } from "./MobileDocumentView";
 import type { MobileConversationController } from "./MobileChatView";
 
-vi.mock("./MobileImageStudio", () => ({ MobileImageStudio: ({ storyId }: { storyId: number }) => <div>故事图片 {storyId}</div> }));
+vi.mock("./MobileImageStudio", () => ({
+  MobileImageStudio: ({ storyId }: { storyId: number }) => (
+    <div>故事图片 {storyId}</div>
+  ),
+}));
 
 const api = vi.hoisted(() => ({
   history: vi.fn(),
@@ -32,7 +39,9 @@ vi.mock("@/lib/trpc", () => ({
     storyAgent: { storyVideoAssets: { useQuery: api.videos } },
     storyContextShare: {
       backStatus: { useQuery: () => ({ data: { available: false } }) },
-      shareBack: { useMutation: () => ({ mutateAsync: api.mutation, isPending: false }) },
+      shareBack: {
+        useMutation: () => ({ mutateAsync: api.mutation, isPending: false }),
+      },
     },
   },
 }));
@@ -68,10 +77,7 @@ const conversation = {
     },
   ],
 } as unknown as MobileConversationController;
-function renderStage(
-  stage: "memory" | "text" | "image" | "video",
-  controller = document
-) {
+function renderStage(stage: "text" | "image" | "video", controller = document) {
   return renderToStaticMarkup(
     <MobileStoryWorkspace
       userId={1}
@@ -100,13 +106,13 @@ describe("mobile story stages", () => {
     });
   });
 
-  it.each(["memory", "text", "image", "video"] as const)(
-    "has exactly four stage choices and selects %s without implying completion",
+  it.each(["text", "image", "video"] as const)(
+    "has exactly three stage choices and selects %s without implying completion",
     stage => {
       const html = renderToStaticMarkup(
         <MobileStoryStageBar stage={stage} onChange={vi.fn()} />
       );
-      expect(html.match(/<button/g)).toHaveLength(4);
+      expect(html.match(/<button/g)).toHaveLength(3);
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
       expect(html).not.toContain("progressbar");
     }
@@ -141,7 +147,15 @@ describe("mobile story stages", () => {
   });
 
   it("defaults to original conversation with an index and retains the archive entry", () => {
-    const html = renderStage("memory");
+    const html = renderToStaticMarkup(
+      <MobileStoryMemories
+        storyId={7}
+        versions={[draft] as any}
+        conversation={conversation}
+        onEdit={vi.fn()}
+        onMakeArtwork={vi.fn()}
+      />
+    );
     expect(html).toContain("爷爷把旧伞修好了。");
     expect(html).toContain("聊天目录");
     expect(html).toContain("回忆存档");
@@ -186,7 +200,10 @@ describe("mobile story stages", () => {
 it("opens the shared image studio for this story without loading text history", () => {
   const html = renderStage("image");
   expect(html).toContain("故事图片 7");
-  expect(api.history).toHaveBeenCalledWith({ storyId: 7 }, expect.objectContaining({ enabled: false }));
+  expect(api.history).toHaveBeenCalledWith(
+    { storyId: 7 },
+    expect.objectContaining({ enabled: false })
+  );
 });
 it("preserves unsaved text before entering artwork", () => {
   const html = renderStage("image", { ...document, hasUnsavedChanges: true });

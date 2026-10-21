@@ -9,6 +9,7 @@ import {
   type ReactNode,
   default as React,
   useEffect,
+  useContext,
   useRef,
   useState,
 } from "react";
@@ -48,6 +49,7 @@ import { useMobileConversation } from "./useMobileConversation";
 import { useMobileDocument } from "./useMobileDocument";
 import {
   MobileMemoryFollowup,
+  storyFollowupSource,
   type MemoryFollowupSource,
 } from "./mobileMemoryFollowup";
 import { MobileCompanionActivity } from "./mobileCompanionActivity";
@@ -524,7 +526,14 @@ export function MobileEmptyState({
           {creating ? t("正在新建…") : t("新建一个故事")}
         </Button>
       ) : null}
-      {onOpenImages && <button className="mt-3 min-h-11 text-sm text-primary" onClick={onOpenImages}>{t("查看全部图片")}</button>}
+      {onOpenImages && (
+        <button
+          className="mt-3 min-h-11 text-sm text-primary"
+          onClick={onOpenImages}
+        >
+          {t("查看全部图片")}
+        </button>
+      )}
       {error ? (
         <p className="mt-3 text-sm text-destructive" role="alert">
           {error}
@@ -603,6 +612,12 @@ function MobileSelectedStoryWorkspace({
   const t = useUiText();
 
   const story = stories.find(candidate => candidate.id === activeStoryId);
+  const { selectStory } = useContext(MobileMemoryFollowup);
+  useEffect(() => {
+    if (page !== "stories" || !storyOpen || !story) return;
+    selectStory?.(storyFollowupSource(story.id, story.title));
+    return () => selectStory?.(null);
+  }, [selectStory, page, storyOpen, story?.id, story?.title]);
   const { element, visualTheme } = useNayin();
   const { user } = useAuth();
   const [letterOpen, setLetterOpen] = useState(false);
@@ -634,7 +649,10 @@ function MobileSelectedStoryWorkspace({
 
   if (!story) return null;
 
-  const requestStoryChange = (storyId: number, targetStage?: MobileStoryStage) => {
+  const requestStoryChange = (
+    storyId: number,
+    targetStage?: MobileStoryStage
+  ) => {
     if (storyId === activeStoryId) {
       if (targetStage) onStageChange(targetStage);
       onStoryOpenChange(true);
@@ -850,10 +868,22 @@ function MobileWorkspaceScoped({ userId }: { userId: number }) {
   const [memorySource, setMemorySource] = useState<MemoryFollowupSource | null>(
     null
   );
-  const [moduleSource, setModuleSource] = useState<MemoryFollowupSource | null>(null);
+  const [moduleSource, setModuleSource] = useState<MemoryFollowupSource | null>(
+    null
+  );
+  const [storySource, setStorySource] = useState<MemoryFollowupSource | null>(
+    null
+  );
   return (
     <MobileMemoryFollowup.Provider
-      value={{ source: memorySource, select: setMemorySource, moduleSource, selectModule: setModuleSource }}
+      value={{
+        source: memorySource,
+        select: setMemorySource,
+        moduleSource,
+        selectModule: setModuleSource,
+        storySource,
+        selectStory: setStorySource,
+      }}
     >
       <MobileCompanionActivity.Provider value={setIdleAnimations}>
         <MobileWorkspaceContent userId={userId} />
@@ -892,7 +922,8 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         return;
       }
     }
-    if (targetStage) setStages(current => ({ ...current, [storyId]: targetStage }));
+    if (targetStage)
+      setStages(current => ({ ...current, [storyId]: targetStage }));
     setActiveStoryId(storyId);
     setStoryOpen(true);
     setPage("stories");
@@ -901,12 +932,21 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
   useEffect(() => {
     if (!storyListQuery.data || coldEntryResolvedRef.current) return;
     coldEntryResolvedRef.current = true;
-    const requested = Number(new URLSearchParams(window.location.search).get("storyId"));
-    if (Number.isSafeInteger(requested) && requested > 0 && storyListQuery.data.stories.some(story => story.id === requested)) {
+    const requested = Number(
+      new URLSearchParams(window.location.search).get("storyId")
+    );
+    if (
+      Number.isSafeInteger(requested) &&
+      requested > 0 &&
+      storyListQuery.data.stories.some(story => story.id === requested)
+    ) {
       setActiveStoryId(requested);
       setStoryOpen(true);
       setStages(current => ({ ...current, [requested]: "text" }));
-    } else setActiveStoryId(resolveMobileInitialStoryId(storyListQuery.data.stories));
+    } else
+      setActiveStoryId(
+        resolveMobileInitialStoryId(storyListQuery.data.stories)
+      );
   }, [storyListQuery.data]);
 
   /**
@@ -967,12 +1007,21 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         activeView={activeView}
         onViewChange={setActiveView}
       >
-        {emptyImagesOpen ? <MobileContentLibrary stage="image" stories={[]} onBack={() => setEmptyImagesOpen(false)} onOpenStory={storyId => void openStory(storyId, "image")} /> : <MobileEmptyState
-          creating={storyUpsert.isPending}
-          error={createError}
-          onCreateStory={() => void createStory()}
-          onOpenImages={() => setEmptyImagesOpen(true)}
-        />}
+        {emptyImagesOpen ? (
+          <MobileContentLibrary
+            stage="image"
+            stories={[]}
+            onBack={() => setEmptyImagesOpen(false)}
+            onOpenStory={storyId => void openStory(storyId, "image")}
+          />
+        ) : (
+          <MobileEmptyState
+            creating={storyUpsert.isPending}
+            error={createError}
+            onCreateStory={() => void createStory()}
+            onOpenImages={() => setEmptyImagesOpen(true)}
+          />
+        )}
       </MobileWorkspaceFrame>
     );
   }
@@ -999,12 +1048,14 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
       page={page}
       storyOpen={storyOpen}
       onStoryOpenChange={setStoryOpen}
-      stage={stages[activeStoryId] ?? "memory"}
+      stage={stages[activeStoryId] ?? "text"}
       onStageChange={stage =>
         setStages(current => ({ ...current, [activeStoryId]: stage }))
       }
       onNavigate={setPage}
-      onStoryChange={(storyId, targetStage) => void openStory(storyId, targetStage)}
+      onStoryChange={(storyId, targetStage) =>
+        void openStory(storyId, targetStage)
+      }
       onViewChange={setActiveView}
     />
   );

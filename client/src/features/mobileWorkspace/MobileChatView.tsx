@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { useMobileConversation } from "./useMobileConversation";
 import type { MobileConversationRecoveryTurn } from "./mobileConversationStore";
+import { MobileVoiceInput } from "./MobileVoiceInput";
 
 export type MobileConversationController = ReturnType<
   typeof useMobileConversation
@@ -184,6 +185,7 @@ export function MobileChatView({
   onDraftChange,
   greeting,
   composerDisabled = false,
+  onVoiceBusyChange,
 }: {
   controller: MobileConversationController;
   storyTitle: string;
@@ -200,6 +202,7 @@ export function MobileChatView({
   onDraftChange?: (draft: string) => void;
   greeting?: string;
   composerDisabled?: boolean;
+  onVoiceBusyChange?: (busy: boolean) => void;
 }) {
   const t = useUiText();
 
@@ -207,6 +210,13 @@ export function MobileChatView({
   const draft = draftValue ?? localDraft;
   const setDraft = onDraftChange ?? setLocalDraft;
   const [announcement, setAnnouncement] = useState("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  useEffect(() => {
+    onVoiceBusyChange?.(voiceBusy);
+    return () => onVoiceBusyChange?.(false);
+  }, [voiceBusy, onVoiceBusyChange]);
   const endRef = useRef<HTMLDivElement>(null);
   const replyRef = useRef<HTMLDivElement>(null);
 
@@ -248,7 +258,8 @@ export function MobileChatView({
 
   const send = () => {
     const content = draft.trim();
-    if (!content || !controller.canSend || composerDisabled) return;
+    if (!content || !controller.canSend || composerDisabled || voiceBusy)
+      return;
     setDraft("");
     setAnnouncement("消息已提交");
     void controller.submit(content);
@@ -347,6 +358,25 @@ export function MobileChatView({
                     {t("排队中")}
                   </span>
                 )}
+                <button
+                  type="button"
+                  aria-label={
+                    message.role === "user" ? "复制我的消息" : "复制小忆回复"
+                  }
+                  className="mt-1 block min-h-11 text-xs text-muted-foreground"
+                  onClick={() =>
+                    void copyText(
+                      message.role === "assistant"
+                        ? stripAssistantReasoning(message.content)
+                        : message.content
+                    ).then(
+                      () => setAnnouncement("内容已复制"),
+                      () => setAnnouncement("复制失败，请长按正文复制")
+                    )
+                  }
+                >
+                  复制
+                </button>
               </li>
             ))}
           </ol>
@@ -402,6 +432,14 @@ export function MobileChatView({
         onSubmit={handleSubmit}
       >
         <div className="mx-auto flex max-w-2xl items-end gap-2">
+          <MobileVoiceInput
+            disabled={composerDisabled || controller.historyState === "loading"}
+            onBusyChange={setVoiceBusy}
+            onText={text => {
+              setDraft([draftRef.current, text].filter(Boolean).join("\n"));
+              setAnnouncement("语音已转成文字，请确认后发送");
+            }}
+          />
           <Textarea
             aria-label={t("给聊聊发送消息")}
             className="max-h-32 min-h-11 resize-none rounded-2xl bg-background px-4 py-3 leading-5 shadow-sm"
@@ -434,7 +472,12 @@ export function MobileChatView({
             size="icon-lg"
             aria-label={t("发送消息")}
             className="size-11 rounded-full"
-            disabled={!draft.trim() || !controller.canSend}
+            disabled={
+              !draft.trim() ||
+              !controller.canSend ||
+              composerDisabled ||
+              voiceBusy
+            }
           >
             {controller.isSubmitting ? (
               <Loader2 aria-hidden="true" className="animate-spin" />

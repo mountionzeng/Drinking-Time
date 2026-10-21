@@ -41,6 +41,8 @@ describe("MobileChatView", () => {
     expect(html).toContain("我们从电脑上的内容继续。");
     expect(html).toContain('aria-label="给聊聊发送消息"');
     expect(html).toContain("发送");
+    expect(html).toContain('aria-label="语音输入"');
+    expect(html).toContain('aria-label="复制小忆回复"');
   });
 
   // 等回信的样子由面板抬头那只小人代言；这里只保证 replying 不再以故障卡片

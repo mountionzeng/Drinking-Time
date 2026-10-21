@@ -63,7 +63,7 @@ describe("mobile interface languages", () => {
           <span>{t("我的语言")}</span>
           <p>我的日历 — 原始作品文字</p>
           <MobileNavBar current="me" onNavigate={() => {}} />
-          <MobileStoryStageBar stage="memory" onChange={() => {}} />
+          <MobileStoryStageBar stage="text" onChange={() => {}} />
         </>
       );
     }
@@ -77,7 +77,6 @@ describe("mobile interface languages", () => {
     expect(markup).toContain("Ma langue");
     expect(markup).toContain("Retour aux histoires");
     for (const text of [
-      "Souvenirs",
       "Textes",
       "Vidéos",
       "我的日历 — 原始作品文字",

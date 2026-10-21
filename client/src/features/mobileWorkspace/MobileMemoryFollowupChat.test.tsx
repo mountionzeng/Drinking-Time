@@ -72,11 +72,14 @@ function setup(selectedSource: MemoryFollowupSource = source) {
   );
   return setDraft;
 }
-it("uses the source story without sending on open and keeps old chat out of the focused conversation", () => {
+it("uses the source story without sending on open and shows the complete shared history", () => {
   setup();
   expect(mock.hook).toHaveBeenCalledWith({ userId: 4, storyId: 7 });
   expect(mock.submit).not.toHaveBeenCalled();
-  expect(mock.props.controller.messages).toEqual([]);
+  expect(mock.props.controller.messages).toEqual([
+    expect.objectContaining({ id: "old", content: "旧聊天" }),
+  ]);
+  expect(mock.props.controller.historyState).toBe("loaded");
 });
 it("appends a clearly attributed original quote with the new thought and refreshes memory", async () => {
   setup();
@@ -177,9 +180,31 @@ it.each(["text", "image"] as const)(
 );
 
 it("carries remembered editing operations into mobile chat even when no module is selected", async () => {
-  const layoutMemory = { storyId: 7, scope: "layout:v1", total: 1, recent: [{ kind: "move" as const, summary: "把文字往左移动", undone: false, at: 1, sameSource: true }] };
+  const layoutMemory = {
+    storyId: 7,
+    scope: "layout:v1",
+    total: 1,
+    recent: [
+      {
+        kind: "move" as const,
+        summary: "把文字往左移动",
+        undone: false,
+        at: 1,
+        sameSource: true,
+      },
+    ],
+  };
   setup({ ...source, kind: "layout", layoutMemory });
   expect(mock.submit).not.toHaveBeenCalled();
   await mock.props.controller.submit("我之前怎么改的？");
-  expect(mock.submit).toHaveBeenCalledWith("我之前怎么改的？", expect.objectContaining({ layoutMemory }));
+  expect(mock.submit).toHaveBeenCalledWith(
+    "我之前怎么改的？",
+    expect.objectContaining({ layoutMemory })
+  );
+});
+
+it("sends story dialogue verbatim without manufacturing a memory quote", async () => {
+  setup({ ...source, kind: "story", title: "旧伞" });
+  await mock.props.controller.submit("我又想起那把伞");
+  expect(mock.submit).toHaveBeenCalledWith("我又想起那把伞");
 });

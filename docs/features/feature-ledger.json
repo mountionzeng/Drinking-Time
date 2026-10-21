@@ -4459,7 +4459,9 @@
         "client/src/features/mobileWorkspace/companionAttention.ts",
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
         "client/src/features/nayin/views/EmotiveWuxingIcon.tsx",
-        "client/src/features/mobileWorkspace/mobileConversationStore.ts"
+        "client/src/features/mobileWorkspace/mobileConversationStore.ts",
+        "client/src/features/mobileWorkspace/MobileVoiceInput.tsx",
+        "client/src/features/storyAgent/hooks/useVoiceInput.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -4496,7 +4498,9 @@
         "docs/qa/2026-10-13-mobile-refinement-release.md",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
         "docs/qa/2026-10-13-unified-writing-release.md",
-        "docs/qa/2026-10-15-writing-mobile-release.md"
+        "docs/qa/2026-10-15-writing-mobile-release.md",
+        "client/src/features/storyAgent/hooks/useVoiceInput.test.tsx",
+        "docs/qa/2026-10-21-mobile-story-chat.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4505,7 +4509,8 @@
         "首版同步语义是保存后跨端可见，不承诺两个已打开屏幕的实时协作。",
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
         "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。",
-        "手机新增与电脑相同的文字候选生成/预览/显式采用入口；人工正文仍走body-only，候选采用走已有textDrafts.adopt并校验发布修订，不自动修改正式正文。"
+        "手机新增与电脑相同的文字候选生成/预览/显式采用入口；人工正文仍走body-only，候选采用走已有textDrafts.adopt并校验发布修订，不自动修改正式正文。",
+        "故事对话显示完整权威历史，不再按接着聊时的本机基线隐藏旧消息；语音复用电脑转写服务，结果仅追加草稿，由用户发送。关闭后迟到的权限与转写结果不得写入新对话。"
       ],
       "dependencies": [
         "story-ownership",
@@ -4518,7 +4523,8 @@
       "replaces": [],
       "knownGaps": [
         "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
-        "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。"
+        "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
+        "手机媒体导入仍保存素材及说明；电脑聊天的识图归类、图片提取/重绘和声音导演等高级素材工具尚未整体迁入，不能宣称全部高级对话工具已对齐。"
       ],
       "history": [
         {
@@ -4845,6 +4851,11 @@
           "date": "2026-10-15",
           "kind": "verification",
           "summary": "29f9241b已推送main并部署正式站，手机渐变/角色细节与电脑手写正文保存链路上线。5393项普通、64项真实MySQL、215项小程序测试与类型/构建通过。77张业务表、32条迁移记录及环境不变，完整备份和应用回滚预检完成。登录态电脑/手机读取同一虚构测试正文、版本入口及聊天展开收起通过；真机和新增付费生成未测。详见docs/qa/2026-10-15-writing-mobile-release.md。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "手机故事对话取消旧消息基线过滤，保留完整共享历史及失败恢复；新增逐条复制、共用语音转写入口，转写先进入草稿；修复异步麦克风授权和转写返回在卸载后串入其它对话的风险。"
         }
       ]
     },
@@ -6335,7 +6346,7 @@
       "id": "mobile-story-stage-browsing",
       "name": "手机故事阶段与同步文字修订",
       "status": "working",
-      "userValue": "保留故事首页，在详情里阅读与修订记忆、文字稿，保存到电脑共用的数据；视频先查看。",
+      "userValue": "故事内只保留文字、图片和视频阶段；通过同一对话框查看完整聊天、检索原话、修订记事并查看文章来源。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
         "client/src/features/mobileWorkspace/MobileStoriesPage.tsx"
@@ -6349,7 +6360,9 @@
         "client/src/features/mobileWorkspace/mobileStageSwipe.ts",
         "client/src/features/mobileWorkspace/useMobileStageSwipe.ts",
         "client/src/features/mobileWorkspace/mobileStageMotion.ts",
-        "client/src/features/mobileWorkspace/MobileMemoryConversation.tsx"
+        "client/src/features/mobileWorkspace/MobileMemoryConversation.tsx",
+        "client/src/features/mobileWorkspace/MobileChatContents.tsx",
+        "client/src/features/mobileWorkspace/MobileStoryMemories.tsx"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.test.tsx",
@@ -6368,17 +6381,18 @@
         "client/src/features/mobileWorkspace/MobileMemoryConversation.test.tsx",
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
         "docs/qa/2026-10-13-unified-writing-release.md",
-        "docs/qa/2026-10-21-mobile-image-library.md"
+        "docs/qa/2026-10-21-mobile-image-library.md",
+        "docs/qa/2026-10-21-mobile-story-chat.md"
       ],
       "invariants": [
-        "回忆、文字、图片、视频四段是工作内容切换，不得伪装成完成百分比或修改制作状态。",
+        "按2026-10-21用户授权，故事内为文字、图片、视频三段；回忆统一进入对话框内容工具，首页账号回忆库保留。阶段不表示完成百分比或制作状态。",
         "读取复用账号和Story归属校验，同一故事的权威数据与电脑一致，不创建手机副本。",
         "切换阶段、查看历史和打开视频不得自动生成、采用、覆盖或触发付费请求。",
         "记忆组合展示生成时保留的来源快照，并区分用户原话和助手整理。",
         "当前发布正文保留编辑、CAS冲突和恢复能力；按用户2026-10-11追加授权，独立文字历史可保存为新修订，不改原稿、不自动采用。记忆修订保留原文归档和已生成文章的来源快照。",
         "选故事留在故事工作区；已有未保存正文仍须明确保存、放弃或取消后才能切换或新建。",
-        "底部故事入口始终返回原故事首页；从查看记忆/查看文字稿进入详情，详情默认阅读，编辑控件仅在需要时打开。",
-        "记忆/文字稿/图片/视频支持点击及触屏水平轻扫，边界不循环；垂直阅读、长按选择、表单编辑、媒体控件及系统边缘返回不触发切页；尊重减少动态效果偏好。"
+        "底部故事入口始终返回原故事首页；从查看文字稿进入详情，继续对话直接打开对应故事的小忆，详情默认阅读，编辑控件仅在需要时打开。",
+        "文字/图片/视频支持点击及触屏水平轻扫，边界不循环；垂直阅读、长按选择、表单编辑、媒体控件及系统边缘返回不触发切页；尊重减少动态效果偏好。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
@@ -6388,7 +6402,7 @@
       "replaces": [],
       "knownGaps": [
         "手机支持记忆标题/内容修订、独立文字版本标题/正文修订及当前发布正文编辑；重新组合记忆和制作视频仍在电脑端；手机已支持聊天生成文字候选、预览和显式保存。用户明确视频先查看。",
-        "阶段选择按故事保留在本次页面会话内，刷新后重新从记忆开始。",
+        "阶段选择按故事保留在本次页面会话内，刷新后默认从文字开始。",
         "视频控件通过渲染测试，本机抽验的两个虚构故事素材接口为空；未验收真实素材播放或真机网络兼容性。",
         "iOS/Android软件键盘和公网跨设备验收仍继承手机工作区已有缺口。",
         "同步指保存后读取同一权威数据，非逐字实时协作。新增手动修订的MySQL事务并发与真实双设备公网验收待完成；浏览器只验证编辑/取消，持久保存由隔离服务测试验证。",
@@ -6449,6 +6463,11 @@
           "date": "2026-10-21",
           "kind": "feature",
           "summary": "按用户要求增加图片阶段，汇总入口带上目标故事和阶段，沿用未保存正文的切换保护；文字页精修图文入口，当前正文进入故事图库，历史稿与记忆保留独立来源。四段导航/手势及未保存保护回归通过。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "按用户授权取消故事回忆阶段，默认文字；首页账号回忆库保留。原聊天目录、单条图文、记事修订和历史文章来源迁入小忆内容工具；故事任一阶段可打开所属故事对话，保留引用来源与未发送/未同步保护。"
         }
       ]
     },
@@ -6459,7 +6478,8 @@
       "userValue": "在手机记忆或文字稿中排版成图片，触控编辑图文模块和页面，下载或调用系统分享，并创建无需登录的成品阅读链接；文字稿可购买生成新配图。",
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
-        "client/src/pages/SharedArtworkPage.tsx"
+        "client/src/pages/SharedArtworkPage.tsx",
+        "client/src/features/mobileWorkspace/MobileChatContents.tsx"
       ],
       "owners": [
         "client/src/features/mobileWorkspace/MobileImageStudio.tsx",
@@ -6490,7 +6510,8 @@
         "docs/qa/2026-10-16-mobile-image-modules.md",
         "docs/qa/2026-10-16-module-chat-memory.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
-        "docs/qa/2026-10-21-mobile-image-library.md"
+        "docs/qa/2026-10-21-mobile-image-library.md",
+        "docs/qa/2026-10-21-mobile-story-chat.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -6519,7 +6540,7 @@
         "停止链接以故事为单位；不支持单独撤销某一个链接。",
         "历史稿采用遵守现有标题冲突及已采用版本不可重写约束，冲突需回正文处理，不能静默替换。",
         "账号暂无个人头像图片字段，作品页使用昵称生成的文字头像；本机已生成并打开5页作品链接，正式站已用通用文字创建匿名作品链接；未向第三方平台发送，未购买图片生成。",
-        "记忆阶段支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。"
+        "对话内容工具中的记忆图文支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。"
       ],
       "history": [
         {
@@ -6571,6 +6592,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "图片功能提交08e9ce55及游标修正1d884528已推送并部署。主仓662文件5631项、发布候选独立29文件251项、小程序215项通过；候选类型/构建/65卡账本通过，95个目标文件线上SHA256一致，手机/电脑/健康入口200及匿名图片接口401。仅替换dist，保留回滚包；本轮未配置MySQL测试库，65项专项未跑，真机与真实付费生成仍待验收。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "refactor",
+          "summary": "随故事回忆页取消，将单条聊天、记事和历史来源快照的图文入口迁入对话内容工具；继续沿用按记忆隔离的排版来源、显式保存与生成费用门禁。"
         }
       ]
     },

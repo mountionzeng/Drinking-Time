@@ -59,8 +59,12 @@ export function MobileNewStoryCompanion({
   const reduced = useReducedMotion();
   const [actionLocked, setActionLocked] = useState(false);
   const [open, setOpen] = useState(false);
-  const { source: pageSource, moduleSource } = useContext(MobileMemoryFollowup);
-  const memorySource = moduleSource ?? pageSource;
+  const {
+    source: pageSource,
+    moduleSource,
+    storySource,
+  } = useContext(MobileMemoryFollowup);
+  const memorySource = moduleSource ?? pageSource ?? storySource ?? null;
   const [restoredMemory] = useState(() =>
     readMemoryFollowup(sessionStorage(), userId)
   );
@@ -70,6 +74,7 @@ export function MobileNewStoryCompanion({
   const [memoryLocked, setMemoryLocked] = useState(
     Boolean(restoredMemory.draft.trim())
   );
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [memoryThinking, setMemoryThinking] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState(restoredMemory.draft);
   useEffect(() => {
@@ -120,7 +125,8 @@ export function MobileNewStoryCompanion({
     userId,
     storyId: session.storyId ?? 0,
   });
-  const busy = creating || queued !== null || conversation.isSubmitting;
+  const busy =
+    creating || queued !== null || conversation.isSubmitting || voiceBusy;
   const unsynced = conversation.recoveryTurns.some(
     turn => turn.status !== "synced"
   );
@@ -226,7 +232,7 @@ export function MobileNewStoryCompanion({
         submit,
       };
   function changeOpen(next: boolean) {
-    if (!next && actionLocked) return;
+    if (!next && (actionLocked || voiceBusy)) return;
     if (next) {
       const different =
         activeMemory?.id !== memorySource?.id ||
@@ -247,7 +253,7 @@ export function MobileNewStoryCompanion({
         setError(null);
       } else if (different) {
         setError(
-          "还有未发送或未同步的内容，先继续当前对话；处理好后再切换回忆。"
+          "还有未发送或未同步的内容，先继续当前对话；处理好后再切换故事或上下文。"
         );
       }
     }
@@ -385,7 +391,7 @@ export function MobileNewStoryCompanion({
           <header className="mobile-xiaoyi-header">
             <DialogPrimitive.Close
               ref={closeRef}
-              disabled={actionLocked}
+              disabled={actionLocked || voiceBusy}
               className="mobile-xiaoyi-close"
             >
               {t("收起")}
@@ -408,6 +414,7 @@ export function MobileNewStoryCompanion({
           >
             <MobileChatView
               controller={controller}
+              onVoiceBusyChange={setVoiceBusy}
               composerDisabled={creating || queued !== null || actionLocked}
               storyTitle="新故事"
               greeting={t("我在呢。\n今天想从哪件小事聊起？")}

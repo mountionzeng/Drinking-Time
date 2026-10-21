@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { innerWidth: 390, getSelection: () => "" });
 });
 afterEach(() => vi.unstubAllGlobals());
-function setup(disabled = false, stage: "memory" | "text" = "text") {
+function setup(disabled = false, stage: "image" | "text" = "text") {
   const change = vi.fn();
   let handlers!: ReturnType<typeof useMobileStageSwipe>;
   function Harness() {
@@ -47,7 +47,7 @@ it("switches once and consumes the synthetic card click after a swipe", () => {
   expect(click.preventDefault).toHaveBeenCalledOnce();
 });
 it("does not open a card when swiping beyond the first stage", () => {
-  const { handlers, change } = setup(false, "memory");
+  const { handlers, change } = setup(false, "text");
   handlers.onPointerDown(point(100, 100));
   handlers.onPointerUp(point(250, 105, 250));
   expect(change).not.toHaveBeenCalled();

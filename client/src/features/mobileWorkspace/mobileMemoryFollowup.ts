@@ -11,7 +11,7 @@ import type { TextDraftContent } from "@shared/textDraftHistory";
 import type { PublishingPlatformId } from "@shared/publishingDraft";
 import type { MobileWritingContext } from "./mobileConversationStore";
 export type MemoryFollowupSource = {
-  kind?: "memory" | "text" | "video" | "layout";
+  kind?: "story" | "memory" | "text" | "video" | "layout";
   module?: LayoutModuleContext;
   layoutMemory?: LayoutMemoryContext;
   title?: string;
@@ -63,11 +63,14 @@ export const MobileMemoryFollowup = createContext<{
   select: (source: MemoryFollowupSource | null) => void;
   moduleSource?: MemoryFollowupSource | null;
   selectModule?: (source: MemoryFollowupSource | null) => void;
+  storySource?: MemoryFollowupSource | null;
+  selectStory?: (source: MemoryFollowupSource | null) => void;
 }>({ source: null, select: () => {} });
 export function memoryFollowupMessage(
   source: MemoryFollowupSource,
   thought: string
 ) {
+  if (source.kind === "story") return thought.trim();
   const role =
     source.origin === "assistant"
       ? "小忆当时的回应（不是我的事实陈述）"
@@ -126,15 +129,30 @@ export function readMemoryFollowup(
 }
 
 export function companionSourceLabel(source: MemoryFollowupSource) {
-  return source.kind === "layout"
-    ? source.module
-      ? "排版模块"
-      : "排版"
-    : source.kind === "text"
-      ? "文字"
-      : source.kind === "video"
-        ? "视频"
-        : "回忆";
+  return source.kind === "story"
+    ? "故事"
+    : source.kind === "layout"
+      ? source.module
+        ? "排版模块"
+        : "排版"
+      : source.kind === "text"
+        ? "文字"
+        : source.kind === "video"
+          ? "视频"
+          : "回忆";
+}
+export function storyFollowupSource(
+  storyId: number,
+  title: string
+): MemoryFollowupSource {
+  return {
+    kind: "story",
+    storyId,
+    id: `story:${storyId}`,
+    title,
+    content: title,
+    origin: "note",
+  };
 }
 export function videoFollowupSource(
   storyId: number,

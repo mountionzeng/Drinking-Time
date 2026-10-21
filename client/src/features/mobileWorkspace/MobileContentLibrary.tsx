@@ -6,7 +6,7 @@ import {
 } from "./mobileMemoryFollowup";
 import { trpc } from "@/lib/trpc";
 import type { MobileStorySummary } from "./MobileStoryPanel";
-import type { MobileStoryStage } from "./MobileStoryWorkspace";
+export type MobileLibraryStage = "memory" | "text" | "image" | "video";
 import { MobileAccountImages } from "./MobileAccountImages";
 
 const labels = { memory: "回忆", text: "文字", image: "图片", video: "视频" };
@@ -18,7 +18,7 @@ export function MobileContentLibrary({
   onBack,
   onOpenStory,
 }: {
-  stage: MobileStoryStage;
+  stage: MobileLibraryStage;
   stories: readonly MobileStorySummary[];
   onBack: () => void;
   onOpenStory: (id: number) => void;

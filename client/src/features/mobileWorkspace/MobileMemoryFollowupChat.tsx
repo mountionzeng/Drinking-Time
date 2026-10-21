@@ -1,6 +1,7 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { layoutModuleLabel } from "@shared/layoutModuleContext";
 import { LayoutMemoryDetails } from "@/features/publishingAlbum/LayoutMemoryDetails";
+import { MobileChatContents } from "./MobileChatContents";
 import { MobileCompanionActions } from "./MobileCompanionActions";
 import React, { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -22,7 +23,6 @@ export function MobileMemoryFollowupChat({
   onThinkingChange,
   draft,
   setDraft,
-  baseline,
   onTextSaved,
   onNewStory,
 }: {
@@ -48,37 +48,40 @@ export function MobileMemoryFollowupChat({
     onThinkingChange?.(conversation.isSubmitting);
     return () => onThinkingChange?.(false);
   }, [conversation.isSubmitting, onThinkingChange]);
-  if (
-    baseline.current === null &&
-    (conversation.historyState === "loaded" ||
-      conversation.historyState === "empty")
-  )
-    baseline.current = new Set(
-      conversation.messages.filter(m => m.source === "server").map(m => m.id)
-    );
   const [error, setError] = useState<string | null>(null);
+  const [contentsOpen, setContentsOpen] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [actionLocked, setActionLocked] = useState(false);
   const [versionLocked, setVersionLocked] = useState(false);
   const busy =
     conversation.isSubmitting ||
     conversation.recoveryTurns.some(t => t.status !== "synced");
   useEffect(() => {
-    onLocked(busy || actionLocked || versionLocked || Boolean(draft.trim()));
-    onActionLocked?.(actionLocked || versionLocked);
-  }, [busy, actionLocked, versionLocked, draft, onLocked, onActionLocked]);
+    onLocked(
+      busy ||
+        actionLocked ||
+        versionLocked ||
+        contentsOpen ||
+        voiceBusy ||
+        Boolean(draft.trim())
+    );
+    onActionLocked?.(
+      actionLocked || versionLocked || contentsOpen || voiceBusy
+    );
+  }, [
+    busy,
+    actionLocked,
+    versionLocked,
+    contentsOpen,
+    voiceBusy,
+    draft,
+    onLocked,
+    onActionLocked,
+  ]);
   const sending = useRef(false);
-  const visibleMessages = conversation.messages.filter(
-    m =>
-      m.source === "recovery" ||
-      (baseline.current !== null && !baseline.current.has(m.id))
-  );
+  const visibleMessages = conversation.messages;
   const controller = {
     ...conversation,
-    historyState:
-      conversation.historyState === "loaded" && !visibleMessages.length
-        ? ("empty" as const)
-        : conversation.historyState,
-    messages: visibleMessages,
     submit: async (text: string) => {
       if (sending.current) return null;
       sending.current = true;
@@ -105,29 +108,48 @@ export function MobileMemoryFollowupChat({
       }
     },
   };
+  if (contentsOpen)
+    return (
+      <MobileChatContents
+        userId={userId}
+        storyId={source.storyId}
+        conversation={conversation}
+        onClose={() => setContentsOpen(false)}
+        onQuote={selected => {
+          onTextSaved?.(selected);
+          setContentsOpen(false);
+        }}
+      />
+    );
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <details className="mx-4 mb-2 max-h-28 shrink-0 overflow-y-auto rounded-xl bg-muted/50 px-3 py-2 text-sm">
-        <summary className="cursor-pointer text-primary">
-          {source.module
-            ? `已选中：${layoutModuleLabel(source.module)}`
-            : source.kind === "text"
-              ? t(
-                  source.text?.selection
-                    ? "正在讨论选中的文字"
-                    : "正在讨论当前文字"
-                )
-              : t("接着这段{0}聊", [t(companionSourceLabel(source))])}
-        </summary>
-        <p className="mt-2 whitespace-pre-wrap leading-6">{source.content}</p>
-        {source.module && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {source.module.pagePreview
-              ? "会结合当前页画面给建议"
-              : "画面暂不可用，可先讨论文字和位置"}
-          </p>
-        )}
-      </details>
+      {source.kind === "story" ? (
+        <p className="px-5 pb-2 font-serif text-lg">
+          {source.title || "这个故事"}
+        </p>
+      ) : (
+        <details className="mx-4 mb-2 max-h-28 shrink-0 overflow-y-auto rounded-xl bg-muted/50 px-3 py-2 text-sm">
+          <summary className="cursor-pointer text-primary">
+            {source.module
+              ? `已选中：${layoutModuleLabel(source.module)}`
+              : source.kind === "text"
+                ? t(
+                    source.text?.selection
+                      ? "正在讨论选中的文字"
+                      : "正在讨论当前文字"
+                  )
+                : t("接着这段{0}聊", [t(companionSourceLabel(source))])}
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap leading-6">{source.content}</p>
+          {source.module && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {source.module.pagePreview
+                ? "会结合当前页画面给建议"
+                : "画面暂不可用，可先讨论文字和位置"}
+            </p>
+          )}
+        </details>
+      )}
       {source.layoutMemory && source.layoutMemory.total > 0 && (
         <div className="mx-4 mb-2 shrink-0">
           <LayoutMemoryDetails
@@ -150,17 +172,20 @@ export function MobileMemoryFollowupChat({
       <div className="min-h-0 flex-1">
         <MobileChatView
           controller={controller}
-          storyTitle={t("{0}的新想法", [t(companionSourceLabel(source))])}
+          storyTitle={source.title || "这个故事"}
+          onVoiceBusyChange={setVoiceBusy}
           greeting={
-            source.kind === "layout"
-              ? source.module
-                ? "这块想怎么改？可以问我怎么改更好。"
-                : "我记着这次的排版调整，想接着聊哪里？"
-              : source.kind === "text"
-                ? t("这篇文字想怎么改？我先给你一个提议。")
-                : t("看到这段{0}，你又想到了什么？", [
-                    t(companionSourceLabel(source)),
-                  ])
+            source.kind === "story"
+              ? "我在呢，接着聊这个故事吧。"
+              : source.kind === "layout"
+                ? source.module
+                  ? "这块想怎么改？可以问我怎么改更好。"
+                  : "我记着这次的排版调整，想接着聊哪里？"
+                : source.kind === "text"
+                  ? t("这篇文字想怎么改？我先给你一个提议。")
+                  : t("看到这段{0}，你又想到了什么？", [
+                      t(companionSourceLabel(source)),
+                    ])
           }
           composerDisabled={actionLocked || versionLocked}
           draftValue={draft}
@@ -172,25 +197,33 @@ export function MobileMemoryFollowupChat({
           key={`${userId}:${source.storyId}`}
           userId={userId}
           storyId={source.storyId}
-          source={source}
+          source={source.kind === "story" ? undefined : source}
           messages={conversation.messages.map(({ id, role, content }) => ({
             id,
             role,
             content,
           }))}
           instruction={draft}
-          disabled={busy || actionLocked}
+          disabled={busy || actionLocked || voiceBusy}
           onLocked={setVersionLocked}
           onTextSaved={onTextSaved}
         />
       )}
+      <button
+        type="button"
+        disabled={busy || actionLocked || versionLocked || voiceBusy}
+        className="mx-4 min-h-11 shrink-0 border-t border-border/40 text-left text-xs text-primary disabled:opacity-40"
+        onClick={() => setContentsOpen(true)}
+      >
+        对话内容 · 目录、记事与文章来源
+      </button>
       <MobileCompanionActions
         storyId={source.storyId}
         source={source}
         draft={draft}
         setDraft={setDraft}
         messages={visibleMessages}
-        disabled={busy || versionLocked}
+        disabled={busy || versionLocked || voiceBusy}
         onLocked={locked => {
           setActionLocked(locked);
           onActionLocked?.(locked);
@@ -202,7 +235,8 @@ export function MobileMemoryFollowupChat({
           先讨论建议，回到排版里修改。
         </p>
       ) : (
-        source.kind !== "text" && (
+        source.kind !== "text" &&
+        source.kind !== "story" && (
           <p className="px-4 py-2 text-[11px] text-muted-foreground">
             {t("新想法连同来源引用追加到这个故事，原回忆保留。")}
           </p>

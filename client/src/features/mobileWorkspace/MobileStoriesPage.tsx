@@ -1,7 +1,14 @@
 import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState, useContext, useEffect } from "react";
 import { MobileCompanionActivity } from "./mobileCompanionActivity";
-import { MobileContentLibrary } from "./MobileContentLibrary";
+import {
+  MobileContentLibrary,
+  type MobileLibraryStage,
+} from "./MobileContentLibrary";
+import {
+  openMobileCompanion,
+  storyFollowupSource,
+} from "./mobileMemoryFollowup";
 import type { MobileStoryStage } from "./MobileStoryWorkspace";
 import { MobileNavBar } from "./MobileNavBar";
 
@@ -37,12 +44,12 @@ export function MobileStoriesPage({
   activeStoryId: number | null;
   onOpenMe: () => void;
   onSelectStory: (storyId: number, stage?: MobileStoryStage) => void;
-  onOpenStage: (stage: "memory" | "text") => void;
+  onOpenStage: (stage: MobileStoryStage) => void;
 }) {
   const t = useUiText();
   const { language } = useUiLanguage();
 
-  const [library, setLibrary] = useState<MobileStoryStage | null>(null);
+  const [library, setLibrary] = useState<MobileLibraryStage | null>(null);
   const setCompanionActive = useContext(MobileCompanionActivity);
   useEffect(() => {
     setCompanionActive(library === null);
@@ -59,7 +66,9 @@ export function MobileStoriesPage({
         stage={library}
         stories={stories}
         onBack={() => setLibrary(null)}
-        onOpenStory={id => onSelectStory(id, library)}
+        onOpenStory={id =>
+          onSelectStory(id, library === "memory" ? "text" : library)
+        }
       />
     );
   const current = stories.find(story => story.id === activeStoryId) ?? null;
@@ -81,7 +90,10 @@ export function MobileStoriesPage({
         </h1>
         <MobileNavBar current="stories" onNavigate={onOpenMe} />
       </div>
-      <nav aria-label={t("全部内容")} className="mt-1 flex justify-between gap-2">
+      <nav
+        aria-label={t("全部内容")}
+        className="mt-1 flex justify-between gap-2"
+      >
         {(
           [
             ["memory", t("回忆")],
@@ -164,9 +176,13 @@ export function MobileStoriesPage({
             <Button
               type="button"
               className="min-h-11 rounded-xl"
-              onClick={() => onOpenStage("memory")}
+              onClick={() =>
+                openMobileCompanion(
+                  storyFollowupSource(current.id, current.title)
+                )
+              }
             >
-              {t("查看记忆 →")}
+              {t("继续对话 →")}
             </Button>
             <button
               type="button"
