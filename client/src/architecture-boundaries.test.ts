@@ -213,6 +213,8 @@ describe("architecture boundaries", () => {
     "emotionAnalysis.listDailyLetters",
     // Account-wide memory library: only pagination/archive filters, no Story scope.
     "memoryWarehouse.list",
+    // Account bookshelf takes no input; ownership comes only from authentication.
+    "memorySpace.list",
   ]);
 
   // `utils.a.b.invalidate()` / `.invalidate(undefined)` / `.invalidate({})` all

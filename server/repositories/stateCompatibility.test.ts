@@ -48,6 +48,20 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads account bookshelf order, private people, and reading state", async () => {
+    vi.resetModules();
+    const file = persistPath + ".memory-space";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const row = { userId: 8, revision: 2, state: { schemaVersion: 1, initialized: true, shelves: [{ id: "shelf", name: "家人", storyIds: [9, 7] }], people: [], relationships: [], seenStories: { 7: "fingerprint" } }, createdAt: "2026-10-21T02:00:00.000Z", updatedAt: "2026-10-21T03:00:00.000Z" };
+    await writeFile(file, JSON.stringify({ accountMemorySpaces: [row] }));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.accountMemorySpaces[0]).toEqual({ ...row, createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) });
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8")).accountMemorySpaces).toEqual([row]);
+  });
+
   it("reloads public feedback with dates, tags and reward recovery status intact", async () => {
     vi.resetModules();
     const file = persistPath + ".feedback";
@@ -128,7 +142,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

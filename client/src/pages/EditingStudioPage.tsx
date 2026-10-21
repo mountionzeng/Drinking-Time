@@ -1,3 +1,4 @@
+import { DesktopMemorySpace } from "@/features/memorySpace/DesktopMemorySpace";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
 /**
  * EditingStudioPage — 剪辑工作室（聊天驱动剪辑，ChatCut 式交互）。
@@ -16,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import MemoryWarehouse from "@/features/memoryWarehouse/MemoryWarehouse";
-import { OPEN_MEMORY_WAREHOUSE, openMemoryWarehouse } from "@/features/memoryWarehouse/memoryWarehouseEvents";
+import { OPEN_MEMORY_WAREHOUSE } from "@/features/memoryWarehouse/memoryWarehouseEvents";
 import {
   Dialog,
   DialogContent,
@@ -260,6 +261,8 @@ function StoryPanelWorkspace({
 }
 
 function EditingStudioBody({
+  accountMemoriesOpen,
+  onAccountMemoriesOpenChange,
   workspace,
   interactionMode,
   onWorkspaceChange,
@@ -267,6 +270,8 @@ function EditingStudioBody({
   onMaterialVisibleChange,
   pendingStoryRequestId,
 }: {
+  accountMemoriesOpen: boolean;
+  onAccountMemoriesOpenChange: (open: boolean) => void;
   workspace: StudioWorkspace;
   interactionMode: StudioInteractionMode;
   onWorkspaceChange: (workspace: StudioWorkspace) => void;
@@ -506,6 +511,7 @@ function EditingStudioBody({
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
+      <DesktopMemorySpace open={accountMemoriesOpen} onOpenChange={onAccountMemoriesOpenChange} onOpenWriting={() => onWorkspaceChange("publishing")} />
       <MemoryWarehouse onOpenWriting={() => onWorkspaceChange("publishing")} />
       <div className="flex h-full min-h-0">
         {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
@@ -755,6 +761,7 @@ export default function EditingStudioPage() {
   }, []);
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
+  const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
   const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
     /^\d{4}-\d{2}-\d{2}$/.test(
@@ -859,9 +866,9 @@ export default function EditingStudioPage() {
             type="button"
             aria-label="打开账号回忆"
             aria-haspopup="dialog"
-            aria-controls="writing-memory-warehouse"
+            aria-controls="account-memories"
             className="shiguang-toolbar-button inline-flex min-h-11 items-center gap-2 rounded-sm border-l border-border/50 px-4 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-primary"
-            onClick={() => openMemoryWarehouse("account")}
+            onClick={() => setAccountMemoriesOpen(true)}
           >
             <BookOpen aria-hidden="true" className="h-4 w-4" />
             <span className="shiguang-nav-label">回忆</span>
@@ -910,8 +917,9 @@ export default function EditingStudioPage() {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
       />
-      <StudioTour blockedByOverlay={dailyLetterOpen} />
+      <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen} />
       <DailyLetterWelcome
+        suspended={accountMemoriesOpen}
         forceOpen={dailyLetterOpen}
         onRequestClose={() => setDailyLetterOpen(false)}
         onStartVisualConversation={message => {
@@ -940,6 +948,8 @@ export default function EditingStudioPage() {
           interactionMode={interactionMode}
         >
           <EditingStudioBody
+            accountMemoriesOpen={accountMemoriesOpen}
+            onAccountMemoriesOpenChange={setAccountMemoriesOpen}
             workspace={workspace}
             interactionMode={interactionMode}
             onWorkspaceChange={setWorkspace}

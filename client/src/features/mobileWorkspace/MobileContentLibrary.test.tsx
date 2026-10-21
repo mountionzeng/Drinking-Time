@@ -5,6 +5,7 @@ import { MobileContentLibrary } from "./MobileContentLibrary";
 vi.stubGlobal("React", React);
 const api = vi.hoisted(() => ({
   memories: vi.fn(),
+  space: vi.fn(),
   text: vi.fn(),
   body: vi.fn(),
   videos: vi.fn(),
@@ -12,6 +13,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    useUtils: () => ({ memorySpace: { list: { invalidate: vi.fn() } } }),
+    memorySpace: { list: { useQuery: api.space }, change: { useMutation: () => ({ isPending: false }) } },
     memoryWarehouse: { list: { useQuery: api.memories } },
     textDrafts: { read: { useQuery: api.text } },
     publishingDraft: { readBody: { useQuery: api.body } },
@@ -20,6 +23,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+  api.space.mockReturnValue({ data: { revision: 0, shelves: [], books: [{ id: 1, title: "书架里的故事", hasText: true, updatedAt: null }], people: [], relationships: [] } });
   api.memories.mockReturnValue({
     data: {
       cards: [{ id: "m1", title: "独立回忆", content: "回忆原文" }],
@@ -58,10 +62,12 @@ function render(stage: "memory" | "text" | "image" | "video") {
     />
   );
 }
-it("reads account memories without narrowing them to the active story or fetching other media", () => {
+it("opens the account bookshelf and retains the notes tool without fetching other media", () => {
   const html = render("memory");
-  expect(html).toContain("回忆原文");
-  expect(api.memories).toHaveBeenCalledWith({ offset: 0 }, { retry: false });
+  expect(html).toContain("书架里的故事");
+  expect(html).toContain("记事工具");
+  expect(api.space).toHaveBeenCalled();
+  expect(api.memories).not.toHaveBeenCalled();
   expect(api.text).not.toHaveBeenCalled();
   expect(api.videos).not.toHaveBeenCalled();
 });

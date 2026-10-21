@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-20",
+  "updatedAt": "2026-10-21",
   "features": [
     {
       "id": "story-context-sharing",
@@ -7644,6 +7644,67 @@
           "date": "2026-10-21",
           "kind": "fix",
           "summary": "应用a4763ff2及0032迁移上线；生产只读BUG队列验证成功，每日09:00自动化接通。5608项常规与65项隔离MySQL测试通过。真实BUG修复待反馈进入后验收。"
+        }
+      ]
+    },
+    {
+      "id": "memory-bookshelf-people",
+      "name": "回忆书架与人物关系",
+      "status": "observing",
+      "userValue": "在手机和电脑整理同一账号的故事书架，查看更新和共创参与人，并维护邀请、共同创作及自定义亲友联系。",
+      "entryPoints": [
+        "client/src/features/mobileWorkspace/MobileContentLibrary.tsx",
+        "client/src/features/memorySpace/DesktopMemorySpace.tsx"
+      ],
+      "owners": [
+        "shared/memorySpace.ts",
+        "server/repositories/memorySpace.ts",
+        "server/services/memorySpaceProjection.ts",
+        "server/routers/memorySpace.ts",
+        "client/src/features/memorySpace/MemorySpace.tsx",
+        "client/src/features/memorySpace/memorySpace.css",
+        "drizzle/0033_account_memory_spaces.sql"
+      ],
+      "evidence": [
+        "docs/plans/2026-10-21-memory-bookshelf-people.md",
+        "docs/qa/2026-10-21-memory-bookshelf-people.md",
+        "server/routers.memorySpace.test.ts",
+        "server/integration/memorySpace.mysql.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "client/src/features/mobileWorkspace/MobileContentLibrary.test.tsx",
+        "command:pnpm feature:validate",
+        "command:pnpm migration:verify"
+      ],
+      "invariants": [
+        "手机和电脑共用账号级数据；书架排序不改变首页最近故事的权威顺序，移动书或删除书架层不得删除故事。",
+        "保留原记忆选卡成文、归档恢复与来源快照；故事内记事仍由对话工具承载。",
+        "共创候选与正式正文分开，阅读不等于采用；更新标记只确认实际展示的内容版本。",
+        "系统邀请与共创关系必须有权威记录；用户自定义关系私有，不推断不存在的邀请或亲友事实。",
+        "客户端仅获得不透明联系人ID和展示字段，不返回贡献者userId、分享令牌或requestHash。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "recent-story-entry",
+        "writing-memory-warehouse",
+        "shared-story-collaboration"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "旧分享链接无法确定未接受的收件人；内测邀请码无邀请者，历史未接受邀请只能由用户手动补录，不宣称自动覆盖。",
+        "书架新已读跨端保存；原分享回来提醒的40篇扫描和本机已读限制本轮不改。",
+        "使用按钮排序及选层，暂不含拖拽；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
+        "真机iOS/Android、完整屏幕阅读器、大规模库与正式站双真实账号新书架验收尚未完成。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-21",
+          "kind": "decision",
+          "summary": "用户明确回忆分故事书架与人物，人物同时需要邀请/共创及手动亲友关系。核对现有数据与功能约束，准备单表增量持久化草案和两端共用交互方案；迁移、应用实现与发布尚未执行。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "用户单独批准新增表和迁移；实现共享书架/人物/已读仓储及手机、电脑入口，保留原记事工具。覆盖增层排序、跨层移动、删层保书、正式稿和候选阅读、共创记录、私有亲友关系；MySQL实测修复JSON字段顺序导致无效版本增长，新增路由13项、隔离库并发/迁移及相关回归通过。发布记录见QA。"
         }
       ]
     }

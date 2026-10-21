@@ -151,6 +151,7 @@ export function dailyLetterStoryPrompt(letterDate: string, summary: string) {
 
 export default function DailyLetterWelcome({
   forceOpen = false,
+  suspended = false,
   onRequestClose,
   onStartVisualConversation,
   stories = [],
@@ -158,6 +159,7 @@ export default function DailyLetterWelcome({
   onStartLetterStory,
 }: {
   forceOpen?: boolean;
+  suspended?: boolean;
   onRequestClose?: () => void;
   onStartVisualConversation?: (message: string) => void;
   stories?: DailyLetterStorySummary[];
@@ -329,8 +331,8 @@ export default function DailyLetterWelcome({
     ? Boolean(profile) &&
       shouldShowDailyLetter(profileDate, seenDate, closedDate)
     : shouldShowDailyLetter(publicLetter.date, seenDate, closedDate);
-  const visible = forceOpen || autoVisible;
-  const initialProfileSetupVisible = shouldShowInitialProfileSetup({
+  const visible = !suspended && (forceOpen || autoVisible);
+  const initialProfileSetupVisible = !suspended && shouldShowInitialProfileSetup({
     querySucceeded: profileQuery.isSuccess,
     hasProfile: Boolean(profile),
     forceOpen,

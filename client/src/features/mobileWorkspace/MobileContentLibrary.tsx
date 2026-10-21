@@ -1,3 +1,4 @@
+import { MemorySpace } from "@/features/memorySpace/MemorySpace";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState, useContext, useEffect } from "react";
 import {
@@ -26,6 +27,7 @@ export function MobileContentLibrary({
   const t = useUiText();
 
   const [page, setPage] = useState(0);
+  const [showNotes, setShowNotes] = useState(false);
   const pageSize = 5;
   return (
     <section
@@ -35,12 +37,12 @@ export function MobileContentLibrary({
       <button className={action} onClick={onBack}>
         {t("‹ 故事")}
       </button>
-      <h1 className="my-4 font-chat-brand text-2xl">
+      {stage !== "memory" && <h1 className="my-4 font-chat-brand text-2xl">
         {t("全部")}
         {t(labels[stage])}
-      </h1>
+      </h1>}
       {stage === "memory" ? (
-        <AllMemories />
+        showNotes ? <><button className={action} onClick={() => setShowNotes(false)}>‹ 回到回忆</button><AllMemories /></> : <MemorySpace onOpenStory={onOpenStory} onOpenNotes={() => setShowNotes(true)} />
       ) : stage === "image" ? (
         <MobileAccountImages onOpenStory={onOpenStory} />
       ) : (

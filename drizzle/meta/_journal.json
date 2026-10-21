@@ -232,6 +232,13 @@
       "when": 1792505304928,
       "tag": "0032_feedback_rewards",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1792561270161,
+      "tag": "0033_account_memory_spaces",
+      "breakpoints": true
     }
   ]
 }

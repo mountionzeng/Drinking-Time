@@ -1,3 +1,4 @@
+import { memorySpaceRouter } from "./memorySpace";
 import { feedbackRouter } from "./feedback";
 import { adminComputeRouter } from "./adminCompute";
 import { translateDailyLetter } from "../services/dailyLetterTranslation";
@@ -1193,6 +1194,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   textSourceLineage: textSourceLineageRouter,
   downstreamRegeneration: downstreamRegenerationRouter,
   creationFlow: creationFlowRouter,
+  memorySpace: memorySpaceRouter,
   memoryWarehouse: memoryWarehouseRouter,
   visualAssets: visualAssetsRouter,
 

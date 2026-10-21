@@ -2895,3 +2895,13 @@ export const feedbackPosts = mysqlTable("feedback_posts", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("feedback_category_created_idx").on(table.category, table.createdAt)]);
 export type FeedbackPost = typeof feedbackPosts.$inferSelect;
+
+/** Account-owned bookshelf, private contacts, and cross-device reading state. */
+export const accountMemorySpaces = mysqlTable("account_memory_spaces", {
+  userId: int("userId").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  revision: int("revision", { unsigned: true }).default(0).notNull(),
+  state: json("state").$type<import("../shared/memorySpace").MemorySpaceState>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AccountMemorySpace = typeof accountMemorySpaces.$inferSelect;
