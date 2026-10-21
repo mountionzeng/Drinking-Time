@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import AdminVisitsPage from "./AdminVisitsPage";
 
 vi.stubGlobal("React", React);
+vi.mock("./AdminUserOverview", () => ({ default: () => <div>注册用户总览</div> }));
 vi.stubGlobal("window", {
   location: {
     hostname: "preview.drinkingtime.top",
@@ -13,6 +14,7 @@ vi.stubGlobal("window", {
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    useUtils: () => ({ adminUsers: { overview: { invalidate: vi.fn() } } }),
     accessAnalytics: {
       overview: {
         useQuery: () => ({
@@ -81,7 +83,7 @@ describe("管理员访问看板", () => {
     expect(html).toContain("tester@example.com");
     expect(html).toContain("1 小时 2 分钟");
     expect(html).toContain("在线");
-    expect(html).toContain("登录活跃与生成算力概览");
+    expect(html).toContain("注册用户、访问与算力总览");
     expect(html).toContain("图片 4 次");
     expect(html).toContain("视频 2 次");
     expect(html).toContain("近期使用时段");

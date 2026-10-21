@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
+import AdminUserOverview from "./AdminUserOverview";
 
 const ACTIVE_WINDOW_MS = 90_000;
 
@@ -52,6 +53,7 @@ function formatSessionPeriod(startedAt: Date, lastSeenAt: Date) {
 }
 
 export default function AdminVisitsPage() {
+  const utils = trpc.useUtils();
   const siteHost =
     typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
   const overview = trpc.accessAnalytics.overview.useQuery(
@@ -95,7 +97,7 @@ export default function AdminVisitsPage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold">用户管理</h1>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {siteHost} · 登录活跃与生成算力概览
+              {siteHost} · 注册用户、访问与算力总览
             </p>
           </div>
           <button
@@ -103,7 +105,7 @@ export default function AdminVisitsPage() {
             aria-label="刷新访问数据"
             title="刷新访问数据"
             disabled={overview.isFetching}
-            onClick={() => overview.refetch()}
+            onClick={() => { void overview.refetch(); void utils.adminUsers.overview.invalidate(); }}
             className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
             <RefreshCcw
@@ -133,6 +135,9 @@ export default function AdminVisitsPage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
+        <AdminUserOverview siteHost={siteHost} />
+        <details className="mt-10 border-t pt-5">
+        <summary className="mb-5 cursor-pointer text-sm font-medium">访问与生成详情（原邮箱用户看板）</summary>
         <section
           aria-label="访问概览"
           className="grid grid-cols-3 gap-px overflow-hidden border-y bg-border text-center"
@@ -176,7 +181,7 @@ export default function AdminVisitsPage() {
                   <th className="px-3 py-3 font-medium">近期使用时段</th>
                   <th className="px-3 py-3 text-right font-medium">访问次数</th>
                   <th className="px-3 py-3 text-right font-medium">累计停留</th>
-                  <th className="px-3 py-3 text-right font-medium">算力消耗</th>
+                  <th className="px-3 py-3 text-right font-medium">生成数量</th>
                   <th className="px-3 py-3 text-right font-medium">状态</th>
                 </tr>
               </thead>
@@ -277,10 +282,11 @@ export default function AdminVisitsPage() {
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
           停留时间按页面可见时的轻量报到估算，最多会有约 30 秒误差；连续 30
-          分钟没有活动后，再回来会记为新的一次访问。算力数据按已落库的图片和
-          视频生成结果统计，不等同于供应商最终账单。这里不保存 IP、设备指纹或
+          分钟没有活动后，再回来会记为新的一次访问。生成数量按已落库的图片和
+          视频结果统计，实际算力请看上方账本。这里不保存 IP、设备指纹或
           浏览内容。
         </p>
+        </details>
       </div>
     </main>
   );

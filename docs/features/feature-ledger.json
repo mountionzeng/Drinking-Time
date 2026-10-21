@@ -7813,6 +7813,59 @@
           "summary": "手势及手机去冗余649ae8ac已推送部署。27项相关回归、精简后8项手机回归、类型/最终构建/66卡通过；CDP触摸验证长按、跨层/新层、边缘滚动、取消与精简页面。95文件及公网入口哈希匹配、页面/ready200，无迁移或配置修改；真机与双账号仍待验收，详见手势QA。"
         }
       ]
+    },
+    {
+      "id": "admin-user-overview",
+      "name": "注册用户总览与账号分类",
+      "status": "observing",
+      "userValue": "管理员在同一页面查看注册账号、新增与活跃、算力账单，并区分自己的账号、测试账号、外部用户和待确认账号。",
+      "entryPoints": [
+        "client/src/pages/AdminVisitsPage.tsx",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx",
+        "server/routers/adminUsers.ts"
+      ],
+      "owners": [
+        "shared/adminUsers.ts",
+        "server/repositories/adminUsers.ts",
+        "server/routers/adminUsers.ts",
+        "client/src/pages/AdminUserOverview.tsx",
+        "drizzle/0034_admin_user_labels.sql"
+      ],
+      "evidence": [
+        "server/adminUsers.router.test.ts",
+        "client/src/pages/AdminUserOverview.test.tsx",
+        "server/integration/adminUsers.mysql.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "scripts/verify-admin-users.cjs",
+        "docs/qa/2026-10-21-admin-user-overview.md"
+      ],
+      "invariants": [
+        "查询与分类修改均由adminProcedure保护，普通用户和匿名用户不得跨账号读取或标记。",
+        "注册按拥有已验证身份的userId去重，多种登录方式不重复计数，无邮箱的手机与微信账号也纳入；访客与未验证历史账号单列。",
+        "外部用户必须明确分类，未知默认待确认，不根据邮箱名称、故事内容或管理员角色猜测。自己的账号与测试账号不计入外部用户。",
+        "分类只写独立管理标记及操作者和更新时间，不改变身份、角色、故事、余额与账本。",
+        "近七天活跃只来自当前域名的访问记录；没有记录不等于从未使用，登录时间不替代活跃，账号数不宣称自然人数。",
+        "算力只取已接入账本的消耗、预占和余额；不展示私密创作内容、身份subject、OpenID或凭据。",
+        "请求失败显示人数未知，不能用零或缓存旧数据冒充当前成功；保留原邮箱访问看板和独立算力明细入口。"
+      ],
+      "dependencies": [
+        "invite-access-monitoring",
+        "admin-compute-monitoring"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未发布0034和新页面；正式管理员真实登录与双设备分类验收待完成。",
+        "总览按当前环境账号库统计、访问按当前域名，不合并本地、测试站与正式库。",
+        "当前读取账号汇总全集并在页面筛选分页，尚未做大规模用户压测。",
+        "分类保存最后一次管理员操作，保留最后操作者与时间，不提供历史分类审计列表。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "承接10月18日未收尾的注册与活跃总览，新增独立分类表和管理员接口，原用户管理页增加全账号统计、筛选、分类与账单展开，手机我的新增管理入口；原访问详情保留，验证见QA。"
+        }
+      ]
     }
   ]
 }

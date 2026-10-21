@@ -48,6 +48,19 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads administrator labels and their audit metadata", async () => {
+    vi.resetModules();
+    const file = persistPath + ".admin-labels";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const row = { userId: 8, category: "test", updatedBy: 1, updatedAt: "2026-10-21T12:00:00.000Z" };
+    await writeFile(file, JSON.stringify({ adminUserLabels: [row] }));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.adminUserLabels).toEqual([{ ...row, updatedAt: new Date(row.updatedAt) }]);
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8")).adminUserLabels).toEqual([row]);
+  });
   it("reloads account bookshelf order, private people, and reading state", async () => {
     vi.resetModules();
     const file = persistPath + ".memory-space";
@@ -142,7 +155,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

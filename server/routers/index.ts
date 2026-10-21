@@ -2,6 +2,7 @@ import { upsertUser } from "../repositories/users";
 import { memorySpaceRouter } from "./memorySpace";
 import { feedbackRouter } from "./feedback";
 import { adminComputeRouter } from "./adminCompute";
+import { adminUsersRouter } from "./adminUsers";
 import { translateDailyLetter } from "../services/dailyLetterTranslation";
 import { claimWebLoginGift } from "../services/webLoginGift";
 import { z } from "zod";
@@ -354,6 +355,7 @@ export const appRouter = router({
 
   feedback: feedbackRouter,
   adminCompute: adminComputeRouter,
+  adminUsers: adminUsersRouter,
   computeAccount: computeAccountRouter,
   computePayment: computePaymentRouter,
 

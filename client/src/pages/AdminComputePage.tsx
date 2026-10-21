@@ -45,7 +45,7 @@ function Entries({ items }: { items: ComputeStatementItem[] }) {
     <p className="py-4 text-sm text-muted-foreground">暂无记录</p>
   );
 }
-function Statement({ userId }: { userId: number }) {
+export function Statement({ userId }: { userId: number }) {
   const [historyOffset, setHistory] = useState(0);
   const [attentionOffset, setAttention] = useState(0);
   const query = trpc.adminCompute.statement.useQuery(

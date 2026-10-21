@@ -225,6 +225,7 @@ export function MobileMePage({
         </div>
       </section>
 
+      {onBack && user?.role === "admin" && <Row title="用户管理" hint="注册人数、活跃与算力账单" onClick={() => window.location.assign("/admin/users")} />}
       <Row
         title={t("我的语言")}
         hint={UI_LANGUAGES.find(item => item.id === language)?.label}

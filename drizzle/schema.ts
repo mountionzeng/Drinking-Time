@@ -48,6 +48,15 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+/** Reporting labels only. These never grant access or alter account balances. */
+export const adminUserLabels = mysqlTable("admin_user_labels", {
+  userId: int("userId").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  category: mysqlEnum("category", ["unclassified", "own", "test", "external"]).notNull(),
+  updatedBy: int("updatedBy").notNull().references(() => users.id),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AdminUserLabel = typeof adminUserLabels.$inferSelect;
+
 /** Explicitly saved writing material; independent of stories and inferred memory. */
 export const memoryCards = mysqlTable("memory_cards", {
   id: varchar("id", { length: 36 }).primaryKey(),
