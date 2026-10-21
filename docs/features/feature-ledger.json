@@ -7502,7 +7502,8 @@
       "entryPoints": [
         "client/src/features/computeAccount/ComputeBalanceBadge.tsx",
         "client/src/features/computeAccount/FeedbackDialog.tsx",
-        "scripts/feedback-bugs.ts"
+        "scripts/feedback-bugs.ts",
+        "scripts/feedback-bugs-production.py"
       ],
       "owners": [
         "shared/feedback.ts",
@@ -7510,11 +7511,13 @@
         "server/repositories/feedback.ts",
         "client/src/features/computeAccount/FeedbackDialog.tsx",
         "scripts/feedback-bugs.ts",
-        "drizzle/0032_feedback_rewards.sql"
+        "drizzle/0032_feedback_rewards.sql",
+        "scripts/feedback-bugs-production.py"
       ],
       "evidence": [
         "server/feedback.router.test.ts",
-        "docs/qa/2026-10-20-feedback-rewards.md"
+        "docs/qa/2026-10-20-feedback-rewards.md",
+        "docs/qa/2026-10-21-mobile-feedback-release.md"
       ],
       "invariants": [
         "仅登录用户可阅读与提交反馈；公开投影不暴露邮箱或账号ID。",
@@ -7527,15 +7530,19 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "未部署0032迁移和应用；未配置生产只读FEEDBACK_DATABASE_URL。",
-        "已建每日9点对话与自动化；线上轮询及真实修复尚未验收。",
-        "发奖并发通过本地隔离测试，生产MySQL尚未验收。"
+        "真实用户技术BUG进入后自动修复尚待验收。",
+        "生产双账号采用发奖尚未执行；幂等并发已通过隔离MySQL测试。"
       ],
       "history": [
         {
           "date": "2026-10-20",
           "kind": "feature",
           "summary": "新增两端公开反馈入口、标签分类、管理员审核与幂等奖励，创建独立每日Codex检查对话；本地6项接口测试和两端窗口打开验证通过。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "fix",
+          "summary": "应用a4763ff2及0032迁移上线；生产只读BUG队列验证成功，每日09:00自动化接通。5608项常规与65项隔离MySQL测试通过。真实BUG修复待反馈进入后验收。"
         }
       ]
     }
