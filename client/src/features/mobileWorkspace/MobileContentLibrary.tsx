@@ -96,6 +96,7 @@ export function MobileContentLibrary({
           </>
         ) : (
           <MemorySpace
+            mobileGestures
             initialTab={stage === "people" ? "people" : "stories"}
             onOpenStory={openStory}
             onOpenNotes={() => setShowNotes(true)}

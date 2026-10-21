@@ -1001,12 +1001,86 @@
 }
 
 /* Keep the books, rather than duplicate headings, at the centre of the small screen. */
-.memory-view-intro > span { display: none; }
-.memory-toolbar { margin: 12px 0; }
-.memory-space h1 { margin-bottom: 12px; }
-.memory-add-shelf { padding: 10px; }
+.memory-view-intro > span {
+  display: none;
+}
+.memory-toolbar {
+  margin: 12px 0;
+}
+.memory-space h1 {
+  margin-bottom: 12px;
+}
+.memory-add-shelf {
+  padding: 10px;
+}
 @media (max-width: 360px) {
-  .memory-book-stack { width: 28px; }
-  .memory-book-stack[data-stack-view="album"] { width: 86px; }
-  .memory-book-stack[data-stack-view="horizontal"] { width: 106px; }
+  .memory-book-stack {
+    width: 28px;
+  }
+  .memory-book-stack[data-stack-view="album"] {
+    width: 86px;
+  }
+  .memory-book-stack[data-stack-view="horizontal"] {
+    width: 106px;
+  }
+}
+
+/* Mobile long-press leaves ordinary horizontal/vertical scrolling native. */
+.memory-space[data-mobile-gestures="true"] .memory-book {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.memory-space[data-mobile-gestures="true"] .memory-book img {
+  pointer-events: none;
+}
+.memory-drag-ghost {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 24px));
+  max-width: 220px;
+  padding: 12px 16px;
+  border: 1px solid var(--shelf-line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 6px 22px #263b2826;
+  font-size: 14px;
+}
+.memory-drag-ghost small {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+}
+.memory-space [data-drop-target="true"] {
+  outline: 2px solid var(--nayin-accent, #648368);
+  outline-offset: 2px;
+}
+.memory-space[data-held-book] .memory-book {
+  cursor: grabbing;
+}
+.memory-shelf-menu {
+  position: relative;
+}
+.memory-shelf-menu summary {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.memory-space[data-mobile-gestures="false"] .memory-shelf-menu summary {
+  display: none;
+}
+.memory-space[data-mobile-gestures="true"] .memory-shelf-actions {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  z-index: 20;
+  background: var(--card);
+  border: 1px solid var(--shelf-line);
+  padding: 8px;
+  min-width: 230px;
+  box-shadow: 0 4px 14px #263b2818;
 }

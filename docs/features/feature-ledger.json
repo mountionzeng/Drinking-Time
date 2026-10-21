@@ -7692,7 +7692,8 @@
         "client/src/features/memorySpace/MemoryBookPreview.tsx",
         "client/src/features/memorySpace/StoryActivityTracker.tsx",
         "client/src/features/memorySpace/activeEditingClock.ts",
-        "client/src/features/memorySpace/bookArrangement.ts"
+        "client/src/features/memorySpace/bookArrangement.ts",
+        "client/src/features/memorySpace/useMobileBookGesture.ts"
       ],
       "evidence": [
         "docs/plans/2026-10-21-memory-bookshelf-people.md",
@@ -7709,7 +7710,9 @@
         "server/routers.sharedLayout.test.ts",
         "server/repositories/accountImages.test.ts",
         "docs/qa/2026-10-21-bookshelf-art-direction.md",
-        "client/src/features/memorySpace/bookArrangement.test.ts"
+        "client/src/features/memorySpace/bookArrangement.test.ts",
+        "scripts/verify-mobile-bookshelf-gestures.cjs",
+        "docs/qa/2026-10-21-mobile-bookshelf-gestures.md"
       ],
       "invariants": [
         "手机和电脑共用账号级数据；书架排序不改变首页最近故事的权威顺序，移动书或删除书架层不得删除故事。",
@@ -7729,7 +7732,7 @@
       "knownGaps": [
         "旧分享链接无法确定未接受的收件人；内测邀请码无邀请者，历史未接受邀请只能由用户手动补录，不宣称自动覆盖。",
         "书架新已读跨端保存；原分享回来提醒的40篇扫描和本机已读限制本轮不改。",
-        "使用按钮排序及选层，暂不含拖拽；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
+        "手机支持长按拖动，电脑仍使用按钮排序及选层；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
         "真机iOS/Android、完整屏幕阅读器、大规模库与正式站双真实账号新书架验收尚未完成。",
         "活跃时长按前台交互窗口计量，历史未记录；断网/强退可能少记。好友展示已分享的最大累计快照，字数为正文/提交长度，不是净新增字数。"
       ],
@@ -7788,6 +7791,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "紧密单排书架a57616b9已推送部署，95运行文件和公网入口哈希一致、页面与ready200；无迁移/配置变化。手机新增人物直接入口，桌面仍默认故事页。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "improvement",
+          "summary": "用户授权手机版以长按拖排替换整理书架：长按松手调摆放，拖动定位，拖到加层原子建层并放书；跨层保留姿态、边缘滚动、取消及松手防误点击。首次手动排序将默认层保存为显式层；每层菜单保留改名/移动/移除，桌面入口保留，无迁移。27项回归和虚构书架CDP触摸验证见QA。"
         }
       ]
     }

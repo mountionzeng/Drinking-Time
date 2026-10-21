@@ -66,6 +66,8 @@ it("opens the account bookshelf and retains the notes tool without fetching othe
   const html = render("memory");
   expect(html).toContain("书架里的故事");
   expect(html).toContain("记事工具");
+  expect(html).not.toContain("整理书架");
+  expect(html).toContain("长按拖动换位置");
   expect(api.space).toHaveBeenCalled();
   expect(api.memories).not.toHaveBeenCalled();
   expect(api.text).not.toHaveBeenCalled();

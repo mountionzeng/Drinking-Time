@@ -109,7 +109,11 @@ export function MemoryBookCover({
   book,
   onRead,
   onViewChange,
+  placementOpen,
+  onPlacementOpenChange,
 }: {
+  placementOpen?: boolean;
+  onPlacementOpenChange?: (open: boolean) => void;
   book: MemoryBook;
   onRead: () => void;
   onViewChange: (view: MemoryShelfView | null) => void;
@@ -134,6 +138,7 @@ export function MemoryBookCover({
                 src={cover}
                 alt=""
                 loading="lazy"
+                draggable={false}
                 onError={() => setFailedCover(cover)}
               />
             )}
@@ -160,7 +165,7 @@ export function MemoryBookCover({
           <BookOverview book={book} />
         </TooltipContent>
       </Tooltip>
-      <Popover>
+      <Popover open={placementOpen} onOpenChange={onPlacementOpenChange}>
         <PopoverTrigger asChild>
           <button
             className="memory-book-info"

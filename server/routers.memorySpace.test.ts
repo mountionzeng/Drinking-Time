@@ -44,6 +44,99 @@ describe("账号回忆书架", () => {
     older.updatedAt = new Date(9000);
     expect((await a.list()).books.map(book => book.id)).toEqual([2, 1]);
   });
+  it("atomically drops a book onto a new shelf and materializes default order on manual rearrangement", async () => {
+    for (let id = 1; id <= 3; id++) {
+      const book = seed(id);
+      book.updatedAt = new Date(id * 1000);
+    }
+    let space = await a.list();
+    const shelfId = randomUUID();
+    await a.change({
+      revision: space.revision,
+      operation: {
+        kind: "dragBook",
+        storyId: 1,
+        target: "default",
+        newShelfId: shelfId,
+        beforeStoryId: 3,
+      },
+    });
+    space = await a.list();
+    expect(booksOnShelf(space, shelfId).map(b => b.id)).toEqual([1, 3, 2]);
+    expect(booksOnShelf(space, null)).toHaveLength(0);
+    const newShelfId = randomUUID();
+    await a.change({
+      revision: space.revision,
+      operation: {
+        kind: "dragBook",
+        storyId: 3,
+        target: "new",
+        view: "album",
+        newShelfId,
+        beforeStoryId: null,
+      },
+    });
+    space = await a.list();
+    expect(booksOnShelf(space, newShelfId).map(b => b.id)).toEqual([3]);
+    expect(space.books.find(b => b.id === 3)?.view).toBe("album");
+    expect(booksOnShelf(space, shelfId).map(b => b.id)).toEqual([1, 2]);
+    expect(space.books.every(b => !b.unread)).toBe(true);
+    await a.change({
+      revision: space.revision,
+      operation: {
+        kind: "dragBook",
+        storyId: 3,
+        target: shelfId,
+        newShelfId: randomUUID(),
+        beforeStoryId: 2,
+      },
+    });
+    expect(booksOnShelf(await a.list(), shelfId).map(b => b.id)).toEqual([
+      1, 3, 2,
+    ]);
+  });
+  it("rejects unauthorized, stale and invalid drops without creating an empty shelf", async () => {
+    seed();
+    seed(2, 20);
+    const before = await a.list();
+    for (const operation of [
+      {
+        kind: "dragBook" as const,
+        storyId: 2,
+        target: "new",
+        newShelfId: randomUUID(),
+        beforeStoryId: null,
+      },
+      {
+        kind: "dragBook" as const,
+        storyId: 1,
+        target: "new",
+        newShelfId: randomUUID(),
+        beforeStoryId: 2,
+      },
+    ])
+      await expect(
+        a.change({ revision: before.revision, operation })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await a.list()).shelves).toEqual([]);
+    await a.change({
+      revision: before.revision,
+      operation: { kind: "addShelf", id: randomUUID(), name: "另一端" },
+    });
+    await expect(
+      a.change({
+        revision: before.revision,
+        operation: {
+          kind: "dragBook",
+          storyId: 1,
+          target: "new",
+          newShelfId: randomUUID(),
+          beforeStoryId: null,
+        },
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await a.list()).shelves).toHaveLength(1);
+  });
   it("persists all three arrangements per account without marking story content unread", async () => {
     seed();
     for (const view of ["horizontal", "vertical", "album"] as const) {

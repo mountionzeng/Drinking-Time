@@ -65,6 +65,14 @@ export const emptyMemorySpace = (): MemorySpaceState => ({
 });
 export const memorySpaceOperationSchema = z.discriminatedUnion("kind", [
   z.object({
+    kind: z.literal("dragBook"),
+    view: memoryShelfViewSchema.optional(),
+    storyId: z.number().int().positive(),
+    target: z.union([id, z.literal("default"), z.literal("new")]),
+    newShelfId: id,
+    beforeStoryId: z.number().int().positive().nullable(),
+  }),
+  z.object({
     kind: z.literal("setBookView"),
     storyId: z.number().int().positive(),
     view: memoryShelfViewSchema.nullable(),

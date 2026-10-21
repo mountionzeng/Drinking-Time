@@ -25,6 +25,7 @@ import {
 import { mixedBookViews } from "./bookArrangement";
 import { MemoryBookCover } from "./MemoryBookPreview";
 import "./memorySpace.css";
+import { useMobileBookGesture } from "./useMobileBookGesture";
 
 const date = (time: number | null) =>
   time
@@ -39,10 +40,12 @@ export function MemorySpace({
   onOpenStory,
   onOpenNotes,
   initialTab = "stories",
+  mobileGestures = false,
 }: {
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
   initialTab?: "stories" | "people";
+  mobileGestures?: boolean;
 }) {
   const accountId = useStorySpine(s => s.accountId);
   return (
@@ -52,6 +55,7 @@ export function MemorySpace({
       onOpenStory={onOpenStory}
       onOpenNotes={onOpenNotes}
       initialTab={initialTab}
+      mobileGestures={mobileGestures}
     />
   );
 }
@@ -60,11 +64,13 @@ function MemorySpaceContent({
   onOpenStory,
   onOpenNotes,
   initialTab = "stories",
+  mobileGestures = false,
 }: {
   accountId: number | null;
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
   initialTab?: "stories" | "people";
+  mobileGestures?: boolean;
 }) {
   const [tab, setTab] = useState<"stories" | "people">(initialTab);
   const [organizing, setOrganizing] = useState(false);
@@ -104,6 +110,16 @@ function MemorySpaceContent({
       lock.current = false;
     }
   }
+  const [placementId, setPlacementId] = useState<number | null>(null);
+  const gesture = useMobileBookGesture({
+    enabled: mobileGestures && tab === "stories" && storyId === null,
+    blocked: change.isPending || Boolean(search),
+    revision: query.data?.revision,
+    onArrange: setPlacementId,
+    onDrop: op => {
+      void act(op);
+    },
+  });
   if (storyId !== null)
     return (
       <MemoryReader
@@ -114,7 +130,26 @@ function MemorySpaceContent({
     );
   const data = query.data;
   return (
-    <section className="memory-space" aria-label="回忆书架与人物">
+    <section
+      ref={gesture.root}
+      onClickCapture={gesture.onClickCapture}
+      className="memory-space"
+      aria-label="回忆书架与人物"
+      data-mobile-gestures={mobileGestures}
+      data-held-book={gesture.held?.id}
+    >
+      {gesture.held && (
+        <div
+          className="memory-drag-ghost"
+          role="status"
+          style={{ left: gesture.held.x, top: gesture.held.y }}
+        >
+          {gesture.held.title}
+          <small>
+            {gesture.held.dragging ? "松手放在这里" : "拖动换位置 · 松手调摆放"}
+          </small>
+        </div>
+      )}
       <header className="memory-space-heading">
         <div>
           <p className="memory-space-eyebrow">留在这里的时光</p>
@@ -162,13 +197,15 @@ function MemorySpaceContent({
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                 />
-                <button
-                  className="memory-button"
-                  onClick={() => setOrganizing(!organizing)}
-                >
-                  {organizing ? <Check size={15} /> : <Pencil size={15} />}
-                  {organizing ? "整理好了" : "整理书架"}
-                </button>
+                {!mobileGestures && (
+                  <button
+                    className="memory-button"
+                    onClick={() => setOrganizing(!organizing)}
+                  >
+                    {organizing ? <Check size={15} /> : <Pencil size={15} />}
+                    {organizing ? "整理好了" : "整理书架"}
+                  </button>
+                )}
               </div>
               <div className="memory-view-bar">
                 <div className="memory-view-intro">
@@ -178,6 +215,13 @@ function MemorySpaceContent({
                   </small>
                 </div>
               </div>
+              {mobileGestures && (
+                <p className="memory-hint">
+                  {search
+                    ? "清空搜索后，可长按拖动书本"
+                    : "长按拖动换位置，松手调整摆放；拖到“加一层书架”另放一层。"}
+                </p>
+              )}
               {addingShelf ? (
                 <form
                   className="memory-form"
@@ -253,56 +297,67 @@ function MemorySpaceContent({
                     books={booksOnShelf(data, shelf.id)}
                     search={search}
                     organizing={organizing}
+                    placementId={placementId}
+                    onPlacementChange={setPlacementId}
                     data={data}
                     shelfId={shelf.id}
-                    onRead={setStoryId}
+                    onRead={id => {
+                      setPlacementId(null);
+                      setStoryId(id);
+                    }}
                     act={act}
                   >
-                    {organizing && (
-                      <div className="memory-shelf-actions">
-                        <button
-                          aria-label={`上移${shelf.name}`}
-                          disabled={index === 0}
-                          onClick={() =>
-                            void act({
-                              kind: "moveShelf",
-                              id: shelf.id,
-                              direction: "up",
-                            })
-                          }
-                        >
-                          <ArrowUp size={16} />
-                        </button>
-                        <button
-                          aria-label={`下移${shelf.name}`}
-                          disabled={index === data.shelves.length - 1}
-                          onClick={() =>
-                            void act({
-                              kind: "moveShelf",
-                              id: shelf.id,
-                              direction: "down",
-                            })
-                          }
-                        >
-                          <ArrowDown size={16} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditingShelf(shelf.id);
-                            setShelfName(shelf.name);
-                            setAddingShelf(true);
-                          }}
-                        >
-                          改名
-                        </button>
-                        <button
-                          onClick={() =>
-                            void act({ kind: "removeShelf", id: shelf.id })
-                          }
-                        >
-                          移除层
-                        </button>
-                      </div>
+                    {(organizing || mobileGestures) && (
+                      <details
+                        className="memory-shelf-menu"
+                        open={mobileGestures ? undefined : true}
+                      >
+                        <summary aria-label={`管理${shelf.name}`}>···</summary>
+                        <div className="memory-shelf-actions">
+                          <button
+                            aria-label={`上移${shelf.name}`}
+                            disabled={index === 0}
+                            onClick={() =>
+                              void act({
+                                kind: "moveShelf",
+                                id: shelf.id,
+                                direction: "up",
+                              })
+                            }
+                          >
+                            <ArrowUp size={16} />
+                          </button>
+                          <button
+                            aria-label={`下移${shelf.name}`}
+                            disabled={index === data.shelves.length - 1}
+                            onClick={() =>
+                              void act({
+                                kind: "moveShelf",
+                                id: shelf.id,
+                                direction: "down",
+                              })
+                            }
+                          >
+                            <ArrowDown size={16} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingShelf(shelf.id);
+                              setShelfName(shelf.name);
+                              setAddingShelf(true);
+                            }}
+                          >
+                            改名
+                          </button>
+                          <button
+                            onClick={() =>
+                              void act({ kind: "removeShelf", id: shelf.id })
+                            }
+                          >
+                            移除层
+                          </button>
+                        </div>
+                      </details>
                     )}
                   </Shelf>
                 ))}
@@ -312,8 +367,13 @@ function MemorySpaceContent({
                   search={search}
                   organizing={organizing}
                   data={data}
+                  placementId={placementId}
+                  onPlacementChange={setPlacementId}
                   shelfId={null}
-                  onRead={setStoryId}
+                  onRead={id => {
+                    setPlacementId(null);
+                    setStoryId(id);
+                  }}
                   act={act}
                 />
               </div>
@@ -324,7 +384,14 @@ function MemorySpaceContent({
               )}
             </>
           ) : (
-            <People data={data} act={act} onRead={setStoryId} />
+            <People
+              data={data}
+              act={act}
+              onRead={id => {
+                setPlacementId(null);
+                setStoryId(id);
+              }}
+            />
           )}
         </fieldset>
       )}
@@ -341,7 +408,11 @@ function Shelf({
   onRead,
   act,
   children,
+  placementId,
+  onPlacementChange,
 }: {
+  placementId: number | null;
+  onPlacementChange: (id: number | null) => void;
   name: string;
   books: Space["books"];
   search: string;
@@ -371,7 +442,11 @@ function Shelf({
     else groups.push([book]);
   }
   return (
-    <section className="memory-shelf" aria-label={name}>
+    <section
+      className="memory-shelf"
+      aria-label={name}
+      data-drop-shelf={shelfId ?? "default"}
+    >
       <header>
         <h2>
           {name}
@@ -392,11 +467,17 @@ function Shelf({
                 <article
                   key={book.id}
                   className="memory-book-item"
+                  data-story-id={book.id}
+                  data-story-title={book.title}
                   data-binding={book.id % 5}
                   data-book-view={views.get(book.id)}
                 >
                   <MemoryBookCover
                     book={book}
+                    placementOpen={placementId === book.id}
+                    onPlacementOpenChange={open =>
+                      onPlacementChange(open ? book.id : null)
+                    }
                     onRead={() => onRead(book.id)}
                     onViewChange={view =>
                       void act({ kind: "setBookView", storyId: book.id, view })

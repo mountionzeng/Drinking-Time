@@ -302,6 +302,43 @@ export function applyMemoryOperation(
         ];
       break;
     }
+    case "dragBook": {
+      if (!ownedStories.has(op.storyId)) bad("故事不存在或不可访问");
+      if (op.beforeStoryId === op.storyId) return;
+      let targetId = op.target;
+      if (op.target === "new" || op.target === "default") {
+        if (state.shelves.some(s => s.id === op.newShelfId))
+          bad("书架层已存在，请刷新。");
+        const assigned = new Set(state.shelves.flatMap(s => s.storyIds));
+        const storyIds =
+          op.target === "default"
+            ? [...ownedStories].filter(id => !assigned.has(id))
+            : [];
+        if (op.beforeStoryId !== null && !storyIds.includes(op.beforeStoryId))
+          bad("目标位置已改变，请刷新。");
+        state.shelves.push({
+          id: op.newShelfId,
+          name:
+            op.target === "default"
+              ? "我的故事"
+              : `书架 ${state.shelves.length + 1}`,
+          storyIds,
+        });
+        targetId = op.newShelfId;
+      }
+      applyMemoryOperation(
+        state,
+        {
+          kind: "moveBook",
+          storyId: op.storyId,
+          shelfId: targetId,
+          beforeStoryId: op.beforeStoryId,
+        },
+        ownedStories
+      );
+      if (op.view) state.bookViews[op.storyId] = op.view;
+      break;
+    }
     case "moveBook": {
       if (!ownedStories.has(op.storyId)) bad("故事不存在或不可访问");
       const target = state.shelves.find(s => s.id === op.shelfId);
@@ -424,7 +461,13 @@ export async function changeMemorySpace(
   revision: number,
   op: MemorySpaceOperation
 ) {
-  const ids = new Set((await listUserStories(owner)).map(s => s.id));
+  const ids = new Set(
+    (await listUserStories(owner))
+      .sort(
+        (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id
+      )
+      .map(s => s.id)
+  );
   await editSpace(owner, (state, current) => {
     if (revision !== current) throw conflict();
     applyMemoryOperation(state, op, ids);
