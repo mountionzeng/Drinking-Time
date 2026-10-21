@@ -123,8 +123,9 @@ export function MobileAccountImages({
               query.isError
             }
             onClick={() => {
-              if (query.data?.nextCursor != null)
-                setCursors(current => [...current, query.data.nextCursor!]);
+              const nextCursor = query.data?.nextCursor;
+              if (nextCursor != null)
+                setCursors(current => [...current, nextCursor]);
             }}
           >
             {t("下一页")}
