@@ -1,3 +1,4 @@
+import { emptyMemorySpace } from "../shared/memorySpace";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -167,6 +168,9 @@ describe("shared layout co-creation", () => {
   it("shares the recipient's layout back as a labelled candidate the author adopts or ignores", async () => {
     const { authorStoryId, input } = await share();
     const { storyId } = await caller(20).accept({ token: input.token });
+    const activityState = emptyMemorySpace();
+    activityState.activity[storyId] = { totalMs: 90_000, lastCreditedAt: Date.now(), sessions: [] };
+    runtime.memoryState.accountMemorySpaces.push({ userId: 20, revision: 0, state: activityState, createdAt: new Date(), updatedAt: new Date() });
     const operationToken = randomUUID();
     const edited = await layout("和小周一起改的秋天", ["#c96", "#963", "#369"]);
     const before = structuredClone(
@@ -188,6 +192,9 @@ describe("shared layout co-creation", () => {
     const author = await caller(10).layout({ storyId: authorStoryId });
     expect(author.candidates).toHaveLength(1);
     const [candidate] = author.candidates;
+    expect(candidate.activeEditingMs).toBe(90_000);
+    activityState.activity[storyId].totalMs = 180_000;
+    expect(candidate.activeEditingMs).toBe(90_000);
     expect(candidate).toMatchObject({
       authorName: "小周",
       status: "pending",

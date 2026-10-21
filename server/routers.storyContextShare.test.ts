@@ -1,3 +1,4 @@
+import { emptyMemorySpace } from "../shared/memorySpace";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import * as runtime from "./repositories/runtime";
@@ -249,6 +250,9 @@ describe("story context sharing", () => {
         }
       )
     );
+    const activityState = emptyMemorySpace();
+    activityState.activity[storyId] = { totalMs: 90_000, lastCreditedAt: Date.now(), sessions: [] };
+    runtime.memoryState.accountMemorySpaces.push({ userId: 20, revision: 0, state: activityState, createdAt: new Date(), updatedAt: new Date() });
     const operationToken = crypto.randomUUID();
     await expect(caller(20).shareBack({ storyId, operationToken })).resolves.toEqual({ submitted: true });
     await expect(caller(20).shareBack({ storyId, operationToken })).resolves.toEqual({ submitted: true });
@@ -256,6 +260,9 @@ describe("story context sharing", () => {
     const versions = (author.body as any).textDraftHistory.versions;
     expect(versions).toHaveLength(1);
     expect(versions[0].contribution.userId).toBe(20);
+    expect(versions[0].contribution.activeEditingMs).toBe(90_000);
+    activityState.activity[storyId].totalMs = 180_000;
+    expect(versions[0].contribution.activeEditingMs).toBe(90_000);
     expect(versions[0].generated.body).toBe("乙改过的海边故事。");
     expect(versions[0].originalLearningEnabled).toBe(false);
     expect(versions[0].adoption).toBeUndefined();

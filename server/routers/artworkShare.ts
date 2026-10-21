@@ -1,3 +1,4 @@
+import { readMemoryActivity } from "../repositories/memorySpace";
 import {
   shareContributionInput,
   VIEW_ONLY,
@@ -244,6 +245,7 @@ export const artworkShareRouter = router({
           });
         return { submitted: true as const };
       }
+      const activeEditingMs = await readMemoryActivity(ctx.user.id, input.storyId);
       const authorName = artworkAuthorName(ctx.user.name);
       const stored = await storeLayoutForStory({
         userId: target.userId,
@@ -282,6 +284,7 @@ export const artworkShareRouter = router({
                 id,
                 requestHash,
                 contributorUserId: ctx.user.id,
+                ...(activeEditingMs === null ? {} : { activeEditingMs }),
                 createdAt: Date.now(),
                 status: "pending",
               },

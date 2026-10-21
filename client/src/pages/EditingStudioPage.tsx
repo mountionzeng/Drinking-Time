@@ -1,3 +1,4 @@
+import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import { DesktopMemorySpace } from "@/features/memorySpace/DesktopMemorySpace";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
 /**
@@ -511,9 +512,10 @@ function EditingStudioBody({
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
+      <StoryActivityTracker storyId={activeStoryId} userId={creationUser?.id ?? null} enabled={!accountMemoriesOpen} />
       <DesktopMemorySpace open={accountMemoriesOpen} onOpenChange={onAccountMemoriesOpenChange} onOpenWriting={() => onWorkspaceChange("publishing")} />
       <MemoryWarehouse onOpenWriting={() => onWorkspaceChange("publishing")} />
-      <div className="flex h-full min-h-0">
+      <div data-story-activity={activeStoryId} className="flex h-full min-h-0">
         {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
         <div
           data-tour="chat-column"

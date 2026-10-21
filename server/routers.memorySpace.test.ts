@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memorySpaceRouter } from "./routers/memorySpace";
 import type { TrpcContext } from "./_core/context";
 import * as runtime from "./repositories/runtime";
@@ -33,7 +33,83 @@ beforeEach(() => {
   vi.stubEnv("DATABASE_URL", "");
   runtime.resetMemoryStateForTesting();
 });
+afterEach(() => vi.restoreAllMocks());
 describe("账号回忆书架", () => {
+  it("persists all three arrangements per account without marking story content unread", async () => {
+    seed();
+    for (const view of ["horizontal", "vertical", "album"] as const) {
+      const prior = await a.list();
+      await a.change({
+        revision: prior.revision,
+        operation: { kind: "setShelfView", view },
+      });
+      const next = await caller(10).list();
+      expect(next.shelfView).toBe(view);
+      expect(next.books[0].unread).toBe(false);
+      expect((await b.list()).shelfView).toBe("vertical");
+    }
+  });
+  it("keeps per-book bindings independent of the default and rejects someone else's book", async () => {
+    seed();
+    seed(2, 20);
+    let space = await a.list();
+    await a.change({
+      revision: space.revision,
+      operation: { kind: "setBookView", storyId: 1, view: "album" },
+    });
+    space = await a.list();
+    expect(space.books[0].view).toBe("album");
+    await a.change({
+      revision: space.revision,
+      operation: { kind: "setShelfView", view: "horizontal" },
+    });
+    space = await a.list();
+    expect(space.books[0]).toMatchObject({ view: "album", unread: false });
+    await expect(
+      a.change({
+        revision: space.revision,
+        operation: { kind: "setBookView", storyId: 2, view: "album" },
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await a.change({
+      revision: space.revision,
+      operation: { kind: "setBookView", storyId: 1, view: null },
+    });
+    expect((await a.list()).books[0].view).toBeUndefined();
+  });
+  it("caps activity, deduplicates retries and tabs, isolates ownership, and keeps shelf revision stable", async () => {
+    seed();
+    const baseline = await a.list();
+    expect(baseline.books[0].activeEditingMs).toBeNull();
+    let now = 100_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const sessionId = randomUUID(),
+      secondId = randomUUID();
+    const tick = (elapsedMs: number, id = sessionId) =>
+      a.activity({ storyId: 1, sessionId: id, elapsedMs });
+    await expect(
+      b.activity({ storyId: 1, sessionId, elapsedMs: 0 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await tick(0)).toEqual({ recordedMs: 0 });
+    await tick(0, secondId);
+    now += 15_000;
+    expect(await tick(15_000)).toEqual({ recordedMs: 15_000 });
+    expect(await tick(15_000)).toEqual({ recordedMs: 15_000 });
+    expect(await tick(15_000, secondId)).toEqual({ recordedMs: 15_000 });
+    now += 10_000;
+    expect(await tick(500_000)).toEqual({ recordedMs: 25_000 });
+    const result = await a.list();
+    expect(result.revision).toBe(baseline.revision);
+    expect(result.books[0]).toMatchObject({
+      activeEditingMs: 25_000,
+      unread: false,
+      wordCount: 5,
+    });
+    expect(JSON.stringify(result)).not.toContain(sessionId);
+    now += 100_000;
+    expect(await tick(600_000)).toEqual({ recordedMs: 25_000 });
+  });
+
   it("requires login and refuses other owners' stories", async () => {
     seed();
     seed(2, 20);
@@ -270,7 +346,7 @@ describe("账号回忆书架", () => {
       libraryVersion: "1",
       systemPrompt: "secret",
       modelMessage: "",
-      contribution: { userId: 20, authorName: "小林" },
+      contribution: { userId: 20, authorName: "小林", activeEditingMs: 90_000 },
       generated: { title: "朋友稿", body: "朋友的正文", tags: [] },
     });
     (story.body as any).textDraftHistory = {
@@ -281,6 +357,10 @@ describe("账号回忆书架", () => {
     const s = await a.list();
     const reading = await a.book({ storyId: 1 });
     expect(s.books[0].pending).toBe(1);
+    expect(s.books[0].editors).toEqual([
+      { name: "小林", wordCount: 5, activeEditingMs: 90_000 },
+    ]);
+    expect(JSON.stringify(s.books)).not.toMatch(/userId|requestHash|sessionId/);
     expect(s.people[0].name).toBe("小林");
     expect(reading.participants[0]).toMatchObject({
       name: "小林",

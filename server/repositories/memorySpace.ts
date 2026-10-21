@@ -162,7 +162,8 @@ async function sourceData(owner: number) {
 /** All writers, including first-open initialization, serialize on one account row. */
 async function editSpace<T>(
   owner: number,
-  action: (state: MemorySpaceState, revision: number) => T | Promise<T>
+  action: (state: MemorySpaceState, revision: number) => T | Promise<T>,
+  bumpRevision = true
 ) {
   const db = await getDb();
   const apply = async (raw: MemorySpaceState, revision: number) => {
@@ -195,7 +196,10 @@ async function editSpace<T>(
       if (next.changed)
         await tx
           .update(accountMemorySpaces)
-          .set({ state: next.state, revision: row.revision + 1 })
+          .set({
+            state: next.state,
+            revision: row.revision + Number(bumpRevision),
+          })
           .where(
             and(
               eq(accountMemorySpaces.userId, owner),
@@ -204,7 +208,7 @@ async function editSpace<T>(
           );
       return {
         result: next.result,
-        revision: row.revision + Number(next.changed),
+        revision: row.revision + Number(next.changed && bumpRevision),
       };
     });
   return withLocalAggregateMutationLock(async () => {
@@ -213,7 +217,8 @@ async function editSpace<T>(
       prior?.state ?? emptyMemorySpace(),
       prior?.revision ?? 0
     );
-    const revision = (prior?.revision ?? 0) + Number(next.changed);
+    const revision =
+      (prior?.revision ?? 0) + Number(next.changed && bumpRevision);
     if (!prior || next.changed) {
       const row = {
         userId: owner,
@@ -247,6 +252,14 @@ export function applyMemoryOperation(
   const shelf =
     "id" in op ? state.shelves.find(s => s.id === op.id) : undefined;
   switch (op.kind) {
+    case "setBookView":
+      if (!ownedStories.has(op.storyId)) bad("故事不存在或不可访问");
+      if (op.view === null) delete state.bookViews[op.storyId];
+      else state.bookViews[op.storyId] = op.view;
+      break;
+    case "setShelfView":
+      state.shelfView = op.view;
+      break;
     case "removePerson": {
       const person = state.people.find(p => p.id === op.id);
       if (person?.accountId)
@@ -348,6 +361,7 @@ export async function listMemorySpace(owner: number): Promise<MemorySpace> {
         });
     const ids = new Set(data.projected.map(b => b.row.id));
     return {
+      shelfView: state.shelfView,
       // Filter the response, not persistent ordering, against this query's snapshot.
       // A delayed list must not erase a book moved by a newer concurrent request.
       shelves: state.shelves.map(shelf => ({
@@ -356,6 +370,7 @@ export async function listMemorySpace(owner: number): Promise<MemorySpace> {
       })),
       books: data.projected.map(book => ({
         id: book.row.id,
+        view: state.bookViews[book.row.id],
         title: book.reading.title,
         coverUrl: data.covers.get(book.row.id) ?? null,
         hasText: book.reading.versions.length > 0,
@@ -364,6 +379,10 @@ export async function listMemorySpace(owner: number): Promise<MemorySpace> {
         unread: state.seenStories[book.row.id] !== book.reading.fingerprint,
         isNew: !state.seenStories[book.row.id],
         pending: book.pending,
+        wordCount: book.wordCount,
+        wordCountLabel: book.wordCountLabel,
+        activeEditingMs: state.activity[book.row.id]?.totalMs ?? null,
+        editors: book.editors,
       })),
       people: state.people.map(p => ({
         id: p.id,
@@ -423,5 +442,70 @@ export async function markMemoryBookSeen(
     state.seenStories[storyId] = fingerprint;
     return { saved: true };
   });
+  return result;
+}
+
+/** Read only the current user's own recorded activity; never project session identifiers. */
+export async function readMemoryActivity(owner: number, storyId: number) {
+  const db = await getDb();
+  const row = db
+    ? (
+        await db
+          .select()
+          .from(accountMemorySpaces)
+          .where(eq(accountMemorySpaces.userId, owner))
+      )[0]
+    : memoryState.accountMemorySpaces.find(s => s.userId === owner);
+  return row
+    ? (memorySpaceStateSchema.parse(row.state).activity[storyId]?.totalMs ??
+        null)
+    : null;
+}
+
+/** Cumulative heartbeats are replay safe, wall-clock capped, and cannot double-count tabs. */
+export async function recordMemoryActivity(
+  owner: number,
+  input: { storyId: number; sessionId: string; elapsedMs: number }
+) {
+  if (!(await getStoryById(input.storyId, owner)))
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+  const { result } = await editSpace(
+    owner,
+    state => {
+      const now = Date.now();
+      const record = state.activity[input.storyId] ?? {
+        totalMs: 0,
+        lastCreditedAt: now,
+        sessions: [],
+      };
+      record.sessions = record.sessions.filter(s => now - s.at <= 90_000);
+      const session = record.sessions.find(s => s.id === input.sessionId);
+      if (session && input.elapsedMs > session.elapsedMs) {
+        const delta = Math.max(
+          0,
+          Math.min(
+            input.elapsedMs - session.elapsedMs,
+            now - session.at,
+            now - record.lastCreditedAt,
+            30_000
+          )
+        );
+        record.totalMs += delta;
+        record.lastCreditedAt = now;
+        session.elapsedMs = input.elapsedMs;
+        session.at = now;
+      } else if (!session) {
+        record.sessions = record.sessions.slice(-7);
+        record.sessions.push({
+          id: input.sessionId,
+          elapsedMs: input.elapsedMs,
+          at: now,
+        });
+      }
+      state.activity[input.storyId] = record;
+      return { recordedMs: record.totalMs };
+    },
+    false
+  );
   return result;
 }

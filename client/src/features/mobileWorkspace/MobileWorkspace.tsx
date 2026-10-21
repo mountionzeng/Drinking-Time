@@ -1,3 +1,4 @@
+import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import {
   UiLanguageProvider,
   useUiText,
@@ -697,6 +698,8 @@ function MobileSelectedStoryWorkspace({
   };
 
   return (
+    <div style={{ display: "contents" }} data-story-activity={activeStoryId}>
+    <StoryActivityTracker storyId={activeStoryId} userId={userId} enabled={page === "chat" || (page === "stories" && storyOpen)} />
     <MobileWorkspaceFrame
       chatOnly
       storyTitle={story.title}
@@ -853,6 +856,7 @@ function MobileSelectedStoryWorkspace({
         </>
       }
     />
+    </div>
   );
 }
 

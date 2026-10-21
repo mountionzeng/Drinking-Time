@@ -1,10 +1,32 @@
 import { z } from "zod";
 
 const id = z.string().uuid();
+export const memoryShelfViewSchema = z.enum([
+  "horizontal",
+  "vertical",
+  "album",
+]);
+export type MemoryShelfView = z.infer<typeof memoryShelfViewSchema>;
+const activitySchema = z.object({
+  totalMs: z.number().nonnegative(),
+  lastCreditedAt: z.number(),
+  sessions: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        elapsedMs: z.number().nonnegative(),
+        at: z.number(),
+      })
+    )
+    .max(8),
+});
 const name = z.string().trim().min(1).max(80);
 export const memorySpaceStateSchema = z.object({
   schemaVersion: z.literal(1),
   initialized: z.boolean(),
+  shelfView: memoryShelfViewSchema.default("vertical"),
+  bookViews: z.record(z.string(), memoryShelfViewSchema).default({}),
+  activity: z.record(z.string(), activitySchema).default({}),
   shelves: z
     .array(
       z.object({
@@ -33,12 +55,21 @@ export type MemorySpaceState = z.infer<typeof memorySpaceStateSchema>;
 export const emptyMemorySpace = (): MemorySpaceState => ({
   schemaVersion: 1,
   initialized: false,
+  shelfView: "vertical",
+  bookViews: {},
+  activity: {},
   shelves: [],
   seenStories: {},
   people: [],
   relationships: [],
 });
 export const memorySpaceOperationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("setBookView"),
+    storyId: z.number().int().positive(),
+    view: memoryShelfViewSchema.nullable(),
+  }),
+  z.object({ kind: z.literal("setShelfView"), view: memoryShelfViewSchema }),
   z.object({ kind: z.literal("removePerson"), id }),
   z.object({ kind: z.literal("addShelf"), id, name }),
   z.object({ kind: z.literal("renameShelf"), id, name }),
@@ -71,6 +102,7 @@ export const memorySpaceOperationSchema = z.discriminatedUnion("kind", [
 ]);
 export type MemorySpaceOperation = z.infer<typeof memorySpaceOperationSchema>;
 export type MemoryBook = {
+  view?: MemoryShelfView;
   id: number;
   title: string;
   coverUrl: string | null;
@@ -80,6 +112,14 @@ export type MemoryBook = {
   unread: boolean;
   isNew: boolean;
   pending: number;
+  wordCount: number;
+  wordCountLabel: string;
+  activeEditingMs: number | null;
+  editors: {
+    name: string;
+    wordCount: number | null;
+    activeEditingMs: number | null;
+  }[];
 };
 export type MemoryPerson = {
   id: string;
@@ -94,6 +134,7 @@ export type MemoryPerson = {
 };
 export type MemorySpace = {
   revision: number;
+  shelfView: MemoryShelfView;
   shelves: MemorySpaceState["shelves"];
   books: MemoryBook[];
   people: MemoryPerson[];

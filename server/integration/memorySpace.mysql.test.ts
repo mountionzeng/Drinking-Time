@@ -97,6 +97,56 @@ suite("回忆书架 MySQL", () => {
             storyId: story.insertId,
           })
         ).toEqual({ error: "NOT_FOUND" });
+        const activityBase = await run({});
+        const sessionId = randomUUID();
+        expect(
+          await run({
+            action: "activity",
+            storyId: story.insertId,
+            sessionId,
+            elapsedMs: 0,
+            testNow: 100_000,
+          })
+        ).toEqual({ recordedMs: 0 });
+        const ticks = await Promise.all(
+          [0, 1].map(() =>
+            run({
+              action: "activity",
+              storyId: story.insertId,
+              sessionId,
+              elapsedMs: 15_000,
+              testNow: 115_000,
+            })
+          )
+        );
+        expect(ticks.every(t => t.recordedMs === 15_000)).toBe(true);
+        const timed = await run({});
+        expect(timed.revision).toBe(activityBase.revision);
+        expect(timed.books[0].activeEditingMs).toBe(15_000);
+        expect(timed.books[0].unread).toBe(false);
+        expect(
+          await run({
+            owner: owner + 1,
+            action: "activity",
+            storyId: story.insertId,
+            sessionId,
+            elapsedMs: 15_000,
+          })
+        ).toEqual({ error: "NOT_FOUND" });
+        expect(
+          await run({
+            action: "change",
+            revision: timed.revision,
+            operation: {
+              kind: "setBookView",
+              storyId: story.insertId,
+              view: "album",
+            },
+          })
+        ).toEqual({ saved: true });
+        const bound = await run({});
+        expect(bound.books[0].view).toBe("album");
+        expect(bound.books[0].activeEditingMs).toBe(15_000);
         const [rows] = await db.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS total FROM account_memory_spaces"
         );

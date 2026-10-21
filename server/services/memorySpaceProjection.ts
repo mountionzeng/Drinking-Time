@@ -8,7 +8,7 @@ import {
 } from "../../shared/publishingDraft";
 import { readTextDraftHistory } from "../../shared/textDraftHistory";
 import { readSharedLayoutState } from "../../shared/sharedLayout";
-import type { MemoryReading } from "../../shared/memorySpace";
+import type { MemoryBook, MemoryReading } from "../../shared/memorySpace";
 
 /** Only explicit display fields leave this projection. Stable legacy timestamps use zero. */
 export function projectMemoryStory(
@@ -103,7 +103,61 @@ export function projectMemoryStory(
     versions,
     participants: participants.sort((a, b) => b.at - a.at),
   };
+  // Metrics are deliberately outside the content fingerprint: counting time is not a story update.
+  const count = (text: string) => [...text.replace(/\s/gu, "")].length;
+  const editorMap = new Map<
+    number,
+    MemoryBook["editors"][number] & { at: number }
+  >();
+  const addEditor = (
+    id: number,
+    name: string,
+    at: number,
+    wordCount: number | null,
+    activeEditingMs?: number
+  ) => {
+    const prior = editorMap.get(id);
+    editorMap.set(id, {
+      name: prior && prior.at > at ? prior.name : name,
+      at: Math.max(prior?.at ?? 0, at),
+      wordCount:
+        wordCount !== null && (!prior || at >= prior.at)
+          ? wordCount
+          : (prior?.wordCount ?? null),
+      activeEditingMs:
+        activeEditingMs === undefined
+          ? (prior?.activeEditingMs ?? null)
+          : Math.max(activeEditingMs, prior?.activeEditingMs ?? 0),
+    });
+  };
+  for (const version of history.versions) {
+    if (version.contribution)
+      addEditor(
+        version.contribution.userId,
+        version.contribution.authorName,
+        version.createdAt,
+        version.status === "ready" && version.generated
+          ? count(version.generated.body)
+          : null,
+        version.contribution.activeEditingMs
+      );
+  }
+  for (const candidate of layout.candidates)
+    addEditor(
+      candidate.contributorUserId,
+      candidate.authorName,
+      candidate.createdAt,
+      null,
+      candidate.activeEditingMs
+    );
   return {
+    wordCount: versions[0] ? count(versions[0].body) : 0,
+    wordCountLabel: versions[0]?.id.startsWith("published:")
+      ? "当前正文"
+      : versions.length
+        ? "候选正文"
+        : "尚未成文",
+    editors: [...editorMap.values()].map(({ at: _at, ...display }) => display),
     reading,
     accounts,
     pending,

@@ -135,6 +135,7 @@ const candidateSchema = storedLayoutSchema.extend({
   id: z.string(),
   requestHash: z.string(),
   contributorUserId: z.number().int(),
+  activeEditingMs: z.number().nonnegative().optional(),
   createdAt: z.number(),
   status: z.enum(["pending", "adopted", "dismissed"]),
 });

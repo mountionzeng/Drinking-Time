@@ -1,3 +1,4 @@
+import { readMemoryActivity } from "./memorySpace";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -242,6 +243,7 @@ export function contributeSharedStory(
     authorName: string;
     operationToken: string;
     content: TextDraftContent;
+    activeEditingMs?: number;
   }
 ) {
   return withShare(kind, tokenHash, async (share, story, storage) => {
@@ -285,7 +287,7 @@ export function contributeSharedStory(
           instruction: "朋友协助改写，等待作者确认采用",
           source: "reference",
         },
-        contribution: { userId: input.userId, authorName: input.authorName },
+        contribution: { userId: input.userId, authorName: input.authorName, activeEditingMs: input.activeEditingMs },
         conversationSnapshot: [],
         conversationDelta: [],
         promptVersion: "share-contribution-v1",
@@ -405,7 +407,9 @@ export async function shareBackFork(input: {
       code: "BAD_REQUEST",
       message: "请先写好并保存正文，再分享回给作者",
     });
+  const activeEditingMs = await readMemoryActivity(input.userId, input.storyId);
   return contributeSharedStory(origin.kind, origin.tokenHash, {
+    ...(activeEditingMs === null ? {} : { activeEditingMs }),
     userId: input.userId,
     authorName: input.authorName,
     operationToken: input.operationToken,

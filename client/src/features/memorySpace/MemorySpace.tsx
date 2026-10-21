@@ -22,6 +22,7 @@ import {
   type MemorySpace as Space,
   type MemoryPerson,
 } from "@shared/memorySpace";
+import { MemoryBookCover } from "./MemoryBookPreview";
 import "./memorySpace.css";
 
 const date = (time: number | null) =>
@@ -163,6 +164,41 @@ function MemorySpaceContent({
                   {organizing ? "整理好了" : "整理书架"}
                 </button>
               </div>
+              <div className="memory-view-bar">
+                <div className="memory-view-intro">
+                  <span>我的藏书</span>
+                  <small>{data.books.length} 本故事，慢慢收藏</small>
+                </div>
+                <div
+                  className="memory-view-options"
+                  role="group"
+                  aria-label="书本默认摆放方式"
+                >
+                  {(
+                    [
+                      ["horizontal", "横向书脊"],
+                      ["vertical", "纵向书脊"],
+                      ["album", "画册"],
+                    ] as const
+                  ).map(([view, label]) => (
+                    <button
+                      key={view}
+                      aria-pressed={(data.shelfView ?? "vertical") === view}
+                      onClick={() => void act({ kind: "setShelfView", view })}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`memory-view-icon memory-view-icon--${view}`}
+                      >
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {addingShelf ? (
                 <form
                   className="memory-form"
@@ -226,7 +262,11 @@ function MemorySpaceContent({
                   加一层书架
                 </button>
               )}
-              <div className="memory-shelves">
+              <div
+                className="memory-shelves"
+                data-view={data.shelfView ?? "vertical"}
+                data-organizing={organizing}
+              >
                 {data.shelves.map((shelf, index) => (
                   <Shelf
                     key={shelf.id}
@@ -346,93 +386,84 @@ function Shelf({
         {children}
       </header>
       <div className="memory-book-row">
-        {visible.map(book => {
-          const i = books.findIndex(b => b.id === book.id);
-          return (
-            <article key={book.id} className="memory-book-item">
-              <button
-                className="memory-book"
-                onClick={() => onRead(book.id)}
-                aria-label={`阅读${book.title}`}
-              >
-                {book.coverUrl && (
-                  <img src={book.coverUrl} alt="" loading="lazy" />
-                )}
-                <span className="memory-book-paper">
-                  <span className="memory-book-title">{book.title}</span>
-                  <span className="memory-book-footer">
-                    {book.hasText ? "拾光 · 故事" : "尚未成文"}
-                  </span>
-                </span>
-                {(book.unread || book.pending > 0) && (
-                  <span className="memory-book-ribbon">
-                    {book.pending
-                      ? "朋友分享回来"
-                      : book.isNew
-                        ? "新故事"
-                        : "有更新"}
-                  </span>
-                )}
-              </button>
-              <p className="memory-book-time">{date(book.updatedAt)}</p>
-              {organizing && (
-                <div className="memory-book-arrange">
-                  <select
-                    aria-label={`移动${book.title}到书架层`}
-                    value={shelfId ?? ""}
-                    onChange={e =>
-                      void act({
-                        kind: "moveBook",
-                        storyId: book.id,
-                        shelfId: e.target.value || null,
-                        beforeStoryId: null,
-                      })
+        {Array.from({ length: Math.ceil(visible.length / 3) }, (_, group) => (
+          <div className="memory-book-stack" key={group}>
+            {visible.slice(group * 3, group * 3 + 3).map(book => {
+              const i = books.findIndex(b => b.id === book.id);
+              return (
+                <article
+                  key={book.id}
+                  className="memory-book-item"
+                  data-binding={book.id % 5}
+                  data-book-view={book.view ?? data.shelfView ?? "vertical"}
+                >
+                  <MemoryBookCover
+                    book={book}
+                    onRead={() => onRead(book.id)}
+                    onViewChange={view =>
+                      void act({ kind: "setBookView", storyId: book.id, view })
                     }
-                  >
-                    <option value="">未分层</option>
-                    {data.shelves.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                  {shelfId && (
-                    <div>
-                      <button
-                        aria-label={`前移${book.title}`}
-                        disabled={i === 0}
-                        onClick={() =>
+                  />
+                  {organizing && (
+                    <div className="memory-book-arrange">
+                      <select
+                        aria-label={`移动${book.title}到书架层`}
+                        value={shelfId ?? ""}
+                        onChange={e =>
                           void act({
                             kind: "moveBook",
                             storyId: book.id,
-                            shelfId,
-                            beforeStoryId: books[i - 1].id,
+                            shelfId: e.target.value || null,
+                            beforeStoryId: null,
                           })
                         }
                       >
-                        <ArrowLeft size={16} />
-                      </button>
-                      <button
-                        aria-label={`后移${book.title}`}
-                        disabled={i === books.length - 1}
-                        onClick={() =>
-                          void act({
-                            kind: "moveBook",
-                            storyId: book.id,
-                            shelfId,
-                            beforeStoryId: books[i + 2]?.id ?? null,
-                          })
-                        }
-                      >
-                        <ArrowRight size={16} />
-                      </button>
+                        <option value="">未分层</option>
+                        {data.shelves.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                      {shelfId && (
+                        <div>
+                          <button
+                            aria-label={`前移${book.title}`}
+                            disabled={i === 0}
+                            onClick={() =>
+                              void act({
+                                kind: "moveBook",
+                                storyId: book.id,
+                                shelfId,
+                                beforeStoryId: books[i - 1].id,
+                              })
+                            }
+                          >
+                            <ArrowLeft size={16} />
+                          </button>
+                          <button
+                            aria-label={`后移${book.title}`}
+                            disabled={i === books.length - 1}
+                            onClick={() =>
+                              void act({
+                                kind: "moveBook",
+                                storyId: book.id,
+                                shelfId,
+                                beforeStoryId: books[i + 2]?.id ?? null,
+                              })
+                            }
+                          >
+                            <ArrowRight size={16} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
-            </article>
-          );
-        })}
+                </article>
+              );
+            })}
+          </div>
+        ))}
         {!visible.length && (
           <p className="memory-empty">
             {search ? "这一层没有找到这本故事。" : "故事会在这里慢慢积成一排。"}

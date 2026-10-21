@@ -2,6 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { memorySpaceOperationSchema } from "../../shared/memorySpace";
 import {
+  recordMemoryActivity,
   listMemorySpace,
   changeMemorySpace,
   readMemoryBook,
@@ -9,6 +10,14 @@ import {
 } from "../repositories/memorySpace";
 const storyInput = z.object({ storyId: z.number().int().positive() });
 export const memorySpaceRouter = router({
+  activity: protectedProcedure
+    .input(
+      storyInput.extend({
+        sessionId: z.string().uuid(),
+        elapsedMs: z.number().int().min(0).max(86_400_000),
+      })
+    )
+    .mutation(({ ctx, input }) => recordMemoryActivity(ctx.user.id, input)),
   list: protectedProcedure.query(({ ctx }) => listMemorySpace(ctx.user.id)),
   change: protectedProcedure
     .input(

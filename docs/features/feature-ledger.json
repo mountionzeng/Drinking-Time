@@ -7663,7 +7663,10 @@
         "server/routers/memorySpace.ts",
         "client/src/features/memorySpace/MemorySpace.tsx",
         "client/src/features/memorySpace/memorySpace.css",
-        "drizzle/0033_account_memory_spaces.sql"
+        "drizzle/0033_account_memory_spaces.sql",
+        "client/src/features/memorySpace/MemoryBookPreview.tsx",
+        "client/src/features/memorySpace/StoryActivityTracker.tsx",
+        "client/src/features/memorySpace/activeEditingClock.ts"
       ],
       "evidence": [
         "docs/plans/2026-10-21-memory-bookshelf-people.md",
@@ -7673,14 +7676,19 @@
         "server/repositories/stateCompatibility.test.ts",
         "client/src/features/mobileWorkspace/MobileContentLibrary.test.tsx",
         "command:pnpm feature:validate",
-        "command:pnpm migration:verify"
+        "command:pnpm migration:verify",
+        "docs/qa/2026-10-21-memory-bookshelf-bindings.md",
+        "client/src/features/memorySpace/activeEditingClock.test.ts",
+        "server/routers.storyContextShare.test.ts",
+        "server/routers.sharedLayout.test.ts"
       ],
       "invariants": [
         "手机和电脑共用账号级数据；书架排序不改变首页最近故事的权威顺序，移动书或删除书架层不得删除故事。",
         "保留原记忆选卡成文、归档恢复与来源快照；故事内记事仍由对话工具承载。",
         "共创候选与正式正文分开，阅读不等于采用；更新标记只确认实际展示的内容版本。",
         "系统邀请与共创关系必须有权威记录；用户自定义关系私有，不推断不存在的邀请或亲友事实。",
-        "客户端仅获得不透明联系人ID和展示字段，不返回贡献者userId、分享令牌或requestHash。"
+        "客户端仅获得不透明联系人ID和展示字段，不返回贡献者userId、分享令牌或requestHash。",
+        "摆放偏好和活跃时长使用账号专用存储，不改变故事内容指纹；悬停不标已读，历史无计时不得伪造，朋友时长仅随分享返回快照。"
       ],
       "dependencies": [
         "story-ownership",
@@ -7693,7 +7701,8 @@
         "旧分享链接无法确定未接受的收件人；内测邀请码无邀请者，历史未接受邀请只能由用户手动补录，不宣称自动覆盖。",
         "书架新已读跨端保存；原分享回来提醒的40篇扫描和本机已读限制本轮不改。",
         "使用按钮排序及选层，暂不含拖拽；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
-        "真机iOS/Android、完整屏幕阅读器、大规模库与正式站双真实账号新书架验收尚未完成。"
+        "真机iOS/Android、完整屏幕阅读器、大规模库与正式站双真实账号新书架验收尚未完成。",
+        "活跃时长按前台交互窗口计量，历史未记录；断网/强退可能少记。好友展示已分享的最大累计快照，字数为正文/提交长度，不是净新增字数。"
       ],
       "history": [
         {
@@ -7710,6 +7719,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "应用提交f9c18671已推送并生产部署。独立候选类型/构建/账本/迁移校验通过；普通测试661文件5633项通过，因缺少测试配置失败的4文件补虚构配置后69项全通过；隔离MySQL另行完成19文件66项。正式库仅新增account_memory_spaces，迁移33至34，95个运行文件SHA一致，公网页面/健康200、新接口匿名401；保留数据库及应用回滚备份，正式双真实账号体验待用户验收。"
+        },
+        {
+          "date": "2026-10-21",
+          "kind": "feature",
+          "summary": "按用户实体书柜参考增加横向书脊、纵向书脊、封面画册和单本混放；跟随拾光及五行六主题。用户确认新增实际活跃计时，接入两端编辑器、服务器去重与共享提交快照；悬停/手机概览展示人物、字数、时长及更新。定向61项和隔离MySQL跨进程验证通过，详见摆放QA。"
         }
       ]
     }

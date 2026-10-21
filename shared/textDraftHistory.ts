@@ -72,6 +72,7 @@ export const textDraftVersionSchema = z.object({
   contribution: z
     .object({
       authorName: z.string().max(80),
+      activeEditingMs: z.number().nonnegative().optional(),
       userId: z.number().int().positive(),
     })
     .optional(),
