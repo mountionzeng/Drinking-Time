@@ -11,8 +11,8 @@ const view = (phase: Parameters<typeof WechatCodeLoginView>[0]["phase"], seconds
   renderToStaticMarkup(<WechatCodeLoginView phase={phase} created={created} secondsLeft={secondsLeft} onStart={() => {}} />);
 
 describe("WechatCodeLogin", () => {
-  it("开关关闭（create 返回 404）时组件整块不渲染", () => {
-    // 组件在收到 404 后把 available 置为 false 并返回 null；初始渲染只有入口按钮。
+  it("尚未请求 create 时初始静态渲染显示入口按钮", () => {
+    // 这里只验证初始静态 HTML；404 后隐藏与轮询需要交互环境验证。
     vi.stubGlobal("window", { navigator: { userAgent: "Mozilla/5.0 (Macintosh) Chrome/120" } });
     expect(renderToStaticMarkup(<WechatCodeLogin onLoggedIn={() => {}} />)).toContain("使用微信登录");
     expect(renderToStaticMarkup(<WechatCodeLoginView phase="idle" created={null} secondsLeft={0} onStart={() => {}} />)).toContain("使用微信登录");

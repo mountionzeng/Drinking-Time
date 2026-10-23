@@ -5,7 +5,7 @@ type Row = {
   bindUserId: number | null; userId: number | null; clientHint: string; expiresAt: Date; confirmedAt: Date | null; consumedAt: Date | null;
 };
 const store = vi.hoisted(() => ({ rows: [] as Row[], limited: new Set<string>() }));
-const bind = vi.hoisted(() => ({ result: "bound" as "bound" | "merge_required" }));
+const bind = vi.hoisted(() => ({ result: "bound" as "bound" | "merge_required", transactions: [] as unknown[] }));
 
 vi.mock("../_core/env", () => ({ ENV: { otpDigestSecret: "test-otp-digest-secret", otpDigestSecretVersion: "1" } }));
 vi.mock("../repositories/accounts", () => ({
@@ -14,8 +14,9 @@ vi.mock("../repositories/accounts", () => ({
 }));
 vi.mock("./accountIdentity", () => ({
   resolveWechatAccount: vi.fn(async () => 77),
-  bindWechatAccount: vi.fn(async () => bind.result),
+  bindWechatAccount: vi.fn(async (_userId: number, _subject: string, tx?: unknown) => { bind.transactions.push(tx); return bind.result; }),
 }));
+const transaction = {};
 vi.mock("../repositories/webLoginRequests", () => ({
   insertWebLoginRequest: vi.fn(async (row: Omit<Row, "id" | "status" | "userId" | "confirmedAt" | "consumedAt">) => {
     if (store.rows.some(item => item.codeHash === row.codeHash)) return false;
@@ -31,6 +32,14 @@ vi.mock("../repositories/webLoginRequests", () => ({
     if (!row || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now) return false;
     Object.assign(row, { status: input.status, userId: input.userId, confirmedAt: input.now });
     return true;
+  }),
+  decideWebLoginWithBinding: vi.fn(async (input: { id: number; now: Date; bind: (userId: number, tx: unknown) => Promise<"bound" | "merge_required"> }) => {
+    const row = store.rows.find(item => item.id === input.id);
+    if (!row || !row.bindUserId || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now) return "invalid";
+    const outcome = await input.bind(row.bindUserId, transaction);
+    Object.assign(row, { status: outcome, userId: outcome === "bound" ? row.bindUserId : null, confirmedAt: input.now });
+    if (outcome === "bound") row.status = "confirmed";
+    return outcome;
   }),
   consumeConfirmedWebLogin: vi.fn(async (input: { lookupHash: string; verifierHash: string; now: Date }) => {
     const row = store.rows.find(item => item.lookupHash === input.lookupHash && item.verifierHash === input.verifierHash && item.status === "confirmed" && !item.consumedAt);
@@ -52,7 +61,7 @@ async function create(extra: { bindUserId?: number } = {}) {
   return created;
 }
 
-beforeEach(() => { store.rows = []; store.limited.clear(); bind.result = "bound"; });
+beforeEach(() => { store.rows = []; store.limited.clear(); bind.result = "bound"; bind.transactions = []; });
 
 describe("网页登录请求", () => {
   it("只存摘要：库里没有明文的码、L 或验证值", async () => {
@@ -135,11 +144,24 @@ describe("网页登录请求", () => {
     bind.result = "merge_required";
     const c = await create({ bindUserId: 5 });
     expect(await confirmWebLoginBySubject({ subject, code: c.code, decision: "confirm", now: later(1_000) })).toEqual({ outcome: "merge_required" });
+    expect(bind.transactions[0]).toBe(transaction);
     expect(await pollWebLoginRequest({ l: c.l, v: c.v, requestIp: "1.2.3.4", now: later(2_000) })).toEqual({ status: "merge_required" });
     bind.result = "bound";
     const d = await create({ bindUserId: 5 });
     await confirmWebLoginBySubject({ subject, code: d.code, decision: "confirm", now: later(1_000) });
+    expect(bind.transactions[1]).toBe(transaction);
     expect(await pollWebLoginRequest({ l: d.l, v: d.v, requestIp: "1.2.3.4", now: later(2_000) })).toEqual({ status: "confirmed", userId: 5, mode: "bind" });
+  });
+
+  it("请求已拒绝或过期时不执行微信绑定副作用", async () => {
+    const denied = await create({ bindUserId: 5 });
+    await confirmWebLoginBySubject({ subject, code: denied.code, decision: "deny", now: later(1_000) });
+    expect(await confirmWebLoginBySubject({ subject, code: denied.code, decision: "confirm", now: later(2_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(0);
+
+    const expired = await create({ bindUserId: 5 });
+    expect(await confirmWebLoginBySubject({ subject, code: expired.code, decision: "confirm", now: later(121_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(0);
   });
 
   it("只记粗粒度的系统和浏览器", () => {

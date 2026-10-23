@@ -1,7 +1,58 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-21",
+  "updatedAt": "2026-10-23",
   "features": [
+    {
+      "id": "wechat-web-code-login",
+      "name": "网页六位码、小程序确认登录同一账号",
+      "status": "observing",
+      "userValue": "电脑网页显示六位码，在拾光家忆小程序输入并确认后，进入该微信主体对应的网页账号。代码已发布但保持关闭，完整登录尚未验收。",
+      "entryPoints": [
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "server/_core/oauth.ts"
+      ],
+      "owners": [
+        "client/src/features/auth/views/WechatCodeLogin.tsx",
+        "server/services/webLogin.ts",
+        "server/repositories/webLoginRequests.ts",
+        "server/_core/shiguangDesktopBridge.ts",
+        "server/_core/shiguangDesktopBridgeRoutes.ts",
+        "server/services/accountIdentity.ts",
+        "drizzle/0035_web_login_requests.sql"
+      ],
+      "evidence": [
+        "server/services/webLogin.test.ts",
+        "server/integration/webLoginBinding.mysql.test.ts",
+        "server/_core/oauth.wechat-login.test.ts",
+        "server/_core/shiguangDesktopBridge.test.ts",
+        "server/_core/shiguangBridgeSignature.test.ts",
+        "client/src/features/auth/views/WechatCodeLogin.test.tsx",
+        "server/auth.logout.test.ts",
+        "docs/handoff/2026-10-23-wechat-scan-login.md",
+        "git:dcfc902f:docs/qa/2026-10-23-wechat-scan-login-release.md"
+      ],
+      "invariants": [
+        "方案B是网页出六位字母数字码、小程序输入确认；不要求新建扫码出码链路，不删除原电脑配对码。",
+        "微信主体只由云函数可信APPID和OPENID派生；签名绑定路径和正文，持久nonce防重放，客户端不能指定userId或身份。",
+        "请求120秒内才可确认；码、请求标识和浏览器验证值只存带密钥摘要；只有正确浏览器凭据能一次性领取会话。",
+        "沿用resolveWechatAccount和establishPairedSession；绑定目标只来自已登录会话，merge_required不自动合并账号、故事或余额。",
+        "WECHAT_SCAN_LOGIN_ENABLED和WEB_LOGIN_CONFIRM_ENABLED默认关闭；上线、生产配置和实际开启仍须单独授权。",
+        "源码相同、静态渲染和测试替身不等于真实跨端登录验收；不得以新登录替代章节投递或宣称正文已经共用。"
+      ],
+      "dependencies": ["account-compute-gift-payments", "wechat-desktop-story-entry"],
+      "replaces": [],
+      "knownGaps": [
+        "正式网页已发布、0035已执行，不得重复迁移；云函数ba29150已有源码4/4回读记录，但运行配置未核实，当前实际WEB_LOGIN_CONFIRM_ENABLED值未知。",
+        "本轮云函数关闭态优先级和小程序登录错误文案仅本地修复，尚未合并、部署或上传客户端。",
+        "缺少隔离MySQL验收与真实微信端到端证据；同一微信两种登录映射、故事列表、登出重登仍须实测。",
+        "网页静态组件测试只覆盖展示，初始按钮仍可见，点击收到404后才隐藏；轮询与404隐藏未做浏览器交互验收。",
+        "绑定微信只实现接口，入口位置待用户决定；绑定请求行和身份写入现已共用同一 MySQL 事务。隔离 MySQL 并发验收及拒绝/过期比赛测试尚未执行，不能据此开放绑定。方案A和文档06投递不属于本任务。"
+      ],
+      "history": [
+        { "date": "2026-10-23", "kind": "feature", "summary": "补登记已有方案B实现及发布历史，状态保持observing；不以发布和迁移代替实际登录验收。" },
+        { "date": "2026-10-23", "kind": "fix", "summary": "小程序05工作树修复关闭开关被缺配置错误遮蔽，以及登录错误误用故事传输提示；网页补HTTP边界测试、纠正静态测试名称，并把绑定请求状态与微信身份写入放进同一事务。两端契约和身份算法保持。" }
+      ]
+    },
     {
       "id": "story-context-sharing",
       "name": "分享故事上下文，开始独立创作",

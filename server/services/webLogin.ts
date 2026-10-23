@@ -4,6 +4,7 @@ import { ENV } from "../_core/env";
 import {
   consumeConfirmedWebLogin,
   decideWebLogin,
+  decideWebLoginWithBinding,
   findOpenWebLoginByCode,
   findWebLoginByLookup,
   insertWebLoginRequest,
@@ -172,11 +173,12 @@ export async function confirmWebLoginBySubject(input: {
 
   if (row.mode === "bind") {
     if (!row.bindUserId) return { outcome: "invalid" };
-    const bound = await bindWechatAccount(row.bindUserId, input.subject);
-    if (bound === "merge_required") {
-      return (await decideWebLogin({ id: row.id, status: "merge_required", userId: null, now })) ? { outcome: "merge_required" } : { outcome: "invalid" };
-    }
-    return (await decideWebLogin({ id: row.id, status: "confirmed", userId: row.bindUserId, now })) ? { outcome: "confirmed" } : { outcome: "invalid" };
+    const outcome = await decideWebLoginWithBinding({
+      id: row.id,
+      now,
+      bind: (userId, tx) => bindWechatAccount(userId, input.subject, tx),
+    });
+    return { outcome };
   }
   const userId = await resolveWechatAccount(input.subject);
   return (await decideWebLogin({ id: row.id, status: "confirmed", userId, now })) ? { outcome: "confirmed" } : { outcome: "invalid" };
