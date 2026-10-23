@@ -2957,7 +2957,7 @@ export const storyChapters = mysqlTable("story_chapters", {
   position: int("position").notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
-  layout: json("layout").$type<import("../shared/sharedLayout").ModuleDocument | null>(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
   version: int("version").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2975,7 +2975,7 @@ export const storyChapterVersions = mysqlTable("story_chapter_versions", {
   version: int("version").notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
-  layout: json("layout").$type<import("../shared/sharedLayout").ModuleDocument | null>(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
   reason: varchar("reason", { length: 32 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({
@@ -3015,7 +3015,7 @@ export const chapterReturnCandidates = mysqlTable("chapter_return_candidates", {
   senderName: varchar("senderName", { length: 40 }).notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
-  layout: json("layout").$type<import("../shared/sharedLayout").ModuleDocument | null>(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
   status: mysqlEnum("status", ["pending", "adopted", "dismissed"]).notNull().default("pending"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({

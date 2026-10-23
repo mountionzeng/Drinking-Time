@@ -6,6 +6,7 @@ import { PublishingImagePack } from "./PublishingImagePack";
 vi.stubGlobal("React", React);
 vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
 
+const chapterFlag = vi.hoisted(() => ({ enabled: false }));
 const query = vi.hoisted(() => ({ data: undefined as any }));
 const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
 const generationPanels = vi.hoisted(() => new Map<string, React.ReactNode>());
@@ -15,7 +16,7 @@ vi.mock("@/lib/trpc", () => ({ trpc: {
   publishingDraft: { readAlbum: { useQuery: () => query } },
   artworkShare: { layout: { useQuery: () => layoutQuery } },
   chapters: {
-    enabled: { useQuery: () => ({ data: { enabled: false } }) },
+    enabled: { useQuery: () => ({ data: chapterFlag }) },
     list: { useQuery: () => ({ data: undefined }) },
     create: { useMutation: () => ({ mutate: vi.fn() }) },
     save: { useMutation: () => ({ mutate: vi.fn() }) },
@@ -42,7 +43,15 @@ const props = {
 };
 
 describe("article image pack entry", () => {
-  beforeEach(() => { query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+  beforeEach(() => { chapterFlag.enabled = false; query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+
+  it("hides chapter entries when disabled and preserves platform tools when enabled", () => {
+    const off = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
+    expect(off).not.toContain("平台稿与章节");
+    chapterFlag.enabled = true;
+    const on = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
+    expect(on).toContain("章节排版"); expect(on).toContain("平台图稿"); expect(on).toContain("上传图片");
+  });
 
   it("keeps mobile navigation and offers local uploads on both devices", () => {
     const desktop = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);

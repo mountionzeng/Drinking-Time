@@ -2,7 +2,8 @@ import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import { SharedLayoutBar } from "./SharedLayoutBar";
-import { useChapterLayoutSync } from "./useChapterLayoutSync";
+import { ChapterWorkspace } from "./ChapterWorkspace";
+import type { ChapterEdit } from "./useChapters";
 import {
   buildSharedLayoutPackage,
   sharedLayoutAssets,
@@ -181,7 +182,23 @@ function MaterialSwatch({
   );
 }
 
-export function PublishingImagePack({
+export function PublishingImagePack(props: React.ComponentProps<typeof PublishingImagePackCanvas>) {
+  const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  const [chaptersOpen, setChaptersOpen] = useState(false);
+  const [chaptersMounted, setChaptersMounted] = useState(false);
+  if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
+  return <section className="space-y-3">
+    <nav aria-label="平台稿与章节" className="flex gap-2 text-sm">
+      <button className="rounded px-3 py-2 focus-visible:ring-2" aria-pressed={!chaptersOpen} onClick={() => setChaptersOpen(false)}>平台图稿</button>
+      <button className="rounded px-3 py-2 focus-visible:ring-2" aria-pressed={chaptersOpen} onClick={() => { setChaptersMounted(true); setChaptersOpen(true); }}>章节排版</button>
+    </nav>
+    <div hidden={chaptersOpen}><PublishingImagePackCanvas {...props} active={(props.active ?? true) && !chaptersOpen} /></div>
+    {chaptersMounted && <div hidden={!chaptersOpen}><ChapterWorkspace key={props.storyId} {...props} active={(props.active ?? true) && chaptersOpen} render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} /></div>}
+  </section>;
+}
+
+export function PublishingImagePackCanvas({
+  chapterSession,
   scope,
   storyId,
   versionId,
@@ -212,6 +229,14 @@ export function PublishingImagePack({
   createRequest,
   onCreateRequestHandled,
 }: {
+  chapterSession?: {
+    initial: ModuleDocument | null;
+    legacyScope?: string;
+    imageOptions?: Pick<ImagePackOptions, "coverUrl" | "bodyTextureUrl" | "illustrations">;
+    settings: ChapterEdit["settings"];
+    change(edit: ChapterEdit): void;
+    prepare: React.MutableRefObject<(() => Promise<void>) | null>;
+  };
   createRequest?: StudioCreateRequest | null;
   onCreateRequestHandled?: () => void;
   accountId?: number | null;
@@ -251,6 +276,7 @@ export function PublishingImagePack({
   );
   const [storyGenerate, setStoryGenerate] = useState(false);
   const [insertRequest, setInsertRequest] = useState<{ id: string; asset: PackAsset } | null>(null);
+  const liveBasis = useRef<string | null>(null);
   const [liveDocument, setLiveDocument] = useState<ModuleDocument | null>(null);
   const [layoutGenerate, setLayoutGenerate] = useState(false);
   const [layoutInstruction, setLayoutInstruction] = useState("");
@@ -266,14 +292,17 @@ export function PublishingImagePack({
     }
   });
   const [settings, setSettings] = useState(() => {
-    const value = readSettings(key, adoptedCoverId);
-    if (adoptedCoverId == null) {
+    const value = chapterSession?.settings
+      ? normalizeSettings(chapterSession.settings, adoptedCoverId)
+      : readSettings(chapterSession?.legacyScope ? `publishing-image-pack:${chapterSession.legacyScope}` : key, adoptedCoverId);
+    if (adoptedCoverId == null && !chapterSession?.legacyScope) {
       try {
         if (!localStorage.getItem(key)) value.includeCover = false;
       } catch {
         value.includeCover = false;
       }
     }
+    if (chapterSession?.imageOptions?.coverUrl) value.includeCover = true;
     return value;
   });
   const [mobileStep, setMobileStep] = useState<"preview" | "images" | "layout">(
@@ -444,13 +473,13 @@ export function PublishingImagePack({
       includeCover: settings.includeCover,
       texture: settings.texture,
       textureSeed: settings.textureSeed,
-      coverUrl: cover?.imageUrl,
-      bodyTextureUrl: bodyTexture?.imageUrl,
-      illustrations: settings.illustrations.map(placement => ({
+      coverUrl: cover?.imageUrl ?? chapterSession?.imageOptions?.coverUrl,
+      bodyTextureUrl: bodyTexture?.imageUrl ?? chapterSession?.imageOptions?.bodyTextureUrl,
+      illustrations: settings.illustrations.length ? settings.illustrations.map(placement => ({
         after: placement.after,
         imageUrl:
           assets.find(asset => asset.id === placement.assetId)?.imageUrl ?? "",
-      })),
+      })) : chapterSession?.imageOptions?.illustrations ?? [],
       palette,
       paperPalette: bodyTexture ? undefined : paperPalette,
     }),
@@ -469,6 +498,7 @@ export function PublishingImagePack({
       bodyTexture?.imageUrl,
       palette,
       paperPalette,
+      chapterSession?.imageOptions,
     ]
   );
   const basis = JSON.stringify(options);
@@ -486,7 +516,7 @@ export function PublishingImagePack({
           localStorage.getItem(storageKey),
           JSON.parse(basis),
           availableUrls
-        )
+        ) ?? (chapterSession?.legacyScope ? readModuleDocument(localStorage.getItem(`${moduleStorageKey(chapterSession.legacyScope, basis)}:draft`) ?? localStorage.getItem(moduleStorageKey(chapterSession.legacyScope, basis)), JSON.parse(basis), availableUrls) : null)
       );
     } catch {
       return null;
@@ -500,14 +530,27 @@ export function PublishingImagePack({
     version: 1, flowVersion: 1, pages: [{ label: "第 1 页", modules: [] }],
   }), []);
   const modules =
-    (moduleOverride?.basis === basis ? moduleOverride.document : storedModules) ??
+    (moduleOverride?.basis === basis ? moduleOverride.document : chapterSession?.initial ?? storedModules) ??
     (!body.trim() ? blankDocument : null);
-  useChapterLayoutSync({
-    storyId,
-    title,
-    body,
-    document: liveDocument ?? modules,
-    onRemoteLayout: document => setModuleOverride({ basis, document }),
+  function chapterEdit(layout: ModuleDocument | null): ChapterEdit {
+    return { layout, settings: { fontId: settings.fontId, style: settings.style, texture: settings.texture, textureSeed: settings.textureSeed },
+      media: { coverKey: options.includeCover ? options.coverUrl ?? null : null, bodyTextureKey: options.bodyTextureUrl ?? null,
+        illustrations: (options.illustrations ?? []).map(item => ({ key: item.imageUrl, after: item.after })) } };
+  }
+  useEffect(() => {
+    if (chapterSession && liveDocument && liveBasis.current === basis)
+      chapterSession.change(chapterEdit(liveDocument));
+  }, [liveDocument, settings.fontId, settings.style, settings.texture, settings.textureSeed, options.coverUrl, options.bodyTextureUrl, options.illustrations, chapterSession?.change]);
+  useEffect(() => {
+    if (!chapterSession) return;
+    chapterSession.prepare.current = async () => {
+      const prepared = await moduleEditor.current?.prepare();
+      if (moduleEditor.current && !prepared) throw new Error("请完成当前文字编辑后再切换章节");
+      if (prepared) return;
+      const layout = liveDocument ?? modules;
+      chapterSession.change(chapterEdit(layout));
+    };
+    return () => { chapterSession.prepare.current = null; };
   });
   const usedImages = new Set((liveDocument ?? modules)?.pages.flatMap(page =>
     page.modules.flatMap(module => module.kind === "image" ? [module.imageUrl] : [])
@@ -567,7 +610,7 @@ export function PublishingImagePack({
     typeof navigator.share === "function" &&
     shareFiles.length > 0 &&
     Boolean(navigator.canShare?.({ files: shareFiles }));
-  const needsCover = settings.includeCover && !cover;
+  const needsCover = settings.includeCover && !cover && !chapterSession?.imageOptions?.coverUrl;
   const missingIllustration = selectedIllustrations.some(asset => !asset);
   const missingTexture = settings.bodyTextureId != null && !bodyTexture;
 
@@ -764,8 +807,8 @@ export function PublishingImagePack({
         textureSeed: settings.textureSeed,
         includeCover: settings.includeCover,
       },
-      coverUrl: cover?.imageUrl,
-      bodyTextureUrl: bodyTexture?.imageUrl,
+      coverUrl: cover?.imageUrl ?? chapterSession?.imageOptions?.coverUrl,
+      bodyTextureUrl: bodyTexture?.imageUrl ?? chapterSession?.imageOptions?.bodyTextureUrl,
       illustrations: settings.illustrations.flatMap(placement => {
         const asset = assets.find(item => item.id === placement.assetId);
         return asset ? [{ imageUrl: asset.imageUrl, after: placement.after }] : [];
@@ -1694,7 +1737,7 @@ export function PublishingImagePack({
                 <ImagePackModuleEditor
                   insertRequest={insertRequest}
                   onInsertHandled={() => setInsertRequest(null)}
-                  onDocumentChange={setLiveDocument}
+                  onDocumentChange={document => { liveBasis.current = moduleSession.basis; setLiveDocument(document); }}
                   companion={{ storyId, accountId, active: active && !advancedOpen && (mobile ? mobileStep === "layout" : desktopSection === "layout") }}
                   ref={moduleEditor}
                   mobile={mobile}
@@ -1773,6 +1816,7 @@ export function PublishingImagePack({
                       throw new Error(
                         "正文或选图已变化，请返回预览后重新打开；模块草稿仍保留。"
                       );
+                    chapterSession?.change(chapterEdit(document));
                     try {
                       localStorage.setItem(
                         moduleStorageKey(scope, basis),

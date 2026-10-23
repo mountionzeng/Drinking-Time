@@ -1,14 +1,23 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { artworkAuthorName } from "../../shared/artworkShare";
-import { safeParseChapterPackage } from "../../shared/chapterPackage";
+import {
+  chapterPackageBlockId,
+  chapterPackageLines,
+  safeParseChapterPackage,
+} from "../../shared/chapterPackage";
 import {
   CHAPTER_IMPORT_PER_HOUR,
   chapterEnabled,
+  chapterLayoutProblem,
   chapterLayoutSchema,
   chapterTitleSchema,
+  realignBlockIds,
+  readChapterLayout,
+  writeChapterLayout,
+  draftFingerprint,
   type StoredChapterBlocks,
 } from "../../shared/chapterStore";
 import { consumePersistentRateLimit } from "../repositories/accounts";
@@ -19,8 +28,7 @@ import {
   getChapter,
   getReturnCandidate,
   insertChapter,
-  insertImportReceipt,
-  insertReturnCandidate,
+  commitChapterImport,
   listChapterVersions,
   listChapters,
   listReturnCandidates,
@@ -29,12 +37,17 @@ import {
   saveChapterContent,
   setCandidateStatus,
 } from "../repositories/chapters";
-import { createStory, getStoryById } from "../repositories/stories";
+import { getStoryGeneratedImages } from "../repositories/images";
+import { getStoryById } from "../repositories/stories";
 import {
   chapterKeys,
   imageUrls,
+  isStoredImageKey,
+  layoutImageKeys,
+  loadImageFiles,
   newPackageId,
   packChapter,
+  resolveExportImages,
   storeImages,
   unpackChapter,
 } from "../services/chapterPackageService";
@@ -54,7 +67,8 @@ async function ownStory(storyId: number, userId: number) {
 }
 async function ownChapter(chapterId: number, userId: number) {
   const chapter = await getChapter(chapterId, userId);
-  if (!chapter) throw new TRPCError({ code: "NOT_FOUND", message: "这一章不存在" });
+  if (!chapter)
+    throw new TRPCError({ code: "NOT_FOUND", message: "这一章不存在" });
   return chapter;
 }
 const view = (c: Awaited<ReturnType<typeof ownChapter>>) => ({
@@ -63,13 +77,15 @@ const view = (c: Awaited<ReturnType<typeof ownChapter>>) => ({
   position: c.position,
   title: c.title,
   blocks: c.blocks,
-  layout: c.layout,
+  layout: readChapterLayout(c.title, c.blocks, c.layout),
   version: c.version,
   updatedAt: c.updatedAt,
 });
 const emptyBlocks = (body: string): StoredChapterBlocks => ({
   body,
-  blockIds: [],
+  blockIds: chapterPackageLines(body).map(() =>
+    chapterPackageBlockId(["web-line", randomUUID()])
+  ),
   containsAiText: false,
   settings: null,
   coverKey: null,
@@ -92,11 +108,26 @@ export const chaptersRouter = router({
   get: protectedProcedure.input(chapterInput).query(async ({ ctx, input }) => {
     requireEnabled();
     const chapter = await ownChapter(input.chapterId, ctx.user.id);
-    return { chapter: view(chapter), imageUrls: await imageUrls(chapterKeys(chapter.blocks)) };
+    return {
+      chapter: view(chapter),
+      imageUrls: await imageUrls(
+        chapterKeys(
+          chapter.blocks,
+          readChapterLayout(chapter.title, chapter.blocks, chapter.layout)
+        ).filter(isStoredImageKey)
+      ),
+    };
   }),
 
   create: protectedProcedure
-    .input(storyInput.extend({ title: chapterTitleSchema, body: z.string().max(MAX_BODY).default("") }))
+    .input(
+      storyInput.extend({
+        title: chapterTitleSchema,
+        body: z.string().max(MAX_BODY).default(""),
+        draftSource: z.string().max(300).optional(),
+        containsAiText: z.boolean().default(false),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       await ownStory(input.storyId, ctx.user.id);
@@ -104,7 +135,22 @@ export const chaptersRouter = router({
         await insertChapter({
           storyId: input.storyId,
           userId: ctx.user.id,
-          content: { title: input.title, blocks: emptyBlocks(input.body), layout: null },
+          content: {
+            title: input.title,
+            blocks: {
+              ...emptyBlocks(input.body),
+              containsAiText: input.containsAiText,
+              ...(input.draftSource
+                ? {
+                    draftMirror: {
+                      source: input.draftSource,
+                      fingerprint: draftFingerprint(input.title, input.body),
+                    },
+                  }
+                : {}),
+            },
+            layout: null,
+          },
         })
       );
     }),
@@ -117,26 +163,140 @@ export const chaptersRouter = router({
         title: chapterTitleSchema.optional(),
         body: z.string().max(MAX_BODY).optional(),
         layout: chapterLayoutSchema.optional(),
+        /** Look of the layout (font, paper style), kept with the chapter so it can be exported. */
+        settings: z
+          .object({
+            fontId: z.string().max(80),
+            style: z.string().max(40),
+            texture: z.string().max(40),
+            textureSeed: z.number().int(),
+          })
+          .nullable()
+          .optional(),
+        /** Background saves from the editor; they do not fill the version history. */
+        autosave: z.boolean().optional(),
+        mirrorFrom: z.string().max(300).optional(),
+        media: z
+          .object({
+            coverKey: z.string().max(2000).nullable(),
+            bodyTextureKey: z.string().max(2000).nullable(),
+            illustrations: z
+              .array(
+                z.object({
+                  key: z.string().max(2000),
+                  after: z
+                    .object({
+                      text: z.string().max(4000),
+                      occurrence: z.number().int().nonnegative(),
+                      matches: z.number().int().nonnegative(),
+                    })
+                    .nullable(),
+                  blockId: z.string().optional(),
+                  caption: z.string().optional(),
+                })
+              )
+              .max(12),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
+      const problem = chapterLayoutProblem(input.layout ?? null);
+      if (problem)
+        throw new TRPCError({ code: "BAD_REQUEST", message: problem });
       const chapter = await ownChapter(input.chapterId, ctx.user.id);
-      const blocks =
-        input.body === undefined ? undefined : { ...chapter.blocks, body: input.body };
+      if (input.layout || input.media) {
+        const keys = [
+          ...layoutImageKeys(input.layout ?? null),
+          ...(input.media
+            ? chapterKeys({ ...chapter.blocks, ...input.media })
+            : []),
+        ];
+        const unknown = keys.filter(key => !chapter.blocks.images[key]);
+        if (unknown.length) {
+          const allowed = new Set(
+            (await getStoryGeneratedImages(chapter.storyId, ctx.user.id)).map(
+              image => image.imageUrl
+            )
+          );
+          if (unknown.some(key => !allowed.has(key)))
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "排版含未归属当前故事的图片，请先导入图片",
+            });
+        }
+      }
+      if (
+        input.mirrorFrom &&
+        (chapter.blocks.draftMirror?.source !== input.mirrorFrom ||
+          chapter.blocks.draftMirror.fingerprint !==
+            draftFingerprint(chapter.title, chapter.blocks.body))
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "这一章已独立编辑，不能再随平台稿更新",
+        });
+      let title = input.title ?? chapter.title;
+      let blocks = { ...chapter.blocks };
+      let layout = chapter.layout;
+      if (input.body !== undefined) {
+        blocks.blockIds = realignBlockIds(
+          blocks.body,
+          blocks.blockIds,
+          input.body,
+          () => chapterPackageBlockId(["web-new-line", randomUUID()])
+        );
+        blocks.body = input.body;
+      }
+      if (input.settings !== undefined) blocks.settings = input.settings;
+      if (input.media) blocks = { ...blocks, ...input.media };
+      if (input.layout !== undefined) {
+        if (input.layout === null) layout = null;
+        else {
+          try {
+            ({ title, blocks, layout } = writeChapterLayout(
+              title,
+              blocks,
+              layout,
+              input.layout,
+              () => chapterPackageBlockId(["web-module", randomUUID()])
+            ));
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: error instanceof Error ? error.message : "排版无法保存",
+            });
+          }
+        }
+      }
+      title = chapterTitleSchema.parse(title);
+      if (title !== chapter.title || blocks.body !== chapter.blocks.body) {
+        blocks.draftMirror = input.mirrorFrom
+          ? {
+              source: input.mirrorFrom,
+              fingerprint: draftFingerprint(title, blocks.body),
+            }
+          : undefined;
+      }
+
       return view(
         await saveChapterContent({
           id: chapter.id,
           userId: ctx.user.id,
           expectedVersion: input.expectedVersion,
-          reason: "edit",
-          content: { title: input.title, blocks, layout: input.layout },
+          reason: input.autosave ? "autosave" : "edit",
+          content: { title, blocks, layout },
         })
       );
     }),
 
   reorder: protectedProcedure
-    .input(storyInput.extend({ order: z.array(z.number().int().positive()).max(100) }))
+    .input(
+      storyInput.extend({
+        order: z.array(z.number().int().positive()).max(100),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       await ownStory(input.storyId, ctx.user.id);
@@ -144,33 +304,48 @@ export const chaptersRouter = router({
       return { ok: true as const };
     }),
 
-  remove: protectedProcedure.input(chapterInput).mutation(async ({ ctx, input }) => {
-    requireEnabled();
-    await deleteChapter(input.chapterId, ctx.user.id);
-    return { ok: true as const };
-  }),
+  remove: protectedProcedure
+    .input(chapterInput)
+    .mutation(async ({ ctx, input }) => {
+      requireEnabled();
+      await deleteChapter(input.chapterId, ctx.user.id);
+      return { ok: true as const };
+    }),
 
-  versions: protectedProcedure.input(chapterInput).query(async ({ ctx, input }) => {
-    requireEnabled();
-    await ownChapter(input.chapterId, ctx.user.id);
-    return (await listChapterVersions(input.chapterId, ctx.user.id)).map(row => ({
-      version: row.version,
-      title: row.title,
-      reason: row.reason,
-      createdAt: row.createdAt,
-    }));
-  }),
+  versions: protectedProcedure
+    .input(chapterInput)
+    .query(async ({ ctx, input }) => {
+      requireEnabled();
+      await ownChapter(input.chapterId, ctx.user.id);
+      return (await listChapterVersions(input.chapterId, ctx.user.id)).map(
+        row => ({
+          version: row.version,
+          title: row.title,
+          reason: row.reason,
+          createdAt: row.createdAt,
+        })
+      );
+    }),
 
   /** Put an older version back as a new version. */
   restoreVersion: protectedProcedure
-    .input(chapterInput.extend({ version: z.number().int().positive(), expectedVersion: z.number().int().positive() }))
+    .input(
+      chapterInput.extend({
+        version: z.number().int().positive(),
+        expectedVersion: z.number().int().positive(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       const chapter = await ownChapter(input.chapterId, ctx.user.id);
       const old = (await listChapterVersions(chapter.id, ctx.user.id)).find(
         row => row.version === input.version
       );
-      if (!old) throw new TRPCError({ code: "NOT_FOUND", message: "这个旧版本已不在保留范围内" });
+      if (!old)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "这个旧版本已不在保留范围内",
+        });
       return view(
         await saveChapterContent({
           id: chapter.id,
@@ -183,24 +358,63 @@ export const chaptersRouter = router({
     }),
 
   /** Build a package for download; image urls are fresh and short-lived. */
-  exportPackage: protectedProcedure.input(chapterInput).mutation(async ({ ctx, input }) => {
-    requireEnabled();
-    const chapter = await ownChapter(input.chapterId, ctx.user.id);
-    const story = await ownStory(chapter.storyId, ctx.user.id);
-    const packageId = newPackageId();
-    const packed = packChapter(chapter, {
-      packageId,
-      displayName: artworkAuthorName(ctx.user.name),
-      storyTitle: story.title,
-    });
-    await recordChapterExport({ packageId, chapterId: chapter.id, storyId: chapter.storyId, userId: ctx.user.id });
-    const urls = await imageUrls(Object.values(packed.assetKeys));
-    return {
-      package: packed.package,
-      warnings: packed.warnings,
-      images: Object.entries(packed.assetKeys).map(([assetId, key]) => ({ assetId, url: urls[key] })),
-    };
-  }),
+  exportPackage: protectedProcedure
+    .input(chapterInput)
+    .mutation(async ({ ctx, input }) => {
+      requireEnabled();
+      const chapter = await ownChapter(input.chapterId, ctx.user.id);
+      const story = await ownStory(chapter.storyId, ctx.user.id);
+      const packageId = newPackageId();
+      // Pictures the editor references by its own url are read from the image
+      // library here; stored ones keep the facts saved with the chapter.
+      const extra = await resolveExportImages(
+        [
+          ...(chapter.blocks.coverKey ? [chapter.blocks.coverKey] : []),
+          ...(chapter.blocks.bodyTextureKey
+            ? [chapter.blocks.bodyTextureKey]
+            : []),
+          ...chapter.blocks.illustrations.map(item => item.key),
+          ...layoutImageKeys(
+            readChapterLayout(chapter.title, chapter.blocks, chapter.layout)
+          ),
+        ],
+        chapter.blocks.images,
+        new Set(
+          (await getStoryGeneratedImages(chapter.storyId, ctx.user.id)).map(
+            image => image.imageUrl
+          )
+        )
+      );
+      const packed = packChapter(
+        chapter,
+        {
+          packageId,
+          displayName: artworkAuthorName(ctx.user.name),
+          storyTitle: story.title,
+        },
+        { ...chapter.blocks.images, ...extra.facts }
+      );
+      await recordChapterExport({
+        packageId,
+        chapterId: chapter.id,
+        storyId: chapter.storyId,
+        userId: ctx.user.id,
+      });
+      const { files, missing } = await loadImageFiles(
+        packed.package,
+        packed.assetKeys,
+        extra.bytes
+      );
+      return {
+        package: packed.package,
+        warnings: packed.warnings,
+        images: files,
+        /** Pictures left out because they could not be read or exceed the package limits. */
+        droppedImages: packed.droppedImages,
+        /** Pictures in the package whose stored bytes could not be read. */
+        missingImageBytes: missing,
+      };
+    }),
 
   /**
    * `keep` makes a new story; `append` adds the package as the last chapter of
@@ -215,8 +429,13 @@ export const chaptersRouter = router({
         storyId: z.number().int().positive().optional(),
         package: z.unknown(),
         images: z
-          .array(z.object({ assetId: z.string().max(80), base64: z.string().max(14_000_000) }))
-          .max(60)
+          .array(
+            z.object({
+              assetId: z.string().max(80),
+              base64: z.string().max(2_800_000),
+            })
+          )
+          .max(12)
           .default([]),
       })
     )
@@ -224,16 +443,30 @@ export const chaptersRouter = router({
       requireEnabled();
       const parsed = safeParseChapterPackage(input.package);
       if (!parsed.ok)
-        throw new TRPCError({ code: "BAD_REQUEST", message: "这不是有效的章节包" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "这不是有效的章节包",
+        });
       const pkg = parsed.package;
       const requestHash = createHash("sha256")
-        .update(JSON.stringify([pkg.packageId, input.mode, input.storyId ?? null]))
+        .update(
+          JSON.stringify([pkg, input.images, input.mode, input.storyId ?? null])
+        )
         .digest("hex");
       const prior = await findImportReceipt(ctx.user.id, input.requestId);
       if (prior) {
         if (prior.requestHash !== requestHash)
-          throw new TRPCError({ code: "CONFLICT", message: "这次导入已完成，请重新选择文件" });
-        return { outcome: prior.outcome, storyId: prior.storyId, chapterId: prior.chapterId, repeated: true as const, missingImages: 0 };
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "这次导入已完成，请重新选择文件",
+          });
+        return {
+          outcome: prior.outcome,
+          storyId: prior.storyId,
+          chapterId: prior.chapterId,
+          repeated: true as const,
+          missingImages: 0,
+        };
       }
       const limit = await consumePersistentRateLimit({
         scope: "chapter:import",
@@ -242,79 +475,92 @@ export const chaptersRouter = router({
         maxAttempts: CHAPTER_IMPORT_PER_HOUR,
       });
       if (!limit.allowed)
-        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "导入太频繁，请一小时后再试" });
-
-      const returned = await findOwnExport(pkg.lineage.rootPackageId, ctx.user.id);
-      const keyOf = await storeImages(ctx.user.id, pkg, input.images);
-      const unpacked = unpackChapter(pkg, keyOf);
-
-      const target = returned ? await getChapter(returned.chapterId, ctx.user.id) : null;
-      let storyId: number;
-      let chapterId: number;
-      let outcome: "keep" | "append" | "candidate";
-      if (target) {
-        await insertReturnCandidate({
-          chapterId: target.id,
-          storyId: target.storyId,
-          userId: ctx.user.id,
-          packageId: pkg.packageId,
-          senderName: pkg.sender.displayName || "朋友",
-          content: unpacked.content,
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "导入太频繁，请一小时后再试",
         });
-        storyId = target.storyId;
-        chapterId = target.id;
-        outcome = "candidate";
-      } else if (input.mode === "keep") {
-        const created = await createStory({
-          userId: ctx.user.id,
-          title: (pkg.storyTitle || unpacked.title).slice(0, 255),
-        } as Parameters<typeof createStory>[0]);
-        storyId = created.id;
-        outcome = "keep";
-        chapterId = (await insertChapter({ storyId, userId: ctx.user.id, content: unpacked.content })).id;
-      } else {
+
+      const returned = await findOwnExport(
+        pkg.lineage.rootPackageId,
+        ctx.user.id
+      );
+      const target = returned
+        ? await getChapter(returned.chapterId, ctx.user.id)
+        : null;
+      if (!target && input.mode === "append") {
         if (!input.storyId)
-          throw new TRPCError({ code: "BAD_REQUEST", message: "请选择要加入的故事" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "请选择要加入的故事",
+          });
         await ownStory(input.storyId, ctx.user.id);
-        storyId = input.storyId;
-        outcome = "append";
-        chapterId = (await insertChapter({ storyId, userId: ctx.user.id, content: unpacked.content })).id;
       }
-      await insertImportReceipt({
+      const targetSource = target
+        ? (target.blocks.sourceChapterId ?? `chapter-${target.id}`)
+        : undefined;
+      if (
+        target &&
+        (pkg.chapters.length !== 1 ||
+          pkg.chapters[0].chapterId !== targetSource)
+      )
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "发回包与原章节不对应",
+        });
+      const keyOf = await storeImages(ctx.user.id, pkg, input.images);
+      const unpacked = pkg.chapters.map(item =>
+        unpackChapter(pkg, keyOf, item.chapterId)
+      );
+      const first = unpacked[0];
+      const result = await commitChapterImport({
         userId: ctx.user.id,
         requestId: input.requestId,
         requestHash,
-        storyId,
-        chapterId,
-        outcome,
+        storyId: input.mode === "append" ? input.storyId : undefined,
+        targetChapterId: target?.id,
+        title: (pkg.storyTitle || first.title).slice(0, 255),
+        packageId: pkg.packageId,
+        senderName: pkg.sender.displayName || "朋友",
+        contents: unpacked.map(chapter => chapter.content),
       });
       return {
-        outcome,
-        storyId,
-        chapterId,
-        repeated: false as const,
-        missingImages: unpacked.missingImages,
+        ...result,
+        missingImages: unpacked.reduce(
+          (sum, chapter) => sum + chapter.missingImages,
+          0
+        ),
       };
     }),
 
-  candidates: protectedProcedure.input(chapterInput).query(async ({ ctx, input }) => {
-    requireEnabled();
-    await ownChapter(input.chapterId, ctx.user.id);
-    const rows = await listReturnCandidates(input.chapterId, ctx.user.id);
-    const urls = await imageUrls(rows.flatMap(row => chapterKeys(row.blocks)));
-    return {
-      imageUrls: urls,
-      candidates: rows.map(row => ({
-        id: row.id,
-        senderName: row.senderName,
-        title: row.title,
-        blocks: row.blocks,
-        layout: row.layout,
-        status: row.status,
-        createdAt: row.createdAt,
-      })),
-    };
-  }),
+  candidates: protectedProcedure
+    .input(chapterInput)
+    .query(async ({ ctx, input }) => {
+      requireEnabled();
+      await ownChapter(input.chapterId, ctx.user.id);
+      const rows = await listReturnCandidates(input.chapterId, ctx.user.id);
+      const urls = await imageUrls(
+        rows
+          .flatMap(row =>
+            chapterKeys(
+              row.blocks,
+              readChapterLayout(row.title, row.blocks, row.layout)
+            )
+          )
+          .filter(isStoredImageKey)
+      );
+      return {
+        imageUrls: urls,
+        candidates: rows.map(row => ({
+          id: row.id,
+          senderName: row.senderName,
+          title: row.title,
+          blocks: row.blocks,
+          layout: readChapterLayout(row.title, row.blocks, row.layout),
+          status: row.status,
+          createdAt: row.createdAt,
+        })),
+      };
+    }),
 
   /** Adopting writes a new chapter version; the previous one stays recoverable. */
   resolveCandidate: protectedProcedure
@@ -327,20 +573,36 @@ export const chaptersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
-      const candidate = await getReturnCandidate(input.candidateId, ctx.user.id);
-      if (!candidate) throw new TRPCError({ code: "NOT_FOUND", message: "这个版本已不存在" });
+      const candidate = await getReturnCandidate(
+        input.candidateId,
+        ctx.user.id
+      );
+      if (!candidate)
+        throw new TRPCError({ code: "NOT_FOUND", message: "这个版本已不存在" });
       if (candidate.status !== "pending")
-        throw new TRPCError({ code: "CONFLICT", message: "这个版本已经处理过了" });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "这个版本已经处理过了",
+        });
       if (input.status === "adopted") {
+        if (input.expectedVersion === undefined)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "请先对照当前版本再采用",
+          });
         const chapter = await ownChapter(candidate.chapterId, ctx.user.id);
         const saved = await saveChapterContent({
           id: chapter.id,
           userId: ctx.user.id,
-          expectedVersion: input.expectedVersion ?? chapter.version,
+          expectedVersion: input.expectedVersion!,
           reason: "adopt-candidate",
-          content: { title: candidate.title, blocks: candidate.blocks, layout: candidate.layout },
+          candidateId: candidate.id,
+          content: {
+            title: candidate.title,
+            blocks: candidate.blocks,
+            layout: candidate.layout,
+          },
         });
-        await setCandidateStatus(candidate.id, ctx.user.id, "adopted");
         return { chapter: view(saved) };
       }
       await setCandidateStatus(candidate.id, ctx.user.id, "dismissed");

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-21",
+  "updatedAt": "2026-10-23",
   "features": [
     {
       "id": "story-context-sharing",
@@ -7869,6 +7869,70 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "0f649128已部署正式站：备份后0034迁移通过，既有79张表内容不变，95个构建文件校验一致；正式库5个已验证账号，2个自有、3个待确认；匿名及普通用户读写权限拦截通过。保留observing直至真实管理员浏览器验收完成。"
+        }
+      ]
+    },
+    {
+      "id": "story-chapters",
+      "name": "章节与排版按章存储",
+      "status": "partial",
+      "userValue": "在故事内独立编辑章节，把文字与排版保存到服务器，并通过章节文件留下副本、发回和恢复旧版本。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "server/routers/chapters.ts"
+      ],
+      "owners": [
+        "shared/chapterStore.ts",
+        "server/repositories/chapters.ts",
+        "server/services/chapterPackageService.ts",
+        "client/src/features/publishingAlbum/useChapters.ts",
+        "client/src/features/publishingAlbum/chapterSaveQueue.ts"
+      ],
+      "evidence": [
+        "server/routers.chapters.test.ts",
+        "server/services/chapterPackageService.test.ts",
+        "shared/chapterStore.test.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "client/src/features/publishingAlbum/chapterSaveQueue.test.ts",
+        "client/src/features/publishingAlbum/chapterFile.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "command:pnpm check",
+        "command:pnpm migration:verify",
+        "docs/handoff/2026-10-23-web-chapters.md"
+      ],
+      "invariants": [
+        "CHAPTER_PACKAGE_ENABLED 默认关闭；关闭时没有章节入口且服务端拒绝读写。平台图稿与原共享入口保留。",
+        "章节内容不写入 stories.body；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
+        "每章版本冲突必须停止保存；客户端写入串行，切章和导出前提交当前编辑；采用以对照时的版本为准。",
+        "仅带源稿标记且内容指纹一致的镜像章跟随对应平台稿；独立改字或改标题后断开，不因排序而改变镜像关系。",
+        "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
+        "自动保存不挤占十版历史；采用和恢复保留被替换的版本。"
+      ],
+      "dependencies": [
+        "publishing-image-modules",
+        "publishing-static-album",
+        "story-context-sharing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "功能开关未开启；0036 未执行，MySQL 事务尚未在一次性数据库验收；仅本地隔离测试有执行证据。",
+        "网页导入审核策略和平台稿生成/更新前的目的选择仍待确定；本轮不改生成逻辑。",
+        "主仓 3000 浏览器端到端验收未做；队列行为和静态入口有测试，React hook 的真实挂载/切章/断网与未提交文字交互仍待验证。",
+        "只存在浏览器的 data URL 图片会阻止章节云端保存，原本机缓存保留；未实现自动上传本机图库。",
+        "未覆盖排版的正文块仍完整存储并导出；接收端自动补排、跨端多行模块几何一致性仍需联调验收。",
+        "本轮沿用每行正文与 blockIds 的内部存储；照片通过插图引用保存，尚未把内部存储统一成与包完全一致的 blocks[]/assetId 结构。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "承接 8244af5c 及第二轮未提交改动：补章节栏、按章保存、文件往返、发回对比/采用/忽略及版本恢复。用户明确批准镜像规则；新增文本引用存储、串行保存与原子导入，旧平台稿入口保留。默认关闭，未迁移、未部署、未合主干。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "verification",
+          "summary": "最后定向9文件88项、类型检查、构建、迁移文件与68卡账本校验通过；一次全量5756通过/9失败，失败分布与交接基线相同。末次护栏调整仅做相关回归。浏览器、MySQL实际执行及导入审核仍未完成，保持partial和关闭开关。"
         }
       ]
     }
