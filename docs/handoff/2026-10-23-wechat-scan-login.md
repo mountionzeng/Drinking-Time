@@ -2,6 +2,15 @@
 
 
 
+## 2026-10-23 05 → 06 固定依赖
+
+- 网页05已固定提交：`d5a8e1deae61d9514b531b70a50d0b5460fe5dc7`（`fix(auth): make WeChat binding confirmation atomic`），分支 `codex/wechat-scan-login-20261022`。该提交包含绑定请求行锁、身份写入和请求终态更新的单事务修复，以及服务/HTTP 和 MySQL 集成测试。0035 已执行，禁止重跑。
+- 主体映射接口是服务端 `resolveWechatAccount(subject): Promise<number>`（`server/services/accountIdentity.ts`），由桥路由 `server/_core/shiguangDesktopBridgeRoutes.ts` 注入为 `resolve`。可信 `subject` 仅由小程序云函数从 `cloud.getWXContext()` 的 APPID/OPENID 按契约计算；服务端签名校验后，微信登录调用该解析器，再以返回的 `userId` 签发网页会话。06 可以复用此解析和已认证网页会话的 `userId`，用它作为信箱收件人键。
+- 06 的 `drinkingTimeBridge` 接口也必须从可信云函数上下文获得 subject，并在网页签名验证后由服务端映射；禁止客户端提交或覆盖 `userId`。收件人选择仍需由 06 的允许关系（互相投递记录、家庭/故事成员等）约束，不能把任意 subject 当成可查询联系人。
+- 账号边界：首次微信登录会为 subject 创建身份和网页账号；已经使用邮箱/Google 的网页账号不会自动与微信身份合并。需要原账号内容/余额时，必须经用户明确发起绑定；遇到 `merge_required` 保持两个账号分开。绑定按钮 UI 不阻塞基于已登录 `userId` 的 06 基础收发链路。
+- 验证证据：网页 `pnpm check`、`pnpm feature:validate` 和定向测试已通过；绑定拒绝/过期单元测试通过。`server/integration/webLoginBinding.mysql.test.ts` 因缺少隔离 MySQL 测试库而跳过，数据库并发竞态仍未实证。小程序关闭态与错误文案补丁定向及完整检查先前通过（1348 项），固定提交为 `135f39188116426a73097b6481599bc99c0fe8d8`。
+- 仍不能宣称生产链路可用：云函数关闭态修复尚未部署，当前运行开关未知；无真实微信跨端验收。生产密钥、两个开关、部署和共享开发者工具均需另行授权。网页 `WECHAT_SCAN_LOGIN_ENABLED` 和云函数 `WEB_LOGIN_CONFIRM_ENABLED` 继续保持关闭；不做二维码出码、不迁移、不部署。
+
 ## 2026-10-23 接手续记二：绑定写入事务
 
 因用户要求继续，完成此前标出的绑定失败副作用修复，仍在网页05工作树；小程序工作树位于当前只读权限范围之外，本轮没有修改它。
