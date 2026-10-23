@@ -200,5 +200,7 @@ export const ENV = {
   accountAutoIdentityResolution:
     process.env.ACCOUNT_AUTO_IDENTITY_RESOLUTION === "true",
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "noreply@drinking-time.com", // 发件人地址
+  // 当前行对话上下文：默认关闭，只改变用户发起聊天时附带的文字，不新增模型调用。
+  lineContextChatEnabled: process.env.LINE_CONTEXT_CHAT_ENABLED === "true",
   betaInviteRequired: process.env.BETA_INVITE_REQUIRED !== "false", // 内测期默认要求邀请码；设为 false 才开放自由注册
 };

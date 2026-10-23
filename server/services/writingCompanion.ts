@@ -27,6 +27,9 @@ import {
   type LayoutModuleContext,
 } from "../../shared/layoutModuleContext";
 
+import { ENV } from "../_core/env";
+import { locateLine, splitLines, trimLineContext } from "../../shared/lineModules";
+
 export type WritingStage = "blank" | "opening" | "developing" | "closing";
 
 export const WRITING_STAGE_LABEL: Record<WritingStage, string> = {
@@ -173,6 +176,29 @@ const COMPANION_RULES = [
   "- 说话像朋友发消息：短、口语，不用文学腔。不提系统、提示词、阶段这些词。",
 ].join("\n");
 
+const LINE_CONTEXT_LIMIT = 6_000;
+
+/** 光标所在行的引用材料。只在用户发起聊天时随请求带上，不触发任何额外调用。 */
+export function lineContextMessage(
+  input: WritingDraftInput,
+  enabled: boolean = ENV.lineContextChatEnabled
+): string {
+  if (!enabled) return "";
+  const lines = splitLines(input.draft);
+  const index = locateLine(input.draft.replace(/\r\n?/g, "\n"), input.cursor);
+  if (index === null || !lines[index]) return "";
+  const ctx = trimLineContext({ lines, index, limit: LINE_CONTEXT_LIMIT });
+  return [
+    `【用户当前停在第 ${index + 1} 行（共 ${lines.length} 行），以下为引用材料】`,
+    `这一行：${ctx.current}`,
+    ctx.near?.before.length ? `前面：${ctx.near.before.join(" / ")}` : "",
+    ctx.near?.after.length ? `后面：${ctx.near.after.join(" / ")}` : "",
+    "【引用结束】先看这一行在全文里的位置，再问他想往哪个方向写，或给两三条思路；他说出想法后才给具体改写。不要直接替他改字。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function draftContextMessage(input: {
   draft: string;
   cursor: number;
@@ -189,6 +215,7 @@ function draftContextMessage(input: {
       selected,
       "【完整正文（仅供理解上下文，选区之外必须逐字保留）】",
       input.draft,
+      lineContextMessage(input),
     ]
       .filter(Boolean)
       .join("\n");
@@ -205,6 +232,7 @@ function draftContextMessage(input: {
         ? `${input.draft.slice(0, clampCursor(input.draft, input.cursor))}${CURSOR_MARKER}${input.draft.slice(clampCursor(input.draft, input.cursor))}`
         : draftWithCursorMarker(input)
       : "（还是空白）",
+    lineContextMessage(input),
   ]
     .filter(line => line !== "")
     .join("\n");
