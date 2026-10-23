@@ -1,6 +1,6 @@
 # 网页用小程序确认登录：生产发布记录
 
-日期：2026-10-23。网页端已发布，数据库迁移已执行；小程序云函数已部署并显示 Active，但线上源码未回读核实。两个功能开关保持关闭，功能对用户不可用。
+日期：2026-10-23。网页端已发布，数据库迁移已执行；小程序云函数已部署并显示 Active，线上源码已回读核实，与 `ba29150` 一致。两个功能开关保持关闭，功能对用户不可用。
 
 ## 授权与范围
 
@@ -41,7 +41,7 @@
 
 ## 小程序云函数 drinkingTimeBridge
 
-状态：**已部署，Active，脚本验证通过，但线上源码未回读核实。** 不能写成部署成功。
+状态：**已部署，Active，脚本验证通过，线上源码已回读核实，与 `ba29150` 一致。**（初版记录曾写「源码未回读核实」，网络恢复后已补做比对，见下。）
 
 - 源码：`ba29150`（分支 `codex/wechat-scan-login-20261022`），包含 main `235932e`，工作树干净。
 - 命令：标准脚本 `node scripts/wechat-cloud-deploy.mjs --execute --env cloud1-d5ghzk30ve609f544 --only drinkingTimeBridge`，不设置任何环境变量。部署前干跑确认计划只含 `drinkingTimeBridge`，不影响 getOpenId、storyBooks、familyInvite。
@@ -50,11 +50,17 @@
 - 第二次执行脚本成功，脚本内 `info` 验证通过，记录的源码提交 `ba2915040ea93726c716ef5a0ea022bf1ff12a4c`，时间 2026-10-23T03:52:06Z。
 - 部署后回读：共尝试 6 次下载。前 3 次为部署后立即尝试，后 3 次为协调会话批准的间隔 2 分钟重试，每次都下载到新空目录。全部 ECONNRESET（多数在 TLS 握手前，个别发生在拉取环境列表时），未取得任何文件。因此无法证明云端 `core.js`、`egress.js`、`package.json`、`index.js` 与 `ba29150` 一致。
 - 未重新部署，未改任何环境变量。
+- **补做的线上源码比对（网络恢复后，第 1 次下载即成功）：** 把云端 `drinkingTimeBridge` 下载到全新空目录，与 `ba29150` 的 `cloudfunctions/drinkingTimeBridge` 逐字节比对，排除 `node_modules` 和 `package-lock.json`。云端 4 个文件、仓库 4 个文件，数量一致，4 个全部相同，无多余、无缺失。
+
+| 文件 | 字节数 | 结果 |
+|---|---|---|
+| core.js | 4300 | 相同 |
+| egress.js | 5623 | 相同 |
+| index.js | 4140 | 相同，不是 206 字节示例 |
+| package.json | 151 | 相同 |
 
 ## Known gaps
 
-- **待办：** 网络恢复后补做线上源码比对。下载云端 `drinkingTimeBridge` 到新空目录，与 `ba29150` 的 `cloudfunctions/drinkingTimeBridge` 逐文件比对，排除 `node_modules` 和 `package-lock.json`。要确认 `core.js`、`egress.js`、`package.json` 都在，`index.js` 不是 206 字节示例，文件数一致。
-- 比对完成并一致前，本次小程序部分只能称为「已部署，Active，源码未回读核实」。
 - `test:mysql-integration` 没有一次性测试库，未执行。
 - 两个开关仍关闭，真实的网页扫码或小程序确认登录链路未在正式站验证。开启开关、上传小程序开发版、出二维码都在后续范围。
-- 小程序侧联调依赖云函数线上版本确为 `ba29150`，开关打开前必须先完成上面的比对。
+- 云函数线上源码已确认为 `ba29150`，但云函数侧的 `WEB_LOGIN_CONFIRM_ENABLED` 仍关闭，小程序端页面是否已随开发版上传、真机是否走通，本次未验证。
