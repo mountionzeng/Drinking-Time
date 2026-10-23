@@ -23,6 +23,20 @@ export const layoutModuleContextSchema = z
     backdrop: z.boolean().optional(),
     crop: rect.optional(),
     pageText: z.string().max(16_000),
+    // Discussion only. Chapter ids are supplied by the chapter owner; legacy layout ids are local.
+    line: z.object({
+      source: z.enum(["chapter", "layout"]),
+      position: z.object({
+        chapterId: z.string().min(1).max(2000),
+        blockId: z.string().min(1).max(256),
+        index: z.number().int().nonnegative(),
+        total: z.number().int().positive(),
+        prevText: z.string().max(20_000),
+        text: z.string().max(20_000),
+        nextText: z.string().max(20_000),
+      }).refine(value => value.index < value.total, "行位置已失效"),
+      excerpt: z.string().max(6000),
+    }).optional(),
     // Only a bounded locally rendered JPEG; never fetch a client-supplied URL.
     pagePreview: z
       .string()

@@ -234,3 +234,18 @@ describe("desktop sequential chat", () => {
     });
   });
 });
+
+
+it("freezes a line snapshot per send while the editor moves to another chapter", () => {
+  const saved = storage();
+  const queue = new DesktopChatQueue("line-context", saved);
+  const module = { storyId: 7, scope: "chapter-a", moduleId: "b", kind: "text" as const, page: 1, pageCount: 1,
+    rect: { x: 0, y: 0, width: 100, height: 100 }, pageText: "甲\n乙", text: "乙",
+    line: { source: "chapter" as const, position: { chapterId: "chapter-a", blockId: "b", index: 1, total: 2, prevText: "甲", text: "乙", nextText: "" }, excerpt: "这一行：乙" } };
+  queue.enqueue("给我两条思路", { scope: "chapter-a", draft: module.pageText, cursor: 0, module });
+  module.line.position.chapterId = "chapter-b";
+  module.line.position.text = "另一章";
+  const restored = new DesktopChatQueue("line-context", saved);
+  expect(restored.snapshot().paused).toBe(true);
+  expect(restored.snapshot().items[0].writingContext?.module?.line?.position).toMatchObject({ chapterId: "chapter-a", text: "乙" });
+});
