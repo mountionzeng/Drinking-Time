@@ -27,6 +27,11 @@ import {
   StoryContextShare,
   ArtworkShare,
   StoryContextShareImport,
+  StoryChapter,
+  StoryChapterVersion,
+  ChapterExport,
+  ChapterImport,
+  ChapterReturnCandidate,
   StorySoundWorkspaceRecord,
   StorySoundPlanVersionRecord,
   StorySoundRowOperationRecord,
@@ -106,6 +111,11 @@ function createEmptyMemoryCollections() {
     storyContextShares: [] as StoryContextShare[],
     artworkShares: [] as ArtworkShare[],
     storyContextShareImports: [] as StoryContextShareImport[],
+    storyChapters: [] as StoryChapter[],
+    storyChapterVersions: [] as StoryChapterVersion[],
+    chapterExports: [] as ChapterExport[],
+    chapterImports: [] as ChapterImport[],
+    chapterReturnCandidates: [] as ChapterReturnCandidate[],
     storySoundWorkspaces: [] as StorySoundWorkspaceRecord[],
     storySoundPlanVersions: [] as StorySoundPlanVersionRecord[],
     storySoundRowOperations: [] as StorySoundRowOperationRecord[],
@@ -143,6 +153,9 @@ function createEmptyMemoryCollections() {
 // Persisted counter names are not uniformly singular forms of collection names.
 // Keep the mapping explicit so loading old files cannot allocate duplicate IDs.
 const memoryIdCollections = {
+  storyChapter: "storyChapters",
+  storyChapterVersion: "storyChapterVersions",
+  chapterReturnCandidate: "chapterReturnCandidates",
   user: "users",
   accessSession: "accessSessions",
   project: "projects",
@@ -416,6 +429,11 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     revokedAt: item.revokedAt ? toDate(item.revokedAt) : null,
   })) as StoryContextShare[];
   memoryState.storyContextShareImports = (raw.storyContextShareImports ?? []) as StoryContextShareImport[];
+  memoryState.storyChapters = (raw.storyChapters ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt), updatedAt: toDate(item.updatedAt) })) as StoryChapter[];
+  memoryState.storyChapterVersions = (raw.storyChapterVersions ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as StoryChapterVersion[];
+  memoryState.chapterExports = (raw.chapterExports ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterExport[];
+  memoryState.chapterImports = (raw.chapterImports ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterImport[];
+  memoryState.chapterReturnCandidates = (raw.chapterReturnCandidates ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterReturnCandidate[];
   memoryState.storySoundWorkspaces = (raw.storySoundWorkspaces ?? []).map(
     item => ({
       ...item,

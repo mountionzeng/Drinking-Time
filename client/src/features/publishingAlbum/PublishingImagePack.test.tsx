@@ -14,6 +14,13 @@ vi.mock("@/lib/trpc", () => ({ trpc: {
   storyAgent: { storyMaterialState: { useQuery: () => ({ data: undefined }) } },
   publishingDraft: { readAlbum: { useQuery: () => query } },
   artworkShare: { layout: { useQuery: () => layoutQuery } },
+  chapters: {
+    enabled: { useQuery: () => ({ data: { enabled: false } }) },
+    list: { useQuery: () => ({ data: undefined }) },
+    create: { useMutation: () => ({ mutate: vi.fn() }) },
+    save: { useMutation: () => ({ mutate: vi.fn() }) },
+  },
+  useUtils: () => ({ chapters: { list: { invalidate: vi.fn() } } }),
 } }));
 vi.mock("./SharedLayoutBar", () => ({ SharedLayoutBar: () => null }));
 vi.mock("@/components/ui/popover", async importOriginal => {

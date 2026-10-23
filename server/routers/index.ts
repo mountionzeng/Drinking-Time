@@ -71,6 +71,7 @@ import {
 } from "./promptLineage";
 import { storyAgentRouter } from "./storyAgent";
 import { artworkShareRouter } from "./artworkShare";
+import { chaptersRouter } from "./chapters";
 import { storyContextShareRouter } from "./storyContextShare";
 import { creationAgentRouter } from "./creationAgent";
 import { computeAccountRouter } from "./computeAccount";
@@ -1201,6 +1202,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   storyAgent: storyAgentRouter,
   storyContextShare: storyContextShareRouter,
   artworkShare: artworkShareRouter,
+  chapters: chaptersRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,
   textSourceLineage: textSourceLineageRouter,

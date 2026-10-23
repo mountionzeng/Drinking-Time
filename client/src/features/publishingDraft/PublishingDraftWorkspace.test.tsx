@@ -60,6 +60,7 @@ vi.mock("@/lib/trpc", () => {
         publishingDraft: {
           read: { setData: vi.fn() },
         },
+        chapters: { list: { invalidate: vi.fn() } },
         storyAgent: {
           storyGet: { invalidate: vi.fn() },
           storyImages: { invalidate: vi.fn() },
@@ -67,6 +68,12 @@ vi.mock("@/lib/trpc", () => {
           storyMaterialState: { invalidate: vi.fn() },
         },
       }),
+      chapters: {
+        enabled: { useQuery: () => ({ data: { enabled: false } }) },
+        list: { useQuery: () => ({ data: undefined }) },
+        create: { useMutation: () => ({ mutate: vi.fn() }) },
+        save: { useMutation: () => ({ mutate: vi.fn() }) },
+      },
       artworkShare: {
         layout: { useQuery: () => ({ data: undefined }) },
         shareBackLayout: { useMutation: mutation },

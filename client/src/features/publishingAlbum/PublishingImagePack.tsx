@@ -2,6 +2,7 @@ import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import { SharedLayoutBar } from "./SharedLayoutBar";
+import { useChapterLayoutSync } from "./useChapterLayoutSync";
 import {
   buildSharedLayoutPackage,
   sharedLayoutAssets,
@@ -501,6 +502,13 @@ export function PublishingImagePack({
   const modules =
     (moduleOverride?.basis === basis ? moduleOverride.document : storedModules) ??
     (!body.trim() ? blankDocument : null);
+  useChapterLayoutSync({
+    storyId,
+    title,
+    body,
+    document: liveDocument ?? modules,
+    onRemoteLayout: document => setModuleOverride({ basis, document }),
+  });
   const usedImages = new Set((liveDocument ?? modules)?.pages.flatMap(page =>
     page.modules.flatMap(module => module.kind === "image" ? [module.imageUrl] : [])
   ) ?? []);
