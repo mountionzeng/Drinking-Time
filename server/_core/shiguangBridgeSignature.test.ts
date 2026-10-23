@@ -97,3 +97,16 @@ describe("拾光桥共享签名协议", () => {
     expect(hasValidBridgeSignature(request(), secret + "wrong", Number(timestamp))).toBe(false);
   });
 });
+
+describe("契约 1.6.0 测试向量 V2（/web-login/confirm）", () => {
+  it("签名串与 signature 固定不变", async () => {
+    const { createHash } = await import("node:crypto");
+    const subject = "shiguang:8bf5716e65f591b83c18b8e37ce6e4d2ed2985fac96c3d1dac30f85ea04451c1";
+    const body = { subject, code: "ABC234", decision: "confirm" };
+    const message = `POST\n/web-login/confirm\n1789999200000\nAAECAwQFBgcICQoLDA0ODxAR\n${canonicalJson(body)}`;
+    expect(Buffer.byteLength(message)).toBe(187);
+    expect(createHash("sha256").update(message).digest("hex")).toBe("cc4e564610ef759d039ba1dc12a74cba7c93ab0516920e9fe4f20e90fda46feb");
+    expect(bridgeSignature("contract-vector-secret-public-do-not-deploy", "/web-login/confirm", "1789999200000", "AAECAwQFBgcICQoLDA0ODxAR", body))
+      .toBe("fae8fa7340accaecfc87d8b8c8faf4fac7ed1288ca2f14228924e088975a38e2");
+  });
+});

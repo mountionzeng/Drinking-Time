@@ -26,6 +26,11 @@ import {
   resolveForLogin,
 } from "../services/accountIdentity";
 import {
+  createWebLoginRequest,
+  isWechatScanLoginEnabled,
+  pollWebLoginRequest,
+} from "../services/webLogin";
+import {
   buildSupabaseGoogleAuthorizeUrl,
   verifySupabaseGoogleToken,
 } from "../services/supabaseGoogleAuth";
@@ -729,6 +734,47 @@ export function registerOAuthRoutes(app: Express) {
       code: result.code,
       expiresAt: result.expiresAt.toISOString(),
     });
+  });
+
+  // ── 网页请微信小程序确认登录/绑定（契约 1.6.0，默认关闭） ─────────────
+  app.post("/api/auth/wechat-scan/create", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    let bindUserId: number | undefined;
+    if (req.body?.mode === "bind") {
+      try { bindUserId = (await sdk.authenticateRequest(req)).id; }
+      catch { res.status(401).json({ error: "unauthenticated" }); return; }
+    }
+    try {
+      const result = await createWebLoginRequest({
+        requestIp: clientIp(req), userAgent: req.get("user-agent") ?? undefined, bindUserId,
+      });
+      if (result.outcome === "rate_limited") { res.status(429).json({ error: "rate_limited", retryAfterMs: result.retryAfterMs }); return; }
+      if (result.outcome === "not_configured") { res.status(503).json({ error: "not_configured" }); return; }
+      // 6 位码只在创建时返回给发起的浏览器；之后的轮询永远不再带码。
+      res.json({ l: result.l, v: result.v, code: result.code, expiresAt: result.expiresAt.toISOString(), clientHint: result.clientHint });
+    } catch (error) {
+      console.error("[WechatScan] create failed", error);
+      res.status(503).json({ error: "unavailable" });
+    }
+  });
+
+  app.post("/api/auth/wechat-scan/poll", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    const l = typeof req.body?.l === "string" ? req.body.l : "";
+    const v = typeof req.body?.v === "string" ? req.body.v : "";
+    try {
+      const result = await pollWebLoginRequest({ l, v, requestIp: clientIp(req) });
+      if (result.status === "rate_limited") { res.status(429).json({ error: "rate_limited", retryAfterMs: result.retryAfterMs }); return; }
+      if (result.status === "not_configured") { res.status(503).json({ error: "not_configured" }); return; }
+      if (result.status !== "confirmed") { res.json({ status: result.status }); return; }
+      if (result.mode === "login") await establishPairedSession(req, res, result.userId);
+      res.json({ status: "confirmed", mode: result.mode });
+    } catch (error) {
+      console.error("[WechatScan] poll failed", error);
+      res.status(503).json({ error: "unavailable" });
+    }
   });
 
   /** 另一台设备拿配对码换同一个账号的会话。 */

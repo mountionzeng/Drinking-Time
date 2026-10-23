@@ -3,6 +3,7 @@ import { Router, json } from "express";
 import type { IssuePairingResult } from "../services/accountIdentity";
 import type { ShiguangStorySnapshot } from "../services/shiguangStoryImport";
 import { parseShiguangStoryAccessGrant, type ShiguangStoryAccessGrant } from "../services/shiguangStoryAccess";
+import type { ConfirmDecision, ConfirmWebLoginResult } from "../services/webLogin";
 import { hasValidBridgeSignature } from "./shiguangBridgeSignature";
 
 export { canonicalJson, bridgeSignature } from "./shiguangBridgeSignature";
@@ -18,6 +19,11 @@ type Dependencies = {
   importStory: (userId: number, story: ShiguangStorySnapshot) => Promise<{ storyId: number; created: boolean }>;
   bindStoryAccess: (userId:number, grant:ShiguangStoryAccessGrant)=>Promise<{id:number}>;
   issuePairing: (userId: number) => Promise<IssuePairingResult>;
+  /** 契约 1.6.0：网页扫码/输码登录确认。默认关闭，缺省则路由不存在。 */
+  webLogin?: {
+    enabled: boolean;
+    confirm: (input: { subject: string; code: string; decision: ConfirmDecision }) => Promise<ConfirmWebLoginResult>;
+  };
   now?: () => number;
 };
 
@@ -102,6 +108,34 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
         ...(imported?{storyId:imported.storyId,imported:imported.created}:{}),
         ...(binding?{storyAccessId:binding.id,bound:true}:{}),
       });
+    } catch {
+      return res.status(503).json({ error: "unavailable" });
+    }
+  });
+  router.post("/web-login/confirm", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      if (!deps.webLogin?.enabled || deps.secret.length < 32) return res.status(503).json({ error: "bridge_not_configured" });
+      const now = (deps.now ?? Date.now)();
+      if (!hasValidBridgeSignature(req, deps.secret, now)) return res.status(401).json({ error: "invalid_bridge_signature" });
+      const timestamp = req.header("x-shiguang-timestamp")!, nonce = req.header("x-shiguang-nonce")!;
+      if (!await deps.claimNonce(timestamp, nonce, now)) return res.status(401).json({ error: "replayed_request" });
+      const { subject, code, decision } = req.body ?? {};
+      const keys = Object.keys(req.body ?? {});
+      if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) ||
+        typeof code !== "string" || code.length > 16 ||
+        !["preview", "confirm", "deny"].includes(decision) ||
+        keys.some(key => !["subject", "code", "decision"].includes(key))) {
+        return res.status(400).json({ error: "invalid_input" });
+      }
+      if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
+      const result = await deps.webLogin.confirm({ subject, code, decision });
+      if (result.outcome === "rate_limited") return res.status(429).json({ error: "rate_limited" });
+      if (result.outcome === "not_configured") return res.status(503).json({ error: "not_configured" });
+      // 码不存在、过期、已用过对外只有一种失败。
+      if (result.outcome === "invalid") return res.status(404).json({ error: "invalid_code" });
+      if (result.outcome === "preview") return res.json({ outcome: "preview", clientHint: result.clientHint, mode: result.mode });
+      return res.json({ outcome: result.outcome });
     } catch {
       return res.status(503).json({ error: "unavailable" });
     }

@@ -11,6 +11,7 @@ import {
   reconcileMobileRecoveryOwner,
 } from "@/features/mobileWorkspace/mobileRecoveryIdentity";
 import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEntry";
+import WechatCodeLogin from "./WechatCodeLogin";
 
 type AuthEntryPanelProps = {
   autofocus?: boolean;
@@ -191,6 +192,19 @@ export default function AuthEntryPanel({
    * 配对码登录：不需要邮箱，也不需要邀请码。
    * 码是从另一台已登录设备上签出来的，所以这里进的一定是同一个账号。
    */
+  async function handleWechatScanLoggedIn() {
+    const refreshedIdentity = await refresh();
+    const nextUserId = refreshedIdentity.data?.id;
+    if (typeof nextUserId === "number") {
+      try {
+        reconcileMobileRecoveryOwner(window.localStorage, nextUserId);
+      } catch {
+        // 存储被禁不该把成功登录变成错误。
+      }
+    }
+    navigate(pairingLoginDestination(false, returnPath));
+  }
+
   async function handlePairingLogin(e: React.FormEvent) {
     e.preventDefault();
     const requestId = ++latestRequestRef.current;
@@ -267,6 +281,7 @@ export default function AuthEntryPanel({
           }
         >
           {!pairingOnly && <>
+            <WechatCodeLogin onLoggedIn={handleWechatScanLoggedIn} />
             <a
               href={googleLoginHref}
               className="shiguang-auth-button shiguang-auth-button-google flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
