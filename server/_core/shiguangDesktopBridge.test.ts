@@ -145,3 +145,61 @@ describe("拾光家忆故事进入电脑", () => {
     expect(response.status).toBe(200);
   });
 });
+
+describe("契约 1.6.0 /web-login/confirm", () => {
+  async function confirm(deps: Record<string, unknown>, body: unknown, enabled = true) {
+    const app = express();
+    const base = {
+      enabled: true, secret, ready: async () => true, allow: async () => true, claimNonce: async () => true,
+      storyAccessReady: () => true, resolve: async () => 1, importStory: async () => ({ storyId: 1, created: true }),
+      bindStoryAccess: async () => ({ id: 1 }), issuePairing: async () => ({ outcome: "not_configured" as const }),
+      now: () => 1_800_000_000_000, webLogin: { enabled, confirm: vi.fn(async () => ({ outcome: "confirmed" as const })) }, ...deps,
+    };
+    app.use("/api/shiguang", createShiguangDesktopBridgeRouter(base as never));
+    const server = createServer(app);
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("addr");
+    const path = "/web-login/confirm", timestamp = String(base.now()), nonce = "nonce_for_web_login_confirm";
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/shiguang${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-shiguang-timestamp": timestamp, "x-shiguang-nonce": nonce,
+        "x-shiguang-signature": bridgeSignature(secret, path, timestamp, nonce, body) },
+      body: JSON.stringify(body),
+    });
+    return { response, base };
+  }
+
+  it("开关关闭时返回 503，不调用确认", async () => {
+    const { response, base } = await confirm({}, { subject, code: "ABC234", decision: "confirm" }, false);
+    expect(response.status).toBe(503);
+    expect(base.webLogin.confirm).not.toHaveBeenCalled();
+  });
+
+  it("验签通过后只把 subject、code、decision 交给服务", async () => {
+    const { response, base } = await confirm({}, { subject, code: "ABC234", decision: "confirm" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ outcome: "confirmed" });
+    expect(base.webLogin.confirm).toHaveBeenCalledWith({ subject, code: "ABC234", decision: "confirm" });
+  });
+
+  it("多余字段（例如 userId）被拒绝，不会执行", async () => {
+    const { response, base } = await confirm({}, { subject, code: "ABC234", decision: "confirm", userId: 9 });
+    expect(response.status).toBe(400);
+    expect(base.webLogin.confirm).not.toHaveBeenCalled();
+  });
+
+  it("无效码对外是 404 invalid_code，限流是 429", async () => {
+    const invalid = await confirm({ webLogin: { enabled: true, confirm: async () => ({ outcome: "invalid" }) } }, { subject, code: "ABC234", decision: "confirm" });
+    expect(invalid.response.status).toBe(404);
+    expect(await invalid.response.json()).toEqual({ error: "invalid_code" });
+    const limited = await confirm({ webLogin: { enabled: true, confirm: async () => ({ outcome: "rate_limited" }) } }, { subject, code: "ABC234", decision: "confirm" });
+    expect(limited.response.status).toBe(429);
+  });
+
+  it("重放的 nonce 被拒绝", async () => {
+    const { response } = await confirm({ claimNonce: async () => false }, { subject, code: "ABC234", decision: "confirm" });
+    expect(response.status).toBe(401);
+  });
+});

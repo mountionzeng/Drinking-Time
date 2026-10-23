@@ -8,6 +8,7 @@ import {
 import { importShiguangStorySnapshot } from "../services/shiguangStoryImport";
 import { bindShiguangStoryAccess } from "../services/shiguangStoryAccess";
 import {claimShiguangBridgeNonce} from "../repositories/shiguangBridgeNonces";
+import { confirmWebLoginBySubject } from "../services/webLogin";
 import {isShiguangStoryAuthorityConfigured} from "../services/shiguangStoryAuthorityClient";
 
 export function shiguangDesktopBridgeRoutes() {
@@ -22,5 +23,9 @@ export function shiguangDesktopBridgeRoutes() {
     importStory: importShiguangStorySnapshot,
     bindStoryAccess: bindShiguangStoryAccess,
     issuePairing: userId => issuePairingCode({ userId }),
+    webLogin: {
+      enabled: process.env.WECHAT_SCAN_LOGIN_ENABLED === "true",
+      confirm: confirmWebLoginBySubject,
+    },
   });
 }

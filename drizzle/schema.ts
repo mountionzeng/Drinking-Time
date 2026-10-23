@@ -2454,6 +2454,37 @@ export const shiguangBridgeNonces = mysqlTable(
 
 export type ShiguangBridgeNonce = typeof shiguangBridgeNonces.$inferSelect;
 
+/**
+ * WebLoginRequests — 网页请小程序确认登录/绑定的一次性请求。
+ * 6 位码与请求 L 一一对应；码、L、浏览器验证值都只存带密钥的摘要。
+ */
+export const webLoginRequests = mysqlTable(
+  "web_login_requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    lookupHash: varchar("lookupHash", { length: 64 }).notNull(),
+    verifierHash: varchar("verifierHash", { length: 64 }).notNull(),
+    codeHash: varchar("codeHash", { length: 64 }).notNull(),
+    secretVersion: int("secretVersion").default(1).notNull(),
+    status: mysqlEnum("status", ["pending", "scanned", "confirmed", "denied", "merge_required", "consumed"]).default("pending").notNull(),
+    mode: mysqlEnum("mode", ["login", "bind"]).default("login").notNull(),
+    bindUserId: int("bindUserId").references(() => users.id, { onDelete: "cascade" }),
+    userId: int("userId").references(() => users.id, { onDelete: "cascade" }),
+    clientHint: varchar("clientHint", { length: 40 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    confirmedAt: timestamp("confirmedAt"),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    lookupUnique: uniqueIndex("web_login_requests_lookup_unique").on(table.lookupHash),
+    codeUnique: uniqueIndex("web_login_requests_code_unique").on(table.codeHash),
+    expiresIndex: index("web_login_requests_expires_index").on(table.expiresAt),
+  })
+);
+
+export type WebLoginRequest = typeof webLoginRequests.$inferSelect;
+
 // ─── 个人记忆（U1 数据合同）────────────────────────────────────────────
 //
 // 语义定义在 shared/personalMemory.ts，本地模式（server/db.ts）读同一份。
