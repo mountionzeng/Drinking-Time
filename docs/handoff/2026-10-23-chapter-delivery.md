@@ -30,3 +30,9 @@
 6. 对象存储没有已验证的删除 API；过期媒体的物理清理仍需供应商能力确认。
 
 部署顺序须先只读核实迁移状态，再部署网页、`drinkingTimeBridge` 和小程序。只在确认0036/0037尚未应用且获得单独授权后，才规划相应迁移；0035严禁重跑。生产开关必须由用户单独安排；当前保持关闭。
+
+## 2026-10-24 协调会话补齐真实MySQL验证
+
+使用已安装MySQL 26.7.0，在Documents/Codex任务work/mysql-delivery独立数据目录运行127.0.0.1:33376测试实例；没有连接正式库。专用delivery_test仅获drinking_time_test_*库权限，mysql.user查询被拒绝。初始化时socket路径超长失败，改为/tmp内短路径后启动。
+
+实际首次集成测试发现测试断言使用chapter_delivery%，不能匹配chapter_deliveries，错误期望至少两表。改为准确核对chapter_packages、chapter_deliveries、chapter_delivery_assets。再次测试通过：从零应用仓库迁移（包括0036/0037），每日第20次并发额度互斥、幂等重试、两收件人同时领取只有一个成功、失败事务不留下包/资产。1项真实MySQL集成通过，无跳过。该证据不等于正式库迁移状态，也不等于微信/浏览器端到端验收。

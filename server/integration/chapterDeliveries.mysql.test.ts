@@ -54,8 +54,10 @@ describe("chapter delivery MySQL persistence", () => {
       const pool = mysql.createPool({ uri: database.databaseUrl, connectionLimit: 12 });
       access.getDb.mockResolvedValue(drizzle(pool));
       try {
-        const [tables] = await pool.query<mysql.RowDataPacket[]>("SHOW TABLES LIKE 'chapter_delivery%'");
-        expect(tables.length).toBeGreaterThanOrEqual(2);
+        const [tables] = await pool.query<mysql.RowDataPacket[]>("SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('chapter_packages', 'chapter_deliveries', 'chapter_delivery_assets')");
+        expect(tables.map(table => table.name).sort()).toEqual([
+          "chapter_deliveries", "chapter_delivery_assets", "chapter_packages",
+        ]);
         const sender = await createUser(pool, "sender");
         const first = await createUser(pool, "recipient-a");
         const second = await createUser(pool, "recipient-b");
