@@ -13,3 +13,5 @@
 先复现国内文件地址缺失的失败测试，再修复；4文件159项测试通过，涵盖已有任务恢复与不重新POST、国际网关及第三方图片URL保持原状。
 
 配置备份在生产 /root/drinking-time-image-preparation-20261024/：before.env、metadata.json、nginx.before.conf。仅改提示词模型环境项和上述单一路由超时；不改密钥、数据库、登录权限或SSL验证。最终上线与网页结果追加于文末。
+
+国内文件服务只读HEAD检查出现一次瞬时ENOTFOUND；补充已有图片下载GET的建连失败单次重试，不重试生成POST。失败测试复现后，imageGen和publishingDraft共152项通过。

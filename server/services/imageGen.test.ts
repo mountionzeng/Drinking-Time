@@ -610,6 +610,28 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls.every(call => call[1]?.method === "GET")).toBe(true);
   });
 
+  it("retries a transient DNS failure while downloading an already paid image", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302ai.cn";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/paid.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+    const original = fetcher.getMockImplementation()!;
+    let failed = false;
+    fetcher.mockImplementation((url, init) => {
+      if (String(url).includes("file.302ai.cn") && !failed) {
+        failed = true;
+        return Promise.reject(new TypeError("fetch failed", { cause: Object.assign(new Error("DNS"), { code: "ENOTFOUND" }) }));
+      }
+      return original(url, init);
+    });
+    const result = await resume302MidjourneyTask("existing-paid-task", { fetcher, mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS });
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls.filter(call => String(call[0]).includes("file.302ai.cn"))).toHaveLength(2);
+    expect(fetcher.mock.calls.every(call => call[1]?.method === "GET")).toBe(true);
+  });
+
   it("stores every 302 Midjourney object-array candidate in provider order", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
