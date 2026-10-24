@@ -13,3 +13,7 @@
 先复现 429 未使用备用的失败测试，再通过修复。定向覆盖编排、提示词准备、发布路由和推理计费；模拟供应商响应，无真实付费请求。上线后只做健康与文件摘要验证；供应商实时可用性和真实图片交付仍待用户明确生成验证。
 
 独立发布快照验证：5 个测试文件、142 项通过；TypeScript、67 张功能账本校验、后端构建通过。
+
+## 上线记录
+
+修复提交 `5168fa67a1cc115224c1f4b544e508b5b343f622` 已推送 main 并上线。仅替换 dist/index.js，后端 SHA256 `030372c0ffd2e7dead262e97f194c81ad31d1fca71f2ab5b6f468da7af4f3280`；127 个前端及配置文件摘要保持一致。PM2 重启后 ready（MySQL / authentication required）。备份 `/opt/Drinking-Time/dist.index.bak-20261024-image-rejection-5168fa67.js`；回滚仅恢复此后端并重启 PM2，无数据库变更。未自动重放历史任务或提交付费生成。证据目录 `/tmp/dt-image-rejection-esrfrwzo`。
