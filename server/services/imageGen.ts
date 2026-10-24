@@ -908,8 +908,26 @@ async function storeImageFromUrl(
   fetcher: Fetcher,
   timeoutMs = TIMEOUT_MS
 ): Promise<ImageGenResult> {
+  // 302's domestic gateway can still return the international file domain.
+  // Its domestic OSS alias serves the same path; keep TLS and query parameters.
+  let downloadUrl = imageUrl;
+  try {
+    const gateway = new URL(ENV.api302BaseUrl);
+    const source = new URL(imageUrl);
+    if (
+      gateway.hostname === "api.302ai.cn" &&
+      source.protocol === "https:" &&
+      source.hostname === "file.302.ai" &&
+      !source.port && !source.username && !source.password
+    ) {
+      source.hostname = "file.302ai.cn";
+      downloadUrl = source.toString();
+    }
+  } catch {
+    // Preserve existing URL validation and errors for other providers.
+  }
   const imageResponse = await withTimeout(
-    fetcher(imageUrl, { method: "GET" }),
+    fetcher(downloadUrl, { method: "GET" }),
     timeoutMs
   );
 
