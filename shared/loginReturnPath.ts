@@ -1,8 +1,9 @@
 /** Only local workspace/share destinations survive a single URL decode. */
 export function allowedLoginReturnPath(
   candidate: string | null | undefined
-): "/m" | `/s/${string}` | `/p/${string}` | null {
+): "/m" | "/chapter/claim" | `/s/${string}` | `/p/${string}` | null {
   if (candidate === "/m") return candidate;
+  if (candidate === "/chapter/claim") return candidate;
   if (
     candidate?.length === 39 &&
     /^\/p\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

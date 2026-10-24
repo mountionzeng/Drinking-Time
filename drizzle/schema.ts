@@ -3023,3 +3023,63 @@ export const chapterReturnCandidates = mysqlTable("chapter_return_candidates", {
   packageUnique: uniqueIndex("chapter_return_candidates_package").on(table.userId, table.packageId),
 }));
 export type ChapterReturnCandidate = typeof chapterReturnCandidates.$inferSelect;
+
+/** A validated chapter package stored without media bytes or temporary URLs. */
+export const chapterPackages = mysqlTable("chapter_packages", {
+  packageId: varchar("packageId", { length: 80 }).primaryKey(),
+  rootPackageId: varchar("rootPackageId", { length: 80 }).notNull(),
+  parentPackageId: varchar("parentPackageId", { length: 80 }),
+  senderUserId: int("senderUserId").notNull(),
+  packageHash: varchar("packageHash", { length: 64 }).notNull(),
+  packageJson: json("packageJson").$type<import("../shared/chapterPackage").ChapterPackage>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+}, table => ({
+  rootSenderIndex: index("chapter_packages_root_sender").on(table.rootPackageId, table.senderUserId),
+  senderCreatedIndex: index("chapter_packages_sender_created").on(table.senderUserId, table.createdAt),
+}));
+export type ChapterPackageRecord = typeof chapterPackages.$inferSelect;
+
+/** One account delivery or one-time claim. Public ids carry no account information. */
+export const chapterDeliveries = mysqlTable("chapter_deliveries", {
+  deliveryId: varchar("deliveryId", { length: 36 }).primaryKey(),
+  packageId: varchar("packageId", { length: 80 }).notNull(),
+  senderUserId: int("senderUserId").notNull(),
+  recipientUserId: int("recipientUserId"),
+  claimTokenHash: varchar("claimTokenHash", { length: 64 }),
+  claimExpiresAt: timestamp("claimExpiresAt"),
+  kind: mysqlEnum("kind", ["send", "return"]).notNull(),
+  status: mysqlEnum("status", ["pending", "kept", "appended", "adopted", "declined", "expired"]).notNull().default("pending"),
+  requestId: varchar("requestId", { length: 64 }).notNull(),
+  requestHash: varchar("requestHash", { length: 64 }).notNull(),
+  readyAt: timestamp("readyAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+}, table => ({
+  senderRequestUnique: uniqueIndex("chapter_deliveries_sender_request").on(table.senderUserId, table.requestId),
+  recipientStatusIndex: index("chapter_deliveries_recipient_status").on(table.recipientUserId, table.status, table.createdAt),
+  senderStatusIndex: index("chapter_deliveries_sender_status").on(table.senderUserId, table.status, table.createdAt),
+  packageIndex: index("chapter_deliveries_package").on(table.packageId, table.kind),
+}));
+export type ChapterDelivery = typeof chapterDeliveries.$inferSelect;
+
+/** Image manifest and upload capability state; image bytes live in object storage. */
+export const chapterDeliveryAssets = mysqlTable("chapter_delivery_assets", {
+  id: int("id").autoincrement().primaryKey(),
+  packageId: varchar("packageId", { length: 80 }).notNull(),
+  assetId: varchar("assetId", { length: 80 }).notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  mime: varchar("mime", { length: 40 }).notNull(),
+  bytes: int("bytes").notNull(),
+  storageKey: varchar("storageKey", { length: 255 }),
+  uploadTokenHash: varchar("uploadTokenHash", { length: 64 }),
+  uploadExpiresAt: timestamp("uploadExpiresAt"),
+  uploadedAt: timestamp("uploadedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  packageAssetUnique: uniqueIndex("chapter_delivery_assets_package_asset").on(table.packageId, table.assetId),
+  tokenIndex: index("chapter_delivery_assets_upload_token").on(table.uploadTokenHash),
+  hashIndex: index("chapter_delivery_assets_hash").on(table.sha256),
+}));
+export type ChapterDeliveryAsset = typeof chapterDeliveryAssets.$inferSelect;

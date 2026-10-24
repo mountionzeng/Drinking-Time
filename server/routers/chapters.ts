@@ -552,6 +552,7 @@ export const chaptersRouter = router({
         imageUrls: urls,
         candidates: rows.map(row => ({
           id: row.id,
+          packageId: row.packageId,
           senderName: row.senderName,
           title: row.title,
           blocks: row.blocks,

@@ -32,6 +32,9 @@ import {
   ChapterExport,
   ChapterImport,
   ChapterReturnCandidate,
+  ChapterPackageRecord,
+  ChapterDelivery,
+  ChapterDeliveryAsset,
   StorySoundWorkspaceRecord,
   StorySoundPlanVersionRecord,
   StorySoundRowOperationRecord,
@@ -116,6 +119,9 @@ function createEmptyMemoryCollections() {
     chapterExports: [] as ChapterExport[],
     chapterImports: [] as ChapterImport[],
     chapterReturnCandidates: [] as ChapterReturnCandidate[],
+    chapterPackages: [] as ChapterPackageRecord[],
+    chapterDeliveries: [] as ChapterDelivery[],
+    chapterDeliveryAssets: [] as ChapterDeliveryAsset[],
     storySoundWorkspaces: [] as StorySoundWorkspaceRecord[],
     storySoundPlanVersions: [] as StorySoundPlanVersionRecord[],
     storySoundRowOperations: [] as StorySoundRowOperationRecord[],
@@ -156,6 +162,7 @@ const memoryIdCollections = {
   storyChapter: "storyChapters",
   storyChapterVersion: "storyChapterVersions",
   chapterReturnCandidate: "chapterReturnCandidates",
+  chapterDeliveryAsset: "chapterDeliveryAssets",
   user: "users",
   accessSession: "accessSessions",
   project: "projects",
@@ -434,6 +441,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
   memoryState.chapterExports = (raw.chapterExports ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterExport[];
   memoryState.chapterImports = (raw.chapterImports ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterImport[];
   memoryState.chapterReturnCandidates = (raw.chapterReturnCandidates ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) })) as ChapterReturnCandidate[];
+  memoryState.chapterPackages = (raw.chapterPackages ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt), expiresAt: toDate(item.expiresAt) })) as ChapterPackageRecord[];
+  memoryState.chapterDeliveries = (raw.chapterDeliveries ?? []).map(item => ({ ...item, claimExpiresAt: item.claimExpiresAt ? toDate(item.claimExpiresAt) : null, readyAt: item.readyAt ? toDate(item.readyAt) : null, createdAt: toDate(item.createdAt), updatedAt: toDate(item.updatedAt), expiresAt: toDate(item.expiresAt) })) as ChapterDelivery[];
+  memoryState.chapterDeliveryAssets = (raw.chapterDeliveryAssets ?? []).map(item => ({ ...item, uploadExpiresAt: item.uploadExpiresAt ? toDate(item.uploadExpiresAt) : null, uploadedAt: item.uploadedAt ? toDate(item.uploadedAt) : null, createdAt: toDate(item.createdAt) })) as ChapterDeliveryAsset[];
   memoryState.storySoundWorkspaces = (raw.storySoundWorkspaces ?? []).map(
     item => ({
       ...item,

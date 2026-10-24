@@ -24,6 +24,10 @@ type Dependencies = {
     enabled: boolean;
     confirm: (input: { subject: string; code: string; decision: ConfirmDecision }) => Promise<ConfirmWebLoginResult>;
   };
+  chapterDelivery?: {
+    enabled: boolean;
+    call: (userId: number, action: string, body: Record<string, unknown>) => Promise<unknown>;
+  };
   now?: () => number;
 };
 
@@ -140,5 +144,48 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       return res.status(503).json({ error: "unavailable" });
     }
   });
+  const deliveryActions: Record<string, string[]> = {
+    "/chapter-delivery/contacts": ["subject"],
+    "/chapter-delivery/send": ["subject", "package", "recipientContactId", "requestId"],
+    "/chapter-delivery/create-claim-link": ["subject", "package", "requestId"],
+    "/chapter-delivery/claim": ["subject", "token"],
+    "/chapter-delivery/inbox": ["subject"],
+    "/chapter-delivery/read": ["subject", "deliveryId"],
+    "/chapter-delivery/resolve": ["subject", "deliveryId", "status"],
+    "/chapter-delivery/return": ["subject", "package", "requestId"],
+  };
+  for (const [path, allowedKeys] of Object.entries(deliveryActions)) {
+    router.post(path, async (req, res) => {
+      try {
+        res.setHeader("Cache-Control", "no-store");
+        if (!deps.chapterDelivery?.enabled || deps.secret.length < 32)
+          return res.status(503).json({ error: "bridge_not_configured" });
+        const now = (deps.now ?? Date.now)();
+        if (!hasValidBridgeSignature(req, deps.secret, now))
+          return res.status(401).json({ error: "invalid_bridge_signature" });
+        const timestamp = req.header("x-shiguang-timestamp")!, nonce = req.header("x-shiguang-nonce")!;
+        if (!await deps.claimNonce(timestamp, nonce, now))
+          return res.status(401).json({ error: "replayed_request" });
+        if (Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8") > 256 * 1024)
+          return res.status(413).json({ error: "payload_too_large" });
+        const body = req.body ?? {};
+        if (Object.keys(body).some(key => !allowedKeys.includes(key)) ||
+          typeof body.subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(body.subject))
+          return res.status(400).json({ error: "invalid_input" });
+        if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
+        if (!await deps.allow(body.subject)) return res.status(429).json({ error: "rate_limited" });
+        const userId = await deps.resolve(body.subject);
+        const result = await deps.chapterDelivery.call(userId, path, body);
+        return res.json(result);
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code === "NOT_FOUND" || code === "FORBIDDEN") return res.status(404).json({ error: "not_found" });
+        if (code === "BAD_REQUEST" || code === "CONFLICT" || code === "PAYLOAD_TOO_LARGE")
+          return res.status(code === "PAYLOAD_TOO_LARGE" ? 413 : 400).json({ error: code === "CONFLICT" ? "request_conflict" : "invalid_input" });
+        if (code === "TOO_MANY_REQUESTS") return res.status(429).json({ error: "rate_limited" });
+        return res.status(503).json({ error: "unavailable" });
+      }
+    });
+  }
   return router;
 }

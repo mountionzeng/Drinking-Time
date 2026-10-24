@@ -167,6 +167,23 @@ async function sourceData(owner: number) {
   return { projected, links, names, covers };
 }
 
+/** Connected accounts already linked through an accepted story share or contribution. */
+export async function listMemorySpaceContacts(owner: number) {
+  const data = await sourceData(owner);
+  const contacts = new Map<number, { userId: number; displayName: string; storyIds: number[] }>();
+  for (const link of data.links) {
+    if (link.accountId === owner) continue;
+    const prior = contacts.get(link.accountId) ?? {
+      userId: link.accountId,
+      displayName: data.names.get(link.accountId) ?? link.name ?? "朋友",
+      storyIds: [],
+    };
+    if (!prior.storyIds.includes(link.storyId)) prior.storyIds.push(link.storyId);
+    contacts.set(link.accountId, prior);
+  }
+  return [...contacts.values()].map(contact => ({ ...contact, storyIds: contact.storyIds.sort((a, b) => a - b) }));
+}
+
 /** All writers, including first-open initialization, serialize on one account row. */
 async function editSpace<T>(
   owner: number,

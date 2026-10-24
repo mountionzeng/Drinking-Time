@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import { registerOAuthRoutes } from "./oauth";
 import { minigameRoutes } from "./minigameRoutes";
 import { shiguangDesktopBridgeRoutes } from "./shiguangDesktopBridgeRoutes";
+import { chapterDeliveryMediaRoutes } from "./chapterDeliveryMediaRoute";
 import { shiguangBridgeRoutes } from "./shiguangBridgeRoutes";
 import { shiguangComputeBridgeRoutes } from "./shiguangComputeBridgeRoutes";
 import { appRouter } from "../routers";
@@ -119,6 +120,7 @@ async function startServer() {
     express.urlencoded({ limit: "64kb", extended: false }),
     createAlipayNotifyRoute()
   );
+  app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use("/api/minigame", minigameRoutes());
   // 拾光家忆云函数用 HMAC 调用，不依赖浏览器 Cookie，也不受浏览器 Origin 门禁。

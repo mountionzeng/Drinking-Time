@@ -39,7 +39,10 @@
         "WECHAT_SCAN_LOGIN_ENABLED和WEB_LOGIN_CONFIRM_ENABLED默认关闭；上线、生产配置和实际开启仍须单独授权。",
         "源码相同、静态渲染和测试替身不等于真实跨端登录验收；不得以新登录替代章节投递或宣称正文已经共用。"
       ],
-      "dependencies": ["account-compute-gift-payments", "wechat-desktop-story-entry"],
+      "dependencies": [
+        "account-compute-gift-payments",
+        "wechat-desktop-story-entry"
+      ],
       "replaces": [],
       "knownGaps": [
         "正式网页已发布、0035已执行，不得重复迁移；云函数ba29150已有源码4/4回读记录，但运行配置未核实，当前实际WEB_LOGIN_CONFIRM_ENABLED值未知。",
@@ -49,8 +52,16 @@
         "绑定微信只实现接口，入口位置待用户决定；绑定请求行和身份写入现已共用同一 MySQL 事务。隔离 MySQL 并发验收及拒绝/过期比赛测试尚未执行，不能据此开放绑定。方案A和文档06投递不属于本任务。"
       ],
       "history": [
-        { "date": "2026-10-23", "kind": "feature", "summary": "补登记已有方案B实现及发布历史，状态保持observing；不以发布和迁移代替实际登录验收。" },
-        { "date": "2026-10-23", "kind": "fix", "summary": "网页05固定提交d5a8e1de，绑定请求状态与微信身份写入共用事务；小程序05固定提交135f391，关闭开关优先于桥接配置错误且登录错误提示按动作区分。补HTTP/行为测试；两端契约和身份算法保持。隔离MySQL与真实微信端到端仍未验收。" }
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "补登记已有方案B实现及发布历史，状态保持observing；不以发布和迁移代替实际登录验收。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "网页05固定提交d5a8e1de，绑定请求状态与微信身份写入共用事务；小程序05固定提交135f391，关闭开关优先于桥接配置错误且登录错误提示按动作区分。补HTTP/行为测试；两端契约和身份算法保持。隔离MySQL与真实微信端到端仍未验收。"
+        }
       ]
     },
     {
@@ -7984,6 +7995,67 @@
           "date": "2026-10-23",
           "kind": "verification",
           "summary": "最后定向9文件88项、类型检查、构建、迁移文件与68卡账本校验通过；一次全量5756通过/9失败，失败分布与交接基线相同。末次护栏调整仅做相关回归。浏览器、MySQL实际执行及导入审核仍未完成，保持partial和关闭开关。"
+        }
+      ]
+    },
+    {
+      "id": "chapter-delivery",
+      "name": "章节投递、领取与发回",
+      "status": "partial",
+      "userValue": "把独立章节投递给已连接的同家或同故事成员，也可生成一次性领取链接；收件人留下或加入后，可以将修改后的章节发回原作者。",
+      "entryPoints": [
+        "server/routers/chapterDelivery.ts",
+        "server/_core/chapterDeliveryMediaRoute.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "client/src/pages/ChapterClaimPage.tsx"
+      ],
+      "owners": [
+        "server/routers/chapterDelivery.ts",
+        "server/repositories/chapterDeliveries.ts",
+        "server/_core/chapterDeliveryMediaRoute.ts",
+        "drizzle/0037_chapter_delivery.sql",
+        "server/_core/shiguangDesktopBridgeRoutes.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "client/src/pages/ChapterClaimPage.tsx"
+      ],
+      "evidence": [
+        "server/repositories/chapterDeliveries.test.ts",
+        "server/routers.chapterDelivery.test.ts",
+        "command:pnpm exec tsc --noEmit --pretty false",
+        "command:pnpm exec vitest run server/routers.chapterDelivery.test.ts server/repositories/chapterDeliveries.test.ts",
+        "command:pnpm feature:validate"
+      ],
+      "invariants": [
+        "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
+        "收发人身份来自已认证网页 userId；包中的署名由服务端覆盖；客户端不能提交发送者 userId。",
+        "收件人只来自显式已连接的同家/同故事关系，使用账号绑定的 HMAC 不透明联系人编号；禁止向客户端暴露内部 userId 或按昵称/手机号搜索陌生账号。",
+        "领取 token 只存 SHA-256 摘要且最多使用一次；上传图片使用短时、按资产绑定的独立 capability，校验 MIME、字节数和 SHA-256。",
+        "未完整上传的图片包不进入收件箱；读取包每次生成新的临时图片地址。章节包和投递记录不得写入 stories.body。",
+        "发回包必须关联本人收到并留下或加入的父包，收件目标固定为根包原作者；接收决议只能由当前收件账号执行。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "memory-bookshelf-people",
+        "wechat-web-code-login"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "两端 UI、drinkingTimeBridge 和服务端契约已接通，但尚未做浏览器、微信开发者工具或真机端到端验收；两端开关保持关闭，未部署。",
+        "0037 迁移仅生成并通过静态迁移基线检查，尚未在隔离 MySQL 或正式数据库执行。",
+        "图片上传使用对象存储内容哈希键；当前 storage.ts 没有已知删除 API，过期对象物理清理尚未实现。",
+        "测试覆盖本地持久化请求幂等、图片就绪门槛、领取竞争、服务端联系人越权和云函数契约；尚无隔离 MySQL 并发测试、媒体 HTTP 路由回归或每日限额回归。",
+        "每日上限目前设为每个账号 UTC 日历日 20 次，仍需产品验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "创建网页端章节投递持久化与 tRPC 基础接口；按同家/同故事的已连接成员限制账号投递，加入一次性领取、7 天令牌、30 天包期限、20 次/日上限和图片原始字节上传。0037 未执行，开关关闭；前端、小程序桥和跨端验收待完成。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "feature",
+          "summary": "接通网页章节工作区、领取登录回跳、可信 subject 桥和小程序投递/收件/导入/受保护发回路径；契约升级至 1.7.0。导入经 04 既有审核与来源保护，决议在持久化回执后更新；迁移未执行、双开关关闭，端到端验收仍待做。"
         }
       ]
     }

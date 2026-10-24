@@ -19,6 +19,36 @@ const button =
   "rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-40";
 const field = `${button} bg-transparent text-sm`;
 type Props = ComponentProps<typeof PublishingImagePackCanvas>;
+const DELIVERY_CANDIDATES_KEY = "chapterDelivery.candidateMap.v1";
+const DELIVERY_IMPORTS_KEY = "chapterDelivery.importAttempts.v1";
+type DeliveryImportAttempt = { requestId: string; mode: "keep" | "append"; storyId: number | null };
+function deliveryImportAttempts(): Record<string, DeliveryImportAttempt> {
+  try { const value = JSON.parse(localStorage.getItem(DELIVERY_IMPORTS_KEY) || "{}"); return value && typeof value === "object" ? value : {}; }
+  catch { return {}; }
+}
+function deliveryImportAttempt(deliveryId: string, mode: DeliveryImportAttempt["mode"], storyId: number | null) {
+  const attempts = deliveryImportAttempts();
+  const old = attempts[deliveryId];
+  if (old && old.mode === mode && old.storyId === storyId) return old;
+  const next = { requestId: crypto.randomUUID(), mode, storyId };
+  attempts[deliveryId] = next;
+  localStorage.setItem(DELIVERY_IMPORTS_KEY, JSON.stringify(attempts));
+  return next;
+}
+function forgetDeliveryImportAttempt(deliveryId: string) {
+  const attempts = deliveryImportAttempts(); delete attempts[deliveryId];
+  localStorage.setItem(DELIVERY_IMPORTS_KEY, JSON.stringify(attempts));
+}
+function deliveryCandidateMap(): Record<string, string> {
+  try { const value = JSON.parse(localStorage.getItem(DELIVERY_CANDIDATES_KEY) || "{}"); return value && typeof value === "object" ? value : {}; }
+  catch { return {}; }
+}
+function rememberDeliveryCandidate(packageId: string, deliveryId: string) {
+  localStorage.setItem(DELIVERY_CANDIDATES_KEY, JSON.stringify({ ...deliveryCandidateMap(), [packageId]: deliveryId }));
+}
+function forgetDeliveryCandidate(packageId: string) {
+  const value = deliveryCandidateMap(); delete value[packageId]; localStorage.setItem(DELIVERY_CANDIDATES_KEY, JSON.stringify(value));
+}
 
 export function mapChapterImages(
   layout: ModuleDocument | null,
@@ -57,6 +87,14 @@ export function ChapterWorkspace({
   const importPackage = trpc.chapters.importPackage.useMutation();
   const restore = trpc.chapters.restoreVersion.useMutation();
   const resolve = trpc.chapters.resolveCandidate.useMutation();
+  const deliveryEnabled = trpc.chapterDelivery.status.useQuery(undefined, { retry: false });
+  const deliveryContacts = trpc.chapterDelivery.contacts.useQuery(undefined, { enabled: deliveryEnabled.data?.enabled === true, retry: false });
+  const deliveryInbox = trpc.chapterDelivery.inbox.useQuery(undefined, { enabled: deliveryEnabled.data?.enabled === true, retry: false });
+  const deliverySend = trpc.chapterDelivery.send.useMutation();
+  const deliveryClaimLink = trpc.chapterDelivery.createClaimLink.useMutation();
+  const deliveryReturn = trpc.chapterDelivery.return.useMutation();
+  const deliveryResolve = trpc.chapterDelivery.resolve.useMutation();
+  const deliveryImport = trpc.chapters.importPackage.useMutation();
   const candidates = trpc.chapters.candidates.useQuery(
     { chapterId: active?.id ?? 0 },
     { enabled: Boolean(active), retry: false }
@@ -86,6 +124,14 @@ export function ChapterWorkspace({
     id: number;
     current: Chapter;
   } | null>(null);
+  const [deliveryPanel, setDeliveryPanel] = useState<"send" | "inbox" | null>(null);
+  const [deliveryRecipient, setDeliveryRecipient] = useState("");
+  const [selectedDelivery, setSelectedDelivery] = useState<{
+    deliveryId: string; kind: "send" | "return"; status: string;
+    package: { packageId: string; storyTitle: string; sender: { displayName: string }; chapters: Array<{ chapterId: string; title: string; blocks: Array<{ type: string; text?: string }> }> };
+    imageUrls: Record<string, string>;
+  } | null>(null);
+  const deliveryAttempt = useRef<{ kind: "send" | "link" | "return"; requestId: string; package: unknown; images: Array<{ assetId: string; base64: string }>; recipientContactId?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const change = useCallback(
     (edit: ChapterEdit) => {
@@ -241,6 +287,104 @@ export function ChapterWorkspace({
       }
     } else setImportedStory(result.storyId);
   }
+  function decodedBase64(value: string) {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+  async function uploadDeliveryAssets(result: { uploadTickets: Array<{ assetId: string; path: string; token: string; mime: string }> }, images: Array<{ assetId: string; base64: string }>) {
+    const byId = new Map(images.map(image => [image.assetId, image.base64]));
+    for (const ticket of result.uploadTickets) {
+      const base64 = byId.get(ticket.assetId);
+      if (!base64) throw new Error("图片清单不完整，请重新打包这一章");
+      const url = new URL(ticket.path, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith("/api/chapter-delivery/media/") || url.search)
+        throw new Error("图片上传地址无效");
+      const response = await fetch(url, { method: "PUT", redirect: "error", headers: {
+        authorization: `Bearer ${ticket.token}`, "content-type": ticket.mime,
+      }, body: decodedBase64(base64) });
+      if (!response.ok) throw new Error("图片上传没有完成，请重试");
+    }
+  }
+  async function createDeliveryAttempt(kind: "send" | "link" | "return") {
+    if (!active) throw new Error("请先选择一章");
+    const output = await exportPackage.mutateAsync({ chapterId: active.id });
+    return { kind, requestId: crypto.randomUUID(), package: output.package, images: output.images };
+  }
+  async function deliverActiveChapter(kind: "send" | "link" | "return") {
+    if (!active) return;
+    await run(async () => {
+      let attempt = deliveryAttempt.current;
+      if (!attempt || attempt.kind !== kind || (kind === "send" && attempt.recipientContactId !== deliveryRecipient)) {
+        attempt = { ...(await createDeliveryAttempt(kind)), ...(kind === "send" ? { recipientContactId: deliveryRecipient } : {}) };
+        deliveryAttempt.current = attempt;
+      }
+      const payload = { package: attempt.package, requestId: attempt.requestId };
+      const result = kind === "send"
+        ? await deliverySend.mutateAsync({ ...payload, recipientContactId: attempt.recipientContactId! })
+        : kind === "link"
+          ? await deliveryClaimLink.mutateAsync(payload)
+          : await deliveryReturn.mutateAsync(payload);
+      await uploadDeliveryAssets(result, attempt.images);
+      await deliveryInbox.refetch();
+      if (kind === "link" && "claimUrl" in result && result.claimUrl) {
+        const claimUrl = new URL(String(result.claimUrl), window.location.origin);
+        if (claimUrl.origin !== window.location.origin || !/^\/chapter\/claim\/[A-Za-z0-9_-]{43}$/.test(claimUrl.pathname))
+          throw new Error("领取链接地址无效");
+        await navigator.clipboard.writeText(claimUrl.href);
+        toast.success("一次性领取链接已复制");
+      } else toast.success("章节已发送");
+      deliveryAttempt.current = null;
+    });
+  }
+  async function loadDelivery(deliveryId: string) {
+    const result = await utils.chapterDelivery.read.fetch({ deliveryId });
+    setSelectedDelivery({ ...result, deliveryId, kind: result.delivery.kind, status: result.delivery.status });
+  }
+  async function importDelivery(mode: "keep" | "append") {
+    if (!selectedDelivery) return;
+    await run(async () => {
+      const deliveryId = selectedDelivery.deliveryId;
+      const currentStoryId = mode === "append" ? props.storyId : null;
+      const attempt = deliveryImportAttempt(deliveryId, mode, currentStoryId);
+      // Refresh short-lived media capabilities before retries. The import
+      // request id and destination stay fixed until both import and resolution
+      // have a durable receipt.
+      const fresh = await utils.chapterDelivery.read.fetch({ deliveryId });
+      setSelectedDelivery({ ...fresh, deliveryId, kind: fresh.delivery.kind, status: fresh.delivery.status });
+      const images: Array<{ assetId: string; base64: string }> = [];
+      for (const [assetId, url] of Object.entries(fresh.imageUrls)) {
+        const target = new URL(url, window.location.origin);
+        if (target.origin !== window.location.origin || !target.pathname.startsWith("/api/chapter-delivery/media/download/"))
+          throw new Error("图片读取地址无效");
+        const response = await fetch(target, { credentials: "same-origin", redirect: "error" });
+        if (!response.ok) throw new Error("章节图片读取失败，请重试");
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+        images.push({ assetId, base64: btoa(binary) });
+      }
+      const result = await deliveryImport.mutateAsync({
+        requestId: attempt.requestId, mode, storyId: currentStoryId ?? undefined,
+        package: fresh.package, images,
+      });
+      if (result.outcome === "candidate") {
+        rememberDeliveryCandidate(fresh.package.packageId, deliveryId);
+        forgetDeliveryImportAttempt(deliveryId);
+      } else {
+        await deliveryResolve.mutateAsync({ deliveryId, status: result.outcome === "append" ? "appended" : "kept" });
+        forgetDeliveryImportAttempt(deliveryId);
+      }
+      setSelectedDelivery(null); setDeliveryPanel(null);
+      await deliveryInbox.refetch();
+      if (result.storyId === props.storyId) {
+        await state.reloadList();
+        if (result.chapterId) { await state.open(result.chapterId); await utils.chapters.candidates.invalidate({ chapterId: result.chapterId }); }
+      }
+      toast.success(result.outcome === "candidate" ? "已生成回发候选，请对照后采用" : "章节已导入");
+    });
+  }
   const selectedIndex = state.chapters.findIndex(
     chapter => chapter.id === active?.id
   );
@@ -249,6 +393,16 @@ export function ChapterWorkspace({
       candidate => candidate.status === "pending"
     ) ?? [];
   const candidate = pending.find(item => item.id === comparison?.id);
+  useEffect(() => {
+    for (const item of candidates.data?.candidates ?? []) {
+      if (item.status === "pending") continue;
+      const deliveryId = deliveryCandidateMap()[item.packageId];
+      if (!deliveryId) continue;
+      void deliveryResolve.mutateAsync({ deliveryId, status: item.status === "adopted" ? "adopted" : "declined" })
+        .then(() => forgetDeliveryCandidate(item.packageId))
+        .catch(() => toast.error("章节已处理，收件箱状态稍后重试同步"));
+    }
+  }, [candidates.data?.candidates]);
   return (
     <div className="space-y-3" aria-label="故事章节">
       <nav
@@ -664,6 +818,66 @@ export function ChapterWorkspace({
             },
           } as Props)}
         </>
+      )}
+      {deliveryEnabled.data?.enabled && (
+        <div className="flex flex-wrap gap-2 border-t border-[var(--panel-border)] pt-3" aria-label="章节投递">
+          <button className={button} disabled={busy || !active} onClick={() => {
+            setDeliveryPanel("send");
+            setDeliveryRecipient(deliveryContacts.data?.[0]?.contactId ?? "");
+            setSelectedDelivery(null);
+          }}>投递章节</button>
+          {active?.blocks.lineage?.parentPackageId && (
+            <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("return")}>发回修改稿</button>
+          )}
+          <button className={button} disabled={busy} onClick={() => {
+            setDeliveryPanel("inbox"); setSelectedDelivery(null);
+            void deliveryInbox.refetch();
+          }}>收件箱{deliveryInbox.data?.length ? `（${deliveryInbox.data.filter(row => row.status === "pending").length}）` : ""}</button>
+        </div>
+      )}
+      {deliveryPanel === "send" && (
+        <section className="space-y-2 rounded-xl border p-3" aria-label="投递章节">
+          <p className="text-sm">章节包只会发给已连接的亲友，图片按短时地址单独传输。</p>
+          <label className="block space-y-1 text-xs">收件人
+            <select className={`${field} w-full`} value={deliveryRecipient} onChange={event => setDeliveryRecipient(event.target.value)}>
+              {(deliveryContacts.data ?? []).map(contact => <option key={contact.contactId} value={contact.contactId}>{contact.displayName}</option>)}
+            </select>
+          </label>
+          <button className={button} disabled={busy || !deliveryRecipient} onClick={() => void deliverActiveChapter("send")}>发送给这位亲友</button>{" "}
+          <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("link")}>创建一次性领取链接</button>{" "}
+          <button className={button} onClick={() => { setDeliveryPanel(null); deliveryAttempt.current = null; }}>关闭</button>
+          {!deliveryContacts.data?.length && <p role="status" className="text-xs text-muted-foreground">目前没有可投递的已连接联系人。</p>}
+        </section>
+      )}
+      {deliveryPanel === "inbox" && (
+        <section className="space-y-3 rounded-xl border p-3" aria-label="章节投递收件箱">
+          <div className="flex items-center justify-between"><h3 className="text-sm font-medium">章节投递收件箱</h3><button className={button} onClick={() => void deliveryInbox.refetch()}>刷新</button></div>
+          {deliveryInbox.isPending && <p role="status" className="text-xs">正在读取收件箱…</p>}
+          {deliveryInbox.error && <p role="alert" className="text-xs">收件箱暂时无法读取，请重试。</p>}
+          {!deliveryInbox.isPending && !(deliveryInbox.data?.length) && <p className="text-xs text-muted-foreground">收件箱里还没有章节。</p>}
+          <ul className="space-y-2">
+            {(deliveryInbox.data ?? []).filter(row => row.status === "pending").map(row => (
+              <li key={row.deliveryId} className="flex items-center justify-between gap-2 text-xs">
+                <span>{row.kind === "return" ? "发回的修改稿" : "收到的章节"} · {new Date(row.createdAt).toLocaleDateString()}</span>
+                <button className={button} disabled={busy} onClick={() => {
+                  void loadDelivery(row.deliveryId).catch(() => toast.error("章节内容暂时无法读取，请重试"));
+                }}>查看</button>
+              </li>
+            ))}
+          </ul>
+          {selectedDelivery && (
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm">{selectedDelivery.package.sender.displayName} 发来的「{selectedDelivery.package.chapters[0]?.title || selectedDelivery.package.storyTitle}」</p>
+              <button className={button} disabled={busy} onClick={() => void importDelivery("keep")}>留下成新故事</button>{" "}
+              <button className={button} disabled={busy} onClick={() => void importDelivery("append")}>加入当前故事末尾</button>{" "}
+              <button className={button} disabled={busy} onClick={() => void run(async () => {
+                await deliveryResolve.mutateAsync({ deliveryId: selectedDelivery.deliveryId, status: "declined" });
+                setSelectedDelivery(null); await deliveryInbox.refetch();
+              })}>拒绝</button>
+            </div>
+          )}
+          <button className={button} onClick={() => { setDeliveryPanel(null); setSelectedDelivery(null); }}>关闭收件箱</button>
+        </section>
       )}
     </div>
   );
