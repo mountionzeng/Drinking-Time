@@ -55,7 +55,6 @@ import {
   getPublishingContentError,
   getXThreadStats,
   type PublishingDraftContent,
-  type PublishingEditAssessment,
   type PublishingCoverArtReference,
   type PublishingCoverRound,
   type PublishingPlatformId,
@@ -152,14 +151,6 @@ function createPublishingTextOperationIdentity(
     }),
   };
 }
-
-type PendingEditDecision = {
-  platform: PublishingPlatformId;
-  content: PublishingDraftContent;
-  baseDraftRevision: number;
-  assessment: PublishingEditAssessment;
-  proposedCore: PublishingStoryCoreContent | null;
-};
 
 type ScopedPlatformSnapshot = {
   storyId: number;
@@ -366,9 +357,6 @@ export default function PublishingDraftWorkspace({
     trpc.publishingDraft.repairFormatting.useMutation();
   const applyMut = trpc.publishingDraft.applyEdit.useMutation();
   const adoptTextMut = trpc.textDrafts.adopt.useMutation({ retry: false });
-  const confirmWordingMut =
-    trpc.publishingDraft.confirmWordingChange.useMutation();
-  const confirmCoreMut = trpc.publishingDraft.confirmCoreChange.useMutation();
   const finishedProductQuery = trpc.publishingDraft.finishedProduct.useQuery(
     { storyId: activeStoryId ?? 0 },
     { enabled: Boolean(activeStoryId && activeStoryId > 0), retry: false }
@@ -394,8 +382,6 @@ export default function PublishingDraftWorkspace({
     trpc.publishingDraft.buildVideoStoryboard.useMutation();
   const initializeAlbumMut = trpc.publishingDraft.initializeAlbum.useMutation();
   const utils = trpc.useUtils();
-  const [pendingDecision, setPendingDecision] =
-    useState<PendingEditDecision | null>(null);
   const bodyEditorRef = useRef<HTMLTextAreaElement>(null);
   const articleTopRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -576,11 +562,7 @@ export default function PublishingDraftWorkspace({
   const convertTargets = publishingConvertTargets(publishing);
   const sourcePlatform =
     tabs.find(candidate => candidate !== platform) ?? tabs[0];
-  const saving =
-    applyMut.isPending ||
-    adoptTextMut.isPending ||
-    confirmWordingMut.isPending ||
-    confirmCoreMut.isPending;
+  const saving = applyMut.isPending || adoptTextMut.isPending;
   const busy =
     startingBody ||
     generateMut.isPending ||
@@ -639,6 +621,23 @@ export default function PublishingDraftWorkspace({
     : null;
   const xThreadStats =
     platform === "x" && editorContent ? getXThreadStats(editorContent) : null;
+  const imageGenerationBlockedReason = saving
+    ? "正在保存文案…"
+    : coverBusy
+      ? "图片任务正在处理，完成后即可继续。"
+      : videoBusy
+        ? "正在准备视频，完成后即可生成图片。"
+        : busy
+          ? "正在整理文案，完成后即可继续。"
+          : !editorContent?.body.trim()
+            ? "先写好并保存文案，即可根据文案生成图片。"
+            : contentError
+              ? contentError
+              : dirty
+                ? "当前文案有未保存的修改。保存后，再确认生成图片及费用。"
+                : !draft
+                  ? "请先在文字区选择并保存一版文案。"
+                  : null;
   // 文字生成改由左侧聊天触发。旧的发布管理、平台热点和局部改写仍保留
   // 在数据与服务端中，但不再打断当前的“聊天 → 完整新稿”主流程。
   const legacyPublishingControlsVisible = false;
@@ -649,7 +648,7 @@ export default function PublishingDraftWorkspace({
       setPublishingBuffer(activeStoryId, platform, next, versionId, previewVersion?.id);
       return;
     }
-    if (!previewVersion && publishingContentEquals(next, draft.content)) {
+    if (!saving && !previewVersion && publishingContentEquals(next, draft.content)) {
       discardPublishingBuffer(activeStoryId, platform, versionId);
       return;
     }
@@ -992,26 +991,22 @@ export default function PublishingDraftWorkspace({
         content: editorContent,
         baseDraftRevision: draft.revision,
       });
+      const current = storySpineStore.getState();
       if (
-        !publishingStoryScopeMatches(
-          storyId,
-          storySpineStore.getState().activeStoryId
-        )
-      )
-        return;
-      if (result.status === "applied") {
-        setPublishing(result.publishing);
+        current.activeStoryId !== storyId ||
+        current.publishing.activePlatform !== platform ||
+        (current.publishing.activeVersionId ?? "v1") !== versionId ||
+        current.publishing.revision > result.publishing.revision
+      ) return;
+      const remaining = current.publishingBuffers[
+        publishingDraftBufferKey(storyId, platform, versionId)
+      ];
+      setPublishing(result.publishing);
+      // A save response must not discard text entered while it was in flight.
+      if (remaining === editorBuffer) {
         discardPublishingBuffer(storyId, platform, versionId);
-        toast.success("当前平台的修改已应用");
-        return;
       }
-      setPendingDecision({
-        platform,
-        content: editorContent,
-        baseDraftRevision: draft.revision,
-        assessment: result.assessment,
-        proposedCore: result.proposedCore,
-      });
+      toast.success("稿件已保存");
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "修改暂时没有保存，编辑内容仍在")
@@ -1022,74 +1017,8 @@ export default function PublishingDraftWorkspace({
   const discardChanges = () => {
     if (!dirty || activeStoryId == null || busy) return;
     discardPublishingBuffer(activeStoryId, platform, versionId);
-    setPendingDecision(null);
     setRewriteInstruction("");
     toast.success("已放弃这次修改，恢复到已应用版本");
-  };
-
-  const confirmAsWording = async () => {
-    if (!pendingDecision || activeStoryId == null) return;
-    const storyId = activeStoryId;
-    try {
-      const result = await confirmWordingMut.mutateAsync({
-        storyId,
-        platform: pendingDecision.platform,
-        content: pendingDecision.content,
-        baseDraftRevision: pendingDecision.baseDraftRevision,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          storyId,
-          storySpineStore.getState().activeStoryId
-        )
-      )
-        return;
-      setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, pendingDecision.platform, versionId);
-      setPendingDecision(null);
-      toast.success("只更新了当前平台的措辞");
-    } catch (error) {
-      toast.error(
-        publishingErrorMessage(error, "修改暂时没有保存，编辑内容仍在")
-      );
-    }
-  };
-
-  const confirmAsCore = async () => {
-    if (
-      !pendingDecision?.proposedCore ||
-      !publishing.core ||
-      activeStoryId == null
-    ) {
-      return;
-    }
-    const storyId = activeStoryId;
-    try {
-      const result = await confirmCoreMut.mutateAsync({
-        storyId,
-        platform: pendingDecision.platform,
-        content: pendingDecision.content,
-        core: pendingDecision.proposedCore,
-        baseCoreRevision: publishing.core.revision,
-        baseDraftRevision: pendingDecision.baseDraftRevision,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          storyId,
-          storySpineStore.getState().activeStoryId
-        )
-      )
-        return;
-      setPublishing(result.publishing);
-      setPendingDecision(null);
-      toast.info(
-        "这次修改涉及故事内核，当前版本未被覆盖；请创建新版本继续，编辑内容已保留"
-      );
-    } catch (error) {
-      toast.error(
-        publishingErrorMessage(error, "故事内核暂时没有更新，编辑内容仍在")
-      );
-    }
   };
 
   const copyText = async () => {
@@ -2343,6 +2272,15 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
+                {onOpenImages && editorContent.body.trim() && view !== "images" ? (
+                  <div className="mt-6 flex justify-end">
+                    <ActionButton onClick={onOpenImages} primary>
+                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                      配图
+                    </ActionButton>
+                  </div>
+                ) : null}
+
                 </div>
                 <div hidden={view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
@@ -2374,7 +2312,11 @@ export default function PublishingDraftWorkspace({
                     selectedIllustrationsRef.current = { scope: `${activeStoryId}:${versionId}:${platform}`, placements };
                   }}
                   onOpenCoverStudio={() => openCoverStudio(false)}
-                  coverBusy={busy || coverBusy || videoBusy || dirty || !draft}
+                  coverBusy={Boolean(imageGenerationBlockedReason)}
+                  generationBlockedReason={imageGenerationBlockedReason}
+                  savingDraft={saving}
+                  onSaveDraft={dirty && (draft || previewVersion) && editorContent.body.trim() && !contentError && !busy && !coverBusy && !videoBusy
+                    ? applyChanges : undefined}
                   generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}
                   generationError={persistedCoverGeneration?.error}
                   illustrationCost={coverEstimate.estimatedCny}
@@ -2520,54 +2462,6 @@ export default function PublishingDraftWorkspace({
               )}
               {selectedNarrativeSpec === "album9" ? "生成画册" : "生成故事版"}
             </ActionButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(pendingDecision)}
-        onOpenChange={open => !open && setPendingDecision(null)}
-      >
-        <DialogContent showCloseButton={!busy}>
-          <DialogHeader>
-            <DialogTitle>这次改的是措辞，还是内核？</DialogTitle>
-            <DialogDescription>
-              {pendingDecision?.assessment.reason ||
-                "这处修改可能改变了你的核心观点，需要由你决定。"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-lg bg-[var(--nayin-surface)] px-3 py-2 text-xs leading-5 text-muted-foreground">
-            选择“只改当前平台”不会影响其他版本；更新故事内核后，其他平台只会标记为建议复核，不会被自动重写。
-          </div>
-          {pendingDecision?.assessment.outcome === "uncertain" ? (
-            <p className="text-xs leading-5 text-muted-foreground">
-              如果你的事实或观点确实变了，请先回到左侧告诉聊聊变化在哪里；如果只是想换一种说法，直接保留在当前平台即可。
-            </p>
-          ) : null}
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setPendingDecision(null)}
-              disabled={busy}
-              className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              回到稿件
-            </button>
-            <ActionButton
-              onClick={() => void confirmAsWording()}
-              disabled={busy}
-            >
-              只改当前平台
-            </ActionButton>
-            {pendingDecision?.proposedCore ? (
-              <ActionButton
-                onClick={() => void confirmAsCore()}
-                disabled={busy}
-                primary
-              >
-                更新故事内核
-              </ActionButton>
-            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

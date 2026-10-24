@@ -1265,10 +1265,14 @@ describe("publishing draft transitions", () => {
     expect(before.drafts.x).toBeUndefined();
   });
 
-  it("applies wording-only edits to one draft without advancing the core", () => {
-    const before = stateWithDrafts();
+  it("saves rewritten text only to its platform, preserving the core and other drafts", () => {
+    const before = upsertPublishingPlatformDraft(stateWithDrafts(), {
+      platform: "x",
+      content: content("Keep the other platform unchanged."),
+      now: NOW,
+    });
     const nextContent = content(
-      "我只是调整了分段和措辞。",
+      "我改了文章事实和结论。",
       "别把时间交给噪音",
       ["AI工具"]
     );
@@ -1280,7 +1284,10 @@ describe("publishing draft transitions", () => {
       NOW + 1
     );
 
-    expect(after.core?.revision).toBe(1);
+    expect(after.core).toEqual(before.core);
+    expect(after.drafts.x).toEqual(before.drafts.x);
+    expect(after.cover).toEqual(before.cover);
+    expect(after.versions?.length).toBe(before.versions?.length);
     expect(after.drafts.xiaohongshu?.content).toEqual(nextContent);
     expect(after.drafts.xiaohongshu?.appliedBaseline).toEqual(nextContent);
     expect(after.drafts.xiaohongshu?.revision).toBe(2);

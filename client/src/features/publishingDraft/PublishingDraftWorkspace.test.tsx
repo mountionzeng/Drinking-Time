@@ -262,6 +262,7 @@ describe("PublishingDraftWorkspace", () => {
     expect(adoptButton).toBeDefined();
     expect(adoptButton).not.toContain('disabled=""');
     expect(html).toContain("文字历史 · 新版本 · 待保存");
+    expect(html).toContain("保存文案，继续");
     expect(html).toMatch(/<textarea[^>]*>修好旧木架<\/textarea>/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*<svg[^]*?生成封面<\/button>/);
   });
@@ -471,6 +472,8 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("改写预览");
     expect(html).toContain("放弃修改");
     expect(html).not.toContain("已保存");
+    expect(html).toContain(saving ? "正在保存文案…" : "保存文案，继续");
+    expect(html).not.toContain("请先保存当前文案，或等待正在进行的生成完成。");
     const saveButton = html.match(/<button[^>]*>.*?<\/button>/g)?.find(button => button.includes(saving ? "正在保存…" : "保存"));
     expect(saveButton).toBeDefined();
     if (saving) expect(saveButton).toContain('disabled=""');

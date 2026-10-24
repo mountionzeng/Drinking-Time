@@ -1099,9 +1099,12 @@
         "docs/qa/2026-10-20-story-creation-workflow.md",
         "client/src/features/publishingDraft/StudioCreateMenu.test.tsx",
         "docs/qa/2026-10-20-story-workflow-release.md",
-        "docs/qa/2026-10-21-desktop-memory-chat.md"
+        "docs/qa/2026-10-21-desktop-memory-chat.md",
+        "scripts/verify-publishing-save.cjs",
+        "docs/qa/2026-10-24-direct-publishing-save.md"
       ],
       "invariants": [
+        "普通保存直接写入当前平台文稿，不调用 AI 分类或要求措辞/内核二选一，不自动更新共享内核或创建版本；失败保留编辑内容。",
         "平台稿相互隔离。",
         "生成、转换与改写遵守共同探索原则，不强迫补结论或问答式采集；原有事实、标题、平台和操作范围约束保持。",
         "切换工作台不自动触发付费生成。",
@@ -1132,6 +1135,21 @@
         "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
       ],
       "history": [
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "按用户要求在文章末尾加入配图按钮，复用现有图像工作区导航；有正文即可进入，不因未保存而阻止切换，不自动保存或付费生成。浏览器回归覆盖点击配图、往返保留未保存正文、无额外 mutation，以及随后弹窗保存与费用确认。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "修复未保存文稿进入图片生成弹窗后无路可走：弹窗原地保存文案，成功后保留画面要求并解锁费用确认，失败可重试；保存动作不提交生成。区分未保存、保存中与图片/视频任务状态；浏览器虚构数据验证费用确认后仅提交一次且携带最新 revision，未运行真实付费出图。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "按用户反馈移除保存时的措辞/内核弹窗和 AI 分类；普通保存直接应用当前平台文字，保留稿件 revision 冲突检查、其他平台与共享内核。迟到保存响应检查当前 Story/平台/版本并保留保存期间的继续输入。路由、持久化、共享模型、组件测试及虚构数据浏览器流程验证，详见 direct-publishing-save QA；仅本地修改，尚未发布。"
+        },
         {
           "date": "2026-10-13",
           "kind": "verification",

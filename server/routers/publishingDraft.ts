@@ -78,7 +78,6 @@ import {
 } from "../services/publishingPersistence";
 import {
   PublishingDraftModelOutputError,
-  classifyPublishingDraftEdit,
   convertPublishingDraft,
   generatePublishingDraft,
   repairPublishingDraftFormatting,
@@ -216,18 +215,6 @@ function assertPublishingContentFitsPlatform(
   if (error) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error });
   }
-}
-
-function isTitleOnlyPublishingEdit(
-  baseline: PublishingDraftContent,
-  next: PublishingDraftContent
-): boolean {
-  return (
-    baseline.title !== next.title &&
-    baseline.body === next.body &&
-    baseline.tags.length === next.tags.length &&
-    baseline.tags.every((tag, index) => tag === next.tags[index])
-  );
 }
 
 function throwPublishingError(error: unknown): never {
@@ -1822,46 +1809,25 @@ export const publishingDraftRouter = router({
             modelLabel: "本地保存",
           };
         }
-        const classification = isTitleOnlyPublishingEdit(
-          draft.appliedBaseline,
-          input.content as PublishingDraftContent
-        )
-          ? {
-              assessment: {
-                outcome: "wording_only" as const,
-                reason: "仅修改当前平台标题",
-              },
-              proposedCore: null,
-              usedModel: false,
-              modelLabel: "本地判断",
-            }
-          : await classifyPublishingDraftEdit({
-              baseline: draft.appliedBaseline,
-              next: input.content as PublishingDraftContent,
-              core,
-              platform: input.platform,
-            });
-        if (classification.assessment.outcome === "wording_only") {
-          const saved = await writePublishingDraftState({
-            storyId: input.storyId,
-            userId: ctx.user.id,
-            operation: {
-              type: "apply_wording",
-              platform: input.platform,
-              content: input.content,
-              baseDraftRevision: input.baseDraftRevision,
-            },
-          });
-          return {
-            ...classification,
-            ...saved,
-            status: "applied" as const,
-          };
-        }
+        // Save is explicitly scoped to this platform. It does not infer or
+        // change the shared story core, even when the user rewrites the facts.
+        const saved = await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operation: {
+            type: "apply_wording",
+            platform: input.platform,
+            content: input.content,
+            baseDraftRevision: input.baseDraftRevision,
+          },
+        });
         return {
-          ...classification,
-          ...current,
-          status: "confirmation_required" as const,
+          ...saved,
+          status: "applied" as const,
+          assessment: { outcome: "wording_only" as const, reason: "保存当前平台稿件" },
+          proposedCore: null,
+          usedModel: false,
+          modelLabel: "本地保存",
         };
       } catch (error) {
         throwPublishingError(error);

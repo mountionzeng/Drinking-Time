@@ -1467,7 +1467,11 @@ describe("publishingDraft router", () => {
     expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
   });
 
-  it("persists wording-only Apply but leaves core-changing edits pending", async () => {
+  it.each([
+    "old\n",
+    "new conclusion",
+    "删除虚构和来源标记后的正文",
+  ])("saves current-platform text directly without AI classification: %s", async body => {
     const draft = {
       platform: "xiaohongshu" as const,
       content: { title: "", body: "old", tags: [] },
@@ -1482,38 +1486,41 @@ describe("publishingDraft router", () => {
       storyRevision: 2,
       publishing: { ...publishing, drafts: { xiaohongshu: draft } },
     });
-    modelMocks.classifyPublishingDraftEdit
-      .mockResolvedValueOnce({
-        assessment: { outcome: "wording_only", reason: "排版" },
-        proposedCore: null,
-        usedModel: false,
-        modelLabel: "本地判断",
-      })
-      .mockResolvedValueOnce({
-        assessment: { outcome: "core_change", reason: "结论变了" },
-        proposedCore: { ...publishing.core, thesis: "新结论" },
-        usedModel: true,
-        modelLabel: "mock",
-      });
+    // Saving must work even when AI is unavailable or would classify a core change.
+    modelMocks.classifyPublishingDraftEdit.mockRejectedValue(new Error("AI unavailable"));
     const caller = publishingDraftRouter.createCaller(context());
-
-    const wording = await caller.applyEdit({
+    const content = { title: "", body, tags: [] };
+    const result = await caller.applyEdit({
       storyId: 7,
       platform: "xiaohongshu",
-      content: { title: "", body: "old\n", tags: [] },
+      content,
       baseDraftRevision: 2,
     });
-    expect(wording.status).toBe("applied");
+    expect(result).toMatchObject({ status: "applied", usedModel: false, proposedCore: null });
+    expect(modelMocks.classifyPublishingDraftEdit).not.toHaveBeenCalled();
     expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith({
+      storyId: 7,
+      userId: 3,
+      operation: { type: "apply_wording", platform: "xiaohongshu", content, baseDraftRevision: 2 },
+    });
+  });
 
-    const coreChange = await caller.applyEdit({
+  it("rejects a stale save without classifying or writing the text", async () => {
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: { ...publishing, drafts: { xiaohongshu: { revision: 3 } } },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    await expect(caller.applyEdit({
       storyId: 7,
       platform: "xiaohongshu",
-      content: { title: "", body: "new conclusion", tags: [] },
+      content: { title: "", body: "stale", tags: [] },
       baseDraftRevision: 2,
-    });
-    expect(coreChange.status).toBe("confirmation_required");
-    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledTimes(1);
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(modelMocks.classifyPublishingDraftEdit).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
   });
 
   it("applies a title-only edit without invoking edit classification", async () => {
@@ -1542,7 +1549,7 @@ describe("publishingDraft router", () => {
 
     expect(result).toMatchObject({
       status: "applied",
-      assessment: { outcome: "wording_only", reason: "仅修改当前平台标题" },
+      assessment: { outcome: "wording_only", reason: "保存当前平台稿件" },
       usedModel: false,
     });
     expect(modelMocks.classifyPublishingDraftEdit).not.toHaveBeenCalled();

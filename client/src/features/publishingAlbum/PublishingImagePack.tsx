@@ -191,6 +191,9 @@ export function PublishingImagePack({
   adoptedCoverId,
   onOpenCoverStudio,
   coverBusy,
+  generationBlockedReason,
+  onSaveDraft,
+  savingDraft = false,
   advancedEditor,
   advancedOpen,
   onAdvancedOpenChange,
@@ -232,6 +235,9 @@ export function PublishingImagePack({
   adoptedCoverId: number | null;
   onOpenCoverStudio?(): void;
   coverBusy: boolean;
+  generationBlockedReason?: string | null;
+  onSaveDraft?(): Promise<void>;
+  savingDraft?: boolean;
   generationError?: string;
   advancedEditor?: ReactNode;
   advancedOpen?: boolean;
@@ -1035,13 +1041,20 @@ export function PublishingImagePack({
           </DialogHeader>
           <textarea aria-label="图片生成要求" value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)}
             rows={4} maxLength={1000} placeholder="想要怎样的画面？也可以在聊天框里补充要求。" className={control} />
-          {coverBusy || !onGenerateCover ? <p role="status" className="text-xs text-muted-foreground">
-            {!body.trim() ? "先写好并保存文案，即可根据文案生成图片；已有图片可以直接排版。" : "请先保存当前文案，或等待正在进行的生成完成。"}
+          {generationBlockedReason || coverBusy || !onGenerateCover || !body.trim() || illustrationCost == null ? <p role="status" className="text-xs text-muted-foreground">
+            {generationBlockedReason || (!body.trim()
+              ? "先写好并保存文案，即可根据文案生成图片；已有图片可以直接排版。"
+              : coverBusy ? "当前操作正在处理，完成后即可继续。"
+              : !onGenerateCover ? "请先在文字区确认要使用的文案。"
+              : "正在获取生成费用，请稍后再试。")}
           </p> : null}
-          <button type="button" className={control} disabled={coverBusy || !onGenerateCover || illustrationCost == null}
+          {onSaveDraft || savingDraft ? <button type="button" className={control} disabled={savingDraft || !onSaveDraft}
+            onClick={() => void onSaveDraft?.()}>
+            {savingDraft ? "正在保存文案…" : "保存文案，继续"}
+          </button> : <button type="button" className={control} disabled={coverBusy || !onGenerateCover || !body.trim() || Boolean(generationBlockedReason) || illustrationCost == null}
             onClick={() => { setStoryGenerate(false); void onGenerateCover?.(coverInstruction); }}>
             确认生成 4 张{illustrationCost != null ? ` · ${formatComputeQuote(illustrationCost)}` : ""}
-          </button>
+          </button>}
         </DialogContent>
       </Dialog>
       {!mobile && (
