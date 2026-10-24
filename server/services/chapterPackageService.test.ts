@@ -12,12 +12,15 @@ import {
 import { toChapterPackage } from "../../shared/chapterPackage";
 
 let directory = "";
+const storedMedia = vi.hoisted(() => new Map<string, Buffer>());
+vi.mock("../chapterMediaStore", () => ({ readChapterMedia: vi.fn(async (key: string) => storedMedia.get(key) ?? null) }));
 vi.mock("./imageGen", () => ({ localImageDir: () => directory }));
 vi.mock("../storage", () => ({
   storagePut: vi.fn(async (key: string) => ({ key })),
   storageGet: vi.fn(),
 }));
 beforeEach(() => {
+  storedMedia.clear();
   directory = mkdtempSync(path.join(tmpdir(), "chapter-images-"));
 });
 afterEach(() => {
@@ -73,6 +76,20 @@ describe("chapter package image bytes", () => {
       storeImages(7, packed.package, [{ ...files.files[0], base64: "AAAA" }])
     ).rejects.toThrow("不一致");
   });
+  it("exports stored WebP as portable raster bytes with matching facts and preserves alpha", async () => {
+    const original = await sharp({ create: { width: 4, height: 4, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 0.5 } } }).webp().toBuffer();
+    const key = "chapters/7/" + sha256Bytes(original) + ".webp";
+    storedMedia.set(key, original);
+    const known = { [key]: { mime: "image/webp" as const, bytes: original.length, sha256: sha256Bytes(original), width: 4, height: 4, aiGenerated: false } };
+    const result = await resolveExportImages([key], known, new Set());
+    expect(result.facts[key]).toMatchObject({ mime: "image/png", aiGenerated: false });
+    const converted = result.bytes.get(key)!;
+    expect(result.facts[key].sha256).toBe(sha256Bytes(converted));
+    expect(result.facts[key].bytes).toBe(converted.length);
+    expect((await sharp(converted).metadata()).hasAlpha).toBe(true);
+    expect(storedMedia.get(key)).toEqual(original);
+    expect(known[key].mime).toBe("image/webp");
+  });
   it("resizes oversized generated images before describing their bytes", async () => {
     const bytes = await sharp({
       create: { width: 2500, height: 100, channels: 3, background: "white" },
@@ -83,7 +100,7 @@ describe("chapter package image bytes", () => {
     const key = "/api/images/large.png";
     const extra = await resolveExportImages([key], {}, new Set([key]));
     expect(extra.facts[key]).toMatchObject({
-      mime: "image/webp",
+      mime: "image/jpeg",
       width: 2400,
       aiGenerated: true,
     });

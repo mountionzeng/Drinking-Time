@@ -297,37 +297,50 @@ export async function resolveExportImages(
   let total = referenced.reduce((sum, key) => sum + known[key].bytes, 0);
   let count = referenced.length;
   for (const key of new Set(keys)) {
-    if (known[key]) continue;
+    if (known[key] && known[key].mime !== "image/webp") continue;
+    const stored = known[key];
     const match = LOCAL_IMAGE.exec(key);
-    if (!match || !allowed.has(key) || count >= L.images) {
+    if (!stored && (!match || !allowed.has(key) || count >= L.images)) {
       dropped++;
       continue;
     }
     try {
-      let data: Buffer = fs.readFileSync(path.join(localImageDir(), match[1]));
+      let data: Buffer;
+      if (stored) {
+        const local = await readChapterMedia(key);
+        if (local) data = local;
+        else {
+          const response = await fetch((await storageGet(key)).url, { signal: AbortSignal.timeout(15000) });
+          if (!response.ok) throw new Error("download failed");
+          data = Buffer.from(await response.arrayBuffer());
+        }
+        if (data.length !== stored.bytes || sha256Bytes(data) !== stored.sha256) throw new Error("content mismatch");
+      } else data = fs.readFileSync(path.join(localImageDir(), match![1]));
       let meta = await sharp(data).metadata();
       let mime = meta.format ? FORMAT_MIME[meta.format] : undefined;
       if (!mime || !meta.width || !meta.height)
         throw new Error("unsupported image");
       if (
+        mime === "image/webp" ||
         data.length > L.imageBytes ||
         meta.width > 2400 ||
         meta.height > 2400
       ) {
-        data = await sharp(data)
+        const encoder = sharp(data)
           .rotate()
           .resize({
             width: 2400,
             height: 2400,
             fit: "inside",
             withoutEnlargement: true,
-          })
-          .webp({ quality: 85 })
-          .toBuffer();
+          });
+        // WeChat getImageInfo/compressImage cannot reliably decode WebP.
+        // Preserve transparent pixels; use JPEG for opaque photographs.
+        data = await (meta.hasAlpha ? encoder.png() : encoder.jpeg({ quality: 85 })).toBuffer();
         meta = await sharp(data).metadata();
-        mime = "image/webp";
+        mime = meta.format === "png" ? "image/png" : "image/jpeg";
       }
-      if (data.length > L.imageBytes || total + data.length > L.totalImageBytes)
+      if (data.length > L.imageBytes || total - (stored?.bytes ?? 0) + data.length > L.totalImageBytes)
         throw new Error("over limit");
       facts[key] = {
         mime,
@@ -335,12 +348,13 @@ export async function resolveExportImages(
         sha256: sha256Bytes(data),
         width: meta.width!,
         height: meta.height!,
-        aiGenerated: true,
+        aiGenerated: stored?.aiGenerated ?? true,
       };
       bytes.set(key, data);
-      total += data.length;
-      count++;
+      total += data.length - (stored?.bytes ?? 0);
+      if (!stored) count++;
     } catch {
+      if (stored) throw new Error("章节图片转换失败，请稍后重试");
       dropped++;
     }
   }

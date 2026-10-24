@@ -426,7 +426,7 @@ export const chaptersRouter = router({
         warnings: packed.warnings,
         images: files,
         /** Pictures left out because they could not be read or exceed the package limits. */
-        droppedImages: packed.droppedImages,
+        droppedImages: packed.droppedImages + extra.dropped,
         /** Pictures in the package whose stored bytes could not be read. */
         missingImageBytes: missing,
       };
