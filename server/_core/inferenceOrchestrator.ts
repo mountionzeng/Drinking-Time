@@ -125,6 +125,8 @@ export type InferenceRequest = {
    * 没声明就绝不换供应商重发。
    */
   replaySafe?: boolean;
+  /** Allow a structurally safe request to fall back only after a definite rejection. */
+  retryRejected?: boolean;
   /** 整个候选链的外层预算；切换候选不重置。 */
   deadlineMs?: number;
   /**
@@ -880,7 +882,9 @@ async function runInferenceChain(
       continue;
     }
 
-    if (!callerAllowsReplay) break;
+    const rejectedReplayAllowed = request.retryRejected === true &&
+      !attempt.error.acceptanceUnknown && isStructurallyReplaySafe(request);
+    if (!callerAllowsReplay && !rejectedReplayAllowed) break;
     if (!REPLAYABLE_CATEGORIES.has(attempt.error.category)) break;
     if (attempt.error.acceptanceUnknown && !request.replaySafe) break;
 

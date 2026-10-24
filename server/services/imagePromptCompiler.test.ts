@@ -47,6 +47,10 @@ beforeEach(() => {
 afterEach(() => Object.assign(ENV, saved));
 
 describe("image prompt preparation", () => {
+  it("explains rate limiting without suggesting an image was submitted", () => {
+    const error = new InferenceError("rejected", [{ provider: "openai-next", model: "test", status: 429, category: "rate_limit", aborted: false, acceptanceUnknown: false }]);
+    expect(imagePromptPreparationError(error)).toBe("配图文字服务当前繁忙，尚未提交出图，请稍后重试。");
+  });
   it("uses the configured short-prompt model without rewriting the general chat model or dropping art instructions", async () => {
     await expect(invokeImagePromptCompiler(messages)).resolves.toMatchObject({
       text: "Two women in a relief print, weighted to the left.",
@@ -62,6 +66,7 @@ describe("image prompt preparation", () => {
         maxTokens: 800,
         deadlineMs: 30_000,
         replaySafe: false,
+        retryRejected: true,
       })
     );
     expect(ENV.openaiNextTextModel).toBe("gpt-5.6-terra");

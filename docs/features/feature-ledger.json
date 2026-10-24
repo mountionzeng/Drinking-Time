@@ -1101,7 +1101,8 @@
         "docs/qa/2026-10-20-story-workflow-release.md",
         "docs/qa/2026-10-21-desktop-memory-chat.md",
         "scripts/verify-publishing-save.cjs",
-        "docs/qa/2026-10-24-direct-publishing-save.md"
+        "docs/qa/2026-10-24-direct-publishing-save.md",
+        "docs/qa/2026-10-24-image-preparation-rate-limit.md"
       ],
       "invariants": [
         "普通保存直接写入当前平台文稿，不调用 AI 分类或要求措辞/内核二选一，不自动更新共享内核或创建版本；失败保留编辑内容。",
@@ -1135,6 +1136,11 @@
         "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
       ],
       "history": [
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "修复配图提示词准备遇到明确429拒绝仍禁止备用通道的问题；新增仅明确未受理时可重试选项，未知受理仍禁止重放，保留计费和图片任务边界；限流文案说明尚未提交图片。见2026-10-24-image-preparation-rate-limit QA。"
+        },
         {
           "date": "2026-10-24",
           "kind": "verification",

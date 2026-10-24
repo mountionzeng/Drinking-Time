@@ -331,6 +331,27 @@ describe("runInference — multimodal input boundary (U7)", () => {
 });
 
 describe("runInference — replay boundary", () => {
+  it("can fall back after a rejected 429 without permitting uncertain replay", async () => {
+    const { impl, calls } = recordingFetch((_call, index) =>
+      index === 0 ? jsonResponse(429, { error: {} }) : jsonResponse(200, okBody())
+    );
+    const outcome = await runInference(baseRequest({ fetchImpl: impl, retryRejected: true, replaySafe: false }));
+    expect(outcome.provider).toBe("302");
+    expect(calls).toHaveLength(2);
+  });
+
+  it.each([408, 500, 502, 504])("does not replay uncertain HTTP %s with rejection-only retry", async status => {
+    const { impl, calls } = recordingFetch(() => jsonResponse(status, { error: {} }));
+    await expect(runInference(baseRequest({ fetchImpl: impl, retryRejected: true, replaySafe: false }))).rejects.toBeInstanceOf(InferenceError);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not replay a disconnected request with rejection-only retry", async () => {
+    const { impl, calls } = recordingFetch(() => { throw new TypeError("fetch failed"); });
+    await expect(runInference(baseRequest({ fetchImpl: impl, retryRejected: true, replaySafe: false }))).rejects.toBeInstanceOf(InferenceError);
+    expect(calls).toHaveLength(1);
+  });
+
   it("does not switch providers when the caller never declared replay safety", async () => {
     const { impl, calls } = recordingFetch(() => jsonResponse(503, { error: {} }));
 
