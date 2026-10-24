@@ -8065,6 +8065,7 @@
         "shared/chapterStore.test.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
         "client/src/features/publishingAlbum/chapterSaveQueue.test.ts",
+        "client/src/features/publishingAlbum/useChapters.test.tsx",
         "client/src/features/publishingAlbum/chapterFile.test.ts",
         "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
         "command:pnpm check",
@@ -8086,7 +8087,7 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "功能开关未开启；0036 未执行，MySQL 事务尚未在一次性数据库验收；仅本地隔离测试有执行证据。",
+        "2026-10-24 经用户批准执行正式0036/0037，一次性MySQL事务测试已通过。真实浏览器发现首次加载崩溃后暂时关闭章节开关；修复后完整图文闭环仍待验收。",
         "网页导入审核策略和平台稿生成/更新前的目的选择仍待确定；本轮不改生成逻辑。",
         "主仓 3000 浏览器端到端验收未做；队列行为和静态入口有测试，React hook 的真实挂载/切章/断网与未提交文字交互仍待验证。",
         "只存在浏览器的 data URL 图片会阻止章节云端保存，原本机缓存保留；未实现自动上传本机图库。",
@@ -8103,6 +8104,11 @@
           "date": "2026-10-23",
           "kind": "verification",
           "summary": "最后定向9文件88项、类型检查、构建、迁移文件与68卡账本校验通过；一次全量5756通过/9失败，失败分布与交接基线相同。末次护栏调整仅做相关回归。浏览器、MySQL实际执行及导入审核仍未完成，保持partial和关闭开关。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "正式浏览器首次打开章节排版重现空详情崩溃；两个undefined被误判为匹配章节。新增实际hook渲染回归先复现2项失败，再以显式selected判定修复。加载、空故事及详情切换测试与工作区测试共6项通过，类型检查和构建通过。"
         }
       ]
     },

@@ -43,7 +43,7 @@ export function useChapters(storyId: number) {
     }
   );
   const active =
-    detail.data?.chapter.id === selected?.id ? detail.data.chapter : null;
+    selected && detail.data?.chapter.id === selected.id ? detail.data.chapter : null;
   const queue = useRef<{
     id: number;
     queue: ChapterSaveQueue<ChapterEdit>;
