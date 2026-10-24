@@ -1102,7 +1102,8 @@
         "docs/qa/2026-10-21-desktop-memory-chat.md",
         "scripts/verify-publishing-save.cjs",
         "docs/qa/2026-10-24-direct-publishing-save.md",
-        "docs/qa/2026-10-24-image-preparation-rate-limit.md"
+        "docs/qa/2026-10-24-image-preparation-rate-limit.md",
+        "docs/qa/2026-10-24-image-delivery-live.md"
       ],
       "invariants": [
         "普通保存直接写入当前平台文稿，不调用 AI 分类或要求措辞/内核二选一，不自动更新共享内核或创建版本；失败保留编辑内容。",
@@ -1136,6 +1137,11 @@
         "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
       ],
       "history": [
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "真实网页验收发现提示词模型主备均不可用、nginx 60秒截断生成请求、file.302.ai取图解析异常。生产提示词模型切至两通道实测成功的gpt-4.1-mini；生成接口读超时660秒；国内API使用对应国内文件别名下载既有MJ结果。159项回归通过，单任务真实验收见image-delivery-live QA。"
+        },
         {
           "date": "2026-10-24",
           "kind": "fix",

@@ -591,6 +591,25 @@ describe("generateImage", () => {
     ).toBe(false);
   });
 
+  it.each([
+    ["https://api.302ai.cn", "https://file.302.ai/result.webp?token=abc", "https://file.302ai.cn/result.webp?token=abc"],
+    ["https://api.302.ai", "https://file.302.ai/result.webp", "https://file.302.ai/result.webp"],
+    ["https://api.302ai.cn", "https://other.example/result.webp", "https://other.example/result.webp"],
+  ])("recovers paid images using the file host for gateway %s", async (base, original, expected) => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = base;
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: original } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+    const result = await resume302MidjourneyTask("existing-paid-task", {
+      fetcher, mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
+    });
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[1][0]).toBe(expected);
+    expect(fetcher.mock.calls.every(call => call[1]?.method === "GET")).toBe(true);
+  });
+
   it("stores every 302 Midjourney object-array candidate in provider order", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
