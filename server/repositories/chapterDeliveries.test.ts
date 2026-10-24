@@ -6,6 +6,7 @@ import {
   completeChapterAssetUpload,
   findChapterDeliveryByRequest,
   setChapterAssetUploadTicket,
+  setChapterDeliveryStatus,
   startChapterDelivery,
 } from "./chapterDeliveries";
 
@@ -54,6 +55,16 @@ describe("chapter delivery repository", () => {
     legacy.resetMemoryStateForTesting();
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it("allows the recipient to decline an ordinary chapter, with idempotent retries", async () => {
+    const input = startInput("decline");
+    input.package.assets = []; input.assets = [];
+    await startChapterDelivery({ ...input, row: { ...input.row, recipientUserId: 2 } });
+    const args = { deliveryId: input.row.deliveryId, actorUserId: 2, status: "declined" as const, now: new Date("2026-10-24T00:00:00Z") };
+    expect(await setChapterDeliveryStatus({ ...args, actorUserId: 3 })).toBeNull();
+    expect(await setChapterDeliveryStatus(args)).toMatchObject({ status: "declined" });
+    expect(await setChapterDeliveryStatus(args)).toMatchObject({ status: "declined" });
+  });
 
   it("makes repeated request ids idempotent and rejects changed payloads", async () => {
     const firstInput = startInput("req-one");

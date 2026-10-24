@@ -502,7 +502,7 @@ export async function setChapterDeliveryStatus(input: {
         .where(eq(chapterDeliveries.deliveryId, input.deliveryId)).limit(1).for("update");
       if (!row || row.recipientUserId !== input.actorUserId || !row.readyAt || row.status === "expired") return null;
       const valid = row.kind === "send"
-        ? ["kept", "appended"].includes(input.status)
+        ? ["kept", "appended", "declined"].includes(input.status)
         : ["adopted", "declined"].includes(input.status);
       if (!valid) return null;
       if (row.status === input.status) return row;
@@ -518,7 +518,7 @@ export async function setChapterDeliveryStatus(input: {
     const row = memoryState.chapterDeliveries.find(item => item.deliveryId === input.deliveryId);
     if (!row || row.recipientUserId !== input.actorUserId || !row.readyAt || row.status === "expired") return null;
     const valid = row.kind === "send"
-      ? ["kept", "appended"].includes(input.status)
+      ? ["kept", "appended", "declined"].includes(input.status)
       : ["adopted", "declined"].includes(input.status);
     if (!valid) return null;
     if (row.status === input.status) return structuredClone(row);
