@@ -69,6 +69,21 @@ describe("chapter delivery repository", () => {
     expect(await findChapterDeliveryByRequest(1, "req-one")).toMatchObject({ deliveryId: "delivery-req-one" });
   });
 
+  it("enforces the UTC daily quota inside the serialized start operation and preserves retries", async () => {
+    const since = new Date("2026-10-23T00:00:00.000Z");
+    const dailyLimit = { since, until: new Date("2026-10-24T00:00:00.000Z"), maximum: 20 };
+    const requests = Array.from({ length: 20 }, (_, index) => {
+      const input = startInput(`daily-${index}`, `cp_daily_${index}`);
+      return { ...input, dailyLimit };
+    });
+    for (const input of requests) await startChapterDelivery(input);
+
+    await expect(startChapterDelivery({
+      ...startInput("daily-over", "cp_daily_over"), dailyLimit,
+    })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    await expect(startChapterDelivery(requests[0])).resolves.toMatchObject({ repeated: true });
+  });
+
   it("does not let a recipient claim an image package until upload completes, then permits one claimant", async () => {
     const started = await startChapterDelivery(startInput("req-two"));
     expect(await claimChapterDelivery({ deliveryId: started.delivery.deliveryId, tokenHash: "d".repeat(64), userId: 2, now: new Date("2026-10-23T01:00:00Z") })).toBeNull();

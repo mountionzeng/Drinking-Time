@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { TrpcContext } from "./_core/context";
 import { resetMemoryStateForTesting } from "./db";
 import { appRouter } from "./routers";
+import { utcCalendarDayBounds } from "./routers/chapterDelivery";
 
 function context(userId: number | null): TrpcContext {
   return {
@@ -23,6 +24,17 @@ describe("chapterDelivery router gates", () => {
     resetMemoryStateForTesting();
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it("uses UTC calendar-day boundaries for the per-account delivery quota", () => {
+    expect(utcCalendarDayBounds(new Date("2026-10-24T23:59:59.999Z"))).toEqual({
+      since: new Date("2026-10-24T00:00:00.000Z"),
+      until: new Date("2026-10-25T00:00:00.000Z"),
+    });
+    expect(utcCalendarDayBounds(new Date("2026-10-25T00:00:00.000Z"))).toEqual({
+      since: new Date("2026-10-25T00:00:00.000Z"),
+      until: new Date("2026-10-26T00:00:00.000Z"),
+    });
+  });
 
   it("requires both chapter and delivery switches and rejects anonymous callers", async () => {
     await expect(appRouter.createCaller(context(null)).chapterDelivery.inbox())
@@ -59,5 +71,25 @@ describe("chapterDelivery router gates", () => {
     expect(read.delivery).not.toHaveProperty("claimTokenHash");
     await expect(caller.chapterDelivery.resolve({ deliveryId: created.deliveryId, status: "kept" }))
       .resolves.toEqual({ status: "kept" });
+  });
+
+  it("limits new sends to 20 per UTC day but allows an idempotent retry at the limit", async () => {
+    vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
+    const caller = appRouter.createCaller(context(29));
+    const pkg = JSON.parse(readFileSync(new URL("../tests/fixtures/chapter-package/valid-01-text-only.json", import.meta.url), "utf8"));
+    const requestIds = Array.from({ length: 20 }, (_, index) =>
+      `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+    );
+    for (const [index, requestId] of requestIds.entries()) {
+      await caller.chapterDelivery.createClaimLink({
+        package: { ...pkg, packageId: `cp_quota-${String(index).padStart(8, "0")}` }, requestId,
+      });
+    }
+    const lastPackage = { ...pkg, packageId: "cp_quota-00000019" };
+    await expect(caller.chapterDelivery.createClaimLink({ package: lastPackage, requestId: requestIds[19] }))
+      .resolves.toMatchObject({ repeated: true });
+    await expect(caller.chapterDelivery.createClaimLink({
+      package: { ...pkg, packageId: "cp_quota-over" }, requestId: "00000000-0000-4000-8000-000000000021",
+    })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
   });
 });

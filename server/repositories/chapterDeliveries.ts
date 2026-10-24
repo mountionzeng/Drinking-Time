@@ -1,9 +1,10 @@
-import { and, desc, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   chapterDeliveryAssets,
   chapterDeliveries,
   chapterPackages,
+  users,
   type ChapterDelivery,
   type ChapterDeliveryAsset,
   type ChapterPackageRecord,
@@ -25,6 +26,7 @@ export type StartChapterDelivery = {
   packageHash: string;
   requestHash: string;
   assets: Array<Pick<ChapterDeliveryAsset, "assetId" | "sha256" | "mime" | "bytes">>;
+  dailyLimit?: { since: Date; until: Date; maximum: number };
 };
 
 export type ChapterDeliveryBundle = {
@@ -116,6 +118,14 @@ export async function startChapterDelivery(
   const db = await getDb();
   if (db) {
     return db.transaction(async tx => {
+      if (input.dailyLimit) {
+        // Acquire the stable account lock before the idempotency lookup. That
+        // prevents simultaneous inserts with distinct request ids from
+        // holding adjacent unique-index gaps while waiting on the quota lock.
+        const [sender] = await tx.select({ id: users.id }).from(users)
+          .where(eq(users.id, input.row.senderUserId)).limit(1).for("update");
+        if (!sender) throw new Error("chapter_delivery_sender_missing");
+      }
       const [prior] = await tx.select().from(chapterDeliveries).where(and(
         eq(chapterDeliveries.senderUserId, input.row.senderUserId),
         eq(chapterDeliveries.requestId, input.row.requestId),
@@ -128,6 +138,18 @@ export async function startChapterDelivery(
         const assets = await tx.select().from(chapterDeliveryAssets)
           .where(eq(chapterDeliveryAssets.packageId, prior.packageId));
         return { delivery: prior, package: pkg, assets, repeated: true };
+      }
+
+      if (input.dailyLimit) {
+        const recent = await tx.select({ id: chapterDeliveries.deliveryId }).from(chapterDeliveries)
+          .where(and(
+            eq(chapterDeliveries.senderUserId, input.row.senderUserId),
+            sql`UNIX_TIMESTAMP(${chapterDeliveries.createdAt}) >= TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE())`,
+            sql`UNIX_TIMESTAMP(${chapterDeliveries.createdAt}) < TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE()) + 86400`,
+            ne(chapterDeliveries.status, "expired"),
+          )).for("update");
+        if (recent.length >= input.dailyLimit.maximum)
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今天的章节投递次数已达到上限" });
       }
 
       const [existingPackage] = await tx.select().from(chapterPackages)
@@ -200,6 +222,14 @@ export async function startChapterDelivery(
         assets: memoryState.chapterDeliveryAssets.filter(row => row.packageId === prior.packageId).map(row => structuredClone(row)),
         repeated: true,
       };
+    }
+    if (input.dailyLimit) {
+      const sent = memoryState.chapterDeliveries.filter(row =>
+        row.senderUserId === input.row.senderUserId && row.status !== "expired" &&
+        row.createdAt >= input.dailyLimit!.since && row.createdAt < input.dailyLimit!.until
+      ).length;
+      if (sent >= input.dailyLimit.maximum)
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今天的章节投递次数已达到上限" });
     }
     const oldPackages = memoryState.chapterPackages;
     const oldDeliveries = memoryState.chapterDeliveries;

@@ -13,7 +13,6 @@ import {
   getChapterDelivery,
   getChapterPackage,
   listChapterInbox,
-  listChapterDeliveryRowsForUser,
   listChapterDeliveryAssets,
   setChapterAssetUploadTicket,
   setChapterDeliveryStatus,
@@ -26,6 +25,13 @@ const CLAIM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PACKAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const UPLOAD_TTL_MS = 15 * 60 * 1000;
 const DAILY_SEND_LIMIT = 20;
+
+export function utcCalendarDayBounds(now: Date) {
+  const since = new Date(now);
+  since.setUTCHours(0, 0, 0, 0);
+  const until = new Date(since.getTime() + 24 * 60 * 60 * 1000);
+  return { since, until };
+}
 
 function contactId(ownerId: number, contactUserId: number) {
   if (ENV.cookieSecret.length < 32)
@@ -70,12 +76,7 @@ async function beginSend(input: {
   kind?: "send" | "return";
 }) {
   const now = new Date();
-  const dayStart = new Date(now);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const sentToday = (await listChapterDeliveryRowsForUser(input.senderUserId, dayStart))
-    .filter(row => row.senderUserId === input.senderUserId && row.createdAt >= dayStart).length;
-  if (!await findChapterDeliveryByRequest(input.senderUserId, input.requestId) && sentToday >= DAILY_SEND_LIMIT)
-    throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今天的章节投递次数已达到上限" });
+  const dailyLimit = utcCalendarDayBounds(now);
   const packageJson = { ...input.package, sender: { ...input.package.sender } };
   const packageHash = hash(JSON.stringify(packageJson));
   const kind = input.kind ?? "send";
@@ -108,6 +109,7 @@ async function beginSend(input: {
       updatedAt: now,
       expiresAt: new Date(now.getTime() + PACKAGE_TTL_MS),
     },
+    dailyLimit: { ...dailyLimit, maximum: DAILY_SEND_LIMIT },
   });
   const uploadTickets: Array<{ assetId: string; path: string; token: string; mime: string; bytes: number; sha256: string; expiresAt: string }> = [];
   for (const asset of delivery.assets) {
