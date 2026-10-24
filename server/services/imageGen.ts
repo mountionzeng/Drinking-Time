@@ -926,10 +926,14 @@ async function storeImageFromUrl(
   } catch {
     // Preserve existing URL validation and errors for other providers.
   }
-  const imageResponse = await withTimeout(
-    fetcher(downloadUrl, { method: "GET" }),
-    timeoutMs
-  );
+  let imageResponse: FetchResponseLike;
+  try {
+    imageResponse = await withTimeout(fetcher(downloadUrl, { method: "GET" }), timeoutMs);
+  } catch (error) {
+    if (!isConnectionSetupFailure(error)) throw error;
+    // Retry only this asset GET once, never the paid generation submission.
+    imageResponse = await withTimeout(fetcher(downloadUrl, { method: "GET" }), timeoutMs);
+  }
 
   if (!imageResponse.ok) {
     return {
