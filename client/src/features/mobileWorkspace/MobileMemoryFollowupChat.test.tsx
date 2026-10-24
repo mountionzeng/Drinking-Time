@@ -239,3 +239,10 @@ it("sends story dialogue verbatim without manufacturing a memory quote", async (
   await mock.props.controller.submit("我又想起那把伞");
   expect(mock.submit).toHaveBeenCalledWith("我又想起那把伞");
 });
+
+it("uses the captured mobile caret for ordinary text chat instead of forcing the end", async () => {
+  setup({ ...source, kind: "text", text: { content: { title: "章", body: "甲\n乙\n丙", tags: [] }, parentId: "v1", cursor: 2 } });
+  expect(mock.submit).not.toHaveBeenCalled();
+  await mock.props.controller.submit("这里还能怎么写");
+  expect(mock.submit).toHaveBeenCalledWith("这里还能怎么写", expect.objectContaining({ cursor: 2, draft: "甲\n乙\n丙" }));
+});

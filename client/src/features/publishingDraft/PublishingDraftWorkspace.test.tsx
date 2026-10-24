@@ -9,6 +9,11 @@ import { emptyFinishedProductState } from "@shared/finishedProductVersion";
 
 vi.stubGlobal("React", React);
 
+const desktop = vi.hoisted(() => ({ props: null as any }));
+vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({
+  DesktopWritingContext: (props: any) => { desktop.props = props; return null; },
+}));
+
 const story = vi.hoisted(() => ({
   activeStoryId: 7 as number | null,
   publishing: null as any,
@@ -222,6 +227,23 @@ describe("PublishingDraftWorkspace", () => {
         activeStoryId: 8,
       })
     ).toBe(false);
+  });
+
+  it("publishing-body snapshot reads the live caret and unsaved text without a second context store", () => {
+    story.publishingBuffers = { "7:xiaohongshu": { storyId: 7, platform: "xiaohongshu", versionId: "v1", content: { title: "章", body: "甲\n重复\n\n重复\n尾", tags: [] }, updatedAt: 1 } };
+    const native = { selectionStart: 7, selectionEnd: 9 };
+    const create = React.createElement;
+    const spy = vi.spyOn(React, "createElement").mockImplementation(((type: any, props: any, ...children: any[]) => {
+      if (type === "textarea" && props?.id === "publishing-body") props.ref.current = native;
+      return create(type, props, ...children);
+    }) as typeof React.createElement);
+    try {
+      renderToStaticMarkup(<PublishingDraftWorkspace view="text" />);
+      expect(desktop.props.getSnapshot()).toMatchObject({ draft: "甲\n重复\n\n重复\n尾", cursor: 7, selection: { start: 7, end: 9 } });
+      native.selectionStart = native.selectionEnd = 2;
+      expect(desktop.props.getSnapshot()).toMatchObject({ cursor: 2 });
+      expect(desktop.props.getSnapshot().selection).toBeUndefined();
+    } finally { spy.mockRestore(); }
   });
 
   it("offers a handwritten entry without creating a draft on page load", () => {

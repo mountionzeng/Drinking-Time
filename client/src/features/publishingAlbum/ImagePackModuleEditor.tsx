@@ -18,7 +18,7 @@ import type {
 import { downloadPublishingAlbumBlob } from "./publishingAlbumExport";
 import { ImagePackCopyDialog } from "./ImagePackCopyDialog";
 import { imagePackCopyText } from "./imagePackCopy";
-import { moduleCompanionContext } from "./moduleCompanionContext";
+import { moduleCompanionContext, type ModuleLineSource } from "./moduleCompanionContext";
 import { ModuleCompanionContext } from "./ModuleSelectionBridge";
 import { selectionContentFingerprint } from "@shared/selectionContext";
 import { useLayoutOperationMemory } from "./useLayoutOperationMemory";
@@ -174,7 +174,9 @@ export function ImagePackModuleEditor({
   insertRequest,
   onInsertHandled,
   onDocumentChange,
+  lineSource,
 }: {
+  lineSource?: ModuleLineSource;
   insertRequest?: { id: string; asset: PackAsset } | null;
   onInsertHandled?(): void;
   onDocumentChange?(document: ModuleDocument): void;
@@ -216,7 +218,7 @@ export function ImagePackModuleEditor({
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImagePackModule | null>(null);
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(
+  const [editing, setEditing] = useState<{ id: string; text: string; cursor?: number } | null>(
     null
   );
   const [error, setError] = useState("");
@@ -475,6 +477,7 @@ export function ImagePackModuleEditor({
       pageIndex: displayPageIndex,
       selectedId,
       editing,
+      lineSource,
       renderer,
     });
   }, [
@@ -487,6 +490,7 @@ export function ImagePackModuleEditor({
     displayPageIndex,
     selectedId,
     editing,
+    lineSource,
   ]);
   const overlaps = visiblePage?.modules.some((a, index) =>
     visiblePage.modules
@@ -1188,6 +1192,10 @@ export function ImagePackModuleEditor({
                           onBlur={() => {
                             if (!busy) void saveText();
                           }}
+                          onSelect={event => {
+                            const cursor = event.currentTarget.selectionStart;
+                            setEditing(current => current ? { ...current, cursor } : null);
+                          }}
                           onChange={event => changeText(event.target.value)}
                         />
                       )}
@@ -1514,6 +1522,7 @@ export function ImagePackModuleEditor({
               error={error}
               disabled={busy}
               onChange={changeText}
+              onSelect={cursor => setEditing(current => current ? { ...current, cursor } : null)}
               onSave={() => void saveText()}
               onCancel={cancelText}
             />

@@ -116,3 +116,40 @@ describe("selected layout module discussion snapshot", () => {
       ).toBe(false);
   });
 });
+
+it("resolves repeated lines by module identity across pages and skips images/title", () => {
+  const a = newTextModule("a", "重复", (_, size) => size);
+  const b = newTextModule("b", "重复", (_, size) => size);
+  const title = newTextModule("cover-title", "封面", (_, size) => size);
+  const result = snapshot("b", { document: { version: 1, pages: [
+    { label: "一", modules: [title, a, image] }, { label: "二", modules: [b] },
+  ] }, pageIndex: 1 });
+  expect(result?.line?.position).toMatchObject({ index: 1, total: 2, blockId: "b:line:0", prevText: "重复", text: "重复" });
+  expect(result?.line?.source).toBe("layout");
+  expect(snapshot(image.id)?.line).toBeUndefined();
+});
+
+it("uses canonical chapter order and stable block bindings even when visual order changes", () => {
+  const first = newTextModule("first", "相同", (_, size) => size);
+  const second = newTextModule("second", "相同", (_, size) => size);
+  const lineSource = { chapterId: "chapter-2", blocks: [{ id: "b1", text: "相同" }, { id: "b2", text: "相同" }], moduleBlockIds: { first: "b1", second: "b2" }, titles: ["章一", "章二"] };
+  const result = snapshot("second", { document: { version: 1, pages: [{ label: "一", modules: [second, first] }] }, lineSource, editing: { id: "second", text: "输入中的新字" } });
+  expect(result?.line?.position).toEqual({ chapterId: "chapter-2", blockId: "b2", index: 1, total: 2, prevText: "相同", text: "输入中的新字", nextText: "" });
+  expect(result?.line?.excerpt).toContain("全书目录：章一 / 章二");
+  expect(lineSource.blocks[1].text).toBe("相同");
+  expect(snapshot("second", { lineSource, document: { version: 1, pages: [{ label: "一", modules: [second] }] }, editing: { id: "second", text: "多行\n粘贴" } })?.line).toBeUndefined();
+});
+
+it("locates a multi-line pending layout edit only with its native cursor", () => {
+  const result = snapshot(text.id, { editing: { id: text.id, text: "甲\n\n乙\n丙", cursor: 4 } });
+  expect(result?.line?.position).toMatchObject({ index: 1, total: 3, text: "乙", nextText: "丙" });
+  expect(snapshot(text.id, { editing: { id: text.id, text: "甲\n乙" } })?.line).toBeUndefined();
+  expect(layoutModuleContextSchema.safeParse(result).success).toBe(true);
+});
+
+
+it("keeps valid maximum-length legacy module ids chat-compatible after adding a line suffix", () => {
+  const longId = "m".repeat(200);
+  const result = snapshot(longId, { document: { version: 1, pages: [{ label: "一", modules: [newTextModule(longId, "正文", () => 20)] }] } });
+  expect(layoutModuleContextSchema.safeParse(result).success).toBe(true);
+});

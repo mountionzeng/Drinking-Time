@@ -6817,7 +6817,9 @@
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
         "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
         "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts",
-        "client/src/app/shell/DesktopStoryMenuContext.ts"
+        "client/src/app/shell/DesktopStoryMenuContext.ts",
+        "shared/lineModules.ts",
+        "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx"
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
@@ -6848,7 +6850,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "client/src/features/storyAgent/views/StoryAgentChat.layout.test.ts",
         "docs/qa/2026-10-19-agent-connectivity-recovery.md",
-        "docs/qa/2026-10-19-chat-queue-ui.md"
+        "docs/qa/2026-10-19-chat-queue-ui.md",
+        "server/services/lineContext.test.ts",
+        "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6872,7 +6876,8 @@
         "真机软件键盘、中文IME、断网重连仍待验收。",
         "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。",
         "电脑真实四步流程已通过并刷新验证；候选生成75.9秒仍偏慢，选区真实付费改写及多用户/MySQL并发尚未验收。旧失败队列需显式核对后继续，不能自动重放未知提交。",
-        "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。"
+        "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。",
+        "当前行方向提示 LINE_CONTEXT_CHAT_ENABLED 默认关闭；本地模拟与组件处理验证不代表真实模型、浏览器和真机验收。网页正文当前行从现有全文/选区/光标快照推导，稳定章节 blockId 持久化依赖文档03。"
       ],
       "history": [
         {
@@ -6984,6 +6989,11 @@
           "date": "2026-10-19",
           "kind": "improvement",
           "summary": "按用户要求把桌面左上故事菜单迁至输入框头像，复用原新建/切换/全部故事路由与未保存保护；浮层向上展开并通过Portal避免聊天容器裁切，保留键盘/Escape/外部点击行为。头像按请求显示读取素材、思考和生成状态，拾光沿用原左上方Logo并按最新反馈微调至72×62px（同步点击范围），再左移4px、下移3px，上方留白收窄12px，靠输入框左侧并轻微重叠边缘以节省空间，纳音杯子缩至64px，复用手机版五官大小、间距与各五行表情，隐藏脚；平时保持普通杯子，悬停或键盘聚焦时才显示小表情，并尊重减少动画设置；精简顶部，今日来信保留账号菜单入口。15项定向测试与类型检查、本地实际展开菜单截图验证；未发起付费生成，未部署。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "文档08续补：手机文字编辑保留原生光标，电脑publishing-body经组件行为测试确认现有快照足够；当前行提示有界、支持CRLF及选区起点，开关保持关闭。复用现有队列、计费、选区外保留和版本确认机制，不新增正文存储。"
         }
       ]
     },
@@ -7640,7 +7650,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "command:pnpm check",
         "command:pnpm build",
-        "docs/qa/2026-10-17-layout-release.md"
+        "docs/qa/2026-10-17-layout-release.md",
+        "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx",
+        "server/services/lineContext.test.ts"
       ],
       "invariants": [
         "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
@@ -7661,7 +7673,8 @@
       "knownGaps": [
         "本机记录不跨设备同步，不进行模型训练或全账号长期偏好聚合；仅从启用后记录，不能追溯旧操作。",
         "只保留本故事最近100条、每次提供20条，不是无限历史；清除不追溯删除已发送对话或发送时固定的待发快照。",
-        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试；已通过模拟模型的真实路由与本机桌面/390px入口验收。"
+        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试；已通过模拟模型的真实路由与本机桌面/390px入口验收。",
+        "文档08当前行提示默认关闭；lineSource参数可消费03提供的章节正文顺序、blockId绑定与目录，尚待03统一接到PublishingImagePack。旧排版位置明确标注为排版顺序，不冒称持久章节位置；未保存多行块缺可靠光标时不推测当前行。"
       ],
       "history": [
         {
@@ -7673,6 +7686,11 @@
           "date": "2026-10-17",
           "kind": "verification",
           "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "模块点选通过原moduleCompanionContext携带当前位置与有界全文参考，排版聊天分支在LINE_CONTEXT_CHAT_ENABLED开启时先问方向或给思路；增加03稳定块绑定适配参数。覆盖重复行、图片、跨页、输入中多行、取消/换页清空和队列冻结，不改正文或排版存储。"
         }
       ]
     },

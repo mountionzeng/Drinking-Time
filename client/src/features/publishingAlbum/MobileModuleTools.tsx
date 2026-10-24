@@ -205,6 +205,7 @@ export function MobileModuleTextEditor({
   disabled,
   error,
   onChange,
+  onSelect,
   onSave,
   onCancel,
 }: {
@@ -212,6 +213,7 @@ export function MobileModuleTextEditor({
   disabled: boolean;
   error: string;
   onChange(text: string): void;
+  onSelect?(cursor: number): void;
   onSave(): void;
   onCancel(): void;
 }) {
@@ -230,6 +232,7 @@ export function MobileModuleTextEditor({
         maxLength={12000}
         disabled={disabled}
         rows={6}
+        onSelect={event => onSelect?.(event.currentTarget.selectionStart)}
         onChange={event => onChange(event.target.value)}
         className="w-full rounded border border-border bg-background p-3 text-base leading-relaxed"
         placeholder="写一句话…"
