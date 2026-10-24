@@ -15,3 +15,11 @@
 配置备份在生产 /root/drinking-time-image-preparation-20261024/：before.env、metadata.json、nginx.before.conf。仅改提示词模型环境项和上述单一路由超时；不改密钥、数据库、登录权限或SSL验证。最终上线与网页结果追加于文末。
 
 国内文件服务只读HEAD检查出现一次瞬时ENOTFOUND；补充已有图片下载GET的建连失败单次重试，不重试生成POST。失败测试复现后，imageGen和publishingDraft共152项通过。
+
+## 真实网页最终验收通过
+
+与「继续整理整合版」会话按用户授权统一发布，保留章节功能。线上后端SHA256 `c8b574a62c2fc2f03ded73364b39008dc86b5b9da4e50c405949b07508a826cf` 含9ebd1a86和24464c42。旧完整构建检测到线上已更新时主动停止，未覆盖章节版本。
+
+正式站 https://www.drinkingtime.top/editing 刷新恢复同一任务后，故事112生成状态completed，一轮4资产。点击文章末尾「配图」，图片面板显示4 existing images；四张真实img均complete=true、naturalWidth=928、naturalHeight=1232。截图 `/tmp/publishing-images-live-20261024.png`。未购买第二轮。账号余额由3.68降至3.42，减少0.26算力，低于用户批准的1算力；另有两次30-token最小供应商诊断（其中302报告0.0000228美元）用于验证模型连通性，没有用户正文。
+
+图片已经交付，截图时后台质检仍在进行，不宣称图像质量或文字检测已经通过。主干代码与QA已保存，功能账本校验通过。后续实际速度受供应商影响，不保证每次即时完成。
