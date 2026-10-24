@@ -622,3 +622,18 @@ body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-slot="dialog-content"] 
     transition: none;
   }
 }
+
+/* Article and conversation share the available screen when writing. */
+.mobile-xiaoyi-dialog[data-writing="true"] {
+  width: calc(100% - 16px);
+  max-width: 680px;
+  height: calc(var(--xiaoyi-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  border-radius: 14px;
+}
+.mobile-xiaoyi-launcher[data-open="true"][data-writing="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+[data-writing-chat="true"] [role="log"] {
+  padding-block: 8px;
+}

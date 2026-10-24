@@ -203,6 +203,7 @@ export function PublishingImagePack({
   onIllustrationsChange,
   mobile = false,
   initialMobileStep = "preview",
+  onPrepareGeneration,
   shareEpoch = 0,
   contentKind = "article",
   sharePlatform = "xiaohongshu",
@@ -219,6 +220,7 @@ export function PublishingImagePack({
   contentKind?: "article" | "memory";
   mobile?: boolean;
   initialMobileStep?: "preview" | "images" | "layout";
+  onPrepareGeneration?: () => void;
   shareEpoch?: number;
   scope: string;
   storyId: number;
@@ -249,6 +251,7 @@ export function PublishingImagePack({
     "images"
   );
   const [storyGenerate, setStoryGenerate] = useState(false);
+  const [addImageOpen, setAddImageOpen] = useState(false);
   const [insertRequest, setInsertRequest] = useState<{ id: string; asset: PackAsset } | null>(null);
   const [liveDocument, setLiveDocument] = useState<ModuleDocument | null>(null);
   const [layoutGenerate, setLayoutGenerate] = useState(false);
@@ -948,16 +951,22 @@ export function PublishingImagePack({
           {generationError}
         </p>
       ) : null}
-      <SharedLayoutBar
-        storyId={storyId}
-        candidates={layoutQuery.data?.candidates ?? []}
-        canShareBack={ready}
-        onApply={applySharedLayout}
-        buildPackage={buildLayoutPackage}
-      />
-      <header className={`flex flex-wrap items-center justify-between gap-3 py-3 ${mobile ? "px-4" : ""}`}>
+      {!mobile && (
+        <SharedLayoutBar
+          storyId={storyId}
+          candidates={layoutQuery.data?.candidates ?? []}
+          canShareBack={ready}
+          onApply={applySharedLayout}
+          buildPackage={buildLayoutPackage}
+        />
+      )}
+      <header
+        className={`flex flex-wrap items-center justify-between gap-3 py-3 ${mobile ? "px-4" : ""}`}
+      >
         <div>
-          <h2 className="font-chat-brand text-lg">这个故事的图片</h2>
+          {!mobile && (
+            <h2 className="font-chat-brand text-lg">这个故事的图片</h2>
+          )}
           <p className="mt-1 text-xs text-muted-foreground" role="status">
             {t("已有图片 {0} 张", [layoutAssets.length])}
             {output && mobile && mobileStep === "preview"
@@ -968,11 +977,55 @@ export function PublishingImagePack({
               : ""}
           </p>
         </div>
-        <button type="button" className={control} onClick={() => {
-          setDesktopSection("images");
-          if (mobile) setMobileStep("images");
-          setStoryGenerate(true);
-        }}><ImagePlus className="mr-1 inline h-3.5 w-3.5" />生成图片</button>
+        {mobile ? (
+          mobileStep === "images" && (
+            <Popover open={addImageOpen} onOpenChange={setAddImageOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className={control}>
+                  {t("添加图片")}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                aria-label={t("添加图片方式")}
+                align="end"
+                className="w-44 p-1"
+              >
+                <button
+                  className="min-h-11 w-full rounded-md px-3 text-left text-sm hover:bg-muted"
+                  onClick={() => {
+                    setAddImageOpen(false);
+                    libraryUpload.current?.click();
+                  }}
+                >
+                  {t("上传图片")}
+                </button>
+                <button
+                  className="min-h-11 w-full rounded-md px-3 text-left text-sm hover:bg-muted"
+                  onClick={() => {
+                    setAddImageOpen(false);
+                    if (onPrepareGeneration) onPrepareGeneration();
+                    else setStoryGenerate(true);
+                  }}
+                >
+                  {t("根据文字生成")}
+                </button>
+              </PopoverContent>
+            </Popover>
+          )
+        ) : (
+          <button
+            type="button"
+            className={control}
+            onClick={() => {
+              setDesktopSection("images");
+              if (mobile) setMobileStep("images");
+              setStoryGenerate(true);
+            }}
+          >
+            <ImagePlus className="mr-1 inline h-3.5 w-3.5" />
+            生成图片
+          </button>
+        )}
       </header>
       <Dialog open={storyGenerate} onOpenChange={setStoryGenerate}>
         <DialogContent className="max-w-md">
@@ -1057,14 +1110,14 @@ export function PublishingImagePack({
           }
           className="space-y-4"
         >
-          <p className="text-xs text-muted-foreground">上传和生成的故事图片集中在这里，加入排版后仍会保留。</p>
+          {!mobile && <p className="text-xs text-muted-foreground">上传和生成的故事图片集中在这里，加入排版后仍会保留。</p>}
           {materialQuery.isError && <p role="alert" className="text-xs text-destructive">
             故事图片读取失败，当前版本图片仍可使用。
             <button type="button" className="ml-2 underline" onClick={() => void materialQuery.refetch()}>重试</button>
           </p>}
           {
             <div className="flex items-center gap-3">
-              <button
+              {!mobile && <><button
                 type="button"
                 className={control}
                 onClick={() => libraryUpload.current?.click()}
@@ -1073,7 +1126,7 @@ export function PublishingImagePack({
               </button>
               <span className="text-xs text-muted-foreground">
                 生成或上传图片，再到排版里组合。
-              </span>
+              </span></>}
               <input
                 ref={libraryUpload}
                 aria-label="上传图像素材"
@@ -1993,6 +2046,16 @@ export function PublishingImagePack({
             {advancedOpen ? advancedEditor : null}
           </details>
         ) : null}
+        {mobile && (
+          <SharedLayoutBar
+            compact
+            storyId={storyId}
+            candidates={layoutQuery.data?.candidates ?? []}
+            canShareBack={ready}
+            onApply={applySharedLayout}
+            buildPackage={buildLayoutPackage}
+          />
+        )}
       </div>
     </section>
   );

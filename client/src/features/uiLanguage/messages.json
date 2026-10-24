@@ -1,4 +1,100 @@
 {
+  "当前文章": {
+    "en": "Current article",
+    "fr": "Article actuel"
+  },
+  "更多操作": {
+    "en": "More actions",
+    "fr": "Autres actions"
+  },
+  "确认文字并配图": {
+    "en": "Confirm text and add images",
+    "fr": "Confirmer le texte et illustrer"
+  },
+  "查看并确认文字": {
+    "en": "Review and confirm text",
+    "fr": "Relire et confirmer le texte"
+  },
+  "确认这一版文字": {
+    "en": "Confirm this text version",
+    "fr": "Confirmer cette version du texte"
+  },
+  "已确认这版文字": {
+    "en": "Text version confirmed",
+    "fr": "Version du texte confirmée"
+  },
+  "确认这版，继续配图": {
+    "en": "Confirm and continue to images",
+    "fr": "Confirmer et passer aux images"
+  },
+  "确认这版文字": {
+    "en": "Confirm this text",
+    "fr": "Confirmer ce texte"
+  },
+  "可以直接修改。确认后作为配图用的文字，旧版本仍保留。": {
+    "en": "You can edit here. Confirm to use this text for images. Earlier versions are kept.",
+    "fr": "Vous pouvez modifier le texte ici. Confirmez pour l’illustrer. Les anciennes versions sont conservées."
+  },
+  "可以直接修改。确认后保存为当前文字，旧版本仍保留。": {
+    "en": "You can edit here. Confirm to save as the current text. Earlier versions are kept.",
+    "fr": "Vous pouvez modifier le texte ici. Confirmez pour l’enregistrer comme texte actuel. Les anciennes versions sont conservées."
+  },
+  "继续配图": {
+    "en": "Continue to images",
+    "fr": "Passer aux images"
+  },
+  "先确认配图用的文字，已有图片仍可上传和排版。": {
+    "en": "Confirm the text to illustrate. You can still upload and arrange existing images.",
+    "fr": "Confirmez le texte à illustrer. Vous pouvez déjà importer et disposer vos images."
+  },
+  "还没有确认的文字。先去文字页准备一版，也可以先上传图片。": {
+    "en": "No text confirmed yet. Prepare a version on the text page, or upload images first.",
+    "fr": "Aucun texte confirmé. Préparez une version dans Texte ou commencez par importer des images."
+  },
+  "去文字页": {
+    "en": "Go to text",
+    "fr": "Aller au texte"
+  },
+  "重新读取文字版本": {
+    "en": "Reload text versions",
+    "fr": "Recharger les versions du texte"
+  },
+  "确认配图用的文字": {
+    "en": "Confirm the text to illustrate",
+    "fr": "Confirmer le texte à illustrer"
+  },
+  "确认后进入配图设置。旧文字版本保留，图片费用会另行确认。": {
+    "en": "Continue to image settings after confirming. Earlier text versions are kept. Image costs require separate confirmation.",
+    "fr": "Après confirmation, passez aux réglages des images. Les anciennes versions sont conservées. Le coût des images sera confirmé séparément."
+  },
+  "配图文字版本": {
+    "en": "Text version for images",
+    "fr": "Version du texte à illustrer"
+  },
+  "返回文字修改": {
+    "en": "Back to edit text",
+    "fr": "Retour à la modification du texte"
+  },
+  "添加图片": {
+    "en": "Add images",
+    "fr": "Ajouter des images"
+  },
+  "添加图片方式": {
+    "en": "How to add images",
+    "fr": "Comment ajouter des images"
+  },
+  "根据文字生成": {
+    "en": "Generate from text",
+    "fr": "Générer à partir du texte"
+  },
+  "协作与分享": {
+    "en": "Collaboration and sharing",
+    "fr": "Collaboration et partage"
+  },
+  "协作与分享 · {0} 份待确认": {
+    "en": "Collaboration and sharing · {0} to review",
+    "fr": "Collaboration et partage · {0} à vérifier"
+  },
   "赚算力": { "en": "Earn credits", "fr": "Gagner des crédits" },
   "说说哪里不好用，或分享你喜欢的地方。反馈被采用后，送你 5 算力。": {
     "en": "Tell us what could improve or what you enjoy. Accepted feedback earns 5 credits.",

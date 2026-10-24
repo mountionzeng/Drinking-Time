@@ -72,6 +72,37 @@ function setup(selectedSource: MemoryFollowupSource = source) {
   );
   return setDraft;
 }
+it("shows the complete working text above chat and collapses secondary writing actions", () => {
+  const selected: MemoryFollowupSource = {
+    ...source,
+    kind: "text",
+    title: "正在编辑的文章",
+    text: {
+      content: {
+        title: "正在编辑的文章",
+        body: "第一段未保存的文字。\n第二段完整保留。",
+        tags: [],
+      },
+      parentId: "draft-1",
+    },
+  };
+  const html = renderToStaticMarkup(
+    <MobileMemoryFollowupChat
+      userId={4}
+      source={selected}
+      onLocked={() => {}}
+      draft=""
+      setDraft={() => {}}
+      baseline={{ current: null }}
+    />
+  );
+  expect(html).toContain('aria-label="当前文章"');
+  expect(html).toContain("第一段未保存的文字。\n第二段完整保留。");
+  expect(html).toContain('aria-label="更多操作" aria-expanded="false"');
+  expect(html).toMatch(/hidden=""[^>]*>[\s\S]*导入本地文件/);
+  expect(html).not.toContain("正在讨论当前文字");
+  expect(mock.submit).not.toHaveBeenCalled();
+});
 it("uses the source story without sending on open and shows the complete shared history", () => {
   setup();
   expect(mock.hook).toHaveBeenCalledWith({ userId: 4, storyId: 7 });

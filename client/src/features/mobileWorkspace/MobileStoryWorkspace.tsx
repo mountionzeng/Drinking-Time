@@ -10,7 +10,7 @@ import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import { useMobileStageSwipe } from "./useMobileStageSwipe";
 import { mobileStageMotion, type MobileStageStyle } from "./mobileStageMotion";
 import { STORY_STAGE_ORDER } from "./mobileStageSwipe";
-import { ArrowLeft, ArrowUpRight, Images } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
@@ -174,6 +174,7 @@ export function MobileStoryWorkspace({
       id: `text:${selectedVersion}`,
       kind: "text",
       origin: "note",
+      title: content?.title || title,
       content: `${content?.title || title}${document.hasUnsavedChanges ? "（含未保存修改）" : ""}\n${contextBody || "当前没有可用文字。"}`,
       text: {
         content: {
@@ -273,6 +274,11 @@ export function MobileStoryWorkspace({
                   embedded
                   storyId={storyId}
                   userId={userId}
+                  source={
+                    selectedVersion !== "current" && content
+                      ? { id: selectedVersion, content }
+                      : undefined
+                  }
                   onBack={() => changeStage("text")}
                 />
               )
@@ -366,49 +372,42 @@ export function MobileStoryWorkspace({
                         previewVersion={selected}
                         messages={[]}
                         instruction=""
+                        onConfirmed={() => {
+                          setSelectedVersion("current");
+                          void document.retryLoad();
+                          changeStage("image");
+                        }}
                         disabled={
                           document.hasUnsavedChanges || Boolean(editor.draft)
                         }
                       />
                     )}
-                  {(content?.body ||
-                    (selectedVersion === "current" &&
-                      document.state?.body)) && (
-                    <div className="px-5 py-2">
-                      <button
-                        type="button"
-                        disabled={
-                          document.hasUnsavedChanges || Boolean(editor.draft)
-                        }
-                        onClick={() => {
-                          if (selectedVersion === "current")
-                            changeStage("image");
-                          else setImageStudio(true);
-                        }}
-                        className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-left text-primary transition-colors hover:bg-primary/10 disabled:opacity-40"
-                      >
-                        <Images
-                          size={22}
-                          strokeWidth={1.4}
-                          className="shrink-0"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-chat-brand text-lg">
-                            {t("把文字变成画面")}
-                          </span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {t("故事图片 · 配图、排版与分享")}
-                          </span>
-                        </span>
-                        <ArrowUpRight size={17} className="shrink-0" />
-                      </button>
-                      {document.hasUnsavedChanges ? (
-                        <p className="text-xs text-muted-foreground">
-                          {t("先保存文字修改，再制作图文。")}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
+                  {!(selected?.status === "ready" && !selected.adoption) &&
+                    (content?.body ||
+                      (selectedVersion === "current" &&
+                        document.state?.body)) && (
+                      <div className="px-5 py-2">
+                        <button
+                          type="button"
+                          disabled={
+                            document.hasUnsavedChanges || Boolean(editor.draft)
+                          }
+                          onClick={() => {
+                            if (selectedVersion === "current")
+                              changeStage("image");
+                            else setImageStudio(true);
+                          }}
+                          className="min-h-11 w-full rounded-full bg-primary px-4 text-sm text-primary-foreground disabled:opacity-40"
+                        >
+                          {t("继续配图")}
+                        </button>
+                        {document.hasUnsavedChanges ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t("先保存文字修改，再制作图文。")}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
                   <div className="min-h-0 flex-1">
                     {selectedVersion === "current" &&
                     (editing || document.state?.status === "conflict") ? (

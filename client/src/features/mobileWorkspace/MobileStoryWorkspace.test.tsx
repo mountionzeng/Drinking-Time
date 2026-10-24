@@ -1,7 +1,12 @@
 import React from "react";
 import { MobileStoryMemories } from "./MobileStoryMemories";
 vi.mock("./MobileTextDraftFlow", () => ({
-  MobileTextDraftFlow: () => <button>预览并保存</button>,
+  MobileTextDraftFlow: (props: any) => {
+    api.confirm = props;
+    return (
+      <button>{props.onConfirmed ? "确认文字并配图" : "预览并保存"}</button>
+    );
+  },
 }));
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,9 +18,10 @@ import type { MobileDocumentController } from "./MobileDocumentView";
 import type { MobileConversationController } from "./MobileChatView";
 
 vi.mock("./MobileImageStudio", () => ({
-  MobileImageStudio: ({ storyId }: { storyId: number }) => (
-    <div>故事图片 {storyId}</div>
-  ),
+  MobileImageStudio: (props: any) => {
+    api.image = props;
+    return <div>故事图片 {props.storyId}</div>;
+  },
 }));
 
 const api = vi.hoisted(() => ({
@@ -23,6 +29,8 @@ const api = vi.hoisted(() => ({
   videos: vi.fn(),
   memories: vi.fn(),
   mutation: vi.fn(),
+  image: null as any,
+  confirm: null as any,
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -132,6 +140,18 @@ describe("mobile story stages", () => {
     expect(document.initBody).not.toHaveBeenCalled();
     expect(api.mutation).not.toHaveBeenCalled();
     expect(html).toContain("编辑");
+    expect(html).toContain("确认文字并配图");
+    expect(html).not.toContain("继续配图");
+    expect(api.confirm.onConfirmed).toEqual(expect.any(Function));
+  });
+
+  it("carries the selected candidate into the embedded image stage without adopting it", () => {
+    renderStage("image");
+    expect(api.image.source).toEqual({
+      id: draft.id,
+      content: draft.generated,
+    });
+    expect(api.mutation).not.toHaveBeenCalled();
   });
 
   it("prioritizes recoverable current text over historical drafts", () => {

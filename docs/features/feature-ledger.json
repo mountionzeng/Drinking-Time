@@ -4507,7 +4507,9 @@
         "docs/qa/2026-10-15-writing-mobile-release.md",
         "client/src/features/storyAgent/hooks/useVoiceInput.test.tsx",
         "docs/qa/2026-10-21-mobile-story-chat.md",
-        "docs/qa/2026-10-21-desktop-memory-chat.md"
+        "docs/qa/2026-10-21-desktop-memory-chat.md",
+        "docs/qa/2026-10-24-mobile-text-confirmation.md",
+        "scripts/verify-mobile-text-confirmation.cjs"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -4873,6 +4875,11 @@
           "date": "2026-10-21",
           "kind": "improvement",
           "summary": "电脑前端跟进故事对话与账号回忆的入口关系；两端继续读取同一后端，无新数据副本。聊天目录复用时间分段规则；桌面查看旧消息时不再被后台刷新拉回最新，主动发送或点击最新后恢复跟随。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "按用户要求，手机文字页打开Logo改为文章在上、聊天在下的可视窗口分屏；大Logo不占展开空间，辅助操作收进更多菜单，完整聊天与原编辑器保留。同一文字上下文重新打开刷新正文且保留未发送输入；旧发送快照与跨故事保护保持。390×844及320×520虚构数据浏览器验证、8文件80项及类型检查通过，未调用真实生成或部署；真机键盘缺口保留。"
         }
       ]
     },
@@ -5854,7 +5861,8 @@
         "server/_core/agentChannel.ts",
         "shared/textSourceLineage.ts",
         "server/repositories/textSourceLineage.ts",
-        "server/routers/textSourceLineage.ts"
+        "server/routers/textSourceLineage.ts",
+        "client/src/features/mobileWorkspace/MobileTextDraftFlow.tsx"
       ],
       "evidence": [
         "server/services/textDraftHistory.test.ts",
@@ -5874,7 +5882,9 @@
         "server/routers.textSourceLineage.test.ts",
         "docs/qa/2026-10-11-mobile-synced-editing.md",
         "docs/qa/2026-10-13-desktop-writing-workflow.md",
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx"
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "docs/qa/2026-10-24-mobile-text-confirmation.md",
+        "scripts/verify-mobile-text-confirmation.cjs"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -5987,6 +5997,11 @@
           "date": "2026-10-11",
           "kind": "feature",
           "summary": "新增textDrafts.revise手动修订能力，手机编辑标题/正文保存到共同历史，保留来源版本与记忆快照，重试幂等、账号隔离、历史CAS、100版本及5MB上限；不调用模型、不自动采用或学习，旧稿与发布正文保持。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "手机文字候选以完整预览、可编辑和明确确认衔接配图；采用后先同步图片查询缓存，失联恢复核对当前正文；仍保留旧版本、显式采用和并发保护。 本地6文件68项回归、类型和390/320px虚构数据浏览器流程通过，未提交付费生成或部署；真机缺口保留。"
         }
       ]
     },
@@ -6416,7 +6431,9 @@
         "docs/qa/2026-10-13-mobile-writing-workflow.md",
         "docs/qa/2026-10-13-unified-writing-release.md",
         "docs/qa/2026-10-21-mobile-image-library.md",
-        "docs/qa/2026-10-21-mobile-story-chat.md"
+        "docs/qa/2026-10-21-mobile-story-chat.md",
+        "docs/qa/2026-10-24-mobile-text-confirmation.md",
+        "scripts/verify-mobile-text-confirmation.cjs"
       ],
       "invariants": [
         "按2026-10-21用户授权，故事内为文字、图片、视频三段；回忆统一进入对话框内容工具，首页账号回忆库保留。阶段不表示完成百分比或制作状态。",
@@ -6507,6 +6524,11 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "af886aa2已推送并部署：主仓663文件5634项、独立发布候选27文件177项、类型/构建/65卡通过；95个目标文件SHA256一致，3个前端差异文件已上线，服务端包不变且PM2保持online。手机/电脑/健康入口200、匿名图片接口401。390/320px完整历史、引用返回与语音入口通过；MySQL65项未跑，真机与高级素材工具缺口详见QA。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "待采用文字只提供确认文字并配图主操作，确认后进入图片阶段；嵌入图片页保留用户选中的候选来源，取消重复配图卡片。 本地6文件68项回归、类型和390/320px虚构数据浏览器流程通过，未提交付费生成或部署；真机缺口保留。"
         }
       ]
     },
@@ -6550,7 +6572,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
         "docs/qa/2026-10-21-mobile-image-library.md",
-        "docs/qa/2026-10-21-mobile-story-chat.md"
+        "docs/qa/2026-10-21-mobile-story-chat.md",
+        "docs/qa/2026-10-24-mobile-text-confirmation.md",
+        "scripts/verify-mobile-text-confirmation.cjs"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -6636,6 +6660,11 @@
           "date": "2026-10-21",
           "kind": "refactor",
           "summary": "随故事回忆页取消，将单条聊天、记事和历史来源快照的图文入口迁入对话内容工具；继续沿用按记忆隔离的排版来源、显式保存与生成费用门禁。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "图片页缺少确认正文时可预览完整文字后显式采用，提交预览revision并保留冲突候选；上传与生成合并到添加图片，协作分享折叠，图库／排版／成品和费用确认保留。 本地6文件68项回归、类型和390/320px虚构数据浏览器流程通过，未提交付费生成或部署；真机缺口保留。"
         }
       ]
     },
@@ -6951,7 +6980,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "client/src/features/mobileWorkspace/MobileCreateMenu.test.tsx",
         "client/src/features/publishingDraft/studioCreateHandoff.test.ts",
-        "docs/qa/2026-10-20-mobile-create-menu.md"
+        "docs/qa/2026-10-20-mobile-create-menu.md",
+        "docs/qa/2026-10-24-mobile-text-confirmation.md",
+        "scripts/verify-mobile-text-confirmation.cjs"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -7014,6 +7045,11 @@
           "date": "2026-10-16",
           "kind": "feature",
           "summary": "模块上下文作为独立优先来源接入原小忆；同一排版切换模块保留未发文字，队列保留发送时快照，取消后退回原来源。支持操作记忆单独发问与清除。14文件192项回归、类型及构建通过；电脑/390px手机选区与独立稿刷新/撤销/清除实测完成，未调用真实模型或部署。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "按用户要求，手机文字页打开Logo改为文章在上、聊天在下的可视窗口分屏；大Logo不占展开空间，辅助操作收进更多菜单，完整聊天与原编辑器保留。同一文字上下文重新打开刷新正文且保留未发送输入；旧发送快照与跨故事保护保持。390×844及320×520虚构数据浏览器验证、8文件80项及类型检查通过，未调用真实生成或部署；真机键盘缺口保留。"
         }
       ]
     },
