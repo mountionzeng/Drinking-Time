@@ -416,9 +416,10 @@ export function ChapterWorkspace({
             aria-label="当前章节"
             value={active?.id ?? ""}
             disabled={busy || state.loading || Boolean(editing)}
-            onChange={event =>
-              void run(() => state.open(Number(event.target.value)))
-            }
+            onChange={event => {
+              const chapterId = Number(event.target.value);
+              void run(() => state.open(chapterId));
+            }}
           >
             {!active && (
               <option value="">
@@ -580,6 +581,7 @@ export function ChapterWorkspace({
                   body: editing.body,
                 });
                 await state.refresh();
+                await versions.refetch();
               }
               setEditing(null);
             });
