@@ -1,3 +1,4 @@
+import { readChapterMedia } from "../chapterMediaStore";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -214,7 +215,7 @@ export async function loadImageFiles(
   for (const asset of pkg.assets) {
     try {
       const key = assetKeys[asset.assetId];
-      let bytes = local.get(key);
+      let bytes = local.get(key) ?? await readChapterMedia(key) ?? undefined;
       if (!bytes) {
         const response = await fetch((await storageGet(key)).url, {
           signal: AbortSignal.timeout(15000),

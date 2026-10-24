@@ -1,3 +1,4 @@
+import { readChapterMedia } from "../chapterMediaStore";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, raw, type Request, type Response } from "express";
 import {
@@ -64,13 +65,16 @@ export async function handleChapterDeliveryDownload(req: Request, res: Response)
     if (!asset?.storageKey) return res.status(404).json({ error: "not_found" });
     if (!Number.isSafeInteger(asset.bytes) || asset.bytes < 1 || asset.bytes > MAX_IMAGE_BYTES)
       return res.status(503).json({ error: "download_unavailable" });
+    let bytes = await readChapterMedia(asset.storageKey);
+    if (!bytes) {
     const { url } = await storageGet(asset.storageKey);
     const source = new URL(url);
     if (source.protocol !== "https:" || source.username || source.password)
       return res.status(503).json({ error: "download_unavailable" });
     const response = await fetch(source, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) return res.status(503).json({ error: "download_unavailable" });
-    const bytes = await readResponseBytes(response, asset.bytes);
+    bytes = await readResponseBytes(response, asset.bytes);
+    }
     if (bytes.length !== asset.bytes || hash(bytes) !== asset.sha256)
       return res.status(503).json({ error: "download_unavailable" });
     res.setHeader("Content-Type", asset.mime);

@@ -1,3 +1,4 @@
+import { handleChapterMedia } from "../chapterMediaStore";
 import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
 import "dotenv/config";
 import express from "express";
@@ -120,6 +121,7 @@ async function startServer() {
     express.urlencoded({ limit: "64kb", extended: false }),
     createAlipayNotifyRoute()
   );
+  app.get("/api/chapter-media", handleChapterMedia);
   app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use("/api/minigame", minigameRoutes());
