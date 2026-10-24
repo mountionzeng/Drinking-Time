@@ -124,6 +124,7 @@ export function ChapterWorkspace({
     id: number;
     current: Chapter;
   } | null>(null);
+  const [claimLink, setClaimLink] = useState("");
   const [deliveryPanel, setDeliveryPanel] = useState<"send" | "inbox" | null>(null);
   const [deliveryRecipient, setDeliveryRecipient] = useState("");
   const [selectedDelivery, setSelectedDelivery] = useState<{
@@ -310,6 +311,7 @@ export function ChapterWorkspace({
   async function createDeliveryAttempt(kind: "send" | "link" | "return") {
     if (!active) throw new Error("请先选择一章");
     const output = await exportPackage.mutateAsync({ chapterId: active.id });
+    if (output.droppedImages || output.missingImageBytes) throw new Error("章节图片未能完整读取，暂未发送。请重新选择缺失图片后重试");
     return { kind, requestId: crypto.randomUUID(), package: output.package, images: output.images };
   }
   async function deliverActiveChapter(kind: "send" | "link" | "return") {
@@ -332,8 +334,11 @@ export function ChapterWorkspace({
         const claimUrl = new URL(String(result.claimUrl), window.location.origin);
         if (claimUrl.origin !== window.location.origin || !/^\/chapter\/claim\/[A-Za-z0-9_-]{43}$/.test(claimUrl.pathname))
           throw new Error("领取链接地址无效");
-        await navigator.clipboard.writeText(claimUrl.href);
-        toast.success("一次性领取链接已复制");
+        setClaimLink(claimUrl.href);
+        try {
+          await navigator.clipboard.writeText(claimUrl.href);
+          toast.success("领取链接已复制，可到微信小程序接收");
+        } catch { toast.success("领取链接已生成，请复制下方链接"); }
       } else toast.success("章节已发送");
       deliveryAttempt.current = null;
     });
@@ -827,7 +832,7 @@ export function ChapterWorkspace({
             setDeliveryPanel("send");
             setDeliveryRecipient(deliveryContacts.data?.[0]?.contactId ?? "");
             setSelectedDelivery(null);
-          }}>投递章节</button>
+          }}>发送到微信 / 亲友</button>
           {active?.blocks.lineage?.parentPackageId && (
             <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("return")}>发回修改稿</button>
           )}
@@ -839,15 +844,23 @@ export function ChapterWorkspace({
       )}
       {deliveryPanel === "send" && (
         <section className="space-y-2 rounded-xl border p-3" aria-label="投递章节">
-          <p className="text-sm">章节包只会发给已连接的亲友，图片按短时地址单独传输。</p>
+          <p className="text-sm">发送当前章节的文字与图片，接收后保留为独立版本。</p>
           <label className="block space-y-1 text-xs">收件人
             <select className={`${field} w-full`} value={deliveryRecipient} onChange={event => setDeliveryRecipient(event.target.value)}>
               {(deliveryContacts.data ?? []).map(contact => <option key={contact.contactId} value={contact.contactId}>{contact.displayName}</option>)}
             </select>
           </label>
           <button className={button} disabled={busy || !deliveryRecipient} onClick={() => void deliverActiveChapter("send")}>发送给这位亲友</button>{" "}
-          <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("link")}>创建一次性领取链接</button>{" "}
+          <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("link")}>生成微信领取链接</button>{" "}
           <button className={button} onClick={() => { setDeliveryPanel(null); deliveryAttempt.current = null; }}>关闭</button>
+          {claimLink && <div role="status" className="space-y-2 rounded-lg bg-[var(--panel-bg)] p-3">
+            <p className="text-sm">领取链接已准备好</p>
+            <label className="block text-xs">微信领取链接
+              <input className={`${field} mt-1 w-full`} readOnly value={claimLink} onFocus={event => event.currentTarget.select()} />
+            </label>
+            <button className={button} onClick={() => { void navigator.clipboard.writeText(claimLink).then(() => toast.success("链接已复制")).catch(() => toast.error("请选中上方链接复制")); }}>复制领取链接</button>
+            <p className="text-xs">在拾光小程序打开书稿，点「更多 → 接收网页故事」，粘贴链接后接收。链接只能由一个账号领取。</p>
+          </div>}
           {!deliveryContacts.data?.length && <p role="status" className="text-xs text-muted-foreground">目前没有可投递的已连接联系人。</p>}
         </section>
       )}

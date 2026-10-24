@@ -49,6 +49,7 @@ import {
   packChapter,
   resolveExportImages,
   storeImages,
+  storeChapterLocalImage,
   unpackChapter,
 } from "../services/chapterPackageService";
 
@@ -174,6 +175,7 @@ export const chaptersRouter = router({
           .nullable()
           .optional(),
         /** Background saves from the editor; they do not fill the version history. */
+        localImages: z.array(z.object({ ref: z.string().regex(/^local-image:\d+$/), base64: z.string().max(2_800_000) })).max(12).optional(),
         autosave: z.boolean().optional(),
         mirrorFrom: z.string().max(300).optional(),
         media: z
@@ -206,6 +208,20 @@ export const chaptersRouter = router({
       if (problem)
         throw new TRPCError({ code: "BAD_REQUEST", message: problem });
       const chapter = await ownChapter(input.chapterId, ctx.user.id);
+      if (chapter.version !== input.expectedVersion) throw new TRPCError({ code: "CONFLICT", message: "章节已有新版本，请刷新后重试" });
+      const localFacts: StoredChapterBlocks["images"] = {};
+      const localKeys = new Map<string, string>();
+      const referenced = new Set([...layoutImageKeys(input.layout ?? null), ...(input.media ? chapterKeys({ ...chapter.blocks, ...input.media }) : [])]);
+      if ((input.localImages ?? []).reduce((sum, image) => sum + image.base64.length, 0) > 8_000_000)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "本次图片总大小超过限制" });
+      for (const image of input.localImages ?? []) {
+        if (!referenced.has(image.ref) || localKeys.has(image.ref)) throw new TRPCError({ code: "BAD_REQUEST", message: "图片引用不一致" });
+        const stored = await storeChapterLocalImage(ctx.user.id, image.base64);
+        localKeys.set(image.ref, stored.key); localFacts[stored.key] = stored.facts;
+      }
+      const storedKey = (key: string) => localKeys.get(key) ?? key;
+      if (input.layout) input.layout = { ...input.layout, pages: input.layout.pages.map(page => ({ ...page, modules: page.modules.map(module => module.kind === "image" ? { ...module, imageUrl: storedKey(module.imageUrl) } : module) })) };
+      if (input.media) input.media = { ...input.media, coverKey: input.media.coverKey ? storedKey(input.media.coverKey) : null, bodyTextureKey: input.media.bodyTextureKey ? storedKey(input.media.bodyTextureKey) : null, illustrations: input.media.illustrations.map(image => ({ ...image, key: storedKey(image.key) })) };
       if (input.layout || input.media) {
         const keys = [
           ...layoutImageKeys(input.layout ?? null),
@@ -213,7 +229,7 @@ export const chaptersRouter = router({
             ? chapterKeys({ ...chapter.blocks, ...input.media })
             : []),
         ];
-        const unknown = keys.filter(key => !chapter.blocks.images[key]);
+        const unknown = keys.filter(key => !chapter.blocks.images[key] && !localFacts[key]);
         if (unknown.length) {
           const allowed = new Set(
             (await getStoryGeneratedImages(chapter.storyId, ctx.user.id)).map(
@@ -238,7 +254,7 @@ export const chaptersRouter = router({
           message: "这一章已独立编辑，不能再随平台稿更新",
         });
       let title = input.title ?? chapter.title;
-      let blocks = { ...chapter.blocks };
+      let blocks = { ...chapter.blocks, images: { ...chapter.blocks.images, ...localFacts } };
       let layout = chapter.layout;
       if (input.body !== undefined) {
         blocks.blockIds = realignBlockIds(

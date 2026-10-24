@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PublishingImagePack } from "./PublishingImagePack";
+import { PublishingImagePack, PublishingImagePackCanvas } from "./PublishingImagePack";
 
 vi.stubGlobal("React", React);
 vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
@@ -221,4 +221,12 @@ describe("article image pack entry", () => {
     expect(html).toContain('aria-label="移除插图：99"');
     expect(html).toContain("不可用");
   });
+});
+
+it("a mirrored text chapter without a selected cover can add images without a phantom cover requirement", () => {
+  const html = renderToStaticMarkup(<PublishingImagePackCanvas {...props} assets={[]} chapterSession={{
+    initial: null, settings: null, legacyScope: "platform:v1", change: vi.fn(), prepare: { current: null },
+    imageOptions: { illustrations: [] },
+  }} />);
+  expect(html).not.toContain("请选择封面，或在排版设置中取消封面");
 });

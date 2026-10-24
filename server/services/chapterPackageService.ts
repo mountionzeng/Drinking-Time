@@ -462,3 +462,18 @@ export function unpackChapter(
     },
   };
 }
+
+/** Decode raster pixels and strip metadata before persisting a local editor image. */
+export async function storeChapterLocalImage(userId: number, base64: string) {
+  const raw = Buffer.from(base64, "base64");
+  if (raw.length > CHAPTER_PACKAGE_LIMITS.imageBytes) throw new Error("图片超过 2 MB");
+  const decoder = sharp(raw, { limitInputPixels: 24_000_000 });
+  const meta = await decoder.metadata();
+  if (!["png", "jpeg", "webp"].includes(meta.format || "")) throw new Error("不支持的图片格式");
+  const { data, info } = await decoder.rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true }).webp({ quality: 88 }).toBuffer({ resolveWithObject: true });
+  if (data.length > CHAPTER_PACKAGE_LIMITS.imageBytes) throw new Error("图片压缩后仍超过 2 MB");
+  const hash = sha256Bytes(data);
+  const key = `chapters/${userId}/${hash}.webp`;
+  await storagePut(key, data, "image/webp");
+  return { key, facts: { mime: "image/webp" as const, bytes: data.length, sha256: hash, width: info.width, height: info.height, aiGenerated: false } };
+}

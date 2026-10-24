@@ -673,3 +673,22 @@ it("serializes adoption and dismissal so an ignored candidate cannot overwrite t
     final.status === "adopted" ? "发回的修改" : "原文"
   );
 });
+
+describe("local chapter images", () => {
+  it("persists image facts and pixels with layout, keeps ownership checks, and reopens without local URLs", async () => {
+    const sharp = (await import("sharp")).default;
+    const base64 = (await sharp({ create: { width: 2, height: 2, channels: 3, background: "blue" } }).png().toBuffer()).toString("base64");
+    const storyId = await story();
+    const chapter = await caller(10).create({ storyId, title: "图文", body: "纸船" });
+    const input = { chapterId: chapter.id, expectedVersion: chapter.version, layout: { version: 1 as const, pages: [{ label: "页", modules: [{ id: "image", kind: "image" as const, imageUrl: "local-image:0", rect: { x: 0, y: 0, width: 1, height: 1 }, crop: { x: 0, y: 0, width: 1, height: 1 } }] }] }, localImages: [{ ref: "local-image:0", base64 }] };
+    await expect(caller(11).save(input)).rejects.toThrow();
+    await caller(10).save(input);
+    const reopened = await caller(10).get({ chapterId: chapter.id });
+    const key = Object.keys(reopened.chapter.blocks.images)[0];
+    expect(key).toMatch(/^chapters\/10\/.+\.webp$/);
+    expect(reopened.chapter.layout?.pages[0].modules[0]).toHaveProperty("imageUrl", key);
+    expect(reopened.chapter.blocks.images[key]).toMatchObject({ mime: "image/webp", width: 2, height: 2, aiGenerated: false });
+    expect(reopened.imageUrls[key]).toContain(key);
+    await expect(caller(10).save(input)).rejects.toThrow("新版本");
+  });
+});

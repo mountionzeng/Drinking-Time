@@ -7,6 +7,7 @@ import {
   chapterLayoutProblem,
   type StoredChapterBlocks,
 } from "@shared/chapterStore";
+import { chapterLocalImages } from "./chapterLocalImages";
 import { ChapterSaveQueue } from "./chapterSaveQueue";
 
 export type Chapter = inferRouterOutputs<AppRouter>["chapters"]["list"][number];
@@ -68,11 +69,14 @@ export function useChapters(storyId: number) {
   const change = useCallback(
     (id: number, edit: ChapterEdit) => {
       if (queue.current?.id !== id) return;
-      const problem = chapterLayoutProblem(edit.layout);
+      let problem: string | null;
+      try { problem = chapterLayoutProblem(chapterLocalImages(edit).layout); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "图片无法保存"); return; }
       if (problem) {
         setError(problem);
         return;
       }
+      setError("");
       queue.current.queue.enqueue(edit);
       if (!queue.current.queue.dirty) return;
       clearTimeout(timer.current);
@@ -102,7 +106,7 @@ export function useChapters(storyId: number) {
           const saved = await mutate.current({
             chapterId: id,
             expectedVersion: version,
-            ...edit,
+            ...chapterLocalImages(edit),
             autosave: true,
           });
           utils.chapters.list.setData({ storyId }, rows =>

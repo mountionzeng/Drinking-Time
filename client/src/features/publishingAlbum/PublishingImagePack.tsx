@@ -311,6 +311,10 @@ export function PublishingImagePackCanvas({
         value.includeCover = false;
       }
     }
+    // A mirrored text chapter can inherit default settings without an actual
+    // cover. Do not block every image insertion on that nonexistent cover.
+    if (chapterSession && value.coverId == null && !chapterSession.imageOptions?.coverUrl)
+      value.includeCover = false;
     if (chapterSession?.imageOptions?.coverUrl) value.includeCover = true;
     return value;
   });
