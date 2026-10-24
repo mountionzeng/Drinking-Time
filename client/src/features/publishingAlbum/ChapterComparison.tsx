@@ -27,6 +27,7 @@ function Preview({
       const settings = content.blocks.settings;
       void makeModulePack(
         {
+          fitOverflowText: true,
           title: content.title,
           body: content.blocks.body,
           fontId: settings?.fontId ?? "noto-serif-sc",

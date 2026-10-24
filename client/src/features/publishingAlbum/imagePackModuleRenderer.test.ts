@@ -94,6 +94,28 @@ afterEach(() => {
 });
 
 describe("module canvas and PNG agreement", () => {
+  it("fits returned chapter text without moving images, while ordinary layouts still reject overflow", async () => {
+    const { contexts } = environment();
+    const chapterOptions = { ...options, fitOverflowText: true };
+    const renderer = await createModuleRenderer(chapterOptions, new AbortController().signal);
+    const doc = renderer.createDocument();
+    const text = doc.pages[0].modules.find(module => module.kind === "text") as TextModule;
+    text.text = "甲乙丙丁戊己庚辛壬癸";
+    text.contentWidth = 800;
+    text.contentHeight = 40;
+    text.fontSize = 36;
+    const before = structuredClone(doc);
+    const canvas = globalThis.document.createElement("canvas");
+    expect(() => renderer.draw(doc.pages[0], canvas)).not.toThrow();
+    expect(contexts.at(-1)!.fillText).toHaveBeenCalledTimes(10);
+    expect(doc).toEqual(before);
+    const strict = await createModuleRenderer(options, new AbortController().signal);
+    await strict.loadImage("/cover.png");
+    expect(() => strict.draw(doc.pages[0], canvas)).toThrow();
+    text.text = "甲".repeat(500);
+    expect(() => renderer.draw(doc.pages[0], canvas)).toThrow();
+  });
+
   it("adds an uploaded data URL without a network request under production CSP", async () => {
     environment();
     const renderer = await createModuleRenderer(options, new AbortController().signal);

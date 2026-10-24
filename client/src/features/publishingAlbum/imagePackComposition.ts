@@ -27,6 +27,8 @@ export type ImagePackOptions = {
   coverUrl?: string;
   illustrations?: { imageUrl: string; after: ParagraphAnchor | null }[];
   bodyTextureUrl?: string;
+  /** Chapter returns can change bound text while retaining the original text box. */
+  fitOverflowText?: boolean;
 };
 export type ImagePackBlock = ({ kind: "text"; text: string } | { kind: "illustration"; imageUrl: string }) & { top: number; height: number };
 export type ImagePackPage = { kind: "cover" | "body"; text: string; illustration: boolean; blocks: ImagePackBlock[] };

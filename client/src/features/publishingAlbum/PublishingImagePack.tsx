@@ -479,6 +479,7 @@ export function PublishingImagePackCanvas({
   ];
   const options = useMemo<ImagePackOptions>(
     () => ({
+      ...(chapterSession ? { fitOverflowText: true } : {}),
       title: settings.title ?? title,
       body,
       fontId: settings.fontId,
@@ -512,6 +513,7 @@ export function PublishingImagePackCanvas({
       palette,
       paperPalette,
       chapterSession?.imageOptions,
+      Boolean(chapterSession),
     ]
   );
   const basis = JSON.stringify(options);
