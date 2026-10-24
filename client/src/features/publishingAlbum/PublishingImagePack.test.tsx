@@ -57,10 +57,14 @@ describe("article image pack entry", () => {
     const desktop = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
     expect(desktop).toContain('aria-label="图像与排版"');
     expect(desktop).toContain("上传图片");
-    const mobile = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} mobile />);
+    const mobile = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} mobile initialMobileStep="images" />);
     expect(mobile).toContain('aria-label="图文制作步骤"');
     expect(mobile).not.toContain('aria-label="图像与排版"');
-    expect(mobile).toContain("上传图片");
+    expect(mobile).toContain("添加图片");
+    expect(mobile).not.toContain(">上传图片</button>");
+    const addMenu = renderToStaticMarkup(<>{generationPanels.get("添加图片方式")}</>);
+    expect(addMenu).toContain("上传图片");
+    expect(addMenu).toContain("根据文字生成");
     expect(mobile).toContain('aria-label="上传图像素材"');
   });
 

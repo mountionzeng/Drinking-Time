@@ -238,13 +238,13 @@ export function MobileNewStoryCompanion({
         activeMemory?.id !== memorySource?.id ||
         activeMemory?.storyId !== memorySource?.storyId;
       if (
-        activeMemory?.kind === "layout" &&
-        memorySource?.kind === "layout" &&
+        (activeMemory?.kind === "layout" || activeMemory?.kind === "text") &&
+        memorySource?.kind === activeMemory.kind &&
         !different &&
         !actionLocked
       ) {
         // Queued turns already own immutable snapshots. Keep unsent words while
-        // following the currently selected module in the same layout session.
+        // following the current text or selected module in the same session.
         setActiveMemory(memorySource);
         setError(null);
       } else if (!memoryLocked && !busy && !unsynced && !session.draft.trim()) {
@@ -280,7 +280,10 @@ export function MobileNewStoryCompanion({
     return () =>
       window.removeEventListener("dt:open-mobile-companion", openFromEditor);
   }, [memoryLocked, busy, unsynced, session.draft, activeMemory]);
-  const height = Math.max(180, Math.min(560, viewport.height - 130));
+  const writing = activeMemory?.kind === "text" && Boolean(activeMemory.text);
+  const height = writing
+    ? Math.max(180, viewport.height - 28)
+    : Math.max(180, Math.min(560, viewport.height - 130));
   const dockBottom = 0;
   const attention = companionAttention(
     open,
@@ -297,6 +300,7 @@ export function MobileNewStoryCompanion({
           type="button"
           className="mobile-xiaoyi-launcher"
           data-open={open}
+          data-writing={writing}
           data-idle-animations={idleAnimations && !open}
           data-theme={visualTheme}
           aria-label={
@@ -359,6 +363,7 @@ export function MobileNewStoryCompanion({
         />
         <DialogPrimitive.Content
           className="mobile-xiaoyi-dialog"
+          data-writing={writing}
           aria-describedby={undefined}
           data-theme={visualTheme}
           style={

@@ -50,6 +50,7 @@ export function MobileMemoryFollowupChat({
   }, [conversation.isSubmitting, onThinkingChange]);
   const [error, setError] = useState<string | null>(null);
   const [contentsOpen, setContentsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [actionLocked, setActionLocked] = useState(false);
   const [versionLocked, setVersionLocked] = useState(false);
@@ -79,6 +80,7 @@ export function MobileMemoryFollowupChat({
     onActionLocked,
   ]);
   const sending = useRef(false);
+  const writing = source.kind === "text" && Boolean(source.text);
   const visibleMessages = conversation.messages;
   const controller = {
     ...conversation,
@@ -122,8 +124,20 @@ export function MobileMemoryFollowupChat({
       />
     );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {source.kind === "story" ? (
+    <div className="flex h-full min-h-0 flex-col" data-writing-chat={writing}>
+      {writing ? (
+        <article
+          aria-label={t("当前文章")}
+          className="min-h-0 flex-[1.2] overflow-y-auto overscroll-contain border-b border-border px-5 pb-5"
+        >
+          <h2 className="mb-4 font-serif text-xl leading-relaxed">
+            {source.text!.content.title || source.title}
+          </h2>
+          <p className="whitespace-pre-wrap break-words font-serif text-base leading-8">
+            {source.text!.content.body}
+          </p>
+        </article>
+      ) : source.kind === "story" ? (
         <p className="px-5 pb-2 font-serif text-lg">
           {source.title || "这个故事"}
         </p>
@@ -192,44 +206,66 @@ export function MobileMemoryFollowupChat({
           onDraftChange={setDraft}
         />
       </div>
-      {source.kind !== "layout" && (
-        <MobileTextDraftFlow
-          key={`${userId}:${source.storyId}`}
-          userId={userId}
-          storyId={source.storyId}
-          source={source.kind === "story" ? undefined : source}
-          messages={conversation.messages.map(({ id, role, content }) => ({
-            id,
-            role,
-            content,
-          }))}
-          instruction={draft}
-          disabled={busy || actionLocked || voiceBusy}
-          onLocked={setVersionLocked}
-          onTextSaved={onTextSaved}
-        />
-      )}
-      <button
-        type="button"
-        disabled={busy || actionLocked || versionLocked || voiceBusy}
-        className="mx-4 min-h-11 shrink-0 border-t border-border/40 text-left text-xs text-primary disabled:opacity-40"
-        onClick={() => setContentsOpen(true)}
-      >
-        对话内容 · 目录、记事与文章来源
-      </button>
-      <MobileCompanionActions
-        storyId={source.storyId}
-        source={source}
-        draft={draft}
-        setDraft={setDraft}
-        messages={visibleMessages}
-        disabled={busy || versionLocked || voiceBusy}
-        onLocked={locked => {
-          setActionLocked(locked);
-          onActionLocked?.(locked);
-        }}
-        onNewStory={onNewStory}
-      />
+      <div className={writing ? "relative shrink-0" : "contents"}>
+        {writing && (
+          <button
+            type="button"
+            aria-label={t("更多操作")}
+            aria-expanded={toolsOpen}
+            onClick={() => setToolsOpen(value => !value)}
+            className="mx-auto flex min-h-8 w-11 items-center justify-center text-lg leading-none text-muted-foreground"
+          >
+            ···
+          </button>
+        )}
+        <div
+          hidden={writing && !toolsOpen}
+          className={
+            writing
+              ? "absolute bottom-full inset-x-2 z-20 max-h-[45dvh] overflow-y-auto rounded-xl border border-border bg-background py-2 shadow-lg"
+              : "contents"
+          }
+        >
+          {source.kind !== "layout" && (
+            <MobileTextDraftFlow
+              key={`${userId}:${source.storyId}`}
+              userId={userId}
+              storyId={source.storyId}
+              source={source.kind === "story" ? undefined : source}
+              messages={conversation.messages.map(({ id, role, content }) => ({
+                id,
+                role,
+                content,
+              }))}
+              instruction={draft}
+              disabled={busy || actionLocked || voiceBusy}
+              onLocked={setVersionLocked}
+              onTextSaved={onTextSaved}
+            />
+          )}
+          <button
+            type="button"
+            disabled={busy || actionLocked || versionLocked || voiceBusy}
+            className="mx-4 min-h-11 shrink-0 border-t border-border/40 text-left text-xs text-primary disabled:opacity-40"
+            onClick={() => setContentsOpen(true)}
+          >
+            对话内容 · 目录、记事与文章来源
+          </button>
+          <MobileCompanionActions
+            storyId={source.storyId}
+            source={source}
+            draft={draft}
+            setDraft={setDraft}
+            messages={visibleMessages}
+            disabled={busy || versionLocked || voiceBusy}
+            onLocked={locked => {
+              setActionLocked(locked);
+              onActionLocked?.(locked);
+            }}
+            onNewStory={onNewStory}
+          />
+        </div>
+      </div>
       {source.kind === "layout" ? (
         <p className="px-4 py-2 text-[11px] text-muted-foreground">
           先讨论建议，回到排版里修改。

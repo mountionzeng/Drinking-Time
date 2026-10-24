@@ -25,6 +25,8 @@ export async function invokeImagePromptCompiler(messages: Message[]) {
     deadlineMs,
     // A text timeout can still have incurred a charge. Never silently replay.
     replaySafe: false,
+    // A rejected 429 can use the existing fallback; uncertain submissions cannot.
+    retryRejected: true,
   });
   const choice = outcome.result.choices[0];
   const content = choice?.message.content;
@@ -42,6 +44,9 @@ export async function invokeImagePromptCompiler(messages: Message[]) {
 }
 
 export function imagePromptPreparationError(error: unknown): string {
+  if (error instanceof InferenceError && error.category === "rate_limit") {
+    return "配图文字服务当前繁忙，尚未提交出图，请稍后重试。";
+  }
   const timeout =
     (error instanceof InferenceError && error.category === "timeout") ||
     (error instanceof Error && error.name === "TimeoutError");

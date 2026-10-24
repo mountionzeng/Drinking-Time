@@ -15,6 +15,7 @@ import type {
   TextDraftVersion,
 } from "@shared/textDraftHistory";
 import { textDraftContentSchema } from "@shared/textDraftHistory";
+import { computePublishingDraftContentHash } from "@shared/publishingDraft";
 import type { MemoryFollowupSource } from "./mobileMemoryFollowup";
 import {
   mobileTextDraftRequest,
@@ -36,6 +37,7 @@ export function MobileTextDraftFlow({
   onLocked,
   previewVersion,
   onTextSaved,
+  onConfirmed,
 }: {
   userId: number;
   storyId: number;
@@ -46,6 +48,7 @@ export function MobileTextDraftFlow({
   onLocked?: (value: boolean) => void;
   previewVersion?: TextDraftVersion;
   onTextSaved?: (source: MemoryFollowupSource) => void;
+  onConfirmed?: () => void;
 }) {
   const t = useUiText();
   const utils = trpc.useUtils();
@@ -286,6 +289,20 @@ export function MobileTextDraftFlow({
         content: pending.content,
         feedback: "",
       });
+      const active =
+        result.publishing.drafts[result.publishing.activePlatform]?.content;
+      if (
+        onConfirmed &&
+        (!active ||
+          computePublishingDraftContentHash(active) !==
+            computePublishingDraftContentHash(pending.content))
+      )
+        throw new Error("当前正文已变化，请核对最新文字后再继续配图。");
+      // Seed the destination before navigating; publishing may not have been
+      // opened yet. Refetch in the background without unmounting this flow first.
+      utils.publishingDraft.read.setData({ storyId }, previous =>
+        previous ? { ...previous, publishing: result.publishing } : previous
+      );
       utils.textDrafts.read.setData({ storyId }, result.history);
       const platform = result.history.versions.find(
         v => v.id === pending.versionId
@@ -313,7 +330,13 @@ export function MobileTextDraftFlow({
       );
       void utils.publishingDraft.readBody.invalidate({ storyId });
       void utils.publishingDraft.read.invalidate({ storyId });
-      if (alive.current) setSaved(true);
+      if (alive.current) {
+        setSaved(true);
+        if (onConfirmed) {
+          setOpen(false);
+          onConfirmed();
+        }
+      }
       try {
         localStorage.removeItem(key);
       } catch {
@@ -329,6 +352,18 @@ export function MobileTextDraftFlow({
           JSON.stringify(version.adoption.content) ===
             JSON.stringify(pending.content)
         ) {
+          if (onConfirmed) {
+            const current = await utils.publishingDraft.read.fetch({ storyId });
+            const active =
+              current.publishing.drafts[current.publishing.activePlatform]
+                ?.content;
+            if (
+              !active ||
+              computePublishingDraftContentHash(active) !==
+                computePublishingDraftContentHash(pending.content)
+            )
+              throw new Error("当前正文已变化，请核对最新文字后再继续配图。");
+          }
           utils.textDrafts.read.setData({ storyId }, latest);
           window.dispatchEvent(
             new CustomEvent("dt:mobile-text-adopted", {
@@ -336,7 +371,12 @@ export function MobileTextDraftFlow({
             })
           );
           void utils.publishingDraft.readBody.invalidate({ storyId });
+          void utils.publishingDraft.read.invalidate({ storyId });
           setSaved(true);
+          if (onConfirmed) {
+            setOpen(false);
+            onConfirmed();
+          }
           localStorage.removeItem(key);
           return;
         }
@@ -374,7 +414,11 @@ export function MobileTextDraftFlow({
       <div className="shrink-0 px-4 pb-1 text-right">
         <button
           type="button"
-          className={action}
+          className={
+            onConfirmed
+              ? `${action} w-full rounded-full bg-primary text-primary-foreground`
+              : action
+          }
           disabled={disabled || busy || history.isError || history.isLoading}
           onClick={() => {
             if (saved) {
@@ -396,17 +440,27 @@ export function MobileTextDraftFlow({
                 ? "继续修改"
                 : pending
                   ? candidate
-                    ? "查看新版本"
+                    ? onConfirmed
+                      ? "确认文字并配图"
+                      : "查看新版本"
                     : canResubmit
                       ? "重试本次生成"
                       : "检查生成结果"
                   : previewVersion
-                    ? "预览并保存"
+                    ? onConfirmed
+                      ? "确认文字并配图"
+                      : "查看并确认文字"
                     : "生成新版本"
           )}
         </button>
-        {!previewVersion && <MobileCreateMenu userId={userId} storyId={storyId}
-          instruction={instruction} blocked={disabled || busy} />}
+        {!previewVersion && (
+          <MobileCreateMenu
+            userId={userId}
+            storyId={storyId}
+            instruction={instruction}
+            blocked={disabled || busy}
+          />
+        )}
         {error && !open && (
           <p role="alert" className="text-left text-xs text-destructive">
             {error}
@@ -435,13 +489,15 @@ export function MobileTextDraftFlow({
         >
           <DialogHeader className="text-left">
             <DialogTitle ref={heading} tabIndex={-1}>
-              {t(saved ? "已保存" : "新版本预览")}
+              {t(saved ? "已确认这版文字" : "确认这一版文字")}
             </DialogTitle>
             <DialogDescription>
               {t(
                 saved
                   ? "电脑和手机都能看到，旧版本已保留。"
-                  : "确认满意后再保存，原文仍保留。"
+                  : onConfirmed
+                    ? "可以直接修改。确认后作为配图用的文字，旧版本仍保留。"
+                    : "可以直接修改。确认后保存为当前文字，旧版本仍保留。"
               )}
             </DialogDescription>
           </DialogHeader>
@@ -528,7 +584,13 @@ export function MobileTextDraftFlow({
                 disabled={busy || !candidate?.body.trim()}
                 onClick={() => void save()}
               >
-                {t(busy ? "正在保存…" : "保存新版本")}
+                {t(
+                  busy
+                    ? "正在确认…"
+                    : onConfirmed
+                      ? "确认这版，继续配图"
+                      : "确认这版文字"
+                )}
               </button>
             )}
           </div>

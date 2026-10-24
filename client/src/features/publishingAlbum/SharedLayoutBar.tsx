@@ -22,6 +22,7 @@ export function SharedLayoutBar({
   canShareBack,
   onApply,
   buildPackage,
+  compact = false,
 }: {
   storyId: number;
   candidates: SharedLayoutCandidate[];
@@ -29,6 +30,7 @@ export function SharedLayoutBar({
   /** Applies the layout and returns an undo. */
   onApply(layout: SharedLayoutStored): () => void;
   buildPackage(): Promise<SharedLayoutPackage>;
+  compact?: boolean;
 }) {
   const t = useUiText();
   const utils = trpc.useUtils();
@@ -86,10 +88,9 @@ export function SharedLayoutBar({
       });
       await utils.artworkShare.layout.invalidate({ storyId });
       if (undo)
-        toast.success(
-          t("已采用和{0}一起改的排版", [candidate.authorName]),
-          { action: { label: t("撤销"), onClick: undo } }
-        );
+        toast.success(t("已采用和{0}一起改的排版", [candidate.authorName]), {
+          action: { label: t("撤销"), onClick: undo },
+        });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "操作失败，请稍后重试"
@@ -97,7 +98,7 @@ export function SharedLayoutBar({
     }
   }
 
-  return (
+  const controls = (
     <div
       className="space-y-2 rounded-lg border border-[var(--panel-border)] p-3"
       aria-label={t("和朋友一起改排版")}
@@ -157,5 +158,17 @@ export function SharedLayoutBar({
         </button>
       ) : null}
     </div>
+  );
+  return compact ? (
+    <details className="border-t border-border pt-3 text-sm">
+      <summary className="min-h-11 cursor-pointer text-muted-foreground">
+        {pending.length
+          ? t("协作与分享 · {0} 份待确认", [pending.length])
+          : t("协作与分享")}
+      </summary>
+      {controls}
+    </details>
+  ) : (
+    controls
   );
 }

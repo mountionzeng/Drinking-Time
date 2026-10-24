@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   invalidate: vi.fn(),
   invalidateMaterials: vi.fn(),
+  history: null as any,
+  adopt: vi.fn(),
 }));
 vi.mock("@/features/publishingAlbum/PublishingImagePack", () => ({
   PublishingImagePack: (props: any) => {
@@ -25,6 +27,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({
       publishingDraft: { readBody: { invalidate: mocks.invalidate } },
+      textDrafts: { read: { invalidate: mocks.invalidate } },
       storyAgent: {
         storyMaterialState: { invalidate: mocks.invalidateMaterials },
         storyImages: { invalidate: mocks.invalidateMaterials },
@@ -34,7 +37,12 @@ vi.mock("@/lib/trpc", () => ({
       read: { useQuery: () => ({ data: mocks.data, refetch: mocks.refetch }) },
       generateCover: { useMutation: () => ({ mutateAsync: mocks.mutate }) },
     },
-    textDrafts: { adopt: { useMutation: () => ({}) } },
+    textDrafts: {
+      read: {
+        useQuery: () => ({ data: mocks.history, refetch: mocks.refetch }),
+      },
+      adopt: { useMutation: () => ({ mutateAsync: mocks.adopt }) },
+    },
     artworkShare: { revoke: { useMutation: () => ({}) } },
   },
 }));
@@ -44,6 +52,19 @@ beforeEach(() => {
   mocks.invalidate.mockReset();
   mocks.invalidateMaterials.mockReset();
   mocks.pack = null;
+  mocks.adopt.mockReset();
+  mocks.history = {
+    revision: 3,
+    versions: [
+      {
+        id: "history-1",
+        sequence: 1,
+        status: "ready",
+        request: { platform: "xiaohongshu" },
+        generated: { title: "另一稿", body: "另一段", tags: [] },
+      },
+    ],
+  };
   const publishing = upsertPublishingPlatformDraft(
     emptyPublishingDraftState(),
     {
@@ -148,7 +169,7 @@ describe("mobile image studio", () => {
         id: "history-1",
         content: { title: "另一稿", body: "另一段", tags: [] },
       })
-    ).toContain("采用这份文字来配图");
+    ).toContain("查看并确认文字");
     expect(mocks.pack.coverBusy).toBe(true);
     await mocks.pack.onGenerateCover("");
     expect(mocks.mutate).not.toHaveBeenCalled();
@@ -166,8 +187,32 @@ describe("mobile image studio", () => {
 
 it("opens the story gallery even without a publishing body, but cannot buy images", async () => {
   mocks.data.publishing = emptyPublishingDraftState();
-  render();
-  expect(mocks.pack).toMatchObject({ storyId: 3, initialMobileStep: "images", body: "", coverBusy: true });
+  expect(render()).toContain("查看并确认文字");
+  expect(mocks.pack).toMatchObject({
+    storyId: 3,
+    initialMobileStep: "images",
+    body: "",
+    coverBusy: true,
+  });
+  expect(mocks.pack.onPrepareGeneration).toEqual(expect.any(Function));
+  expect(mocks.adopt).not.toHaveBeenCalled();
   await mocks.pack.onGenerateCover?.("生成");
   expect(mocks.mutate).not.toHaveBeenCalled();
+});
+
+it("requires explicit adoption even when an unconfirmed candidate has identical text", async () => {
+  const content = mocks.data.publishing.drafts.xiaohongshu.content;
+  mocks.history.versions[0].generated = content;
+  expect(render({ id: "history-1", content })).toContain("查看并确认文字");
+  await mocks.pack.onGenerateCover("生成");
+  expect(mocks.adopt).not.toHaveBeenCalled();
+  expect(mocks.mutate).not.toHaveBeenCalled();
+});
+
+it("allows generation settings for the adopted current version", () => {
+  const content = mocks.data.publishing.drafts.xiaohongshu.content;
+  mocks.history.versions[0].adoption = { content };
+  expect(render({ id: "history-1", content })).not.toContain("查看并确认文字");
+  expect(mocks.pack.onPrepareGeneration).toBeUndefined();
+  expect(mocks.pack.coverBusy).toBeFalsy();
 });

@@ -1,10 +1,11 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PublishingImagePack } from "@/features/publishingAlbum/PublishingImagePack";
 import type { StudioCreateRequest } from "@/features/publishingDraft/StudioCreateMenu";
 import {
+  computePublishingDraftContentHash,
   isRecoverablePublishingCoverGeneration,
   type PublishingDraftContent,
 } from "@shared/publishingDraft";
@@ -61,7 +62,14 @@ export function MobileImageStudio({
   const revoke = trpc.artworkShare.revoke.useMutation({ retry: false });
   const inFlight = useRef(false);
   const [error, setError] = useState("");
-  const [confirmAdopt, setConfirmAdopt] = useState(false);
+  const [confirmAdopt, setConfirmAdopt] = useState<{
+    versionId: string;
+    content: PublishingDraftContent;
+    historyRevision: number;
+    publishingRevision: number;
+  } | null>(null);
+  const [nextCreateRequest, setNextCreateRequest] =
+    useState<StudioCreateRequest>();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [message, setMessage] = useState("");
   const [shareEpoch, setShareEpoch] = useState(0);
@@ -71,25 +79,79 @@ export function MobileImageStudio({
   const draft = publishing?.drafts[platform];
   const content = source?.content ?? draft?.content;
   const isMemory = source?.kind === "memory";
+  const history = trpc.textDrafts.read.useQuery(
+    { storyId },
+    {
+      enabled: !isMemory && (!draft?.content.body.trim() || Boolean(source)),
+      retry: false,
+    }
+  );
+  const versions = (history.data?.versions ?? []).filter(
+    version => version.status === "ready" && version.generated?.body.trim()
+  );
+  const suggested = source
+    ? versions.find(version => version.id === source.id)
+    : [...versions].reverse().find(version => !version.adoption);
   const sourceMatches =
     !source ||
     Boolean(
       draft &&
+        suggested?.adoption &&
+        suggested.request.platform === platform &&
         draft.content.title === source.content.title &&
-        draft.content.body === source.content.body
+        draft.content.body === source.content.body &&
+        JSON.stringify(draft.content.tags) ===
+          JSON.stringify(source.content.tags)
     );
   const receipt = publishing?.coverGeneration;
   const recoverable =
     receipt?.status === "pending" ||
     isRecoverablePublishingCoverGeneration(receipt);
   const busy = generate.isPending || adopt.isPending;
+  const needsTextConfirmation =
+    !isMemory && (!content?.body.trim() || !sourceMatches);
+  function reviewText() {
+    setError("");
+    if (!suggested || !history.data || !publishing) return;
+    setConfirmAdopt({
+      versionId: suggested.id,
+      content:
+        source?.content ?? suggested.adoption?.content ?? suggested.generated!,
+      historyRevision: history.data.revision,
+      publishingRevision: publishing.revision,
+    });
+  }
+  const reviewedRequest = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      createRequest?.kind !== "image" ||
+      !needsTextConfirmation ||
+      !suggested ||
+      reviewedRequest.current === createRequest.id
+    )
+      return;
+    reviewedRequest.current = createRequest.id;
+    reviewText();
+  }, [
+    createRequest,
+    needsTextConfirmation,
+    suggested,
+    history.data,
+    publishing,
+  ]);
   async function generateImages(
     instruction: string,
     kind?: "illustration" | "body-texture",
     coverId?: number,
     recover = false
   ) {
-    if (isMemory || !data || !content?.body.trim() || !sourceMatches || inFlight.current)
+    if (
+      isMemory ||
+      !data ||
+      !content?.body.trim() ||
+      !sourceMatches ||
+      inFlight.current
+    )
       return;
     // Normal buttons cannot silently turn a new purchase into recovery of another task.
     if (recoverable && !recover) {
@@ -134,26 +196,49 @@ export function MobileImageStudio({
     }
   }
   async function useSource() {
-    if (isMemory || !source || !data) return;
+    if (isMemory || !confirmAdopt || !data || inFlight.current) return;
+    inFlight.current = true;
     setError("");
     try {
-      const history = await utils.textDrafts.read.fetch({ storyId });
-      await adopt.mutateAsync({
+      const result = await adopt.mutateAsync({
         storyId,
-        versionId: source.id,
-        expectedRevision: history.revision,
-        expectedPublishingRevision: data.publishing.revision,
-        content: source.content,
+        versionId: confirmAdopt.versionId,
+        expectedRevision: confirmAdopt.historyRevision,
+        expectedPublishingRevision: confirmAdopt.publishingRevision,
+        content: confirmAdopt.content,
         feedback: "",
       });
+      const current =
+        result.publishing.drafts[result.publishing.activePlatform]?.content;
+      if (
+        !current ||
+        computePublishingDraftContentHash(current) !==
+          computePublishingDraftContentHash(confirmAdopt.content)
+      )
+        throw new Error(
+          "这份历史文字已采用过，当前正文已变化。请返回文字页核对当前版本。"
+        );
       await Promise.all([
         read.refetch(),
         utils.publishingDraft.readBody.invalidate({ storyId }),
         utils.textDrafts.read.invalidate({ storyId }),
       ]);
-      setConfirmAdopt(false);
+      setConfirmAdopt(null);
+      setNextCreateRequest({
+        id: crypto.randomUUID(),
+        storyId,
+        kind: "image",
+        instruction: createRequest?.instruction ?? "",
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "采用失败，原稿已保留");
+      // Keep the reviewed snapshot fixed. Returning to text must load the latest
+      // state before the user decides how to handle a conflict.
+      void read.refetch();
+      void history.refetch();
+      void utils.publishingDraft.readBody.invalidate({ storyId });
+    } finally {
+      inFlight.current = false;
     }
   }
   return (
@@ -162,18 +247,20 @@ export function MobileImageStudio({
       data-stage-swipe="ignore"
       className="flex h-full min-h-0 flex-col"
     >
-      {!embedded && <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        <button
-          type="button"
-          aria-label={isMemory ? t("返回记忆") : t("返回文字稿")}
-          className="grid size-11 place-items-center"
-          disabled={busy}
-          onClick={onBack}
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="font-chat-brand text-xl">{t("制作图文")}</h1>
-      </header>}
+      {!embedded && (
+        <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+          <button
+            type="button"
+            aria-label={isMemory ? t("返回记忆") : t("返回文字稿")}
+            className="grid size-11 place-items-center"
+            disabled={busy}
+            onClick={onBack}
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="font-chat-brand text-xl">{t("制作图文")}</h1>
+        </header>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto pb-8">
         {read.isLoading ? (
           <p role="status" className="p-5">
@@ -195,20 +282,36 @@ export function MobileImageStudio({
                 )}
               </p>
             ) : null}
-            {!isMemory && !sourceMatches ? (
+            {needsTextConfirmation ? (
               <div className="space-y-2 px-5 pt-4 text-sm leading-6">
                 <p>
                   {t(
-                    "正在排版这份文字稿，可使用已有图片。生成新配图前，需要先将它采用为当前发布稿。"
+                    suggested
+                      ? "先确认配图用的文字，已有图片仍可上传和排版。"
+                      : "还没有确认的文字。先去文字页准备一版，也可以先上传图片。"
                   )}
                 </p>
                 <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => setConfirmAdopt(true)}
+                  className={`${button} bg-primary text-primary-foreground`}
+                  disabled={busy || history.isLoading}
+                  onClick={suggested ? reviewText : onBack}
                 >
-                  {t("采用这份文字来配图")}
+                  {t(
+                    history.isLoading
+                      ? "正在读取文字…"
+                      : suggested
+                        ? "查看并确认文字"
+                        : "去文字页"
+                  )}
                 </button>
+                {history.isError && (
+                  <button
+                    className={button}
+                    onClick={() => void history.refetch()}
+                  >
+                    {t("重新读取文字版本")}
+                  </button>
+                )}
               </div>
             ) : null}
             {error ? (
@@ -231,9 +334,20 @@ export function MobileImageStudio({
               </div>
             ) : null}
             <PublishingImagePack
-              createRequest={createRequest}
+              createRequest={
+                needsTextConfirmation
+                  ? undefined
+                  : (nextCreateRequest ?? createRequest)
+              }
+              onPrepareGeneration={
+                needsTextConfirmation
+                  ? suggested
+                    ? reviewText
+                    : onBack
+                  : undefined
+              }
               accountId={userId}
-            sharePlatform={platform}
+              sharePlatform={platform}
               key={`${storyId}:${source?.id ?? publishing.activeVersionId}:${platform}`}
               mobile
               initialMobileStep={isMemory ? "preview" : "images"}
@@ -278,7 +392,11 @@ export function MobileImageStudio({
                 ),
               ]}
               coverBusy={
-                isMemory || !content?.body.trim() || busy || Boolean(recoverable) || !sourceMatches
+                isMemory ||
+                !content?.body.trim() ||
+                busy ||
+                Boolean(recoverable) ||
+                !sourceMatches
               }
               generationError={isMemory ? undefined : receipt?.error}
               generationStartedAt={
@@ -324,27 +442,78 @@ export function MobileImageStudio({
           </>
         ) : null}
       </div>
-      <Dialog open={confirmAdopt} onOpenChange={setConfirmAdopt}>
-        <DialogContent>
+      <Dialog
+        open={Boolean(confirmAdopt)}
+        onOpenChange={open => {
+          if (!open && !busy) setConfirmAdopt(null);
+        }}
+      >
+        <DialogContent className="flex max-h-[90dvh] flex-col">
           <DialogHeader>
-            <DialogTitle>{t("采用这份文字来配图？")}</DialogTitle>
+            <DialogTitle>{t("确认配图用的文字")}</DialogTitle>
             <DialogDescription>
-              {t(
-                "这会更新电脑和手机共用的当前发布稿。原文字版本保留，采用本身不会购买图片生成。"
-              )}
+              {t("确认后进入配图设置。旧文字版本保留，图片费用会另行确认。")}
             </DialogDescription>
           </DialogHeader>
+          {confirmAdopt && (
+            <>
+              {!source &&
+                versions.filter(version => !version.adoption).length > 1 && (
+                  <select
+                    aria-label={t("配图文字版本")}
+                    className={button}
+                    value={confirmAdopt.versionId}
+                    disabled={busy}
+                    onChange={event => {
+                      const version = versions.find(
+                        item => item.id === event.target.value
+                      );
+                      if (version?.generated)
+                        setConfirmAdopt({
+                          ...confirmAdopt,
+                          versionId: version.id,
+                          content:
+                            version.adoption?.content ?? version.generated,
+                        });
+                    }}
+                  >
+                    {versions
+                      .filter(version => !version.adoption)
+                      .map(version => (
+                        <option key={version.id} value={version.id}>
+                          {t("文字稿")}
+                          {version.sequence}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              <article className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words py-3 font-serif leading-8">
+                <h3 className="mb-3 text-lg">{confirmAdopt.content.title}</h3>
+                <p>{confirmAdopt.content.body}</p>
+              </article>
+            </>
+          )}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}
           <button
-            className={button}
+            className={`${button} shrink-0 bg-primary text-primary-foreground`}
             disabled={busy}
             onClick={() => void useSource()}
           >
-            {busy ? t("正在采用…") : t("确认采用")}
+            {busy ? t("正在确认…") : t("确认这版，继续配图")}
+          </button>
+          <button
+            className={button}
+            disabled={busy}
+            onClick={() => {
+              setConfirmAdopt(null);
+              onBack();
+            }}
+          >
+            {t("返回文字修改")}
           </button>
         </DialogContent>
       </Dialog>
