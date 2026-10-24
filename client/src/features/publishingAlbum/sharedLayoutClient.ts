@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 import {
   layoutImageRef,
   SHARED_LAYOUT_MAX_BYTES,
@@ -69,9 +70,7 @@ export function sharedLayoutSettings(layout: SharedLayoutStored) {
 }
 
 async function encodeUrl(url: string, budget: number, label: string) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${label}读取失败，请稍后重试`);
-  return encodeShareImage(await response.blob(), budget, label);
+  return encodeShareImage(await readImagePackBlob(url), budget, label);
 }
 
 /**

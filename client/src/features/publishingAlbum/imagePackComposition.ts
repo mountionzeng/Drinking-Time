@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 import { PUBLISHING_ALBUM_MAX_PAGES, type PublishingAlbumRegionLayout } from "@shared/publishingAlbum";
 import { imagePackParagraphs, normalizeImagePackBody, resolveIllustrationOffset, type ParagraphAnchor } from "./imagePackIllustrations";
 import { publishingAlbumGraphemes } from "./publishingAlbumLayout";
@@ -111,9 +112,7 @@ export async function makeImagePack(
   async function drawImage(context: CanvasRenderingContext2D, url: string, rect: number[]) {
     let bitmap = bitmaps.get(url);
     if (!bitmap) {
-      const response = await fetch(url, { credentials: "same-origin", signal });
-      if (!response.ok) throw new Error(`图片读取失败（${response.status}）`);
-      bitmap = await createImageBitmap(await response.blob());
+      bitmap = await createImageBitmap(await readImagePackBlob(url, signal));
       bitmaps.set(url, bitmap);
     }
     const [x, y, width, height] = rect;

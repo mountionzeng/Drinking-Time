@@ -581,6 +581,7 @@ export function ImagePackModuleEditor({
   async function addImage(asset: PackAsset, point?: { x: number; y: number }) {
     if (!renderer || !document || busy || editing) return;
     setBusy(true);
+    setError("");
     try {
       const size = await renderer.loadImage(asset.imageUrl);
       if (controller.current?.signal.aborted) return;

@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 import { publishingAlbumFontById } from "@shared/publishingAlbumFonts";
 import {
   IMAGE_PACK_STYLES,
@@ -51,9 +52,7 @@ export async function createModuleRenderer(
     signal.throwIfAborted();
     const existing = bitmaps.get(url);
     if (existing) return { width: existing.width, height: existing.height };
-    const response = await fetch(url, { credentials: "same-origin", signal });
-    if (!response.ok) throw new Error(`图片读取失败（${response.status}）`);
-    const bitmap = await createImageBitmap(await response.blob());
+    const bitmap = await createImageBitmap(await readImagePackBlob(url, signal));
     if (signal.aborted) {
       bitmap.close();
       signal.throwIfAborted();

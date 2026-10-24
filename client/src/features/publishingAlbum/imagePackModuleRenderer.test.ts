@@ -94,6 +94,20 @@ afterEach(() => {
 });
 
 describe("module canvas and PNG agreement", () => {
+  it("adds an uploaded data URL without a network request under production CSP", async () => {
+    environment();
+    const renderer = await createModuleRenderer(options, new AbortController().signal);
+    const fetcher = vi.mocked(fetch);
+    fetcher.mockClear();
+    fetcher.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(renderer.loadImage("data:image/png;base64,iVBORw0KGgo=")).resolves.toEqual({ width: 900, height: 1200 });
+    expect(fetcher).not.toHaveBeenCalled();
+    const blob = vi.mocked(createImageBitmap).mock.calls.at(-1)![0] as Blob;
+    expect(blob.type).toBe("image/png");
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([137,80,78,71,13,10,26,10]);
+    renderer.dispose();
+  });
+
   it("renumbers exported files after inserting and deleting pages, including an original cover", async () => {
     const { contexts } = environment();
     const renderer = await createModuleRenderer(
