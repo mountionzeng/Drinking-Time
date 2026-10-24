@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChapterWorkspace, mapChapterImages } from "./ChapterWorkspace";
 import type { Chapter } from "./useChapters";
 vi.stubGlobal("React", React);
+const deliveryState = vi.hoisted(() => ({ enabled: false }));
 const chapter: Chapter = {
   id: 2,
   storyId: 1,
@@ -42,6 +43,17 @@ vi.mock("./useChapters", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    chapterDelivery: {
+      status: { useQuery: () => ({ data: { enabled: deliveryState.enabled } }) },
+      contacts: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
+      inbox: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
+      ...Object.fromEntries(
+        ["send", "createClaimLink", "return", "resolve"].map(name => [
+          name,
+          { useMutation: () => ({ mutateAsync: vi.fn() }) },
+        ])
+      ),
+    },
     chapters: Object.fromEntries(
       [
         "create",
@@ -70,7 +82,8 @@ vi.mock("@/lib/trpc", () => ({
 }));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
-  it("renders chapter actions and supplies chapter two's text and isolated cache to the existing editor", () => {
+  it.each([false, true])("renders isolated chapter content with delivery enabled=%s", enabled => {
+    deliveryState.enabled = enabled;
     let seen: Record<string, unknown> = {};
     const html = renderToStaticMarkup(
       <ChapterWorkspace
@@ -94,6 +107,7 @@ describe("chapter workspace", () => {
     expect(html).toContain("打包这一章");
     expect(html).toContain("导入章节包");
     expect(html).toContain("这一章自己的正文");
+    expect(html.includes("收件箱")).toBe(enabled);
     expect(html).not.toContain("不能写进第二章");
     expect(seen.scope).toBe("chapter:9:1:2:v4:0");
     expect(seen.adoptedCoverId).toBeNull();
