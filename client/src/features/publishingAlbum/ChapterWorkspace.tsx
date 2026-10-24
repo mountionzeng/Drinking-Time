@@ -883,8 +883,17 @@ export function ChapterWorkspace({
           {selectedDelivery && (
             <div className="space-y-2 border-t pt-3">
               <p className="text-sm">{selectedDelivery.package.sender.displayName} 发来的「{selectedDelivery.package.chapters[0]?.title || selectedDelivery.package.storyTitle}」</p>
-              <button className={button} disabled={busy} onClick={() => void importDelivery("keep")}>留下成新故事</button>{" "}
-              <button className={button} disabled={busy} onClick={() => void importDelivery("append")}>加入当前故事末尾</button>{" "}
+              {selectedDelivery.kind === "return" ? (
+                <>
+                  <p className="text-xs text-muted-foreground">先与原章节对照，确认采用后才生成新版本；旧版本会保留。</p>
+                  <button className={button} disabled={busy} onClick={() => void importDelivery("append")}>与原章节对照</button>{" "}
+                </>
+              ) : (
+                <>
+                  <button className={button} disabled={busy} onClick={() => void importDelivery("keep")}>留下成新故事</button>{" "}
+                  <button className={button} disabled={busy} onClick={() => void importDelivery("append")}>加入当前故事末尾</button>{" "}
+                </>
+              )}
               <button className={button} disabled={busy} onClick={() => void run(async () => {
                 await deliveryResolve.mutateAsync({ deliveryId: selectedDelivery.deliveryId, status: "declined" });
                 setSelectedDelivery(null); await deliveryInbox.refetch();
