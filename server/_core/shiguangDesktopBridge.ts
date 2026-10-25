@@ -148,7 +148,7 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
     "/chapter-delivery/contacts": ["subject"],
     "/chapter-delivery/send": ["subject", "package", "recipientContactId", "requestId"],
     "/chapter-delivery/create-claim-link": ["subject", "package", "requestId"],
-    "/chapter-delivery/claim": ["subject", "token"],
+    "/chapter-delivery/claim": ["subject", "token", "otherUserOnly"],
     "/chapter-delivery/inbox": ["subject"],
     "/chapter-delivery/read": ["subject", "deliveryId"],
     "/chapter-delivery/resolve": ["subject", "deliveryId", "status"],

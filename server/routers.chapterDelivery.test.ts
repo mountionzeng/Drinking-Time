@@ -56,6 +56,19 @@ describe("chapterDelivery router gates", () => {
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("keeps a friend share unclaimed when its sender opens it", async () => {
+    vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
+    const sender = appRouter.createCaller(context(17)).chapterDelivery;
+    const friend = appRouter.createCaller(context(18)).chapterDelivery;
+    const pkg = JSON.parse(readFileSync(new URL("../tests/fixtures/chapter-package/valid-01-text-only.json", import.meta.url), "utf8"));
+    const created = await sender.createClaimLink({package:pkg,requestId:"49158c72-8522-4cc2-a813-a2fb6742be3d"});
+    const token = created.claimUrl!.split("/").at(-1)!;
+    await expect(sender.claim({token,otherUserOnly:true})).resolves.toEqual({deliveryId:created.deliveryId,senderPreview:true});
+    expect(await sender.inbox()).toEqual([]);
+    await expect(friend.claim({token,otherUserOnly:true})).resolves.toEqual({deliveryId:created.deliveryId});
+    await expect(friend.claim({token,otherUserOnly:true})).resolves.toEqual({deliveryId:created.deliveryId});
+  });
+
   it("creates a claim link, assigns it to one account, and exposes only the safe package projection", async () => {
     vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
     const caller = appRouter.createCaller(context(17));

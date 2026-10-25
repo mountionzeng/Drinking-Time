@@ -229,10 +229,12 @@ export const chapterDeliveryRouter = router({
       return { deliveryId: result.delivery.deliveryId, uploadTickets: result.uploadTickets, repeated: result.repeated };
     }),
 
-  claim: protectedProcedure.input(z.object({ token: z.string().length(43) })).mutation(async ({ ctx, input }) => {
+  claim: protectedProcedure.input(z.object({ token: z.string().length(43), otherUserOnly: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
     requireEnabled();
     const delivery = await findDeliveryByClaimTokenHash(hash(input.token));
     if (!delivery) throw new TRPCError({ code: "NOT_FOUND", message: "领取链接无效或已过期" });
+    if (input.otherUserOnly && delivery.senderUserId === ctx.user.id)
+      return { deliveryId: delivery.deliveryId, senderPreview: true as const };
     const claimed = await claimChapterDelivery({ deliveryId: delivery.deliveryId, tokenHash: hash(input.token), userId: ctx.user.id, now: new Date() });
     if (!claimed) throw new TRPCError({ code: "NOT_FOUND", message: "领取链接无效或已过期" });
     return { deliveryId: claimed.deliveryId };

@@ -46,7 +46,7 @@ export function shiguangDesktopBridgeRoutes() {
             package: body.package, recipientContactId: body.recipientContactId as string, requestId: body.requestId as string,
           });
           case "/chapter-delivery/create-claim-link": return caller.createClaimLink({ package: body.package, requestId: body.requestId as string });
-          case "/chapter-delivery/claim": return caller.claim({ token: body.token as string });
+          case "/chapter-delivery/claim": return caller.claim({ token: body.token as string, otherUserOnly: body.otherUserOnly as boolean | undefined });
           case "/chapter-delivery/inbox": return { items: await caller.inbox() };
           case "/chapter-delivery/read": return caller.read({ deliveryId: body.deliveryId as string });
           case "/chapter-delivery/resolve": return caller.resolve({ deliveryId: body.deliveryId as string, status: body.status as "kept" | "appended" | "adopted" | "declined" });
