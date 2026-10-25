@@ -268,8 +268,8 @@ export function PublishingImagePackCanvas({
   advancedEditor?: ReactNode;
   advancedOpen?: boolean;
   onAdvancedOpenChange?(open: boolean): void;
-  onGenerateIllustration?(coverId: number, instruction: string): Promise<void>;
-  onGenerateCover?(instruction: string): Promise<void>;
+  onGenerateIllustration?(coverId: number, instruction: string, selectedText?: string): Promise<void>;
+  onGenerateCover?(instruction: string, selectedText?: string): Promise<void>;
   onGenerateTexture?(coverId: number, instruction: string): Promise<void>;
   illustrationCost?: number;
   generationStartedAt?: number;
@@ -288,6 +288,7 @@ export function PublishingImagePackCanvas({
   const liveBasis = useRef<string | null>(null);
   const [liveDocument, setLiveDocument] = useState<ModuleDocument | null>(null);
   const [layoutGenerate, setLayoutGenerate] = useState(false);
+  const [layoutSelectedText, setLayoutSelectedText] = useState("");
   const [layoutInstruction, setLayoutInstruction] = useState("");
   const libraryUpload = useRef<HTMLInputElement>(null);
   const moduleEditor = useRef<ImagePackModuleEditorHandle>(null);
@@ -1819,25 +1820,18 @@ export function PublishingImagePackCanvas({
                   initial={moduleSession.initial}
                   assets={layoutAssets}
                   onUpload={localImages.upload}
+                  onGenerateSelection={text => { setLayoutSelectedText(text); setLayoutInstruction(''); setLayoutGenerate(true); }}
                   generationControls={
-                    <Popover
+                    <Dialog
                       open={layoutGenerate}
                       onOpenChange={setLayoutGenerate}
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className={`${mobile ? "min-h-11 text-sm" : "text-xs"} px-2 py-1.5`}
-                          disabled={coverBusy}
-                        >
-                          生成
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
+                      <DialogContent
                         className={`w-72 space-y-3 ${mobile ? "[&_button]:min-h-11 [&_textarea]:text-base" : ""}`}
                       >
-                        <p className="text-sm">想加一张什么图片？</p>
+                        <DialogTitle>根据选中文字生成图片</DialogTitle>
+                        <p className="max-h-40 overflow-auto whitespace-pre-wrap text-sm">{layoutSelectedText}</p>
+                        <p className="text-xs text-muted-foreground">补充画面要求（可不填）</p>
                         <textarea
                           aria-label="排版配图要求"
                           value={layoutInstruction}
@@ -1863,9 +1857,9 @@ export function PublishingImagePackCanvas({
                             void (generationCover
                               ? onGenerateIllustration?.(
                                   generationCover.id,
-                                  layoutInstruction
+                                  layoutInstruction, layoutSelectedText
                                 )
-                              : onGenerateCover?.(layoutInstruction));
+                              : onGenerateCover?.(layoutInstruction, layoutSelectedText));
                           }}
                         >
                           确认生成 4 张 ·{" "}
@@ -1878,8 +1872,8 @@ export function PublishingImagePackCanvas({
                             ? "出图后会放进图片列表，轻点再加入成品。"
                             : "出图后会放在右侧，选中再加入成品。"}
                         </p>
-                      </PopoverContent>
-                    </Popover>
+                      </DialogContent>
+                    </Dialog>
                   }
                   sourceChanged={moduleSession.basis !== basis}
                   onClose={() => setModuleSession(null)}

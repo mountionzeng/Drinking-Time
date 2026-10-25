@@ -7528,7 +7528,8 @@
         "docs/qa/2026-10-17-layout-release.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
         "docs/qa/2026-10-20-story-creation-workflow.md",
-        "docs/qa/2026-10-20-story-workflow-release.md"
+        "docs/qa/2026-10-20-story-workflow-release.md",
+        "docs/qa/2026-10-25-selected-text-images.md"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -7628,6 +7629,11 @@
           "date": "2026-10-20",
           "kind": "verification",
           "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "feature",
+          "summary": "排版图片入口合并为添加图片，提供直接上传与根据选中文字生成；生成确认展示选中片段，保留费用报价与候选图选择。电脑和手机传递选中文字；服务端按片段构建画面，恢复任务仍复用原提示词。类型检查、84项相关回归及新增选中片段隔离测试通过，生产发布与真实付费生成尚未执行。"
         }
       ]
     },

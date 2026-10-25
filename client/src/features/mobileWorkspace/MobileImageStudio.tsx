@@ -143,7 +143,8 @@ export function MobileImageStudio({
     instruction: string,
     kind?: "illustration" | "body-texture",
     coverId?: number,
-    recover = false
+    recover = false,
+    selectedText?: string
   ) {
     if (
       isMemory ||
@@ -172,6 +173,7 @@ export function MobileImageStudio({
         feedback: instruction || undefined,
         referenceAssetId: coverId,
         outputKind: kind,
+        selectedText,
         costConfirmation: recover
           ? undefined
           : { accepted: true, estimatedCny: data.coverEstimate.estimatedCny },
@@ -406,13 +408,13 @@ export function MobileImageStudio({
               onGenerateCover={
                 isMemory
                   ? undefined
-                  : instruction => generateImages(instruction)
+                  : (instruction, selectedText) => generateImages(instruction, undefined, undefined, false, selectedText)
               }
               onGenerateIllustration={
                 isMemory
                   ? undefined
-                  : (id, instruction) =>
-                      generateImages(instruction, "illustration", id)
+                  : (id, instruction, selectedText) =>
+                      generateImages(instruction, "illustration", id, false, selectedText)
               }
               onGenerateTexture={
                 isMemory

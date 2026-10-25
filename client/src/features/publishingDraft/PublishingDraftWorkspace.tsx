@@ -1135,7 +1135,8 @@ export default function PublishingDraftWorkspace({
     existingOperationToken?: string,
     provider: "midjourney" | "gpt-image" | "flux-schnell" = "midjourney",
     materialRequest?: { coverId: number; instruction: string; kind: "illustration" | "body-texture" },
-    coverInstruction?: string
+    coverInstruction?: string,
+    selectedText?: string
   ) => {
     if (
       !draft ||
@@ -1165,6 +1166,7 @@ export default function PublishingDraftWorkspace({
         referenceAssetId:
           materialRequest?.coverId ?? (mode === "revise" ? selectedCoverAsset?.id : undefined),
         outputKind: materialRequest?.kind,
+        selectedText,
         feedback: materialRequest ? materialRequest.instruction.trim() || undefined : (coverInstruction ?? coverFeedback).trim() || undefined,
         instructions: submittedInstructions,
         artReference: materialRequest ? null : coverArtReference,
@@ -2320,8 +2322,8 @@ export default function PublishingDraftWorkspace({
                   generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}
                   generationError={persistedCoverGeneration?.error}
                   illustrationCost={coverEstimate.estimatedCny}
-                  onGenerateCover={instruction => generateCover("fresh", undefined, "midjourney", undefined, instruction)}
-                  onGenerateIllustration={(coverId, instruction) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "illustration" })}
+                  onGenerateCover={(instruction, selectedText) => generateCover("fresh", undefined, "midjourney", undefined, instruction, selectedText)}
+                  onGenerateIllustration={(coverId, instruction, selectedText) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "illustration" }, undefined, selectedText)}
                   onGenerateTexture={(coverId, instruction) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "body-texture" })}
                   advancedOpen={albumWorkspaceOpen}
                   onAdvancedOpenChange={setAlbumWorkspaceOpen}

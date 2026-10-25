@@ -167,6 +167,7 @@ export function ImagePackModuleEditor({
   assets = [],
   onUpload,
   generationControls,
+  onGenerateSelection,
   mobile = false,
   ref,
   onPreview,
@@ -193,6 +194,7 @@ export function ImagePackModuleEditor({
   assets?: PackAsset[];
   onUpload?(file: File): Promise<PackAsset>;
   generationControls?: ReactNode;
+  onGenerateSelection?(text: string): void;
   mobile?: boolean;
   ref?: Ref<ImagePackModuleEditorHandle>;
   onPreview?(): void;
@@ -228,6 +230,7 @@ export function ImagePackModuleEditor({
   const controller = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const textSelection = useRef<{ id: string; text: string; start: number; end: number } | null>(null);
   const availableAssets = useRef(assets);
   availableAssets.current = assets;
   const [dropActive, setDropActive] = useState(false);
@@ -429,6 +432,16 @@ export function ImagePackModuleEditor({
   const document = history?.present;
   const page = document?.pages[pageIndex];
   const selected = page?.modules.find(module => module.id === selectedId);
+  useEffect(() => { textSelection.current = null; }, [selectedId, pageIndex, scope]);
+  const generateSelection = () => {
+    if (!selected || selected.kind !== 'text') { setError('先点选一块文字，再添加图片。'); return; }
+    const current = editing?.id === selected.id ? editing.text : selected.text;
+    const range = textSelection.current;
+    const text = range?.id === selected.id && range.text === current && range.end > range.start
+      ? current.slice(range.start, range.end) : current;
+    if (!text.trim()) { setError('先写下或选中一段文字。'); return; }
+    onGenerateSelection?.(text.trim());
+  };
   const editingPreview = useMemo(() => {
     if (!document || !editing || !renderer || selected?.kind !== "text")
       return null;
@@ -1195,6 +1208,7 @@ export function ImagePackModuleEditor({
                           }}
                           onSelect={event => {
                             const cursor = event.currentTarget.selectionStart;
+                            textSelection.current = { id: module.id, text: event.currentTarget.value, start: cursor, end: event.currentTarget.selectionEnd };
                             setEditing(current => current ? { ...current, cursor } : null);
                           }}
                           onChange={event => changeText(event.target.value)}
@@ -1399,16 +1413,16 @@ export function ImagePackModuleEditor({
               )}
               <div className="mb-3 flex flex-wrap items-center gap-1">
                 <span className="mr-auto text-xs font-medium">图片</span>
-                {onUpload && (
-                  <button
-                    type="button"
-                    className={control}
-                    disabled={busy || !!editing}
-                    onClick={() => uploadInput.current?.click()}
-                  >
-                    上传
-                  </button>
-                )}
+                <details className="relative">
+                  <summary className={`${control} cursor-pointer list-none`}>＋ 添加图片</summary>
+                  <div className="absolute right-0 z-40 mt-1 w-64 space-y-2 rounded-lg border bg-background p-3 shadow-lg">
+                    {onUpload && <button type="button" className={`${control} w-full`} disabled={busy}
+                      onClick={() => uploadInput.current?.click()}>上传图片</button>}
+                    {onGenerateSelection && <button type="button" className={`${control} w-full`} disabled={busy}
+                      onClick={generateSelection}>根据选中文字生成 AI 图片</button>}
+                    <p className="text-xs text-muted-foreground">先点选文字模块；框选其中几个字，就只用这些字生成。</p>
+                  </div>
+                </details>
                 {generationControls}
               </div>
               <input
@@ -1523,7 +1537,10 @@ export function ImagePackModuleEditor({
               error={error}
               disabled={busy}
               onChange={changeText}
-              onSelect={cursor => setEditing(current => current ? { ...current, cursor } : null)}
+              onSelect={(cursor, end) => {
+                textSelection.current = { id: editing.id, text: editing.text, start: cursor, end };
+                setEditing(current => current ? { ...current, cursor } : null);
+              }}
               onSave={() => void saveText()}
               onCancel={cancelText}
             />
