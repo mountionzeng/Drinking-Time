@@ -67,6 +67,17 @@ function parsePackage(raw: unknown): ChapterPackage {
   }
 }
 
+/** Forwarding retains ancestry, but never grants access to a package just from knowing its id. */
+async function assertForwardSource(pkg: ChapterPackage, userId: number) {
+  const parentPackageId = pkg.lineage.parentPackageId;
+  if (!parentPackageId) return;
+  const parent = await getChapterPackage(parentPackageId);
+  if (parent?.senderUserId === userId && parent.rootPackageId === pkg.lineage.rootPackageId) return;
+  const received = await findRootPackageDelivery({ rootPackageId: pkg.lineage.rootPackageId, parentPackageId, recipientUserId: userId });
+  if (!received || !['kept', 'appended', 'adopted'].includes(received.originalDelivery.status))
+    throw new TRPCError({ code: 'FORBIDDEN', message: '只能转发自己已接收并留下的文章' });
+}
+
 async function beginSend(input: {
   package: ChapterPackage;
   senderUserId: number;
@@ -178,6 +189,7 @@ export const chapterDeliveryRouter = router({
     if (!recipient)
       throw new TRPCError({ code: "FORBIDDEN", message: "只能投递给同家或同故事的已连接成员" });
     const parsed = parsePackage(input.package);
+    await assertForwardSource(parsed, ctx.user.id);
     const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name) } };
     const result = await beginSend({ package: pkg, senderUserId: ctx.user.id, recipientUserId: recipient.userId, requestId: input.requestId });
     return { deliveryId: result.delivery.deliveryId, uploadTickets: result.uploadTickets, repeated: result.repeated };
@@ -188,6 +200,7 @@ export const chapterDeliveryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     requireEnabled();
     const parsed = parsePackage(input.package);
+    await assertForwardSource(parsed, ctx.user.id);
     const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name) } };
     // Deterministic HMAC makes an unknown-outcome retry recover the same one-time
     // link without storing its plaintext token. requestHash still binds its payload.

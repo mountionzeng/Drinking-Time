@@ -76,6 +76,30 @@ describe("chapterDelivery router gates", () => {
       .resolves.toEqual({ status: "kept" });
   });
 
+  it("forwards an accepted copy to a new account while retaining the original author", async () => {
+    vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
+    const original = appRouter.createCaller(context(17)).chapterDelivery;
+    const receiver = appRouter.createCaller(context(18)).chapterDelivery;
+    const next = appRouter.createCaller(context(19)).chapterDelivery;
+    const pkg = JSON.parse(readFileSync(new URL("../tests/fixtures/chapter-package/valid-01-text-only.json", import.meta.url), "utf8"));
+    const first = await original.createClaimLink({ package: pkg, requestId: '00000000-0000-4000-8000-000000000081' });
+    await receiver.claim({ token: first.claimUrl!.split('/').at(-1)! });
+    const forwarded = { ...pkg, packageId: 'cp_forward-20261025', lineage: { rootPackageId: pkg.packageId, parentPackageId: pkg.packageId } };
+    const input = { package: forwarded, requestId: '00000000-0000-4000-8000-000000000082' };
+    await expect(receiver.createClaimLink(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await receiver.resolve({ deliveryId: first.deliveryId, status: 'kept' });
+    await expect(next.createClaimLink(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const second = await receiver.createClaimLink(input);
+    await next.claim({ token: second.claimUrl!.split('/').at(-1)! });
+    const read = await next.read({ deliveryId: second.deliveryId });
+    expect(read.package.lineage).toEqual(forwarded.lineage);
+    expect(read.delivery.kind).toBe('send');
+    await next.resolve({ deliveryId: second.deliveryId, status: 'kept' });
+    const returned = await next.return({ package: { ...pkg, packageId:'cp_return-20261025', lineage:{rootPackageId:pkg.packageId,parentPackageId:forwarded.packageId} }, requestId:'00000000-0000-4000-8000-000000000083' });
+    await expect(original.read({ deliveryId: returned.deliveryId })).resolves.toMatchObject({ delivery: { kind: 'return' } });
+    await expect(receiver.read({ deliveryId: returned.deliveryId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it("limits new sends to 20 per UTC day but allows an idempotent retry at the limit", async () => {
     vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
     const caller = appRouter.createCaller(context(29));
