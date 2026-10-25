@@ -1,3 +1,4 @@
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import {
   useEffect,
@@ -230,6 +231,7 @@ export function ImagePackModuleEditor({
   const controller = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const [imageMenuOpen, setImageMenuOpen] = useState(false);
   const textSelection = useRef<{ id: string; text: string; start: number; end: number } | null>(null);
   const availableAssets = useRef(assets);
   availableAssets.current = assets;
@@ -1413,16 +1415,16 @@ export function ImagePackModuleEditor({
               )}
               <div className="mb-3 flex flex-wrap items-center gap-1">
                 <span className="mr-auto text-xs font-medium">图片</span>
-                <details className="relative">
-                  <summary className={`${control} cursor-pointer list-none`}>＋ 添加图片</summary>
-                  <div className="absolute right-0 z-40 mt-1 w-64 space-y-2 rounded-lg border bg-background p-3 shadow-lg">
+                <Popover open={imageMenuOpen} onOpenChange={setImageMenuOpen}>
+                  <PopoverTrigger asChild><button type="button" className={control}>＋ 添加图片</button></PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 space-y-2">
                     {onUpload && <button type="button" className={`${control} w-full`} disabled={busy}
-                      onClick={() => uploadInput.current?.click()}>上传图片</button>}
+                      onClick={() => { setImageMenuOpen(false); uploadInput.current?.click(); }}>上传图片</button>}
                     {onGenerateSelection && <button type="button" className={`${control} w-full`} disabled={busy}
-                      onClick={generateSelection}>根据选中文字生成 AI 图片</button>}
+                      onClick={() => { setImageMenuOpen(false); generateSelection(); }}>根据选中文字生成 AI 图片</button>}
                     <p className="text-xs text-muted-foreground">先点选文字模块；框选其中几个字，就只用这些字生成。</p>
-                  </div>
-                </details>
+                  </PopoverContent>
+                </Popover>
                 {generationControls}
               </div>
               <input

@@ -791,8 +791,12 @@ export function ChapterWorkspace({
               active.blocks.draftMirror?.source === props.scope
                 ? props.adoptedCoverId
                 : null,
-            onGenerateCover: undefined,
-            onGenerateIllustration: undefined,
+            onGenerateCover: props.onGenerateCover
+              ? (instruction, selectedText) => props.onGenerateCover!(instruction, selectedText || active.blocks.body)
+              : undefined,
+            onGenerateIllustration: props.onGenerateIllustration
+              ? (coverId, instruction, selectedText) => props.onGenerateIllustration!(coverId, instruction, selectedText || active.blocks.body)
+              : undefined,
             onGenerateTexture: undefined,
             onIllustrationsChange: undefined,
             onOpenCoverStudio: undefined,

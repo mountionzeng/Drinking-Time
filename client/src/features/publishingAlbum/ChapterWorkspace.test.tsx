@@ -112,6 +112,17 @@ describe("chapter workspace", () => {
     expect(seen.scope).toBe("chapter:9:1:2:v4:0");
     expect(seen.adoptedCoverId).toBeNull();
   });
+  it("generates from the chapter selection and never falls back to the platform manuscript", async () => {
+    const generate = vi.fn().mockResolvedValue(undefined);
+    let seen: any;
+    renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} versionId="v1" hasAlbum={false}
+      title="平台稿" body="不能用于章节配图的平台正文" assets={[]} adoptedCoverId={null} coverBusy={false}
+      onGenerateCover={generate} render={props => { seen=props; return null; }} />);
+    await seen.onGenerateCover("水彩", "蓝色纸船");
+    expect(generate).toHaveBeenLastCalledWith("水彩", "蓝色纸船");
+    await seen.onGenerateCover("");
+    expect(generate).toHaveBeenLastCalledWith("", "这一章自己的正文");
+  });
   it("resolves image URLs for rendering without mutating the persisted keys", () => {
     const layout = {
       version: 1 as const,
