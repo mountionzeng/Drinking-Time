@@ -144,6 +144,7 @@ async function deliveryView(deliveryId: string, recipientUserId: number) {
   return {
     delivery: {
       deliveryId: delivery.deliveryId, packageId: delivery.packageId,
+      senderKey: contactId(recipientUserId, delivery.senderUserId),
       kind: delivery.kind, status: delivery.status, createdAt: delivery.createdAt,
       expiresAt: delivery.expiresAt,
     },

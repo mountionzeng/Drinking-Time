@@ -67,6 +67,9 @@ describe("chapterDelivery router gates", () => {
     await expect(caller.chapterDelivery.claim({ token })).resolves.toEqual({ deliveryId: created.deliveryId });
     const read = await caller.chapterDelivery.read({ deliveryId: created.deliveryId });
     expect(read.package.sender).toEqual({ platform: "web", displayName: "测试作者" });
+    expect(read.delivery.senderKey).toMatch(/^[\w-]{43}$/);
+    const reread = await caller.chapterDelivery.read({ deliveryId: created.deliveryId });
+    expect(reread.delivery.senderKey).toBe(read.delivery.senderKey);
     expect(read.delivery).not.toHaveProperty("senderUserId");
     expect(read.delivery).not.toHaveProperty("claimTokenHash");
     await expect(caller.chapterDelivery.resolve({ deliveryId: created.deliveryId, status: "kept" }))
