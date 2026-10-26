@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { inArray, and, desc, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   chapterDeliveryAssets,
@@ -621,4 +621,18 @@ export async function allowedChapterRecipientIds(senderUserId: number): Promise<
   const received = new Set(rows.filter(row => row.recipientUserId === senderUserId)
     .map(row => row.senderUserId));
   return [...sent].filter(userId => received.has(userId)).sort((a, b) => a - b);
+}
+
+/** Metadata only: keep history after asset expiry, and never expose another person's private sends. */
+export async function listOwnChapterDeliveryHistory(userId: number, roots: string[]) {
+  if (!roots.length) return [];
+  const db = await getDb();
+  if (db) return db.select({delivery:chapterDeliveries, packageJson:chapterPackages.packageJson}).from(chapterDeliveries)
+    .innerJoin(chapterPackages,eq(chapterDeliveries.packageId,chapterPackages.packageId))
+    .where(and(inArray(chapterPackages.rootPackageId,roots),or(eq(chapterDeliveries.senderUserId,userId),eq(chapterDeliveries.recipientUserId,userId))))
+    .orderBy(desc(chapterDeliveries.createdAt)).limit(200);
+  return memoryState.chapterDeliveries.filter(row=>row.senderUserId===userId||row.recipientUserId===userId).flatMap(delivery=>{
+    const pkg=memoryState.chapterPackages.find(p=>p.packageId===delivery.packageId&&roots.includes(p.rootPackageId));
+    return pkg?[{delivery:structuredClone(delivery),packageJson:pkg.packageJson}]:[];
+  }).sort((a,b)=>b.delivery.createdAt.getTime()-a.delivery.createdAt.getTime()).slice(0,200);
 }

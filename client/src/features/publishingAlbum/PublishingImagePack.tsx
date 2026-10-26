@@ -184,8 +184,8 @@ function MaterialSwatch({
 
 export function PublishingImagePack(props: React.ComponentProps<typeof PublishingImagePackCanvas>) {
   const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
-  const [chaptersOpen, setChaptersOpen] = useState(false);
-  const [chaptersMounted, setChaptersMounted] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(() => new URLSearchParams(window.location.search).get("chapterInbox") === "1");
+  const [chaptersMounted, setChaptersMounted] = useState(chaptersOpen);
   if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
   return <section className="space-y-3">
     <nav aria-label="平台稿与章节" className="flex gap-2 text-sm">

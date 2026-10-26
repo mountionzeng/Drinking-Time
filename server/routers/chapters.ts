@@ -1,4 +1,7 @@
+import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
+import { getUserById } from "../repositories/users";
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -30,6 +33,7 @@ import {
   insertChapter,
   commitChapterImport,
   listChapterVersions,
+  listOwnChapterExports,
   listChapters,
   listReturnCandidates,
   recordChapterExport,
@@ -140,6 +144,7 @@ export const chaptersRouter = router({
             title: input.title,
             blocks: {
               ...emptyBlocks(input.body),
+              attribution: { editorName: artworkAuthorName(ctx.user.name), action: "created" },
               containsAiText: input.containsAiText,
               ...(input.draftSource
                 ? {
@@ -296,6 +301,11 @@ export const chaptersRouter = router({
           : undefined;
       }
 
+      const contentChanged = title !== chapter.title ||
+        !isDeepStrictEqual(blocks, chapter.blocks) || !isDeepStrictEqual(layout, chapter.layout);
+      if (contentChanged) blocks.attribution = {
+        ...blocks.attribution, editorName: artworkAuthorName(ctx.user.name), action: "edited",
+      };
       return view(
         await saveChapterContent({
           id: chapter.id,
@@ -328,6 +338,20 @@ export const chaptersRouter = router({
       return { ok: true as const };
     }),
 
+  sharingHistory: protectedProcedure.input(chapterInput).query(async ({ctx,input}) => {
+    requireEnabled();
+    const chapter = await ownChapter(input.chapterId,ctx.user.id);
+    const roots = [...new Set([...(chapter.blocks.lineage ? [chapter.blocks.lineage.rootPackageId] : []), ...(await listOwnChapterExports(chapter.id,ctx.user.id)).map(row=>row.packageId)])];
+    const rows = await listOwnChapterDeliveryHistory(ctx.user.id,roots);
+    const recipientIds = [...new Set(rows.filter(row=>row.delivery.senderUserId===ctx.user.id&&row.delivery.recipientUserId).map(row=>row.delivery.recipientUserId!))];
+    const names = new Map(await Promise.all(recipientIds.map(async id=>[id,(await getUserById(id))?.name || "未设置称呼的用户"] as const)));
+    return rows.map(({delivery,packageJson})=>({
+      id:delivery.deliveryId, direction:delivery.senderUserId===ctx.user.id?"sent" as const:"received" as const,
+      senderName:packageJson.sender.displayName, recipientName:delivery.recipientUserId===ctx.user.id?"你":delivery.recipientUserId?names.get(delivery.recipientUserId)||"未设置称呼的用户":"尚未领取",
+      status:delivery.status, createdAt:delivery.createdAt, packageId:delivery.packageId,
+    }));
+  }),
+
   versions: protectedProcedure
     .input(chapterInput)
     .query(async ({ ctx, input }) => {
@@ -338,6 +362,7 @@ export const chaptersRouter = router({
           version: row.version,
           title: row.title,
           reason: row.reason,
+          attribution: row.blocks.attribution ?? null,
           createdAt: row.createdAt,
         })
       );
@@ -368,7 +393,7 @@ export const chaptersRouter = router({
           userId: ctx.user.id,
           expectedVersion: input.expectedVersion,
           reason: "restore",
-          content: { title: old.title, blocks: old.blocks, layout: old.layout },
+          content: { title: old.title, blocks: { ...old.blocks, attribution: { ...old.blocks.attribution, editorName: artworkAuthorName(ctx.user.name), action: "restored" } }, layout: old.layout },
         })
       );
     }),
@@ -616,7 +641,7 @@ export const chaptersRouter = router({
           candidateId: candidate.id,
           content: {
             title: candidate.title,
-            blocks: candidate.blocks,
+            blocks: { ...candidate.blocks, attribution: candidate.blocks.attribution ?? { editorName: candidate.senderName, sourceName: candidate.senderName, action: "received" } },
             layout: candidate.layout,
           },
         });

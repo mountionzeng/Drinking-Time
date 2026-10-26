@@ -8157,7 +8157,9 @@
         "command:pnpm exec tsc --noEmit --pretty false",
         "command:pnpm exec vitest run server/routers.chapterDelivery.test.ts server/repositories/chapterDeliveries.test.ts server/_core/chapterDeliveryMediaRoute.test.ts",
         "server/integration/chapterDeliveries.mysql.test.ts",
-        "command:pnpm feature:validate"
+        "command:pnpm feature:validate",
+        "client/src/features/publishingAlbum/chapterDeliveryImport.test.ts",
+        "server/routers.chapters.test.ts"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -8239,6 +8241,11 @@
           "date": "2026-10-25",
           "kind": "fix",
           "summary": "微信好友卡片领取新增otherUserOnly保护：发送者打开仅返回senderPreview，不占用一次性领取；同一链接好友仍可领取。默认跨端给自己领取保持兼容。可信桥传递可选字段，类型校验由tRPC完成。27项投递/桥定向测试通过，待部署与真机验收。"
+        },
+        {
+          "date": "2026-10-26",
+          "kind": "fix",
+          "summary": "修复领取后误跳微信关联故事页：领取页直接确认接收图文并跳转对应故事章节；复用原导入重试和图片读取逻辑。现有章节版本保存显示署名、编辑/收到/恢复动作，未改动的自动保存不改署名；增加仅本人参与的最近200条收发记录。44项定向测试通过，真实微信图文已领取并生成原章节候选；发布后采用、重开和记录仍待验收。"
         }
       ]
     }

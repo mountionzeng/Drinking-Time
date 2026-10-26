@@ -19,36 +19,7 @@ const button =
   "rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-40";
 const field = `${button} bg-transparent text-sm`;
 type Props = ComponentProps<typeof PublishingImagePackCanvas>;
-const DELIVERY_CANDIDATES_KEY = "chapterDelivery.candidateMap.v1";
-const DELIVERY_IMPORTS_KEY = "chapterDelivery.importAttempts.v1";
-type DeliveryImportAttempt = { requestId: string; mode: "keep" | "append"; storyId: number | null };
-function deliveryImportAttempts(): Record<string, DeliveryImportAttempt> {
-  try { const value = JSON.parse(localStorage.getItem(DELIVERY_IMPORTS_KEY) || "{}"); return value && typeof value === "object" ? value : {}; }
-  catch { return {}; }
-}
-function deliveryImportAttempt(deliveryId: string, mode: DeliveryImportAttempt["mode"], storyId: number | null) {
-  const attempts = deliveryImportAttempts();
-  const old = attempts[deliveryId];
-  if (old && old.mode === mode && old.storyId === storyId) return old;
-  const next = { requestId: crypto.randomUUID(), mode, storyId };
-  attempts[deliveryId] = next;
-  localStorage.setItem(DELIVERY_IMPORTS_KEY, JSON.stringify(attempts));
-  return next;
-}
-function forgetDeliveryImportAttempt(deliveryId: string) {
-  const attempts = deliveryImportAttempts(); delete attempts[deliveryId];
-  localStorage.setItem(DELIVERY_IMPORTS_KEY, JSON.stringify(attempts));
-}
-function deliveryCandidateMap(): Record<string, string> {
-  try { const value = JSON.parse(localStorage.getItem(DELIVERY_CANDIDATES_KEY) || "{}"); return value && typeof value === "object" ? value : {}; }
-  catch { return {}; }
-}
-function rememberDeliveryCandidate(packageId: string, deliveryId: string) {
-  localStorage.setItem(DELIVERY_CANDIDATES_KEY, JSON.stringify({ ...deliveryCandidateMap(), [packageId]: deliveryId }));
-}
-function forgetDeliveryCandidate(packageId: string) {
-  const value = deliveryCandidateMap(); delete value[packageId]; localStorage.setItem(DELIVERY_CANDIDATES_KEY, JSON.stringify(value));
-}
+import { deliveryImportAttempt, forgetDeliveryImportAttempt, deliveryCandidateMap, rememberDeliveryCandidate, forgetDeliveryCandidate, readDeliveryImages } from "./chapterDeliveryImport";
 
 export function mapChapterImages(
   layout: ModuleDocument | null,
@@ -99,6 +70,9 @@ export function ChapterWorkspace({
     { chapterId: active?.id ?? 0 },
     { enabled: Boolean(active), retry: false }
   );
+  const sharingHistory = trpc.chapters.sharingHistory.useQuery(
+    { chapterId: active?.id ?? 0 }, { enabled: Boolean(active), retry: false }
+  );
   const versions = trpc.chapters.versions.useQuery(
     { chapterId: active?.id ?? 0 },
     { enabled: Boolean(active), retry: false }
@@ -125,7 +99,7 @@ export function ChapterWorkspace({
     current: Chapter;
   } | null>(null);
   const [claimLink, setClaimLink] = useState("");
-  const [deliveryPanel, setDeliveryPanel] = useState<"send" | "inbox" | null>(null);
+  const [deliveryPanel, setDeliveryPanel] = useState<"send" | "inbox" | null>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("chapterInbox") === "1" ? "inbox" : null);
   const [deliveryRecipient, setDeliveryRecipient] = useState("");
   const [selectedDelivery, setSelectedDelivery] = useState<{
     deliveryId: string; kind: "send" | "return"; status: string;
@@ -358,18 +332,7 @@ export function ChapterWorkspace({
       // have a durable receipt.
       const fresh = await utils.chapterDelivery.read.fetch({ deliveryId });
       setSelectedDelivery({ ...fresh, deliveryId, kind: fresh.delivery.kind, status: fresh.delivery.status });
-      const images: Array<{ assetId: string; base64: string }> = [];
-      for (const [assetId, url] of Object.entries(fresh.imageUrls)) {
-        const target = new URL(url, window.location.origin);
-        if (target.origin !== window.location.origin || !target.pathname.startsWith("/api/chapter-delivery/media/download/"))
-          throw new Error("图片读取地址无效");
-        const response = await fetch(target, { credentials: "same-origin", redirect: "error" });
-        if (!response.ok) throw new Error("章节图片读取失败，请重试");
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        let binary = "";
-        for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        images.push({ assetId, base64: btoa(binary) });
-      }
+      const images = await readDeliveryImages(fresh.imageUrls);
       const result = await deliveryImport.mutateAsync({
         requestId: attempt.requestId, mode, storyId: currentStoryId ?? undefined,
         package: fresh.package, images,
@@ -742,6 +705,17 @@ export function ChapterWorkspace({
               </button>
             </section>
           )}
+          <details onToggle={event => { if (event.currentTarget.open) void sharingHistory.refetch(); }}>
+            <summary className="cursor-pointer text-xs">当前版本与分享记录</summary>
+            <p className="py-2 text-xs">当前版本 {active.version} · {active.blocks.attribution ? `${active.blocks.attribution.editorName} · ${{created:"创作",edited:"编辑",received:"收到的版本",restored:"恢复"}[active.blocks.attribution.action]}` : "旧版本未记录编辑者"}</p>
+            {active.blocks.attribution?.sourceName && <p className="text-xs">来源署名：{active.blocks.attribution.sourceName}</p>}
+            {sharingHistory.isPending && <p className="text-xs">正在读取分享记录…</p>}
+            {sharingHistory.error && <p role="alert" className="text-xs">分享记录暂未读到，请重新打开。</p>}
+            <ul className="space-y-2 py-2 text-xs">{sharingHistory.data?.map(item=><li key={item.id}>
+              {item.direction === "sent" ? `你 → ${item.recipientName}` : `${item.senderName} → 你`} · {({pending:"等待接收",kept:"已留下",appended:"已加入",adopted:"已采用",declined:"已谢绝",expired:"已过期"} as Record<string,string>)[item.status] || item.status} · {new Date(item.createdAt).toLocaleString()}
+            </li>)}</ul>
+            <p className="text-xs text-muted-foreground">显示你参与的最近 200 条收发记录；未接受的修改不会替换当前版本。</p>
+          </details>
           {!!versions.data?.length && (
             <details>
               <summary className="cursor-pointer text-xs">
@@ -751,7 +725,7 @@ export function ChapterWorkspace({
                 {versions.data.map(version => (
                   <li key={version.version} className="flex gap-2 text-xs">
                     <span>
-                      版本 {version.version} · {version.title}
+                      版本 {version.version} · {version.title} · {version.attribution ? `${version.attribution.editorName} · ${{created:"创作",edited:"编辑",received:"收到的版本",restored:"恢复"}[version.attribution.action]}` : "旧版本未记录编辑者"}
                     </span>
                     <button
                       className={button}

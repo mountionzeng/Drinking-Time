@@ -770,7 +770,7 @@ export default function EditingStudioPage() {
       new URLSearchParams(window.location.search).get("letterDate") ?? ""
     )
   );
-  const [workspace, setWorkspace] = useState<StudioWorkspace>("publishing");
+  const [workspace, setWorkspace] = useState<StudioWorkspace>(() => new URLSearchParams(window.location.search).get("chapterInbox") === "1" ? "images" : "publishing");
   const interactionMode = resolveStudioInteractionMode(
     workspace,
     confirmedIntent

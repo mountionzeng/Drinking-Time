@@ -66,12 +66,13 @@ vi.mock("@/lib/trpc", () => ({
         "resolveCandidate",
         "candidates",
         "versions",
+        "sharingHistory",
       ].map(name => [
         name,
         {
           useMutation: () => ({ mutateAsync: vi.fn() }),
           useQuery: () => ({
-            data: name === "versions" ? [] : { candidates: [] },
+            data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: [] },
             refetch: vi.fn(),
           }),
         },
@@ -103,6 +104,9 @@ describe("chapter workspace", () => {
         }}
       />
     );
+    expect(html).toContain("当前版本与分享记录");
+    expect(html).toContain("旧版本未记录编辑者");
+    expect(html).toContain("未接受的修改不会替换当前版本");
     expect(html).toContain("新增章节");
     expect(html).toContain("打包这一章");
     expect(html).toContain("导入章节包");

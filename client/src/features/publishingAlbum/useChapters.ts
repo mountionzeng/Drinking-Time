@@ -28,7 +28,11 @@ export function useChapters(storyId: number) {
     { retry: false, refetchOnWindowFocus: false }
   );
   const save = trpc.chapters.save.useMutation();
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const id = Number(new URLSearchParams(window.location.search).get("chapterId"));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [epoch, setEpoch] = useState(0);

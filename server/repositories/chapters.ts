@@ -828,3 +828,9 @@ export async function setCandidateStatus(
     );
   });
 }
+
+export async function listOwnChapterExports(chapterId: number, userId: number) {
+  const db = await getDb();
+  if (db) return db.select({packageId: chapterExports.packageId}).from(chapterExports).where(and(eq(chapterExports.chapterId, chapterId), eq(chapterExports.userId,userId)));
+  return memoryState.chapterExports.filter(row=>row.chapterId===chapterId&&row.userId===userId).map(row=>({packageId:row.packageId}));
+}

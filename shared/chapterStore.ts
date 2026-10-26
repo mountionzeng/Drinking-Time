@@ -15,6 +15,8 @@ export const CHAPTER_MAX_PER_STORY = 100;
 
 /** One nonblank body line per blockId. Layout stores bindings; it never stores another text copy. */
 export type StoredChapterBlocks = {
+  /** Display provenance stored with each version, never used for authorization. */
+  attribution?: { editorName: string; sourceName?: string; action: "created" | "edited" | "received" | "restored" };
   body: string;
   blockIds: string[];
   containsAiText: boolean;

@@ -692,3 +692,37 @@ describe("local chapter images", () => {
     await expect(caller(10).save(input)).rejects.toThrow("新版本");
   });
 });
+
+it("preserves imported authorship in history while own edits get the authenticated editor", async () => {
+  const pkg=fixture("valid-01-text-only.json");
+  pkg.sender.displayName="朋友小禾";
+  const kept=await caller(20).importPackage({requestId:uuid(),mode:"keep",package:pkg});
+  const chapter=(await caller(20).get({chapterId:kept.chapterId!})).chapter;
+  expect(chapter.blocks.attribution).toMatchObject({editorName:"朋友小禾",action:"received"});
+  const unchanged=await caller(20).save({chapterId:chapter.id,expectedVersion:chapter.version,body:chapter.blocks.body,autosave:true});
+  expect(unchanged.blocks.attribution).toEqual(chapter.blocks.attribution);
+  const edited=await caller(20).save({chapterId:chapter.id,expectedVersion:unchanged.version,body:"我修改的最新正文"});
+  expect(edited.blocks.attribution).toMatchObject({editorName:"测试用户",sourceName:"朋友小禾",action:"edited"});
+  const versions=await caller(20).versions({chapterId:chapter.id});
+  expect(versions.find(row=>row.version===unchanged.version)?.attribution?.editorName).toBe("朋友小禾");
+});
+
+it("sharing history shows only this chapter and this account's own exchanges", async () => {
+  vi.stubEnv("CHAPTER_DELIVERY_ENABLED","true");
+  const {chapterDeliveryRouter}=await import("./routers/chapterDelivery");
+  const delivery=(id:number)=>chapterDeliveryRouter.createCaller({user:{id,name:`作者${id}`},req:{},res:{}} as TrpcContext);
+  const a=await caller(10).create({storyId:await story(),title:"纸船",body:"最新文字"});
+  const out=await caller(10).exportPackage({chapterId:a.id});
+  const sent=await delivery(10).createClaimLink({package:out.package,requestId:uuid()});
+  await delivery(20).claim({token:sent.claimUrl!.split('/').at(-1)!});
+  const kept=await caller(20).importPackage({requestId:uuid(),mode:"keep",package:out.package});
+  await delivery(20).resolve({deliveryId:sent.deliveryId,status:"kept"});
+  expect(await caller(10).sharingHistory({chapterId:a.id})).toMatchObject([{direction:"sent",status:"kept"}]);
+  expect(await caller(20).sharingHistory({chapterId:kept.chapterId!})).toMatchObject([{direction:"received",senderName:"作者10"}]);
+  await expect(caller(30).sharingHistory({chapterId:a.id})).rejects.toThrow();
+  const unrelated=await caller(10).create({storyId:await story(),title:"别的故事"});
+  expect(await caller(10).sharingHistory({chapterId:unrelated.id})).toEqual([]);
+  const second=await delivery(10).createClaimLink({package:out.package,requestId:uuid()});
+  await delivery(30).claim({token:second.claimUrl!.split('/').at(-1)!});
+  expect(await caller(20).sharingHistory({chapterId:kept.chapterId!})).toHaveLength(1);
+});
