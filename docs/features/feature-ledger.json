@@ -8159,7 +8159,8 @@
         "server/integration/chapterDeliveries.mysql.test.ts",
         "command:pnpm feature:validate",
         "client/src/features/publishingAlbum/chapterDeliveryImport.test.ts",
-        "server/routers.chapters.test.ts"
+        "server/routers.chapters.test.ts",
+        "docs/qa/2026-10-26-chapter-attribution.md"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -8251,6 +8252,11 @@
           "date": "2026-10-26",
           "kind": "fix",
           "summary": "真实采用后发现普通领取链接生成的原章候选无法同步已采用状态，补齐收件人状态迁移并刷新收件箱；原有权限与终态保护保留。收到的封面、底图、插图接回现有图片库，使用稳定本地资产编号，禁止当成服务器生成资产调用。新增状态权限与图片库回归。"
+        },
+        {
+          "date": "2026-10-26",
+          "kind": "fix",
+          "summary": "Deployed 1437b68f while preserving the production login page. Real WeChat developer-tools send -> authenticated web claim -> original chapter candidate -> adopt -> reopen passed. Received cover, background and two illustrations remain available; previous versions retained; delivery status adopted and pending inbox zero. 46 targeted tests passed, then 5 UI tests/typecheck/build passed after the final source label fix. Mobile upload and release acceptance remain pending."
         }
       ]
     }
