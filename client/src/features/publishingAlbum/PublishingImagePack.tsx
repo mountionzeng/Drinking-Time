@@ -377,7 +377,7 @@ export function PublishingImagePackCanvas({
     return [...all.values()];
   }, [assets, localImages.images, storyId, accountId]);
   const cover = assets.find(asset => asset.id === settings.coverId);
-  const referenceCovers = coverAssets.filter(asset => !asset.kind);
+  const referenceCovers = coverAssets.filter(asset => !asset.kind && asset.id > 0);
   const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
   const selectedIllustrations = settings.illustrations.map(placement =>
     assets.find(asset => asset.id === placement.assetId)

@@ -21,6 +21,21 @@ const field = `${button} bg-transparent text-sm`;
 type Props = ComponentProps<typeof PublishingImagePackCanvas>;
 import { deliveryImportAttempt, forgetDeliveryImportAttempt, deliveryCandidateMap, rememberDeliveryCandidate, forgetDeliveryCandidate, readDeliveryImages } from "./chapterDeliveryImport";
 
+export function chapterImageAssets(chapter: Chapter, urls: Record<string, string>): Props["assets"] {
+  return Object.keys(chapter.blocks.images).map((key, index) => {
+    let hash = 2166136261;
+    for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    const cover = key === chapter.blocks.coverKey;
+    const background = key === chapter.blocks.bodyTextureKey;
+    return {
+      id: -4_000_000_000_000 - hash,
+      imageUrl: urls[key] ?? key,
+      label: `${chapter.blocks.attribution?.sourceName || "章节"} · ${cover ? "封面" : background ? "底图" : "插图"} ${index + 1}`,
+      ...(cover ? {} : { kind: background ? "body-texture" as const : "illustration" as const }),
+    };
+  });
+}
+
 export function mapChapterImages(
   layout: ModuleDocument | null,
   urls: Record<string, string>
@@ -367,7 +382,7 @@ export function ChapterWorkspace({
       const deliveryId = deliveryCandidateMap()[item.packageId];
       if (!deliveryId) continue;
       void deliveryResolve.mutateAsync({ deliveryId, status: item.status === "adopted" ? "adopted" : "declined" })
-        .then(() => forgetDeliveryCandidate(item.packageId))
+        .then(async () => { forgetDeliveryCandidate(item.packageId); await deliveryInbox.refetch(); await sharingHistory.refetch(); })
         .catch(() => toast.error("章节已处理，收件箱状态稍后重试同步"));
     }
   }, [candidates.data?.candidates]);
@@ -759,6 +774,7 @@ export function ChapterWorkspace({
             scope: `chapter:${props.accountId ?? "current"}:${props.storyId}:${active.id}:v${active.version}:${state.epoch}`,
             title: active.title,
             body: active.blocks.body,
+            assets: [...props.assets, ...chapterImageAssets(active, state.imageUrls)],
             hasAlbum: false,
             adoptedCoverId:
               !active.layout &&

@@ -66,6 +66,17 @@ describe("chapter delivery repository", () => {
     expect(await setChapterDeliveryStatus(args)).toMatchObject({ status: "declined" });
   });
 
+  it("records adoption when an ordinary share becomes an existing story update", async () => {
+    const input = startInput("adopt-share");
+    input.package.assets = []; input.assets = [];
+    await startChapterDelivery({ ...input, row: { ...input.row, recipientUserId: 2 } });
+    const args = { deliveryId: input.row.deliveryId, actorUserId: 2, status: "adopted" as const, now: new Date("2026-10-24T00:00:00Z") };
+    expect(await setChapterDeliveryStatus({ ...args, actorUserId: 3 })).toBeNull();
+    expect(await setChapterDeliveryStatus(args)).toMatchObject({ status: "adopted" });
+    expect(await setChapterDeliveryStatus(args)).toMatchObject({ status: "adopted" });
+    expect(await setChapterDeliveryStatus({ ...args, status: "declined" })).toBeNull();
+  });
+
   it("makes repeated request ids idempotent and rejects changed payloads", async () => {
     const firstInput = startInput("req-one");
     const first = await startChapterDelivery(firstInput);

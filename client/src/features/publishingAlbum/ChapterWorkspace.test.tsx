@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ChapterWorkspace, mapChapterImages } from "./ChapterWorkspace";
+import { ChapterWorkspace, mapChapterImages, chapterImageAssets } from "./ChapterWorkspace";
 import type { Chapter } from "./useChapters";
 vi.stubGlobal("React", React);
 const deliveryState = vi.hoisted(() => ({ enabled: false }));
@@ -126,6 +126,17 @@ describe("chapter workspace", () => {
     expect(generate).toHaveBeenLastCalledWith("水彩", "蓝色纸船");
     await seen.onGenerateCover("");
     expect(generate).toHaveBeenLastCalledWith("", "这一章自己的正文");
+  });
+  it("keeps received cover, background and illustration available in the image library", () => {
+    const facts = { width: 1, height: 1, mime: "image/png" as const, bytes: 4, sha256: "a".repeat(64), aiGenerated: false };
+    const received: Chapter = { ...chapter, blocks: { ...chapter.blocks, images: { cover: facts, background: facts, illustration: facts }, coverKey: "cover", bodyTextureKey: "background" } };
+    const images = chapterImageAssets(received, { cover: "https://example.com/cover" });
+    expect(images).toHaveLength(3);
+    expect(images[0]).toMatchObject({ imageUrl: "https://example.com/cover", label: "章节 · 封面 1" });
+    expect(images[1].kind).toBe("body-texture");
+    expect(images[2].kind).toBe("illustration");
+    expect(new Set(images.map(image => image.id)).size).toBe(3);
+    expect(chapterImageAssets(received, { cover: "https://example.com/refreshed" })[0].id).toBe(images[0].id);
   });
   it("resolves image URLs for rendering without mutating the persisted keys", () => {
     const layout = {
