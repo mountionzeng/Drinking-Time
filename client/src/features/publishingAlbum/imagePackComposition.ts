@@ -7,7 +7,7 @@ import { preparePublishingAlbumExportPage, renderPublishingAlbumPagePng } from "
 import { drawPaperMaterial, type ImagePackPalette, type ImagePackTexture } from "./imagePackMaterial";
 import type { PublishingImageOutputKind } from "@shared/publishingDraft";
 
-export type PackAsset = { id: number; imageUrl: string; label: string; warning?: string; kind?: PublishingImageOutputKind; parentAssetId?: number | null };
+export type PackAsset = { id: number; imageUrl: string; label: string; sourceLabel?: string; warning?: string; kind?: PublishingImageOutputKind; parentAssetId?: number | null };
 export const IMAGE_PACK_STYLES = {
   sage: { label: "拾光绿", paper: "#eef3e9", ink: "#294936", accent: "#809a77" },
   paper: { label: "暖纸白", paper: "#f7f1e6", ink: "#4d4032", accent: "#b49770" },

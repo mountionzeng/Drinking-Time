@@ -1229,7 +1229,7 @@ export function PublishingImagePackCanvas({
                 </ImageCandidatePreview>
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="truncate text-[11px]">{asset.label}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.id < 0 ? "本机上传" : "未用于排版"}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.sourceLabel ?? (asset.id < 0 ? "本机上传" : "未用于排版")}</span>
                 </div>
                 {asset.warning && <p className="mt-1 text-[10px] text-amber-700">{asset.warning}</p>}
                 <button type="button" disabled={asset.warning === "原文件缺失" || Boolean(insertRequest)}

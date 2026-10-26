@@ -30,6 +30,7 @@ export function chapterImageAssets(chapter: Chapter, urls: Record<string, string
     return {
       id: -4_000_000_000_000 - hash,
       imageUrl: urls[key] ?? key,
+      sourceLabel: chapter.blocks.attribution?.sourceName ? "收到的图片" : "章节图片",
       label: `${chapter.blocks.attribution?.sourceName || "章节"} · ${cover ? "封面" : background ? "底图" : "插图"} ${index + 1}`,
       ...(cover ? {} : { kind: background ? "body-texture" as const : "illustration" as const }),
     };
