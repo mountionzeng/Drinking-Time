@@ -1,3 +1,4 @@
+import { legacyModuleStorageKey, moduleStorageKey } from "./imagePackModules";
 import { describe, expect, it } from 'vitest';
 import { moduleContentBasis, withModuleBackground } from './moduleBackground';
 import type { ImagePackOptions } from './imagePackComposition';
@@ -17,4 +18,11 @@ describe('live module background', () => {
       expect(moduleContentBasis({ ...original, ...patch })).not.toBe(moduleContentBasis(original));
     }
   });
+});
+
+it('finds the existing platform layout when opening a chapter', () => {
+  const source = JSON.stringify(original);
+  const chapter = JSON.stringify({ fitOverflowText: true, ...original });
+  expect(legacyModuleStorageKey('same-story', chapter)).toBe(moduleStorageKey('same-story', source));
+  expect(legacyModuleStorageKey('other-story', chapter)).not.toBe(moduleStorageKey('same-story', source));
 });

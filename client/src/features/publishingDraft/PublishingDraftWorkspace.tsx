@@ -1,4 +1,3 @@
-import { ChapterTextVersions } from "@/features/publishingAlbum/ChapterTextVersions";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import type { StudioCreateRequest } from "./StudioCreateMenu";
 import { formatComputeQuote } from "@shared/computeMoney";
@@ -340,9 +339,8 @@ export default function PublishingDraftWorkspace({
     clearSelection,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
-  const [textVersionsOpen, setTextVersionsOpen] = useState(false);
-  useEffect(() => { setTextVersionsOpen(false); }, [activeStoryId]);
   const chaptersEnabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  const unifiedChapters = chaptersEnabled.data?.enabled === true;
   const readQuery = trpc.publishingDraft.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
     {
@@ -1897,13 +1895,14 @@ export default function PublishingDraftWorkspace({
             )}
           </div> : null}
 
-          {!editorContent && view === "images" ? (
+          {!editorContent && (view === "images" || unifiedChapters) ? (
             <div className="p-4">
-              <p className="mb-4 text-xs text-muted-foreground">
+              <p hidden={unifiedChapters} className="mb-4 text-xs text-muted-foreground">
                 先整理图片，也可以直接加入排版，再添加文字。
                 <button type="button" className="ml-2 underline" onClick={onOpenWriting}>去写文案</button>
               </p>
               <PublishingImagePack
+                workspaceMode={view === "text" ? "text" : "images"}
                 key={`${activeStoryId}:${versionId}:${platform}`}
                 scope={`${activeStoryId}:${versionId}:${platform}`}
                 storyId={activeStoryId!} accountId={storySpineStore.getState().accountId}
@@ -1959,7 +1958,7 @@ export default function PublishingDraftWorkspace({
               <header
                 aria-label="文稿操作"
                 className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"
-                style={{ borderColor: "var(--panel-border)", display: view === "images" ? "none" : undefined }}
+                style={{ borderColor: "var(--panel-border)", display: unifiedChapters || view === "images" ? "none" : undefined }}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   {dirty || saving ? (
@@ -1991,9 +1990,6 @@ export default function PublishingDraftWorkspace({
                     <Clipboard className="h-4 w-4" />
                     复制文案
                   </ActionButton>
-                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => setTextVersionsOpen(open => !open)}>
-                      版本与修改
-                    </ActionButton> : null}
                   {dirty ? (
                     <ActionButton onClick={discardChanges} disabled={busy}>
                       <Undo2 className="h-4 w-4" />
@@ -2074,7 +2070,7 @@ export default function PublishingDraftWorkspace({
                   ) : null}
                 </div>
               </header>
-                {textVersionsOpen && chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 && view !== "images" ? <ChapterTextVersions key={activeStoryId} storyId={activeStoryId} /> : null}
+
 
 
               {legacyPublishingControlsVisible && trendPlatform && platformContext ? (
@@ -2089,7 +2085,7 @@ export default function PublishingDraftWorkspace({
               ) : null}
 
               <div className={view === "images" ? "flex w-full flex-1 flex-col" : "mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-6 sm:px-10 sm:py-8"}>
-                <div className={view === "images" ? "hidden" : "flex flex-1 flex-col"} data-publishing-surface="text">
+                <div className={unifiedChapters || view === "images" ? "hidden" : "flex flex-1 flex-col"} data-publishing-surface="text">
                 {legacyPublishingControlsVisible ? <section
                   className="mb-7 border-b border-[var(--panel-border)] pb-5"
                   aria-label="按要求重写文案"
@@ -2210,7 +2206,7 @@ export default function PublishingDraftWorkspace({
                   >
                     正文
                   </label>
-                  {active && view !== "images" && <DesktopWritingContext
+                  {!unifiedChapters && active && view !== "images" && <DesktopWritingContext
                     key={`${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}`}
                     storyId={activeStoryId!}
                     getSnapshot={() => {
@@ -2293,17 +2289,18 @@ export default function PublishingDraftWorkspace({
                 ) : null}
 
                 </div>
-                <div hidden={view === "text"} data-publishing-surface="images">
+                <div hidden={!unifiedChapters && view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
                   正文有未保存的修改，保存后即可生成图片。
                   <button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>保存正文</button>
                 </p>}
                 <PublishingImagePack
+                  workspaceMode={view === "text" ? "text" : "images"}
                   createRequest={createRequest?.kind === "image" || createRequest?.kind === "layout" ? createRequest : null}
                   onCreateRequestHandled={onCreateRequestHandled}
                   key={`${activeStoryId}:${versionId}:${platform}`}
                   scope={`${activeStoryId}:${versionId}:${platform}`}
-                  active={active && view !== "text"}
+                  active={active && (unifiedChapters || view !== "text")}
                   accountId={storySpineStore.getState().accountId}
                   storyId={activeStoryId}
                   versionId={versionId ?? "v1"}

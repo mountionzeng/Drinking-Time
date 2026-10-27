@@ -1,3 +1,4 @@
+import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
 import {
   useCallback,
   useEffect,
@@ -61,10 +62,21 @@ export function mapChapterImages(
 
 export function ChapterWorkspace({
   render,
+  mode = "images",
   ...props
-}: Props & { render(props: Props): ReactNode }) {
+}: Props & { mode?: "text" | "images"; render(props: Props): ReactNode }) {
   const state = useChapters(props.storyId);
   const { active } = state;
+  const [displayMode, setDisplayMode] = useState(mode);
+  const writing = useRef<ChapterWritingHandle | null>(null);
+  const [writingDraft, setWritingDraft] = useState<{ title: string; body: string } | null>(null);
+  const [generatedOpen, setGeneratedOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const latestLayout = useRef<ChapterEdit | null>(null);
+  const comparisonCurrent = active ? { ...active,
+    ...(displayMode === "text" && writingDraft ? { title: writingDraft.title, blocks: { ...active.blocks, body: writingDraft.body } } : {}),
+    ...(displayMode === "images" && latestLayout.current ? { layout: latestLayout.current.layout } : {}),
+  } : null;
   const utils = trpc.useUtils();
   const create = trpc.chapters.create.useMutation();
   const save = trpc.chapters.save.useMutation();
@@ -137,6 +149,7 @@ export function ChapterWorkspace({
       );
       const keyOf = (value: string | null) =>
         value ? (keys[value] ?? value) : null;
+      latestLayout.current = edit;
       state.change(active.id, {
         ...edit,
         layout: mapChapterImages(edit.layout, keys),
@@ -163,7 +176,8 @@ export function ChapterWorkspace({
     setBusy(true);
     try {
       if (flush) {
-        await prepare.current?.();
+        if (displayMode === "text") await writing.current?.prepare();
+        else await prepare.current?.();
         if (state.error) throw new Error(state.error);
         await state.flush();
       }
@@ -175,15 +189,18 @@ export function ChapterWorkspace({
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (mode === displayMode) return;
+    void run(async () => { await state.refresh(); setDisplayMode(mode); });
+  }, [mode, displayMode]);
+  useEffect(() => { latestLayout.current = null; setWritingDraft(null); }, [active?.id, state.epoch]);
   // Seed once per mounted story. A failure is explicit and can be retried from the toolbar.
   useEffect(() => {
     if (
-      props.coverBusy ||
       state.loading ||
       state.queryError ||
       state.chapters.length ||
-      seeded.current ||
-      !props.body.trim()
+      seeded.current
     )
       return;
     seeded.current = true;
@@ -193,43 +210,11 @@ export function ChapterWorkspace({
         title: props.title.trim().slice(0, 200) || "第 1 章",
         body: props.body,
         draftSource: props.scope,
-        containsAiText: true,
+        containsAiText: Boolean(props.body.trim()),
       });
       await state.reloadList();
     }, false);
   }, [state.loading, state.queryError, state.chapters.length, props.coverBusy]);
-  // Only the explicitly marked source can update its mirror. The server checks
-  // the marker again after any pending editor saves have disconnected it.
-  useEffect(() => {
-    if (
-      props.coverBusy ||
-      !active?.blocks.draftMirror ||
-      active.blocks.draftMirror.source !== props.scope
-    )
-      return;
-    const title = props.title.trim().slice(0, 200) || active.title;
-    if (title === active.title && props.body === active.blocks.body) return;
-    const timer = setTimeout(() => {
-      void run(async () => {
-        await save.mutateAsync({
-          chapterId: active.id,
-          expectedVersion: state.version(),
-          body: props.body,
-          title,
-          mirrorFrom: props.scope,
-        });
-        await state.refresh();
-      });
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [
-    active?.id,
-    active?.blocks.draftMirror,
-    props.scope,
-    props.title,
-    props.body,
-    props.coverBusy,
-  ]);
 
   async function move(direction: -1 | 1) {
     if (!active) return;
@@ -382,7 +367,7 @@ export function ChapterWorkspace({
       candidate => candidate.status === "pending"
     ) ?? [];
   const candidate = pending.find(item => item.id === comparison?.id);
-  useEffect(() => { setComparison(null); setHistoryComparison(null); setChangeNote(""); }, [active?.id]);
+  useEffect(() => { setComparison(null); setHistoryComparison(null); setChangeNote(""); setGeneratedOpen(false); }, [active?.id]);
   useEffect(() => {
     for (const item of candidates.data?.candidates ?? []) {
       if (item.status === "pending") continue;
@@ -393,8 +378,8 @@ export function ChapterWorkspace({
         .catch(() => toast.error("章节已处理，收件箱状态稍后重试同步"));
     }
   }, [candidates.data?.candidates]);
-  return (
-    <div className="space-y-3" aria-label="故事章节">
+  const editorControls = (
+    <>
       <nav
         aria-label="章节栏"
         className="flex flex-wrap items-center gap-2 border-b border-[var(--panel-border)] pb-3"
@@ -426,21 +411,20 @@ export function ChapterWorkspace({
         <button
           className={button}
           disabled={busy}
-          onClick={() =>
-            setEditing({
-              kind: "new",
-              title: `第 ${state.chapters.length + 1} 章`,
-              body: "",
-            })
-          }
+          onClick={() => void run(async () => {
+            const chapter = await create.mutateAsync({ storyId: props.storyId, title: `第 ${state.chapters.length + 1} 章`, body: "" });
+            await state.reloadList(); await state.open(chapter.id);
+          })}
         >
           新增章节
         </button>
+        {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); }}>历史版本</button>}
         {active && (
-          <>
+          <details><summary className="cursor-pointer px-2 py-2 text-xs">更多</summary><div className="flex flex-wrap gap-2 py-2">
             <button
               className={button}
               disabled={busy}
+              hidden={displayMode === "text"}
               onClick={() =>
                 void run(async () => {
                   const latest = await utils.chapters.get.fetch({
@@ -494,7 +478,7 @@ export function ChapterWorkspace({
             >
               打包这一章
             </button>
-          </>
+          </div></details>
         )}
         <button
           className={button}
@@ -658,6 +642,14 @@ export function ChapterWorkspace({
       )}
       {active && (
         <>
+          {props.body.trim() && props.body !== active.blocks.body && <button className={button} aria-expanded={generatedOpen} onClick={() => setGeneratedOpen(!generatedOpen)}>对比生成的文字</button>}
+          {generatedOpen && <section aria-label="生成文字对比" className="space-y-3 border-y py-3">
+            <ChapterComparison mode="text" current={comparisonCurrent!} candidate={{ ...active, title: props.title, blocks: { ...active.blocks, body: props.body } }} currentUrls={{}} candidateUrls={{}} candidateLabel="生成的文字" />
+            <button className={button} disabled={busy} onClick={() => void run(async () => {
+              await state.saveText({ title: props.title.slice(0, 200) || active.title, body: props.body }); setGeneratedOpen(false);
+            })}>采用生成的文字（保留当前稿）</button>
+            <button className={button} onClick={() => setGeneratedOpen(false)}>关闭对照</button>
+          </section>}
           {pending.map(item => (
             <div
               key={item.id}
@@ -672,11 +664,8 @@ export function ChapterWorkspace({
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    const latest = await utils.chapters.get.fetch({
-                      chapterId: active.id,
-                    });
-                    setComparison({ id: item.id, current: latest.chapter });
-                  })
+                    setComparison({ id: item.id, current: active });
+                  }, false)
                 }
               >
                 打开对比
@@ -700,8 +689,8 @@ export function ChapterWorkspace({
           ))}
           {candidate && (
             <section aria-label="发回候选对照" className="space-y-2">
-              <ChapterComparison mode="images"
-                current={comparison!.current}
+              <ChapterComparison mode={displayMode === "text" ? "text" : "images"}
+                current={comparisonCurrent!}
                 candidate={candidate}
                 currentUrls={state.imageUrls}
                 candidateUrls={candidates.data?.imageUrls ?? {}}
@@ -714,7 +703,7 @@ export function ChapterWorkspace({
                     await resolve.mutateAsync({
                       candidateId: candidate.id,
                       status: "adopted",
-                      expectedVersion: comparison!.current.version,
+                      expectedVersion: state.version(),
                     });
                     await state.refresh();
                     await candidates.refetch();
@@ -741,13 +730,11 @@ export function ChapterWorkspace({
             </li>)}</ul>
             <p className="text-xs text-muted-foreground">显示你参与的最近 200 条收发记录；未接受的修改不会替换当前版本。</p>
           </details>
-          {!!versions.data?.length && (
-            <details open>
-              <summary className="cursor-pointer text-xs">
-                版本与修改（{versions.data.length} 个历史版本）
-              </summary>
-              <ul className="space-y-2 py-2">
-                {versions.data.map(version => (
+          {historyOpen && (
+            <section aria-label="历史版本列表">
+              <p className="text-xs">历史版本（{versions.data?.length ?? 0}）· 查看不会替换当前稿</p>
+              <ul className="max-h-48 space-y-2 overflow-y-auto py-2">
+                {versions.data?.map(version => (
                   <li key={version.version} className="flex flex-wrap items-center gap-2 border-b py-3 text-sm">
                     <span>
                       {version.attribution?.editorName || "未记录编辑者"} · {new Date(version.createdAt).toLocaleString()} · 版本 {version.version}
@@ -755,24 +742,37 @@ export function ChapterWorkspace({
                     {version.attribution?.changeNote && <p className="w-full">{version.attribution.changeNote}</p>}
                     <button className={button} disabled={busy} onClick={() => void run(async () => {
                       const old = await utils.chapters.version.fetch({ chapterId: active.id, version: version.version });
-                      const latest = await utils.chapters.get.fetch({ chapterId: active.id });
-                      setHistoryComparison({ ...old, version: version.version, current: latest.chapter });
-                    })}>打开对比</button>
+                      setHistoryComparison({ ...old, version: version.version, current: active });
+                      setHistoryOpen(false);
+                    }, false)}>打开对比</button>
                   </li>
                 ))}
               </ul>
-            </details>
+            </section>
           )}
           {historyComparison && <section className="space-y-3 rounded-xl border p-4" aria-label="历史版本对照">
-            <ChapterComparison mode="images" current={historyComparison.current} candidate={historyComparison.chapter} currentUrls={state.imageUrls} candidateUrls={historyComparison.imageUrls} candidateLabel={`历史版本 ${historyComparison.version}`} />
+            <ChapterComparison mode={displayMode === "text" ? "text" : "images"} current={comparisonCurrent!} candidate={historyComparison.chapter} currentUrls={state.imageUrls} candidateUrls={historyComparison.imageUrls} candidateLabel={`历史版本 ${historyComparison.version}`} />
             <button className={button} disabled={busy} onClick={() => void run(async () => {
-              await restore.mutateAsync({ chapterId: active.id, version: historyComparison.version, expectedVersion: historyComparison.current.version });
+              await restore.mutateAsync({ chapterId: active.id, version: historyComparison.version, expectedVersion: state.version() });
               await state.refresh(); await versions.refetch(); setHistoryComparison(null);
-            })}>使用这个版本（保留当前稿）</button>
+            })}>采用这个版本（保留当前稿）</button>
             <button className={button} onClick={() => setHistoryComparison(null)}>关闭对照</button>
           </section>}
-          {render({
+        </>)}
+    </>
+  );
+  return (
+    <div className="space-y-3" aria-label="故事章节">
+      {(displayMode === "text" || !active) && editorControls}
+      {active && (<>
+          <div hidden={displayMode !== "text"}>
+            {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active}
+              scope={`${props.accountId ?? "current"}:${props.storyId}`} handle={writing}
+              save={state.saveText} onChange={setWritingDraft} disabled={busy} />}
+          </div>
+          {displayMode === "images" && render({
             ...props,
+            layoutHeader: <div className="space-y-3 pb-3">{editorControls}</div>,
             scope: `chapter:${props.accountId ?? "current"}:${props.storyId}:${active.id}:v${active.version}:${state.epoch}`,
             title: active.title,
             body: active.blocks.body,

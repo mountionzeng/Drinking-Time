@@ -58,3 +58,13 @@
 - Production: 95 file hashes verified, readiness mysql/authentication required. IAB fictional bookstore story: linen paper visibly updated, image/text retained, undo/redo worked, reload restored both modules.
 - Legacy limitation: first reload of the old mismatched draft did not restore its image under current settings; reinserted the same first library image for verification. Old drafts and assets were not deleted. This is not a migration of all legacy drafts.
 - Evidence: outputs/background-live-20261027.png in coordination workspace. No paid AI calls; no schema or mini-program changes.
+
+## 2026-10-27 Unified chapter editing
+
+- User requested one editor structure: text/images at top, chapters inside layout, inline history in both, explicit adoption only.
+- Reused ChapterWorkspace/useChapters/server APIs; added ChapterWriting with scoped browser recovery, explicit save, optional manual note, and existing chat context registration. Removed automatic platform-to-chapter mirror writes; generated text can be compared/adopted explicitly.
+- View/chapter changes prepare and flush current editor before switching. Read-only compare opens with flush=false and shows current unsaved text/layout. Adoption flushes current work then uses the queue CAS version.
+- Tests: 131 targeted tests across 10 files, tsc and production build passed. No full-suite green claim.
+- Production fictional story 113: changed blue to red without saving; history comparison showed both and editor retained the unsaved red text. Adopted history 20: current became blue, red preserved as version 27 and previous saved content as 26. Reopened 27 confirmed red. Switching chapter 2 then image view preserved chapter 2; switched back to chapter 1. All images/layout comparisons rendered.
+- First transition of bookstore test story exposed legacy cache key mismatch (chapter adds fitOverflowText); fixed legacy lookup and tested source/scope identity. Its first image was reinserted from existing assets during verification; originals and old browser drafts were not deleted. Do not claim all legacy drafts were bulk migrated.
+- Release chain: /tmp/unified-chapters-20261027, /tmp/unified-chapters-final-20261027, /tmp/unified-chapters-migration-20261027. Each preserves prior production LoginPage delta; no env/database/mini-program changes or paid generation.

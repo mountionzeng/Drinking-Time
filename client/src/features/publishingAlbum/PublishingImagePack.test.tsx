@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PublishingImagePack, PublishingImagePackCanvas } from "./PublishingImagePack";
 
 vi.stubGlobal("React", React);
+vi.mock("./ChapterWorkspace", () => ({ ChapterWorkspace: ({ render, ...props }: any) => <section aria-label="故事章节">{render(props)}</section> }));
 vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
 
 const chapterFlag = vi.hoisted(() => ({ enabled: false }));
@@ -50,7 +51,7 @@ describe("article image pack entry", () => {
     expect(off).not.toContain("平台稿与章节");
     chapterFlag.enabled = true;
     const on = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
-    expect(on).toContain("章节排版"); expect(on).toContain("平台图稿"); expect(on).toContain("上传图片");
+    expect(on).toContain("故事章节"); expect(on).not.toContain("平台图稿"); expect(on).not.toContain("平台稿与章节"); expect(on).toContain("上传图片");
   });
 
   it("keeps mobile navigation and offers local uploads on both devices", () => {

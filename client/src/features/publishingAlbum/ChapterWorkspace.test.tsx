@@ -81,8 +81,18 @@ vi.mock("@/lib/trpc", () => ({
     useUtils: () => ({ chapters: { get: { fetch: vi.fn() } } }),
   },
 }));
+vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({ DesktopWritingContext: () => null }));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
+  it("opens chapter writing directly with the same chapter and an inline history entry", () => {
+    const render = vi.fn();
+    const html = renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} accountId={9} versionId="v1" hasAlbum={false} title="旧平台标题" body="" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={render} />);
+    expect(html).toContain('aria-label="章节写作"');
+    expect(html).toContain('这一章自己的正文');
+    expect(html).toContain('历史版本');
+    expect(html).not.toContain('平台稿与章节');
+    expect(render).not.toHaveBeenCalled();
+  });
   it.each([false, true])("renders isolated chapter content with delivery enabled=%s", enabled => {
     deliveryState.enabled = enabled;
     let seen: Record<string, unknown> = {};
@@ -100,7 +110,7 @@ describe("chapter workspace", () => {
         coverBusy={false}
         render={props => {
           seen = props;
-          return <p>{props.body}</p>;
+          return <>{props.layoutHeader}<p>{props.body}</p></>;
         }}
       />
     );

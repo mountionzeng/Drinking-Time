@@ -51,6 +51,7 @@ import {
 import { makeModulePack } from "./imagePackModuleRenderer";
 import {
   moduleStorageKey,
+  legacyModuleStorageKey,
   readModuleDocument,
   type ModuleDocument,
 } from "./imagePackModules";
@@ -183,22 +184,15 @@ function MaterialSwatch({
   );
 }
 
-export function PublishingImagePack(props: React.ComponentProps<typeof PublishingImagePackCanvas>) {
+export function PublishingImagePack({ workspaceMode = "images", ...props }: React.ComponentProps<typeof PublishingImagePackCanvas> & { workspaceMode?: "text" | "images" }) {
   const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
-  const [chaptersOpen, setChaptersOpen] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("chapterInbox") === "1");
-  const [chaptersMounted, setChaptersMounted] = useState(chaptersOpen);
   if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
-  return <section className="space-y-3">
-    <nav aria-label="平台稿与章节" className="flex gap-2 text-sm">
-      <button className="rounded px-3 py-2 focus-visible:ring-2" aria-pressed={!chaptersOpen} onClick={() => setChaptersOpen(false)}>平台图稿</button>
-      <button className="rounded px-3 py-2 focus-visible:ring-2" aria-pressed={chaptersOpen} onClick={() => { setChaptersMounted(true); setChaptersOpen(true); }}>章节排版</button>
-    </nav>
-    <div hidden={chaptersOpen}><PublishingImagePackCanvas {...props} active={(props.active ?? true) && !chaptersOpen} /></div>
-    {chaptersMounted && <div hidden={!chaptersOpen}><ChapterWorkspace key={props.storyId} {...props} active={(props.active ?? true) && chaptersOpen} render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} /></div>}
-  </section>;
+  return <ChapterWorkspace key={props.storyId} {...props} mode={workspaceMode}
+    render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} />;
 }
 
 export function PublishingImagePackCanvas({
+  layoutHeader,
   chapterSession,
   scope,
   storyId,
@@ -234,6 +228,7 @@ export function PublishingImagePackCanvas({
   createRequest,
   onCreateRequestHandled,
 }: {
+  layoutHeader?: ReactNode;
   chapterSession?: {
     initial: ModuleDocument | null;
     legacyScope?: string;
@@ -523,6 +518,10 @@ export function PublishingImagePackCanvas({
     try {
       const storageKey = moduleStorageKey(scope, basis);
       const availableUrls = layoutAssets.map(asset => asset.imageUrl);
+      // A platform draft predates the chapter-only overflow option. Keep its
+      // original cache identity when carrying the first chapter into the editor.
+      const legacyKey = chapterSession?.legacyScope
+        ? legacyModuleStorageKey(chapterSession.legacyScope, basis) : null;
       return (
         readModuleDocument(
           localStorage.getItem(`${storageKey}:draft`),
@@ -533,7 +532,7 @@ export function PublishingImagePackCanvas({
           localStorage.getItem(storageKey),
           JSON.parse(basis),
           availableUrls
-        ) ?? (chapterSession?.legacyScope ? readModuleDocument(localStorage.getItem(`${moduleStorageKey(chapterSession.legacyScope, basis)}:draft`) ?? localStorage.getItem(moduleStorageKey(chapterSession.legacyScope, basis)), JSON.parse(basis), availableUrls) : null)
+        ) ?? (legacyKey ? readModuleDocument(localStorage.getItem(`${legacyKey}:draft`) ?? localStorage.getItem(legacyKey), JSON.parse(basis), availableUrls) : null)
       );
     } catch {
       return null;
@@ -1185,6 +1184,7 @@ export function PublishingImagePackCanvas({
             startedAt={generationStartedAt}
           />
         ) : null}
+        <div hidden={mobile ? mobileStep === "images" : desktopSection !== "layout"}>{layoutHeader}</div>
         <div
           hidden={
             mobile ? mobileStep !== "images" : desktopSection !== "images"

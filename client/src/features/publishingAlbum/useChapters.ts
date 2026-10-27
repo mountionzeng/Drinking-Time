@@ -159,6 +159,14 @@ export function useChapters(storyId: number) {
       await flush();
       setOpenId(id);
     },
+    saveText: async (draft: { title: string; body: string; changeNote?: string }) => {
+      if (!active) throw new Error("请先选择章节");
+      await flush();
+      const saved = await mutate.current({ chapterId: active.id,
+        expectedVersion: queue.current?.queue.version ?? active.version, ...draft });
+      if (queue.current?.id === active.id) queue.current.queue.version = saved.version;
+      await refresh();
+    },
     reloadList: () => utils.chapters.list.invalidate({ storyId }),
   };
 }

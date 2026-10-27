@@ -19,11 +19,6 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
     label: "图像",
     illustrationSrc: "/shiguang/nav-image-sound-v2.png",
   },
-  {
-    id: "editing",
-    label: "视频",
-    illustrationSrc: "/shiguang/nav-export-v2.svg",
-  },
 ];
 
 export function isStoryPanelWorkspace(

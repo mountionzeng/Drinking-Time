@@ -8074,7 +8074,8 @@
       "entryPoints": [
         "client/src/features/publishingAlbum/PublishingImagePack.tsx",
         "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
-        "server/routers/chapters.ts"
+        "server/routers/chapters.ts",
+        "client/src/features/publishingAlbum/ChapterWriting.tsx"
       ],
       "owners": [
         "shared/chapterStore.ts",
@@ -8096,13 +8097,14 @@
         "command:pnpm migration:verify",
         "docs/handoff/2026-10-23-web-chapters.md",
         "docs/qa/2026-10-27-web-version-parity.md",
-        "client/src/features/publishingAlbum/ChapterTextVersions.test.tsx"
+        "client/src/features/publishingAlbum/ChapterTextVersions.test.tsx",
+        "client/src/features/publishingAlbum/ChapterWriting.test.tsx"
       ],
       "invariants": [
-        "CHAPTER_PACKAGE_ENABLED 默认关闭；关闭时没有章节入口且服务端拒绝读写。平台图稿与原共享入口保留。",
+        "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
         "章节内容不写入 stories.body；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
-        "每章版本冲突必须停止保存；客户端写入串行，切章和导出前提交当前编辑；采用以对照时的版本为准。",
-        "仅带源稿标记且内容指纹一致的镜像章跟随对应平台稿；独立改字或改标题后断开，不因排序而改变镜像关系。",
+        "Chapter writes use expectedVersion CAS. Switching chapters/views saves current work first. Comparison reads do not flush or adopt. Adoption first saves pending work and uses the resulting local queue version, preserving overwritten content.",
+        "Generated platform text is an explicit comparison candidate in the chapter workspace; it does not automatically overwrite chapter writing. The legacy draft marker remains only for compatible initial layout recovery.",
         "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
         "自动保存不挤占十版历史；采用和恢复保留被替换的版本。"
       ],
@@ -8155,6 +8157,11 @@
           "date": "2026-10-27",
           "kind": "fix",
           "summary": "Default image workspace to layout on desktop and mobile fallback. Preserve explicit image-generation/material entry overrides and manual tab switching. Existing 15 image-pack tests, typecheck and build pass."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "refactor",
+          "summary": "Unified text and image layout around one chapter workspace. Chapter selector/history live inside layout; text writes directly with account/story/chapter local draft recovery and optional author-written note. Read-only inline comparisons include unsaved text; explicit adoption saves the current draft first. Removed platform/chapter switch and top-level video tab (video creation remains reachable from images). Legacy platform layout lookup removes chapter-only fitOverflowText. 131 targeted tests, typecheck and build passed. Production fictional-story tests confirmed unsaved red-vs-blue diff, adoption preserves the red draft as history 27, and chapter 2 stays selected across text/image views. No paid AI calls or schema change."
         }
       ]
     },
