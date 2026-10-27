@@ -1,3 +1,4 @@
+import { ChapterTextVersions } from "@/features/publishingAlbum/ChapterTextVersions";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import type { StudioCreateRequest } from "./StudioCreateMenu";
 import { formatComputeQuote } from "@shared/computeMoney";
@@ -339,6 +340,8 @@ export default function PublishingDraftWorkspace({
     clearSelection,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
+  const [textVersionsOpen, setTextVersionsOpen] = useState(false);
+  useEffect(() => { setTextVersionsOpen(false); }, [activeStoryId]);
   const chaptersEnabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const readQuery = trpc.publishingDraft.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
@@ -2275,18 +2278,19 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
-                {onOpenImages && view !== "images" ? (
+                {view !== "images" ? (
                   <div className="mt-6 flex justify-end gap-2">
-                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => { onOpenImages(); window.dispatchEvent(new CustomEvent("dt:chapter-versions", { detail: { storyId: activeStoryId } })); }}>
+                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => setTextVersionsOpen(open => !open)}>
                       版本与修改
                     </ActionButton> : null}
-                    {editorContent.body.trim() ? <ActionButton onClick={onOpenImages} primary>
+                    {onOpenImages && editorContent.body.trim() ? <ActionButton onClick={onOpenImages} primary>
                       <ImagePlus className="h-4 w-4" aria-hidden="true" />
                       配图
                     </ActionButton> : null}
                   </div>
                 ) : null}
 
+                {textVersionsOpen && chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 && view !== "images" ? <ChapterTextVersions key={activeStoryId} storyId={activeStoryId} /> : null}
                 </div>
                 <div hidden={view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">

@@ -17,6 +17,7 @@ function Preview({
   changes,
   titleChanges,
   side,
+  mode,
 }: {
   content: Content;
   urls: Record<string, string>;
@@ -24,10 +25,12 @@ function Preview({
   changes: TextChange[];
   titleChanges: TextChange[];
   side: "before" | "after";
+  mode: "text" | "images" | "all";
 }) {
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (mode === "text") return;
     const abort = new AbortController();
     const created: string[] = [];
     setImages([]);
@@ -72,7 +75,7 @@ function Preview({
       abort.abort();
       created.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [content, urls]);
+  }, [content, urls, mode]);
   return (
     <article className="min-w-0 space-y-2">
       <h3 className="font-medium">
@@ -83,10 +86,11 @@ function Preview({
       {content.blocks.containsAiText && (
         <p className="text-xs text-muted-foreground">包含 AI 辅助文字</p>
       )}
-      <p className="max-h-80 overflow-auto whitespace-pre-wrap text-sm">
+      {mode !== "images" && <p className="max-h-80 overflow-auto whitespace-pre-wrap text-sm">
         <ChangedText changes={changes} side={side} />
         {!content.blocks.body && "（空白章节）"}
-      </p>
+      </p>}
+      {mode !== "text" && <>
       <div className="flex gap-2 overflow-auto">{[...new Set([content.blocks.coverKey, content.blocks.bodyTextureKey, ...content.blocks.illustrations.map(image => image.key)].filter((key): key is string => Boolean(key)))].map(key => <figure key={key} className="w-28 shrink-0"><img src={urls[key] ?? key} alt={`${label}的${key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}`} className="h-28 w-28 object-contain" /><figcaption className="text-xs">{key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}</figcaption></figure>)}</div>
       {error && (
         <p role="alert" className="text-xs text-destructive">
@@ -106,6 +110,7 @@ function Preview({
           />
         ))}
       </div>
+      </>}
     </article>
   );
 }
@@ -115,20 +120,22 @@ export function ChapterComparison({
   currentUrls,
   candidateUrls,
   candidateLabel = "收到的版本",
+  mode = "all",
 }: {
   current: Content;
   candidate: Content;
   currentUrls: Record<string, string>;
   candidateUrls: Record<string, string>;
   candidateLabel?: string;
+  mode?: "text" | "images" | "all";
 }) {
   const changes = useMemo(() => textChanges(current.blocks.body, candidate.blocks.body), [current.blocks.body, candidate.blocks.body]);
   const titleChanges = useMemo(() => textChanges(current.title, candidate.title), [current.title, candidate.title]);
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      <p className="text-xs text-muted-foreground md:col-span-2">左侧为当前稿，右侧为所选版本。红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</p>
-      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="before" />
-      <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="after" />
+      <p className="text-xs text-muted-foreground md:col-span-2">左侧为当前稿，右侧为所选版本。{mode === "images" ? "对比图片及排版；正文内容保留在各自排版中。" : <>红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</>}</p>
+      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="before" mode={mode} />
+      <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="after" mode={mode} />
     </div>
   );
 }

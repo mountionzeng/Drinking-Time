@@ -8088,7 +8088,8 @@
         "command:pnpm check",
         "command:pnpm migration:verify",
         "docs/handoff/2026-10-23-web-chapters.md",
-        "docs/qa/2026-10-27-web-version-parity.md"
+        "docs/qa/2026-10-27-web-version-parity.md",
+        "client/src/features/publishingAlbum/ChapterTextVersions.test.tsx"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED 默认关闭；关闭时没有章节入口且服务端拒绝读写。平台图稿与原共享入口保留。",
@@ -8132,6 +8133,11 @@
           "date": "2026-10-27",
           "kind": "verification",
           "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Reuse chapter snapshots in both surfaces: inline read-only text history and redline comparison stay in the text workspace; image comparisons show image roles and layout without duplicating prose. Removed cross-surface navigation event; no database changes. 34 focused tests, typecheck/build passed."
         }
       ]
     },

@@ -700,7 +700,7 @@ export function ChapterWorkspace({
           ))}
           {candidate && (
             <section aria-label="发回候选对照" className="space-y-2">
-              <ChapterComparison
+              <ChapterComparison mode="images"
                 current={comparison!.current}
                 candidate={candidate}
                 currentUrls={state.imageUrls}
@@ -764,7 +764,7 @@ export function ChapterWorkspace({
             </details>
           )}
           {historyComparison && <section className="space-y-3 rounded-xl border p-4" aria-label="历史版本对照">
-            <ChapterComparison current={historyComparison.current} candidate={historyComparison.chapter} currentUrls={state.imageUrls} candidateUrls={historyComparison.imageUrls} candidateLabel={`历史版本 ${historyComparison.version}`} />
+            <ChapterComparison mode="images" current={historyComparison.current} candidate={historyComparison.chapter} currentUrls={state.imageUrls} candidateUrls={historyComparison.imageUrls} candidateLabel={`历史版本 ${historyComparison.version}`} />
             <button className={button} disabled={busy} onClick={() => void run(async () => {
               await restore.mutateAsync({ chapterId: active.id, version: historyComparison.version, expectedVersion: historyComparison.current.version });
               await state.refresh(); await versions.refetch(); setHistoryComparison(null);
