@@ -1,3 +1,4 @@
+import { moduleContentBasis } from "./moduleBackground";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import {
@@ -269,9 +270,15 @@ export function ImagePackModuleEditor({
     }
     onInsertHandled?.();
   }, [insertRequest, renderer, history, busy, editing, sourceChanged, onInsertHandled]);
+  const loadedSource = useRef<{ content: string; initial: ModuleDocument | null; scope: string } | null>(null);
   useEffect(() => {
+    const content = moduleContentBasis(options);
+    const preserve = loadedSource.current?.content === content &&
+      loadedSource.current.initial === initial && loadedSource.current.scope === scope;
     const abort = new AbortController();
     controller.current = abort;
+    setRenderer(null);
+    setError("");
     let resource: ModuleRenderer | undefined;
     void createModuleRenderer(options, abort.signal)
       .then(async value => {
@@ -290,11 +297,20 @@ export function ImagePackModuleEditor({
         } catch {
           /* Session editing still works. */
         }
-        const document = restored ?? initial ?? value.createDocument();
+        const document = (preserve ? historyRef.current?.present : null) ?? restored ?? initial ?? value.createDocument();
         await value.validate(document);
         if (!abort.signal.aborted) {
           setRenderer(value);
-          setHistory({ past: [], present: document, future: [] });
+          loadedSource.current = { content, initial, scope };
+          if (!preserve) setHistory({ past: [], present: document, future: [] });
+          // Keep a separate draft for the newly chosen paper, retaining the old one.
+          store(document);
+          if (preserve) {
+            if (editing) {
+              try { localStorage.setItem(`${draftKey}:text`, JSON.stringify({ ...editing, page: pageIndex })); } catch { /* store already reports quota failures */ }
+            }
+            return;
+          }
           try {
             const pending = JSON.parse(
               localStorage.getItem(`${draftKey}:text`) ?? "null"
@@ -325,8 +341,8 @@ export function ImagePackModuleEditor({
       abort.abort();
       resource?.dispose();
     };
-    // The parent mounts a session with a fixed source snapshot.
-  }, [options, initial, draftKey]);
+    // Background changes keep module history and unfinished text; source changes reopen a distinct draft.
+  }, [options, initial, draftKey, scope]);
 
   function store(document: ModuleDocument) {
     try {

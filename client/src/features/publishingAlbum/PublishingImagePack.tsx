@@ -1,3 +1,4 @@
+import { withModuleBackground } from "./moduleBackground";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
@@ -591,6 +592,15 @@ export function PublishingImagePackCanvas({
     options: ImagePackOptions;
     initial: ModuleDocument | null;
   } | null>(null);
+  // Repaint paper on the active document, without adopting changed source text.
+  useEffect(() => {
+    setModuleSession(session => {
+      if (!session) return session;
+      const next = withModuleBackground(session.options, options);
+      const nextBasis = JSON.stringify(next);
+      return nextBasis === session.basis ? session : { ...session, options: next, basis: nextBasis };
+    });
+  }, [options]);
   const signature = JSON.stringify({ options, modules });
   const currentBasis = useRef(basis);
   currentBasis.current = basis;
