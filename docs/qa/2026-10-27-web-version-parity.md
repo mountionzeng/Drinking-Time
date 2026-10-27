@@ -51,3 +51,10 @@
 - 用户截图只有长正文，原入口在正文下方不可见。将同一“版本与修改”按钮移至顶部文稿操作栏，对比面板展开在正文上方，底部不重复留按钮。
 - 25项定向测试、类型检查和构建通过；正式站95文件校验、MySQL就绪检查通过，备份 /opt/Drinking-Time/dist.bak-chapter-entry-20261027。
 - 主仓无dev且存在其他会话未提交内容，未启动不包含本功能的main或覆盖它；右侧打开正式站供用户验收。手机适配上下文已发送“网页手机前端”，对方已开始只读盘点并避开当前文件。
+
+## 2026-10-27 Live background fix (911c644e)
+- Root cause: settings changed while moduleSession.options stayed frozen; sourceChanged blocked rendering/export. Background-only synchronization now preserves modules and undo history, saving a distinct draft for new settings.
+- 31 focused tests, tsc, build and feature ledger passed. Initial helper test failed to load the absent helper (not a behavioral red test); old production UI reproduced the stale canvas/source-change warning.
+- Production: 95 file hashes verified, readiness mysql/authentication required. IAB fictional bookstore story: linen paper visibly updated, image/text retained, undo/redo worked, reload restored both modules.
+- Legacy limitation: first reload of the old mismatched draft did not restore its image under current settings; reinserted the same first library image for verification. Old drafts and assets were not deleted. This is not a migration of all legacy drafts.
+- Evidence: outputs/background-live-20261027.png in coordination workspace. No paid AI calls; no schema or mini-program changes.

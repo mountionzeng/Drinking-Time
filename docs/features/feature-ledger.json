@@ -7529,7 +7529,8 @@
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
         "docs/qa/2026-10-20-story-creation-workflow.md",
         "docs/qa/2026-10-20-story-workflow-release.md",
-        "docs/qa/2026-10-25-selected-text-images.md"
+        "docs/qa/2026-10-25-selected-text-images.md",
+        "client/src/features/publishingAlbum/moduleBackground.test.ts"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -7549,7 +7550,8 @@
         "手机先轻点选择模块，再拖中心移动和四角缩放；未选中模块允许滚动，44px触点与显式图片裁切模式避免误操作。文字样式、删除和跨页使用模块操作面板，插删页使用页面操作面板；与电脑共用变换、撤销和持久化语义。",
         "手机改字面板保留未提交输入，完成或关闭前验证保存；进入预览前提交并使用最新完整模块稿，文字重新分页后跟随该模块所在页。预览失败留在排版显示错误，导出和分享使用已核对的最新PNG；切回排版不重置会话。",
         "复制面板保留当前单图，并可复制当前全文文字或勾选任意页；全文按页码/模块顺序提取已编辑文字，保留段落与重复内容，不写回正文。图片在打开面板时由最新文档渲染，来源失效或关闭取消未完成任务，错误不得报告成功。",
-        "单张复制不重新编码，选多张时明确复制为一张长图，按页码顺序拼接；长图宽900px且每页1200px，最多九页，独立下载保留原PNG。剪贴板请求在点击时使用Promise图像数据发起；无权限/无支持时提示下载，全文入口仍保留。"
+        "单张复制不重新编码，选多张时明确复制为一张长图，按页码顺序拼接；长图宽900px且每页1200px，最多九页，独立下载保留原PNG。剪贴板请求在点击时使用Promise图像数据发起；无权限/无支持时提示下载，全文入口仍保留。",
+        "Background-only changes repaint existing modules and retain undo history and pending text in a separate settings draft; old drafts remain intact. Text/font/source-image changes still require explicit source adoption."
       ],
       "dependencies": [
         "publishing-article-image-pack",
@@ -7638,7 +7640,7 @@
         {
           "date": "2026-10-27",
           "kind": "fix",
-          "summary": "修复图片素材选择底图后编辑画布仍使用旧设置：仅同步纸纹、种子、底图和派生纸色，保留正文来源隔离、手动模块、撤销栈和未提交文字。按新设置另存草稿，旧草稿保留。31项定向回归及类型检查通过，线上实测待核。"
+          "summary": "修复图片素材选择底图后编辑画布仍使用旧设置：仅同步纸纹、种子、底图和派生纸色，保留正文来源隔离、手动模块、撤销栈和未提交文字。按新设置另存草稿，旧草稿保留。31项定向回归及类型检查通过，线上实测待核。 Production verified: linen background updates immediately; existing modules, undo/redo and reload restoration pass. 95 deployed files verified; no paid AI calls."
         }
       ]
     },
