@@ -26,6 +26,7 @@ import { mixedBookViews } from "./bookArrangement";
 import { MemoryBookCover } from "./MemoryBookPreview";
 import "./memorySpace.css";
 import { useMobileBookGesture } from "./useMobileBookGesture";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const date = (time: number | null) =>
   time
@@ -41,11 +42,13 @@ export function MemorySpace({
   onOpenNotes,
   initialTab = "stories",
   mobileGestures = false,
+  initialTrashOpen = false,
 }: {
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
   initialTab?: "stories" | "people";
   mobileGestures?: boolean;
+  initialTrashOpen?: boolean;
 }) {
   const accountId = useStorySpine(s => s.accountId);
   return (
@@ -56,6 +59,7 @@ export function MemorySpace({
       onOpenNotes={onOpenNotes}
       initialTab={initialTab}
       mobileGestures={mobileGestures}
+      initialTrashOpen={initialTrashOpen}
     />
   );
 }
@@ -65,12 +69,14 @@ function MemorySpaceContent({
   onOpenNotes,
   initialTab = "stories",
   mobileGestures = false,
+  initialTrashOpen = false,
 }: {
   accountId: number | null;
   onOpenStory: (id: number) => void;
   onOpenNotes: () => void;
   initialTab?: "stories" | "people";
   mobileGestures?: boolean;
+  initialTrashOpen?: boolean;
 }) {
   const [tab, setTab] = useState<"stories" | "people">(initialTab);
   const [organizing, setOrganizing] = useState(false);
@@ -111,6 +117,26 @@ function MemorySpaceContent({
     }
   }
   const [placementId, setPlacementId] = useState<number | null>(null);
+  const [trashCandidate, setTrashCandidate] = useState<{ id: number; title: string } | null>(null);
+  const [trashOpen, setTrashOpen] = useState(initialTrashOpen);
+  const trashList = trpc.memorySpace.trashList.useQuery(undefined, { enabled: trashOpen });
+  const trashMutation = trpc.memorySpace.trash.useMutation();
+  const restoreMutation = trpc.memorySpace.restore.useMutation();
+  async function refreshAfterTrash() {
+    const results = await Promise.allSettled([
+      utils.memorySpace.list.invalidate(),
+      utils.memorySpace.trashList.invalidate(),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.accountImages.invalidate(),
+    ]);
+    if (results.some(result => result.status === "rejected"))
+      setError("操作已完成，但列表刷新失败，请刷新页面查看。");
+  }
+  const desktopDrag = useRef<{
+    id: number;
+    view: "vertical" | "horizontal" | "album";
+  } | null>(null);
+  const [desktopDropShelf, setDesktopDropShelf] = useState<string | null>(null);
   const gesture = useMobileBookGesture({
     enabled: mobileGestures && tab === "stories" && storyId === null,
     blocked: change.isPending || Boolean(search),
@@ -133,6 +159,60 @@ function MemorySpaceContent({
     <section
       ref={gesture.root}
       onClickCapture={gesture.onClickCapture}
+      onDragStart={e => {
+        if (mobileGestures || organizing || search || change.isPending) return;
+        const item = (e.target as Element).closest<HTMLElement>(
+          ".memory-book-item[draggable=true]"
+        );
+        if (!item) return;
+        desktopDrag.current = {
+          id: Number(item.dataset.storyId),
+          view: item.dataset.bookView as "vertical" | "horizontal" | "album",
+        };
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", String(desktopDrag.current.id));
+      }}
+      onDragOver={e => {
+        if (!desktopDrag.current) return;
+        const shelf = (e.target as Element).closest<HTMLElement>("[data-drop-shelf]");
+        if (!shelf || !e.currentTarget.contains(shelf)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDesktopDropShelf(shelf.dataset.dropShelf ?? null);
+      }}
+      onDrop={e => {
+        const dragged = desktopDrag.current;
+        const shelf = (e.target as Element).closest<HTMLElement>("[data-drop-shelf]");
+        desktopDrag.current = null;
+        setDesktopDropShelf(null);
+        if (!dragged || !shelf || !e.currentTarget.contains(shelf)) return;
+        e.preventDefault();
+        const target = shelf.dataset.dropShelf;
+        if (!target) return;
+        const item = (e.target as Element).closest<HTMLElement>("[data-story-id]");
+        const items = Array.from(shelf.querySelectorAll<HTMLElement>("[data-story-id]"));
+        let beforeStoryId: number | null = null;
+        if (target !== "default" && item && items.includes(item)) {
+          const rect = item.getBoundingClientRect();
+          const before = item.dataset.bookView === "horizontal"
+            ? e.clientY < rect.top + rect.height / 2
+            : e.clientX < rect.left + rect.width / 2;
+          const next = before ? item : items[items.indexOf(item) + 1];
+          beforeStoryId = next ? Number(next.dataset.storyId) : null;
+        }
+        if (beforeStoryId === dragged.id) return;
+        void act({
+          kind: "moveBook",
+          storyId: dragged.id,
+          shelfId: target === "default" ? null : target,
+          beforeStoryId,
+          view: dragged.view,
+        });
+      }}
+      onDragEnd={() => {
+        desktopDrag.current = null;
+        setDesktopDropShelf(null);
+      }}
       className="memory-space"
       aria-label="回忆书架与人物"
       data-mobile-gestures={mobileGestures}
@@ -238,6 +318,16 @@ function MemorySpaceContent({
                     : "长按拖动换位置，松手调整摆放；拖到“加一层书架”另放一层。"}
                 </p>
               )}
+              {!mobileGestures && !organizing && (
+                <p className="memory-hint">
+                  {search
+                    ? "清空搜索后可拖动书本。"
+                    : "拖动书本到另一层书架；也可点“整理书架”选择位置。"}
+                </p>
+              )}
+              <button type="button" className="memory-trash-link" onClick={() => setTrashOpen(true)}>
+                回收站
+              </button>
               {addingShelf ? (
                 <form
                   className="memory-form"
@@ -313,8 +403,11 @@ function MemorySpaceContent({
                     books={booksOnShelf(data, shelf.id)}
                     search={search}
                     organizing={organizing}
+                    desktopDragEnabled={!mobileGestures && !organizing && !search && !change.isPending}
+                    desktopDropShelf={desktopDropShelf}
                     placementId={placementId}
                     onPlacementChange={setPlacementId}
+                    onTrash={book => { setPlacementId(null); setTrashCandidate(book); }}
                     data={data}
                     shelfId={shelf.id}
                     onRead={id => {
@@ -323,6 +416,20 @@ function MemorySpaceContent({
                     }}
                     act={act}
                   >
+                    <div className="memory-shelf-header-actions">
+                    <button
+                      className="memory-remove-shelf"
+                      aria-label={`撤销书架${shelf.name}`}
+                      title="撤销后书会回到默认书架，故事不会删除"
+                      onClick={() => {
+                        const views = Object.fromEntries(
+                          mixedBookViews(booksOnShelf(data, shelf.id))
+                        );
+                        void act({ kind: "removeShelf", id: shelf.id, views });
+                      }}
+                    >
+                      撤销书架
+                    </button>
                     {(organizing || mobileGestures) && (
                       <details
                         className="memory-shelf-menu"
@@ -365,16 +472,10 @@ function MemorySpaceContent({
                           >
                             改名
                           </button>
-                          <button
-                            onClick={() =>
-                              void act({ kind: "removeShelf", id: shelf.id })
-                            }
-                          >
-                            移除层
-                          </button>
                         </div>
                       </details>
                     )}
+                    </div>
                   </Shelf>
                 ))}
                 <Shelf
@@ -382,9 +483,12 @@ function MemorySpaceContent({
                   books={booksOnShelf(data, null)}
                   search={search}
                   organizing={organizing}
+                  desktopDragEnabled={!mobileGestures && !organizing && !search && !change.isPending}
+                  desktopDropShelf={desktopDropShelf}
                   data={data}
                   placementId={placementId}
                   onPlacementChange={setPlacementId}
+                  onTrash={book => { setPlacementId(null); setTrashCandidate(book); }}
                   shelfId={null}
                   onRead={id => {
                     setPlacementId(null);
@@ -411,6 +515,46 @@ function MemorySpaceContent({
           )}
         </fieldset>
       )}
+      <Dialog open={trashCandidate !== null} onOpenChange={open => { if (!open && !trashMutation.isPending) setTrashCandidate(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>把故事放入回收站？</DialogTitle>
+            <DialogDescription>
+              “{trashCandidate?.title}”会从故事列表和书架移走，可以在回收站恢复。未保存的修改不会进入回收站，已有的分享链接可能仍可访问。
+            </DialogDescription>
+          </DialogHeader>
+          {trashMutation.error && <p className="memory-error" role="alert">{trashMutation.error.message}</p>}
+          <div className="memory-trash-dialog-actions">
+            <button type="button" className="memory-button" disabled={trashMutation.isPending} onClick={() => setTrashCandidate(null)}>取消</button>
+            <button type="button" className="memory-button" disabled={trashMutation.isPending} onClick={async () => {
+              if (!trashCandidate) return;
+              const id = trashCandidate.id;
+              try {
+                await trashMutation.mutateAsync({ storyId: id });
+                window.dispatchEvent(new CustomEvent("dt:story-trashed", { detail: { storyId: id } }));
+                await refreshAfterTrash();
+                setTrashCandidate(null);
+              } catch { /* The mutation error remains visible in the dialog. */ }
+            }}>{trashMutation.isPending ? "正在移入…" : "移入回收站"}</button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
+        <DialogContent className="sm:max-w-md max-h-[80dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>回收站</DialogTitle><DialogDescription>故事可恢复到原来的书架；如果书架已撤销，会回到默认书架。</DialogDescription></DialogHeader>
+          {trashList.isLoading && <p>正在读取…</p>}
+          {trashList.isError && <p className="memory-error" role="alert">读取失败，请关闭后重试。</p>}
+          {trashList.data?.length === 0 && <p>回收站是空的。</p>}
+          {trashList.data?.map(book => <div className="memory-trash-row" key={book.id}>
+            <span>{book.title || "未命名故事"}</span>
+            <button type="button" className="memory-button" disabled={restoreMutation.isPending} onClick={async () => {
+              try { await restoreMutation.mutateAsync({ storyId: book.id }); await refreshAfterTrash(); window.dispatchEvent(new CustomEvent("dt:story-restored", { detail: { storyId: book.id } })); }
+              catch { /* The mutation error remains visible below. */ }
+            }}>恢复</button>
+          </div>)}
+          {restoreMutation.error && <p className="memory-error" role="alert">{restoreMutation.error.message}</p>}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -419,6 +563,8 @@ function Shelf({
   books,
   search,
   organizing,
+  desktopDragEnabled,
+  desktopDropShelf,
   shelfId,
   data,
   onRead,
@@ -426,13 +572,17 @@ function Shelf({
   children,
   placementId,
   onPlacementChange,
+  onTrash,
 }: {
   placementId: number | null;
   onPlacementChange: (id: number | null) => void;
+  onTrash: (book: { id: number; title: string }) => void;
   name: string;
   books: Space["books"];
   search: string;
   organizing: boolean;
+  desktopDragEnabled: boolean;
+  desktopDropShelf: string | null;
   shelfId: string | null;
   data: Space;
   onRead: (id: number) => void;
@@ -462,6 +612,7 @@ function Shelf({
       className="memory-shelf"
       aria-label={name}
       data-drop-shelf={shelfId ?? "default"}
+      data-drop-target={desktopDropShelf === (shelfId ?? "default") || undefined}
     >
       <header>
         <h2>
@@ -487,6 +638,7 @@ function Shelf({
                   data-story-title={book.title}
                   data-binding={book.id % 5}
                   data-book-view={views.get(book.id)}
+                  draggable={desktopDragEnabled}
                 >
                   <MemoryBookCover
                     book={book}
@@ -495,6 +647,7 @@ function Shelf({
                       onPlacementChange(open ? book.id : null)
                     }
                     onRead={() => onRead(book.id)}
+                    onTrash={() => onTrash(book)}
                     onViewChange={view =>
                       void act({ kind: "setBookView", storyId: book.id, view })
                     }

@@ -14,7 +14,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ memorySpace: { list: { invalidate: vi.fn() } } }),
-    memorySpace: { list: { useQuery: api.space }, change: { useMutation: () => ({ isPending: false }) } },
+    memorySpace: { list: { useQuery: api.space }, trashList: { useQuery: () => ({ data: [] }) }, trash: { useMutation: () => ({ isPending: false }) }, restore: { useMutation: () => ({ isPending: false }) }, change: { useMutation: () => ({ isPending: false }) } },
     memoryWarehouse: { list: { useQuery: api.memories } },
     textDrafts: { read: { useQuery: api.text } },
     publishingDraft: { readBody: { useQuery: api.body } },

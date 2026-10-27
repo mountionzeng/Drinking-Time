@@ -9,7 +9,6 @@ import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
  */
 import {
   Clapperboard,
-  BookOpen,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -696,6 +695,7 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
+  const { visualTheme } = useNayin();
   const { user } = useAuth();
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
@@ -868,11 +868,15 @@ export default function EditingStudioPage() {
             type="button"
             aria-label="打开账号回忆"
             aria-haspopup="dialog"
+            aria-expanded={accountMemoriesOpen}
             aria-controls="account-memories"
-            className="shiguang-toolbar-button inline-flex min-h-11 items-center gap-2 rounded-sm border-l border-border/50 px-4 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-primary"
+            className="shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors hover:brightness-110 focus-visible:outline-primary sm:min-w-[92px]"
+            style={visualTheme === "nayin" ? { color: "var(--nayin-accent-dim)" } : undefined}
             onClick={() => setAccountMemoriesOpen(true)}
           >
-            <BookOpen aria-hidden="true" className="h-4 w-4" />
+            {visualTheme === "shiguang" ? (
+              <img src="/shiguang/nav-memory-watercolor.png" alt="" aria-hidden="true" className="shiguang-nav-illustration" />
+            ) : null}
             <span className="shiguang-nav-label">回忆</span>
           </button>
         }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-21",
+  "updatedAt": "2026-10-27",
   "features": [
     {
       "id": "story-context-sharing",
@@ -5680,7 +5680,10 @@
         "client/src/features/mobileWorkspace/MobileMePage.tsx",
         "client/src/features/mobileWorkspace/LiaoliaoMascot.tsx",
         "client/src/features/mobileWorkspace/MobileFormPicker.tsx",
-        "client/src/features/mobileWorkspace/MobileNavBar.tsx"
+        "client/src/features/mobileWorkspace/MobileNavBar.tsx",
+        "client/public/shiguang/memory-logo.svg",
+        "client/public/shiguang/nav-video-watercolor.png",
+        "client/public/shiguang/nav-memory-watercolor.png"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
@@ -5810,6 +5813,11 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "英文介绍页进入制作区时，可通过一次性 visualTheme=nayin 参数明确选择纳音五行；初始化即生效并写入既有浏览器偏好，随即清除参数，避免覆盖用户后续手动切换。原有无偏好默认拾光与双主题单选不变；本地 /m 入口验证 data-visual-theme=nayin。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "improvement",
+          "summary": "按素材合集水彩风格重绘桌面视频和回忆导航插画；回忆入口沿用其他导航项尺寸和排版，纳音主题采用同一行的文字样式，原有回忆功能保持。 功能账本校验与11项工作区测试通过；主仓3000检查双主题外观并打开回忆弹窗。"
         }
       ]
     },
@@ -7799,7 +7807,8 @@
         "client/src/features/memorySpace/StoryActivityTracker.tsx",
         "client/src/features/memorySpace/activeEditingClock.ts",
         "client/src/features/memorySpace/bookArrangement.ts",
-        "client/src/features/memorySpace/useMobileBookGesture.ts"
+        "client/src/features/memorySpace/useMobileBookGesture.ts",
+        "client/public/shiguang/memory-bookshelf-watercolor.png"
       ],
       "evidence": [
         "docs/plans/2026-10-21-memory-bookshelf-people.md",
@@ -7838,7 +7847,7 @@
       "knownGaps": [
         "旧分享链接无法确定未接受的收件人；内测邀请码无邀请者，历史未接受邀请只能由用户手动补录，不宣称自动覆盖。",
         "书架新已读跨端保存；原分享回来提醒的40篇扫描和本机已读限制本轮不改。",
-        "手机支持长按拖动，电脑仍使用按钮排序及选层；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
+        "手机支持长按拖动，电脑支持鼠标拖动及按钮排序选层；保存后重读、聚焦或30秒轮询同步，非实时多人整理。",
         "真机iOS/Android、完整屏幕阅读器、大规模库与正式站双真实账号新书架验收尚未完成。",
         "活跃时长按前台交互窗口计量，历史未记录；断网/强退可能少记。好友展示已分享的最大累计快照，字数为正文/提交长度，不是净新增字数。"
       ],
@@ -7912,6 +7921,26 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "手势及手机去冗余649ae8ac已推送部署。27项相关回归、精简后8项手机回归、类型/最终构建/66卡通过；CDP触摸验证长按、跨层/新层、边缘滚动、取消与精简页面。95文件及公网入口哈希匹配、页面/ready200，无迁移或配置修改；真机与双账号仍待验收，详见手势QA。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "improvement",
+          "summary": "依用户参考的浅宣纸与灰绿布边重绘拾光主题书架层板，替换层板视觉，不改书本混排、顺序、滚动或整理；本地浏览器核对层板贴合与横向滚动。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "按用户纠正，撤换误用书脊形状的层板，重绘拾光水彩整层开放书架，含立柱、背板和层板；原有书本三姿态混排、顺序和横向滚动保持。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "为电脑回忆书架增加鼠标跨层拖放和落点提示，保留整理菜单及键盘操作；移动时原子保存当前摆放方向。虚构数据浏览器实拖到新层并拖回未分层成功，22项路由及排列测试、类型检查通过。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "improvement",
+          "summary": "自建书架旁新增“撤销书架”入口，移除层时故事回到默认层并原子保留撤销前的显示方向；隔离数据浏览器验收、22项相关测试和类型检查通过。"
         }
       ]
     },
@@ -7970,6 +7999,60 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "0f649128已部署正式站：备份后0034迁移通过，既有79张表内容不变，95个构建文件校验一致；正式库5个已验证账号，2个自有、3个待确认；匿名及普通用户读写权限拦截通过。保留observing直至真实管理员浏览器验收完成。"
+        }
+      ]
+    },
+    {
+      "id": "recoverable-story-trash",
+      "name": "故事回收站与恢复",
+      "status": "observing",
+      "userValue": "用户将故事放入回收站，并从原书架或默认书架恢复；电脑与手机共用账号数据。",
+      "entryPoints": [
+        "client/src/features/memorySpace/MemorySpace.tsx",
+        "client/src/features/memorySpace/MemoryBookPreview.tsx",
+        "client/src/features/storyAgent/views/StoryListView.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx"
+      ],
+      "owners": [
+        "server/repositories/storyTrashState.ts",
+        "server/repositories/memorySpace.ts",
+        "server/repositories/stories.ts",
+        "server/repositories/accountImages.ts",
+        "server/routers/memorySpace.ts",
+        "shared/memorySpace.ts",
+        "client/src/features/memorySpace/MemorySpace.tsx",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
+        "server/routers/storyAgent.ts"
+      ],
+      "evidence": [
+        "server/routers.memorySpace.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "server/integration/memorySpace.mysql.test.ts",
+        "docs/qa/2026-10-27-story-trash.md",
+        "server/routers.storyAgent.test.ts"
+      ],
+      "invariants": [
+        "移入回收站不删除故事、正文、版本、素材、书架顺序或摆放；恢复后重现原层，原层不存在时归入默认层。",
+        "仅账号本人可查看、移入或恢复其故事；回收站故事不出现在正常故事列表、书架、故事读取及账号图库。",
+        "旧账号数据没有回收站字段时默认空回收站；读写不依赖数据库迁移。",
+        "手机无正常故事时仍有可用的回收站入口；正在编辑的故事移入后不继续展示已移入故事。",
+        "回收站中的故事被旧窗口自动保存时必须拒绝，不得重新创建一份新故事。"
+      ],
+      "dependencies": [
+        "memory-bookshelf-people"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "已有分享链接或独立分享快照不会因移入回收站自动撤销。",
+        "尚未上线；正式站双账号与手机真机尚未验收。",
+        "上线时不可让旧版服务继续写入回忆空间，否则旧版解析器可能丢弃回收站字段。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-27",
+          "kind": "feature",
+          "summary": "按用户选择新增可恢复回收站与两端入口，保留故事、素材及原书架；桌面和手机空列表分别用虚构数据实测，本地重启和隔离MySQL恢复、账号隔离及相关回归通过。"
         }
       ]
     }

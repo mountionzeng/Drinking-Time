@@ -7,9 +7,15 @@ import {
   changeMemorySpace,
   readMemoryBook,
   markMemoryBookSeen,
+  trashMemoryStory,
+  restoreMemoryStory,
+  listTrashedMemoryStories,
 } from "../repositories/memorySpace";
 const storyInput = z.object({ storyId: z.number().int().positive() });
 export const memorySpaceRouter = router({
+  trashList: protectedProcedure.query(({ ctx }) => listTrashedMemoryStories(ctx.user.id)),
+  trash: protectedProcedure.input(storyInput).mutation(({ ctx, input }) => trashMemoryStory(ctx.user.id, input.storyId)),
+  restore: protectedProcedure.input(storyInput).mutation(({ ctx, input }) => restoreMemoryStory(ctx.user.id, input.storyId)),
   activity: protectedProcedure
     .input(
       storyInput.extend({

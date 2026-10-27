@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 72" fill="none">
+  <g stroke="#53685f" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 17.5c7.8-2.1 16-.5 23 4.6v31.2c-7-5.1-15.2-6.7-23-4.6V17.5Z" stroke-width="3.8"/>
+    <path d="M32 22.1c7-5.1 15.2-6.7 23-4.6v31.2c-7.8-2.1-16-.5-23 4.6" stroke-width="3.8"/>
+    <path d="M32 23v31" stroke-width="2.7"/>
+    <path d="M13.8 22.1c5.2-.8 10.3.2 14.8 2.8M50.2 22.1c-5.2-.8-10.3.2-14.8 2.8" stroke-width="1.7" opacity=".58"/>
+  </g>
+  <text x="66" y="43" fill="#53685f" font-family="Songti SC, STSong, Noto Serif CJK SC, serif" font-size="25" letter-spacing="2">回忆</text>
+</svg>

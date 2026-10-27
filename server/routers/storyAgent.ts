@@ -1,6 +1,7 @@
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
 import { listAccountImages } from "../repositories/accountImages";
 import { syncStoryChatMemories, syncStoryChatMemoriesSafely } from "../services/chatMemoryWarehouse";
+import { readTrashedStories } from "../repositories/storyTrashState";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
 import { placeImageRevisionForStory } from "../services/visualClipEditing";
@@ -908,6 +909,9 @@ export const storyAgentRouter = router({
           return saved
             ? composeStoryWorkspace(saved, ctx.user.id, syncConflict)
             : null;
+        }
+        if (Object.hasOwn(await readTrashedStories(ctx.user.id), String(input.id))) {
+          throw new TRPCError({ code: "CONFLICT", message: "故事已移入回收站，请先恢复后再保存。" });
         }
         // Story not found (e.g. after server restart cleared in-memory state).
         // Fall through to create a new story rather than failing silently.

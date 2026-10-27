@@ -408,6 +408,19 @@ describe("storyAgent tRPC router", () => {
     });
   });
 
+  it("does not recreate a trashed story when an old window autosaves", async () => {
+    const caller = appRouter.createCaller(createAuthContext(9977));
+    const created = await caller.storyAgent.storyUpsert({ title: "原故事" });
+    expect(created).not.toBeNull();
+    await caller.memorySpace.trash({ storyId: created!.id });
+    await expect(caller.storyAgent.storyUpsert({ id: created!.id, title: "旧窗口保存" }))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await caller.storyAgent.storyList()).stories).toHaveLength(0);
+    expect((await caller.memorySpace.trashList()).map(story => story.id)).toEqual([created!.id]);
+    await caller.memorySpace.restore({ storyId: created!.id });
+    expect((await caller.storyAgent.storyGet({ id: created!.id }))?.title).toBe("原故事");
+  });
+
   it("creates, lists, loads, updates, and deletes stories for the current user", async () => {
     const caller = appRouter.createCaller(createAuthContext(99));
 

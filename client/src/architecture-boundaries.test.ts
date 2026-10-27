@@ -215,6 +215,9 @@ describe("architecture boundaries", () => {
     "memoryWarehouse.list",
     // Account bookshelf takes no input; ownership comes only from authentication.
     "memorySpace.list",
+    // Trash has no input; image library accepts pagination only. Both use ctx.user.
+    "memorySpace.trashList",
+    "storyAgent.accountImages",
   ]);
 
   // `utils.a.b.invalidate()` / `.invalidate(undefined)` / `.invalidate({})` all

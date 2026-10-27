@@ -1,5 +1,5 @@
 /** Persistence operations for stories. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, notInArray, sql } from "drizzle-orm";
 import {
   normalizePublishingDraftState,
   resolvePublishingDisplayCoverAssetId,
@@ -27,6 +27,7 @@ import {
 } from "./runtime";
 import { emptyBody, persistedStoryBodyRevision } from "./storyValues";
 import { capturePersonalMemoryEvent } from "./memoryEvents";
+import { readTrashedStories } from "./storyTrashState";
 
 // ─── Story ──────────────────────────────────────────────────────────────
 //
@@ -186,10 +187,11 @@ export async function listRecentUserStoryBodies(
 export async function listUserStories(
   userId: number
 ): Promise<StoryListItem[]> {
+  const trashed = await readTrashedStories(userId);
   const db = await getDb();
   if (!db) {
     const rows = memoryState.stories
-      .filter(s => s.userId === userId)
+      .filter(s => s.userId === userId && !Object.hasOwn(trashed, String(s.id)))
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .map(row => ({ row, coverAssetId: storyCoverAssetId(row.body) }));
     const coverIds = new Set(
@@ -206,7 +208,8 @@ export async function listUserStories(
   const rows = await db
     .select()
     .from(stories)
-    .where(eq(stories.userId, userId))
+    .where(and(eq(stories.userId, userId),
+      Object.keys(trashed).length ? notInArray(stories.id, Object.keys(trashed).map(Number)) : undefined))
     .orderBy(desc(stories.updatedAt));
   const storyRows = rows.map(row => ({
     row,
@@ -272,17 +275,19 @@ export async function listUserStorySummariesPage(
 }> {
   const pageSize = Math.max(1, Math.min(100, Math.trunc(limit)));
   const start = Math.max(0, Math.trunc(offset));
+  const trashed = await readTrashedStories(userId);
   const db = await getDb();
   const rows = db
     ? await db
         .select({ id: stories.id, title: stories.title })
         .from(stories)
-        .where(eq(stories.userId, userId))
+        .where(and(eq(stories.userId, userId),
+          Object.keys(trashed).length ? notInArray(stories.id, Object.keys(trashed).map(Number)) : undefined))
         .orderBy(desc(stories.updatedAt), desc(stories.id))
         .limit(pageSize + 1)
         .offset(start)
     : memoryState.stories
-        .filter(story => story.userId === userId)
+        .filter(story => story.userId === userId && !Object.hasOwn(trashed, String(story.id)))
         .sort(
           (left, right) =>
             right.updatedAt.getTime() - left.updatedAt.getTime() ||
@@ -298,6 +303,14 @@ export async function listUserStorySummariesPage(
 }
 
 export async function getStoryById(
+  id: number,
+  userId: number
+): Promise<Story | null> {
+  if (Object.hasOwn(await readTrashedStories(userId), String(id))) return null;
+  return getStoryByIdIncludingTrash(id, userId);
+}
+
+export async function getStoryByIdIncludingTrash(
   id: number,
   userId: number
 ): Promise<Story | null> {

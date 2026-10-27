@@ -5,6 +5,7 @@ import { listAccountImages, latestStoryImageUrls } from "./accountImages";
 const state = vi.hoisted(() => ({
   stories: [] as Story[],
   generatedImages: [] as GeneratedImage[],
+  accountMemorySpaces: [] as { userId: number; state: { trashedStories: Record<string, number> } }[],
 }));
 vi.mock("./runtime", () => ({
   getDb: async () => null,
@@ -30,8 +31,18 @@ beforeEach(() => {
     { id: 3, userId: 7, title: "故事三" },
   ] as Story[];
   state.generatedImages = [];
+  state.accountMemorySpaces = [];
 });
 describe("account image library", () => {
+  it("hides trashed story images and restores them without deleting assets", async () => {
+    state.generatedImages = [picture(1, 1, 7), picture(2, 3, 7)];
+    state.accountMemorySpaces = [{ userId: 7, state: { trashedStories: { "1": 1000 } } }];
+    expect((await listAccountImages(7)).items.map(image => image.id)).toEqual([2]);
+    expect([...await latestStoryImageUrls(7)]).toEqual([[3, "/image-2.png"]]);
+    expect(state.generatedImages).toHaveLength(2);
+    state.accountMemorySpaces[0].state.trashedStories = {};
+    expect((await listAccountImages(7)).items.map(image => image.id)).toEqual([2, 1]);
+  });
   it("requires both story and image ownership, allows owned legacy and unassigned images", async () => {
     state.generatedImages = [
       picture(1, 1, 7),

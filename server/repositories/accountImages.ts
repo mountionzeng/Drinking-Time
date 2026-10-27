@@ -1,6 +1,7 @@
-import { and, desc, eq, isNull, lt, or, max } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, max, notInArray } from "drizzle-orm";
 import { generatedImages, stories } from "../../drizzle/schema";
 import { ensureMemoryLoaded, getDb, memoryState } from "./runtime";
+import { readTrashedStories } from "./storyTrashState";
 
 /** 账号只读图库：包含历史候选，按 ID 游标分页，不限制故事数量。 */
 export async function listAccountImages(
@@ -8,6 +9,8 @@ export async function listAccountImages(
   before?: number,
   limit = 24
 ) {
+  const trashed = await readTrashedStories(userId);
+  const trashedIds = Object.keys(trashed).map(Number);
   const db = await getDb();
   const fields = {
     id: generatedImages.id,
@@ -33,6 +36,7 @@ export async function listAccountImages(
           or(
             and(
               eq(stories.userId, userId),
+              trashedIds.length ? notInArray(stories.id, trashedIds) : undefined,
               or(
                 eq(generatedImages.userId, userId),
                 isNull(generatedImages.userId)
@@ -52,7 +56,7 @@ export async function listAccountImages(
     await ensureMemoryLoaded();
     const ownedStories = new Map(
       memoryState.stories
-        .filter(story => story.userId === userId)
+        .filter(story => story.userId === userId && !Object.hasOwn(trashed, String(story.id)))
         .map(story => [story.id, story.title])
     );
     rows = memoryState.generatedImages
@@ -83,11 +87,13 @@ export async function listAccountImages(
 export async function latestStoryImageUrls(
   userId: number
 ): Promise<Map<number, string>> {
+  const trashed = await readTrashedStories(userId);
+  const trashedIds = Object.keys(trashed).map(Number);
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
     const owned = new Set(
-      memoryState.stories.filter(s => s.userId === userId).map(s => s.id)
+      memoryState.stories.filter(s => s.userId === userId && !Object.hasOwn(trashed, String(s.id))).map(s => s.id)
     );
     const result = new Map<number, string>();
     for (const image of [...memoryState.generatedImages].sort(
@@ -111,6 +117,7 @@ export async function latestStoryImageUrls(
     .where(
       and(
         eq(stories.userId, userId),
+        trashedIds.length ? notInArray(stories.id, trashedIds) : undefined,
         or(eq(generatedImages.userId, userId), isNull(generatedImages.userId))
       )
     )

@@ -22,7 +22,7 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
   {
     id: "editing",
     label: "视频",
-    illustrationSrc: "/shiguang/nav-export-v2.svg",
+    illustrationSrc: "/shiguang/nav-video-watercolor.png",
   },
 ];
 

@@ -27,6 +27,7 @@ export const memorySpaceStateSchema = z.object({
   shelfView: memoryShelfViewSchema.default("vertical"),
   bookViews: z.record(z.string(), memoryShelfViewSchema).default({}),
   activity: z.record(z.string(), activitySchema).default({}),
+  trashedStories: z.record(z.string(), z.number().nonnegative()).default({}),
   shelves: z
     .array(
       z.object({
@@ -58,6 +59,7 @@ export const emptyMemorySpace = (): MemorySpaceState => ({
   shelfView: "vertical",
   bookViews: {},
   activity: {},
+  trashedStories: {},
   shelves: [],
   seenStories: {},
   people: [],
@@ -81,7 +83,11 @@ export const memorySpaceOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("removePerson"), id }),
   z.object({ kind: z.literal("addShelf"), id, name }),
   z.object({ kind: z.literal("renameShelf"), id, name }),
-  z.object({ kind: z.literal("removeShelf"), id }),
+  z.object({
+    kind: z.literal("removeShelf"),
+    id,
+    views: z.record(z.string(), memoryShelfViewSchema).optional(),
+  }),
   z.object({
     kind: z.literal("moveShelf"),
     id,
@@ -92,6 +98,7 @@ export const memorySpaceOperationSchema = z.discriminatedUnion("kind", [
     storyId: z.number().int().positive(),
     shelfId: id.nullable(),
     beforeStoryId: z.number().int().positive().nullable(),
+    view: memoryShelfViewSchema.optional(),
   }),
   z.object({
     kind: z.literal("savePerson"),

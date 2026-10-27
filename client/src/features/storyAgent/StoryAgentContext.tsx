@@ -1,3 +1,4 @@
+import { useStoryTrashEvents } from "./useStoryTrashEvents";
 /**
  * StoryAgentContext — shared store for chat messages, cards, and generated scripts
  *
@@ -1060,7 +1061,7 @@ export function StoryAgentProvider({
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyAutoRenameMut = trpc.storyAgent.storyAutoRename.useMutation();
   const storyRenameMut = trpc.storyAgent.storyRename.useMutation();
-  const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
+  const storyDeleteMut = trpc.memorySpace.trash.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
   const proposeGapTransitionMut =
@@ -2800,6 +2801,8 @@ export function StoryAgentProvider({
     setActiveSelection(null);
   }, [setPublishing]);
 
+  useStoryTrashEvents(clearCurrentStory, setActiveStoryId, refreshStoryList);
+
   const loadStory = useCallback(
     async (
       id: number,
@@ -3128,19 +3131,24 @@ export function StoryAgentProvider({
   const handleDeleteStory = useCallback(
     async (id: number) => {
       try {
-        await storyDeleteMut.mutateAsync({ id });
+        await storyDeleteMut.mutateAsync({ storyId: id });
         if (activeStoryId === id) {
+          storySpineStore.getState().beginStoryLoad();
           clearCurrentStory();
           setActiveStoryId(null);
         }
-        await refreshStoryList();
-        toast.success("故事已删除");
+        await Promise.allSettled([
+          refreshStoryList(),
+          utils.memorySpace.list.invalidate(),
+          utils.storyAgent.accountImages.invalidate(),
+        ]);
+        toast.success("故事已移入回收站");
       } catch (error) {
         console.error("deleteStory failed", error);
         toast.error("删除失败");
       }
     },
-    [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList]
+    [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList, utils]
   );
 
   const persistVisualCanvas = useCallback(

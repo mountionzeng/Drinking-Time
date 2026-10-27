@@ -124,6 +124,29 @@
   gap: 6px;
   align-items: center;
 }
+.memory-shelf-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.memory-remove-shelf {
+  min-height: 36px;
+  padding: 4px 8px;
+  color: var(--shelf-ink);
+  font-size: 12px;
+  border-radius: 4px;
+}
+.memory-remove-shelf:hover {
+  background: color-mix(in srgb, var(--shelf-ink) 10%, transparent);
+}
+.memory-trash-link, .memory-trash-action {
+  min-height: 44px;
+  color: var(--shelf-ink);
+  font-size: 12px;
+}
+.memory-trash-action { width: 100%; text-align: center; margin-top: 8px; }
+.memory-trash-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.memory-trash-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--shelf-line); padding: 8px 0; }
 .memory-shelf-actions button,
 .memory-book-arrange button {
   min-width: 32px;
@@ -513,6 +536,14 @@
     #263b2810 210px,
     transparent 219px 236px
   );
+}
+/* The illustrated bookcase stays behind the independently arranged books. */
+[data-visual-theme="shiguang"] .memory-shelves:not([data-organizing="true"]) .memory-book-row {
+  background-image: url("/shiguang/memory-bookshelf-watercolor.png");
+  background-size: 100% 300px;
+  background-position: left -30px;
+  background-repeat: no-repeat;
+  padding-bottom: 16px;
 }
 .memory-book-stack {
   display: flex;
@@ -1057,6 +1088,12 @@
 .memory-space [data-drop-target="true"] {
   outline: 2px solid var(--nayin-accent, #648368);
   outline-offset: 2px;
+}
+.memory-book-item[draggable="true"] .memory-book {
+  cursor: grab;
+}
+.memory-book-item[draggable="true"] .memory-book:active {
+  cursor: grabbing;
 }
 .memory-space[data-held-book] .memory-book {
   cursor: grabbing;

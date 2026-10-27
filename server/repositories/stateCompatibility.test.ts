@@ -75,6 +75,28 @@ describe("local state schema compatibility", () => {
     expect(JSON.parse(await readFile(file, "utf8")).accountMemorySpaces).toEqual([row]);
   });
 
+  it("restores a trashed story after local persistence is reloaded", async () => {
+    vi.resetModules();
+    const file = persistPath + ".story-trash";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    await writeFile(file, "{}");
+    let runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    const testing = await import("./testing");
+    testing.seedStoryForTesting({ id: 71, userId: 8, title: "可恢复的故事" });
+    const memory = await import("./memorySpace");
+    await memory.trashMemoryStory(8, 71);
+    expect(JSON.parse(await readFile(file, "utf8")).accountMemorySpaces[0].state.trashedStories["71"]).toBeTypeOf("number");
+    vi.resetModules();
+    runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    const reloaded = await import("./memorySpace");
+    expect((await reloaded.listTrashedMemoryStories(8)).map(story => story.id)).toEqual([71]);
+    await reloaded.restoreMemoryStory(8, 71);
+    expect((await reloaded.listMemorySpace(8)).books.map(story => story.id)).toEqual([71]);
+  });
+
   it("reloads public feedback with dates, tags and reward recovery status intact", async () => {
     vi.resetModules();
     const file = persistPath + ".feedback";

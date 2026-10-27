@@ -497,11 +497,13 @@ export function MobileWorkspaceFrame({
 export function MobileEmptyState({
   onCreateStory,
   onOpenImages,
+  onOpenTrash,
   creating = false,
   error = null,
 }: {
   onCreateStory?: () => void;
   onOpenImages?: () => void;
+  onOpenTrash?: () => void;
   creating?: boolean;
   error?: string | null;
 }) {
@@ -535,6 +537,7 @@ export function MobileEmptyState({
           {t("查看全部图片")}
         </button>
       )}
+      {onOpenTrash && <button className="mt-3 min-h-11 text-sm text-primary" onClick={onOpenTrash}>回收站</button>}
       {error ? (
         <p className="mt-3 text-sm text-destructive" role="alert">
           {error}
@@ -913,9 +916,26 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
   const [page, setPage] = useState<MobilePage>("stories");
   const [storyOpen, setStoryOpen] = useState(false);
   const [emptyImagesOpen, setEmptyImagesOpen] = useState(false);
+  const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
   const [stages, setStages] = useState<Record<number, MobileStoryStage>>({});
   const coldEntryResolvedRef = useRef(false);
   const stories = (storyListQuery.data?.stories ?? []) as MobileStorySummary[];
+  useEffect(() => {
+    const onStoryTrashed = (event: Event) => {
+      const id = (event as CustomEvent<{ storyId: number }>).detail?.storyId;
+      setActiveStoryId(current => current === id ? resolveMobileInitialStoryId(stories.filter(story => story.id !== id)) : current);
+    };
+    const onStoryRestored = (event: Event) => {
+      const id = (event as CustomEvent<{ storyId: number }>).detail?.storyId;
+      if (id) setActiveStoryId(current => current ?? id);
+    };
+    window.addEventListener("dt:story-trashed", onStoryTrashed);
+    window.addEventListener("dt:story-restored", onStoryRestored);
+    return () => {
+      window.removeEventListener("dt:story-trashed", onStoryTrashed);
+      window.removeEventListener("dt:story-restored", onStoryRestored);
+    };
+  }, [stories]);
 
   async function openStory(storyId: number, targetStage?: MobileStoryStage) {
     // 图库可能已读到另一台设备新建的故事，而首页列表仍是旧缓存。
@@ -1011,7 +1031,9 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
         activeView={activeView}
         onViewChange={setActiveView}
       >
-        {emptyImagesOpen ? (
+        {emptyTrashOpen ? (
+          <MobileContentLibrary stage="memory" stories={[]} initialTrashOpen onBack={() => setEmptyTrashOpen(false)} onOpenStory={storyId => void openStory(storyId, "text")} />
+        ) : emptyImagesOpen ? (
           <MobileContentLibrary
             stage="image"
             stories={[]}
@@ -1024,6 +1046,7 @@ function MobileWorkspaceContent({ userId }: { userId: number }) {
             error={createError}
             onCreateStory={() => void createStory()}
             onOpenImages={() => setEmptyImagesOpen(true)}
+            onOpenTrash={() => setEmptyTrashOpen(true)}
           />
         )}
       </MobileWorkspaceFrame>

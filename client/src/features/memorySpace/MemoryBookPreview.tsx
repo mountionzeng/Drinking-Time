@@ -111,9 +111,11 @@ export function MemoryBookCover({
   onViewChange,
   placementOpen,
   onPlacementOpenChange,
+  onTrash,
 }: {
   placementOpen?: boolean;
   onPlacementOpenChange?: (open: boolean) => void;
+  onTrash: () => void;
   book: MemoryBook;
   onRead: () => void;
   onViewChange: (view: MemoryShelfView | null) => void;
@@ -201,6 +203,9 @@ export function MemoryBookCover({
           <button className="memory-preview-read" onClick={onRead}>
             翻开故事
             <ArrowUpRight size={16} />
+          </button>
+          <button type="button" className="memory-trash-action" onClick={onTrash}>
+            删除故事
           </button>
         </PopoverContent>
       </Popover>

@@ -10,6 +10,7 @@ import {
 } from "../shared/publishingDraft";
 import { projectMemoryStory } from "./services/memorySpaceProjection";
 import { booksOnShelf } from "../shared/memorySpace";
+import { getStoryById, listUserStories } from "./repositories/stories";
 import { readFile } from "node:fs/promises";
 const caller = (id: number | null) =>
   memorySpaceRouter.createCaller({
@@ -35,6 +36,45 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("账号回忆书架", () => {
+  it("moves an owned story to recoverable trash and restores its shelf and content", async () => {
+    seed(1);
+    seed(2);
+    const shelfId = randomUUID();
+    let space = await a.list();
+    await a.change({ revision: space.revision, operation: { kind: "addShelf", id: shelfId, name: "家人" } });
+    space = await a.list();
+    await a.change({ revision: space.revision, operation: { kind: "moveBook", storyId: 1, shelfId, beforeStoryId: null, view: "album" } });
+    await a.trash({ storyId: 1 });
+    expect((await a.trashList()).map(item => item.id)).toEqual([1]);
+    expect((await a.list()).books.map(book => book.id)).toEqual([2]);
+    expect((await listUserStories(10)).map(story => story.id)).toEqual([2]);
+    expect(await getStoryById(1, 10)).toBeNull();
+    expect(runtime.memoryState.stories.find(story => story.id === 1)).toBeDefined();
+    await expect(b.restore({ storyId: 1 })).rejects.toThrow();
+    await a.restore({ storyId: 1 });
+    space = await a.list();
+    expect(booksOnShelf(space, shelfId).map(book => book.id)).toEqual([1]);
+    expect(space.books.find(book => book.id === 1)?.view).toBe("album");
+    expect((await a.trashList())).toEqual([]);
+    expect(await getStoryById(1, 10)).not.toBeNull();
+  });
+  it("moves a book to another shelf while keeping its displayed orientation", async () => {
+    seed(1);
+    seed(2);
+    const shelfId = randomUUID();
+    let space = await a.list();
+    await a.change({ revision: space.revision, operation: { kind: "addShelf", id: shelfId, name: "新书架" } });
+    space = await a.list();
+    await a.change({ revision: space.revision, operation: { kind: "moveBook", storyId: 1, shelfId, beforeStoryId: null, view: "horizontal" } });
+    space = await a.list();
+    expect(booksOnShelf(space, shelfId).map(book => book.id)).toEqual([1]);
+    expect(space.books.find(book => book.id === 1)?.view).toBe("horizontal");
+    expect(booksOnShelf(space, null).map(book => book.id)).toEqual([2]);
+    await a.change({ revision: space.revision, operation: { kind: "moveBook", storyId: 1, shelfId: null, beforeStoryId: null, view: "horizontal" } });
+    space = await a.list();
+    expect(booksOnShelf(space, shelfId)).toHaveLength(0);
+    expect(space.books.find(book => book.id === 1)?.view).toBe("horizontal");
+  });
   it("moves an edited older story to the front of the default shelf", async () => {
     const newer = seed(1),
       older = seed(2);
@@ -273,8 +313,10 @@ describe("账号回忆书架", () => {
       beforeStoryId: null,
     });
     expect(s.shelves.flatMap(s => s.storyIds).sort()).toEqual([1, 2]);
-    await change({ kind: "removeShelf", id });
+    await change({ kind: "removeShelf", id, views: { "1": "vertical", "2": "album" } });
     expect(booksOnShelf(s, null).map(b => b.id)).toEqual([1]);
+    expect(s.books.find(b => b.id === 1)?.view).toBe("vertical");
+    expect(s.books.find(b => b.id === 2)?.view).toBeUndefined();
     expect(s.books).toHaveLength(2);
     expect(runtime.memoryState.stories).toHaveLength(2);
   });

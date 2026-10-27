@@ -147,6 +147,14 @@ suite("回忆书架 MySQL", () => {
         const bound = await run({});
         expect(bound.books[0].view).toBe("album");
         expect(bound.books[0].activeEditingMs).toBe(15_000);
+        expect(await run({ action: "trash", storyId: story.insertId })).toEqual({ saved: true });
+        expect((await run({})).books).toEqual([]);
+        expect((await run({ action: "trashList" })).map((item: { id: number }) => item.id)).toEqual([story.insertId]);
+        expect(await run({ owner: owner + 1, action: "restore", storyId: story.insertId })).toEqual({ error: "NOT_FOUND" });
+        expect(await run({ action: "restore", storyId: story.insertId })).toEqual({ saved: true });
+        const restored = await run({});
+        expect(restored.books[0].view).toBe("album");
+        expect(restored.shelves[0].storyIds).toContain(story.insertId);
         const [rows] = await db.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS total FROM account_memory_spaces"
         );

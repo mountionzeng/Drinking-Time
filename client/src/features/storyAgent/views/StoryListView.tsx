@@ -393,7 +393,7 @@ export default function StoryListView() {
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (window.confirm('确定删除这个故事吗？')) {
+                  if (window.confirm('把这个故事移入回收站？之后可以恢复。请先保存未保存的修改。')) {
                     deleteStory(story.id);
                   }
                 }}

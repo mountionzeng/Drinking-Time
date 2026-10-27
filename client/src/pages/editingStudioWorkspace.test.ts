@@ -48,7 +48,7 @@ describe("resolveStudioInteractionMode", () => {
     ).toEqual([
       "/shiguang/nav-writing-v2.png",
       "/shiguang/nav-image-sound-v2.png",
-      "/shiguang/nav-export-v2.svg",
+      "/shiguang/nav-video-watercolor.png",
     ]);
   });
 });

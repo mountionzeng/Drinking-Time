@@ -31,11 +31,13 @@ export function MobileContentLibrary({
   stories,
   onBack,
   onOpenStory,
+  initialTrashOpen = false,
 }: {
   stage: MobileLibraryStage;
   stories: readonly MobileStorySummary[];
   onBack: () => void;
   onOpenStory: (id: number, stage?: "text" | "image" | "video") => void;
+  initialTrashOpen?: boolean;
 }) {
   const t = useUiText();
 
@@ -103,6 +105,7 @@ export function MobileContentLibrary({
         ) : (
           <MemorySpace
             mobileGestures
+            initialTrashOpen={initialTrashOpen}
             initialTab={stage === "people" ? "people" : "stories"}
             onOpenStory={openStory}
             onOpenNotes={() => setShowNotes(true)}

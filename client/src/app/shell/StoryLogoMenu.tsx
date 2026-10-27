@@ -300,10 +300,10 @@ export default function StoryLogoMenu({
       >
         {(typeof trigger === "function" ? trigger(awake) : trigger) ?? (visualTheme === "shiguang" ? (
           <img
-            src="/shiguang/nav-materials-v2.png"
+            src="/shiguang/memory-logo.svg"
             alt=""
             aria-hidden="true"
-            className={`h-[4.6rem] w-[4.6rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
+            className={`h-[3.5rem] w-[4.5rem] object-contain transition-transform duration-300 ${awake ? "-translate-y-1 rotate-2 scale-105" : ""}`}
           />
         ) : (
           /* 静置就是一只普通的杯子；鼠标靠近（或键盘聚焦）才长出五官。 */

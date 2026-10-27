@@ -24,7 +24,8 @@ import {
   persistMemoryState,
   withLocalAggregateMutationLock,
 } from "./runtime";
-import { listUserStories, getStoryById } from "./stories";
+import { listUserStories, getStoryById, getStoryByIdIncludingTrash } from "./stories";
+import { readTrashedStories } from "./storyTrashState";
 import { projectMemoryStory } from "../services/memorySpaceProjection";
 
 const conflict = () =>
@@ -44,10 +45,11 @@ type Link = {
 };
 async function sourceData(owner: number) {
   const db = await getDb();
+  const trashed = await readTrashedStories(owner);
   const rows: Story[] = [];
   const links: Link[] = [];
   if (!db) {
-    rows.push(...memoryState.stories.filter(row => row.userId === owner));
+    rows.push(...memoryState.stories.filter(row => row.userId === owner && !Object.hasOwn(trashed, String(row.id))));
     for (const share of [
       ...memoryState.storyContextShares,
       ...memoryState.artworkShares,
@@ -88,7 +90,7 @@ async function sourceData(owner: number) {
         .where(and(eq(stories.userId, owner), gt(stories.id, after)))
         .orderBy(asc(stories.id))
         .limit(100);
-      rows.push(...page);
+      rows.push(...page.filter(row => !Object.hasOwn(trashed, String(row.id))));
       if (page.length < 100) break;
       after = page[page.length - 1].id;
     }
@@ -138,6 +140,10 @@ async function sourceData(owner: number) {
   rows.sort(
     (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id
   );
+  const visibleStoryIds = new Set(rows.map(row => row.id));
+  for (let index = links.length - 1; index >= 0; index--) {
+    if (!visibleStoryIds.has(links[index].storyId)) links.splice(index, 1);
+  }
   const projected = rows.map(row => ({ row, ...projectMemoryStory(row) }));
   for (const book of projected)
     for (const person of book.accounts)
@@ -289,6 +295,10 @@ export function applyMemoryOperation(
       shelf!.name = op.name;
       break;
     case "removeShelf":
+      for (const storyId of shelf?.storyIds ?? []) {
+        const view = op.views?.[String(storyId)];
+        if (view) state.bookViews[storyId] = view;
+      }
       state.shelves = state.shelves.filter(s => s.id !== op.id);
       break;
     case "moveShelf": {
@@ -359,6 +369,7 @@ export function applyMemoryOperation(
           0,
           op.storyId
         );
+      if (op.view) state.bookViews[op.storyId] = op.view;
       break;
     }
     case "savePerson": {
@@ -474,6 +485,37 @@ export async function changeMemorySpace(
   });
   return { saved: true as const };
 }
+
+/** Trash only changes the account's visibility state; story contents and shelf positions stay intact. */
+export async function trashMemoryStory(owner: number, storyId: number) {
+  if (!(await getStoryByIdIncludingTrash(storyId, owner)))
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+  await editSpace(owner, state => {
+    state.trashedStories[String(storyId)] ??= Date.now();
+  });
+  return { saved: true as const };
+}
+
+export async function restoreMemoryStory(owner: number, storyId: number) {
+  if (!(await getStoryByIdIncludingTrash(storyId, owner)))
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+  await editSpace(owner, state => {
+    if (!Object.hasOwn(state.trashedStories, String(storyId)))
+      throw new TRPCError({ code: "NOT_FOUND", message: "回收站中没有这本故事" });
+    delete state.trashedStories[String(storyId)];
+  });
+  return { saved: true as const };
+}
+
+export async function listTrashedMemoryStories(owner: number) {
+  const trash = await readTrashedStories(owner);
+  const items = await Promise.all(Object.entries(trash).map(async ([id, trashedAt]) => {
+    const story = await getStoryByIdIncludingTrash(Number(id), owner);
+    return story ? { id: story.id, title: story.title, trashedAt } : null;
+  }));
+  return items.filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((a, b) => b.trashedAt - a.trashedAt);
+}
 export async function readMemoryBook(owner: number, storyId: number) {
   const story = await getStoryById(storyId, owner);
   if (!story)
@@ -488,7 +530,11 @@ export async function markMemoryBookSeen(
   const { result } = await editSpace(owner, async state => {
     // Re-read after acquiring the account lock so a delayed acknowledgement
     // cannot overwrite another device's acknowledgement of a newer version.
-    const current = await readMemoryBook(owner, storyId);
+    if (Object.hasOwn(state.trashedStories, String(storyId)))
+      throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+    const story = await getStoryByIdIncludingTrash(storyId, owner);
+    if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+    const current = projectMemoryStory(story).reading;
     if (current.fingerprint !== fingerprint) return { saved: false };
     state.seenStories[storyId] = fingerprint;
     return { saved: true };

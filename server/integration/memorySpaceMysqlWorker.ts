@@ -4,6 +4,9 @@ import {
   changeMemorySpace,
   readMemoryBook,
   markMemoryBookSeen,
+  trashMemoryStory,
+  restoreMemoryStory,
+  listTrashedMemoryStories,
 } from "../repositories/memorySpace";
 const input = JSON.parse(Buffer.from(process.argv[2], "base64url").toString());
 try {
@@ -13,7 +16,13 @@ try {
       setTimeout(resolve, Math.max(0, input.startAt - Date.now()))
     );
   const result =
-    input.action === "activity"
+    input.action === "trash"
+      ? await trashMemoryStory(input.owner, input.storyId)
+      : input.action === "restore"
+        ? await restoreMemoryStory(input.owner, input.storyId)
+        : input.action === "trashList"
+          ? await listTrashedMemoryStories(input.owner)
+    : input.action === "activity"
       ? await recordMemoryActivity(input.owner, input)
       : input.action === "change"
         ? await changeMemorySpace(input.owner, input.revision, input.operation)

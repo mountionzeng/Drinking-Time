@@ -1580,6 +1580,21 @@ select option {
   margin: -0.75rem -0.15rem -0.7rem -0.55rem;
 }
 
+[data-visual-theme="shiguang"] nav[aria-label="剪辑面板切换"] .shiguang-nav-illustration {
+  transform-origin: center;
+  transition: transform 180ms ease;
+}
+
+[data-visual-theme="shiguang"] nav[aria-label="剪辑面板切换"] .shiguang-toolbar-button:is(:hover, :focus-visible, [aria-pressed="true"], [aria-expanded="true"]) .shiguang-nav-illustration {
+  transform: scale(1.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-visual-theme="shiguang"] nav[aria-label="剪辑面板切换"] .shiguang-nav-illustration {
+    transition: none;
+  }
+}
+
 [data-visual-theme="shiguang"] .shiguang-action-illustration {
   width: 2.7rem;
   height: 2.7rem;
