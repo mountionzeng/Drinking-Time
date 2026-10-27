@@ -8138,6 +8138,11 @@
           "date": "2026-10-27",
           "kind": "fix",
           "summary": "Reuse chapter snapshots in both surfaces: inline read-only text history and redline comparison stay in the text workspace; image comparisons show image roles and layout without duplicating prose. Removed cross-surface navigation event; no database changes. 34 focused tests, typecheck/build passed."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Moved the existing text version button and comparison above the long body editor after user could not find the below-body entry. No duplicate button or API change. 25 targeted tests, typecheck and build passed."
         }
       ]
     },

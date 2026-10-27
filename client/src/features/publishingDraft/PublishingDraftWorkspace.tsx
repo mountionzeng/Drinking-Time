@@ -1991,6 +1991,9 @@ export default function PublishingDraftWorkspace({
                     <Clipboard className="h-4 w-4" />
                     复制文案
                   </ActionButton>
+                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => setTextVersionsOpen(open => !open)}>
+                      版本与修改
+                    </ActionButton> : null}
                   {dirty ? (
                     <ActionButton onClick={discardChanges} disabled={busy}>
                       <Undo2 className="h-4 w-4" />
@@ -2071,6 +2074,8 @@ export default function PublishingDraftWorkspace({
                   ) : null}
                 </div>
               </header>
+                {textVersionsOpen && chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 && view !== "images" ? <ChapterTextVersions key={activeStoryId} storyId={activeStoryId} /> : null}
+
 
               {legacyPublishingControlsVisible && trendPlatform && platformContext ? (
                 <PublishingTrendTagPicker
@@ -2280,9 +2285,6 @@ export default function PublishingDraftWorkspace({
 
                 {view !== "images" ? (
                   <div className="mt-6 flex justify-end gap-2">
-                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => setTextVersionsOpen(open => !open)}>
-                      版本与修改
-                    </ActionButton> : null}
                     {onOpenImages && editorContent.body.trim() ? <ActionButton onClick={onOpenImages} primary>
                       <ImagePlus className="h-4 w-4" aria-hidden="true" />
                       配图
@@ -2290,7 +2292,6 @@ export default function PublishingDraftWorkspace({
                   </div>
                 ) : null}
 
-                {textVersionsOpen && chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 && view !== "images" ? <ChapterTextVersions key={activeStoryId} storyId={activeStoryId} /> : null}
                 </div>
                 <div hidden={view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
