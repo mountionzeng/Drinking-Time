@@ -8023,14 +8023,17 @@
         "client/src/features/memorySpace/MemorySpace.tsx",
         "client/src/features/storyAgent/StoryAgentContext.tsx",
         "client/src/features/mobileWorkspace/MobileWorkspace.tsx",
-        "server/routers/storyAgent.ts"
+        "server/routers/storyAgent.ts",
+        "client/src/features/storyAgent/useStoryTrashEvents.ts"
       ],
       "evidence": [
         "server/routers.memorySpace.test.ts",
         "server/repositories/stateCompatibility.test.ts",
         "server/integration/memorySpace.mysql.test.ts",
         "docs/qa/2026-10-27-story-trash.md",
-        "server/routers.storyAgent.test.ts"
+        "server/routers.storyAgent.test.ts",
+        "server/repositories/accountImages.test.ts",
+        "docs/qa/2026-10-27-bookshelf-trash-release.md"
       ],
       "invariants": [
         "移入回收站不删除故事、正文、版本、素材、书架顺序或摆放；恢复后重现原层，原层不存在时归入默认层。",
@@ -8045,14 +8048,19 @@
       "replaces": [],
       "knownGaps": [
         "已有分享链接或独立分享快照不会因移入回收站自动撤销。",
-        "尚未上线；正式站双账号与手机真机尚未验收。",
-        "上线时不可让旧版服务继续写入回忆空间，否则旧版解析器可能丢弃回收站字段。"
+        "已部署；正式站双账号写入恢复与手机真机仍待验收，浏览器两端入口和读取已验证。",
+        "旧版解析器不保留回收站字段；上线采用单实例停止/重启，后续不得直接回滚到旧解析器。"
       ],
       "history": [
         {
           "date": "2026-10-27",
           "kind": "feature",
           "summary": "按用户选择新增可恢复回收站与两端入口，保留故事、素材及原书架；桌面和手机空列表分别用虚构数据实测，本地重启和隔离MySQL恢复、账号隔离及相关回归通过。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "verification",
+          "summary": "93ec6ca7 已推送 main 并部署，保留线上章节/登录增量；99 运行文件与公网新资源哈希匹配，MySQL readiness正常。浏览器电脑和手机入口均成功打开回收站；隔离MySQL跨进程恢复及账号隔离通过。全量5700通过、9项基线失败已复现；迁移测试旧数量断言仍待修。"
         }
       ]
     }
