@@ -1,3 +1,5 @@
+import { ChapterTextModules } from "./ChapterTextModules";
+import type { TextPosition } from "./moduleTextEditing";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Chapter } from "./useChapters";
@@ -10,7 +12,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   chapter: Chapter; scope: string; handle: MutableRefObject<ChapterWritingHandle | null>;
   save(draft: Draft): Promise<void>; onChange(draft: Draft): void; disabled: boolean;
 }) {
-  const editor = useRef<HTMLTextAreaElement>(null);
+  const selection = useRef<TextPosition | null>(null);
   const key = `chapter-writing:${scope}:${chapter.id}`;
   const [draft, setDraft] = useState<Draft>(() => {
     try {
@@ -49,12 +51,12 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   }
   return <section aria-label="章节写作" className="space-y-4">
     <DesktopWritingContext storyId={chapter.storyId} getSnapshot={() => {
-      const start = editor.current?.selectionStart ?? draft.body.length;
-      const end = editor.current?.selectionEnd ?? start;
+      const start = selection.current?.start ?? draft.body.length;
+      const end = selection.current?.end ?? start;
       return { draft: draft.body, cursor: start, ...(end > start ? { selection: { start, end } } : {}), scope: `${scope}:chapter:${chapter.id}:${chapter.version}` };
     }} />
     <label className="block text-sm">标题<input aria-label="章节标题" maxLength={200} disabled={disabled || saving} className="mt-2 w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} /></label>
-    <label className="block text-sm">正文<textarea ref={editor} onSelect={() => window.dispatchEvent(new Event("dt:writing-selection-change"))} aria-label="章节正文" maxLength={200000} disabled={disabled || saving} className="mt-2 min-h-[360px] w-full resize-y bg-transparent text-base leading-8 outline-none" value={draft.body} onChange={e => update({ ...draft, body: e.target.value })} placeholder="直接写下这一章…" /></label>
+    <ChapterTextModules value={draft.body} selection={selection} disabled={disabled || saving} onChange={body => update({ ...draft, body })} />
     <details><summary className="cursor-pointer text-xs text-muted-foreground">修改说明（选填）</summary><textarea aria-label="修改说明（选填）" maxLength={500} disabled={disabled || saving} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draft, changeNote: e.target.value })} placeholder="由你自己填写；留空就不显示。" /></details>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <div className="flex items-center gap-3"><button disabled={disabled || saving || !dirty} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40" onClick={() => void prepare().catch(cause => setError(cause instanceof Error ? cause.message : '保存失败'))}>保存章节</button><span role="status" className="text-xs text-muted-foreground">{dirty ? '未保存 · 草稿保留在本机' : '已保存'}</span></div>

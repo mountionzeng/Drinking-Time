@@ -8082,7 +8082,9 @@
         "server/repositories/chapters.ts",
         "server/services/chapterPackageService.ts",
         "client/src/features/publishingAlbum/useChapters.ts",
-        "client/src/features/publishingAlbum/chapterSaveQueue.ts"
+        "client/src/features/publishingAlbum/chapterSaveQueue.ts",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx",
+        "client/src/features/publishingAlbum/moduleTextEditing.ts"
       ],
       "evidence": [
         "server/routers.chapters.test.ts",
@@ -8098,7 +8100,8 @@
         "docs/handoff/2026-10-23-web-chapters.md",
         "docs/qa/2026-10-27-web-version-parity.md",
         "client/src/features/publishingAlbum/ChapterTextVersions.test.tsx",
-        "client/src/features/publishingAlbum/ChapterWriting.test.tsx"
+        "client/src/features/publishingAlbum/ChapterWriting.test.tsx",
+        "client/src/features/publishingAlbum/ChapterTextModules.test.tsx"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8162,6 +8165,11 @@
           "date": "2026-10-27",
           "kind": "refactor",
           "summary": "Unified text and image layout around one chapter workspace. Chapter selector/history live inside layout; text writes directly with account/story/chapter local draft recovery and optional author-written note. Read-only inline comparisons include unsaved text; explicit adoption saves the current draft first. Removed platform/chapter switch and top-level video tab (video creation remains reachable from images). Legacy platform layout lookup removes chapter-only fitOverflowText. 131 targeted tests, typecheck and build passed. Production fictional-story tests confirmed unsaved red-vs-blue diff, adoption preserves the red draft as history 27, and chapter 2 stays selected across text/image views. No paid AI calls or schema change."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "feature",
+          "summary": "Text editor now presents each newline-delimited paragraph as a text module, with auto-growing inputs. Enter splits at selection, pasted newlines split modules, Backspace/Delete merge boundaries, and keyboard undo/redo retains up to 50 edits. Chinese IME Enter is not intercepted while composing. Chat selection is translated to whole-chapter offsets; saves/history use the same body and existing stable block IDs. 30 targeted tests, tsc, build passed. Production fictional story tested Enter focus, undo/redo, save/reload, history diff and Backspace merge; added test paragraph removed from current draft. No AI calls."
         }
       ]
     },

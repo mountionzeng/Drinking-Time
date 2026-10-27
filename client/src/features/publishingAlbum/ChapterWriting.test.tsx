@@ -24,12 +24,12 @@ describe('chapter writing', () => {
     const create = React.createElement;
     let change: any, submit: any;
     vi.spyOn(React, 'createElement').mockImplementation(((type: any, props: any, ...children: any[]) => {
-      if (type === 'textarea' && props?.['aria-label'] === '章节正文') change = props.onChange;
+      if (type === 'textarea' && props?.['aria-label'] === '文字模块 1') change = props.onChange;
       if (type === 'button') submit = props.onClick;
       return create(type, props, ...children);
     }) as typeof React.createElement);
     renderToStaticMarkup(<ChapterWriting chapter={chapter} scope="account9:story1" handle={{ current: null }} save={save} onChange={vi.fn()} disabled={false} />);
-    change({ target: { value: '未保存修改' } });
+    change({ currentTarget: { value: '未保存修改', selectionStart: 5 } });
     submit();
     await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ title: '标题', body: '未保存修改' }));
     expect(cache.get('chapter-writing:account9:story1:2')).toContain('未保存修改');
