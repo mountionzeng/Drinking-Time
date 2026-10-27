@@ -223,7 +223,7 @@ export function PublishingImagePackCanvas({
   generationError,
   onIllustrationsChange,
   mobile = false,
-  initialMobileStep = "preview",
+  initialMobileStep = "layout",
   onPrepareGeneration,
   shareEpoch = 0,
   contentKind = "article",
@@ -280,7 +280,7 @@ export function PublishingImagePackCanvas({
   const key = `publishing-image-pack:${scope}`;
   const localImages = useLocalPackImages(scope);
   const [desktopSection, setDesktopSection] = useState<"images" | "layout">(
-    "images"
+    "layout"
   );
   const [storyGenerate, setStoryGenerate] = useState(false);
   const [addImageOpen, setAddImageOpen] = useState(false);

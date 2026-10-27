@@ -8143,6 +8143,11 @@
           "date": "2026-10-27",
           "kind": "fix",
           "summary": "Moved the existing text version button and comparison above the long body editor after user could not find the below-body entry. No duplicate button or API change. 25 targeted tests, typecheck and build passed."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Default image workspace to layout on desktop and mobile fallback. Preserve explicit image-generation/material entry overrides and manual tab switching. Existing 15 image-pack tests, typecheck and build pass."
         }
       ]
     },
