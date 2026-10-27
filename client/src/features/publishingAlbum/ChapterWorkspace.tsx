@@ -101,6 +101,7 @@ export function ChapterWorkspace({
     kind: "new" | "edit";
     title: string;
     body: string;
+    changeNote?: string;
   } | null>(null);
   const [file, setFile] = useState<
     | (ReturnType<typeof parseChapterFile> & {
@@ -115,11 +116,15 @@ export function ChapterWorkspace({
     current: Chapter;
   } | null>(null);
   const [claimLink, setClaimLink] = useState("");
+  const [changeNote, setChangeNote] = useState("");
+  const [historyComparison, setHistoryComparison] = useState<{
+    version: number; current: Chapter; chapter: Pick<Chapter, "title" | "blocks" | "layout">; imageUrls: Record<string, string>;
+  } | null>(null);
   const [deliveryPanel, setDeliveryPanel] = useState<"send" | "inbox" | null>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("chapterInbox") === "1" ? "inbox" : null);
   const [deliveryRecipient, setDeliveryRecipient] = useState("");
   const [selectedDelivery, setSelectedDelivery] = useState<{
     deliveryId: string; kind: "send" | "return"; status: string;
-    package: { packageId: string; storyTitle: string; sender: { displayName: string }; chapters: Array<{ chapterId: string; title: string; blocks: Array<{ type: string; text?: string }> }> };
+    package: { packageId: string; storyTitle: string; sender: { displayName: string; changeNote?: string }; chapters: Array<{ chapterId: string; title: string; blocks: Array<{ type: string; text?: string }> }> };
     imageUrls: Record<string, string>;
   } | null>(null);
   const deliveryAttempt = useRef<{ kind: "send" | "link" | "return"; requestId: string; package: unknown; images: Array<{ assetId: string; base64: string }>; recipientContactId?: string } | null>(null);
@@ -300,7 +305,7 @@ export function ChapterWorkspace({
   }
   async function createDeliveryAttempt(kind: "send" | "link" | "return") {
     if (!active) throw new Error("请先选择一章");
-    const output = await exportPackage.mutateAsync({ chapterId: active.id });
+    const output = await exportPackage.mutateAsync({ chapterId: active.id, changeNote: changeNote.trim() || undefined });
     if (output.droppedImages || output.missingImageBytes) throw new Error("章节图片未能完整读取，暂未发送。请重新选择缺失图片后重试");
     return { kind, requestId: crypto.randomUUID(), package: output.package, images: output.images };
   }
@@ -377,6 +382,7 @@ export function ChapterWorkspace({
       candidate => candidate.status === "pending"
     ) ?? [];
   const candidate = pending.find(item => item.id === comparison?.id);
+  useEffect(() => { setComparison(null); setHistoryComparison(null); setChangeNote(""); }, [active?.id]);
   useEffect(() => {
     for (const item of candidates.data?.candidates ?? []) {
       if (item.status === "pending") continue;
@@ -563,6 +569,7 @@ export function ChapterWorkspace({
                   expectedVersion: state.version(),
                   title: editing.title,
                   body: editing.body,
+                  changeNote: editing.changeNote?.trim() || "",
                 });
                 await state.refresh();
                 await versions.refetch();
@@ -594,6 +601,7 @@ export function ChapterWorkspace({
           <p className="text-xs text-muted-foreground">
             每行一个正文块。独立改字后，这一章将不再跟随平台稿。
           </p>
+          {editing.kind === "edit" && <label className="block text-sm">修改说明（选填）<textarea aria-label="修改说明（选填）" className={`${field} mt-1 w-full`} maxLength={500} value={editing.changeNote ?? ""} onChange={event => setEditing({ ...editing, changeNote: event.target.value })} placeholder="想说明改了什么，可以自己写；不写也能保存。" /></label>}
           <button className={button} disabled={busy}>
             保存章节
           </button>{" "}
@@ -656,8 +664,9 @@ export function ChapterWorkspace({
               className="flex flex-wrap items-center gap-2 text-sm"
             >
               <span>
-                {item.senderName} 发回了「{item.title}」
+                {item.senderName} 发来的版本 · {new Date(item.createdAt).toLocaleString()} · {item.title}
               </span>
+              {item.blocks.attribution?.changeNote && <p className="w-full text-sm">{item.blocks.attribution.changeNote}</p>}
               <button
                 className={button}
                 disabled={busy}
@@ -670,7 +679,7 @@ export function ChapterWorkspace({
                   })
                 }
               >
-                对照文字与排版
+                打开对比
               </button>
               <button
                 className={button}
@@ -685,7 +694,7 @@ export function ChapterWorkspace({
                   })
                 }
               >
-                忽略
+                删除这条
               </button>
             </div>
           ))}
@@ -714,7 +723,7 @@ export function ChapterWorkspace({
                   })
                 }
               >
-                采用这个版本
+                接受这个版本
               </button>{" "}
               <button className={button} onClick={() => setComparison(null)}>
                 收起
@@ -733,43 +742,35 @@ export function ChapterWorkspace({
             <p className="text-xs text-muted-foreground">显示你参与的最近 200 条收发记录；未接受的修改不会替换当前版本。</p>
           </details>
           {!!versions.data?.length && (
-            <details>
+            <details open>
               <summary className="cursor-pointer text-xs">
-                找回旧版本（最近 {versions.data.length} 版）
+                版本与修改（{versions.data.length} 个历史版本）
               </summary>
               <ul className="space-y-2 py-2">
                 {versions.data.map(version => (
-                  <li key={version.version} className="flex gap-2 text-xs">
+                  <li key={version.version} className="flex flex-wrap items-center gap-2 border-b py-3 text-sm">
                     <span>
-                      版本 {version.version} · {version.title} · {version.attribution ? `${version.attribution.editorName} · ${{created:"创作",edited:"编辑",received:"收到的版本",restored:"恢复"}[version.attribution.action]}` : "旧版本未记录编辑者"}
+                      {version.attribution?.editorName || "未记录编辑者"} · {new Date(version.createdAt).toLocaleString()} · 版本 {version.version}
                     </span>
-                    <button
-                      className={button}
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `恢复版本 ${version.version}？当前版本也会保留。`
-                          )
-                        )
-                          void run(async () => {
-                            await restore.mutateAsync({
-                              chapterId: active.id,
-                              version: version.version,
-                              expectedVersion: state.version(),
-                            });
-                            await state.refresh();
-                            await versions.refetch();
-                          });
-                      }}
-                    >
-                      恢复
-                    </button>
+                    {version.attribution?.changeNote && <p className="w-full">{version.attribution.changeNote}</p>}
+                    <button className={button} disabled={busy} onClick={() => void run(async () => {
+                      const old = await utils.chapters.version.fetch({ chapterId: active.id, version: version.version });
+                      const latest = await utils.chapters.get.fetch({ chapterId: active.id });
+                      setHistoryComparison({ ...old, version: version.version, current: latest.chapter });
+                    })}>打开对比</button>
                   </li>
                 ))}
               </ul>
             </details>
           )}
+          {historyComparison && <section className="space-y-3 rounded-xl border p-4" aria-label="历史版本对照">
+            <ChapterComparison current={historyComparison.current} candidate={historyComparison.chapter} currentUrls={state.imageUrls} candidateUrls={historyComparison.imageUrls} candidateLabel={`历史版本 ${historyComparison.version}`} />
+            <button className={button} disabled={busy} onClick={() => void run(async () => {
+              await restore.mutateAsync({ chapterId: active.id, version: historyComparison.version, expectedVersion: historyComparison.current.version });
+              await state.refresh(); await versions.refetch(); setHistoryComparison(null);
+            })}>使用这个版本（保留当前稿）</button>
+            <button className={button} onClick={() => setHistoryComparison(null)}>关闭对照</button>
+          </section>}
           {render({
             ...props,
             scope: `chapter:${props.accountId ?? "current"}:${props.storyId}:${active.id}:v${active.version}:${state.epoch}`,
@@ -829,7 +830,7 @@ export function ChapterWorkspace({
             setSelectedDelivery(null);
           }}>发送到微信 / 亲友</button>
           {active?.blocks.lineage?.parentPackageId && (
-            <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("return")}>发回修改稿</button>
+            <button className={button} disabled={busy} onClick={() => setDeliveryPanel("send")}>发回修改稿</button>
           )}
           <button className={button} disabled={busy} onClick={() => {
             setDeliveryPanel("inbox"); setSelectedDelivery(null);
@@ -840,6 +841,8 @@ export function ChapterWorkspace({
       {deliveryPanel === "send" && (
         <section className="space-y-2 rounded-xl border p-3" aria-label="投递章节">
           <p className="text-sm">发送当前章节的文字与图片，接收后保留为独立版本。</p>
+          <label className="block text-sm">修改说明（选填）<textarea aria-label="发送时的修改说明（选填）" className={`${field} mt-1 w-full`} maxLength={500} value={changeNote} onChange={event => { setChangeNote(event.target.value); deliveryAttempt.current = null; }} placeholder="只发送你自己填写的说明；留空就不显示。" /></label>
+          {active?.blocks.lineage?.parentPackageId && <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("return")}>发回原作者</button>}
           <label className="block space-y-1 text-xs">收件人
             <select className={`${field} w-full`} value={deliveryRecipient} onChange={event => setDeliveryRecipient(event.target.value)}>
               {(deliveryContacts.data ?? []).map(contact => <option key={contact.contactId} value={contact.contactId}>{contact.displayName}</option>)}
@@ -864,7 +867,7 @@ export function ChapterWorkspace({
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">章节投递收件箱</h3><button className={button} onClick={() => void deliveryInbox.refetch()}>刷新</button></div>
           {deliveryInbox.isPending && <p role="status" className="text-xs">正在读取收件箱…</p>}
           {deliveryInbox.error && <p role="alert" className="text-xs">收件箱暂时无法读取，请重试。</p>}
-          {!deliveryInbox.isPending && !(deliveryInbox.data?.length) && <p className="text-xs text-muted-foreground">收件箱里还没有章节。</p>}
+          {!deliveryInbox.isPending && !deliveryInbox.data?.some(row => row.status === "pending") && <p className="text-xs text-muted-foreground">没有等待接收的章节。</p>}
           <ul className="space-y-2">
             {(deliveryInbox.data ?? []).filter(row => row.status === "pending").map(row => (
               <li key={row.deliveryId} className="flex items-center justify-between gap-2 text-xs">
@@ -878,6 +881,8 @@ export function ChapterWorkspace({
           {selectedDelivery && (
             <div className="space-y-2 border-t pt-3">
               <p className="text-sm">{selectedDelivery.package.sender.displayName} 发来的「{selectedDelivery.package.chapters[0]?.title || selectedDelivery.package.storyTitle}」</p>
+              {selectedDelivery.package.sender.changeNote && <p className="text-sm">{selectedDelivery.package.sender.changeNote}</p>}
+              <p className="max-h-72 overflow-auto whitespace-pre-wrap text-sm">{selectedDelivery.package.chapters[0]?.blocks.filter(block => block.type === "text").map(block => block.text).join("\n")}</p>
               {selectedDelivery.kind === "return" ? (
                 <>
                   <p className="text-xs text-muted-foreground">先与原章节对照，确认采用后才生成新版本；旧版本会保留。</p>
@@ -892,7 +897,7 @@ export function ChapterWorkspace({
               <button className={button} disabled={busy} onClick={() => void run(async () => {
                 await deliveryResolve.mutateAsync({ deliveryId: selectedDelivery.deliveryId, status: "declined" });
                 setSelectedDelivery(null); await deliveryInbox.refetch();
-              })}>拒绝</button>
+              })}>删除这条</button>
             </div>
           )}
           <button className={button} onClick={() => { setDeliveryPanel(null); setSelectedDelivery(null); }}>关闭收件箱</button>

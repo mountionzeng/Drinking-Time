@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { textChanges, type TextChange } from "./textChanges";
 import type { Chapter } from "./useChapters";
 import { makeModulePack } from "./imagePackModuleRenderer";
 import { IMAGE_PACK_STYLES } from "./imagePackComposition";
@@ -6,14 +7,23 @@ import { IMAGE_PACK_TEXTURES } from "./imagePackMaterial";
 import { mapChapterImages } from "./ChapterWorkspace";
 
 type Content = Pick<Chapter, "title" | "blocks" | "layout">;
+function ChangedText({ changes, side }: { changes: TextChange[]; side: "before" | "after" }) {
+  return <>{changes.filter(part => part.kind !== (side === "before" ? "added" : "removed")).map((part, index) => part.kind === "removed" ? <del key={index} className="bg-red-50 text-red-800 decoration-2">{part.text}</del> : part.kind === "added" ? <mark key={index} className="bg-red-50 text-red-800 underline decoration-2">{part.text}</mark> : <span key={index}>{part.text}</span>)}</>;
+}
 function Preview({
   content,
   urls,
   label,
+  changes,
+  titleChanges,
+  side,
 }: {
   content: Content;
   urls: Record<string, string>;
   label: string;
+  changes: TextChange[];
+  titleChanges: TextChange[];
+  side: "before" | "after";
 }) {
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -66,14 +76,18 @@ function Preview({
   return (
     <article className="min-w-0 space-y-2">
       <h3 className="font-medium">
-        {label} · {content.title}
+        {label} · <ChangedText changes={titleChanges} side={side} />
       </h3>
+      <p className="text-xs text-muted-foreground">{content.blocks.attribution?.editorName || "未记录编辑者"}</p>
+      {content.blocks.attribution?.changeNote && <p className="text-sm">{content.blocks.attribution.changeNote}</p>}
       {content.blocks.containsAiText && (
         <p className="text-xs text-muted-foreground">包含 AI 辅助文字</p>
       )}
       <p className="max-h-80 overflow-auto whitespace-pre-wrap text-sm">
-        {content.blocks.body || "（空白章节）"}
+        <ChangedText changes={changes} side={side} />
+        {!content.blocks.body && "（空白章节）"}
       </p>
+      <div className="flex gap-2 overflow-auto">{[...new Set([content.blocks.coverKey, content.blocks.bodyTextureKey, ...content.blocks.illustrations.map(image => image.key)].filter((key): key is string => Boolean(key)))].map(key => <figure key={key} className="w-28 shrink-0"><img src={urls[key] ?? key} alt={`${label}的${key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}`} className="h-28 w-28 object-contain" /><figcaption className="text-xs">{key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}</figcaption></figure>)}</div>
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}
@@ -100,16 +114,21 @@ export function ChapterComparison({
   candidate,
   currentUrls,
   candidateUrls,
+  candidateLabel = "收到的版本",
 }: {
   current: Content;
   candidate: Content;
   currentUrls: Record<string, string>;
   candidateUrls: Record<string, string>;
+  candidateLabel?: string;
 }) {
+  const changes = useMemo(() => textChanges(current.blocks.body, candidate.blocks.body), [current.blocks.body, candidate.blocks.body]);
+  const titleChanges = useMemo(() => textChanges(current.title, candidate.title), [current.title, candidate.title]);
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      <Preview label="当前章节" content={current} urls={currentUrls} />
-      <Preview label="发回版本" content={candidate} urls={candidateUrls} />
+      <p className="text-xs text-muted-foreground md:col-span-2">左侧为当前稿，右侧为所选版本。红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</p>
+      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="before" />
+      <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="after" />
     </div>
   );
 }

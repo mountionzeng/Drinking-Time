@@ -339,6 +339,7 @@ export default function PublishingDraftWorkspace({
     clearSelection,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
+  const chaptersEnabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const readQuery = trpc.publishingDraft.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
     {
@@ -2274,12 +2275,15 @@ export default function PublishingDraftWorkspace({
                   placeholder="#话题（可选）"
                 />
 
-                {onOpenImages && editorContent.body.trim() && view !== "images" ? (
-                  <div className="mt-6 flex justify-end">
-                    <ActionButton onClick={onOpenImages} primary>
+                {onOpenImages && view !== "images" ? (
+                  <div className="mt-6 flex justify-end gap-2">
+                    {chaptersEnabled.data?.enabled && activeStoryId && activeStoryId > 0 ? <ActionButton onClick={() => { onOpenImages(); window.dispatchEvent(new CustomEvent("dt:chapter-versions", { detail: { storyId: activeStoryId } })); }}>
+                      版本与修改
+                    </ActionButton> : null}
+                    {editorContent.body.trim() ? <ActionButton onClick={onOpenImages} primary>
                       <ImagePlus className="h-4 w-4" aria-hidden="true" />
                       配图
-                    </ActionButton>
+                    </ActionButton> : null}
                   </div>
                 ) : null}
 

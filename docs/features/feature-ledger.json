@@ -8087,7 +8087,8 @@
         "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
         "command:pnpm check",
         "command:pnpm migration:verify",
-        "docs/handoff/2026-10-23-web-chapters.md"
+        "docs/handoff/2026-10-23-web-chapters.md",
+        "docs/qa/2026-10-27-web-version-parity.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED 默认关闭；关闭时没有章节入口且服务端拒绝读写。平台图稿与原共享入口保留。",
@@ -8126,6 +8127,11 @@
           "date": "2026-10-24",
           "kind": "fix",
           "summary": "正式浏览器首次打开章节排版重现空详情崩溃；两个undefined被误判为匹配章节。新增实际hook渲染回归先复现2项失败，再以显式selected判定修复。加载、空故事及详情切换测试与工作区测试共6项通过，类型检查和构建通过。真实重开验收另发现切章异步读取事件值已还原，改为同步捕获目标ID；编辑后立即刷新版本列表。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "verification",
+          "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
         }
       ]
     },
@@ -8160,7 +8166,8 @@
         "command:pnpm feature:validate",
         "client/src/features/publishingAlbum/chapterDeliveryImport.test.ts",
         "server/routers.chapters.test.ts",
-        "docs/qa/2026-10-26-chapter-attribution.md"
+        "docs/qa/2026-10-26-chapter-attribution.md",
+        "docs/qa/2026-10-27-web-version-parity.md"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -8257,6 +8264,11 @@
           "date": "2026-10-26",
           "kind": "fix",
           "summary": "Deployed 1437b68f while preserving the production login page. Real WeChat developer-tools send -> authenticated web claim -> original chapter candidate -> adopt -> reopen passed. Received cover, background and two illustrations remain available; previous versions retained; delivery status adopted and pending inbox zero. 46 targeted tests passed, then 5 UI tests/typecheck/build passed after the final source label fix. Mobile upload and release acceptance remain pending."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "verification",
+          "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
         }
       ]
     }

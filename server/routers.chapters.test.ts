@@ -726,3 +726,30 @@ it("sharing history shows only this chapter and this account's own exchanges", a
   await delivery(30).claim({token:second.claimUrl!.split('/').at(-1)!});
   expect(await caller(20).sharingHistory({chapterId:kept.chapterId!})).toHaveLength(1);
 });
+
+it("reads an old version without restoring it and refuses other accounts", async () => {
+  const id = await story();
+  const first = await caller(10).create({ storyId: id, title: "第一稿", body: "蓝色纸船" });
+  const updated = await caller(10).save({ chapterId: first.id, expectedVersion: first.version, body: "红色纸船", changeNote: "我把颜色改成了红色" });
+  const old = await caller(10).version({ chapterId: first.id, version: first.version });
+  expect(old.chapter.blocks.body).toBe("蓝色纸船");
+  expect((await caller(10).get({chapterId:first.id})).chapter.version).toBe(updated.version);
+  await expect(caller(20).version({chapterId:first.id,version:first.version})).rejects.toThrow();
+  await expect(caller(10).version({chapterId:first.id,version:99999})).rejects.toThrow();
+});
+
+it("only stores a writer supplied note and does not inherit it for later edits", async () => {
+  const id = await story();
+  const first = await caller(10).create({ storyId: id, title: "一", body: "原文" });
+  expect(first.blocks.attribution?.changeNote).toBeUndefined();
+  const next = await caller(10).save({ chapterId: first.id, expectedVersion: first.version, body: "改文", changeNote: "  自己写的说明  " });
+  expect(next.blocks.attribution?.changeNote).toBe("自己写的说明");
+  const final = await caller(10).save({ chapterId: first.id, expectedVersion: next.version, body: "再改" });
+  expect(final.blocks.attribution?.changeNote).toBeUndefined();
+  expect((await caller(10).version({chapterId:first.id,version:next.version})).chapter.blocks.attribution?.changeNote).toBe("自己写的说明");
+  const exported = await caller(10).exportPackage({chapterId:first.id,changeNote:"发给朋友的说明"});
+  expect(exported.package.sender.changeNote).toBe("发给朋友的说明");
+  expect((await caller(10).exportPackage({chapterId:first.id})).package.sender.changeNote).toBeUndefined();
+  const imported = await caller(20).importPackage({requestId:uuid(),mode:"keep",package:exported.package});
+  expect((await caller(20).get({chapterId:imported.chapterId!})).chapter.blocks.attribution?.changeNote).toBe("发给朋友的说明");
+});

@@ -190,7 +190,7 @@ export const chapterDeliveryRouter = router({
       throw new TRPCError({ code: "FORBIDDEN", message: "只能投递给同家或同故事的已连接成员" });
     const parsed = parsePackage(input.package);
     await assertForwardSource(parsed, ctx.user.id);
-    const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name) } };
+    const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name), ...(parsed.sender.changeNote ? { changeNote: parsed.sender.changeNote } : {}) } };
     const result = await beginSend({ package: pkg, senderUserId: ctx.user.id, recipientUserId: recipient.userId, requestId: input.requestId });
     return { deliveryId: result.delivery.deliveryId, uploadTickets: result.uploadTickets, repeated: result.repeated };
   }),
@@ -201,7 +201,7 @@ export const chapterDeliveryRouter = router({
     requireEnabled();
     const parsed = parsePackage(input.package);
     await assertForwardSource(parsed, ctx.user.id);
-    const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name) } };
+    const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name), ...(parsed.sender.changeNote ? { changeNote: parsed.sender.changeNote } : {}) } };
     // Deterministic HMAC makes an unknown-outcome retry recover the same one-time
     // link without storing its plaintext token. requestHash still binds its payload.
     const token = createHmac("sha256", ENV.cookieSecret)
@@ -224,7 +224,7 @@ export const chapterDeliveryRouter = router({
       const lineage = await findRootPackageDelivery({ rootPackageId, parentPackageId, recipientUserId: ctx.user.id });
       if (!lineage || !["kept", "appended"].includes(lineage.originalDelivery.status))
         throw new TRPCError({ code: "FORBIDDEN", message: "只能发回自己已留下或加入的章节" });
-      const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name) } };
+      const pkg = { ...parsed, sender: { platform: "web" as const, displayName: artworkAuthorName(ctx.user.name), ...(parsed.sender.changeNote ? { changeNote: parsed.sender.changeNote } : {}) } };
       const result = await beginSend({ package: pkg, senderUserId: ctx.user.id, recipientUserId: lineage.root.senderUserId, requestId: input.requestId, kind: "return" });
       return { deliveryId: result.delivery.deliveryId, uploadTickets: result.uploadTickets, repeated: result.repeated };
     }),

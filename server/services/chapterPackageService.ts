@@ -404,7 +404,7 @@ export function unpackChapter(
     item => item.chapterId === result.chapterId
   )!;
   const blocks: StoredChapterBlocks = {
-    attribution: { editorName: pkg.sender.displayName, sourceName: pkg.sender.displayName, action: "received" },
+    attribution: { editorName: pkg.sender.displayName, sourceName: pkg.sender.displayName, ...(pkg.sender.changeNote ? { changeNote: pkg.sender.changeNote } : {}), action: "received" },
     body: result.body,
     blockIds: source.blocks
       .filter(block => block.type === "text")

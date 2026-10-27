@@ -217,7 +217,7 @@ export const chapterPackageSchema = z.object({
   packageId: packageIdSchema,
   lineage: z.object({ rootPackageId: packageIdSchema, parentPackageId: packageIdSchema.nullable() }),
   createdAt: z.string().regex(ISO_TIME),
-  sender: z.object({ platform: z.enum(["web", "miniprogram"]), displayName: z.string().max(40) }),
+  sender: z.object({ platform: z.enum(["web", "miniprogram"]), displayName: z.string().max(40), changeNote: z.string().trim().max(500).optional() }),
   storyTitle: z.string().max(200),
   chapters: z.array(chapterSchema),
   assets: z.array(assetSchema),

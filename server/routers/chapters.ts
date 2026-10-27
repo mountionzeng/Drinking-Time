@@ -168,6 +168,7 @@ export const chaptersRouter = router({
         expectedVersion: z.number().int().positive(),
         title: chapterTitleSchema.optional(),
         body: z.string().max(MAX_BODY).optional(),
+        changeNote: z.string().trim().max(500).optional(),
         layout: chapterLayoutSchema.optional(),
         /** Look of the layout (font, paper style), kept with the chapter so it can be exported. */
         settings: z
@@ -303,8 +304,10 @@ export const chaptersRouter = router({
 
       const contentChanged = title !== chapter.title ||
         !isDeepStrictEqual(blocks, chapter.blocks) || !isDeepStrictEqual(layout, chapter.layout);
-      if (contentChanged) blocks.attribution = {
+      const noteChanged = input.changeNote !== undefined && (input.changeNote || undefined) !== blocks.attribution?.changeNote;
+      if (contentChanged || noteChanged) blocks.attribution = {
         ...blocks.attribution, editorName: artworkAuthorName(ctx.user.name), action: "edited",
+        changeNote: input.changeNote || undefined,
       };
       return view(
         await saveChapterContent({
@@ -368,6 +371,17 @@ export const chaptersRouter = router({
       );
     }),
 
+  version: protectedProcedure
+    .input(chapterInput.extend({ version: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      requireEnabled();
+      await ownChapter(input.chapterId, ctx.user.id);
+      const old = (await listChapterVersions(input.chapterId, ctx.user.id)).find(row => row.version === input.version);
+      if (!old) throw new TRPCError({ code: "NOT_FOUND", message: "这个旧版本已不在保留范围内" });
+      const layout = readChapterLayout(old.title, old.blocks, old.layout);
+      return { chapter: { title: old.title, blocks: old.blocks, layout }, imageUrls: await imageUrls(chapterKeys(old.blocks, layout).filter(isStoredImageKey)) };
+    }),
+
   /** Put an older version back as a new version. */
   restoreVersion: protectedProcedure
     .input(
@@ -393,14 +407,14 @@ export const chaptersRouter = router({
           userId: ctx.user.id,
           expectedVersion: input.expectedVersion,
           reason: "restore",
-          content: { title: old.title, blocks: { ...old.blocks, attribution: { ...old.blocks.attribution, editorName: artworkAuthorName(ctx.user.name), action: "restored" } }, layout: old.layout },
+          content: { title: old.title, blocks: { ...old.blocks, attribution: { ...old.blocks.attribution, changeNote: undefined, editorName: artworkAuthorName(ctx.user.name), action: "restored" } }, layout: old.layout },
         })
       );
     }),
 
   /** Build a package for download; image urls are fresh and short-lived. */
   exportPackage: protectedProcedure
-    .input(chapterInput)
+    .input(chapterInput.extend({ changeNote: z.string().trim().max(500).optional() }))
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       const chapter = await ownChapter(input.chapterId, ctx.user.id);
@@ -435,6 +449,7 @@ export const chaptersRouter = router({
         },
         { ...chapter.blocks.images, ...extra.facts }
       );
+      if (input.changeNote) packed.package.sender.changeNote = input.changeNote;
       await recordChapterExport({
         packageId,
         chapterId: chapter.id,

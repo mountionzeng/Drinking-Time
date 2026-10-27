@@ -89,6 +89,23 @@ describe("chapterDelivery router gates", () => {
       .resolves.toEqual({ status: "kept" });
   });
 
+  it("preserves only the submitted note and restricts dismissal to the recipient", async () => {
+    vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
+    const sender = appRouter.createCaller(context(17)).chapterDelivery;
+    const receiver = appRouter.createCaller(context(18)).chapterDelivery;
+    const outsider = appRouter.createCaller(context(19)).chapterDelivery;
+    const pkg = JSON.parse(readFileSync(new URL("../tests/fixtures/chapter-package/valid-01-text-only.json", import.meta.url), "utf8"));
+    pkg.sender = { platform: "web", displayName: "冒用姓名", changeNote: "  我补写了结尾  " };
+    const sent = await sender.createClaimLink({ package: pkg, requestId: "00000000-0000-4000-8000-000000000091" });
+    await receiver.claim({ token: sent.claimUrl!.split("/").at(-1)! });
+    const read = await receiver.read({ deliveryId: sent.deliveryId });
+    expect(read.package.sender).toEqual({ platform: "web", displayName: "测试作者", changeNote: "我补写了结尾" });
+    await expect(outsider.resolve({ deliveryId: sent.deliveryId, status: "declined" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await receiver.resolve({ deliveryId: sent.deliveryId, status: "declined" });
+    expect((await receiver.inbox()).filter(item => item.status === "pending")).toEqual([]);
+    expect((await receiver.read({ deliveryId: sent.deliveryId })).package.chapters).toEqual(read.package.chapters);
+  });
+
   it("forwards an accepted copy to a new account while retaining the original author", async () => {
     vi.stubEnv("CHAPTER_DELIVERY_ENABLED", "true");
     const original = appRouter.createCaller(context(17)).chapterDelivery;

@@ -70,6 +70,7 @@ export default function ChapterClaimPage({ token = "" }: { token?: string }) {
         <p role="status" className="text-sm leading-6 text-muted-foreground">{message}</p>
         {incoming.data && incoming.data.delivery.status === "pending" && destination === null && <div className="space-y-4">
           <p className="text-sm">{incoming.data.package.sender.displayName} 发来的「{incoming.data.package.chapters[0]?.title}」</p>
+          {incoming.data.package.sender.changeNote && <p className="text-sm">{incoming.data.package.sender.changeNote}</p>}
           <p className="whitespace-pre-wrap text-sm">{incoming.data.package.chapters[0]?.blocks.filter(block => block.type === "text").map(block => block.type === "text" ? block.text : "").join("\n")}</p>
           <p className="text-xs text-muted-foreground">附 {incoming.data.package.assets.length} 张图片，接收时会一起保留。</p>
           <button disabled={busy} className="rounded-lg border px-4 py-2 text-sm" onClick={() => void accept()}>{busy ? "正在接收图文…" : "接收这篇文章"}</button>
