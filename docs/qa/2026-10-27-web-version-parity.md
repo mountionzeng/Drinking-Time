@@ -75,3 +75,11 @@
 - Added six interaction/offset tests; 30 relevant tests, tsc and build pass. First check caught same-basename case-insensitive resolution on macOS; renamed pure helper to moduleTextEditing.ts.
 - Production /tmp/text-modules-20261027: 95 files verified, mysql readiness/authentication required. Fictional story 113 chapter 1 Enter created module 2 and focused it, typed a clearly fictional test paragraph, exercised undo/redo, saved and reloaded two intact modules, compared against prior history 30. Cleared the test paragraph then Backspace merged the empty slot; saved the original blue-paper-boat content. Test edit remains in normal history. No paid AI or schema changes.
 - Right panel updated. Screenshot: coordination outputs/text-modules-20261027.png. Desktop browser verification only; real phone IME/touch not exercised.
+
+## 视频入口恢复与简版历史（2026-10-27）
+- 原因：29d38f1d 整理导航时误删 editing 选项，剪辑器本身仍在。恢复文字/图像/视频三入口。
+- 视频区常驻一个「历史版本」按钮，展开后通过既有 finishedProduct 查询/带 revision CAS 写入接口记录视频并显式冻结成品组合。片段按既有 takeId 与起止秒数只读预览，查看不执行采用、不改变时间线。默认名称「视频版本」仅作为旧模型必填标题，不伪造修改摘要。
+- 范围：已有数据结构是视频素材与截取范围，不是完整字幕/音轨/变换的时间线快照；本次没有添加恢复或比较的假按钮，也未宣称支持完整恢复。现有当前视频记录须有可记录的 primaryVideoEdit 或 visualClips。
+- 验证：58项定向测试通过、pnpm check、feature:validate（70卡）、生产构建通过。线上95文件哈希核验，MySQL readiness与鉴权正常；后端不变，原登录修复保留。
+- 浏览器：右侧虚构「配图验收·雨后书店」实际切入视频；单一历史入口展开/收起正常，无视频时记录禁用，正文保持保存状态。本轮没有含视频故事的浏览器写入/播放验证；未调用付费生成。
+- 备份：/opt/Drinking-Time/dist.bak-video-history-20261027；构建来源 /tmp/video-history-20261027/source。

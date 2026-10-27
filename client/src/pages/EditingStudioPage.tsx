@@ -31,6 +31,7 @@ import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import type { StoryPanel } from "@/features/analysis/storyPanels";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
+import { VideoVersionHistory } from "@/features/creationEditor/VideoVersionHistory";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
@@ -606,9 +607,10 @@ function EditingStudioBody({
             >
               {workspace === "editing" && (
                 <div
-                  className="flex shrink-0 justify-end border-b border-border px-4 py-2"
+                  className="flex shrink-0 items-start justify-end gap-3 border-b border-border px-4 py-2"
                   aria-label="视频导出操作"
                 >
+                  <VideoVersionHistory key={activeStoryId} storyId={activeStoryId} disabled={pendingStoryRequestId !== null} />
                   <ExportButton
                     storyId={activeStoryId}
                     pendingStoryRequestId={pendingStoryRequestId}

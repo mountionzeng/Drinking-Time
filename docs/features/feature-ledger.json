@@ -1205,6 +1205,11 @@
       ],
       "history": [
         {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "恢复被导航整理遗漏的视频顶层入口；视频区仅常驻一个历史版本入口，展开后复用成品版本CAS记录、冻结和只读片段预览。明确历史素材与截取范围不等于完整时间线恢复；不增加收费调用、不改变当前剪辑。"
+        },
+        {
           "date": "2026-10-24",
           "kind": "fix",
           "summary": "真实网页验收发现提示词模型主备均不可用、nginx 60秒截断生成请求、file.302.ai取图解析异常。生产提示词模型切至两通道实测成功的gpt-4.1-mini；生成接口读超时660秒；国内API使用对应国内文件别名下载既有MJ结果。159项回归通过，单任务真实验收见image-delivery-live QA。 国内文件下载遇瞬时DNS/建连失败时仅重试同一GET一次，不增加生成请求；152项定向回归通过。"
@@ -1453,7 +1458,8 @@
       "userValue": "一眼看清每个成品由哪一版文字、图像和视频组成，并且只替换明确保存的那一层。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
-        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx",
+        "client/src/features/creationEditor/VideoVersionHistory.tsx"
       ],
       "owners": [
         "shared/finishedProductVersion.ts",
@@ -1484,9 +1490,15 @@
       "replaces": [],
       "knownGaps": [
         "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
-        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。"
+        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。",
+        "视频历史入口目前只记录既有成品模型的视频素材与截取范围，不支持字幕、音轨、变换的整条时间线恢复；无可记录视频时禁用记录。"
       ],
       "history": [
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "恢复被导航整理遗漏的视频顶层入口；视频区仅常驻一个历史版本入口，展开后复用成品版本CAS记录、冻结和只读片段预览。明确历史素材与截取范围不等于完整时间线恢复；不增加收费调用、不改变当前剪辑。"
+        },
         {
           "date": "2026-08-28",
           "kind": "validation",
