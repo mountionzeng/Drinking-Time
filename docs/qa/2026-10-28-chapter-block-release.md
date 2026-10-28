@@ -17,3 +17,10 @@
 - 全量首轮5900通过/69跳过/14失败；6项为缺少测试签名配置或源码快照没有Git上下文，补齐测试环境后相关文件通过。其余8项均在上一线上源码复现：storyAgent六项旧模型mock、architecture-boundaries、spine-bridge。没有宣称全量绿。
 - 构建后服务端 SHA256 与线上一致，仅网页 HTML/JS/CSS 三个文件变化。发布前核对旧版99文件、保留旧哈希资源、备份HTML、原子切换；环境文件/数据库/服务端/进程不变。
 - 发布后结果另行追加。发布证据目录 /tmp/chapter-release-20261028。
+
+## 发布完成
+
+- 应用合并提交 8079bd2d 已推送 origin/main；发布只替换3个静态资源，99文件核对一致，服务端无需重启。
+- 线上 readiness：ready/mysql/authentication required。公网HTML/JS/CSS逐项哈希一致。
+- 正式站已登录浏览器打开虚构“配图验收·雨后书店”：文字/图像/视频入口保留；连续正文可见，未选中不显示格式，点击模块后显示正文/标题1/2/3选择。没有修改测试故事正文，也未刷新用户本地未保存页面。
+- 回滚HTML备份：/opt/Drinking-Time/dist.bak-chapter-blocks-20261028。
