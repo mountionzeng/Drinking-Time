@@ -1,3 +1,4 @@
+import { warehouseCover } from "./warehouseCover";
 import { withModuleBackground } from "./moduleBackground";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
@@ -381,7 +382,7 @@ export function PublishingImagePackCanvas({
   const paragraphs = useMemo(() => imagePackParagraphs(body), [body]);
   const bodyTexture = assets.find(
     asset =>
-      asset.id === settings.bodyTextureId && asset.kind === "body-texture"
+      asset.id === settings.bodyTextureId
   );
   const [theme, setTheme] = useState<{
     source: string;
@@ -410,7 +411,7 @@ export function PublishingImagePackCanvas({
     if (createRequest.kind === "layout") {
       setDesktopSection("layout");
       if (mobile) setMobileStep("layout");
-      onCreateRequestHandled?.();
+      if (!createRequest.warehouseImage) onCreateRequestHandled?.();
       return;
     }
     if (createRequest.kind !== "image") return;
@@ -586,6 +587,7 @@ export function PublishingImagePackCanvas({
     setDesktopSection("layout");
     if (mobile) setMobileStep("layout");
   }
+  const [pendingLayoutModules, setPendingLayoutModules] = useState<ModuleDocument | null>(null);
   const [moduleSession, setModuleSession] = useState<{
     basis: string;
     options: ImagePackOptions;
@@ -644,6 +646,7 @@ export function PublishingImagePackCanvas({
       (mobile ? mobileStep === "layout" : desktopSection === "layout") &&
       !materialQuery.isLoading &&
       !moduleSession &&
+      !pendingLayoutModules &&
       output &&
       !stale &&
       !progress
@@ -660,6 +663,7 @@ export function PublishingImagePackCanvas({
     progress,
     basis,
     modules,
+    pendingLayoutModules,
   ]);
   useEffect(() => {
     if (error && insertRequest) setInsertRequest(null);
@@ -754,8 +758,6 @@ export function PublishingImagePackCanvas({
 
   // Hand-placed modules of an applied shared layout wait until its settings,
   // pictures and derived paper colors resolve, then save under the new basis.
-  const [pendingLayoutModules, setPendingLayoutModules] =
-    useState<ModuleDocument | null>(null);
   const paletteSettled =
     !hasColorSource ||
     Boolean(currentTheme?.paperPalette || currentTheme?.error);
@@ -789,6 +791,32 @@ export function PublishingImagePackCanvas({
     }
     setModuleOverride({ basis, document });
   }, [pendingLayoutModules, paletteSettled, layoutAssets, basis, scope, t]);
+
+  const warehouseHandled = useRef<string | null>(null);
+  const warehouseScope = useRef<number | null>(storyId);
+  useEffect(()=>{warehouseScope.current=storyId;return()=>{warehouseScope.current=null;};},[storyId]);
+  useEffect(() => {
+    const choice=createRequest?.warehouseImage;
+    if(!active || !createRequest || createRequest.storyId!==storyId || !choice || warehouseHandled.current===createRequest.id || !moduleSession) return;
+    const asset=layoutAssets.find(item=>item.id===choice.imageId);
+    if(!asset){if(materialQuery.isLoading || materialQuery.isFetching)return; toast.error('图片已不可用，请重新打开仓库'); onCreateRequestHandled?.(); return;}
+    warehouseHandled.current=createRequest.id;
+    if(choice.role==='illustration'){useImageInLayout(asset);onCreateRequestHandled?.();return;}
+    if(choice.role==='background'){update({bodyTextureId:asset.id});onCreateRequestHandled?.();return;}
+    const requestId=createRequest.id;
+    void (async()=>{
+      const snapshot=await moduleEditor.current?.snapshot();
+      if(!snapshot)throw new Error('排版尚未就绪');
+      const picture=new Image(); picture.src=asset.imageUrl; await picture.decode();
+      if(warehouseScope.current!==storyId || warehouseHandled.current!==requestId)return;
+      const document=warehouseCover(snapshot,asset.imageUrl,settings.title ?? title,picture.naturalWidth,picture.naturalHeight);
+      setPendingLayoutModules(document);
+      setModuleSession(null);
+      update({coverId:asset.id,includeCover:true});
+      setSelectedPage(0);
+      onCreateRequestHandled?.();
+    })().catch(error=>{if(warehouseScope.current===storyId && warehouseHandled.current===requestId){toast.error(error instanceof Error?error.message:'封面设置失败');onCreateRequestHandled?.();}});
+  },[active,createRequest,storyId,moduleSession,layoutAssets,materialQuery.isLoading,materialQuery.isFetching]);
 
   /** Apply a whole shared layout page set; returns an undo. */
   function applySharedLayout(layout: SharedLayoutStored) {

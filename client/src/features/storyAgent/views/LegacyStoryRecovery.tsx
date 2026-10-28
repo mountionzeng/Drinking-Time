@@ -1,76 +1,52 @@
 import { useEffect, useState } from "react";
-import { listLegacyStoryDrafts } from "../legacyStoryRecovery";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { listLegacyStoryDrafts, OPEN_LEGACY_RECOVERY } from "../legacyStoryRecovery";
 
-export function LegacyStoryRecovery({
-  userId,
-  onImport,
-}: {
-  userId: number;
-  onImport: (key: string) => boolean;
-}) {
-  const [drafts, setDrafts] = useState<Array<{ key: string; savedAt: number }>>(
-    []
-  );
+function readDrafts() {
+  try { return listLegacyStoryDrafts(window.localStorage); }
+  catch { return []; }
+}
+
+/** Only mounted inside the account menu; never displays a startup banner. */
+export function LegacyStoryRecoveryEntry({ onOpen }: { onOpen(): void }) {
+  const [available] = useState(() => readDrafts().length > 0);
+  if (!available) return null;
+  return <button type="button" className="flex w-full px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-muted"
+    onClick={() => { onOpen(); window.dispatchEvent(new Event(OPEN_LEGACY_RECOVERY)); }}>找回本机旧内容</button>;
+}
+
+export function LegacyStoryRecovery({ userId, onImport }: { userId: number; onImport(key: string): boolean }) {
+  const [open, setOpen] = useState(false);
+  const [drafts, setDrafts] = useState<ReturnType<typeof listLegacyStoryDrafts>>([]);
   const [selected, setSelected] = useState("");
-  const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
-    try {
-      setDrafts(listLegacyStoryDrafts(window.localStorage));
-    } catch {
-      setDrafts([]);
-    }
-    setSelected("");
-    setDismissed(false);
+    setOpen(false); setDrafts([]); setSelected("");
+    const show = () => { setDrafts(readDrafts()); setSelected(""); setOpen(true); };
+    window.addEventListener(OPEN_LEGACY_RECOVERY, show);
+    return () => window.removeEventListener(OPEN_LEGACY_RECOVERY, show);
   }, [userId]);
-  if (dismissed || drafts.length === 0) return null;
-  return (
-    <aside
-      className="border-b border-border bg-background px-4 py-3 text-sm"
-      aria-label="本机旧草稿"
-    >
-      <p>此浏览器保留了旧草稿，尚未归属当前账号。不会自动导入。</p>
-      <div className="mt-2 flex flex-wrap items-center gap-3">
-        <select
-          aria-label="选择本机旧草稿"
-          className="rounded border border-border bg-background p-1"
-          value={selected}
-          onChange={event => setSelected(event.target.value)}
-        >
-          <option value="">选择要恢复的草稿</option>
-          {drafts.map((draft, index) => (
-            <option key={draft.key} value={draft.key}>
-              旧草稿 {index + 1}
-              {draft.savedAt
-                ? ` · ${new Date(draft.savedAt).toLocaleDateString()}`
-                : ""}
-            </option>
-          ))}
+  const draft = drafts.find(item => item.key === selected);
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>找回本机旧内容</DialogTitle>
+        <DialogDescription>这是旧版网页曾存在这个浏览器里的内容，可能包含未上传的文字或对话。它不是新消息，也不需要日常处理。关闭后不会再次自动提醒。</DialogDescription>
+      </DialogHeader>
+      {drafts.length === 0 ? <p className="text-sm">没有找到可恢复的旧内容，你可以直接关闭。</p> : <>
+        <p className="text-xs text-muted-foreground">旧版没有记录所属账号。请先看内容，只恢复你认得的；恢复会复制成一份独立故事，不覆盖现在的文章。</p>
+        <select aria-label="选择本机旧内容" className="w-full rounded border bg-background p-2" value={selected} onChange={event => setSelected(event.target.value)}>
+          <option value="">选择一份内容查看</option>
+          {drafts.map(item => <option key={item.key} value={item.key}>{item.title}{item.savedAt ? ` · ${new Date(item.savedAt).toLocaleDateString()}` : ''}</option>)}
         </select>
-        <button
-          className="underline disabled:opacity-40"
-          disabled={!selected}
-          onClick={() => {
-            if (
-              !window.confirm(
-                "仅当这份本机旧草稿属于你时继续。确认后会在当前账号创建一份新故事；原缓存保留，不会覆盖已有云端故事。"
-              )
-            )
-              return;
-            if (onImport(selected)) {
-              setDrafts(items => items.filter(item => item.key !== selected));
-              setSelected("");
-            }
-          }}
-        >
-          确认归属并导入
-        </button>
-        <button
-          className="text-muted-foreground"
-          onClick={() => setDismissed(true)}
-        >
-          暂不导入
-        </button>
-      </div>
-    </aside>
-  );
+        {draft && <section aria-label="旧内容预览" className="space-y-2 rounded border p-3">
+          <h3 className="font-medium">{draft.title}</h3>
+          <p className="whitespace-pre-wrap break-words text-sm">{draft.preview}</p>
+          <button className="rounded border px-3 py-2 text-sm" onClick={() => {
+            if (!window.confirm('这份内容属于你吗？确认后复制成独立故事，原记录保留，不覆盖已有文章。')) return;
+            if (onImport(draft.key)) { setDrafts(readDrafts()); setSelected(''); }
+          }}>这是我的内容，恢复副本</button>
+        </section>}
+      </>}
+    </DialogContent>
+  </Dialog>;
 }

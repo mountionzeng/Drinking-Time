@@ -37,7 +37,7 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
   );
   const mutation = trpc.adminUsers.setCategory.useMutation({
     onSuccess: async () => {
-      await utils.adminUsers.overview.invalidate();
+      await utils.adminUsers.overview.invalidate({ siteHost });
       setSaved("分类已保存");
     },
   });

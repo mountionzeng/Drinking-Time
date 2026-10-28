@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import journal from "../../drizzle/meta/_journal.json";
 import { describe, expect, it } from "vitest";
 
 import { withMysqlTestDatabase } from "./mysqlTestHarness";
@@ -64,7 +65,7 @@ describeMysql("Drizzle migration baseline on MySQL", () => {
         const [migrationRows] = await connection.query<mysql.RowDataPacket[]>(
           "SELECT COUNT(*) AS count FROM __drizzle_migrations",
         );
-        expect(Number(migrationRows[0]?.count)).toBe(34);
+        expect(Number(migrationRows[0]?.count)).toBe(journal.entries.length);
       } finally {
         await connection.end();
       }

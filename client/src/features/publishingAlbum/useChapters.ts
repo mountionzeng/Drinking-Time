@@ -21,7 +21,7 @@ export type ChapterEdit = {
 };
 
 /** Mounted only behind the server's enabled flag. No platform draft is ever written here. */
-export function useChapters(storyId: number) {
+export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter) => boolean) {
   const utils = trpc.useUtils();
   const list = trpc.chapters.list.useQuery(
     { storyId },
@@ -36,6 +36,9 @@ export function useChapters(storyId: number) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [epoch, setEpoch] = useState(0);
+  const [externalVersion, setExternalVersion] = useState<number | null>(null);
+  const releaseText = useRef(releaseCleanText);
+  releaseText.current = releaseCleanText;
   const chapters = list.data ?? [];
   const selected =
     chapters.find(chapter => chapter.id === openId) ?? chapters[0] ?? null;
@@ -136,11 +139,36 @@ export function useChapters(storyId: number) {
     window.addEventListener("beforeunload", prevent);
     return () => window.removeEventListener("beforeunload", prevent);
   }, [error]);
+  useEffect(() => {
+    if (!active) return;
+    let disposed = false, checking = false;
+    const id = active.id;
+    setExternalVersion(null);
+    const check = async () => {
+      if (checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        // Read outside the mounted query cache: a dirty editor must not silently acquire a newer save token.
+        const fresh = await utils.client.chapters.get.query({ chapterId: id });
+        if (disposed || queue.current?.id !== id || fresh.chapter.version <= queue.current.queue.version) return;
+        setExternalVersion(fresh.chapter.version);
+        // A newer version is offered explicitly, even when the editor is clean.
+        // Never advance the save token or remount the editor before the user compares it.
+      } catch { /* Offline checks never discard the local manuscript or interrupt writing. */ }
+      finally { checking = false; }
+    };
+    const visible = () => { void check(); };
+    window.addEventListener('focus', visible);
+    document.addEventListener('visibilitychange', visible);
+    const interval = setInterval(visible, 15000);
+    return () => { disposed = true; clearInterval(interval); window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
+  }, [active?.id, epoch, storyId]);
   async function refresh() {
     const fresh = await detail.refetch();
     if (fresh.error) throw fresh.error;
     await utils.chapters.list.invalidate({ storyId });
     setEpoch(value => value + 1);
+    setExternalVersion(null);
   }
   return {
     chapters,
@@ -149,6 +177,7 @@ export function useChapters(storyId: number) {
     error,
     saving,
     epoch,
+    externalVersion,
     loading: list.isLoading || (Boolean(selected) && detail.isLoading),
     queryError: list.error?.message ?? detail.error?.message,
     change,
@@ -159,13 +188,26 @@ export function useChapters(storyId: number) {
       await flush();
       setOpenId(id);
     },
-    saveText: async (draft: { title: string; body: string; changeNote?: string }) => {
+    saveText: async (draft: { title: string; body: string; changeNote?: string; autosave?: boolean; writingStyle?: StoredChapterBlocks["writingStyle"] }, comparedVersion?: number) => {
       if (!active) throw new Error("请先选择章节");
       await flush();
       const saved = await mutate.current({ chapterId: active.id,
-        expectedVersion: queue.current?.queue.version ?? active.version, ...draft });
+        expectedVersion: comparedVersion ?? queue.current?.queue.version ?? active.version, ...draft });
       if (queue.current?.id === active.id) queue.current.queue.version = saved.version;
-      await refresh();
+      utils.chapters.get.setData({ chapterId: active.id }, previous => previous ? {...previous,chapter:saved} : previous);
+      utils.chapters.list.setData({storyId}, rows=>rows?.map(row=>row.id===saved.id?saved:row));
+      setExternalVersion(null);
+      return saved;
+    },
+    acceptLatest: async (expectedVersion: number) => {
+      if (!active) throw new Error("故事暂不可用");
+      const fresh = await utils.client.chapters.get.query({ chapterId: active.id });
+      if (fresh.chapter.version !== expectedVersion) throw new Error("对比期间又有新版本，请重新查看更新后接收。");
+      if (queue.current?.queue.dirty || releaseText.current?.(fresh.chapter) === false) throw new Error("当前文字尚未保存，请保留草稿并重新对比。");
+      utils.chapters.get.setData({ chapterId: active.id }, fresh);
+      utils.chapters.list.setData({ storyId }, rows => rows?.map(row => row.id === active.id ? fresh.chapter : row));
+      setExternalVersion(null);
+      setEpoch(value => value + 1);
     },
     reloadList: () => utils.chapters.list.invalidate({ storyId }),
   };

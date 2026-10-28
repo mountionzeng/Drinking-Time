@@ -22,7 +22,8 @@ describe('paragraph text modules', () => {
   it('puts format and drag affordances before text without movement menu commands', () => {
     const { html } = setup('第一段');
     expect(html.indexOf('模块 1 格式')).toBeLessThan(html.indexOf('aria-label="文字模块 1"'));
-    expect(html).toContain('draggable="true"');
+    expect(html).toContain('拖动模块 1');
+    expect(html).toContain('aria-label="书页"');
     expect(html).not.toContain('上移');
     expect(html).not.toContain('下移');
     expect(html).not.toContain('移入上方标题');

@@ -39,6 +39,9 @@ describe("compute payment admission", () => {
       await expect(caller.createOrder()).rejects.toMatchObject({
         code: "PRECONDITION_FAILED",
       });
+      // Existing open browser tabs still send the pre-type subscription input.
+      await expect(caller.createOrder({offerId:'monthly',requestId:'00000000-0000-4000-8000-000000000001'})).rejects.toMatchObject({code:'PRECONDITION_FAILED'});
+      await expect(caller.createOrder({type:'topup',computeUnits:10,requestId:'00000000-0000-4000-8000-000000000002'})).rejects.toMatchObject({code:'PRECONDITION_FAILED'});
     }
   });
 });

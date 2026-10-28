@@ -1775,21 +1775,13 @@ export default function PublishingDraftWorkspace({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       className="h-full overflow-y-auto bg-[var(--nayin-surface-dim)]/45 p-3 sm:p-5"
-      aria-label={view === "images" ? "图像工作区" : "文字稿工作区"}
+      aria-label={view === "images" ? "图像工作区" : "书工作区"}
       data-story-panel="publishing-draft"
     >
       <div className={`mx-auto flex min-h-full flex-col ${view === "images" ? "w-full" : "max-w-5xl"}`}>
-        <header className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
+        {((!editorContent && !unifiedChapters) || legacyPublishingControlsVisible) && <header className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
           <div>
-            {view !== "images" && <>
-              <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">
-                发布文案区
-              </p>
-              <h1 className="font-chat-brand mt-1 text-xl text-foreground">
-                {storyTitle?.trim() || "未命名故事"}
-              </h1>
-            </>}
-            {!editorContent ? <button
+            {!editorContent && !unifiedChapters ? <button
               type="button"
               onClick={() =>
                 window.dispatchEvent(new Event("dt:open-text-version-history"))
@@ -1825,22 +1817,7 @@ export default function PublishingDraftWorkspace({
               onAbandon={() => void updateFinishedProduct({ type: "abandon" })}
             /> : null}
           </div>
-          <div className="flex flex-col items-end gap-2">
-            {activeStoryId != null && activeStoryId > 0 ? (
-              <div className="flex items-center gap-2">
-                <ShareBackButton
-                  storyId={activeStoryId}
-                  unsaved={dirty}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-45"
-                />
-                <ActionButton onClick={() => setShareOpen(true)}>
-                  <Link2 className="h-4 w-4" />
-                  分享链接
-                </ActionButton>
-              </div>
-            ) : null}
-          </div>
-        </header>
+        </header>}
 
         {activeStoryId != null && activeStoryId > 0 ? (
           <>
@@ -2393,6 +2370,22 @@ export default function PublishingDraftWorkspace({
             </div>
           )}
         </article>
+          <div className="mt-3 flex justify-end gap-2">
+            {activeStoryId != null && activeStoryId > 0 ? (
+              <div className="flex items-center gap-2">
+                <ShareBackButton
+                  storyId={activeStoryId}
+                  unsaved={dirty}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-45"
+                />
+                {!unifiedChapters && <ActionButton onClick={() => setShareOpen(true)}>
+                  <Link2 className="h-4 w-4" />
+                  分享链接
+                </ActionButton>}
+              </div>
+            ) : null}
+          </div>
+
       </div>
 
       <Dialog open={videoSetupOpen} onOpenChange={setVideoSetupOpen}>

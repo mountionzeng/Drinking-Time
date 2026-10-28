@@ -311,11 +311,11 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).not.toContain("PublishingVideoHandoffBanner");
     expect(editingPage).not.toContain("shouldShowPublishingHandoff");
     expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
-    expect(studioWorkspaces).toContain('label: "文字"');
-    expect(studioWorkspaces).toContain('label: "图像"');
+    expect(studioWorkspaces).toContain('label: "书"');
+    expect(studioWorkspaces).not.toContain('label: "图像"');
     expect(studioWorkspaces).toContain('label: "视频"');
     expect(studioWorkspaces).not.toContain("...STORY_PANELS");
-    expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
+    expect(editingPage).toContain('get("chapterInbox") === "1" ? "images" : "publishing"');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
     expect(editingPage).toContain(
       "<StoryboardPanel onEditVideo={onEditVideo} />"
@@ -334,9 +334,11 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("createNewStory();");
     expect(storyLogoMenu).toContain("回到以前的故事");
     expect(storyLogoMenu).toContain("开启新故事");
-    expect(editingPage).toContain("素材仓库");
-    expect(editingPage).toContain('aria-label="视频子类目"');
-    expect(editingPage).toContain("<MediaLibraryIllustration />");
+    expect(editingPage).toContain("仓库</span>");
+    expect(editingPage).not.toContain('aria-label="视频子类目"');
+    expect(editingPage).toContain('aria-label="打开仓库"');
+    expect(editingPage).not.toContain('workspace === "editing" && materialVisible');
+    expect(editingPage).toContain("nav-warehouse-watercolor.webp");
     expect(editingPage).not.toContain("nav-timeline-v2.png");
     expect(editingPage).not.toContain(">Timeline</span>");
     expect(editingPage).not.toContain("setTimelineVisible");

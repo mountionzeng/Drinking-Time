@@ -6,6 +6,7 @@
  * 主题切换挪进右上角的用户菜单。
  */
 import { useNayin } from "@/features/nayin/NayinContext";
+import { LegacyStoryRecoveryEntry } from "@/features/storyAgent/views/LegacyStoryRecovery";
 import PairingCodeButton from "@/features/auth/views/PairingCodeButton";
 import { MobileMePage } from "@/features/mobileWorkspace/MobileMePage";
 
@@ -60,6 +61,7 @@ interface TopBarProps {
   secondaryRow?: ReactNode;
   /** 传了就在用户菜单里显示「重看使用引导」。 */
   onReplayTour?: () => void;
+  showLocalDraftRecovery?: boolean;
   onOpenLetter?: () => void;
 }
 
@@ -74,6 +76,7 @@ export default function TopBar({
   storyMenu,
   secondaryRow,
   onReplayTour,
+  showLocalDraftRecovery = false,
   onOpenLetter,
 }: TopBarProps) {
   const { element, visualTheme } = useNayin();
@@ -313,6 +316,7 @@ export default function TopBar({
                           用户管理
                         </button>
                       ) : null}
+                      {showLocalDraftRecovery && <LegacyStoryRecoveryEntry onOpen={() => setUserOpen(false)} />}
                       {onReplayTour ? (
                         <button
                           type="button"

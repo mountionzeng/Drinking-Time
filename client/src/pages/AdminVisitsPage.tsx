@@ -105,7 +105,7 @@ export default function AdminVisitsPage() {
             aria-label="刷新访问数据"
             title="刷新访问数据"
             disabled={overview.isFetching}
-            onClick={() => { void overview.refetch(); void utils.adminUsers.overview.invalidate(); }}
+            onClick={() => { void overview.refetch(); void utils.adminUsers.overview.invalidate({ siteHost }); }}
             className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
             <RefreshCcw

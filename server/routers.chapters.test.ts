@@ -82,6 +82,25 @@ describe("chapter CRUD and order", () => {
 });
 
 describe("layout saving", () => {
+  it("allows only one browser to save the same base version and retains the prior text", async () => {
+    const id = await story();
+    const first = await caller(10).create({storyId:id,title:"并发验收",body:"双方开始时的原稿"});
+    const results = await Promise.allSettled(["浏览器甲的修改","浏览器乙的修改"].map(body =>
+      caller(10).save({chapterId:first.id,expectedVersion:first.version,body})
+    ));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected' && result.reason.code === 'CONFLICT')).toHaveLength(1);
+    const winner = results.find(result => result.status === 'fulfilled') as PromiseFulfilledResult<typeof first>;
+    const saved = (await caller(10).get({chapterId:first.id})).chapter;
+    expect(saved.blocks.body).toBe(winner.value.blocks.body);
+    expect(saved.version).toBe(first.version+1);
+    expect((await caller(10).version({chapterId:first.id,version:first.version})).chapter.blocks.body).toBe("双方开始时的原稿");
+    // A comparison is a snapshot, not permission to overwrite later saves.
+    const compared = saved.version;
+    await caller(10).save({chapterId:first.id,expectedVersion:compared,body:"比较期间的更新"});
+    await expect(caller(10).save({chapterId:first.id,expectedVersion:compared,body:"过期比较稿"})).rejects.toMatchObject({code:'CONFLICT'});
+    expect((await caller(10).get({chapterId:first.id})).chapter.blocks.body).toBe("比较期间的更新");
+  });
   const layout = {
     version: 1,
     pages: [{ label: "第一页", modules: [] }],
@@ -752,4 +771,23 @@ it("only stores a writer supplied note and does not inherit it for later edits",
   expect((await caller(10).exportPackage({chapterId:first.id})).package.sender.changeNote).toBeUndefined();
   const imported = await caller(20).importPackage({requestId:uuid(),mode:"keep",package:exported.package});
   expect((await caller(20).get({chapterId:imported.chapterId!})).chapter.blocks.attribution?.changeNote).toBe("发给朋友的说明");
+});
+
+it('persists formatting-only changes with CAS and restores their version across clients', async()=>{
+  const id=await story();
+  const created=await caller(10).create({storyId:id,title:'Book',body:'Heading\nText'});
+  const writingStyle=[{id:'h',format:'heading2' as const,parentId:null,collapsed:true},{id:'p',format:'text' as const,parentId:'h',collapsed:false,emphasis:'bright' as const}];
+  const styled=await caller(10).save({chapterId:created.id,expectedVersion:created.version,body:'Heading\nText',writingStyle});
+  expect((await caller(10).get({chapterId:created.id})).chapter.blocks.writingStyle).toEqual(writingStyle);
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle})).rejects.toThrow();
+  const plain=await caller(10).save({chapterId:created.id,expectedVersion:styled.version,body:'New heading\nText'});
+  expect(plain.blocks.writingStyle).toBeUndefined();
+  const restored=await caller(10).restoreVersion({chapterId:created.id,expectedVersion:plain.version,version:styled.version});
+  expect(restored.blocks.writingStyle).toEqual(writingStyle);
+  await expect(caller(20).get({chapterId:created.id})).rejects.toThrow();
+});
+it('rejects formatting that has mismatched lines or invalid nesting',async()=>{
+  const id=await story();const created=await caller(10).create({storyId:id,title:'Book',body:'A\nB'});
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false}]})).rejects.toThrow();
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:'a',collapsed:false}]})).rejects.toThrow();
 });

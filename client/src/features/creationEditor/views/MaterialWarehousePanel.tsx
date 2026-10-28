@@ -1,9 +1,10 @@
-import { createPortal } from "react-dom";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { WarehouseImageActions } from "./WarehouseImageActions";
+import { FloatingWarehouse } from "./FloatingWarehouse";
 import {
   Archive,
   Ban,
   Check,
-  ChevronDown,
   Clapperboard,
   Image as ImageIcon,
   Loader2,
@@ -34,6 +35,8 @@ import {
   type ShotDisplayLike,
 } from "@shared/shotIdentity";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { chatImageRefsStore } from "@/features/storyAgent/chatImageRefsStore";
+import { INSERT_WAREHOUSE_IMAGE } from "@/features/publishingAlbum/warehouseImageInsert";
 import ImageRefToggleButton from "@/features/storyAgent/views/ImageRefToggleButton";
 import { writeStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
 import { trpc } from "@/lib/trpc";
@@ -493,8 +496,12 @@ function plannedDurationSec(
 export default function MaterialWarehousePanel({
   variant = "page",
   onClose,
+  videoActions = true,
+  insertIntoLayout = false,
 }: {
   variant?: "page" | "drawer";
+  videoActions?: boolean;
+  insertIntoLayout?: boolean;
   onClose?: () => void;
 } = {}) {
   const { setActiveSelection } = useStoryAgentActions();
@@ -527,6 +534,13 @@ export default function MaterialWarehousePanel({
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
   const [warehouseExpanded, setWarehouseExpanded] = useState(false);
+  const [previewImage, setPreviewImage] = useState<WarehouseImageItem | null>(null);
+  const hoverClose = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewLocked = useRef(false);
+  const cancelPreviewClose = () => { if (hoverClose.current) clearTimeout(hoverClose.current); };
+  const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current) setPreviewImage(null); }, 220); };
+  useEffect(() => () => cancelPreviewClose(), []);
+
   const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets">("images");
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
@@ -651,6 +665,20 @@ export default function MaterialWarehousePanel({
   );
 
   const selectImageMaterial = (item: WarehouseImageItem) => {
+    if (insertIntoLayout) {
+      const event = new CustomEvent(INSERT_WAREHOUSE_IMAGE, { cancelable: true, detail: { storyId: activeStoryId, imageId: item.image.id } });
+      window.dispatchEvent(event);
+      if (!event.defaultPrevented) toast.info("请先打开图像里的排版，再选用这张图片。");
+      return;
+    }
+    if (!videoActions) {
+      const basket = chatImageRefsStore.getState();
+      if (basket.storyId === activeStoryId && basket.refs.some(ref => ref.imageId === item.image.id)) return;
+      const rejected = basket.toggle(activeStoryId, { imageId: item.image.id, imageUrl: item.image.imageUrl, label: warehouseImageRefLabel(item) });
+      if (rejected) toast.error(rejected);
+      else toast.success("图片已加入左侧对话");
+      return;
+    }
     const key: SelectedMaterialKey = `image:${item.image.id}`;
     setSelectedMaterialKey(key);
     const label = item.shotNo ? shotLabel(item) : "未绑定";
@@ -713,7 +741,7 @@ export default function MaterialWarehousePanel({
         file,
         previewUrl: URL.createObjectURL(file),
         isVideo: fileMime(file).startsWith("video/"),
-        targetStableShotId: currentStableShotId,
+        targetStableShotId: videoActions ? currentStableShotId : null,
         note: "",
       })),
     ]);
@@ -868,30 +896,138 @@ export default function MaterialWarehousePanel({
     }
   };
 
+  const importQueue = pendingImports.length > 0 ? (
+              <div className="mt-3 border-t border-border/70 pt-3">
+                <div className="mb-2 text-xs text-muted-foreground">
+                  {videoActions ? "可选择归属镜头并填写素材说明。" : "图片可直接入库；说明选填。视频需选择归属镜头。"}
+                </div>
+                <div className="grid gap-2">
+                  {pendingImports.map(item => (
+                    <div
+                      key={item.id}
+                      className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-2"
+                    >
+                      {item.isVideo ? (
+                        <video
+                          src={item.previewUrl}
+                          muted
+                          preload="metadata"
+                          className="h-16 w-16 shrink-0 rounded object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={item.previewUrl}
+                          alt={item.file.name}
+                          className="h-16 w-16 shrink-0 rounded object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="max-w-56 truncate text-xs font-medium">
+                            {item.file.name}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {(item.file.size / 1024 / 1024).toFixed(1)}MB
+                          </span>
+                          {(videoActions || item.isVideo) && <select
+                            value={item.targetStableShotId ?? ""}
+                            onChange={event =>
+                              updatePendingImport(item.id, {
+                                targetStableShotId:
+                                  event.currentTarget.value || null,
+                              })
+                            }
+                            className="h-7 rounded border border-border bg-background px-1.5 text-xs"
+                          >
+                            {item.isVideo ? null : (
+                              <option value="">暂不绑定镜头</option>
+                            )}
+                            {shots.map(shot => {
+                              const identity =
+                                shot.stableShotId ?? shot.shotIdentity ?? null;
+                              if (!identity) return null;
+                              return (
+                                <option key={identity} value={identity}>
+                                  {shotLabel(shot)}{" "}
+                                  {(shot.action || shot.dialogue || "").slice(
+                                    0,
+                                    12
+                                  )}
+                                </option>
+                              );
+                            })}
+                          </select>}
+                        </div>
+                        <textarea
+                          value={item.note}
+                          onChange={event =>
+                            updatePendingImport(item.id, {
+                              note: event.currentTarget.value,
+                            })
+                          }
+                          rows={2}
+                          placeholder="素材说明（选填）"
+                          className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs leading-relaxed placeholder:text-muted-foreground/60"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePendingImport(item.id)}
+                        disabled={importing}
+                        className="rounded p-1 text-muted-foreground transition hover:text-destructive"
+                        aria-label={`移除 ${item.file.name}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      for (const item of pendingImports) {
+                        URL.revokeObjectURL(item.previewUrl);
+                      }
+                      setPendingImports([]);
+                    }}
+                    disabled={importing}
+                    className="h-8 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    清空
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmImports()}
+                    disabled={importing}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    导入 {pendingImports.length} 个素材
+                  </button>
+                </div>
+              </div>
+            ) : null;
+
   if (variant === "drawer") {
     const drawerItems =
       drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
     const drawer = (
-      <section
-        id="editing-material-warehouse"
-        className={
-          warehouseExpanded
-            ? "fixed inset-3 z-50 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
-            : "flex min-h-[180px] flex-[0_0_30%] flex-col overflow-hidden border-t border-border bg-background"
-        }
-        aria-label="素材仓库抽屉"
-        data-testid="material-warehouse-drawer"
-      >
+      <FloatingWarehouse expanded={warehouseExpanded} compact={drawerTab === "images" && pendingImports.length === 0}>
         <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex items-center gap-2">
+            <button type="button" data-warehouse-handle aria-label="拖动仓库" title={drawerTab === "images" ? "拖动位置" : "拖动位置，右下角调整大小"} className="flex touch-none cursor-grab items-center gap-2 py-1 active:cursor-grabbing">
               <Archive className="h-4 w-4 text-primary" />
-              <h2 className="text-xs font-semibold">素材仓库</h2>
-            </div>
+              <span className="text-sm font-semibold">仓库</span>
+            </button>
             <div className="flex h-7 items-center gap-1 border-l border-border pl-2">
               <button
                 type="button"
-                onClick={() => setDrawerTab("images")}
+                onClick={() => {setDrawerTab("images"); setPreviewImage(null);}}
                 aria-pressed={drawerTab === "images"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
@@ -899,7 +1035,7 @@ export default function MaterialWarehousePanel({
               </button>
               <button
                 type="button"
-                onClick={() => setDrawerTab("videos")}
+                onClick={() => {setDrawerTab("videos"); setPreviewImage(null);}}
                 aria-pressed={drawerTab === "videos"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
@@ -944,6 +1080,8 @@ export default function MaterialWarehousePanel({
             <button
               type="button"
               onClick={() => setWarehouseExpanded(value => !value)}
+              aria-label={warehouseExpanded ? "恢复仓库大小" : "放大仓库"}
+              title={warehouseExpanded ? "恢复大小" : "放大"}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 px-3 text-xs text-primary"
             >
               {warehouseExpanded ? (
@@ -951,7 +1089,6 @@ export default function MaterialWarehousePanel({
               ) : (
                 <Maximize2 className="h-4 w-4" />
               )}
-              {warehouseExpanded ? "返回剪辑布局" : "展开工作区"}
             </button>
             <button
               type="button"
@@ -964,7 +1101,7 @@ export default function MaterialWarehousePanel({
               ) : (
                 <Upload className="h-3.5 w-3.5" />
               )}
-              导入素材
+              导入
             </button>
             <input
               ref={inputRef}
@@ -984,24 +1121,18 @@ export default function MaterialWarehousePanel({
               aria-label="收起素材仓库"
               title="收起素材仓库"
             >
-              <ChevronDown className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        <div
-          className={`min-h-0 flex-1 custom-scrollbar ${
-            drawerTab === "assets"
-              ? "overflow-x-hidden overflow-y-auto p-2"
-              : "overflow-x-auto overflow-y-hidden p-3"
-          }`}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
           {panelError || error ? (
             <div className="mb-2 text-xs text-destructive">
               {panelError ?? error?.message}
             </div>
           ) : null}
-          {drawerTab === "assets" ? (
+          {pendingImports.length > 0 ? importQueue : drawerTab === "assets" ? (
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}
@@ -1026,29 +1157,29 @@ export default function MaterialWarehousePanel({
                   : "暂无视频素材"}
             </div>
           ) : (
-            <div className="flex h-full min-w-max gap-3">
+            <div className={drawerTab === "images" ? "flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,84px),1fr))] gap-1.5"}>
               {drawerTab === "images"
                 ? imageItems.map(item => {
                     const busy = busyKey === `image:${item.image.id}`;
                     const belongsToCurrent =
                       imageItemRelatesToShot(item, currentStableShotId);
                     return (
+                      <Popover key={item.image.id} open={previewImage?.image.id === item.image.id} onOpenChange={value => { if (!previewLocked.current) setPreviewImage(value ? item : null); }}>
                       <article
-                        key={item.image.id}
-                        className="relative flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                        className="group relative flex w-[84px] shrink-0 flex-col overflow-hidden rounded-md bg-background"
                       >
-                        <button
+                        <PopoverTrigger asChild><button
                           type="button"
-                          onClick={() => selectImageMaterial(item)}
-                          className="min-h-0 flex-1 bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                          onPointerEnter={event => { if(event.pointerType === 'mouse' && !previewLocked.current) {cancelPreviewClose(); setPreviewImage(item);} }}
+                          onPointerLeave={closePreviewSoon}
+                          onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
+                          onClick={() => setPreviewImage(item)}
+                          aria-label={`预览图片 ${item.image.id}`}
+                          className="aspect-square w-full bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                         >
                           <img
                             src={item.image.imageUrl}
-                            alt={
-                              item.shotNo
-                                ? `${shotLabel(item)} 图片`
-                                : "未绑定图片"
-                            }
+                            alt={item.image.prompt?.slice(0,120) || `图片 ${item.image.id}`}
                             draggable
                             onDragStart={event =>
                               writeStoryImageDragPayload(event.dataTransfer, {
@@ -1057,22 +1188,16 @@ export default function MaterialWarehousePanel({
                                 label: warehouseImageRefLabel(item),
                               })
                             }
-                            className="h-full w-full cursor-grab object-cover active:cursor-grabbing"
+                            className="h-full w-full cursor-grab object-contain active:cursor-grabbing"
                             loading="lazy"
                           />
-                        </button>
-                        <ImageRefToggleButton
-                          storyId={activeStoryId}
-                          imageId={item.image.id}
-                          imageUrl={item.image.imageUrl}
-                          label={warehouseImageRefLabel(item)}
-                          className="absolute right-1.5 top-1.5"
-                        />
-                        <div className="flex shrink-0 items-center gap-2 p-2">
-                          <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-                            {item.shotNo ? shotLabel(item) : "未绑定"}
+                        </button></PopoverTrigger>
+                        <div className="absolute bottom-0 right-0 flex items-center bg-background/90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                          <span className="sr-only">
+                            {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : `图片 ${item.image.id}`)}
                           </span>
-                          <button
+                          <button type="button" aria-label={`使用图片 ${item.image.id}`} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">使用</button>
+                          {videoActions && <button
                             type="button"
                             onClick={() => void bindImage(item.image)}
                             disabled={busy || !currentStableShotId}
@@ -1086,9 +1211,32 @@ export default function MaterialWarehousePanel({
                               <Link2 className="h-3 w-3" />
                             )}
                             {belongsToCurrent ? "设为首帧" : "绑定到当前镜头"}
-                          </button>
+                          </button>}
                         </div>
                       </article>
+                      <PopoverContent side="left" align="start" sideOffset={6} collisionPadding={12}
+                        onPointerEnter={cancelPreviewClose} onPointerLeave={closePreviewSoon}
+                        onOpenAutoFocus={event => event.preventDefault()}
+                        onCloseAutoFocus={event => event.preventDefault()}
+                        onInteractOutside={event => {if(previewLocked.current) event.preventDefault();}}
+                        className="w-[300px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto p-2 space-y-2" aria-label="仓库图片预览">
+              <img src={item.image.imageUrl} alt={item.image.prompt || '所选图片'}
+                className="mx-auto block w-full max-h-[min(42vh,300px)] rounded object-contain" draggable
+                onDragStart={event => writeStoryImageDragPayload(event.dataTransfer,{imageId:item.image.id,imageUrl:item.image.imageUrl,label:warehouseImageRefLabel(item)})}/>
+              <div className="grid grid-cols-2 items-center gap-1.5">
+                <details className="col-span-2 min-w-0 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer py-2">图片说明</summary>
+                  <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{item.image.prompt || '这张图片没有附带文字说明。'}</p>
+                </details>
+                {activeStoryId != null && <WarehouseImageActions key={item.image.id} storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
+                {(insertIntoLayout || videoActions) && <ImageRefToggleButton storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} label={warehouseImageRefLabel(item)}/>}
+                {!insertIntoLayout && <button type="button" onClick={() => selectImageMaterial(item)} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
+                  {videoActions ? '选中图片' : '加入对话'}
+                </button>}
+                {videoActions && <button type="button" disabled={!currentStableShotId || busyKey===`image:${item.image.id}`} onClick={() => void bindImage(item.image)} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">设为首帧</button>}
+              </div>
+                      </PopoverContent>
+                      </Popover>
                     );
                   })
                 : videoItems.map(item => {
@@ -1107,7 +1255,7 @@ export default function MaterialWarehousePanel({
                     return (
                       <article
                         key={item.take.id}
-                        className="flex h-full w-56 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                        className="flex h-56 min-w-0 flex-col overflow-hidden rounded-md border border-border bg-background"
                       >
                         <button
                           type="button"
@@ -1141,7 +1289,7 @@ export default function MaterialWarehousePanel({
                           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
                             {videoSourceLabel(item)} · Take {item.take.id}
                           </span>
-                          <button
+                          {videoActions && <button
                             type="button"
                             onClick={() => void useVideo(item.take)}
                             disabled={action.disabled}
@@ -1157,7 +1305,7 @@ export default function MaterialWarehousePanel({
                             {action.label === "已采用"
                               ? "已绑定当前镜头"
                               : "绑定到当前镜头"}
-                          </button>
+                          </button>}
                         </div>
                       </article>
                     );
@@ -1165,9 +1313,9 @@ export default function MaterialWarehousePanel({
             </div>
           )}
         </div>
-      </section>
+      </FloatingWarehouse>
     );
-    return warehouseExpanded ? createPortal(drawer, document.body) : drawer;
+    return drawer;
   }
 
   return (
@@ -1330,123 +1478,7 @@ export default function MaterialWarehousePanel({
               />
             </div>
 
-            {pendingImports.length > 0 ? (
-              <div className="mt-3 border-t border-border/70 pt-3">
-                <div className="mb-2 text-xs text-muted-foreground">
-                  给每个素材交代：归哪个镜头、人物/镜头怎么运动、场景和道具——
-                  视频模型会照着这些信息决定复用什么。
-                </div>
-                <div className="grid gap-2">
-                  {pendingImports.map(item => (
-                    <div
-                      key={item.id}
-                      className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-2"
-                    >
-                      {item.isVideo ? (
-                        <video
-                          src={item.previewUrl}
-                          muted
-                          preload="metadata"
-                          className="h-16 w-16 shrink-0 rounded object-cover"
-                        />
-                      ) : (
-                        <img
-                          src={item.previewUrl}
-                          alt={item.file.name}
-                          className="h-16 w-16 shrink-0 rounded object-cover"
-                        />
-                      )}
-                      <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="max-w-56 truncate text-xs font-medium">
-                            {item.file.name}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {(item.file.size / 1024 / 1024).toFixed(1)}MB
-                          </span>
-                          <select
-                            value={item.targetStableShotId ?? ""}
-                            onChange={event =>
-                              updatePendingImport(item.id, {
-                                targetStableShotId:
-                                  event.currentTarget.value || null,
-                              })
-                            }
-                            className="h-7 rounded border border-border bg-background px-1.5 text-xs"
-                          >
-                            {item.isVideo ? null : (
-                              <option value="">暂不绑定镜头</option>
-                            )}
-                            {shots.map(shot => {
-                              const identity =
-                                shot.stableShotId ?? shot.shotIdentity ?? null;
-                              if (!identity) return null;
-                              return (
-                                <option key={identity} value={identity}>
-                                  {shotLabel(shot)}{" "}
-                                  {(shot.action || shot.dialogue || "").slice(
-                                    0,
-                                    12
-                                  )}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                        <textarea
-                          value={item.note}
-                          onChange={event =>
-                            updatePendingImport(item.id, {
-                              note: event.currentTarget.value,
-                            })
-                          }
-                          rows={2}
-                          placeholder="交代给视频模型：人物怎么动、镜头怎么运动、场景和道具、色调基准…"
-                          className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs leading-relaxed placeholder:text-muted-foreground/60"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removePendingImport(item.id)}
-                        disabled={importing}
-                        className="rounded p-1 text-muted-foreground transition hover:text-destructive"
-                        aria-label={`移除 ${item.file.name}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      for (const item of pendingImports) {
-                        URL.revokeObjectURL(item.previewUrl);
-                      }
-                      setPendingImports([]);
-                    }}
-                    disabled={importing}
-                    className="h-8 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
-                  >
-                    清空
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void confirmImports()}
-                    disabled={importing}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {importing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Upload className="h-3.5 w-3.5" />
-                    )}
-                    导入 {pendingImports.length} 个素材
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            {importQueue}
           </div>
 
           <div className="mx-4 mb-4 rounded-lg border border-border bg-background p-3">

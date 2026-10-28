@@ -14,8 +14,9 @@ export const layoutModuleContextSchema = z
     scope: z.string().min(1).max(2000),
     moduleId: z.string().min(1).max(200),
     kind: z.enum(["text", "image"]),
-    page: z.number().int().min(1).max(9),
-    pageCount: z.number().int().min(1).max(9),
+    // Book pages use this discussion contract too; image-pack generation retains its own nine-page limit.
+    page: z.number().int().min(1).max(1000),
+    pageCount: z.number().int().min(1).max(1000),
     rect,
     text: z.string().max(12_000).optional(),
     fontSize: z.number().finite().positive().max(2400).optional(),

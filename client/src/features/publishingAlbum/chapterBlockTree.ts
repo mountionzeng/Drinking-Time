@@ -1,7 +1,23 @@
+import type { BookWritingStyle } from "@shared/bookWritingStyle";
+import type { ModuleRect } from './imagePackModules';
+export type BookPlacement = { page: number; rect: ModuleRect; fontSize: number };
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+export function readBookPlacement(raw: unknown): BookPlacement | undefined {
+  if (!raw || typeof raw !== 'object') return;
+  const value = raw as BookPlacement;
+  if (!Number.isInteger(value.page) || value.page < 0 || value.page > 999 || !value.rect ||
+    ![value.rect.x, value.rect.y, value.rect.width, value.rect.height, value.fontSize].every(Number.isFinite)) return;
+  const width = clamp(value.rect.width, 24, 900), height = clamp(value.rect.height, 24, 1200);
+  return { page: value.page, fontSize: clamp(value.fontSize, 12, 120), rect: {
+    width, height, x: clamp(value.rect.x, 0, 900 - width), y: clamp(value.rect.y, 0, 1200 - height),
+  } };
+}
+
+
 import { textModuleLines } from './moduleTextEditing';
 
 export type BlockFormat = 'text' | 'heading1' | 'heading2' | 'heading3';
-export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean };
+export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; book?: BookPlacement };
 export type BlockDrop = 'before' | 'inside' | 'after';
 export const blockBody = (blocks: WritingBlock[]) => blocks.map(block => block.text).join('\n');
 export const newWritingBlock = (text: string, parentId: string | null = null): WritingBlock => ({ id: crypto.randomUUID(), text, parentId, format: 'text', collapsed: false });
@@ -38,7 +54,7 @@ export function insertBlockText(blocks: WritingBlock[], index: number, text: str
 export function setBlockFormat(blocks: WritingBlock[], index: number, format: BlockFormat) {
   const current = blocks[index];
   // Turning a title into ordinary text lifts its children one level without moving them.
-  return blocks.map((block, i) => i === index ? { ...block, format, collapsed: false } :
+  return blocks.map((block, i) => i === index ? { ...block, format, collapsed: false, ...(block.book ? { book: { ...block.book, fontSize: format === 'heading1' ? 36 : format === 'heading2' ? 32 : format === 'heading3' ? 28 : 24 } } : {}) } :
     format === 'text' && block.parentId === current.id ? { ...block, parentId: current.parentId } : block);
 }
 
@@ -77,7 +93,11 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
       if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.text !== 'string' || raw.text.includes('\n') || !['text', 'heading1', 'heading2', 'heading3'].includes(raw.format) || result.some(b => b.id === raw.id)) return fresh();
       const parent = raw.parentId === null ? null : result.find(b => b.id === raw.parentId && isHeading(b));
       if (raw.parentId !== null && !parent) return fresh();
-      result.push({ id: raw.id, text: raw.text, format: raw.format, parentId: parent?.id ?? null, collapsed: isHeading(raw) && raw.collapsed === true });
+      result.push({ id: raw.id, text: raw.text, format: raw.format, parentId: parent?.id ?? null, collapsed: isHeading(raw) && raw.collapsed === true,
+        ...(raw.emphasis === "bright" ? { emphasis: "bright" as const } : {}),
+        ...(raw.backdrop === true ? { backdrop: true } : {}),
+        ...(readBookPlacement(raw.book) ? { book: readBookPlacement(raw.book) } : {}),
+      });
     }
     if (blockBody(result) !== value) return fresh();
     // Each subtree must be contiguous, or moving it could collect unrelated text.
@@ -98,3 +118,6 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
   });
   return result;
 }
+
+export const writingStyleOf = (blocks:WritingBlock[]):BookWritingStyle => blocks.map(({text,...style})=>style);
+export const restoreStyledBlocks = (body:string,style:BookWritingStyle):WritingBlock[] => restoreWritingBlocks(body,{body,blocks:style.map((row,index)=>({...row,text:textModuleLines(body)[index]}))});

@@ -144,7 +144,7 @@ describe("account-scoped story recovery", () => {
     storage.setItem("dt:storyAgent:3", raw);
     storage.setItem(storageKey(4, 2)!, JSON.stringify(draft("other account")));
     expect(listLegacyStoryDrafts(storage)).toEqual([
-      { key: "dt:storyAgent:3", savedAt: 10 },
+      { key: "dt:storyAgent:3", savedAt: 10, title: "legacy", preview: "private draft" },
     ]);
     expect(() =>
       importLegacyStoryDraft({

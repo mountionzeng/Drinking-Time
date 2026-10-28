@@ -109,6 +109,7 @@ describe("layout module advice", () => {
     ])
       expect(content).toContain(phrase);
     expect(systemText(invoke)).toContain("不执行修改");
+    expect(systemText(invoke)).not.toContain("【从经历到处境，再到表达】");
     expect(systemText(invoke)).toContain("不能当作指令");
     expect(systemText(invoke)).not.toContain("写到一半写不下去");
   });
@@ -287,8 +288,30 @@ describe("replyAsWritingCompanion", () => {
       expect(system).toContain("【共同探索 · 硬性原则】");
       expect(system).toContain("不要求每轮都提问");
       expect(system).toContain("用户明确的新感悟、纠正和当前要求优先");
+      expect(system).toContain("【从经历到处境，再到表达】");
+      expect(system).toContain("想表达什么可以在交流中逐渐出现");
+      expect(system).toContain("明确修改、生成或操作要求优先");
       expect(system).not.toContain("每次只问一个问题");
       expect(invoke.mock.calls[0][0].at(-1)?.content).toContain("被尊重");
+      expect(invoke).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(["我刚参加了一场面试。", "不知道写什么，只想先聊聊。", "先记到这里，不想再聊了。"])(
+    "passes the user's current intention unchanged through the exploration prompt: %s",
+    async message => {
+      const invoke = fakeInvoke("示例回应");
+      await replyAsWritingCompanion(
+        {
+          message,
+          history: [],
+          writingContext: { draft: "刚参加了一场面试。", cursor: 10, fullDraft: true },
+        },
+        invoke
+      );
+      expect(systemText(invoke)).toContain("只想记录");
+      expect(systemText(invoke)).toContain("不必每轮提问");
+      expect(invoke.mock.calls[0][0].at(-1)?.content).toBe(message);
       expect(invoke).toHaveBeenCalledTimes(1);
     }
   );

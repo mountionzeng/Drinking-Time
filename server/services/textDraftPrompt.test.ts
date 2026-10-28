@@ -51,4 +51,24 @@ describe("exploratory text generation", () => {
     expect(systemPrompt).toContain("不得补入未选择的聊天、旧稿或其他记忆");
     expect(systemPrompt).toContain("只输出 JSON");
   });
+
+  it("carries observation lenses but cannot invent a conclusion or turn generation into coaching", () => {
+    const { systemPrompt, modelMessage } = compileTextDraftPrompt(
+      {
+        ...request,
+        basis: { title: "面试之后", body: "刚参加了一场面试。", tags: [] },
+        messages: [{ id: "m2", role: "user", content: "还不知道想不想去这家公司。" }],
+        instruction: "先把没想清楚的这一点写下来。",
+      },
+      [{ id: "m2", role: "user", content: "还不知道想不想去这家公司。" }],
+      []
+    );
+    expect(systemPrompt).toContain("不再开启素材问答");
+    expect(systemPrompt).toContain("不能把探索中的问题、备选解释或文学观察角度写成用户已得出的结论");
+    expect(systemPrompt).toContain("不为凑篇幅");
+    expect(systemPrompt).not.toContain("【从经历到处境，再到表达】");
+    const context = JSON.parse(modelMessage);
+    expect(context.techniques.every((card: { perspective?: string }) => card.perspective)).toBe(true);
+    expect(context.conversationDelta[0].content).toBe("还不知道想不想去这家公司。");
+  });
 });

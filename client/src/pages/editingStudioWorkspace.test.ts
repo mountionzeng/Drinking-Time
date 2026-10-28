@@ -39,15 +39,13 @@ describe("resolveStudioInteractionMode", () => {
 
   it("keeps story navigation hidden while leaving writing and editing entry points", () => {
     expect(STUDIO_WORKSPACE_OPTIONS.map(option => option.label)).toEqual([
-      "文字",
-      "图像",
+      "书",
       "视频",
     ]);
     expect(
       STUDIO_WORKSPACE_OPTIONS.map(option => option.illustrationSrc)
     ).toEqual([
-      "/shiguang/nav-writing-v2.png",
-      "/shiguang/nav-image-sound-v2.png",
+      "/shiguang/nav-book-watercolor.webp",
       "/shiguang/nav-video-watercolor.png",
     ]);
   });

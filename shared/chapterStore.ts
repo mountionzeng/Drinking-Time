@@ -1,3 +1,4 @@
+import type { BookWritingStyle } from "./bookWritingStyle";
 import { z } from "zod";
 import type { ParagraphAnchor } from "./articleIllustrations";
 import type { PackageImageInfo } from "./chapterPackage";
@@ -18,6 +19,7 @@ export type StoredChapterBlocks = {
   /** Display provenance stored with each version, never used for authorization. */
   attribution?: { editorName: string; sourceName?: string; changeNote?: string; action: "created" | "edited" | "received" | "restored" };
   body: string;
+  writingStyle?: BookWritingStyle;
   blockIds: string[];
   containsAiText: boolean;
   settings: {

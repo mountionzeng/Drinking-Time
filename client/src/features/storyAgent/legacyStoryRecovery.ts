@@ -12,10 +12,11 @@ type Storage = Pick<
 >;
 const legacyKey = /^dt:storyAgent:\d+$/;
 const claimKey = (key: string) => `dt:storyAgent:claimed:${key}`;
+export const OPEN_LEGACY_RECOVERY = 'dt:open-legacy-story-recovery';
 
 /** Only unowned legacy slots are offered. Never offer another account's scoped drafts. */
 export function listLegacyStoryDrafts(storage: Storage) {
-  const drafts: Array<{ key: string; savedAt: number }> = [];
+  const drafts: Array<{ key: string; savedAt: number; title: string; preview: string }> = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
     if (!key || !legacyKey.test(key) || storage.getItem(claimKey(key)))
@@ -25,7 +26,13 @@ export function listLegacyStoryDrafts(storage: Storage) {
         JSON.parse(storage.getItem(key) ?? "null")
       );
       if (hasStoryWork(state))
-        drafts.push({ key, savedAt: state.savedAt ?? 0 });
+        drafts.push({ key, savedAt: state.savedAt ?? 0,
+          title: state.title?.trim() || '未命名旧稿',
+          preview: (Object.values(state.publishingBuffers ?? {}).map(item => item.content?.body).find(value => value?.trim())
+            || state.messages.find(item => item?.role === 'user' && typeof item.content === 'string' && item.content.trim())?.content
+            || state.cards.find(item => typeof item?.content === 'string' && item.content.trim())?.content
+            || state.summary || state.logline || '保存过故事素材，未找到文字预览。').slice(0, 300),
+        });
     } catch {
       /* Keep unreadable originals untouched. */
     }

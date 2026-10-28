@@ -90,58 +90,6 @@ import {
   type StudioWorkspace,
 } from "./editingStudioWorkspace";
 
-function MediaLibraryIllustration() {
-  return (
-    <svg
-      viewBox="0 0 58 34"
-      role="presentation"
-      aria-hidden="true"
-      className="media-library-illustration"
-    >
-      <path
-        d="M8 8.5 35 5l1.6 20.5-27.4 2.8Z"
-        fill="currentColor"
-        opacity=".07"
-      />
-      <path
-        d="M8 8.5 35 5l1.6 20.5-27.4 2.8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.15"
-        opacity=".52"
-      />
-      <path
-        d="m12.5 23.5 6.3-7 4.3 3.6 4.1-5.1 5.7 8.8"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.25"
-        opacity=".7"
-      />
-      <circle cx="28.4" cy="11.2" r="2" fill="currentColor" opacity=".34" />
-      <path
-        d="M40 12.5v8m3-11v14m3-10v6m3-8v10"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.35"
-        opacity=".58"
-      />
-      <path
-        d="M5.5 30c12-1.5 27.5-1.2 47 .4"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth=".8"
-        opacity=".22"
-      />
-    </svg>
-  );
-}
-
 function ExportButton({
   storyId,
   pendingStoryRequestId,
@@ -323,11 +271,13 @@ function EditingStudioBody({
       if (!request || request.storyId !== activeStoryId) return;
       setChatCollapsed(false);
       setCreateRequest(request);
-      onWorkspaceChange(request.kind === "image" || request.kind === "layout" ? "images" : "editing");
+      if (!(request.warehouseImage && workspace === "publishing")) {
+        onWorkspaceChange(request.kind === "image" || request.kind === "layout" ? "images" : "editing");
+      }
     };
     window.addEventListener(STUDIO_CREATE_EVENT, create);
     return () => window.removeEventListener(STUDIO_CREATE_EVENT, create);
-  }, [activeStoryId, onWorkspaceChange]);
+  }, [activeStoryId, onWorkspaceChange, workspace]);
   const [pendingStoryAction, setPendingStoryAction] = useState<
     "back" | "new" | null
   >(null);
@@ -563,7 +513,8 @@ function EditingStudioBody({
         <span className="workspace-chat-paper-seam" aria-hidden="true" />
 
         {/* 右：文字稿、五个故事面板与剪辑台共享同一 Story。 */}
-        <div className="relative min-w-0 flex-1 overflow-hidden">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-hidden">
           {/* 切换栏目只隐藏工作区，保留未保存正文和模块编辑会话。 */}
           <div
             id={
@@ -633,12 +584,7 @@ function EditingStudioBody({
                   />
                 ) : null}
               </div>
-              {workspace === "editing" && materialVisible ? (
-                <MaterialWarehousePanel
-                  variant="drawer"
-                  onClose={() => onMaterialVisibleChange(false)}
-                />
-              ) : null}
+
             </div>
           ) : (
             <div
@@ -648,6 +594,16 @@ function EditingStudioBody({
               从左侧打开一个故事，预览播放器和时间轴会显示在这里；
               直接在对话里说想怎么剪，聊聊会帮你动手。
             </div>
+          )}
+          </div>
+          {materialVisible && pendingStoryRequestId === null && (
+            activeStoryId !== null ? <MaterialWarehousePanel key={activeStoryId}
+              variant="drawer" videoActions={workspace === "editing"} insertIntoLayout={workspace === "images"}
+              onClose={() => onMaterialVisibleChange(false)} />
+            : <section id="editing-material-warehouse" aria-label="素材仓库抽屉" className="flex min-h-32 items-center justify-between gap-3 border-t p-4 text-sm text-muted-foreground">
+                <span>先打开一个故事，就能使用它的图片、视频和资产。</span>
+                <button type="button" onClick={() => onMaterialVisibleChange(false)}>收起仓库</button>
+              </section>
           )}
         </div>
       </div>
@@ -866,6 +822,7 @@ export default function EditingStudioPage() {
         showStoryPanelNav={false}
         storyMenu={storyMenu}
         panelActions={
+          <>
           <button
             type="button"
             aria-label="打开账号回忆"
@@ -881,10 +838,22 @@ export default function EditingStudioPage() {
             ) : null}
             <span className="shiguang-nav-label">回忆</span>
           </button>
+          <button type="button" aria-label="打开仓库" aria-pressed={materialVisible}
+            aria-controls="editing-material-warehouse" data-testid="topbar-warehouse-toggle"
+            disabled={pendingStoryRequestId !== null}
+            className="shiguang-toolbar-button inline-flex min-h-[32px] items-center rounded-sm px-2.5 font-sans text-[12px] font-bold tracking-[0.08em] transition-colors hover:brightness-110 focus-visible:outline-primary sm:min-w-[92px]"
+            style={visualTheme === "nayin" ? { color: "var(--nayin-accent-dim)" } : undefined}
+            onClick={() => setMaterialVisible(value => !value)}>
+            {visualTheme === "shiguang" ? (
+              <img src="/shiguang/nav-warehouse-watercolor.webp" alt="" aria-hidden="true" className="shiguang-nav-illustration" />
+            ) : null}
+            <span className="shiguang-nav-label">仓库</span>
+          </button>
+          </>
         }
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
           label: option.label,
-          active: workspace === option.id,
+          active: workspace === option.id || (option.id === "publishing" && workspace === "images"),
           illustrationSrc: option.illustrationSrc,
           controls:
             option.id === "publishing"
@@ -897,30 +866,9 @@ export default function EditingStudioPage() {
           onToggle: () => {
             setWorkspace(option.id);
           },
-          subnav:
-            option.id === "editing" && workspace === "editing" ? (
-              <div
-                className="editing-media-subnav flex flex-col items-center"
-                role="group"
-                aria-label="视频子类目"
-              >
-                <span
-                  className="editing-media-subnav-stem"
-                  aria-hidden="true"
-                />
-                <button
-                  type="button"
-                  aria-pressed={materialVisible}
-                  aria-controls="editing-material-warehouse"
-                  onClick={() => setMaterialVisible(value => !value)}
-                  className="editing-media-subnav-button shiguang-toolbar-button inline-flex min-h-8 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                >
-                  <MediaLibraryIllustration />
-                  <span className="shiguang-nav-label">素材仓库</span>
-                </button>
-              </div>
-            ) : undefined,
+
         }))}
+        showLocalDraftRecovery
         onReplayTour={() => {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}

@@ -32,6 +32,7 @@ describe("storyImageDrag", () => {
     });
     expect(hasStoryImageDragPayload(transfer)).toBe(true);
     expect(transfer.getData("text/plain")).toBe("图片 #1554");
+    expect(transfer.getData("application/x-layout-image")).toBe("1554");
     expect(readStoryImageDragPayload(transfer)).toEqual({
       imageId: 1554,
       imageUrl: "https://cdn/1554.png",

@@ -21,6 +21,7 @@ export function SubscriptionPlans({
     if (!selected || !availability.available) return;
     try {
       const result = await order.mutateAsync({
+        type: "subscription",
         offerId: selected,
         requestId: crypto.randomUUID(),
       });

@@ -11,13 +11,8 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
 }> = [
   {
     id: "publishing",
-    label: "文字",
-    illustrationSrc: "/shiguang/nav-writing-v2.png",
-  },
-  {
-    id: "images",
-    label: "图像",
-    illustrationSrc: "/shiguang/nav-image-sound-v2.png",
+    label: "书",
+    illustrationSrc: "/shiguang/nav-book-watercolor.webp",
   },
   {
     id: "editing",

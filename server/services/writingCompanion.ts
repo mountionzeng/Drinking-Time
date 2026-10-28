@@ -18,6 +18,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
+import { WRITING_EXPLORATION_CONTEXT } from "./writingTechniqueLibrary";
 import {
   layoutMemoryDescription,
   type LayoutMemoryContext,
@@ -153,7 +154,7 @@ export function draftWithCursorMarker(input: WritingDraftInput): string {
 
 const STAGE_GUIDANCE: Record<WritingStage, string> = {
   blank:
-    "他还没开头。帮他找到让他想写这件事的那个具体时刻：哪一天、哪个画面、哪句话。不要问「你想写什么主题」。",
+    "正文还是空白，不代表他已经有写作主题。先接住他愿意聊的具体经历，必要时一起辨认这件事与眼下生活的关系；不问「你想写什么主题」，不要求先作判断才准写。",
   opening:
     "他刚起了个头。贴着第一句的具体内容，帮他看清想继续表达的方向；可以回应或整理，不必提问，不假定开头背后藏着另一件事。",
   developing:
@@ -166,6 +167,7 @@ const COMPANION_RULES = [
   "你是「聊聊」。用户正在写一篇自己的文字，希望与你一起探索或调整表达。",
   "帮他看清自己想说什么，也允许在交流中产生新的理解；讨论时不直接改写正文，草稿由他主动生成、选择和保存。",
   CREATIVE_EXPLORATION_RULE,
+  WRITING_EXPLORATION_CONTEXT,
   "",
   "【怎么陪他】",
   `- 先读他已经写下的正文：弄清他在写什么、写到了哪里。${CURSOR_MARKER} 是他停笔的位置。`,
@@ -416,7 +418,7 @@ export async function replyAsWritingCompanion(
               ...(hasSelection
                 ? ["选区之外的正文只能用于理解语境，绝不能改写或带入结果。"]
                 : [
-                    "如果他已经说出了足够写成一段的内容，就不要再问，告诉他可以点「整理成一段」。",
+                    "当他明确想把刚聊的内容写下来时，告诉他可以点「整理成一段」；不要只因为素材够写一段就结束探索或催生成。",
                   ]),
               "不超过 80 个汉字，只输出你要说的话。",
             ]),

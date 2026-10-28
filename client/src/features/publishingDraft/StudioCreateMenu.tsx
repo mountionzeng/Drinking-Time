@@ -8,6 +8,7 @@ export type StudioCreateRequest = {
   storyId: number;
   kind: "image" | "video" | "music" | "layout";
   instruction: string;
+  warehouseImage?: { imageId: number; role: 'cover' | 'illustration' | 'background' };
 };
 
 export function StudioCreateMenu({

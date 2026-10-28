@@ -21,6 +21,8 @@ export function writeStoryImageDragPayload(
 ) {
   dataTransfer.effectAllowed = "copy";
   dataTransfer.setData(STORY_IMAGE_DRAG_MIME, JSON.stringify(payload));
+  // Layout resolves this id against its own story asset list; never use the dragged URL as authority.
+  dataTransfer.setData("application/x-layout-image", String(payload.imageId));
   dataTransfer.setData("text/plain", `图片 #${payload.imageId}`);
 }
 

@@ -1746,6 +1746,7 @@ export const storyAgentRouter = router({
   generateForMobile: protectedProcedure
     .input(
       z.object({
+        warehouseTextureSourceId: z.number().int().positive().optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
@@ -1803,6 +1804,20 @@ export const storyAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
+        if (input.warehouseTextureSourceId) {
+          const source = await getGeneratedImageById(input.warehouseTextureSourceId);
+          if (!story || !source || source.storyId !== input.storyId || source.userId !== ctx.user.id)
+            throw new Error("参考图片已删除或不属于当前故事");
+          // Resolve by owned identity, never by a caller-provided image URL or shot.
+          input = { ...input, shotNo: undefined, renderReferences: undefined, referenceRevision: false,
+            originalImageUrl: undefined, referenceImageUrl: source.imageUrl,
+            referenceContextImageUrls: undefined, referenceIdentityImageUrl: undefined,
+            storyStyleReferenceImageUrl: undefined, editMaskImageUrl: undefined,
+            draftImageId: source.id, autoSelect: false, mode: 'final', imageProvider: 'gpt-image',
+            exactFrameEdit: true, remixEdit: false,
+            explicitInstruction: `参考这张图片的色彩、材质和氛围，生成一张适合文字排版的竖版3:4底图。保留风格，弱化主体和对比度，中间留出清晰的文字区域，不添加任何文字或水印。${input.explicitInstruction?.slice(0,1000) ?? ''}` };
+          input.prompt = input.explicitInstruction;
+        }
         if (input.referenceRevision && (
           !input.renderReferences || input.renderReferences.imageIds.length !== 1 ||
           Object.keys(input.renderReferences.assets).length > 0 || input.remixEdit || input.draftImageId

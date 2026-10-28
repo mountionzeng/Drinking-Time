@@ -1,3 +1,4 @@
+import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
 import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
 import { getUserById } from "../repositories/users";
 import { createHash, randomUUID } from "node:crypto";
@@ -168,6 +169,7 @@ export const chaptersRouter = router({
         expectedVersion: z.number().int().positive(),
         title: chapterTitleSchema.optional(),
         body: z.string().max(MAX_BODY).optional(),
+        writingStyle: bookWritingStyleSchema.optional(),
         changeNote: z.string().trim().max(500).optional(),
         layout: chapterLayoutSchema.optional(),
         /** Look of the layout (font, paper style), kept with the chapter so it can be exported. */
@@ -292,6 +294,10 @@ export const chaptersRouter = router({
           }
         }
       }
+      if (input.writingStyle !== undefined) {
+        if (!validWritingStyle(blocks.body,input.writingStyle)) throw new TRPCError({code:'BAD_REQUEST',message:'Text formatting does not match the manuscript'});
+        blocks.writingStyle=input.writingStyle;
+      } else if (blocks.body !== chapter.blocks.body) delete blocks.writingStyle;
       title = chapterTitleSchema.parse(title);
       if (title !== chapter.title || blocks.body !== chapter.blocks.body) {
         blocks.draftMirror = input.mirrorFrom

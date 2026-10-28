@@ -9,7 +9,7 @@ const content = (body: string, name: string, note?: string): Pick<Chapter, "titl
 it("shows both editors, writer supplied notes and marked additions/removals", () => {
   const html = renderToStaticMarkup(<ChapterComparison current={content("蓝色纸船", "小禾")} candidate={content("红色纸船", "Jane", "我改了颜色")} currentUrls={{}} candidateUrls={{}} />);
   expect(html).toContain("小禾"); expect(html).toContain("Jane"); expect(html).toContain("我改了颜色");
-  expect(html).toMatch(/<del[^>]*>蓝<\/del>/); expect(html).toMatch(/<mark[^>]*>红<\/mark>/);
+  expect(html).toMatch(/<del[^>]*>红<\/del>/); expect(html).toMatch(/<mark[^>]*>蓝<\/mark>/);
   expect(html).not.toContain("修改摘要");
 });
 it("does not invent a note when neither writer supplied one", () => {
@@ -21,7 +21,7 @@ it("text view shows changed words without images or layout controls", () => {
   const current = content("蓝色纸船", "小禾");
   current.blocks.coverKey = "cover";
   const html = renderToStaticMarkup(<ChapterComparison mode="text" current={current} candidate={content("红色纸船", "Jane")} currentUrls={{ cover: "https://example.com/cover.png" }} candidateUrls={{}} />);
-  expect(html).toMatch(/<del[^>]*>蓝<\/del>/);
+  expect(html).toMatch(/<del[^>]*>红<\/del>/);
   expect(html).not.toContain("<img");
   expect(html).not.toContain("未编排");
 });

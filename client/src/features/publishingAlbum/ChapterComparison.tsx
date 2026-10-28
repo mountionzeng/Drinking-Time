@@ -7,9 +7,7 @@ import { IMAGE_PACK_TEXTURES } from "./imagePackMaterial";
 import { mapChapterImages } from "./ChapterWorkspace";
 
 type Content = Pick<Chapter, "title" | "blocks" | "layout">;
-function ChangedText({ changes, side }: { changes: TextChange[]; side: "before" | "after" }) {
-  return <>{changes.filter(part => part.kind !== (side === "before" ? "added" : "removed")).map((part, index) => part.kind === "removed" ? <del key={index} className="bg-red-50 text-red-800 decoration-2">{part.text}</del> : part.kind === "added" ? <mark key={index} className="bg-red-50 text-red-800 underline decoration-2">{part.text}</mark> : <span key={index}>{part.text}</span>)}</>;
-}
+import { ChangedText } from "./WritingComparison";
 function Preview({
   content,
   urls,
@@ -129,13 +127,13 @@ export function ChapterComparison({
   candidateLabel?: string;
   mode?: "text" | "images" | "all";
 }) {
-  const changes = useMemo(() => textChanges(current.blocks.body, candidate.blocks.body), [current.blocks.body, candidate.blocks.body]);
-  const titleChanges = useMemo(() => textChanges(current.title, candidate.title), [current.title, candidate.title]);
+  const changes = useMemo(() => textChanges(candidate.blocks.body, current.blocks.body), [current.blocks.body, candidate.blocks.body]);
+  const titleChanges = useMemo(() => textChanges(candidate.title, current.title), [current.title, candidate.title]);
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      <p className="text-xs text-muted-foreground md:col-span-2">左侧为当前稿，右侧为所选版本。{mode === "images" ? "对比图片及排版；正文内容保留在各自排版中。" : <>红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</>}</p>
-      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="before" mode={mode} />
-      <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="after" mode={mode} />
+      <p className="text-xs text-muted-foreground md:col-span-2">左侧为所选版本，右侧为当前稿。{mode === "images" ? "对比图片及排版；正文内容保留在各自排版中。" : <>红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</>}</p>
+      <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="before" mode={mode} />
+      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="after" mode={mode} />
     </div>
   );
 }

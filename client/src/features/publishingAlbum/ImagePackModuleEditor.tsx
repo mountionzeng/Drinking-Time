@@ -1,4 +1,5 @@
 import { moduleContentBasis } from "./moduleBackground";
+import { INSERT_WAREHOUSE_IMAGE, type WarehouseImageInsert } from "./warehouseImageInsert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import {
@@ -95,7 +96,7 @@ const touchEdges = {
   bottom: "-bottom-5 left-1/2 -translate-x-1/2",
 };
 
-export type ImagePackModuleEditorHandle = { prepare(): Promise<boolean> };
+export type ImagePackModuleEditorHandle = { prepare(): Promise<boolean>; snapshot(): Promise<ModuleDocument | null> };
 
 function ImageLibrarySurface({
   mobile,
@@ -255,8 +256,25 @@ export function ImagePackModuleEditor({
   useEffect(() => {
     setCropMode(false);
   }, [selectedId, pageIndex]);
-  useImperativeHandle(ref, () => ({ prepare: () => finish("preview") }));
+  useImperativeHandle(ref, () => ({ prepare: () => finish("preview"), snapshot: async () => { if (busy || drag.current || (editing && !(await saveText()))) return null; return historyRef.current?.present ?? null; } }));
   const handledInsert = useRef<string | null>(null);
+  useEffect(() => {
+    if (!companion?.active) return;
+    const insert = (event: Event) => {
+      const request = (event as CustomEvent<WarehouseImageInsert>).detail;
+      if (!request || request.storyId !== companion.storyId) return;
+      const asset = assets.find(item => item.id === request.imageId);
+      if (!asset) return;
+      event.preventDefault();
+      if (!renderer || !history || busy || editing || sourceChanged) {
+        setError(editing ? "请先完成当前文字编辑，再选用仓库图片。" : "请等待排版准备完成后再选用图片。");
+        return;
+      }
+      void addImage(asset);
+    };
+    window.addEventListener(INSERT_WAREHOUSE_IMAGE, insert);
+    return () => window.removeEventListener(INSERT_WAREHOUSE_IMAGE, insert);
+  });
   useEffect(() => {
     if (history?.present) onDocumentChange?.(history.present);
   }, [history?.present, onDocumentChange]);
@@ -1123,6 +1141,7 @@ export function ImagePackModuleEditor({
                 onDrop={event => {
                   event.preventDefault();
                   setDropActive(false);
+                  if (busy || editing) return;
                   const asset = assets.find(
                     item =>
                       String(item.id) ===

@@ -2158,9 +2158,9 @@ export default function StoryAgentChat({
             </span>}
 
         {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
-          {writingSession.snapshot.module ? <span className="block truncate">
-            已选中：{layoutModuleLabel(writingSession.snapshot.module)} · 可以问我怎么改
-            {!writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
+          {writingSession.snapshot.module ? <span className="block truncate" title={`${layoutModuleLabel(writingSession.snapshot.module)} · ${writingSession.snapshot.module.text ?? ""}`}>
+            已定位：{writingSession.snapshot.module.kind === "text" ? writingSession.snapshot.module.text?.slice(0, 60) || "空白段落" : layoutModuleLabel(writingSession.snapshot.module)}
+            {writingSession.snapshot.module.kind === "image" && !writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
           </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
             ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
                 已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}

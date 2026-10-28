@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChapterWorkspace, mapChapterImages, chapterImageAssets } from "./ChapterWorkspace";
 import type { Chapter } from "./useChapters";
 vi.stubGlobal("React", React);
-const deliveryState = vi.hoisted(() => ({ enabled: false }));
+const deliveryState = vi.hoisted(() => ({ enabled: false, externalVersion: null as number | null, inbox: [] as any[], candidates: [] as any[], inboxOptions: null as any, candidateOptions: null as any }));
 const chapter: Chapter = {
   id: 2,
   storyId: 1,
@@ -33,6 +33,7 @@ vi.mock("./useChapters", () => ({
     saving: false,
     loading: false,
     epoch: 0,
+    externalVersion: deliveryState.externalVersion,
     change: vi.fn(),
     flush: vi.fn(),
     refresh: vi.fn(),
@@ -46,7 +47,7 @@ vi.mock("@/lib/trpc", () => ({
     chapterDelivery: {
       status: { useQuery: () => ({ data: { enabled: deliveryState.enabled } }) },
       contacts: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
-      inbox: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
+      inbox: { useQuery: (_input: unknown, options: unknown) => {deliveryState.inboxOptions = options; return { data: deliveryState.inbox, refetch: vi.fn() };} },
       ...Object.fromEntries(
         ["send", "createClaimLink", "return", "resolve"].map(name => [
           name,
@@ -71,10 +72,10 @@ vi.mock("@/lib/trpc", () => ({
         name,
         {
           useMutation: () => ({ mutateAsync: vi.fn() }),
-          useQuery: () => ({
-            data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: [] },
+          useQuery: (_input: unknown, options: unknown) => {if(name === "candidates") deliveryState.candidateOptions = options; return ({
+            data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: deliveryState.candidates },
             refetch: vi.fn(),
-          }),
+          }); },
         },
       ])
     ),
@@ -82,14 +83,18 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({ DesktopWritingContext: () => null }));
+vi.mock("./BookImageGenerator", () => ({BookImageGenerator: () => <button>生成图片</button>}));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
   it("opens chapter writing directly with the same chapter and an inline history entry", () => {
     const render = vi.fn();
     const html = renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} accountId={9} versionId="v1" hasAlbum={false} title="旧平台标题" body="" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={render} />);
     expect(html).toContain('aria-label="章节写作"');
+    expect(html).not.toContain('aria-label="当前章节"');
+    expect(html).not.toContain('保存章节');
     expect(html).toContain('这一章自己的正文');
-    expect(html).toContain('历史版本');
+    expect(html).toContain('>版本</button>');
+    expect(html).not.toContain('对比生成的文字');
     expect(html).not.toContain('平台稿与章节');
     expect(render).not.toHaveBeenCalled();
   });
@@ -114,14 +119,17 @@ describe("chapter workspace", () => {
         }}
       />
     );
-    expect(html).toContain("当前版本与分享记录");
-    expect(html).toContain("旧版本未记录编辑者");
-    expect(html).toContain("未接受的修改不会替换当前版本");
-    expect(html).toContain("新增章节");
-    expect(html).toContain("打包这一章");
-    expect(html).toContain("导入章节包");
+    expect(html).toContain(">版本</button>");
+    expect(html).not.toContain("当前版本与分享记录");
+    expect(html).not.toContain("新增章节");
+    for (const removed of ["更多", "上移", "下移", "删除章节", "打包这一章", "导入章节包", "按章保存", "选择章节包文件"]) {
+      expect(html).not.toContain(removed);
+    }
     expect(html).toContain("这一章自己的正文");
     expect(html.includes("收件箱")).toBe(enabled);
+    expect(html.includes("生成故事链接")).toBe(enabled);
+    expect(html).not.toContain("发送到微信 / 亲友");
+    expect(html).not.toContain("收件人");
     expect(html).not.toContain("不能写进第二章");
     expect(seen.scope).toBe("chapter:9:1:2:v4:0");
     expect(seen.adoptedCoverId).toBeNull();
@@ -174,4 +182,23 @@ describe("chapter workspace", () => {
     });
     expect(layout.pages[0].modules[0].imageUrl).toBe("chapters/9/a.png");
   });
+});
+
+it('shows actionable saved-version and returned-draft notices without hiding them in history', () => {
+  deliveryState.enabled = true;
+  deliveryState.externalVersion = 5;
+  deliveryState.inbox = [{deliveryId:'delivery',kind:'return',status:'pending'}];
+  deliveryState.candidates = [{id:1,status:'pending',senderName:'Jane'}];
+  try {
+    const html = renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} versionId="v1" hasAlbum={false} title="故事" body="" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={()=>null}/>);
+    expect(html).toContain('查看并接收');
+    expect(html).toContain('Jane');
+    expect(html).toContain('查看更新');
+    expect(html).toContain('包含别人发回的修改');
+    expect(html).toContain('查看来稿');
+    for (const options of [deliveryState.inboxOptions, deliveryState.candidateOptions]) {
+      expect(options.refetchInterval).toBe(15000);
+      expect(options.refetchOnWindowFocus).toBe('always');
+    }
+  } finally { deliveryState.externalVersion=null; deliveryState.inbox=[]; deliveryState.candidates=[]; }
 });

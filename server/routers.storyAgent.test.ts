@@ -1391,6 +1391,33 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
   });
 
+  it("warehouse background resolves an owned source without a shot, requires a quote and preserves the original", async () => {
+    const userId=6651;
+    const caller=appRouter.createCaller(createAuthContext(userId));
+    const story=await caller.storyAgent.storyUpsert({title:'仓库底图测试',body:{cards:[],shots:[]}});
+    const source=await createGeneratedImage({storyId:story!.id,userId,shotNo:null,shotIdentity:null,imageUrl:'https://storage.example/source.png',imageKey:'source.png',prompt:'原始上传图',generationType:'upload',isCurrent:false});
+    const original=await getGeneratedImageById(source.id);
+    imageGenMocks.editImage.mockClear();
+    const input={storyId:story!.id,warehouseTextureSourceId:source.id,referenceImageUrl:'https://untrusted.invalid/ignored.png',explicitInstruction:'淡一些'};
+    expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({status:'error'});
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    const result=await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:1.49}});
+    expect(result.status).toBe('ok');
+    if(result.status!=='ok')throw new Error(result.error);
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(source.imageUrl,expect.stringContaining('3:4'),expect.objectContaining({provider:'gpt-image',requireInputImage:true}));
+    expect(await getGeneratedImageById(result.imageId!)).toMatchObject({parentImageId:source.id,isCurrent:false});
+    expect(await getGeneratedImageById(source.id)).toEqual(original);
+  });
+  it("warehouse background rejects another account's image before calling the provider", async () => {
+    const caller=appRouter.createCaller(createAuthContext(6652));
+    const story=await caller.storyAgent.storyUpsert({title:'归属检查',body:{cards:[],shots:[]}});
+    const source=await createGeneratedImage({storyId:story!.id,userId:6653,shotNo:null,shotIdentity:null,imageUrl:'https://storage.example/private.png',prompt:'原图',generationType:'upload',isCurrent:false});
+    imageGenMocks.editImage.mockClear();
+    const result=await caller.storyAgent.generateForMobile({storyId:story!.id,warehouseTextureSourceId:source.id,costConfirmation:{accepted:true,estimatedCny:1.49}});
+    expect(result).toMatchObject({status:'error',error:expect.stringContaining('不属于')});
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+
   it("GPT revisions use the selected source, correct quote and one unadopted version without prompt rewriting", async () => {
     const caller = appRouter.createCaller(createAuthContext(6597));
     const story = await caller.storyAgent.storyUpsert({ title: "GPT改图", body: { cards: [], shots: [{ shotNo: 1, cueCode: "0101", subject: "猫" }] } });
