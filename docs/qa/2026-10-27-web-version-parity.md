@@ -1,0 +1,85 @@
+# 网页版本查看与微信能力对齐
+
+## 本次规则
+- 修改说明只能由修改者自愿填写，留空不显示，不自动总结。
+- 旧版本可只读打开，标题及正文差异标红；使用旧版本保留当前稿，版本冲突拒绝覆盖。
+- 收到的版本可对比、接受、从待接收列表删除；不删发送者内容。未记录历史编辑者明确显示未知，不补猜。
+- 复用现有章节和收发页面，文字页增加直接入口，遵守章节功能开关。
+
+## 检查与发布
+- 108 项定向测试通过；类型检查、构建通过。差异算法限制计算量，超大改稿标出整段变化。
+- 全量首轮 5876 通过、3 失败、69 跳过：其中新增测试误用发送者访问接收接口，修正后单测通过；另两项 architecture-boundaries / spine-bridge 在原部署源码复现相同失败，未修改无关页面。
+- 2026-10-27 已部署。发布前后端/首页哈希与原 manifest 一致，CAS 检查、95 文件核对和 MySQL readiness 通过；保留线上登录页增量。
+- 备份 /opt/Drinking-Time/dist.bak-chapter-versions-20261027。未改数据库结构、配置或小程序上传版本。
+- 顺序代码复核见 /tmp/compound-engineering/ce-code-review/chapter-versions-20261027/review.md。
+
+## 对齐清单（不把代码存在当作已验收）
+| 能力 | 网页现状与待验收 |
+| --- | --- |
+| 直接改正文、聊天辅助写作 | 已有 PublishingDraftWorkspace / StoryAgentChat，真实文字页可见；本轮不消耗生成费用 |
+| 独立记忆、选择记忆创作 | 已有 MemoryWarehouse，可选择 current/new；本轮未实测完整生成 |
+| 图文排版、封面/底图/插图 | 已有 PublishingImagePack，上一轮图文往返四张图验收通过；裁切派生版本仍需逐项核对 |
+| 新建章节直接追加 | 当前仍为内联表单确认保存，尚未完全符合微信的一键追加体验 |
+| 发回原作者、发给其他账号 | 已有发送面板和领取链接，上一轮真实微信→网页接收/采用通过 |
+| 编辑者、历史、对比、接受/删除收到的版本 | 本轮补齐，真实网页验收记录待追加 |
+| 人物/分享记录 | 已有当前账号参与的最近200条收发记录；未公开他人私下分享链 |
+| 修改说明跨端保留 | 网页端支持；旧小程序 parser 会丢弃可选说明，不能声称微信往返已支持 |
+
+## 发布后验证与回滚
+- 本会话检查文字页入口、旧版本只读打开、红色差异、署名、现有图片和刷新后当前稿未改变。
+- 观察 chapters.version / chapters.restoreVersion / chapterDelivery 的权限错误、版本冲突和页面异常；预期仅有正确的冲突拒绝，无500或内容丢失。
+- 如新入口持续崩溃或出现越权/丢内容，恢复本次备份后重启；保留静态旧文件、原数据及配置。
+
+## 真实网页结果
+- 文字页“版本与修改”直接打开章节历史；版本 16/10/7 可只读对比，原有5张图片仍在。
+- 在虚构测试故事把“蓝色纸船”改为“红色纸船”，手写说明“验收用：我把纸船由蓝色改成红色。”；对比显示当前账号真实称呼、手写说明以及“红/蓝”标红，原稿显示原编辑者。
+- 使用保存前版本20恢复蓝色纸船；红色测试稿保留为历史22，说明仍在该历史中，符合恢复不丢版本要求。未发送这段测试改稿给其他账号。
+- 当前稿已恢复，刷新后继续检查；未消耗AI生成费用。真实删除/接受新候选本轮没有产生新投递，沿用已有接口并有所有权/状态自动测试，不冒充真实跨账号新一轮验收。
+- 截图：本会话 outputs/web-version-comparison-20261027.png。
+
+## 同一版本按文字/图像界面展示
+- 用户进一步要求文字界面直接查看文字版本，图像界面查看图片与排版版本。
+- 删除跨界面 CustomEvent 跳转；文字页原地展开 ChapterTextVersions，读取现有 chapters.list/get/versions/version。按章选择，仅查看，不挂载图片编辑器或调用保存。
+- ChapterComparison 增加 text/images/all 展示模式；文字不生成排版预览或展示图片，图像模式展示图片用途和排版而不重复铺一遍正文。版本号、署名、手写说明同源，没有复制历史或数据库迁移。
+- 文字面板是查看/比较入口，现有文字稿历史的采用功能保留；图像章节的完整版本恢复保持原路径。未新增会暗中修改图片的文字恢复按钮。
+- 34项相关测试、类型检查、构建通过；顺序复核了切章清空选中版本、空/加载/错误状态、只读查询和功能开关。原有全量基线失败见上文，不重复声称全量通过。
+- 已部署至正式网页：95文件校验、MySQL readiness通过；保留原登录增量。备份 /opt/Drinking-Time/dist.bak-chapter-surfaces-20261027。
+- 正式网页只读实测通过：文字页点击版本与修改仍留文字工作区，比较历史22显示蓝/红标红且无图；切换图像→章节排版→同版本22显示封面/底图/插图及排版预览，没有重复正文比较。返回文字页正常。未生成内容或恢复历史。
+- 截图 outputs/text-versions-20261027.png、outputs/image-versions-20261027.png。图库仍5张；图像编辑器既有自动排版保存使当前版本号从24到25，文字面板本身无写入，历史列表未新增一条人工版本。
+
+## 入口可发现性补修
+- 用户截图只有长正文，原入口在正文下方不可见。将同一“版本与修改”按钮移至顶部文稿操作栏，对比面板展开在正文上方，底部不重复留按钮。
+- 25项定向测试、类型检查和构建通过；正式站95文件校验、MySQL就绪检查通过，备份 /opt/Drinking-Time/dist.bak-chapter-entry-20261027。
+- 主仓无dev且存在其他会话未提交内容，未启动不包含本功能的main或覆盖它；右侧打开正式站供用户验收。手机适配上下文已发送“网页手机前端”，对方已开始只读盘点并避开当前文件。
+
+## 2026-10-27 Live background fix (911c644e)
+- Root cause: settings changed while moduleSession.options stayed frozen; sourceChanged blocked rendering/export. Background-only synchronization now preserves modules and undo history, saving a distinct draft for new settings.
+- 31 focused tests, tsc, build and feature ledger passed. Initial helper test failed to load the absent helper (not a behavioral red test); old production UI reproduced the stale canvas/source-change warning.
+- Production: 95 file hashes verified, readiness mysql/authentication required. IAB fictional bookstore story: linen paper visibly updated, image/text retained, undo/redo worked, reload restored both modules.
+- Legacy limitation: first reload of the old mismatched draft did not restore its image under current settings; reinserted the same first library image for verification. Old drafts and assets were not deleted. This is not a migration of all legacy drafts.
+- Evidence: outputs/background-live-20261027.png in coordination workspace. No paid AI calls; no schema or mini-program changes.
+
+## 2026-10-27 Unified chapter editing
+
+- User requested one editor structure: text/images at top, chapters inside layout, inline history in both, explicit adoption only.
+- Reused ChapterWorkspace/useChapters/server APIs; added ChapterWriting with scoped browser recovery, explicit save, optional manual note, and existing chat context registration. Removed automatic platform-to-chapter mirror writes; generated text can be compared/adopted explicitly.
+- View/chapter changes prepare and flush current editor before switching. Read-only compare opens with flush=false and shows current unsaved text/layout. Adoption flushes current work then uses the queue CAS version.
+- Tests: 131 targeted tests across 10 files, tsc and production build passed. No full-suite green claim.
+- Production fictional story 113: changed blue to red without saving; history comparison showed both and editor retained the unsaved red text. Adopted history 20: current became blue, red preserved as version 27 and previous saved content as 26. Reopened 27 confirmed red. Switching chapter 2 then image view preserved chapter 2; switched back to chapter 1. All images/layout comparisons rendered.
+- First transition of bookstore test story exposed legacy cache key mismatch (chapter adds fitOverflowText); fixed legacy lookup and tested source/scope identity. Its first image was reinserted from existing assets during verification; originals and old browser drafts were not deleted. Do not claim all legacy drafts were bulk migrated.
+- Release chain: /tmp/unified-chapters-20261027, /tmp/unified-chapters-final-20261027, /tmp/unified-chapters-migration-20261027. Each preserves prior production LoginPage delta; no env/database/mini-program changes or paid generation.
+
+## 2026-10-27 Paragraph modules in text editing
+- Each newline is a visible text-module slot (including blank editing slots); no new data model or API. Existing body/blockIds/version semantics retained.
+- Enter replaces selected text with a module boundary and focuses the next slot; Backspace at start / Delete at end merge adjacent slots. Multiline paste and CRLF normalization covered; IME confirmation is not intercepted. Textareas auto-grow, with no per-module action-button clutter. Whole-chapter AI cursor/selection offsets retained.
+- Added six interaction/offset tests; 30 relevant tests, tsc and build pass. First check caught same-basename case-insensitive resolution on macOS; renamed pure helper to moduleTextEditing.ts.
+- Production /tmp/text-modules-20261027: 95 files verified, mysql readiness/authentication required. Fictional story 113 chapter 1 Enter created module 2 and focused it, typed a clearly fictional test paragraph, exercised undo/redo, saved and reloaded two intact modules, compared against prior history 30. Cleared the test paragraph then Backspace merged the empty slot; saved the original blue-paper-boat content. Test edit remains in normal history. No paid AI or schema changes.
+- Right panel updated. Screenshot: coordination outputs/text-modules-20261027.png. Desktop browser verification only; real phone IME/touch not exercised.
+
+## 视频入口恢复与简版历史（2026-10-27）
+- 原因：29d38f1d 整理导航时误删 editing 选项，剪辑器本身仍在。恢复文字/图像/视频三入口。
+- 视频区常驻一个「历史版本」按钮，展开后通过既有 finishedProduct 查询/带 revision CAS 写入接口记录视频并显式冻结成品组合。片段按既有 takeId 与起止秒数只读预览，查看不执行采用、不改变时间线。默认名称「视频版本」仅作为旧模型必填标题，不伪造修改摘要。
+- 范围：已有数据结构是视频素材与截取范围，不是完整字幕/音轨/变换的时间线快照；本次没有添加恢复或比较的假按钮，也未宣称支持完整恢复。现有当前视频记录须有可记录的 primaryVideoEdit 或 visualClips。
+- 验证：58项定向测试通过、pnpm check、feature:validate（70卡）、生产构建通过。线上95文件哈希核验，MySQL readiness与鉴权正常；后端不变，原登录修复保留。
+- 浏览器：右侧虚构「配图验收·雨后书店」实际切入视频；单一历史入口展开/收起正常，无视频时记录禁用，正文保持保存状态。本轮没有含视频故事的浏览器写入/播放验证；未调用付费生成。
+- 备份：/opt/Drinking-Time/dist.bak-video-history-20261027；构建来源 /tmp/video-history-20261027/source。

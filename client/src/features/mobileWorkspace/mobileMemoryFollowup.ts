@@ -26,6 +26,7 @@ export type MemoryFollowupSource = {
     platform?: PublishingPlatformId;
     versionId?: string;
     bodyRevision?: number;
+    cursor?: number;
     selection?: { start: number; end: number };
   };
 };
@@ -45,7 +46,7 @@ export function mobileWritingContext(
   const draft = source.text?.content.body ?? source.content;
   return {
     draft,
-    cursor: draft.length,
+    cursor: source.text?.selection?.start ?? source.text?.cursor ?? draft.length,
     selection: source.text?.selection,
     scope: source.id,
     fullDraft: true,

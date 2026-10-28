@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
   "updatedAt": "2026-10-27",
+  "schemaVersion": 1,
   "features": [
     {
       "id": "story-context-sharing",
@@ -190,6 +190,11 @@
         "生成模型仍可能偏离纯花纹要求，候选须人工选择；现有自动质检只检查文字污染，不应被当作纯花纹保证。实测与修正记录见QA文档。"
       ],
       "history": [
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "真实正式站复现本机上传图片加入排版报Failed to fetch：connect-src self拒绝fetch(data:)。改为本地解码栅格data URL，模块画布、取色、PNG导出和图文打包共用读取；不放宽CSP、不新增付费调用。新增实际renderer回归先失败后通过；真实页面复验记录见本次验收日志。"
+        },
         {
           "date": "2026-10-05",
           "kind": "fix",
@@ -1036,12 +1041,23 @@
       ]
     },
     {
-      "id": "publishing-workspace",
-      "name": "个人社交发布工作台",
-      "status": "working",
-      "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
-      "entryPoints": [
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      "invariants": [
+        "普通保存直接写入当前平台文稿，不调用 AI 分类或要求措辞/内核二选一，不自动更新共享内核或创建版本；失败保留编辑内容。",
+        "平台稿相互隔离。",
+        "生成、转换与改写遵守共同探索原则，不强迫补结论或问答式采集；原有事实、标题、平台和操作范围约束保持。",
+        "切换工作台不自动触发付费生成。",
+        "生成结果只进入候选轮次，不自动覆盖正式封面。",
+        "已受理的异步付费任务必须保存任务编号并恢复同一任务，不能自动重复提交。",
+        "像素质检只标注风险，不得丢弃或隐藏已付费候选。",
+        "开新一轮前必须先恢复仍欠恢复的已付费任务，不得覆盖任务编号。",
+        "供应商失败必须保留 error.cause，断连不得被误判为不可恢复。",
+        "改写供应商失败文案时必须转发 providerTaskId 与 submissionUncertain，不得把可能已扣费的提交呈现为安全重试。",
+        "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
+        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
+        "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
+        "人工标题不能被转换、改写、格式修复或无效标题结果清空。",
+        "已保存的候选可先展示为质检中；后台检查必须绑定原版本和候选列表，未检查/超时/服务中断不得呈现为检查通过，也不自动重新购买生成或质检。",
+        "电脑版顶栏分为文字、图像、视频；图像承载封面、插图、底图、排版、成品预览、模块编辑与进入视频制作。栏目切换不卸载文字与图片编辑实例，保留未保存文字、模块输入和编辑会话；不发起付费生成。"
       ],
       "owners": [
         "server/routers/publishingDraft.ts",
@@ -1064,78 +1080,7 @@
         "client/src/pages/editingStudioWorkspace.ts",
         "client/src/features/publishingDraft/StudioCreateMenu.tsx"
       ],
-      "evidence": [
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
-        "server/routers.publishingDraft.test.ts",
-        "server/services/publishingDraft.test.ts",
-        "docs/qa/2026-10-20-exploration-release.md",
-        "server/services/publishingPersistence.test.ts",
-        "server/services/imageGen.test.ts",
-        "server/services/staticImageQualityGate.test.ts",
-        "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts",
-        "shared/finishedProductVersion.test.ts",
-        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
-        "docs/qa/2026-10-02-generation-latency.md",
-        "docs/qa/2026-10-03-editor-ui-simplification.md",
-        "docs/qa/2026-10-03-editor-button-audit.md",
-        "docs/qa/2026-10-05-editor-stable-baseline.md",
-        "docs/qa/2026-10-11-memory-driven-production.md",
-        "server/routers.textSourceLineage.test.ts",
-        "server/routers.downstreamRegeneration.test.ts",
-        "server/services/imagePromptCompiler.test.ts",
-        "server/services/imagePromptCompiler.provider.test.ts",
-        "server/services/publishingCoverStoryboardPrompt.test.ts",
-        "docs/qa/2026-10-13-cover-prompt-preparation.md",
-        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
-        "docs/qa/2026-10-13-desktop-writing-workflow.md",
-        "server/_core/httpConnectionPool.test.ts",
-        "docs/qa/2026-10-13-image-network-proxy.md",
-        "docs/qa/2026-10-13-mobile-writing-workflow.md",
-        "docs/qa/2026-10-13-unified-writing-release.md",
-        "docs/qa/2026-10-16-three-workspaces.md",
-        "client/src/pages/editingStudioWorkspace.test.ts",
-        "client/src/app/shell/TopBar.test.tsx",
-        "docs/qa/2026-10-16-image-layout-workspace.md",
-        "docs/qa/2026-10-20-story-creation-workflow.md",
-        "client/src/features/publishingDraft/StudioCreateMenu.test.tsx",
-        "docs/qa/2026-10-20-story-workflow-release.md",
-        "docs/qa/2026-10-21-desktop-memory-chat.md",
-        "scripts/verify-publishing-save.cjs",
-        "docs/qa/2026-10-24-direct-publishing-save.md",
-        "docs/qa/2026-10-24-image-preparation-rate-limit.md",
-        "docs/qa/2026-10-24-image-delivery-live.md"
-      ],
-      "invariants": [
-        "普通保存直接写入当前平台文稿，不调用 AI 分类或要求措辞/内核二选一，不自动更新共享内核或创建版本；失败保留编辑内容。",
-        "平台稿相互隔离。",
-        "生成、转换与改写遵守共同探索原则，不强迫补结论或问答式采集；原有事实、标题、平台和操作范围约束保持。",
-        "切换工作台不自动触发付费生成。",
-        "生成结果只进入候选轮次，不自动覆盖正式封面。",
-        "已受理的异步付费任务必须保存任务编号并恢复同一任务，不能自动重复提交。",
-        "像素质检只标注风险，不得丢弃或隐藏已付费候选。",
-        "开新一轮前必须先恢复仍欠恢复的已付费任务，不得覆盖任务编号。",
-        "供应商失败必须保留 error.cause，断连不得被误判为不可恢复。",
-        "改写供应商失败文案时必须转发 providerTaskId 与 submissionUncertain，不得把可能已扣费的提交呈现为安全重试。",
-        "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
-        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
-        "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
-        "人工标题不能被转换、改写、格式修复或无效标题结果清空。",
-        "已保存的候选可先展示为质检中；后台检查必须绑定原版本和候选列表，未检查/超时/服务中断不得呈现为检查通过，也不自动重新购买生成或质检。",
-        "电脑版顶栏分为文字、图像、视频；图像承载封面、插图、底图、排版、成品预览、模块编辑与进入视频制作。栏目切换不卸载文字与图片编辑实例，保留未保存文字、模块输入和编辑会话；不发起付费生成。"
-      ],
-      "dependencies": [
-        "story-ownership",
-        "image-asset-history"
-      ],
-      "replaces": [],
-      "knownGaps": [
-        "电脑聊天提议→生成候选→右侧预览→显式保存→刷新已在故事1206实测通过；其他文字操作的完整DOM交互与真实冲突恢复仍待验证。",
-        "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
-        "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
-        "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。",
-        "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。",
-        "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
-      ],
+      "status": "working",
       "history": [
         {
           "date": "2026-10-24",
@@ -1381,7 +1326,72 @@
           "date": "2026-10-21",
           "kind": "refactor",
           "summary": "按用户要求，文字栏目下的故事记忆入口移入左侧对话框，账号回忆独立放在顶栏；文字、图片、视频工作区及未保存缓冲继续保留，选卡成文后仍可返回文字工作区。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "恢复被导航整理遗漏的视频顶层入口；视频区仅常驻一个历史版本入口，展开后复用成品版本CAS记录、冻结和只读片段预览。明确历史素材与截取范围不等于完整时间线恢复；不增加收费调用、不改变当前剪辑。"
         }
+      ],
+      "replaces": [],
+      "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
+      "dependencies": [
+        "story-ownership",
+        "image-asset-history"
+      ],
+      "id": "publishing-workspace",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      ],
+      "name": "个人社交发布工作台",
+      "knownGaps": [
+        "电脑聊天提议→生成候选→右侧预览→显式保存→刷新已在故事1206实测通过；其他文字操作的完整DOM交互与真实冲突恢复仍待验证。",
+        "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。",
+        "后台质检服务中断后仍标为未完成，不自动重提；已有一轮真实MJ任务验收，其他模型及耗时分布仍待观测。",
+        "自动使用共享素材最新版由下一份计划处理；当前只覆盖来源追溯、旧稿及素材引用保留，不算 AE3 全部完成。",
+        "配图提示词经代理实测约5秒完成；2026-10-13真实MJ任务1791895494709750最终成功返回并显示4张候选，但查询曾超时或空响应，整轮耗时约17分30秒，不能宣称出图速度已优化完成。图片质检显示未完成，美术质量尚待用户选择；不额外购买生成或质检。",
+        "2026-10-20前端衔接沿用现有接口：图片生成需已保存文稿，视频不消费未发送的额外要求，音乐需先有镜头；尚无独立音乐栏目、任意文档解析或全素材自动视觉理解。"
+      ],
+      "evidence": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "server/routers.publishingDraft.test.ts",
+        "server/services/publishingDraft.test.ts",
+        "docs/qa/2026-10-20-exploration-release.md",
+        "server/services/publishingPersistence.test.ts",
+        "server/services/imageGen.test.ts",
+        "server/services/staticImageQualityGate.test.ts",
+        "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts",
+        "shared/finishedProductVersion.test.ts",
+        "client/src/features/publishingDraft/PublishingVersionControls.test.tsx",
+        "docs/qa/2026-10-02-generation-latency.md",
+        "docs/qa/2026-10-03-editor-ui-simplification.md",
+        "docs/qa/2026-10-03-editor-button-audit.md",
+        "docs/qa/2026-10-05-editor-stable-baseline.md",
+        "docs/qa/2026-10-11-memory-driven-production.md",
+        "server/routers.textSourceLineage.test.ts",
+        "server/routers.downstreamRegeneration.test.ts",
+        "server/services/imagePromptCompiler.test.ts",
+        "server/services/imagePromptCompiler.provider.test.ts",
+        "server/services/publishingCoverStoryboardPrompt.test.ts",
+        "docs/qa/2026-10-13-cover-prompt-preparation.md",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "docs/qa/2026-10-13-desktop-writing-workflow.md",
+        "server/_core/httpConnectionPool.test.ts",
+        "docs/qa/2026-10-13-image-network-proxy.md",
+        "docs/qa/2026-10-13-mobile-writing-workflow.md",
+        "docs/qa/2026-10-13-unified-writing-release.md",
+        "docs/qa/2026-10-16-three-workspaces.md",
+        "client/src/pages/editingStudioWorkspace.test.ts",
+        "client/src/app/shell/TopBar.test.tsx",
+        "docs/qa/2026-10-16-image-layout-workspace.md",
+        "docs/qa/2026-10-20-story-creation-workflow.md",
+        "client/src/features/publishingDraft/StudioCreateMenu.test.tsx",
+        "docs/qa/2026-10-20-story-workflow-release.md",
+        "docs/qa/2026-10-21-desktop-memory-chat.md",
+        "scripts/verify-publishing-save.cjs",
+        "docs/qa/2026-10-24-direct-publishing-save.md",
+        "docs/qa/2026-10-24-image-preparation-rate-limit.md",
+        "docs/qa/2026-10-24-image-delivery-live.md"
       ]
     },
     {
@@ -1391,7 +1401,8 @@
       "userValue": "一眼看清每个成品由哪一版文字、图像和视频组成，并且只替换明确保存的那一层。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
-        "client/src/features/publishingDraft/PublishingVersionControls.tsx"
+        "client/src/features/publishingDraft/PublishingVersionControls.tsx",
+        "client/src/features/creationEditor/VideoVersionHistory.tsx"
       ],
       "owners": [
         "shared/finishedProductVersion.ts",
@@ -1422,9 +1433,15 @@
       "replaces": [],
       "knownGaps": [
         "媒体快照读取与 Story body CAS 已受同一服务端写锁保护，但 SQL 模式尚未把 Story、图片和时间线行放进同一数据库事务锁序。",
-        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。"
+        "旧 publishing versions[] 仍作为文字历史只读兼容；历史 Image/Video Vn 不会从旧数据中虚构。",
+        "视频历史入口目前只记录既有成品模型的视频素材与截取范围，不支持字幕、音轨、变换的整条时间线恢复；无可记录视频时禁用记录。"
       ],
       "history": [
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "恢复被导航整理遗漏的视频顶层入口；视频区仅常驻一个历史版本入口，展开后复用成品版本CAS记录、冻结和只读片段预览。明确历史素材与截取范围不等于完整时间线恢复；不增加收费调用、不改变当前剪辑。"
+        },
         {
           "date": "2026-08-28",
           "kind": "validation",
@@ -6774,7 +6791,9 @@
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.tsx",
         "client/src/features/mobileWorkspace/MobileNewStoryCompanion.tsx",
         "client/src/features/mobileWorkspace/mobileMemoryFollowup.ts",
-        "client/src/app/shell/DesktopStoryMenuContext.ts"
+        "client/src/app/shell/DesktopStoryMenuContext.ts",
+        "shared/lineModules.ts",
+        "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx"
       ],
       "evidence": [
         "server/services/writingCompanion.test.ts",
@@ -6805,7 +6824,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "client/src/features/storyAgent/views/StoryAgentChat.layout.test.ts",
         "docs/qa/2026-10-19-agent-connectivity-recovery.md",
-        "docs/qa/2026-10-19-chat-queue-ui.md"
+        "docs/qa/2026-10-19-chat-queue-ui.md",
+        "server/services/lineContext.test.ts",
+        "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx"
       ],
       "invariants": [
         "打开聊天不触发开场读稿推理；当前全文/选区直接作为上下文，发送才调用模型，推理不自动重试。",
@@ -6829,7 +6850,8 @@
         "真机软件键盘、中文IME、断网重连仍待验收。",
         "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。",
         "电脑真实四步流程已通过并刷新验证；候选生成75.9秒仍偏慢，选区真实付费改写及多用户/MySQL并发尚未验收。旧失败队列需显式核对后继续，不能自动重放未知提交。",
-        "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。"
+        "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。",
+        "当前行方向提示 LINE_CONTEXT_CHAT_ENABLED 默认关闭；本地模拟与组件处理验证不代表真实模型、浏览器和真机验收。网页正文当前行从现有全文/选区/光标快照推导，稳定章节 blockId 持久化依赖文档03。"
       ],
       "history": [
         {
@@ -6941,6 +6963,11 @@
           "date": "2026-10-19",
           "kind": "improvement",
           "summary": "按用户要求把桌面左上故事菜单迁至输入框头像，复用原新建/切换/全部故事路由与未保存保护；浮层向上展开并通过Portal避免聊天容器裁切，保留键盘/Escape/外部点击行为。头像按请求显示读取素材、思考和生成状态，拾光沿用原左上方Logo并按最新反馈微调至72×62px（同步点击范围），再左移4px、下移3px，上方留白收窄12px，靠输入框左侧并轻微重叠边缘以节省空间，纳音杯子缩至64px，复用手机版五官大小、间距与各五行表情，隐藏脚；平时保持普通杯子，悬停或键盘聚焦时才显示小表情，并尊重减少动画设置；精简顶部，今日来信保留账号菜单入口。15项定向测试与类型检查、本地实际展开菜单截图验证；未发起付费生成，未部署。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "文档08续补：手机文字编辑保留原生光标，电脑publishing-body经组件行为测试确认现有快照足够；当前行提示有界、支持CRLF及选区起点，开关保持关闭。复用现有队列、计费、选区外保留和版本确认机制，不新增正文存储。"
         }
       ]
     },
@@ -7464,7 +7491,9 @@
         "docs/qa/2026-10-17-layout-release.md",
         "client/src/features/publishingAlbum/storyImageLibrary.test.ts",
         "docs/qa/2026-10-20-story-creation-workflow.md",
-        "docs/qa/2026-10-20-story-workflow-release.md"
+        "docs/qa/2026-10-20-story-workflow-release.md",
+        "docs/qa/2026-10-25-selected-text-images.md",
+        "client/src/features/publishingAlbum/moduleBackground.test.ts"
       ],
       "invariants": [
         "电脑图像栏目内分为图像与排版；打开排版直接进入可编辑画布，左侧页缩略图、中间纸张、右侧可用图片，不叠加装饰容器。每个非空原文段落、标题和配图独立成块，纸张背景固定。手机保留预览/配图/排版导航，横排缩略图轻点切页，图片库与操作使用底部面板。",
@@ -7484,7 +7513,8 @@
         "手机先轻点选择模块，再拖中心移动和四角缩放；未选中模块允许滚动，44px触点与显式图片裁切模式避免误操作。文字样式、删除和跨页使用模块操作面板，插删页使用页面操作面板；与电脑共用变换、撤销和持久化语义。",
         "手机改字面板保留未提交输入，完成或关闭前验证保存；进入预览前提交并使用最新完整模块稿，文字重新分页后跟随该模块所在页。预览失败留在排版显示错误，导出和分享使用已核对的最新PNG；切回排版不重置会话。",
         "复制面板保留当前单图，并可复制当前全文文字或勾选任意页；全文按页码/模块顺序提取已编辑文字，保留段落与重复内容，不写回正文。图片在打开面板时由最新文档渲染，来源失效或关闭取消未完成任务，错误不得报告成功。",
-        "单张复制不重新编码，选多张时明确复制为一张长图，按页码顺序拼接；长图宽900px且每页1200px，最多九页，独立下载保留原PNG。剪贴板请求在点击时使用Promise图像数据发起；无权限/无支持时提示下载，全文入口仍保留。"
+        "单张复制不重新编码，选多张时明确复制为一张长图，按页码顺序拼接；长图宽900px且每页1200px，最多九页，独立下载保留原PNG。剪贴板请求在点击时使用Promise图像数据发起；无权限/无支持时提示下载，全文入口仍保留。",
+        "Background-only changes repaint existing modules and retain undo history and pending text in a separate settings draft; old drafts remain intact. Text/font/source-image changes still require explicit source adoption."
       ],
       "dependencies": [
         "publishing-article-image-pack",
@@ -7564,6 +7594,16 @@
           "date": "2026-10-20",
           "kind": "verification",
           "summary": "应用22ee6ee4已推送main并部署；5595项普通测试、64项一次性MySQL测试、215项小程序测试、类型/构建/账本通过。95个构建文件与线上一致，公网editing及健康检查通过；77张业务表、32条迁移和环境未变。最终入口位于聊天框下方按钮排最右侧，详情见story-workflow-release QA。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "feature",
+          "summary": "排版添加图片统一上传与按选中文字生成，章节透传自己的选中片段，保留费用确认和候选图。89项相关测试、类型检查、构建和功能账本校验通过；5cc9f0cf已上线，正式站实测整块/子串预览与章节确认按钮。未提交真实付费生成。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "修复图片素材选择底图后编辑画布仍使用旧设置：仅同步纸纹、种子、底图和派生纸色，保留正文来源隔离、手动模块、撤销栈和未提交文字。按新设置另存草稿，旧草稿保留。31项定向回归及类型检查通过，线上实测待核。 Production verified: linen background updates immediately; existing modules, undo/redo and reload restoration pass. 95 deployed files verified; no paid AI calls."
         }
       ]
     },
@@ -7597,7 +7637,9 @@
         "docs/qa/2026-10-16-module-chat-memory.md",
         "command:pnpm check",
         "command:pnpm build",
-        "docs/qa/2026-10-17-layout-release.md"
+        "docs/qa/2026-10-17-layout-release.md",
+        "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx",
+        "server/services/lineContext.test.ts"
       ],
       "invariants": [
         "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
@@ -7618,7 +7660,8 @@
       "knownGaps": [
         "本机记录不跨设备同步，不进行模型训练或全账号长期偏好聚合；仅从启用后记录，不能追溯旧操作。",
         "只保留本故事最近100条、每次提供20条，不是无限历史；清除不追溯删除已发送对话或发送时固定的待发快照。",
-        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试；已通过模拟模型的真实路由与本机桌面/390px入口验收。"
+        "真实模型建议质量、iOS/Android触摸软键盘和公网双设备未测试；已通过模拟模型的真实路由与本机桌面/390px入口验收。",
+        "文档08当前行提示默认关闭；lineSource参数可消费03提供的章节正文顺序、blockId绑定与目录，尚待03统一接到PublishingImagePack。旧排版位置明确标注为排版顺序，不冒称持久章节位置；未保存多行块缺可靠光标时不推测当前行。"
       ],
       "history": [
         {
@@ -7630,6 +7673,11 @@
           "date": "2026-10-17",
           "kind": "verification",
           "summary": "Application f209b7c3 pushed to main and deployed. Normal suite 5499 tests (2 timeout retries passed), MySQL 64, mini-program 215, types/build/ledger passed. Public HTTPS assets and health verified; 77 business tables, 32 migrations and environment unchanged. Production browser connection failed; local browser acceptance retained. See release QA."
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "模块点选通过原moduleCompanionContext携带当前位置与有界全文参考，排版聊天分支在LINE_CONTEXT_CHAT_ENABLED开启时先问方向或给思路；增加03稳定块绑定适配参数。覆盖重复行、图片、跨页、输入中多行、取消/换页清空和队列冻结，不改正文或排版存储。"
         }
       ]
     },
@@ -8061,6 +8109,339 @@
           "date": "2026-10-27",
           "kind": "verification",
           "summary": "93ec6ca7 已推送 main 并部署，保留线上章节/登录增量；99 运行文件与公网新资源哈希匹配，MySQL readiness正常。浏览器电脑和手机入口均成功打开回收站；隔离MySQL跨进程恢复及账号隔离通过。全量5700通过、9项基线失败已复现；迁移测试旧数量断言仍待修。"
+        }
+      ]
+    },
+    {
+      "id": "wechat-web-code-login",
+      "name": "网页六位码、小程序确认登录同一账号",
+      "status": "observing",
+      "userValue": "电脑网页显示六位码，在拾光家忆小程序输入并确认后，进入该微信主体对应的网页账号。代码已发布但保持关闭，完整登录尚未验收。",
+      "entryPoints": [
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "server/_core/oauth.ts"
+      ],
+      "owners": [
+        "client/src/features/auth/views/WechatCodeLogin.tsx",
+        "server/services/webLogin.ts",
+        "server/repositories/webLoginRequests.ts",
+        "server/_core/shiguangDesktopBridge.ts",
+        "server/_core/shiguangDesktopBridgeRoutes.ts",
+        "server/services/accountIdentity.ts",
+        "drizzle/0035_web_login_requests.sql"
+      ],
+      "evidence": [
+        "server/services/webLogin.test.ts",
+        "server/integration/webLoginBinding.mysql.test.ts",
+        "server/_core/oauth.wechat-login.test.ts",
+        "server/_core/shiguangDesktopBridge.test.ts",
+        "server/_core/shiguangBridgeSignature.test.ts",
+        "client/src/features/auth/views/WechatCodeLogin.test.tsx",
+        "server/auth.logout.test.ts",
+        "docs/handoff/2026-10-23-wechat-scan-login.md",
+        "git:dcfc902f:docs/qa/2026-10-23-wechat-scan-login-release.md"
+      ],
+      "invariants": [
+        "方案B是网页出六位字母数字码、小程序输入确认；不要求新建扫码出码链路，不删除原电脑配对码。",
+        "微信主体只由云函数可信APPID和OPENID派生；签名绑定路径和正文，持久nonce防重放，客户端不能指定userId或身份。",
+        "请求120秒内才可确认；码、请求标识和浏览器验证值只存带密钥摘要；只有正确浏览器凭据能一次性领取会话。",
+        "沿用resolveWechatAccount和establishPairedSession；绑定目标只来自已登录会话，merge_required不自动合并账号、故事或余额。",
+        "WECHAT_SCAN_LOGIN_ENABLED和WEB_LOGIN_CONFIRM_ENABLED默认关闭；上线、生产配置和实际开启仍须单独授权。",
+        "源码相同、静态渲染和测试替身不等于真实跨端登录验收；不得以新登录替代章节投递或宣称正文已经共用。"
+      ],
+      "dependencies": [
+        "account-compute-gift-payments",
+        "wechat-desktop-story-entry"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "正式网页已发布、0035已执行，不得重复迁移；云函数ba29150已有源码4/4回读记录，但运行配置未核实，当前实际WEB_LOGIN_CONFIRM_ENABLED值未知。",
+        "云函数关闭态优先级和小程序登录错误文案已固定在小程序提交135f39188116426a73097b6481599bc99c0fe8d8，尚未合并、部署或上传客户端。",
+        "缺少隔离MySQL验收与真实微信端到端证据；同一微信两种登录映射、故事列表、登出重登仍须实测。",
+        "网页静态组件测试只覆盖展示，初始按钮仍可见，点击收到404后才隐藏；轮询与404隐藏未做浏览器交互验收。",
+        "绑定微信只实现接口，入口位置待用户决定；绑定请求行和身份写入现已共用同一 MySQL 事务。隔离 MySQL 并发验收及拒绝/过期比赛测试尚未执行，不能据此开放绑定。方案A和文档06投递不属于本任务。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "补登记已有方案B实现及发布历史，状态保持observing；不以发布和迁移代替实际登录验收。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "fix",
+          "summary": "网页05固定提交d5a8e1de，绑定请求状态与微信身份写入共用事务；小程序05固定提交135f391，关闭开关优先于桥接配置错误且登录错误提示按动作区分。补HTTP/行为测试；两端契约和身份算法保持。隔离MySQL与真实微信端到端仍未验收。"
+        }
+      ]
+    },
+    {
+      "id": "story-chapters",
+      "name": "章节与排版按章存储",
+      "status": "partial",
+      "userValue": "在故事内独立编辑章节，把文字与排版保存到服务器，并通过章节文件留下副本、发回和恢复旧版本。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/PublishingImagePack.tsx",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "server/routers/chapters.ts",
+        "client/src/features/publishingAlbum/ChapterWriting.tsx"
+      ],
+      "owners": [
+        "shared/chapterStore.ts",
+        "server/repositories/chapters.ts",
+        "server/services/chapterPackageService.ts",
+        "client/src/features/publishingAlbum/useChapters.ts",
+        "client/src/features/publishingAlbum/chapterSaveQueue.ts",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx",
+        "client/src/features/publishingAlbum/moduleTextEditing.ts",
+        "client/src/features/publishingAlbum/chapterBlockTree.ts"
+      ],
+      "evidence": [
+        "server/routers.chapters.test.ts",
+        "server/services/chapterPackageService.test.ts",
+        "shared/chapterStore.test.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "client/src/features/publishingAlbum/chapterSaveQueue.test.ts",
+        "client/src/features/publishingAlbum/useChapters.test.tsx",
+        "client/src/features/publishingAlbum/chapterFile.test.ts",
+        "client/src/features/publishingAlbum/PublishingImagePack.test.tsx",
+        "command:pnpm check",
+        "command:pnpm migration:verify",
+        "docs/handoff/2026-10-23-web-chapters.md",
+        "docs/qa/2026-10-27-web-version-parity.md",
+        "client/src/features/publishingAlbum/ChapterTextVersions.test.tsx",
+        "client/src/features/publishingAlbum/ChapterWriting.test.tsx",
+        "client/src/features/publishingAlbum/ChapterTextModules.test.tsx",
+        "client/src/features/publishingAlbum/chapterBlockTree.test.ts"
+      ],
+      "invariants": [
+        "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
+        "章节内容不写入 stories.body；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
+        "Chapter writes use expectedVersion CAS. Switching chapters/views saves current work first. Comparison reads do not flush or adopt. Adoption first saves pending work and uses the resulting local queue version, preserving overwritten content.",
+        "Generated platform text is an explicit comparison candidate in the chapter workspace; it does not automatically overwrite chapter writing. The legacy draft marker remains only for compatible initial layout recovery.",
+        "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
+        "自动保存不挤占十版历史；采用和恢复保留被替换的版本。"
+      ],
+      "dependencies": [
+        "publishing-image-modules",
+        "publishing-static-album",
+        "story-context-sharing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "2026-10-24 经用户批准执行正式0036/0037，一次性MySQL事务测试已通过。真实浏览器发现首次加载崩溃后暂时关闭章节开关；修复后完整图文闭环仍待验收。",
+        "网页导入审核策略和平台稿生成/更新前的目的选择仍待确定；本轮不改生成逻辑。",
+        "主仓 3000 浏览器端到端验收未做；队列行为和静态入口有测试，React hook 的真实挂载/切章/断网与未提交文字交互仍待验证。",
+        "只存在浏览器的 data URL 图片会阻止章节云端保存，原本机缓存保留；未实现自动上传本机图库。",
+        "未覆盖排版的正文块仍完整存储并导出；接收端自动补排、跨端多行模块几何一致性仍需联调验收。",
+        "本轮沿用每行正文与 blockIds 的内部存储；照片通过插图引用保存，尚未把内部存储统一成与包完全一致的 blocks[]/assetId 结构。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-28",
+          "kind": "prototype",
+          "summary": "去掉模块格式隐藏后预留的横向宽度，正文向左展开；仅当前聚焦块在上方显示格式小浮层，并为该浮层留出最小纵向空间防止遮挡上段文字。拖动与折叠保持；浏览器视觉核对，未部署。"
+        },
+        {
+          "date": "2026-10-28",
+          "kind": "prototype",
+          "summary": "按用户反馈，本地文字模块格式选择仅在模块获得焦点时显示，取消常驻/悬停显示；保持原占位避免正文跳动，拖动把手与标题折叠箭头保留。真实浏览器核对仅当前第4模块显示格式，未编辑或刷新用户草稿。"
+        },
+        {
+          "date": "2026-10-28",
+          "kind": "prototype",
+          "summary": "本地连续文字预览将格式入口移到段首，直接拖动调整顺序和标题归属，标题移动携带子块；已按用户补充去除所有移动菜单命令。展开标题回车生成子块，收起标题回车在完整子树之后生成同级块。使用稳定本机ID/显式父子关系及结构撤销；格式/归属仍未接入服务端版本与分享。虚构本地故事1210验证拖入、排序、撤销、内外新增、保存重开；未部署。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "prototype",
+          "summary": "本地主仓预览连续段落及正文/三级可折叠标题；格式只存在本机浏览器、绑定当前正文，章节版本和跨端包未保存格式，不得当作正式功能或发布。保留正文与原块ID。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "承接 8244af5c 及第二轮未提交改动：补章节栏、按章保存、文件往返、发回对比/采用/忽略及版本恢复。用户明确批准镜像规则；新增文本引用存储、串行保存与原子导入，旧平台稿入口保留。默认关闭，未迁移、未部署、未合主干。"
+        },
+        {
+          "date": "2026-10-23",
+          "kind": "verification",
+          "summary": "最后定向9文件88项、类型检查、构建、迁移文件与68卡账本校验通过；一次全量5756通过/9失败，失败分布与交接基线相同。末次护栏调整仅做相关回归。浏览器、MySQL实际执行及导入审核仍未完成，保持partial和关闭开关。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "正式浏览器首次打开章节排版重现空详情崩溃；两个undefined被误判为匹配章节。新增实际hook渲染回归先复现2项失败，再以显式selected判定修复。加载、空故事及详情切换测试与工作区测试共6项通过，类型检查和构建通过。真实重开验收另发现切章异步读取事件值已还原，改为同步捕获目标ID；编辑后立即刷新版本列表。"
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "verification",
+          "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Reuse chapter snapshots in both surfaces: inline read-only text history and redline comparison stay in the text workspace; image comparisons show image roles and layout without duplicating prose. Removed cross-surface navigation event; no database changes. 34 focused tests, typecheck/build passed."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Moved the existing text version button and comparison above the long body editor after user could not find the below-body entry. No duplicate button or API change. 25 targeted tests, typecheck and build passed."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "fix",
+          "summary": "Default image workspace to layout on desktop and mobile fallback. Preserve explicit image-generation/material entry overrides and manual tab switching. Existing 15 image-pack tests, typecheck and build pass."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "refactor",
+          "summary": "Unified text and image layout around one chapter workspace. Chapter selector/history live inside layout; text writes directly with account/story/chapter local draft recovery and optional author-written note. Read-only inline comparisons include unsaved text; explicit adoption saves the current draft first. Removed platform/chapter switch and top-level video tab (video creation remains reachable from images). Legacy platform layout lookup removes chapter-only fitOverflowText. 131 targeted tests, typecheck and build passed. Production fictional-story tests confirmed unsaved red-vs-blue diff, adoption preserves the red draft as history 27, and chapter 2 stays selected across text/image views. No paid AI calls or schema change."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "feature",
+          "summary": "Text editor now presents each newline-delimited paragraph as a text module, with auto-growing inputs. Enter splits at selection, pasted newlines split modules, Backspace/Delete merge boundaries, and keyboard undo/redo retains up to 50 edits. Chinese IME Enter is not intercepted while composing. Chat selection is translated to whole-chapter offsets; saves/history use the same body and existing stable block IDs. 30 targeted tests, tsc, build passed. Production fictional story tested Enter focus, undo/redo, save/reload, history diff and Backspace merge; added test paragraph removed from current draft. No AI calls."
+        },
+        {
+          "date": "2026-10-28",
+          "kind": "feature",
+          "summary": "Continuous paragraph editing with focus-only floating format control, collapsible headings and explicit nested drag/drop. Open-heading Enter creates child; closed-heading Enter inserts after subtree. Formatting/hierarchy are browser-local only; body/order use existing chapter API. 338 focused tests and local fictional-story interactions passed. See docs/qa/2026-10-28-chapter-block-release.md."
+        }
+      ]
+    },
+    {
+      "id": "chapter-delivery",
+      "name": "章节投递、领取与发回",
+      "status": "partial",
+      "userValue": "把独立章节投递给已连接的同家或同故事成员，也可生成一次性领取链接；收件人留下或加入后，可以将修改后的章节发回原作者。",
+      "entryPoints": [
+        "server/routers/chapterDelivery.ts",
+        "server/_core/chapterDeliveryMediaRoute.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "client/src/pages/ChapterClaimPage.tsx"
+      ],
+      "owners": [
+        "server/routers/chapterDelivery.ts",
+        "server/repositories/chapterDeliveries.ts",
+        "server/_core/chapterDeliveryMediaRoute.ts",
+        "drizzle/0037_chapter_delivery.sql",
+        "server/_core/shiguangDesktopBridgeRoutes.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "client/src/pages/ChapterClaimPage.tsx"
+      ],
+      "evidence": [
+        "server/repositories/chapterDeliveries.test.ts",
+        "server/routers.chapterDelivery.test.ts",
+        "server/_core/chapterDeliveryMediaRoute.test.ts",
+        "docs/qa/2026-10-24-chapter-delivery-acceptance.md",
+        "command:pnpm exec tsc --noEmit --pretty false",
+        "command:pnpm exec vitest run server/routers.chapterDelivery.test.ts server/repositories/chapterDeliveries.test.ts server/_core/chapterDeliveryMediaRoute.test.ts",
+        "server/integration/chapterDeliveries.mysql.test.ts",
+        "command:pnpm feature:validate",
+        "client/src/features/publishingAlbum/chapterDeliveryImport.test.ts",
+        "server/routers.chapters.test.ts",
+        "docs/qa/2026-10-26-chapter-attribution.md",
+        "docs/qa/2026-10-27-web-version-parity.md"
+      ],
+      "invariants": [
+        "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
+        "收发人身份来自已认证网页 userId；包中的署名由服务端覆盖；客户端不能提交发送者 userId。",
+        "收件人只来自显式已连接的同家/同故事关系，使用账号绑定的 HMAC 不透明联系人编号；禁止向客户端暴露内部 userId 或按昵称/手机号搜索陌生账号。",
+        "领取 token 只存 SHA-256 摘要且最多使用一次；上传图片使用短时、按资产绑定的独立 capability，校验 MIME、字节数和 SHA-256。",
+        "未完整上传的图片包不进入收件箱；读取包每次生成新的临时图片地址。章节包和投递记录不得写入 stories.body。",
+        "发回包必须关联本人收到并留下或加入的父包，收件目标固定为根包原作者；接收决议只能由当前收件账号执行。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "memory-bookshelf-people",
+        "wechat-web-code-login"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "网页和小程序图文跨端真实验收进行中，临时开关开启；尚不能认定完整交付。",
+        "0036/0037已于2026-10-24备份后执行并核对38项迁移账本；0035不得重跑。",
+        "图片上传使用对象存储内容哈希键；当前 storage.ts 没有已知删除 API，过期对象物理清理尚未实现。",
+        "每日 UTC 20 次上限已有事务内账号行锁和定向回归测试；媒体 HTTP capability、来源、MIME、长度、哈希及重定向已有定向测试。MySQL 集成测试因没有 TEST_MYSQL_DATABASE_URL 而跳过，不能据此认定数据库并发与迁移已验收。",
+        "每日上限仍需产品验收；真实图片对象过期后的物理清理仍待确认存储供应商能力。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-23",
+          "kind": "feature",
+          "summary": "创建网页端章节投递持久化与 tRPC 基础接口；按同家/同故事的已连接成员限制账号投递，加入一次性领取、7 天令牌、30 天包期限、20 次/日上限和图片原始字节上传。0037 未执行，开关关闭；前端、小程序桥和跨端验收待完成。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "feature",
+          "summary": "接通网页章节工作区、领取登录回跳、可信 subject 桥和小程序投递/收件/导入/受保护发回路径；契约升级至 1.7.0。导入经04既有审核与来源保护，决议在持久化回执后更新；0037尚未核实执行，双开关关闭，端到端验收仍待做。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "improvement",
+          "summary": "在投递事务内先锁发送账号，再做幂等与 UTC 日额度检查，避免并发请求越过每日20次上限；媒体上传对生产请求执行同源Origin检查，下载限制2MiB并流式限长，继续校验HTTPS来源、重定向、MIME、长度与SHA-256。网页定向测试、类型检查通过；隔离MySQL测试因TEST_MYSQL_DATABASE_URL缺失跳过，0036/0037目标库状态未知，端到端未验收。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "真实验收发现小程序无领取链接入口、网页领取结果仅短提示。补接收网页故事入口及网页持久可复制结果，发送前阻止遗漏图片。章节本机图片改为独立字节上传，服务端解码栅格并保存内容哈希与归属，布局只存引用。修复无封面的镜像章节被默认封面选项阻塞。50项定向测试、类型检查通过；跨端实机验收进行中。"
+        },
+        {
+          "date": "2026-10-24",
+          "kind": "fix",
+          "summary": "真实保存遇旧外部存储代理连接超时。章节及投递图片改存服务器持久目录，短时HMAC链接读取、路径白名单、原子写入；其他存储调用不变。补签名/期限/跨key篡改/路径/大小回归，44项定向测试及类型、构建通过。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "fix",
+          "summary": "真实收件操作暴露普通投递无法拒收：状态机只允许kept/appended。补declined合法转移及收件人归属、幂等回归，4项通过。"
+        },
+        {
+          "date": "2026-10-25",
+          "summary": "真实微信领取已下载完整图片，但照片处理 getImageInfo 拒绝 WebP。导出时将 WebP 转为 JPEG/保留透明度的 PNG，同步包内字节、格式及哈希，不改原图与历史；补转换回归，转换失败阻止发送，图文闭环仍在实测。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "fix",
+          "summary": "真实微信回稿已到达网页；修改稿收件操作改为“与原章节对照”，普通章节继续支持新故事及追加，候选采用仍保留原版本。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "fix",
+          "summary": "真实回稿采用后正文增加而文字框保留导致预览失败；章节会话/对照预览对溢出文字在原框内适配字号，最低18，保持图像位置裁切与完整文字，超限继续拒绝。普通平台稿仍严格拒绝溢出。渲染器回归覆盖成功、几何不变及超限失败。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "improvement",
+          "summary": "读取投递返回接收账号范围内的稳定匿名senderKey，供小程序人员往来按实际发送账号分组；不暴露内部userId、不按昵称合并。路由测试覆盖稳定性，真实人员页验收待完成。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "feature",
+          "summary": "支持已接收文章继续投递或生成领取链接；服务端验证父包属于发送人或其已留下的收件，拒绝仅凭包编号伪造来源。新增三账号转发再回根作者回归，18项定向测试、类型和构建通过。小程序三去向入口与真机分享验收另记。"
+        },
+        {
+          "date": "2026-10-25",
+          "kind": "fix",
+          "summary": "微信好友卡片领取新增otherUserOnly保护：发送者打开仅返回senderPreview，不占用一次性领取；同一链接好友仍可领取。默认跨端给自己领取保持兼容。可信桥传递可选字段，类型校验由tRPC完成。27项投递/桥定向测试通过，待部署与真机验收。"
+        },
+        {
+          "date": "2026-10-26",
+          "kind": "fix",
+          "summary": "修复领取后误跳微信关联故事页：领取页直接确认接收图文并跳转对应故事章节；复用原导入重试和图片读取逻辑。现有章节版本保存显示署名、编辑/收到/恢复动作，未改动的自动保存不改署名；增加仅本人参与的最近200条收发记录。44项定向测试通过，真实微信图文已领取并生成原章节候选；发布后采用、重开和记录仍待验收。"
+        },
+        {
+          "date": "2026-10-26",
+          "kind": "fix",
+          "summary": "真实采用后发现普通领取链接生成的原章候选无法同步已采用状态，补齐收件人状态迁移并刷新收件箱；原有权限与终态保护保留。收到的封面、底图、插图接回现有图片库，使用稳定本地资产编号，禁止当成服务器生成资产调用。新增状态权限与图片库回归。"
+        },
+        {
+          "date": "2026-10-26",
+          "kind": "fix",
+          "summary": "Deployed 1437b68f while preserving the production login page. Real WeChat developer-tools send -> authenticated web claim -> original chapter candidate -> adopt -> reopen passed. Received cover, background and two illustrations remain available; previous versions retained; delivery status adopted and pending inbox zero. 46 targeted tests passed, then 5 UI tests/typecheck/build passed after the final source label fix. Mobile upload and release acceptance remain pending."
+        },
+        {
+          "date": "2026-10-27",
+          "kind": "verification",
+          "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
         }
       ]
     }

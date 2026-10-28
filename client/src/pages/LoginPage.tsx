@@ -62,7 +62,6 @@ export default function LoginPage() {
             />
           </div>
           <div className="w-full max-w-sm pb-8">
-            <LoginMethodTabs />
             <AuthEntryPanel returnPath={returnPath} variant="email" />
           </div>
         </main>
@@ -89,56 +88,9 @@ export default function LoginPage() {
           <p className="mb-3 text-center text-[10px] tracking-[0.28em] text-muted-foreground">
             把故事带回这一页
           </p>
-          <LoginMethodTabs shiguang />
           <AuthEntryPanel returnPath={returnPath} variant="email" />
         </section>
       </main>
     </div>
-  );
-}
-
-function LoginMethodTabs({ shiguang = false }: { shiguang?: boolean }) {
-  const [highlightNotice, setHighlightNotice] = useState(false);
-  return (
-    <>
-      <button
-        id="email-login-notice"
-        type="button"
-        onClick={() => setHighlightNotice(true)}
-        className={`mb-4 block w-full rounded text-center text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlightNotice ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}
-      >
-        目前仅支持邮箱登录
-      </button>
-      <nav
-        aria-label="登录方式"
-        className={
-          shiguang
-            ? "shiguang-login-tabs mb-7 grid grid-cols-3"
-            : "mb-8 grid grid-cols-3 border-b border-border"
-        }
-      >
-        {(
-          [
-            ["email", "邮箱登录"],
-            ["phone", "手机号登录"],
-            ["wechat", "微信登录"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-disabled={value !== "email" || undefined}
-            aria-describedby={
-              value !== "email" ? "email-login-notice" : undefined
-            }
-            aria-current={value === "email" ? "page" : undefined}
-            onClick={() => setHighlightNotice(value !== "email")}
-            className={`${shiguang ? "shiguang-login-tab" : "border-b-2"} px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === "email" ? (shiguang ? "is-active text-foreground" : "border-primary text-foreground") : "cursor-not-allowed border-transparent text-muted-foreground"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-    </>
   );
 }

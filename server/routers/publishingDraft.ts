@@ -1918,6 +1918,7 @@ export const publishingDraftRouter = router({
         basePublishingRevision: z.number().int().nonnegative(),
         referenceAssetId: z.number().int().positive().optional(),
         outputKind: z.enum(["illustration", "body-texture"]).optional(),
+        selectedText: z.string().trim().min(1).max(12000).optional(),
         feedback: z.string().trim().max(2_000).optional(),
         instructions: z
           .array(z.string().trim().min(1).max(2_000))
@@ -2090,7 +2091,11 @@ export const publishingDraftRouter = router({
           const textureColor = outputKind === "body-texture" && referenceAsset
             ? await readImageAverageColor(referenceAsset.imageUrl) : "";
           prompt = await engineerImagePrompt({
-            prompt: outputKind === "body-texture" ? [
+            prompt: input.selectedText ? [
+              '根据下列选中文字绘制一张正文插图，只表达这段文字中的场景，不引入整篇故事的其他内容。',
+              input.selectedText,
+              '画面不含文字、标题或水印。',
+            ].join('\n') : outputKind === "body-texture" ? [
               "【正文底图任务】只生成3:4平面装饰花纹与材质，不叙事，不绘制主体或具体场景。",
               `所选封面的参考色为 ${textureColor}，使用这一色系的浅色变化。`,
               "满幅连续的浅色纸面纹理，自然延伸到画面四周；中央约80%宽度是正文阅读区域，接近干净浅纸色，仅留极淡细纹。外围可有疏淡、不规则的材质变化，但不得围成框线。不要边框、画框、描边、双线、矩形框、装饰角花或内嵌纸张；不要深色晕染或高对比纹路，适合在其上排版深色正文。",
@@ -2113,7 +2118,7 @@ export const publishingDraftRouter = router({
             projectId: story.projectId ?? undefined,
             emotion: core.emotion,
             // The selected cover already supplies the style; avoid a second art search.
-            authoredBrief: Boolean(outputKind) && !artReference,
+            authoredBrief: Boolean(input.selectedText) || (Boolean(outputKind) && !artReference),
             userInstructions: [...instructions, ...referenceMoodInstruction],
             artDirection: coverArtRecipe(storyArtRecipe(story), artReference),
             outputPurpose: outputKind ? "publishing-album" : "publishing-cover",

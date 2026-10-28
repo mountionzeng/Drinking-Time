@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 import { PUBLISHING_ALBUM_MAX_PAGES, type PublishingAlbumRegionLayout } from "@shared/publishingAlbum";
 import { imagePackParagraphs, normalizeImagePackBody, resolveIllustrationOffset, type ParagraphAnchor } from "./imagePackIllustrations";
 import { publishingAlbumGraphemes } from "./publishingAlbumLayout";
@@ -6,7 +7,7 @@ import { preparePublishingAlbumExportPage, renderPublishingAlbumPagePng } from "
 import { drawPaperMaterial, type ImagePackPalette, type ImagePackTexture } from "./imagePackMaterial";
 import type { PublishingImageOutputKind } from "@shared/publishingDraft";
 
-export type PackAsset = { id: number; imageUrl: string; label: string; warning?: string; kind?: PublishingImageOutputKind; parentAssetId?: number | null };
+export type PackAsset = { id: number; imageUrl: string; label: string; sourceLabel?: string; warning?: string; kind?: PublishingImageOutputKind; parentAssetId?: number | null };
 export const IMAGE_PACK_STYLES = {
   sage: { label: "拾光绿", paper: "#eef3e9", ink: "#294936", accent: "#809a77" },
   paper: { label: "暖纸白", paper: "#f7f1e6", ink: "#4d4032", accent: "#b49770" },
@@ -26,6 +27,8 @@ export type ImagePackOptions = {
   coverUrl?: string;
   illustrations?: { imageUrl: string; after: ParagraphAnchor | null }[];
   bodyTextureUrl?: string;
+  /** Chapter returns can change bound text while retaining the original text box. */
+  fitOverflowText?: boolean;
 };
 export type ImagePackBlock = ({ kind: "text"; text: string } | { kind: "illustration"; imageUrl: string }) & { top: number; height: number };
 export type ImagePackPage = { kind: "cover" | "body"; text: string; illustration: boolean; blocks: ImagePackBlock[] };
@@ -111,9 +114,7 @@ export async function makeImagePack(
   async function drawImage(context: CanvasRenderingContext2D, url: string, rect: number[]) {
     let bitmap = bitmaps.get(url);
     if (!bitmap) {
-      const response = await fetch(url, { credentials: "same-origin", signal });
-      if (!response.ok) throw new Error(`图片读取失败（${response.status}）`);
-      bitmap = await createImageBitmap(await response.blob());
+      bitmap = await createImageBitmap(await readImagePackBlob(url, signal));
       bitmaps.set(url, bitmap);
     }
     const [x, y, width, height] = rect;

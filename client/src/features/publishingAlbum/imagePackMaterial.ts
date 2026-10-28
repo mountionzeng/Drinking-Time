@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 export type ImagePackPalette = { paper: string; ink: string; accent: string };
 export const IMAGE_PACK_TEXTURES = { paper: "细纸", fiber: "宣纸", linen: "织纹" } as const;
 export type ImagePackTexture = keyof typeof IMAGE_PACK_TEXTURES;
@@ -63,9 +64,7 @@ export function paperPaletteFromImages(cover: ArrayLike<number> | undefined,
 
 async function readImagePixels(url: string, signal: AbortSignal): Promise<Uint8ClampedArray> {
   signal.throwIfAborted();
-  const response = await fetch(url, { credentials: "same-origin", signal });
-  if (!response.ok) throw new Error("图片颜色读取失败，请重试");
-  const bitmap = await createImageBitmap(await response.blob());
+  const bitmap = await createImageBitmap(await readImagePackBlob(url, signal));
   try {
     signal.throwIfAborted();
     const canvas = Object.assign(document.createElement("canvas"), { width: 32, height: 32 });

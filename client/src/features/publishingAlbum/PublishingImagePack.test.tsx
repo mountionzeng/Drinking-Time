@@ -1,11 +1,13 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PublishingImagePack } from "./PublishingImagePack";
+import { PublishingImagePack, PublishingImagePackCanvas } from "./PublishingImagePack";
 
 vi.stubGlobal("React", React);
+vi.mock("./ChapterWorkspace", () => ({ ChapterWorkspace: ({ render, ...props }: any) => <section aria-label="故事章节">{render(props)}</section> }));
 vi.mock("./ArchiveArtworkButton", () => ({ ArchiveArtworkButton: () => null }));
 
+const chapterFlag = vi.hoisted(() => ({ enabled: false }));
 const query = vi.hoisted(() => ({ data: undefined as any }));
 const previews = vi.hoisted(() => new Map<string, React.ReactNode>());
 const generationPanels = vi.hoisted(() => new Map<string, React.ReactNode>());
@@ -14,6 +16,13 @@ vi.mock("@/lib/trpc", () => ({ trpc: {
   storyAgent: { storyMaterialState: { useQuery: () => ({ data: undefined }) } },
   publishingDraft: { readAlbum: { useQuery: () => query } },
   artworkShare: { layout: { useQuery: () => layoutQuery } },
+  chapters: {
+    enabled: { useQuery: () => ({ data: chapterFlag }) },
+    list: { useQuery: () => ({ data: undefined }) },
+    create: { useMutation: () => ({ mutate: vi.fn() }) },
+    save: { useMutation: () => ({ mutate: vi.fn() }) },
+  },
+  useUtils: () => ({ chapters: { list: { invalidate: vi.fn() } } }),
 } }));
 vi.mock("./SharedLayoutBar", () => ({ SharedLayoutBar: () => null }));
 vi.mock("@/components/ui/popover", async importOriginal => {
@@ -35,7 +44,15 @@ const props = {
 };
 
 describe("article image pack entry", () => {
-  beforeEach(() => { query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+  beforeEach(() => { chapterFlag.enabled = false; query.data = undefined; previews.clear(); generationPanels.clear(); vi.unstubAllGlobals(); vi.stubGlobal("React", React); });
+
+  it("hides chapter entries when disabled and preserves platform tools when enabled", () => {
+    const off = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
+    expect(off).not.toContain("平台稿与章节");
+    chapterFlag.enabled = true;
+    const on = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
+    expect(on).toContain("故事章节"); expect(on).not.toContain("平台图稿"); expect(on).not.toContain("平台稿与章节"); expect(on).toContain("上传图片");
+  });
 
   it("keeps mobile navigation and offers local uploads on both devices", () => {
     const desktop = renderToStaticMarkup(<PublishingImagePack {...props} assets={[]} />);
@@ -205,4 +222,12 @@ describe("article image pack entry", () => {
     expect(html).toContain('aria-label="移除插图：99"');
     expect(html).toContain("不可用");
   });
+});
+
+it("a mirrored text chapter without a selected cover can add images without a phantom cover requirement", () => {
+  const html = renderToStaticMarkup(<PublishingImagePackCanvas {...props} assets={[]} chapterSession={{
+    initial: null, settings: null, legacyScope: "platform:v1", change: vi.fn(), prepare: { current: null },
+    imageOptions: { illustrations: [] },
+  }} />);
+  expect(html).not.toContain("请选择封面，或在排版设置中取消封面");
 });

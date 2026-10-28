@@ -1,3 +1,4 @@
+import { readImagePackBlob } from "./imagePackImageBlob";
 import { publishingAlbumFontById } from "@shared/publishingAlbumFonts";
 import {
   IMAGE_PACK_STYLES,
@@ -51,9 +52,7 @@ export async function createModuleRenderer(
     signal.throwIfAborted();
     const existing = bitmaps.get(url);
     if (existing) return { width: existing.width, height: existing.height };
-    const response = await fetch(url, { credentials: "same-origin", signal });
-    if (!response.ok) throw new Error(`图片读取失败（${response.status}）`);
-    const bitmap = await createImageBitmap(await response.blob());
+    const bitmap = await createImageBitmap(await readImagePackBlob(url, signal));
     if (signal.aborted) {
       bitmap.close();
       signal.throwIfAborted();
@@ -124,7 +123,7 @@ export async function createModuleRenderer(
     ]);
     const cached = plans.get(key);
     if (cached) return cached;
-    const result = buildPublishingAlbumLayout({
+    const layoutAt = (fontSize: number) => buildPublishingAlbumLayout({
       text: module.text,
       fontId: options.fontId,
       canvas: { width: module.contentWidth, height: module.contentHeight },
@@ -135,7 +134,7 @@ export async function createModuleRenderer(
         region: { x: 0, y: 0, width: 1, height: 1 },
         points: [],
       },
-      fontSize: module.fontSize,
+      fontSize,
       alignment: module.alignment,
       letterSpacing: 1,
       lineSpacing: 1.6,
@@ -151,6 +150,13 @@ export async function createModuleRenderer(
         measure: (glyph, _font, size) => measure(glyph, size),
       },
     });
+    let result = layoutAt(module.fontSize);
+    // Only chapter sessions opt in. Keep the saved geometry and all image crops;
+    // never truncate text or shrink below the existing readable minimum.
+    if (options.fitOverflowText && result.status === "overflow") {
+      for (let size = module.fontSize - 1; size >= 18 && result.status === "overflow"; size--)
+        result = layoutAt(size);
+    }
     if (result.status !== "ok") throw new Error(result.suggestion);
     const plan = result.plan;
     const paddingX = plan.fontSize * 0.45,

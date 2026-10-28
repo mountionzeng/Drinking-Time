@@ -54,10 +54,6 @@ describe("LoginPage", () => {
 
     expect(html).toContain('aria-label="拾光家忆"');
     expect(html).toContain("拾光");
-    expect(html).toContain("邮箱登录");
-    expect(html).toContain("手机号登录");
-    expect(html).toContain("微信登录");
-    expect(html).toContain('aria-current="page"');
     expect(html).toContain('data-testid="auth-entry">email');
     expect(html).not.toContain("/shiguang/mobile-avatar.png");
     expect(html).not.toContain("SHIGUANG JIAYI");
@@ -67,17 +63,15 @@ describe("LoginPage", () => {
   });
 
   it.each(["shiguang", "nayin"] as const)(
-    "marks unavailable methods with the email-only explanation in %s",
+    "does not duplicate working login controls with placeholder tabs in %s",
     theme => {
       themeState.visualTheme = theme;
       const html = renderToStaticMarkup(<LoginPage />);
 
-      expect(html).toContain('id="email-login-notice"');
-      expect(html).toContain("目前仅支持邮箱登录");
-      expect(html.match(/aria-disabled="true"/g)).toHaveLength(2);
-      expect(html.match(/aria-describedby="email-login-notice"/g)).toHaveLength(
-        2
-      );
+      expect(html).not.toContain('aria-label="登录方式"');
+      expect(html).not.toContain("目前仅支持邮箱登录");
+      expect(html).not.toContain("手机号登录");
+      expect(html).not.toContain("微信登录");
       expect(html).toContain('data-testid="auth-entry">email');
       expect(html).not.toContain('data-testid="auth-entry">pairing');
       expect(html).not.toContain('aria-label="手机号"');
@@ -89,12 +83,9 @@ describe("LoginPage", () => {
     const html = renderToStaticMarkup(<LoginPage />);
 
     expect(html).toContain('data-testid="nayin-login-hero"');
-    expect(html).toContain("手机号登录");
     expect(html).toContain('data-testid="nayin-ambience"');
     expect(html).toContain('data-testid="nayin-particles"');
     expect(html).toContain("长流水");
-    expect(html).toContain("邮箱登录");
-    expect(html).toContain("微信登录");
     expect(html).not.toContain("shiguang-login-card");
   });
 });

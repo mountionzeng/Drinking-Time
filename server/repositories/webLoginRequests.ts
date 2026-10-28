@@ -3,6 +3,9 @@ import { and, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { webLoginRequests, type WebLoginRequest } from "../../drizzle/schema";
 import { getDb } from "./runtime";
 
+type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+export type WebLoginTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 /** 确认后网页最多再等这么久来取走登录，之后作废。 */
 export const WEB_LOGIN_CONSUME_GRACE_MS = 60_000;
 
@@ -73,6 +76,37 @@ export async function decideWebLogin(input: {
     gt(webLoginRequests.expiresAt, input.now),
   ));
   return result[0].affectedRows === 1;
+}
+
+/** Hold the request row lock while binding the identity in the same database transaction. */
+export async function decideWebLoginWithBinding(input: {
+  id: number;
+  now: Date;
+  bind: (userId: number, tx: WebLoginTransaction) => Promise<"bound" | "merge_required">;
+}): Promise<"confirmed" | "merge_required" | "invalid"> {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const [row] = await tx.select().from(webLoginRequests).where(and(
+      eq(webLoginRequests.id, input.id),
+      inArray(webLoginRequests.status, ["pending", "scanned"]),
+      gt(webLoginRequests.expiresAt, input.now),
+    )).limit(1).for("update");
+    if (!row?.bindUserId) return "invalid";
+
+    const bound = await input.bind(row.bindUserId, tx);
+    const status = bound === "bound" ? "confirmed" : "merge_required";
+    const updated = await tx.update(webLoginRequests).set({
+      status,
+      userId: bound === "bound" ? row.bindUserId : null,
+      confirmedAt: input.now,
+    }).where(and(
+      eq(webLoginRequests.id, row.id),
+      inArray(webLoginRequests.status, ["pending", "scanned"]),
+      gt(webLoginRequests.expiresAt, input.now),
+    ));
+    if (updated[0].affectedRows !== 1) return "invalid";
+    return status;
+  });
 }
 
 /** confirmed → consumed 的原子领取：同一请求只有一个调用能拿到 userId。 */

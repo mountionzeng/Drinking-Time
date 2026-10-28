@@ -400,6 +400,12 @@ export function moduleStorageKey(scope: string, basis: string) {
   }
   return `publishing-image-modules:v1:${scope}:${basis}`;
 }
+/** Chapter rendering adds overflow fitting; legacy platform caches did not. */
+export function legacyModuleStorageKey(scope: string, basis: string) {
+  const options = JSON.parse(basis);
+  delete options.fitOverflowText;
+  return moduleStorageKey(scope, JSON.stringify(options));
+}
 export function readModuleDocument(
   value: string | null,
   options: ImagePackOptions,

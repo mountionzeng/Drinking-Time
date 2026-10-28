@@ -253,6 +253,7 @@ export function MobileSyncedEditor({
                           tags: draft.tags,
                         },
                         parentId: draft.id,
+                        cursor: start,
                         ...(end > start ? { selection: { start, end } } : {}),
                       },
                     }

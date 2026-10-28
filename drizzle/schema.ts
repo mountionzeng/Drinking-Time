@@ -2945,3 +2945,141 @@ export const accountMemorySpaces = mysqlTable("account_memory_spaces", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type AccountMemorySpace = typeof accountMemorySpaces.$inferSelect;
+
+/**
+ * Chapters of a story. Kept out of `stories.body` on purpose: that column once
+ * grew until the server ran out of memory. Images are referenced by storage key.
+ */
+export const storyChapters = mysqlTable("story_chapters", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  position: int("position").notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
+  version: int("version").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storyPosition: index("story_chapters_story_position").on(table.storyId, table.position),
+  idOwnerUnique: uniqueIndex("story_chapters_id_owner_unique").on(table.id, table.userId),
+}));
+export type StoryChapter = typeof storyChapters.$inferSelect;
+
+/** Previous versions of a chapter, kept so an adopted candidate can be undone. */
+export const storyChapterVersions = mysqlTable("story_chapter_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  chapterId: int("chapterId").notNull(),
+  userId: int("userId").notNull(),
+  version: int("version").notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
+  reason: varchar("reason", { length: 32 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  chapterVersion: uniqueIndex("story_chapter_versions_chapter_version").on(table.chapterId, table.version),
+}));
+export type StoryChapterVersion = typeof storyChapterVersions.$inferSelect;
+
+/** Packages this user exported; a returned package is recognised by its root id. */
+export const chapterExports = mysqlTable("chapter_exports", {
+  packageId: varchar("packageId", { length: 80 }).primaryKey(),
+  chapterId: int("chapterId").notNull(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ ownerIndex: index("chapter_exports_owner").on(table.userId, table.chapterId) }));
+export type ChapterExport = typeof chapterExports.$inferSelect;
+
+/** One receipt per user and requestId so a retried import creates one result. */
+export const chapterImports = mysqlTable("chapter_imports", {
+  userId: int("userId").notNull(),
+  requestId: varchar("requestId", { length: 64 }).notNull(),
+  requestHash: varchar("requestHash", { length: 64 }).notNull(),
+  storyId: int("storyId").notNull(),
+  chapterId: int("chapterId"),
+  outcome: varchar("outcome", { length: 16 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ pk: uniqueIndex("chapter_imports_user_request").on(table.userId, table.requestId) }));
+export type ChapterImport = typeof chapterImports.$inferSelect;
+
+/** A returned version of a chapter waiting for the author to adopt or ignore it. */
+export const chapterReturnCandidates = mysqlTable("chapter_return_candidates", {
+  id: int("id").autoincrement().primaryKey(),
+  chapterId: int("chapterId").notNull(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  packageId: varchar("packageId", { length: 80 }).notNull(),
+  senderName: varchar("senderName", { length: 40 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  blocks: json("blocks").$type<import("../shared/chapterStore").StoredChapterBlocks>().notNull(),
+  layout: json("layout").$type<import("../shared/chapterStore").StoredChapterLayout | null>(),
+  status: mysqlEnum("status", ["pending", "adopted", "dismissed"]).notNull().default("pending"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  chapterIndex: index("chapter_return_candidates_chapter").on(table.chapterId, table.status),
+  packageUnique: uniqueIndex("chapter_return_candidates_package").on(table.userId, table.packageId),
+}));
+export type ChapterReturnCandidate = typeof chapterReturnCandidates.$inferSelect;
+
+/** A validated chapter package stored without media bytes or temporary URLs. */
+export const chapterPackages = mysqlTable("chapter_packages", {
+  packageId: varchar("packageId", { length: 80 }).primaryKey(),
+  rootPackageId: varchar("rootPackageId", { length: 80 }).notNull(),
+  parentPackageId: varchar("parentPackageId", { length: 80 }),
+  senderUserId: int("senderUserId").notNull(),
+  packageHash: varchar("packageHash", { length: 64 }).notNull(),
+  packageJson: json("packageJson").$type<import("../shared/chapterPackage").ChapterPackage>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+}, table => ({
+  rootSenderIndex: index("chapter_packages_root_sender").on(table.rootPackageId, table.senderUserId),
+  senderCreatedIndex: index("chapter_packages_sender_created").on(table.senderUserId, table.createdAt),
+}));
+export type ChapterPackageRecord = typeof chapterPackages.$inferSelect;
+
+/** One account delivery or one-time claim. Public ids carry no account information. */
+export const chapterDeliveries = mysqlTable("chapter_deliveries", {
+  deliveryId: varchar("deliveryId", { length: 36 }).primaryKey(),
+  packageId: varchar("packageId", { length: 80 }).notNull(),
+  senderUserId: int("senderUserId").notNull(),
+  recipientUserId: int("recipientUserId"),
+  claimTokenHash: varchar("claimTokenHash", { length: 64 }),
+  claimExpiresAt: timestamp("claimExpiresAt"),
+  kind: mysqlEnum("kind", ["send", "return"]).notNull(),
+  status: mysqlEnum("status", ["pending", "kept", "appended", "adopted", "declined", "expired"]).notNull().default("pending"),
+  requestId: varchar("requestId", { length: 64 }).notNull(),
+  requestHash: varchar("requestHash", { length: 64 }).notNull(),
+  readyAt: timestamp("readyAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+}, table => ({
+  senderRequestUnique: uniqueIndex("chapter_deliveries_sender_request").on(table.senderUserId, table.requestId),
+  recipientStatusIndex: index("chapter_deliveries_recipient_status").on(table.recipientUserId, table.status, table.createdAt),
+  senderStatusIndex: index("chapter_deliveries_sender_status").on(table.senderUserId, table.status, table.createdAt),
+  packageIndex: index("chapter_deliveries_package").on(table.packageId, table.kind),
+}));
+export type ChapterDelivery = typeof chapterDeliveries.$inferSelect;
+
+/** Image manifest and upload capability state; image bytes live in object storage. */
+export const chapterDeliveryAssets = mysqlTable("chapter_delivery_assets", {
+  id: int("id").autoincrement().primaryKey(),
+  packageId: varchar("packageId", { length: 80 }).notNull(),
+  assetId: varchar("assetId", { length: 80 }).notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  mime: varchar("mime", { length: 40 }).notNull(),
+  bytes: int("bytes").notNull(),
+  storageKey: varchar("storageKey", { length: 255 }),
+  uploadTokenHash: varchar("uploadTokenHash", { length: 64 }),
+  uploadExpiresAt: timestamp("uploadExpiresAt"),
+  uploadedAt: timestamp("uploadedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  packageAssetUnique: uniqueIndex("chapter_delivery_assets_package_asset").on(table.packageId, table.assetId),
+  tokenIndex: index("chapter_delivery_assets_upload_token").on(table.uploadTokenHash),
+  hashIndex: index("chapter_delivery_assets_hash").on(table.sha256),
+}));
+export type ChapterDeliveryAsset = typeof chapterDeliveryAssets.$inferSelect;

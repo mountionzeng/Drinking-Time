@@ -14,6 +14,7 @@ import AdminVisitsPage from "@/pages/AdminVisitsPage";
 import StoryEditorPage from "@/features/shiguang/StoryEditorPage";
 import SharedArtworkPage from "@/pages/SharedArtworkPage";
 import SharedStoryPage from "@/pages/SharedStoryPage";
+import ChapterClaimPage from "@/pages/ChapterClaimPage";
 import { canAcceptStoryShare } from "@shared/storyContextShare";
 import { useAuth } from "@/_core/hooks/useAuth";
 import React, { type ReactNode } from "react";
@@ -76,6 +77,8 @@ export default function AppRouter() {
     <Switch>
       <Route path="/p/:token">{params => <SharedArtworkPage key={params.token} token={params.token} />}</Route>
       <Route path="/s/:token">{params => <SharedStoryPage key={params.token} token={params.token} />}</Route>
+      <Route path="/chapter/claim/:token">{params => <ChapterClaimPage key={params.token} token={params.token} />}</Route>
+      <Route path="/chapter/claim"><ChapterClaimPage /></Route>
       <Route path="/auth/supabase/callback">
         <SupabaseAuthCallbackPage />
       </Route>

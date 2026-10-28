@@ -1,3 +1,4 @@
+import { isChapterMediaKey, putChapterMedia, readChapterMedia, chapterMediaUrl } from "./chapterMediaStore";
 // Preconfigured storage helpers for Manus WebDev templates
 // Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
 
@@ -72,8 +73,12 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
+  if (isChapterMediaKey(key)) {
+    await putChapterMedia(key, data);
+    return { key, url: chapterMediaUrl(key) };
+  }
+  const { baseUrl, apiKey } = getStorageConfig();
   const uploadUrl = buildUploadUrl(baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
   const response = await fetch(uploadUrl, {
@@ -93,8 +98,9 @@ export async function storagePut(
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
+  if (isChapterMediaKey(key) && await readChapterMedia(key)) return { key, url: chapterMediaUrl(key) };
+  const { baseUrl, apiKey } = getStorageConfig();
   return {
     key,
     url: await buildDownloadUrl(baseUrl, key, apiKey),

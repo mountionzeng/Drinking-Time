@@ -210,6 +210,26 @@ describe("publishingDraft router", () => {
     expect(imagePromptCompilerMocks.invokeImagePromptCompiler).toHaveBeenCalledWith(expect.any(Array));
   });
 
+  it("uses selected layout text rather than the complete manuscript in the image brief", async () => {
+    const state = { ...publishing, drafts: { xiaohongshu: {
+      platform: "xiaohongshu" as const, content: { title: "整篇", body: "绝不能带入的其他段落", tags: [] },
+      revision: 1, sourceCoreRevision: 1, needsReview: false, updatedAt: 1,
+    } } };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({ storyId: 7, storyRevision: 2, publishing: state });
+    let generation: any;
+    persistenceMocks.writePublishingDraftState.mockImplementation(async ({ operation }: { operation: any }) => {
+      generation = operation.type === "claim_cover_generation" ? operation.generation : { ...generation, status: operation.status };
+      return { storyId: 7, storyRevision: 3, publishing: { ...state, revision: 2, coverGeneration: generation } };
+    });
+    imagePromptCompilerMocks.invokeImagePromptCompiler.mockRejectedValueOnce(new Error("stop before paid provider"));
+    await publishingDraftRouter.createCaller(context()).generateCover({ storyId: 7, platform: "xiaohongshu", basePublishingRevision: 1,
+      selectedText: "蓝色纸船漂到黄色灯塔旁", costConfirmation: { accepted: true, estimatedCny: COVER_CNY } });
+    const calls = JSON.stringify(imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls);
+    expect(calls).toContain("蓝色纸船漂到黄色灯塔旁");
+    expect(calls).not.toContain("绝不能带入的其他段落");
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.getStoryById.mockResolvedValue({

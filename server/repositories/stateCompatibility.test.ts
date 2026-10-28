@@ -42,6 +42,10 @@ const legacyCollections = [
   ["accountVerificationChallenge", "accountVerificationChallenges"],
   ["devicePairingCode", "devicePairingCodes"],
   ["accountRateLimit", "accountRateLimits"],
+  ["storyChapter", "storyChapters"],
+  ["storyChapterVersion", "storyChapterVersions"],
+  ["chapterReturnCandidate", "chapterReturnCandidates"],
+  ["chapterDeliveryAsset", "chapterDeliveryAssets"],
 ] as const;
 
 const persistPath = process.env.LOCAL_PERSIST_PATH!;
@@ -177,7 +181,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels", "chapterExports", "chapterImports", "chapterPackages", "chapterDeliveries"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

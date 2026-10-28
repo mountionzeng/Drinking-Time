@@ -1,7 +1,10 @@
+import { withModuleBackground } from "./moduleBackground";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import { SharedLayoutBar } from "./SharedLayoutBar";
+import { ChapterWorkspace } from "./ChapterWorkspace";
+import type { ChapterEdit } from "./useChapters";
 import {
   buildSharedLayoutPackage,
   sharedLayoutAssets,
@@ -48,6 +51,7 @@ import {
 import { makeModulePack } from "./imagePackModuleRenderer";
 import {
   moduleStorageKey,
+  legacyModuleStorageKey,
   readModuleDocument,
   type ModuleDocument,
 } from "./imagePackModules";
@@ -180,7 +184,16 @@ function MaterialSwatch({
   );
 }
 
-export function PublishingImagePack({
+export function PublishingImagePack({ workspaceMode = "images", ...props }: React.ComponentProps<typeof PublishingImagePackCanvas> & { workspaceMode?: "text" | "images" }) {
+  const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
+  return <ChapterWorkspace key={props.storyId} {...props} mode={workspaceMode}
+    render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} />;
+}
+
+export function PublishingImagePackCanvas({
+  layoutHeader,
+  chapterSession,
   scope,
   storyId,
   versionId,
@@ -205,7 +218,7 @@ export function PublishingImagePack({
   generationError,
   onIllustrationsChange,
   mobile = false,
-  initialMobileStep = "preview",
+  initialMobileStep = "layout",
   onPrepareGeneration,
   shareEpoch = 0,
   contentKind = "article",
@@ -215,6 +228,15 @@ export function PublishingImagePack({
   createRequest,
   onCreateRequestHandled,
 }: {
+  layoutHeader?: ReactNode;
+  chapterSession?: {
+    initial: ModuleDocument | null;
+    legacyScope?: string;
+    imageOptions?: Pick<ImagePackOptions, "coverUrl" | "bodyTextureUrl" | "illustrations">;
+    settings: ChapterEdit["settings"];
+    change(edit: ChapterEdit): void;
+    prepare: React.MutableRefObject<(() => Promise<void>) | null>;
+  };
   createRequest?: StudioCreateRequest | null;
   onCreateRequestHandled?: () => void;
   accountId?: number | null;
@@ -242,8 +264,8 @@ export function PublishingImagePack({
   advancedEditor?: ReactNode;
   advancedOpen?: boolean;
   onAdvancedOpenChange?(open: boolean): void;
-  onGenerateIllustration?(coverId: number, instruction: string): Promise<void>;
-  onGenerateCover?(instruction: string): Promise<void>;
+  onGenerateIllustration?(coverId: number, instruction: string, selectedText?: string): Promise<void>;
+  onGenerateCover?(instruction: string, selectedText?: string): Promise<void>;
   onGenerateTexture?(coverId: number, instruction: string): Promise<void>;
   illustrationCost?: number;
   generationStartedAt?: number;
@@ -254,13 +276,15 @@ export function PublishingImagePack({
   const key = `publishing-image-pack:${scope}`;
   const localImages = useLocalPackImages(scope);
   const [desktopSection, setDesktopSection] = useState<"images" | "layout">(
-    "images"
+    "layout"
   );
   const [storyGenerate, setStoryGenerate] = useState(false);
   const [addImageOpen, setAddImageOpen] = useState(false);
   const [insertRequest, setInsertRequest] = useState<{ id: string; asset: PackAsset } | null>(null);
+  const liveBasis = useRef<string | null>(null);
   const [liveDocument, setLiveDocument] = useState<ModuleDocument | null>(null);
   const [layoutGenerate, setLayoutGenerate] = useState(false);
+  const [layoutSelectedText, setLayoutSelectedText] = useState("");
   const [layoutInstruction, setLayoutInstruction] = useState("");
   const libraryUpload = useRef<HTMLInputElement>(null);
   const moduleEditor = useRef<ImagePackModuleEditorHandle>(null);
@@ -274,14 +298,21 @@ export function PublishingImagePack({
     }
   });
   const [settings, setSettings] = useState(() => {
-    const value = readSettings(key, adoptedCoverId);
-    if (adoptedCoverId == null) {
+    const value = chapterSession?.settings
+      ? normalizeSettings(chapterSession.settings, adoptedCoverId)
+      : readSettings(chapterSession?.legacyScope ? `publishing-image-pack:${chapterSession.legacyScope}` : key, adoptedCoverId);
+    if (adoptedCoverId == null && !chapterSession?.legacyScope) {
       try {
         if (!localStorage.getItem(key)) value.includeCover = false;
       } catch {
         value.includeCover = false;
       }
     }
+    // A mirrored text chapter can inherit default settings without an actual
+    // cover. Do not block every image insertion on that nonexistent cover.
+    if (chapterSession && value.coverId == null && !chapterSession.imageOptions?.coverUrl)
+      value.includeCover = false;
+    if (chapterSession?.imageOptions?.coverUrl) value.includeCover = true;
     return value;
   });
   const [mobileStep, setMobileStep] = useState<"preview" | "images" | "layout">(
@@ -342,7 +373,7 @@ export function PublishingImagePack({
     return [...all.values()];
   }, [assets, localImages.images, storyId, accountId]);
   const cover = assets.find(asset => asset.id === settings.coverId);
-  const referenceCovers = coverAssets.filter(asset => !asset.kind);
+  const referenceCovers = coverAssets.filter(asset => !asset.kind && asset.id > 0);
   const generationCover = referenceCovers.find(asset => asset.id === cover?.id);
   const selectedIllustrations = settings.illustrations.map(placement =>
     assets.find(asset => asset.id === placement.assetId)
@@ -445,6 +476,7 @@ export function PublishingImagePack({
   ];
   const options = useMemo<ImagePackOptions>(
     () => ({
+      ...(chapterSession ? { fitOverflowText: true } : {}),
       title: settings.title ?? title,
       body,
       fontId: settings.fontId,
@@ -452,13 +484,13 @@ export function PublishingImagePack({
       includeCover: settings.includeCover,
       texture: settings.texture,
       textureSeed: settings.textureSeed,
-      coverUrl: cover?.imageUrl,
-      bodyTextureUrl: bodyTexture?.imageUrl,
-      illustrations: settings.illustrations.map(placement => ({
+      coverUrl: cover?.imageUrl ?? chapterSession?.imageOptions?.coverUrl,
+      bodyTextureUrl: bodyTexture?.imageUrl ?? chapterSession?.imageOptions?.bodyTextureUrl,
+      illustrations: settings.illustrations.length ? settings.illustrations.map(placement => ({
         after: placement.after,
         imageUrl:
           assets.find(asset => asset.id === placement.assetId)?.imageUrl ?? "",
-      })),
+      })) : chapterSession?.imageOptions?.illustrations ?? [],
       palette,
       paperPalette: bodyTexture ? undefined : paperPalette,
     }),
@@ -477,6 +509,8 @@ export function PublishingImagePack({
       bodyTexture?.imageUrl,
       palette,
       paperPalette,
+      chapterSession?.imageOptions,
+      Boolean(chapterSession),
     ]
   );
   const basis = JSON.stringify(options);
@@ -484,6 +518,10 @@ export function PublishingImagePack({
     try {
       const storageKey = moduleStorageKey(scope, basis);
       const availableUrls = layoutAssets.map(asset => asset.imageUrl);
+      // A platform draft predates the chapter-only overflow option. Keep its
+      // original cache identity when carrying the first chapter into the editor.
+      const legacyKey = chapterSession?.legacyScope
+        ? legacyModuleStorageKey(chapterSession.legacyScope, basis) : null;
       return (
         readModuleDocument(
           localStorage.getItem(`${storageKey}:draft`),
@@ -494,7 +532,7 @@ export function PublishingImagePack({
           localStorage.getItem(storageKey),
           JSON.parse(basis),
           availableUrls
-        )
+        ) ?? (legacyKey ? readModuleDocument(localStorage.getItem(`${legacyKey}:draft`) ?? localStorage.getItem(legacyKey), JSON.parse(basis), availableUrls) : null)
       );
     } catch {
       return null;
@@ -508,8 +546,28 @@ export function PublishingImagePack({
     version: 1, flowVersion: 1, pages: [{ label: "第 1 页", modules: [] }],
   }), []);
   const modules =
-    (moduleOverride?.basis === basis ? moduleOverride.document : storedModules) ??
+    (moduleOverride?.basis === basis ? moduleOverride.document : chapterSession?.initial ?? storedModules) ??
     (!body.trim() ? blankDocument : null);
+  function chapterEdit(layout: ModuleDocument | null): ChapterEdit {
+    return { layout, settings: { fontId: settings.fontId, style: settings.style, texture: settings.texture, textureSeed: settings.textureSeed },
+      media: { coverKey: options.includeCover ? options.coverUrl ?? null : null, bodyTextureKey: options.bodyTextureUrl ?? null,
+        illustrations: (options.illustrations ?? []).map(item => ({ key: item.imageUrl, after: item.after })) } };
+  }
+  useEffect(() => {
+    if (chapterSession && liveDocument && liveBasis.current === basis)
+      chapterSession.change(chapterEdit(liveDocument));
+  }, [liveDocument, settings.fontId, settings.style, settings.texture, settings.textureSeed, options.coverUrl, options.bodyTextureUrl, options.illustrations, chapterSession?.change]);
+  useEffect(() => {
+    if (!chapterSession) return;
+    chapterSession.prepare.current = async () => {
+      const prepared = await moduleEditor.current?.prepare();
+      if (moduleEditor.current && !prepared) throw new Error("请完成当前文字编辑后再切换章节");
+      if (prepared) return;
+      const layout = liveDocument ?? modules;
+      chapterSession.change(chapterEdit(layout));
+    };
+    return () => { chapterSession.prepare.current = null; };
+  });
   const usedImages = new Set((liveDocument ?? modules)?.pages.flatMap(page =>
     page.modules.flatMap(module => module.kind === "image" ? [module.imageUrl] : [])
   ) ?? []);
@@ -533,6 +591,15 @@ export function PublishingImagePack({
     options: ImagePackOptions;
     initial: ModuleDocument | null;
   } | null>(null);
+  // Repaint paper on the active document, without adopting changed source text.
+  useEffect(() => {
+    setModuleSession(session => {
+      if (!session) return session;
+      const next = withModuleBackground(session.options, options);
+      const nextBasis = JSON.stringify(next);
+      return nextBasis === session.basis ? session : { ...session, options: next, basis: nextBasis };
+    });
+  }, [options]);
   const signature = JSON.stringify({ options, modules });
   const currentBasis = useRef(basis);
   currentBasis.current = basis;
@@ -568,7 +635,7 @@ export function PublishingImagePack({
     typeof navigator.share === "function" &&
     shareFiles.length > 0 &&
     Boolean(navigator.canShare?.({ files: shareFiles }));
-  const needsCover = settings.includeCover && !cover;
+  const needsCover = settings.includeCover && !cover && !chapterSession?.imageOptions?.coverUrl;
   const missingIllustration = selectedIllustrations.some(asset => !asset);
   const missingTexture = settings.bodyTextureId != null && !bodyTexture;
 
@@ -765,8 +832,8 @@ export function PublishingImagePack({
         textureSeed: settings.textureSeed,
         includeCover: settings.includeCover,
       },
-      coverUrl: cover?.imageUrl,
-      bodyTextureUrl: bodyTexture?.imageUrl,
+      coverUrl: cover?.imageUrl ?? chapterSession?.imageOptions?.coverUrl,
+      bodyTextureUrl: bodyTexture?.imageUrl ?? chapterSession?.imageOptions?.bodyTextureUrl,
       illustrations: settings.illustrations.flatMap(placement => {
         const asset = assets.find(item => item.id === placement.assetId);
         return asset ? [{ imageUrl: asset.imageUrl, after: placement.after }] : [];
@@ -1117,6 +1184,7 @@ export function PublishingImagePack({
             startedAt={generationStartedAt}
           />
         ) : null}
+        <div hidden={mobile ? mobileStep === "images" : desktopSection !== "layout"}>{layoutHeader}</div>
         <div
           hidden={
             mobile ? mobileStep !== "images" : desktopSection !== "images"
@@ -1171,7 +1239,7 @@ export function PublishingImagePack({
                 </ImageCandidatePreview>
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="truncate text-[11px]">{asset.label}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.id < 0 ? "本机上传" : "未用于排版"}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.sourceLabel ?? (asset.id < 0 ? "本机上传" : "未用于排版")}</span>
                 </div>
                 {asset.warning && <p className="mt-1 text-[10px] text-amber-700">{asset.warning}</p>}
                 <button type="button" disabled={asset.warning === "原文件缺失" || Boolean(insertRequest)}
@@ -1752,7 +1820,7 @@ export function PublishingImagePack({
                 <ImagePackModuleEditor
                   insertRequest={insertRequest}
                   onInsertHandled={() => setInsertRequest(null)}
-                  onDocumentChange={setLiveDocument}
+                  onDocumentChange={document => { liveBasis.current = moduleSession.basis; setLiveDocument(document); }}
                   companion={{ storyId, accountId, active: active && !advancedOpen && (mobile ? mobileStep === "layout" : desktopSection === "layout") }}
                   ref={moduleEditor}
                   mobile={mobile}
@@ -1762,25 +1830,18 @@ export function PublishingImagePack({
                   initial={moduleSession.initial}
                   assets={layoutAssets}
                   onUpload={localImages.upload}
+                  onGenerateSelection={text => { setLayoutSelectedText(text); setLayoutInstruction(''); setLayoutGenerate(true); }}
                   generationControls={
-                    <Popover
+                    <Dialog
                       open={layoutGenerate}
                       onOpenChange={setLayoutGenerate}
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className={`${mobile ? "min-h-11 text-sm" : "text-xs"} px-2 py-1.5`}
-                          disabled={coverBusy}
-                        >
-                          生成
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
+                      <DialogContent
                         className={`w-72 space-y-3 ${mobile ? "[&_button]:min-h-11 [&_textarea]:text-base" : ""}`}
                       >
-                        <p className="text-sm">想加一张什么图片？</p>
+                        <DialogTitle>根据选中文字生成图片</DialogTitle>
+                        <p className="max-h-40 overflow-auto whitespace-pre-wrap text-sm">{layoutSelectedText}</p>
+                        <p className="text-xs text-muted-foreground">补充画面要求（可不填）</p>
                         <textarea
                           aria-label="排版配图要求"
                           value={layoutInstruction}
@@ -1806,9 +1867,9 @@ export function PublishingImagePack({
                             void (generationCover
                               ? onGenerateIllustration?.(
                                   generationCover.id,
-                                  layoutInstruction
+                                  layoutInstruction, layoutSelectedText
                                 )
-                              : onGenerateCover?.(layoutInstruction));
+                              : onGenerateCover?.(layoutInstruction, layoutSelectedText));
                           }}
                         >
                           确认生成 4 张 ·{" "}
@@ -1821,8 +1882,8 @@ export function PublishingImagePack({
                             ? "出图后会放进图片列表，轻点再加入成品。"
                             : "出图后会放在右侧，选中再加入成品。"}
                         </p>
-                      </PopoverContent>
-                    </Popover>
+                      </DialogContent>
+                    </Dialog>
                   }
                   sourceChanged={moduleSession.basis !== basis}
                   onClose={() => setModuleSession(null)}
@@ -1831,6 +1892,7 @@ export function PublishingImagePack({
                       throw new Error(
                         "正文或选图已变化，请返回预览后重新打开；模块草稿仍保留。"
                       );
+                    chapterSession?.change(chapterEdit(document));
                     try {
                       localStorage.setItem(
                         moduleStorageKey(scope, basis),

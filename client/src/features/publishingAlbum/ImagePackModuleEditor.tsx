@@ -1,3 +1,5 @@
+import { moduleContentBasis } from "./moduleBackground";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArchiveArtworkButton } from "./ArchiveArtworkButton";
 import {
   useEffect,
@@ -18,7 +20,7 @@ import type {
 import { downloadPublishingAlbumBlob } from "./publishingAlbumExport";
 import { ImagePackCopyDialog } from "./ImagePackCopyDialog";
 import { imagePackCopyText } from "./imagePackCopy";
-import { moduleCompanionContext } from "./moduleCompanionContext";
+import { moduleCompanionContext, type ModuleLineSource } from "./moduleCompanionContext";
 import { ModuleCompanionContext } from "./ModuleSelectionBridge";
 import { selectionContentFingerprint } from "@shared/selectionContext";
 import { useLayoutOperationMemory } from "./useLayoutOperationMemory";
@@ -167,6 +169,7 @@ export function ImagePackModuleEditor({
   assets = [],
   onUpload,
   generationControls,
+  onGenerateSelection,
   mobile = false,
   ref,
   onPreview,
@@ -174,7 +177,9 @@ export function ImagePackModuleEditor({
   insertRequest,
   onInsertHandled,
   onDocumentChange,
+  lineSource,
 }: {
+  lineSource?: ModuleLineSource;
   insertRequest?: { id: string; asset: PackAsset } | null;
   onInsertHandled?(): void;
   onDocumentChange?(document: ModuleDocument): void;
@@ -191,6 +196,7 @@ export function ImagePackModuleEditor({
   assets?: PackAsset[];
   onUpload?(file: File): Promise<PackAsset>;
   generationControls?: ReactNode;
+  onGenerateSelection?(text: string): void;
   mobile?: boolean;
   ref?: Ref<ImagePackModuleEditorHandle>;
   onPreview?(): void;
@@ -216,7 +222,7 @@ export function ImagePackModuleEditor({
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImagePackModule | null>(null);
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(
+  const [editing, setEditing] = useState<{ id: string; text: string; cursor?: number } | null>(
     null
   );
   const [error, setError] = useState("");
@@ -226,6 +232,8 @@ export function ImagePackModuleEditor({
   const controller = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const [imageMenuOpen, setImageMenuOpen] = useState(false);
+  const textSelection = useRef<{ id: string; text: string; start: number; end: number } | null>(null);
   const availableAssets = useRef(assets);
   availableAssets.current = assets;
   const [dropActive, setDropActive] = useState(false);
@@ -262,9 +270,15 @@ export function ImagePackModuleEditor({
     }
     onInsertHandled?.();
   }, [insertRequest, renderer, history, busy, editing, sourceChanged, onInsertHandled]);
+  const loadedSource = useRef<{ content: string; initial: ModuleDocument | null; scope: string } | null>(null);
   useEffect(() => {
+    const content = moduleContentBasis(options);
+    const preserve = loadedSource.current?.content === content &&
+      loadedSource.current.initial === initial && loadedSource.current.scope === scope;
     const abort = new AbortController();
     controller.current = abort;
+    setRenderer(null);
+    setError("");
     let resource: ModuleRenderer | undefined;
     void createModuleRenderer(options, abort.signal)
       .then(async value => {
@@ -283,11 +297,20 @@ export function ImagePackModuleEditor({
         } catch {
           /* Session editing still works. */
         }
-        const document = restored ?? initial ?? value.createDocument();
+        const document = (preserve ? historyRef.current?.present : null) ?? restored ?? initial ?? value.createDocument();
         await value.validate(document);
         if (!abort.signal.aborted) {
           setRenderer(value);
-          setHistory({ past: [], present: document, future: [] });
+          loadedSource.current = { content, initial, scope };
+          if (!preserve) setHistory({ past: [], present: document, future: [] });
+          // Keep a separate draft for the newly chosen paper, retaining the old one.
+          store(document);
+          if (preserve) {
+            if (editing) {
+              try { localStorage.setItem(`${draftKey}:text`, JSON.stringify({ ...editing, page: pageIndex })); } catch { /* store already reports quota failures */ }
+            }
+            return;
+          }
           try {
             const pending = JSON.parse(
               localStorage.getItem(`${draftKey}:text`) ?? "null"
@@ -318,8 +341,8 @@ export function ImagePackModuleEditor({
       abort.abort();
       resource?.dispose();
     };
-    // The parent mounts a session with a fixed source snapshot.
-  }, [options, initial, draftKey]);
+    // Background changes keep module history and unfinished text; source changes reopen a distinct draft.
+  }, [options, initial, draftKey, scope]);
 
   function store(document: ModuleDocument) {
     try {
@@ -427,6 +450,16 @@ export function ImagePackModuleEditor({
   const document = history?.present;
   const page = document?.pages[pageIndex];
   const selected = page?.modules.find(module => module.id === selectedId);
+  useEffect(() => { textSelection.current = null; }, [selectedId, pageIndex, scope]);
+  const generateSelection = () => {
+    if (!selected || selected.kind !== 'text') { setError('先点选一块文字，再添加图片。'); return; }
+    const current = editing?.id === selected.id ? editing.text : selected.text;
+    const range = textSelection.current;
+    const text = range?.id === selected.id && range.text === current && range.end > range.start
+      ? current.slice(range.start, range.end) : current;
+    if (!text.trim()) { setError('先写下或选中一段文字。'); return; }
+    onGenerateSelection?.(text.trim());
+  };
   const editingPreview = useMemo(() => {
     if (!document || !editing || !renderer || selected?.kind !== "text")
       return null;
@@ -475,6 +508,7 @@ export function ImagePackModuleEditor({
       pageIndex: displayPageIndex,
       selectedId,
       editing,
+      lineSource,
       renderer,
     });
   }, [
@@ -487,6 +521,7 @@ export function ImagePackModuleEditor({
     displayPageIndex,
     selectedId,
     editing,
+    lineSource,
   ]);
   const overlaps = visiblePage?.modules.some((a, index) =>
     visiblePage.modules
@@ -577,6 +612,7 @@ export function ImagePackModuleEditor({
   async function addImage(asset: PackAsset, point?: { x: number; y: number }) {
     if (!renderer || !document || busy || editing) return;
     setBusy(true);
+    setError("");
     try {
       const size = await renderer.loadImage(asset.imageUrl);
       if (controller.current?.signal.aborted) return;
@@ -1188,6 +1224,11 @@ export function ImagePackModuleEditor({
                           onBlur={() => {
                             if (!busy) void saveText();
                           }}
+                          onSelect={event => {
+                            const cursor = event.currentTarget.selectionStart;
+                            textSelection.current = { id: module.id, text: event.currentTarget.value, start: cursor, end: event.currentTarget.selectionEnd };
+                            setEditing(current => current ? { ...current, cursor } : null);
+                          }}
                           onChange={event => changeText(event.target.value)}
                         />
                       )}
@@ -1390,16 +1431,16 @@ export function ImagePackModuleEditor({
               )}
               <div className="mb-3 flex flex-wrap items-center gap-1">
                 <span className="mr-auto text-xs font-medium">图片</span>
-                {onUpload && (
-                  <button
-                    type="button"
-                    className={control}
-                    disabled={busy || !!editing}
-                    onClick={() => uploadInput.current?.click()}
-                  >
-                    上传
-                  </button>
-                )}
+                <Popover open={imageMenuOpen} onOpenChange={setImageMenuOpen}>
+                  <PopoverTrigger asChild><button type="button" className={control}>＋ 添加图片</button></PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 space-y-2">
+                    {onUpload && <button type="button" className={`${control} w-full`} disabled={busy}
+                      onClick={() => { setImageMenuOpen(false); uploadInput.current?.click(); }}>上传图片</button>}
+                    {onGenerateSelection && <button type="button" className={`${control} w-full`} disabled={busy}
+                      onClick={() => { setImageMenuOpen(false); generateSelection(); }}>根据选中文字生成 AI 图片</button>}
+                    <p className="text-xs text-muted-foreground">先点选文字模块；框选其中几个字，就只用这些字生成。</p>
+                  </PopoverContent>
+                </Popover>
                 {generationControls}
               </div>
               <input
@@ -1514,6 +1555,10 @@ export function ImagePackModuleEditor({
               error={error}
               disabled={busy}
               onChange={changeText}
+              onSelect={(cursor, end) => {
+                textSelection.current = { id: editing.id, text: editing.text, start: cursor, end };
+                setEditing(current => current ? { ...current, cursor } : null);
+              }}
               onSave={() => void saveText()}
               onCancel={cancelText}
             />

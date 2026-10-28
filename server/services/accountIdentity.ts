@@ -34,6 +34,7 @@ import {
   setPasswordCredential,
   upsertUser,
 } from "../db";
+import type { WebLoginTransaction } from "../repositories/webLoginRequests";
 import {
   PAIRING_CODE_LENGTH,
   checkPasswordPolicy,
@@ -294,8 +295,8 @@ export async function resolveWechatAccount(subject: string): Promise<number> {
 
 /** Identity uniqueness is the serialization point shared with independent login.
  * Never transfers an identity from another account, even if it appears empty. */
-export async function bindWechatAccount(userId: number, subject: string) {
-  const db = await getDb();
+export async function bindWechatAccount(userId: number, subject: string, transaction?: WebLoginTransaction) {
+  const db = transaction ?? await getDb();
   if (!db) throw new Error('wechat_database_unavailable');
   const find = async () => {
     const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
@@ -305,6 +306,12 @@ export async function bindWechatAccount(userId: number, subject: string) {
   };
   const existing = await find();
   if (existing) return existing.userId === userId ? 'bound' as const : 'merge_required' as const;
+  if (transaction) {
+    const [user] = await transaction.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+    if (!user) throw new Error('account_missing');
+    await transaction.insert(accountIdentities).values({ userId, provider: 'wechat', subject, verifiedAt: new Date() });
+    return 'bound' as const;
+  }
   try {
     await db.transaction(async tx => {
       const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
