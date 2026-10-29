@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   adminUserCategories,
@@ -30,6 +30,14 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<number>();
   const [saved, setSaved] = useState("");
+  const statementRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (selected !== undefined)
+      statementRef.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+  }, [selected]);
   const utils = trpc.useUtils();
   const query = trpc.adminUsers.overview.useQuery(
     { siteHost },
@@ -111,6 +119,10 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
           </div>
         ))}
       </dl>
+      <p className="-mt-3 mb-4 text-xs leading-relaxed text-muted-foreground">
+        累计消耗只含已结算扣款，预占（待核对、进行中）不计入；预占金额见名单的“预占
+        / 可用”列。
+      </p>
       <p className="text-sm leading-relaxed">
         已验证账号中：自己的账号 {summary.own} 个，测试账号 {summary.test}{" "}
         个；已确认外部用户近 7 天活跃 {summary.externalActive7d} 个，累计消耗{" "}
@@ -224,7 +236,7 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
                   </select>
                   {user.registration !== "verified" && (
                     <div className="mt-1 text-xs text-muted-foreground">
-                      不计入注册人数
+                      不计入注册数与待确认数
                     </div>
                   )}
                 </td>
@@ -260,6 +272,11 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
                   >
                     查看
                   </button>
+                  {selected === user.userId && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      账单见下方
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -291,7 +308,11 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
         </button>
       </div>
       {selectedUser && (
-        <section className="mt-6 border-t pt-6" aria-label="用户账单">
+        <section
+          ref={statementRef}
+          className="mt-6 scroll-mt-4 border-t pt-6"
+          aria-label="用户账单"
+        >
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-semibold">
               {selectedUser.email || `账号 #${selectedUser.userId}`} 的账单
@@ -300,6 +321,9 @@ export default function AdminUserOverview({ siteHost }: { siteHost: string }) {
               收起账单
             </button>
           </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            标为“异常”的流水若已实际扣款，会计入累计消耗；未扣款的预占释放后不计入。
+          </p>
           <Statement key={selectedUser.userId} userId={selectedUser.userId} />
         </section>
       )}

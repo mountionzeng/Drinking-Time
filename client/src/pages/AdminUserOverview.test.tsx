@@ -79,6 +79,7 @@ it("distinguishes known external users from pending accounts and shows ledger va
     "查看账号 7 的账单",
     "账号 7 的分类",
     "不以登录时间代替",
+    "累计消耗只含已结算扣款，预占（待核对、进行中）不计入",
   ])
     expect(html).toContain(text);
 });
@@ -97,4 +98,28 @@ it("never presents a failed or loading query as zero users or stale success", ()
   );
   expect(loading).toContain("正在核对");
   expect(loading).not.toContain("sample@example.com");
+});
+it("marks unverified legacy rows as excluded from registered and pending counts", async () => {
+  const { trpc } = await import("@/lib/trpc");
+  const original = trpc.adminUsers.overview.useQuery;
+  const base = (original as unknown as () => { data: { users: Array<Record<string, unknown>> } })();
+  (trpc.adminUsers.overview as { useQuery: unknown }).useQuery = () => ({
+    ...base,
+    data: {
+      ...base.data,
+      users: [
+        ...base.data.users,
+        { ...base.data.users[0], userId: 11, email: null, name: null, registration: "legacy", providers: [] },
+      ],
+    },
+  });
+  try {
+    const html = renderToStaticMarkup(
+      <AdminUserOverview siteHost="www.drinkingtime.top" />
+    );
+    expect(html).toContain("#11 · 历史未验证");
+    expect(html.match(/不计入注册数与待确认数/g)).toHaveLength(1);
+  } finally {
+    (trpc.adminUsers.overview as { useQuery: unknown }).useQuery = original;
+  }
 });
