@@ -65,6 +65,8 @@
 
 ## 最近落地
 
+- 2026-10-30 `6dd749ec` 10/29四处bug修复已提交main、push、部署：书稿模式生成新版本自动写入章节（有未保存修改则打开对照）、不再误报未保存；过期且无302任务号的封面任务可重提；内联重载脚本移至/stale-module-reload.js、connect-src加入媒体源；聊天回复只剥整段成对引号。仅从混合文件里分离本轮hunk，主仓他人改动未混入。4个构建文件变化，生产109文件校验、38迁移一致、readyz通过；manus-runtime内联脚本仍受CSP限制（未改）。ChapterWorkspace/PublishingDraftWorkspace/publishingDraft/securityHeaders/writingCompanion及4张账本卡已释放。
+
 - 2026-10-30 `0e024f2b` 微信注册赠送改为5算力已提交main、push、部署：仅改 WECHAT_REGISTRATION_GIFT_MINOR（2_500_000），幂等键v1不变，网站登录5算力不变，不回填已有账号/账本。仅 dist/index.js 变化，生产108文件校验、38迁移哈希一致、readyz通过。accountIdentity、微信/网站赠送测试及账本两卡已释放。
 
 - 2026-10-29 `1b79fb89` 用户总览说明文字已提交main、push、部署：累计消耗不含预占、已扣款异常流水计入、历史未验证行不计入注册/待确认数、账单打开后滚动。仅3个前端文件变化，生产108文件及公网哈希校验通过。AdminUserOverview及测试、admin-user-overview账本卡已释放。
