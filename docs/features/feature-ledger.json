@@ -8432,7 +8432,8 @@
         "client/src/features/publishingAlbum/bookBlockSelection.test.ts",
         "client/src/features/publishingAlbum/bookColumns.test.ts",
         "docs/qa/2026-10-30-book-multiselect.md",
-        "docs/qa/2026-10-30-book-columns.md"
+        "docs/qa/2026-10-30-book-columns.md",
+        "docs/qa/2026-10-30-book-columns-release.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8612,6 +8613,11 @@
           "date": "2026-10-30",
           "kind": "feature",
           "summary": "按用户要求新增左右落点形成紧凑双栏，16设计像素栏距；支持标题子树、双栏同步起页与后文避让。同排任一模块角标缩放联动图文，保留裁切、图片内部移动、½–2倍字号与页内限制；上下拖放解除双栏。columnGroup接入共享schema、样式等价比较、服务端校验与恢复，损坏关系清理而不删正文。57项模块/排版测试、70项草稿安全测试及类型检查通过；虚构故事实际左右拖放、联动缩小/撤销及保存刷新还原通过。未部署，微信双栏显示未实现。"
+        },
+        {
+          "date": "2026-10-30",
+          "kind": "improvement",
+          "summary": "书模块多选与双栏已由fe12de4e推送main并部署；69项独立MySQL、215项小程序及类型/构建/保存回归通过。全量14项既有失败已主干对照；109发布文件和HTTPS资源校验通过，数据库及配置未变。本机正式域名连接中断，未声称线上浏览器交互验收。"
         }
       ]
     },
