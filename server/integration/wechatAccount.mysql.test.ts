@@ -35,6 +35,7 @@ mysqlTest('concurrent WeChat login creates exactly one account and rolls back lo
       expect(gifts).toHaveLength(1);
       expect(gifts[0].entryType).toBe('gift');
       expect(Number(gifts[0].amountMinor)).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
+      expect(Number(gifts[0].amountMinor)).toBe(2_500_000);
       await resolveWechatAccount('wxd6aeb0bc3a031d39:concurrent');
       const [retriedGifts] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM credit_ledger_entries');
       expect(Number(retriedGifts[0].n)).toBe(1);

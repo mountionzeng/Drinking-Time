@@ -226,8 +226,11 @@ export async function allowShiguangDesktopTransferAttempt(subject: string) {
   })).allowed;
 }
 
-/** 10 算力；按 ¥1 = 2 算力折算为 ¥5 的微元账本额度。 */
-export const WECHAT_REGISTRATION_GIFT_MINOR = 5_000_000;
+/**
+ * 5 算力；按 ¥1 = 2 算力折算为 ¥2.5 的微元账本额度（2026-10-30 起，原为 10 算力）。
+ * 只影响此后发放；幂等键保持 v1，已领过的账号不会补发或回收。
+ */
+export const WECHAT_REGISTRATION_GIFT_MINOR = 2_500_000;
 
 export function wechatRegistrationGiftIdempotencyKey(subject: string) {
   return `wechat-registration-gift:v1:${createHash("sha256").update(subject).digest("hex")}`;
@@ -250,12 +253,12 @@ export async function ensureWechatRegistrationGift(
     amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
     oncePerAccountPrefix: "wechat-registration-gift:",
-    reason: "账号首次登录赠送 10 算力",
+    reason: "账号首次登录赠送 5 算力",
     enableAccess: true,
   });
 }
 
-/** Creates the account and identity in one transaction, then grants 10 compute units. */
+/** Creates the account and identity in one transaction, then grants 5 compute units. */
 export async function resolveWechatAccount(subject: string): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error('wechat_database_unavailable');
