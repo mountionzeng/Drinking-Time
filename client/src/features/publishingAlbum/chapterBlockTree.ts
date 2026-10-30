@@ -1,4 +1,4 @@
-import type { BookWritingStyle } from "@shared/bookWritingStyle";
+import { normalizeWritingColumns, type BookWritingStyle } from "@shared/bookWritingStyle";
 import type { ModuleRect } from './imagePackModules';
 export type BookPlacement = { page: number; rect: ModuleRect; fontSize: number };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -17,7 +17,7 @@ export function readBookPlacement(raw: unknown): BookPlacement | undefined {
 import { textModuleLines } from './moduleTextEditing';
 
 export type BlockFormat = 'text' | 'heading1' | 'heading2' | 'heading3';
-export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; book?: BookPlacement };
+export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; book?: BookPlacement };
 export type BlockDrop = 'before' | 'inside' | 'after';
 export const blockBody = (blocks: WritingBlock[]) => blocks.map(block => block.text).join('\n');
 export const newWritingBlock = (text: string, parentId: string | null = null): WritingBlock => ({ id: crypto.randomUUID(), text, parentId, format: 'text', collapsed: false });
@@ -94,6 +94,7 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
       const parent = raw.parentId === null ? null : result.find(b => b.id === raw.parentId && isHeading(b));
       if (raw.parentId !== null && !parent) return fresh();
       result.push({ id: raw.id, text: raw.text, format: raw.format, parentId: parent?.id ?? null, collapsed: isHeading(raw) && raw.collapsed === true,
+        ...(typeof raw.columnGroup === 'string' && raw.columnGroup.length > 0 && raw.columnGroup.length <= 100 ? { columnGroup: raw.columnGroup } : {}),
         ...(raw.emphasis === "bright" ? { emphasis: "bright" as const } : {}),
         ...(raw.backdrop === true ? { backdrop: true } : {}),
         ...(readBookPlacement(raw.book) ? { book: readBookPlacement(raw.book) } : {}),
@@ -102,7 +103,7 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
     if (blockBody(result) !== value) return fresh();
     // Each subtree must be contiguous, or moving it could collect unrelated text.
     if (result.some((block, i) => block.parentId && !blockAncestors(result, result[i - 1]?.id ?? '').includes(block.parentId) && result[i - 1]?.id !== block.parentId)) return fresh();
-    return result;
+    return normalizeWritingColumns(result);
   }
   // Preserve the previous preview's heading ranges when upgrading local metadata.
   const result = fresh();

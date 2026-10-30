@@ -1,3 +1,4 @@
+import { normalizeWritingColumns } from '@shared/bookWritingStyle';
 import type { BookWritingStyle } from '@shared/bookWritingStyle';
 import { writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
 import { BookInlineImage } from "./BookImageCrop";
@@ -68,6 +69,7 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
   function snapshot(): Snapshot { return { blocks, ...(selection.current ?? { start: value.length, end: value.length }) }; }
   function commit(next: WritingBlock[], position: number, restoreFocus = true) {
     if (disabled || next === blocks || blockBody(next).length > 200000) return;
+    next = normalizeWritingColumns(next);
     history.current.past.push(snapshot()); history.current.past = history.current.past.slice(-50); history.current.future = [];
     selection.current = { start: position, end: position };
     if (restoreFocus) focus.current = selection.current;

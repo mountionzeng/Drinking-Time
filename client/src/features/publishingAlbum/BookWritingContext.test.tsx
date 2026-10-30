@@ -108,7 +108,8 @@ it('canvas format focus, drag and resize select the same block; blank paper clea
   canvas.props.onPointerMove({ ...event, clientX: 50, clientY: 60 }); canvas.props.onPointerUp(event);
   expect(onCommit.mock.lastCall?.[1]).toBe(block.id);
   const paper = {};
-  all.find(node => node.type === 'section').props.onPointerDown({ target: paper, currentTarget: paper });
+  canvas.props.ref.current = { focus: vi.fn(), setPointerCapture: vi.fn(), getBoundingClientRect: () => ({ left: 0, top: 0 }) };
+  all.find(node => node.type === 'section').props.onPointerDown({ ...event, pointerType: 'mouse', target: paper, currentTarget: paper });
   expect(onSelect).toHaveBeenLastCalledWith(null);
 });
 

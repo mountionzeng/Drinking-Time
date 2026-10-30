@@ -791,3 +791,16 @@ it('rejects formatting that has mismatched lines or invalid nesting',async()=>{
   await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false}]})).rejects.toThrow();
   await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:'a',collapsed:false}]})).rejects.toThrow();
 });
+
+it('saves and restores a two-column row without dropping its membership on another client', async()=>{
+  const id=await story();
+  const created=await caller(10).create({storyId:id,title:'Columns',body:'Left\nRight'});
+  const writingStyle=['left','right'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false,columnGroup:'paired-row'}));
+  const saved=await caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle});
+  expect((await caller(10).get({chapterId:created.id})).chapter.blocks.writingStyle).toEqual(writingStyle);
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle})).rejects.toThrow();
+  const unpaired=await caller(10).save({chapterId:created.id,expectedVersion:saved.version,writingStyle:writingStyle.map(({columnGroup,...row})=>row)});
+  const restored=await caller(10).restoreVersion({chapterId:created.id,expectedVersion:unpaired.version,version:saved.version});
+  expect(restored.blocks.writingStyle).toEqual(writingStyle);
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:restored.version,writingStyle:[writingStyle[0],{...writingStyle[1],columnGroup:'orphan'}]})).rejects.toThrow();
+});

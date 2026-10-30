@@ -8396,7 +8396,9 @@
         "client/src/features/publishingAlbum/chapterWritingDraft.ts",
         "client/src/features/publishingAlbum/bookImageTransform.ts",
         "client/src/features/publishingAlbum/bookImageBlock.ts",
-        "shared/bookWritingStyle.ts"
+        "shared/bookWritingStyle.ts",
+        "client/src/features/publishingAlbum/bookBlockSelection.ts",
+        "shared/bookImageBlock.ts"
       ],
       "evidence": [
         "server/routers.chapters.test.ts",
@@ -8426,7 +8428,11 @@
         "docs/qa/2026-10-28-global-warehouse.md",
         "client/src/features/publishingAlbum/bookImageTransform.test.ts",
         "client/src/features/publishingAlbum/bookWritingStyle.test.ts",
-        "docs/qa/2026-10-28-story-update-notices.md"
+        "docs/qa/2026-10-28-story-update-notices.md",
+        "client/src/features/publishingAlbum/bookBlockSelection.test.ts",
+        "client/src/features/publishingAlbum/bookColumns.test.ts",
+        "docs/qa/2026-10-30-book-multiselect.md",
+        "docs/qa/2026-10-30-book-columns.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8435,7 +8441,7 @@
         "Generated platform text is an explicit comparison candidate in the chapter workspace; it does not automatically overwrite chapter writing. The legacy draft marker remains only for compatible initial layout recovery.",
         "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
         "自动保存不挤占十版历史；采用和恢复保留被替换的版本。",
-        "书页文字按文档顺序自动排布，拖动仅调整前后顺序或移入标题；字号限定当前格式标准大小的½–2倍，反复缩放不可绕过；文字编辑/放大/移块后相邻模块不得重叠，模块身份及聊天识别保持。",
+        "书页文字按文档顺序自动排布，拖动可调整前后顺序、移入标题，或将相邻兄弟子树组成紧凑双栏；双栏同排缩放联动且关系随writingStyle保存；字号限定当前格式标准大小的½–2倍，反复缩放不可绕过；文字编辑/放大/移块后相邻模块不得重叠，模块身份及聊天识别保持。",
         "文章视图缩放仅改变显示比例，范围50%–200%；不改正文、模块字号/顺序、聊天定位或版本记录。普通滚动和单指操作保留，手势监听仅绑定文章区域并在卸载时清理。",
         "版本统一入口包含历史、生成稿、收到稿及分享记录；文字对比左为所选旧稿并标红删除，右为可编辑当前稿并标红新增。打开对比不保存或采用；沿用原模块、粘贴、中文输入、撤销和聊天定位，只有明确采用才替换且保留旧稿。",
         "跨浏览器检测到新版本须显式比较和接收，不自动更新正文或保存基准。接收复核对比版本；有独立草稿则先保留，保存仍以CAS保护。候选与收件箱更新仅提示，不自动采用。",
@@ -8596,6 +8602,16 @@
           "date": "2026-10-30",
           "kind": "fix",
           "summary": "书稿模式“生成新版本”成功后自动写入当前章节正文并存为新章节版本（旧版本可在历史恢复）；本章有未保存手动修改时不覆盖，改为打开“生成的文字”对照。经用户确认此处放宽“预览后显式保存才采用”。未加专门单测，浏览器未实测。"
+        },
+        {
+          "date": "2026-10-30",
+          "kind": "feature",
+          "summary": "书页空白拖动框选与Shift点选多个模块，整组拖动排序/移入标题、等比例缩放；标题携带隐藏子块且不重复，字号½–2倍与图片页内边界限制保留。手势结束一次提交至原自动保存/撤销链，取消和手势期间外部稿变更不提交。虚构故事实测框选2块、整体移动、同比放大、无重叠和两次撤销，测试稿已恢复。32项模块回归、69项草稿安全回归和类型检查通过；鼠标已验收，触屏框选未启用以保留滚动；未部署。"
+        },
+        {
+          "date": "2026-10-30",
+          "kind": "feature",
+          "summary": "按用户要求新增左右落点形成紧凑双栏，16设计像素栏距；支持标题子树、双栏同步起页与后文避让。同排任一模块角标缩放联动图文，保留裁切、图片内部移动、½–2倍字号与页内限制；上下拖放解除双栏。columnGroup接入共享schema、样式等价比较、服务端校验与恢复，损坏关系清理而不删正文。57项模块/排版测试、70项草稿安全测试及类型检查通过；虚构故事实际左右拖放、联动缩小/撤销及保存刷新还原通过。未部署，微信双栏显示未实现。"
         }
       ]
     },
