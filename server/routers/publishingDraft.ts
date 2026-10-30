@@ -1948,14 +1948,29 @@ export const publishingDraftRouter = router({
          * receipt is still owed a recovery, adopt its token so this call
          * recovers that round instead of buying another one.
          */
+        /**
+         * A pending round that never recorded a 302 task id and has already
+         * passed its timeout was never accepted by the provider (task ids are
+         * persisted the moment 302 accepts the job), so there is nothing to
+         * recover and nothing was billed for the render. Let the user start a
+         * fresh round instead of dead-ending on "no recoverable task id".
+         */
+        const stalePendingWithoutTask =
+          persistedGeneration?.status === "pending" &&
+          !persistedGeneration.taskId?.trim() &&
+          persistedGeneration.expiresAt <= Date.now();
         const outstandingPaidReceipt =
+          !stalePendingWithoutTask &&
           input.operationToken !== persistedGeneration?.operationToken &&
           (persistedGeneration?.status === "pending" || isRecoverablePublishingCoverGeneration(persistedGeneration))
             ? persistedGeneration
             : null;
         const operationToken =
           outstandingPaidReceipt?.operationToken ??
-          input.operationToken ??
+          (stalePendingWithoutTask &&
+          input.operationToken === persistedGeneration?.operationToken
+            ? undefined
+            : input.operationToken) ??
           `cover-${randomUUID()}`;
         const matchingOperation =
           persistedGeneration?.operationToken === operationToken;
@@ -2199,6 +2214,33 @@ export const publishingDraftRouter = router({
           generation = claimed.publishing.coverGeneration;
         }
         if (!generation) throw new Error("封面生成操作没有保存成功");
+        if (
+          !generation.taskId &&
+          resuming &&
+          generation.status === "pending" &&
+          generation.expiresAt > Date.now()
+        ) {
+          // Still inside its timeout window: the previous click may be
+          // preparing the prompt or submitting to 302 right now. Don't mark it
+          // unknown and don't resubmit (that could double-charge); ask the user
+          // to wait. Once it times out, a new click starts a fresh round.
+          return {
+            status: "error" as const,
+            error: "上一次封面还在准备或提交中，为避免重复扣费不会自动重新提交；请稍候，超时后可直接重新生成。",
+            estimate,
+            ...current,
+            coverAsset: await loadPublishingCoverAsset({
+              assetId: current.publishing.cover?.assetId,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+            coverRounds: await loadPublishingCoverRounds({
+              publishing: current.publishing,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        }
         if (!generation.taskId && resuming) {
           const unknown = await writePublishingDraftState({
             storyId: input.storyId,

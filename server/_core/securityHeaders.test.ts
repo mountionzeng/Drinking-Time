@@ -31,6 +31,9 @@ describe("production security headers", () => {
     expect(headers["Content-Security-Policy"]).toContain(
       "img-src 'self' data: blob: https://file.302.ai https://assets.example.com"
     );
+    expect(headers["Content-Security-Policy"]).toContain(
+      "connect-src 'self' https://file.302.ai https://assets.example.com"
+    );
     expect(headers["Strict-Transport-Security"]).toContain("max-age=31536000");
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
   });

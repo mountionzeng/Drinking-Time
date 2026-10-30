@@ -557,7 +557,9 @@ export default function PublishingDraftWorkspace({
       ? version.id === editorBuffer.textDraftVersionId
       : editorBuffer && publishingContentEquals(editorBuffer.content, version.generated!))
   );
-  const dirty = Boolean(
+  // 书稿模式下正文由 ChapterWorkspace 管理（生成的新稿会直接写入章节），
+  // 发布稿缓冲区不再代表用户眼前的正文，不能再据此提示“未保存”。
+  const dirty = !unifiedChapters && Boolean(
     editorContent && (previewVersion || !draft || !publishingContentEquals(editorContent, draft.content))
   );
   const tabs = existingPublishingTabs(publishing);

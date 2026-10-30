@@ -2752,7 +2752,7 @@ describe("publishingDraft router", () => {
       taskId: null,
       claimedAt: 1,
       updatedAt: 1,
-      expiresAt: 600_000,
+      expiresAt: Date.now() + 600_000,
     };
     const state = {
       ...publishing,
@@ -2804,6 +2804,71 @@ describe("publishingDraft router", () => {
     });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
+  });
+
+  it.each(["cover-op-unknown", "fresh-client-token"])("lets a timed-out cover request without a task id start a fresh round (%s)", async operationToken => {
+    const generation = {
+      operationToken: "cover-op-unknown",
+      versionId: "v1",
+      status: "pending" as const,
+      platform: "xiaohongshu" as const,
+      referenceAssetId: null,
+      feedback: "",
+      prompt: "durable cover prompt",
+      roundId: "round-unknown",
+      taskId: null,
+      claimedAt: 1,
+      updatedAt: 1,
+      expiresAt: 1,
+    };
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      coverGeneration: generation,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => ({
+        storyId: 7,
+        storyRevision: 3,
+        publishing: {
+          ...state,
+          revision: 2,
+          coverGeneration: {
+            ...generation,
+            status: operation.status ?? generation.status,
+            error: operation.error,
+          },
+        },
+      })
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    const result = await caller.generateCover({
+      storyId: 7,
+      platform: "xiaohongshu",
+      basePublishingRevision: 1,
+      operationToken,
+    });
+
+    expect(result).toMatchObject({ status: "confirmation_required" });
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
   });
 

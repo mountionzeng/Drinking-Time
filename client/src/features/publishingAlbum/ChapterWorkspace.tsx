@@ -312,6 +312,25 @@ export function ChapterWorkspace({
     ) ?? [];
   const candidate = pending.find(item => item.id === comparison?.id);
   useEffect(() => { setComparison(null); setHistoryComparison(null); setGeneratedOpen(false); }, [active?.id]);
+  // 用户决定：“生成新版本”成功后直接把新稿写入当前章节正文（会生成新的章节版本，旧版本仍可在历史里恢复）。
+  // 若章节里还有未保存的手动修改，不覆盖，改为打开“生成的文字”对照让用户自己采用。
+  const pendingGeneratedAdopt = useRef(false);
+  useEffect(() => {
+    const onGenerated = () => { pendingGeneratedAdopt.current = true; };
+    window.addEventListener("dt:show-generated-text", onGenerated);
+    return () => window.removeEventListener("dt:show-generated-text", onGenerated);
+  }, []);
+  useEffect(() => {
+    if (!pendingGeneratedAdopt.current || !active || !props.body.trim()) return;
+    if (props.body === active.blocks.body) { pendingGeneratedAdopt.current = false; return; }
+    pendingGeneratedAdopt.current = false;
+    const hasLocalEdits = Boolean(writingDraft && (writingDraft.body !== active.blocks.body || writingDraft.title !== active.title));
+    if (hasLocalEdits) { setGeneratedOpen(true); toast.info("新稿已生成；你在本章还有未保存的修改，请对照后选择采用。"); return; }
+    void run(async () => {
+      await state.saveText({ title: props.title.slice(0, 200) || active.title, body: props.body });
+      await versions.refetch(); setGeneratedOpen(false);
+    }, false);
+  }, [props.body, props.title, active?.id, active?.blocks.body]);
   useEffect(() => {
     for (const item of candidates.data?.candidates ?? []) {
       if (item.status === "pending") continue;

@@ -57,7 +57,7 @@ export function buildSecurityHeaders(input: {
     "font-src 'self' data: https://fonts.gstatic.com",
     `img-src 'self' data: blob: ${mediaOrigins}`,
     `media-src 'self' blob: ${mediaOrigins}`,
-    "connect-src 'self'",
+    `connect-src 'self' ${mediaOrigins}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "upgrade-insecure-requests",

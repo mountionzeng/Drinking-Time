@@ -250,7 +250,15 @@ function plainReply(raw: string): string {
   let text = stripAssistantReasoning(raw ?? "");
   const fence = text.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
   if (fence) text = stripAssistantReasoning(fence[1]);
-  return text.replace(/^["“「]|["”」]$/g, "").trim();
+  text = text.trim();
+  // 只有整段被一对引号包住（且内部没有别的引号）时才去掉外层引号；
+  // 以引用开头的回复（如 “雨停了”这一句……）必须保留开头引号。
+  const wrapped = text.match(/^(["“「])([\s\S]*)(["”」])$/);
+  const pairs: Record<string, string> = { '"': '"', "“": "”", "「": "」" };
+  if (wrapped && pairs[wrapped[1]] === wrapped[3] && !/["“”「」]/.test(wrapped[2])) {
+    return wrapped[2].trim();
+  }
+  return text;
 }
 
 export type WritingCompanionOpening = {
