@@ -42,8 +42,9 @@ describe('book multiselection', () => {
     expect(big[2]).toBe(blocks[2]);
     expect(resizeBookSelection(big, ['h'], 2)).toBe(big);
     const small = resizeBookSelection(big, ['h'], .001);
-    expect(small[0].book?.fontSize).toBe(18);
-    expect(small[1].book?.fontSize).toBe(12);
+    expect(small[0].book?.fontSize).toBe(36);
+    expect(small[1].book?.fontSize).toBe(24);
+    expect(resizeBookSelection(small, ['h'], .5)).toBe(small);
     const layouts = layoutBookBlocks(big);
     for (let i = 1; i < layouts.length; i++) expect(layouts[i].placement.rect.y).toBeGreaterThanOrEqual(layouts[i-1].placement.rect.y + layouts[i-1].placement.rect.height);
   });

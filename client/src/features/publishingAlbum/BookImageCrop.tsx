@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { readBookImage } from "./bookImageBlock";
+import { readBookImage } from "@shared/bookImageBlock";
 
 export function BookInlineImage({ text }: { text: string }) {
   const image = readBookImage(text)!;

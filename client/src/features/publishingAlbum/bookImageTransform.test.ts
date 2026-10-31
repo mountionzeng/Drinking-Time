@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { bookImageModule, transformBookImage } from './bookImageTransform';
-import { bookImageText, readBookImage } from './bookImageBlock';
+import { bookImageText, readBookImage } from '@shared/bookImageBlock';
 import { transformModule, type ModuleHandle } from './imagePackModules';
 import { layoutBookBlocks } from './bookBlockLayout';
 import { newWritingBlock } from './chapterBlockTree';

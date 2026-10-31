@@ -1,19 +1,24 @@
+import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
+import { BookModuleConvert, type ModuleConversion } from "./BookModuleConvert";
+import { readBookAudio } from "@shared/bookAudioBlock";
+import { BookMusicInsert } from "./BookMusicInsert";
 import { normalizeWritingColumns } from '@shared/bookWritingStyle';
 import type { BookWritingStyle } from '@shared/bookWritingStyle';
 import { writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
 import { BookInlineImage } from "./BookImageCrop";
-import { bookImageUrl, bookImageText } from "./bookImageBlock";
+import { bookImageUrl, bookImageText } from "@shared/bookImageBlock";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject } from 'react';
-import { textModuleOffset, textModulePosition, type TextPosition } from './moduleTextEditing';
-import { blockBody, insertBlockText, mergeWritingBlocks, restoreWritingBlocks, newWritingBlock, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
+import { type TextPosition } from './moduleTextEditing';
+import { writingBlockOffset, writingBlockPosition, splitWritingBlock, insertBlockText, blockBody, mergeWritingBlocks, restoreWritingBlocks, newWritingBlock, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
 import { BookBlockCanvas } from './BookBlockCanvas';
-import { bookBlockContext } from './bookBlockContext';
+import { bookBlockContext, bookSelectionContext } from './bookBlockContext';
 import { textChanges } from './textChanges';
 import { ChangedText, afterTextSlice, type WritingComparison } from './WritingComparison';
 import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
-export function ChapterTextModules({ writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+  prepareMedia?(): Promise<void>;
   writingStyle?: BookWritingStyle;
   onFormattedChange?(body:string,style:BookWritingStyle):void;
   imageInsert?: MutableRefObject<((url: string) => void) | null>;
@@ -30,11 +35,33 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
     try { return restoreWritingBlocks(value, key ? JSON.parse(localStorage.getItem(key) || 'null') : null); }
     catch { return restoreWritingBlocks(value, null); }
   });
+  const [conversion,setConversion]=useState<ModuleConversion|null>(null);
+  useEffect(()=>setConversion(null),[formatScope]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
   const module = useMemo(() => contextSource && blockBody(blocks) === value
-    ? bookBlockContext(blocks, activeId, contextSource) : null,
-    [blocks, activeId, value, contextSource?.storyId, contextSource?.scope, contextSource?.chapterId]);
+    ? (selectedModuleIds.length > 1 ? bookSelectionContext(blocks, selectedModuleIds, contextSource) : bookBlockContext(blocks, activeId, contextSource)) : null,
+    [blocks, activeId, selectedModuleIds, value, contextSource?.storyId, contextSource?.scope, contextSource?.chapterId]);
   useLayoutEffect(() => { onContextChange?.(module); }, [module, onContextChange]);
+  const mediaLatest = useRef({ blocks, disabled, prepareMedia });
+  mediaLatest.current = { blocks, disabled, prepareMedia };
+  const commitLatest = useRef(commit); commitLatest.current = commit;
+  const warehouseAnchor=useRef(activeId);warehouseAnchor.current=activeId;
+  useEffect(()=>{
+    const insert=(event:Event)=>{
+      const detail=(event as CustomEvent<WarehouseBookInsert>).detail,latest=mediaLatest.current;
+      if(!contextSource || detail.storyId!==contextSource.storyId || detail.accepted || latest.disabled || comparison) return;
+      const index=latest.blocks.findIndex(b=>b.id===warehouseAnchor.current),current=latest.blocks[index];
+      const at=index<0?latest.blocks.length:isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
+      const added=detail.text.split('\n').filter(t=>t.trim()).map(t=>newWritingBlock(t,current?.parentId??null));
+      if(!added.length)return;
+      const next=[...latest.blocks.slice(0,at),...added,...latest.blocks.slice(at)];
+      if(blockBody(next).length>200000)return;
+      commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added[0].id);detail.accepted=true;
+    };
+    window.addEventListener(INSERT_WAREHOUSE_BOOK,insert);return ()=>window.removeEventListener(INSERT_WAREHOUSE_BOOK,insert);
+  },[contextSource?.storyId,formatScope,comparison]);
+
   const fields = useRef<Array<HTMLTextAreaElement | null>>([]);
   const focus = useRef<TextPosition | null>(null);
   const history = useRef<{ past: Snapshot[]; future: Snapshot[] }>({ past: [], future: [] });
@@ -54,15 +81,16 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
   }, [key, value, blocks, renderedBody]);
   useLayoutEffect(() => {
     if (focus.current) {
-      const start = textModulePosition(value, focus.current.start), end = textModulePosition(value, focus.current.end);
+      const start = writingBlockPosition(blocks, focus.current.start), end = writingBlockPosition(blocks, focus.current.end);
       const field = fields.current[start.index];
       field?.focus(); field?.setSelectionRange(start.cursor, end.index === start.index ? end.cursor : start.cursor);
       focus.current = null;
     }
   }, [value, blocks]);
   function selected(index: number, field: HTMLTextAreaElement) {
+    setSelectedModuleIds([]);
     setActiveId(blocks[index].id);
-    const offset = textModuleOffset(value, index);
+    const offset = writingBlockOffset(blocks, index);
     selection.current = { start: offset + field.selectionStart, end: offset + field.selectionEnd };
     window.dispatchEvent(new Event('dt:writing-selection-change'));
   }
@@ -73,7 +101,7 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
     history.current.past.push(snapshot()); history.current.past = history.current.past.slice(-50); history.current.future = [];
     selection.current = { start: position, end: position };
     if (restoreFocus) focus.current = selection.current;
-    setActiveId(next[textModulePosition(blockBody(next), position).index]?.id ?? null);
+    setActiveId(next[writingBlockPosition(next, position).index]?.id ?? null);
     setBlocks(next);
     if (onFormattedChange) onFormattedChange(blockBody(next),writingStyleOf(next));
     else if (blockBody(next) !== value) onChange(blockBody(next));
@@ -88,7 +116,7 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
       const parent = current ? isHeading(current) && !current.collapsed ? current.id : current.parentId : null;
       const image = newWritingBlock(bookImageText(url),parent);
       const next = [...blocks.slice(0,at),image,...blocks.slice(at)];
-      commit(next,textModuleOffset(blockBody(next),at),false);
+      commit(next,writingBlockOffset(next,at),false);
       setActiveId(image.id);
     };
     return () => {imageInsert.current = null;};
@@ -99,29 +127,42 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
     const previous = source.pop(); if (!previous) return;
     target.push(snapshot()); setBlocks(previous.blocks);
     selection.current = { start: previous.start, end: previous.end }; focus.current = selection.current;
-    setActiveId(previous.blocks[textModulePosition(blockBody(previous.blocks), previous.start).index]?.id ?? null);
+    setActiveId(previous.blocks[writingBlockPosition(previous.blocks, previous.start).index]?.id ?? null);
     if (onFormattedChange) onFormattedChange(blockBody(previous.blocks),writingStyleOf(previous.blocks));
     else onChange(blockBody(previous.blocks));
   }
   function renderField(block: WritingBlock, index: number, style: CSSProperties) {
+    const audio = readBookAudio(block.text);
+    if (audio) return <div aria-label={`${audio.kind==='narration'?'有声书':'音乐'}模块 ${index + 1}`} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
+      <p className="truncate text-sm">♫ {audio.title}</p><audio aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
+    </div>;
     const imageUrl = bookImageUrl(block.text);
-    if (imageUrl) return <button type="button" aria-label={`图片模块 ${index + 1}`} disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
-      if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,textModuleOffset(blockBody(next),index+1)); }
+    if (imageUrl) return <div role="button" tabIndex={disabled ? -1 : 0} aria-label={`图片模块 ${index + 1}`} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
+      if(disabled || event.target !== event.currentTarget) return;
+      if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,writingBlockOffset(next,index+1)); }
     }} onClick={() => {
+      if (disabled) return;
       setActiveId(block.id);
-      const start = textModuleOffset(value,index); selection.current = {start,end:start};
+      const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
-    }}><BookInlineImage text={block.text}/></button>;
+    }}><BookInlineImage text={block.text}/></div>;
     const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={`文字模块 ${index + 1}`} value={block.text}
               disabled={disabled} maxLength={200000} placeholder="写下这一段…" style={style}
               className={comparison ? "col-start-1 row-start-1 block h-full min-h-[1.6em] w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0 text-transparent caret-foreground outline-none selection:bg-blue-200/50" : "block h-full w-full resize-none overflow-auto border-0 bg-transparent px-1 py-0 outline-none"}
               onFocus={event => selected(index, event.currentTarget)} onSelect={event => selected(index, event.currentTarget)}
               onChange={event => {
                 const field = event.currentTarget;
-                const result = insertBlockText(blocks, index, field.value);
-                const before = field.value.slice(0, field.selectionStart).replace(/\r\n?/g, '\n').split('\n');
-                const cursorIndex = before.length > 1 ? result.insertedIndex + before.length - 2 : index;
-                commit(result.blocks, textModuleOffset(blockBody(result.blocks), cursorIndex) + before[before.length - 1].length, before.length > 1);
+                // Preserve the existing paste-to-modules behavior for ordinary single-line blocks.
+                if(!block.text.includes('\n') && field.value.includes('\n')) {
+                  const result=insertBlockText(blocks,index,field.value);
+                  const before=field.value.slice(0,field.selectionStart).replace(/\r\n?/g,'\n').split('\n');
+                  const cursorIndex=before.length>1?result.insertedIndex+before.length-2:index;
+                  commit(result.blocks,writingBlockOffset(result.blocks,cursorIndex)+before[before.length-1].length,true);
+                  return;
+                }
+                // Existing internal line breaks belong to this module; only Enter splits it.
+                const next=blocks.map((item,i)=>i===index?{...item,text:field.value}:item);
+                commit(next,writingBlockOffset(next,index)+field.selectionStart,false);
               }}
               onKeyDown={event => {
                 if (disabled || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -131,21 +172,21 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
                 }
                 if (event.key === 'Enter') {
                   event.preventDefault();
-                  const result = insertBlockText(blocks, index, block.text.slice(0, field.selectionStart) + '\n' + block.text.slice(field.selectionEnd));
-                  commit(result.blocks, textModuleOffset(blockBody(result.blocks), result.insertedIndex));
+                  const result = splitWritingBlock(blocks,index,field.selectionStart,field.selectionEnd);
+                  commit(result.blocks, writingBlockOffset(result.blocks, result.insertedIndex));
                 } else if (event.key === 'Backspace' && !field.selectionStart && !field.selectionEnd && index > 0) {
                   event.preventDefault();
-                  if (bookImageUrl(blocks[index-1].text)) return;
+                  if (bookImageUrl(blocks[index-1].text) || readBookAudio(blocks[index-1].text)) return;
                   const next = mergeWritingBlocks(blocks, index - 1);
-                  commit(next, textModuleOffset(value, index) - 1);
+                  commit(next, writingBlockOffset(blocks, index) - 1);
                 } else if (event.key === 'Delete' && field.selectionStart === block.text.length && field.selectionEnd === block.text.length && index < blocks.length - 1) {
                   event.preventDefault();
-                  if (bookImageUrl(blocks[index+1].text)) return;
-                  commit(mergeWritingBlocks(blocks, index), textModuleOffset(value, index) + block.text.length);
+                  if (bookImageUrl(blocks[index+1].text) || readBookAudio(blocks[index+1].text)) return;
+                  commit(mergeWritingBlocks(blocks, index), writingBlockOffset(blocks, index) + block.text.length);
                 }
               }} />;
     if (!comparison) return field;
-    const start = textModuleOffset(value, index);
+    const start = writingBlockOffset(blocks, index);
     return <div key={block.id} className="grid" style={style}>
       <div aria-hidden="true" className="pointer-events-none col-start-1 row-start-1 min-h-[1.6em] whitespace-pre-wrap break-words px-1" style={{ overflowWrap: 'anywhere' }}>
         <ChangedText changes={afterTextSlice(changes, start, start + block.text.length)} side="after" />{!block.text || block.text.endsWith('\n') ? '\u200b' : ''}
@@ -170,17 +211,38 @@ export function ChapterTextModules({ writingStyle, onFormattedChange, imageInser
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas activeId={activeId} onSelect={id => {
+    </div> : <BookBlockCanvas onConvert={contextSource && prepareMedia ? (id,kind)=>{
+      const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
+    }:undefined} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
       setActiveId(id);
       const index = blocks.findIndex(block => block.id === id);
       if (index >= 0 && id !== activeId) {
-        const start = textModuleOffset(value, index);
+        const start = writingBlockOffset(blocks, index);
         selection.current = { start, end: start };
       }
     }} blocks={blocks} disabled={disabled} onCommit={(next, id, restoreFocus = true) => {
-      commit(next, textModuleOffset(blockBody(next), Math.max(0, next.findIndex(block => block.id === id))), restoreFocus);
+      commit(next, writingBlockOffset(next, Math.max(0, next.findIndex(block => block.id === id))), restoreFocus);
     }}>{renderField}
     </BookBlockCanvas>}
+    {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
+      const latest=mediaLatest.current;
+      if(latest.disabled || latest.blocks.find(b=>b.id===conversion.id)?.text!==conversion.text)throw new Error('原模块已变化，请重新选择');
+      await latest.prepareMedia!();
+    }} onInsert={text=>{
+      const latest=mediaLatest.current, index=latest.blocks.findIndex(b=>b.id===conversion.id);
+      if(latest.disabled || index<0 || latest.blocks[index].text!==conversion.text)throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
+      const current=latest.blocks[index], at=isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
+      const added=newWritingBlock(text,current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)];
+      if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');
+      commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added.id);setConversion(null);
+    }}/>}
+    {contextSource && !comparison && <BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
+      const index=blocks.findIndex(block=>block.id===activeId), current=blocks[index];
+      const at=index<0?blocks.length:isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
+      const parent=current?isHeading(current)&&!current.collapsed?current.id:current.parentId:null;
+      const audio=newWritingBlock(text,parent), next=[...blocks.slice(0,at),audio,...blocks.slice(at)];
+      commit(next,writingBlockOffset(next,at),false);setActiveId(audio.id);
+    }}/>}
     {cacheError && <p role="alert" className="text-xs text-destructive">本机无法保存模块格式，请暂时不要关闭页面。</p>}
   </section>;
 }

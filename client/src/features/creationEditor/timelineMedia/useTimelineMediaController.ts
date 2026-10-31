@@ -747,6 +747,7 @@ export function useTimelineMediaController(
             setLastError(result.message);
             return false;
           }
+          if (!result.timeline) { await audioAssetsQuery.refetch(); return true; }
           const outcome = await handleMediaCommandResult(
             storyId,
             result.timeline,

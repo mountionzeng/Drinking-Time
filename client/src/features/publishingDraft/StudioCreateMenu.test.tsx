@@ -33,12 +33,12 @@ describe("StudioCreateMenu", () => {
     expect(html).toContain("聊天正在处理内容");
   });
 
-  it("offers generation again when ready and explains the music prerequisite", () => {
+  it("offers music without requiring video shots", () => {
     const html = renderToStaticMarkup(<StudioCreateMenu storyId={7} input="暖色" blocked={false} hasShots={false} />);
     expect(button(html, "图片")).toBeDefined();
     expect(button(html, "图片")).not.toContain('disabled=""');
     expect(button(html, "视频")).not.toContain('disabled=""');
-    expect(button(html, "音乐")).toContain('disabled=""');
-    expect(html).toContain("先准备视频镜头");
+    expect(button(html, "音乐")).not.toContain('disabled=""');
+    expect(html).not.toContain("先准备视频镜头");
   });
 });

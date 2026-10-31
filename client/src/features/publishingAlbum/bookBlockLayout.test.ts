@@ -12,14 +12,19 @@ describe('book module layout', () => {
     expect(result.map(item => item.block.id)).toEqual(blocks.map(b => b.id));
     expect(result.every(({ placement: p }) => p.rect.y >= 0 && p.rect.y + p.rect.height <= 1200)).toBe(true);
   });
-  it('clamps repeated resizing to half and twice each format baseline', () => {
+  it('clamps repeated resizing to body size and twice each format baseline', () => {
     for (const [format, base] of [['text', 24], ['heading1', 36], ['heading2', 32], ['heading3', 28]] as const) {
       let blocks = [{ ...block('a'), format }];
       for (let i = 0; i < 5; i++) blocks = resizeBookBlock(blocks, 'a', 99999) as typeof blocks;
       expect(layoutBookBlocks(blocks)[0].placement.fontSize).toBe(base * 2);
       for (let i = 0; i < 5; i++) blocks = resizeBookBlock(blocks, 'a', -99999) as typeof blocks;
-      expect(layoutBookBlocks(blocks)[0].placement.fontSize).toBe(base / 2);
+      expect(layoutBookBlocks(blocks)[0].placement.fontSize).toBe(24);
     }
+  });
+  it('renders older undersized text at body size without rewriting stored content', () => {
+    const original = [{ ...block('a'), book: {page:0, rect:{x:24,y:48,width:860,height:52},fontSize:12} }];
+    expect(layoutBookBlocks(original)[0].placement.fontSize).toBe(24);
+    expect(original[0].book.fontSize).toBe(12);
   });
   it('ignores legacy overlapping coordinates and reflows after typing and resizing', () => {
     const book = { page: 0, rect: { x: 70, y: 200, width: 600, height: 60 }, fontSize: 24 };

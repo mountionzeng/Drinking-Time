@@ -1,9 +1,11 @@
 import { z } from 'zod';
 const finite=z.number().finite();
 export const bookWritingStyleSchema=z.array(z.object({
+  lineCount:z.number().int().min(1).max(200001).optional(),
   id:z.string().min(1).max(100),format:z.enum(['text','heading1','heading2','heading3']),
   parentId:z.string().max(100).nullable(),collapsed:z.boolean(),
   columnGroup:z.string().min(1).max(100).optional(),
+  columnRatio:finite.min(.2).max(.8).optional(),
   emphasis:z.enum(['normal','bright']).optional(),backdrop:z.boolean().optional(),
   book:z.object({page:z.number().int().min(0).max(999),fontSize:finite.min(12).max(120),rect:z.object({x:finite.min(0).max(900),y:finite.min(0).max(1200),width:finite.min(24).max(900),height:finite.min(24).max(1200)})}).optional(),
 })).max(20000);
@@ -15,7 +17,7 @@ export function sameWritingStyle(a:BookWritingStyle|undefined,b:BookWritingStyle
   if(!a || !b || a.length!==b.length) return false;
   return a.every((row,index)=>{
     const other=b[index];
-    if(row.id!==other.id || row.format!==other.format || row.parentId!==other.parentId || row.collapsed!==other.collapsed || row.columnGroup!==other.columnGroup ||
+    if((row.lineCount ?? 1)!==(other.lineCount ?? 1) || row.id!==other.id || row.format!==other.format || row.parentId!==other.parentId || row.collapsed!==other.collapsed || row.columnGroup!==other.columnGroup || (row.columnRatio ?? .5)!==(other.columnRatio ?? .5) ||
       (row.emphasis ?? 'normal')!==(other.emphasis ?? 'normal') || Boolean(row.backdrop)!==Boolean(other.backdrop)) return false;
     if(!row.book || !other.book) return row.book===other.book;
     return row.book.page===other.book.page && row.book.fontSize===other.book.fontSize &&
@@ -24,7 +26,7 @@ export function sameWritingStyle(a:BookWritingStyle|undefined,b:BookWritingStyle
   });
 }
 export function validWritingStyle(body:string,style:BookWritingStyle):boolean {
-  if(style.length!==body.replace(/\r\n?/g,'\n').split('\n').length) return false;
+  if(style.reduce((sum,row)=>sum+(row.lineCount??1),0)!==body.replace(/\r\n?/g,'\n').split('\n').length) return false;
   const seen=new Map<string,BookWritingStyle[number]>();
   let ancestors:string[]=[];
   for(const row of style){
@@ -64,4 +66,12 @@ export function normalizeWritingColumns<T extends {id:string;parentId:string|nul
   const pairs=validColumnPairs(rows), paired=new Set([...pairs.keys(),...pairs.values()]);
   if(rows.every(row=>!row.columnGroup || paired.has(row.id))) return rows;
   return rows.map(row=>{ if(!row.columnGroup || paired.has(row.id)) return row; const {columnGroup,...rest}=row; return rest as T; });
+}
+
+/** Body remains plain text; style records how many physical lines belong to each module. */
+export function writingModuleTexts(body:string,style?:BookWritingStyle):string[] {
+  const lines=body.replace(/\r\n?/g,'\n').split('\n');
+  if(!style || !validWritingStyle(body,style)) return lines;
+  let offset=0;
+  return style.map(row=>{const count=row.lineCount??1;const text=lines.slice(offset,offset+count).join('\n');offset+=count;return text;});
 }

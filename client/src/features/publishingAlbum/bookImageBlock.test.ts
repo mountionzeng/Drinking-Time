@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookImageText, bookImageUrl, readBookImage } from './bookImageBlock';
+import { bookImageText, bookImageUrl, readBookImage } from '@shared/bookImageBlock';
 import { newWritingBlock, restoreWritingBlocks, blockBody } from './chapterBlockTree';
 import { layoutBookBlocks } from './bookBlockLayout';
 
@@ -32,4 +32,11 @@ it('persists crop and scale without changing the original image URL', () => {
  const text=bookImageText('/api/images/a.png',{x:.2,y:.1,width:.6,height:.8},1.5);
  expect(readBookImage(text)).toEqual({url:'/api/images/a.png',crop:{x:.2,y:.1,width:.6,height:.8},scale:1.5});
  expect(readBookImage('![图片](/api/a.png "book:0.9,0,0.5,1,1")')).toBeNull();
+});
+
+it('keeps inline video and original poster with the crop and frame', () => {
+ const frame={x:100,y:200,width:300,height:240};
+ const text=bookImageText('/api/images/source.png',{x:.1,y:.1,width:.8,height:.8},1,frame,'/api/videos/clip.mp4');
+ expect(readBookImage(text)).toMatchObject({url:'/api/images/source.png',videoUrl:'/api/videos/clip.mp4',frame,crop:{x:.1,y:.1,width:.8,height:.8}});
+ expect(()=>bookImageText('/api/images/source.png',undefined,1,undefined,'javascript:alert(1)')).toThrow();
 });

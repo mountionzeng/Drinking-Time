@@ -20,7 +20,7 @@ it("opens the same four choices without a selected memory or text-history depend
     expect(button).toBeDefined();
     expect(button).not.toContain('disabled=""');
   }
-  expect(buttons.find(b => b.includes("音乐"))).toContain("先准备视频镜头");
+  expect(buttons.find(b => b.includes("音乐"))).not.toContain('disabled=""');
 });
 
 it("keeps the entry and layout accessible while generation actions are blocked", () => {

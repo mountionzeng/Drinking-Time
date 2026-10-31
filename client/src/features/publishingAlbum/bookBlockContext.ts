@@ -1,4 +1,5 @@
-import { bookImageUrl } from "./bookImageBlock";
+import { readBookAudio } from "@shared/bookAudioBlock";
+import { bookImageUrl } from "@shared/bookImageBlock";
 import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 import { lineContextExcerpt, linePosition } from '@shared/lineModules';
 import type { WritingBlock } from './chapterBlockTree';
@@ -22,10 +23,19 @@ export function bookBlockContext(
     pageCount: Math.max(...layouts.map(item => item.placement.page + 1)),
     rect: { ...placement.rect }, fontSize: placement.fontSize,
     emphasis: block.emphasis ?? 'normal', backdrop: Boolean(block.backdrop),
-    text: bookImageUrl(block.text) ? "文章插图" : block.text.slice(0, 12_000),
+    text: readBookAudio(block.text) ? `${readBookAudio(block.text)!.kind==='narration'?'有声书':'音乐'}：${readBookAudio(block.text)!.title}` : bookImageUrl(block.text) ? "文章插图" : block.text.slice(0, 12_000),
     pageText: layouts.filter(item => item.placement.page === placement.page).map(item => item.block.text).join('\n').slice(0, 16_000),
     // Local editor ids identify the discussion target, not server-owned chapter blocks.
     line: { source: 'layout', position,
       excerpt: lineContextExcerpt({ lines: lines.map(item => item.text), index, limit: 6000 }) },
   };
+}
+
+export function bookSelectionContext(blocks: WritingBlock[], ids: string[], source: { storyId: number; scope: string; chapterId: string }): LayoutModuleContext | null {
+  const selected = blocks.filter(block => ids.includes(block.id));
+  const first = bookBlockContext(blocks, selected[0]?.id ?? null, source);
+  if (!first || selected.length < 2) return first;
+  const { line, ...context } = first;
+  return {...context, kind: 'text', selection: { count: selected.length, ids: selected.slice(0,200).map(block => block.id) },
+    text: selected.map(block => `【模块 ${blocks.indexOf(block)+1}】${bookImageUrl(block.text) ? '图片：' : ''}${block.text}`).join('\n').slice(0,12000) };
 }

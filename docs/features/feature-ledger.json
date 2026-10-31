@@ -8433,7 +8433,9 @@
         "client/src/features/publishingAlbum/bookColumns.test.ts",
         "docs/qa/2026-10-30-book-multiselect.md",
         "docs/qa/2026-10-30-book-columns.md",
-        "docs/qa/2026-10-30-book-columns-release.md"
+        "docs/qa/2026-10-30-book-columns-release.md",
+        "docs/qa/2026-10-31-book-selection-chat.md",
+        "client/src/features/publishingAlbum/mergeBookText.test.ts"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8618,6 +8620,26 @@
           "date": "2026-10-30",
           "kind": "improvement",
           "summary": "书模块多选与双栏已由fe12de4e推送main并部署；69项独立MySQL、215项小程序及类型/构建/保存回归通过。全量14项既有失败已主干对照；109发布文件和HTTPS资源校验通过，数据库及配置未变。本机正式域名连接中断，未声称线上浏览器交互验收。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "fix",
+          "summary": "按用户纠正区分两种缩放：显式框选多个模块同比缩放，单独并排模块调整20%–80%栏宽且另一栏反向变化。修复外侧空白框选、添加整组四角把手；多选上下文接入左侧聊天，混合图文不误开单图编辑。columnRatio贯通保存/恢复。66项定向、70项保存回归、类型通过；本地虚构故事框选、聊天焦点保留、图文缩放、栏宽刷新通过，未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "improvement",
+          "summary": "网页书页模块菜单改为正文、转换成一章、转换成一节；简短标签为章/节。旧heading3仍保留数据和折叠关系，显式转换才改为heading2。本地虚构故事菜单点击及类型检查通过，未部署。小程序节层级已交由文档04对话处理；跨端层级及章节包writingStyle缺口尚未验收，不宣称互传完成。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "improvement",
+          "summary": "按用户要求文字缩放下限统一为正文默认24设计像素；单块、显式多选及旧稿显示一致，图片原缩放规则保留。新增匹配文字大小：菜单进入后点击参照文字，仅复制实际字号，保留格式/归属；超出目标现有上限提示改选。沿用自动保存和撤销。32项排版/多选/双栏/聊天回归与类型检查通过；本地虚构故事确认正文不能再缩小、匹配后字号相同但正文不变，撤销恢复通过。未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "fix",
+          "summary": "修复左侧小图片仍占半页空栏造成并排正文距离过远：叶子图片左栏以实际可见右边缘加16设计像素作为文字起点，空余宽度归正文；保留原图frame/crop、栏宽比例、正文和分页。覆盖带frame裁切小图及20/50/80栏比回归。25项布局/双栏/多选测试及类型检查通过。恢复主仓3000服务，新页恢复草稿并显示已保存，实测截图中图文间距约12屏幕像素，未部署。"
         }
       ]
     },
@@ -8819,8 +8841,121 @@
           "summary": "93ec6ca7 已推送 main 并部署，保留线上章节/登录增量；99 运行文件与公网新资源哈希匹配，MySQL readiness正常。浏览器电脑和手机入口均成功打开回收站；隔离MySQL跨进程恢复及账号隔离通过。全量5700通过、9项基线失败已复现；迁移测试旧数量断言仍待修。"
         }
       ]
+    },
+    {
+      "id": "book-module-conversion",
+      "name": "书内图文音乐转换",
+      "status": "partial",
+      "userValue": "从模块六点菜单按当前图片或文字生成新的文字、插图或配乐，原模块保留。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
+        "client/src/features/publishingAlbum/BookModuleConvert.tsx"
+      ],
+      "owners": [
+        "client/src/features/publishingAlbum/BookModuleConvert.tsx",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx",
+        "server/services/bookModuleSource.ts",
+        "server/routers/bookMedia.ts",
+        "server/services/storyAudioGeneration.ts",
+        "client/src/features/creationEditor/views/WarehouseBookMedia.tsx",
+        "client/src/features/publishingAlbum/warehouseBookInsert.ts",
+        "server/services/storyNarration.ts",
+        "client/src/features/publishingAlbum/mergeBookText.ts"
+      ],
+      "evidence": [
+        "server/services/bookModuleSource.test.ts",
+        "server/services/storyAudioGeneration.test.ts",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "docs/qa/2026-10-31-book-module-conversion.md",
+        "client/src/features/publishingAlbum/BookModuleConvert.test.tsx",
+        "server/routers/bookMediaArchive.test.ts",
+        "server/services/storyNarration.test.ts",
+        "client/src/features/publishingAlbum/mergeBookText.test.ts",
+        "docs/qa/2026-10-31-merge-audiobook.md"
+      ],
+      "invariants": [
+        "转换仅使用所选模块，服务端解析所属故事/章节/模块与图片资产，禁止跨账号读取。",
+        "源模块不覆盖，结果插入后走现有保存和撤销；删除或修改源模块后阻止错误插入。",
+        "生成音乐先报价再确认，签名绑定源模块指纹；已接单操作重试复用原回执。",
+        "生成成功自动插入源模块下方；文字先入仓库再返回，图片多候选均入库、默认插入首张，音乐引用受管音频。"
+      ],
+      "dependencies": [
+        "book-music-blocks",
+        "publishing-module-chat-context"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "图片/音乐付费生成供应商本轮尚未端到端验证；图片任务不确定时不在当前对话内重复提交。",
+        "有声书真实测试302 /302/tts/generate返回HTTP500，结果未知，未重试；报价0.04算力成功，真实生成/播放尚未通过。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-31",
+          "kind": "feature",
+          "summary": "六点菜单接入图片转文字/音乐、文字转图片/音乐，针对所选模块生成与安全插入；本地验收中，未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "feature",
+          "summary": "按用户要求生成成功自动新增模块；文字服务端先入仓库，图片/音乐沿用持久资产；新增音乐与文字仓库分类。18项定向和类型通过，音乐列表实测，未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "feature",
+          "summary": "多选纯文字右键合并并可撤销；文字转有声书复用TTS签名报价和幂等资产，仓库区分音乐/有声书。未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "fix",
+          "summary": "合并文字保留换行与空白行，writingStyle可选lineCount保存模块边界；编辑/光标/AI读取与媒体定位按模块映射，保留普通回车和粘贴分块。72项回归、类型检查通过；未部署。"
+        },
+        {
+          "date": "2026-10-31",
+          "kind": "fix",
+          "summary": "书内图片生成明确submit HTTP429且无任务号/未知标记时显示限流提示并恢复手动生成入口；未知结果继续锁定避免重复请求，不再建议直接重试。6项组件回归通过，未发付费请求；上游限流恢复未验证。"
+        }
+      ]
+    },
+    {
+      "id": "book-music-blocks",
+      "name": "书内音乐播放器",
+      "status": "partial",
+      "userValue": "在书中插入导入或生成的音乐并随正文保存。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/BookMusicInsert.tsx"
+      ],
+      "owners": [
+        "shared/bookAudioBlock.ts",
+        "client/src/features/publishingAlbum/BookMusicInsert.tsx",
+        "server/services/storyAudioGeneration.ts"
+      ],
+      "evidence": [
+        "shared/bookAudioBlock.test.ts",
+        "server/services/storyAudioGeneration.test.ts",
+        "docs/qa/2026-10-31-book-music.md"
+      ],
+      "invariants": [
+        "音频仅引用受管资产，播放校验故事归属；删除模块不删除素材。",
+        "book生成范围先报价再确认，复用幂等计费，不修改视频时间线。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "timeline-subtitle-audio-editing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "跨账号音乐包与小程序播放未实现。",
+        "付费供应商未实测，生成服务模拟测试通过，浏览器验证至报价。"
+      ],
+      "history": [
+        {
+          "date": "2026-10-31",
+          "kind": "feature",
+          "summary": "音乐播放器、导入与书稿生成入口本地完成。导入、播放、保存刷新及报价实测；92项相关测试、类型通过，未部署。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-10-28"
+  "updatedAt": "2026-11-01"
 }

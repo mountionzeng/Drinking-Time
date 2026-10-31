@@ -1,3 +1,4 @@
+import { WarehouseBookMedia } from "./WarehouseBookMedia";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { WarehouseImageActions } from "./WarehouseImageActions";
 import { FloatingWarehouse } from "./FloatingWarehouse";
@@ -541,7 +542,7 @@ export default function MaterialWarehousePanel({
   const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current) setPreviewImage(null); }, 220); };
   useEffect(() => () => cancelPreviewClose(), []);
 
-  const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets">("images");
+  const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets" | "music" | "text">("images");
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
 
@@ -1052,6 +1053,7 @@ export default function MaterialWarehousePanel({
               >
                 <Layers3 className="h-3.5 w-3.5" /> 资产 {visualAssetCount}
               </button>
+              {([['music','音乐'],['text','文字']] as const).map(([kind,label])=><button key={kind} type="button" aria-pressed={drawerTab===kind} className={`h-7 rounded-md px-2 text-xs ${drawerTab===kind?'bg-primary/10 text-primary':'text-muted-foreground'}`} onClick={()=>{setDrawerTab(kind);setPreviewImage(null);}}>{label}</button>)}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1091,6 +1093,7 @@ export default function MaterialWarehousePanel({
               )}
             </button>
             <button
+              hidden={drawerTab === "music" || drawerTab === "text"}
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={importing}
@@ -1132,7 +1135,7 @@ export default function MaterialWarehousePanel({
               {panelError ?? error?.message}
             </div>
           ) : null}
-          {pendingImports.length > 0 ? importQueue : drawerTab === "assets" ? (
+          {pendingImports.length > 0 ? importQueue : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab}/> : drawerTab === "assets" ? (
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}

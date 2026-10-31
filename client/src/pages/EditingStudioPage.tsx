@@ -1,3 +1,4 @@
+import { BOOK_MUSIC_OPEN } from "@/features/publishingAlbum/BookMusicInsert";
 import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import { DesktopMemorySpace } from "@/features/memorySpace/DesktopMemorySpace";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
@@ -270,6 +271,9 @@ function EditingStudioBody({
       const request = (event as CustomEvent<StudioCreateRequest>).detail;
       if (!request || request.storyId !== activeStoryId) return;
       setChatCollapsed(false);
+      if (request.kind === "music" && workspace === "publishing") {
+        window.dispatchEvent(new CustomEvent(BOOK_MUSIC_OPEN, {detail:request})); return;
+      }
       setCreateRequest(request);
       if (!(request.warehouseImage && workspace === "publishing")) {
         onWorkspaceChange(request.kind === "image" || request.kind === "layout" ? "images" : "editing");

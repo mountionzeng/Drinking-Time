@@ -1,3 +1,5 @@
+import { listChapters, listChapterVersions } from "../repositories/chapters";
+import { readBookAudio } from "../../shared/bookAudioBlock";
 /**
  * Narrow domain commands for non-visual timeline media (subtitles in U3, audio
  * in U9). Each procedure takes object identity + intent only: no
@@ -570,7 +572,8 @@ export const timelineMediaRouter = router({
         storyId,
         kind: generatedAudioKind,
         targetFrame: frame,
-        scope: z.enum(["shot", "from-shot", "story"]).default("shot"),
+        scope: z.enum(["shot", "from-shot", "story", "book"]).default("shot"),
+        bookTarget: z.object({chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100)}).optional(),
         intent: z.string().trim().max(800).optional(),
       })
     )
@@ -581,6 +584,7 @@ export const timelineMediaRouter = router({
         kind: input.kind,
         targetFrame: input.targetFrame,
         scope: input.scope,
+        bookTarget: input.bookTarget,
         intent: input.intent,
       })
     ),
@@ -706,6 +710,13 @@ export const timelineMediaRouter = router({
           track.clips.some(clip => clip.assetId === input.assetId)
         );
         if (used) return { status: "error" as const, message: "这份声音正在时间线上使用，请先删除时间线片段" };
+        const chapters = await listChapters(input.storyId, ctx.user.id);
+        for (const chapter of chapters) {
+          const versions = await listChapterVersions(chapter.id, ctx.user.id);
+          if ([chapter, ...versions].some(row => row.blocks.body.split('\n').some(line => {
+            const audio = readBookAudio(line); return audio?.storyId === input.storyId && audio.assetId === input.assetId;
+          }))) return {status:"error" as const, message:"这份音乐保存在书稿或历史版本中，暂不能删除素材"};
+        }
         const discarded = await discardReadyStoryAudioAsset({
           scope: { storyId: input.storyId, userId: ctx.user.id },
           assetId: input.assetId,

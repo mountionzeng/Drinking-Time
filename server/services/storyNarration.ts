@@ -1,3 +1,4 @@
+import { resolveBookModuleSource, type BookModuleTarget } from "./bookModuleSource";
 import { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
 export { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
 import { formatComputeQuote } from "../../shared/computeMoney";
@@ -59,6 +60,7 @@ const NARRATION_QUOTE_TTL_MS = 5 * 60 * 1_000;
 const NARRATION_PREPARED_RECOVERY_GRACE_MS = 10 * 60 * 1_000;
 
 type NarrationQuoteClaims = {
+  bookTarget?: BookModuleTarget;
   version: 1;
   userId: number;
   storyId: number;
@@ -87,6 +89,7 @@ export type StoryNarrationQuote = {
 };
 
 type NarrationCandidateProvenance = {
+  bookTarget?: BookModuleTarget;
   kind: "story-narration-candidate";
   operationId: string;
   storyId: number;
@@ -211,7 +214,14 @@ async function resolveCue(input: {
   storyId: number;
   userId: number;
   subtitleCueId: string;
+  bookTarget?: BookModuleTarget;
 }) {
+  if(input.bookTarget){
+    const source=await resolveBookModuleSource({...input,...input.bookTarget});
+    if(source.image)throw new Error("请选择文字模块生成有声书");
+    if(source.source.length>5000)throw new Error("每段有声书最多5000字，请先拆分模块");
+    return {cue:{id:input.subtitleCueId,text:source.source,textRevision:1,speechBindingId:null},timeline:null};
+  }
   const [story, timeline] = await Promise.all([
     loadOwnedStory({ storyId: input.storyId, userId: input.userId }),
     loadOwnedStoryTimelineEnvelope({
@@ -243,6 +253,7 @@ function providerAndVoice(input: { provider?: string; voice?: string }) {
 }
 
 export async function quoteStoryNarration(input: {
+  bookTarget?: BookModuleTarget;
   storyId: number;
   userId: number;
   subtitleCueId: string;
@@ -254,6 +265,7 @@ export async function quoteStoryNarration(input: {
   const { provider, voice } = providerAndVoice(input);
   const requestedAt = (input.now ?? Date.now)();
   const claims: NarrationQuoteClaims = {
+    bookTarget:input.bookTarget,
     version: 1,
     userId: input.userId,
     storyId: input.storyId,
@@ -354,7 +366,7 @@ export async function listStoryNarrationCandidates(input: {
       const provenance = narrationProvenance(asset.provenance);
       return asset.status === "ready" &&
         asset.sourceKind === "tts" &&
-        provenance &&
+        provenance && !provenance.bookTarget &&
         (!input.subtitleCueId ||
           provenance.subtitleCueId === input.subtitleCueId)
         ? [{ asset, provenance }]
@@ -437,7 +449,7 @@ export async function generateStoryNarrationCandidate(input: {
 
   let resolved;
   try {
-    resolved = await resolveCue(input);
+    resolved = await resolveCue({...input,bookTarget:claims.bookTarget});
     providerAndVoice({ provider: claims.provider, voice: claims.voice });
   } catch (error) {
     return {
@@ -473,6 +485,7 @@ export async function generateStoryNarrationCandidate(input: {
     })
   );
   const provenance: NarrationCandidateProvenance = {
+    bookTarget:claims.bookTarget,
     kind: "story-narration-candidate",
     operationId: input.operationId,
     storyId: input.storyId,
@@ -669,7 +682,7 @@ export async function generateStoryNarrationCandidate(input: {
     operationId: `tts-asset-${sha256(input.operationId).slice(0, 48)}`,
     sourceKind: "tts",
     url: voice.audioUrl,
-    displayName: `旁白-${input.subtitleCueId}.mp3`,
+    displayName: claims.bookTarget ? `有声书-${cue.text.slice(0,16)}.mp3` : `旁白-${input.subtitleCueId}.mp3`,
     sourceKey: input.operationId,
     mediaKind: "narration",
     provenance,
@@ -819,6 +832,7 @@ export async function discardStoryNarrationCandidate(input: {
     if (!asset || !narrationProvenance(asset.provenance)) {
       return { status: "error", message: "旁白候选不存在或无权删除" };
     }
+    if(narrationProvenance(asset.provenance)?.bookTarget) return {status:"error",message:"有声书请在素材仓库管理，避免删除正文引用"};
     const envelope = await loadOwnedStoryTimelineEnvelope({
       storyId: input.storyId,
       userId: input.userId,

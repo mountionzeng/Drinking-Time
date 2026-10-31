@@ -12,7 +12,7 @@ export type StudioCreateRequest = {
 };
 
 export function StudioCreateMenu({
-  storyId, input, blocked, hasShots, onCreate,
+  storyId, input, blocked, onCreate,
 }: {
   storyId: number | null;
   input: string;
@@ -43,7 +43,7 @@ export function StudioCreateMenu({
           ["music", "音乐", Music2],
           ["layout", "图文排版", LayoutTemplate],
         ] as const).map(([kind, label, Icon]) => (
-          <button key={kind} type="button" disabled={!hasStory || (kind !== "layout" && blocked) || (kind === "music" && !hasShots)}
+          <button key={kind} type="button" disabled={!hasStory || (kind !== "layout" && blocked)}
             onClick={() => {
               if (!storyId || storyId <= 0) return;
               const request = { id: crypto.randomUUID(), storyId, kind, instruction: input.trim() };
@@ -53,7 +53,6 @@ export function StudioCreateMenu({
             }}
             className="flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-45">
             <Icon className="h-4 w-4" />{label}
-            {kind === "music" && !hasShots && <span className="ml-auto text-[10px]">先准备视频镜头</span>}
           </button>
         ))}
       </PopoverContent>

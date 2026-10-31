@@ -30,6 +30,16 @@ afterEach(() => {
 });
 
 describe("visionChannel", () => {
+  it("uses the dedicated semantic model without changing the general vision model", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    const fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ model: "gemini-2.5-flash", choices: [{ message: { content: "{}" } }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    await invokeVisionJson({ system: "JSON", userText: "subject", imageUrls: ["data:image/png;base64,AAAA"], preferredProvider: "openai-next", preferredNextModel: "gemini-2.5-flash", requireJsonObject: true });
+    expect(JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body)).model).toBe("gemini-2.5-flash");
+    expect(ENV.openaiNextVisionModel).toBe("qwen3-vl-plus");
+    expect(JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body)).response_format).toEqual({ type: "json_object" });
+  });
+
   it("routes multimodal JSON analysis to OpenAI Next when configured", async () => {
     ENV.openaiNextApiKey = "test-next-key";
     const fetch = vi.fn(async () => ({

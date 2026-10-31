@@ -1,3 +1,5 @@
+import { resolveBookModuleSource, describeBookModule, type BookModuleTarget } from "./bookModuleSource";
+import { listChapters } from "../repositories/chapters";
 import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * Paid scene-audio generation for music, ambience and sound effects.
@@ -82,7 +84,7 @@ export type StorySceneAudioContext = {
   soundSummary: string;
 };
 
-export type StorySceneAudioScope = "shot" | "from-shot" | "story";
+export type StorySceneAudioScope = "shot" | "from-shot" | "story" | "book";
 
 type SceneAudioQuoteClaims = {
   version: 1;
@@ -92,6 +94,7 @@ type SceneAudioQuoteClaims = {
   targetFrame: number;
   scope: StorySceneAudioScope;
   intent: string;
+  bookTarget?: BookModuleTarget & {fingerprint:string};
   context: StorySceneAudioContext;
   promptHash: string;
   provider: string;
@@ -381,6 +384,16 @@ async function currentContext(input: {
   targetFrame: number;
   scope: StorySceneAudioScope;
 }) {
+  if (input.scope === "book") {
+    const story = await loadOwnedStory(input);
+    if (!story) throw new Error("故事不存在");
+    const chapters = await listChapters(input.storyId, input.userId);
+    const body = chapters.map(chapter => chapter.blocks.body).join("\n").replace(/!\[[^\]]*\]\([^\n]*\)/g, "").trim();
+    if (!body) throw new Error("请先保存书中的文字，再生成音乐");
+    return { stableShotId: "book", shotNo: 0, endShotNo: 0, startFrame: 0, durationFrames: 900,
+      emotionSummary: "Follow the mood of the manuscript", sceneSummary: body.slice(0, 1800),
+      actionSummary: "Background music for reading", soundSummary: "Instrumental music, no speech" };
+  }
   const [story, timeline] = await Promise.all([
     loadOwnedStory({ storyId: input.storyId, userId: input.userId }),
     loadOwnedStoryTimelineEnvelope({
@@ -421,6 +434,7 @@ async function currentPlacement(input: {
   stableShotId: string;
   scope: StorySceneAudioScope;
 }): Promise<SceneAudioPlacement | null> {
+  if (input.scope === "book") return { startFrame: 0, durationFrames: 900 };
   const timeline = await loadOwnedStoryTimelineEnvelope({
     storyId: input.storyId,
     userId: input.userId,
@@ -456,11 +470,18 @@ export async function quoteStorySceneAudio(input: {
   targetFrame: number;
   scope?: StorySceneAudioScope;
   intent?: string;
+  bookTarget?: BookModuleTarget;
   now?: () => number;
 }): Promise<StorySceneAudioQuote> {
   const intent = text(input.intent).slice(0, 800);
   const scope = input.scope ?? "shot";
-  const context = await currentContext({ ...input, scope });
+  if (input.bookTarget && scope !== "book") throw new Error("模块音乐必须在书中生成");
+  const source = input.bookTarget ? await resolveBookModuleSource({...input,...input.bookTarget}) : null;
+  const context: StorySceneAudioContext = source ? {
+    stableShotId: `book:${input.bookTarget!.chapterId}:${input.bookTarget!.moduleId}`, shotNo:0,endShotNo:0,startFrame:0,durationFrames:900,
+    emotionSummary:"Follow the mood of the selected module",sceneSummary:(await describeBookModule(source)).slice(0,1800),
+    actionSummary:"Background music inspired only by this module",soundSummary:"Instrumental music, no speech"
+  } : await currentContext({ ...input, scope });
   const prompt = composeStorySceneAudioPrompt({
     kind: input.kind,
     context,
@@ -480,6 +501,7 @@ export async function quoteStorySceneAudio(input: {
     scope,
     intent,
     context,
+    bookTarget: source ? {...input.bookTarget!,fingerprint:source.fingerprint} : undefined,
     promptHash: sha256(prompt),
     provider,
     model,
@@ -505,7 +527,7 @@ export type GenerateStorySceneAudioResult =
   | {
       status: "ready";
       assetId: number;
-      timeline: TimelineMediaCommandResult;
+      timeline: TimelineMediaCommandResult | null;
       replayed: boolean;
     }
   | { status: "pending" | "submission-unknown" | "error"; message: string };
@@ -522,7 +544,8 @@ async function insertGeneratedAsset(input: {
   placement: SceneAudioPlacement;
   asset: StoryAudioAsset;
   insert: typeof insertGeneratedAudioClipForStory;
-}): Promise<TimelineMediaCommandResult> {
+}): Promise<TimelineMediaCommandResult | null> {
+  if (input.claims.scope === "book") return null;
   return input.insert({
     storyId: input.storyId,
     userId: input.userId,
@@ -566,7 +589,11 @@ export async function generateStorySceneAudio(input: {
     context = claims.context;
   } else {
     try {
-      context = await currentContext({
+      if (claims.bookTarget) {
+        const source = await resolveBookModuleSource({...claims.bookTarget,storyId:input.storyId,userId:input.userId});
+        if (source.fingerprint !== claims.bookTarget.fingerprint) throw new Error("原模块已修改，请重新确认音乐生成");
+        context = claims.context;
+      } else context = await currentContext({
         storyId: input.storyId,
         userId: input.userId,
         targetFrame: claims.targetFrame,
@@ -696,7 +723,7 @@ export async function generateStorySceneAudio(input: {
         asset,
         insert: dependencies.insert,
       });
-      if (timeline.status === "error") {
+      if (timeline?.status === "error") {
         return { status: "error", message: timeline.error };
       }
       if (reservation.status !== "settled") {
@@ -953,7 +980,7 @@ async function continueWithProviderResult(input: {
     asset: imported.asset,
     insert: dependencies.insert,
   });
-  if (timeline.status === "error") {
+  if (timeline?.status === "error") {
     await dependencies.recordAttempt({
       operationId: input.input.operation.operationId,
       attemptIndex: 1,

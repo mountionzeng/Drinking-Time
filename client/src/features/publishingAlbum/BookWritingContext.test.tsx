@@ -107,9 +107,9 @@ it('canvas format focus, drag and resize select the same block; blank paper clea
   const canvas = all.find(node => node.props?.['aria-label'] === '书页');
   canvas.props.onPointerMove({ ...event, clientX: 50, clientY: 60 }); canvas.props.onPointerUp(event);
   expect(onCommit.mock.lastCall?.[1]).toBe(block.id);
-  const paper = {};
+  const paper = { closest: () => null };
   canvas.props.ref.current = { focus: vi.fn(), setPointerCapture: vi.fn(), getBoundingClientRect: () => ({ left: 0, top: 0 }) };
-  all.find(node => node.type === 'section').props.onPointerDown({ ...event, pointerType: 'mouse', target: paper, currentTarget: paper });
+  all.find(node => node.props?.['aria-label'] === '文章缩放视图').props.onPointerDown({ ...event, pointerType: 'mouse', target: paper, currentTarget: paper });
   expect(onSelect).toHaveBeenLastCalledWith(null);
 });
 
@@ -134,4 +134,70 @@ it('pointer dragging inserts a paragraph into a heading; cancelling leaves the m
   canvas.props.onPointerUp(event);
   expect(onCommit.mock.lastCall?.[0]).toMatchObject([{ id: heading.id, collapsed: false }, { id: paragraph.id, parentId: heading.id }]);
   expect(onCommit.mock.lastCall?.[1]).toBe(paragraph.id);
+});
+
+it('marquee from the page gutter exposes a shared resize handle and reports the entire selection', () => {
+  const blocks=['第一块','第二块','未选'].map(text=>newWritingBlock(text));
+  const onSelectionChange=vi.fn(), onCommit=vi.fn();
+  const draw=()=>render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onSelectionChange,onCommit,children:()=>null}));
+  let tree=draw();
+  let canvas=nodes(tree).find(node=>node.props?.['aria-label']==='书页');
+  canvas.props.ref.current={focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0}),querySelectorAll:()=>blocks.map((block,i)=>({dataset:{bookBlock:block.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
+  const event={button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:40,target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn()}};
+  nodes(tree).find(node=>node.props?.['aria-label']==='文章缩放视图').props.onPointerDown(event);
+  canvas.props.onPointerMove({...event,clientX:210,clientY:175}); canvas.props.onPointerUp(event);
+  tree=draw();
+  expect(onSelectionChange).toHaveBeenLastCalledWith([blocks[0].id,blocks[1].id]);
+  const handle=nodes(tree).find(node=>node.props?.['aria-label']==='选中模块整体右下角缩放');
+  expect(handle).toBeDefined(); handle.props.onPointerDown(event);
+  canvas=nodes(tree).find(node=>node.props?.['aria-label']==='书页');
+  canvas.props.onPointerMove({...event,clientX:85,clientY:40});canvas.props.onPointerUp(event);
+  const next=onCommit.mock.lastCall?.[0];
+  expect(next[0].book.fontSize).toBe(36);expect(next[1].book.fontSize).toBe(36);expect(next[2]).toBe(blocks[2]);
+});
+it('forwards multiselection from canvas to the writing conversation and returns to one block when typing', () => {
+  const value='第一块\n第二块';const onContextChange=vi.fn();
+  const draw=()=>render(()=>ChapterTextModules({value,onChange:vi.fn(),disabled:false,selection:{current:null},onContextChange,contextSource:{storyId:7,scope:'group',chapterId:'2'}}));
+  let tree=draw();let canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
+  canvas.onSelectionChange(canvas.blocks.map((block:any)=>block.id));tree=draw();
+  expect(onContextChange.mock.lastCall?.[0].selection.count).toBe(2);
+  expect(onContextChange.mock.lastCall?.[0].text).toContain('第二块');
+  canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
+  canvas.children(canvas.blocks[0],0,{}).props.onFocus({currentTarget:{selectionStart:0,selectionEnd:0}});draw();
+  expect(onContextChange.mock.lastCall?.[0].selection).toBeUndefined();
+  expect(onContextChange.mock.lastCall?.[0].text).toBe('第一块');
+});
+
+it('inserts a conversion after its source, retains the original, and rejects a changed source', async()=>{
+ const {BookModuleConvert}=await import('./BookModuleConvert');
+ let value='第一段\n第二段';const prepareMedia=vi.fn(async()=>{});
+ const draw=()=>render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null},prepareMedia,contextSource:{storyId:7,scope:'test',chapterId:'2'}}));
+ let tree=draw(),canvas=nodes(tree).find(n=>n.type===BookBlockCanvas).props;
+ canvas.onConvert(canvas.blocks[0].id,'music');tree=draw();
+ let conversion=nodes(tree).find(n=>n.type===BookModuleConvert).props;
+ await conversion.prepare();conversion.onInsert('生成的结果');
+ expect(value).toBe('第一段\n生成的结果\n第二段');
+ tree=draw();canvas=nodes(tree).find(n=>n.type===BookBlockCanvas).props;canvas.onConvert(canvas.blocks[0].id,'image');
+ tree=draw();conversion=nodes(tree).find(n=>n.type===BookModuleConvert).props;
+ canvas=nodes(tree).find(n=>n.type===BookBlockCanvas).props;
+ canvas.onCommit(canvas.blocks.map((b:any,i:number)=>i===0?{...b,text:'已改写'}:b),canvas.blocks[0].id,false);draw();
+ expect(()=>conversion.onInsert('不应插入')).toThrow('原模块已变化');
+ expect(value).not.toContain('不应插入');
+});
+
+it('editing a merged multiline module preserves its boundary, context, saving and undo',async()=>{
+ const {writingStyleOf,restoreStyledBlocks}=await import('./chapterBlockTree');
+ let initial=['甲\n\n乙','尾段'].map(t=>newWritingBlock(t));
+ let value=initial.map(b=>b.text).join('\n'),writingStyle=writingStyleOf(initial);
+ const context=vi.fn(),selection={current:null} as any;
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,writingStyle,onFormattedChange:(body,style)=>{value=body;writingStyle=style;},onChange:vi.fn(),disabled:false,selection,onContextChange:context,contextSource:{storyId:7,scope:'merged',chapterId:'2'}}))).find(n=>n.type===BookBlockCanvas).props;
+ let canvas=draw();
+ canvas.children(canvas.blocks[0],0,{}).props.onChange({currentTarget:{value:'甲改\n\n乙',selectionStart:2}});
+ canvas=draw();expect(canvas.blocks).toHaveLength(2);expect(context.mock.lastCall?.[0].text).toBe('甲改\n\n乙');
+ expect(restoreStyledBlocks(value,writingStyle).map(b=>b.text)).toEqual(['甲改\n\n乙','尾段']);
+ canvas.children(canvas.blocks[1],1,{}).props.onFocus({currentTarget:{selectionStart:1,selectionEnd:1}});
+ expect(selection.current.start).toBe('甲改\n\n乙\n'.length+1);
+ canvas.children(canvas.blocks[0],0,{}).props.onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
+ hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
+ canvas=draw();expect(canvas.blocks.map((b:any)=>b.text)).toEqual(['甲\n\n乙','尾段']);
 });

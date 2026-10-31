@@ -795,7 +795,7 @@ it('rejects formatting that has mismatched lines or invalid nesting',async()=>{
 it('saves and restores a two-column row without dropping its membership on another client', async()=>{
   const id=await story();
   const created=await caller(10).create({storyId:id,title:'Columns',body:'Left\nRight'});
-  const writingStyle=['left','right'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false,columnGroup:'paired-row'}));
+  const writingStyle=['left','right'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false,columnGroup:'paired-row',columnRatio:.65}));
   const saved=await caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle});
   expect((await caller(10).get({chapterId:created.id})).chapter.blocks.writingStyle).toEqual(writingStyle);
   await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle})).rejects.toThrow();
@@ -803,4 +803,15 @@ it('saves and restores a two-column row without dropping its membership on anoth
   const restored=await caller(10).restoreVersion({chapterId:created.id,expectedVersion:unpaired.version,version:saved.version});
   expect(restored.blocks.writingStyle).toEqual(writingStyle);
   await expect(caller(10).save({chapterId:created.id,expectedVersion:restored.version,writingStyle:[writingStyle[0],{...writingStyle[1],columnGroup:'orphan'}]})).rejects.toThrow();
+});
+
+it('persists merged module line breaks across retrieval and version restoration',async()=>{
+ const id=await story(),body='第一段\n\n第二段\n尾段';
+ const created=await caller(10).create({storyId:id,title:'Merged',body});
+ const writingStyle=[{id:'merged',format:'text' as const,parentId:null,collapsed:false,lineCount:3},{id:'tail',format:'text' as const,parentId:null,collapsed:false}];
+ const saved=await caller(10).save({chapterId:created.id,expectedVersion:created.version,body,writingStyle});
+ expect((await caller(10).get({chapterId:created.id})).chapter.blocks).toMatchObject({body,writingStyle});
+ const edited=await caller(10).save({chapterId:created.id,expectedVersion:saved.version,body:'新稿'});
+ const restored=await caller(10).restoreVersion({chapterId:created.id,expectedVersion:edited.version,version:saved.version});
+ expect(restored.blocks).toMatchObject({body,writingStyle});
 });

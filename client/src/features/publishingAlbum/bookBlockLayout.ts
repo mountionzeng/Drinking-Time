@@ -1,3 +1,4 @@
+import { readBookAudio } from "@shared/bookAudioBlock";
 import { validColumnPairs } from '@shared/bookWritingStyle';
 import { readBookImage, bookImageText } from "@shared/bookImageBlock";
 import { blockAncestors, blockSubtreeEnd, isHeading, moveWritingBlock, newWritingBlock, type BlockDrop, type WritingBlock, type BookPlacement } from './chapterBlockTree';
@@ -7,14 +8,16 @@ export type { BookPlacement } from "./chapterBlockTree";
 export type BookBlockLayout = { block: WritingBlock; index: number; placement: BookPlacement; imageFactor: number; imageOriginX: number };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' ? 36 : block.format === 'heading2' ? 32 : block.format === 'heading3' ? 28 : 24;
+export const BOOK_BODY_FONT_SIZE = 24;
+
+export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' ? 36 : block.format === 'heading2' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
 
 /** All paragraphs follow document order. Legacy free coordinates are retained in cache but never used for placement. */
 export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}): BookBlockLayout[] {
   const pairs = validColumnPairs(blocks);
   const result: BookBlockLayout[] = [];
   type Cursor = { page: number; bottom: number };
-  function range(from: number, end: number, left: number, right: number, depth: number, cursor: Cursor, skipPair?: string, alignEnd = false): Cursor {
+  function range(from: number, end: number, left: number, right: number, depth: number, cursor: Cursor, skipPair?: string): Cursor {
     let { page, bottom } = cursor;
     for (let index = from; index < end; index++) {
       const block = blocks[index], ancestors = blockAncestors(blocks, block.id);
@@ -24,26 +27,30 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
         const second = blocks.findIndex(item => item.id === partner);
         const after = blockSubtreeEnd(blocks, second);
         const rowLeft = left + Math.min(Math.max(0, ancestors.length - depth), 4) * 12;
-        const columnWidth = (right - rowLeft - 16) / 2;
+        const columnWidth = (right - rowLeft - 16) * (block.columnRatio ?? .5);
         // Start both columns together; each column paginates without overlapping the other.
         const start = { page, bottom };
         const firstCount = result.length;
-        let a = range(index, second, rowLeft, rowLeft + columnWidth, ancestors.length, start, block.id, true);
-        let b = range(second, after, rowLeft + columnWidth + 16, right, ancestors.length, start, partner);
+        let a = range(index, second, rowLeft, rowLeft + columnWidth, ancestors.length, start, block.id);
+        // A small image should not reserve an empty half-page before its neighbour.
+        const rightStart = () => second === index + 1 && readBookImage(block.text)
+          ? Math.min(rowLeft + columnWidth + 16, result[firstCount].placement.rect.x + result[firstCount].placement.rect.width + 16)
+          : rowLeft + columnWidth + 16;
+        let b = range(second, after, rightStart(), right, ancestors.length, start, partner);
         // If either first block didn't fit, move the entire row to the next page together.
         const firstLeft = result[firstCount], firstRight = result.find(item => item.block.id === partner);
         if (bottom > 48 && (firstLeft?.placement.page !== page || firstRight?.placement.page !== page)) {
           result.splice(firstCount);
           const nextPage = { page: page + 1, bottom: 48 };
-          a = range(index, second, rowLeft, rowLeft + columnWidth, ancestors.length, nextPage, block.id, true);
-          b = range(second, after, rowLeft + columnWidth + 16, right, ancestors.length, nextPage, partner);
+          a = range(index, second, rowLeft, rowLeft + columnWidth, ancestors.length, nextPage, block.id);
+          b = range(second, after, rightStart(), right, ancestors.length, nextPage, partner);
         }
         const latest = a.page > b.page ? a : b.page > a.page ? b : { page: a.page, bottom: Math.max(a.bottom, b.bottom) };
         page = latest.page; bottom = latest.bottom; index = after - 1;
         continue;
       }
       const image = readBookImage(block.text), base = bookBaseFont(block);
-      const fontSize = clamp(image ? base * image.scale : block.book?.fontSize ?? base, base / 2, base * 2);
+      const fontSize = clamp(image ? base * image.scale : block.book?.fontSize ?? base, image ? base / 2 : BOOK_BODY_FONT_SIZE, base * 2);
       const baseX = left + (isHeading(block) ? 16 : 0) + Math.min(Math.max(0, ancestors.length - depth), 4) * 12;
       const available = Math.max(24, right - baseX);
       const factor = Math.min(available / 900, 1104 / 1200);
@@ -51,13 +58,12 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       const offsetY = frame ? frame.y * factor : 0;
       let x = baseX + (frame?.x ?? 0) * factor;
       let width = image ? (frame?.width ?? 900) * factor : available;
-      let height = frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, width, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
+      let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, width, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
       const aspect = image && imageRatios[image.url];
       if (image && !frame && aspect && aspect > 0) {
         const croppedAspect = aspect * image.crop.width / image.crop.height;
         width = Math.min(width, height * croppedAspect); height = width / croppedAspect;
       }
-      if (alignEnd && index === from && image && !frame) x = right - width;
       if (bottom + offsetY + height > 1152) { page++; bottom = 48; }
       const placement = { page, rect: { x, y: bottom + offsetY, width, height }, fontSize };
       bottom = placement.rect.y + height + 12;
@@ -74,7 +80,7 @@ export function resizeBookBlock(blocks: WritingBlock[], id: string, fontSize: nu
   const layout = layoutBookBlocks(blocks).find(item => item.block.id === id);
   if (!layout) return blocks;
   const base = bookBaseFont(layout.block);
-  const next = clamp(fontSize, base / 2, base * 2);
+  const next = clamp(fontSize, readBookImage(layout.block.text) ? base / 2 : BOOK_BODY_FONT_SIZE, base * 2);
   if (next === layout.placement.fontSize) return blocks;
   return blocks.map(block => block.id === id ? { ...block, ...(readBookImage(block.text) ? {text:bookImageText(readBookImage(block.text)!.url,readBookImage(block.text)!.crop,next/base,readBookImage(block.text)!.frame,readBookImage(block.text)!.videoUrl)} : {}), book: { ...layout.placement, fontSize: next } } : block);
 }

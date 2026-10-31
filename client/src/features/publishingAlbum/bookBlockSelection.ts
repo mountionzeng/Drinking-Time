@@ -1,7 +1,7 @@
 import { normalizeWritingColumns, validColumnPairs } from '@shared/bookWritingStyle';
 import { bookImageText, readBookImage } from '@shared/bookImageBlock';
 import { blockAncestors, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
-import { bookBaseFont, layoutBookBlocks, type BookDropTarget } from './bookBlockLayout';
+import { BOOK_BODY_FONT_SIZE, bookBaseFont, layoutBookBlocks, type BookDropTarget } from './bookBlockLayout';
 
 /** A selected heading carries its subtree, even while collapsed. */
 export function selectedBookIds(blocks: WritingBlock[], ids: readonly string[]): Set<string> {
@@ -29,7 +29,7 @@ export function moveBookSelection(blocks: WritingBlock[], ids: readonly string[]
     const group = crypto.randomUUID();
     const oldGroups = new Set([roots[0].columnGroup, target.columnGroup].filter(Boolean));
     return normalizeWritingColumns(result.map(block => {
-      if (block.id === roots[0].id || block.id === target.id) return { ...block, columnGroup: group };
+      if (block.id === roots[0].id || block.id === target.id) return { ...block, columnGroup: group, columnRatio: .5 };
       if (block.columnGroup && oldGroups.has(block.columnGroup)) { const { columnGroup, ...rest } = block; return rest; }
       return block;
     }));
@@ -45,7 +45,7 @@ export function moveBookSelection(blocks: WritingBlock[], ids: readonly string[]
 /** One bounded scale factor for the group, recalculated from the gesture's original snapshot. */
 export function resizeBookSelection(blocks: WritingBlock[], ids: readonly string[], requested: number, ratios: Record<string, number> = {}): WritingBlock[] {
   if (!Number.isFinite(requested)) return blocks;
-  const selected = selectedBookIds(blocks, linkedBookResizeIds(blocks, ids));
+  const selected = selectedBookIds(blocks, ids);
   const items = layoutBookBlocks(blocks, ratios);
   const leftColumns = new Set(validColumnPairs(blocks).keys());
   const origins = new Map(items.map(item => [item.block.id, item.imageOriginX]));
@@ -54,8 +54,8 @@ export function resizeBookSelection(blocks: WritingBlock[], ids: readonly string
   let lower = 0, upper = Infinity;
   for (const block of blocks.filter(block => selected.has(block.id))) {
     const image = readBookImage(block.text);
-    const size = image?.scale ?? (block.book?.fontSize ?? bookBaseFont(block)) / bookBaseFont(block);
-    lower = Math.max(lower, .5 / size); upper = Math.min(upper, 2 / size);
+    const size = image?.scale ?? Math.max(BOOK_BODY_FONT_SIZE, block.book?.fontSize ?? bookBaseFont(block)) / bookBaseFont(block);
+    lower = Math.max(lower, (image ? .5 : BOOK_BODY_FONT_SIZE / bookBaseFont(block)) / size); upper = Math.min(upper, 2 / size);
     if (image) {
       const placement = layouts.get(block.id);
       const baseX = 24 + Math.min(blockAncestors(blocks, block.id).length, 4) * 12;
@@ -78,7 +78,7 @@ export function resizeBookSelection(blocks: WritingBlock[], ids: readonly string
         frame ? { ...frame, x: leftColumns.has(block.id) ? Math.max(0, frame.x + frame.width * (1 - factor)) : frame.x, width: frame.width * factor, height: frame.height * factor } : undefined, image.videoUrl) };
     }
     const placement = layouts.get(block.id) ?? block.book ?? { page: 0, rect: { x: 24, y: 48, width: 860, height: 52 }, fontSize: bookBaseFont(block) };
-    return { ...block, book: { ...placement, fontSize: placement.fontSize * factor } };
+    return { ...block, book: { ...placement, fontSize: Math.max(BOOK_BODY_FONT_SIZE, placement.fontSize) * factor } };
   });
 }
 
@@ -87,17 +87,11 @@ export function intersectingBookIds(box: SelectionBox, items: Array<SelectionBox
   return items.filter(item => item.right > box.left && item.left < box.right && item.bottom > box.top && item.top < box.bottom).map(item => item.id);
 }
 
-/** Resizing either column resizes the full row; moving still acts on the explicit selection. */
-export function linkedBookResizeIds(blocks: WritingBlock[], ids: readonly string[]): string[] {
-  const selected = selectedBookIds(blocks, ids);
-  const pairs = validColumnPairs(blocks);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [left,right] of pairs) {
-      if (![left,right].some(id => selected.has(id))) continue;
-      for (const id of selectedBookIds(blocks, [left,right])) if (!selected.has(id)) { selected.add(id); changed = true; }
-    }
-  }
-  return [...selected];
+/** A single member adjusts the divider; explicit multiselection scales content instead. */
+export function resizeBookColumn(blocks: WritingBlock[], id: string, delta: number): WritingBlock[] {
+  const pair = [...validColumnPairs(blocks)].find(([a,b]) => a === id || b === id);
+  if (!pair || !Number.isFinite(delta)) return blocks;
+  const [left,right] = pair;
+  const ratio = Math.max(.2, Math.min(.8, (blocks.find(b => b.id === left)?.columnRatio ?? .5) + delta));
+  return blocks.map(block => block.id === left || block.id === right ? {...block, columnRatio: ratio} : block);
 }

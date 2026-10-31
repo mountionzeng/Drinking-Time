@@ -13,6 +13,10 @@ export const layoutModuleContextSchema = z
     storyId: z.number().int().positive(),
     scope: z.string().min(1).max(2000),
     moduleId: z.string().min(1).max(200),
+    selection: z.object({
+      count: z.number().int().min(2).max(20000),
+      ids: z.array(z.string().min(1).max(200)).max(200),
+    }).optional(),
     kind: z.enum(["text", "image"]),
     // Book pages use this discussion contract too; image-pack generation retains its own nine-page limit.
     page: z.number().int().min(1).max(1000),
@@ -50,11 +54,13 @@ export const layoutModuleContextSchema = z
 export type LayoutModuleContext = z.infer<typeof layoutModuleContextSchema>;
 
 export function layoutModuleLabel(context: LayoutModuleContext) {
+  if (context.selection) return `已选 ${context.selection.count} 个模块`;
   return `第 ${context.page} 页 · ${context.kind === "text" ? "文字" : "图片"}模块`;
 }
 
 export function layoutModuleDescription(context: LayoutModuleContext) {
   return [
+    ...(context.selection ? [`用户框选的模块是同一组讨论对象，请结合所有选中内容回答，不要只关注第一个模块。模块ID：${context.selection.ids.join("、")}`] : []),
     `${layoutModuleLabel(context)}（共 ${context.pageCount} 页）`,
     `页面为 900×1200；选中模块的位置和大小：${JSON.stringify(context.rect)}`,
     context.kind === "text"

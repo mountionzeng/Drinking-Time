@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { layoutModuleContextSchema } from '@shared/layoutModuleContext';
-import { bookBlockContext } from './bookBlockContext';
+import { bookBlockContext, bookSelectionContext } from './bookBlockContext';
 import { newWritingBlock } from './chapterBlockTree';
 import { DesktopChatQueue } from '../storyAgent/desktopChatQueue';
 
@@ -38,4 +38,14 @@ describe('book block discussion context', () => {
     expect(bookBlockContext([block], block.id, source)?.text).toBe(block.text);
     expect(queue.snapshot().items[0].writingContext?.module?.text).toBe('原文');
   });
+});
+
+it('sends all selected blocks to chat without a single-line replacement target', () => {
+  const blocks=['第一段','未选择','第三段'].map(text=>newWritingBlock(text));
+  const context=bookSelectionContext(blocks,[blocks[0].id,blocks[2].id],source)!;
+  const parsed=layoutModuleContextSchema.parse(context);
+  expect(parsed.selection?.ids).toEqual([blocks[0].id,blocks[2].id]);
+  expect(parsed.selection?.count).toBe(2);
+  expect(parsed.text).toContain('第一段'); expect(parsed.text).toContain('第三段');
+  expect(parsed.text).not.toContain('未选择'); expect(parsed.line).toBeUndefined();
 });

@@ -1,3 +1,4 @@
+import { bookMediaRouter } from "./bookMedia";
 import { upsertUser } from "../repositories/users";
 import { memorySpaceRouter } from "./memorySpace";
 import { feedbackRouter } from "./feedback";
@@ -1204,6 +1205,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   storyContextShare: storyContextShareRouter,
   artworkShare: artworkShareRouter,
   chapters: chaptersRouter,
+  bookMedia: bookMediaRouter,
   chapterDelivery: chapterDeliveryRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,

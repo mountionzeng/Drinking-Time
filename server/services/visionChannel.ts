@@ -28,6 +28,10 @@ export async function invokeVisionJson(params: {
   maxTokens?: number;
   timeoutMs?: number;
   attemptTimeoutMs?: number;
+  preferredProvider?: "302" | "openai-next";
+  preferredNextModel?: string;
+  requireJsonObject?: boolean;
+  replaySafe?: boolean;
 }): Promise<{ text: string; modelLabel: string }> {
   if (!visionChannelConfigured()) {
     throw new Error(
@@ -55,14 +59,16 @@ export async function invokeVisionJson(params: {
   const outcome = await runInference({
     useCase: "vision",
     messages,
-    candidates: visionCandidateOptions(),
+    candidates: { ...visionCandidateOptions(), preferredNextModel: params.preferredNextModel },
+    ...(params.preferredProvider ? { explicitCandidates: resolveComputeCandidates("vision", { ...visionCandidateOptions(), preferredNextModel: params.preferredNextModel }).sort((a, b) => Number(b.id === params.preferredProvider) - Number(a.id === params.preferredProvider)) } : {}),
     // 视觉模型多为 thinking 系（如 gemini-3-pro-preview），思考也消耗
     // completion 预算：给太少会把正式回答截成空串。
     maxTokens: params.maxTokens ?? 4000,
+    ...(params.requireJsonObject ? { responseFormat: { type: "json_object" as const }, temperature: 0 } : {}),
     deadlineMs: params.timeoutMs ?? 45_000,
     attemptTimeoutMs: params.attemptTimeoutMs,
     // 图片一致性质检是纯读取分析，没有工具调用也没有业务写入，可以安全重发。
-    replaySafe: true,
+    replaySafe: params.replaySafe ?? true,
   });
 
   const content = outcome.result.choices[0]?.message?.content;

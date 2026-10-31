@@ -525,3 +525,19 @@ describe("story narration candidate workflow", () => {
     ).toHaveLength(2);
   });
 });
+
+it('reads a book module verbatim, saves narration without timeline mutation, rejects deleted sources',async()=>{
+ const {insertChapter,deleteChapter}=await import('../repositories/chapters');
+ const {storyId}=await seed(899);
+ const chapter=await insertChapter({storyId,userId:899,content:{title:'书',layout:null,blocks:{body:'只朗读这一段。',blockIds:['one'],writingStyle:[{id:'one',format:'text',parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const bookTarget={chapterId:chapter.id,moduleId:'one'};const subtitleCueId='book-module-one';
+ const quote=await quoteStoryNarration({storyId,userId:899,subtitleCueId,bookTarget,now:()=>NOW});
+ const before=await getStoryTimeline(storyId,899);const generateVoice=vi.fn(async(_input:{text:string})=>({audioUrl:'https://file.302.ai/voice/test.mp3',provider:'openai',voice:'alloy'}));
+ const request={storyId,userId:899,subtitleCueId,operationId:'book-narration-one',quoteToken:quote.quoteToken,dependencies:{now:()=>NOW+1000,generateVoice,materializeRemote:async(input:any)=>fakeProviderAsset(90)({...input,operationId:input.sourceKey})}};
+ expect(await generateStoryNarrationCandidate(request)).toMatchObject({status:'candidate-ready'});
+ expect(await generateStoryNarrationCandidate(request)).toMatchObject({status:'candidate-ready',replayed:true});
+ expect(generateVoice).toHaveBeenCalledTimes(1);expect(generateVoice.mock.calls[0][0]).toMatchObject({text:'只朗读这一段。'});
+ expect(await getStoryTimeline(storyId,899)).toEqual(before);expect(await listStoryNarrationCandidates({storyId,userId:899})).toEqual([]);
+ await deleteChapter(chapter.id,899);expect(await generateStoryNarrationCandidate({...request,operationId:'book-narration-deleted'})).toMatchObject({status:'error'});
+ expect(generateVoice).toHaveBeenCalledTimes(1);
+});

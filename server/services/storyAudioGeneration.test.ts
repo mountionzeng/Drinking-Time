@@ -1,3 +1,4 @@
+import { insertChapter, deleteChapter } from "../repositories/chapters";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fromYuan } from "../../shared/computeMoney";
 import {
@@ -434,4 +435,40 @@ describe("story scene audio paid workflow", () => {
       ).clips[0]
     ).toMatchObject({ timelineStartFrame: 120 });
   });
+});
+
+
+describe("book music", () => {
+  it("uses saved manuscript and generates an owned asset without changing the video timeline, including replay", async () => {
+    const storyId=await seed(920);
+    await insertChapter({storyId,userId:920,content:{title:"书",layout:null,blocks:{body:"雨天的小镇，修伞铺里的祖孙安静地修补旧木架。",blockIds:["a"],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+    const before=await getStoryTimeline(storyId,920);
+    const quote=await quoteStorySceneAudio({storyId,userId:920,kind:"music",targetFrame:0,scope:"book",now:()=>NOW});
+    expect(quote.prompt).toContain("修补旧木架");expect(quote.context.durationFrames).toBe(900);
+    const generate=vi.fn(async()=>generatedUrl()), insert=vi.fn();
+    const request={storyId,userId:920,operation:{editorSessionEpoch:"book",operationId:"book-music-one"},quoteToken:quote.quoteToken,dependencies:{now:()=>NOW+1000,generate,importRemote:fakeRemoteImport("b"),insert}};
+    expect(await generateStorySceneAudio(request)).toMatchObject({status:"ready",timeline:null,replayed:false});
+    expect(await generateStorySceneAudio(request)).toMatchObject({status:"ready",timeline:null,replayed:true});
+    expect(generate).toHaveBeenCalledTimes(1);expect(insert).not.toHaveBeenCalled();
+    expect(await getStoryTimeline(storyId,920)).toEqual(before);
+    await expect(quoteStorySceneAudio({storyId,userId:921,kind:"music",targetFrame:0,scope:"book"})).rejects.toThrow();
+  });
+});
+
+it('quotes only the selected text module and rejects a removed source before charging',async()=>{
+ const storyId=await seed(922);
+ const chapter=await insertChapter({storyId,userId:922,content:{title:'模块',layout:null,blocks:{body:'不应使用的摇滚演出\n雨天的钢琴',blockIds:['a','b'],writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const bookTarget={chapterId:chapter.id,moduleId:'b'};
+ const quote=await quoteStorySceneAudio({storyId,userId:922,kind:'music',scope:'book',targetFrame:0,bookTarget,now:()=>NOW});
+ expect(quote.prompt).toContain('雨天的钢琴');expect(quote.prompt).not.toContain('摇滚演出');
+ const generate=vi.fn(async()=>generatedUrl());
+ const result=await generateStorySceneAudio({storyId,userId:922,quoteToken:quote.quoteToken,operation:{editorSessionEpoch:'module',operationId:'module-one'},dependencies:{now:()=>NOW+1000,generate,importRemote:fakeRemoteImport('z')}});
+ expect(result).toMatchObject({status:'ready',timeline:null});expect(generate).toHaveBeenCalledTimes(1);
+ const staleQuote=await quoteStorySceneAudio({storyId,userId:922,kind:'music',scope:'book',targetFrame:0,bookTarget,now:()=>NOW});
+ await deleteChapter(chapter.id,922);
+ const rejected=await generateStorySceneAudio({storyId,userId:922,quoteToken:staleQuote.quoteToken,operation:{editorSessionEpoch:'module',operationId:'module-deleted'},dependencies:{now:()=>NOW+1000,generate}});
+ expect(rejected.status).toBe('error');expect(generate).toHaveBeenCalledTimes(1);
+ expect(await findBillingOperation('module-deleted')).toBeFalsy();
+ await expect(quoteStorySceneAudio({storyId,userId:923,kind:'music',scope:'book',targetFrame:0,bookTarget})).rejects.toThrow();
+ await expect(quoteStorySceneAudio({storyId,userId:922,kind:'music',scope:'book',targetFrame:0,bookTarget:{...bookTarget,moduleId:'missing'}})).rejects.toThrow();
 });
