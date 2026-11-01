@@ -57,17 +57,17 @@ describe("shared compute bridge with the real account ledger", () => {
   it("phone projects the desktop wallet; holds, settlement and retries converge", async () => {
     const { post, userId } = await fixture();
     expect((await post("balance", { subject })).body).toEqual({
-      version: 1, unit: "compute", availableMicros: 10_000_000, reservedMicros: 0, spentMicros: 0,
+      version: 1, unit: "compute", availableMicros: 5_000_000, reservedMicros: 0, spentMicros: 0,
     });
     const operation = { subject, operationId: "request-1", operationType: "chatInterview", requestHash: "c".repeat(64), maxCostMinor: 1_000_000 };
     expect((await post("reserve", operation)).body.outcome).toBe("reserved");
     expect((await post("reserve", operation)).body.outcome).toBe("replayed");
-    expect((await post("balance", { subject })).body.availableMicros).toBe(8_000_000);
+    expect((await post("balance", { subject })).body.availableMicros).toBe(3_000_000);
     const settlement = { subject, operationId: "request-1", outcome: { kind: "succeeded", verifiedCostMinor: 250_000 } };
     await post("settle", settlement);
     await post("settle", settlement);
     const desktop = await getAccountBalance(userId);
-    expect(desktop.availableMinor).toBe(4_750_000);
+    expect(desktop.availableMinor).toBe(2_250_000);
     expect((await post("balance", { subject })).body).toEqual({
       version: 1, unit: "compute", availableMicros: desktop.availableMinor * 2,
       reservedMicros: 0, spentMicros: 500_000,

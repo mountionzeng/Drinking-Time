@@ -81,6 +81,7 @@ npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
 生产进程会在启动前校验：
 
 - `NODE_ENV=production` 下 `DISABLE_AUTH=false`；
+- 鉴权默认开启：只有 `DISABLE_AUTH=true` 且 `NODE_ENV` 非 production、服务只监听 127.0.0.1（即 `pnpm dev`）时才关闭，判定统一在 `server/_core/authMode.ts`；
 - 强 `JWT_SECRET`；
 - HTTPS `APP_ORIGIN` 与 `OAUTH_SERVER_URL`；
 - `DATABASE_URL=mysql://...?...charset=utf8mb4`；

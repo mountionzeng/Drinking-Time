@@ -8,6 +8,7 @@ export type DesktopWritingSession = {
   epoch: number;
   snapshot: WritingCompanionSnapshot;
   getSnapshot: () => WritingCompanionSnapshot;
+  applyGenerated?: (body: string, expected: WritingCompanionSnapshot) => Promise<void>;
 };
 export const useDesktopWritingSession = create<{
   session: DesktopWritingSession | null;

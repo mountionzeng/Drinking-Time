@@ -1,3 +1,4 @@
+import { readStoryTags } from "../../shared/storyTags";
 /** Persistence operations for stories. Local and MySQL behavior share this boundary. */
 import { eq, and, desc, inArray, notInArray, sql } from "drizzle-orm";
 import {
@@ -49,6 +50,7 @@ export type StoryListItem = Pick<
   | "createdAt"
   | "updatedAt"
 > & {
+  tags: string[];
   cardCount: number;
   shotCount: number;
   activityDates: string[];
@@ -139,6 +141,7 @@ function toListItem(
     summary: row.summary,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    tags: readStoryTags(row.body),
     cardCount: bodyCardCount(row.body),
     shotCount: bodyShotCount(row.body),
     activityDates: storyActivityDates(row.body, row.createdAt),

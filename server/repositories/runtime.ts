@@ -13,6 +13,8 @@ import path from "node:path";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   User,
+  MaterialCapture,
+  MaterialCaptureToken,
   AdminUserLabel,
   FeedbackPost,
   AccountMemorySpace,
@@ -97,6 +99,8 @@ export const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 function createEmptyMemoryCollections() {
   return {
+    materialCaptures: [] as MaterialCapture[],
+    materialCaptureTokens: [] as MaterialCaptureToken[],
     adminUserLabels: [] as AdminUserLabel[],
     accountMemorySpaces: [] as AccountMemorySpace[],
     feedbackPosts: [] as FeedbackPost[],
@@ -385,6 +389,13 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     ...item,
     createdAt: toDate(item.createdAt),
   })) as MemoryCard[];
+  memoryState.materialCaptures = (raw.materialCaptures ?? []).map(item => ({
+    ...item, createdAt: toDate(item.createdAt), updatedAt: toDate(item.updatedAt),
+  })) as MaterialCapture[];
+  memoryState.materialCaptureTokens = (raw.materialCaptureTokens ?? []).map(item => ({
+    ...item, createdAt: toDate(item.createdAt), expiresAt: toDate(item.expiresAt),
+    revokedAt: item.revokedAt ? toDate(item.revokedAt) : null,
+  })) as MaterialCaptureToken[];
   memoryState.downstreamRegenerationCandidates = (raw.downstreamRegenerationCandidates ?? []) as DownstreamRegenerationCandidateRow[];
   memoryState.shots = (raw.shots ?? []).map(item => ({
     ...item,

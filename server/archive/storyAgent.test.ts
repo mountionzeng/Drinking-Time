@@ -545,7 +545,9 @@ describe("publishing conversation mode", () => {
     expect(result.toolCalls).toEqual([]);
     const system = mockInvokeLLM.mock.calls[0][0].messages[0]
       ?.content as string;
-    expect(system).toContain("一次只问一个问题");
+    expect(system).toContain("一次最多问一个问题");
+    expect(system).toContain("第一层");
+    expect(system).toContain("当前纠正优先于旧偏好");
     expect(system).toContain("不要生成发布稿");
   });
 });

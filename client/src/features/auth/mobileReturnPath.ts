@@ -1,5 +1,5 @@
 import { allowedLoginReturnPath } from "@shared/loginReturnPath";
-export type MobileReturnPath = "/m" | "/chapter/claim" | `/s/${string}` | `/p/${string}`;
+export type MobileReturnPath = "/m" | `/m?captureShare=${string}` | `/m?captureId=${string}` | "/chapter/claim" | `/s/${string}` | `/p/${string}`;
 
 const RETURN_PARAMETER = "returnTo";
 

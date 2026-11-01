@@ -83,7 +83,7 @@ export function publishingArticleVideoRows(
   return rows;
 }
 
-export type ArticleVideoRequirements = Pick<
+export type ArticleVideoRequirements = {voiceText?:string;durationSec?:number} & Pick<
   PublishingVideoStoryboardShot,
   | "subject"
   | "action"
@@ -92,7 +92,7 @@ export type ArticleVideoRequirements = Pick<
   | "soundRequirement"
 >;
 
-export const ARTICLE_VIDEO_PLANNING_VERSION = 2;
+export const ARTICLE_VIDEO_PLANNING_VERSION = 3;
 
 export const articleVideoSupplementSchema = z.object({
   anchorRowId: z.string().min(1),
@@ -104,6 +104,8 @@ export const articleVideoSupplementSchema = z.object({
   imageRequirement: z.string().trim().min(1).max(4_000),
   videoRequirement: z.string().trim().min(1).max(4_000),
   soundRequirement: z.string().max(2_000).default(""),
+  voiceText: z.string().max(4000).optional(),
+  durationSec: z.number().min(1).max(120).optional(),
   beat: z.enum(["开场", "起势", "转折", "收束"]).optional(),
 });
 export type ArticleVideoSupplement = z.infer<
@@ -192,7 +194,8 @@ export function buildPublishingArticleVideoPreview(input: {
           segmentIds: [...sourceShot.segmentIds],
           sourceParagraphIds: [...sourceShot.sourceParagraphIds],
           scriptText: addition.action,
-          voiceText: "",
+          voiceText: addition.voiceText ?? "",
+          ...(addition.durationSec !== undefined ? { durationSec: addition.durationSec } : {}),
           ...(source.referenceImageId
             ? { continuityImageId: source.referenceImageId }
             : {}),

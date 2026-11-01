@@ -1,3 +1,4 @@
+import { shotVideoPriceProfile } from "../../shared/shotDirector";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import path from "node:path";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
@@ -151,6 +152,7 @@ import {
   semanticObjectSelectionConfigured,
   segmentAtPoint,
   segmentWithinPolygon,
+  segmentFromScribble,
 } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import {
@@ -1198,7 +1200,7 @@ export const creationAgentRouter = router({
         },
         ctx.user.id
       );
-      const paidEstimate = estimateShotVideoCost({ durationSec, motion });
+      const paidEstimate = estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) });
       const estimate = {
         ...paidEstimate,
         estimatedCny:
@@ -2991,10 +2993,11 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number().int().positive(),
         imageId: z.number().int().positive(),
+        selectionMode: z.enum(["lasso", "scribble"]).default("lasso"),
         points: z.array(z.object({
           x: z.number().finite().min(0).max(32_768),
           y: z.number().finite().min(0).max(32_768),
-        })).min(3).max(512),
+        })).min(1).max(512),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -3018,9 +3021,10 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         storyId: input.storyId,
         imageId: input.imageId,
+        selectionKey: `${input.selectionMode}:${JSON.stringify(input.points)}`,
         x: center.x / input.points.length,
         y: center.y / input.points.length,
-        task: () => segmentWithinPolygon(image.imageUrl, input.points, {
+        task: () => (input.selectionMode === "scribble" ? segmentFromScribble : segmentWithinPolygon)(image.imageUrl, input.points, {
           scope: {
             userId: ctx.user.id,
             storyId: input.storyId,
@@ -3035,7 +3039,7 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number().int().positive(),
         sourceImageId: z.number().int().positive(),
-        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip", "book-image"]),
         stableShotId: z.string().trim().min(1).max(240),
         clipId: z.string().trim().min(1).max(240).optional(),
       })
@@ -3095,7 +3099,7 @@ export const creationAgentRouter = router({
         imageId: z.number().int().positive(),
         maskKey: z.string().trim().min(1).max(512),
         prompt: z.string().trim().min(1).max(2_000),
-        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip", "book-image"]),
         stableShotId: z.string().trim().min(1).max(240),
         clipId: z.string().trim().min(1).max(240).optional(),
       })
@@ -3147,7 +3151,7 @@ export const creationAgentRouter = router({
         maskKey: z.string().trim().min(1).max(512),
         prompt: z.string().trim().min(1).max(2_000),
         operationToken: z.string().trim().min(8).max(160),
-        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip", "book-image"]),
         stableShotId: z.string().trim().min(1).max(240),
         clipId: z.string().trim().min(1).max(240).optional(),
         confirmation: z.object({
@@ -3155,7 +3159,7 @@ export const creationAgentRouter = router({
           storyId: z.number().int().positive(),
           imageId: z.number().int().positive(),
           maskKey: z.string().trim().min(1).max(512),
-          targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+          targetKind: z.enum(["shot-primary", "timeline-image-clip", "book-image"]),
           stableShotId: z.string().trim().min(1).max(240),
           clipId: z.string().trim().min(1).max(240).nullable().optional(),
           inputHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -3252,12 +3256,15 @@ export const creationAgentRouter = router({
               if (replay) return { status: "ok" as const, image: replay };
             }
             if (
-              claim.operation.status === "provider_accepted" &&
+              ["provider_accepted", "unknown"].includes(claim.operation.status) &&
               claim.operation.providerTaskId
             ) {
               try {
+                const recoveryMaskUrl = await resolveStoredMaskUrl(input.maskKey);
+                if (!recoveryMaskUrl) throw new Error("原选区暂不可用，不能采用任务结果");
                 const resumed = await resume302GptImageTask(
-                  claim.operation.providerTaskId
+                  claim.operation.providerTaskId,
+                  { referenceImageUrl: image.imageUrl, editMaskImageUrl: recoveryMaskUrl, localImagePatch: true }
                 );
                 if (resumed.status === "ok" && resumed.imageUrl) {
                   const settled = await settlePreviewMaskedImageOperationSuccess({
@@ -3305,6 +3312,7 @@ export const creationAgentRouter = router({
             const result = await editMobileImage(image.imageUrl, input.prompt, {
               provider: "gpt-image",
               editMaskImageUrl: maskUrl,
+              localImagePatch: true,
               onProviderTaskAccepted: taskId =>
                 markPreviewMaskedImageOperationAccepted({
                   storyId: input.storyId,
@@ -3380,12 +3388,13 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         candidateImageId: z.number().int().positive(),
         expectedSourceImageId: z.number().int().positive(),
-        targetKind: z.enum(["shot-primary", "timeline-image-clip"]),
+        targetKind: z.enum(["shot-primary", "timeline-image-clip", "book-image"]),
         stableShotId: z.string().trim().min(1).max(240),
         clipId: z.string().trim().min(1).max(240).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.targetKind === "book-image") return { status: "error" as const, message: "请在书稿里采用这张图片" };
       const [story, candidate, source] = await Promise.all([
         getStoryById(input.storyId, ctx.user.id),
         getGeneratedImageById(input.candidateImageId),

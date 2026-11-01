@@ -4,6 +4,16 @@ import { deleteBookBlock, layoutBookBlocks, findBookDrop, moveBookBlockByKey, re
 const block = (id: string, text = id): WritingBlock => ({ id, text, format: 'text', parentId: null, collapsed: false });
 
 describe('book module layout', () => {
+  it('reflows narrow viewports without rewriting stored widths, fonts or multiline text', () => {
+    const blocks = [block('a', '这是一段较长的测试文字，用来验证手机换行。'.repeat(5) + '\n第二行'), block('b', '下一段')];
+    const before=JSON.stringify(blocks);
+    const wide=layoutBookBlocks(blocks), narrow=layoutBookBlocks(blocks, {}, 480);
+    expect(narrow[0].placement.rect.width).toBeLessThan(wide[0].placement.rect.width);
+    expect(narrow[0].placement.fontSize).toBe(24);
+    expect(narrow[0].placement.rect.height).toBeGreaterThan(wide[0].placement.rect.height);
+    expect(narrow[1].placement.rect.y).toBeGreaterThanOrEqual(narrow[0].placement.rect.y+narrow[0].placement.rect.height);
+    expect(JSON.stringify(blocks)).toBe(before);
+  });
   it('lays out every paragraph and spills to later pages without changing text', () => {
     const blocks = Array.from({ length: 30 }, (_, i) => block(String(i), '同一段文字'));
     const result = layoutBookBlocks(blocks);

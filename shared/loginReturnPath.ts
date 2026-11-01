@@ -1,8 +1,10 @@
 /** Only local workspace/share destinations survive a single URL decode. */
 export function allowedLoginReturnPath(
   candidate: string | null | undefined
-): "/m" | "/chapter/claim" | `/s/${string}` | `/p/${string}` | null {
+): "/m" | `/m?captureShare=${string}` | `/m?captureId=${string}` | "/chapter/claim" | `/s/${string}` | `/p/${string}` | null {
   if (candidate === "/m") return candidate;
+  if (candidate && /^\/m\?capture(?:Share|Id)=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate))
+    return candidate as `/m?captureShare=${string}` | `/m?captureId=${string}`;
   if (candidate === "/chapter/claim") return candidate;
   if (
     candidate?.length === 39 &&

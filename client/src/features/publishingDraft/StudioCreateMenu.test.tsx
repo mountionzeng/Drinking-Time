@@ -23,12 +23,11 @@ describe("StudioCreateMenu", () => {
     expect(button(html, "图片")).toContain('disabled=""');
   });
 
-  it("keeps the menu and layout usable while chat is busy", () => {
+  it("keeps the menu usable and removes redundant layout generation", () => {
     const html = renderToStaticMarkup(<StudioCreateMenu storyId={7} input="" blocked hasShots />);
     expect(button(html, "基于当前内容生成")).toBeDefined();
     expect(button(html, "基于当前内容生成")).not.toContain('disabled=""');
-    expect(button(html, "图文排版")).toBeDefined();
-    expect(button(html, "图文排版")).not.toContain('disabled=""');
+    expect(button(html, "图文排版")).toBeUndefined();
     expect(button(html, "图片")).toContain('disabled=""');
     expect(html).toContain("聊天正在处理内容");
   });

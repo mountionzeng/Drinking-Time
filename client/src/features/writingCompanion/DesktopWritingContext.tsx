@@ -6,6 +6,7 @@ import type { WritingCompanionSnapshot } from "./writingCompanionText";
 type Props = {
   storyId: number;
   getSnapshot: () => WritingCompanionSnapshot;
+  applyGenerated?: (body: string, expected: WritingCompanionSnapshot) => Promise<void>;
 };
 
 /** The visible editor is the context of the existing chat; registering it makes no request. */
@@ -20,6 +21,7 @@ export function DesktopWritingContext(props: Props) {
     if (
       current?.id === owner.current &&
       current.storyId === latest.current.storyId &&
+      Boolean(current.applyGenerated) === Boolean(latest.current.applyGenerated) &&
       current.accountId === spine.accountId &&
       current.epoch === spine.storyScopeEpoch &&
       current.snapshot.draft === snapshot.draft &&
@@ -38,6 +40,10 @@ export function DesktopWritingContext(props: Props) {
       epoch: spine.storyScopeEpoch,
       snapshot,
       getSnapshot: () => latest.current.getSnapshot(),
+      ...(props.applyGenerated ? { applyGenerated: (body: string, expected: WritingCompanionSnapshot) => {
+        if (!latest.current.applyGenerated) return Promise.reject(new Error("编辑器已关闭，新稿仍保留在文字历史。"));
+        return latest.current.applyGenerated(body, expected);
+      } } : {}),
     });
   };
   useEffect(sync);

@@ -59,3 +59,19 @@ it("shows only stories, people and warehouse in the account navigation", () => {
   for (const label of ["故事", "人", "仓库"]) expect(nav).toContain(label);
   for (const label of ["回忆", "文字", "图片", "视频"]) expect(nav).not.toContain(label);
 });
+
+it('opens book modules directly from the current story without selecting a legacy text version', () => {
+  const openBook=vi.fn(), openStage=vi.fn();
+  let click:(()=>void)|undefined;
+  const create=React.createElement;
+  const spy=vi.spyOn(React,'createElement').mockImplementation(((type:any,props:any,...children:any[])=>{
+    if(type==='button' && children.includes('编辑书中模块 ›')) click=props.onClick;
+    return create(type,props,...children);
+  }) as typeof React.createElement);
+  try {
+    const html=renderToStaticMarkup(<MobileStoriesPage stories={[{id:42,title:'虚构纸船'}]} activeStoryId={42} onOpenMe={()=>{}} onSelectStory={()=>{}} onOpenStage={openStage} onOpenBook={openBook}/>);
+    expect(html).toContain('编辑书中模块');
+    expect(click).toBeDefined();click!();
+    expect(openBook).toHaveBeenCalledOnce();expect(openStage).not.toHaveBeenCalled();
+  } finally {spy.mockRestore();}
+});

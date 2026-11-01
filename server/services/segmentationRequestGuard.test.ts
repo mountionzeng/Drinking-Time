@@ -25,6 +25,14 @@ describe("runSponsoredSegmentation", () => {
     expect(task).toHaveBeenCalledTimes(1);
   });
 
+  it("separates different scribbles with the same center", async () => {
+    const task = vi.fn(async () => ({ status: "ok" as const, maskKey: "mask" }));
+    await runSponsoredSegmentation({ ...base, selectionKey: "scribble:first", task });
+    await runSponsoredSegmentation({ ...base, selectionKey: "scribble:second", task });
+    await runSponsoredSegmentation({ ...base, selectionKey: "scribble:first", task });
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
   it("limits concurrent clicks on one image", async () => {
     const task = () => new Promise<any>(() => undefined);
     void runSponsoredSegmentation({ ...base, x: 10, task });

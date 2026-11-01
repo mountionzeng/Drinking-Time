@@ -17,6 +17,7 @@ export function BookInlineImage({ text }: { text: string }) {
     };
   }, [image.url]);
   const c = image.crop;
+  if (image.videoUrl) return <video aria-label="文章短视频" controls playsInline preload="metadata" poster={image.url} src={image.videoUrl} className="h-full w-full object-contain" />;
   return (
     <svg
       role="img"

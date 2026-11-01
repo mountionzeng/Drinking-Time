@@ -3,6 +3,7 @@ import { imagePackParagraphs } from "./articleIllustrations";
 import {
   buildPublishingArticleVideoPreview,
   publishingArticleVideoRows,
+  articleVideoSupplementSchema,
 } from "./publishingArticleVideo";
 import {
   normalizePublishingVideoStoryboardAggregate,
@@ -184,3 +185,13 @@ describe("article illustrations carried into video", () => {
     expect(validatePublishingVideoPreview(restored.latestPreview!)).toEqual([]);
   });
 });
+
+ it("retains confirmed adapted narration and timing in supplemental shots without replacing source prose", () => {
+   const rows = publishingArticleVideoRows({body:"原始故事。",illustrations:[]});
+   const supplement=articleVideoSupplementSchema.parse({anchorRowId:rows[0].id,sourceRowId:rows[0].id,position:"after",reason:"结尾",subject:"旧伞",action:"收起旧伞",imageRequirement:"伞",videoRequirement:"缓缓推近",voiceText:"旧物，陪我们走过时光。",durationSec:6});
+   const preview=buildPublishingArticleVideoPreview({rows,requirements:new Map(),supplements:[supplement],now:3});
+   expect(preview.shots[0].scriptText).toBe("原始故事。");
+   expect(preview.shots[1]).toMatchObject({voiceText:"旧物，陪我们走过时光。",durationSec:6});
+   const aggregate=normalizePublishingVideoStoryboardAggregate({version:1,latestPreview:preview,operations:{}});
+   expect(aggregate?.latestPreview?.shots[1].durationSec).toBe(6);
+ });

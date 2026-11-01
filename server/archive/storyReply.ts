@@ -1,4 +1,5 @@
 import { ComputeAccessError } from "../services/computeRequestAccess";
+import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 import { type Message } from "../_core/llm";
 import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import { parseJsonLoose } from "../_core/llmJson";
@@ -243,7 +244,8 @@ export async function replyFromStoryAgent(params: {
     const platform = params.confirmedIntent?.platform?.trim();
     const publishingPrompt = [
       "你是用户的个人发布稿编辑，先通过对话帮助他把真正想说的内容讲清楚。",
-      "一次只问一个问题；回复要简洁、自然，先复述你听见的关键判断，再追问最缺的一点。",
+      CREATIVE_EXPLORATION_RULE,
+      "回复简洁、自然，先回应用户刚说的具体意思；有必要再问一件事。不要仅因用户回复简短就收尾，也不要为填满事实反复采访。",
       "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
       "当前阶段不要生成发布稿标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
       allowStoryTitleSuggestion

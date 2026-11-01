@@ -637,3 +637,18 @@ body:has(.mobile-xiaoyi-dialog[data-state="open"]) [data-slot="dialog-content"] 
 [data-writing-chat="true"] [role="log"] {
   padding-block: 8px;
 }
+
+/* Keep the companion reachable without covering book modules or their menus. */
+body:has([aria-label="手机书稿编辑"]) .mobile-xiaoyi-launcher[data-open="false"] {
+  left: auto;
+  right: 12px;
+  width: 56px;
+  height: 56px;
+}
+body:has([aria-label="手机书稿编辑"]) .mobile-xiaoyi-launcher[data-open="false"] .mobile-xiaoyi-visual {
+  bottom: 6px;
+  transform: scale(.6);
+}
+body:has([aria-label="手机书稿编辑"]) .mobile-workspace-content::after {
+  display: none;
+}

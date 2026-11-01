@@ -182,3 +182,9 @@ export function useCompanionPageContext(source: MemoryFollowupSource | null) {
     return () => select(null);
   }, [select, serialized]);
 }
+
+/** A new module in the same story follows the editor without discarding chat input. */
+export function followsWritingSource(current: MemoryFollowupSource | null, next: MemoryFollowupSource | null): boolean {
+  return Boolean(current && next && (current.kind === "layout" || current.kind === "text") &&
+    current.kind === next.kind && current.storyId === next.storyId);
+}

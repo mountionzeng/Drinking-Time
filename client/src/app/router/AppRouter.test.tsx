@@ -261,3 +261,12 @@ describe("authoritative story route",()=>{
     expect(renderRoute("/stories/not-a-number").redirectTo).toBe("/stories");auth.isAuthenticated=false;expect(renderRoute("/stories/42").redirectTo).toBe("/login");
   });
 });
+
+it('opens the phone workspace from a saved /editing link on a phone', () => {
+  stubBrowser({userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile', viewportWidth:390,coarsePointer:true});
+  expect(renderRoute('/editing').html).toContain('mobile-workspace');
+});
+it('keeps /editing on desktop even with a narrow mouse-controlled window', () => {
+  stubBrowser({userAgent:'Mozilla/5.0 Macintosh',viewportWidth:390,coarsePointer:false});
+  expect(renderRoute('/editing').html).toContain('desktop-editing');
+});

@@ -98,7 +98,6 @@ export function MobileDailyLetter({
 
   const { user } = useAuth();
   const { today } = useNayin();
-  const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const utils = trpc.useUtils();
 
   // 查询的开关必须把 autoOpen 也算进来。
@@ -122,6 +121,7 @@ export function MobileDailyLetter({
   const rereadMut = trpc.emotionAnalysis.rereadDailyLetter.useMutation();
 
   const [selectedDate, setSelectedDate] = useState("");
+  const almanacQuery = useDailyAlmanac(selectedDate || today.cstDateStr);
   const [editingMessage, setEditingMessage] = useState(false);
   const [messageDraft, setMessageDraft] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -413,8 +413,6 @@ export function MobileDailyLetter({
               loading={almanacQuery.isLoading}
               embedded
               compact
-              personalizedYi={selectedReference?.personalizedYi}
-              personalizedJi={selectedReference?.personalizedJi}
             />
 
             <section
@@ -483,7 +481,7 @@ export function MobileDailyLetter({
                   <p className="mt-2 text-[15px] leading-8 text-foreground">
                     {selectedMessage ||
                       t(
-                        "这一天还没有写下新话，所以来信不会翻出以前的具体事情。"
+                        "这一天还没有留言，想说时再写就好。"
                       )}
                   </p>
                   {saidAt || editedAt ? (
@@ -501,7 +499,7 @@ export function MobileDailyLetter({
               )}
               <p className="mt-3 text-[10px] leading-5 text-muted-foreground/70">
                 {t(
-                  "只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。"
+                  "来信可以参考你保存的文章，延续创作话题；不会把故事当成你的真实经历。"
                 )}
               </p>
             </section>

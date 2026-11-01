@@ -160,17 +160,7 @@ async function sourceData(owner: number) {
       : memoryState.users.filter(u => accountIds.includes(u.id));
     people.forEach(p => names.set(p.id, p.name?.trim() || "朋友"));
   }
-  const [storyList, latestImages] = await Promise.all([
-    listUserStories(owner),
-    latestStoryImageUrls(owner),
-  ]);
-  const covers = new Map(
-    storyList.map(s => [
-      s.id,
-      s.coverImageUrl ?? latestImages.get(s.id) ?? null,
-    ])
-  );
-  return { projected, links, names, covers };
+  return { projected, links, names };
 }
 
 /** Connected accounts already linked through an accepted story share or contribution. */
@@ -417,7 +407,17 @@ export function applyMemoryOperation(
 }
 
 export async function listMemorySpace(owner: number): Promise<MemorySpace> {
-  const data = await sourceData(owner);
+  const [data, storyList, latestImages] = await Promise.all([
+    sourceData(owner),
+    listUserStories(owner),
+    latestStoryImageUrls(owner),
+  ]);
+  const covers = new Map(
+    storyList.map(s => [
+      s.id,
+      s.coverImageUrl ?? latestImages.get(s.id) ?? null,
+    ])
+  );
   const { result, revision } = await editSpace(owner, state => {
     if (!state.initialized) {
       state.initialized = true;
@@ -445,7 +445,7 @@ export async function listMemorySpace(owner: number): Promise<MemorySpace> {
         id: book.row.id,
         view: state.bookViews[book.row.id],
         title: book.reading.title,
-        coverUrl: data.covers.get(book.row.id) ?? null,
+        coverUrl: covers.get(book.row.id) ?? null,
         hasText: book.reading.versions.length > 0,
         updatedAt: book.updatedAt,
         fingerprint: book.reading.fingerprint,

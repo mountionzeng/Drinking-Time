@@ -71,4 +71,25 @@ describe("exploratory text generation", () => {
     expect(context.techniques.every((card: { perspective?: string }) => card.perspective)).toBe(true);
     expect(context.conversationDelta[0].content).toBe("还不知道想不想去这家公司。");
   });
+
+  it("keeps previous constraints without duplicating newly corrected turns", () => {
+    const boundary = { id: "boundary", role: "user" as const, content: "写给朋友，不涉及家人的病情。" };
+    const correction = { id: "person", role: "user" as const, content: "不是母亲，是外婆。" };
+    const result = compileTextDraftPrompt(
+      { ...request, messages: [boundary, correction] }, [correction], []
+    );
+    const context = JSON.parse(result.modelMessage);
+    expect(context.conversationContext).toEqual([boundary]);
+    expect(context.conversationDelta).toEqual([correction]);
+    expect(result.systemPrompt).toContain("受众、用途、形式、语气和不愿涉及的内容");
+    expect(result.systemPrompt).toContain("最新明确纠正优先");
+  });
+
+  it("does not import conversation context when composing only from selected memories", () => {
+    const result = compileTextDraftPrompt(request, request.messages, [], [], "", []);
+    const context = JSON.parse(result.modelMessage);
+    expect(context.conversationContext).toEqual([]);
+    expect(context.conversationDelta).toEqual([]);
+    expect(result.modelMessage).not.toContain(request.messages[0].content);
+  });
 });

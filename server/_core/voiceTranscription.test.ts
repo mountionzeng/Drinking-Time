@@ -16,6 +16,14 @@ afterEach(() => {
 });
 
 describe("transcribeAudioBytes", () => {
+  it("returns a failed result on timeout without replaying the request", async () => {
+    ENV.doubaoSpeechApiKey = "test-key";
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("Timed out", "TimeoutError"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(transcribeAudioBytes({audioBase64:"aGVsbG8=",mimeType:"audio/wav"}))
+      .resolves.toMatchObject({code:"SERVICE_ERROR",details:"Timed out"});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("sends browser audio to Doubao and returns its text", async () => {
     ENV.doubaoSpeechApiKey = "test-key";
     const fetchMock = vi.fn().mockResolvedValue(

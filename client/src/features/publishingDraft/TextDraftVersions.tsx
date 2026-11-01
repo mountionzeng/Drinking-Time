@@ -28,22 +28,13 @@ import {
   publishingContentEquals,
 } from "./publishingDraftViewModel";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
-import {
-  CAPABILITY_GROUPS,
-  type StoryCapabilityGroupId,
-} from "@/features/storyAgent/views/StoryCapabilityMenu";
+import { ARTICLE_NATURES, ARTICLE_FORMS, ARTICLE_LENGTHS, DEFAULT_ARTICLE_OPTIONS,
+  articleGenerationInstruction, type ArticleGenerationOptions } from "./articleGenerationOptions";
 
 const buttonClass =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
 const compactButtonClass =
   "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--panel-border)] px-2 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
-
-const directionLabels: Record<StoryCapabilityGroupId, string> = {
-  tell_my_story: "自我梳理",
-  tell_someone: "分享经历",
-  keep_a_memory: "记录片段",
-  create_a_world: "虚构故事",
-};
 
 export function TextDraftVersions({
   storyId,
@@ -60,9 +51,7 @@ export function TextDraftVersions({
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [directionOpen, setDirectionOpen] = useState(false);
-  const [direction, setDirection] = useState<StoryCapabilityGroupId | null>(
-    null
-  );
+  const [articleOptions, setArticleOptions] = useState<ArticleGenerationOptions>(DEFAULT_ARTICLE_OPTIONS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [edited, setEdited] = useState<TextDraftContent | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -107,7 +96,14 @@ export function TextDraftVersions({
     state: publishing, buffers: publishingBuffers, storyId: storyId ?? -1,
     platform, versionId: publishing.activeVersionId ?? "v1",
   });
-  const hasExistingText = versions.length > 0 || Boolean(visibleDraft?.body.trim());
+  const writingSource = useDesktopWritingSession(state => state.session);
+  const spine = storySpineStore.getState();
+  const currentWriting = writingSource?.storyId === storyId &&
+    writingSource.accountId === spine.accountId && writingSource.epoch === spine.storyScopeEpoch
+    ? writingSource : null;
+  const hasExistingText = versions.length > 0 || Boolean(
+    (currentWriting?.snapshot.draft ?? visibleDraft?.body)?.trim()
+  );
   const selected = versions.find(v => v.id === selectedId);
   const latest = [...versions].reverse().find(v => v.status === "ready");
   const busy =
@@ -162,9 +158,7 @@ export function TextDraftVersions({
     setFeedback(version.adoption?.feedback ?? "");
   }
 
-  async function generateVersion(
-    selectedDirectionId: StoryCapabilityGroupId | null = direction
-  ) {
+  async function generateVersion() {
     if (lock.current || busy || blocked) return;
     lock.current = true;
     setStarting(true);
@@ -212,7 +206,15 @@ export function TextDraftVersions({
         (sourceRef && "textDraftId" in sourceRef
           ? sourceRef.textDraftId
           : null);
+      const writing = useDesktopWritingSession.getState().session;
+      const writingSnapshot =
+        writing?.storyId === id &&
+        writing.accountId === fresh.accountId &&
+        writing.epoch === fresh.storyScopeEpoch
+          ? writing.getSnapshot()
+          : null;
       const { basis, parentId } = resolveTextDraftBasis({
+        writingBody: writingSnapshot?.draft,
         selected,
         latest: freshLatest,
         edited,
@@ -222,28 +224,11 @@ export function TextDraftVersions({
           ? { content: visibleContent, parentId: visibleParentId }
           : undefined,
       });
-      const writing = useDesktopWritingSession.getState().session;
-      const writingSnapshot =
-        writing?.storyId === id &&
-        writing.accountId === fresh.accountId &&
-        writing.epoch === fresh.storyScopeEpoch
-          ? writing.getSnapshot()
-          : null;
       const selection =
         writingSnapshot?.draft === basis?.body
           ? writingSnapshot?.selection
           : undefined;
-      const selectedDirection = CAPABILITY_GROUPS.find(
-        option => option.id === selectedDirectionId
-      );
-      const instruction = [
-        selectedDirection
-          ? `本次创作方向：${selectedDirection.label}。${selectedDirection.description}`
-          : "",
-        input.trim(),
-      ]
-        .filter(Boolean)
-        .join("\n");
+      const instruction = articleGenerationInstruction(articleOptions, input);
       const result = await generate.mutateAsync({
         storyId: id,
         operationToken: crypto.randomUUID(),
@@ -274,12 +259,25 @@ export function TextDraftVersions({
             platform,
             versionId: requestVersionId,
           });
+          const currentWriting = useDesktopWritingSession.getState().session;
+          const currentSnapshot = currentWriting?.id === writing?.id ? currentWriting?.getSnapshot() : null;
+          const writingUnchanged = !writingSnapshot || Boolean(
+            currentSnapshot?.scope === writingSnapshot.scope && currentSnapshot.draft === writingSnapshot.draft
+          );
           if (
-            nowVisible === visibleContent ||
+            writingUnchanged && (nowVisible === visibleContent ||
             (nowVisible &&
               visibleContent &&
-              publishingContentEquals(nowVisible, visibleContent))
+              publishingContentEquals(nowVisible, visibleContent)))
           ) {
+            if (writing?.applyGenerated && writingSnapshot) {
+              try { await writing.applyGenerated(next.generated.body, writingSnapshot); }
+              catch (cause) {
+                setDirectionOpen(false);
+                setOpen(true);
+                throw new Error(`文稿已生成并保留，写入书稿未完成：${cause instanceof Error ? cause.message : "请从文字历史查看"}`);
+              }
+            } else {
             setPublishingBuffer(
               id,
               platform,
@@ -288,13 +286,13 @@ export function TextDraftVersions({
               next.id
             );
             window.dispatchEvent(new Event("dt:show-generated-text"));
+            }
           } else {
             toast.info("新版本已生成，可从文字历史查看；你刚才的编辑仍保留。");
           }
         }
       }
       setDirectionOpen(false);
-      setDirection(null);
       if (next?.status === "ready") toast.success("文稿已生成");
       else if (next?.error) toast.error(next.error);
     } catch (error) {
@@ -375,11 +373,7 @@ export function TextDraftVersions({
         <button
           type="button"
           className={`${compactButtonClass} text-[var(--nayin-accent)]`}
-          onClick={() =>
-            hasExistingText
-              ? void generateVersion(null)
-              : setDirectionOpen(true)
-          }
+          onClick={() => setDirectionOpen(true)}
           disabled={blocked || busy || query.isError}
         >
           {busy ? (
@@ -414,45 +408,43 @@ export function TextDraftVersions({
               {hasExistingText
                 ? "为当前故事生成新的文字版本，旧版本会保留。"
                 : "把当前故事的内容整理成第一篇文章。"}
-              写作方向可选。
+              生成依据：当前书稿（如有）和本故事的聊天内容。
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            {CAPABILITY_GROUPS.map(option => {
-              const Icon = option.icon;
-              const selected = direction === option.id;
-              return (
-                <button
-                  type="button"
-                  key={option.id}
-                  aria-pressed={selected}
-                  onClick={() => setDirection(selected ? null : option.id)}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] ${
-                    selected
-                      ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)]"
-                      : "border-[var(--panel-border)] hover:bg-muted/50"
-                  }`}
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <span>
-                    <span className="block text-sm font-medium">
-                      {directionLabels[option.id]}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
+          <div className="grid gap-4">
+            <label className="grid gap-1 text-sm">内容性质
+              <select aria-label="内容性质" className="min-h-10 rounded-md border bg-background px-3" value={articleOptions.nature}
+                onChange={event => setArticleOptions(previous => ({ ...previous, nature: event.target.value as ArticleGenerationOptions["nature"] }))}>
+                {Object.entries(ARTICLE_NATURES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1 text-sm">文章形式
+                <select aria-label="文章形式" className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.form}
+                  onChange={event => setArticleOptions(previous => ({ ...previous, form: event.target.value as ArticleGenerationOptions["form"] }))}>
+                  {Object.entries(ARTICLE_FORMS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">篇幅
+                <select aria-label="篇幅" className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.length}
+                  onChange={event => setArticleOptions(previous => ({ ...previous, length: event.target.value as ArticleGenerationOptions["length"] }))}>
+                  {Object.entries(ARTICLE_LENGTHS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="grid gap-1 text-sm">补充要求（选填）
+              <textarea aria-label="文章补充要求" rows={3} maxLength={2000} className="rounded-md border bg-background p-3" placeholder="写给谁看、希望的语气、哪些内容要保留……"
+                value={articleOptions.requirements} onChange={event => setArticleOptions(previous => ({ ...previous, requirements: event.target.value }))} />
+            </label>
           </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               className={`${buttonClass} border-[var(--nayin-accent)] bg-[var(--nayin-accent)] text-background hover:bg-[var(--nayin-accent)]`}
               onClick={() => void generateVersion()}
-              disabled={busy}
+              disabled={busy || blocked || query.isError}
             >
-              生成文稿
+              {busy ? "正在生成…" : hasExistingText ? "生成新版本" : "生成文章"}
             </button>
           </div>
         </DialogContent>

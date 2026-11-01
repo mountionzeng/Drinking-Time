@@ -275,7 +275,7 @@ function EditingStudioBody({
         window.dispatchEvent(new CustomEvent(BOOK_MUSIC_OPEN, {detail:request})); return;
       }
       setCreateRequest(request);
-      if (!(request.warehouseImage && workspace === "publishing")) {
+      if (request.kind !== "video" && !(request.warehouseImage && workspace === "publishing")) {
         onWorkspaceChange(request.kind === "image" || request.kind === "layout" ? "images" : "editing");
       }
     };

@@ -13,8 +13,8 @@ import {
 
 import * as dbModule from "../db";
 import {
-  createEmailOtp,
   createInviteCode,
+  findLatestActiveEmailOtp,
   findAvailableInviteCode,
   getUserByOpenId,
   hasRedeemedInviteForEmail,
@@ -162,7 +162,7 @@ describe("邮箱邀请码登录", () => {
     });
   });
 
-  it("OTP 标记失败时不建立 session cookie", async () => {
+  it("OTP 消费失败时不建立 session cookie", async () => {
     const email = "otp-failure@example.com";
     const inviteCode = "LH-OTP1-FAIL";
     await createInviteCode({
@@ -170,23 +170,80 @@ describe("邮箱邀请码登录", () => {
       label: null,
       expiresAt: null,
     });
-    await createEmailOtp(email, "123456", new Date(Date.now() + 60_000));
-    const markUsed = vi
-      .spyOn(dbModule, "markEmailOtpUsed")
-      .mockRejectedValueOnce(new Error("mark failed"));
+    const sendLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    await post("/api/auth/email/request", { email, inviteCode });
+    const code = String(sendLog.mock.calls.at(-1)?.[0]).match(/(\d{6})$/)![1];
+    sendLog.mockRestore();
+    const consume = vi
+      .spyOn(dbModule, "consumeEmailOtp")
+      .mockRejectedValueOnce(new Error("consume failed"));
 
     try {
       const response = await post("/api/auth/email/verify", {
         email,
         inviteCode,
-        code: "123456",
+        code,
       });
 
       expect(response.status).toBe(500);
       expect(response.headers.get("set-cookie")).toBeNull();
     } finally {
-      markUsed.mockRestore();
+      consume.mockRestore();
     }
+  });
+
+  async function requestCode(email: string, inviteCode: string) {
+    const sendLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const response = await post("/api/auth/email/request", { email, inviteCode });
+      const line = String(sendLog.mock.calls.at(-1)?.[0] ?? "");
+      return { response, code: line.match(/(\d{6})$/)?.[1] ?? "" };
+    } finally {
+      sendLog.mockRestore();
+    }
+  }
+
+  it("库里只存验证码摘要，验证成功后码不能再用", async () => {
+    const email = "digest@example.com";
+    const inviteCode = "LH-DGST-0001";
+    await createInviteCode({ codeHash: hashInviteCode(inviteCode), label: null, expiresAt: null });
+    const { response, code } = await requestCode(email, inviteCode);
+    expect(response.status).toBe(200);
+    expect(code).toMatch(/^\d{6}$/);
+    const stored = await findLatestActiveEmailOtp(email);
+    expect(stored?.code).not.toBe(code);
+    expect(stored?.code).toMatch(/^[0-9a-f]{16}$/);
+
+    const ok = await post("/api/auth/email/verify", { email, inviteCode, code });
+    expect(ok.status).toBe(200);
+    const replay = await post("/api/auth/email/verify", { email, inviteCode, code });
+    expect(replay.status).toBe(401);
+  });
+
+  it("同一个码错 5 次后作废，正确码也不能再用", async () => {
+    const email = "brute@example.com";
+    const inviteCode = "LH-BRUT-0001";
+    await createInviteCode({ codeHash: hashInviteCode(inviteCode), label: null, expiresAt: null });
+    const { code } = await requestCode(email, inviteCode);
+    const wrong = code === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i += 1) {
+      const r = await post("/api/auth/email/verify", { email, inviteCode, code: wrong });
+      expect(r.status).toBe(401);
+    }
+    const late = await post("/api/auth/email/verify", { email, inviteCode, code });
+    expect(late.status).toBe(401);
+    expect(await findLatestActiveEmailOtp(email)).toBeNull();
+  });
+
+  it("同一邮箱 60 秒内重复发码被限流，新码作废旧码", async () => {
+    const email = "resend@example.com";
+    const inviteCode = "LH-RSND-0001";
+    await createInviteCode({ codeHash: hashInviteCode(inviteCode), label: null, expiresAt: null });
+    const first = await requestCode(email, inviteCode);
+    expect(first.response.status).toBe(200);
+    const second = await requestCode(email, inviteCode);
+    expect(second.response.status).toBe(429);
+    expect((await second.response.json()).error).toBe("rate_limited");
   });
 
   it("已经绑定的邀请不能给另一个邮箱使用", async () => {

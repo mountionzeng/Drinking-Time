@@ -1,3 +1,4 @@
+import { MobileBookModuleActions } from "./MobileBookModuleActions";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { layoutModuleLabel } from "@shared/layoutModuleContext";
 import { LayoutMemoryDetails } from "@/features/publishingAlbum/LayoutMemoryDetails";
@@ -5,7 +6,7 @@ import { MobileChatContents } from "./MobileChatContents";
 import { MobileCompanionActions } from "./MobileCompanionActions";
 import React, { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { MobileChatView } from "./MobileChatView";
+import { MobileCaptureChatView as MobileChatView } from "./MobileCaptureChatView";
 import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
 import { useMobileConversation } from "./useMobileConversation";
 import {
@@ -25,6 +26,7 @@ export function MobileMemoryFollowupChat({
   setDraft,
   onTextSaved,
   onNewStory,
+  onModuleAction,
 }: {
   draft: string;
   setDraft: (draft: string) => void;
@@ -36,6 +38,7 @@ export function MobileMemoryFollowupChat({
   onThinkingChange?: (thinking: boolean) => void;
   onTextSaved?: (source: MemoryFollowupSource) => void;
   onNewStory?: () => void;
+  onModuleAction?: () => void;
 }) {
   const t = useUiText();
 
@@ -81,6 +84,7 @@ export function MobileMemoryFollowupChat({
   ]);
   const sending = useRef(false);
   const writing = source.kind === "text" && Boolean(source.text);
+  const hasWritingPreview = writing && Boolean(source.text?.content.body.trim());
   const visibleMessages = conversation.messages;
   const controller = {
     ...conversation,
@@ -125,7 +129,7 @@ export function MobileMemoryFollowupChat({
     );
   return (
     <div className="flex h-full min-h-0 flex-col" data-writing-chat={writing}>
-      {writing ? (
+      {hasWritingPreview ? (
         <article
           aria-label={t("当前文章")}
           className="min-h-0 flex-[1.2] overflow-y-auto overscroll-contain border-b border-border px-5 pb-5"
@@ -137,7 +141,7 @@ export function MobileMemoryFollowupChat({
             {source.text!.content.body}
           </p>
         </article>
-      ) : source.kind === "story" ? (
+      ) : source.kind === "story" || writing ? (
         <p className="px-5 pb-2 font-serif text-lg">
           {source.title || "这个故事"}
         </p>
@@ -153,6 +157,7 @@ export function MobileMemoryFollowupChat({
                       : "正在讨论当前文字"
                   )
                 : t("接着这段{0}聊", [t(companionSourceLabel(source))])}
+            {source.module?.text && <span className="mt-1 block truncate text-xs text-muted-foreground">{source.module.text}</span>}
           </summary>
           <p className="mt-2 whitespace-pre-wrap leading-6">{source.content}</p>
           {source.module && (
@@ -164,6 +169,9 @@ export function MobileMemoryFollowupChat({
           )}
         </details>
       )}
+      {source.module && <MobileBookModuleActions key={`${source.module.scope}:${source.module.moduleId}`} module={source.module}
+        // Retained failed chat turns must not freeze independent book editing.
+        disabled={conversation.isSubmitting || actionLocked || versionLocked || voiceBusy} onAction={onModuleAction} />}
       {source.layoutMemory && source.layoutMemory.total > 0 && (
         <div className="mx-4 mb-2 shrink-0">
           <LayoutMemoryDetails
@@ -185,11 +193,12 @@ export function MobileMemoryFollowupChat({
       )}
       <div className="min-h-0 flex-1">
         <MobileChatView
+          userId={userId}
           controller={controller}
           storyTitle={source.title || "这个故事"}
           onVoiceBusyChange={setVoiceBusy}
           greeting={
-            source.kind === "story"
+            source.kind === "story" || (writing && !hasWritingPreview)
               ? "我在呢，接着聊这个故事吧。"
               : source.kind === "layout"
                 ? source.module
@@ -268,7 +277,7 @@ export function MobileMemoryFollowupChat({
       </div>
       {source.kind === "layout" ? (
         <p className="px-4 py-2 text-[11px] text-muted-foreground">
-          先讨论建议，回到排版里修改。
+          可在上方操作当前模块，也可以继续聊想怎么修改。
         </p>
       ) : (
         source.kind !== "text" &&

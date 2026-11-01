@@ -44,7 +44,7 @@ export const PUBLISHING_COVER_PROFILE = {
 const MJ_DRAFT_COST_RATIO = 0.5;
 
 export const STORYBOARD_MASKED_EDIT_PROFILE = {
-  model: "gpt-image-1.5",
+  model: "gpt-image-2",
   size: "1024x1024",
   quality: "high",
 } as const;
@@ -82,7 +82,7 @@ export function estimatePublishingCoverFallbackCost(): PublishingCoverFallbackCo
 }
 
 /**
- * 302 GPT-image 1.5 masked edit, 1024²/high.
+ * 302 GPT-image 2 masked edit, 1024²/high.
  * The quote follows 302's documented sample token usage and the existing
  * PTC→CNY conversion used by storyboard image estimates. Actual billing is
  * token based, so the confirmation UI presents this as an estimate.
@@ -91,7 +91,7 @@ export function estimateStoryboardMaskedEditCost(): StoryboardMaskedEditCostEsti
   const inputImageTokens = 10_917;
   const outputImageTokens = 4_160;
   const inputPtcPerMillionTokens = 8;
-  const outputPtcPerMillionTokens = 32;
+  const outputPtcPerMillionTokens = 30;
   const ptcToCny = REFERENCE_CNY / REFERENCE_PTC;
   const estimatedPtc =
     (inputImageTokens * inputPtcPerMillionTokens +
@@ -102,4 +102,21 @@ export function estimateStoryboardMaskedEditCost(): StoryboardMaskedEditCostEsti
     estimatedCny: Math.ceil(estimatedPtc * ptcToCny * 100) / 100,
     candidateCount: 1,
   };
+}
+
+/** Local edits generate one low-quality context crop; transparency is applied locally. */
+export const LOCAL_IMAGE_PATCH_PROFILE = {
+  model: "gpt-image-2",
+  size: "1024x1024",
+  quality: "low",
+  inputFidelity: "low",
+  inputSide: 512,
+  version: "local-image-patch-v1",
+} as const;
+
+export function estimateLocalImagePatchCost(): StoryboardMaskedEditCostEstimate {
+  // Two <=512px references, a bounded 2000-character instruction plus style rules,
+  // and one low-quality square output. Conservative token budgets, not area billing.
+  const estimatedPtc = (2048 * 8 + 3072 * 5 + 272 * 30) / 1_000_000;
+  return { currency: "CNY", estimatedCny: Math.ceil(estimatedPtc * (REFERENCE_CNY / REFERENCE_PTC) * 100) / 100, candidateCount: 1 };
 }

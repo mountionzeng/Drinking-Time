@@ -1,3 +1,4 @@
+import { MobileCaptureChatView as MobileChatView, MobileCaptureProvider } from "./MobileCaptureChatView";
 import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import {
   UiLanguageProvider,
@@ -43,7 +44,7 @@ import {
   type MobileStoryStage,
 } from "./MobileStoryWorkspace";
 import { type MobilePage } from "./liaoliaoForms";
-import { MobileChatView, mobileChatPeekReply } from "./MobileChatView";
+import { mobileChatPeekReply } from "./MobileChatView";
 import { MobileDailyLetter } from "./MobileDailyLetter";
 import { type MobileStorySummary } from "./MobileStoryPanel";
 import { useMobileConversation } from "./useMobileConversation";
@@ -625,6 +626,7 @@ function MobileSelectedStoryWorkspace({
   const { element, visualTheme } = useNayin();
   const { user } = useAuth();
   const [letterOpen, setLetterOpen] = useState(false);
+  const [openBookOnEntry, setOpenBookOnEntry] = useState(stage === "text");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const conversation = useMobileConversation({
@@ -722,13 +724,14 @@ function MobileSelectedStoryWorkspace({
         page === "stories" ? (
           storyOpen ? (
             <MobileStoryWorkspace
+              initialBookOpen={openBookOnEntry}
               userId={userId}
               storyId={activeStoryId}
               title={story.title}
               stage={stage}
               motionStyle={visualTheme === "shiguang" ? "shiguang" : element}
               onStageChange={onStageChange}
-              onBack={() => onStoryOpenChange(false)}
+              onBack={() => { setOpenBookOnEntry(true); onStoryOpenChange(false); }}
               document={document}
               conversation={conversation}
             />
@@ -737,12 +740,19 @@ function MobileSelectedStoryWorkspace({
               visualTheme={visualTheme}
               activeStoryId={activeStoryId}
               stories={stories}
+              onOpenBook={() => {
+                setOpenBookOnEntry(true);
+                onStageChange("text");
+                onStoryOpenChange(true);
+              }}
               onOpenStage={stage => {
+                setOpenBookOnEntry(stage === "text");
                 onStageChange(stage);
                 onStoryOpenChange(true);
               }}
               onOpenMe={() => onNavigate("me")}
               onSelectStory={(storyId, targetStage) => {
+                setOpenBookOnEntry(!targetStage || targetStage === "text");
                 requestStoryChange(storyId, targetStage);
               }}
               shareBacks={shareBackNotices.notices}
@@ -769,6 +779,7 @@ function MobileSelectedStoryWorkspace({
       hasPeekReply={mobileChatPeekReply(conversation) !== null}
       chatView={({ dense, replyMaxHeight, onReplyHeightChange }) => (
         <MobileChatView
+          userId={userId}
           controller={conversation}
           draftValue={chatDraft}
           onDraftChange={setChatDraft}
@@ -866,7 +877,7 @@ function MobileSelectedStoryWorkspace({
 export function MobileWorkspace({ userId }: { userId: number }) {
   return (
     <UiLanguageProvider>
-      <MobileWorkspaceScoped key={userId} userId={userId} />
+      <MobileCaptureProvider key={userId} userId={userId}><MobileWorkspaceScoped userId={userId} /></MobileCaptureProvider>
     </UiLanguageProvider>
   );
 }

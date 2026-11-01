@@ -12,7 +12,7 @@ vi.mock("./useCreationFlowChat", () => ({ useCreationFlowChat: () => ({ busy: fa
 
 // This suite tests intent bubbles; the independent version panel owns its RPC context.
 vi.mock("@/features/publishingDraft/TextDraftVersions", () => ({
-  TextDraftVersions: () => null,
+  TextDraftVersions: () => <button>生成文章</button>,
 }));
 
 const fixtures = vi.hoisted(() => {
@@ -298,6 +298,18 @@ describe("StoryAgentContext background intent recognition", () => {
   });
 });
 
+const writingFixture = vi.hoisted(() => ({ enabled: false }));
+vi.mock("@/features/writingCompanion/desktopWritingSession", () => ({
+  useDesktopWritingSession: (selector: (state: unknown) => unknown) => selector({
+    session: writingFixture.enabled ? {
+      storyId: -1, accountId: null, epoch: 0,
+      snapshot: { draft: "已有文章", module: {
+        kind: "text", text: "已有文章", id: "test-module",
+      } },
+    } : null,
+  }),
+}));
+
 vi.mock("@/features/storyAgent/StoryAgentContext", async importOriginal => {
   const actual = await importOriginal<typeof import("./StoryAgentContext")>();
   return {
@@ -409,10 +421,18 @@ function renderChat() {
 
 describe("StoryAgentChat intent soft confirm", () => {
   beforeEach(() => {
+    writingFixture.enabled = false;
     fixtures.chatContextState.pendingIntentDraft = fixtures.jobIntent;
     fixtures.chatContextState.confirmedIntent = null;
     fixtures.chatContextState.isReplying = false;
     fixtures.chatContextState.activeSelection = null;
+  });
+
+  it("keeps article generation available when writing in a book module", () => {
+    writingFixture.enabled = true;
+    const html = renderChat();
+    expect(html).toContain("当前模块上下文");
+    expect(html).toContain("生成文章");
   });
 
   it("renders the reflect-back bubble when a pending job intent exists", () => {

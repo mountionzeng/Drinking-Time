@@ -12,6 +12,7 @@ import { ChapterTextModules } from './ChapterTextModules';
 import { BookBlockCanvas } from './BookBlockCanvas';
 import { ChapterWriting } from './ChapterWriting';
 import { DesktopWritingContext } from '../writingCompanion/DesktopWritingContext';
+import { useBookMediaSession } from './bookMediaSession';
 import { newWritingBlock } from './chapterBlockTree';
 
 function nodes(node: any): any[] { return !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]; }
@@ -168,6 +169,17 @@ it('forwards multiselection from canvas to the writing conversation and returns 
   expect(onContextChange.mock.lastCall?.[0].text).toBe('第一块');
 });
 
+it('mixed image/text selection closes the single-image edit session', () => {
+  const value='![图片](https://example.com/image.png)\n配图文字';
+  const draw=()=>render(()=>ChapterTextModules({value,onChange:vi.fn(),disabled:false,selection:{current:null},formatScope:'test-group',prepareMedia:async()=>{},contextSource:{storyId:7,scope:'mixed',chapterId:'2'}}));
+  let tree=draw();let canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
+  canvas.onSelect(canvas.blocks[0].id); tree=draw();
+  expect(useBookMediaSession.getState().session?.moduleId).toBe(canvas.blocks[0].id);
+  canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
+  canvas.onSelectionChange(canvas.blocks.map((block:any)=>block.id));draw();
+  expect(useBookMediaSession.getState().session).toBeNull();
+});
+
 it('inserts a conversion after its source, retains the original, and rejects a changed source', async()=>{
  const {BookModuleConvert}=await import('./BookModuleConvert');
  let value='第一段\n第二段';const prepareMedia=vi.fn(async()=>{});
@@ -200,4 +212,47 @@ it('editing a merged multiline module preserves its boundary, context, saving an
  canvas.children(canvas.blocks[0],0,{}).props.onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
  canvas=draw();expect(canvas.blocks.map((b:any)=>b.text)).toEqual(['甲\n\n乙','尾段']);
+});
+
+it('mobile module commands reuse conversion and merge, preserve lines and reject stale editors', async () => {
+  const { useBookModuleActions } = await import('./bookModuleActions');
+  const { BookModuleConvert } = await import('./BookModuleConvert');
+  let value = '第一段\n第二段\n第三段';
+  const draw = () => render(() => ChapterTextModules({ value, onChange: next => { value = next; },
+    prepareMedia: async () => {}, disabled: false, selection: { current: null },
+    contextSource: { storyId: 7, scope: '9:7:chapter:2', chapterId: '2' },
+  }));
+  draw();
+  const first = useBookModuleActions.getState().session!;
+  const [a, b, c] = first.modules;
+  first.convert(b.id, 'image');
+  let tree = draw();
+  expect(nodes(tree).find(node => node.type === BookModuleConvert).props.source).toEqual({ id: b.id, text: '第二段', kind: 'image' });
+  expect(() => first.merge([a.id, b.id])).toThrow('文章已变化');
+  useBookModuleActions.getState().session!.convert(c.id, 'music');
+  tree = draw();
+  expect(nodes(tree).find(node => node.type === BookModuleConvert).props.source).toMatchObject({ id: c.id, text: '第三段', kind: 'music' });
+  useBookModuleActions.getState().session!.merge([b.id, a.id]);
+  tree = draw();
+  const canvas = nodes(tree).find(node => node.type === BookBlockCanvas).props;
+  expect(canvas.blocks).toHaveLength(2);
+  expect(canvas.blocks[0]).toMatchObject({ id: a.id, text: '第一段\n第二段' });
+  expect(value).toBe('第一段\n第二段\n第三段');
+});
+
+it('applies generated prose through the mounted book editor, saving the original before the new version', async () => {
+  let version = 3;
+  const save = vi.fn(async (draft: any) => ({ id: 2, storyId: 7, version: ++version, title: draft.title, blocks: { body: draft.body, writingStyle: draft.writingStyle } }));
+  const tree = render(() => ChapterWriting({ chapter: {id:2,storyId:7,version:3,title:'原题',blocks:{body:'原稿'}} as any,
+    scope:'9:7',handle:{current:null},save,onChange:vi.fn(),disabled:false }));
+  const context = nodes(tree).find(node => node.type === DesktopWritingContext).props;
+  const editor = nodes(tree).find(node => node.type === ChapterTextModules).props;
+  editor.onChange('未保存的旧稿');
+  const expected = context.getSnapshot();
+  await context.applyGenerated('生成的新稿', expected);
+  expect(save.mock.calls.map(call => call[0].body)).toEqual(['未保存的旧稿','生成的新稿']);
+  expect(save.mock.calls[1][0].title).toBe('原题');
+  expect(context.getSnapshot().draft).toBe('生成的新稿');
+  await expect(context.applyGenerated('不能覆盖', expected)).rejects.toThrow('书稿已变化');
+  expect(save).toHaveBeenCalledTimes(2);
 });

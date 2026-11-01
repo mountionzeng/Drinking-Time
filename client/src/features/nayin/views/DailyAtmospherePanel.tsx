@@ -141,10 +141,11 @@ export default function DailyAtmospherePanel({
   const hasShownDetails = shownYi.length > 0 || shownJi.length > 0;
 
   if (compact) {
-    if (!hasShownDetails) return null;
+    if (!hasShownDetails) return <p className="px-5 py-3 text-xs text-muted-foreground">{loading ? "正在查询黄历…" : "这一天的黄历暂未获取到"}</p>;
 
     const compactContent = (
       <div className="px-5 py-5 sm:px-6 sm:py-6">
+        {!isPersonalized && almanac && <p className="mb-3 text-[10px] text-muted-foreground">{almanac.date} · {almanac.sourceLabel} · 传统黄历宜忌</p>}
         <div className="-mx-1 flex flex-nowrap items-center gap-6 overflow-x-auto px-1 pb-1">
           <div className="flex shrink-0 items-center gap-2">
             <div className="shrink-0 text-base font-medium leading-none text-foreground">

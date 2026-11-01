@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ImagePlus, LayoutTemplate, Music2, Video } from "lucide-react";
+import { ChevronDown, ImagePlus, Music2, Video } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export const STUDIO_CREATE_EVENT = "dt:studio-create";
@@ -34,16 +34,15 @@ export function StudioCreateMenu({
         <p className="px-2 py-2 text-xs text-muted-foreground">使用当前故事。图片、音乐会带上输入框里的要求；视频从已保存文案开始。</p>
         {(!hasStory || blocked) && (
           <p role="status" className="px-2 pb-2 text-xs text-muted-foreground">
-            {!hasStory ? "请先打开一个故事，再继续创作。" : "聊天正在处理内容，完成后可继续生成；现在也可以进入图文排版。"}
+            {!hasStory ? "请先打开一个故事，再继续创作。" : "聊天正在处理内容，完成后可继续生成。"}
           </p>
         )}
         {([
           ["image", "图片", ImagePlus],
           ["video", "视频", Video],
           ["music", "音乐", Music2],
-          ["layout", "图文排版", LayoutTemplate],
         ] as const).map(([kind, label, Icon]) => (
-          <button key={kind} type="button" disabled={!hasStory || (kind !== "layout" && blocked)}
+          <button key={kind} type="button" disabled={!hasStory || blocked}
             onClick={() => {
               if (!storyId || storyId <= 0) return;
               const request = { id: crypto.randomUUID(), storyId, kind, instruction: input.trim() };

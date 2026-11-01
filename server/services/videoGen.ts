@@ -5,8 +5,8 @@ import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
 
 type Fetcher = typeof fetch;
 const MJ_VIDEO_MODEL = "mj-video";
-const MJ_VIDEO_SUBMIT_PATH = "/mj/submit/video";
-const MJ_VIDEO_POLL_PATH = "/mj/task/{taskId}/fetch";
+const MJ_VIDEO_SUBMIT_PATH = "/mj-turbo/submit/video";
+const MJ_VIDEO_POLL_PATH = "/mj-turbo/task/{taskId}/fetch";
 
 export type ShotVideoInput = {
   prompt: string;
@@ -99,13 +99,13 @@ function configuredSubmitPath(): string {
 }
 
 function isMjVideoSubmitPath(path: string): boolean {
-  return normalizedPath(path) === MJ_VIDEO_SUBMIT_PATH;
+  return [MJ_VIDEO_SUBMIT_PATH, "/mj/submit/video"].includes(normalizedPath(path));
 }
 
 function configuredPollPath(submitPath = configuredSubmitPath()): string {
   const configured = normalizedPath(ENV.video302PollPath);
   return (
-    configured || (isMjVideoSubmitPath(submitPath) ? MJ_VIDEO_POLL_PATH : "")
+    configured || (isMjVideoSubmitPath(submitPath) ? (submitPath.startsWith("/mj-turbo/") ? MJ_VIDEO_POLL_PATH : "/mj/task/{taskId}/fetch") : "")
   );
 }
 
@@ -132,7 +132,7 @@ function requiresModel(submitPath: string): boolean {
 }
 
 function videoHeaders(path: string): Record<string, string> {
-  if (normalizedPath(path).startsWith("/mj/")) {
+  if (/^\/mj(?:-turbo)?\//.test(normalizedPath(path))) {
     return {
       "mj-api-secret": ENV.api302Key,
       "Content-Type": "application/json",

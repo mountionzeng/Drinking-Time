@@ -39,10 +39,11 @@ export async function runSponsoredSegmentation(input: {
   x: number;
   y: number;
   task: () => Promise<SegmentationResult>;
+  selectionKey?: string;
   now?: number;
 }): Promise<SegmentationResult> {
   const now = input.now ?? Date.now();
-  const pointKey = `${input.userId}:${input.storyId}:${input.imageId}:${Math.round(input.x / 4)}:${Math.round(input.y / 4)}`;
+  const pointKey = `${input.userId}:${input.storyId}:${input.imageId}:${input.selectionKey ?? `${Math.round(input.x / 4)}:${Math.round(input.y / 4)}`}`;
   const imageKey = `${input.userId}:${input.storyId}:${input.imageId}`;
   const hit = cached.get(pointKey);
   if (hit && hit.expiresAt > now) return hit.result;

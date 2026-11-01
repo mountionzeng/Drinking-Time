@@ -36,6 +36,7 @@ import { formatStoryTimestamp } from "@/features/storyAgent/storyTimestamp";
 import { cn } from "@/lib/utils";
 
 export type MobileStorySummary = {
+  tags?: string[];
   id: number;
   title: string;
   logline?: string | null;

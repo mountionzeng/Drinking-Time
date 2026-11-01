@@ -1,3 +1,4 @@
+import { assertCurrentApp } from '@/features/appVersion/releaseCheck';
 import { trpc } from "@/lib/trpc";
 import { refreshComputeAfterMutation } from "@/features/computeAccount/computeBalanceRefresh";
 import {
@@ -35,6 +36,7 @@ const httpLinkOptions = {
   url: "/api/trpc",
   transformer: superjson,
   fetch(input: URL | RequestInfo, init?: RequestInit) {
+    if (init?.method?.toUpperCase() === 'POST') assertCurrentApp();
     return globalThis.fetch(input, {
       ...(init ?? {}),
       credentials: "include",

@@ -13,6 +13,7 @@ import {
 } from "./db";
 import { appRouter } from "./routers";
 import { resetPreviewMaskedImageOperationsForTesting } from "./services/previewMaskedImageEditing";
+import * as segmentation from "./services/segmentation";
 import { resume302GptImageTask } from "./services/imageGen";
 
 vi.mock("./services/imageGen", async importOriginal => {
@@ -292,6 +293,7 @@ describe("creationAgent Preview object mask editing", () => {
   });
 
   it("recovers an accepted provider task without submitting another paid edit", async () => {
+    vi.spyOn(segmentation, "resolveStoredMaskUrl").mockResolvedValue("/mask.png");
     const { story, source } = await seed();
     const caller = appRouter.createCaller(context());
     const maskKey = `masks/${OWNER}/${story.id}/${source.id}/mask-edit.png`;
@@ -343,6 +345,6 @@ describe("creationAgent Preview object mask editing", () => {
         confirmation: quoted.quote,
       })
     ).resolves.toMatchObject({ status: "ok", image: { imageUrl: "/recovered.png", isCurrent: false } });
-    expect(resume302GptImageTask).toHaveBeenCalledWith("task-recoverable");
+    expect(resume302GptImageTask).toHaveBeenCalledWith("task-recoverable", expect.objectContaining({ referenceImageUrl: expect.any(String), editMaskImageUrl: expect.any(String), localImagePatch: true }));
   });
 });

@@ -1,3 +1,4 @@
+vi.mock("./MobileStoryTags", () => ({MobileStoryTags:()=> <div>故事标签</div>}));
 import React from "react";
 import { MobileStoryMemories } from "./MobileStoryMemories";
 vi.mock("./MobileTextDraftFlow", () => ({

@@ -1,3 +1,4 @@
+import { shotVideoPriceProfile } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
 import { useShotImageRender } from "./useShotImageRender";
@@ -2689,7 +2690,8 @@ export function StoryboardReviewBoard({
       source, shot, matrixDraftsRef.current.get(identity),
       startEndTuningOverrides[source?.stableShotId ?? source?.shotIdentity ?? ""] ?? {},
       creationShots,
-      loadShotRenderSettings(storyId ?? 0, identity, materialState).count
+      loadShotRenderSettings(storyId ?? 0, identity, materialState).count,
+      shotVideoPriceProfile(shotVideoProviderStatus?.submitPath)
     );
   };
 
@@ -2917,7 +2919,8 @@ export function StoryboardReviewBoard({
       }
       const plan = quickShotVideoRenderPlan(
         effectiveShot,
-        previousCreationShotsByNo.get(effectiveShot.shotNo) ?? []
+        previousCreationShotsByNo.get(effectiveShot.shotNo) ?? [],
+        shotVideoPriceProfile(shotVideoProviderStatus?.submitPath)
       );
       if (plan.missing.length > 0) {
         throw new Error(`${label} 还缺少：${plan.missing.join("、")}`);

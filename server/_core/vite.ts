@@ -67,6 +67,7 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx?v=${nanoid()}"`
       );
       const page = await vite.transformIndexHtml(url, template);
+      noStore(res);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -106,7 +107,7 @@ export function serveStatic(app: Express) {
   app.use(
     express.static(distPath, {
       setHeaders(res, filePath) {
-        if (filePath.endsWith("index.html")) {
+        if (filePath.endsWith("index.html") || filePath.endsWith("app-release.json")) {
           noStore(res);
           return;
         }

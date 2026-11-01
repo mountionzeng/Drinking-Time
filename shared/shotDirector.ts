@@ -63,13 +63,23 @@ export type ShotVideoCostEstimate = {
   aspectRatio: typeof SHOT_VIDEO_ASPECT_RATIO;
 };
 
+export type ShotVideoPriceProfile = "mj-turbo" | "legacy";
+
+export function shotVideoPriceProfile(submitPath: string | null | undefined): ShotVideoPriceProfile {
+  return /^\/mj(?:-turbo)?\/submit\/video\/?$/.test(submitPath?.trim() ?? "") ? "mj-turbo" : "legacy";
+}
+
 export function estimateShotVideoCost(input: {
   durationSec: number;
   motion: ShotVideoMotion;
+  priceProfile?: ShotVideoPriceProfile;
 }): ShotVideoCostEstimate {
+  // 302 MJ-Turbo video: one task produces four 5-second candidates, 0.6 PTC.
+  // Motion does not affect price. Use the same PTC/CNY baseline as image quotes.
   const durationSec = Math.max(3, Math.min(10, input.durationSec));
-  // 与现有 302 转场预算基线保持一致；高运动量预留额外计算预算。
-  const raw = durationSec * 0.175 * (input.motion === "high" ? 1.2 : 1);
+  const raw = input.priceProfile === "mj-turbo"
+    ? (0.6 / 0.052) * 0.35
+    : durationSec * 0.175 * (input.motion === "high" ? 1.2 : 1);
   return {
     currency: "CNY",
     estimatedCny: Math.ceil(raw * 100) / 100,

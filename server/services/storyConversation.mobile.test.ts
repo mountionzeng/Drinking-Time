@@ -148,6 +148,51 @@ describe("mobile Story conversation turns", () => {
     ]);
   });
 
+  it("preserves a saved mobile turn when desktop reopens an older story body", async () => {
+    const { caller, story } = await seedStory();
+    const input = { ...turnInput(story.id, "desktop-reopen"), userId: 801 };
+    await generateMobileStoryConversationTurn(input, {
+      generateReply: async () => ({ reply: "手机刚刚保存的回答" }),
+    });
+    await appendMobileStoryConversationTurn(input);
+    // Desktop opens both the old Story body and its prompt projection.
+    await caller.storyAgent.storyGet({ id: story.id });
+    await caller.promptLineage.getStoryProjection({ storyId: story.id });
+    await caller.promptLineage.getStoryProjection({ storyId: story.id });
+    expect((await caller.storyConversation.list({ storyId: story.id })).messages.map(m => m.content))
+      .toEqual([input.userContent, "手机刚刚保存的回答"]);
+    expect(await getMobileStoryConversationTurnStatus(input)).toMatchObject({
+      status: "completed", turn: { appendStatus: "appended" },
+    });
+  });
+
+  it("preserves an in-flight mobile turn when a changed legacy draft is projected", async () => {
+    const { caller, story } = await seedStory();
+    const input = { ...turnInput(story.id, "pending-reopen"), userId: 801 };
+    await generateMobileStoryConversationTurn(input, {
+      generateReply: async () => {
+        // Change an old body field while the reply is outstanding.
+        await caller.storyAgent.storyUpsert({ id: story.id, title: "改过的故事标题" });
+        await caller.promptLineage.getStoryProjection({ storyId: story.id });
+        return { reply: "迟到但不能丢失的回答" };
+      },
+    });
+    await appendMobileStoryConversationTurn(input);
+    expect((await caller.storyConversation.list({ storyId: story.id })).messages.map(m => m.content))
+      .toEqual([input.userContent, "迟到但不能丢失的回答"]);
+  });
+
+  it("preserves directly appended desktop dialogue when legacy projection is refreshed", async () => {
+    const { caller, story } = await seedStory();
+    await caller.storyConversation.appendTurn({ storyId: story.id,
+      userMessage: { clientMessageId: "new-desktop-user", content: "新的桌面对话" },
+      assistantMessage: { clientMessageId: "new-desktop-assistant", content: "桌面回答" },
+    });
+    await caller.promptLineage.getStoryProjection({ storyId: story.id });
+    expect((await caller.storyConversation.list({ storyId: story.id })).messages.map(m => m.content))
+      .toEqual(["新的桌面对话", "桌面回答"]);
+  });
+
   it("recovers a completed response and exact append retry without another model call", async () => {
     const { caller, story } = await seedStory();
     const input = turnInput(story.id, "lost-response");

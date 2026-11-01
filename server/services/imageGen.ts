@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { guardComputeFetch } from "./computeRequestAccess";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,8 +17,9 @@ import {
   singleFrameNegativeTermsForPrompt,
   withSingleFramePromptConstraint,
 } from "@shared/singleFramePrompt";
-import { STORYBOARD_MASKED_EDIT_PROFILE } from "@shared/imageRenderCost";
+import { STORYBOARD_MASKED_EDIT_PROFILE, LOCAL_IMAGE_PATCH_PROFILE } from "@shared/imageRenderCost";
 import { compositeMaskedEditPixels } from "./imageMaskComposite";
+import { prepareLocalImagePatch, compositeLocalImagePatch, localImagePatchPrompt } from "./localImagePatch";
 import { resolveVisionComputeProvider } from "./textComputeProvider";
 import {
   circuitBreakerMessage,
@@ -99,6 +101,8 @@ export interface ImageGenOptions {
   mjTimeoutMs?: number;
   /** 302 GPT-image synchronous generation budget; high-quality images often exceed 30s. */
   gptTimeoutMs?: number;
+  /** Explicitly quoted GPT 2 generation; omitted callers retain their configured model. */
+  gptImageModel?: "gpt-image-2";
   /** Poll interval for 302 GPT-image asynchronous jobs. */
   gptPollIntervalMs?: number;
   /** 主角参照（MJ --oref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
@@ -129,6 +133,8 @@ export interface ImageGenOptions {
   preferStructuralEdit?: boolean;
   /** GPT-image transparent mask; alpha=0 is the only editable region. */
   editMaskImageUrl?: string;
+  /** Confirmed local edit: generate a low-cost crop, then extract an RGBA patch. */
+  localImagePatch?: boolean;
   /** Called after 302 accepts an MJ task, before the first poll. */
   onMidjourneyTaskAccepted?: (taskId: string) => void | Promise<void>;
   /** Called after any asynchronous provider accepts a paid task. */
@@ -138,7 +144,6 @@ export interface ImageGenOptions {
 // ── 常量 ──
 
 const GENERATE_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1-ultra";
-const INPAINT_URL = "https://queue.fal.run/fal-ai/flux-pro/v1/fill";
 const FORGE_IMAGE_PATH = "images.v1.ImageService/GenerateImage";
 const TIMEOUT_MS = 30_000;
 // 302 high-quality GPT-image jobs can remain queued for several minutes.
@@ -364,7 +369,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 function makeStorageKey(): string {
-  return `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+  // 文件名不可猜：时间戳仅用于排序，随机部分用 CSPRNG 的 UUID。
+  return `generated/${Date.now()}-${randomUUID()}.png`;
 }
 
 function normalizeBaseUrl(raw: string): string {
@@ -1221,7 +1227,7 @@ async function generate302GptImage(
       "/v1/images/generations",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
-    endpoint.searchParams.set("response_format", "url");
+    if (!options.gptImageModel) endpoint.searchParams.set("response_format", "url");
     // 302 explicitly recommends async image generation. The synchronous
     // connection is routinely closed by the gateway before a high-quality
     // image is ready, even though the paid job may still be running.
@@ -1232,7 +1238,7 @@ async function generate302GptImage(
         method: "POST",
         headers: build302Headers("openai"),
         body: JSON.stringify({
-          model: ENV.image302GptModel,
+          model: options.gptImageModel ?? ENV.image302GptModel,
           prompt,
           size: gptImageSizeFor(options.aspectRatio),
           n: 1,
@@ -1292,6 +1298,21 @@ async function generate302GptImage(
   }
 }
 
+async function storeGptEditResult(payload: unknown, options: ImageGenOptions, fetcher: Fetcher): Promise<ImageGenResult> {
+  if (!options.editMaskImageUrl) return storeImageFromOpenAIJson(payload, fetcher, "302 GPT-image 没有返回图片。");
+  if (!options.referenceImageUrl) throw new Error("局部修改缺少原图，不能采用生成结果");
+  const [source, mask, generated] = await Promise.all([
+    readImageInput(options.referenceImageUrl, fetcher),
+    readImageInput(options.editMaskImageUrl, fetcher),
+    readImageBytesFromOpenAIJson(payload, fetcher),
+  ]);
+  if (!generated) throw new Error("302 图生图没有返回图片。");
+  const pixels = options.localImagePatch
+    ? (await compositeLocalImagePatch(source.bytes, generated, mask.bytes)).compositedPng
+    : await compositeMaskedEditPixels(source.bytes, generated, mask.bytes);
+  return storeImageBytes(pixels, "image/png");
+}
+
 async function poll302GptImageTask(
   taskId: string,
   options: ImageGenOptions,
@@ -1332,11 +1353,7 @@ async function poll302GptImageTask(
         typeof polled.data === "string"
           ? { data: [{ url: polled.data }] }
           : polled.data;
-      return await storeImageFromOpenAIJson(
-        payload,
-        fetcher,
-        "302 GPT-image 没有返回图片。"
-      );
+      return await storeGptEditResult(payload, options, fetcher);
     }
     if (polled.err && !/pending|processing|running/i.test(polled.err)) {
       throw new Error(polled.err);
@@ -1346,7 +1363,17 @@ async function poll302GptImageTask(
       polled.status_code !== 202 &&
       !(polled.status_code === 200 && polled.err)
     ) {
-      throw new Error(`异步任务失败（状态 ${polled.status_code}）`);
+      let failure = polled.data;
+      if (typeof failure === "string") {
+        try { failure = JSON.parse(failure); } catch { failure = null; }
+      }
+      const code = (failure as { error?: { err_code?: unknown } } | null)?.error?.err_code;
+      // The gateway wraps the upstream error in data, even when polling is HTTP 200.
+      // Do not echo arbitrary provider payloads (which may contain request credentials).
+      const reason = code === -10003
+        ? "生成服务拒绝了请求参数"
+        : code === -10008 ? "生成服务当前没有可用模型" : "异步任务失败";
+      throw new Error(`${reason}（状态 ${polled.status_code}${typeof code === "number" ? `，错误码 ${code}` : ""}）`);
     }
   }
 
@@ -1360,7 +1387,8 @@ export async function resume302GptImageTask(
   const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   try {
     const result = await poll302GptImageTask(taskId, options, fetcher);
-    if (result.status === "ok") recordSuccess();
+    if (result.status !== "ok") return { ...result, providerTaskId: taskId };
+    recordSuccess();
     return result;
   } catch (error) {
     const message = `302 GPT-image 任务恢复失败：${readableError(error, "未知错误")}`;
@@ -1462,55 +1490,47 @@ async function generate302GptImageEdit(
     const mask = options.editMaskImageUrl
       ? await readImageInput(options.editMaskImageUrl, fetcher)
       : null;
-    // 遮罩必须和唯一的底图逐像素对齐，带遮罩时不能再追加参考图。
-    // 没有遮罩时，相邻镜头与用户点名的图片都要一起送进去：提示词里写了
-    // 「图2 的裙子」「和前后镜头不要跳戏」，模型就必须真的看得到那几张图。
-    // primaryReferenceLock 是 MJ 等权垫图的顾虑，这里每张图的职责由提示词指明，不受它限制。
-    const contextSources = mask
-      ? []
-      : await Promise.all(
-          Array.from(
-            new Set(
-              (options.referenceContextImageUrls ?? [])
-                .filter(Boolean)
-                .filter(url => url !== imageUrl)
-            )
-          )
-            .slice(0, 3)
-            .map(url => readImageInput(url, fetcher))
-        );
+    const patch = options.localImagePatch && mask
+      ? await prepareLocalImagePatch(source.bytes, mask.bytes) : null;
+    if (options.localImagePatch && !patch) throw new Error("局部补片缺少已确认选区");
+    const editSource = patch ? { bytes: patch.referencePng, mimeType: "image/png", filename: "detail.png" } : source;
+    const contextSources = patch
+      ? [{ bytes: patch.overviewPng, mimeType: "image/png", filename: "style-overview.png" }]
+      : mask ? [] : await Promise.all(
+          Array.from(new Set((options.referenceContextImageUrls ?? []).filter(Boolean).filter(url => url !== imageUrl)))
+            .slice(0, 3).map(url => readImageInput(url, fetcher)));
     const endpoint = new URL(
       "/v1/images/edits",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
-    endpoint.searchParams.set("response_format", "url");
-    // Ordinary reference edits can outlive a synchronous gateway connection.
-    // Keep masked edits synchronous: their result still needs pixel compositing.
-    endpoint.searchParams.set("async", mask ? "false" : "true");
+    // Both whole and masked edits may outlive the gateway connection. Persist
+    // the receipt first; composite the completed result against the original mask.
+    endpoint.searchParams.set("async", "true");
 
     const form = new FormData();
     form.append(
       "model",
-      mask || options.referenceRevision ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
+      patch ? LOCAL_IMAGE_PATCH_PROFILE.model : mask || options.referenceRevision || options.preferStructuralEdit ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
     );
-    form.append("prompt", prompt);
+    form.append("prompt", patch ? localImagePatchPrompt(prompt) : prompt);
     form.append(
       "size",
-      mask || options.referenceRevision
+      patch ? LOCAL_IMAGE_PATCH_PROFILE.size : mask || options.referenceRevision
         ? STORYBOARD_MASKED_EDIT_PROFILE.size
         : gptImageSizeFor(options.aspectRatio)
     );
     form.append("n", "1");
     form.append(
       "quality",
-      mask || options.referenceRevision
+      patch ? LOCAL_IMAGE_PATCH_PROFILE.quality : mask || options.referenceRevision
         ? STORYBOARD_MASKED_EDIT_PROFILE.quality
         : gptQualityFor(options.fidelity)
     );
     form.append("output_format", "png");
+    if (patch) form.append("input_fidelity", LOCAL_IMAGE_PATCH_PROFILE.inputFidelity);
     if (contextSources.length > 0) {
       // 多图编辑：底图必须排在第一位，提示词里的「图1」指的就是它。
-      for (const input of [source, ...contextSources]) {
+      for (const input of [editSource, ...contextSources]) {
         form.append(
           "image[]",
           new Blob([input.bytes as any], { type: input.mimeType }),
@@ -1523,14 +1543,14 @@ async function generate302GptImageEdit(
     } else {
       form.append(
         "image",
-        new Blob([source.bytes as any], { type: source.mimeType }),
-        source.filename
+        new Blob([editSource.bytes as any], { type: editSource.mimeType }),
+        editSource.filename
       );
     }
     if (mask) {
       form.append(
         "mask",
-        new Blob([mask.bytes as any], { type: "image/png" }),
+        new Blob([(patch?.maskPng ?? mask.bytes) as any], { type: "image/png" }),
         "mask.png"
       );
     }
@@ -1546,7 +1566,11 @@ async function generate302GptImageEdit(
     );
 
     if (!response.ok) {
-      const message = `302 图生图暂时不可用（HTTP ${response.status}）。`;
+      const failure = await response.json().catch(() => null) as { error?: { err_code?: number } } | null;
+      const reason = failure?.error?.err_code === -10003
+        ? "生成服务拒绝了请求参数"
+        : failure?.error?.err_code === -10008 ? "生成服务当前没有可用模型" : "302 图生图暂时不可用";
+      const message = `${reason}（HTTP ${response.status}）。`;
       recordProviderFailure("gpt-image", message);
       return {
         status: "error",
@@ -1558,36 +1582,14 @@ async function generate302GptImageEdit(
     const receipt = responseJson && typeof responseJson === "object"
       ? responseJson as Record<string, unknown> : {};
     const taskId = receipt.task_id || receipt.taskId || receipt.id;
-    if (!mask && typeof taskId === "string" && taskId && !Array.isArray(receipt.data)) {
+    if (typeof taskId === "string" && taskId && !Array.isArray(receipt.data)) {
       acceptedTaskId = taskId;
       await options.onProviderTaskAccepted?.(taskId);
-      const result = await poll302GptImageTask(taskId, options, fetcher);
+      const result = await resume302GptImageTask(taskId, { ...options, fetcher,
+        ...(mask ? { referenceImageUrl: imageUrl } : {}) });
       return result.status === "ok" ? result : { ...result, providerTaskId: taskId };
     }
-    const stored = mask
-      ? await (async () => {
-          const generatedBytes = await readImageBytesFromOpenAIJson(
-            responseJson,
-            fetcher
-          );
-          if (!generatedBytes) {
-            return {
-              status: "error",
-              message: "302 图生图没有返回图片。",
-            } satisfies ImageGenResult;
-          }
-          const composited = await compositeMaskedEditPixels(
-            source.bytes,
-            generatedBytes,
-            mask.bytes
-          );
-          return storeImageBytes(composited, "image/png");
-        })()
-      : await storeImageFromOpenAIJson(
-          responseJson,
-          fetcher,
-          "302 图生图没有返回图片。"
-        );
+    const stored = await storeGptEditResult(responseJson, { ...options, referenceImageUrl: imageUrl }, fetcher);
     if (stored.status !== "ok") {
       recordFailure();
       return stored;
@@ -1949,11 +1951,14 @@ async function generate302MidjourneyImage(
     }
 
     if (!submitResponse.ok) {
-      recordFailure();
-      return {
-        status: "error",
-        message: `302 Midjourney submit HTTP ${submitResponse.status}`,
-      };
+      // 302 also uses HTTP 429 for upstream model overload, not just caller rate limits.
+      // Only map the known reason; never expose raw provider payloads or trace IDs.
+      const failure = await submitResponse.json().catch(() => null) as { error?: { message?: unknown } } | null;
+      const overloaded = submitResponse.status === 429 && typeof failure?.error?.message === "string" &&
+        /\bmodel is overloaded\b/i.test(failure.error.message);
+      const message = overloaded ? "图片模型当前过载，请稍后再试。" : `302 Midjourney submit HTTP ${submitResponse.status}`;
+      recordProviderFailure("midjourney", message);
+      return { status: "error", message };
     }
 
     const submitJson = (await submitResponse.json()) as {
@@ -2162,99 +2167,5 @@ async function poll302MidjourneyTask(
     );
     recordProviderFailure("midjourney", message);
     return { status: "error", message, providerTaskId: taskId };
-  }
-}
-
-export async function inpaintImage(
-  imageUrl: string,
-  maskUrl: string,
-  prompt: string,
-  options: ImageGenOptions = {}
-): Promise<ImageGenResult> {
-  // 没配 fal key 就快速失败：局部重绘走的是 fal 的 flux-fill（INPAINT_URL=queue.fal.run），
-  // 没有 302 等价端点。不加守卫就会裸 fetch 打 fal.run —— 国内网络多半连不上、挂到 30s 后
-  // 被 withTimeout 抛出看不懂的 "timeout"。这里提前给清晰中文提示，瞬间返回、不打网络。
-  if (!ENV.falApiKey) {
-    return {
-      status: "error",
-      message:
-        "局部重绘依赖 fal.ai（需配置 FAL_KEY），当前未配置，暂时用不了。",
-    };
-  }
-
-  if (isCircuitOpen()) {
-    return { status: "error", message: circuitBreakerMessage() };
-  }
-
-  const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
-
-  try {
-    const body: Record<string, unknown> = {
-      image_url: imageUrl,
-      mask_url: maskUrl,
-      prompt,
-    };
-    if (options.seed !== undefined) {
-      body.seed = options.seed;
-    }
-
-    const response = await withTimeout(
-      fetcher(INPAINT_URL, {
-        method: "POST",
-        headers: buildHeaders(),
-        body: JSON.stringify(body),
-      }),
-      TIMEOUT_MS
-    );
-
-    if (!response.ok) {
-      recordFailure();
-      return { status: "error", message: `fal.ai API HTTP ${response.status}` };
-    }
-
-    const json = (await response.json()) as {
-      images?: Array<{ url: string; width?: number; height?: number }>;
-      seed?: number;
-    };
-
-    const resultUrl = json.images?.[0]?.url;
-    if (!resultUrl) {
-      recordFailure();
-      return { status: "error", message: "fal.ai returned no images" };
-    }
-
-    // Download the inpainted image and upload to storage
-    const imageResponse = await withTimeout(
-      fetcher(resultUrl, { method: "GET" }),
-      TIMEOUT_MS
-    );
-
-    if (!imageResponse.ok) {
-      recordFailure();
-      return {
-        status: "error",
-        message: `Failed to download inpainted image: HTTP ${imageResponse.status}`,
-      };
-    }
-
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const storageKey = makeStorageKey();
-    const stored = await storagePut(
-      storageKey,
-      new Uint8Array(imageBuffer),
-      "image/png"
-    );
-
-    recordSuccess();
-    return {
-      status: "ok",
-      imageUrl: stored.url,
-      imageKey: stored.key,
-    };
-  } catch (error) {
-    recordFailure();
-    const message =
-      error instanceof Error ? error.message : "inpainting failed";
-    return { status: "error", message };
   }
 }

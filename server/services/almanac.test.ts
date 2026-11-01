@@ -173,3 +173,14 @@ describe("almanac service", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+ it("rejects a successful provider response for a different date", () => {
+  for (const provider of ["tianapi", "jisu"] as const) {
+    const result = normalizeProviderResponse("2026-10-29", provider, {
+      code: provider === "tianapi" ? 200 : 0,
+      result: { date: "2026-10-28", fitness: "出行", yi: "出行" },
+    });
+    expect(result.status).toBe("unavailable");
+    expect(result.yi).toEqual([]);
+  }
+});

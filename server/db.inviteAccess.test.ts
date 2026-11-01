@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   bindRedeemedInviteToUser,
   createEmailOtp,
+  consumeEmailOtp,
+  findLatestActiveEmailOtp,
   createInviteCode,
   findAvailableInviteCode,
   findInviteCodeForEmailAccess,
@@ -71,5 +73,21 @@ describe("邀请码与本地邮箱验证码", () => {
     expect(otp).not.toBeNull();
     await markEmailOtpUsed(otp!.id);
     expect(await findValidEmailOtp("local@example.com", "123456")).toBeNull();
+  });
+
+  it("新码作废旧码，且验证码只能被原子消费一次", async () => {
+    const expires = new Date(Date.now() + 60_000);
+    await createEmailOtp("atomic@example.com", "digest-old", expires);
+    await createEmailOtp("atomic@example.com", "digest-new", expires);
+    expect(await findValidEmailOtp("atomic@example.com", "digest-old")).toBeNull();
+    const latest = await findLatestActiveEmailOtp("atomic@example.com");
+    expect(latest?.code).toBe("digest-new");
+
+    const results = await Promise.all([
+      consumeEmailOtp(latest!.id),
+      consumeEmailOtp(latest!.id),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await findLatestActiveEmailOtp("atomic@example.com")).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { readBookVideoSource } from "./bookVideoSource";
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -103,6 +104,7 @@ type PreviewContext = {
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
   storyId: number;
   userId: number;
   storyRevision: number;
@@ -192,6 +194,7 @@ async function loadPreviewContext(input: {
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
 }): Promise<PreviewContext> {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) {
@@ -212,7 +215,10 @@ async function loadPreviewContext(input: {
       "静态画册版本不能进入视频故事版流程"
     );
   }
-  const draft = version.drafts[version.activePlatform];
+  let draft = version.drafts[version.activePlatform];
+  const bookSource = input.bookSource ? await readBookVideoSource(input) : null;
+  if(input.bookSource && !bookSource) throw new PublishingVideoStoryboardEligibilityError("当前书稿不存在");
+  if(bookSource && draft) draft={...draft,content:{...draft.content,body:bookSource.layout.body}};
   if (!draft || !draft.content.body.trim()) {
     throw new PublishingVideoStoryboardEligibilityError(
       "请先保存一份非空文字稿"
@@ -241,6 +247,10 @@ async function loadPreviewContext(input: {
     storyRevision,
     body,
   });
+  if(bookSource) {
+    request.source.bookContentHash=bookSource.sourceHash;
+    request.hash=createHash("sha256").update(`${request.hash}:${bookSource.sourceHash}`).digest("hex");
+  }
   if (input.articleLayout) {
     request.source.articleLayoutHash = createHash("sha256")
       .update(
@@ -261,6 +271,7 @@ async function loadPreviewContext(input: {
     articleLayout: input.articleLayout,
     narrativeSpec: input.narrativeSpec,
     creativeIntent: input.creativeIntent,
+    bookSource: input.bookSource,
     storyId: input.storyId,
     userId: input.userId,
     storyRevision,
@@ -314,6 +325,7 @@ async function claimPreviewOperation(input: {
   articleLayout?: PublishingArticleLayout;
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
   now: number;
 }): Promise<
   | { status: "claimed"; context: PreviewContext }
@@ -404,6 +416,7 @@ async function completePreviewOperation(input: {
       articleLayout: input.claimed.articleLayout,
       narrativeSpec: input.claimed.narrativeSpec,
       creativeIntent: input.claimed.creativeIntent,
+      bookSource: input.claimed.bookSource,
     });
     const aggregate =
       latest.version.videoStoryboard ??
@@ -540,6 +553,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
   userId: number;
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
   operationToken?: string;
   versionId?: string;
   articleLayout?: PublishingArticleLayout;
@@ -586,6 +600,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
     articleLayout: input.articleLayout,
     narrativeSpec: input.narrativeSpec,
     creativeIntent: input.creativeIntent,
+    bookSource: input.bookSource,
     now,
   });
   if (claim.status === "pending") {
@@ -652,6 +667,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
   /** 用户在「进入视频制作」时选的规格；不传则沿用 version 上已存的 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
   articleLayout?: PublishingArticleLayout;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
@@ -703,6 +719,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
     previewId: generated.preview.previewId,
     narrativeSpec: input.narrativeSpec,
     creativeIntent: input.creativeIntent,
+    bookSource: input.bookSource,
     operationToken: `${operationToken}:confirm`,
     now: input.now,
   });
@@ -982,6 +999,7 @@ export async function confirmPublishingVideoStoryboard(input: {
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
+  bookSource?: boolean;
   operationToken?: string;
   now?: number;
 }): Promise<PublishingVideoConfirmationResult> {
@@ -992,6 +1010,7 @@ export async function confirmPublishingVideoStoryboard(input: {
       storyId: input.storyId,
       userId: input.userId,
       versionId: input.versionId,
+      bookSource:input.bookSource,
     });
     const aggregate =
       context.version.videoStoryboard ??
@@ -1056,6 +1075,7 @@ export async function confirmPublishingVideoStoryboard(input: {
         previewSource.draftRevision === context.source.draftRevision &&
         previewSource.storyboardRevision ===
           context.source.storyboardRevision &&
+        previewSource.bookContentHash === context.source.bookContentHash &&
         previewSource.canonicalContentHash ===
           context.source.canonicalContentHash &&
         previewSource.formalCoverAssetId === context.source.formalCoverAssetId
@@ -1160,7 +1180,7 @@ export async function confirmPublishingVideoStoryboard(input: {
           preview.source?.platform ?? context.version.activePlatform,
         groupId,
         confirmedRevision,
-        durationMs: rhythmDurations[index],
+        durationMs: shot.durationSec != null ? Math.round(shot.durationSec * 1000) : rhythmDurations[index],
       });
       const previous = previousByDraftShotId.get(shot.draftShotId);
       const current = previous?.stableShotId

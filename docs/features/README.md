@@ -4,6 +4,12 @@
 `docs/plans/` 的实现决策。Agent 在改相关代码前先读
 `feature-ledger.json`，完成工作后更新所属功能卡的证据、缺口和历史。
 
+## 按需读取
+
+`pnpm feature:context memorySpace` 搜索名称、ID、用户价值、入口和权威代码路径；多词按同时匹配处理。不传关键词列出全部功能的 ID、状态和名称。
+
+`pnpm feature:context --id memory-bookshelf-people` 输出当前功能卡，保留全部约束、依赖、缺口与证据，只省略 `history`。它直接读取本目录原账本，不维护第二份索引。需要历史决策时再读取原卡的 `history`；没有搜索结果不代表可以删除功能，应换关键词或查看完整列表。
+
 ## 状态
 
 - `working`：真实入口和自动化证据均已通过。

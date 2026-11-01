@@ -24,6 +24,7 @@ import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { useMobileConversation } from "./useMobileConversation";
 import type { MobileConversationRecoveryTurn } from "./mobileConversationStore";
 import { MobileVoiceInput } from "./MobileVoiceInput";
+import { MobileCaptureAttachments, MobileCaptureButton, MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
 
 export type MobileConversationController = ReturnType<
   typeof useMobileConversation
@@ -186,7 +187,9 @@ export function MobileChatView({
   greeting,
   composerDisabled = false,
   onVoiceBusyChange,
+  capture,
 }: {
+  capture?: CaptureController;
   controller: MobileConversationController;
   storyTitle: string;
   /** 常驻输入条那一档：只留输入行，消息区收起来（连它的内距一起）。 */
@@ -257,6 +260,7 @@ export function MobileChatView({
   }, [controller.messages.length, controller.recoveryTurns.length]);
 
   const send = () => {
+    if (capture?.active) { if(!composerDisabled && !voiceBusy) void capture.submit(); return; }
     const content = draft.trim();
     if (!content || !controller.canSend || composerDisabled || voiceBusy)
       return;
@@ -398,6 +402,7 @@ export function MobileChatView({
           </div>
         ) : null}
         <div ref={endRef} aria-hidden="true" />
+        {capture && <MobileCaptureReceipts capture={capture} storyId={controller.storyId} />}
       </div>
 
       {/*
@@ -431,7 +436,10 @@ export function MobileChatView({
         className="mobile-workspace-composer shrink-0 border-t border-border/70 bg-background/95 px-3 pt-3 backdrop-blur"
         onSubmit={handleSubmit}
       >
+        {capture && <MobileCaptureAttachments capture={capture} />}
         <div className="mx-auto flex max-w-2xl items-end gap-2">
+          {capture && <MobileCaptureButton capture={capture} />}
+          {!capture?.active &&
           <MobileVoiceInput
             disabled={composerDisabled || controller.historyState === "loading"}
             onBusyChange={setVoiceBusy}
@@ -440,10 +448,11 @@ export function MobileChatView({
               setAnnouncement("语音已转成文字，请确认后发送");
             }}
           />
+          }
           <Textarea
             aria-label={t("给聊聊发送消息")}
             className="max-h-32 min-h-11 resize-none rounded-2xl bg-background px-4 py-3 leading-5 shadow-sm"
-            disabled={controller.historyState === "loading" || composerDisabled}
+            disabled={controller.historyState === "loading" || composerDisabled || capture?.busy || capture?.locked}
             placeholder={t("继续聊聊…")}
             rows={1}
             value={draft}
@@ -473,8 +482,9 @@ export function MobileChatView({
             aria-label={t("发送消息")}
             className="size-11 rounded-full"
             disabled={
-              !draft.trim() ||
-              !controller.canSend ||
+              (!draft.trim() && !capture?.files.length) ||
+              (!capture?.active && !controller.canSend) ||
+              capture?.busy || capture?.recording ||
               composerDisabled ||
               voiceBusy
             }

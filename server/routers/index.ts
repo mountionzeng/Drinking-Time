@@ -1,6 +1,8 @@
+import { bookVideoRouter } from "./bookVideo";
 import { bookMediaRouter } from "./bookMedia";
 import { upsertUser } from "../repositories/users";
 import { memorySpaceRouter } from "./memorySpace";
+import { materialCaptureRouter } from "./materialCapture";
 import { feedbackRouter } from "./feedback";
 import { adminComputeRouter } from "./adminCompute";
 import { adminUsersRouter } from "./adminUsers";
@@ -295,6 +297,7 @@ function mergeGuestAnalysisSeed({
 // ─── Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
+  materialCapture: materialCaptureRouter,
   system: systemRouter,
 
   auth: router({
@@ -308,7 +311,9 @@ export const appRouter = router({
         await upsertUser({ openId: ctx.user.openId, name: input.name });
         return { name: input.name };
       }),
-    claimLoginGift: protectedProcedure.mutation(({ ctx }) => claimWebLoginGift(ctx.user)),
+    claimLoginGift: protectedProcedure.mutation(({ ctx }) => claimWebLoginGift(ctx.user, {
+      ip: ctx.req.ip || ctx.req.socket?.remoteAddress || "unknown",
+    })),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -930,19 +935,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     guestReply: publicProcedure
       .input(emotionProfileTransferSchema)
       .mutation(async ({ ctx, input }) => {
-        const allowance = consumeGuestEmotionAllowance({
+        // 先校验体积，过大内容不占限流额度。
+        assertGuestEmotionPayloadBounds(input);
+        // 触发任一限流或限流存储异常时不调用大模型，降级为本地模板回信（响应格式不变）。
+        const allowance = await consumeGuestEmotionAllowance({
           ip: ctx.req.ip || ctx.req.socket?.remoteAddress || "unknown",
           guestId: input.guestId,
         });
-        if (!allowance.allowed) {
-          throw new TRPCError({
-            code: "TOO_MANY_REQUESTS",
-            message: `今天先聊到这里，约 ${Math.ceil(
-              allowance.retryAfterSeconds / 60
-            )} 分钟后可以继续。`,
-          });
-        }
-        assertGuestEmotionPayloadBounds(input);
 
         const today = chinaDateString();
         const almanac = await getAlmanacDay(today);
@@ -966,6 +965,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           analysisSeed,
           generationIntent: "conversation-reply",
           computeUseCase: "login-guest",
+          ...(allowance.allowed
+            ? {}
+            : { modelBlockedReason: `guest-rate-limit:${allowance.reason}` }),
         });
 
         // 访客回信只返回浏览器；这里不写画像表，也不写每日信件表。
@@ -1206,6 +1208,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   artworkShare: artworkShareRouter,
   chapters: chaptersRouter,
   bookMedia: bookMediaRouter,
+  bookVideo: bookVideoRouter,
   chapterDelivery: chapterDeliveryRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,

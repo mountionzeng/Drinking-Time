@@ -1,3 +1,5 @@
+import { shotVideoPriceProfile } from "../../shared/shotDirector";
+import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
 import {
   mediaBillingEnabled,
   mediaOperationId,
@@ -432,6 +434,7 @@ function statusForRefresh(
 }
 
 export type StartShotVideoJobInput = {
+  bookTarget?: { chapterId: number; moduleId: string };
   storyId: number;
   shotNo: number;
   stableShotId?: string | null;
@@ -485,6 +488,8 @@ export async function startShotVideoJob(
     (canonicalShotNo
       ? normalizeShotIdentity(`legacy-${canonicalShotNo}`)
       : null);
+  const isOwnedBookImage = Boolean(input.bookTarget && await bookMediaTargetIsCurrent({ storyId: input.storyId, userId, imageId: input.imageId, ...input.bookTarget }));
+  if (input.bookTarget && !isOwnedBookImage) return { status: "error", error: "书内图片已变化，请重新选择" };
   const isOwnedShotImage =
     asset &&
     asset.assignment === "shot" &&
@@ -506,7 +511,7 @@ export async function startShotVideoJob(
     !asset ||
     asset.availability === "missing" ||
     asset.status === "rejected" ||
-    (!isOwnedShotImage && !isReferencedShotImage)
+    (!isOwnedBookImage && !isOwnedShotImage && !isReferencedShotImage)
   ) {
     return { status: "error", error: "首帧图不存在或不属于当前镜头" };
   }
@@ -515,7 +520,7 @@ export async function startShotVideoJob(
   }
   let promptCompilationId = input.promptCompilationId ?? null;
   try {
-    const resolved = await resolveGenerationPromptCompilation({
+    const resolved = isOwnedBookImage ? { compilationId: null } : await resolveGenerationPromptCompilation({
       storyId: input.storyId,
       userId,
       stableShotId,
@@ -530,11 +535,11 @@ export async function startShotVideoJob(
     throw error;
   }
 
-  const durationSec = input.durationSec ?? 5;
+  let durationSec = input.durationSec ?? 5;
   const aspectRatio = input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO;
   const story = await getStoryById(input.storyId, userId);
   if (!story) return { status: "error", error: "故事不存在或无权操作" };
-  const context = storyVideoContext(story.body, stableShotId, input.shotNo);
+  const context = isOwnedBookImage ? {} : storyVideoContext(story.body, stableShotId, input.shotNo);
   const renderDecision = decideVideoRenderStrategy({
     ...context.currentShot,
     videoPrompt: context.currentShot?.videoPrompt || input.prompt,
@@ -555,6 +560,7 @@ export async function startShotVideoJob(
   }
   const providerStatus = getShotVideoProviderStatus();
   const motion = input.motion ?? providerStatus.motion;
+  if (shotVideoPriceProfile(providerStatus.submitPath) === "mj-turbo") durationSec = 5;
   const previousReference = videoReferenceAsset(
     assets,
     input.previousReferenceImageId,
@@ -565,7 +571,7 @@ export async function startShotVideoJob(
     input.nextReferenceImageId,
     input.imageId
   );
-  const isMjVideo = /\/mj\/submit\/video/.test(providerStatus.submitPath);
+  const isMjVideo = shotVideoPriceProfile(providerStatus.submitPath) === "mj-turbo";
   const identityImageInput = input.characterReferenceImageUrl
     ? await materializeImageInput(input.characterReferenceImageUrl)
     : undefined;
@@ -655,7 +661,7 @@ export async function startShotVideoJob(
         storyId: input.storyId,
         requestHash: idempotencyKey,
         maxCostMinor: fromYuan(
-          estimateShotVideoCost({ durationSec, motion }).estimatedCny
+          estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) }).estimatedCny
         ),
       });
       if (reservation.outcome === "replayed") {

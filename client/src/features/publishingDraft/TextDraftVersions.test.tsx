@@ -7,9 +7,17 @@ import { TextDraftVersions } from "./TextDraftVersions";
 vi.stubGlobal("React", React);
 const fixture = vi.hoisted(() => ({
   publishing: null as ReturnType<typeof emptyPublishingDraftState> | null,
+  writingBody: null as string | null,
   error: false,
   pending: false,
   mutate: vi.fn(),
+}));
+vi.mock("@/features/writingCompanion/desktopWritingSession", () => ({
+  useDesktopWritingSession: (selector: (state: unknown) => unknown) => selector({
+    session: fixture.writingBody === null ? null : {
+      storyId: 1, accountId: null, epoch: 0, snapshot: { draft: fixture.writingBody },
+    },
+  }),
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -46,11 +54,18 @@ vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
 
 beforeEach(() => {
   fixture.publishing = null;
+  fixture.writingBody = null;
   fixture.error = false;
   fixture.pending = false;
   fixture.mutate.mockClear();
 });
 describe("independent text version controls", () => {
+  it("offers a new version for an existing book even without a platform draft", () => {
+    fixture.writingBody = "书中的现有正文";
+    const html = renderToStaticMarkup(<TextDraftVersions storyId={1} input="补充" blocked={false} />);
+    expect(html).toContain("生成新版本");
+    expect(html).not.toContain("生成文章");
+  });
   it("offers a new version for pasted text even without AI version history", () => {
     fixture.publishing = upsertPublishingPlatformDraft(emptyPublishingDraftState(), {
       platform: "xiaohongshu", content: { title: "", body: "手写正文", tags: [] }, activate: true,

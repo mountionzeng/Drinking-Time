@@ -15,11 +15,11 @@ const formats: Array<[BlockFormat, string]> = [['text', '正文'], ['heading1', 
 const corners = { nw: '-left-2 -top-2 cursor-nwse-resize', ne: '-right-2 -top-2 cursor-nesw-resize', sw: '-left-2 -bottom-2 cursor-nesw-resize', se: '-right-2 -bottom-2 cursor-nwse-resize' } as const;
 const cornerEdges = { nw: 'border-l border-t', ne: 'border-r border-t', sw: 'border-l border-b', se: 'border-r border-b' };
 const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '右下角' };
-const action = 'w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
+const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
 export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert }: {
   blocks: WritingBlock[]; disabled: boolean;
-  onConvert?(id:string,kind:"text"|"image"|"music"|"narration"):void;
+  onConvert?(id:string,kind:"text"|"image"|"music"|"narration"|"translate-en"|"translate-zh"):void;
   onSelectionChange?(ids: string[]): void;
   activeId: string | null; onSelect(id: string | null): void;
   onCommit(next: WritingBlock[], focusId: string, focus?: boolean): void;
@@ -46,6 +46,7 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
   const [menuId, setMenuId] = useState<string | null>(null);
   const [preview, setPreview] = useState<WritingBlock[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selecting, setSelecting] = useState(false);
   const selected = selectedBookIds(blocks, selectedIds);
   useLayoutEffect(() => { onSelectionChange?.([...selected]); }, [selectedIds, blocks, onSelectionChange]);
   const [marquee, setMarquee] = useState<SelectionBox | null>(null);
@@ -57,7 +58,9 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
   }, [activeId]);
   const [drop, setDrop] = useState<BookDropTarget | null>(null);
   const gesture = useRef<{ ids: string[]; source: WritingBlock[]; id: string; pointer: number; x: number; y: number; scale: number; handle: ModuleHandle; before: BookPlacement; next: WritingBlock[]; drop: BookDropTarget | null; image?: ImageModule; imageFactor?: number; columnWidth?: number; columnSign?: number } | null>(null);
-  const scale = width / 900 * zoom;
+  // Reflow narrow screens instead of shrinking body text below 16 CSS pixels.
+  const pageWidth = Math.min(900, width / (2 / 3));
+  const scale = width / pageWidth * zoom;
   useLayoutEffect(() => {
     if (!viewport.current) return;
     // The outside gutter keeps existing drag/fold controls reachable without narrowing the text.
@@ -94,7 +97,7 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
     if (disabled || !blocks.some(block => block.id === matchTarget)) setMatchTarget(null);
   }, [blocks, disabled, matchTarget]);
   const displayed = preview ?? blocks;
-  const layouts = layoutBookBlocks(displayed,imageRatios);
+  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth);
   // "After a heading" means after its entire visible group, not between the heading and its children.
   const dropMarkerId = drop?.position === 'after'
     ? layouts.filter(item => item.block.id === drop.id || blockAncestors(displayed, item.block.id).includes(drop.id)).at(-1)?.block.id
@@ -209,7 +212,11 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
     } else apply(current.next, current.id, false);
   }
 
-  return <><div ref={viewport} aria-label="文章缩放视图" data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
+  return <>{selecting && <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 bg-background py-2 text-sm" data-stage-swipe="ignore">
+    <span>已选 {selected.size} 个</span>
+    <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);}}>完成选择</button>
+    {selected.size > 1 && mergeBookText(blocks,[...selected]) !== blocks && <button type="button" className="min-h-11 px-2" onClick={() => {const first=blocks.find(b=>selected.has(b.id));if(first) apply(mergeBookText(blocks,[...selected]),first.id);setSelectedIds([]);setSelecting(false);}}>合并文字</button>}
+  </div>}<div ref={viewport} aria-label="文章缩放视图" data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
   <div ref={root} onContextMenu={event=>{
     if(disabled || selected.size<2 || mergeBookText(blocks,[...selected])===blocks)return;
     event.preventDefault();setMergeMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-180)),y:Math.max(8,Math.min(event.clientY,window.innerHeight-64))});
@@ -226,7 +233,7 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
           onPointerDownCapture={event => {
             if (disabled || event.button !== 0) return;
             if (matchTarget) { event.preventDefault(); event.stopPropagation(); return; }
-            if (event.shiftKey && event.button === 0) {
+            if (selecting || event.shiftKey && event.button === 0) {
               event.preventDefault(); event.stopPropagation();
               setSelectedIds(previous => { const ids = previous.length ? previous : activeId ? [activeId] : []; return ids.includes(block.id) ? ids.filter(id => id !== block.id) : [...ids, block.id]; });
             } else if (!selected.has(block.id) || (event.target as HTMLElement).closest('textarea')) setSelectedIds([]);
@@ -248,13 +255,13 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
             {(drop.position === 'left' || drop.position === 'right') && <span className="absolute -top-6 right-0 whitespace-nowrap bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">并排</span>}
             {drop.position === 'inside' && <span className="absolute right-0 -top-5 bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">放入标题</span>}
           </div>}
-          <div className={`absolute -top-8 left-0 flex items-center gap-1 ${active && !grouped ? '' : 'invisible'}`}>
+          <div className={`absolute -top-8 left-0 flex items-center gap-1 ${active && !grouped ? '' : 'invisible [@media(pointer:coarse)]:visible'}`}>
             <Popover open={menuId === block.id} onOpenChange={open => setMenuId(open ? block.id : null)}>
               <PopoverTrigger asChild><button type="button" aria-label={`模块 ${index + 1} 格式`} disabled={disabled}
-                className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm">
-                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?'有声书':'音乐') : bookImageUrl(block.text) ? '图片' : block.format === 'text' ? '正文' : block.format === 'heading1' ? '章' : '节'} ▾
+                className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-20">
+                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?'有声书':'音乐') : bookImageUrl(block.text) ? '图片' : block.format === 'text' ? '正文' : block.format === 'heading1' ? '章' : '节'}<span className="hidden [@media(pointer:coarse)]:inline"> · 操作</span> ▾
               </button></PopoverTrigger>
-              <PopoverContent align="start" className="w-48 p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={`模块 ${index + 1} 设置`}>
+              <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={`模块 ${index + 1} 设置`}>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">拖图片移动 · 四角缩放 · 四边裁切</p>
                 <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label="格式">{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled} className={action}
                   aria-pressed={block.format === value || block.format === 'heading3' && value === 'heading2'} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{block.format === value || block.format === 'heading3' && value === 'heading2' ? '✓ ' : ''}{label}</button>)}</div>
@@ -262,8 +269,10 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
                 {onConvert && !readBookAudio(block.text) && <div className="border-t py-1">
                   <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,bookImageUrl(block.text)?'text':'image');}}>{bookImageUrl(block.text)?'生成一段文字':'生成一张图片'}</button>
                   <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'music');}}>生成一段音乐</button>
+                  {!bookImageUrl(block.text) && ([['translate-en','翻译成英文'],['translate-zh','翻译成中文']] as const).filter(([kind]) => kind === 'translate-en' ? /\p{Script=Han}/u.test(block.text) : /[a-zA-Z]/.test(block.text)).map(([kind,label]) => <button type="button" key={kind} className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,kind);}}>{label}</button>)}
                   {!bookImageUrl(block.text)&&<button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'narration');}}>生成有声书</button>}
                 </div>}
+                <button type="button" className={action} onClick={() => { setSelecting(true); setSelectedIds([block.id]); setMenuId(null); }}>选择多个模块</button>
                 <div className="my-1 border-t" />
                 {(['normal', 'bright'] as const).map(value => <button type="button" key={value} disabled={disabled} className={action}
                   aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? '正常' : '加粗提亮'}</button>)}
@@ -316,7 +325,7 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
                 } else apply(resizeBookBlock(blocks, block.id, placement.fontSize + (['ArrowUp', 'ArrowRight'].includes(event.key) ? 2 : -2)), block.id, false);
               }
             }}
-            className={`absolute z-20 flex h-5 w-5 touch-none items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-40 hover:!opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 ${position}`}
+            className={`absolute z-20 flex h-5 w-5 touch-none items-center justify-center text-muted-foreground opacity-60 sm:opacity-0 group-hover:opacity-40 hover:!opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 ${position}`}
             onPointerDown={event => start(event, block.id, placement, corner as ModuleHandle, Boolean(bookImageUrl(block.text)))}><span aria-hidden="true" className={`pointer-events-none h-1.5 w-1.5 ${cornerEdges[corner as keyof typeof corners]}`} /></button>)}
         </div>;
       })}

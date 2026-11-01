@@ -38,6 +38,16 @@ const version = (adopted = false): TextDraftVersion => ({
     : {}),
 });
 describe("text draft generation basis", () => {
+  it("uses the current book including unsaved edits instead of a stale platform draft", () => {
+    expect(resolveTextDraftBasis({ writingBody: "正在写的书稿", edited: null,
+      visible: { content: content("旧发布稿"), parentId: "v2" },
+    })).toEqual({ parentId: "v2", basis: content("正在写的书稿") });
+  });
+  it("respects a cleared book instead of resurrecting its old text", () => {
+    expect(resolveTextDraftBasis({ writingBody: "", edited: null,
+      published: content("已清除正文"),
+    }).basis?.body).toBe("");
+  });
   it("uses the article visible beside chat even after viewing another historical candidate", () => {
     expect(resolveTextDraftBasis({
       selected: version(), latest: { ...version(), id: "v3" }, edited: content("旧面板草稿"),

@@ -51,8 +51,8 @@ describe("generateShotVideo", () => {
       warnings: [],
       baseUrl: "https://api.302.ai",
       model: "mj-video",
-      submitPath: "/mj/submit/video",
-      pollPath: "/mj/task/{taskId}/fetch",
+      submitPath: "/mj-turbo/submit/video",
+      pollPath: "/mj-turbo/task/{taskId}/fetch",
       imageField: "image",
       motion: "high",
       promptDirectorModel: "gpt-5.4-nano-2026-03-17",
@@ -90,10 +90,10 @@ describe("generateShotVideo", () => {
     expect(result).toMatchObject({
       status: "ok",
       taskId: "1320098173412546",
-      submitUrl: "https://api.302.ai/mj/submit/video",
+      submitUrl: "https://api.302.ai/mj-turbo/submit/video",
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "https://api.302.ai/mj/submit/video",
+      "https://api.302.ai/mj-turbo/submit/video",
       expect.objectContaining({
         method: "POST",
         headers: {
@@ -234,8 +234,8 @@ describe("generateShotVideo", () => {
     ENV.api302Key = "test-302-key";
     ENV.api302BaseUrl = "https://api.302.ai";
     ENV.video302Model = "";
-    ENV.video302SubmitPath = "/mj/submit/video";
-    ENV.video302PollPath = "/mj/task/{taskId}/fetch";
+    ENV.video302SubmitPath = "/mj-turbo/submit/video";
+    ENV.video302PollPath = "/mj-turbo/task/{taskId}/fetch";
     const fetcher = vi.fn(async () => ({
       ok: true,
       json: async () => ({

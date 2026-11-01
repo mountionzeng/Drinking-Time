@@ -547,6 +547,7 @@ export function useMobileConversation(input: {
   void inFlightVersion;
 
   return {
+    storyId: input.storyId,
     historyState,
     recoveryReady: recoveryState.scopeKey === currentScopeKey,
     historyError: query.error

@@ -3,6 +3,7 @@ import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
+import { materialCaptureRoutes } from "./materialCaptureRoutes";
 import fs from "node:fs";
 import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -17,6 +18,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { localImageDir } from "../services/imageGen";
+import { isSafeImageFileName } from "./imageFileName";
 import { storageGet } from "../storage";
 import {
   getDb,
@@ -48,6 +50,7 @@ import {
   createSecurityHeadersMiddleware,
 } from "./securityHeaders";
 import { createRequestOriginMiddleware } from "./requestOrigin";
+import { describeAuthMode, resolveListenHost } from "./authMode";
 import { createAlipayNotifyRoute } from "./alipayNotifyRoute";
 import {
   startPersonalMemoryJobRunner,
@@ -122,6 +125,7 @@ async function startServer() {
     createAlipayNotifyRoute()
   );
   app.get("/api/chapter-media", handleChapterMedia);
+  app.use("/api/material-captures", materialCaptureRoutes());
   app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use("/api/minigame", minigameRoutes());
@@ -171,7 +175,7 @@ async function startServer() {
   app.get("/api/images/:file", async (req, res) => {
     const file = String(req.params.file ?? "");
     // 白名单文件名，杜绝路径穿越
-    if (!/^[a-zA-Z0-9_-]+\.(png|jpe?g|webp)$/.test(file)) {
+    if (!isSafeImageFileName(file)) {
       res.status(400).end();
       return;
     }
@@ -210,13 +214,21 @@ async function startServer() {
   // 足迹私密媒体端点（U7）。实现与逐请求归属校验见该模块。
   registerPersonalMemoryMediaRoute(app);
   // 旧路由兼容：历史数据里存过 /local-images/<file>，继续可用，同样指向共享资产库。
-  app.use(
-    "/local-images",
-    express.static(localImageDir(), {
-      maxAge: "7d",
-      fallthrough: false,
-    })
-  );
+  // 收敛到与 /api/images 相同的文件名白名单，不再整目录静态暴露（不列目录、不放行子路径/点文件）。
+  app.get("/local-images/:file", (req, res) => {
+    const file = String(req.params.file ?? "");
+    if (!isSafeImageFileName(file)) {
+      res.status(400).end();
+      return;
+    }
+    const full = path.join(localImageDir(), file);
+    if (!fs.existsSync(full)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "public, max-age=604800");
+    res.sendFile(full);
+  });
   app.get("/api/videos/:file", async (req, res) => {
     const file = String(req.params.file ?? "");
     const match = /^take-(\d+)\.(mp4|webm|mov)$/.exec(file);
@@ -423,11 +435,9 @@ async function startServer() {
   const port = await findAvailablePort(preferredPort);
 
   // Development auth is relaxed; production is exposed only through nginx.
-  const host = ["development", "production"].includes(
-    process.env.NODE_ENV ?? ""
-  )
-    ? "127.0.0.1"
-    : undefined;
+  const host = resolveListenHost(process.env);
+  const authModeNotice = describeAuthMode(process.env);
+  if (authModeNotice) console.warn(authModeNotice);
   server.listen(port, host, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });

@@ -13,7 +13,7 @@ import {
 } from "./DailyLetterWelcome";
 
 describe("DailyLetterWelcome", () => {
-  it("正式回信里展示与登录页一致的个性化宜忌", () => {
+  it("正式回信使用黄历原文，不覆盖成AI宜忌", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
@@ -23,10 +23,10 @@ describe("DailyLetterWelcome", () => {
     );
 
     expect(source).toContain("<DailyAtmospherePanel");
-    expect(source).toContain(
+    expect(source).not.toContain(
       "personalizedYi={selectedReference.personalizedYi}"
     );
-    expect(source).toContain(
+    expect(source).not.toContain(
       "personalizedJi={selectedReference.personalizedJi}"
     );
   });
@@ -174,9 +174,12 @@ describe("DailyLetterWelcome", () => {
     expect(storiesForDailyLetter(stories, "2026-08-08")).toEqual([stories[0]]);
   });
 
-  it("把回信正文完整带入新故事的第一轮对话", () => {
-    expect(dailyLetterStoryPrompt("2026-08-08", "第一段。\n\n第二段。")).toBe(
-      "我想把8月8日的这封回信变成一个新的故事。\n\n第一段。\n\n第二段。"
-    );
+  it("带入完整回信但不把系统解读当作用户已经认可的事实", () => {
+    const prompt = dailyLetterStoryPrompt("2026-08-08", "第一段。\n\n第二段。");
+    expect(prompt).toContain("8月8日");
+    expect(prompt).toContain("第一段。\n\n第二段。");
+    expect(prompt).toContain("系统生成的回信");
+    expect(prompt).toContain("不是我的原话");
+    expect(prompt).toContain("不代表我认可其中的事实、情绪或表达偏好");
   });
 });

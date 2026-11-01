@@ -194,6 +194,8 @@ export {
 } from "./repositories/soundPlans";
 export {
   createEmailOtp,
+  findLatestActiveEmailOtp,
+  consumeEmailOtp,
   findValidEmailOtp,
   markEmailOtpUsed,
   type InviteOverviewRow,

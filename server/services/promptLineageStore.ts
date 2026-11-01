@@ -1212,6 +1212,23 @@ export type PromptLineageMemoryStore = ReturnType<
   typeof createPromptLineageMemoryStore
 >;
 
+/** Migrated snapshots may be rebuilt only until live edits or conversation begin. */
+export function hasPostMigrationChanges(aggregate: {
+  revisions: readonly { authorType: string }[];
+  messages: readonly { source: string | null }[];
+  turns?: readonly unknown[];
+}): boolean {
+  return (
+    (aggregate.turns?.length ?? 0) > 0 ||
+    aggregate.messages.some(
+      message => message.source !== "story" && message.source !== "creation",
+    ) ||
+    aggregate.revisions.some(
+      revision => revision.authorType === "user" || revision.authorType === "agent",
+    )
+  );
+}
+
 export async function createPersistentLocalPromptLineageStore(): Promise<PromptLineageMemoryStore> {
   const state = await getLocalPromptLineageState();
   if (!state) {
@@ -1496,15 +1513,44 @@ export async function loadStoryPromptCompilationHeads(
 
 export async function clearStoryPromptLineage(
   owner: PromptLineageOwner,
-): Promise<void> {
+): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     const store = await createPersistentLocalPromptLineageStore();
+    if (hasPostMigrationChanges(store.getStoryAggregate(owner))) return false;
     await store.clearStory(owner);
-    return;
+    return true;
   }
 
-  await db.transaction(async tx => {
+  return db.transaction(async tx => {
+    // Recheck under the same locks used by prompt edits and conversation claims.
+    // The earlier migration read may predate a newly reserved mobile turn.
+    await tx.select({ id: storyPromptStates.id }).from(storyPromptStates)
+      .where(and(
+        eq(storyPromptStates.storyId, owner.storyId),
+        eq(storyPromptStates.userId, owner.userId),
+      )).for("update");
+    await tx.select({ id: storyConversations.id }).from(storyConversations)
+      .where(and(
+        eq(storyConversations.storyId, owner.storyId),
+        eq(storyConversations.userId, owner.userId),
+      )).for("update");
+    const turns = await tx.select({ id: storyConversationTurns.id }).from(storyConversationTurns)
+      .where(and(
+        eq(storyConversationTurns.storyId, owner.storyId),
+        eq(storyConversationTurns.userId, owner.userId),
+      )).limit(1).for("update");
+    const messages = await tx.select({ source: storyConversationMessages.source }).from(storyConversationMessages)
+      .where(and(
+        eq(storyConversationMessages.storyId, owner.storyId),
+        eq(storyConversationMessages.userId, owner.userId),
+      )).for("update");
+    const revisions = await tx.select({ authorType: promptRevisions.authorType }).from(promptRevisions)
+      .where(and(
+        eq(promptRevisions.storyId, owner.storyId),
+        eq(promptRevisions.userId, owner.userId),
+      )).for("update");
+    if (hasPostMigrationChanges({ turns, messages, revisions })) return false;
     const compilationRows = await tx
       .select({ id: promptCompilations.id })
       .from(promptCompilations)
@@ -1620,5 +1666,6 @@ export async function clearStoryPromptLineage(
           eq(storyPromptStates.userId, owner.userId),
         ),
       );
+    return true;
   });
 }

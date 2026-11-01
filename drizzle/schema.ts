@@ -14,6 +14,29 @@ import {
   foreignKey,
 } from "drizzle-orm/mysql-core";
 import type { PublishingDraftState } from "../shared/publishingDraft";
+import type { CaptureManifest, CaptureProgress, CaptureStatus } from "../shared/materialCapture";
+
+export const materialCaptures = mysqlTable("material_captures", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull(),
+  inputHash: varchar("inputHash", { length: 64 }).notNull(),
+  status: varchar("status", { length: 20 }).$type<CaptureStatus>().notNull(),
+  manifest: json("manifest").$type<CaptureManifest>().notNull(),
+  progress: json("progress").$type<CaptureProgress>().notNull(),
+  storyId: int("storyId"),
+  createdAt: timestamp("createdAt", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: timestamp("updatedAt", { mode: "date", fsp: 3 }).notNull(),
+}, table => [index("capture_owner_created_idx").on(table.userId, table.createdAt)]);
+export type MaterialCapture = typeof materialCaptures.$inferSelect;
+
+export const materialCaptureTokens = mysqlTable("material_capture_tokens", {
+  hash: varchar("hash", { length: 64 }).primaryKey(),
+  userId: int("userId").notNull(),
+  createdAt: timestamp("createdAt", { mode: "date", fsp: 3 }).notNull(),
+  expiresAt: timestamp("expiresAt", { mode: "date", fsp: 3 }).notNull(),
+  revokedAt: timestamp("revokedAt", { mode: "date", fsp: 3 }),
+}, table => [index("capture_token_owner_idx").on(table.userId)]);
+export type MaterialCaptureToken = typeof materialCaptureTokens.$inferSelect;
 import type { DownstreamRegenerationCandidate } from "../shared/downstreamRegenerationCandidate";
 
 export const downstreamRegenerationCandidates = mysqlTable("downstream_regeneration_candidates", {
@@ -1322,6 +1345,7 @@ export const previewMaskedImageOperations = mysqlTable(
     targetKind: mysqlEnum("targetKind", [
       "shot-primary",
       "timeline-image-clip",
+      "book-image",
     ]).notNull(),
     stableShotId: varchar("stableShotId", { length: 240 }).notNull(),
     clipId: varchar("clipId", { length: 240 }),

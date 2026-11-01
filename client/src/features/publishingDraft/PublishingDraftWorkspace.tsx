@@ -1,3 +1,6 @@
+import { prepareBookForVideo } from "@/features/bookVideo/bookPreparation";
+import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
+import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import type { StudioCreateRequest } from "./StudioCreateMenu";
 import { formatComputeQuote } from "@shared/computeMoney";
@@ -417,12 +420,7 @@ export default function PublishingDraftWorkspace({
     useState<CoverGenerationMode | null>(null);
   const coverGenerationInFlightRef = useRef(false);
   const recoveredCoverOperationRef = useRef<string | null>(null);
-  const videoBuildInFlightRef = useRef(false);
   const selectedIllustrationsRef = useRef<{ scope: string; placements: IllustrationPlacement[] }>({ scope: "", placements: [] });
-  const videoBuildOperationRef = useRef<{
-    scope: string;
-    token: string;
-  } | null>(null);
   const [generatedCover, setGeneratedCover] =
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
@@ -463,8 +461,6 @@ export default function PublishingDraftWorkspace({
     setCoverGenerationMode(null);
     coverGenerationInFlightRef.current = false;
     recoveredCoverOperationRef.current = null;
-    videoBuildInFlightRef.current = false;
-    videoBuildOperationRef.current = null;
     setGeneratedCover(null);
     setGeneratedCoverRounds(null);
     setPlatformSnapshot(null);
@@ -1322,87 +1318,21 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const continueToVideo = async (
-    narrativeSpec?: Exclude<NarrativeSpecId, "album9">,
-    targetVersionId = versionId
-  ) => {
-    if (
-      activeStoryId == null ||
-      coverBusy ||
-      dirty ||
-      videoBuildInFlightRef.current
-    )
-      return;
-    const storyId = activeStoryId;
-    const scope = `${storyId}:${targetVersionId}`;
-    const existingOperation = videoBuildOperationRef.current;
-    const operationToken =
-      existingOperation?.scope === scope
-        ? existingOperation.token
-        : `video-build-${crypto.randomUUID()}`;
-    videoBuildOperationRef.current = { scope, token: operationToken };
-    videoBuildInFlightRef.current = true;
-    try {
-      const result = await buildVideoStoryboardMut.mutateAsync({
-        storyId,
-        versionId: targetVersionId,
-        operationToken,
-        narrativeSpec,
-        articleLayout: {
-          body: editorContent?.body ?? "",
-          illustrations: selectedIllustrationsRef.current.scope === `${storyId}:${targetVersionId}:${platform}`
-            ? selectedIllustrationsRef.current.placements : [],
-        },
-      });
-      if (
-        !publishingStoryScopeMatches(
-          storyId,
-          storySpineStore.getState().activeStoryId
-        )
-      ) {
-        return;
-      }
-      setPublishing(result.publishing);
-      utils.publishingDraft.read.setData({ storyId }, current =>
-        current
-          ? {
-              ...current,
-              storyRevision: result.storyRevision,
-              publishing: result.publishing,
-            }
-          : current
-      );
-      if (result.status === "pending") {
-        toast.info("故事版正在生成，稍后可用同一入口继续进入");
-        return;
-      }
-      await Promise.all([
-        utils.storyAgent.storyGet.invalidate({ id: storyId }),
-        utils.storyAgent.storyImages.invalidate({ storyId }),
-        utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
-        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
-      ]);
-      await loadStory(storyId, {
-        silent: true,
-        expectedActiveStoryId: storyId,
-      });
-      videoBuildOperationRef.current = null;
-      toast.success("故事版已生成，可以直接修改剧本、图片要求和视频要求");
-      onContinueToVideo?.();
-    } catch (error) {
-      videoBuildOperationRef.current = null;
-      toast.error(
-        publishingErrorMessage(error, "故事版生成失败，原故事内容没有改变")
-      );
-    } finally {
-      videoBuildInFlightRef.current = false;
-    }
-  };
-
-  const openVideoSetup = () => {
+  const openVideoSetup = async () => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
-    setSelectedNarrativeSpec(activeVersion?.narrativeSpec ?? "video30");
-    setVideoSetupOpen(true);
+    if (!activeVersion || !editorContent?.body.trim()) { toast.info("请先保存书稿，再制作视频"); return; }
+    const scope = storySpineStore.getState();
+    try { if(unifiedChapters) await prepareBookForVideo(activeStoryId,scope.accountId); }
+    catch(error){toast.error(error instanceof Error?error.message:"书稿保存失败");return;}
+    const currentScope=storySpineStore.getState();
+    if(currentScope.activeStoryId!==activeStoryId || currentScope.accountId!==scope.accountId || currentScope.storyScopeEpoch!==scope.storyScopeEpoch)return;
+    useBookMediaSession.getState().setSession(null);
+    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId,
+      layout:{body:editorContent.body,illustrations:selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
+      onAdopt:async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId});onContinueToVideo?.()},
+      onAlbum:()=>{useBookVideoSession.getState().setSession(null);setSelectedNarrativeSpec("album9");setVideoSetupOpen(true)},
+    });
+    toast.info("在左侧聊聊视频的用途和想法");
   };
 
   useEffect(() => {
@@ -1417,8 +1347,7 @@ export default function PublishingDraftWorkspace({
       toast.info("当前生成还在进行，请完成后再制作视频。");
       return;
     }
-    setSelectedNarrativeSpec(activeVersion?.narrativeSpec ?? "video30");
-    setVideoSetupOpen(true);
+    openVideoSetup();
   }, [createRequest, activeStoryId, draft, dirty, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
 
   const confirmVideoSetup = async () => {
@@ -1459,7 +1388,7 @@ export default function PublishingDraftWorkspace({
         toast.success("画册页面已建立；文字稿和视频故事板没有改变");
         return;
       }
-      await continueToVideo(selectedNarrativeSpec, activeVersion.versionId);
+      openVideoSetup();
     } catch (error) {
       toast.error(
         publishingErrorMessage(

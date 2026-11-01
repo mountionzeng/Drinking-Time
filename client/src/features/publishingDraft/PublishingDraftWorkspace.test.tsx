@@ -271,7 +271,8 @@ describe("PublishingDraftWorkspace", () => {
     const writing = renderToStaticMarkup(<PublishingDraftWorkspace view="text" />);
     const images = renderToStaticMarkup(<PublishingDraftWorkspace view="images" />);
     expect(writing).toContain('<div hidden="" data-publishing-surface="images">');
-    expect(writing).toContain("文章图片制作");
+    expect(writing).toContain("未保存正文");
+    expect(images).toContain("文章图片制作");
     expect(images).toContain('<div class="hidden" data-publishing-surface="text">');
     expect(images).toContain('<div data-publishing-surface="images">');
     expect(images).toContain("未保存正文");

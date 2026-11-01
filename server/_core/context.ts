@@ -6,6 +6,7 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const";
 import { getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import { isAuthDisabled } from "./authMode";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -17,13 +18,8 @@ const GUEST_OPEN_ID_PREFIX = "guest:";
 const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 function authDisabled() {
-  // DISABLE_AUTH=false 显式打开真实鉴权：本地开发默认发访客身份，
-  // 登录页因此永远跳走，改这个页面时需要一个不必起生产构建的预览口子。
-  if (process.env.DISABLE_AUTH === "false") return false;
-  return (
-    process.env.DISABLE_AUTH === "true" ||
-    process.env.NODE_ENV !== "production"
-  );
+  // 鉴权默认开启；关闭条件统一见 authMode.ts（显式 DISABLE_AUTH=true + 非生产 + 仅本机回环）。
+  return isAuthDisabled(process.env);
 }
 
 function readSessionCookie(req: CreateExpressContextOptions["req"]) {

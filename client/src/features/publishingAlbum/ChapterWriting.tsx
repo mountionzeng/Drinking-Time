@@ -128,7 +128,18 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     catch { setError(''); setBackupError('本机备份暂不可用，正在尝试保存到账号。'); }
   }
   return <section aria-label="章节写作" className="space-y-4">
-    <DesktopWritingContext storyId={chapter.storyId} getSnapshot={() => {
+    <DesktopWritingContext storyId={chapter.storyId} applyGenerated={async (body, expected) => {
+      const assertUnchanged = () => {
+        if (disabled || expected.scope !== contextScope || draftRef.current.body !== expected.draft)
+          throw new Error('书稿已变化，新稿仍在文字历史中，请对照后采用。');
+      };
+      assertUnchanged();
+      // Save the current manuscript first, so an unsaved original also has a version.
+      await prepare();
+      assertUnchanged();
+      update({ ...draftRef.current, body, writingStyle: undefined });
+      await prepare();
+    }} getSnapshot={() => {
       const body = draftRef.current.body;
       const start = selection.current?.start ?? body.length;
       const end = selection.current?.end ?? start;

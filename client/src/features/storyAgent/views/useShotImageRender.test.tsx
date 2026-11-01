@@ -66,7 +66,7 @@ describe("MJ revision cost and submission", () => {
     act("确认费用并渲染");
     expect(await pending).toMatchObject({ status: "success", imageId: 48 });
     expect(input.generate).toHaveBeenCalledTimes(1);
-    expect(input.generate.mock.calls[0][0]).toMatchObject({ imageProvider: "gpt-image", candidateCount: undefined, costConfirmation: { accepted: true, estimatedCny: 1.49 } });
+    expect(input.generate.mock.calls[0][0]).toMatchObject({ imageProvider: "gpt-image", candidateCount: undefined, costConfirmation: { accepted: true, estimatedCny: 1.43 } });
   });
   it("submits one four-image task even when a caller carries legacy eight-image settings", async () => {
     const { api, input } = setup();

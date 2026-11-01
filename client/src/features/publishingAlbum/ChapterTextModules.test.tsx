@@ -19,6 +19,16 @@ function setup(body: string) {
 }
 const key = (name: string, start: number, end = start, composing = false) => ({ key: name, currentTarget: { selectionStart: start, selectionEnd: end }, nativeEvent: { isComposing: composing }, preventDefault: vi.fn() });
 describe('paragraph text modules', () => {
+  it('renders an inline video in the existing book module without nesting playback in a button', () => {
+    const { html } = setup('前文\n![图片](https://example.com/image.png "book:0.1,0.2,0.5,0.6,1.5" "video:https://example.com/clip.mp4")\n后文');
+    expect(html).toContain('aria-label="文章短视频"');
+    expect(html).toContain('poster="https://example.com/image.png"');
+    expect(html).toContain('src="https://example.com/clip.mp4"');
+    expect(html).toContain('role="button" tabindex="0" aria-label="图片模块 2"');
+    expect(html).toContain('文字模块 3');
+    expect(html).not.toContain('<button type="button" aria-label="图片模块 2"');
+  });
+
   it('puts format and drag affordances before text without movement menu commands', () => {
     const { html } = setup('第一段');
     expect(html.indexOf('模块 1 格式')).toBeLessThan(html.indexOf('aria-label="文字模块 1"'));

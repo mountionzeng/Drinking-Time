@@ -1,3 +1,4 @@
+import { MobileStoryTags } from "./MobileStoryTags";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { ShareBackButton } from "@/features/sharing/ShareBackButton";
 import {
@@ -108,8 +109,10 @@ export function MobileStoryWorkspace({
   onBack,
   document,
   motionStyle = "shiguang",
+  initialBookOpen = false,
 }: {
   motionStyle?: MobileStageStyle;
+  initialBookOpen?: boolean;
   userId: number;
   storyId: number;
   title: string;
@@ -127,6 +130,7 @@ export function MobileStoryWorkspace({
   );
   const [versionChoice, setSelectedVersion] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [bookOpen, setBookOpen] = useState(initialBookOpen);
   const [imageStudio, setImageStudio] = useState(false);
   const editor = useMobileSyncedEditor(userId, storyId);
   const reducedMotion = useReducedMotion();
@@ -152,6 +156,7 @@ export function MobileStoryWorkspace({
     void document.retryLoad();
   }, [storyId]);
   const versions = history.data?.versions ?? [];
+  const captureVersion = versions.find(version => version.promptVersion?.startsWith("material-capture-") && /^[0-9a-f-]{36}$/i.test(version.id));
   const selectedVersion =
     document.state?.status === "conflict"
       ? "current"
@@ -209,6 +214,7 @@ export function MobileStoryWorkspace({
   ]);
   return (
     <>
+      {bookOpen ? <MobileImageStudio key={`book:${storyId}`} storyId={storyId} userId={userId} workspaceMode="text" onBack={() => setBookOpen(false)} /> : null}
       {imageStudio ? (
         <MobileImageStudio
           userId={userId}
@@ -230,7 +236,7 @@ export function MobileStoryWorkspace({
         aria-label={t("{0}的故事工作区", [title])}
         className={cn(
           "h-full min-h-0 flex-col",
-          imageStudio ? "hidden" : "flex"
+          imageStudio || bookOpen ? "hidden" : "flex"
         )}
       >
         <header className="flex shrink-0 items-center gap-2 px-3 py-2">
@@ -244,6 +250,8 @@ export function MobileStoryWorkspace({
           </button>
           <h1 className="min-w-0 truncate font-chat-brand text-xl">{title}</h1>
         </header>
+        <MobileStoryTags key={storyId} storyId={storyId} />
+        <button type="button" className="mx-5 mb-3 min-h-11 rounded-full border border-border px-4 text-sm disabled:opacity-40" disabled={document.hasUnsavedChanges || Boolean(editor.draft)} onClick={() => setBookOpen(true)}>编辑书中模块</button>
         <MobileStoryStageBar stage={stage} onChange={changeStage} />
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <motion.div
@@ -284,6 +292,7 @@ export function MobileStoryWorkspace({
               )
             ) : (
               <>
+                {captureVersion && <a className="px-5 pb-2 text-xs text-primary" href={`/m?captureId=${captureVersion.id}`}>查看原素材与整理过程</a>}
                 {history.isError && (
                   <p
                     role="alert"

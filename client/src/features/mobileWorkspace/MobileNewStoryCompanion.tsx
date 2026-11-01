@@ -1,3 +1,4 @@
+import { followsWritingSource } from "./mobileMemoryFollowup";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { MobileCompanionActions } from "./MobileCompanionActions";
 import React, {
@@ -21,7 +22,7 @@ import {
 } from "./mobileMemoryFollowup";
 import { MobileMemoryFollowupChat } from "./MobileMemoryFollowupChat";
 import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
-import { MobileChatView } from "./MobileChatView";
+import { MobileCaptureChatView as MobileChatView } from "./MobileCaptureChatView";
 import { useMobileConversation } from "./useMobileConversation";
 import { NayinCompanion } from "./NayinCompanion";
 import {
@@ -58,7 +59,10 @@ export function MobileNewStoryCompanion({
   const { element, visualTheme } = useNayin();
   const reduced = useReducedMotion();
   const [actionLocked, setActionLocked] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => {
+    const params = new URLSearchParams(typeof location === "undefined" ? "" : location.search);
+    return params.has("captureShare") || params.has("captureId");
+  });
   const {
     source: pageSource,
     moduleSource,
@@ -69,7 +73,7 @@ export function MobileNewStoryCompanion({
     readMemoryFollowup(sessionStorage(), userId)
   );
   const [activeMemory, setActiveMemory] = useState<MemoryFollowupSource | null>(
-    restoredMemory.source
+    open ? null : restoredMemory.source
   );
   const [memoryLocked, setMemoryLocked] = useState(
     Boolean(restoredMemory.draft.trim())
@@ -79,15 +83,14 @@ export function MobileNewStoryCompanion({
   const [memoryDraft, setMemoryDraft] = useState(restoredMemory.draft);
   useEffect(() => {
     if (
-      !actionLocked &&
+      !actionLocked && !memoryThinking && !voiceBusy &&
       activeMemory?.kind === "layout" &&
       memorySource?.kind === "layout" &&
-      activeMemory.id === memorySource.id &&
-      activeMemory.storyId === memorySource.storyId &&
+      followsWritingSource(activeMemory, memorySource) &&
       activeMemory !== memorySource
     )
       setActiveMemory(memorySource);
-  }, [actionLocked, activeMemory, memorySource]);
+  }, [actionLocked, memoryThinking, voiceBusy, activeMemory, memorySource]);
   const memoryBaseline = useRef<Set<string> | null>(
     restoredMemory.baseline ? new Set(restoredMemory.baseline) : null
   );
@@ -238,10 +241,8 @@ export function MobileNewStoryCompanion({
         activeMemory?.id !== memorySource?.id ||
         activeMemory?.storyId !== memorySource?.storyId;
       if (
-        (activeMemory?.kind === "layout" || activeMemory?.kind === "text") &&
-        memorySource?.kind === activeMemory.kind &&
-        !different &&
-        !actionLocked
+        followsWritingSource(activeMemory, memorySource) &&
+        !actionLocked && !memoryThinking && !voiceBusy
       ) {
         // Queued turns already own immutable snapshots. Keep unsent words while
         // following the current text or selected module in the same session.
@@ -310,7 +311,9 @@ export function MobileNewStoryCompanion({
                 ? t("找小忆，接着这段{0}聊", [
                     t(companionSourceLabel(memorySource)),
                   ])
-                : t("找小忆，聊一个新故事")
+                : session.storyId
+                  ? t("找小忆，继续上次对话")
+                  : t("找小忆，聊一个新故事")
           }
           style={{
             bottom: open
@@ -418,10 +421,11 @@ export function MobileNewStoryCompanion({
             style={activeMemory ? { display: "none" } : undefined}
           >
             <MobileChatView
+          userId={userId}
               controller={controller}
               onVoiceBusyChange={setVoiceBusy}
               composerDisabled={creating || queued !== null || actionLocked}
-              storyTitle="新故事"
+              storyTitle={session.storyId ? "上次对话" : "新故事"}
               greeting={t("我在呢。\n今天想从哪件小事聊起？")}
               draftValue={session.draft}
               onDraftChange={draft =>
@@ -442,6 +446,7 @@ export function MobileNewStoryCompanion({
                 onLocked={setMemoryLocked}
                 onActionLocked={setActionLocked}
                 onTextSaved={setActiveMemory}
+                onModuleAction={() => setOpen(false)}
                 onNewStory={() => {
                   setActiveMemory(null);
                   setSession(emptyNewStorySession());

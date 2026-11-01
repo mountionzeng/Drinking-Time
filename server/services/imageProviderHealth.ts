@@ -58,14 +58,10 @@ export function recordProviderFailure(
 ): void {
   lastProviderFailure = { provider, message, failedAt: Date.now() };
   if (
-    /timeout|超时|no available models|当前无可用模型|HTTP (?:429|5\d\d)/i.test(
+    /timeout|超时|overloaded|过载|no available models|当前无可用模型|HTTP (?:429|5\d\d)/i.test(
       message
     )
   ) {
-    consecutiveFailures = Math.max(
-      consecutiveFailures,
-      CIRCUIT_BREAKER_THRESHOLD
-    );
     providerOpenUntil.set(provider, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
     console.warn(
       `[imageGen] Provider cooldown opened: ${provider}: ${message}`

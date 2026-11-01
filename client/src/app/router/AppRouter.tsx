@@ -17,7 +17,7 @@ import SharedStoryPage from "@/pages/SharedStoryPage";
 import ChapterClaimPage from "@/pages/ChapterClaimPage";
 import { canAcceptStoryShare } from "@shared/storyContextShare";
 import { useAuth } from "@/_core/hooks/useAuth";
-import React, { type ReactNode } from "react";
+import React, { useState, type ReactNode } from "react";
 import {
   mobileLoginHref,
   readMobileReturnPath,
@@ -72,6 +72,12 @@ function AdminGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Choose once on entry: resizing an open desktop draft must not unmount it. */
+export function EditingEntry() {
+  const [mobile] = useState(() => rootWorkspacePath() === "/m");
+  return mobile ? <MobileWorkspacePage /> : <EditingStudioPage />;
+}
+
 export default function AppRouter() {
   return (
     <Switch>
@@ -106,7 +112,7 @@ export default function AppRouter() {
       {/* 剪辑工作室：聊天驱动剪辑（聊聊对话 + 预览播放器 + 时间轴） */}
       <Route path="/editing">
         <AuthGuard>
-          <EditingStudioPage />
+          <EditingEntry />
         </AuthGuard>
       </Route>
       <Route path="/personal-memory">
@@ -124,7 +130,7 @@ export default function AppRouter() {
         <AuthGuard><StoryEditorPage key="story-list" /></AuthGuard>
       </Route>
       <Route path="/m">
-        <AuthGuard returnPath="/m">
+        <AuthGuard returnPath={typeof window === "undefined" ? "/m" : `/m${window.location.search}`}>
           <MobileWorkspacePage />
         </AuthGuard>
       </Route>

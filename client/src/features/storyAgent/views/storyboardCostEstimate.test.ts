@@ -29,8 +29,8 @@ describe("storyboardShotCostEstimate", () => {
       singleImageFallback: true,
     });
     expect(estimate.imageCandidateCount).toBe(1);
-    expect(estimate.imageCny).toBe(1.49);
-    expect(estimate.totalCny).toBe(2.37);
+    expect(estimate.imageCny).toBe(1.43);
+    expect(estimate.totalCny).toBe(2.31);
   });
 });
 
@@ -61,4 +61,10 @@ it("quotes and submits the visible eight-second duration instead of a hidden ten
   const edited = { ...longShot, generationParams: JSON.stringify({durationSec: 4}) };
   expect(quickShotVideoRenderPlan(edited, []).durationSec).toBe(4);
   expect(storyboardVideoCostEstimate(edited)).toBe(0.7);
+});
+
+it("shows the actual five-second MJ output while keeping custom-provider duration", () => {
+  const longShot = { ...shot, durationMs: 12_000 };
+  expect(quickShotVideoRenderPlan(longShot, [], "mj-turbo").durationSec).toBe(5);
+  expect(quickShotVideoRenderPlan(longShot, [], "legacy").durationSec).toBe(8);
 });

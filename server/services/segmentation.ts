@@ -6,7 +6,7 @@ import { guardComputeFetch } from "./computeRequestAccess";
  * Includes circuit breaker after consecutive failures (10-minute cooldown).
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import dns from "node:dns/promises";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -130,7 +130,7 @@ function makeMaskKey(
   const owner = scope
     ? `${scope.userId}/${scope.storyId}/${scope.imageId}`
     : "legacy";
-  return `masks/${owner}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${kind}.png`;
+  return `masks/${owner}/${Date.now()}-${randomUUID()}-${kind}.png`;
 }
 
 function localMaskFileName(maskKey: string): string {
@@ -685,8 +685,11 @@ async function visionImageDataUrl(sourceBytes: Uint8Array): Promise<string> {
     fit: "inside",
     withoutEnlargement: true,
   });
-  const bytes = await image.png().toBuffer();
-  return `data:image/png;base64,${bytes.toString("base64")}`;
+  // Vision needs geometry, not lossless editing pixels. PNG inflated the test
+  // illustration to 1.9 MB; JPEG is 150 KB and keeps the same coordinate frame.
+  // The untouched sourceBytes are still used for the full-resolution edit mask.
+  const bytes = await image.flatten({ background: "#ffffff" }).jpeg({ quality: 85 }).toBuffer();
+  return `data:image/jpeg;base64,${bytes.toString("base64")}`;
 }
 
 function normalizedLasso(points: SourceMaskPoint[], width: number, height: number) {
@@ -699,7 +702,8 @@ function normalizedLasso(points: SourceMaskPoint[], width: number, height: numbe
 async function segmentWithinVisionContour(
   imageUrl: string,
   points: SourceMaskPoint[],
-  options: SegmentationOptions
+  options: SegmentationOptions,
+  scribble = false
 ): Promise<SegmentationResult> {
   const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   const resolveRemoteHosts = options.resolveRemoteHosts ?? !options.fetcher;
@@ -728,31 +732,46 @@ async function segmentWithinVisionContour(
     throw new Error("圈选路径无效，请重新圈住要修改的物体");
   }
   const hint = normalizedLasso(points, width, height);
+  const imageUrls = [await visionImageDataUrl(sourceBytes)];
+  if (scribble) {
+    // Give vision the user's visible intent as well as coordinates. Coordinate
+    // lists alone caused malformed/repetitive contours on the real umbrella.
+    const marks = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(width, height) * 0.006}" fill="#00d5ff" fill-opacity="0.8"/>`).join("")}</svg>`;
+    const marked = await sharp(sourceBytes).composite([{ input: Buffer.from(marks) }]).png().toBuffer();
+    imageUrls.push(await visionImageDataUrl(marked));
+  }
   const response = await invokeVisionJson({
     system: [
       "You are a precise semantic image-selection system.",
       "Return JSON only. Never return markdown or commentary.",
-      "The user supplied a rough closed lasso in normalized 0..1000 image coordinates.",
-      "Identify the single visible object or semantic object-part intended by that lasso (hair and clothing are valid parts).",
-      "The lasso is only a search hint: do not copy it, simplify it into a rectangle, or use it as the contour.",
+      ...(scribble ? ["Image 1 is the untouched original. Image 2 shows cyan user marks on the intended subject. Use image 2 to locate the subject, and image 1 to trace its actual outline. Never include the cyan marks in the result."] : []),
+      scribble ? "The user drew a few freehand strokes ON the subject. The supplied coordinates are positive interior scribble samples, NOT a closed polygon or boundary." : "The user supplied a rough closed lasso in normalized 0..1000 image coordinates.",
+      scribble ? "Infer the single visible subject or semantic part touched by these strokes. Select its entire visible silhouette, not the painted pixels. Hair and clothing are valid parts. If the strokes indicate different unrelated subjects or are ambiguous, return found=false." : "Identify the single visible object or semantic object-part intended by that lasso (hair and clothing are valid parts).",
+      scribble ? "The marks only indicate intent: do not use the brush strokes themselves as the edit mask." : "The lasso is only a search hint: do not copy it, simplify it into a rectangle, or use it as the contour.",
       "Return found=false when a single object boundary cannot be identified confidently.",
-      "When found=true, return one boundary following the visible object itself, an anchor point strictly inside that boundary and inside the lasso, and 3..256 contour points.",
+      scribble ? "When found=true, return one boundary following the actual subject silhouette, an anchor strictly inside it, and 8..48 contour points. Use a compact closed outline; omit thin handles and disconnected parts. Do not connect the strokes, form a bounding box, or crop the subject to the stroke extent." : "When found=true, return one boundary following the visible object itself, an anchor point strictly inside that boundary and inside the lasso, and 8..48 contour points. Use a compact closed outline; omit thin handles and disconnected parts.",
       'Use exactly this schema: {"found":true,"anchor":{"x":0,"y":0},"contour":[{"x":0,"y":0}]}.',
       "All coordinates must be integers from 0 to 1000 in the original image coordinate system.",
     ].join("\n"),
-    userText: `Lasso search hint (normalized 0..1000): ${JSON.stringify(hint)}`,
-    imageUrls: [await visionImageDataUrl(sourceBytes)],
-    maxTokens: 3_000,
-    timeoutMs: requestTimeoutMs,
+    userText: `${scribble ? "Positive scribble samples" : "Lasso search hint"} (normalized 0..1000): ${JSON.stringify(hint)}`,
+    imageUrls,
+    maxTokens: 4_000,
+    requireJsonObject: true,
+    preferredProvider: "openai-next",
+    preferredNextModel: process.env.SEGMENTATION_VISION_MODEL || "gemini-2.5-flash",
+    // Semantic contour generation needs more time than an image download.
+    timeoutMs: options.requestTimeoutMs ?? 90_000,
   });
   const result = parseVisionContour(response.text);
   if (!result) {
-    throw new Error("视觉模型没有返回可验证的对象轮廓，请缩小圈选范围后重试");
+    throw new Error(scribble ? "没有识别清楚主体，请在主体内部重画几笔" : "视觉模型没有返回可验证的对象轮廓，请缩小圈选范围后重试");
   }
   const contour = result.contour.map(point => normalizedPoint(point, width, height));
   const anchor = normalizedPoint(result.anchor, width, height);
-  if (!pointInPolygon(anchor, contour) || !pointInPolygon(anchor, points)) {
-    throw new Error("视觉模型返回的对象轮廓不在圈选范围内，请重新圈选");
+  if (!pointInPolygon(anchor, contour) || (scribble
+    ? points.filter(point => pointInPolygon(point, contour)).length < Math.ceil(points.length * 0.6)
+    : !pointInPolygon(anchor, points))) {
+    throw new Error(scribble ? "识别出的主体与笔迹不一致，请重画几笔" : "视觉模型返回的对象轮廓不在圈选范围内，请重新圈选");
   }
   const maskBytes = await sharp(rasterizeSemanticContour({ contour, width, height }), {
     raw: { width, height, channels: 4 },
@@ -763,7 +782,7 @@ async function segmentWithinVisionContour(
     sourceHeight: height,
     clickX: anchor.x,
     clickY: anchor.y,
-    selectionPolygon: points,
+    selectionPolygon: scribble ? undefined : points,
   });
   const maskKey = makeMaskKey("edit", options.scope);
   const previewMaskKey = makeMaskKey("preview", options.scope);
@@ -815,5 +834,20 @@ export async function segmentWithinPolygon(
       status: "error",
       message: error instanceof Error ? error.message : "视觉对象识别失败",
     };
+  }
+}
+
+/** Positive freehand marks indicate a subject, never an edit-mask boundary. */
+export async function segmentFromScribble(imageUrl: string, points: SourceMaskPoint[], options: SegmentationOptions = {}): Promise<SegmentationResult> {
+  if (!points.length || points.length > 512 || points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
+    return { status: "error", message: "请在想修改的主体上画几笔" };
+  }
+  if (!visionChannelConfigured()) return { status: "error", message: "主体识别暂不可用，已保留笔迹；不会直接修改涂画范围。" };
+  try { return await segmentWithinVisionContour(imageUrl, points, options, true); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : "没有识别清楚，请重画几笔";
+    return { status: "error", message: /outcome unknown|reconciliation|timeout|timed out/i.test(message)
+      ? "主体识别暂未返回结果，笔迹已保留，原图没有改变；本次不会自动重复请求。"
+      : message };
   }
 }

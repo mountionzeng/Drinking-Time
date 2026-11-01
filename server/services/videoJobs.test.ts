@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { insertChapter } from "../repositories/chapters";
 import { ENV } from "../_core/env";
 import {
   createImageSignal,
@@ -70,6 +71,31 @@ afterEach(() => {
 });
 
 describe("videoJobs", () => {
+  it("keeps book image video separate from unrelated storyboard context and reuses its request", async () => {
+    const story = await createStory({ userId: 1, title: "书内图", body: { shots: [{ shotNo: 1, videoPrompt: "定格", subject: "不相关镜头" }] } });
+    const image = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
+      shotNo: "PUBLISHING-COVER-1", imageUrl: "https://example.com/book.png", imageKey: null,
+      prompt: "书内插图", generationType: "initial", isCurrent: false });
+    const chapter = await insertChapter({ storyId: story.id, userId: 1, content: { title: "书", layout: null, blocks: {
+      body: "![图片](https://example.com/book.png)", writingStyle: [{ id: "picture", format: "text", parentId: null, collapsed: false }],
+      blockIds: ["picture"], containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null,
+    } } });
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "book-video-task" }) }));
+    vi.stubGlobal("fetch", fetch);
+    const request = { storyId: story.id, shotNo: 1, stableShotId: "book:1:test", imageId: image.id, bookTarget: { chapterId: chapter.id, moduleId: "picture" }, prompt: "人物转身", directorPromptApproved: true, rerenderRequestId: "book-request-123" };
+    const result = await startShotVideoJob(request, 1);
+    expect(result.status).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const submitted = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(submitted.image_url).toBe(image.imageUrl);
+    expect(submitted.prompt).not.toContain("不相关镜头");
+    expect(submitted.prompt).toContain("人物转身");
+    await startShotVideoJob(request, 1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect((await startShotVideoJob({ ...request, bookTarget: { ...request.bookTarget, moduleId: "removed" } }, 1)).status).toBe("error");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("submits an article's referenced illustration directly, but rejects an unrelated shot", async () => {
     const story = await createStory({ userId: 1, projectId: null, title: "复用插图", body: {} });
     const image = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,

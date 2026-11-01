@@ -1,3 +1,5 @@
+import { estimateStoryboardMaskedEditCost } from "../shared/imageRenderCost";
+import { formatComputeQuote } from "../shared/computeMoney";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
@@ -90,11 +92,6 @@ const imageGenMocks = vi.hoisted(() => ({
     status: "ok" as const,
     imageUrl: "https://storage.example/generated/default-edit.png",
     imageKey: "generated/default-edit.png",
-  })),
-  inpaintImage: vi.fn(async () => ({
-    status: "ok" as const,
-    imageUrl: "https://storage.example/generated/default-inpaint.png",
-    imageKey: "generated/default-inpaint.png",
   })),
   generateDraftImage: vi.fn(async () => ({
     status: "ok" as const,
@@ -1375,6 +1372,16 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("quotes explicit GPT 2 fallback before dispatching the selected model", async () => {
+    const caller = appRouter.createCaller(createAuthContext(498));
+    const story = await caller.storyAgent.storyUpsert({ title: "纸船备用验收", projectId: 7498, body: { cards: [], shots: [] } });
+    const request = { storyId: story!.id, prompt: "blue paper boat", mode: "final" as const, imageProvider: "gpt-image" as const, gptImageModel: "gpt-image-2" as const };
+    expect(await caller.storyAgent.generateForMobile(request)).toMatchObject({ status: "error", error: expect.stringContaining("确认") });
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(await caller.storyAgent.generateForMobile({ ...request, costConfirmation: { accepted: true, estimatedCny: 1.43 } })).toMatchObject({ status: "ok" });
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ provider: "gpt-image", gptImageModel: "gpt-image-2" }));
+  });
+
   it("explicit empty references ignore legacy and client URL references", async () => {
     const caller = appRouter.createCaller(createAuthContext(497));
     seedProjectForTesting({ id: 7497, userId: 497 });
@@ -1401,7 +1408,7 @@ describe("storyAgent tRPC router", () => {
     const input={storyId:story!.id,warehouseTextureSourceId:source.id,referenceImageUrl:'https://untrusted.invalid/ignored.png',explicitInstruction:'淡一些'};
     expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({status:'error'});
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
-    const result=await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:1.49}});
+    const result=await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:estimateStoryboardMaskedEditCost().estimatedCny}});
     expect(result.status).toBe('ok');
     if(result.status!=='ok')throw new Error(result.error);
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(source.imageUrl,expect.stringContaining('3:4'),expect.objectContaining({provider:'gpt-image',requireInputImage:true}));
@@ -1413,7 +1420,7 @@ describe("storyAgent tRPC router", () => {
     const story=await caller.storyAgent.storyUpsert({title:'归属检查',body:{cards:[],shots:[]}});
     const source=await createGeneratedImage({storyId:story!.id,userId:6653,shotNo:null,shotIdentity:null,imageUrl:'https://storage.example/private.png',prompt:'原图',generationType:'upload',isCurrent:false});
     imageGenMocks.editImage.mockClear();
-    const result=await caller.storyAgent.generateForMobile({storyId:story!.id,warehouseTextureSourceId:source.id,costConfirmation:{accepted:true,estimatedCny:1.49}});
+    const result=await caller.storyAgent.generateForMobile({storyId:story!.id,warehouseTextureSourceId:source.id,costConfirmation:{accepted:true,estimatedCny:estimateStoryboardMaskedEditCost().estimatedCny}});
     expect(result).toMatchObject({status:'error',error:expect.stringContaining('不属于')});
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
   });
@@ -1428,7 +1435,7 @@ describe("storyAgent tRPC router", () => {
     const input = { storyId: story!.id, shotNo: 1, explicitInstruction: "只把伞改红", imageProvider: "gpt-image" as const, referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} } };
     expect(await caller.storyAgent.generateForMobile({ ...input, costConfirmation: { accepted: true, estimatedCny: 0.68 } })).toMatchObject({ status: "error" });
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
-    const result = await caller.storyAgent.generateForMobile({ ...input, autoSelect: true, costConfirmation: { accepted: true, estimatedCny: 1.49 } });
+    const result = await caller.storyAgent.generateForMobile({ ...input, autoSelect: true, costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny } });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") throw new Error(result.error);
     expect(result.candidates).toHaveLength(1);
@@ -1512,7 +1519,7 @@ describe("storyAgent tRPC router", () => {
     seedProjectForTesting({ id: 7499, userId: 499 });
     const story = await caller.storyAgent.storyUpsert({title: "渲染前校验", projectId: 7499, body: {cards: [], shots: [{shotNo: 1, cueCode: "0101", subject: "猫"}]}});
     const base = {storyId: story!.id, shotNo: 1, prompt: "猫", explicitInstruction: "猫", imageProvider: "midjourney" as const, costConfirmation: {accepted: true as const, estimatedCny: 0.68}, renderReferences: {imageIds: [], assets: {}}};
-    for (const override of [{explicitInstruction: undefined}, {shotNo: 99}, {costConfirmation: undefined}, {costConfirmation: {accepted: true as const, estimatedCny: 1.49}}]) {
+    for (const override of [{explicitInstruction: undefined}, {shotNo: 99}, {costConfirmation: undefined}, {costConfirmation: {accepted: true as const, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny}}]) {
       expect((await caller.storyAgent.generateForMobile({...base, ...override})).status).toBe("error");
     }
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
@@ -1873,7 +1880,7 @@ describe("storyAgent tRPC router", () => {
     });
     expect(missingConfirmation).toMatchObject({
       status: "error",
-      error: expect.stringContaining("2.98 算力"),
+      error: expect.stringContaining(formatComputeQuote(estimateStoryboardMaskedEditCost().estimatedCny)),
     });
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
 
@@ -1885,7 +1892,7 @@ describe("storyAgent tRPC router", () => {
       referenceImageUrl,
       editMaskImageUrl: maskImageUrl,
       imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny },
     });
 
     expect(approved).toMatchObject({ status: "ok" });
@@ -1916,7 +1923,7 @@ describe("storyAgent tRPC router", () => {
       referenceImageUrl,
       editMaskImageUrl: maskImageUrl,
       imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny },
     });
     expect(missingInstruction).toMatchObject({
       status: "error",
@@ -1930,7 +1937,7 @@ describe("storyAgent tRPC router", () => {
       explicitInstruction: "只把短裙改成及地长裙",
       editMaskImageUrl: maskImageUrl,
       imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny },
     });
     expect(missingReference).toMatchObject({
       status: "error",
@@ -1948,7 +1955,7 @@ describe("storyAgent tRPC router", () => {
       editMaskImageUrl: maskImageUrl,
       imageProvider: "gpt-image",
       mode: "draft",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny },
     });
     expect(draftMask).toMatchObject({
       status: "error",
@@ -1990,7 +1997,7 @@ describe("storyAgent tRPC router", () => {
       referenceImageUrl: "https://storage.example/frames/11.png",
       referenceContextImageUrls: ["https://storage.example/frames/22.png"],
       imageProvider: "gpt-image",
-      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny },
     });
 
     expect(result).toMatchObject({ status: "ok" });
@@ -2000,6 +2007,7 @@ describe("storyAgent tRPC router", () => {
       expect.objectContaining({
         provider: "gpt-image",
         referenceContextImageUrls: ["https://storage.example/frames/22.png"],
+        preferStructuralEdit: true,
       })
     );
     const finalPrompt = imageGenMocks.editImage.mock.calls.at(-1)![1] as string;
@@ -2025,7 +2033,7 @@ describe("storyAgent tRPC router", () => {
       projectId: 7315,
       body: { cards: [], characters: [], shots: [] },
     });
-    const base = { accepted: true as const, estimatedCny: 1.49 };
+    const base = { accepted: true as const, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny };
 
     const missingBase = await caller.storyAgent.generateForMobile({
       storyId: story!.id,

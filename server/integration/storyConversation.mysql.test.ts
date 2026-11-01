@@ -40,6 +40,42 @@ async function workerResult<T>(worker: MysqlTestWorker): Promise<T> {
 }
 
 describeMysql("Story conversation logical turns on MySQL", () => {
+  it("keeps mobile turns through legacy projection and guarded reset across processes", async () => {
+    await withMysqlTestDatabase(async database => {
+      const setup = await mysql.createConnection(database.databaseUrl);
+      let userId = 0;
+      let storyId = 0;
+      try {
+        await setup.execute("CREATE TABLE turn_generation_audit (`id` int AUTO_INCREMENT PRIMARY KEY, `clientTurnId` varchar(128) NOT NULL)");
+        const [user] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO users (`openId`, `name`) VALUES (?, ?)", ["migration-turn-owner", "Owner"]);
+        userId = user.insertId;
+        const [story] = await setup.execute<mysql.ResultSetHeader>(
+          "INSERT INTO stories (`userId`, `title`, `body`) VALUES (?, ?, ?)",
+          [userId, "Old body", JSON.stringify({ cards: [], shots: [] })]);
+        storyId = story.insertId;
+      } finally { await setup.end(); }
+      const run = <T = unknown>(action: string, extra = {}) => workerResult<{ ok: boolean; result: T }>(startWorker(database.databaseUrl, {
+        action, storyId, userId, ...extra,
+      }));
+      expect(await run("projectLegacy")).toMatchObject({ ok: true, result: { migrated: true } });
+      const identity = { storyId, clientTurnId: "retained-mobile", userClientMessageId: "retained-user", assistantClientMessageId: "retained-assistant", userContent: "手机新消息" };
+      const turn = { ...identity, requestHash: computeStoryConversationTurnRequestHash(identity) };
+      expect(await run("generate", turn)).toMatchObject({ ok: true, result: { status: "completed" } });
+      // A completed but not yet appended reply must also survive rebuilding attempts.
+      expect(await run("resetMigration")).toEqual({ ok: true, result: false });
+      expect(await run("projectLegacy")).toMatchObject({ ok: true, result: { migrated: false } });
+      expect(await run("append", turn)).toMatchObject({ ok: true, result: { status: "appended" } });
+      expect(await run("projectLegacy")).toMatchObject({ ok: true, result: { migrated: false } });
+      expect(await run("resetMigration")).toEqual({ ok: true, result: false });
+      const listed = await run<{ messages: Array<{ content: string }> }>("list");
+      expect(listed.ok).toBe(true);
+      expect(listed.result.messages.map((message: { content: string }) => message.content))
+        .toEqual(["手机新消息", "回答:手机新消息"]);
+      expect(await run("append", turn)).toMatchObject({ ok: true, result: { status: "appended" } });
+    });
+  });
+
   it("keeps legacy messages readable and converges concurrent claims to one result", async () => {
     await withMysqlTestDatabase(async database => {
       const setup = await mysql.createConnection(database.databaseUrl);

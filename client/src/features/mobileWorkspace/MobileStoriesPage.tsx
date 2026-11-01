@@ -1,3 +1,4 @@
+import { matchesStorySearch } from "@shared/storyTags";
 import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState, useContext, useEffect } from "react";
 import { MobileCompanionActivity } from "./mobileCompanionActivity";
@@ -29,6 +30,7 @@ export function MobileStoriesPage({
   onOpenMe,
   onSelectStory,
   onOpenStage,
+  onOpenBook,
   visualTheme = "shiguang",
   shareBacks = [],
   unreadShareBackIds,
@@ -45,10 +47,12 @@ export function MobileStoriesPage({
   onOpenMe: () => void;
   onSelectStory: (storyId: number, stage?: MobileStoryStage) => void;
   onOpenStage: (stage: MobileStoryStage) => void;
+  onOpenBook?: () => void;
 }) {
   const t = useUiText();
   const { language } = useUiLanguage();
 
+  const [search,setSearch] = useState("");
   const [library, setLibrary] = useState<MobileLibraryStage | null>(null);
   const setCompanionActive = useContext(MobileCompanionActivity);
   useEffect(() => {
@@ -69,8 +73,8 @@ export function MobileStoriesPage({
         onOpenStory={(id, stage) => onSelectStory(id, stage ?? "text")}
       />
     );
-  const current = stories.find(story => story.id === activeStoryId) ?? null;
-  const others = stories.filter(story => story.id !== activeStoryId);
+  const current = !search.trim() ? stories.find(story => story.id === activeStoryId) ?? null : null;
+  const others = stories.filter(story => (search.trim() || story.id !== activeStoryId) && matchesStorySearch(story,search));
 
   return (
     <section
@@ -88,6 +92,7 @@ export function MobileStoriesPage({
         </h1>
         <MobileNavBar current="stories" onNavigate={onOpenMe} />
       </div>
+      <input type="search" aria-label="搜索故事或标签" placeholder="搜索故事或标签" value={search} onChange={e=>setSearch(e.target.value)} className="my-3 min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm" />
       <nav
         aria-label={t("全部内容")}
         className="mt-1 flex justify-between gap-2"
@@ -184,24 +189,24 @@ export function MobileStoriesPage({
             <button
               type="button"
               className="min-h-11 px-1 text-sm text-muted-foreground"
-              onClick={() => onOpenStage("text")}
+              onClick={() => onOpenBook ? onOpenBook() : onOpenStage("text")}
             >
-              {t("查看文字稿 ›")}
+              {t(onOpenBook ? "编辑书中模块 ›" : "查看文字稿 ›")}
             </button>
           </div>
         </article>
-      ) : (
+      ) : !search.trim() ? (
         <p className="mt-6 text-sm leading-7 text-muted-foreground">
           {t("还没有正在继续的故事。")}
         </p>
-      )}
+      ) : null}
 
       <div className="mt-7 text-[11px] tracking-[0.07em] text-muted-foreground">
-        {t("以前的故事")}
+        {search.trim() ? "搜索结果" : t("以前的故事")}
       </div>
       {others.length === 0 ? (
         <p className="mt-3 text-sm leading-7 text-muted-foreground">
-          {t("以前的故事会出现在这里。")}
+          {search.trim() ? "没有匹配的故事或标签。" : t("以前的故事会出现在这里。")}
         </p>
       ) : (
         <ul className="mt-1">
@@ -219,6 +224,7 @@ export function MobileStoriesPage({
                   <span className="block font-chat-brand text-[17px] text-foreground">
                     {story.title}
                   </span>
+                  {!!story.tags?.length && <span className="block text-xs leading-6 text-primary">{story.tags.map(tag=>`#${tag}`).join("　")}</span>}
                   <span className="mt-1.5 block truncate text-xs leading-6 text-muted-foreground">
                     {storyExcerpt(story) || t("还没有摘要。")}
                   </span>

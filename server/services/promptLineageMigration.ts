@@ -39,7 +39,9 @@ import type {
 import {
   clearStoryPromptLineage,
   createPersistentLocalPromptLineageStore,
+  hasPostMigrationChanges,
   loadStoryPromptAggregate,
+  withPersistentLocalConversationLock,
 } from "./promptLineageStore";
 import { getDb } from "../db";
 
@@ -498,13 +500,6 @@ function aggregateSignatures(aggregate: StoryPromptAggregate): {
   };
 }
 
-function hasManualPromptEdits(aggregate: StoryPromptAggregate): boolean {
-  return aggregate.revisions.some(
-    revision =>
-      revision.authorType === "user" || revision.authorType === "agent",
-  );
-}
-
 function migrationSeedChanged(
   aggregate: StoryPromptAggregate,
   seed: MigrationSeed,
@@ -533,11 +528,11 @@ async function maybeResetStaleMigration(
   if (!migrationSeedChanged(aggregate, seed)) {
     return aggregate;
   }
-  if (hasManualPromptEdits(aggregate)) {
+  if (hasPostMigrationChanges(aggregate)) {
     return aggregate;
   }
-  await clearStoryPromptLineage(owner);
-  return null;
+  const cleared = await clearStoryPromptLineage(owner);
+  return cleared ? null : loadStoryPromptAggregate(owner);
 }
 
 function createFacts(
@@ -600,7 +595,7 @@ export async function migrateLegacyPromptLineage(
       if (!migrationSeedChanged(existing, seed)) {
         return { migrated: false, version: existing.state.version };
       }
-      if (hasManualPromptEdits(existing)) {
+      if (hasPostMigrationChanges(existing)) {
         return { migrated: false, version: existing.state.version };
       }
       await store.clearStory(input);
@@ -681,15 +676,23 @@ export async function migrateStoryPromptLineage(
 ): Promise<{ migrated: boolean; version: number }> {
   const body = asRecord(input.body);
   const seed = buildMigrationSeed(body);
+  const db = await getDb();
+  if (!db) {
+    // Share the conversation lock so a migration snapshot cannot overwrite a
+    // concurrently reserved, completed, or appended turn from another screen.
+    return withPersistentLocalConversationLock(async () => {
+      const current = await loadStoryPromptAggregate(input);
+      if (current?.state.migrationStatus === "migrated" &&
+        (hasPostMigrationChanges(current) || !migrationSeedChanged(current, seed))) {
+        return { migrated: false, version: current.state.version };
+      }
+      const store = await createPersistentLocalPromptLineageStore();
+      return migrateLegacyPromptLineage(store, input);
+    });
+  }
   const current = await maybeResetStaleMigration(input, seed);
   if (current?.state.migrationStatus === "migrated") {
     return { migrated: false, version: current.state.version };
-  }
-
-  const db = await getDb();
-  if (!db) {
-    const store = await createPersistentLocalPromptLineageStore();
-    return migrateLegacyPromptLineage(store, input);
   }
 
   return db.transaction(async tx => {

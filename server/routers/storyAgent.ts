@@ -1,3 +1,5 @@
+import { storyTagsSchema } from "../../shared/storyTags";
+import { getStoryTags, setStoryTags } from "../services/storyTags";
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
 import { listAccountImages } from "../repositories/accountImages";
 import { syncStoryChatMemories, syncStoryChatMemoriesSafely } from "../services/chatMemoryWarehouse";
@@ -683,6 +685,8 @@ export const storyAgentRouter = router({
     }),
 
   /** List all stories for the current user */
+  storyTags: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(({ctx,input}) => getStoryTags(ctx.user.id,input.storyId)),
+  setStoryTags: protectedProcedure.input(z.object({storyId:z.number().int().positive(),tags:storyTagsSchema,expectedTags:storyTagsSchema})).mutation(({ctx,input}) => setStoryTags(ctx.user.id,input.storyId,input.tags,input.expectedTags)),
   storyList: protectedProcedure.query(async ({ ctx }) => {
     const items = await listUserStories(ctx.user.id);
     return { stories: items };
@@ -1784,6 +1788,7 @@ export const storyAgentRouter = router({
         sceneWeight: z.number().min(0).max(3).optional(),
         sceneAnalysis: sceneAnalysisSchema.optional(),
         imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(), // 图片生成器选择，透传给 generateImage/editImage
+        gptImageModel: z.literal("gpt-image-2").optional(),
         referenceImageUrl: z.string().optional(), // FLUX Kontext 参考图 URL，跨镜头保角色/场景一致
         referenceIdentityImageUrl: z.string().optional(), // 人物身份锚点图，优先用来提取五官/脸型
         referenceContextImageUrls: z.array(z.string()).max(3).optional(), // 当前故事的相邻镜头画面，仅用于视觉连续性
@@ -1886,7 +1891,10 @@ export const storyAgentRouter = router({
             error: "多图重组不能同时使用遮罩局部重绘",
           };
         }
-        if (input.explicitInstruction || input.editMaskImageUrl) {
+        if (input.gptImageModel && (input.imageProvider !== "gpt-image" || input.mode === "draft")) {
+          throw new Error("GPT备用图片需要选择GPT正式生成");
+        }
+        if (input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel) {
           const estimate =
             input.editMaskImageUrl || input.imageProvider === "gpt-image"
               ? estimateStoryboardMaskedEditCost()
@@ -2486,6 +2494,7 @@ export const storyAgentRouter = router({
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
                 provider: input.imageProvider ?? "midjourney",
                 referenceRevision: input.referenceRevision,
+                preferStructuralEdit: input.remixEdit && input.imageProvider === "gpt-image",
                 ...injection,
                 imageWeight,
                 referenceImageUrl: input.referenceImageUrl,
@@ -2512,6 +2521,7 @@ export const storyAgentRouter = router({
               })
             : generateMobileImage(renderedFinalPrompt, {
                 provider: input.imageProvider ?? "midjourney",
+                gptImageModel: input.gptImageModel,
                 ...injection,
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,

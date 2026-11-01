@@ -51,7 +51,8 @@ describe("createContext", () => {
     vi.clearAllMocks();
     vi.resetModules();
     process.env.DISABLE_AUTH = "true";
-    process.env.NODE_ENV = "production";
+    // 关闭鉴权只在本机开发（NODE_ENV=development 只监听 127.0.0.1）下生效。
+    process.env.NODE_ENV = "development";
     delete process.env.DEV_FIXED_GUEST_OPEN_ID;
   });
 
@@ -263,5 +264,28 @@ describe("createContext", () => {
       );
       expect(ctx.user?.openId).toBe(FIXED_OPEN_ID);
     });
+  });
+
+  it.each([
+    ["production + DISABLE_AUTH=true", "production", "true"],
+    ["development without DISABLE_AUTH", "development", undefined],
+    ["unset NODE_ENV (listens on all interfaces)", undefined, "true"],
+    ["test NODE_ENV (listens on all interfaces)", "test", "true"],
+  ])("keeps real auth on for %s", async (_label, nodeEnv, disableAuth) => {
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+    if (disableAuth === undefined) delete process.env.DISABLE_AUTH;
+    else process.env.DISABLE_AUTH = disableAuth;
+    authenticateRequest.mockRejectedValue(new Error("no session"));
+
+    const { createContext } = await import("./context");
+    const ctx = await createContext({
+      req: { headers: {} } as any,
+      res: { cookie: vi.fn() } as any,
+    });
+
+    expect(ctx.user).toBeNull();
+    expect(createSessionToken).not.toHaveBeenCalled();
+    expect(upsertUser).not.toHaveBeenCalled();
   });
 });

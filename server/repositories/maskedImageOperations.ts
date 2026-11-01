@@ -49,7 +49,7 @@ function assertMatchingPreviewMaskedImageOperation(
     inputHash: string;
     sourceImageId: number;
     maskKey: string;
-    targetKind: "shot-primary" | "timeline-image-clip";
+    targetKind: "shot-primary" | "timeline-image-clip" | "book-image";
     stableShotId: string;
     clipId?: string | null;
     quoteId: string;
@@ -135,7 +135,7 @@ export async function getLatestSucceededPreviewMaskedImageOperationForTarget(inp
   storyId: number;
   userId: number;
   sourceImageId: number;
-  targetKind: "shot-primary" | "timeline-image-clip";
+  targetKind: "shot-primary" | "timeline-image-clip" | "book-image";
   stableShotId: string;
   clipId?: string | null;
 }): Promise<PreviewMaskedImageOperation | null> {
@@ -190,7 +190,7 @@ export async function claimPreviewMaskedImageOperation(
     inputHash: string;
     sourceImageId: number;
     maskKey: string;
-    targetKind: "shot-primary" | "timeline-image-clip";
+    targetKind: "shot-primary" | "timeline-image-clip" | "book-image";
     stableShotId: string;
     clipId?: string | null;
     quoteId: string;

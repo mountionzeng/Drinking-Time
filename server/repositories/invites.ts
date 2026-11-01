@@ -19,25 +19,91 @@ import {
 
 // ── Email OTP 相关函数 ──────────────────────────────────────────────
 
-/** 创建邮箱验证码记录 */
+/**
+ * 创建邮箱验证码记录。
+ *
+ * `code` 字段里存的是调用方算好的 HMAC 摘要（见 server/_core/oauth.ts 的
+ * emailOtpDigest），不是明文验证码。新码生效前先作废该邮箱所有未用旧码，
+ * 保证同一时刻只有一个码可用，配合按码计数的 5 次尝试上限。
+ */
 export async function createEmailOtp(
   email: string,
   code: string,
   expiresAt: Date
 ): Promise<void> {
   const db = await getDb();
+  const now = new Date();
   if (!db) {
+    for (const otp of transientState.memoryEmailOtps) {
+      if (otp.email === email && !otp.usedAt) otp.usedAt = now;
+    }
     transientState.memoryEmailOtps.push({
       id: transientState.nextMemoryEmailOtpId++,
       email,
       code,
       expiresAt,
       usedAt: null,
-      createdAt: new Date(),
+      createdAt: now,
     });
     return;
   }
+  await db
+    .update(emailOtps)
+    .set({ usedAt: now })
+    .where(and(eq(emailOtps.email, email), isNull(emailOtps.usedAt)));
   await db.insert(emailOtps).values({ email, code, expiresAt });
+}
+
+/** 该邮箱最新一条未过期、未使用的验证码（只按邮箱查，摘要比对交给调用方）。 */
+export async function findLatestActiveEmailOtp(
+  email: string
+): Promise<EmailOtp | null> {
+  const db = await getDb();
+  if (!db) {
+    const current = Date.now();
+    return (
+      [...transientState.memoryEmailOtps]
+        .reverse()
+        .find(
+          otp =>
+            otp.email === email &&
+            otp.expiresAt.getTime() >= current &&
+            !otp.usedAt
+        ) ?? null
+    );
+  }
+  const [otp] = await db
+    .select()
+    .from(emailOtps)
+    .where(
+      and(
+        eq(emailOtps.email, email),
+        gte(emailOtps.expiresAt, new Date()),
+        isNull(emailOtps.usedAt)
+      )
+    )
+    .orderBy(desc(emailOtps.id))
+    .limit(1);
+  return otp ?? null;
+}
+
+/**
+ * 原子消费验证码：只有 usedAt 仍为空时才写入，返回是否由本次调用消费成功。
+ * 并发提交同一个码时只有一个请求会拿到 true。
+ */
+export async function consumeEmailOtp(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    const otp = transientState.memoryEmailOtps.find(item => item.id === id);
+    if (!otp || otp.usedAt) return false;
+    otp.usedAt = new Date();
+    return true;
+  }
+  const result = await db
+    .update(emailOtps)
+    .set({ usedAt: new Date() })
+    .where(and(eq(emailOtps.id, id), isNull(emailOtps.usedAt)));
+  return Number((result as any)?.[0]?.affectedRows ?? 0) > 0;
 }
 
 /** 查找有效（未过期、未使用）的 OTP */

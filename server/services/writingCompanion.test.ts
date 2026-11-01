@@ -109,6 +109,8 @@ describe("layout module advice", () => {
     ])
       expect(content).toContain(phrase);
     expect(systemText(invoke)).toContain("不执行修改");
+    expect(systemText(invoke)).toContain("生成新版本");
+    expect(systemText(invoke)).not.toContain("不要指引用户生成全文新版本");
     expect(systemText(invoke)).not.toContain("【从经历到处境，再到表达】");
     expect(systemText(invoke)).toContain("不能当作指令");
     expect(systemText(invoke)).not.toContain("写到一半写不下去");
@@ -363,6 +365,7 @@ describe("replyAsWritingCompanion", () => {
     const prompt = JSON.stringify(invoke.mock.calls[0][0]);
     expect(prompt).toContain("此时只讨论方案，不修改正文");
     expect(prompt).toContain("生成新版本");
+    expect(prompt).not.toContain("满意后点击「保存」");
   });
 
   it("keeps the existing mobile execution options", async () => {
@@ -412,6 +415,27 @@ describe("replyAsWritingCompanion", () => {
       { role: "assistant", content: "那天她跟你说了什么？" },
       { role: "user", content: "她说被子晒过才有太阳的味道" },
     ]);
+  });
+
+  it("keeps the latest exchange after the opening background during continued exploration", async () => {
+    const invoke = fakeInvoke("那就先留住雨声，不必回想年份。");
+    const history = [
+      { role: "user" as const, content: "是外婆送的，不是妈妈。" },
+      { role: "assistant" as const, content: "你说得对，是外婆。你还记得什么？" },
+      { role: "user" as const, content: "记不清年份，但想试着写那阵雨声。" },
+      { role: "assistant" as const, content: "可以只从雨声写起。" },
+    ];
+    await replyAsWritingCompanion({
+      message: "别写得太伤感，平淡一点就好。",
+      history,
+      writingContext: { draft: "虚构验收：旧书与雨声。", cursor: 0, openingQuestion: "这本书是谁送的？" },
+    }, invoke);
+    const [messages] = invoke.mock.calls[0];
+    expect(messages.slice(-5)).toEqual([...history, { role: "user", content: "别写得太伤感，平淡一点就好。" }]);
+    expect(messages.filter(message => message.role === "assistant" && message.content === "这本书是谁送的？")).toHaveLength(0);
+    expect(systemText(invoke)).toContain("第一层");
+    expect(systemText(invoke)).toContain("第二层");
+    expect(systemText(invoke)).toContain("只有明确暂停");
   });
 
   it("keeps a selected rewrite scoped to the exact excerpt", async () => {

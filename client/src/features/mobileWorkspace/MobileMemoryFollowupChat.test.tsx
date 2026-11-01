@@ -12,6 +12,9 @@ const mock = vi.hoisted(() => ({
   hook: vi.fn(),
   props: null as any,
   invalidate: vi.fn(),
+  recoveryTurns: [] as any[],
+  isSubmitting: false,
+  moduleProps: null as any,
 }));
 vi.mock("./useMobileConversation", () => ({
   useMobileConversation: (input: unknown) => {
@@ -21,11 +24,14 @@ vi.mock("./useMobileConversation", () => ({
         { id: "old", source: "server", role: "user", content: "旧聊天" },
       ],
       historyState: "loaded",
-      isSubmitting: false,
-      recoveryTurns: [],
+      isSubmitting: mock.isSubmitting,
+      recoveryTurns: mock.recoveryTurns,
       submit: mock.submit,
     };
   },
+}));
+vi.mock("./MobileBookModuleActions", () => ({
+  MobileBookModuleActions: (props: any) => { mock.moduleProps = props; return <div />; },
 }));
 vi.mock("./MobileChatView", () => ({
   MobileChatView: (props: any) => {
@@ -56,6 +62,7 @@ const source = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.recoveryTurns = []; mock.isSubmitting = false; mock.moduleProps = null;
   mock.submit.mockResolvedValue({ status: "synced" });
 });
 function setup(selectedSource: MemoryFollowupSource = source) {
@@ -111,6 +118,28 @@ it("uses the source story without sending on open and shows the complete shared 
     expect.objectContaining({ id: "old", content: "旧聊天" }),
   ]);
   expect(mock.props.controller.historyState).toBe("loaded");
+});
+it.each(["", " \n "])("keeps chat space available when the current article has no body (%j)", body => {
+  const html = renderToStaticMarkup(
+    <MobileMemoryFollowupChat
+      userId={4}
+      source={{ ...source, kind: "text", title: "蓝书探索", text: {
+        content: { title: "蓝书探索", body, tags: [] }, parentId: null,
+      } }}
+      onLocked={() => {}}
+      draft=""
+      setDraft={() => {}}
+      baseline={{ current: null }}
+    />
+  );
+  expect(html).not.toContain('aria-label="当前文章"');
+  expect(html).toContain("蓝书探索");
+  expect(html).toContain('aria-label="更多操作"');
+  expect(mock.props.controller.messages).toEqual([
+    expect.objectContaining({ content: "旧聊天" }),
+  ]);
+  expect(mock.props.greeting).toBe("我在呢，接着聊这个故事吧。");
+  expect(mock.submit).not.toHaveBeenCalled();
 });
 it("appends a clearly attributed original quote with the new thought and refreshes memory", async () => {
   setup();
@@ -245,4 +274,15 @@ it("uses the captured mobile caret for ordinary text chat instead of forcing the
   expect(mock.submit).not.toHaveBeenCalled();
   await mock.props.controller.submit("这里还能怎么写");
   expect(mock.submit).toHaveBeenCalledWith("这里还能怎么写", expect.objectContaining({ cursor: 2, draft: "甲\n乙\n丙" }));
+});
+
+ it.each([false, true])("only locks independent module operations during active submission (%s), not retained recovery", isSubmitting => {
+  mock.isSubmitting = isSubmitting;
+  mock.recoveryTurns = [{ status: "failed", content: "保留的断线消息" }];
+  setup({ ...source, kind: "layout", module: {
+    storyId: 7, scope: "layout:7", moduleId: "b", kind: "text", text: "当前段落",
+    page: 1, pageCount: 1, rect: {x:0,y:0,width:100,height:100}, pageText: "当前段落",
+  } });
+  expect(mock.moduleProps.disabled).toBe(isSubmitting);
+  expect(mock.props.controller.recoveryTurns).toEqual(mock.recoveryTurns);
 });

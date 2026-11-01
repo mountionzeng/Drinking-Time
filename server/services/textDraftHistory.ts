@@ -308,7 +308,8 @@ export async function generateTextDraft(
     evidence,
     originalSamples,
     memoryCards ? "" : inheritedStoryReference(body),
-    memoryCards
+    memoryCards,
+    snapshot
   );
   if (prompt.modelMessage.length > 160_000)
     throw bad("写作上下文过长，请缩短本次材料");

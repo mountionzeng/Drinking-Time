@@ -7,6 +7,7 @@ import {
   resolveStoredMaskUrl,
   segmentAtPoint,
   segmentWithinPolygon,
+  segmentFromScribble,
   isCircuitOpen,
   resetCircuitBreaker,
 } from "./segmentation";
@@ -457,7 +458,7 @@ describe("segmentWithinPolygon", () => {
       expect(result.status).toBe("ok");
       expect(invokeVisionJson).toHaveBeenCalledWith(expect.objectContaining({
         userText: expect.stringContaining("Lasso search hint"),
-        imageUrls: [expect.stringMatching(/^data:image\/png;base64,/)],
+        imageUrls: [expect.stringMatching(/^data:image\/jpeg;base64,/)],
       }));
       const editBytes = vi.mocked(storagePut).mock.calls[0]?.[1] as Uint8Array;
       const alpha = [...await sharp(editBytes).ensureAlpha().raw().toBuffer()]
@@ -549,4 +550,45 @@ describe("segmentWithinPolygon", () => {
     }
   });
 
+});
+
+describe("positive scribble subject selection", () => {
+  beforeEach(() => { vi.mocked(storagePut).mockClear(); vi.mocked(invokeVisionJson).mockClear(); });
+  it("recognizes a whole object from collinear interior strokes, without clipping to their bounds", async () => {
+    const sourceBytes = await sharp({ create: { width: 100, height: 100, channels: 4, background: "black" } }).png().toBuffer();
+    vi.mocked(visionChannelConfigured).mockReturnValueOnce(true);
+    vi.mocked(invokeVisionJson).mockResolvedValueOnce({ modelLabel: "test", text: JSON.stringify({ found: true, anchor: { x: 300, y: 300 }, contour: [{ x: 150, y: 150 }, { x: 600, y: 150 }, { x: 600, y: 600 }, { x: 150, y: 600 }] }) });
+    const result = await segmentFromScribble("https://img.test/photo.png", [{ x: 25, y: 30 }, { x: 30, y: 30 }, { x: 35, y: 30 }], { sourceBytes });
+    expect(result.status).toBe("ok");
+    expect(invokeVisionJson).toHaveBeenCalledWith(expect.objectContaining({ userText: expect.stringContaining("Positive scribble samples"), system: expect.stringContaining("NOT a closed polygon") }));
+    const vision = vi.mocked(invokeVisionJson).mock.calls[0][0];
+    expect(vision.requireJsonObject).toBe(true);
+    expect(vision.imageUrls).toHaveLength(2);
+    expect(vision.imageUrls[0]).toMatch(/^data:image\/jpeg;base64,/);
+    expect(vision.imageUrls[1]).not.toBe(vision.imageUrls[0]);
+    const bytes = vi.mocked(storagePut).mock.calls[0][1] as Uint8Array;
+    const alpha = [...await sharp(bytes).ensureAlpha().raw().toBuffer()].filter((_, i) => i % 4 === 3);
+    expect(alpha.filter(value => value === 0)).toHaveLength(2025);
+  });
+  it("rejects a model contour that does not contain the marked subject", async () => {
+    const sourceBytes = await sharp({ create: { width: 100, height: 100, channels: 4, background: "black" } }).png().toBuffer();
+    vi.mocked(visionChannelConfigured).mockReturnValueOnce(true);
+    vi.mocked(invokeVisionJson).mockResolvedValueOnce({ modelLabel: "test", text: JSON.stringify({ found: true, anchor: { x: 300, y: 300 }, contour: [{ x: 150, y: 150 }, { x: 600, y: 150 }, { x: 600, y: 600 }, { x: 150, y: 600 }] }) });
+    expect((await segmentFromScribble("https://img.test/photo.png", [{ x: 80, y: 80 }, { x: 85, y: 85 }], { sourceBytes })).status).toBe("error");
+    expect(storagePut).not.toHaveBeenCalled();
+  });
+  it("reports uncertain provider submissions without internal English or a second call", async () => {
+    const sourceBytes = await sharp({ create: { width: 100, height: 100, channels: 4, background: "black" } }).png().toBuffer();
+    vi.mocked(visionChannelConfigured).mockReturnValueOnce(true);
+    vi.mocked(invokeVisionJson).mockRejectedValueOnce(new Error("LLM submission outcome unknown; reconciliation required"));
+    const result = await segmentFromScribble("https://img.test/photo.png", [{ x: 30, y: 30 }], { sourceBytes });
+    expect(result).toMatchObject({ status: "error", message: expect.stringContaining("不会自动重复请求") });
+    expect(invokeVisionJson).toHaveBeenCalledTimes(1);
+  });
+  it("does not invent a brush-shaped mask when semantic recognition is unavailable", async () => {
+    vi.mocked(visionChannelConfigured).mockReturnValueOnce(false);
+    expect((await segmentFromScribble("https://img.test/photo.png", [{ x: 20, y: 30 }])).status).toBe("error");
+    expect(invokeVisionJson).not.toHaveBeenCalled();
+    expect(storagePut).not.toHaveBeenCalled();
+  });
 });

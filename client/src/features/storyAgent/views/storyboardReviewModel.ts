@@ -1,3 +1,4 @@
+import type { ShotVideoPriceProfile } from "@shared/shotDirector";
 import { estimateViduQ2TransitionCny } from "@shared/videoRenderCost";
 import { quoteShotImages } from "@shared/shotImageRender";
 /** Pure rules for the storyboard review workspace. */
@@ -354,7 +355,8 @@ export function storyboardRenderIntentSummary(
 
 export function quickShotVideoRenderPlan(
   shot: CreationEditorShot,
-  previousShots: readonly CreationEditorShot[]
+  previousShots: readonly CreationEditorShot[],
+  priceProfile?: ShotVideoPriceProfile
 ): QuickShotVideoRenderPlan {
   const rows = buildPromptTable(shot, {
     previousShots: [...previousShots],
@@ -372,7 +374,7 @@ export function quickShotVideoRenderPlan(
     3,
     storyboardStartEndDurationSec(shot.generationParams, shot.durationMs ?? 5_000)
   );
-  const estimate = estimateShotVideoCost({ durationSec, motion });
+  const estimate = estimateShotVideoCost({ durationSec, motion, priceProfile });
   const renderDecision = decideVideoRenderStrategy({
     action: shot.action,
     performance: shot.performance,
@@ -387,7 +389,7 @@ export function quickShotVideoRenderPlan(
   return {
     prompt: recipe.finalPrompt,
     missing: recipe.missing,
-    durationSec,
+    durationSec: renderDecision.strategy === "paid-302" && priceProfile === "mj-turbo" ? 5 : durationSec,
     motion,
     aspectRatio: SHOT_VIDEO_ASPECT_RATIO,
     estimatedCny:
@@ -436,9 +438,10 @@ export function storyboardVideoStartEndConfig(
 
 export function storyboardVideoCostEstimate(
   shot: CreationEditorShot,
-  neighbors: readonly CreationEditorShot[] = []
+  neighbors: readonly CreationEditorShot[] = [],
+  priceProfile?: ShotVideoPriceProfile
 ): number {
-  const plan = quickShotVideoRenderPlan(shot, []);
+  const plan = quickShotVideoRenderPlan(shot, [], priceProfile);
   const frames = storyboardShotFrameImages(shot);
   const config = storyboardVideoStartEndConfig(shot, neighbors);
   if (plan.renderDecision.strategy === "local-transform") {
@@ -472,13 +475,14 @@ export function storyboardShotCostEstimate(
     singleImageFallback?: boolean;
     imageCount?: number;
     neighbors?: readonly CreationEditorShot[];
+    priceProfile?: ShotVideoPriceProfile;
   }
 ): StoryboardShotCostEstimate {
   const imageEstimate = options.singleImageFallback
     ? estimateStoryboardMaskedEditCost()
     : estimateStoryboardImageCost();
   const videoCny = shot
-    ? storyboardVideoCostEstimate(shot, options.neighbors)
+    ? storyboardVideoCostEstimate(shot, options.neighbors, options.priceProfile)
     : 0;
   const imageCny =
     options.imageCount !== undefined
@@ -1608,9 +1612,10 @@ export function storyboardDraftCostEstimate(
   pending: Parameters<typeof storyboardRenderShotWithDraft>[2],
   tuning: Parameters<typeof storyboardStartEndTuningGenerationParams>[1],
   neighbors: readonly CreationEditorShot[],
-  imageCount: number
+  imageCount: number,
+  priceProfile?: ShotVideoPriceProfile
 ) {
   const effective = source ? storyboardRenderShotWithDraft(source, shot, pending) : undefined;
   if (effective) effective.generationParams = storyboardStartEndTuningGenerationParams(effective.generationParams, tuning);
-  return storyboardShotCostEstimate(effective, { neighbors, imageCount });
+  return storyboardShotCostEstimate(effective, { neighbors, imageCount, priceProfile });
 }

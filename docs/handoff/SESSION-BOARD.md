@@ -24,6 +24,67 @@
 
 ## 当前在场
 
+2026-11-01 晚间网页整合发布：用户已授权今天网页全部内容合main/push/部署。本对话独占网页主仓提交和生产发布窗口；包含已落地主仓的手机/电脑功能及所需迁移0038/0039，核对其他对话状态后发布。不操作原生小程序上传或提审。验证期间请勿修改网页主仓或执行其他发布。
+
+
+2026-11-01 手机图片过载隔离修复完成并释放imageGen/imageProviderHealth及测试：MJ过载只冷却自身、不污染全局失败计数，107项/类型通过；供应商未恢复，无新付费请求。备用GPT入口等待用户选择，默认MJ不变，未部署。
+
+2026-11-01 翻译菜单精简完成并释放BookBlockCanvas：中文只显示翻译英文，英文只显示翻译中文，混合保留两个；真实双模块菜单验证、类型通过，不调用模型/不部署。
+
+2026-11-01 电脑/手机按钮实测完成并释放文件：MobileMemoryFollowupChat/test修恢复消息误锁模块动作，MobileNewStoryCompanion修恢复聊天误标新故事，ChapterTextModules补媒体key。48项测试/类型/76卡通过，真实文章保存与旧稿对比、手机音乐播放/合并/翻译/素材新故事、跨端提醒与接收通过；图片仍供应商过载。未部署，见docs/qa/2026-11-01-web-button-acceptance.md。
+
+2026-11-01 模块中英翻译完成并释放文件：BookBlockCanvas/BookModuleConvert、bookMedia router、新bookModuleTranslation及测试；32项专项和类型通过，虚构故事中英双向真实翻译、原文保留与下方插入保存通过。未提交/部署。
+
+2026-11-01 聊天到文章生成衔接完成并释放：textDraftHistory/textDraftPrompt保留同故事前轮用途与禁写范围；writingCompanion指向现有生成入口；DailyLetterWelcome标明AI回信来源。6项断点回归先红后绿，82项相关与类型通过；无新付费调用、未提交/部署。生成UI与applyGenerated由来源会话负责，真实自动写入验收仍待完成；QA见conversation-exploration。
+
+2026-11-01 文章聊天衔接前端已释放：articleGenerationOptions默认优先沿用聊天已确认的形式/篇幅/受众/用途/语气/禁写范围，最新修正优先，不将助手猜测当事实；3项回归及76卡账本通过。书稿自动保存与偏好adoption分开已更新账本。服务端snapshot/delta与伴写引导由自我探索对话负责，未部署。
+
+2026-11-01 生成文章整理已释放文件（未提交/未部署）：StudioCreateMenu移除排版生成；TextDraftVersions/articleGenerationOptions细分形式、事实性质、篇幅与要求；appReleasePlugin修HMR误判过期；DesktopWritingContext/desktopWritingSession/ChapterWriting直接写入新稿并保留旧版。70项专项与类型通过，真实首轮出稿/保存/旧稿对比通过，第二轮模型断连可能计费未重试，直接写入新路径真实复验仍待上游恢复。
+
+2026-11-01 手机模块聊天操作已释放文件（未提交/未部署）：MobileNewStoryCompanion跟随当前模块、MobileMemoryFollowupChat上下文栏增加生成图片/音乐和勾选合并；ChapterTextModules/bookModuleActions复用原转换与保存。42项专项及类型通过，390px实点图片/音乐窗口通过，未付费生成。
+
+2026-11-01 桌面生成文章入口修复已释放文件（未提交/未部署）：StoryAgentChat不再因选中书模块隐藏入口；TextDraftVersions/textDraftBasis读取当前书稿含未保存修改，生成期间书稿变动不覆盖；59项专项与类型通过，实际点击模块后生成新版本入口仍可见。未重新付费调用模型。
+
+2026-11-01 微信续聊来源修复已释放代码及开发工具：隔离树 `codex/interview-source-read-20261101` 基于架构会话67e532b，补丁86f2be9、1edeabf、8aefc77已交其整合部署。指定来源读完整记忆/原会话，拒绝缺失与错配，云上下文6000字头尾保留，并保留文档07死链删除；1649项完整检查及清理后51项相关回归通过。主仓混合代码未覆盖。开发工具由架构会话独占验新随手记；本会话虚构1101记忆正常软删除后活动数16→15。尚未交付二维码，详见原生conversation-exploration交接。
+
+2026-11-01 手机模块默认入口与触屏菜单已完成并释放文件：MobileWorkspace默认书稿、BookBlockCanvas触屏操作常显、mobileNewStoryCompanion.css仅书稿小鸟遮挡修复。41项专项/类型通过，390px同一故事直达→模块转换菜单→有声书界面实点通过。未付费生成/未部署，QA见mobile-book-modules。
+
+2026-11-01 手机模块可见入口修复完成并释放文件（本地未提交/未部署）：AppRouter手机editing入口、MobileStoriesPage首页直达书稿、MobileWorkspace初始入口已接通；53项专项/类型/76卡通过，390px实际点击直达手机书稿验证，保留标签与原文字稿。QA：docs/qa/2026-11-01-mobile-book-modules.md。原生模块入口与转换仍由文档04实施，不能视作原生验收通过。
+
+2026-11-01 持续对话与表达探索首轮已释放文件：Web shared/creativeExploration、writingCompanion、storyReply 对话承接修复在main本地；151项专项、类型/76卡账本通过。原生普通模块误判/每日问题线索历史/续聊来源已接回主仓，1619项通过，独立保存点1e2a879，临时工作树已删除。真实11次短文本测试含两次失败迭代，最终纠正→试样→结束三轮通过；未部署/提审，自动长期记忆开关未改变。QA：docs/qa/2026-11-01-conversation-exploration.md。
+
+2026-11-01 手机模块编辑 Web 本地接入完成，释放相关文件（未提交/未部署）：保留标签，复用模块保存/转换/版本，旧稿编号保存、小屏重排、多选与小鸟定位；81项测试/类型通过，390px保存重开与0.04算力朗读报价实测通过，未付费生成。原生文档04对话继续实施。详见 docs/qa/2026-11-01-mobile-book-modules.md。
+
+2026-11-01 MJ过载排查完成并释放imageGen/BookModuleConvert文件：一次虚构提交实测302模型过载HTTP429，无任务号；精准中文映射与防重复测试101项、类型通过。未修改模型/价格/其他改图工作，未部署；上游恢复未验证，详见book-module-conversion QA。
+
+2026-11-01 Web故事标签完成并释放文件占用：标题下MobileStoryTags与列表搜索、storyAgent标签接口/CAS保护已接入，14项测试和实际添加/刷新/搜索/清空通过。MobileStoryWorkspace仅新增MobileStoryTags import及标题下挂载，请模块编辑会话保留。未部署；小程序标签未接入。QA: docs/qa/2026-11-01-story-tags.md。
+
+2026-11-01 素材录音权限反馈修复完成，释放useMaterialCapture/captureRecordingError：内置浏览器实点复现权限拒绝，中文恢复提示已显示；14项测试、类型与账本通过。浏览器/系统授权尚未放行，不能声称实际录音成功。未部署。
+
+2026-10-31 图片429状态修复完成，BookModuleConvert.tsx/test文件已释放：明确限流恢复手动入口，未知任务继续防重复，6项组件测试通过；未付费重发，未部署，上游恢复待验证。
+
+2026-10-31 合并换行修复已完成并释放：合并保留换行/空行，样式记录模块行数，光标/源转换/图片目标同步适配；72项测试、类型检查通过。未提交/未部署，QA见2026-10-31-merge-audiobook.md。
+
+2026-10-31 本会话手机素材收集Web验收已完成本地范围，释放文件占用：标准ASR及持久任务恢复，桌面/390窄屏真实图文+MP3/M4A保存重开通过，17项回归、类型检查和账本通过。测试故事1213/1214留给用户检查。未部署，真机/系统分享待验收。详见 docs/qa/2026-10-31-web-material-capture.md。
+
+
+
+
+
+
+
+
+
+
+
+2026-10-30 手机素材收集：`codex/mobile-material-capture` 两仓隔离开发。当前负责新增 capture 服务、仓储、手机聊天附件与系统分享入口；网页集成仅添加 schema 两表、runtime 数组、router 接线、storySync 来源保护及 visionChannel 可选禁止重放参数，保留已释放的图片/视频/每日来信改动。主仓唯一3000进行验收，不部署、不提审。
+
+2026-10-29 live book media acceptance paused at external generation failures, files released (uncommitted): real scribble-to-subject mask and signed masked quote verified; whole/masked GPT edits return 401/-10003, MJ video routes return 404 without task ID. Routing, vision payload/annotated context/JSON, async error parsing, MJ endpoint/auth/quote fixed. 146 targeted tests plus final 93 regression tests, typecheck/ledger/migration/diff checks pass. No successful image/video candidate adoption or history-reopen test, no deployment. Preserve all originals and task receipts; see docs/qa/2026-10-29-book-media-editing.md before retrying paid work.
+
+
+
+2026-10-29 每日一信接手已收工（未提交、本地预览）：用户批准接替旧个人记忆线同文件预留；作品选材与黄历原文展示修复完成，78 项相关测试、类型/72 卡账本通过。涉及 emotionDailyLetters / emotionDailyReference302 / almanac / dailyLetterWorks、DailyLetterWelcome / MobileDailyLetter / DailyAtmospherePanel 与测试，文件已释放。未部署，QA：docs/qa/2026-10-29-daily-letter-works-almanac.md。
+
 2026-09-10 接管：用户已停止「9.7 DK上线微信小程序」，由任务 `01a08a06-dd10-7230-b5d4-b75fd8502d46` 承接 `codex/minigame-launch-stability` 的现有诊断改动、QA、功能账本及上线交接清单。本轮先验证并收敛发布阻塞，不占后端、不执行跨分支合并；原任务停止后的 API 状态仍滞留 waitingOnApproval。预计本轮完成验证与交接，真机及后台状态由用户补充。
 
 小游戏安卓黑屏诊断（2026-09-10，本任务承接原小游戏同步线）：在 `codex/minigame-launch-stability` 仅改 `minigame/scripts/{build.mjs,diagnostic-entry*}`、`minigame/src/liveGame.ts` 启动标记及该分支 QA/账本。现有认证、正文与聊天业务逻辑不改，不占共享后端；不跨分支合并。原 `codex/wechat-mobile-parity` 暂不同步同路径，防止改变真机排查基线。根因未确认，诊断包不称修复版。
@@ -65,11 +126,24 @@
 
 ## 最近落地
 
+2026-11-01 GPT备用与标准核对完成（未提交/未部署）：BookModuleConvert及测试、imageGen及测试、storyAgent可选GPT2参数/报价守卫及路由测试已释放。MJ默认不变，显式GPT2单图预估2.86算力；虚构1216图片1990真实出图、插入、刷新保留通过。170专项/25提示词/类型通过；音乐新编曲标准尚未接入，详见web-button-acceptance QA。
+
+
+- 2026-11-01 持续对话浏览器验收完成并释放文件（main本地未提交/未部署）：修空正文占半屏，以及promptLineageMigration旧稿重建删除新手机聊天/生成收据。触达MobileMemoryFollowupChat及其测试、promptLineageMigration/Store、storyConversation.mobile及MySQL worker/test；161项Web专项、5项临时MySQL、类型/76卡通过。虚构#1215手机发送→电脑刷新→手机重开、追加断线后恢复同步实测通过，最后两轮均generationAttempt=1。素材范围修复按文档07成果实点复验；原生每日问/采访61项仅本地测试，未真机/部署。QA：docs/qa/2026-11-01-conversation-exploration.md。
+
+- 2026-11-01 文档07素材范围修复（本地未提交，文件释放）：useMobileConversation/MobileChatView/MobileCaptureAttachments 按当前故事展示已完成素材，保留账号任务、收集模式、深链接与分页。39项回归、类型、76卡校验通过；本会话浏览器工具禁用，未实点复验。见 docs/qa/2026-10-31-web-material-capture.md 追加节。未部署。
+
+- 2026-11-01 文档07旧分析链清理（原生main本地未提交，文件释放）：chatInterview/index.js 删除144行未调用分析链，cloud-function.test.js 删除1条纯旧策略测试；类型及1618项全量测试通过，当前单次模型请求回归保留。未部署；见原生 docs/handoff/2026-11-01-conversation-exploration.md。
+
+- 2026-10-31 精简与上下文导航（未提交）：memorySpace 联系人移除两项无用封面读取，书架独立读取并行；新增 feature:context 及 AGENTS/README 定向导航。34 项测试、类型检查、73 卡校验及 diff --check 通过。未部署、未改用户数据，文件已释放。
+
 - 2026-10-30 `6dd749ec` 10/29四处bug修复已提交main、push、部署：书稿模式生成新版本自动写入章节（有未保存修改则打开对照）、不再误报未保存；过期且无302任务号的封面任务可重提；内联重载脚本移至/stale-module-reload.js、connect-src加入媒体源；聊天回复只剥整段成对引号。仅从混合文件里分离本轮hunk，主仓他人改动未混入。4个构建文件变化，生产109文件校验、38迁移一致、readyz通过；manus-runtime内联脚本仍受CSP限制（未改）。ChapterWorkspace/PublishingDraftWorkspace/publishingDraft/securityHeaders/writingCompanion及4张账本卡已释放。
 
 - 2026-10-30 `0e024f2b` 微信注册赠送改为5算力已提交main、push、部署：仅改 WECHAT_REGISTRATION_GIFT_MINOR（2_500_000），幂等键v1不变，网站登录5算力不变，不回填已有账号/账本。仅 dist/index.js 变化，生产108文件校验、38迁移哈希一致、readyz通过。accountIdentity、微信/网站赠送测试及账本两卡已释放。
 
 - 2026-10-29 `1b79fb89` 用户总览说明文字已提交main、push、部署：累计消耗不含预占、已扣款异常流水计入、历史未验证行不计入注册/待确认数、账单打开后滚动。仅3个前端文件变化，生产108文件及公网哈希校验通过。AdminUserOverview及测试、admin-user-overview账本卡已释放。
+
+- 2026-10-29 文档07精简线收工（01a171f5，main，未提交/未部署）：8个消费者直接使用 shared/bookImageBlock 后移除单行导入桥；.env.example 视频路径对齐现有 turbo 默认。9文件52项、类型/72卡账本/diff检查通过；Knip仍有既有候选。保留媒体修复和全部原数据；七项调用/删除门槛追加原07清单。新发现仓库底图GPT报价与单参考FLUX分支不一致，已记publishing-workspace缺口，未改热点服务。导入、配置样例与账本编辑范围已释放。
 
 - 2026-10-28 晚间 `401a1f20` 今日网页整合已提交main、push、部署：书页/仓库/格式自动保存与更新接收，充值兼容及提示词。全量6008项通过；临时MySQL配置纠正后相关失败复验通过；生产108文件校验、正式站格式保存重开通过。发布窗口释放。
 
@@ -156,9 +230,25 @@
 
 2026-09-09 图片字幕层收工：1537bed入口/排版、2ca728d读取投影修复已合main；149项初始回归、102项修复回归、类型/构建/41卡账本通过。main:3000镜头02真实手绘/样式/保存/两次刷新通过，保留原台词示例，未改原图、无付费调用；视频导出自定义图片文字层仍是明确缺口。两次独立worktree及分支已清理，ShotPreview/ImageClipEditorPanel/EditingNleWorkspace/publishingAlbum/storyMaterials及账本热点释放。证据docs/qa/image-subtitle-layer-2026-09-09.md。
 
+2026-10-29 book media local work released (uncommitted): inline image chat, masked edit and inline video entry; media 63 tests and draft-safety 69 tests, typecheck/migration/ledger pass. Browser click/region/video quote and exit/reselect verified, no paid generation or deployment. QA: docs/qa/2026-10-29-book-media-editing.md. ChapterTextModules/ChapterWriting/BookBlockCanvas/BookMediaChat, StoryAgentChat, bookMedia routes, videoJobs and masked-target migration files released.
+
+2026-10-29 scribble selection local changes released, uncommitted: BookMediaChat/segmentation/creationAgent plus tests and QA. UI multiple-stroke drawing verified; real vision timed out once, unknown outcome, no retry. No image modified or deployment. See book-media-editing QA.
+
 2026-10-30 书模块发布窗口：本会话独占main提交与部署，仅发布框选、多块拖放缩放、紧凑双栏和联动缩放。以74960441为基线隔离构建，保留其他会话未提交工作，不含媒体改图/视频/每日信/迁移0038。
 
 2026-10-30 书模块发布收工：fe12de4e已push main并部署，框选/整组变换/紧凑双栏生效；69项独立MySQL、215项小程序、类型/构建/保存回归通过；全量14项既有失败已主干对照。109文件及HTTPS资源校验通过，生产配置/数据库未改。发布窗口释放，其他会话工作保留。证据docs/qa/2026-10-30-book-columns-release.md。
+
+### 2026-10-30 素材收集本地验收追加
+
+本会话：手机聊天收集素材：生成记忆与故事。Web功能已接入唯一主仓3000，小程序17个业务/测试/部署说明文件已无冲突接入主仓；均未提交、未推送、未部署。另一会话的编辑器修改与小程序10份旧计划保留。工作树仍含未提交工作，不能清理。
+
+证据见 `docs/qa/2026-10-30-mobile-material-capture.md`，功能卡 `mobile-material-capture` 为partial。真实文字自动成文、图片理解、原件失败恢复与来源重开通过；豆包ASR权限不足、备用服务不可用，已向用户请求配置；双手机系统分享未实测。请勿将iPhone快捷指令签名、SW协议单测或小程序1608项通过当作手机验收。
+
+2026-10-31 模块转换收工（未提交/未部署）：六点菜单新增图片→文字/音乐、文字→图片/音乐；源模块保留，结果安全插入并沿用保存撤销。32项定向测试、类型、75卡账本通过；真实图片理解、插入和刷新保留已验证。音乐/图片付费供应商未实测。文件释放，QA docs/qa/2026-10-31-book-module-conversion.md。
+
+2026-10-31 自动插入/音乐仓库完成（未提交未部署）：生成结果自动新增正文模块，文字先存仓库，音乐/图片复用现有资产；音乐与文字仓库可再次插入。18项测试、类型通过，音乐列表实测。所涉文件释放。
+
+2026-10-31 合并文字与有声书本地交接：多选右键合并/撤销实测通过；有声书复用朗读报价与入库/自动插入，25项测试+类型通过，但真实302TTS返回HTTP500/submission_unknown，不重试，原文保留，尚未实际生成。文件释放，未部署；QA docs/qa/2026-10-31-merge-audiobook.md。
 
 2026-11-01 书模块发布窗口：本会话独占main提交/push/部署，隔离发布多选/栏宽/章节字号、音乐/仓库/转换、合并换行及429提示；保留其他会话未提交工作，不含改图/视频/手机采集数据库迁移。
 

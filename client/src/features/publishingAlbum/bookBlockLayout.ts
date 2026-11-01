@@ -13,7 +13,7 @@ export const BOOK_BODY_FONT_SIZE = 24;
 export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' ? 36 : block.format === 'heading2' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
 
 /** All paragraphs follow document order. Legacy free coordinates are retained in cache but never used for placement. */
-export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}): BookBlockLayout[] {
+export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900): BookBlockLayout[] {
   const pairs = validColumnPairs(blocks);
   const result: BookBlockLayout[] = [];
   type Cursor = { page: number; bottom: number };
@@ -71,7 +71,7 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
     }
     return { page, bottom };
   }
-  range(0, blocks.length, 24, 884, 0, { page: 0, bottom: 48 });
+  range(0, blocks.length, 24, Math.max(96, pageWidth - 16), 0, { page: 0, bottom: 48 });
   return result;
 }
 

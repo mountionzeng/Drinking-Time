@@ -1,4 +1,6 @@
 import mysql from "mysql2/promise";
+import { migrateStoryPromptLineage } from "../services/promptLineageMigration";
+import { clearStoryPromptLineage } from "../services/promptLineageStore";
 
 import {
   appendStoryConversationTurn,
@@ -35,7 +37,7 @@ type WorkerInput =
       clientTurnId: string;
       requestHash: string;
     }
-  | { action: "list"; storyId: number; userId: number };
+  | { action: "list" | "projectLegacy" | "resetMigration"; storyId: number; userId: number };
 
 function decodeInput(value: string | undefined): WorkerInput {
   if (!value) throw new Error("story conversation worker input is required");
@@ -56,6 +58,14 @@ async function finish(payload: unknown): Promise<never> {
 
 try {
   const input = decodeInput(process.argv[2]);
+  if (input.action === "projectLegacy") {
+    await finish({ ok: true, result: await migrateStoryPromptLineage({
+      storyId: input.storyId, userId: input.userId, body: { title: "Old body" },
+    }) });
+  }
+  if (input.action === "resetMigration") {
+    await finish({ ok: true, result: await clearStoryPromptLineage(input) });
+  }
   if (input.action === "generate") {
     if (input.startAtMs) {
       await new Promise(resolve =>

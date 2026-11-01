@@ -126,7 +126,7 @@ describe("personalizeEmotionDailyReference302", () => {
     ).toBe("今天适合把注意力收在一件要紧的事上。");
   });
 
-  it("新一天没有新话时只把旧话当背景，不让正文复述旧事件", async () => {
+  it("新一天没有新话时参考作品，不传入旧聊天事件", async () => {
     const safeSummary = [
       "今天还没有新的话，也没有关系。一天刚开始时，不需要立刻替它找到主题，可以先让眼前的光线、声音和手边的事情慢慢落到各自的位置。",
       "如果事情很多，先挑一件最小的：倒一杯水、收好桌面，或者写下今天最想完成的一步。穿一件轻薄、方便活动的衣服，出门前再按体感增减一层。",
@@ -162,6 +162,7 @@ describe("personalizeEmotionDailyReference302", () => {
     const result = await personalizeEmotionDailyReference302({
       ...baseInput,
       generationIntent: "daily-letter",
+      authoredWorks: [{ storyId: 9, title: "雨中书店", excerpt: "虚构人物在雨中读书", savedOn: "2026-07-26" }],
       analysisSeed: {
         ...baseInput.analysisSeed,
         userMessage: "",
@@ -178,7 +179,10 @@ describe("personalizeEmotionDailyReference302", () => {
 
     const body = JSON.parse(String(fetcher.mock.calls[0][1].body));
     const prompt = String(body.messages[1].content);
-    expect(prompt).toContain("猫");
+    expect(prompt).not.toContain("猫");
+    expect(prompt).toContain("虚构人物在雨中读书");
+    expect(body.messages[0].content).toContain("不是用户真实经历的证明");
+    expect(body.messages[0].content).toContain("即使今天没有留言");
     expect(prompt).toContain("北京通州");
     expect(prompt).toContain('"age":31');
     expect(prompt).toContain("甲戌年");
@@ -438,7 +442,7 @@ describe("personalizeEmotionDailyReference302", () => {
     const context = JSON.parse(
       body.messages[1].content.slice(body.messages[1].content.indexOf("{"))
     );
-    expect(context.userContext.previousWords[0].relativeDate).toBe("前天");
+    expect(context.userContext.previousWords).toEqual([]);
   });
 
   it("对话回信引用旧话时拒绝模型猜测相对日期", async () => {
@@ -854,12 +858,6 @@ describe("personalizeEmotionDailyReference302", () => {
         origin: "user_stated",
         text: "喜欢暖色调的画面",
         earliestDate: "2026-07-20",
-      },
-      {
-        category: "goal",
-        origin: "inferred",
-        text: "似乎在学一门新技能",
-        earliestDate: null,
       },
     ]);
   });

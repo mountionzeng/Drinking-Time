@@ -267,6 +267,20 @@
       "when": 1792745015179,
       "tag": "0037_chapter_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1793241876416,
+      "tag": "0038_book_image_edit_target",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "5",
+      "when": 1793369975400,
+      "tag": "0039_mobile_material_capture",
+      "breakpoints": true
     }
   ]
 }

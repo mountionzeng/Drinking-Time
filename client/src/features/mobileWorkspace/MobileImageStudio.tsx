@@ -1,3 +1,5 @@
+import { MobileBookContext } from "./MobileBookContext";
+import { prepareMountedBook } from "@/features/bookVideo/bookPreparation";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
@@ -31,6 +33,7 @@ export function MobileImageStudio({
   onBack,
   createRequest,
   embedded = false,
+  workspaceMode = "images",
 }: {
   storyId: number;
   userId: number;
@@ -38,6 +41,7 @@ export function MobileImageStudio({
   onBack(): void;
   createRequest?: StudioCreateRequest;
   embedded?: boolean;
+  workspaceMode?: "text" | "images";
 }) {
   const t = useUiText();
 
@@ -245,7 +249,7 @@ export function MobileImageStudio({
   }
   return (
     <section
-      aria-label={t("手机图文制作")}
+      aria-label={t(workspaceMode === "text" ? "手机书稿编辑" : "手机图文制作")}
       data-stage-swipe="ignore"
       className="flex h-full min-h-0 flex-col"
     >
@@ -256,17 +260,21 @@ export function MobileImageStudio({
             aria-label={isMemory ? t("返回记忆") : t("返回文字稿")}
             className="grid size-11 place-items-center"
             disabled={busy}
-            onClick={onBack}
+            onClick={() => {
+              if (workspaceMode !== "text" || !data) { onBack(); return; }
+              void prepareMountedBook(storyId, userId).then(onBack).catch(cause => setError(cause instanceof Error ? cause.message : "保存失败，请重试"));
+            }}
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="font-chat-brand text-xl">{t("制作图文")}</h1>
+          <h1 className="font-chat-brand text-xl">{t(workspaceMode === "text" ? "编辑书中模块" : "制作图文")}</h1>
         </header>
       )}
+      {error && workspaceMode === "text" && <p role="alert" className="px-5 py-2 text-sm text-destructive">{error}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto pb-8">
         {read.isLoading ? (
           <p role="status" className="p-5">
-            {t("正在读取图片…")}
+            {t(workspaceMode === "text" ? "正在读取书稿…" : "正在读取图片…")}
           </p>
         ) : read.isError ? (
           <p role="alert" className="p-5">
@@ -284,7 +292,7 @@ export function MobileImageStudio({
                 )}
               </p>
             ) : null}
-            {needsTextConfirmation ? (
+            {needsTextConfirmation && workspaceMode !== "text" ? (
               <div className="space-y-2 px-5 pt-4 text-sm leading-6">
                 <p>
                   {t(
@@ -335,7 +343,10 @@ export function MobileImageStudio({
                 </button>
               </div>
             ) : null}
+            {workspaceMode === "text" && <MobileBookContext storyId={storyId} userId={userId} />}
+            <div className={workspaceMode === "text" ? "pl-11 pr-4 pt-4" : undefined}>
             <PublishingImagePack
+              workspaceMode={workspaceMode}
               createRequest={
                 needsTextConfirmation
                   ? undefined
@@ -423,6 +434,7 @@ export function MobileImageStudio({
                       generateImages(instruction, "body-texture", id)
               }
             />
+            </div>
             <details className="mx-5 mt-6 border-t border-border pt-4 text-sm">
               <summary className="cursor-pointer text-muted-foreground">
                 {t("管理作品链接")}

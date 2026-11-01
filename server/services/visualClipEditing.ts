@@ -1,3 +1,4 @@
+import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
 /**
  * 多轨剪辑的唯一写入口。
  *
@@ -1608,10 +1609,14 @@ export async function previewMaskedImageTargetIsCurrent(input: {
   storyId: number;
   userId: number;
   imageId: number;
-  targetKind: "shot-primary" | "timeline-image-clip";
+  targetKind: "shot-primary" | "timeline-image-clip" | "book-image";
   stableShotId: string;
   clipId?: string | null;
 }): Promise<boolean> {
+  if (input.targetKind === "book-image") {
+    const match = /^book:(\d+)$/.exec(input.stableShotId);
+    return Boolean(match && input.clipId && await bookMediaTargetIsCurrent({ ...input, chapterId: Number(match[1]), moduleId: input.clipId }));
+  }
   if (input.targetKind === "timeline-image-clip") {
     if (!input.clipId) return false;
     const loaded = await loadVisualEditDocument(input.storyId, input.userId);

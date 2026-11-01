@@ -1,3 +1,4 @@
+import { shotVideoPriceProfile } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import {
   useEffect,
@@ -452,11 +453,11 @@ export default function ShotMaterialBasket({
     if (!canGenerate || shot.imageId == null) return;
     if (!analysis || !analysisApplied) return;
     if (!(await saveVideoPrompt())) return;
-    const durationSec = Math.max(
+    const durationSec = shotVideoPriceProfile(shotVideoProviderStatus?.submitPath) === "mj-turbo" ? 5 : Math.max(
       3,
       Math.min(10, Math.round((shot.durationMs ?? 5000) / 1000))
     );
-    const estimate = estimateShotVideoCost({ durationSec, motion });
+    const estimate = estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(shotVideoProviderStatus?.submitPath) });
     const confirmed = window.confirm(
       `预计费用 ${formatComputeQuote(estimate.estimatedCny)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
     );

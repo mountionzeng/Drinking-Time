@@ -41,4 +41,12 @@ describe("share login return path", () => {
       canAcceptStoryShare({ loginMethod: "email", openId: "email:123" })
     ).toBe(true);
   });
+  it("preserves a capture through login without accepting extra destinations or query fields", () => {
+    for (const key of ["captureShare", "captureId"]) {
+      const capture = `/m?${key}=12345678-1234-4234-8234-123456789abc`;
+      expect(allowedLoginReturnPath(capture)).toBe(capture);
+      for (const invalid of [capture + "&next=//evil", capture + "\n", capture + "/..", "https://evil.test" + capture, `/m?${key}=invalid`])
+        expect(allowedLoginReturnPath(invalid)).toBeNull();
+    }
+  });
 });

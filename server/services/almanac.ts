@@ -218,6 +218,14 @@ export function normalizeProviderResponse(
   const result = isRecord(payload.result) ? payload.result : null;
   if (!result) return unavailableDay(date, provider, "老黄历 API 缺少 result");
 
+  // Providers may return a valid response for a different day. Never label it today.
+  const returnedDate = stringValue(result.date || result.gregoriandate || result.yangli);
+  if (returnedDate) {
+    const parts = returnedDate.match(/^(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})(?:日|$|\s)/);
+    const normalized = parts ? `${parts[1]}-${parts[2].padStart(2, "0")}-${parts[3].padStart(2, "0")}` : "";
+    if (normalized !== date) return unavailableDay(date, provider, "黄历返回日期与查询日期不一致");
+  }
+
   return provider === "jisu"
     ? normalizeJisuResult(date, result)
     : normalizeTianapiResult(date, result);

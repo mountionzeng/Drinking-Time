@@ -1,12 +1,16 @@
+import { useBookModuleActions } from "./bookModuleActions";
+import { mergeBookText } from "./mergeBookText";
 import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
 import { BookModuleConvert, type ModuleConversion } from "./BookModuleConvert";
 import { readBookAudio } from "@shared/bookAudioBlock";
 import { BookMusicInsert } from "./BookMusicInsert";
 import { normalizeWritingColumns } from '@shared/bookWritingStyle';
+import { useBookMediaSession } from "./bookMediaSession";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type { BookWritingStyle } from '@shared/bookWritingStyle';
 import { writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
 import { BookInlineImage } from "./BookImageCrop";
-import { bookImageUrl, bookImageText } from "@shared/bookImageBlock";
+import { bookImageUrl, bookImageText, readBookImage } from "@shared/bookImageBlock";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject } from 'react';
 import { type TextPosition } from './moduleTextEditing';
 import { writingBlockOffset, writingBlockPosition, splitWritingBlock, insertBlockText, blockBody, mergeWritingBlocks, restoreWritingBlocks, newWritingBlock, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
@@ -35,10 +39,17 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
     try { return restoreWritingBlocks(value, key ? JSON.parse(localStorage.getItem(key) || 'null') : null); }
     catch { return restoreWritingBlocks(value, null); }
   });
+  // Legacy plain-text chapters have no stable module IDs on the server yet.
+  // Persist the same IDs rendered here before media preparation can quote them.
+  useLayoutEffect(() => {
+    if (!writingStyle && onFormattedChange && blockBody(blocks) === value)
+      onFormattedChange(value, writingStyleOf(blocks));
+  }, [writingStyle, value, blocks, onFormattedChange]);
   const [conversion,setConversion]=useState<ModuleConversion|null>(null);
   useEffect(()=>setConversion(null),[formatScope]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
+  const [mediaSelection, setMediaSelection] = useState(0);
   const module = useMemo(() => contextSource && blockBody(blocks) === value
     ? (selectedModuleIds.length > 1 ? bookSelectionContext(blocks, selectedModuleIds, contextSource) : bookBlockContext(blocks, activeId, contextSource)) : null,
     [blocks, activeId, selectedModuleIds, value, contextSource?.storyId, contextSource?.scope, contextSource?.chapterId]);
@@ -47,6 +58,38 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
   mediaLatest.current = { blocks, disabled, prepareMedia };
   const commitLatest = useRef(commit); commitLatest.current = commit;
   const warehouseAnchor=useRef(activeId);warehouseAnchor.current=activeId;
+  useLayoutEffect(() => {
+    if (!contextSource || disabled || comparison || blockBody(blocks) !== value) return;
+    const session = {
+      scope: contextSource.scope, storyId: contextSource.storyId,
+      modules: blocks.filter(block => !readBookImage(block.text) && !readBookAudio(block.text))
+        .map(block => ({ id: block.id, text: block.text })),
+      convert(id: string, kind: "image" | "music") {
+        assertCurrent();
+        const block = blocks.find(item => item.id === id);
+        if (!block || readBookImage(block.text) || readBookAudio(block.text) || !mediaLatest.current.prepareMedia)
+          throw new Error("当前模块无法转换，请重新选择文字模块。");
+        setConversion({ id, text: block.text, kind });
+      },
+      merge(ids: string[]) {
+        assertCurrent();
+        if (ids.some(id => !session.modules.some(item => item.id === id)))
+          throw new Error("模块已变化，请重新选择。");
+        const next = mergeBookText(blocks, ids);
+        const first = blocks.find(block => ids.includes(block.id));
+        if (!first || next === blocks) throw new Error("请选择至少两个文字模块。");
+        commitLatest.current(next, writingBlockOffset(next, next.findIndex(block => block.id === first.id)), false);
+        setSelectedModuleIds([]); setActiveId(first.id);
+      },
+    };
+    function assertCurrent() {
+      if (useBookModuleActions.getState().session !== session || mediaLatest.current.disabled || mediaLatest.current.blocks !== blocks)
+        throw new Error("文章已变化，请重新选择模块。");
+    }
+    useBookModuleActions.getState().setSession(session);
+    return () => { if (useBookModuleActions.getState().session === session) useBookModuleActions.getState().setSession(null); };
+  }, [contextSource?.scope, contextSource?.storyId, blocks, disabled, comparison, value]);
+
   useEffect(()=>{
     const insert=(event:Event)=>{
       const detail=(event as CustomEvent<WarehouseBookInsert>).detail,latest=mediaLatest.current;
@@ -62,6 +105,37 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
     window.addEventListener(INSERT_WAREHOUSE_BOOK,insert);return ()=>window.removeEventListener(INSERT_WAREHOUSE_BOOK,insert);
   },[contextSource?.storyId,formatScope,comparison]);
 
+  useLayoutEffect(() => {
+    const block = blocks.find(item => item.id === activeId);
+    const media = block && readBookImage(block.text);
+    if (selectedModuleIds.length > 1 || !contextSource || !block || !media || !prepareMedia) {
+      const current = useBookMediaSession.getState().session;
+      if (current?.key.startsWith(`${formatScope}:`)) useBookMediaSession.getState().setSession(null);
+      return;
+    }
+    const spine = storySpineStore.getState();
+    const key = `${formatScope}:${block.id}`;
+    useBookMediaSession.getState().setSession({
+      key, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
+      storyId: contextSource.storyId, chapterId: Number(contextSource.chapterId), moduleId: block.id, imageUrl: media.url,
+      prepare: () => mediaLatest.current.prepareMedia!(),
+      replace: async (sourceUrl, result) => {
+        const latest = mediaLatest.current;
+        const currentSpine = storySpineStore.getState();
+        if (latest.disabled || currentSpine.accountId !== spine.accountId || currentSpine.storyScopeEpoch !== spine.storyScopeEpoch) return false;
+        const index = latest.blocks.findIndex(item => item.id === block.id);
+        const original = index >= 0 && readBookImage(latest.blocks[index].text);
+        if (!original || original.url !== sourceUrl) return false;
+        const next = latest.blocks.map((item, i) => i === index ? { ...item,
+          text: bookImageText(result.imageUrl ?? original.url, original.crop, original.scale, original.frame, result.videoUrl),
+        } : item);
+        commitLatest.current(next, writingBlockOffset(next, index), false);
+        await mediaLatest.current.prepareMedia!();
+        return true;
+      },
+    });
+    return () => { if (useBookMediaSession.getState().session?.key === key) useBookMediaSession.getState().setSession(null); };
+  }, [activeId, selectedModuleIds, mediaSelection, blocks, contextSource?.scope, formatScope]);
   const fields = useRef<Array<HTMLTextAreaElement | null>>([]);
   const focus = useRef<TextPosition | null>(null);
   const history = useRef<{ past: Snapshot[]; future: Snapshot[] }>({ past: [], future: [] });
@@ -133,15 +207,16 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
   }
   function renderField(block: WritingBlock, index: number, style: CSSProperties) {
     const audio = readBookAudio(block.text);
-    if (audio) return <div aria-label={`${audio.kind==='narration'?'有声书':'音乐'}模块 ${index + 1}`} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
+    if (audio) return <div key={block.id} aria-label={`${audio.kind==='narration'?'有声书':'音乐'}模块 ${index + 1}`} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
       <p className="truncate text-sm">♫ {audio.title}</p><audio aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
-    if (imageUrl) return <div role="button" tabIndex={disabled ? -1 : 0} aria-label={`图片模块 ${index + 1}`} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
+    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={`图片模块 ${index + 1}`} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
       if(disabled || event.target !== event.currentTarget) return;
       if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,writingBlockOffset(next,index+1)); }
     }} onClick={() => {
       if (disabled) return;
+      setMediaSelection(value => value + 1);
       setActiveId(block.id);
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
@@ -214,6 +289,7 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
     </div> : <BookBlockCanvas onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
     }:undefined} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
+      if (id && bookImageUrl(blocks.find(block => block.id === id)?.text ?? "")) setMediaSelection(value => value + 1);
       setActiveId(id);
       const index = blocks.findIndex(block => block.id === id);
       if (index >= 0 && id !== activeId) {

@@ -1,3 +1,7 @@
+import { BookVideoChat, type BookVideoChatHandle } from "@/features/bookVideo/BookVideoChat";
+import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
+import { BookMediaChat, type BookMediaChatHandle } from "@/features/publishingAlbum/BookMediaChat";
+import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
 import { useContext } from "react";
 import { useIsMutating } from "@tanstack/react-query";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
@@ -275,6 +279,7 @@ export default function StoryAgentChat({
   } });
   const {
     sendMessage,
+    loadStory,
     resetConversation,
     backToList,
     confirmPendingIntent,
@@ -305,6 +310,14 @@ export default function StoryAgentChat({
   const scopeEpoch = useStorySpine(state => state.storyScopeEpoch);
   const writingSession = writingSource?.storyId === activeStoryId && writingSource.accountId === accountId && writingSource.epoch === scopeEpoch
     ? writingSource : null;
+  const bookMediaSource = useBookMediaSession(state => state.session);
+  const bookMedia = bookMediaSource?.storyId === activeStoryId && bookMediaSource.accountId === accountId && bookMediaSource.epoch === scopeEpoch ? bookMediaSource : null;
+  const bookMediaHandle = useRef<BookMediaChatHandle | null>(null);
+  const videoSource=useBookVideoSession(state=>state.session);
+  const bookVideo=videoSource?.storyId===activeStoryId&&videoSource.accountId===accountId&&videoSource.epoch===scopeEpoch?videoSource:null;
+  const bookVideoHandle=useRef<BookVideoChatHandle|null>(null);
+  useEffect(()=>{if(bookMedia && bookVideo) useBookVideoSession.getState().setSession(null)},[bookMedia,bookVideo]);
+  useEffect(()=>{if(bookVideo) requestAnimationFrame(()=>scrollRef.current?.scrollTo({top:scrollRef.current.scrollHeight,behavior:"smooth"}))},[bookVideo]);
   const layoutContext = Boolean(writingSession?.snapshot.module || writingSession?.snapshot.layoutMemory);
   const chatQueue = useDesktopChatQueue({
     blocked: isReplying || creationFlow.busy || (soundDirector.active && !layoutContext),
@@ -457,6 +470,7 @@ export default function StoryAgentChat({
       ? `故事 #${remoteStoryId ?? activeStoryId}`
       : "新故事草稿");
   const inputPlaceholder =
+    bookVideo ? "说说视频给谁看、想表达什么，或继续调整方案…" :
     activeSelection?.sourceType === "storyboard-image"
       ? "描述这张图怎么改，例如：让小猫看向镜头…"
     : interactionMode === "publishing"
@@ -795,6 +809,14 @@ export default function StoryAgentChat({
   const handleSubmit = async () => {
     const text = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
     if (text || pendingMedia.length) readingHistory.current = false;
+    if (bookVideo && text && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
+      if(await bookVideoHandle.current?.submit(text)){setInput("");resizeAndFocusInput()}
+      return;
+    }
+    if (bookMedia && text && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
+      if (bookMediaHandle.current?.submit(text)) { setInput(""); resizeAndFocusInput(); }
+      return;
+    }
     if (text && creativeVersionIntent(text) && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
       if (creationFlow.busy) return;
       if (await creationFlow.submit(text, () => { setInput(""); resizeAndFocusInput(); })) return;
@@ -1446,7 +1468,7 @@ export default function StoryAgentChat({
       />
       <div
         ref={scrollRef}
-        className="monitor-panel-body story-chat-scroll-surface flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
+        className={`monitor-panel-body story-chat-scroll-surface min-h-0 ${bookMedia ? "max-h-12 shrink-0" : "flex-1"} overflow-y-auto custom-scrollbar space-y-3 pr-1`}
       >
         <AnimatePresence initial={false}>
           {messages.map(m => (
@@ -1684,6 +1706,8 @@ export default function StoryAgentChat({
             </motion.div>
           ))}
         </AnimatePresence>
+        {activeStoryId != null && activeStoryId > 0 && <BookVideoChat key={`${accountId}:${activeStoryId}:${scopeEpoch}`} storyId={activeStoryId} accountId={accountId} epoch={scopeEpoch} session={bookVideo} handle={bookVideoHandle} onAdopt={async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId})}} />}
+
 
         {creationFlow.busy ? <p role="status" aria-live="polite" className="text-xs text-muted-foreground py-2">正在处理创作指令…</p> : null}
         {soundDirector.active ? (
@@ -1919,12 +1943,13 @@ export default function StoryAgentChat({
       </div>
 
       {/* Input */}
-      <div className="px-3 pb-3 flex flex-col gap-2">
+      <div className="px-3 pb-3 min-h-0 flex flex-col gap-2">
         {interactionMode === "publishing" ? (
           <div className="pt-2.5">
             <PublishingPlatformPicker compact />
           </div>
         ) : null}
+        {bookMedia && <BookMediaChat key={`${bookMedia.key}:${bookMedia.imageUrl}`} session={bookMedia} handle={bookMediaHandle} />}
         {/* Quote block */}
         {interactionMode === "story" && activeSelection && !layoutContext && (
           <div className="mt-2.5">
@@ -2086,7 +2111,7 @@ export default function StoryAgentChat({
         )}
 
         <div
-          className={`flex items-end gap-1.5 ${!activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
+          className={`flex shrink-0 items-end gap-1.5 ${!activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
         >
           <div className="flex shrink-0 flex-col items-center gap-1">
             {interactionMode === "story" || showCreationActions ? (
@@ -2157,10 +2182,11 @@ export default function StoryAgentChat({
               {generatingCount > 0 || creationFlow.busy ? "正在生成…" : isImportingMedia ? "正在看你的素材…" : voice.isTranscribing ? "正在听你说…" : "正在思考…"}
             </span>}
 
-        {writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+        {bookVideo && <span className="text-[11px] text-muted-foreground">正在讨论视频创作</span>}
+        {!bookVideo && writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
           {writingSession.snapshot.module ? <span className="block truncate" title={`${layoutModuleLabel(writingSession.snapshot.module)} · ${writingSession.snapshot.module.text ?? ""}`}>
-            已定位：{writingSession.snapshot.module.kind === "text" ? writingSession.snapshot.module.text?.slice(0, 60) || "空白段落" : layoutModuleLabel(writingSession.snapshot.module)}
-            {writingSession.snapshot.module.kind === "image" && !writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
+            已定位：{writingSession.snapshot.module.selection ? layoutModuleLabel(writingSession.snapshot.module) : writingSession.snapshot.module.kind === "text" ? writingSession.snapshot.module.text?.slice(0, 60) || "空白段落" : layoutModuleLabel(writingSession.snapshot.module)}
+            {writingSession.snapshot.module.kind === "image" && !bookMedia && !writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
           </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
             ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
                 已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
@@ -2168,7 +2194,7 @@ export default function StoryAgentChat({
             : <span>正在聊右侧这篇文字</span>}
           {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
         </section>}
-          {(!writingSession || (activeSelection && !layoutContext)) && <span className="text-[11px] text-muted-foreground" role="status">
+          {!bookVideo && (!writingSession || (activeSelection && !layoutContext)) && <span className="text-[11px] text-muted-foreground" role="status">
             {isReplying ? "正在回复…" : activeSelection ? "正在聊你选中的内容" : "想聊什么？"}
           </span>}
         </div>
@@ -2252,12 +2278,12 @@ export default function StoryAgentChat({
           onClick={() => requestMemoryCard({ content: input, origin: "note", sourceStoryId: (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (remoteStoryId ?? activeStoryId) : null })}>
           单独记一条
         </button>
-        {!layoutContext && <TextDraftVersions
+        <TextDraftVersions
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}
           input={input}
           blocked={isReplying || chatQueue.items.length > 0 || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
-        />}
+        />
         </div>
         {showCreationActions && <StudioCreateMenu
           storyId={remoteStoryId ?? activeStoryId ?? null}

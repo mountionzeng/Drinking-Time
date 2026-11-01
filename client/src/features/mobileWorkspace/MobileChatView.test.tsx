@@ -10,6 +10,7 @@ import {
 
 function controller(): MobileConversationController {
   return {
+    storyId: 8,
     recoveryReady: true,
     historyState: "loaded",
     historyError: null,

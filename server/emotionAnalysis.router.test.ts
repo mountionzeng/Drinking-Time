@@ -7,7 +7,6 @@ import {
   upsertEmotionAnalysisProfile,
   upsertUser,
 } from "./db";
-import { resetGuestEmotionRateLimitForTesting } from "./services/guestEmotionRateLimit";
 
 const serviceMocks = vi.hoisted(() => ({
   getAlmanacDay: vi.fn(),
@@ -73,7 +72,6 @@ describe("访客回信与账号关联", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "";
     resetMemoryStateForTesting();
-    resetGuestEmotionRateLimitForTesting();
     serviceMocks.getAlmanacDay.mockReset();
     serviceMocks.getAlmanacDay.mockResolvedValue({
       date: "2026-07-28",
@@ -166,6 +164,32 @@ describe("访客回信与账号关联", () => {
     expect(
       (saved?.analysisSeed as { messageHistory?: unknown[] }).messageHistory
     ).toHaveLength(2);
+  });
+
+  it("访客限流触发后不调用模型，降级为本地模板（响应结构不变）", async () => {
+    process.env.GUEST_EMOTION_IP_PER_MINUTE_LIMIT = "1";
+    try {
+      const caller = appRouter.createCaller(context());
+      await caller.emotionAnalysis.guestReply(transferInput());
+      expect(
+        serviceMocks.personalizeEmotionDailyReference302
+      ).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ modelBlockedReason: expect.anything() })
+      );
+      const second = await caller.emotionAnalysis.guestReply(
+        transferInput({ guestId: "guest-router-test-forged" })
+      );
+      expect(second).toMatchObject({ birthDate: "1994-08-31", source: "local" });
+      expect(
+        serviceMocks.personalizeEmotionDailyReference302
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          modelBlockedReason: "guest-rate-limit:ip_minute",
+        })
+      );
+    } finally {
+      delete process.env.GUEST_EMOTION_IP_PER_MINUTE_LIMIT;
+    }
   });
 
   it("过大的访客内容在黄历和模型调用前被拒绝", async () => {

@@ -23,7 +23,7 @@ describe("selected-image provider routing", () => {
     const [url, request] = fetcher.mock.calls[0];
     expect(url).toContain("/v1/images/edits");
     const form = request.body as FormData;
-    expect(form.get("model")).toBe("gpt-image-1.5");
+    expect(form.get("model")).toBe("gpt-image-2");
     expect(form.get("quality")).toBe("high");
     expect(form.get("n")).toBe("1");
     expect(form.get("prompt")).toBe("把伞改红");

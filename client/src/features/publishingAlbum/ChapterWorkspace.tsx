@@ -1,3 +1,4 @@
+import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import type { ChapterWritingDraft } from "./chapterWritingDraft";
 import { storyLibraryImages } from "./storyImageLibrary";
@@ -152,6 +153,11 @@ export function ChapterWorkspace({
     },
     [active, state.imageUrls, state.change]
   );
+  useEffect(()=>registerBookPreparation(props.storyId,props.accountId,async()=>{
+    if(displayMode === "text") await writing.current?.prepare(); else await prepare.current?.();
+    if(state.error) throw new Error(state.error);
+    await state.flush();
+  }));
   async function run(action: () => Promise<void>, flush = true) {
     if (lock.current) return;
     lock.current = true;

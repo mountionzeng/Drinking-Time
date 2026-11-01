@@ -109,7 +109,7 @@ export async function transcribeAudio(
       };
     }
 
-    return postDoubaoTranscription({
+    return await postDoubaoTranscription({
       audioBuffer,
       mimeType,
       language: options.language,
@@ -139,7 +139,7 @@ export async function transcribeAudioBytes(
     const audioBase64 = stripDataUrlPrefix(options.audioBase64);
     const audioBuffer = Buffer.from(audioBase64, "base64");
 
-    return postDoubaoTranscription({
+    return await postDoubaoTranscription({
       audioBuffer,
       mimeType: options.mimeType || "audio/webm",
       language: options.language,
@@ -193,6 +193,7 @@ async function postDoubaoTranscription(
 
   const response = await guardComputeFetch(fetch)("https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash", {
     method: "POST",
+    signal: AbortSignal.timeout(90_000),
     headers: {
       "Content-Type": "application/json",
       "X-Api-Key": ENV.doubaoSpeechApiKey,
@@ -266,6 +267,7 @@ async function post302Transcription(
   const baseUrl = (ENV.api302BaseUrl || "https://api.302.ai").replace(/\/+$/, "");
   const response = await guardComputeFetch(fetch)(`${baseUrl}/v1/audio/transcriptions`, {
     method: "POST",
+    signal: AbortSignal.timeout(90_000),
     headers: { Authorization: `Bearer ${ENV.api302Key}` },
     body: formData,
   });

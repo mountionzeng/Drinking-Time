@@ -4,11 +4,11 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { GeneratedImage } from "../../drizzle/schema";
-import { estimateStoryboardMaskedEditCost } from "../../shared/imageRenderCost";
+import { estimateLocalImagePatchCost, LOCAL_IMAGE_PATCH_PROFILE } from "../../shared/imageRenderCost";
 import { ENV } from "../_core/env";
 
 export type PreviewMaskedImageTarget = {
-  targetKind: "shot-primary" | "timeline-image-clip";
+  targetKind: "shot-primary" | "timeline-image-clip" | "book-image";
   stableShotId: string;
   clipId?: string | null;
 };
@@ -64,8 +64,9 @@ export function previewMaskedImageInputHash(input: {
         stableShotId: input.stableShotId,
         clipId: input.clipId ?? null,
         provider: "302",
-        model: "gpt-image-1.5",
-        priceVersion: "storyboard-masked-edit-v1",
+        model: LOCAL_IMAGE_PATCH_PROFILE.model,
+        profile: LOCAL_IMAGE_PATCH_PROFILE,
+        priceVersion: LOCAL_IMAGE_PATCH_PROFILE.version,
       })
     )
     .digest("hex");
@@ -103,7 +104,7 @@ export function quotePreviewMaskedImageEdit(input: {
   prompt: string;
   now?: number;
 } & PreviewMaskedImageTarget): PreviewMaskedImageQuote {
-  const estimate = estimateStoryboardMaskedEditCost();
+  const estimate = estimateLocalImagePatchCost();
   const unsigned: Omit<PreviewMaskedImageQuote, "quoteId"> = {
     storyId: input.storyId,
     imageId: input.imageId,
@@ -130,7 +131,7 @@ export function previewMaskedImageQuoteIsValid(input: {
   now?: number;
 } & PreviewMaskedImageTarget): boolean {
   const expectedHash = previewMaskedImageInputHash(input);
-  const estimate = estimateStoryboardMaskedEditCost();
+  const estimate = estimateLocalImagePatchCost();
   return (
     quoteSignatureIsValid(input.quote) &&
     input.quote.expiresAt >= (input.now ?? Date.now()) &&

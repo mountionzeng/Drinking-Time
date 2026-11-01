@@ -146,7 +146,11 @@ export function storiesForDailyLetter(
 }
 
 export function dailyLetterStoryPrompt(letterDate: string, summary: string) {
-  return `我想把${dateLabel(letterDate)}的这封回信变成一个新的故事。\n\n${summary.trim()}`;
+  return [
+    `我想以${dateLabel(letterDate)}的这封回信为参考，开始一个新的故事。`,
+    "以下是系统生成的回信，不是我的原话；选择这封信不代表我认可其中的事实、情绪或表达偏好。只在我愿意的范围内继续，事实以我明确提供或确认的内容为准，不把回信的猜测写成我的经历。",
+    `【回信参考原文】\n${summary.trim()}\n【回信参考结束】`,
+  ].join("\n\n");
 }
 
 export default function DailyLetterWelcome({
@@ -169,7 +173,6 @@ export default function DailyLetterWelcome({
   const { user } = useAuth();
   const { language } = useUiLanguage();
   const { today, visualTheme } = useNayin();
-  const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
     enabled: Boolean(user?.id),
     retry: false,
@@ -189,6 +192,7 @@ export default function DailyLetterWelcome({
   const utils = trpc.useUtils();
   const [closedDate, setClosedDate] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
+  const almanacQuery = useDailyAlmanac(selectedDate || today.cstDateStr);
   const [editingMessage, setEditingMessage] = useState(false);
   const [messageDraft, setMessageDraft] = useState("");
   const [guestProfile, setGuestProfile] = useState(() =>
@@ -818,8 +822,6 @@ export default function DailyLetterWelcome({
           loading={almanacQuery.isLoading}
           embedded
           compact
-          personalizedYi={selectedReference.personalizedYi}
-          personalizedJi={selectedReference.personalizedJi}
         />
 
         <section
@@ -906,7 +908,7 @@ export default function DailyLetterWelcome({
             <>
               <p className="mt-3 text-sm leading-7 text-foreground">
                 {selectedMessage ||
-                  "这一天还没有写下新话，所以来信不会翻出以前的具体事情。"}
+                  "这一天还没有留言，想说时再写就好。"}
               </p>
               {(saidAt || editedAt) && (
                 <p className="mt-1 text-[9px] text-muted-foreground/65">
@@ -918,7 +920,7 @@ export default function DailyLetterWelcome({
             </>
           )}
           <p className="mt-3 text-[10px] leading-5 text-muted-foreground/70">
-            只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。
+            来信可以参考你保存的文章，延续创作话题；不会把故事当成你的真实经历。
           </p>
         </section>
 

@@ -216,3 +216,10 @@ it("allows generation settings for the adopted current version", () => {
   expect(mocks.pack.onPrepareGeneration).toBeUndefined();
   expect(mocks.pack.coverBusy).toBeFalsy();
 });
+
+it("opens the shared book authority and conversions without adopting a platform draft", () => {
+  renderToStaticMarkup(<MobileImageStudio storyId={3} userId={9} workspaceMode="text" onBack={()=>{}} />);
+  expect(mocks.pack).toMatchObject({workspaceMode:"text",storyId:3,accountId:9,mobile:true});
+  expect(mocks.adopt).not.toHaveBeenCalled();
+  expect(mocks.mutate).not.toHaveBeenCalled();
+});

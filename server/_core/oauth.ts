@@ -2,7 +2,12 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { allowedLoginReturnPath } from "../../shared/loginReturnPath";
 import type { Express, Request, Response } from "express";
 import axios from "axios";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
@@ -13,6 +18,8 @@ import {
 import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { registerPhoneLoginRoutes } from "./phoneLoginRoutes";
+import { consumePersistentRateLimit } from "../repositories/accounts";
+import { generateOtpCode as generateUniformOtpCode } from "../services/accountSecurity";
 import { googleAuthConfig } from "../services/googleAuthConfig";
 import { hashInviteCode } from "../services/inviteAccess";
 import {
@@ -56,8 +63,55 @@ function clientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
 }
 
-function generateOtpCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+/** 均匀分布的 6 位验证码（crypto.randomInt），与账号/手机登录共用。 */
+const generateOtpCode = generateUniformOtpCode;
+
+/** 每个邮箱验证码最多允许的校验次数，超过即作废。 */
+const EMAIL_OTP_MAX_ATTEMPTS = 5;
+/** 非生产环境没配 OTP_DIGEST_SECRET 时用的进程内随机 secret，库里依旧不落明文。 */
+const DEV_EMAIL_OTP_SECRET = randomBytes(32).toString("hex");
+
+function emailOtpSecret(): string | null {
+  const secret = ENV.otpDigestSecret?.trim() ?? "";
+  if (secret) return secret;
+  return ENV.isProduction ? null : DEV_EMAIL_OTP_SECRET;
+}
+
+/**
+ * 邮箱验证码摘要：HMAC-SHA256(OTP_DIGEST_SECRET) 绑定用途和邮箱。
+ * email_otps.code 列是 varchar(16)，为免迁移截取前 16 个 hex（64 bit），
+ * 对 6 位码的在线防猜解没有影响（真正的防线是 secret + 次数限制）。
+ */
+function emailOtpDigest(secret: string, email: string, code: string): string {
+  return createHmac("sha256", secret)
+    .update(`legacy-email-otp:v1:${email}:${code.trim()}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function digestEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+const privateRateSubject = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+
+/** 持久化限流（复用 consumePersistentRateLimit）；返回 null 表示放行。 */
+async function emailOtpLimit(
+  scope: string,
+  subject: string,
+  windowSeconds: number,
+  maxAttempts: number
+): Promise<number | null> {
+  const result = await consumePersistentRateLimit({
+    scope: `email-otp:${scope}`,
+    subject,
+    windowSeconds,
+    maxAttempts,
+  });
+  return result.allowed ? null : result.retryAfterMs;
 }
 
 async function sendOtpEmail(to: string, code: string): Promise<void> {
@@ -814,6 +868,17 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     try {
+      // 先按 IP 限流，避免单一来源无限创建按邮箱计数的限流行。
+      const ipBlocked = await emailOtpLimit(
+        "send:ip",
+        privateRateSubject(clientIp(req)),
+        3600,
+        20
+      );
+      if (ipBlocked !== null) {
+        res.status(429).json({ error: "rate_limited", retryAfterMs: ipBlocked });
+        return;
+      }
       if (ENV.betaInviteRequired) {
         if (!inviteCode) {
           res.status(403).json({ error: "invite_required" });
@@ -828,14 +893,31 @@ export function registerOAuthRoutes(app: Express) {
           return;
         }
       }
-      if (ENV.isProduction && !ENV.resendApiKey) {
+      const secret = emailOtpSecret();
+      if (ENV.isProduction && (!ENV.resendApiKey || !secret)) {
         res.status(503).json({ error: "email_not_configured" });
         return;
+      }
+      for (const [scope, windowSeconds, max] of [
+        ["send:email:minute", 60, 1],
+        ["send:email:day", 86400, 10],
+      ] as const) {
+        const blocked = await emailOtpLimit(
+          scope,
+          privateRateSubject(email),
+          windowSeconds,
+          max
+        );
+        if (blocked !== null) {
+          res.status(429).json({ error: "rate_limited", retryAfterMs: blocked });
+          return;
+        }
       }
 
       const code = generateOtpCode();
       const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
-      await db.createEmailOtp(email, code, expiresAt);
+      // 库里只存摘要；createEmailOtp 会同时作废该邮箱的旧码。
+      await db.createEmailOtp(email, emailOtpDigest(secret!, email, code), expiresAt);
       await sendOtpEmail(email, code);
       res.json({ ok: true });
     } catch (error) {
@@ -853,8 +935,36 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     try {
-      const otp = await db.findValidEmailOtp(email, code);
-      if (!otp) {
+      for (const [scope, subject, windowSeconds, max] of [
+        ["verify:ip", privateRateSubject(clientIp(req)), 600, 60],
+        ["verify:email", privateRateSubject(email), 600, 20],
+      ] as const) {
+        const blocked = await emailOtpLimit(scope, subject, windowSeconds, max);
+        if (blocked !== null) {
+          res.status(429).json({ error: "rate_limited", retryAfterMs: blocked });
+          return;
+        }
+      }
+
+      const secret = emailOtpSecret();
+      const otp = secret ? await db.findLatestActiveEmailOtp(email) : null;
+      if (!otp || !secret) {
+        res.status(401).json({ error: "invalid_or_expired" });
+        return;
+      }
+      // 按码计数：同一个码最多试 5 次，超限立即作废。
+      const attemptsExceeded = await emailOtpLimit(
+        "verify:otp",
+        String(otp.id),
+        Math.ceil(OTP_EXPIRY_MS / 1000),
+        EMAIL_OTP_MAX_ATTEMPTS
+      );
+      if (attemptsExceeded !== null) {
+        await db.consumeEmailOtp(otp.id);
+        res.status(401).json({ error: "invalid_or_expired" });
+        return;
+      }
+      if (!digestEquals(otp.code, emailOtpDigest(secret, email, code))) {
         res.status(401).json({ error: "invalid_or_expired" });
         return;
       }
@@ -874,7 +984,11 @@ export function registerOAuthRoutes(app: Express) {
         }
       }
 
-      await db.markEmailOtpUsed(otp.id);
+      // 原子消费：并发提交同一个码只有一个请求能建立会话。
+      if (!(await db.consumeEmailOtp(otp.id))) {
+        res.status(401).json({ error: "invalid_or_expired" });
+        return;
+      }
       await establishEmailSession(req, res, email);
       res.json({ ok: true });
     } catch (error) {

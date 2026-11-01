@@ -1,3 +1,4 @@
+import { selectDailyLetterWorks } from "./dailyLetterWorks";
 import type {
   EmotionAnalysisProfile,
   EmotionDailyLetter,
@@ -159,6 +160,7 @@ interface DailyLetterGenerationDependencies {
   commitAttempt?: typeof commitPersonalMemoryLetterAttempt;
   failAttempt?: typeof failPersonalMemoryLetterAttempt;
   selectMemory?: typeof selectPersonalMemoryContextForDailyLetter;
+  selectWorks?: typeof selectDailyLetterWorks;
   getAlmanac?: typeof getAlmanacDay;
   personalize?: typeof personalizeEmotionDailyReference302;
   getLetter?: typeof getEmotionDailyLetter;
@@ -220,10 +222,12 @@ export async function generateDailyLetterViaAttempt(
   }
 
   try {
-    const selection = await selectMemory({
-      userId: input.userId,
-      targetDate: input.letterDate,
-    });
+    const selection = input.generationIntent === "daily-letter" && !input.userMessage?.trim()
+      ? { selected: [], promptContext: [] }
+      : await selectMemory({ userId: input.userId, targetDate: input.letterDate });
+    selection.selected = selection.selected.filter(item => item.origin !== "inferred");
+    selection.promptContext = selection.promptContext.filter(item => item.origin !== "inferred");
+    const authoredWorks = await (dependencies.selectWorks ?? selectDailyLetterWorks)(input.userId, input.letterDate);
     const almanac = await getAlmanac(input.letterDate);
     const refreshed = await personalize({
       date: input.letterDate,
@@ -232,7 +236,11 @@ export async function generateDailyLetterViaAttempt(
       analysisSeed: input.analysisSeed,
       generationIntent: input.generationIntent,
       personalMemoryContext: selection.promptContext,
+      authoredWorks,
     });
+
+    refreshed.dailyReference.workSources = refreshed.source === "local-template" ? [] :
+      authoredWorks.map(({ storyId, title, savedOn }) => ({ storyId, title, savedOn }));
 
     const committed = await commitAttempt({
       attemptId: begun.attempt.id,

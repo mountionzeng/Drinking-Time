@@ -30,3 +30,9 @@
 5. 页面、类型或计划存在不等于功能可用；`working` 必须有真实入口和可执行测试/验证证据。
 
 详细字段和状态定义见 `docs/features/README.md`。
+
+## 精简代码导航
+
+- 先运行 `pnpm feature:context <关键词或代码路径>` 定位功能卡，再用 `pnpm feature:context --id <功能ID>` 读取当前约束、权威代码与验证证据；命令直接读取原账本，默认省略历史。
+- 修改前读 `docs/handoff/SESSION-BOARD.md` 并登记范围；从功能卡的 `owners` 和 `evidence` 定向阅读，不默认通读所有目录。
+- 仅在追溯决策时读取对应功能的完整 `history`、旧计划或归档文档。原生小程序与本仓 Web/共享后端分开定位，不把旧原型当作当前入口。

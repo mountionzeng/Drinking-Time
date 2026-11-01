@@ -5,6 +5,7 @@ import type {
 
 /** A selected candidate is a basis, never implicit evidence of adoption. */
 export function resolveTextDraftBasis(input: {
+  writingBody?: string;
   selected?: TextDraftVersion;
   latest?: TextDraftVersion;
   edited: TextDraftContent | null;
@@ -12,6 +13,13 @@ export function resolveTextDraftBasis(input: {
   published?: TextDraftContent;
   visible?: { content: TextDraftContent; parentId: string | null };
 }): { parentId: string | null; basis: TextDraftContent | null } {
+  if (input.writingBody !== undefined) {
+    const resolved = resolveTextDraftBasis({ ...input, writingBody: undefined });
+    return {
+      parentId: resolved.parentId,
+      basis: { ...(resolved.basis ?? { title: "", tags: [] }), body: input.writingBody },
+    };
+  }
   if (input.visible)
     return { parentId: input.visible.parentId, basis: input.visible.content };
   const version =

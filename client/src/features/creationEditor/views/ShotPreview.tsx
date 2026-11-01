@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
-import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
+import { estimateLocalImagePatchCost } from "@shared/imageRenderCost";
 import type { TimelineTransform } from "@shared/storyMaterial";
 import type { SubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 
@@ -169,7 +169,7 @@ export default function ShotPreview({
         staleTime: 0,
       }
     );
-  const maskedEstimate = estimateStoryboardMaskedEditCost();
+  const maskedEstimate = estimateLocalImagePatchCost();
   const maskSubmitInFlightRef = useRef(false);
   const maskSessionPlayheadRef = useRef<number | null>(null);
   const maskSessionEpochRef = useRef(0);

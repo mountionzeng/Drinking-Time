@@ -224,6 +224,34 @@ describe("independent text versions with real Story CAS persistence", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("retains earlier audience and excluded topics when the next version only changes the ending", async () => {
+    const input = await setup();
+    const boundary = { id: "boundary", role: "user" as const, content: "写给朋友，只说自己的选择，不写家人的病情。" };
+    input.messages.push(boundary);
+    const first = await service.generateTextDraft(input);
+    const change = { id: "ending", role: "user" as const, content: "结尾再短一些。" };
+    // A later client can have only the new turn; durable same-story history
+    // must still supply the earlier boundary, not infer it from the draft.
+    const story = await db.getStoryById(input.storyId, input.userId);
+    await db.updateStory(input.storyId, input.userId, {
+      body: { ...(story!.body as Record<string, unknown>), messages: input.messages },
+    });
+    const next = await service.generateTextDraft({
+      ...input,
+      operationToken: "ending-revision",
+      expectedRevision: first.revision,
+      parentId: first.versions[0].id,
+      basis: { title: "选择", body: "那天，我做了自己的选择。", tags: [] },
+      messages: [change],
+    });
+    const sent = JSON.parse(model.mock.calls.at(-1)![0].message);
+    expect(sent.conversationContext).toContainEqual(boundary);
+    expect(sent.conversationDelta).toEqual([change]);
+    expect(sent.evidence).toEqual([]);
+    expect(next.versions[0]).toEqual(first.versions[0]);
+    expect(next.versions[1].adoption).toBeUndefined();
+  });
+
   it("combines exact previous text and new/edited conversation, preserving old versions", async () => {
     const input = await setup();
     const first = await service.generateTextDraft(input);

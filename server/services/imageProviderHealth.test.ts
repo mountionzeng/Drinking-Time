@@ -43,6 +43,14 @@ describe("image provider health", () => {
     });
   });
 
+  it("does not turn a provider cooldown plus one unrelated failure into a global outage", () => {
+    recordProviderFailure("midjourney", "图片模型当前过载，请稍后再试。");
+    expect(isCircuitOpen("midjourney")).toBe(true);
+    recordFailure();
+    expect(isCircuitOpen("gpt-image")).toBe(false);
+    expect(isCircuitOpen("fal")).toBe(false);
+  });
+
   it("closes automatically after the cooldown", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T08:00:00.000Z"));

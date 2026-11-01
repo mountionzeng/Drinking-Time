@@ -7,7 +7,6 @@ import {
   generateDraftImage,
   generateImage,
   getImageProviderStatus,
-  inpaintImage,
   isCircuitOpen,
   resetCircuitBreaker,
   resume302GptImageTask,
@@ -91,6 +90,22 @@ describe("generateImage", () => {
     openaiNextVisionModel: ENV.openaiNextVisionModel,
     falApiKey: ENV.falApiKey,
   };
+
+  it("distinguishes provider overload from client rate limiting without retrying or leaking upstream payload", async () => {
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([{ok:false,status:429,json:{error:{message:"The model is overloaded. Please try again later. tid:private-trace"}}}]);
+    const accepted=vi.fn();
+    const result=await generateImage("test boat",{provider:"midjourney",fetcher,onMidjourneyTaskAccepted:accepted});
+    expect(result).toMatchObject({status:"error",message:"图片模型当前过载，请稍后再试。"});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(accepted).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("private-trace");
+    expect(isCircuitOpen("midjourney")).toBe(true);
+    expect(isCircuitOpen("gpt-image")).toBe(false);
+    expect(getImageProviderStatus().lastFailure?.provider).toBe("midjourney");
+    await generateImage("same boat", {provider:"midjourney",fetcher});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 
   beforeEach(() => {
     resetCircuitBreaker();
@@ -296,6 +311,16 @@ describe("generateImage", () => {
     expect(body.model).toBe("gpt-image-1.5");
     expect(body.prompt).toBe("a cat");
     expect(body.size).toBe("1536x1024");
+  });
+
+  it("uses the explicitly quoted GPT 2 model without changing the configured default", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([{ ok: true, status: 200, json: { data: [{ b64_json: Buffer.from("image").toString("base64") }] } }]);
+    const result = await generateImage("blue paper boat", { fetcher, provider: "gpt-image", gptImageModel: "gpt-image-2" });
+    expect(result.status).toBe("ok");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ model: "gpt-image-2", n: 1, quality: "high" });
+    expect(fetcher.mock.calls[0][0]).not.toContain("response_format");
+    expect(ENV.image302GptModel).toBe("gpt-image-1.5");
   });
 
   it("uses 302 GPT-image url response and downloads before storage", async () => {
@@ -1190,6 +1215,22 @@ describe("editImage", () => {
     expect(result.status).toBe("ok");
     expect(result.imageUrl).toMatch(/^\/api\/images\//);
     expect(fetcher.mock.calls[1][0]).toContain("task_id=edit-complete");
+    expect(fetcher.mock.calls[0][0]).not.toContain("response_format=url");
+  });
+
+  it("保留异步任务内的参数错误，不把上游状态误报为登录失败", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { task_id: "edit-rejected" } },
+      { ok: true, status: 200, json: { status_code: 401, err: "", data: JSON.stringify({ error: { err_code: -10003, message: "private upstream payload" } }) } },
+    ]);
+    const result = await editImage("data:image/png;base64,aW1hZ2U=", "调整颜色", {
+      provider: "gpt-image", fetcher, gptPollIntervalMs: 1,
+    });
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("生成服务拒绝了请求参数");
+    expect(result.message).not.toContain("private upstream payload");
+    expect(result.providerTaskId).toBe("edit-rejected");
+    expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
   });
 
   it("参考编辑提交时断线会标记受理不确定，不吞掉风险", async () => {
@@ -1312,7 +1353,7 @@ describe("editImage", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
     const form = fetcher.mock.calls[0][1].body as FormData;
-    expect(form.get("model")).toBe("gpt-image-1.5");
+    expect(form.get("model")).toBe("gpt-image-2");
     expect(form.get("size")).toBe("1024x1024");
     expect(form.get("quality")).toBe("high");
     expect(form.get("image")).toBeTruthy();
@@ -1320,7 +1361,38 @@ describe("editImage", () => {
     expect(form.get("prompt")).toBe("只把白色短裙延长为裙摆触地的白色及地长裙");
   });
 
-  it("遮罩编辑保存结果时强制保留遮罩外的原图像素", async () => {
+  it.each(["sync", "async", "resume"])("%s local patch uses low-cost cropped references and saves only the composite", async mode => {
+    const width=80,height=40;
+    const source=await sharp({create:{width,height,channels:4,background:{r:20,g:40,b:60,alpha:1}}}).png().toBuffer();
+    const rawMask=Buffer.alloc(width*height*4,255);
+    for(let y=4;y<12;y++)for(let x=62;x<74;x++)rawMask[(y*width+x)*4+3]=0;
+    const mask=await sharp(rawMask,{raw:{width,height,channels:4}}).png().toBuffer();
+    const generated=await makeSolidPng(100,200,50);
+    const payload={data:[{b64_json:generated.toString("base64")}]};
+    const fetcher=makeFetcher(mode==="sync"?[{ok:true,status:200,json:payload}]:[
+      ...(mode==="async"?[{ok:true,status:200,json:{task_id:"patch-receipt"}}]:[]),
+      {ok:true,status:200,json:{status_code:200,data:payload}},
+    ]);
+    const options={fetcher,provider:"gpt-image" as const,gptPollIntervalMs:1,gptTimeoutMs:1000,
+      referenceImageUrl:`data:image/png;base64,${source.toString("base64")}`,
+      editMaskImageUrl:`data:image/png;base64,${mask.toString("base64")}`,localImagePatch:true};
+    vi.mocked(storagePut).mockClear();
+    const result=mode==="resume"?await resume302GptImageTask("patch-receipt",options):await editImage(options.referenceImageUrl,"只改杯子的颜色",options);
+    expect(result.status).toBe("ok");
+    if(mode!=="resume"){
+      const form=fetcher.mock.calls[0][1].body as FormData;
+      expect(form.get("quality")).toBe("low");expect(form.get("input_fidelity")).toBe("low");
+      expect(form.getAll("image[]")).toHaveLength(2);
+      expect(String(form.get("prompt"))).toContain("style reference only");
+      expect(await sharp(Buffer.from(await (form.get("mask") as Blob).arrayBuffer())).metadata()).toMatchObject({width:512,height:512});
+    }else expect(fetcher.mock.calls.every(c=>c[1]?.method!=="POST")).toBe(true);
+    expect(storagePut).toHaveBeenCalledTimes(1);
+    const pixels=await sharp(Buffer.from(vi.mocked(storagePut).mock.calls[0][1])).ensureAlpha().raw().toBuffer();
+    expect([...pixels.subarray(0,4)]).toEqual([20,40,60,255]);
+    expect([...pixels.subarray((5*width+63)*4,(5*width+63)*4+4)]).toEqual([100,200,50,255]);
+  });
+
+  it.each(["sync", "async", "resume"])("%s 遮罩编辑保存结果时强制保留遮罩外的原图像素", async (mode) => {
     const source = await sharp(
       Buffer.from([
         255,
@@ -1366,26 +1438,33 @@ describe("editImage", () => {
     )
       .png()
       .toBuffer();
-    const fetcher = makeFetcher([
-      {
-        ok: true,
-        status: 200,
-        json: { data: [{ b64_json: generated.toString("base64") }] },
-      },
+    const payload = { data: [{ b64_json: generated.toString("base64") }] };
+    const fetcher = makeFetcher(mode === "sync" ? [{ok:true,status:200,json:payload}] : [
+      ...(mode === "async" ? [{ok:true,status:200,json:{task_id:"masked-task"}}] : []),
+      {ok:true,status:200,json:{status_code:200,data:payload}},
+      {ok:true,status:200,arrayBuffer:generated.buffer.slice(generated.byteOffset,generated.byteOffset+generated.byteLength) as ArrayBuffer},
     ]);
     vi.mocked(storagePut).mockClear();
 
-    const result = await editImage(
+    const accepted = vi.fn();
+    const result = mode === "resume" ? await resume302GptImageTask("masked-task", {
+      fetcher, gptPollIntervalMs:1, gptTimeoutMs:1000,
+      referenceImageUrl:`data:image/png;base64,${source.toString("base64")}`,
+      editMaskImageUrl:`data:image/png;base64,${mask.toString("base64")}`,
+    }) : await editImage(
       `data:image/png;base64,${source.toString("base64")}`,
       "只修改透明遮罩内的像素",
       {
         fetcher,
-        provider: "gpt-image",
+        provider: "gpt-image", gptPollIntervalMs:1, gptTimeoutMs:1000,
+        onProviderTaskAccepted: accepted,
         editMaskImageUrl: `data:image/png;base64,${mask.toString("base64")}`,
       }
     );
 
     expect(result.status).toBe("ok");
+    if(mode === "async") { expect(accepted).toHaveBeenCalledWith("masked-task"); expect(fetcher.mock.calls[0][0]).toContain("async=true"); }
+    if(mode === "resume") expect(fetcher.mock.calls.every((call) => call[1]?.method !== "POST")).toBe(true);
     const storedBytes = vi.mocked(storagePut).mock.calls.at(-1)?.[1];
     expect(storedBytes).toBeTruthy();
     const pixels = await sharp(Buffer.from(storedBytes!))
@@ -1868,78 +1947,6 @@ describe("editImage", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.base64Array).toHaveLength(1);
-  });
-});
-
-describe("inpaintImage", () => {
-  const savedFalKey = ENV.falApiKey;
-  beforeEach(() => {
-    resetCircuitBreaker();
-    // 函数已加「没 fal key 就快速失败」的守卫；现有用例靠注入 fetcher 验证网络分支，
-    // 所以这里给个测试 key，让它们能越过守卫走到 fetcher。
-    ENV.falApiKey = "test-fal-key";
-  });
-  afterEach(() => {
-    ENV.falApiKey = savedFalKey;
-  });
-
-  it("returns ok with imageUrl on success", async () => {
-    const fetcher = makeFetcher([
-      {
-        ok: true,
-        status: 200,
-        json: { images: [{ url: "https://fal.ai/inpainted.png" }] },
-      },
-      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
-    ]);
-
-    const result = await inpaintImage(
-      "https://img.test/original.png",
-      "https://img.test/mask.png",
-      "old wooden chair",
-      { fetcher }
-    );
-
-    expect(result.status).toBe("ok");
-    expect(result.imageUrl).toBe(
-      "https://storage.example.com/generated/test.png"
-    );
-
-    // Verify inpaint request body
-    const body = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(body.image_url).toBe("https://img.test/original.png");
-    expect(body.mask_url).toBe("https://img.test/mask.png");
-    expect(body.prompt).toBe("old wooden chair");
-  });
-
-  it("returns error on fal.ai failure", async () => {
-    const fetcher = makeFetcher([{ ok: false, status: 503 }]);
-
-    const result = await inpaintImage(
-      "https://img.test/original.png",
-      "https://img.test/mask.png",
-      "old wooden chair",
-      { fetcher }
-    );
-
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("503");
-  });
-
-  it("没配 FAL_KEY 时立即报清晰错误、不打网络（这就是修掉「喂图 timeout」的那道守卫）", async () => {
-    ENV.falApiKey = ""; // 用户的真实情况：只有 302 key，没有 fal key
-    const fetcher = vi.fn();
-
-    const result = await inpaintImage(
-      "https://img.test/original.png",
-      "https://img.test/mask.png",
-      "old wooden chair",
-      { fetcher }
-    );
-
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("fal.ai"); // 看得懂的中文提示，而不是裸 "timeout"
-    expect(fetcher).not.toHaveBeenCalled(); // 关键：根本没去打 fal.run，不会再挂 30s
   });
 });
 
