@@ -1,4 +1,5 @@
 import React from "react";
+import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -6,6 +7,7 @@ import {
   STORYBOARD_MATRIX_VISIBLE_ROWS,
   StoryboardMatrixFieldCell,
   StoryboardVoiceCell,
+  StoryboardVideoBlockHint,
 } from "./StoryboardMatrix";
 
 vi.stubGlobal("React", React);
@@ -87,4 +89,12 @@ describe("StoryboardMatrixFieldCell accessibility", () => {
     expect(html).toContain("生成旁白");
     expect(html).toContain("0.04 算力");
   });
+});
+
+it("explains a missing image without implying a video is running", () => {
+ const html = renderToStaticMarkup(<StoryboardVideoBlockHint reason="需要先选择当前主图" />);
+ expect(html).toContain("先选中镜头，再到仓库把图片设为当前首帧。");
+ expect(html).not.toContain("animate-spin");
+ const en = renderToStaticMarkup(<UiLanguageContext.Provider value={{language:"en",setLanguage:()=>{}}}><StoryboardVideoBlockHint reason="需要先选择当前主图" /></UiLanguageContext.Provider>);
+ expect(en).toContain("Select a shot, then set its image as the current first frame in Library.");
 });

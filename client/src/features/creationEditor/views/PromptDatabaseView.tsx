@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { History, Loader2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
 import type { PromptOverride } from "../promptTable/types";
@@ -60,6 +61,7 @@ export default function PromptDatabaseView({
   onRerender,
   onRestoreRevision,
 }: Props) {
+  const _ui = useDesktopUiText();
   return (
     <div className="min-h-0 overflow-auto rounded-md border border-border">
       <table className="w-full min-w-[980px] border-collapse text-left text-sm">
@@ -120,19 +122,17 @@ export default function PromptDatabaseView({
                     className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
                   >
                     <History className="h-3.5 w-3.5" />
-                    查看历史
-                  </button>
+                    {_ui("查看历史")}</button>
                   {historyOpen ? (
                     <div className="mt-2 space-y-2 rounded-md border border-border/70 bg-muted/20 p-2">
                       {historyLoading ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          正在加载历史…
-                        </div>
+                          {_ui("正在加载历史…")}</div>
                       ) : historyError ? (
                         <div className="text-xs text-destructive">{historyError}</div>
                       ) : historyItems.length === 0 ? (
-                        <div className="text-xs text-muted-foreground">暂无更多历史。</div>
+                        <div className="text-xs text-muted-foreground">{_ui("暂无更多历史。")}</div>
                       ) : (
                         historyItems.map(revision => (
                           <button

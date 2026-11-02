@@ -190,6 +190,14 @@ describe("契约 1.6.0 /web-login/confirm", () => {
     expect(base.webLogin.confirm).not.toHaveBeenCalled();
   });
 
+  it("accepts the QR confirmation token only with a valid signed request", async () => {
+    const code="A".repeat(28);
+    const {response,base}=await confirm({}, {subject,code,decision:"preview"});
+    expect(response.status).toBe(200);
+    expect(base.webLogin.confirm).toHaveBeenCalledWith({subject,code,decision:"preview"});
+    expect((await confirm({}, {subject,code:"Z".repeat(28),decision:"confirm"})).response.status).toBe(400);
+  });
+
   it("无效码对外是 404 invalid_code，限流是 429", async () => {
     const invalid = await confirm({ webLogin: { enabled: true, confirm: async () => ({ outcome: "invalid" }) } }, { subject, code: "ABC234", decision: "confirm" });
     expect(invalid.response.status).toBe(404);

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -78,6 +79,7 @@ function MemorySpaceContent({
   mobileGestures?: boolean;
   initialTrashOpen?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const [tab, setTab] = useState<"stories" | "people">(initialTab);
   const [organizing, setOrganizing] = useState(false);
   const [search, setSearch] = useState("");
@@ -214,7 +216,7 @@ function MemorySpaceContent({
         setDesktopDropShelf(null);
       }}
       className="memory-space"
-      aria-label="回忆书架与人物"
+      aria-label={_ui("回忆书架与人物")}
       data-mobile-gestures={mobileGestures}
       data-held-book={gesture.held?.id}
     >
@@ -229,7 +231,7 @@ function MemorySpaceContent({
         >
           {gesture.held.title}
           <small>
-            {gesture.held.dragging ? "松手放在这里" : "拖动换位置 · 松手调摆放"}
+            {gesture.held.dragging ? _ui("松手放在这里") : _ui("拖动换位置 · 松手调摆放")}
           </small>
         </div>
       )}
@@ -237,27 +239,24 @@ function MemorySpaceContent({
         <>
           <header className="memory-space-heading">
             <div>
-              <p className="memory-space-eyebrow">留在这里的时光</p>
-              <h1>回忆</h1>
+              <p className="memory-space-eyebrow">{_ui("留在这里的时光")}</p>
+              <h1>{_ui("回忆")}</h1>
             </div>
             <button className="memory-link" onClick={onOpenNotes}>
-              记事工具
-            </button>
+              {_ui("记事工具")}</button>
           </header>
-          <nav className="memory-tabs" aria-label="回忆分类">
+          <nav className="memory-tabs" aria-label={_ui("回忆分类")}>
             <button
               aria-pressed={tab === "stories"}
               onClick={() => setTab("stories")}
             >
               <BookOpen size={18} />
-              故事
-            </button>
+              {_ui("故事")}</button>
             <button
               aria-pressed={tab === "people"}
               onClick={() => setTab("people")}
             >
-              <Users size={18} />人
-            </button>
+              <Users size={18} />{_ui("人")}</button>
           </nav>
         </>
       )}
@@ -268,11 +267,10 @@ function MemorySpaceContent({
       )}
       {query.isError && (
         <p className="memory-error" role="alert">
-          暂时无法读取回忆。
-          <button onClick={() => void query.refetch()}>重新加载</button>
+          {_ui("暂时无法读取回忆。")}<button onClick={() => void query.refetch()}>{_ui("重新加载")}</button>
         </p>
       )}
-      {!data && query.isLoading && <p role="status">正在打开回忆…</p>}
+      {!data && query.isLoading && <p role="status">{_ui("正在打开回忆…")}</p>}
       {data && (
         <fieldset className="memory-controls" disabled={change.isPending}>
           {tab === "stories" ? (
@@ -281,8 +279,8 @@ function MemorySpaceContent({
                 <>
                   <div className="memory-toolbar">
                     <input
-                      aria-label="搜索故事"
-                      placeholder="找一本故事…"
+                      aria-label={_ui("搜索故事")}
+                      placeholder={_ui("找一本故事…")}
                       value={search}
                       onChange={e => setSearch(e.target.value)}
                     />
@@ -296,17 +294,15 @@ function MemorySpaceContent({
                         ) : (
                           <Pencil size={15} />
                         )}
-                        {organizing ? "整理好了" : "整理书架"}
+                        {organizing ? _ui("整理好了") : _ui("整理书架")}
                       </button>
                     )}
                   </div>
                   <div className="memory-view-bar">
                     <div className="memory-view-intro">
-                      <span>我的藏书</span>
+                      <span>{_ui("我的藏书")}</span>
                       <small>
-                        {data.books.length} 本故事 ·
-                        横放、竖放、封面朝外，同架收藏
-                      </small>
+                        {data.books.length} {_ui("本故事 · 横放、竖放、封面朝外，同架收藏")}</small>
                     </div>
                   </div>
                 </>
@@ -314,20 +310,19 @@ function MemorySpaceContent({
               {mobileGestures && (
                 <p className="memory-hint">
                   {search
-                    ? "清空搜索后，可长按拖动书本"
-                    : "长按拖动换位置，松手调整摆放；拖到“加一层书架”另放一层。"}
+                    ? _ui("清空搜索后，可长按拖动书本")
+                    : _ui("长按拖动换位置，松手调整摆放；拖到“加一层书架”另放一层。")}
                 </p>
               )}
               {!mobileGestures && !organizing && (
                 <p className="memory-hint">
                   {search
-                    ? "清空搜索后可拖动书本。"
-                    : "拖动书本到另一层书架；也可点“整理书架”选择位置。"}
+                    ? _ui("清空搜索后可拖动书本。")
+                    : _ui("拖动书本到另一层书架；也可点“整理书架”选择位置。")}
                 </p>
               )}
               <button type="button" className="memory-trash-link" onClick={() => setTrashOpen(true)}>
-                回收站
-              </button>
+                {_ui("回收站")}</button>
               {addingShelf ? (
                 <form
                   className="memory-form"
@@ -355,8 +350,7 @@ function MemorySpaceContent({
                   }}
                 >
                   <label>
-                    书架层名称
-                    <input
+                    {_ui("书架层名称")}<input
                       autoFocus
                       maxLength={80}
                       required
@@ -366,15 +360,13 @@ function MemorySpaceContent({
                   </label>
                   <div>
                     <button className="memory-button" type="submit">
-                      保存
-                    </button>
+                      {_ui("保存")}</button>
                     <button
                       className="memory-link"
                       type="button"
                       onClick={() => setAddingShelf(false)}
                     >
-                      取消
-                    </button>
+                      {_ui("取消")}</button>
                   </div>
                 </form>
               ) : (
@@ -388,8 +380,7 @@ function MemorySpaceContent({
                   }}
                 >
                   <Plus size={18} />
-                  加一层书架
-                </button>
+                  {_ui("加一层书架")}</button>
               )}
               <div
                 className="memory-shelves"
@@ -419,8 +410,8 @@ function MemorySpaceContent({
                     <div className="memory-shelf-header-actions">
                     <button
                       className="memory-remove-shelf"
-                      aria-label={`撤销书架${shelf.name}`}
-                      title="撤销后书会回到默认书架，故事不会删除"
+                      aria-label={_ui("撤销书架{0}", [shelf.name])}
+                      title={_ui("撤销后书会回到默认书架，故事不会删除")}
                       onClick={() => {
                         const views = Object.fromEntries(
                           mixedBookViews(booksOnShelf(data, shelf.id))
@@ -428,17 +419,16 @@ function MemorySpaceContent({
                         void act({ kind: "removeShelf", id: shelf.id, views });
                       }}
                     >
-                      撤销书架
-                    </button>
+                      {_ui("撤销书架")}</button>
                     {(organizing || mobileGestures) && (
                       <details
                         className="memory-shelf-menu"
                         open={mobileGestures ? undefined : true}
                       >
-                        <summary aria-label={`管理${shelf.name}`}>···</summary>
+                        <summary aria-label={_ui("管理{0}", [shelf.name])}>···</summary>
                         <div className="memory-shelf-actions">
                           <button
-                            aria-label={`上移${shelf.name}`}
+                            aria-label={_ui("上移{0}", [shelf.name])}
                             disabled={index === 0}
                             onClick={() =>
                               void act({
@@ -451,7 +441,7 @@ function MemorySpaceContent({
                             <ArrowUp size={16} />
                           </button>
                           <button
-                            aria-label={`下移${shelf.name}`}
+                            aria-label={_ui("下移{0}", [shelf.name])}
                             disabled={index === data.shelves.length - 1}
                             onClick={() =>
                               void act({
@@ -470,8 +460,7 @@ function MemorySpaceContent({
                               setAddingShelf(true);
                             }}
                           >
-                            改名
-                          </button>
+                            {_ui("改名")}</button>
                         </div>
                       </details>
                     )}
@@ -479,7 +468,7 @@ function MemorySpaceContent({
                   </Shelf>
                 ))}
                 <Shelf
-                  name={data.shelves.length ? "未分层" : "我的故事"}
+                  name={data.shelves.length ? _ui("未分层") : _ui("我的故事")}
                   books={booksOnShelf(data, null)}
                   search={search}
                   organizing={organizing}
@@ -499,8 +488,7 @@ function MemorySpaceContent({
               </div>
               {organizing && (
                 <p className="memory-hint">
-                  移除书架层后，故事会回到未分层。故事内容不会删除。
-                </p>
+                  {_ui("移除书架层后，故事会回到未分层。故事内容不会删除。")}</p>
               )}
             </>
           ) : (
@@ -518,14 +506,13 @@ function MemorySpaceContent({
       <Dialog open={trashCandidate !== null} onOpenChange={open => { if (!open && !trashMutation.isPending) setTrashCandidate(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>把故事放入回收站？</DialogTitle>
+            <DialogTitle>{_ui("把故事放入回收站？")}</DialogTitle>
             <DialogDescription>
-              “{trashCandidate?.title}”会从故事列表和书架移走，可以在回收站恢复。未保存的修改不会进入回收站，已有的分享链接可能仍可访问。
-            </DialogDescription>
+              “{trashCandidate?.title}{_ui("”会从故事列表和书架移走，可以在回收站恢复。未保存的修改不会进入回收站，已有的分享链接可能仍可访问。")}</DialogDescription>
           </DialogHeader>
           {trashMutation.error && <p className="memory-error" role="alert">{trashMutation.error.message}</p>}
           <div className="memory-trash-dialog-actions">
-            <button type="button" className="memory-button" disabled={trashMutation.isPending} onClick={() => setTrashCandidate(null)}>取消</button>
+            <button type="button" className="memory-button" disabled={trashMutation.isPending} onClick={() => setTrashCandidate(null)}>{_ui("取消")}</button>
             <button type="button" className="memory-button" disabled={trashMutation.isPending} onClick={async () => {
               if (!trashCandidate) return;
               const id = trashCandidate.id;
@@ -535,22 +522,22 @@ function MemorySpaceContent({
                 await refreshAfterTrash();
                 setTrashCandidate(null);
               } catch { /* The mutation error remains visible in the dialog. */ }
-            }}>{trashMutation.isPending ? "正在移入…" : "移入回收站"}</button>
+            }}>{trashMutation.isPending ? _ui("正在移入…") : _ui("移入回收站")}</button>
           </div>
         </DialogContent>
       </Dialog>
       <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
         <DialogContent className="sm:max-w-md max-h-[80dvh] overflow-y-auto">
-          <DialogHeader><DialogTitle>回收站</DialogTitle><DialogDescription>故事可恢复到原来的书架；如果书架已撤销，会回到默认书架。</DialogDescription></DialogHeader>
-          {trashList.isLoading && <p>正在读取…</p>}
-          {trashList.isError && <p className="memory-error" role="alert">读取失败，请关闭后重试。</p>}
-          {trashList.data?.length === 0 && <p>回收站是空的。</p>}
+          <DialogHeader><DialogTitle>{_ui("回收站")}</DialogTitle><DialogDescription>{_ui("故事可恢复到原来的书架；如果书架已撤销，会回到默认书架。")}</DialogDescription></DialogHeader>
+          {trashList.isLoading && <p>{_ui("正在读取…")}</p>}
+          {trashList.isError && <p className="memory-error" role="alert">{_ui("读取失败，请关闭后重试。")}</p>}
+          {trashList.data?.length === 0 && <p>{_ui("回收站是空的。")}</p>}
           {trashList.data?.map(book => <div className="memory-trash-row" key={book.id}>
-            <span>{book.title || "未命名故事"}</span>
+            <span>{book.title || _ui("未命名故事")}</span>
             <button type="button" className="memory-button" disabled={restoreMutation.isPending} onClick={async () => {
               try { await restoreMutation.mutateAsync({ storyId: book.id }); await refreshAfterTrash(); window.dispatchEvent(new CustomEvent("dt:story-restored", { detail: { storyId: book.id } })); }
               catch { /* The mutation error remains visible below. */ }
-            }}>恢复</button>
+            }}>{_ui("恢复")}</button>
           </div>)}
           {restoreMutation.error && <p className="memory-error" role="alert">{restoreMutation.error.message}</p>}
         </DialogContent>
@@ -589,6 +576,7 @@ function Shelf({
   act: (op: MemorySpaceOperation) => Promise<boolean>;
   children?: React.ReactNode;
 }) {
+  const _ui = useDesktopUiText();
   const views = mixedBookViews(books);
   const visible = books.filter(book =>
     book.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
@@ -617,7 +605,7 @@ function Shelf({
       <header>
         <h2>
           {name}
-          <span>{books.length} 本</span>
+          <span>{books.length} {_ui("本")}</span>
         </h2>
         {children}
       </header>
@@ -655,7 +643,7 @@ function Shelf({
                   {organizing && (
                     <div className="memory-book-arrange">
                       <select
-                        aria-label={`移动${book.title}到书架层`}
+                        aria-label={_ui("移动{0}到书架层", [book.title])}
                         value={shelfId ?? ""}
                         onChange={e =>
                           void act({
@@ -666,7 +654,7 @@ function Shelf({
                           })
                         }
                       >
-                        <option value="">未分层</option>
+                        <option value="">{_ui("未分层")}</option>
                         {data.shelves.map(s => (
                           <option key={s.id} value={s.id}>
                             {s.name}
@@ -676,7 +664,7 @@ function Shelf({
                       {shelfId && (
                         <div>
                           <button
-                            aria-label={`前移${book.title}`}
+                            aria-label={_ui("前移{0}", [book.title])}
                             disabled={i === 0}
                             onClick={() =>
                               void act({
@@ -690,7 +678,7 @@ function Shelf({
                             <ArrowLeft size={16} />
                           </button>
                           <button
-                            aria-label={`后移${book.title}`}
+                            aria-label={_ui("后移{0}", [book.title])}
                             disabled={i === books.length - 1}
                             onClick={() =>
                               void act({
@@ -714,7 +702,7 @@ function Shelf({
         ))}
         {!visible.length && (
           <p className="memory-empty">
-            {search ? "这一层没有找到这本故事。" : "故事会在这里慢慢积成一排。"}
+            {search ? _ui("这一层没有找到这本故事。") : _ui("故事会在这里慢慢积成一排。")}
           </p>
         )}
       </div>
@@ -730,6 +718,7 @@ function People({
   act: (op: MemorySpaceOperation) => Promise<boolean>;
   onRead: (id: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [selected, setSelected] = useState<string | null>(null);
   const [personForm, setPersonForm] = useState<{
     id: string;
@@ -755,15 +744,13 @@ function People({
   return (
     <div className="memory-people">
       <div className="memory-toolbar">
-        <p>一起留下故事的人</p>
+        <p>{_ui("一起留下故事的人")}</p>
         <button className="memory-button" onClick={() => showPersonForm()}>
           <Plus size={16} />
-          添加人物
-        </button>
+          {_ui("添加人物")}</button>
       </div>
       <p className="memory-hint">
-        已接受分享和参与共创的人会出现在这里。尚未接受邀请的人，可以自己记下来。
-      </p>
+        {_ui("已接受分享和参与共创的人会出现在这里。尚未接受邀请的人，可以自己记下来。")}</p>
       {personForm && (
         <form
           className="memory-form"
@@ -776,8 +763,7 @@ function People({
           }}
         >
           <label>
-            称呼
-            <input
+            {_ui("称呼")}<input
               required
               maxLength={80}
               value={personForm.name}
@@ -787,10 +773,9 @@ function People({
             />
           </label>
           <label>
-            备注
-            <textarea
+            {_ui("备注")}<textarea
               maxLength={500}
-              placeholder="例如：已邀请，等她有空一起写"
+              placeholder={_ui("例如：已邀请，等她有空一起写")}
               value={personForm.note}
               onChange={e =>
                 setPersonForm({ ...personForm, note: e.target.value })
@@ -799,15 +784,13 @@ function People({
           </label>
           <div>
             <button className="memory-button" type="submit">
-              保存人物
-            </button>
+              {_ui("保存人物")}</button>
             <button
               className="memory-link"
               type="button"
               onClick={() => setPersonForm(null)}
             >
-              取消
-            </button>
+              {_ui("取消")}</button>
           </div>
         </form>
       )}
@@ -827,8 +810,8 @@ function People({
               <strong>{p.name}</strong>
               <small>
                 {p.connected
-                  ? `${new Set(p.stories.map(s => s.id)).size} 篇相关故事`
-                  : "我记录的人物"}
+                  ? _ui("{0} 篇相关故事", [new Set(p.stories.map(s => s.id)).size])
+                  : _ui("我记录的人物")}
               </small>
             </span>
             <ArrowRight size={16} />
@@ -837,8 +820,7 @@ function People({
       </div>
       {!data.people.length && (
         <p className="memory-empty">
-          还没有人物。邀请朋友一起写故事，或先记下一位你在意的人。
-        </p>
+          {_ui("还没有人物。邀请朋友一起写故事，或先记下一位你在意的人。")}</p>
       )}
       {person && (
         <section className="memory-person-detail">
@@ -848,8 +830,7 @@ function People({
               className="memory-link"
               onClick={() => showPersonForm(person)}
             >
-              编辑称呼与备注
-            </button>
+              {_ui("编辑称呼与备注")}</button>
           </header>
           {person.note && <p className="memory-note">{person.note}</p>}
           {!person.connected && (
@@ -860,18 +841,17 @@ function People({
                   setSelected(null);
               }}
             >
-              移除人物及关系
-            </button>
+              {_ui("移除人物及关系")}</button>
           )}
-          <h3>邀请与共同创作</h3>
+          <h3>{_ui("邀请与共同创作")}</h3>
           {person.stories.map(s => (
             <div className="memory-person-story" key={`${s.id}:${s.role}`}>
               <span>
                 {s.role === "accepted"
-                  ? "接受了我的故事分享"
+                  ? _ui("接受了我的故事分享")
                   : s.role === "invitedMe"
-                    ? "我接受了对方的故事分享"
-                    : "参与编辑"}
+                    ? _ui("我接受了对方的故事分享")
+                    : _ui("参与编辑")}
               </span>
               <button onClick={() => onRead(s.id)}>《{s.title}》</button>
               {s.role === "contributed" && (
@@ -886,21 +866,20 @@ function People({
                         )
                     )
                     .map(p => p.name)
-                    .join("、") || "我"}
-                  也参与了这篇故事
-                </small>
+                    .join("、") || _ui("我")}
+                  {_ui("也参与了这篇故事")}</small>
               )}
             </div>
           ))}
           {!person.stories.length && (
-            <p className="memory-hint">暂时没有可确认的邀请或共创记录。</p>
+            <p className="memory-hint">{_ui("暂时没有可确认的邀请或共创记录。")}</p>
           )}
         </section>
       )}
       {data.people.length > 0 && (
         <section className="memory-relations">
-          <h2>我标注的关系</h2>
-          <p className="memory-hint">这些备注只对你可见。</p>
+          <h2>{_ui("我标注的关系")}</h2>
+          <p className="memory-hint">{_ui("这些备注只对你可见。")}</p>
           {data.relationships.map(r => (
             <div className="memory-relation" key={r.id}>
               <span>
@@ -915,10 +894,9 @@ function People({
                   setRelationId(r.id);
                 }}
               >
-                编辑
-              </button>
+                {_ui("编辑")}</button>
               <button
-                aria-label={`删除${personName(r.from)}与${personName(r.to)}的${r.label}关系`}
+                aria-label={_ui("删除{0}与{1}的{2}关系", [personName(r.from), personName(r.to), r.label])}
                 onClick={() => void act({ kind: "removeRelation", id: r.id })}
               >
                 <X size={16} />
@@ -945,7 +923,7 @@ function People({
             <div className="memory-relation-fields">
               {(["from", "to"] as const).map(key => (
                 <label key={key}>
-                  {key === "from" ? "从谁" : "到谁"}
+                  {key === "from" ? _ui("从谁") : _ui("到谁")}
                   <select
                     required
                     value={relation[key]}
@@ -954,9 +932,8 @@ function People({
                     }
                   >
                     <option value="" disabled>
-                      选择人物
-                    </option>
-                    <option value="self">我</option>
+                      {_ui("选择人物")}</option>
+                    <option value="self">{_ui("我")}</option>
                     {data.people.map(p => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -967,19 +944,18 @@ function People({
               ))}
             </div>
             <label>
-              关系
-              <input
+              {_ui("关系")}<input
                 required
                 maxLength={80}
                 value={relation.label}
-                placeholder="家人、朋友，或自己的称呼"
+                placeholder={_ui("家人、朋友，或自己的称呼")}
                 onChange={e =>
                   setRelation({ ...relation, label: e.target.value })
                 }
               />
             </label>
             <button className="memory-button" type="submit">
-              {relationId ? "保存关系" : "添加关系"}
+              {relationId ? _ui("保存关系") : _ui("添加关系")}
             </button>
           </form>
         </section>
@@ -996,6 +972,7 @@ function MemoryReader({
   onBack: () => void;
   onOpenStory: (id: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   const query = trpc.memorySpace.book.useQuery(
     { storyId },
     { retry: false, refetchOnWindowFocus: true }
@@ -1026,35 +1003,31 @@ function MemoryReader({
     <section
       ref={readingRoot}
       className="memory-space memory-reading"
-      aria-label="故事阅读"
+      aria-label={_ui("故事阅读")}
     >
       <button className="memory-link" onClick={onBack}>
         <ArrowLeft size={16} />
-        回到书架
-      </button>
-      {query.isLoading && <p role="status">正在翻开故事…</p>}
+        {_ui("回到书架")}</button>
+      {query.isLoading && <p role="status">{_ui("正在翻开故事…")}</p>}
       {query.isError && (
         <p className="memory-error" role="alert">
-          暂时无法打开故事。
-          <button onClick={() => void query.refetch()}>重试</button>
+          {_ui("暂时无法打开故事。")}<button onClick={() => void query.refetch()}>{_ui("重试")}</button>
         </p>
       )}
       {data && (
         <>
           <header>
-            <p className="memory-space-eyebrow">故事里的时光</p>
+            <p className="memory-space-eyebrow">{_ui("故事里的时光")}</p>
             <h1>{data.title}</h1>
             <button
               className="memory-button"
               onClick={() => onOpenStory(storyId)}
             >
-              进入故事编辑
-            </button>
+              {_ui("进入故事编辑")}</button>
           </header>
           {data.versions.length > 0 && (
             <label className="memory-version-label">
-              阅读版本
-              <select
+              {_ui("阅读版本")}<select
                 value={version?.id}
                 onChange={e => setVersionId(e.target.value)}
               >
@@ -1080,23 +1053,22 @@ function MemoryReader({
             </article>
           ) : (
             <p className="memory-empty">
-              这篇故事还没有成文，可以进入故事接着聊。
-            </p>
+              {_ui("这篇故事还没有成文，可以进入故事接着聊。")}</p>
           )}
           <section className="memory-contributors">
-            <h2>参与编辑的人</h2>
-            <p className="memory-hint">我 · 故事作者</p>
+            <h2>{_ui("参与编辑的人")}</h2>
+            <p className="memory-hint">{_ui("我 · 故事作者")}</p>
             {data.participants.map((p, i) => (
               <div key={i}>
                 <strong>{p.name}</strong>
                 <span>
-                  {p.kind === "text" ? "文字" : "排版"} · {p.status}
+                  {p.kind === "text" ? _ui("文字") : _ui("排版")} · {p.status}
                 </span>
                 <time>{date(p.at)}</time>
               </div>
             ))}
             {!data.participants.length && (
-              <p className="memory-hint">还没有朋友提交的编辑记录。</p>
+              <p className="memory-hint">{_ui("还没有朋友提交的编辑记录。")}</p>
             )}
           </section>
         </>

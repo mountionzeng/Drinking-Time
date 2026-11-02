@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import { Check, ShieldCheck } from "lucide-react";
 
@@ -91,6 +92,7 @@ export function StoryboardContinuityDialog({
   onChoose: (option: StoryboardContinuityOption) => void;
   onCancel: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const preferredKey =
     options.find(option => option.kind === "anchor")?.key ??
     options[0]?.key ??
@@ -117,13 +119,10 @@ export function StoryboardContinuityDialog({
         <DialogHeader className="gap-1 pr-7">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <ShieldCheck className="h-4 w-4 text-amber-600" />
-            先确认人物版本
-          </DialogTitle>
+            {_ui("先确认人物版本")}</DialogTitle>
           <DialogDescription className="text-xs leading-5">
-            {shotLabel} 的{mismatchLabels.join("、") || "人物外观"}
-            与人物基准不一致。请选择本次
-            {renderKind === "image" ? "图片" : "视频"}要遵循的版本。
-          </DialogDescription>
+            {shotLabel} {_ui("的")}{mismatchLabels.join("、") || _ui("人物外观")}
+            {_ui("与人物基准不一致。请选择本次")}{renderKind === "image" ? _ui("图片") : _ui("视频")}{_ui("要遵循的版本。")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -183,16 +182,14 @@ export function StoryboardContinuityDialog({
             onClick={onCancel}
             className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            取消
-          </button>
+            {_ui("取消")}</button>
           <button
             type="button"
             disabled={!selected}
             onClick={() => selected && onChoose(selected)}
             className="inline-flex h-8 items-center justify-center rounded-md bg-[var(--nayin-accent)] px-3 text-xs font-semibold text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/45 disabled:opacity-50"
           >
-            按这一版继续
-          </button>
+            {_ui("按这一版继续")}</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

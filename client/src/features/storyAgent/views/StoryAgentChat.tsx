@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { BookVideoChat, type BookVideoChatHandle } from "@/features/bookVideo/BookVideoChat";
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
 import { BookMediaChat, type BookMediaChatHandle } from "@/features/publishingAlbum/BookMediaChat";
@@ -251,6 +252,7 @@ export default function StoryAgentChat({
   onOpenPublishingWorkspace?: () => void;
   showCreationActions?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const hasStudioShots = useStorySpine(state => state.storyShots.length > 0);
   const { element, visualTheme } = useNayin();
   const desktopStoryMenu = useContext(DesktopStoryMenuContext);
@@ -467,8 +469,8 @@ export default function StoryAgentChat({
   const storyDisplayTitle =
     storyTitle?.trim() ||
     (remoteStoryId || (activeStoryId && activeStoryId > 0)
-      ? `故事 #${remoteStoryId ?? activeStoryId}`
-      : "新故事草稿");
+      ? _ui("故事 #{0}", [remoteStoryId ?? activeStoryId])
+      : _ui("新故事草稿"));
   const inputPlaceholder =
     bookVideo ? "说说视频给谁看、想表达什么，或继续调整方案…" :
     activeSelection?.sourceType === "storyboard-image"
@@ -545,11 +547,11 @@ export default function StoryAgentChat({
       : saveStatus === "error"
         ? "云端保存失败，本地备份还在"
         : remoteStoryId || (activeStoryId && activeStoryId > 0)
-          ? `已云端保存 #${remoteStoryId ?? activeStoryId}`
+          ? _ui("已云端保存 #{0}", [remoteStoryId ?? activeStoryId])
           : "待云端保存";
   const saveTitle =
     saveStatus === "saved" && lastSavedAt
-      ? `保存到当前账号的云端故事库：${new Date(lastSavedAt).toLocaleString("zh-CN")}`
+      ? _ui("保存到当前账号的云端故事库：{0}", [new Date(lastSavedAt).toLocaleString()])
       : "保存到当前账号的云端故事库";
 
   const resizeAndFocusInput = useCallback(() => {
@@ -1243,16 +1245,16 @@ export default function StoryAgentChat({
     const item = chatQueue.items.find(message => message.id === id);
     if (!item) return null;
     return <div className="mt-1 flex items-center gap-2 text-[10px] opacity-80">
-      <span>{item.status === "failed" ? "未收到完整回复，已暂停" : item.status === "sending" ? "等待回复" : "排队中"}</span>
+      <span>{item.status === "failed" ? _ui("未收到完整回复，已暂停") : item.status === "sending" ? _ui("等待回复") : _ui("排队中")}</span>
       {item.status !== "sending" && <button type="button" onClick={() => {
         void navigator.clipboard.writeText(item.text).then(() => toast.success("已复制，原消息仍保留在队列中"), () => toast.error("请选中文字复制"));
-      }}>复制</button>}
+      }}>{_ui("复制")}</button>}
       {item.status !== "sending" && <button type="button" onClick={() => chatQueue.takeBack(item.id)}>
-        {item.status === "failed" ? "已核对，移出队列" : "取消排队"}
+        {item.status === "failed" ? _ui("已核对，移出队列") : _ui("取消排队")}
       </button>}
       {chatQueue.paused && item.status === "queued" && chatQueue.items[0]?.id === item.id &&
         !chatQueue.items.some(message => message.status === "failed") &&
-        <button type="button" onClick={chatQueue.resume}>发送</button>}
+        <button type="button" onClick={chatQueue.resume}>{_ui("发送")}</button>}
     </div>;
   };
 
@@ -1285,8 +1287,7 @@ export default function StoryAgentChat({
         >
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <UploadCloud className="h-5 w-5 text-nayin-bright" />
-            放入聊聊素材篮
-          </div>
+            {_ui("放入聊聊素材篮")}</div>
         </div>
       ) : null}
       <div
@@ -1297,12 +1298,12 @@ export default function StoryAgentChat({
           type="button"
           onClick={backToList}
           className="flex items-center gap-0.5 text-[10px] opacity-60 hover:opacity-100 transition-opacity mr-1"
-          title="返回列表"
+          title={_ui("返回列表")}
         >
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
         <div className="status-dot" />
-        <span>聊聊 · 创作对话</span>
+        <span>{_ui("聊聊 · 创作对话")}</span>
         <span className="ml-auto flex items-center gap-2">
           {cardRefs.length > 0 && (
             <span
@@ -1312,8 +1313,7 @@ export default function StoryAgentChat({
                 color: "var(--nayin-accent-bright)",
               }}
             >
-              {cardRefs.length} 张卡片
-            </span>
+              {cardRefs.length} {_ui("张卡片")}</span>
           )}
           <span
             className="hidden items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full sm:inline-flex"
@@ -1321,24 +1321,23 @@ export default function StoryAgentChat({
               background: "var(--nayin-glow)",
               color: "var(--nayin-accent-bright)",
             }}
-            title={saveTitle}
+            title={_ui(saveTitle)}
           >
             {saveStatus === "saving" ? (
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
               <Cloud className="h-2.5 w-2.5" />
             )}
-            {saveLabel}
+            {_ui(saveLabel)}
           </span>
           <button
             type="button"
             onClick={resetConversation}
             className="text-[10px] opacity-50 hover:opacity-100 transition-opacity flex items-center gap-1"
-            title="开始一个新故事，不删除云端故事库里的旧故事"
+            title={_ui("开始一个新故事，不删除云端故事库里的旧故事")}
           >
             <RefreshCcw className="w-3 h-3" />
-            新故事
-          </button>
+            {_ui("新故事")}</button>
         </span>
       </div>
 
@@ -1357,7 +1356,7 @@ export default function StoryAgentChat({
               ? "var(--nayin-glow)"
               : "var(--panel-header)",
           }}
-          aria-label="聊聊当前上下文"
+          aria-label={_ui("聊聊当前上下文")}
         >
           <div className="group flex items-start gap-2.5">
             {visualTheme === "shiguang" ? (
@@ -1371,9 +1370,9 @@ export default function StoryAgentChat({
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-                <span>当前故事</span>
+                <span>{_ui("当前故事")}</span>
                 <span>·</span>
-                <span>{intentLabel(currentIntent)}</span>
+                <span>{_ui(intentLabel(currentIntent))}</span>
               </div>
               {isRenamingTitle ? (
                 <div className="mt-1 flex items-center gap-1">
@@ -1391,14 +1390,14 @@ export default function StoryAgentChat({
                         cancelRenamingTitle();
                       }
                     }}
-                    aria-label="故事名称"
+                    aria-label={_ui("故事名称")}
                     className="h-7 min-w-0 flex-1 rounded border border-[var(--nayin-accent-dim)] bg-background px-2 text-[12px] font-semibold outline-none ring-2 ring-[var(--nayin-glow)]"
                   />
                   <button
                     type="button"
                     onClick={() => void saveStoryTitle()}
                     disabled={isSavingTitle || !titleDraft.trim()}
-                    aria-label="保存故事名称"
+                    aria-label={_ui("保存故事名称")}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-nayin-bright hover:bg-[var(--nayin-glow)] disabled:opacity-40"
                   >
                     {isSavingTitle ? (
@@ -1411,7 +1410,7 @@ export default function StoryAgentChat({
                     type="button"
                     onClick={cancelRenamingTitle}
                     disabled={isSavingTitle}
-                    aria-label="取消修改故事名称"
+                    aria-label={_ui("取消修改故事名称")}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-40"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -1425,8 +1424,8 @@ export default function StoryAgentChat({
                   <button
                     type="button"
                     onClick={startRenamingTitle}
-                    aria-label="修改故事名称"
-                    title="修改故事名称"
+                    aria-label={_ui("修改故事名称")}
+                    title={_ui("修改故事名称")}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-65 transition hover:bg-[var(--nayin-glow)] hover:text-nayin-bright hover:opacity-100"
                   >
                     <Pencil className="h-3 w-3" />
@@ -1443,8 +1442,7 @@ export default function StoryAgentChat({
                 readiness={activeSelectionReadiness}
               />
               <p className="mt-1.5 text-[10px] text-muted-foreground">
-                下一条消息会带着这个选区交给聊聊。
-              </p>
+                {_ui("下一条消息会带着这个选区交给聊聊。")}</p>
             </div>
           ) : null}
         </section>
@@ -1513,7 +1511,7 @@ export default function StoryAgentChat({
                   <button
                     type="button"
                     className="mb-2 block w-full text-left"
-                    aria-label="选中新版图片继续修改"
+                    aria-label={_ui("选中新版图片继续修改")}
                     disabled={m.imageRevision.storyId !== activeStoryId}
                     onClick={() => {
                       const image = m.imageRevision!;
@@ -1530,18 +1528,17 @@ export default function StoryAgentChat({
                   >
                     <img
                       src={m.imageRevision.imageUrl}
-                      alt="修改后的新版候选"
+                      alt={_ui("修改后的新版候选")}
                       className="max-h-64 w-full rounded-lg object-contain"
                     />
                     <span className="text-[10px] text-muted-foreground">
-                      新版图片 · 点击继续修改
-                    </span>
+                      {_ui("新版图片 · 点击继续修改")}</span>
                   </button>
                 ) : null}
                 {m.role === "user" && m.photoUrl && (
                   <img
                     src={m.photoUrl}
-                    alt="用户上传照片"
+                    alt={_ui("用户上传照片")}
                     className={`h-28 max-w-full rounded-xl border border-white/20 object-cover ${
                       m.content.trim() ? "mb-1.5" : ""
                     }`}
@@ -1576,10 +1573,10 @@ export default function StoryAgentChat({
                     <div className="text-[10px] text-muted-foreground">
                       {m.promptCandidate.label}
                       {m.promptCandidate.status === "pending"
-                        ? " · 等待确认"
+                        ? _ui(" · 等待确认")
                         : m.promptCandidate.status === "confirmed"
-                          ? " · 已确认"
-                          : " · 已拒绝"}
+                          ? _ui(" · 已确认")
+                          : _ui(" · 已拒绝")}
                     </div>
                     {m.promptCandidate.status === "pending" ? (
                       <div className="mt-1.5 flex gap-1.5">
@@ -1589,15 +1586,13 @@ export default function StoryAgentChat({
                           className="inline-flex h-7 items-center gap-1 rounded-md bg-[var(--nayin-accent)] px-2 text-[10px] font-medium text-background"
                         >
                           <Check className="h-3 w-3" />
-                          确认修改
-                        </button>
+                          {_ui("确认修改")}</button>
                         <button
                           type="button"
                           onClick={() => void rejectSelectionCandidate(m.id)}
                           className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[10px] text-muted-foreground"
                         >
-                          不采用
-                        </button>
+                          {_ui("不采用")}</button>
                       </div>
                     ) : null}
                   </div>
@@ -1622,18 +1617,15 @@ export default function StoryAgentChat({
                         <RefreshCcw className="h-3.5 w-3.5" />
                       )}
                       {m.promptCandidate?.status === "pending"
-                        ? "确认修改后可重渲"
-                        : `重新渲染 ${
-                            m.imageRerenderAction.cueCode ??
+                        ? _ui("确认修改后可重渲")
+                        : _ui("重新渲染 {0}", [m.imageRerenderAction.cueCode ??
                             String(m.imageRerenderAction.shotNo).padStart(
                               4,
                               "0"
-                            )
-                          }`}
+                            )])}
                     </button>
                     <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                      点击后先核对参考帧和预计算力消耗；确认后才提交，旧候选会保留。
-                    </p>
+                      {_ui("点击后先核对参考帧和预计算力消耗；确认后才提交，旧候选会保留。")}</p>
                     {rerenderResultByMessageId[m.id] ? (
                       <p
                         className={`mt-1 text-[10px] leading-relaxed ${
@@ -1699,7 +1691,7 @@ export default function StoryAgentChat({
                     style={{ borderColor: "var(--panel-border)" }}
                   >
                     <Sparkles className="w-3 h-3 text-nayin-bright" />
-                    <span className="text-nayin-bright">+ 1 张卡片入册</span>
+                    <span className="text-nayin-bright">{_ui("+ 1 张卡片入册")}</span>
                   </div>
                 )}
               </div>
@@ -1709,7 +1701,7 @@ export default function StoryAgentChat({
         {activeStoryId != null && activeStoryId > 0 && <BookVideoChat key={`${accountId}:${activeStoryId}:${scopeEpoch}`} storyId={activeStoryId} accountId={accountId} epoch={scopeEpoch} session={bookVideo} handle={bookVideoHandle} onAdopt={async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId})}} />}
 
 
-        {creationFlow.busy ? <p role="status" aria-live="polite" className="text-xs text-muted-foreground py-2">正在处理创作指令…</p> : null}
+        {creationFlow.busy ? <p role="status" aria-live="polite" className="text-xs text-muted-foreground py-2">{_ui("正在处理创作指令…")}</p> : null}
         {soundDirector.active ? (
           <div className="space-y-2" aria-live="polite">
             <SoundDirectorQuestionCard director={soundDirector} />
@@ -1719,14 +1711,12 @@ export default function StoryAgentChat({
                 role="alert"
                 className="w-[96%] rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-900"
               >
-                另一处页面已经更新了声音方案。你当前输入还保留在本页，请先载入较新的版本再决定如何合并。
-                <button
+                {_ui("另一处页面已经更新了声音方案。你当前输入还保留在本页，请先载入较新的版本再决定如何合并。")}<button
                   type="button"
                   onClick={() => void soundDirector.refreshAfterConflict()}
                   className="ml-2 underline underline-offset-2"
                 >
-                  载入最新方案
-                </button>
+                  {_ui("载入最新方案")}</button>
               </section>
             ) : null}
             {soundDirector.error ? (
@@ -1750,7 +1740,7 @@ export default function StoryAgentChat({
             <section
               className="w-[96%] overflow-hidden rounded-lg border bg-card text-foreground"
               style={{ borderColor: "var(--panel-border)" }}
-              aria-label="聊聊素材归类建议"
+              aria-label={_ui("聊聊素材归类建议")}
             >
               <header className="flex items-center gap-1.5 px-2.5 py-2">
                 {visualTheme === "nayin" ? (
@@ -1761,10 +1751,9 @@ export default function StoryAgentChat({
                   />
                 ) : null}
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold">素材归类建议</p>
+                  <p className="text-[11px] font-semibold">{_ui("素材归类建议")}</p>
                   <p className="text-[9.5px] text-muted-foreground">
-                    采纳后才会进入对应镜头
-                  </p>
+                    {_ui("采纳后才会进入对应镜头")}</p>
                 </div>
               </header>
               {materialAdvices.map(advice => (
@@ -1775,13 +1764,13 @@ export default function StoryAgentChat({
                 >
                   <img
                     src={advice.imageUrl}
-                    alt="待归类图片"
+                    alt={_ui("待归类图片")}
                     className="h-11 w-11 shrink-0 rounded object-cover"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1 text-[9.5px] font-medium">
                       <span className="text-nayin-bright">
-                        {materialAdviceLabel(advice.verdict)}
+                        {_ui(materialAdviceLabel(advice.verdict))}
                       </span>
                       {advice.targetShotNo != null ? (
                         <span className="font-mono text-muted-foreground">
@@ -1797,9 +1786,9 @@ export default function StoryAgentChat({
                     </p>
                     {advice.videoDirection ? (
                       <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
-                        {advice.videoDirection.cameraMove || "固定镜头"} ·{" "}
+                        {advice.videoDirection.cameraMove || _ui("固定镜头")} ·{" "}
                         {advice.videoDirection.durationSec}s ·{" "}
-                        {advice.videoDirection.emotionalTone || "情绪待定"}
+                        {advice.videoDirection.emotionalTone || _ui("情绪待定")}
                       </p>
                     ) : null}
                     {advice.verdict !== "skip" &&
@@ -1816,7 +1805,7 @@ export default function StoryAgentChat({
                         ) : (
                           <Check className="h-3 w-3" />
                         )}
-                        放入{" "}
+                        {_ui("放入")}{" "}
                         {labelForShot(
                           advice.targetShotNo,
                           advice.targetStableShotId
@@ -1864,7 +1853,7 @@ export default function StoryAgentChat({
                 pendingIntentDraft.proposal?.id
               }
               acceptLabel={
-                hasPublishingVersion ? "到发布工作区确认新版本" : undefined
+                hasPublishingVersion ? _ui("到发布工作区确认新版本") : undefined
               }
               onOpenChange={open => {
                 if (!open && pendingIntentDraft.proposal?.id) {
@@ -1888,8 +1877,7 @@ export default function StoryAgentChat({
                 className="self-start rounded-md border px-2.5 py-1.5 text-[11px] text-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--nayin-accent-dim)" }}
               >
-                查看用途或观众变化建议
-              </button>
+                {_ui("查看用途或观众变化建议")}</button>
             ) : null}
           </>
         ) : null}
@@ -1909,8 +1897,7 @@ export default function StoryAgentChat({
                 style={{ borderColor: "var(--panel-border)" }}
               />
               <span className="font-mono uppercase tracking-[0.16em]">
-                接着上次聊
-              </span>
+                {_ui("接着上次聊")}</span>
               <span
                 className="flex-1 border-t"
                 style={{ borderColor: "var(--panel-border)" }}
@@ -1968,7 +1955,7 @@ export default function StoryAgentChat({
         {interactionMode === "story" && imageTextResult ? (
           <article
             className="mt-1.5 rounded-md border border-border bg-background px-2.5 py-2"
-            aria-label="图片本地编辑结果"
+            aria-label={_ui("图片本地编辑结果")}
             data-testid="chat-image-local-edit-result"
           >
             <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
@@ -1978,14 +1965,14 @@ export default function StoryAgentChat({
                 <ScanText className="h-3 w-3" />
               )}
               <span>
-                图片 #{imageTextResult.imageId}
-                {imageTextResult.rotated ? " · 已倒转 180°" : ""}
+                {_ui("图片 #")}{imageTextResult.imageId}
+                {imageTextResult.rotated ? _ui(" · 已倒转 180°") : ""}
               </span>
               <button
                 type="button"
                 onClick={() => setImageTextResult(null)}
                 className="ml-auto rounded p-1 hover:bg-muted"
-                aria-label="关闭图片处理结果"
+                aria-label={_ui("关闭图片处理结果")}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -2002,7 +1989,7 @@ export default function StoryAgentChat({
                     )
                   }
                   rows={5}
-                  aria-label="聊天框 OCR 识别结果"
+                  aria-label={_ui("聊天框 OCR 识别结果")}
                   className="mt-2 w-full resize-y rounded-md border border-border bg-muted/20 px-2.5 py-2 text-[11px] leading-5 outline-none focus:border-[var(--nayin-accent)]"
                 />
                 <button
@@ -2013,14 +2000,13 @@ export default function StoryAgentChat({
                   className="mt-1.5 inline-flex items-center gap-1 rounded px-2 py-1 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
                   <Copy className="h-3 w-3" />
-                  复制文字
-                </button>
+                  {_ui("复制文字")}</button>
               </>
             ) : (
               <p className="mt-1.5 text-[10px] text-muted-foreground">
                 {imageTextResult.rotated
-                  ? "构图变换已保存。"
-                  : "没有识别到文字。"}
+                  ? _ui("构图变换已保存。")
+                  : _ui("没有识别到文字。")}
               </p>
             )}
           </article>
@@ -2069,7 +2055,7 @@ export default function StoryAgentChat({
                     onClick={() => removePendingMedia(attachment.id)}
                     disabled={isImportingMedia}
                     className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded bg-black/65 text-white opacity-85 transition-opacity hover:opacity-100 disabled:opacity-40"
-                    aria-label={`移除 ${attachment.file.name}`}
+                    aria-label={_ui("移除 {0}", [attachment.file.name])}
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -2077,8 +2063,7 @@ export default function StoryAgentChat({
               ))}
             </div>
             <p className="mt-0.5 truncate text-[9.5px] text-muted-foreground">
-              {pendingMedia.length} 个素材待发送 · 视频暂放当前镜头
-            </p>
+              {pendingMedia.length} {_ui("个素材待发送 · 视频暂放当前镜头")}</p>
             {pendingMedia.some(item => item.kind === "image") ? (
               <ChatPhotoExtractionQuestion
                 disabled={isImportingMedia || isReplying}
@@ -2099,13 +2084,11 @@ export default function StoryAgentChat({
             {voice.isRecording ? (
               <>
                 <span className="h-1.5 w-1.5 rounded-full bg-nayin animate-pulse" />
-                录音中，再点方块停止
-              </>
+                {_ui("录音中，再点方块停止")}</>
             ) : (
               <>
                 <Loader2 className="h-3 w-3 animate-spin" />
-                正在把声音转成文字…
-              </>
+                {_ui("正在把声音转成文字…")}</>
             )}
           </div>
         )}
@@ -2126,8 +2109,8 @@ export default function StoryAgentChat({
                   isImportingMedia
                 }
                 className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                aria-label="添加图片或视频"
-                title="添加图片或视频"
+                aria-label={_ui("添加图片或视频")}
+                title={_ui("添加图片或视频")}
               >
                 <Paperclip className="h-3.5 w-3.5" />
               </button>
@@ -2154,8 +2137,8 @@ export default function StoryAgentChat({
                     }
                   : undefined
               }
-              aria-label={voice.isRecording ? "停止录音" : "开始录音"}
-              title={voice.isRecording ? "停止录音" : "语音输入"}
+              aria-label={voice.isRecording ? _ui("停止录音") : _ui("开始录音")}
+              title={voice.isRecording ? _ui("停止录音") : _ui("语音输入")}
             >
               {voice.isTranscribing ? (
                 <TranscribingGlyph />
@@ -2179,23 +2162,23 @@ export default function StoryAgentChat({
               mood={isReplying ? "thinking" : undefined} notificationKey={lastAssistantId} animated={isReplying} />}
           {(isReplying || generatingCount > 0 || creationFlow.busy || isImportingMedia || voice.isTranscribing) &&
             <span role="status" aria-live="polite" className="shrink-0 text-[11px] text-muted-foreground">
-              {generatingCount > 0 || creationFlow.busy ? "正在生成…" : isImportingMedia ? "正在看你的素材…" : voice.isTranscribing ? "正在听你说…" : "正在思考…"}
+              {generatingCount > 0 || creationFlow.busy ? _ui("正在生成…") : isImportingMedia ? _ui("正在看你的素材…") : voice.isTranscribing ? _ui("正在听你说…") : _ui("正在思考…")}
             </span>}
 
-        {bookVideo && <span className="text-[11px] text-muted-foreground">正在讨论视频创作</span>}
-        {!bookVideo && writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? "当前模块上下文" : "当前文字上下文"} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+        {bookVideo && <span className="text-[11px] text-muted-foreground">{_ui("正在讨论视频创作")}</span>}
+        {!bookVideo && writingSession && (!activeSelection || layoutContext) && <section aria-label={layoutContext ? _ui("当前模块上下文") : _ui("当前文字上下文")} className="min-w-0 flex-1 text-[11px] text-muted-foreground">
           {writingSession.snapshot.module ? <span className="block truncate" title={`${layoutModuleLabel(writingSession.snapshot.module)} · ${writingSession.snapshot.module.text ?? ""}`}>
-            已定位：{writingSession.snapshot.module.selection ? layoutModuleLabel(writingSession.snapshot.module) : writingSession.snapshot.module.kind === "text" ? writingSession.snapshot.module.text?.slice(0, 60) || "空白段落" : layoutModuleLabel(writingSession.snapshot.module)}
-            {writingSession.snapshot.module.kind === "image" && !bookMedia && !writingSession.snapshot.module.pagePreview && "（画面暂不可用）"}
-          </span> : writingSession.snapshot.layoutMemory ? <span>正在聊当前排版</span> : writingSession.snapshot.selection
+            {_ui("已定位：")}{writingSession.snapshot.module.selection ? layoutModuleLabel(writingSession.snapshot.module) : writingSession.snapshot.module.kind === "text" ? writingSession.snapshot.module.text?.slice(0, 60) || _ui("空白段落") : layoutModuleLabel(writingSession.snapshot.module)}
+            {writingSession.snapshot.module.kind === "image" && !bookMedia && !writingSession.snapshot.module.pagePreview && _ui("（画面暂不可用）")}
+          </span> : writingSession.snapshot.layoutMemory ? <span>{_ui("正在聊当前排版")}</span> : writingSession.snapshot.selection
             ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
-                已选中：{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
+                {_ui("已选中：")}{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
               </span>
-            : <span>正在聊右侧这篇文字</span>}
+            : <span>{_ui("正在聊右侧这篇文字")}</span>}
           {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
         </section>}
           {!bookVideo && (!writingSession || (activeSelection && !layoutContext)) && <span className="text-[11px] text-muted-foreground" role="status">
-            {isReplying ? "正在回复…" : activeSelection ? "正在聊你选中的内容" : "想聊什么？"}
+            {isReplying ? _ui("正在回复…") : activeSelection ? _ui("正在聊你选中的内容") : _ui("想聊什么？")}
           </span>}
         </div>
           <textarea
@@ -2210,7 +2193,7 @@ export default function StoryAgentChat({
               ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
             }}
             onKeyDown={handleKey}
-            placeholder={inputPlaceholder}
+            placeholder={_ui(inputPlaceholder)}
             disabled={
               isImportingMedia ||
               (soundDirector.active && !soundDirector.session?.question)
@@ -2239,7 +2222,7 @@ export default function StoryAgentChat({
               color: "var(--background)",
               boxShadow: "0 2px 12px -4px var(--nayin-glow)",
             }}
-            aria-label="发送"
+            aria-label={_ui("发送")}
           >
             {isImportingMedia ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2251,14 +2234,14 @@ export default function StoryAgentChat({
         {activeSelection?.sourceType === "storyboard-image" ? (
           <div className="mt-1 flex items-center justify-end gap-2">
             <select
-              aria-label="改图模型"
+              aria-label={_ui("改图模型")}
               value={revisionProvider}
               onChange={event => setRevisionProvider(event.target.value as "midjourney" | "gpt-image")}
               disabled={isReplying}
               className="h-7 min-w-0 rounded-md border border-[var(--panel-border)] bg-background px-1 text-[11px]"
             >
-              <option value="gpt-image">GPT Image · 改图</option>
-              <option value="midjourney">MJ · 重绘</option>
+              <option value="gpt-image">{_ui("GPT Image · 改图")}</option>
+              <option value="midjourney">{_ui("MJ · 重绘")}</option>
             </select>
             <button
               type="button"
@@ -2267,7 +2250,7 @@ export default function StoryAgentChat({
               disabled={isReplying || voice.isBusy || isImportingMedia || pendingMedia.length > 0 || soundDirector.active}
             >
               {isReplying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
-              {isReplying ? "生成中…" : "重新生成图"}
+              {isReplying ? _ui("生成中…") : _ui("重新生成图")}
             </button>
           </div>
         ) : null}
@@ -2276,8 +2259,7 @@ export default function StoryAgentChat({
         <button type="button" disabled={!input.trim() || isReplying}
           className="mt-1 inline-flex h-7 shrink-0 items-center rounded-md border border-[var(--panel-border)] px-2 text-[11px] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:opacity-45"
           onClick={() => requestMemoryCard({ content: input, origin: "note", sourceStoryId: (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (remoteStoryId ?? activeStoryId) : null })}>
-          单独记一条
-        </button>
+          {_ui("单独记一条")}</button>
         <TextDraftVersions
           key={`${remoteStoryId ?? activeStoryId}:${publishing?.activePlatform ?? "xiaohongshu"}`}
           storyId={remoteStoryId ?? activeStoryId ?? null}

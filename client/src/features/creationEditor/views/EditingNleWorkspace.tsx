@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, FileUp, Loader2, Upload } from "lucide-react";
 import {
   useCallback,
@@ -416,6 +417,7 @@ function EditingStoryboardPanel({
   }) => Promise<void>;
   videoClipboardLabel: string | null;
 }) {
+  const _ui = useDesktopUiText();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
   return (
@@ -465,9 +467,9 @@ function EditingStoryboardPanel({
                 onClick={() => xmlInputRef.current?.click()}
                 disabled={Boolean(attachProgress)}
                 className="flex h-7 w-7 items-center justify-center rounded-sm bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60"
-                aria-label={attachProgress || "同步 ChatCut XML"}
+                aria-label={attachProgress || _ui("同步 ChatCut XML")}
                 title={
-                  attachProgress || "把 ChatCut 时间线与音频轨同步到当前故事"
+                  attachProgress || _ui("把 ChatCut 时间线与音频轨同步到当前故事")
                 }
               >
                 {attachProgress ? (
@@ -481,9 +483,9 @@ function EditingStoryboardPanel({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={Boolean(relinkProgress)}
                 className="flex h-7 w-7 items-center justify-center rounded-sm bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60"
-                aria-label={relinkProgress || "关联本地画面素材"}
+                aria-label={relinkProgress || _ui("关联本地画面素材")}
                 title={
-                  relinkProgress || "选择图片或视频，按 XML 文件名自动关联镜头"
+                  relinkProgress || _ui("选择图片或视频，按 XML 文件名自动关联镜头")
                 }
               >
                 {relinkProgress ? (
@@ -956,6 +958,7 @@ export default function EditingNleWorkspace({
   musicRequest?: import("@/features/publishingDraft/StudioCreateMenu").StudioCreateRequest | null;
   onMusicRequestHandled?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const creationEditor = useCreationEditor();
   const {
     generateScript,
@@ -2601,8 +2604,7 @@ export default function EditingNleWorkspace({
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        正在加载剪辑工作台…
-      </div>
+        {_ui("正在加载剪辑工作台…")}</div>
     );
   }
 
@@ -2625,20 +2627,20 @@ export default function EditingNleWorkspace({
           </div>
           <p className="mt-4 text-base font-semibold tracking-tight text-foreground">
             {isGeneratingScript
-              ? "正在生成 Storyboard 表格…"
-              : "先从左边，讲一句你的故事"}
+              ? _ui("正在生成 Storyboard 表格…")
+              : _ui("先从左边，讲一句你的故事")}
           </p>
           <p className="mx-auto mt-1.5 max-w-[26rem] text-xs leading-relaxed text-muted-foreground">
             {!confirmedIntent
-              ? "选择这次想做成什么，或直接说出脑海里的第一句话。这里随后会长出镜头和时间线。"
+              ? _ui("选择这次想做成什么，或直接说出脑海里的第一句话。这里随后会长出镜头和时间线。")
               : !hasConversationSource
-                ? "意图已经确认。请先在左侧说出要讲的内容，再直接生成表格。"
-                : "直接使用对话原文生成镜头表，不再要求先生成 Story Card。"}
+                ? _ui("意图已经确认。请先在左侧说出要讲的内容，再直接生成表格。")
+                : _ui("直接使用对话原文生成镜头表，不再要求先生成 Story Card。")}
           </p>
           {!confirmedIntent ? (
             <ol
               className="mt-6 grid grid-cols-3 gap-2 text-left"
-              aria-label="新故事步骤"
+              aria-label={_ui("新故事步骤")}
             >
               {[
                 ["01", "选一个方向"],
@@ -2678,8 +2680,7 @@ export default function EditingNleWorkspace({
           ) : (
             <Clapperboard className="h-3.5 w-3.5" />
           )}
-          直接生成 Storyboard 表格
-        </button>
+          {_ui("直接生成 Storyboard 表格")}</button>
       </section>
     );
   }

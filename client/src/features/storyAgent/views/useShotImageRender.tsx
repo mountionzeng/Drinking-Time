@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { toast } from "sonner";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
@@ -30,6 +31,7 @@ export function useShotImageRender(
   storyId: number | null | undefined,
   imageConfirmationScope: string
 ) {
+  const _ui = useDesktopUiText();
   const [imageCostConfirmation, setImageCostConfirmation] = useState<
     string | null
   >(null);
@@ -116,7 +118,7 @@ export function useShotImageRender(
     const quote = isGptRevision ? estimateStoryboardMaskedEditCost() : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
     const estimatedCny = quote.estimatedCny;
     const confirmed = (!isRevision && input.skipCostConfirmation) || await confirmImageCost(
-      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny)}，最终以服务商实际扣费为准。`
+      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };
@@ -187,7 +189,7 @@ export function useShotImageRender(
         >
           <DialogContent className="z-[160] max-w-lg">
             <DialogHeader>
-              <DialogTitle>确认图片渲染费用</DialogTitle>
+              <DialogTitle>{_ui("确认图片渲染费用")}</DialogTitle>
               <DialogDescription className="max-h-[55vh] overflow-y-auto whitespace-pre-wrap leading-6">
                 {imageCostConfirmation}
               </DialogDescription>
@@ -198,14 +200,14 @@ export function useShotImageRender(
                 className="rounded-md border px-4 py-2 text-sm"
                 onClick={() => settleImageCostConfirmation(false)}
               >
-                取消
+                {_ui("取消")}
               </button>
               <button
                 type="button"
                 className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
                 onClick={() => settleImageCostConfirmation(true)}
               >
-                确认费用并渲染
+                {_ui("确认费用并渲染")}
               </button>
             </DialogFooter>
           </DialogContent>
@@ -218,7 +220,7 @@ export function useShotImageRender(
         >
           <DialogContent className="z-[160] max-w-lg">
             <DialogHeader>
-              <DialogTitle>图片渲染未完成</DialogTitle>
+              <DialogTitle>{_ui("图片渲染未完成")}</DialogTitle>
               <DialogDescription className="whitespace-pre-wrap">
                 {imageRenderError}
               </DialogDescription>
@@ -229,7 +231,7 @@ export function useShotImageRender(
                 className="rounded-md border px-4 py-2 text-sm"
                 onClick={() => setImageRenderError(null)}
               >
-                知道了
+                {_ui("知道了")}
               </button>
             </DialogFooter>
           </DialogContent>

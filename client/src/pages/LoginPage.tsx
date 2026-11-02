@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from "react";
 import AuthEntryPanel from "@/features/auth/views/AuthEntryPanel";
 import { readMobileReturnPath } from "@/features/auth/mobileReturnPath";
@@ -9,6 +10,7 @@ import WuxingParticles from "@/features/nayin/views/WuxingParticles";
 import { WuxingPourContent } from "@/features/nayin/views/WuxingPourReveal";
 
 export default function LoginPage() {
+  const _ui = useDesktopUiText();
   const [aboutOpen, setAboutOpen] = useState(false);
   const { today, visualTheme } = useNayin();
   const returnPath =
@@ -22,7 +24,7 @@ export default function LoginPage() {
         <BeverageAmbience />
         <WuxingParticles />
         <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center gap-7 px-4 py-6 sm:px-6 sm:py-8 lg:gap-10 lg:px-8">
-          <header className="flex w-full justify-center" aria-label="今日标识">
+          <header className="flex w-full justify-center" aria-label={_ui("今日标识")}>
             <DailyDrinkHero
               today={today}
               compact
@@ -41,11 +43,9 @@ export default function LoginPage() {
           >
             <div className="space-y-2.5 text-left">
               <p className="text-sm leading-relaxed text-foreground">
-                在拾光，和聊聊说起一段经历。
-              </p>
+                {_ui("在拾光，和聊聊说起一段经历。")}</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。
-              </p>
+                {_ui("那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。")}</p>
             </div>
           </WuxingPourContent>
           <div className="flex w-full max-w-5xl items-center gap-4">
@@ -74,20 +74,19 @@ export default function LoginPage() {
       <main className="shiguang-login-shell relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         <header
           className="shiguang-login-hero flex w-full justify-center"
-          aria-label="拾光家忆"
+          aria-label={_ui("拾光家忆")}
         >
           <div className="shiguang-login-brand text-center">
-            <h1 className="shiguang-login-title">拾光</h1>
+            <h1 className="shiguang-login-title">{_ui("拾光")}</h1>
           </div>
         </header>
 
         <section
           className="shiguang-login-card relative mt-8 w-full max-w-md px-5 pb-7 pt-5 sm:mt-10 sm:px-8 sm:pb-9 sm:pt-6"
-          aria-label="登录拾光"
+          aria-label={_ui("登录拾光")}
         >
           <p className="mb-3 text-center text-[10px] tracking-[0.28em] text-muted-foreground">
-            把故事带回这一页
-          </p>
+            {_ui("把故事带回这一页")}</p>
           <AuthEntryPanel returnPath={returnPath} variant="email" />
         </section>
       </main>

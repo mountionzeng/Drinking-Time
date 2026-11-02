@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { WarehouseBookMedia } from "./WarehouseBookMedia";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { WarehouseImageActions } from "./WarehouseImageActions";
@@ -139,6 +140,7 @@ function DirectorAdviceSection({
   storyId: number | null;
   unassignedCount: number;
 }) {
+  const _ui = useDesktopUiText();
   const { shots } = useCreationEditor();
   const utils = trpc.useUtils();
   const adviseMut = trpc.creationAgent.adviseStoryImages.useMutation();
@@ -223,11 +225,11 @@ function DirectorAdviceSection({
     <div className="mx-4 mb-3 rounded-md border border-border bg-background">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
-          <div className="text-sm font-semibold">导演顾问</div>
+          <div className="text-sm font-semibold">{_ui("导演顾问")}</div>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {unassignedCount > 0
-              ? `${unassignedCount} 张图片还没安排——让聊聊以导演视角判断它们怎么为故事服务`
-              : "建议已生成，逐条裁决"}
+              ? _ui("{0} 张图片还没安排——让聊聊以导演视角判断它们怎么为故事服务", [unassignedCount])
+              : _ui("建议已生成，逐条裁决")}
           </div>
         </div>
         <button
@@ -241,7 +243,7 @@ function DirectorAdviceSection({
           ) : (
             <Clapperboard className="h-3.5 w-3.5" />
           )}
-          {advising ? "导演看片中…" : "问导演怎么用"}
+          {advising ? _ui("导演看片中…") : _ui("问导演怎么用")}
         </button>
       </div>
       {advices.length > 0 ? (
@@ -253,7 +255,7 @@ function DirectorAdviceSection({
             >
               <img
                 src={advice.imageUrl}
-                alt="待安排素材"
+                alt={_ui("待安排素材")}
                 className="h-16 w-16 shrink-0 rounded object-cover"
                 loading="lazy"
               />
@@ -263,13 +265,13 @@ function DirectorAdviceSection({
                     {adviceVerdictLabel(advice.verdict)}
                   </span>
                   {advice.targetShotNo != null ? (
-                    <span>建议给 {adviceShotLabel(advice)}</span>
+                    <span>{_ui("建议给")}{" "}{adviceShotLabel(advice)}</span>
                   ) : null}
                   {advice.videoDirection ? (
                     <span className="text-[10px] text-muted-foreground">
-                      {advice.videoDirection.cameraMove || "运镜待定"} ·{" "}
+                      {advice.videoDirection.cameraMove || _ui("运镜待定")} ·{" "}
                       {advice.videoDirection.durationSec}s ·{" "}
-                      {advice.videoDirection.emotionalTone || "情绪待定"}
+                      {advice.videoDirection.emotionalTone || _ui("情绪待定")}
                     </span>
                   ) : null}
                 </div>
@@ -278,7 +280,7 @@ function DirectorAdviceSection({
                 </p>
                 {advice.videoDirection ? (
                   <p className="mt-1 truncate text-[10px] text-muted-foreground">
-                    视频提示：{advice.videoDirection.videoPrompt}
+                    {_ui("视频提示：")}{advice.videoDirection.videoPrompt}
                   </p>
                 ) : null}
                 {advice.note ? (
@@ -295,7 +297,7 @@ function DirectorAdviceSection({
                     disabled={busyImageId != null}
                     className="h-7 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {busyImageId === advice.imageId ? "采纳中…" : "采纳"}
+                    {busyImageId === advice.imageId ? _ui("采纳中…") : _ui("采纳")}
                   </button>
                 ) : null}
                 <button
@@ -308,8 +310,7 @@ function DirectorAdviceSection({
                   disabled={busyImageId != null}
                   className="h-7 rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground transition hover:text-foreground"
                 >
-                  忽略
-                </button>
+                  {_ui("忽略")}</button>
               </div>
             </div>
           ))}
@@ -505,6 +506,7 @@ export default function MaterialWarehousePanel({
   insertIntoLayout?: boolean;
   onClose?: () => void;
 } = {}) {
+  const _ui = useDesktopUiText();
   const { setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
@@ -900,7 +902,7 @@ export default function MaterialWarehousePanel({
   const importQueue = pendingImports.length > 0 ? (
               <div className="mt-3 border-t border-border/70 pt-3">
                 <div className="mb-2 text-xs text-muted-foreground">
-                  {videoActions ? "可选择归属镜头并填写素材说明。" : "图片可直接入库；说明选填。视频需选择归属镜头。"}
+                  {videoActions ? _ui("可选择归属镜头并填写素材说明。") : _ui("图片可直接入库；说明选填。视频需选择归属镜头。")}
                 </div>
                 <div className="grid gap-2">
                   {pendingImports.map(item => (
@@ -941,7 +943,7 @@ export default function MaterialWarehousePanel({
                             className="h-7 rounded border border-border bg-background px-1.5 text-xs"
                           >
                             {item.isVideo ? null : (
-                              <option value="">暂不绑定镜头</option>
+                              <option value="">{_ui("暂不绑定镜头")}</option>
                             )}
                             {shots.map(shot => {
                               const identity =
@@ -967,7 +969,7 @@ export default function MaterialWarehousePanel({
                             })
                           }
                           rows={2}
-                          placeholder="素材说明（选填）"
+                          placeholder={_ui("素材说明（选填）")}
                           className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs leading-relaxed placeholder:text-muted-foreground/60"
                         />
                       </div>
@@ -976,7 +978,7 @@ export default function MaterialWarehousePanel({
                         onClick={() => removePendingImport(item.id)}
                         disabled={importing}
                         className="rounded p-1 text-muted-foreground transition hover:text-destructive"
-                        aria-label={`移除 ${item.file.name}`}
+                        aria-label={_ui("移除 {0}", [item.file.name])}
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -995,8 +997,7 @@ export default function MaterialWarehousePanel({
                     disabled={importing}
                     className="h-8 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
                   >
-                    清空
-                  </button>
+                    {_ui("清空")}</button>
                   <button
                     type="button"
                     onClick={() => void confirmImports()}
@@ -1008,8 +1009,7 @@ export default function MaterialWarehousePanel({
                     ) : (
                       <Upload className="h-3.5 w-3.5" />
                     )}
-                    导入 {pendingImports.length} 个素材
-                  </button>
+                    {_ui("导入")}{" "}{pendingImports.length} {_ui("个素材")}</button>
                 </div>
               </div>
             ) : null;
@@ -1021,9 +1021,9 @@ export default function MaterialWarehousePanel({
       <FloatingWarehouse expanded={warehouseExpanded} compact={drawerTab === "images" && pendingImports.length === 0}>
         <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <button type="button" data-warehouse-handle aria-label="拖动仓库" title={drawerTab === "images" ? "拖动位置" : "拖动位置，右下角调整大小"} className="flex touch-none cursor-grab items-center gap-2 py-1 active:cursor-grabbing">
+            <button type="button" data-warehouse-handle aria-label={_ui("拖动仓库")} title={drawerTab === "images" ? _ui("拖动位置") : _ui("拖动位置，右下角调整大小")} className="flex touch-none cursor-grab items-center gap-2 py-1 active:cursor-grabbing">
               <Archive className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">仓库</span>
+              <span className="text-sm font-semibold">{_ui("仓库")}</span>
             </button>
             <div className="flex h-7 items-center gap-1 border-l border-border pl-2">
               <button
@@ -1032,7 +1032,7 @@ export default function MaterialWarehousePanel({
                 aria-pressed={drawerTab === "images"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                <ImageIcon className="h-3.5 w-3.5" /> 图片 {imageItems.length}
+                <ImageIcon className="h-3.5 w-3.5" /> {_ui("图片")}{" "}{imageItems.length}
               </button>
               <button
                 type="button"
@@ -1040,7 +1040,7 @@ export default function MaterialWarehousePanel({
                 aria-pressed={drawerTab === "videos"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                <Video className="h-3.5 w-3.5" /> 视频 {videoItems.length}
+                <Video className="h-3.5 w-3.5" /> {_ui("视频")}{" "}{videoItems.length}
               </button>
               <button
                 type="button"
@@ -1051,17 +1051,16 @@ export default function MaterialWarehousePanel({
                 aria-pressed={drawerTab === "assets"}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "assets" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                <Layers3 className="h-3.5 w-3.5" /> 资产 {visualAssetCount}
+                <Layers3 className="h-3.5 w-3.5" /> {_ui("资产")}{" "}{visualAssetCount}
               </button>
-              {([['music','音乐'],['text','文字']] as const).map(([kind,label])=><button key={kind} type="button" aria-pressed={drawerTab===kind} className={`h-7 rounded-md px-2 text-xs ${drawerTab===kind?'bg-primary/10 text-primary':'text-muted-foreground'}`} onClick={()=>{setDrawerTab(kind);setPreviewImage(null);}}>{label}</button>)}
+              {([['music','音乐'],['text','文字']] as const).map(([kind,label])=><button key={kind} type="button" aria-pressed={drawerTab===kind} className={`h-7 rounded-md px-2 text-xs ${drawerTab===kind?'bg-primary/10 text-primary':'text-muted-foreground'}`} onClick={()=>{setDrawerTab(kind);setPreviewImage(null);}}>{_ui(label)}</button>)}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {drawerTab === "assets" ? (
               <label className="flex items-center gap-2 text-xs">
-                目标镜头
-                <select
-                  aria-label="资产关联目标镜头"
+                {_ui("目标镜头")}<select
+                  aria-label={_ui("资产关联目标镜头")}
                   value={currentShot?.shotNo ?? ""}
                   onChange={event =>
                     setSelectedShotNo(Number(event.currentTarget.value))
@@ -1069,8 +1068,7 @@ export default function MaterialWarehousePanel({
                   className="h-8 max-w-[140px] rounded-md border border-border bg-background px-2"
                 >
                   <option value="" disabled>
-                    选择镜头
-                  </option>
+                    {_ui("选择镜头")}</option>
                   {shots.map(shot => (
                     <option key={shot.shotNo} value={shot.shotNo}>
                       {shotLabel(shot)} · {(shot.dialogue || shot.action || "空镜头").slice(0, 32)}
@@ -1082,8 +1080,8 @@ export default function MaterialWarehousePanel({
             <button
               type="button"
               onClick={() => setWarehouseExpanded(value => !value)}
-              aria-label={warehouseExpanded ? "恢复仓库大小" : "放大仓库"}
-              title={warehouseExpanded ? "恢复大小" : "放大"}
+              aria-label={warehouseExpanded ? _ui("恢复仓库大小") : _ui("放大仓库")}
+              title={warehouseExpanded ? _ui("恢复大小") : _ui("放大")}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 px-3 text-xs text-primary"
             >
               {warehouseExpanded ? (
@@ -1104,8 +1102,7 @@ export default function MaterialWarehousePanel({
               ) : (
                 <Upload className="h-3.5 w-3.5" />
               )}
-              导入
-            </button>
+              {_ui("导入")}{" "}</button>
             <input
               ref={inputRef}
               type="file"
@@ -1121,8 +1118,8 @@ export default function MaterialWarehousePanel({
               type="button"
               onClick={onClose}
               className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              aria-label="收起素材仓库"
-              title="收起素材仓库"
+              aria-label={_ui("收起素材仓库")}
+              title={_ui("收起素材仓库")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -1154,10 +1151,10 @@ export default function MaterialWarehousePanel({
           ) : drawerItems.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               {isLoading
-                ? "正在读取素材"
+                ? _ui("正在读取素材")
                 : drawerTab === "images"
-                  ? "暂无图片素材"
-                  : "暂无视频素材"}
+                  ? _ui("暂无图片素材")
+                  : _ui("暂无视频素材")}
             </div>
           ) : (
             <div className={drawerTab === "images" ? "flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,84px),1fr))] gap-1.5"}>
@@ -1177,12 +1174,12 @@ export default function MaterialWarehousePanel({
                           onPointerLeave={closePreviewSoon}
                           onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
                           onClick={() => setPreviewImage(item)}
-                          aria-label={`预览图片 ${item.image.id}`}
+                          aria-label={_ui("预览图片 {0}", [item.image.id])}
                           className="aspect-square w-full bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                         >
                           <img
                             src={item.image.imageUrl}
-                            alt={item.image.prompt?.slice(0,120) || `图片 ${item.image.id}`}
+                            alt={item.image.prompt?.slice(0,120) || _ui("图片 {0}", [item.image.id])}
                             draggable
                             onDragStart={event =>
                               writeStoryImageDragPayload(event.dataTransfer, {
@@ -1197,9 +1194,9 @@ export default function MaterialWarehousePanel({
                         </button></PopoverTrigger>
                         <div className="absolute bottom-0 right-0 flex items-center bg-background/90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                           <span className="sr-only">
-                            {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : `图片 ${item.image.id}`)}
+                            {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : _ui("图片 {0}", [item.image.id]))}
                           </span>
-                          <button type="button" aria-label={`使用图片 ${item.image.id}`} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">使用</button>
+                          <button type="button" aria-label={_ui("使用图片 {0}", [item.image.id])} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">{_ui("使用")}</button>
                           {videoActions && <button
                             type="button"
                             onClick={() => void bindImage(item.image)}
@@ -1213,7 +1210,7 @@ export default function MaterialWarehousePanel({
                             ) : (
                               <Link2 className="h-3 w-3" />
                             )}
-                            {belongsToCurrent ? "设为首帧" : "绑定到当前镜头"}
+                            {belongsToCurrent ? _ui("设为首帧") : _ui("绑定到当前镜头")}
                           </button>}
                         </div>
                       </article>
@@ -1222,21 +1219,21 @@ export default function MaterialWarehousePanel({
                         onOpenAutoFocus={event => event.preventDefault()}
                         onCloseAutoFocus={event => event.preventDefault()}
                         onInteractOutside={event => {if(previewLocked.current) event.preventDefault();}}
-                        className="w-[300px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto p-2 space-y-2" aria-label="仓库图片预览">
-              <img src={item.image.imageUrl} alt={item.image.prompt || '所选图片'}
+                        className="w-[300px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto p-2 space-y-2" aria-label={_ui("仓库图片预览")}>
+              <img src={item.image.imageUrl} alt={item.image.prompt || _ui("所选图片")}
                 className="mx-auto block w-full max-h-[min(42vh,300px)] rounded object-contain" draggable
                 onDragStart={event => writeStoryImageDragPayload(event.dataTransfer,{imageId:item.image.id,imageUrl:item.image.imageUrl,label:warehouseImageRefLabel(item)})}/>
               <div className="grid grid-cols-2 items-center gap-1.5">
                 <details className="col-span-2 min-w-0 text-xs text-muted-foreground">
-                  <summary className="cursor-pointer py-2">图片说明</summary>
-                  <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{item.image.prompt || '这张图片没有附带文字说明。'}</p>
+                  <summary className="cursor-pointer py-2">{_ui("图片说明")}</summary>
+                  <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{item.image.prompt || _ui("这张图片没有附带文字说明。")}</p>
                 </details>
                 {activeStoryId != null && <WarehouseImageActions key={item.image.id} storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
                 {(insertIntoLayout || videoActions) && <ImageRefToggleButton storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} label={warehouseImageRefLabel(item)}/>}
                 {!insertIntoLayout && <button type="button" onClick={() => selectImageMaterial(item)} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
-                  {videoActions ? '选中图片' : '加入对话'}
+                  {videoActions ? _ui("选中图片") : _ui("加入对话")}
                 </button>}
-                {videoActions && <button type="button" disabled={!currentStableShotId || busyKey===`image:${item.image.id}`} onClick={() => void bindImage(item.image)} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">设为首帧</button>}
+                {videoActions && <button type="button" disabled={!currentStableShotId || busyKey===`image:${item.image.id}`} onClick={() => void bindImage(item.image)} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">{_ui("设为首帧")}</button>}
               </div>
                       </PopoverContent>
                       </Popover>
@@ -1305,9 +1302,9 @@ export default function MaterialWarehousePanel({
                             ) : (
                               <Link2 className="h-3 w-3" />
                             )}
-                            {action.label === "已采用"
-                              ? "已绑定当前镜头"
-                              : "绑定到当前镜头"}
+                            {action.label === _ui("已采用")
+                              ? _ui("已绑定当前镜头")
+                              : _ui("绑定到当前镜头")}
                           </button>}
                         </div>
                       </article>
@@ -1324,13 +1321,13 @@ export default function MaterialWarehousePanel({
   return (
     <section
       className="creation-board-panel flex h-full min-h-0 flex-col overflow-hidden"
-      aria-label="素材仓库"
+      aria-label={_ui("素材仓库")}
       data-testid="analysis-material-warehouse-panel"
     >
       <div className="creation-board-panel-header justify-between">
         <div className="creation-board-panel-title">
           <Archive className="creation-board-panel-icon" />
-          <h2 className="creation-board-panel-title-text">素材仓库</h2>
+          <h2 className="creation-board-panel-title-text">{_ui("素材仓库")}</h2>
         </div>
         <div className="flex items-center gap-2">
           <OneClickEditAssistant
@@ -1360,26 +1357,22 @@ export default function MaterialWarehousePanel({
               <div className="text-base font-semibold text-foreground">
                 {imageItems.length}
               </div>
-              图片
-            </div>
+              {_ui("图片")}{" "}</div>
             <div>
               <div className="text-base font-semibold text-foreground">
                 {videoItems.length}
               </div>
-              视频
-            </div>
+              {_ui("视频")}{" "}</div>
             <div>
               <div className="text-base font-semibold text-foreground">
                 {unavailableTakeCount}
               </div>
-              不可用
-            </div>
+              {_ui("不可用")}</div>
             <div>
               <div className="text-base font-semibold text-foreground">
                 {visualAssetCount}
               </div>
-              资产
-            </div>
+              {_ui("资产")}{" "}</div>
           </div>
 
           <div className="space-y-2">
@@ -1419,7 +1412,7 @@ export default function MaterialWarehousePanel({
                     </span>
                   </div>
                   <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {shot.dialogue || shot.action || "空镜头"}
+                    {shot.dialogue || shot.action || _ui("空镜头")}
                   </div>
                 </button>
               );
@@ -1448,10 +1441,9 @@ export default function MaterialWarehousePanel({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-foreground">
-                  导入图片 / 视频
-                </div>
+                  {_ui("导入图片 / 视频")}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  当前目标：{shotLabel(currentShot)}
+                  {_ui("当前目标：")}{shotLabel(currentShot)}
                 </div>
               </div>
               <button
@@ -1465,8 +1457,7 @@ export default function MaterialWarehousePanel({
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                导入
-              </button>
+                {_ui("导入")}{" "}</button>
               <input
                 ref={inputRef}
                 type="file"
@@ -1509,16 +1500,13 @@ export default function MaterialWarehousePanel({
               <section className="min-w-0">
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
                   <ImageIcon className="h-4 w-4 text-primary" />
-                  图片
-                </div>
+                  {_ui("图片")}{" "}</div>
                 {isLoading && imageItems.length === 0 ? (
                   <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    正在读取素材
-                  </div>
+                    {_ui("正在读取素材")}</div>
                 ) : imageItems.length === 0 ? (
                   <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    暂无图片素材
-                  </div>
+                    {_ui("暂无图片素材")}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {imageItems.map(item => {
@@ -1551,8 +1539,8 @@ export default function MaterialWarehousePanel({
                               src={image.imageUrl}
                               alt={
                                 shotNo
-                                  ? `${shotLabel(item)} 图片`
-                                  : "未绑定图片"
+                                  ? _ui("{0} 图片", [shotLabel(item)])
+                                  : _ui("未绑定图片")
                               }
                               className="h-full w-full object-cover"
                               loading="lazy"
@@ -1560,12 +1548,11 @@ export default function MaterialWarehousePanel({
                           </div>
                           <div className="space-y-2 p-3">
                             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <span>{shotNo ? shotLabel(item) : "未绑定"}</span>
+                              <span>{shotNo ? shotLabel(item) : _ui("未绑定")}</span>
                               {isCurrent ? (
                                 <span className="inline-flex items-center gap-1 text-primary">
                                   <Check className="h-3 w-3" />
-                                  当前
-                                </span>
+                                  {_ui("当前")}</span>
                               ) : null}
                             </div>
                             <button
@@ -1585,8 +1572,8 @@ export default function MaterialWarehousePanel({
                                 <Link2 className="h-3.5 w-3.5" />
                               )}
                               {belongsToCurrent
-                                ? "设为当前首帧"
-                                : "绑定到当前镜头"}
+                                ? _ui("设为当前首帧")
+                                : _ui("绑定到当前镜头")}
                             </button>
                           </div>
                         </article>
@@ -1599,16 +1586,13 @@ export default function MaterialWarehousePanel({
               <section className="min-w-0">
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
                   <Video className="h-4 w-4 text-primary" />
-                  视频 Take
-                </div>
+                  {_ui("视频 Take")}</div>
                 {isLoading && videoItems.length === 0 ? (
                   <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    正在读取素材
-                  </div>
+                    {_ui("正在读取素材")}</div>
                 ) : videoItems.length === 0 ? (
                   <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    暂无视频素材
-                  </div>
+                    {_ui("暂无视频素材")}</div>
                 ) : (
                   <div className="space-y-3">
                     {videoItems.map(item => {
@@ -1678,11 +1662,11 @@ export default function MaterialWarehousePanel({
                               </span>
                               <span className={isCurrent ? "text-primary" : ""}>
                                 {isCurrent
-                                  ? "当前"
+                                  ? _ui("当前")
                                   : item.isUnmatched
-                                    ? `旧素材 · ${take.status}`
+                                    ? _ui("旧素材 · {0}", [take.status])
                                     : item.isReusable
-                                      ? "可复用"
+                                      ? _ui("可复用")
                                       : take.status}
                               </span>
                             </div>
@@ -1703,7 +1687,7 @@ export default function MaterialWarehousePanel({
                                 ) : (
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 )}
-                                {action.label}
+                                {_ui(action.label)}
                               </button>
                               <button
                                 type="button"
@@ -1715,8 +1699,8 @@ export default function MaterialWarehousePanel({
                                   unusableBusy || take.status === "unfollowable"
                                 }
                                 className="inline-flex h-8 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:border-destructive/50 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label={`标记 Take ${take.id} 不可用`}
-                                title="标记不可用"
+                                aria-label={_ui("标记 Take {0} 不可用", [take.id])}
+                                title={_ui("标记不可用")}
                               >
                                 {unusableBusy ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

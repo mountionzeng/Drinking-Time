@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { STORY_TIMELINE_FPS } from "@shared/storyMaterial";
 import {
@@ -382,6 +383,7 @@ export function TimelineAudioEngine(props: {
   resolveSourceUrl: (input: AudioMixPlanInput) => string | null;
   onInputError?: (input: AudioMixPlanInput, error: unknown) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const runtimeRef = useRef<ReturnType<
     typeof createTimelineAudioRuntime
@@ -440,14 +442,12 @@ export function TimelineAudioEngine(props: {
       role="status"
       className="fixed bottom-4 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-amber-400/50 bg-background px-3 py-2 text-xs shadow-lg"
     >
-      浏览器暂停了声音。
-      <button
+      {_ui("浏览器暂停了声音。")}<button
         type="button"
         className="ml-2 font-medium text-primary underline"
         onClick={() => void runtimeRef.current?.retryFromUserGesture()}
       >
-        点一下恢复
-      </button>
+        {_ui("点一下恢复")}</button>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ export function TextDraftVersions({
   input: string;
   blocked: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const { publishing, publishingBuffers } = useStoryAgent();
   const { ensureActiveStoryPersisted, setPublishing, setPublishingBuffer } =
     useStoryAgentActions();
@@ -381,7 +383,7 @@ export function TextDraftVersions({
           ) : (
             <Plus className="h-3 w-3" />
           )}
-          {busy ? "正在处理…" : hasExistingText ? "生成新版本" : "生成文章"}
+          {busy ? _ui("正在处理…") : hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
         </button>
       </div>
       {versions.at(-1)?.error && (
@@ -395,45 +397,39 @@ export function TextDraftVersions({
           className="mt-1 text-xs text-destructive"
           onClick={() => void query.refetch()}
         >
-          文字历史读取失败，点击重试
-        </button>
+          {_ui("文字历史读取失败，点击重试")}</button>
       )}
       <Dialog open={directionOpen} onOpenChange={setDirectionOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {hasExistingText ? "生成新版本" : "生成文章"}
+              {hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
             </DialogTitle>
             <DialogDescription>
               {hasExistingText
-                ? "为当前故事生成新的文字版本，旧版本会保留。"
-                : "把当前故事的内容整理成第一篇文章。"}
-              生成依据：当前书稿（如有）和本故事的聊天内容。
-            </DialogDescription>
+                ? _ui("为当前故事生成新的文字版本，旧版本会保留。")
+                : _ui("把当前故事的内容整理成第一篇文章。")}
+              {_ui("生成依据：当前书稿（如有）和本故事的聊天内容。")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <label className="grid gap-1 text-sm">内容性质
-              <select aria-label="内容性质" className="min-h-10 rounded-md border bg-background px-3" value={articleOptions.nature}
+            <label className="grid gap-1 text-sm">{_ui("内容性质")}<select aria-label={_ui("内容性质")} className="min-h-10 rounded-md border bg-background px-3" value={articleOptions.nature}
                 onChange={event => setArticleOptions(previous => ({ ...previous, nature: event.target.value as ArticleGenerationOptions["nature"] }))}>
                 {Object.entries(ARTICLE_NATURES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="grid gap-1 text-sm">文章形式
-                <select aria-label="文章形式" className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.form}
+              <label className="grid gap-1 text-sm">{_ui("文章形式")}<select aria-label={_ui("文章形式")} className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.form}
                   onChange={event => setArticleOptions(previous => ({ ...previous, form: event.target.value as ArticleGenerationOptions["form"] }))}>
                   {Object.entries(ARTICLE_FORMS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
-              <label className="grid gap-1 text-sm">篇幅
-                <select aria-label="篇幅" className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.length}
+              <label className="grid gap-1 text-sm">{_ui("篇幅")}<select aria-label={_ui("篇幅")} className="min-h-10 min-w-0 rounded-md border bg-background px-2" value={articleOptions.length}
                   onChange={event => setArticleOptions(previous => ({ ...previous, length: event.target.value as ArticleGenerationOptions["length"] }))}>
                   {Object.entries(ARTICLE_LENGTHS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
             </div>
-            <label className="grid gap-1 text-sm">补充要求（选填）
-              <textarea aria-label="文章补充要求" rows={3} maxLength={2000} className="rounded-md border bg-background p-3" placeholder="写给谁看、希望的语气、哪些内容要保留……"
+            <label className="grid gap-1 text-sm">{_ui("补充要求（选填）")}<textarea aria-label={_ui("文章补充要求")} rows={3} maxLength={2000} className="rounded-md border bg-background p-3" placeholder={_ui("写给谁看、希望的语气、哪些内容要保留……")}
                 value={articleOptions.requirements} onChange={event => setArticleOptions(previous => ({ ...previous, requirements: event.target.value }))} />
             </label>
           </div>
@@ -444,7 +440,7 @@ export function TextDraftVersions({
               onClick={() => void generateVersion()}
               disabled={busy || blocked || query.isError}
             >
-              {busy ? "正在生成…" : hasExistingText ? "生成新版本" : "生成文章"}
+              {busy ? _ui("正在生成…") : hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
             </button>
           </div>
         </DialogContent>
@@ -471,26 +467,24 @@ export function TextDraftVersions({
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>
-              文字版本 · {PUBLISHING_PLATFORM_REGISTRY[platform].label}
+              {_ui("文字版本 ·")}{" "}{PUBLISHING_PLATFORM_REGISTRY[platform].label}
             </DialogTitle>
             <DialogDescription>
-              采用后才会更新正文并用于文风学习。
-            </DialogDescription>
+              {_ui("采用后才会更新正文并用于文风学习。")}</DialogDescription>
           </DialogHeader>
           <label className="text-xs">
-            本次提供的文字来源
-            <select
+            {_ui("本次提供的文字来源")}<select
               className="ml-2 rounded border bg-background p-2"
               value={source}
               onChange={e => setSource(e.target.value as typeof source)}
             >
-              <option value="unknown">不确定／混合素材</option>
-              <option value="own">我自己写的</option>
-              <option value="reference">仅供参考的资料</option>
-              <option value="liked">我喜欢的范文</option>
+              <option value="unknown">{_ui("不确定／混合素材")}</option>
+              <option value="own">{_ui("我自己写的")}</option>
+              <option value="reference">{_ui("仅供参考的资料")}</option>
+              <option value="liked">{_ui("我喜欢的范文")}</option>
             </select>
           </label>
-          <div className="flex flex-wrap gap-2" aria-label="文字历史">
+          <div className="flex flex-wrap gap-2" aria-label={_ui("文字历史")}>
             {versions.map(version => (
               <button
                 type="button"
@@ -500,24 +494,24 @@ export function TextDraftVersions({
                 disabled={adopt.isPending}
                 onClick={() => selectVersion(version)}
               >
-                文字 {version.sequence}{version.contribution ? ` · 和${version.contribution.authorName}一起改的` : ""}
+                {_ui("文字")}{" "}{version.sequence}{version.contribution ? _ui(" · 和{0}一起改的", [version.contribution.authorName]) : ""}
                 {currentSource &&
                 "textDraftId" in currentSource &&
                 currentSource.textDraftId === version.id
-                  ? " · 当前来源"
+                  ? _ui(" · 当前来源")
                   : ""}
                 {version.adoption
-                  ? " · 已采用"
+                  ? _ui(" · 已采用")
                   : version.status === "ready"
-                    ? " · 待查看"
+                    ? _ui(" · 待查看")
                     : version.status === "generating"
-                      ? " · 生成中"
-                      : " · 未完成"}
+                      ? _ui(" · 生成中")
+                      : _ui(" · 未完成")}
               </button>
             ))}
           </div>
           {!versions.length && (
-            <p className="text-sm text-muted-foreground">暂无文字版本</p>
+            <p className="text-sm text-muted-foreground">{_ui("暂无文字版本")}</p>
           )}
           {selected?.error && (
             <p role="alert" className="text-sm text-destructive">
@@ -528,28 +522,26 @@ export function TextDraftVersions({
             <>
               <p className="text-xs text-muted-foreground">
                 {selected.memoryCards?.length
-                  ? `使用 ${selected.memoryCards.length} 张记忆卡片`
+                  ? _ui("使用 {0} 张记忆卡片", [selected.memoryCards.length])
                   : selected.request.parentId
-                    ? `基于文字 ${versions.find(v => v.id === selected.request.parentId)?.sequence ?? "历史版本"}`
-                    : "首次整理"}{" "}
-                · 新增或修改对话 {selected.conversationDelta.length} 条
-              </p>
+                    ? _ui("基于文字 {0}", [versions.find(v => v.id === selected.request.parentId)?.sequence ?? _ui("历史版本")])
+                    : _ui("首次整理")}{" "}
+                {_ui("· 新增或修改对话")}{" "}{selected.conversationDelta.length} {_ui("条")}</p>
               {selected.memoryCards?.length ? (
                 <details className="rounded-md border px-3 py-2 text-xs">
                   <summary className="cursor-pointer font-medium">
-                    本次使用的记忆
-                  </summary>
+                    {_ui("本次使用的记忆")}</summary>
                   <ol className="mt-2 space-y-3">
                     {selected.memoryCards.map((card, index) => (
                       <li key={card.id}>
                         <p className="font-medium">
                           {index + 1}. {card.title} ·{" "}
                           {card.kind === "conversation"
-                            ? "聊天记忆"
+                            ? _ui("聊天记忆")
                             : card.kind === "thought"
-                              ? "一个思绪"
-                              : "一件事"}
-                          {card.origin === "assistant" ? " · 助手整理" : ""}
+                              ? _ui("一个思绪")
+                              : _ui("一件事")}
+                          {card.origin === "assistant" ? _ui(" · 助手整理") : ""}
                         </p>
                         <p className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">
                           {card.content}
@@ -564,8 +556,7 @@ export function TextDraftVersions({
                 style={{ borderColor: "var(--panel-border)" }}
               >
                 <summary className="cursor-pointer font-medium">
-                  本次改动
-                </summary>
+                  {_ui("本次改动")}</summary>
                 {selected.conversationDelta.length ? (
                   <div className="mt-2 space-y-2 text-muted-foreground">
                     {selected.conversationDelta.map(message => (
@@ -575,8 +566,8 @@ export function TextDraftVersions({
                       >
                         <span className="font-medium text-foreground">
                           {message.role === "assistant"
-                            ? "助手整理："
-                            : "你的补充："}
+                            ? _ui("助手整理：")
+                            : _ui("你的补充：")}
                         </span>
                         {message.content}
                       </p>
@@ -584,13 +575,11 @@ export function TextDraftVersions({
                   </div>
                 ) : (
                   <p className="mt-2 text-muted-foreground">
-                    这版没有新增聊天内容，沿用上一版材料重新整理。
-                  </p>
+                    {_ui("这版没有新增聊天内容，沿用上一版材料重新整理。")}</p>
                 )}
               </details>
               <label className="text-xs">
-                标题
-                <input
+                {_ui("标题")}<input
                   className="mt-1 w-full rounded border bg-background p-2"
                   value={edited.title}
                   readOnly={busy || Boolean(selected.adoption)}
@@ -600,8 +589,7 @@ export function TextDraftVersions({
                 />
               </label>
               <label className="text-xs">
-                正文
-                <textarea
+                {_ui("正文")}<textarea
                   className="mt-1 min-h-64 w-full rounded border bg-background p-3 text-sm leading-7"
                   value={edited.body}
                   readOnly={busy || Boolean(selected.adoption)}
@@ -609,22 +597,21 @@ export function TextDraftVersions({
                 />
               </label>
               <label className="text-xs">
-                这次哪些写法更合你意？（可选）
-                <input
+                {_ui("这次哪些写法更合你意？（可选）")}<input
                   className="mt-1 w-full rounded border bg-background p-2"
                   value={feedback}
                   maxLength={2000}
                   readOnly={busy || Boolean(selected.adoption)}
-                  placeholder="例如：保留短句，比喻少一点；只针对这篇"
+                  placeholder={_ui("例如：保留短句，比喻少一点；只针对这篇")}
                   onChange={e => setFeedback(e.target.value)}
                 />
               </label>
               <details className="text-xs text-muted-foreground">
-                <summary>本次表达参考</summary>
+                <summary>{_ui("本次表达参考")}</summary>
                 <p className="mt-2">
-                  原有表达：{selected.observation?.originalExpression}
+                  {_ui("原有表达：")}{selected.observation?.originalExpression}
                 </p>
-                <p>采用反馈：{selected.observation?.adoptionLearning}</p>
+                <p>{_ui("采用反馈：")}{selected.observation?.adoptionLearning}</p>
                 {selected.observation?.choices.map(choice => (
                   <p key={choice.id}>{choice.reason}</p>
                 ))}
@@ -636,8 +623,7 @@ export function TextDraftVersions({
                   disabled={busy || !edited.body.trim()}
                   onClick={() => void adoptVersion()}
                 >
-                  采用这一版
-                </button>
+                  {_ui("采用这一版")}</button>
               )}
             </>
           )}
@@ -653,8 +639,8 @@ export function TextDraftVersions({
               >
                 {(selected.adoption?.learningEnabled ??
                 selected.originalLearningEnabled !== false)
-                  ? "不再用于文风参考"
-                  : "恢复用于文风参考"}
+                  ? _ui("不再用于文风参考")
+                  : _ui("恢复用于文风参考")}
               </button>
             )}
         </DialogContent>

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { Check, Loader2, Maximize2, ScanLine } from "lucide-react";
@@ -52,6 +53,7 @@ export default function ShotFrameCandidatePicker({
   disabled = false,
   onPromote,
 }: Props) {
+  const _ui = useDesktopUiText();
   const candidateUrl = candidate?.imageUrl ?? shot.promptRun?.imageUrl;
   const candidateImageId = candidate?.imageId ?? shot.promptRun?.imageId;
   const candidateLabel = candidate?.label ?? "最新生成";
@@ -98,7 +100,7 @@ export default function ShotFrameCandidatePicker({
   const candidateGrid = (large: boolean) => (
     <div
       className={`grid grid-cols-2 ${large ? "gap-4" : "gap-2"}`}
-      aria-label={`${candidateLabel}的四张候选图`}
+      aria-label={_ui("{0}的四张候选图", [candidateLabel])}
     >
       {FRAME_QUADRANTS.map(item => {
         const busy = busyQuadrant === item.value;
@@ -110,13 +112,13 @@ export default function ShotFrameCandidatePicker({
             data-frame-candidate={item.value}
             disabled={disabled || busyQuadrant != null}
             onClick={() => void selectCandidate(item.value)}
-            aria-label={`选择${item.label}作为当前主图`}
+            aria-label={_ui("选择{0}作为当前主图", [item.label])}
             className="group relative min-w-0 overflow-hidden rounded-md border border-border bg-muted text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-65"
           >
             <div className="relative aspect-video overflow-hidden bg-black/5">
               <img
                 src={candidateUrl}
-                alt={`${candidateLabel} ${item.label}候选图`}
+                alt={_ui("{0} {1}候选图", [candidateLabel, item.label])}
                 className="absolute object-fill transition-opacity group-hover:opacity-95"
                 style={quadrantImageStyle(item.value)}
                 loading="eager"
@@ -130,7 +132,7 @@ export default function ShotFrameCandidatePicker({
                 ) : selected ? (
                   <Check className="h-3.5 w-3.5" />
                 ) : null}
-                {busy ? "正在设为主图" : selected ? "已选" : "设为主图"}
+                {busy ? _ui("正在设为主图") : selected ? _ui("已选") : _ui("设为主图")}
               </span>
             </span>
           </button>
@@ -145,10 +147,9 @@ export default function ShotFrameCandidatePicker({
         <div className="flex items-center gap-2">
           <ScanLine className="h-4 w-4 text-primary" />
           <div>
-            <p className="text-xs font-semibold">从四张候选中选择当前主图</p>
+            <p className="text-xs font-semibold">{_ui("从四张候选中选择当前主图")}</p>
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {candidateLabel} · 选择后才进入视频阶段
-            </p>
+              {candidateLabel} {_ui("· 选择后才进入视频阶段")}</p>
           </div>
         </div>
         <button
@@ -157,15 +158,13 @@ export default function ShotFrameCandidatePicker({
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Maximize2 className="h-3.5 w-3.5" />
-          放大比较
-        </button>
+          {_ui("放大比较")}</button>
       </div>
 
       {candidateGrid(false)}
 
       <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-        点击其中一张会保存为独立图片，并成为这个镜头唯一的当前主图；四宫格原图只保留在版本历史里。
-      </p>
+        {_ui("点击其中一张会保存为独立图片，并成为这个镜头唯一的当前主图；四宫格原图只保留在版本历史里。")}</p>
       {error ? (
         <p className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
           {error}
@@ -176,11 +175,9 @@ export default function ShotFrameCandidatePicker({
         <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-5 sm:max-w-[min(1180px,calc(100vw-2rem))]">
           <DialogHeader className="pr-8">
             <DialogTitle className="text-base">
-              选择 {displayShotCode(shot)} 当前主图
-            </DialogTitle>
+              {_ui("选择")}{" "}{displayShotCode(shot)} {_ui("当前主图")}</DialogTitle>
             <DialogDescription>
-              四张候选已分别放大。点击画面即可设为当前主图。
-            </DialogDescription>
+              {_ui("四张候选已分别放大。点击画面即可设为当前主图。")}</DialogDescription>
           </DialogHeader>
           {candidateGrid(true)}
           {error ? (

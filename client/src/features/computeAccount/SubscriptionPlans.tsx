@@ -1,3 +1,4 @@
+import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useId, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
@@ -13,6 +14,7 @@ export function SubscriptionPlans({
 }: {
   availability: Availability;
 }) {
+  const t = useUiText();
   const group = useId();
   const [selected, setSelected] = useState<string | null>(null);
   const order = trpc.computePayment.createOrder.useMutation({ retry: false });
@@ -34,11 +36,11 @@ export function SubscriptionPlans({
   return (
     <section
       className="space-y-4"
-      aria-label={recurring ? "包月自动续费" : "购买本月套餐"}
+      aria-label={recurring ? t("包月自动续费") : t("购买本月套餐")}
     >
       <fieldset className="space-y-3">
         <legend className="text-sm font-medium">
-          {recurring ? "包月自动续费" : "购买本月套餐"}
+          {recurring ? t("包月自动续费") : t("购买本月套餐")}
         </legend>
         {availability.plans.map(plan => (
           <label
@@ -54,22 +56,22 @@ export function SubscriptionPlans({
               className="size-4 accent-primary"
             />
             <span className="flex flex-1 flex-wrap items-baseline justify-between gap-2">
-              <span className="font-medium">{plan.computeUnits} 算力 / 月</span>
+              <span className="font-medium">{plan.computeUnits} {t("算力 / 月")}</span>
               <span>
                 <strong className="text-lg tabular-nums">
                   ¥{(plan.amountFen / 100).toFixed(2)}
                 </strong>
-                <span className="text-muted-foreground"> / 月</span>
+                <span className="text-muted-foreground"> {t("/ 月")}</span>
               </span>
             </span>
           </label>
         ))}
       </fieldset>
       <p className="text-sm text-muted-foreground">
-        未用完的算力自动结转。
+        {t("未用完的算力自动结转。")}
         {recurring
-          ? "首次付款和每次续费都将在支付宝确认后到账。"
-          : "支付宝付款确认后，本月套餐立即到账。自动续费正在申请支付宝周期扣款权限。"}
+          ? t("首次付款和每次续费都将在支付宝确认后到账。")
+          : t("支付宝付款确认后，本月套餐立即到账。自动续费正在申请支付宝周期扣款权限。")}
       </p>
       <Button
         className="w-full"
@@ -78,15 +80,15 @@ export function SubscriptionPlans({
         aria-describedby="alipay-checkout-status"
       >
         {order.isPending
-          ? "正在前往支付宝…"
+          ? t("正在前往支付宝…")
           : recurring
-            ? "开通支付宝自动续费"
-            : "前往支付宝付款"}
+            ? t("开通支付宝自动续费")
+            : t("前往支付宝付款")}
       </Button>
       <p id="alipay-checkout-status" className="text-xs text-muted-foreground">
         {order.isError
-          ? "暂时无法创建订单，请稍后重试。"
-          : availability.message}
+          ? t("暂时无法创建订单，请稍后重试。")
+          : t(availability.message)}
       </p>
     </section>
   );

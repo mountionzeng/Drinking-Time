@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ChevronLeft,
   ChevronRight,
@@ -130,6 +131,7 @@ export default function Timeline({
   onResetTimeline,
   onDurationChange,
 }: TimelineProps) {
+  const _ui = useDesktopUiText();
   const total = shots.reduce(
     (sum, shot) => sum + durationFor(shot, durationsByShotNo),
     0
@@ -155,15 +157,14 @@ export default function Timeline({
   if (shots.length === 0) {
     return (
       <div className="flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-md border border-border/70 bg-background px-4 text-center text-sm text-muted-foreground">
-        <span>时间轴为空，从故事版看板把镜头加入这里。</span>
+        <span>{_ui("时间轴为空，从故事版看板把镜头加入这里。")}</span>
         <button
           type="button"
           onClick={onResetTimeline}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          加回全部镜头
-        </button>
+          {_ui("加回全部镜头")}</button>
       </div>
     );
   }
@@ -171,13 +172,13 @@ export default function Timeline({
   return (
     <div
       className="rounded-md border border-border/70 bg-background p-2"
-      aria-label="剪辑时间轴"
+      aria-label={_ui("剪辑时间轴")}
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-foreground">时间轴</div>
+          <div className="text-xs font-semibold text-foreground">{_ui("时间轴")}</div>
           <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-            {shots.length} 镜 · {(total / 1000).toFixed(1)}s
+            {shots.length} {_ui("镜 ·")}{" "}{(total / 1000).toFixed(1)}s
           </div>
         </div>
         <button
@@ -190,7 +191,7 @@ export default function Timeline({
           ) : (
             <Play className="h-3.5 w-3.5" />
           )}
-          {isPlayingTimeline ? "暂停全部" : "播放全部"}
+          {isPlayingTimeline ? _ui("暂停全部") : _ui("播放全部")}
         </button>
       </div>
 
@@ -215,7 +216,7 @@ export default function Timeline({
               data-timeline-shot-no={shot.shotNo}
               tabIndex={0}
               role="group"
-              aria-label={`${shotLabel(shot)}，第 ${index + 1} 位，按左右方向键移动，Delete 移除`}
+              aria-label={_ui("{0}，第 {1} 位，按左右方向键移动，Delete 移除", [shotLabel(shot), index + 1])}
               onFocus={() => onSelectShot(shot.shotNo)}
               onKeyDown={event => {
                 // 选中镜头块后直接按键盘：←/→ 挪位置，Delete/Backspace 移除。
@@ -256,8 +257,8 @@ export default function Timeline({
                     type="button"
                     onClick={() => onPlayShot(shot.shotNo)}
                     className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/80 text-foreground transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                    aria-label={`播放${shotLabel(shot)}`}
-                    title={`播放${shotLabel(shot)}`}
+                    aria-label={_ui("播放{0}", [shotLabel(shot)])}
+                    title={_ui("播放{0}", [shotLabel(shot)])}
                   >
                     {isPlayingShot ? (
                       <Pause className="h-3.5 w-3.5" />
@@ -269,8 +270,8 @@ export default function Timeline({
                     type="button"
                     onClick={() => onRemoveShot(shotId)}
                     className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
-                    aria-label={`从时间轴移除${shotLabel(shot)}`}
-                    title={`移除${shotLabel(shot)}`}
+                    aria-label={_ui("从时间轴移除{0}", [shotLabel(shot)])}
+                    title={_ui("移除{0}", [shotLabel(shot)])}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -284,8 +285,8 @@ export default function Timeline({
                     onClick={() => onMoveShot(shotId, -1)}
                     disabled={isFirst}
                     className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background/80 text-foreground transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35"
-                    aria-label={`${shotLabel(shot)} 前移一位`}
-                    title="前移一位（选中后按 ←）"
+                    aria-label={_ui("{0} 前移一位", [shotLabel(shot)])}
+                    title={_ui("前移一位（选中后按 ←）")}
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </button>
@@ -294,8 +295,8 @@ export default function Timeline({
                     onClick={() => onMoveShot(shotId, 1)}
                     disabled={isLast}
                     className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background/80 text-foreground transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35"
-                    aria-label={`${shotLabel(shot)} 后移一位`}
-                    title="后移一位（选中后按 →）"
+                    aria-label={_ui("{0} 后移一位", [shotLabel(shot)])}
+                    title={_ui("后移一位（选中后按 →）")}
                   >
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
@@ -327,7 +328,7 @@ export default function Timeline({
                     )
                   }
                   className="block w-full accent-[var(--primary)]"
-                  aria-label={`${shotLabel(shot)} 时长`}
+                  aria-label={_ui("{0} 时长", [shotLabel(shot)])}
                 />
               </label>
               <RangeMarker shot={shot} />

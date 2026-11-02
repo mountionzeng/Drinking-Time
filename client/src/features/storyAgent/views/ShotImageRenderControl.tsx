@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
@@ -179,6 +180,7 @@ export function ShotImageRenderControl({
   onRender: (settings: ShotImageRenderSettings) => Promise<void>;
   onSettingsChange?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const storageKey = `shot-image-render:${storyId}:${stableShotId}`;
   const [saved, setSaved] = useState<ShotImageRenderSettings | undefined>(
     () => {
@@ -233,7 +235,7 @@ export function ShotImageRenderControl({
     >
       <div
         className="flex flex-wrap items-center gap-1"
-        aria-label={`${label} 本次参考素材`}
+        aria-label={_ui("{0} 本次参考素材", [label])}
       >
         {chosen.map((option, index) =>
           option ? (
@@ -242,8 +244,8 @@ export function ShotImageRenderControl({
                 type="button"
                 disabled={busy}
                 onClick={() => setPickerOpen(true)}
-                title={`更换${option.label}`}
-                aria-label={`更换${option.label}`}
+                title={_ui("更换{0}", [option.label])}
+                aria-label={_ui("更换{0}", [option.label])}
                 className="block rounded-full border border-border p-0.5"
               >
                 <img
@@ -255,7 +257,7 @@ export function ShotImageRenderControl({
               <button
                 type="button"
                 disabled={busy}
-                aria-label={`移除参考 ${option.label}`}
+                aria-label={_ui("移除参考 {0}", [option.label])}
                 onClick={() => toggle(option)}
                 className="absolute -right-1 -top-1 rounded-full border bg-background p-0.5 text-muted-foreground hover:text-foreground"
               >
@@ -264,27 +266,26 @@ export function ShotImageRenderControl({
             </div>
           ) : (
             <span key={keys[index]} className="text-[10px] text-destructive">
-              参考已失效
-            </span>
+              {_ui("参考已失效")}</span>
           )
         )}
         <button
           type="button"
           disabled={busy || !material}
-          aria-label={`${label} 编辑参考素材`}
+          aria-label={_ui("{0} 编辑参考素材", [label])}
           onClick={() => setPickerOpen(true)}
           className="flex h-7 items-center gap-1 whitespace-nowrap rounded-full border border-dashed px-1.5 text-[10px] text-muted-foreground"
         >
           <Plus className="h-3 w-3" />
           <span className="hidden @[80px]:inline">
-            {keys.length ? "参考" : "添加参考"}
+            {keys.length ? _ui("参考") : _ui("添加参考")}
           </span>
         </button>
       </div>
       <button
         type="button"
         disabled={disabled || busy || !material || missing}
-        aria-label={`${label} 生成4张图`}
+        aria-label={_ui("{0} 生成4张图", [label])}
         onClick={() => {
           setError(null);
           save(references);
@@ -295,11 +296,11 @@ export function ShotImageRenderControl({
         className="flex min-h-7 max-w-full items-center justify-center gap-1 rounded-xl border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-medium leading-tight text-primary disabled:opacity-40 @[80px]:whitespace-nowrap @[80px]:rounded-full"
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : null}
-        <span>{busy ? "生成中" : "生成4张图"}</span>
+        <span>{busy ? _ui("生成中") : _ui("生成4张图")}</span>
       </button>
       <span className="text-[10px] text-muted-foreground">
-        {`MJ · 约 ${formatComputeQuote(quoteShotImages(count).estimatedCny)}`}
-        {keys.length === 0 ? " · 不参考素材" : ""}
+        {_ui("MJ · 约 {0}", [formatComputeQuote(quoteShotImages(count).estimatedCny).replace(/算力$/, _ui("算力"))])}
+        {keys.length === 0 ? _ui(" · 不参考素材") : ""}
       </span>
       {error ? (
         <p role="alert" className="max-w-56 text-[10px] text-destructive">
@@ -309,10 +310,9 @@ export function ShotImageRenderControl({
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{label} · 参考素材</DialogTitle>
+            <DialogTitle>{label} {_ui("· 参考素材")}</DialogTitle>
             <DialogDescription>
-              只使用这里选中的素材，最多 4 个。取消选择不会删除仓库资产。
-            </DialogDescription>
+              {_ui("只使用这里选中的素材，最多 4 个。取消选择不会删除仓库资产。")}</DialogDescription>
           </DialogHeader>
           <button
             type="button"
@@ -322,8 +322,7 @@ export function ShotImageRenderControl({
               setError(null);
             }}
           >
-            清空参考
-          </button>
+            {_ui("清空参考")}</button>
           <div className="grid max-h-72 grid-cols-4 gap-2 overflow-y-auto">
             {options.map(option => (
               <button

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useMemo, useState } from "react";
 import {
   formatTimelineTimecode,
@@ -57,6 +58,7 @@ export function StoryboardTimelineZoomBar({
   simplified?: boolean;
   onSimplifiedChange?: (next: boolean) => void;
 }) {
+  const _ui = useDesktopUiText();
   const step = (delta: number) =>
     onScaleChange(
       Math.min(100, Math.max(0, scale + delta))
@@ -70,7 +72,7 @@ export function StoryboardTimelineZoomBar({
         type="button"
         onClick={() => step(-4)}
         className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
-        aria-label="缩小分镜表"
+        aria-label={_ui("缩小分镜表")}
       >
         −
       </button>
@@ -82,14 +84,14 @@ export function StoryboardTimelineZoomBar({
         value={scale}
         onChange={event => onScaleChange(Number(event.currentTarget.value))}
         className="w-24 accent-[var(--primary)]"
-        aria-label="分镜表缩放"
-        aria-valuetext={scale === 0 ? "整片适应窗口" : scale === 100 ? "一帧完整信息" : `${scale}%`}
+        aria-label={_ui("分镜表缩放")}
+        aria-valuetext={scale === 0 ? _ui("整片适应窗口") : scale === 100 ? _ui("一帧完整信息") : `${scale}%`}
       />
       <button
         type="button"
         onClick={() => step(4)}
         className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
-        aria-label="放大分镜表"
+        aria-label={_ui("放大分镜表")}
       >
         +
       </button>
@@ -97,8 +99,7 @@ export function StoryboardTimelineZoomBar({
         <button type="button" aria-pressed={simplified}
           onClick={() => onSimplifiedChange(!simplified)}
           className="shrink-0 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground">
-          简化显示
-        </button>
+          {_ui("简化显示")}</button>
       )}
     </div>
   );
@@ -115,6 +116,7 @@ export function StoryboardTimelineRulerRow({
   viewport: TimelineViewport;
   columnSpan: number;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <>
       <div
@@ -125,11 +127,10 @@ export function StoryboardTimelineRulerRow({
           background: "var(--panel-header)",
         }}
       >
-        时间
-      </div>
+        {_ui("时间")}</div>
       <div
         role="cell"
-        aria-label="时间标尺"
+        aria-label={_ui("时间标尺")}
         className="relative h-5 overflow-hidden border-b"
         style={{
           gridColumn: `span ${Math.max(1, columnSpan)}`,

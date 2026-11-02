@@ -72,10 +72,17 @@ export function createAlipayPagePayUrl(input: {
     method: "alipay.trade.page.pay",
     charset: "utf-8",
     sign_type: "RSA2",
-    timestamp: new Date()
-      .toISOString()
-      .replace("T", " ")
-      .replace(/\.\d{3}Z$/, ""),
+    // Alipay expects Beijing time, regardless of the server's local timezone.
+    timestamp: new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(new Date()),
     version: "1.0",
     notify_url: input.config.notifyUrl,
     return_url: input.returnUrl,

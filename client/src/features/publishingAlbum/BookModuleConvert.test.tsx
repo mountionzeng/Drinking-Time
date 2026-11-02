@@ -58,6 +58,28 @@ it('inserts a completed audiobook with its classification and refreshes the audi
  expect(m.music).toHaveBeenCalledWith(expect.objectContaining({subtitleCueId:'book-one',quoteToken:'quote'}));
 });
 
+it.each(['submission-unknown', 'pending'])('warns and prevents another submission in the dialog when narration is %s',async status=>{
+ m.states=[false,'','', '',[],false,{quoteToken:'quote',estimatedCny:.12,subtitleCueId:'book-one'}];
+ m.music.mockResolvedValue({status,message:'302 语音生成失败（HTTP 500）'});
+ const props={source:{id:'x',text:'照原文朗读',kind:'narration' as const},storyId:1,chapterId:2,prepare:async()=>{},onInsert:vi.fn(),onClose:vi.fn()};
+ nodes(BookModuleConvert(props)).filter(n=>n.type==='button')[1].props.onClick();await settle();
+ m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
+ expect(tree.find(n=>n.props?.role==='alert').props.children.join('')).toContain('结果尚未确认');
+ expect(tree.find(n=>n.type==='button'&&String(n.props.children).includes('确认按原文朗读')).props.disabled).toBe(true);
+ expect(m.music).toHaveBeenCalledTimes(1);expect(props.onInsert).not.toHaveBeenCalled();
+});
+
+it('treats a lost narration response as an unconfirmed submission',async()=>{
+ m.states=[false,'','', '',[],false,{quoteToken:'quote',estimatedCny:.12,subtitleCueId:'book-one'}];
+ m.music.mockRejectedValue(new Error('connection lost'));
+ const props={source:{id:'x',text:'照原文朗读',kind:'narration' as const},storyId:1,chapterId:2,prepare:async()=>{},onInsert:vi.fn(),onClose:vi.fn()};
+ nodes(BookModuleConvert(props)).filter(n=>n.type==='button')[1].props.onClick();await settle();
+ m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
+ expect(tree.find(n=>n.props?.role==='alert').props.children.join('')).toContain('结果尚未确认');
+ expect(tree.find(n=>n.type==='button'&&String(n.props.children).includes('确认按原文朗读')).props.disabled).toBe(true);
+ expect(m.music).toHaveBeenCalledTimes(1);expect(props.onInsert).not.toHaveBeenCalled();
+});
+
 it('shows rate limiting and restores the button only for a definite HTTP 429 rejection',async()=>{
  const props={source:{id:'x',text:'雨天',kind:'image' as const},storyId:1,chapterId:2,prepare:async()=>{},onInsert:vi.fn(),onClose:vi.fn()};
  m.image.mockResolvedValue({status:'error',error:'302 Midjourney submit HTTP 429'});
@@ -130,4 +152,9 @@ it('locks the alternative model when the original submission outcome is unknown'
  nodes(BookModuleConvert(props)).find(n=>n.type==='button').props.onClick();await settle();
  m.index=m.ref=0;expect(nodes(BookModuleConvert(props)).find(n=>n.type==='select').props.disabled).toBe(true);
  expect(m.image).toHaveBeenCalledOnce();
+});
+
+vi.mock("@/features/uiLanguage/UiLanguage", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+ return {...actual, useUiText: () => (source: string, values?: readonly (string | number | null | undefined)[]) => actual.translateUi("zh", source, values)};
 });

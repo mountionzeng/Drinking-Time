@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { SharePermissions } from "@/features/sharing/SharePermissions";
 import { VIEW_ONLY, type SharedWork } from "@shared/sharePermissions";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
@@ -33,6 +34,7 @@ export function ArtworkShareDialog({
   title: string;
   pages: Array<ImagePackResult & { url: string }>;
 }) {
+  const _ui = useDesktopUiText();
   const t = useUiText();
 
   const [open, setOpen] = useState(false);
@@ -138,7 +140,7 @@ export function ArtworkShareDialog({
           {!link && work && <>
             <SharePermissions value={permissions} disabled={busy} onChange={value => { setPermissions(value); setToken(crypto.randomUUID()); }} />
             {(permissions.rewrite || permissions.fork) && loadLayout && <p className="text-xs leading-6 text-muted-foreground">{t("对方会收到可编辑的整套排版和其中的图片，可以接着改，也可以把改好的排版分享回给你。")}</p>}
-            {(permissions.rewrite || permissions.fork) && <details className="text-sm"><summary className="cursor-pointer">同时分享的作品文字</summary><p className="mt-2 whitespace-pre-wrap leading-7">{work.body}</p></details>}
+            {(permissions.rewrite || permissions.fork) && <details className="text-sm"><summary className="cursor-pointer">{_ui("同时分享的作品文字")}</summary><p className="mt-2 whitespace-pre-wrap leading-7">{work.body}</p></details>}
           </>}
           {window.location.hostname === "localhost" ||
           window.location.hostname === "127.0.0.1" ? (

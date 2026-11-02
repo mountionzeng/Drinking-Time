@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 字幕轨：主画面之下、声音之上的唯一一条可编辑字幕行。
  *
@@ -90,6 +91,7 @@ export function subtitleSaveStatus(saved: boolean | void): string {
 }
 
 export function SubtitleRowHeader({ actions }: { actions?: React.ReactNode }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       role="rowheader"
@@ -101,12 +103,11 @@ export function SubtitleRowHeader({ actions }: { actions?: React.ReactNode }) {
       data-testid="storyboard-subtitle-row-header"
     >
       <div className="flex items-center justify-between gap-1">
-        <span>字幕</span>
+        <span>{_ui("字幕")}</span>
         {actions}
       </div>
       <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
-        点块改字
-      </span>
+        {_ui("点块改字")}</span>
     </div>
   );
 }
@@ -180,6 +181,7 @@ export function SubtitleTrackRow({
   playheadMs: number;
   disabled?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
   const playheadFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
   const [editingCueId, setEditingCueId] = useState<string | null>(null);
@@ -422,7 +424,7 @@ export function SubtitleTrackRow({
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
-      aria-label="字幕轨"
+      aria-label={_ui("字幕轨")}
       data-testid="storyboard-subtitle-track"
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -431,7 +433,7 @@ export function SubtitleTrackRow({
       {cues.length === 0 ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground/80">
           <div className="flex items-center justify-center gap-2">
-            <span>还没有字幕</span>
+            <span>{_ui("还没有字幕")}</span>
             <button
               type="button"
               disabled={
@@ -441,12 +443,10 @@ export function SubtitleTrackRow({
               data-testid="storyboard-subtitle-generate"
               className="rounded-sm border border-primary/40 px-2 py-0.5 text-[9px] font-medium text-primary transition enabled:hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              从当前文字生成字幕
-            </button>
+              {_ui("从当前文字生成字幕")}</button>
             {binding.candidates.length === 0 ? (
               <span className="text-[8px] text-muted-foreground/60">
-                （镜头里还没有可用的对白文字）
-              </span>
+                {_ui("（镜头里还没有可用的对白文字）")}</span>
             ) : null}
           </div>
           {binding.error ? (
@@ -473,7 +473,7 @@ export function SubtitleTrackRow({
             key={cue.id}
             role="button"
             tabIndex={cue.id === rovingId ? 0 : -1}
-            aria-label={`字幕 ${index + 1}：${cue.text}`}
+            aria-label={_ui("字幕 {0}：{1}", [index + 1, cue.text])}
             aria-selected={selected}
             data-timeline-media-keyboard="true"
             data-testid={`storyboard-subtitle-cue-${cue.id}`}
@@ -494,7 +494,7 @@ export function SubtitleTrackRow({
                 autoFocus
                 value={draft}
                 data-testid={`storyboard-subtitle-editor-${cue.id}`}
-                aria-label="修改字幕文字"
+                aria-label={_ui("修改字幕文字")}
                 className="absolute inset-0 z-10 h-full w-full resize-none rounded-[2px] border border-primary bg-[var(--background)] px-1 py-0.5 text-[9px] leading-tight text-foreground outline-none"
                 onChange={event => setDraft(event.target.value)}
                 onCompositionStart={() => setComposing(true)}
@@ -531,7 +531,7 @@ export function SubtitleTrackRow({
                 <span
                   role="slider"
                   tabIndex={selected ? 0 : -1}
-                  aria-label="字幕入点"
+                  aria-label={_ui("字幕入点")}
                   aria-valuenow={cue.startFrame}
                   aria-valuemin={0}
                   aria-valuemax={
@@ -551,7 +551,7 @@ export function SubtitleTrackRow({
                 <span
                   role="slider"
                   tabIndex={selected ? 0 : -1}
-                  aria-label="字幕出点"
+                  aria-label={_ui("字幕出点")}
                   aria-valuenow={subtitleCueEndFrame(cue)}
                   aria-valuemin={cue.startFrame + MIN_SUBTITLE_CUE_FRAMES}
                   aria-valuemax={Number.MAX_SAFE_INTEGER}
@@ -589,7 +589,7 @@ export function SubtitleTrackRow({
         className="sr-only"
         data-testid="storyboard-subtitle-status"
       >
-        {binding.pending ? "字幕保存中" : (status ?? "")}
+        {binding.pending ? _ui("字幕保存中") : (status ?? "")}
       </span>
 
       {/* Split 需要播放头 + caret，交互入口在 Inspector；这里只暴露当前帧供它使用。 */}

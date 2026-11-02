@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -97,6 +98,7 @@ export default function StoryboardPanel({
   }) => Promise<void>;
   videoClipboardLabel?: string | null;
 }) {
+  const _ui = useDesktopUiText();
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
@@ -198,17 +200,17 @@ export default function StoryboardPanel({
     return (
       <section
         className="creation-board-panel flex h-full min-h-[280px] flex-col"
-        aria-label="故事版看板"
+        aria-label={_ui("故事版看板")}
       >
         <div className="creation-board-panel-header justify-between">
           <div className="creation-board-panel-title">
             <Clapperboard className="creation-board-panel-icon" />
-            <span className="creation-board-panel-title-text">故事版看板</span>
+            <span className="creation-board-panel-title-text">{_ui("故事版看板")}</span>
           </div>
           <div className="flex items-center gap-2">
             {headerAction}
             {!headerAction ? (
-              <span className="creation-board-panel-status">等待生成</span>
+              <span className="creation-board-panel-status">{_ui("等待生成")}</span>
             ) : null}
           </div>
         </div>
@@ -219,9 +221,7 @@ export default function StoryboardPanel({
             <ImagePlus className="h-5 w-5 text-muted-foreground" />
           )}
           <p className="max-w-[18rem] text-[11px] leading-relaxed text-muted-foreground">
-            Story Cards
-            整理好求职优势后，点击“生成故事版”，这里会统一展示镜头、候选画面、提示词和导演解释。
-          </p>
+            {_ui("Story Cards 整理好求职优势后，点击“生成故事版”，这里会统一展示镜头、候选画面、提示词和导演解释。")}</p>
         </div>
       </section>
     );

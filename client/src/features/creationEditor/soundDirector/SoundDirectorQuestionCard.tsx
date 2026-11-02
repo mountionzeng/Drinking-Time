@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArrowLeft, BookOpenText, Loader2, LogOut, Waves } from "lucide-react";
 import type { StorySoundDirectorController } from "./useStorySoundDirector";
 
@@ -15,6 +16,7 @@ export function SoundDirectorQuestionCard({
 }: {
   director: StorySoundDirectorController;
 }) {
+  const _ui = useDesktopUiText();
   const { session } = director;
   if (!director.active || !session || !session.question) return null;
   const { question, interview } = session;
@@ -40,7 +42,7 @@ export function SoundDirectorQuestionCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-            <span>声音导演</span>
+            <span>{_ui("声音导演")}</span>
             <span>·</span>
             <span>{CATEGORY_LABEL[question.category]}</span>
             <span className="ml-auto normal-case">
@@ -71,13 +73,13 @@ export function SoundDirectorQuestionCard({
         </p>
         {question.sourceText ? (
           <blockquote className="mt-2 border-l-2 border-[var(--nayin-accent-dim)] pl-2 text-[10px] leading-relaxed text-muted-foreground">
-            依据：{question.sourceText}
+            {_ui("依据：")}{question.sourceText}
           </blockquote>
         ) : null}
         <div
           className="mt-2.5 grid gap-1.5"
           role="group"
-          aria-label="声音问题选项"
+          aria-label={_ui("声音问题选项")}
         >
           {question.options.map(option => (
             <button
@@ -93,8 +95,7 @@ export function SoundDirectorQuestionCard({
         </div>
         {question.freeTextAllowed ? (
           <p className="mt-2 text-[9.5px] text-muted-foreground">
-            也可以直接在下方聊天框说自己的答案。
-          </p>
+            {_ui("也可以直接在下方聊天框说自己的答案。")}</p>
         ) : null}
       </div>
       <footer
@@ -110,20 +111,18 @@ export function SoundDirectorQuestionCard({
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-35"
         >
           <ArrowLeft className="h-3 w-3" />
-          上一题
-        </button>
+          {_ui("上一题")}</button>
         <button
           type="button"
           onClick={director.exit}
           className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted"
         >
           <LogOut className="h-3 w-3" />
-          暂停，回到普通聊天
-        </button>
+          {_ui("暂停，回到普通聊天")}</button>
         {director.pending ? (
           <Loader2
             className="h-3 w-3 animate-spin text-muted-foreground"
-            aria-label="正在保存回答"
+            aria-label={_ui("正在保存回答")}
           />
         ) : null}
       </footer>

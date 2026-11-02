@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 阶段 E：镜头卡片上的"N 条待确认"徽章——前四步（提示词表手改 / 划词编辑 /
  * 聊天提议 / 直接改镜头表字段）产生的候选，最终都在这里让用户看见、确认
@@ -41,6 +42,7 @@ export function ShotCandidateList({
   onConfirm: (candidate: ShotPendingCandidate) => void;
   onReject: (candidate: ShotPendingCandidate) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto py-1">
       {candidates.map(candidate => {
@@ -79,8 +81,7 @@ export function ShotCandidateList({
                 ) : (
                   <XCircle className="h-3.5 w-3.5" />
                 )}
-                放弃
-              </Button>
+                {_ui("放弃")}</Button>
               <Button
                 type="button"
                 size="sm"
@@ -92,8 +93,7 @@ export function ShotCandidateList({
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
-                确认
-              </Button>
+                {_ui("确认")}</Button>
             </div>
           </div>
         );
@@ -120,6 +120,7 @@ export default function ShotCandidateBadge({
    */
   compact?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const [pendingRevisionId, setPendingRevisionId] = useState<number | null>(
     null
@@ -150,20 +151,19 @@ export default function ShotCandidateBadge({
         className={`inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[var(--nayin-accent)]/15 font-semibold text-[var(--nayin-bright)] transition hover:bg-[var(--nayin-accent)]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
           compact ? "px-1.5 text-[9px]" : "px-2 text-[10px]"
         }`}
-        aria-label={`${shotLabel} 有 ${candidates.length} 条待确认候选`}
-        title={`${candidates.length} 条待确认候选`}
+        aria-label={_ui("{0} 有 {1} 条待确认候选", [shotLabel, candidates.length])}
+        title={_ui("{0} 条待确认候选", [candidates.length])}
       >
         <Sparkles className="h-3 w-3 shrink-0" />
-        {compact ? candidates.length : `${candidates.length} 待确认`}
+        {compact ? candidates.length : _ui("{0} 待确认", [candidates.length])}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{shotLabel} · 待确认候选</DialogTitle>
+            <DialogTitle>{shotLabel} {_ui("· 待确认候选")}</DialogTitle>
             <DialogDescription>
-              这些是小酌或你之前的编辑提议的修改，确认后才会真正生效；放弃不会影响现有内容。
-            </DialogDescription>
+              {_ui("这些是小酌或你之前的编辑提议的修改，确认后才会真正生效；放弃不会影响现有内容。")}</DialogDescription>
           </DialogHeader>
           <ShotCandidateList
             candidates={candidates}

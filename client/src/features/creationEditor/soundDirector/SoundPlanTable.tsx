@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   Check,
   History,
@@ -40,6 +41,7 @@ export function SoundPlanTable({
 }: {
   director: StorySoundDirectorController;
 }) {
+  const _ui = useDesktopUiText();
   const [viewVersionId, setViewVersionId] = useState<string | null>(null);
   const [draftText, setDraftText] = useState<Record<string, string>>({});
   const session = director.session;
@@ -90,7 +92,7 @@ export function SoundPlanTable({
     <article
       className="w-full rounded-lg border bg-card text-foreground shadow-sm"
       style={{ borderColor: "var(--nayin-accent-dim)" }}
-      aria-label="声音方案"
+      aria-label={_ui("声音方案")}
       data-testid="sound-plan-table"
     >
       <header
@@ -102,13 +104,12 @@ export function SoundPlanTable({
             <Waves className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h3 className="text-[12px] font-semibold">声音方案</h3>
+            <h3 className="text-[12px] font-semibold">{_ui("声音方案")}</h3>
             <p className="text-[9.5px] text-muted-foreground">
               {readOnly
-                ? `正在查看 V${viewedVersion.versionNumber}`
-                : "当前可编辑草稿"}{" "}
-              · {selectedCount}/{rows.length} 项
-            </p>
+                ? _ui("正在查看 V{0}", [viewedVersion.versionNumber])
+                : _ui("当前可编辑草稿")}{" "}
+              · {selectedCount}/{rows.length} {_ui("项")}</p>
           </div>
           {!readOnly ? (
             <button
@@ -117,7 +118,7 @@ export function SoundPlanTable({
               disabled={director.pending || hasUnsavedContent}
               title={
                 hasUnsavedContent
-                  ? "请先离开正在编辑的内容，保存修改后再创建版本"
+                  ? _ui("请先离开正在编辑的内容，保存修改后再创建版本")
                   : undefined
               }
               className="inline-flex items-center gap-1 rounded-md bg-[var(--nayin-accent)] px-2.5 py-1.5 text-[10px] font-medium text-background disabled:opacity-45"
@@ -127,8 +128,7 @@ export function SoundPlanTable({
               ) : (
                 <Save className="h-3 w-3" />
               )}
-              保存新版本
-            </button>
+              {_ui("保存新版本")}</button>
           ) : (
             <button
               type="button"
@@ -142,19 +142,17 @@ export function SoundPlanTable({
               className="inline-flex items-center gap-1 rounded-md bg-[var(--nayin-accent)] px-2.5 py-1.5 text-[10px] font-medium text-background disabled:opacity-45"
             >
               <History className="h-3 w-3" />
-              基于此版本修改
-            </button>
+              {_ui("基于此版本修改")}</button>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1" aria-label="声音方案版本">
+        <div className="mt-2 flex flex-wrap gap-1" aria-label={_ui("声音方案版本")}>
           <button
             type="button"
             onClick={() => setViewVersionId(null)}
             aria-pressed={!viewVersionId}
             className="rounded border border-border px-2 py-1 text-[9.5px] aria-pressed:border-[var(--nayin-accent)] aria-pressed:bg-[var(--nayin-glow)]"
           >
-            当前草稿
-          </button>
+            {_ui("当前草稿")}</button>
           {director.versions.map(version => (
             <button
               key={version.id}
@@ -172,7 +170,7 @@ export function SoundPlanTable({
       <div
         role="table"
         aria-label={
-          readOnly ? `声音方案 V${viewedVersion.versionNumber}` : "当前声音方案"
+          readOnly ? _ui("声音方案 V{0}", [viewedVersion.versionNumber]) : _ui("当前声音方案")
         }
         className="space-y-2.5 bg-muted/20 p-2.5"
       >
@@ -190,7 +188,7 @@ export function SoundPlanTable({
               <div className="flex min-w-0 items-start gap-2">
                 <input
                   type="checkbox"
-                  aria-label={`选择${KIND_LABEL[row.kind]} ${row.sceneId ?? frameTime(row.startFrame)}`}
+                  aria-label={_ui("选择{0} {1}", [KIND_LABEL[row.kind], row.sceneId ?? frameTime(row.startFrame)])}
                   checked={selected}
                   disabled={readOnly || director.pending}
                   className="mt-1 shrink-0 accent-[var(--nayin-accent)]"
@@ -229,14 +227,13 @@ export function SoundPlanTable({
                   htmlFor={`sound-plan-content-${row.id}`}
                   className="mb-1 block text-[9px] font-medium text-muted-foreground"
                 >
-                  内容
-                </label>
+                  {_ui("内容")}</label>
                 <textarea
                   id={`sound-plan-content-${row.id}`}
                   value={content}
                   readOnly={readOnly}
                   rows={4}
-                  aria-label={`${KIND_LABEL[row.kind]}内容`}
+                  aria-label={_ui("{0}内容", [KIND_LABEL[row.kind]])}
                   onChange={event =>
                     setDraftText(current => ({
                       ...current,
@@ -262,8 +259,7 @@ export function SoundPlanTable({
                     className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-[9.5px] font-medium text-amber-900 disabled:opacity-45"
                   >
                     <Check className="h-3 w-3" />
-                    确认这句 AI 草稿
-                  </button>
+                    {_ui("确认这句 AI 草稿")}</button>
                 ) : null}
               </div>
 
@@ -272,13 +268,12 @@ export function SoundPlanTable({
                 className="mt-2 grid gap-1.5 rounded-md bg-muted/45 p-2 text-muted-foreground"
               >
                 <p>
-                  <span className="font-medium text-foreground/75">表演要求：</span>
-                  {row.performance.style || row.performance.emotion || "保持原意"}
+                  <span className="font-medium text-foreground/75">{_ui("表演要求：")}</span>
+                  {row.performance.style || row.performance.emotion || _ui("保持原意")}
                 </p>
                 <p>
-                  <span className="font-medium text-foreground/75">音色：</span>
-                  尚未选择
-                </p>
+                  <span className="font-medium text-foreground/75">{_ui("音色：")}</span>
+                  {_ui("尚未选择")}</p>
               </div>
             </div>
           );
@@ -287,21 +282,19 @@ export function SoundPlanTable({
 
       {rows.length === 0 ? (
         <p className="px-3 py-5 text-center text-[10px] text-muted-foreground">
-          故事证据不足，没有自动添加任何声音。仍可使用手动添加。
-        </p>
+          {_ui("故事证据不足，没有自动添加任何声音。仍可使用手动添加。")}</p>
       ) : null}
       <footer
         className="border-t px-3 py-3 text-[9.5px] leading-relaxed text-muted-foreground"
         style={{ borderColor: "var(--panel-border)" }}
       >
         <section
-          aria-label="真实声音生成步骤"
+          aria-label={_ui("真实声音生成步骤")}
           className="rounded-lg border border-[var(--nayin-accent-dim)] bg-[var(--nayin-glow)]/40 p-2.5"
         >
           <h4 className="text-[10.5px] font-semibold text-foreground">
-            真实声音的下一步
-          </h4>
-          <ol className="mt-2 grid gap-1.5" aria-label="生成声音流程">
+            {_ui("真实声音的下一步")}</h4>
+          <ol className="mt-2 grid gap-1.5" aria-label={_ui("生成声音流程")}>
             {["选择音色", "获取报价", "确认生成"].map((step, index) => (
               <li key={step} className="flex items-center gap-2">
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--nayin-accent-dim)] bg-card text-[9px] font-semibold text-nayin-bright">
@@ -314,29 +307,25 @@ export function SoundPlanTable({
           <button
             type="button"
             disabled
-            title="尚未核验豆包 TTS 权限、可用音色和价格版本"
+            title={_ui("尚未核验豆包 TTS 权限、可用音色和价格版本")}
             className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-muted/60 px-2.5 py-2 text-[10px] font-medium text-muted-foreground opacity-70"
           >
             <Lock className="h-3 w-3" />
-            选择音色并生成
-          </button>
+            {_ui("选择音色并生成")}</button>
           <p className="mt-1.5 text-[9px]">
-            尚未核验豆包 TTS 权限、可用音色和价格版本，因此暂不开放真实生成。
-          </p>
+            {_ui("尚未核验豆包 TTS 权限、可用音色和价格版本，因此暂不开放真实生成。")}</p>
         </section>
         <p className="mt-2 flex items-start gap-1.5">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
-            当前只保存方案，不会调用豆包，也不会在这里产生费用。
-          </span>
+            {_ui("当前只保存方案，不会调用豆包，也不会在这里产生费用。")}</span>
         </p>
         <button
           type="button"
           onClick={director.exit}
           className="mt-1.5 text-nayin-bright hover:underline"
         >
-          结束声音导演，回到普通聊天
-        </button>
+          {_ui("结束声音导演，回到普通聊天")}</button>
       </footer>
     </article>
   );

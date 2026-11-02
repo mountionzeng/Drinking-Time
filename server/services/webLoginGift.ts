@@ -55,7 +55,7 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 
 async function alreadyGifted(userId: number) {
   const entries = await listCreditLedgerEntries(userId, 1000);
-  return entries.some(item => item.idempotencyKey?.startsWith(GIFT_PREFIX));
+  return entries.some(item => [GIFT_PREFIX, "wechat-registration-gift:"].some(prefix => item.idempotencyKey?.startsWith(prefix)));
 }
 
 type GiftUser = Pick<User, "id" | "openId" | "loginMethod"> & { email?: string | null };
@@ -105,7 +105,7 @@ export async function claimWebLoginGift(user: GiftUser, opts: { ip?: string | nu
     userId: user.id,
     amountMinor: WEB_LOGIN_GIFT_MINOR,
     idempotencyKey: `web-login-gift:v1:${user.id}`,
-    oncePerAccountPrefix: GIFT_PREFIX,
+    oncePerAccountPrefixes: [GIFT_PREFIX, "wechat-registration-gift:"],
     reason: "网站登录赠送 5 算力（每账号一次）",
     enableAccess: true,
   });

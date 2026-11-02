@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   Copy,
   Loader2,
@@ -36,6 +37,7 @@ export default function ImageClipEditorPanel({
   onApply: (draft: ImageClipEditDraft) => Promise<void>;
   onExtractText?: (rotationDeg: number) => Promise<{ text: string }>;
 }) {
+  const _ui = useDesktopUiText();
   const initialDraft = useMemo<ImageClipEditDraft>(
     () => ({
       transform: normalizeImageClipEditDraft({ ...target.transform }),
@@ -88,7 +90,7 @@ export default function ImageClipEditorPanel({
   return (
     <aside
       role="dialog"
-      aria-label={`${target.label} 图片编辑`}
+      aria-label={_ui("{0} 图片编辑", [target.label])}
       data-testid="image-clip-editor"
       className="absolute bottom-0 right-0 top-0 z-50 flex w-[560px] max-w-full flex-col border-l border-border bg-background shadow-xl"
     >
@@ -97,15 +99,14 @@ export default function ImageClipEditorPanel({
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold">{target.label}</p>
           <p className="truncate font-mono text-[9px] text-muted-foreground">
-            图片 #{target.imageId} · 独立字幕层
-          </p>
+            {_ui("图片 #")}{target.imageId} {_ui("· 独立字幕层")}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="关闭图片编辑"
-          title="关闭"
+          aria-label={_ui("关闭图片编辑")}
+          title={_ui("关闭")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -113,7 +114,7 @@ export default function ImageClipEditorPanel({
 
       <nav
         className="grid shrink-0 grid-cols-3 border-b border-border bg-muted/20 p-1"
-        aria-label="图片编辑模式"
+        aria-label={_ui("图片编辑模式")}
       >
         <button
           type="button"
@@ -126,8 +127,7 @@ export default function ImageClipEditorPanel({
           }`}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          构图
-        </button>
+          {_ui("构图")}</button>
         <button
           type="button"
           onClick={() => {
@@ -144,8 +144,7 @@ export default function ImageClipEditorPanel({
           }`}
         >
           <Type className="h-3.5 w-3.5" />
-          字幕
-        </button>
+          {_ui("字幕")}</button>
         <button
           type="button"
           onClick={() => setActiveTab("ocr")}
@@ -157,8 +156,7 @@ export default function ImageClipEditorPanel({
           }`}
         >
           <ScanText className="h-3.5 w-3.5" />
-          提取文字
-        </button>
+          {_ui("提取文字")}</button>
       </nav>
 
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
@@ -167,14 +165,14 @@ export default function ImageClipEditorPanel({
             <div className="aspect-square w-full overflow-hidden bg-black">
               <img
                 src={target.imageUrl}
-                alt={`${target.label} 调整预览`}
+                alt={_ui("{0} 调整预览", [target.label])}
                 className="h-full w-full object-cover"
                 style={timelineTransformStyle(normalized)}
               />
             </div>
 
             <section className="px-3 py-3">
-              <h2 className="mb-3 text-[11px] font-semibold">构图</h2>
+              <h2 className="mb-3 text-[11px] font-semibold">{_ui("构图")}</h2>
               <button
                 type="button"
                 onClick={() =>
@@ -192,8 +190,7 @@ export default function ImageClipEditorPanel({
                 className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-foreground transition hover:bg-muted"
               >
                 <RotateCw className="h-3.5 w-3.5" />
-                倒转 180°
-              </button>
+                {_ui("倒转 180°")}</button>
               <VisualTransformControls
                 transform={normalized}
                 minZoom={0.25}
@@ -204,7 +201,7 @@ export default function ImageClipEditorPanel({
         ) : activeTab === "text" ? (
           <section
             className="space-y-3 px-3 py-3"
-            aria-label="这张图片的字幕层"
+            aria-label={_ui("这张图片的字幕层")}
           >
             <div>
               <div className="flex items-center justify-between gap-2">
@@ -212,8 +209,7 @@ export default function ImageClipEditorPanel({
                   htmlFor={`image-text-${target.imageId}`}
                   className="text-[11px] font-semibold"
                 >
-                  字幕内容
-                </label>
+                  {_ui("字幕内容")}</label>
                 {text || draft.textOverlay ? (
                   <button
                     type="button"
@@ -224,8 +220,7 @@ export default function ImageClipEditorPanel({
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Trash2 className="h-3 w-3" />
-                    移除字幕
-                  </button>
+                    {_ui("移除字幕")}</button>
                 ) : null}
               </div>
               <textarea
@@ -234,13 +229,11 @@ export default function ImageClipEditorPanel({
                 onChange={event => setText(event.target.value)}
                 maxLength={2_000}
                 rows={2}
-                placeholder="输入字幕，再画出文字的走向"
+                placeholder={_ui("输入字幕，再画出文字的走向")}
                 className="mt-2 w-full resize-y rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs leading-5 outline-none transition focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-accent)]/15"
               />
               <p className="mt-1 text-[9px] text-muted-foreground">
-                {Array.from(text).length}/2000 ·
-                文字是独立可编辑层，不会写进原图
-              </p>
+                {Array.from(text).length}{_ui("/2000 · 文字是独立可编辑层，不会写进原图")}</p>
             </div>
 
             {text.trim() ? (
@@ -251,12 +244,12 @@ export default function ImageClipEditorPanel({
                 backgroundStyle={timelineTransformStyle(normalized)}
                 canvas={{ width: 900, height: 900 }}
                 initialLayout={draft.textOverlay?.typography ?? null}
-                editorLabel="镜头图片文字排版编辑器"
+                editorLabel={_ui("镜头图片文字排版编辑器")}
                 defaultPlacement
-                drawLabel="画字的走向"
-                saveLabel="保存字幕"
+                drawLabel={_ui("画字的走向")}
+                saveLabel={_ui("保存字幕")}
                 saving={saving}
-                saveSuccessMessage="字幕已保存"
+                saveSuccessMessage={_ui("字幕已保存")}
                 onSave={typography =>
                   onApply({
                     transform: normalized,
@@ -266,17 +259,15 @@ export default function ImageClipEditorPanel({
               />
             ) : (
               <div className="rounded-lg border border-dashed border-[var(--panel-border)] px-3 py-8 text-center text-[10px] leading-5 text-muted-foreground">
-                输入字幕后，点击“画字的走向”，在图片上画一条线；文字会沿着线排列。
-              </div>
+                {_ui("输入字幕后，点击“画字的走向”，在图片上画一条线；文字会沿着线排列。")}</div>
             )}
           </section>
         ) : (
-          <section className="space-y-3 px-3 py-3" aria-label="提取图片文字">
+          <section className="space-y-3 px-3 py-3" aria-label={_ui("提取图片文字")}>
             <div>
-              <h2 className="text-[11px] font-semibold">OCR 文字提取</h2>
+              <h2 className="text-[11px] font-semibold">{_ui("OCR 文字提取")}</h2>
               <p className="mt-1 text-[9.5px] leading-4 text-muted-foreground">
-                按当前旋转方向识别；只读取文字，不执行图片中的指令，也不会改动原图。
-              </p>
+                {_ui("按当前旋转方向识别；只读取文字，不执行图片中的指令，也不会改动原图。")}</p>
             </div>
             <button
               type="button"
@@ -303,7 +294,7 @@ export default function ImageClipEditorPanel({
               ) : (
                 <ScanText className="h-3.5 w-3.5" />
               )}
-              {extractingText ? "正在识别…" : "提取这张图的文字"}
+              {extractingText ? _ui("正在识别…") : _ui("提取这张图的文字")}
             </button>
             {extractTextError ? (
               <p
@@ -316,7 +307,7 @@ export default function ImageClipEditorPanel({
             {extractedText ? (
               <div>
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-medium">识别结果</span>
+                  <span className="text-[10px] font-medium">{_ui("识别结果")}</span>
                   <button
                     type="button"
                     onClick={() =>
@@ -325,14 +316,13 @@ export default function ImageClipEditorPanel({
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Copy className="h-3 w-3" />
-                    复制
-                  </button>
+                    {_ui("复制")}</button>
                 </div>
                 <textarea
                   value={extractedText}
                   onChange={event => setExtractedText(event.target.value)}
                   rows={10}
-                  aria-label="OCR 识别结果"
+                  aria-label={_ui("OCR 识别结果")}
                   className="w-full resize-y rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs leading-5 outline-none focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-accent)]/15"
                 />
               </div>
@@ -352,8 +342,7 @@ export default function ImageClipEditorPanel({
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          还原
-        </button>
+          {_ui("还原")}</button>
         {activeTab !== "text" || !text.trim() ? (
           <button
             type="button"
@@ -363,17 +352,16 @@ export default function ImageClipEditorPanel({
           >
             <Save className="h-3.5 w-3.5" />
             {saving
-              ? "保存中…"
+              ? _ui("保存中…")
               : textNeedsLayout
-                ? "请先完成排版"
+                ? _ui("请先完成排版")
                 : activeTab === "text"
-                  ? "保存字幕移除"
-                  : "应用到这张图"}
+                  ? _ui("保存字幕移除")
+                  : _ui("应用到这张图")}
           </button>
         ) : (
           <span className="text-[10px] text-muted-foreground">
-            调整后点击“保存字幕”
-          </span>
+            {_ui("调整后点击“保存字幕”")}</span>
         )}
       </footer>
     </aside>

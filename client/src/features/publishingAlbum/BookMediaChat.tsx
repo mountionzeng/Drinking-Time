@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { BookMediaModes } from "./BookMediaModes";
 import { trpc } from "@/lib/trpc";
@@ -16,6 +17,7 @@ export function BookMediaChat({
   session: BookMediaSession;
   handle: MutableRefObject<BookMediaChatHandle | null>;
 }) {
+  const _ui = useDesktopUiText();
   const [mode, setMode] = useState<"image" | "region" | "video">("image");
   const [maskVisible, setMaskVisible] = useState(true);
   const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -185,16 +187,15 @@ export function BookMediaChat({
   return (
     <section
       className="my-1 min-h-24 max-h-[50vh] overflow-y-auto space-y-2 rounded-lg border p-2"
-      aria-label="书内图片编辑"
+      aria-label={_ui("书内图片编辑")}
     >
       <div className="flex items-center justify-between text-xs">
-        <span>正在编辑这张图片</span>
+        <span>{_ui("正在编辑这张图片")}</span>
         <button
           className={button}
           onClick={() => useBookMediaSession.getState().setSession(null)}
         >
-          退出改图
-        </button>
+          {_ui("退出改图")}</button>
       </div>
       <BookMediaModes mode={mode} disabled={busy || Boolean(takeId) || uncertain} onChange={value => {
         setMode(value); setResult(null); setQuote(null); setError(''); token.current = crypto.randomUUID();
@@ -266,13 +267,13 @@ export function BookMediaChat({
         <img
           ref={image}
           src={session.imageUrl}
-          alt="当前书内图片"
+          alt={_ui("当前书内图片")}
           draggable={false}
           className="block max-h-40 max-w-full object-contain"
         />
         {mode === "region" && !mask && strokes.length > 0 && (
           <svg
-            aria-label="主体涂画笔迹"
+            aria-label={_ui("主体涂画笔迹")}
             viewBox="0 0 1000 1000"
             preserveAspectRatio="none"
             className="pointer-events-none absolute inset-0 h-full w-full"
@@ -297,7 +298,7 @@ export function BookMediaChat({
         {mode === "region" && mask?.preview && (
           <img
             src={mask.preview}
-            alt="青色高亮：将修改的主体"
+            alt={_ui("青色高亮：将修改的主体")}
             onLoad={() => setPreviewLoaded(true)}
             onError={() => { setPreviewLoaded(false); setError('选区预览未能显示，请重新识别；当前不会提交生成。'); }}
             className={`pointer-events-none absolute inset-0 h-full w-full ${maskVisible ? '' : 'invisible'}`}
@@ -307,8 +308,7 @@ export function BookMediaChat({
       </div>
       {mode === "region" && (
         <div className="text-xs">
-          在想改的主体上画几笔，不必描边。
-          <button
+          {_ui("在想改的主体上画几笔，不必描边。")}<button
             className={button}
             disabled={busy || uncertain || !ready || points.length === 0}
             onClick={() =>
@@ -333,7 +333,7 @@ export function BookMediaChat({
               })
             }
           >
-            {segment.isPending ? "正在识别…" : mask ? "重新识别主体" : "识别主体"}
+            {segment.isPending ? _ui("正在识别…") : mask ? _ui("重新识别主体") : _ui("识别主体")}
           </button>
           <button
             className={button}
@@ -345,14 +345,13 @@ export function BookMediaChat({
               setError("");
             }}
           >
-            重画
-          </button>
+            {_ui("重画")}</button>
           {mask && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="inline-block h-3 w-3 rounded-sm border border-cyan-700 bg-cyan-400" aria-hidden="true" />
-              <span>{previewLoaded ? '青色区域会修改，其他部分保留。' : '正在加载选区预览…'}</span>
+              <span>{previewLoaded ? _ui("青色区域会修改，其他部分保留。") : _ui("正在加载选区预览…")}</span>
               <button className={button} aria-pressed={maskVisible} disabled={!previewLoaded}
-                onClick={() => setMaskVisible(value => !value)}>{maskVisible ? '看原图' : '显示选区'}</button>
+                onClick={() => setMaskVisible(value => !value)}>{maskVisible ? _ui("看原图") : _ui("显示选区")}</button>
             </div>
           )}
         </div>
@@ -361,15 +360,14 @@ export function BookMediaChat({
         <p className="text-xs text-muted-foreground">
           {source.error
             ? source.error.message
-            : "正在读取已保存的图片；若图片未入素材库，暂不能生成。"}
+            : _ui("正在读取已保存的图片；若图片未入素材库，暂不能生成。")}
         </p>
       )}
       {!instruction && !busy && !takeId && (
         <p className="text-xs text-muted-foreground">
-          在下方对话框说说想怎么改；生成前会确认费用。
-        </p>
+          {_ui("在下方对话框说说想怎么改；生成前会确认费用。")}</p>
       )}
-      {busy && !instruction && <p className="text-xs" role="status">正在处理这张图片，原图会保留，请勿重复提交。</p>}
+      {busy && !instruction && <p className="text-xs" role="status">{_ui("正在处理这张图片，原图会保留，请勿重复提交。")}</p>}
       {instruction && (
         <div className="space-y-1 text-xs">
           <p>{instruction}</p>
@@ -449,23 +447,22 @@ export function BookMediaChat({
             }
           >
             {busy
-              ? "处理中…"
-              : uncertain && recoverable ? "查询生成结果"
+              ? _ui("处理中…")
+              : uncertain && recoverable ? _ui("查询生成结果")
               : mode === "region" && quote?.status !== "ok"
-                ? "核对局部修改费用"
-                : `确认生成 · ${formatComputeQuote(mode === "region" && quote?.status === "ok" ? quote.quote.estimatedCny : (cost ?? 0))}`}
+                ? _ui("核对局部修改费用")
+                : _ui("确认生成 · {0}", [formatComputeQuote(mode === "region" && quote?.status === "ok" ? quote.quote.estimatedCny : (cost ?? 0)).replace(/算力$/, _ui("算力"))])}
           </button>
         </div>
       )}
       {takeId && (
         <p role="status" className="text-xs">
-          视频正在生成，完成后可放回原位置。
-        </p>
+          {_ui("视频正在生成，完成后可放回原位置。")}</p>
       )}
       {error && (
         <p role="alert" className="text-xs text-red-600">
           {/HTTP 401|拒绝了请求参数/.test(error)
-            ? '这次改图未成功：图片服务拒绝了请求。原图和选区已保留，请勿重复点击生成。'
+            ? _ui("这次改图未成功：图片服务拒绝了请求。原图和选区已保留，请勿重复点击生成。")
             : error}
         </p>
       )}
@@ -481,7 +478,7 @@ export function BookMediaChat({
           ) : (
             <img
               src={result.imageUrl}
-              alt="生成的新图片"
+              alt={_ui("生成的新图片")}
               className="max-h-44 max-w-full"
             />
           )}
@@ -505,8 +502,7 @@ export function BookMediaChat({
               })
             }
           >
-            用这一版 · 放回原位置
-          </button>
+            {_ui("用这一版 · 放回原位置")}</button>
         </div>
       )}
     </section>

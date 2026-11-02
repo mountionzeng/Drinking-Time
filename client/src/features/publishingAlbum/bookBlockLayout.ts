@@ -13,7 +13,7 @@ export const BOOK_BODY_FONT_SIZE = 24;
 export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' ? 36 : block.format === 'heading2' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
 
 /** All paragraphs follow document order. Legacy free coordinates are retained in cache but never used for placement. */
-export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900): BookBlockLayout[] {
+export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900, chapterIds: ReadonlySet<string> = new Set()): BookBlockLayout[] {
   const pairs = validColumnPairs(blocks);
   const result: BookBlockLayout[] = [];
   type Cursor = { page: number; bottom: number };
@@ -58,7 +58,7 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       const offsetY = frame ? frame.y * factor : 0;
       let x = baseX + (frame?.x ?? 0) * factor;
       let width = image ? (frame?.width ?? 900) * factor : available;
-      let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, width, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
+      let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, chapterIds.has(block.id) && block.format === "heading1" ? Math.max(24, width - 120) : width, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
       const aspect = image && imageRatios[image.url];
       if (image && !frame && aspect && aspect > 0) {
         const croppedAspect = aspect * image.crop.width / image.crop.height;

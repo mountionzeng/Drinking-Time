@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   CheckCircle2,
   Link2,
@@ -284,6 +285,7 @@ export function GenerationSettingsPanel({
   onSelectArtLibrary: (libraryVersion: ArtLibraryVersionView) => void;
   onBindArtLibrary: (libraryVersionId: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div className="mb-2 grid gap-2 xl:grid-cols-2">
       <section
@@ -292,18 +294,16 @@ export function GenerationSettingsPanel({
           borderColor: "var(--panel-border)",
           background: "var(--background)",
         }}
-        aria-label="剧本生成设置"
+        aria-label={_ui("剧本生成设置")}
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <ScrollText className="h-3.5 w-3.5 text-nayin-bright" />
             <span className="text-[10px] font-semibold text-foreground">
-              剧本
-            </span>
+              {_ui("剧本")}</span>
           </div>
           <span className="text-[8px] text-muted-foreground">
-            生成故事版时使用
-          </span>
+            {_ui("生成故事版时使用")}</span>
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
           {narrativeChoices.map(choice => (
@@ -333,8 +333,7 @@ export function GenerationSettingsPanel({
                     className="rounded-full border px-1 py-0.5 text-[8px] text-muted-foreground"
                     style={{ borderColor: "var(--panel-border)" }}
                   >
-                    预设
-                  </span>
+                    {_ui("预设")}</span>
                 ) : null}
               </div>
               <p className="mt-1 line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
@@ -354,17 +353,16 @@ export function GenerationSettingsPanel({
           borderColor: "var(--panel-border)",
           background: "var(--background)",
         }}
-        aria-label="美术生成设置"
+        aria-label={_ui("美术生成设置")}
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <Palette className="h-3.5 w-3.5 text-nayin-bright" />
             <span className="text-[10px] font-semibold text-foreground">
-              美术
-            </span>
+              {_ui("美术")}</span>
           </div>
           <span className="text-[8px] text-muted-foreground">
-            {currentLibraryVersionId ? "已绑定库" : "预设或库"}
+            {currentLibraryVersionId ? _ui("已绑定库") : _ui("预设或库")}
           </span>
         </div>
 
@@ -393,8 +391,7 @@ export function GenerationSettingsPanel({
               }}
             >
               <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              读取库
-            </div>
+              {_ui("读取库")}</div>
           ) : null}
 
           {artLibraryVersions.map(version => {
@@ -423,8 +420,8 @@ export function GenerationSettingsPanel({
                 }}
                 title={
                   canBindArtLibrary
-                    ? "选择并绑定到当前故事"
-                    : "先用于本次生成，故事保存后可绑定"
+                    ? _ui("选择并绑定到当前故事")
+                    : _ui("先用于本次生成，故事保存后可绑定")
                 }
               >
                 <div className="flex items-center justify-between gap-1">
@@ -441,7 +438,7 @@ export function GenerationSettingsPanel({
                 </div>
                 <p className="mt-1 text-[8.5px] text-muted-foreground">
                   v{version.version.version} ·{" "}
-                  {version.library.kind === "system" ? "系统" : "用户"}
+                  {version.library.kind === "system" ? _ui("系统") : _ui("用户")}
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {libraryTokens(version, 4).map(token => (

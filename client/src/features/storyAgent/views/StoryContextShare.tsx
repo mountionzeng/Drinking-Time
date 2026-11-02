@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { SharePermissions } from "@/features/sharing/SharePermissions";
 export { ShareBackButton } from "@/features/sharing/ShareBackButton";
 import { VIEW_ONLY } from "@shared/sharePermissions";
@@ -22,6 +23,7 @@ export function StoryContextText({
 }: {
   snapshot: StoryContextSnapshot;
 }) {
+  const _ui = useDesktopUiText();
   const background = storyContextBackgroundText(snapshot);
   return (
     <div className="space-y-5">
@@ -31,14 +33,13 @@ export function StoryContextText({
         </h2>
         {snapshot.author && (
           <p className="break-words text-sm text-muted-foreground">
-            {snapshot.author.name} · 分享
-          </p>
+            {snapshot.author.name} {_ui("· 分享")}</p>
         )}
         <p className="whitespace-pre-wrap break-words text-sm leading-7">
           {snapshot.article?.body ||
             snapshot.summary ||
             snapshot.logline ||
-            "这段故事还没有正文，你可以从已有的背景开始写。"}
+            _ui("这段故事还没有正文，你可以从已有的背景开始写。")}
         </p>
         {snapshot.article?.tags.length ? (
           <p className="text-xs text-muted-foreground">
@@ -49,8 +50,7 @@ export function StoryContextText({
       {background ? (
         <details className="border-t pt-3">
           <summary className="cursor-pointer text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            故事背景与参考资料
-          </summary>
+            {_ui("故事背景与参考资料")}</summary>
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7">
             {background}
           </p>
@@ -61,6 +61,7 @@ export function StoryContextText({
 }
 
 export function InheritedStorySource({ storyId }: { storyId: number }) {
+  const _ui = useDesktopUiText();
   const source = trpc.storyContextShare.source.useQuery(
     { storyId },
     { staleTime: Infinity }
@@ -69,8 +70,7 @@ export function InheritedStorySource({ storyId }: { storyId: number }) {
   return (
     <details className="mb-3 rounded-lg border bg-background p-3">
       <summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        由「{source.data.title}」开始的新故事 · 查看原故事
-      </summary>
+        {_ui("由「")}{source.data.title}{_ui("」开始的新故事 · 查看原故事")}</summary>
       <div className="mt-4">
         <StoryContextText snapshot={source.data} />
       </div>
@@ -89,6 +89,7 @@ export function StoryContextShareDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [permissions, setPermissions] = useState(VIEW_ONLY);
   const [link, setLink] = useState<string | null>(null);
   const input = { storyId, article, permissions };
@@ -132,23 +133,20 @@ export function StoryContextShareDialog({
     >
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>分享故事</DialogTitle>
+          <DialogTitle>{_ui("分享故事")}</DialogTitle>
           <DialogDescription>
-            有链接即可阅读、转发；你可以选择是否允许对方参与创作。
-          </DialogDescription>
+            {_ui("有链接即可阅读、转发；你可以选择是否允许对方参与创作。")}</DialogDescription>
         </DialogHeader>
         {typeof window !== "undefined" &&
         /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname) ? (
           <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            本机链接仅限这台电脑使用。
-          </p>
+            {_ui("本机链接仅限这台电脑使用。")}</p>
         ) : null}
         {link ? (
           <div className="space-y-4 py-2">
             <label className="block space-y-2 text-sm">
-              分享链接
-              <input
-                aria-label="分享链接"
+              {_ui("分享链接")}<input
+                aria-label={_ui("分享链接")}
                 readOnly
                 value={link}
                 onFocus={event => event.target.select()}
@@ -165,8 +163,7 @@ export function StoryContextShareDialog({
                 }
               }}
             >
-              复制链接
-            </Button>
+              {_ui("复制链接")}</Button>
           </div>
         ) : (
           <>
@@ -177,8 +174,7 @@ export function StoryContextShareDialog({
             />
             {preview.isFetching ? (
               <p role="status" className="py-8 text-sm text-muted-foreground">
-                正在准备分享预览…
-              </p>
+                {_ui("正在准备分享预览…")}</p>
             ) : preview.error ? (
               <p role="alert" className="text-sm text-destructive">
                 {preview.error.message}
@@ -190,7 +186,7 @@ export function StoryContextShareDialog({
               disabled={!preview.data || preview.isFetching || busy}
               onClick={() => void createLink()}
             >
-              {create.isPending ? "正在创建…" : "创建链接"}
+              {create.isPending ? _ui("正在创建…") : _ui("创建链接")}
             </Button>
           </>
         )}
@@ -201,9 +197,8 @@ export function StoryContextShareDialog({
               disabled={busy}
               onClick={() => void stopSharing()}
             >
-              停用全部链接
-            </button>
-            <p className="mt-1">已续写的副本保留。</p>
+              {_ui("停用全部链接")}</button>
+            <p className="mt-1">{_ui("已续写的副本保留。")}</p>
           </div>
         ) : null}
       </DialogContent>

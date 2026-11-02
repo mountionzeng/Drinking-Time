@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import type { ReactNode } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Check, ChevronRight } from "lucide-react";
@@ -73,12 +74,13 @@ export function ModuleContextMenu({
   onDelete(): void;
   onMove(pageIndex: number): void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <ContextMenu.Root onOpenChange={onOpenChange}>
       <KeyboardMenuTrigger disabled={disabled}>{children}</KeyboardMenuTrigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
-          aria-label={`${module.kind === "text" ? "文字" : "图片"}模块设置`}
+          aria-label={_ui("{0}模块设置", [module.kind === "text" ? _ui("文字") : _ui("图片")])}
           className={contentClass}
           onPointerDown={event => event.stopPropagation()}
           onKeyDown={event => event.stopPropagation()}
@@ -104,7 +106,7 @@ export function ModuleContextMenu({
                     <ContextMenu.ItemIndicator className="absolute left-2">
                       <Check className="h-3 w-3" />
                     </ContextMenu.ItemIndicator>
-                    {label}
+                    {_ui(label)}
                   </ContextMenu.RadioItem>
                 ))}
               </ContextMenu.RadioGroup>
@@ -120,19 +122,17 @@ export function ModuleContextMenu({
                 <ContextMenu.ItemIndicator className="absolute left-2">
                   <Check className="h-3 w-3" />
                 </ContextMenu.ItemIndicator>
-                半透明底色
-              </ContextMenu.CheckboxItem>
+                {_ui("半透明底色")}</ContextMenu.CheckboxItem>
               <ContextMenu.Separator className="my-1 h-px bg-border" />
             </>
           )}
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger className={itemClass} disabled={disabled}>
-              移到其他页
-              <ChevronRight className="ml-auto h-3 w-3" />
+              {_ui("移到其他页")}<ChevronRight className="ml-auto h-3 w-3" />
             </ContextMenu.SubTrigger>
             <ContextMenu.Portal>
               <ContextMenu.SubContent
-                aria-label="选择目标页"
+                aria-label={_ui("选择目标页")}
                 className={contentClass}
                 onPointerDown={event => event.stopPropagation()}
                 onKeyDown={event => event.stopPropagation()}
@@ -144,8 +144,8 @@ export function ModuleContextMenu({
                     disabled={disabled || index === pageIndex}
                     onSelect={() => onMove(index)}
                   >
-                    第 {index + 1} 页 · {page.label}
-                    {index === pageIndex ? "（当前页）" : ""}
+                    {_ui("第 {0} 页", [index + 1])} · {page.label}
+                    {index === pageIndex ? _ui("（当前页）") : ""}
                   </ContextMenu.Item>
                 ))}
                 <ContextMenu.Separator className="my-1 h-px bg-border" />
@@ -154,7 +154,7 @@ export function ModuleContextMenu({
                   disabled={disabled || pages.length >= 9}
                   onSelect={() => onMove(pages.length)}
                 >
-                  {pages.length >= 9 ? "已达 9 页上限" : "移到新一页"}
+                  {pages.length >= 9 ? _ui("已达 9 页上限") : _ui("移到新一页")}
                 </ContextMenu.Item>
               </ContextMenu.SubContent>
             </ContextMenu.Portal>
@@ -165,8 +165,7 @@ export function ModuleContextMenu({
             disabled={disabled}
             onSelect={onDelete}
           >
-            删除{module.kind === "text" ? "文字" : "图片"}模块
-          </ContextMenu.Item>
+            {_ui("删除")}{module.kind === "text" ? _ui("文字") : _ui("图片")}{_ui("模块")}</ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
@@ -190,44 +189,41 @@ export function PageContextMenu({
   onInsert(position: "before" | "after"): void;
   onDelete(): void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <ContextMenu.Root onOpenChange={onOpenChange}>
       <KeyboardMenuTrigger disabled={disabled}>{children}</KeyboardMenuTrigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
-          aria-label={`第 ${pageIndex + 1} 页操作`}
+          aria-label={_ui("第 {0} 页操作", [pageIndex + 1])}
           className={contentClass}
           onPointerDown={event => event.stopPropagation()}
           onKeyDown={event => event.stopPropagation()}
         >
           <ContextMenu.Label className="px-3 py-1 text-[11px] text-muted-foreground">
-            第 {pageIndex + 1} 页
-          </ContextMenu.Label>
+            {_ui("第")}{" "}{pageIndex + 1} {_ui("页")}</ContextMenu.Label>
           <ContextMenu.Item
             className={itemClass}
             disabled={disabled || pageCount >= 9}
             onSelect={() => onInsert("before")}
           >
-            在上方插入空白页
-          </ContextMenu.Item>
+            {_ui("在上方插入空白页")}</ContextMenu.Item>
           <ContextMenu.Item
             className={itemClass}
             disabled={disabled || pageCount >= 9}
             onSelect={() => onInsert("after")}
           >
-            在下方插入空白页
-          </ContextMenu.Item>
+            {_ui("在下方插入空白页")}</ContextMenu.Item>
           <ContextMenu.Separator className="my-1 h-px bg-border" />
           <ContextMenu.Item
             className={`${itemClass} text-destructive data-[highlighted]:bg-destructive/10`}
             disabled={disabled || pageCount <= 1}
             onSelect={onDelete}
           >
-            删除这一页
-          </ContextMenu.Item>
+            {_ui("删除这一页")}</ContextMenu.Item>
           {(pageCount >= 9 || pageCount <= 1) && (
             <ContextMenu.Label className="px-3 py-1 text-[11px] text-muted-foreground">
-              {pageCount >= 9 ? "最多 9 页" : "至少保留一页"}
+              {pageCount >= 9 ? _ui("最多 9 页") : _ui("至少保留一页")}
             </ContextMenu.Label>
           )}
         </ContextMenu.Content>

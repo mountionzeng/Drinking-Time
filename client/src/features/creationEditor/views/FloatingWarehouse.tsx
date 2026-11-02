@@ -1,8 +1,10 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 
 /** A non-modal palette: the manuscript remains usable behind it. Position is UI-only. */
 export function FloatingWarehouse({ expanded, compact = false, children }: { expanded: boolean; compact?: boolean; children: ReactNode }) {
+  const _ui = useDesktopUiText();
   const panel = useRef<HTMLElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
@@ -34,7 +36,7 @@ export function FloatingWarehouse({ expanded, compact = false, children }: { exp
         minWidth: 'min(320px, calc(100vw - 24px))', minHeight: 'min(140px, calc(100dvh - 24px))',
         maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(540px, calc(100dvh - 100px))', resize: 'both',
         ...(position ? {left:position.left,top:position.top} : {right:16,top:84}) };
-  const content = <section ref={panel} id="editing-material-warehouse" aria-label="素材仓库悬浮窗"
+  const content = <section ref={panel} id="editing-material-warehouse" aria-label={_ui("素材仓库悬浮窗")}
     data-testid="material-warehouse-drawer" style={style}
     className="fixed z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
     onPointerDown={event => {

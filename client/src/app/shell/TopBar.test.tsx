@@ -1,3 +1,4 @@
+import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -220,4 +221,11 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain("tracking-[0.08em]");
     expect(html).toContain("font-bold");
   });
+});
+
+it("translates desktop panel labels and accessible toggles with proper spacing", () => {
+ const html=renderToStaticMarkup(<UiLanguageContext.Provider value={{language:"en",setLanguage:()=>{}}}><TopBar showStoryPanelNav={false} panelToggles={[{label:"书",active:true,onToggle:()=>{}},{label:"视频",active:false,onToggle:()=>{}}]}/></UiLanguageContext.Provider>);
+ expect(html).toContain('aria-label="Hide Book"');
+ expect(html).toContain('aria-label="Show Videos"');
+ expect(html).not.toContain('隐藏');
 });

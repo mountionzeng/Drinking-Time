@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Image, Quote, Timer, Video, X } from "lucide-react";
 import React from "react";
 import {
@@ -71,6 +72,7 @@ export default function SelectionContextCard({
   readiness,
   imageUrl,
 }: Props) {
+  const _ui = useDesktopUiText();
   const kind = selectionEditKind(selection as SelectionContext);
   const scopePromise =
     readiness && readiness.status !== "executable"
@@ -95,10 +97,10 @@ export default function SelectionContextCard({
       className={`flex min-w-0 items-start gap-2 border-l-2 border-[var(--nayin-accent)] bg-[var(--nayin-glow)] ${
         compact ? "rounded px-2 py-1" : "rounded-md px-2.5 py-2"
       }`}
-      aria-label="当前选区"
+      aria-label={_ui("当前选区")}
     >
       {imageUrl && !compact ? (
-        <img src={imageUrl} alt="本次修改的图片" className="h-12 w-12 shrink-0 rounded object-contain bg-black/10" />
+        <img src={imageUrl} alt={_ui("本次修改的图片")} className="h-12 w-12 shrink-0 rounded object-contain bg-black/10" />
       ) : null}
       <span className="mt-0.5 shrink-0 text-nayin-bright">
         <ContextIcon sourceType={selection.sourceType} />
@@ -107,16 +109,16 @@ export default function SelectionContextCard({
         <div className="flex flex-wrap items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
           <span>{contextLabel(selection)}</span>
           {selection.objectVersion ? (
-            <span>· 版本 {selection.objectVersion}</span>
+            <span>{_ui("· 版本")}{" "}{selection.objectVersion}</span>
           ) : null}
           {readiness ? (
             <span>
               ·{" "}
               {readiness.status === "executable"
-                ? "可修改"
+                ? _ui("可修改")
                 : readiness.status === "stale"
-                  ? "已失效"
-                  : "不可修改"}
+                  ? _ui("已失效")
+                  : _ui("不可修改")}
             </span>
           ) : null}
         </div>
@@ -134,7 +136,7 @@ export default function SelectionContextCard({
           type="button"
           onClick={onClear}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-foreground/10"
-          aria-label="取消选中"
+          aria-label={_ui("取消选中")}
         >
           <X className="h-3 w-3 text-muted-foreground" />
         </button>

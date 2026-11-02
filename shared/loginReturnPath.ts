@@ -1,7 +1,8 @@
 /** Only local workspace/share destinations survive a single URL decode. */
 export function allowedLoginReturnPath(
   candidate: string | null | undefined
-): "/m" | `/m?captureShare=${string}` | `/m?captureId=${string}` | "/chapter/claim" | `/s/${string}` | `/p/${string}` | null {
+): "/wechat-import" | "/m" | `/m?captureShare=${string}` | `/m?captureId=${string}` | "/chapter/claim" | `/s/${string}` | `/p/${string}` | null {
+  if (candidate === "/wechat-import") return candidate;
   if (candidate === "/m") return candidate;
   if (candidate && /^\/m\?capture(?:Share|Id)=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate))
     return candidate as `/m?captureShare=${string}` | `/m?captureId=${string}`;

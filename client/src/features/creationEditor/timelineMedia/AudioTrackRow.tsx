@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * Formal U6 audio lanes. They share the Storyboard viewport and interaction
  * shell, but every mutation remains a narrow intent handled by timelineMedia.
@@ -192,6 +193,7 @@ export function AudioTrackRow({
   pending: boolean;
   error: string | null;
 } & AudioTrackRowCallbacks) {
+  const _ui = useDesktopUiText();
   const [drag, setDrag] = useState<AudioDragState | null>(null);
   const profile = timelineMediaKindProfile(track.kind);
   const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
@@ -336,7 +338,7 @@ export function AudioTrackRow({
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
-      aria-label={`${profile.label}轨`}
+      aria-label={_ui("{0}轨", [_ui(profile.label)])}
       data-testid={`storyboard-audio-track-${track.kind}`}
       onPointerMove={updateDrag}
       onPointerUp={finishDrag}
@@ -352,7 +354,7 @@ export function AudioTrackRow({
             key={clip.id}
             role="button"
             tabIndex={clip.id === rovingId ? 0 : -1}
-            aria-label={`${profile.label} · 素材 ${clip.assetId}`}
+            aria-label={_ui("{0} · 素材 {1}", [_ui(profile.label), clip.assetId])}
             aria-selected={selected}
             data-timeline-media-keyboard="true"
             data-testid={`storyboard-audio-clip-${clip.id}`}
@@ -368,15 +370,14 @@ export function AudioTrackRow({
             />
             {selected ? (
               <span className="pointer-events-none absolute left-3 right-3 top-0.5 truncate text-center text-[7px] font-medium leading-3 text-current drop-shadow-sm">
-                拖右侧展开后续素材
-              </span>
+                {_ui("拖右侧展开后续素材")}</span>
             ) : null}
             <span
               role="slider"
               tabIndex={selected ? 0 : -1}
-              aria-label={`${profile.label}入点`}
+              aria-label={_ui("{0}入点", [_ui(profile.label)])}
               aria-valuenow={clip.sourceInFrame}
-              title="向右拖动，从原始素材更后的位置开始"
+              title={_ui("向右拖动，从原始素材更后的位置开始")}
               data-visible={selected ? "true" : "false"}
               data-testid={`storyboard-audio-handle-start-${clip.id}`}
               className={`absolute bottom-0 left-0 top-0 z-10 w-3 cursor-ew-resize border-r border-current bg-[var(--background)]/55 transition-opacity focus:opacity-100 ${selected ? "opacity-80" : "opacity-0 hover:opacity-70"}`}
@@ -384,18 +385,18 @@ export function AudioTrackRow({
               onKeyDown={event => onHandleKeyDown(event, clip, "start")}
             />
             <span className="pointer-events-none absolute bottom-0 left-3 max-w-[calc(100%-24px)] truncate bg-[var(--background)]/75 px-1 font-mono text-[7px] leading-3">
-              {profile.label} · 素材 #{clip.assetId}
+              {_ui(profile.label)} {_ui("· 素材 #")}{clip.assetId}
               {track.kind === "dialogue"
-                ? ` · ${clip.speakerLabel ?? (clip.speakerId === "unassigned" ? "未分配人物" : clip.speakerId)}`
+                ? ` · ${clip.speakerLabel ?? (clip.speakerId === "unassigned" ? _ui("未分配人物") : clip.speakerId)}`
                 : ""}
-              {clip.textStale ? " · 文字已变化" : ""}
+              {clip.textStale ? _ui(" · 文字已变化") : ""}
             </span>
             <span
               role="slider"
               tabIndex={selected ? 0 : -1}
-              aria-label={`${profile.label}出点`}
+              aria-label={_ui("{0}出点", [_ui(profile.label)])}
               aria-valuenow={clip.sourceOutFrame}
-              title="向右拖动，展开原始素材的后续内容"
+              title={_ui("向右拖动，展开原始素材的后续内容")}
               data-visible={selected ? "true" : "false"}
               data-testid={`storyboard-audio-handle-end-${clip.id}`}
               className={`absolute bottom-0 right-0 top-0 z-10 w-3 cursor-ew-resize border-l border-current bg-[var(--background)]/55 transition-opacity focus:opacity-100 ${selected ? "opacity-80" : "opacity-0 hover:opacity-70"}`}
@@ -413,7 +414,7 @@ export function AudioTrackRow({
         />
       ) : null}
       <span aria-live="polite" className="sr-only">
-        {pending ? `${profile.label}保存中` : (error ?? "")}
+        {pending ? _ui("{0}保存中", [_ui(profile.label)]) : (error ?? "")}
       </span>
     </div>
   );
@@ -428,6 +429,7 @@ function AudioTrackHeader({
   action?: React.ReactNode;
   tools?: React.ReactNode;
 }) {
+  const _ui = useDesktopUiText();
   const label = kind ? timelineMediaKindProfile(kind).label : "声音";
   return (
     <div
@@ -440,7 +442,7 @@ function AudioTrackHeader({
       data-testid={kind ? `storyboard-audio-header-${kind}` : undefined}
     >
       <div className="flex min-w-0 items-center justify-between gap-0.5">
-        <span className="shrink-0 whitespace-nowrap">{label}</span>
+        <span className="shrink-0 whitespace-nowrap">{_ui(label)}</span>
         {tools}
       </div>
       {action}
@@ -486,6 +488,7 @@ export function AudioTrackSection({
   onRequestGenerateMusic?: () => void;
   columnSpan?: number;
 } & AudioTrackRowCallbacks) {
+  const _ui = useDesktopUiText();
   const [showEmpty, setShowEmpty] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const contentTracks = AUDIO_KIND_ORDER.map(kind =>
@@ -503,27 +506,26 @@ export function AudioTrackSection({
           className="flex h-6 w-full items-center justify-center gap-0.5 whitespace-nowrap rounded-sm border border-border text-[9px] font-medium text-[var(--nayin-accent)] transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
         >
           <Plus className="size-2.5 shrink-0" />
-          生成新音乐
-        </button>
+          {_ui("生成新音乐")}</button>
       ) : null}
       <div className="flex items-center justify-between gap-0.5">
         <button
           type="button"
           aria-expanded={showLibrary}
-          aria-label={`声音素材库，${audioAssets.length} 份素材`}
+          aria-label={_ui("声音素材库，{0} 份素材", [audioAssets.length])}
           onClick={() => setShowLibrary(value => !value)}
           data-testid="audio-library-toggle"
           className="flex h-6 min-w-0 items-center gap-0.5 whitespace-nowrap rounded-sm text-[9px] font-normal transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
           <FolderOpen className="size-2.5 shrink-0" />
-          素材 {audioAssets.length}
+          {_ui("素材")}{audioAssets.length}
         </button>
         <button
           type="button"
           onClick={() => setShowEmpty(value => !value)}
           aria-pressed={showEmpty}
-          aria-label={showEmpty ? "收起空轨" : "显示空轨"}
-          title={showEmpty ? "收起空轨" : "显示空轨"}
+          aria-label={showEmpty ? _ui("收起空轨") : _ui("显示空轨")}
+          title={showEmpty ? _ui("收起空轨") : _ui("显示空轨")}
           className="flex size-5 shrink-0 items-center justify-center rounded-sm transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Layers className="size-3" />
@@ -545,8 +547,7 @@ export function AudioTrackSection({
                 onClick={onRequestAdd}
                 className="rounded-sm border border-border px-1.5 py-0.5 text-[8px] font-medium text-foreground disabled:opacity-40"
               >
-                添加声音
-              </button>
+                {_ui("添加声音")}</button>
             )
           }
         />
@@ -556,8 +557,7 @@ export function AudioTrackSection({
           data-testid="storyboard-audio-empty-row"
           className="flex h-12 items-center justify-center border-b border-r text-[8px] text-muted-foreground/70"
         >
-          对白、旁白、音乐、环境声、音效和原声会显示在这里
-        </div>
+          {_ui("对白、旁白、音乐、环境声、音效和原声会显示在这里")}</div>
       </>
     );
   }
@@ -585,7 +585,7 @@ export function AudioTrackSection({
               >
                 <div className="flex items-center justify-between gap-2 text-[9px]">
                   <span className="truncate font-medium">
-                    {asset.displayName || `声音素材 #${asset.id}`}
+                    {asset.displayName || _ui("声音素材 #{0}", [asset.id])}
                   </span>
                   <span className="shrink-0 font-mono text-muted-foreground">
                     {(asset.durationFrames / 30).toFixed(1)}s
@@ -596,7 +596,7 @@ export function AudioTrackSection({
                   preload="none"
                   src={asset.audioUrl}
                   className="h-7 w-full"
-                  aria-label={`试听声音素材 ${asset.id}`}
+                  aria-label={_ui("试听声音素材 {0}", [asset.id])}
                 />
                 <div className="flex items-center gap-1 text-[8px]">
                   <button
@@ -605,23 +605,22 @@ export function AudioTrackSection({
                     onClick={() => void onInsertAsset?.(asset)}
                     className="rounded-sm border border-border px-1.5 py-0.5 disabled:opacity-40"
                   >
-                    {asset.referenced ? "再次放入播放头" : "放入播放头"}
+                    {asset.referenced ? _ui("再次放入播放头") : _ui("放入播放头")}
                   </button>
                   <button
                     type="button"
                     disabled={pending || asset.referenced || !onDiscardAsset}
                     title={
                       asset.referenced
-                        ? "正在时间线上使用，请先删除片段"
-                        : "删除这份完整素材"
+                        ? _ui("正在时间线上使用，请先删除片段")
+                        : _ui("删除这份完整素材")
                     }
                     onClick={() => void onDiscardAsset?.(asset.id)}
                     className="rounded-sm border border-destructive/40 px-1.5 py-0.5 text-destructive disabled:opacity-40"
                   >
-                    删除素材
-                  </button>
+                    {_ui("删除素材")}</button>
                   {asset.referenced ? (
-                    <span className="text-muted-foreground">时间线中</span>
+                    <span className="text-muted-foreground">{_ui("时间线中")}</span>
                   ) : null}
                 </div>
               </div>
@@ -637,8 +636,7 @@ export function AudioTrackSection({
             style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
             className="flex h-12 items-center justify-center border-b border-r text-[8px] text-muted-foreground/70"
           >
-            把完整素材放到播放头后，可在时间线上裁剪和调整
-          </div>
+            {_ui("把完整素材放到播放头后，可在时间线上裁剪和调整")}</div>
         </>
       ) : null}
       {visibleTracks.map((track, index) => (

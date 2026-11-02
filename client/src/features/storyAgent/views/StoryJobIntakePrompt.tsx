@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from 'react';
 import { Briefcase, Check, CornerDownRight } from 'lucide-react';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
@@ -47,6 +48,7 @@ export function joinJobChannels(channels: string[], customChannel = ''): string 
 }
 
 export default function StoryJobIntakePrompt() {
+  const _ui = useDesktopUiText();
   const confirmedIntent = useConfirmedIntent();
   const { setConfirmedIntent } = useStoryAgentActions();
   const [targetRoleInput, setTargetRoleInput] = useState('');
@@ -89,19 +91,17 @@ export default function StoryJobIntakePrompt() {
       >
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
           <Briefcase className="h-3 w-3 text-nayin-bright" />
-          求职片轻问
-        </div>
+          {_ui("求职片轻问")}</div>
 
         {step === 'targetRole' ? (
           <div className="flex flex-col gap-2">
             <p>
-              那我先按求职片来帮你。目标岗位或行业大概是什么？
-            </p>
+              {_ui("那我先按求职片来帮你。目标岗位或行业大概是什么？")}</p>
             <div className="flex items-center gap-2">
               <input
                 value={targetRoleInput}
                 onChange={(event) => setTargetRoleInput(event.target.value)}
-                placeholder="比如 产品经理 / 影视美术 / AI 设计"
+                placeholder={_ui("比如 产品经理 / 影视美术 / AI 设计")}
                 className="min-w-0 flex-1 rounded-md border bg-transparent px-2 py-1.5 text-[11px] focus:outline-none focus:ring-1"
                 style={{
                   borderColor: 'var(--panel-border)',
@@ -113,8 +113,8 @@ export default function StoryJobIntakePrompt() {
                 type="button"
                 onClick={submitTargetRole}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-background/60"
-                aria-label="记下目标岗位"
-                title="记下目标岗位"
+                aria-label={_ui("记下目标岗位")}
+                title={_ui("记下目标岗位")}
               >
                 <Check className="h-3.5 w-3.5 text-nayin-bright" />
               </button>
@@ -124,14 +124,12 @@ export default function StoryJobIntakePrompt() {
               onClick={() => updateIntent({ targetRole: '' })}
               className="self-start text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             >
-              先跳过，后面聊到再补
-            </button>
+              {_ui("先跳过，后面聊到再补")}</button>
           </div>
         ) : step === 'channel' ? (
           <div className="flex flex-col gap-2">
             <p>
-              这份简历主要准备投到哪里？可以多选，我会据此拿捏正式度和节奏。
-            </p>
+              {_ui("这份简历主要准备投到哪里？可以多选，我会据此拿捏正式度和节奏。")}</p>
             <div className="flex flex-wrap gap-1.5">
               {JOB_CHANNEL_OPTIONS.map((option) => {
                 const selected = selectedChannels.includes(option.value);
@@ -164,7 +162,7 @@ export default function StoryJobIntakePrompt() {
               <input
                 value={customChannelInput}
                 onChange={(event) => setCustomChannelInput(event.target.value)}
-                placeholder="其他投放场景"
+                placeholder={_ui("其他投放场景")}
                 className="min-w-0 flex-1 rounded-md border bg-transparent px-2 py-1.5 text-[11px] focus:outline-none focus:ring-1"
                 style={{
                   borderColor: 'var(--panel-border)',
@@ -176,8 +174,8 @@ export default function StoryJobIntakePrompt() {
                 type="button"
                 onClick={submitCustomChannel}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-background/60"
-                aria-label="记下投递渠道"
-                title="记下投递渠道"
+                aria-label={_ui("记下投递渠道")}
+                title={_ui("记下投递渠道")}
               >
                 <Check className="h-3.5 w-3.5 text-nayin-bright" />
               </button>
@@ -187,14 +185,12 @@ export default function StoryJobIntakePrompt() {
               onClick={skipChannel}
               className="self-start text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             >
-              先跳过投递渠道
-            </button>
+              {_ui("先跳过投递渠道")}</button>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
             <p>
-              接下来你可以直接把 JD 或简历贴过来。聊聊会先站在招聘者视角看：岗位要什么、你简历里哪些经历能证明、还缺哪几个关键问题。
-            </p>
+              {_ui("接下来你可以直接把 JD 或简历贴过来。聊聊会先站在招聘者视角看：岗位要什么、你简历里哪些经历能证明、还缺哪几个关键问题。")}</p>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -207,15 +203,13 @@ export default function StoryJobIntakePrompt() {
                 }}
               >
                 <Check className="h-3 w-3 text-nayin-bright" />
-                好，我贴 JD / 简历
-              </button>
+                {_ui("好，我贴 JD / 简历")}</button>
               <button
                 type="button"
                 onClick={() => updateIntent({ jobMaterialsPrompted: true })}
                 className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
               >
-                先继续聊
-              </button>
+                {_ui("先继续聊")}</button>
             </div>
           </div>
         )}

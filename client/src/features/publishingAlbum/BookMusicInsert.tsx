@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -19,6 +20,7 @@ export function BookMusicInsert({
   prepare?(): Promise<void>;
   onInsert(text: string): void;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false),
     [intent, setIntent] = useState("");
   const [error, setError] = useState(""),
@@ -89,8 +91,7 @@ export function BookMusicInsert({
         className="mt-2 rounded-full border px-3 py-1 text-xs"
         onClick={() => setOpen(true)}
       >
-        添加音乐
-      </button>
+        {_ui("添加音乐")}</button>
       <Dialog
         open={open}
         onOpenChange={value => {
@@ -99,12 +100,11 @@ export function BookMusicInsert({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>添加音乐</DialogTitle>
+            <DialogTitle>{_ui("添加音乐")}</DialogTitle>
           </DialogHeader>
           <label className="text-sm">
-            导入本地音频
-            <input
-              aria-label="导入本地音频"
+            {_ui("导入本地音频")}<input
+              aria-label={_ui("导入本地音频")}
               type="file"
               accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
               disabled={busy || disabled}
@@ -140,9 +140,9 @@ export function BookMusicInsert({
             />
           </label>
           <textarea
-            aria-label="音乐要求"
+            aria-label={_ui("音乐要求")}
             className="w-full rounded border bg-transparent p-2 text-sm"
-            placeholder="例如：安静的钢琴，适合阅读这篇故事"
+            placeholder={_ui("例如：安静的钢琴，适合阅读这篇故事")}
             maxLength={800}
             value={intent}
             disabled={busy}
@@ -171,8 +171,7 @@ export function BookMusicInsert({
               })
             }
           >
-            根据当前书稿生成音乐
-          </button>
+            {_ui("根据当前书稿生成音乐")}</button>
           {quote && (
             <button
               type="button"
@@ -190,15 +189,14 @@ export function BookMusicInsert({
                 })
               }
             >
-              确认生成约30秒配乐（预计 ¥{quote.estimatedCny.toFixed(2)}）
+              {_ui("确认生成约30秒配乐（预计 ¥")}{quote.estimatedCny.toFixed(2)}）
             </button>
           )}
           {assets.error && (
             <p role="alert" className="text-sm text-destructive">
-              音乐列表读取失败，请关闭后重试。
-            </p>
+              {_ui("音乐列表读取失败，请关闭后重试。")}</p>
           )}
-          {busy && <p role="status">正在处理音乐，请稍候…</p>}
+          {busy && <p role="status">{_ui("正在处理音乐，请稍候…")}</p>}
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -221,8 +219,7 @@ export function BookMusicInsert({
                     disabled={busy || disabled}
                     onClick={() => insert(asset.id, asset.displayName)}
                   >
-                    插入书中
-                  </button>
+                    {_ui("插入书中")}</button>
                 </div>
               ))}
           </div>

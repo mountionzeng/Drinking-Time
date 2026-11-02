@@ -7,6 +7,7 @@ describe("share login return path", () => {
   it("round trips only a supported local path through login", () => {
     expect(allowedLoginReturnPath(path)).toBe(path);
     expect(allowedLoginReturnPath("/m")).toBe("/m");
+    expect(allowedLoginReturnPath("/wechat-import")).toBe("/wechat-import");
   });
   it.each([
     `https://evil.example${path}`,
@@ -17,6 +18,9 @@ describe("share login return path", () => {
     `/s/${"A".repeat(42)}`,
     `/s/%41${"A".repeat(42)}`,
     "/editing",
+    "/wechat-import?returnTo=//evil.test",
+    "/wechat-import/..",
+    "//evil.test/wechat-import",
   ])("rejects unsafe or unsupported path %s", value => {
     expect(allowedLoginReturnPath(value)).toBeNull();
   });

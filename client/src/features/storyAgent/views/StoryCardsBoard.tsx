@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * StoryCardsBoard — Reorderable list of memory cards harvested from the
  * story-guide chat. The order matters: each ordering produces a different
@@ -114,6 +115,7 @@ function EmotionBridge({
   previousEmotion?: string;
   currentEmotion: string;
 }) {
+  const _ui = useDesktopUiText();
   if (
     !isRealEmotion(previousEmotion) ||
     !isRealEmotion(currentEmotion) ||
@@ -125,7 +127,7 @@ function EmotionBridge({
   return (
     <div
       className="flex justify-center py-1.5"
-      aria-label={`情绪流动：${previousEmotion} 到 ${currentEmotion}`}
+      aria-label={_ui("情绪流动：{0} 到 {1}", [previousEmotion, currentEmotion])}
     >
       <div className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground">
         <span
@@ -170,6 +172,7 @@ function CardItem({
   onDeleteGeneratedImage: (image: GeneratedImageItem) => void;
   storyId: number | null;
 }) {
+  const _ui = useDesktopUiText();
   const controls = useDragControls();
   const tint = emotionAccent(card.emotion);
 
@@ -206,7 +209,7 @@ function CardItem({
             type="button"
             onPointerDown={e => controls.start(e)}
             className="shrink-0 mt-0.5 cursor-grab active:cursor-grabbing opacity-30 group-hover:opacity-70 transition-opacity"
-            aria-label="拖拽排序"
+            aria-label={_ui("拖拽排序")}
           >
             <GripVertical className="w-4 h-4 text-muted-foreground" />
           </button>
@@ -243,7 +246,7 @@ function CardItem({
               contentEditable
               suppressContentEditableWarning
               role="textbox"
-              aria-label="编辑卡片内容"
+              aria-label={_ui("编辑卡片内容")}
               tabIndex={0}
               onPointerDown={e => e.stopPropagation()}
               onKeyDown={e => {
@@ -303,8 +306,8 @@ function CardItem({
             type="button"
             onClick={onRemove}
             className="shrink-0 w-6 h-6 rounded flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 transition-all"
-            aria-label="删除卡片"
-            title="删除这张卡片"
+            aria-label={_ui("删除卡片")}
+            title={_ui("删除这张卡片")}
           >
             <X className="w-3 h-3" />
           </button>
@@ -315,6 +318,7 @@ function CardItem({
 }
 
 export default function StoryCardsBoard() {
+  const _ui = useDesktopUiText();
   const {
     cards,
     isGeneratingScript,
@@ -551,11 +555,11 @@ export default function StoryCardsBoard() {
       <div className="creation-board-panel-header justify-between">
         <div className="creation-board-panel-title">
           <Sparkles className="creation-board-panel-icon" />
-          <h2 className="creation-board-panel-title-text">故事卡片</h2>
+          <h2 className="creation-board-panel-title-text">{_ui("故事卡片")}</h2>
         </div>
         <div className="flex items-center gap-2">
           <span className="creation-board-panel-status">
-            {cards.length > 0 ? `${cards.length} 张卡片` : "等待卡片"}
+            {cards.length > 0 ? _ui("{0} 张卡片", [cards.length]) : _ui("等待卡片")}
           </span>
           {cards.length > 0 ? (
             <span
@@ -580,8 +584,7 @@ export default function StoryCardsBoard() {
                       : "var(--muted-foreground)",
                 }}
               >
-                图谱
-              </button>
+                {_ui("图谱")}</button>
               <button
                 type="button"
                 onClick={() => setBoardView("list")}
@@ -597,8 +600,7 @@ export default function StoryCardsBoard() {
                       : "var(--muted-foreground)",
                 }}
               >
-                列表
-              </button>
+                {_ui("列表")}</button>
             </span>
           ) : null}
         </div>
@@ -616,12 +618,10 @@ export default function StoryCardsBoard() {
               {EMPTY_HINT[element]}
             </p>
             <p className="text-[10px] text-muted-foreground/70 max-w-[16rem]">
-              聊聊会在你描述出{" "}
+              {_ui("聊聊会在你描述出")}{" "}
               <span className="text-nayin-bright">
-                具体场景 + 情感 + 感官细节
-              </span>{" "}
-              时，自动把那一刻提炼成卡片，飞到这里来。
-            </p>
+                {_ui("具体场景 + 情感 + 感官细节")}</span>{" "}
+              {_ui("时，自动把那一刻提炼成卡片，飞到这里来。")}</p>
           </motion.div>
         ) : (
           <>
@@ -721,17 +721,17 @@ export default function StoryCardsBoard() {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-foreground">
                         {hasPendingFictionIntent
-                          ? "先确认创造另一个世界"
+                          ? _ui("先确认创造另一个世界")
                           : fictionCardsConfirmed
-                            ? "虚构故事卡已确认"
-                            : "先确认虚构故事卡"}
+                            ? _ui("虚构故事卡已确认")
+                            : _ui("先确认虚构故事卡")}
                       </p>
                       <p className="mt-0.5 text-muted-foreground">
                         {hasPendingFictionIntent
-                          ? "聊聊已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。"
+                          ? _ui("聊聊已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。")
                           : fictionCardsConfirmed
-                            ? "现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。"
-                            : "确认后再进入拆镜，避免还没定故事方向就生成镜头。"}
+                            ? _ui("现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。")
+                            : _ui("确认后再进入拆镜，避免还没定故事方向就生成镜头。")}
                       </p>
                     </div>
                     {hasPendingFictionIntent ? (
@@ -744,8 +744,7 @@ export default function StoryCardsBoard() {
                           color: "var(--nayin-accent)",
                         }}
                       >
-                        确认意图
-                      </button>
+                        {_ui("确认意图")}</button>
                     ) : !fictionCardsConfirmed ? (
                       <button
                         type="button"
@@ -756,8 +755,7 @@ export default function StoryCardsBoard() {
                           color: "var(--nayin-accent)",
                         }}
                       >
-                        确认故事卡
-                      </button>
+                        {_ui("确认故事卡")}</button>
                     ) : null}
                   </div>
                 </div>
@@ -776,26 +774,24 @@ export default function StoryCardsBoard() {
                 {isGeneratingScript ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    正在生成故事版…
-                  </>
+                    {_ui("正在生成故事版…")}</>
                 ) : (
                   <>
                     <Clapperboard className="w-3.5 h-3.5" />
                     {latestScript && !orderChanged
-                      ? "重新生成故事版"
+                      ? _ui("重新生成故事版")
                       : latestScript && orderChanged
-                        ? "按新顺序生成故事版"
+                        ? _ui("按新顺序生成故事版")
                         : hasPendingFictionIntent
-                          ? "先确认意图"
+                          ? _ui("先确认意图")
                           : shouldGateFictionStoryboard
-                            ? "确认故事卡"
-                            : "生成故事版"}
+                            ? _ui("确认故事卡")
+                            : _ui("生成故事版")}
                   </>
                 )}
               </button>
               <p className="text-[10px] text-muted-foreground/70 text-center">
-                生成剧本 · 统一提示词 · 关键镜头草稿图
-              </p>
+                {_ui("生成剧本 · 统一提示词 · 关键镜头草稿图")}</p>
             </div>
           </>
         )}

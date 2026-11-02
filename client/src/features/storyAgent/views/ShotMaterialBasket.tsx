@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { shotVideoPriceProfile } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import {
@@ -259,6 +260,7 @@ export default function ShotMaterialBasket({
   displayMode = "panel",
   onClose,
 }: ShotMaterialBasketProps) {
+  const _ui = useDesktopUiText();
   const rows = buildPromptTable(shot, { previousShots });
   const recipe = compileVideoShotRecipe({ shot, rows });
   const suggestedMotion = useMemo<"low" | "high">(
@@ -459,7 +461,7 @@ export default function ShotMaterialBasket({
     );
     const estimate = estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(shotVideoProviderStatus?.submitPath) });
     const confirmed = window.confirm(
-      `预计费用 ${formatComputeQuote(estimate.estimatedCny)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
+      `预计费用 ${formatComputeQuote(estimate.estimatedCny).replace(/算力$/, _ui("算力"))}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
     );
     if (!confirmed) return;
     try {
@@ -772,7 +774,7 @@ export default function ShotMaterialBasket({
         aria-grabbed={draggingTakeId === take.id}
         onDragStart={event => startTakeDrag(event, take.id)}
         onDragEnd={() => setDraggingTakeId(null)}
-        title={activeSlot ? "拖到另一个镜头卡片" : "不可用 Take 不占用可用位置"}
+        title={activeSlot ? _ui("拖到另一个镜头卡片") : _ui("不可用 Take 不占用可用位置")}
         className={`rounded-md border px-2 py-1.5 text-[9px] transition ${
           movingVideoTakeId === take.id
             ? "cursor-wait opacity-60"
@@ -796,12 +798,11 @@ export default function ShotMaterialBasket({
             {take.isTimelineSelected ? (
               <span className="inline-flex items-center gap-1 text-nayin-bright">
                 <Check className="h-3 w-3" />
-                已采用
-              </span>
+                {_ui("已采用")}</span>
             ) : stale ? (
-              <span className="text-amber-700">基于旧主图</span>
+              <span className="text-amber-700">{_ui("基于旧主图")}</span>
             ) : !activeSlot ? (
-              <span className="text-muted-foreground">不占位</span>
+              <span className="text-muted-foreground">{_ui("不占位")}</span>
             ) : null}
             {canMarkUnusable ? (
               <button
@@ -813,15 +814,14 @@ export default function ShotMaterialBasket({
                 }}
                 className="inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[8.5px] font-medium text-muted-foreground transition hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
                 style={{ borderColor: "var(--panel-border)" }}
-                title="标记后会移入不可用区域，并从动态分镜时间线移除"
+                title={_ui("标记后会移入不可用区域，并从动态分镜时间线移除")}
               >
                 {markingTakeId === take.id ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <Ban className="h-3 w-3" />
                 )}
-                标记不可用
-              </button>
+                {_ui("标记不可用")}</button>
             ) : null}
           </div>
         </div>
@@ -855,7 +855,7 @@ export default function ShotMaterialBasket({
                 ) : (
                   <Play className="h-3 w-3" />
                 )}
-                {stale ? "仍然采用旧版" : "采用到动态分镜"}
+                {stale ? _ui("仍然采用旧版") : _ui("采用到动态分镜")}
               </button>
             ) : null}
           </div>
@@ -864,8 +864,7 @@ export default function ShotMaterialBasket({
           <details className="mt-1.5 text-muted-foreground">
             <summary className="flex cursor-pointer list-none items-center gap-1">
               <ChevronDown className="h-3 w-3" />
-              生成参数
-            </summary>
+              {_ui("生成参数")}</summary>
             <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-1.5 text-[8px]">
               {JSON.stringify(take.parameterSnapshot, null, 2)}
             </pre>
@@ -880,7 +879,7 @@ export default function ShotMaterialBasket({
       className={
         displayMode === "matrix" ? "py-1" : "mt-2 rounded-md border p-2"
       }
-      aria-label="视频的生成、预览和采用都在故事版看板完成"
+      aria-label={_ui("视频的生成、预览和采用都在故事版看板完成")}
       style={
         displayMode === "matrix"
           ? undefined
@@ -902,8 +901,8 @@ export default function ShotMaterialBasket({
           <Video className="h-3.5 w-3.5 text-nayin-bright" />
           <span className="text-[9px] font-semibold text-foreground">
             {displayMode === "matrix"
-              ? `${shotLabel(shot)} · 素材 / 图生视频 / Take`
-              : "镜头素材与视频"}
+              ? _ui("{0} · 素材 / 图生视频 / Take", [shotLabel(shot)])
+              : _ui("镜头素材与视频")}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -913,15 +912,14 @@ export default function ShotMaterialBasket({
             onClick={() => fileInputRef.current?.click()}
             className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
             style={{ borderColor: "var(--panel-border)" }}
-            title="导入图片作为主图，或导入视频并用于当前镜头"
+            title={_ui("导入图片作为主图，或导入视频并用于当前镜头")}
           >
             {importing ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
               <Upload className="h-3 w-3" />
             )}
-            导入
-          </button>
+            {_ui("导入")}</button>
           {startEndConfig ? (
             <button
               type="button"
@@ -945,10 +943,10 @@ export default function ShotMaterialBasket({
               style={{ borderColor: "var(--nayin-accent)" }}
               title={
                 !analysis
-                  ? "先分析人物动作、摄影机承载、运动节拍和画面保真"
+                  ? _ui("先分析人物动作、摄影机承载、运动节拍和画面保真")
                   : !analysisApplied
-                    ? "先检查并应用导演方案"
-                    : "使用已锁定的首帧和尾帧生成视频"
+                    ? _ui("先检查并应用导演方案")
+                    : _ui("使用已锁定的首帧和尾帧生成视频")
               }
             >
               {generating || estimatingStartEnd || submittingStartEnd ? (
@@ -957,16 +955,16 @@ export default function ShotMaterialBasket({
                 <Video className="h-3 w-3" />
               )}
               {startEndProcessingTake
-                ? "刷新首尾帧"
+                ? _ui("刷新首尾帧")
                 : generating || submittingStartEnd
-                  ? "提交中"
+                  ? _ui("提交中")
                   : estimatingStartEnd
-                    ? "报价中"
+                    ? _ui("报价中")
                     : !analysis
-                      ? "分析后生成"
+                      ? _ui("分析后生成")
                       : !analysisApplied
-                        ? "应用后生成"
-                        : "首尾帧生成"}
+                        ? _ui("应用后生成")
+                        : _ui("首尾帧生成")}
             </button>
           ) : (
             <button
@@ -975,15 +973,15 @@ export default function ShotMaterialBasket({
               title={
                 !canGenerate && !processingTake
                   ? missing.length > 0
-                    ? `暂不可生成：${missing.join(" / ")}`
-                    : "暂不可生成视频"
+                    ? _ui("暂不可生成：{0}", [missing.join(" / ")])
+                    : _ui("暂不可生成视频")
                   : workflowStep === "analyze"
-                    ? "先结合当前文字和相邻镜头生成导演方案"
+                    ? _ui("先结合当前文字和相邻镜头生成导演方案")
                     : workflowStep === "apply"
-                      ? "确认后把导演方案写入当前镜头"
+                      ? _ui("确认后把导演方案写入当前镜头")
                       : workflowStep === "generate"
-                        ? "确认算力消耗后提交视频生成"
-                        : "刷新当前视频任务状态"
+                        ? _ui("确认算力消耗后提交视频生成")
+                        : _ui("刷新当前视频任务状态")
               }
               onClick={() => void advanceVideoWorkflow()}
               className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
@@ -994,7 +992,7 @@ export default function ShotMaterialBasket({
               ) : (
                 <Video className="h-3 w-3" />
               )}
-              {generating ? "提交中" : workflowLabel}
+              {generating ? _ui("提交中") : workflowLabel}
             </button>
           )}
           {onClose ? (
@@ -1002,8 +1000,8 @@ export default function ShotMaterialBasket({
               type="button"
               onClick={onClose}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-              aria-label="收起视频制作"
-              title="收起"
+              aria-label={_ui("收起视频制作")}
+              title={_ui("收起")}
             >
               <ChevronDown className="h-3.5 w-3.5 rotate-180" />
             </button>
@@ -1014,7 +1012,7 @@ export default function ShotMaterialBasket({
         <div
           className="mt-2 grid items-center gap-2 border-y py-2 sm:grid-cols-[116px_minmax(0,1fr)_auto]"
           style={{ borderColor: "var(--panel-border)" }}
-          aria-label="首尾帧视频费用确认"
+          aria-label={_ui("首尾帧视频费用确认")}
         >
           <div className="flex items-center gap-1">
             <img
@@ -1031,12 +1029,10 @@ export default function ShotMaterialBasket({
           </div>
           <div className="min-w-0">
             <p className="text-[9px] font-semibold text-foreground">
-              预计{formatComputeQuote(startEndEstimate.estimatedCny)}
+              {_ui("预计")}{formatComputeQuote(startEndEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
             </p>
             <p className="mt-0.5 truncate text-[8px] text-muted-foreground">
-              {startEndEstimate.durationSec}s · {startEndEstimate.resolution} ·
-              1:1 · 候选 Take
-            </p>
+              {startEndEstimate.durationSec}s · {startEndEstimate.resolution} {_ui("· 1:1 · 候选 Take")}</p>
           </div>
           <div className="flex items-center justify-end gap-1">
             <button
@@ -1044,8 +1040,8 @@ export default function ShotMaterialBasket({
               onClick={() => setStartEndEstimate(null)}
               disabled={submittingStartEnd}
               className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
-              aria-label="取消首尾帧生成"
-              title="取消"
+              aria-label={_ui("取消首尾帧生成")}
+              title={_ui("取消")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -1060,8 +1056,7 @@ export default function ShotMaterialBasket({
               ) : (
                 <Check className="h-3 w-3" />
               )}
-              确认并生成
-            </button>
+              {_ui("确认并生成")}</button>
           </div>
         </div>
       ) : null}
@@ -1075,12 +1070,12 @@ export default function ShotMaterialBasket({
               playsInline
               preload="metadata"
               className="aspect-square h-full max-h-52 w-full object-contain"
-              aria-label={`${shotLabel(shot)} 当前视频`}
+              aria-label={_ui("{0} 当前视频", [shotLabel(shot)])}
             />
           ) : shot.imageUrl ? (
             <img
               src={shot.imageUrl}
-              alt={`${shotLabel(shot)} 当前主图`}
+              alt={_ui("{0} 当前主图", [shotLabel(shot)])}
               className="aspect-square h-full max-h-52 w-full object-contain"
             />
           ) : (
@@ -1090,10 +1085,10 @@ export default function ShotMaterialBasket({
           )}
           <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-black/70 px-1.5 py-0.5 text-[8px] text-white">
             {selectedTake?.videoUrl
-              ? `${selectedTakeIsTimeline ? "已采用" : "候选"} Take ${selectedTake.id}`
+              ? `${selectedTakeIsTimeline ? _ui("已采用") : _ui("候选")} Take ${selectedTake.id}`
               : shot.imageUrl
-                ? "当前主图"
-                : "未导入画面"}
+                ? _ui("当前主图")
+                : _ui("未导入画面")}
           </span>
         </div>
         <div className="min-w-0">
@@ -1139,8 +1134,7 @@ export default function ShotMaterialBasket({
             ) : (
               <BrainCircuit className="h-3 w-3" />
             )}
-            分析图生视频
-          </button>
+            {_ui("分析图生视频")}</button>
         </div>
       </div>
       {analysisError ? (
@@ -1170,7 +1164,7 @@ export default function ShotMaterialBasket({
               ) : (
                 <Check className="h-3 w-3" />
               )}
-              {analysisApplied ? "已应用" : "应用方案"}
+              {analysisApplied ? _ui("已应用") : _ui("应用方案")}
             </button>
           </div>
           {analysis.referenceFrames.length > 0 ? (
@@ -1211,13 +1205,12 @@ export default function ShotMaterialBasket({
             ))}
           </div>
           <p className="mt-1 leading-relaxed text-muted-foreground">
-            执行提示：{analysis.analysis.cameraMotion}；
+            {_ui("执行提示：")}{analysis.analysis.cameraMotion}；
             {analysis.analysis.subjectMotion}
           </p>
           {analysis.analysis.risks.some(risk => risk.kind !== "none") ? (
             <p className="mt-1 text-amber-700">
-              风险：
-              {analysis.analysis.risks
+              {_ui("风险：")}{analysis.analysis.risks
                 .filter(risk => risk.kind !== "none")
                 .map(risk => risk.detail)
                 .join("；")}
@@ -1227,8 +1220,7 @@ export default function ShotMaterialBasket({
       ) : null}
       <div className="mt-2 grid gap-2">
         <label className="grid gap-1 text-[9px] font-medium text-muted-foreground">
-          最终提交给视频模型的提示词
-          <textarea
+          {_ui("最终提交给视频模型的提示词")}<textarea
             value={videoPrompt}
             onChange={event => {
               setVideoPrompt(event.target.value);
@@ -1241,13 +1233,12 @@ export default function ShotMaterialBasket({
             style={{ borderColor: "var(--panel-border)" }}
           />
           <span className="text-[8px] font-normal">
-            {savingPrompt ? "保存中" : promptDirty ? "未保存" : "已保存"}
+            {savingPrompt ? _ui("保存中") : promptDirty ? _ui("未保存") : _ui("已保存")}
           </span>
         </label>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[9px] font-medium text-muted-foreground">
-            运动幅度
-          </span>
+            {_ui("运动幅度")}</span>
           <div
             className="grid grid-cols-2 rounded-md border p-0.5"
             style={{ borderColor: "var(--panel-border)" }}
@@ -1264,7 +1255,7 @@ export default function ShotMaterialBasket({
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {value === "low" ? "低" : "高"}
+                {value === "low" ? _ui("低") : _ui("高")}
               </button>
             ))}
           </div>
@@ -1275,37 +1266,34 @@ export default function ShotMaterialBasket({
           className="rounded-md border px-2 py-1.5"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          首帧：
-          {hasTraceableKeyframe
+          {_ui("首帧：")}{hasTraceableKeyframe
             ? hasSelectedKeyframe
-              ? `已选 image #${shot.imageId}`
-              : "候选图待选择"
+              ? _ui("已选 image #{0}", [shot.imageId])
+              : _ui("候选图待选择")
             : recipe.sourceImageUrl
-              ? "候选图待确认"
-              : "缺失"}
+              ? _ui("候选图待确认")
+              : _ui("缺失")}
         </div>
         <div
           className="rounded-md border px-2 py-1.5"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          视频包：
-          {missing.length > 0 ? `还缺 ${missing.join(" / ")}` : "可提交"}
+          {_ui("视频包：")}{missing.length > 0 ? _ui("还缺 {0}", [missing.join(" / ")]) : _ui("可提交")}
         </div>
         <div
           className="rounded-md border px-2 py-1.5 sm:col-span-2"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          后端：
-          {!shotVideoProviderStatus
-            ? "检查配置中"
+          {_ui("后端：")}{!shotVideoProviderStatus
+            ? _ui("检查配置中")
             : providerMissing.length > 0
-              ? `缺 ${providerMissing.join(" / ")}`
+              ? _ui("缺 {0}", [providerMissing.join(" / ")])
               : providerWarnings.length > 0
-                ? `可提交；提醒 ${providerWarnings.join(" / ")} 未配置`
+                ? _ui("可提交；提醒 {0} 未配置", [providerWarnings.join(" / ")])
                 : `302 ${shotVideoProviderStatus.model} · ${
                     shotVideoProviderStatus.promptDirectorReady
-                      ? `视觉导演 ${shotVideoProviderStatus.promptDirectorModel}`
-                      : "确定性提示词"
+                      ? _ui("视觉导演 {0}", [shotVideoProviderStatus.promptDirectorModel])
+                      : _ui("确定性提示词")
                   }`}
         </div>
       </div>
@@ -1318,12 +1306,10 @@ export default function ShotMaterialBasket({
             <div className="flex items-center gap-1.5">
               <ScanLine className="h-3.5 w-3.5 text-nayin-bright" />
               <span className="text-[9px] font-semibold text-foreground">
-                四宫格选首帧
-              </span>
+                {_ui("四宫格选首帧")}</span>
             </div>
             <span className="text-[8px] text-muted-foreground">
-              选择后进入视频阶段
-            </span>
+              {_ui("选择后进入视频阶段")}</span>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {FRAME_QUADRANTS.map(quadrant => {
@@ -1337,12 +1323,12 @@ export default function ShotMaterialBasket({
                   onClick={() => void selectCandidateFrame(quadrant.value)}
                   className="group min-w-0 overflow-hidden rounded-md border bg-background text-left transition hover:border-nayin-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-65"
                   style={{ borderColor: "var(--panel-border)" }}
-                  aria-label={`选择${quadrant.label}作为当前主图`}
+                  aria-label={_ui("选择{0}作为当前主图", [quadrant.label])}
                 >
                   <div className="relative aspect-video overflow-hidden bg-black/5">
                     <img
                       src={candidateFrameUrl}
-                      alt={`${shotLabel(shot)} ${quadrant.label}候选首帧`}
+                      alt={_ui("{0} {1}候选首帧", [shotLabel(shot), quadrant.label])}
                       className="absolute object-fill transition-opacity group-hover:opacity-95"
                       style={quadrantImageStyle(quadrant.value)}
                       loading="eager"
@@ -1358,7 +1344,7 @@ export default function ShotMaterialBasket({
                       ) : selected ? (
                         <Check className="h-3 w-3" />
                       ) : null}
-                      {busy ? "保存中" : selected ? "已选" : "设为主图"}
+                      {busy ? _ui("保存中") : selected ? _ui("已选") : _ui("设为主图")}
                     </span>
                   </span>
                 </button>
@@ -1378,14 +1364,14 @@ export default function ShotMaterialBasket({
             className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[9px]"
             style={{ borderColor: "var(--panel-border)" }}
           >
-            <span className="font-semibold text-foreground">Take 总览</span>
+            <span className="font-semibold text-foreground">{_ui("Take 总览")}</span>
             <span className="text-muted-foreground">
-              可用 {takeStats.playableCount} / 全部 {takeStats.total}
+              {_ui("可用")}{" "}{takeStats.playableCount} {_ui("/ 全部")}{" "}{takeStats.total}
               {takeStats.refreshableCount > 0
-                ? ` · 待刷新 ${takeStats.refreshableCount}`
+                ? _ui(" · 待刷新 {0}", [takeStats.refreshableCount])
                 : ""}
               {takeStats.unavailable.length > 0
-                ? ` · 不可用 ${takeStats.unavailable.length}`
+                ? _ui(" · 不可用 {0}", [takeStats.unavailable.length])
                 : ""}
             </span>
           </div>
@@ -1396,18 +1382,15 @@ export default function ShotMaterialBasket({
               className="rounded-md border px-2 py-1.5 text-[9px] text-muted-foreground"
               style={{ borderColor: "var(--panel-border)" }}
             >
-              当前没有可用或待刷新的 Take；不可用 Take
-              已收起，不再占用可用位置。
-            </p>
+              {_ui("当前没有可用或待刷新的 Take；不可用 Take 已收起，不再占用可用位置。")}</p>
           )}
           {takeStats.unavailable.length > 0 ? (
             <details className="rounded-md border px-2 py-1.5 text-[9px] text-muted-foreground">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1">
                   <ChevronDown className="h-3 w-3" />
-                  不可用 Take
-                </span>
-                <span>{takeStats.unavailable.length} 个，不占用可用位</span>
+                  {_ui("不可用 Take")}</span>
+                <span>{takeStats.unavailable.length} {_ui("个，不占用可用位")}</span>
               </summary>
               <div className="mt-1.5 space-y-1.5">
                 {takeStats.unavailable.map(take => renderTakeCard(take, false))}
@@ -1420,8 +1403,7 @@ export default function ShotMaterialBasket({
           className="mt-2 rounded-md border px-2 py-1.5 text-[9px] text-muted-foreground"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          还没有视频 take。先确认首帧和视频提示，再从这里提交。
-        </p>
+          {_ui("还没有视频 take。先确认首帧和视频提示，再从这里提交。")}</p>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Database, Focus, LayoutGrid, ListFilter, Share2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
@@ -46,6 +47,7 @@ function messageOf(error: unknown, fallback: string) {
 }
 
 export default function PromptTablePanel() {
+  const _ui = useDesktopUiText();
   const {
     activeStoryId,
     shots,
@@ -545,7 +547,7 @@ export default function PromptTablePanel() {
       className={`creation-board-panel flex h-full min-h-0 flex-col overflow-hidden ${
         storyImageDragOver ? "ring-2 ring-primary/50" : ""
       }`}
-      aria-label="镜头设计表"
+      aria-label={_ui("镜头设计表")}
       data-testid="analysis-prompt-table-panel"
       // 表和时间轴读同一份镜头数据：图挂到这一镜，时间轴上同一镜也跟着换。
       onDragOver={event => {
@@ -573,7 +575,7 @@ export default function PromptTablePanel() {
       <div className="creation-board-panel-header shrink-0 justify-between">
         <div className="creation-board-panel-title">
           <ListFilter className="creation-board-panel-icon" />
-          <h2 className="creation-board-panel-title-text">镜头设计表</h2>
+          <h2 className="creation-board-panel-title-text">{_ui("镜头设计表")}</h2>
         </div>
         <span className="creation-board-panel-status">
           {shotLabel(selectedShot)}
@@ -610,12 +612,12 @@ export default function PromptTablePanel() {
                 }
               }}
             >
-              <span>拖入本地视频作为参考，让出图和视频风格一致</span>
+              <span>{_ui("拖入本地视频作为参考，让出图和视频风格一致")}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
               <span className="truncate text-muted-foreground">
-                参考视频：{localVideoRef.file.name}
+                {_ui("参考视频：")}{localVideoRef.file.name}
               </span>
               <button
                 type="button"
@@ -631,7 +633,7 @@ export default function PromptTablePanel() {
           )}
           {referenceOptions.length > 0 || currentShotVideoUrl ? (
             <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="text-muted-foreground">或选已有镜头：</span>
+              <span className="text-muted-foreground">{_ui("或选已有镜头：")}</span>
               <select
                 value={referenceShotNo ?? ""}
                 onChange={e => {
@@ -642,7 +644,7 @@ export default function PromptTablePanel() {
                 className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
               >
                 <option value="">
-                  {currentShotVideoUrl ? "本镜视频（默认）" : "不使用"}
+                  {currentShotVideoUrl ? _ui("本镜视频（默认）") : _ui("不使用")}
                 </option>
                 {referenceOptions.map(s => {
                   const ms = materialState?.shots.find(item =>
@@ -673,15 +675,13 @@ export default function PromptTablePanel() {
                 })}
               </select>
               {extractingFrame ? (
-                <span className="text-muted-foreground">正在从视频取帧…</span>
+                <span className="text-muted-foreground">{_ui("正在从视频取帧…")}</span>
               ) : referenceShotNo != null ? (
                 <span className="text-muted-foreground">
-                  → FLUX Kontext 保持角色一致
-                </span>
+                  {_ui("→ FLUX Kontext 保持角色一致")}</span>
               ) : currentShotVideoUrl ? (
                 <span className="text-muted-foreground">
-                  → 默认跟随本镜视频
-                </span>
+                  {_ui("→ 默认跟随本镜视频")}</span>
               ) : null}
             </div>
           ) : null}
@@ -694,7 +694,7 @@ export default function PromptTablePanel() {
       >
         {error ? (
           <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error.message || "加载镜头设计表失败"}
+            {error.message || _ui("加载镜头设计表失败")}
           </div>
         ) : null}
         {panelError ? (
@@ -704,12 +704,10 @@ export default function PromptTablePanel() {
         ) : null}
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            正在加载镜头设计表…
-          </div>
+            {_ui("正在加载镜头设计表…")}</div>
         ) : shots.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            生成故事版后，镜头设计表会出现在这里。
-          </div>
+            {_ui("生成故事版后，镜头设计表会出现在这里。")}</div>
         ) : (
           <>
             {promptLineageMode === "lineage" && promptProjection ? (
@@ -766,30 +764,28 @@ export default function PromptTablePanel() {
 
             {selectedShot ? (
               <div className="mb-3 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
-                <div className="font-semibold text-foreground">图片 / 视频生成资产</div>
+                <div className="font-semibold text-foreground">{_ui("图片 / 视频生成资产")}</div>
                 {selectedShotAssetLabels.length > 0 ? (
                   <div className="mt-1 text-muted-foreground">
                     {selectedShotAssetLabels.join("　")}
-                    <span className="ml-1 font-medium text-foreground">本镜图片和视频将共同使用这些锁定版本。</span>
+                    <span className="ml-1 font-medium text-foreground">{_ui("本镜图片和视频将共同使用这些锁定版本。")}</span>
                   </div>
                 ) : (
                   <div className="mt-1 text-muted-foreground">
-                    本镜尚未关联资产。到“素材仓库 → 资产”选择当前镜头，关联人物、宠物、场景和美术风格；关联一次即可同时用于图片和视频。
-                  </div>
+                    {_ui("本镜尚未关联资产。到“素材仓库 → 资产”选择当前镜头，关联人物、宠物、场景和美术风格；关联一次即可同时用于图片和视频。")}</div>
                 )}
               </div>
             ) : null}
 
             <div className="mb-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {promptLineageMode === "lineage"
-                ? "当前镜头已切到统一提示词数据库。先预览并确认修订，再单独重渲图片。"
-                : "当前还是兼容模式。首次确认修订后，这个镜头会切到统一提示词数据库。"}
+                ? _ui("当前镜头已切到统一提示词数据库。先预览并确认修订，再单独重渲图片。")
+                : _ui("当前还是兼容模式。首次确认修订后，这个镜头会切到统一提示词数据库。")}
             </div>
             {promptLineageMode === "lineage" && selectedShot ? (
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-3">
                 <span className="text-xs font-medium text-foreground">
-                  修改范围
-                </span>
+                  {_ui("修改范围")}</span>
                 <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
                   <button
                     type="button"
@@ -801,7 +797,7 @@ export default function PromptTablePanel() {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Focus className="h-3.5 w-3.5" />仅{" "}
+                    <Focus className="h-3.5 w-3.5" />{_ui("仅")}{" "}
                     {shotLabel(selectedShot)}
                   </button>
                   <button
@@ -815,8 +811,7 @@ export default function PromptTablePanel() {
                     }`}
                   >
                     <Share2 className="h-3.5 w-3.5" />
-                    共享范围
-                  </button>
+                    {_ui("共享范围")}</button>
                 </div>
               </div>
             ) : null}
@@ -831,12 +826,10 @@ export default function PromptTablePanel() {
               <TabsList className="mb-3 grid w-full grid-cols-2">
                 <TabsTrigger value="cards">
                   <LayoutGrid className="h-4 w-4" />
-                  配方卡片
-                </TabsTrigger>
+                  {_ui("配方卡片")}</TabsTrigger>
                 <TabsTrigger value="database">
                   <Database className="h-4 w-4" />
-                  数据库视图
-                </TabsTrigger>
+                  {_ui("数据库视图")}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="cards" className="min-h-0">
@@ -851,7 +844,7 @@ export default function PromptTablePanel() {
                     rerenderingShotNos.includes(selectedShotNo)
                   }
                   applyLabel={
-                    promptLineageMode === "lineage" ? "预览影响" : "应用"
+                    promptLineageMode === "lineage" ? _ui("预览影响") : _ui("应用")
                   }
                   rerenderStrategy={
                     promptLineageMode === "lineage"
@@ -930,8 +923,7 @@ export default function PromptTablePanel() {
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center rounded-md border border-border/70 bg-muted/20 px-4 text-sm text-muted-foreground">
-                    这个镜头还在兼容模式。先在左侧配方卡片里确认一次修订，再回来查看数据库视图。
-                  </div>
+                    {_ui("这个镜头还在兼容模式。先在左侧配方卡片里确认一次修订，再回来查看数据库视图。")}</div>
                 )}
               </TabsContent>
             </Tabs>

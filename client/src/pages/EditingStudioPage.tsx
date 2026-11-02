@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { BOOK_MUSIC_OPEN } from "@/features/publishingAlbum/BookMusicInsert";
 import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import { DesktopMemorySpace } from "@/features/memorySpace/DesktopMemorySpace";
@@ -98,6 +99,7 @@ function ExportButton({
   storyId: number | null;
   pendingStoryRequestId: number | null;
 }) {
+  const _ui = useDesktopUiText();
   const { visualTheme } = useNayin();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
@@ -177,7 +179,7 @@ function ExportButton({
           <Clapperboard className="h-4 w-4" />
         )}
         <span className="shiguang-nav-label">
-          {exporting ? "合成中…" : "导出成片"}
+          {exporting ? _ui("合成中…") : _ui("导出成片")}
         </span>
       </button>
       {exportError?.storyId === exportStoryId && (
@@ -229,6 +231,7 @@ function EditingStudioBody({
   onMaterialVisibleChange: (visible: boolean) => void;
   pendingStoryRequestId: number | null;
 }) {
+  const _ui = useDesktopUiText();
   const activeStoryId = useActiveStoryId();
   const storyShotCount = useStorySpine(state => state.storyShots.length);
   const { publishingBuffers } = useStoryAgent();
@@ -484,8 +487,8 @@ function EditingStudioBody({
               type="button"
               onClick={() => setChatCollapsed(value => !value)}
               className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-              aria-label={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
-              title={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
+              aria-label={chatCollapsed ? _ui("展开聊聊") : _ui("折叠聊聊")}
+              title={chatCollapsed ? _ui("展开聊聊") : _ui("折叠聊聊")}
             >
               {chatCollapsed ? (
                 <PanelLeftOpen className="h-4 w-4" />
@@ -555,14 +558,14 @@ function EditingStudioBody({
                 workspace === "editing" ? "editing-nle" : workspace
               }
               aria-label={
-                STUDIO_WORKSPACE_OPTIONS.find(option => option.id === workspace)
-                  ?.label
+                _ui(STUDIO_WORKSPACE_OPTIONS.find(option => option.id === workspace)
+                  ?.label ?? "")
               }
             >
               {workspace === "editing" && (
                 <div
                   className="flex shrink-0 items-start justify-end gap-3 border-b border-border px-4 py-2"
-                  aria-label="视频导出操作"
+                  aria-label={_ui("视频导出操作")}
                 >
                   <VideoVersionHistory key={activeStoryId} storyId={activeStoryId} disabled={pendingStoryRequestId !== null} />
                   <ExportButton
@@ -593,20 +596,18 @@ function EditingStudioBody({
           ) : (
             <div
               className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground"
-              aria-label="未选择故事"
+              aria-label={_ui("未选择故事")}
             >
-              从左侧打开一个故事，预览播放器和时间轴会显示在这里；
-              直接在对话里说想怎么剪，聊聊会帮你动手。
-            </div>
+              {_ui("从左侧打开一个故事，预览播放器和时间轴会显示在这里； 直接在对话里说想怎么剪，聊聊会帮你动手。")}</div>
           )}
           </div>
           {materialVisible && pendingStoryRequestId === null && (
             activeStoryId !== null ? <MaterialWarehousePanel key={activeStoryId}
               variant="drawer" videoActions={workspace === "editing"} insertIntoLayout={workspace === "images"}
               onClose={() => onMaterialVisibleChange(false)} />
-            : <section id="editing-material-warehouse" aria-label="素材仓库抽屉" className="flex min-h-32 items-center justify-between gap-3 border-t p-4 text-sm text-muted-foreground">
-                <span>先打开一个故事，就能使用它的图片、视频和资产。</span>
-                <button type="button" onClick={() => onMaterialVisibleChange(false)}>收起仓库</button>
+            : <section id="editing-material-warehouse" aria-label={_ui("素材仓库抽屉")} className="flex min-h-32 items-center justify-between gap-3 border-t p-4 text-sm text-muted-foreground">
+                <span>{_ui("先打开一个故事，就能使用它的图片、视频和资产。")}</span>
+                <button type="button" onClick={() => onMaterialVisibleChange(false)}>{_ui("收起仓库")}</button>
               </section>
           )}
         </div>
@@ -617,38 +618,32 @@ function EditingStudioBody({
       >
         <DialogContent showCloseButton>
           <DialogHeader>
-            <DialogTitle>这篇文字稿还有未应用修改</DialogTitle>
+            <DialogTitle>{_ui("这篇文字稿还有未应用修改")}</DialogTitle>
             <DialogDescription>
-              你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个
-              Story。
-            </DialogDescription>
+              {_ui("你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个 Story。")}</DialogDescription>
           </DialogHeader>
           <p className="text-xs leading-5 text-muted-foreground">
-            回到文字稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。
-          </p>
+            {_ui("回到文字稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。")}</p>
           <DialogFooter>
             <button
               type="button"
               onClick={() => setPendingStoryAction(null)}
               className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground"
             >
-              留在这里
-            </button>
+              {_ui("留在这里")}</button>
             <button
               type="button"
               onClick={discardAndLeave}
               className="h-9 rounded-md border px-3 text-xs text-rose-700"
             >
-              丢弃修改并离开
-            </button>
+              {_ui("丢弃修改并离开")}</button>
             <button
               type="button"
               onClick={leaveWithDrafts}
               className="h-9 rounded-md px-3 text-xs font-medium text-background"
               style={{ background: "var(--nayin-accent)" }}
             >
-              保留修改，稍后应用
-            </button>
+              {_ui("保留修改，稍后应用")}</button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -657,6 +652,7 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
+  const _ui = useDesktopUiText();
   const { visualTheme } = useNayin();
   const { user } = useAuth();
   const { currentProjectId } = useProjectData();
@@ -829,7 +825,7 @@ export default function EditingStudioPage() {
           <>
           <button
             type="button"
-            aria-label="打开账号回忆"
+            aria-label={_ui("打开账号回忆")}
             aria-haspopup="dialog"
             aria-expanded={accountMemoriesOpen}
             aria-controls="account-memories"
@@ -840,9 +836,9 @@ export default function EditingStudioPage() {
             {visualTheme === "shiguang" ? (
               <img src="/shiguang/nav-memory-watercolor.png" alt="" aria-hidden="true" className="shiguang-nav-illustration" />
             ) : null}
-            <span className="shiguang-nav-label">回忆</span>
+            <span className="shiguang-nav-label">{_ui("回忆")}</span>
           </button>
-          <button type="button" aria-label="打开仓库" aria-pressed={materialVisible}
+          <button type="button" aria-label={_ui("打开仓库")} aria-pressed={materialVisible}
             aria-controls="editing-material-warehouse" data-testid="topbar-warehouse-toggle"
             disabled={pendingStoryRequestId !== null}
             className="shiguang-toolbar-button inline-flex min-h-[32px] items-center rounded-sm px-2.5 font-sans text-[12px] font-bold tracking-[0.08em] transition-colors hover:brightness-110 focus-visible:outline-primary sm:min-w-[92px]"
@@ -851,7 +847,7 @@ export default function EditingStudioPage() {
             {visualTheme === "shiguang" ? (
               <img src="/shiguang/nav-warehouse-watercolor.webp" alt="" aria-hidden="true" className="shiguang-nav-illustration" />
             ) : null}
-            <span className="shiguang-nav-label">仓库</span>
+            <span className="shiguang-nav-label">{_ui("仓库")}</span>
           </button>
           </>
         }

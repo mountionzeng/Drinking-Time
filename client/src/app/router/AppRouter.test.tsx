@@ -13,6 +13,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => auth,
 }));
 vi.mock("@/pages/CreationPage", () => ({ default: () => "creation" }));
+vi.mock("@/features/shiguang/WechatImportPrompt", () => ({ default: () => null }));
 vi.mock("@/pages/EditingStudioPage", () => ({
   default: () => "desktop-editing",
 }));

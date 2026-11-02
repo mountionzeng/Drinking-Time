@@ -1,3 +1,5 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { registerDraftRecovery, readRecoveredDraft, clearRecoveredDraft, updateRecoveredDraft } from "@/features/appVersion/draftRecovery";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import { restoreWritingBlocks, writingStyleOf } from "./chapterBlockTree";
 import { ChapterTextModules } from "./ChapterTextModules";
@@ -21,6 +23,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   chapter: Chapter; scope: string; handle: MutableRefObject<ChapterWritingHandle | null>;
   save(draft: Omit<Draft, 'baseVersion'> & { autosave?: boolean }): Promise<unknown>; onChange(draft: Draft): void; disabled: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const module = useRef<LayoutModuleContext | null>(null);
   const contextScope = `${scope}:chapter:${chapter.id}`;
   const onContextChange = useCallback((context: LayoutModuleContext | null) => {
@@ -31,7 +34,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   const key = `chapter-writing:${scope}:${chapter.id}`;
   const [draft, setDraft] = useState<Draft>(() => {
     try {
-      const restored=restoreChapterWritingDraft(localStorage.getItem(key), {title:chapter.title,body:chapter.blocks.body,version:chapter.version,writingStyle:chapter.blocks.writingStyle});
+      const restored=restoreChapterWritingDraft(readRecoveredDraft(scope, chapter.id) ?? localStorage.getItem(key), {title:chapter.title,body:chapter.blocks.body,version:chapter.version,writingStyle:chapter.blocks.writingStyle});
       // Migrate a matching legacy local format only when the server has no formatting yet.
       if (!restored.writingStyle && !chapter.blocks.writingStyle && restored.body===chapter.blocks.body) {
         const raw=JSON.parse(localStorage.getItem(`chapter-block-formats:${scope}:${chapter.id}`) ?? 'null');
@@ -51,6 +54,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   if (chapter.version > acknowledged.current.version) acknowledged.current = chapter;
   const pending = useRef<Promise<void> | null>(null);
   const draftRef = useRef(draft); draftRef.current = draft;
+  useEffect(() => registerDraftRecovery(() => ({ scope, chapterId: chapter.id, storyId: chapter.storyId, raw: JSON.stringify(draftRef.current) })), [scope, chapter.id, chapter.storyId]);
   const dirty = draft.title !== chapter.title || draft.body !== chapter.blocks.body || !sameWritingStyle(draft.writingStyle,chapter.blocks.writingStyle) || Boolean(draft.changeNote?.trim());
   function prepare(autosave = false): Promise<void> {
     if (pending.current) return pending.current.then(() => prepare(autosave));
@@ -60,6 +64,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     if (draftNeedsVersionReview(current, {title:saved.title,body:saved.blocks.body,version:saved.version,writingStyle:saved.blocks.writingStyle}) && !(reviewedVersion !== undefined && reviewedVersion >= saved.version)) {
       return Promise.reject(new Error('这份本机草稿来自较早或未知版本。请打开“版本”与最新稿对照，再保存；两份内容都还保留着。'));
     }
+    const recoveryAtSave = readRecoveredDraft(scope, chapter.id);
     setSaving(true);
     const task = save({title:current.title, body:current.body, ...(autosave ? {autosave:true} : {}), ...(current.writingStyle ? {writingStyle:current.writingStyle} : {}), ...(current.changeNote !== undefined ? {changeNote:current.changeNote} : {})}).then(result => {
       const savedChapter = result as Chapter | undefined;
@@ -73,6 +78,8 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       setError('');
       setBackupError('');
       try {
+        if (recoveryAtSave) clearRecoveredDraft(scope, chapter.id, recoveryAtSave);
+        updateRecoveredDraft(scope, chapter.id, JSON.stringify(draftRef.current));
         const cached = JSON.parse(localStorage.getItem(key) ?? 'null');
         if (cached?.title === current.title && cached?.body === current.body && cached?.changeNote === current.changeNote && sameWritingStyle(cached?.writingStyle,current.writingStyle)) localStorage.removeItem(key);
         else if (savedChapter?.version && cached?.title === draftRef.current.title && cached?.body === draftRef.current.body && sameWritingStyle(cached?.writingStyle,draftRef.current.writingStyle)) localStorage.setItem(key,JSON.stringify(draftRef.current));
@@ -128,10 +135,10 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     const matchesSaved = current.title === saved.title && current.body === saved.blocks.body && sameWritingStyle(current.writingStyle,saved.blocks.writingStyle);
     next = {...next,baseVersion:matchesSaved ? saved.version : current.baseVersion};
     draftRef.current = next; setDraft(next);
-    try { localStorage.setItem(key, JSON.stringify(next)); setError(''); setBackupError(''); }
+    try { localStorage.setItem(key, JSON.stringify(next)); updateRecoveredDraft(scope, chapter.id, JSON.stringify(next)); setError(''); setBackupError(''); }
     catch { setError(''); setBackupError('本机备份暂不可用，正在尝试保存到账号。'); }
   }
-  return <section aria-label="章节写作" className="space-y-4">
+  return <section aria-label={_ui("章节写作")} className="space-y-4">
     <DesktopWritingContext storyId={chapter.storyId} applyGenerated={async (body, expected) => {
       const assertUnchanged = () => {
         if (disabled || expected.scope !== contextScope || draftRef.current.body !== expected.draft)
@@ -149,11 +156,11 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       const end = selection.current?.end ?? start;
       return { draft: body, module: module.current?.scope === contextScope ? module.current : undefined, cursor: start, ...(end > start ? { selection: { start, end } } : {}), scope: contextScope };
     }} />
-    <span role="status" className="sr-only">{saving ? '正在自动保存' : dirty ? '等待自动保存' : '已保存'}</span>
-    <input aria-label="章节标题" maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />
-    <ChapterTextModules prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
-    <details><summary className="cursor-pointer text-xs text-muted-foreground">修改说明（选填）</summary><textarea aria-label="修改说明（选填）" maxLength={500} disabled={disabled} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draft, changeNote: e.target.value })} placeholder="由你自己填写；留空就不显示。" /></details>
-    {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>重试保存</button></p>}
+    <span role="status" className="sr-only">{saving ? _ui("正在自动保存") : dirty ? _ui("等待自动保存") : _ui("已保存")}</span>
+    <input aria-label={_ui("章节标题")} maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />
+    <ChapterTextModules importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
+    <details><summary className="cursor-pointer text-xs text-muted-foreground">{_ui("修改说明（选填）")}</summary><textarea aria-label={_ui("修改说明（选填）")} maxLength={500} disabled={disabled} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draft, changeNote: e.target.value })} placeholder={_ui("由你自己填写；留空就不显示。")} /></details>
+    {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}
 
   </section>;
 }

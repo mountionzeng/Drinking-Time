@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Film, Library, ListPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,6 +33,7 @@ type AnimaticPanelProps = {
 export default function AnimaticPanel({
   layout = "embedded",
 }: AnimaticPanelProps) {
+  const _ui = useDesktopUiText();
   const isStudioLayout = layout === "studio";
   const { setActiveSelection } = useStoryAgentActions();
   const {
@@ -238,7 +240,7 @@ export default function AnimaticPanel({
   return (
     <section
       className="creation-board-panel relative flex h-full min-h-0 flex-col overflow-hidden"
-      aria-label="动态分镜"
+      aria-label={_ui("动态分镜")}
       data-testid="analysis-animatic-panel"
       data-layout={layout}
       onPointerEnter={() => {
@@ -251,7 +253,7 @@ export default function AnimaticPanel({
       <div className="creation-board-panel-header justify-between">
         <div className="creation-board-panel-title">
           <Film className="creation-board-panel-icon" />
-          <h2 className="creation-board-panel-title-text">动态分镜</h2>
+          <h2 className="creation-board-panel-title-text">{_ui("动态分镜")}</h2>
         </div>
         <div className="flex items-center gap-2">
           <span className="creation-board-panel-status">
@@ -261,8 +263,8 @@ export default function AnimaticPanel({
             type="button"
             onClick={() => setMaterialDrawerOpen(true)}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-            aria-label="打开素材库"
-            title="素材库"
+            aria-label={_ui("打开素材库")}
+            title={_ui("素材库")}
           >
             <Library className="h-4 w-4" />
           </button>
@@ -278,34 +280,30 @@ export default function AnimaticPanel({
       >
         {error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error.message || "加载动态分镜失败"}
+            {error.message || _ui("加载动态分镜失败")}
           </div>
         ) : null}
 
         {isLoading ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            正在加载动态分镜…
-          </div>
+            {_ui("正在加载动态分镜…")}</div>
         ) : shots.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            生成故事版后，动态分镜会出现在这里。
-          </div>
+            {_ui("生成故事版后，动态分镜会出现在这里。")}</div>
         ) : (
           <>
             {selectedShot && !selectedShotIsOnTimeline ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">
-                  当前查看 {shotLabel(selectedShot)}
-                  ，还没放进剪辑时间轴。
-                </span>
+                  {_ui("当前查看")}{" "}{shotLabel(selectedShot)}
+                  {_ui("，还没放进剪辑时间轴。")}</span>
                 <button
                   type="button"
                   onClick={addSelectedShotToTimeline}
                   className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-background px-2.5 font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <ListPlus className="h-3.5 w-3.5" />
-                  加入时间轴
-                </button>
+                  {_ui("加入时间轴")}</button>
               </div>
             ) : null}
             <div

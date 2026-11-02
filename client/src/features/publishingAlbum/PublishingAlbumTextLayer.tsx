@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useId } from "react";
 import type { PublishingAlbumLayoutPlan } from "./publishingAlbumLayout";
 export function PublishingAlbumTextLayer({
@@ -7,13 +8,14 @@ export function PublishingAlbumTextLayer({
   plan: PublishingAlbumLayoutPlan;
   canvas: { width: number; height: number };
 }) {
+  const _ui = useDesktopUiText();
   const pathId = `album-text-path-${useId().replace(/:/g, "")}`;
   return (
     <svg
       className="absolute inset-0 h-full w-full"
       viewBox={`0 0 ${canvas.width} ${canvas.height}`}
       role="img"
-      aria-label="中文文字排版层"
+      aria-label={_ui("中文文字排版层")}
     >
       {plan.svgPath ? <path id={pathId} d={plan.svgPath} fill="none" /> : null}
       {plan.graphemes.map(glyph =>

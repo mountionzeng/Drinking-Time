@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * StoryListView -- Shows all stories for the user.
  * Displayed in the story tab before a story is selected.
@@ -52,6 +53,7 @@ type ChatCutImportPreview = {
 };
 
 export default function StoryListView() {
+  const _ui = useDesktopUiText();
   const {
     storyList,
     isLoadingStories,
@@ -149,7 +151,7 @@ export default function StoryListView() {
         type="file"
         accept=".xml,text/xml,application/xml"
         className="sr-only"
-        aria-label="选择 ChatCut XML"
+        aria-label={_ui("选择 ChatCut XML")}
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = '';
@@ -158,7 +160,7 @@ export default function StoryListView() {
       />
       <div className="monitor-panel-header">
         <div className="status-dot" />
-        <span>故事列表</span>
+        <span>{_ui("故事列表")}</span>
         <span
           className="ml-2 hidden items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground sm:inline-flex"
           style={{
@@ -167,16 +169,15 @@ export default function StoryListView() {
           }}
         >
           <Cloud className="h-2.5 w-2.5" />
-          当前账号 · 云端故事库
-        </span>
+          {_ui("当前账号 · 云端故事库")}</span>
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={chooseXml}
             disabled={inspectXml.isPending}
             className="flex h-6 w-6 items-center justify-center opacity-70 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-40"
-            aria-label="导入 ChatCut XML"
-            title="导入 ChatCut XML"
+            aria-label={_ui("导入 ChatCut XML")}
+            title={_ui("导入 ChatCut XML")}
           >
             {inspectXml.isPending ? (
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -188,8 +189,8 @@ export default function StoryListView() {
             type="button"
             onClick={createNewStory}
             className="flex h-6 w-6 items-center justify-center opacity-70 hover:opacity-100 transition-opacity"
-            aria-label="新建故事"
-            title="新建故事"
+            aria-label={_ui("新建故事")}
+            title={_ui("新建故事")}
           >
             <Plus className="w-3 h-3" />
           </button>
@@ -200,14 +201,14 @@ export default function StoryListView() {
         {isLoadingStories && storyList.length === 0 && (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            <span className="text-xs">加载中...</span>
+            <span className="text-xs">{_ui("加载中...")}</span>
           </div>
         )}
 
         {!isLoadingStories && storyList.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
             <BookOpen className="w-8 h-8 opacity-30" />
-            <p className="text-xs">还没有故事</p>
+            <p className="text-xs">{_ui("还没有故事")}</p>
             <button
               type="button"
               onClick={createNewStory}
@@ -217,8 +218,7 @@ export default function StoryListView() {
                 color: 'var(--background)',
               }}
             >
-              开始第一个故事
-            </button>
+              {_ui("开始第一个故事")}</button>
           </div>
         )}
 
@@ -230,8 +230,7 @@ export default function StoryListView() {
             style={{ borderColor: 'var(--panel-border)' }}
           >
             <p className="text-sm font-medium leading-snug mb-2">
-              继续上次没聊完的，还是开个新的？
-            </p>
+              {_ui("继续上次没聊完的，还是开个新的？")}</p>
             <button
               type="button"
               onClick={createNewStory}
@@ -240,29 +239,26 @@ export default function StoryListView() {
                 background: 'var(--nayin-accent)',
                 color: 'var(--background)',
               }}
-              title="从头说一件新的小事"
+              title={_ui("从头说一件新的小事")}
             >
               <Plus className="w-3.5 h-3.5" />
-              开始新故事
-            </button>
+              {_ui("开始新故事")}</button>
             <button
               type="button"
               onClick={chooseXml}
               disabled={inspectXml.isPending}
               className="mt-2 w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors hover:border-[var(--nayin-accent)] disabled:cursor-wait disabled:opacity-50"
               style={{ borderColor: 'var(--panel-border)' }}
-              title="从 ChatCut 或 Premiere XML 建立可编辑故事"
+              title={_ui("从 ChatCut 或 Premiere XML 建立可编辑故事")}
             >
               {inspectXml.isPending ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
                 <FileUp className="w-3.5 h-3.5" />
               )}
-              导入 ChatCut XML
-            </button>
+              {_ui("导入 ChatCut XML")}</button>
             <p className="text-[10px] text-muted-foreground leading-snug mt-2">
-              或点下面任意一篇，接着上次聊。
-            </p>
+              {_ui("或点下面任意一篇，接着上次聊。")}</p>
           </div>
         )}
 
@@ -314,7 +310,7 @@ export default function StoryListView() {
                           setEditingStoryTitle(null);
                         }
                       }}
-                      aria-label={`修改「${story.title || '未命名故事'}」的故事名称`}
+                      aria-label={_ui("修改「{0}」的故事名称", [story.title || _ui("未命名故事")])}
                       className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-xs font-medium outline-none focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-glow)]"
                       style={{ borderColor: 'var(--panel-border)' }}
                     />
@@ -326,8 +322,8 @@ export default function StoryListView() {
                       }}
                       disabled={renameStory.isPending}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--nayin-accent-bright)] transition-colors hover:bg-[var(--nayin-glow)] disabled:opacity-40"
-                      aria-label="保存故事名称"
-                      title="保存"
+                      aria-label={_ui("保存故事名称")}
+                      title={_ui("保存")}
                     >
                       {renameStory.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -342,8 +338,8 @@ export default function StoryListView() {
                         setEditingStoryTitle(null);
                       }}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted"
-                      aria-label="取消修改故事名称"
-                      title="取消"
+                      aria-label={_ui("取消修改故事名称")}
+                      title={_ui("取消")}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -351,7 +347,7 @@ export default function StoryListView() {
                 ) : (
                   <div className="flex min-w-0 items-center gap-1.5">
                     <h3 className="min-w-0 flex-1 truncate text-xs font-medium">
-                      {story.title || '未命名故事'}
+                      {story.title || _ui("未命名故事")}
                     </h3>
                     <button
                       type="button"
@@ -363,12 +359,11 @@ export default function StoryListView() {
                         });
                       }}
                       className="flex h-6 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:bg-[var(--nayin-glow)] hover:text-[var(--nayin-accent-bright)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
-                      aria-label={`修改「${story.title || '未命名故事'}」的故事名称`}
-                      title="修改故事名称"
+                      aria-label={_ui("修改「{0}」的故事名称", [story.title || _ui("未命名故事")])}
+                      title={_ui("修改故事名称")}
                     >
                       <Pencil className="h-3 w-3" />
-                      改名
-                    </button>
+                      {_ui("改名")}</button>
                   </div>
                 )}
                 {story.logline && (
@@ -377,12 +372,12 @@ export default function StoryListView() {
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground font-mono">
-                  <span>云端 #{story.id}</span>
+                  <span>{_ui("云端 #")}{story.id}</span>
                   {(story.cardCount ?? 0) > 0 && (
-                    <span>{story.cardCount} 卡片</span>
+                    <span>{story.cardCount} {_ui("卡片")}</span>
                   )}
                   {(story.shotCount ?? 0) > 0 && (
-                    <span>{story.shotCount} 镜头</span>
+                    <span>{story.shotCount} {_ui("镜头")}</span>
                   )}
                   {story.updatedAt && (
                     <span>{formatDate(story.updatedAt)}</span>
@@ -398,8 +393,8 @@ export default function StoryListView() {
                   }
                 }}
                 className="p-1 opacity-50 transition-opacity hover:!opacity-100 sm:opacity-0 sm:group-hover:opacity-50"
-                aria-label={`删除「${story.title || '未命名故事'}」`}
-                title="删除"
+                aria-label={_ui("删除「{0}」", [story.title || _ui("未命名故事")])}
+                title={_ui("删除")}
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -418,15 +413,14 @@ export default function StoryListView() {
           {importPreview ? (
             <>
               <DialogHeader>
-                <DialogTitle className="text-base">导入 ChatCut 时间轴</DialogTitle>
+                <DialogTitle className="text-base">{_ui("导入 ChatCut 时间轴")}</DialogTitle>
                 <DialogDescription className="text-xs">
                   {importPreview.fileName}
                 </DialogDescription>
               </DialogHeader>
 
               <label className="grid gap-1.5 text-xs font-medium">
-                故事名称
-                <input
+                {_ui("故事名称")}<input
                   value={importPreview.title}
                   onChange={(event) =>
                     setImportPreview((current) =>
@@ -441,64 +435,54 @@ export default function StoryListView() {
               <dl className="grid grid-cols-2 gap-x-5 gap-y-3 border-y border-border/70 py-4 text-xs sm:grid-cols-3">
                 <div>
                   <dt className="flex items-center gap-1 text-muted-foreground">
-                    <Film className="h-3.5 w-3.5" /> 时长
-                  </dt>
+                    <Film className="h-3.5 w-3.5" /> {_ui("时长")}</dt>
                   <dd className="mt-1 font-medium tabular-nums">
-                    {(importPreview.summary.durationMs / 1000).toFixed(1)} 秒
-                  </dd>
+                    {(importPreview.summary.durationMs / 1000).toFixed(1)} {_ui("秒")}</dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-1 text-muted-foreground">
-                    <Ratio className="h-3.5 w-3.5" /> 画布
-                  </dt>
+                    <Ratio className="h-3.5 w-3.5" /> {_ui("画布")}</dt>
                   <dd className="mt-1 font-medium tabular-nums">
                     {importPreview.summary.width}×{importPreview.summary.height}
                   </dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-1 text-muted-foreground">
-                    <Layers3 className="h-3.5 w-3.5" /> 视频轨
-                  </dt>
+                    <Layers3 className="h-3.5 w-3.5" /> {_ui("视频轨")}</dt>
                   <dd className="mt-1 font-medium">
-                    {importPreview.summary.videoTrackCount} 轨 ·{' '}
-                    {importPreview.summary.primaryClipCount} 镜
-                  </dd>
+                    {importPreview.summary.videoTrackCount} {_ui("轨 ·")}{' '}
+                    {importPreview.summary.primaryClipCount} {_ui("镜")}</dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-1 text-muted-foreground">
-                    <Music2 className="h-3.5 w-3.5" /> 音频
-                  </dt>
+                    <Music2 className="h-3.5 w-3.5" /> {_ui("音频")}</dt>
                   <dd className="mt-1 font-medium">
-                    {importPreview.summary.audioTrackCount} 轨 ·{' '}
-                    {importPreview.summary.audioClipCount} 段
-                  </dd>
+                    {importPreview.summary.audioTrackCount} {_ui("轨 ·")}{' '}
+                    {importPreview.summary.audioClipCount} {_ui("段")}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">帧率</dt>
+                  <dt className="text-muted-foreground">{_ui("帧率")}</dt>
                   <dd className="mt-1 font-medium tabular-nums">
                     {importPreview.summary.fps} fps
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">素材文件</dt>
+                  <dt className="text-muted-foreground">{_ui("素材文件")}</dt>
                   <dd className="mt-1 font-medium">
-                    {importPreview.summary.mediaFileCount} 个
-                  </dd>
+                    {importPreview.summary.mediaFileCount} {_ui("个")}</dd>
                 </div>
               </dl>
 
               <div className="flex gap-2 rounded-md border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-xs leading-relaxed text-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <p>
-                  时间、主轨顺序、裁剪、缩放、变速、多轨和音频清单会保留。XML
-                  只记录文件名，导入后请在素材仓库重新关联原图片与视频。
-                </p>
+                  {_ui("时间、主轨顺序、裁剪、缩放、变速、多轨和音频清单会保留。XML 只记录文件名，导入后请在素材仓库重新关联原图片与视频。")}</p>
               </div>
 
               <div className="max-h-24 overflow-y-auto text-[11px] leading-relaxed text-muted-foreground custom-scrollbar">
                 {importPreview.summary.mediaFiles.slice(0, 8).join(' · ')}
                 {importPreview.summary.mediaFiles.length > 8
-                  ? ` · 另 ${importPreview.summary.mediaFiles.length - 8} 个`
+                  ? _ui(" · 另 {0} 个", [importPreview.summary.mediaFiles.length - 8])
                   : ''}
               </div>
 
@@ -509,8 +493,7 @@ export default function StoryListView() {
                   disabled={importXml.isPending}
                   className="h-9 rounded-md border border-border px-3 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
                 >
-                  取消
-                </button>
+                  {_ui("取消")}</button>
                 <button
                   type="button"
                   onClick={() => void confirmImport()}
@@ -526,8 +509,7 @@ export default function StoryListView() {
                   ) : (
                     <FileUp className="h-3.5 w-3.5" />
                   )}
-                  导入并打开
-                </button>
+                  {_ui("导入并打开")}</button>
               </DialogFooter>
             </>
           ) : null}

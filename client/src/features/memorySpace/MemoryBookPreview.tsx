@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState } from "react";
 import { MoreHorizontal, Clock3, Users, ArrowUpRight } from "lucide-react";
 import {
@@ -30,43 +31,42 @@ export function bookUpdate(book: MemoryBook) {
       : null;
 }
 export function BookOverview({ book }: { book: MemoryBook }) {
+  const _ui = useDesktopUiText();
   const update = bookUpdate(book);
   return (
     <div className="memory-book-overview">
-      <p className="memory-overview-eyebrow">这本故事的近况</p>
+      <p className="memory-overview-eyebrow">{_ui("这本故事的近况")}</p>
       <h3>{book.title}</h3>
       {update && (
         <p className="memory-overview-update">
           <span />
           {update}
-          {book.pending > 0 ? ` · ${book.pending} 份待确认` : ""}
+          {book.pending > 0 ? _ui(" · {0} 份待确认", [book.pending]) : ""}
         </p>
       )}
       <div className="memory-overview-metrics">
         <div>
           <strong>
             {(book.wordCount ?? 0).toLocaleString()}
-            <small> 字</small>
+            <small> {_ui("字")}</small>
           </strong>
-          <span>{book.wordCountLabel ?? "正文"} · 不含空白</span>
+          <span>{book.wordCountLabel ?? _ui("正文")} {_ui("· 不含空白")}</span>
         </div>
         <div>
           <strong>{editingTime(book.activeEditingMs)}</strong>
           <span>
             <Clock3 size={12} />
-            我的活跃编辑时长
-          </span>
+            {_ui("我的活跃编辑时长")}</span>
         </div>
       </div>
       <h4>
         <Users size={14} />
-        参与编辑
-      </h4>
+        {_ui("参与编辑")}</h4>
       <div className="memory-overview-editor">
-        <span className="memory-editor-avatar">我</span>
+        <span className="memory-editor-avatar">{_ui("我")}</span>
         <div>
-          <strong>我</strong>
-          <small>故事作者</small>
+          <strong>{_ui("我")}</strong>
+          <small>{_ui("故事作者")}</small>
         </div>
         <span>{editingTime(book.activeEditingMs)}</span>
       </div>
@@ -77,23 +77,21 @@ export function BookOverview({ book }: { book: MemoryBook }) {
             <strong>{person.name}</strong>
             <small>
               {person.wordCount == null
-                ? "参与排版"
-                : `最近提交 ${person.wordCount.toLocaleString()} 字`}
+                ? _ui("参与排版")
+                : _ui("最近提交 {0} 字", [person.wordCount.toLocaleString()])}
             </small>
           </div>
           <span>{editingTime(person.activeEditingMs)}</span>
         </div>
       ))}
       {!book.editors?.length && (
-        <p className="memory-overview-note">还没有朋友提交的编辑记录。</p>
+        <p className="memory-overview-note">{_ui("还没有朋友提交的编辑记录。")}</p>
       )}
       <p className="memory-overview-note">
-        时长从本次上线起记录，超过 30
-        秒无操作暂停计时。朋友的数据截至分享回来时；提交字数不代表净新增字数。
-      </p>
+        {_ui("时长从本次上线起记录，超过 30 秒无操作暂停计时。朋友的数据截至分享回来时；提交字数不代表净新增字数。")}</p>
       {book.updatedAt && (
         <p className="memory-overview-date">
-          最近内容更新 ·{" "}
+          {_ui("最近内容更新 ·")}{" "}
           {new Date(book.updatedAt).toLocaleString("zh-CN", {
             month: "short",
             day: "numeric",
@@ -120,6 +118,7 @@ export function MemoryBookCover({
   onRead: () => void;
   onViewChange: (view: MemoryShelfView | null) => void;
 }) {
+  const _ui = useDesktopUiText();
   const update = bookUpdate(book);
   const [failedCover, setFailedCover] = useState<string | null>(null);
   const cover =
@@ -132,7 +131,7 @@ export function MemoryBookCover({
             className="memory-book"
             data-has-cover={Boolean(cover)}
             onClick={onRead}
-            aria-label={`阅读${book.title}${update ? `，${update}` : ""}`}
+            aria-label={_ui("阅读{0}{1}", [book.title, update ? `，${update}` : ""])}
           >
             {cover && (
               <img
@@ -146,13 +145,12 @@ export function MemoryBookCover({
             )}
             <span className="memory-book-paper">
               <span className="memory-book-edition" aria-hidden="true">
-                拾光
-              </span>
+                {_ui("拾光")}</span>
               <span className="memory-book-title">{book.title}</span>
               <span className="memory-book-footer">
                 {book.hasText
-                  ? `${(book.wordCount ?? 0).toLocaleString()} 字`
-                  : "尚未成文"}
+                  ? _ui("{0} 字", [(book.wordCount ?? 0).toLocaleString()])
+                  : _ui("尚未成文")}
               </span>
             </span>
             {update && <span className="memory-book-ribbon">{update}</span>}
@@ -171,10 +169,10 @@ export function MemoryBookCover({
         <PopoverTrigger asChild>
           <button
             className="memory-book-info"
-            aria-label={`调整${book.title}的摆放与查看概览`}
+            aria-label={_ui("调整{0}的摆放与查看概览", [book.title])}
           >
             <MoreHorizontal size={16} />
-            <span className="sr-only">摆放与概览</span>
+            <span className="sr-only">{_ui("摆放与概览")}</span>
             {update && <i aria-hidden="true" />}
           </button>
         </PopoverTrigger>
@@ -185,28 +183,25 @@ export function MemoryBookCover({
           collisionPadding={12}
         >
           <label className="memory-book-orientation">
-            这本书的摆放
-            <select
-              aria-label={`调整${book.title}的摆放方式`}
+            {_ui("这本书的摆放")}<select
+              aria-label={_ui("调整{0}的摆放方式", [book.title])}
               value={book.view ?? ""}
               onChange={e =>
                 onViewChange((e.target.value || null) as MemoryShelfView | null)
               }
             >
-              <option value="">自动混排</option>
-              <option value="horizontal">横向书脊</option>
-              <option value="vertical">纵向书脊</option>
-              <option value="album">封面画册</option>
+              <option value="">{_ui("自动混排")}</option>
+              <option value="horizontal">{_ui("横向书脊")}</option>
+              <option value="vertical">{_ui("纵向书脊")}</option>
+              <option value="album">{_ui("封面画册")}</option>
             </select>
           </label>
           <BookOverview book={book} />
           <button className="memory-preview-read" onClick={onRead}>
-            翻开故事
-            <ArrowUpRight size={16} />
+            {_ui("翻开故事")}<ArrowUpRight size={16} />
           </button>
           <button type="button" className="memory-trash-action" onClick={onTrash}>
-            删除故事
-          </button>
+            {_ui("删除故事")}</button>
         </PopoverContent>
       </Popover>
     </>

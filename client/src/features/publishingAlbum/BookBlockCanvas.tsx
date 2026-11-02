@@ -1,3 +1,4 @@
+import { useUiLanguage, useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { mergeBookText } from "./mergeBookText";
 import { readBookAudio } from "@shared/bookAudioBlock";
 import { intersectingBookIds, resizeBookColumn, moveBookSelection, resizeBookSelection, selectedBookIds, type SelectionBox } from './bookBlockSelection';
@@ -15,9 +16,19 @@ const formats: Array<[BlockFormat, string]> = [['text', '正文'], ['heading1', 
 const corners = { nw: '-left-2 -top-2 cursor-nwse-resize', ne: '-right-2 -top-2 cursor-nesw-resize', sw: '-left-2 -bottom-2 cursor-nesw-resize', se: '-right-2 -bottom-2 cursor-nwse-resize' } as const;
 const cornerEdges = { nw: 'border-l border-t', ne: 'border-r border-t', sw: 'border-l border-b', se: 'border-r border-b' };
 const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '右下角' };
+function chineseChapterNumber(number: number): string {
+  const digits = '零一二三四五六七八九';
+  if (number < 10) return digits[number];
+  if (number === 10) return '十';
+  if (number < 20) return `十${digits[number % 10]}`;
+  if (number < 100) return `${digits[Math.floor(number / 10)]}十${number % 10 ? digits[number % 10] : ''}`;
+  return number === 100 ? '一百' : String(number);
+}
+
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert }: {
+export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert }: {
+  importedChapterIds?: readonly string[];
   blocks: WritingBlock[]; disabled: boolean;
   onConvert?(id:string,kind:"text"|"image"|"music"|"narration"|"translate-en"|"translate-zh"):void;
   onSelectionChange?(ids: string[]): void;
@@ -25,6 +36,8 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
   onCommit(next: WritingBlock[], focusId: string, focus?: boolean): void;
   children(block: WritingBlock, index: number, style: CSSProperties): ReactNode;
 }) {
+  const _ui = useDesktopUiText();
+  const { language } = useUiLanguage();
   const root = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [imageRatios, setImageRatios] = useState<Record<string,number>>({});
@@ -96,8 +109,16 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
   useEffect(() => {
     if (disabled || !blocks.some(block => block.id === matchTarget)) setMatchTarget(null);
   }, [blocks, disabled, matchTarget]);
-  const displayed = preview ?? blocks;
-  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth);
+  // Import receipts identify chapter headings, not prose. Keep this view state
+  // separate from the saved document so opening a book never rewrites it.
+  const [openImportedChapters, setOpenImportedChapters] = useState<Set<string>>(() => new Set());
+  const chapterIds = new Set(importedChapterIds ?? []);
+  const chapterOrder = (preview ?? blocks).filter(block => chapterIds.has(block.id) && block.format === 'heading1');
+  const chapterNumbers = new Map(chapterOrder.map((block, index) => [block.id, index + 1]));
+  const displayed = (preview ?? blocks).map(block => chapterNumbers.has(block.id)
+    ? { ...block, collapsed: !openImportedChapters.has(block.id) }
+    : block);
+  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds);
   // "After a heading" means after its entire visible group, not between the heading and its children.
   const dropMarkerId = drop?.position === 'after'
     ? layouts.filter(item => item.block.id === drop.id || blockAncestors(displayed, item.block.id).includes(drop.id)).at(-1)?.block.id
@@ -213,19 +234,31 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
   }
 
   return <>{selecting && <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 bg-background py-2 text-sm" data-stage-swipe="ignore">
-    <span>已选 {selected.size} 个</span>
-    <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);}}>完成选择</button>
-    {selected.size > 1 && mergeBookText(blocks,[...selected]) !== blocks && <button type="button" className="min-h-11 px-2" onClick={() => {const first=blocks.find(b=>selected.has(b.id));if(first) apply(mergeBookText(blocks,[...selected]),first.id);setSelectedIds([]);setSelecting(false);}}>合并文字</button>}
-  </div>}<div ref={viewport} aria-label="文章缩放视图" data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
+    <span>{_ui("已选")}{" "}{selected.size} {_ui("个")}</span>
+    <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);}}>{_ui("完成选择")}</button>
+    {selected.size > 1 && mergeBookText(blocks,[...selected]) !== blocks && <button type="button" className="min-h-11 px-2" onClick={() => {const first=blocks.find(b=>selected.has(b.id));if(first) apply(mergeBookText(blocks,[...selected]),first.id);setSelectedIds([]);setSelecting(false);}}>{_ui("合并文字")}</button>}
+  </div>}<div ref={viewport} aria-label={_ui("文章缩放视图")} data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
   <div ref={root} onContextMenu={event=>{
     if(disabled || selected.size<2 || mergeBookText(blocks,[...selected])===blocks)return;
     event.preventDefault();setMergeMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-180)),y:Math.max(8,Math.min(event.clientY,window.innerHeight-64))});
-  }} aria-label="书页" className="relative flex flex-col" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); } }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
-    {Array.from({ length: pageCount }, (_, page) => <section key={page} aria-label={`第 ${page + 1} 页`}
+  }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); } }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
+    {Array.from({ length: pageCount }, (_, page) => <section key={page} aria-label={_ui("第 {0} 页", [page + 1])}
       className="relative"
       style={{ height: 1200 * scale }}
 >
       {layouts.filter(item => item.placement.page === page).map(({ block, index, placement }) => {
+        const chapterNumber = chapterNumbers.get(block.id);
+        const isImportedChapter = chapterNumber !== undefined;
+        const chapterLabel = chapterNumber === undefined ? '' : language === 'zh' ? chineseChapterNumber(chapterNumber) : chapterNumber;
+        const toggleImportedChapter = () => {
+          if (block.collapsed) {
+            setOpenImportedChapters(previous => new Set(previous).add(block.id));
+          } else {
+            setOpenImportedChapters(previous => { const next = new Set(previous); next.delete(block.id); return next; });
+            if (activeId && (activeId === block.id || blockAncestors(blocks, activeId).includes(block.id))) onSelect(null);
+            setSelectedIds([]);
+          }
+        };
         const grouped = selected.size > 1 && selected.has(block.id);
         const active = activeId === block.id || menuId === block.id || grouped;
         const patch = (value: Partial<WritingBlock>) => apply(blocks.map(item => item.id === block.id ? { ...item, ...value } : item), block.id);
@@ -251,40 +284,40 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
           style={{ left: placement.rect.x * scale, top: placement.rect.y * scale, width: placement.rect.width * scale, height: placement.rect.height * scale,
             outline: grouped ? '1px solid var(--nayin-accent)' : undefined, outlineOffset: grouped ? 3 : undefined,
             background: block.backdrop ? 'rgba(255,255,245,.6)' : undefined }}>
-          {drop && dropMarkerId === block.id && <div aria-label="模块插入位置" className={`pointer-events-none absolute z-30 border-[var(--nayin-accent)] ${drop.position === 'left' || drop.position === 'right' ? `top-0 bottom-0 border-l-2 ${drop.position === 'left' ? '-left-2' : '-right-2'}` : `left-0 right-0 border-t-2 ${drop.position === 'before' ? '-top-1' : '-bottom-1'}`}`}>
-            {(drop.position === 'left' || drop.position === 'right') && <span className="absolute -top-6 right-0 whitespace-nowrap bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">并排</span>}
-            {drop.position === 'inside' && <span className="absolute right-0 -top-5 bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">放入标题</span>}
+          {drop && dropMarkerId === block.id && <div aria-label={_ui("模块插入位置")} className={`pointer-events-none absolute z-30 border-[var(--nayin-accent)] ${drop.position === 'left' || drop.position === 'right' ? `top-0 bottom-0 border-l-2 ${drop.position === 'left' ? '-left-2' : '-right-2'}` : `left-0 right-0 border-t-2 ${drop.position === 'before' ? '-top-1' : '-bottom-1'}`}`}>
+            {(drop.position === 'left' || drop.position === 'right') && <span className="absolute -top-6 right-0 whitespace-nowrap bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">{_ui("并排")}</span>}
+            {drop.position === 'inside' && <span className="absolute right-0 -top-5 bg-[var(--nayin-surface)] px-1 text-xs text-muted-foreground">{_ui("放入标题")}</span>}
           </div>}
           <div className={`absolute -top-8 left-0 flex items-center gap-1 ${active && !grouped ? '' : 'invisible [@media(pointer:coarse)]:visible'}`}>
             <Popover open={menuId === block.id} onOpenChange={open => setMenuId(open ? block.id : null)}>
-              <PopoverTrigger asChild><button type="button" aria-label={`模块 ${index + 1} 格式`} disabled={disabled}
+              <PopoverTrigger asChild><button type="button" aria-label={_ui("模块 {0} 格式", [index + 1])} disabled={disabled}
                 className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-20">
-                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?'有声书':'音乐') : bookImageUrl(block.text) ? '图片' : block.format === 'text' ? '正文' : block.format === 'heading1' ? '章' : '节'}<span className="hidden [@media(pointer:coarse)]:inline"> · 操作</span> ▾
+                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?_ui("有声书"):_ui("音乐")) : bookImageUrl(block.text) ? _ui("图片") : block.format === 'text' ? _ui("正文") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
               </button></PopoverTrigger>
-              <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={`模块 ${index + 1} 设置`}>
-                <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">拖图片移动 · 四角缩放 · 四边裁切</p>
-                <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label="格式">{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled} className={action}
-                  aria-pressed={block.format === value || block.format === 'heading3' && value === 'heading2'} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{block.format === value || block.format === 'heading3' && value === 'heading2' ? '✓ ' : ''}{label}</button>)}</div>
-                {!bookImageUrl(block.text) && !readBookAudio(block.text) && <button type="button" className={action} disabled={disabled} onClick={() => { setMatchTarget(block.id); setMatchError(false); setMenuId(null); }}>匹配文字大小</button>}
+              <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={_ui("模块 {0} 设置", [index + 1])}>
+                <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
+                <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled} className={action}
+                  aria-pressed={block.format === value || block.format === 'heading3' && value === 'heading2'} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{block.format === value || block.format === 'heading3' && value === 'heading2' ? '✓ ' : ''}{_ui(label)}</button>)}</div>
+                {!bookImageUrl(block.text) && !readBookAudio(block.text) && <button type="button" className={action} disabled={disabled} onClick={() => { setMatchTarget(block.id); setMatchError(false); setMenuId(null); }}>{_ui("匹配文字大小")}</button>}
                 {onConvert && !readBookAudio(block.text) && <div className="border-t py-1">
-                  <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,bookImageUrl(block.text)?'text':'image');}}>{bookImageUrl(block.text)?'生成一段文字':'生成一张图片'}</button>
-                  <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'music');}}>生成一段音乐</button>
-                  {!bookImageUrl(block.text) && ([['translate-en','翻译成英文'],['translate-zh','翻译成中文']] as const).filter(([kind]) => kind === 'translate-en' ? /\p{Script=Han}/u.test(block.text) : /[a-zA-Z]/.test(block.text)).map(([kind,label]) => <button type="button" key={kind} className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,kind);}}>{label}</button>)}
-                  {!bookImageUrl(block.text)&&<button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'narration');}}>生成有声书</button>}
+                  <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,bookImageUrl(block.text)?'text':'image');}}>{bookImageUrl(block.text)?_ui("生成一段文字"):_ui("生成一张图片")}</button>
+                  <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'music');}}>{_ui("生成一段音乐")}</button>
+                  {!bookImageUrl(block.text) && ([['translate-en','翻译成英文'],['translate-zh','翻译成中文']] as const).filter(([kind]) => kind === 'translate-en' ? /\p{Script=Han}/u.test(block.text) : /[a-zA-Z]/.test(block.text)).map(([kind,label]) => <button type="button" key={kind} className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,kind);}}>{_ui(label)}</button>)}
+                  {!bookImageUrl(block.text)&&<button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'narration');}}>{_ui("生成有声书")}</button>}
                 </div>}
-                <button type="button" className={action} onClick={() => { setSelecting(true); setSelectedIds([block.id]); setMenuId(null); }}>选择多个模块</button>
+                <button type="button" className={action} onClick={() => { setSelecting(true); setSelectedIds([block.id]); setMenuId(null); }}>{_ui("选择多个模块")}</button>
                 <div className="my-1 border-t" />
                 {(['normal', 'bright'] as const).map(value => <button type="button" key={value} disabled={disabled} className={action}
-                  aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? '正常' : '加粗提亮'}</button>)}
-                <button type="button" disabled={disabled} className={action} aria-pressed={block.backdrop ?? false} onClick={() => patch({ backdrop: !block.backdrop })}>{block.backdrop ? '✓ ' : ''}半透明底色</button>
+                  aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? _ui("正常") : _ui("加粗提亮")}</button>)}
+                <button type="button" disabled={disabled} className={action} aria-pressed={block.backdrop ?? false} onClick={() => patch({ backdrop: !block.backdrop })}>{block.backdrop ? '✓ ' : ''}{_ui("半透明底色")}</button>
                 <div className="my-1 border-t" />
                 <button type="button" disabled={disabled} className={`${action} text-destructive`} onClick={() => {
                   const next = deleteBookBlock(blocks, block.id); apply(next, next[Math.min(index, next.length - 1)].id);
-                }}>{readBookAudio(block.text) ? '删除音乐模块' : bookImageUrl(block.text) ? '删除图片模块' : '删除文字模块'}</button>
+                }}>{readBookAudio(block.text) ? _ui("删除音乐模块") : bookImageUrl(block.text) ? _ui("删除图片模块") : _ui("删除文字模块")}</button>
               </PopoverContent>
             </Popover>
           </div>
-          <button type="button" disabled={disabled} aria-label={`拖动模块 ${index + 1}`} title="拖到上下调整顺序，拖到左右并排；上下键排序，左右键调整归属"
+          <button type="button" disabled={disabled} aria-label={_ui("拖动模块 {0}", [index + 1])} title={_ui("拖到上下调整顺序，拖到左右并排；上下键排序，左右键调整归属")}
             className={`absolute ${block.columnGroup && blocks.find(item => item.columnGroup === block.columnGroup)?.id !== block.id ? '-left-3 px-0' : '-left-6 px-1'} top-1 touch-none cursor-grab rounded text-muted-foreground active:cursor-grabbing ${active ? '' : 'opacity-40'}`}
             onPointerDown={event => start(event, block.id, placement, 'move')}
             onKeyDown={event => {
@@ -299,17 +332,33 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
                 if (target) apply(moveBookSelection(blocks, [...selected], { id: target.id, position: event.key === 'ArrowRight' ? 'inside' : event.key === 'ArrowUp' ? 'before' : 'after' }), block.id, false);
               } else apply(moveBookBlockByKey(blocks, block.id, event.key), block.id, false);
             }}>⠿</button>
-          {isHeading(block) && <button type="button" disabled={disabled} aria-label={`${block.collapsed ? '展开' : '收起'}标题 ${index + 1}`} aria-expanded={!block.collapsed}
+          {isHeading(block) && !isImportedChapter && <button type="button" disabled={disabled} aria-label={_ui("{0}标题 {1}", [block.collapsed ? _ui("展开") : _ui("收起"), index + 1])} aria-expanded={!block.collapsed}
             className="absolute -left-11 top-1 rounded px-1 text-muted-foreground" onClick={() => patch({ collapsed: !block.collapsed })}>{block.collapsed ? '▸' : '▾'}</button>}
-          <div className={bookImageUrl(block.text) ? "h-full w-full touch-none cursor-grab active:cursor-grabbing" : "contents"} onPointerDown={bookImageUrl(block.text) ? event=>{
-            if ((event.target as HTMLElement).closest('video')) { onSelect(block.id); return; }
-            start(event,block.id,placement,'move',true);
-          } : undefined}>
-          {children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: isHeading(block) || block.emphasis === 'bright' ? 650 : 400,
-            color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}</div>
-          {active && !grouped && bookImageUrl(block.text) && Object.entries({left:'-left-1 top-2 bottom-2 w-2 cursor-ew-resize',right:'-right-1 top-2 bottom-2 w-2 cursor-ew-resize',top:'-top-1 left-2 right-2 h-2 cursor-ns-resize',bottom:'-bottom-1 left-2 right-2 h-2 cursor-ns-resize'}).map(([edge,position])=><button key={edge} type="button" disabled={disabled} aria-label={`图片模块 ${index+1} ${({left:"左",right:"右",top:"上",bottom:"下"} as Record<string,string>)[edge]}边裁切`} title="拖动边缘裁切" className={`absolute z-20 touch-none border border-transparent hover:border-primary focus-visible:border-primary ${position}`} onPointerDown={event=>start(event,block.id,placement,edge as ModuleHandle,true)}/>)}
+          {isImportedChapter && block.collapsed ? (
+            <button type="button" aria-expanded={false} onClick={toggleImportedChapter}
+              className="flex h-full w-full items-center gap-3 border-b border-[var(--nayin-border)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--nayin-accent)]">
+              <span className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)]" style={{ fontSize: 20 * scale }}>{_ui("第{0}章", [chapterLabel])}</span>
+              <span className="min-w-0 flex-1 truncate" style={{ fontSize: Math.min(placement.fontSize, 32) * scale }}>{block.text || _ui("未命名章节")}</span>
+              <span aria-hidden="true" className="text-muted-foreground" style={{ fontSize: 24 * scale }}>›</span>
+            </button>
+          ) : (
+            <div className={isImportedChapter ? "flex h-full w-full items-start gap-3" : bookImageUrl(block.text) ? "h-full w-full touch-none cursor-grab active:cursor-grabbing" : "contents"} onPointerDown={bookImageUrl(block.text) ? event=>{
+              if ((event.target as HTMLElement).closest('video')) { onSelect(block.id); return; }
+              start(event,block.id,placement,'move',true);
+            } : undefined}>
+              {isImportedChapter && <button type="button" aria-expanded={true} onClick={toggleImportedChapter}
+                aria-label={_ui("收起第{0}章", [chapterLabel])}
+                className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)] focus-visible:outline focus-visible:outline-2" style={{ fontSize: 20 * scale, lineHeight: 1.6 }}>
+                {_ui("第{0}章", [chapterLabel])} ▾
+              </button>}
+              {isImportedChapter ? <div className="min-w-0 flex-1 h-full">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650 })}</div> :
+              children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: isHeading(block) || block.emphasis === 'bright' ? 650 : 400,
+                color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}
+            </div>
+          )}
+          {active && !grouped && bookImageUrl(block.text) && Object.entries({left:'-left-1 top-2 bottom-2 w-2 cursor-ew-resize',right:'-right-1 top-2 bottom-2 w-2 cursor-ew-resize',top:'-top-1 left-2 right-2 h-2 cursor-ns-resize',bottom:'-bottom-1 left-2 right-2 h-2 cursor-ns-resize'}).map(([edge,position])=><button key={edge} type="button" disabled={disabled} aria-label={_ui("图片模块 {0} {1}边裁切", [index+1, ({left:_ui("左"),right:_ui("右"),top:_ui("上"),bottom:_ui("下")} as Record<string,string>)[edge]])} title={_ui("拖动边缘裁切")} className={`absolute z-20 touch-none border border-transparent hover:border-primary focus-visible:border-primary ${position}`} onPointerDown={event=>start(event,block.id,placement,edge as ModuleHandle,true)}/>)}
           {active && !grouped && !readBookAudio(block.text) && Object.entries(corners).map(([corner, position]) => <button type="button" key={corner} disabled={disabled}
-            aria-label={`模块 ${index + 1} ${cornerNames[corner as keyof typeof corners]}缩放`} title={block.columnGroup ? "调整两栏占比：一边变宽，另一边变窄" : bookImageUrl(block.text) ? "拖动四角等比缩放" : "最小为正文默认字号"}
+            aria-label={_ui("模块 {0} {1}缩放", [index + 1, cornerNames[corner as keyof typeof corners]])} title={block.columnGroup ? _ui("调整两栏占比：一边变宽，另一边变窄") : bookImageUrl(block.text) ? _ui("拖动四角等比缩放") : _ui("最小为正文默认字号")}
             onKeyDown={event => {
               if (!disabled && ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'].includes(event.key)) {
                 event.preventDefault();
@@ -331,19 +380,19 @@ export function BookBlockCanvas({ blocks, disabled, onCommit, children, activeId
       })}
       <span className="pointer-events-none absolute bottom-2 left-0 w-full text-center text-xs text-muted-foreground">{page + 1}</span>
     </section>)}
-    {mergeMenu&&<div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div role="menu" aria-label="多选文字操作" className="fixed w-40 rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()}><button role="menuitem" className={action} onClick={()=>{
+    {mergeMenu&&<div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div role="menu" aria-label={_ui("多选文字操作")} className="fixed w-40 rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()}><button role="menuitem" className={action} onClick={()=>{
       const next=mergeBookText(blocks,[...selected]);const first=blocks.find(b=>selected.has(b.id));
       setMergeMenu(null);setSelectedIds([]);if(first)apply(next,first.id);
-    }}>合并文字模块</button></div></div>}
+    }}>{_ui("合并文字模块")}</button></div></div>}
     {matchTarget && <div role="status" className="sticky bottom-2 z-40 flex items-center gap-2 rounded bg-[var(--nayin-surface)] px-3 py-2 text-sm shadow-sm" onKeyDown={event => { if (event.key === 'Escape') setMatchTarget(null); }}>
-      <span>{matchError ? '这段字号超过当前模块上限，请选择另一段文字' : '点击另一段文字，匹配它的大小'}</span>
-      <button type="button" className="underline" onClick={() => setMatchTarget(null)}>取消</button>
+      <span>{matchError ? _ui("这段字号超过当前模块上限，请选择另一段文字") : _ui("点击另一段文字，匹配它的大小")}</span>
+      <button type="button" className="underline" onClick={() => setMatchTarget(null)}>{_ui("取消")}</button>
     </div>}
-    {groupBounds && <div aria-label="多模块选区" className="pointer-events-none absolute z-30 border border-[var(--nayin-accent)]" style={{left:groupBounds.left-5,top:groupBounds.top-5,width:groupBounds.right-groupBounds.left+10,height:groupBounds.bottom-groupBounds.top+10}}>
-      {Object.entries(corners).map(([corner,position])=><button key={corner} type="button" disabled={disabled} aria-label={`选中模块整体${cornerNames[corner as keyof typeof corners]}缩放`} className={`pointer-events-auto absolute h-5 w-5 rounded-sm border border-[var(--nayin-accent)] bg-[var(--nayin-surface)] touch-none ${position}`} onPointerDown={event=>start(event,selectedLayouts[0].block.id,selectedLayouts[0].placement,corner as ModuleHandle)} onKeyDown={event=>{if(!disabled && ['ArrowUp','ArrowRight','ArrowDown','ArrowLeft'].includes(event.key)){event.preventDefault();apply(resizeBookSelection(blocks,[...selected],['ArrowUp','ArrowRight'].includes(event.key)?1.1:1/1.1,imageRatios),selectedLayouts[0].block.id,false);}}}/>)}
+    {groupBounds && <div aria-label={_ui("多模块选区")} className="pointer-events-none absolute z-30 border border-[var(--nayin-accent)]" style={{left:groupBounds.left-5,top:groupBounds.top-5,width:groupBounds.right-groupBounds.left+10,height:groupBounds.bottom-groupBounds.top+10}}>
+      {Object.entries(corners).map(([corner,position])=><button key={corner} type="button" disabled={disabled} aria-label={_ui("选中模块整体{0}缩放", [cornerNames[corner as keyof typeof corners]])} className={`pointer-events-auto absolute h-5 w-5 rounded-sm border border-[var(--nayin-accent)] bg-[var(--nayin-surface)] touch-none ${position}`} onPointerDown={event=>start(event,selectedLayouts[0].block.id,selectedLayouts[0].placement,corner as ModuleHandle)} onKeyDown={event=>{if(!disabled && ['ArrowUp','ArrowRight','ArrowDown','ArrowLeft'].includes(event.key)){event.preventDefault();apply(resizeBookSelection(blocks,[...selected],['ArrowUp','ArrowRight'].includes(event.key)?1.1:1/1.1,imageRatios),selectedLayouts[0].block.id,false);}}}/>)}
     </div>}
     {marquee && <div aria-hidden="true" className="pointer-events-none absolute z-40 border border-[var(--nayin-accent)] bg-primary/10" style={{ left: marquee.left, top: marquee.top, width: marquee.right - marquee.left, height: marquee.bottom - marquee.top }} />}
-    {selected.size > 1 && <span role="status" className="pointer-events-none absolute -top-7 right-1 text-xs text-muted-foreground">已选 {selected.size} 个模块 · 拖把手移动，拖角标缩放</span>}
+    {selected.size > 1 && <span role="status" className="pointer-events-none absolute -top-7 right-1 text-xs text-muted-foreground">{_ui("已选")}{" "}{selected.size} {_ui("个模块 · 拖把手移动，拖角标缩放")}</span>}
   </div></div>
 
   </>;

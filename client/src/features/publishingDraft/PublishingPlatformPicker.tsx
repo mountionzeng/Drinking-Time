@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useCallback, type ReactNode } from "react";
 import { Check, CircleDot } from "lucide-react";
 import { toast } from "sonner";
@@ -34,16 +35,17 @@ export function PublishingPlatformPickerView({
   disabled = false,
   compact = false,
 }: PublishingPlatformPickerViewProps) {
+  const _ui = useDesktopUiText();
   return (
     <section
       className="space-y-2"
-      aria-label="发布平台设置"
+      aria-label={_ui("发布平台设置")}
       data-testid="publishing-platform-picker"
     >
       <PlatformGroup
         compact={compact}
-        label="当前写作平台"
-        hint={compact ? undefined : "选择不会自动生成"}
+        label={_ui("当前写作平台")}
+        hint={compact ? undefined : _ui("选择不会自动生成")}
         ariaLabel="当前写作平台"
         role="radiogroup"
       >
@@ -70,7 +72,7 @@ export function PublishingPlatformPickerView({
               }
             >
               {active ? <CircleDot className="h-3 w-3" /> : null}
-              {adapter.label}
+              {_ui(adapter.label)}
             </button>
           );
         })}
@@ -78,7 +80,7 @@ export function PublishingPlatformPickerView({
 
       <PlatformGroup
         compact={compact}
-        label="也想发布到"
+        label={_ui("也想发布到")}
         ariaLabel="也想发布到"
       >
         {PUBLISHING_PLATFORM_IDS.filter(

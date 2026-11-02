@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { MobileSheet } from "@/features/mobileWorkspace/MobileSheet";
 import type {
   ImagePackModule,
@@ -33,11 +34,12 @@ export function MobileModuleTools({
   onMove(index: number): void;
   onDelete(): void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <MobileSheet
       open={open}
       onOpenChange={onOpenChange}
-      title={module.kind === "text" ? "文字模块操作" : "图片模块操作"}
+      title={module.kind === "text" ? _ui("文字模块操作") : _ui("图片模块操作")}
     >
       <div className="flex flex-col gap-2">
         {module.kind === "text" ? (
@@ -48,12 +50,11 @@ export function MobileModuleTools({
               disabled={disabled}
               onClick={onEdit}
             >
-              编辑文字
-            </button>
+              {_ui("编辑文字")}</button>
             <div
               className="grid grid-cols-2 gap-2"
               role="group"
-              aria-label="文字样式"
+              aria-label={_ui("文字样式")}
             >
               {(
                 [
@@ -76,8 +77,7 @@ export function MobileModuleTools({
             <label
               className={`${action} flex items-center justify-between gap-3`}
             >
-              半透明底色
-              <input
+              {_ui("半透明底色")}<input
                 type="checkbox"
                 className="size-5 accent-primary"
                 checked={module.backdrop ?? false}
@@ -93,13 +93,11 @@ export function MobileModuleTools({
             disabled={disabled}
             onClick={onCrop}
           >
-            裁切图片
-          </button>
+            {_ui("裁切图片")}</button>
         )}
         <label className="flex min-h-11 items-center justify-between gap-3 px-3 text-sm">
-          移到其他页
-          <select
-            aria-label="移到其他页"
+          {_ui("移到其他页")}<select
+            aria-label={_ui("移到其他页")}
             value=""
             className="min-h-11 min-w-0 max-w-[65%] rounded border border-border bg-background px-2 text-base"
             disabled={disabled}
@@ -107,15 +105,15 @@ export function MobileModuleTools({
               if (event.target.value !== "") onMove(Number(event.target.value));
             }}
           >
-            <option value="">选择目标页</option>
+            <option value="">{_ui("选择目标页")}</option>
             {pages.map((page, index) => (
               <option key={index} value={index} disabled={index === pageIndex}>
-                第 {index + 1} 页 · {page.label}
-                {index === pageIndex ? "（当前页）" : ""}
+                {_ui("第 {0} 页", [index + 1])} · {page.label}
+                {index === pageIndex ? _ui("（当前页）") : ""}
               </option>
             ))}
             <option value={pages.length} disabled={pages.length >= 9}>
-              {pages.length >= 9 ? "已达 9 页上限" : "移到新一页"}
+              {pages.length >= 9 ? _ui("已达 9 页上限") : _ui("移到新一页")}
             </option>
           </select>
         </label>
@@ -125,8 +123,7 @@ export function MobileModuleTools({
           disabled={disabled}
           onClick={onDelete}
         >
-          删除{module.kind === "text" ? "文字" : "图片"}模块
-        </button>
+          {_ui("删除")}{module.kind === "text" ? _ui("文字") : _ui("图片")}{_ui("模块")}</button>
       </div>
     </MobileSheet>
   );
@@ -151,11 +148,12 @@ export function MobilePageTools({
   onDelete(): void;
   onArrange(): void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <MobileSheet
       open={open}
       onOpenChange={onOpenChange}
-      title={`第 ${pageIndex + 1} 页操作`}
+      title={_ui("第 {0} 页操作", [pageIndex + 1])}
     >
       <div className="flex flex-col gap-2">
         <button
@@ -164,35 +162,31 @@ export function MobilePageTools({
           disabled={disabled || pageCount >= 9}
           onClick={() => onInsert("before")}
         >
-          在前面插入空白页
-        </button>
+          {_ui("在前面插入空白页")}</button>
         <button
           type="button"
           className={action}
           disabled={disabled || pageCount >= 9}
           onClick={() => onInsert("after")}
         >
-          在后面插入空白页
-        </button>
+          {_ui("在后面插入空白页")}</button>
         <button
           type="button"
           className={action}
           disabled={disabled}
           onClick={onArrange}
         >
-          整理这一页
-        </button>
+          {_ui("整理这一页")}</button>
         <button
           type="button"
           className={`${action} border-t border-border text-destructive`}
           disabled={disabled || pageCount <= 1}
           onClick={onDelete}
         >
-          删除这一页
-        </button>
+          {_ui("删除这一页")}</button>
         {(pageCount >= 9 || pageCount <= 1) && (
           <p className="px-3 text-xs text-muted-foreground">
-            {pageCount >= 9 ? "最多 9 页" : "至少保留一页"}
+            {pageCount >= 9 ? _ui("最多 9 页") : _ui("至少保留一页")}
           </p>
         )}
       </div>
@@ -217,17 +211,18 @@ export function MobileModuleTextEditor({
   onSave(): void;
   onCancel(): void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <MobileSheet
       open
       onOpenChange={open => {
         if (!open && !disabled) onSave();
       }}
-      title="编辑文字"
+      title={_ui("编辑文字")}
     >
       <textarea
         autoFocus
-        aria-label="文字模块内容"
+        aria-label={_ui("文字模块内容")}
         value={text}
         maxLength={12000}
         disabled={disabled}
@@ -235,7 +230,7 @@ export function MobileModuleTextEditor({
         onSelect={event => onSelect?.(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
         onChange={event => onChange(event.target.value)}
         className="w-full rounded border border-border bg-background p-3 text-base leading-relaxed"
-        placeholder="写一句话…"
+        placeholder={_ui("写一句话…")}
       />
       {error && (
         <p role="alert" className="mt-2 text-sm text-destructive">
@@ -249,15 +244,14 @@ export function MobileModuleTextEditor({
           disabled={disabled}
           onClick={onCancel}
         >
-          取消改字
-        </button>
+          {_ui("取消改字")}</button>
         <button
           type="button"
           className={`${action} bg-primary text-primary-foreground`}
           disabled={disabled}
           onClick={onSave}
         >
-          {disabled ? "正在保存…" : "完成"}
+          {disabled ? _ui("正在保存…") : _ui("完成")}
         </button>
       </div>
     </MobileSheet>

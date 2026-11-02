@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useBookModuleActions } from "./bookModuleActions";
 import { mergeBookText } from "./mergeBookText";
 import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
@@ -21,7 +22,8 @@ import { ChangedText, afterTextSlice, type WritingComparison } from './WritingCo
 import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
-export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+export function ChapterTextModules({ importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+  importedChapterIds?: readonly string[];
   prepareMedia?(): Promise<void>;
   writingStyle?: BookWritingStyle;
   onFormattedChange?(body:string,style:BookWritingStyle):void;
@@ -32,7 +34,14 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
   contextSource?: { storyId: number; scope: string; chapterId: string };
   onContextChange?(context: LayoutModuleContext | null): void;
 }) {
+  const _ui = useDesktopUiText();
   const changes = useMemo(() => comparison ? textChanges(comparison.body, value) : [], [comparison?.body, value]);
+  // An imported heading can be visually open even if its previously saved
+  // collapsed flag is true. Splitting that visible heading must still insert
+  // text under the heading, never as a sibling chapter.
+  const editableBlocks = (id: string) => importedChapterIds?.includes(id)
+    ? blocks.map(item => item.id === id && item.collapsed ? { ...item, collapsed: false } : item)
+    : blocks;
   const key = formatScope ? `chapter-block-formats:${formatScope}` : null;
   const [blocks, setBlocks] = useState(() => {
     if (writingStyle) return restoreStyledBlocks(value,writingStyle);
@@ -185,7 +194,8 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
     imageInsert.current = url => {
       if (disabled) return;
       const index = blocks.findIndex(block => block.id === activeId);
-      const current = blocks[index];
+      const selected = blocks[index];
+      const current = selected && importedChapterIds?.includes(selected.id) ? { ...selected, collapsed: false } : selected;
       const at = index < 0 ? blocks.length : isHeading(current) && current.collapsed ? blockSubtreeEnd(blocks,index) : index + 1;
       const parent = current ? isHeading(current) && !current.collapsed ? current.id : current.parentId : null;
       const image = newWritingBlock(bookImageText(url),parent);
@@ -207,11 +217,11 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
   }
   function renderField(block: WritingBlock, index: number, style: CSSProperties) {
     const audio = readBookAudio(block.text);
-    if (audio) return <div key={block.id} aria-label={`${audio.kind==='narration'?'有声书':'音乐'}模块 ${index + 1}`} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
+    if (audio) return <div key={block.id} aria-label={_ui("{0}模块 {1}", [audio.kind==='narration'?_ui("有声书"):_ui("音乐"), index + 1])} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
       <p className="truncate text-sm">♫ {audio.title}</p><audio aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
-    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={`图片模块 ${index + 1}`} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
+    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
       if(disabled || event.target !== event.currentTarget) return;
       if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,writingBlockOffset(next,index+1)); }
     }} onClick={() => {
@@ -221,15 +231,15 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
     }}><BookInlineImage text={block.text}/></div>;
-    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={`文字模块 ${index + 1}`} value={block.text}
-              disabled={disabled} maxLength={200000} placeholder="写下这一段…" style={style}
+    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={_ui("文字模块 {0}", [index + 1])} value={block.text}
+              disabled={disabled} maxLength={200000} placeholder={_ui("写下这一段…")} style={style}
               className={comparison ? "col-start-1 row-start-1 block h-full min-h-[1.6em] w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0 text-transparent caret-foreground outline-none selection:bg-blue-200/50" : "block h-full w-full resize-none overflow-auto border-0 bg-transparent px-1 py-0 outline-none"}
               onFocus={event => selected(index, event.currentTarget)} onSelect={event => selected(index, event.currentTarget)}
               onChange={event => {
                 const field = event.currentTarget;
                 // Preserve the existing paste-to-modules behavior for ordinary single-line blocks.
                 if(!block.text.includes('\n') && field.value.includes('\n')) {
-                  const result=insertBlockText(blocks,index,field.value);
+                  const result=insertBlockText(editableBlocks(block.id),index,field.value);
                   const before=field.value.slice(0,field.selectionStart).replace(/\r\n?/g,'\n').split('\n');
                   const cursorIndex=before.length>1?result.insertedIndex+before.length-2:index;
                   commit(result.blocks,writingBlockOffset(result.blocks,cursorIndex)+before[before.length-1].length,true);
@@ -247,7 +257,7 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
                 }
                 if (event.key === 'Enter') {
                   event.preventDefault();
-                  const result = splitWritingBlock(blocks,index,field.selectionStart,field.selectionEnd);
+                  const result = splitWritingBlock(editableBlocks(block.id),index,field.selectionStart,field.selectionEnd);
                   commit(result.blocks, writingBlockOffset(result.blocks, result.insertedIndex));
                 } else if (event.key === 'Backspace' && !field.selectionStart && !field.selectionEnd && index > 0) {
                   event.preventDefault();
@@ -269,24 +279,24 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
       {field}
     </div>;
   }
-  return <section aria-label="书正文" onKeyDown={event => {
+  return <section aria-label={_ui("书正文")} onKeyDown={event => {
     if (disabled || event.target instanceof HTMLTextAreaElement || !(event.metaKey || event.ctrlKey) || event.altKey) return;
     if (['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); travel(event.shiftKey || event.key.toLowerCase() === 'y'); }
   }}>
-    {comparison ? <div className="overflow-x-auto" aria-label="版本文字对比">
+    {comparison ? <div className="overflow-x-auto" aria-label={_ui("版本文字对比")}>
       <div className="grid min-w-[560px] grid-cols-2 gap-5">
-        <article className="min-w-0 select-text border-r pr-4" aria-label="所选版本原文">
+        <article className="min-w-0 select-text border-r pr-4" aria-label={_ui("所选版本原文")}>
           <h3 className="text-sm font-medium">{comparison.label} · {comparison.title}</h3>
           {comparison.editorName && <p className="text-xs text-muted-foreground">{comparison.editorName}</p>}
           {comparison.note && <p className="text-xs text-muted-foreground">{comparison.note}</p>}
-          <div className="mt-3 whitespace-pre-wrap break-words text-base leading-[1.6]" aria-label="旧稿文字"><ChangedText changes={changes} side="before" />{!comparison.body && '（空白）'}</div>
+          <div className="mt-3 whitespace-pre-wrap break-words text-base leading-[1.6]" aria-label={_ui("旧稿文字")}><ChangedText changes={changes} side="before" />{!comparison.body && _ui("（空白）")}</div>
         </article>
-        <article className="min-w-0" aria-label="当前版本编辑">
-          <h3 className="mb-3 text-sm font-medium">当前稿 · 可直接编辑</h3>
+        <article className="min-w-0" aria-label={_ui("当前版本编辑")}>
+          <h3 className="mb-3 text-sm font-medium">{_ui("当前稿 · 可直接编辑")}</h3>
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas onConvert={contextSource && prepareMedia ? (id,kind)=>{
+    </div> : <BookBlockCanvas importedChapterIds={importedChapterIds} onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
     }:undefined} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
       if (id && bookImageUrl(blocks.find(block => block.id === id)?.text ?? "")) setMediaSelection(value => value + 1);
@@ -315,12 +325,13 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
       commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added.id);setConversion(null);
     }}/>}
     {contextSource && !comparison && <BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
-      const index=blocks.findIndex(block=>block.id===activeId), current=blocks[index];
+      const index=blocks.findIndex(block=>block.id===activeId), selected=blocks[index];
+      const current=selected && importedChapterIds?.includes(selected.id) ? {...selected,collapsed:false} : selected;
       const at=index<0?blocks.length:isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
       const parent=current?isHeading(current)&&!current.collapsed?current.id:current.parentId:null;
       const audio=newWritingBlock(text,parent), next=[...blocks.slice(0,at),audio,...blocks.slice(at)];
       commit(next,writingBlockOffset(next,at),false);setActiveId(audio.id);
     }}/>}
-    {cacheError && <p role="alert" className="text-xs text-destructive">本机无法保存模块格式，请暂时不要关闭页面。</p>}
+    {cacheError && <p role="alert" className="text-xs text-destructive">{_ui("本机无法保存模块格式，请暂时不要关闭页面。")}</p>}
   </section>;
 }

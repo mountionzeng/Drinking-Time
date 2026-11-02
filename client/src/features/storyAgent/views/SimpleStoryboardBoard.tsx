@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import type { HTMLAttributes, MouseEvent } from "react";
 import {
   ImagePlus,
@@ -49,6 +50,7 @@ export function AddShotButton({
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   compact?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <button
       type="button"
@@ -57,15 +59,15 @@ export function AddShotButton({
       className={`inline-flex items-center justify-center rounded-sm bg-muted/45 text-[10px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70 ${
         compact ? "h-7 w-7" : "mt-2 w-full gap-1.5 px-3 py-2"
       }`}
-      aria-label={`在 ${shotLabel} 后添加镜头`}
-      title={`在 ${shotLabel} 后添加镜头`}
+      aria-label={_ui("在 {0} 后添加镜头", [shotLabel])}
+      title={_ui("在 {0} 后添加镜头", [shotLabel])}
     >
       {inserting ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
         <PlusCircle className="h-3.5 w-3.5" />
       )}
-      {compact ? null : "添加镜头"}
+      {compact ? null : _ui("添加镜头")}
     </button>
   );
 }
@@ -83,7 +85,8 @@ export function DeleteShotButton({
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   compact?: boolean;
 }) {
-  const label = `删除 ${shotLabel}`;
+  const _ui = useDesktopUiText();
+  const label = _ui("删除 {0}", [shotLabel]);
   return (
     <button
       type="button"
@@ -100,7 +103,7 @@ export function DeleteShotButton({
       ) : (
         <Trash2 className="h-3.5 w-3.5" />
       )}
-      {compact ? null : "删除"}
+      {compact ? null : _ui("删除")}
     </button>
   );
 }
@@ -114,6 +117,7 @@ export function StoryboardMediaDropOverlay({
   importing: boolean;
   moving?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center gap-1.5 rounded-sm border bg-background/95 px-2 text-[9px] font-semibold text-foreground shadow-sm"
@@ -128,10 +132,10 @@ export function StoryboardMediaDropOverlay({
         <Upload className="h-3.5 w-3.5 text-nayin-bright" />
       )}
       {importing
-        ? `正在导入 ${shotLabel}`
+        ? _ui("正在导入 {0}", [shotLabel])
         : moving
-          ? `移动到 ${shotLabel}`
-          : `导入到 ${shotLabel}`}
+          ? _ui("移动到 {0}", [shotLabel])
+          : _ui("导入到 {0}", [shotLabel])}
     </div>
   );
 }
@@ -205,6 +209,7 @@ export function SimpleStoryboardBoard({
   onConfirmCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
   onRejectCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div className="grid snap-y snap-mandatory gap-1 pb-2 pr-1">
       {shots.map((shot, index) => {
@@ -362,13 +367,13 @@ export function SimpleStoryboardBoard({
                 event.stopPropagation();
                 openMediaEditor();
               }}
-              aria-label={`编辑 ${displayShotCode(shot)}`}
+              aria-label={_ui("编辑 {0}", [displayShotCode(shot)])}
               title={
                 videoPreviewTake
-                  ? `${displayShotCode(shot)} · 双击编辑视频`
+                  ? _ui("{0} · 双击编辑视频", [displayShotCode(shot)])
                   : previewImageUrl && onEditImage
-                    ? `${displayShotCode(shot)} · 双击编辑图片`
-                    : `编辑 ${displayShotCode(shot)}`
+                    ? _ui("{0} · 双击编辑图片", [displayShotCode(shot)])
+                    : _ui("编辑 {0}", [displayShotCode(shot)])
               }
             >
               {videoPreviewTake?.videoUrl ? (
@@ -376,7 +381,7 @@ export function SimpleStoryboardBoard({
                   src={videoPreviewTake.videoUrl}
                   poster={videoPosterUrl}
                   active={selected}
-                  label={`${displayShotCode(shot)} 视频缩略预览`}
+                  label={_ui("{0} 视频缩略预览", [displayShotCode(shot)])}
                   className="h-full w-full object-cover"
                 />
               ) : previewImageUrl ? (
@@ -410,7 +415,7 @@ export function SimpleStoryboardBoard({
                   event.stopPropagation();
                   onOpenShot(shot.shotNo);
                 }}
-                aria-label={`编辑 ${displayShotCode(shot)} ${title}`}
+                aria-label={_ui("编辑 {0} {1}", [displayShotCode(shot), title])}
               >
                 <p className="line-clamp-2 text-[11px] font-semibold leading-relaxed text-foreground">
                   {title}
@@ -441,8 +446,8 @@ export function SimpleStoryboardBoard({
                       onSelectShot?.(shot.shotNo);
                     }}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                    aria-label={`把 ${displayShotCode(shot)} 加入时间轴`}
-                    title="加入时间轴"
+                    aria-label={_ui("把 {0} 加入时间轴", [displayShotCode(shot)])}
+                    title={_ui("加入时间轴")}
                   >
                     <ListPlus className="h-3.5 w-3.5" />
                   </button>

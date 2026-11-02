@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -38,6 +39,7 @@ export function BookVideoChat({
   handle: MutableRefObject<BookVideoChatHandle | null>;
   onAdopt: () => Promise<void>;
 }) {
+  const _ui = useDesktopUiText();
   const utils = trpc.useUtils();
   const query = trpc.bookVideo.list.useQuery(
     { storyId },
@@ -132,11 +134,11 @@ export function BookVideoChat({
     });
   }
   return (
-    <section aria-label="视频创作对话" className="space-y-2 text-xs">
+    <section aria-label={_ui("视频创作对话")} className="space-y-2 text-xs">
       {records.map(r => (
         <article key={r.id} className="rounded-lg border bg-background/70 p-2">
           <div className="flex items-center justify-between">
-            <strong>视频创作方案</strong>
+            <strong>{_ui("视频创作方案")}</strong>
             <span className="text-[10px] text-muted-foreground">
               {new Date(r.createdAt).toLocaleString()}
             </span>
@@ -144,7 +146,7 @@ export function BookVideoChat({
           <p className="mt-1 whitespace-pre-wrap line-clamp-2">{r.request}</p>
           <p className="mt-1 text-muted-foreground line-clamp-2">
             {r.status === "planning"
-              ? "正在整理创作方向…"
+              ? _ui("正在整理创作方向…")
               : r.status === "failed"
                 ? r.error
                 : r.brief?.purpose}
@@ -157,32 +159,29 @@ export function BookVideoChat({
                 setDraft(undefined);
               }}
             >
-              打开方案与参数
-            </button>
+              {_ui("打开方案与参数")}</button>
             <button
               className={button}
               disabled={busy}
               onClick={() => resume(r)}
             >
-              继续讨论
-            </button>
+              {_ui("继续讨论")}</button>
           </div>
         </article>
       ))}
       {session && (
         <div
           className="rounded-lg border p-2 space-y-2"
-          aria-label="当前视频创作"
+          aria-label={_ui("当前视频创作")}
         >
           <div className="flex items-center justify-between">
-            <strong>制作视频</strong>
+            <strong>{_ui("制作视频")}</strong>
             <button
               className={button}
               disabled={busy}
               onClick={() => useBookVideoSession.getState().setSession(null)}
             >
-              结束讨论
-            </button>
+              {_ui("结束讨论")}{" "}</button>
           </div>
           {!current ? (
             <p>{BOOK_VIDEO_QUESTION}</p>
@@ -190,12 +189,12 @@ export function BookVideoChat({
             <>
               <p>
                 {current.brief.question ||
-                  "这是根据你的想法整理的方向，可以继续在下方补充或修改。"}
+                  _ui("这是根据你的想法整理的方向，可以继续在下方补充或修改。")}
               </p>
               <dl className="space-y-1">
                 {Object.entries(labels).map(([key, label]) => (
                   <div key={key}>
-                    <dt className="inline text-muted-foreground">{label}：</dt>
+                    <dt className="inline text-muted-foreground">{_ui(label)}：</dt>
                     <dd className="inline">
                       {current.brief![key as keyof typeof labels]}
                     </dd>
@@ -221,7 +220,7 @@ export function BookVideoChat({
                     })
                   }
                 >
-                  {busy ? "正在整理…" : "确认方向，整理素材表"}
+                  {busy ? _ui("正在整理…") : _ui("确认方向，整理素材表")}
                 </button>
               )}
               {current.preview && (
@@ -229,21 +228,18 @@ export function BookVideoChat({
                   className={button}
                   onClick={() => setOpened(current.id)}
                 >
-                  查看素材表
-                </button>
+                  {_ui("查看素材表")}{" "}</button>
               )}
             </>
           ) : (
-            <p>{current.error || "正在整理创作方向…"}</p>
+            <p>{current.error || _ui("正在整理创作方向…")}</p>
           )}
           {!current && session.onAlbum && (
             <button className={button} onClick={session.onAlbum}>
-              制作静态画册
-            </button>
+              {_ui("制作静态画册")}</button>
           )}
           <p className="text-[10px] text-muted-foreground">
-            此步只整理文字方案，不购买图片、配音或视频。
-          </p>
+            {_ui("此步只整理文字方案，不购买图片、配音或视频。")}</p>
         </div>
       )}
       {error && (
@@ -262,20 +258,20 @@ export function BookVideoChat({
       >
         <DialogContent className="sm:max-w-[95vw] max-w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>视频方案与素材表</DialogTitle>
+            <DialogTitle>{_ui("视频方案与素材表")}</DialogTitle>
           </DialogHeader>
           {detail && (
             <>
               <p className="text-sm whitespace-pre-wrap">
-                本轮要求：{detail.request}
+                {_ui("本轮要求：")}{detail.request}
               </p>
               <details>
-                <summary className="cursor-pointer text-sm">创作方向与参数</summary>
+                <summary className="cursor-pointer text-sm">{_ui("创作方向与参数")}</summary>
               <dl className="grid gap-2 sm:grid-cols-2 mt-2">
                 {detail.brief &&
                   Object.entries(labels).map(([key, label]) => (
                     <div key={key}>
-                      <dt className="font-medium">{label}</dt>
+                      <dt className="font-medium">{_ui(label)}</dt>
                       <dd className="text-muted-foreground whitespace-pre-wrap">
                         {detail.brief![key as keyof typeof labels]}
                       </dd>
@@ -283,7 +279,7 @@ export function BookVideoChat({
                   ))}
               </dl>
               </details>
-              {Boolean(detail.missingImages) && <p role="status" className="text-amber-700 text-sm">有 {detail.missingImages} 张书内图片尚未匹配到可用素材，请先重新上传到仓库；本方案未把它们算作已复用。</p>}
+              {Boolean(detail.missingImages) && <p role="status" className="text-amber-700 text-sm">{_ui("有")}{" "}{detail.missingImages} {_ui("张书内图片尚未匹配到可用素材，请先重新上传到仓库；本方案未把它们算作已复用。")}</p>}
               {detail.preview && (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[850px] text-xs">
@@ -311,29 +307,29 @@ export function BookVideoChat({
                             </strong>
                             <p>
                               {shot.durationSec
-                                ? `建议 ${shot.durationSec} 秒`
-                                : "时长待按节奏调整"}
+                                ? _ui("建议 {0} 秒", [shot.durationSec])
+                                : _ui("时长待按节奏调整")}
                             </p>
                             {shot.referenceImageId &&
                               query.data?.images[shot.referenceImageId] && (
                                 <img
                                   className="mt-2 max-h-24"
                                   src={query.data.images[shot.referenceImageId]}
-                                  alt={`镜头${index + 1}复用图片`}
+                                  alt={_ui("镜头{0}复用图片", [index + 1])}
                                 />
                               )}
                             <p>
                               {shot.referenceImageId
-                                ? "复用书内图片"
+                                ? _ui("复用书内图片")
                                 : shot.continuityImageId
-                                  ? "参考已有图，需补画面"
-                                  : "待补画面"}
+                                  ? _ui("参考已有图，需补画面")
+                                  : _ui("待补画面")}
                             </p>
                             {shot.supplementReason && (
                               <p>{shot.supplementReason}</p>
                             )}
                             <details>
-                              <summary>来源原文</summary>
+                              <summary>{_ui("来源原文")}</summary>
                               {shot.scriptText}
                             </details>
                           </td>
@@ -347,7 +343,7 @@ export function BookVideoChat({
                           ).map(field => (
                             <td key={field} className="border p-1 align-top">
                               <textarea
-                                aria-label={`镜头${index + 1}${field}`}
+                                aria-label={_ui("镜头{0}{1}", [index + 1, field])}
                                 className="min-h-28 w-full resize-y bg-transparent p-1"
                                 value={shot[field]}
                                 disabled={busy || detail.status !== "ready"}
@@ -366,9 +362,9 @@ export function BookVideoChat({
                               />
                               {field === "action" && (
                                 <details>
-                                  <summary>图片要求</summary>
+                                  <summary>{_ui("图片要求")}</summary>
                                   <textarea
-                                    aria-label={`镜头${index + 1}图片要求`}
+                                    aria-label={_ui("镜头{0}图片要求", [index + 1])}
                                     className="min-h-24 w-full bg-transparent"
                                     value={shot.imageRequirement}
                                     disabled={busy || detail.status !== "ready"}
@@ -414,8 +410,7 @@ export function BookVideoChat({
                       })
                     }
                   >
-                    保存方案修改
-                  </button>
+                    {_ui("保存方案修改")}</button>
                 )}
                 {detail.status === "ready" && (
                   <button
@@ -431,22 +426,19 @@ export function BookVideoChat({
                       })
                     }
                   >
-                    采用到视频素材表
-                  </button>
+                    {_ui("采用到视频素材表")}{" "}</button>
                 )}
                 <button
                   className={button}
                   disabled={busy || Boolean(draft)}
                   onClick={() => resume(detail)}
                 >
-                  继续讨论
-                </button>
+                  {_ui("继续讨论")}</button>
               </div>
               {detail.edits?.length ? (
                 <details>
                   <summary>
-                    查看之前的参数（{detail.edits.length}次修改）
-                  </summary>
+                    {_ui("查看之前的参数（")}{detail.edits.length}{_ui("次修改）")}</summary>
                   {detail.edits.map((p, i) => (
                     <pre key={i} className="whitespace-pre-wrap text-xs">
                       {p.shots

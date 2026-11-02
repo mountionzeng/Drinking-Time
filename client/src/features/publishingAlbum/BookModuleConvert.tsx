@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -31,6 +32,7 @@ export function BookModuleConvert({
   onInsert(text: string): void;
   onClose(): void;
 }) {
+  const _ui = useDesktopUiText();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [intent, setIntent] = useState("");
@@ -45,6 +47,7 @@ export function BookModuleConvert({
   const [imageProvider, setImageProvider] = useState<"midjourney" | "gpt-image">("midjourney");
   // Must stay after the existing useState calls (tests rely on hook order).
   const [offerGpt, setOfferGpt] = useState(false);
+  const [narrationSubmitted, setNarrationSubmitted] = useState(false);
   const translate = trpc.bookMedia.translate.useMutation({ retry: false });
   const translating = source.kind === "translate-en" || source.kind === "translate-zh";
   const describe = trpc.bookMedia.describe.useMutation(),
@@ -117,22 +120,20 @@ export function BookModuleConvert({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            生成后自动在原模块下方新增模块，同时保存到仓库。原内容保留。
-          </DialogDescription>
+            {_ui("生成后自动在原模块下方新增模块，同时保存到仓库。原内容保留。")}</DialogDescription>
         </DialogHeader>
         {source.kind === "image" && <label className="text-sm">
-          生成方式
-          <select aria-label="图片生成方式" className="mt-1 w-full rounded border bg-transparent p-2" value={imageProvider} disabled={busy || submitted || images.length > 0 || blockNewImage}
+          {_ui("生成方式")}<select aria-label={_ui("图片生成方式")} className="mt-1 w-full rounded border bg-transparent p-2" value={imageProvider} disabled={busy || submitted || images.length > 0 || blockNewImage}
             onChange={event => { setImageProvider(event.target.value as "midjourney" | "gpt-image"); setError(""); }}>
-            <option value="midjourney">Midjourney V7 · 4张候选</option>
-            <option value="gpt-image">GPT Image 2 备用 · 1张图片</option>
+            <option value="midjourney">{_ui("Midjourney V7 · 4张候选")}</option>
+            <option value="gpt-image">{_ui("GPT Image 2 备用 · 1张图片")}</option>
           </select>
         </label>}
         {!translating && source.kind !== "text" && source.kind !== "narration" && (
           <textarea
-            aria-label="转换要求"
+            aria-label={_ui("转换要求")}
             className="rounded border bg-transparent p-2"
-            placeholder="补充风格或氛围（可不填）"
+            placeholder={_ui("补充风格或氛围（可不填）")}
             value={intent}
             maxLength={800}
             disabled={busy || submitted}
@@ -142,17 +143,17 @@ export function BookModuleConvert({
             }}
           />
         )}
-        {checkingTask && <p role="status">正在核对已有图片任务…</p>}
-        {source.kind === "image" && imageTask.error && <p role="alert">暂时无法读取图片任务，请重新打开窗口核对，避免重复生成。</p>}
+        {checkingTask && <p role="status">{_ui("正在核对已有图片任务…")}</p>}
+        {source.kind === "image" && imageTask.error && <p role="alert">{_ui("暂时无法读取图片任务，请重新打开窗口核对，避免重复生成。")}</p>}
         {protectedTask && !busy && !images.length && <div>
-          <p>{savedTask.sourceChanged ? "原模块已变化；恢复的图片会保留在仓库。" : "已有图片任务，恢复只查询同一个任务，不会重新购买生成。"}</p>
+          <p>{savedTask.sourceChanged ? _ui("原模块已变化；恢复的图片会保留在仓库。") : _ui("已有图片任务，恢复只查询同一个任务，不会重新购买生成。")}</p>
           <button onClick={() => void run(async () => {
             const data = await recoverImage.mutateAsync(taskScope);
             if (data.status !== "ok") throw new Error(data.error);
             setImages(data.candidates.map(c => c.imageUrl));
             await utils.storyAgent.storyMaterialState.invalidate({ storyId });
             if (!savedTask.sourceChanged && data.imageUrl) insertGenerated(bookImageText(data.imageUrl));
-          })}>{savedTask.status === "succeeded" ? "插入已生成图片" : "恢复上次生成"}</button>
+          })}>{savedTask.status === "succeeded" ? _ui("插入已生成图片") : _ui("恢复上次生成")}</button>
         </div>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
@@ -240,30 +241,36 @@ export function BookModuleConvert({
               })
             }
           >
-            {translating ? "开始翻译并插入下方" : source.kind === "image"
-              ? `生成图片（${imageProvider === "gpt-image" ? "GPT · 1张 · 预估 " : ""}${formatComputeQuote(cost)}）`
+            {translating ? _ui("开始翻译并插入下方") : source.kind === "image"
+              ? _ui("生成图片（{0}{1}）", [imageProvider === "gpt-image" ? _ui("GPT · 1张 · 预估 ") : "", formatComputeQuote(cost).replace(/算力$/, _ui("算力"))])
               : source.kind === "text"
-                ? "生成文字"
-                : source.kind === "narration" ? "查看朗读费用" : "查看音乐生成费用"}
+                ? _ui("生成文字")
+                : source.kind === "narration" ? _ui("查看朗读费用") : _ui("查看音乐生成费用")}
           </button>
         )}
         {offerGpt && source.kind === "image" && imageProvider === "midjourney" && !busy && !submitted && images.length === 0 && (
           <div className="rounded border p-2 text-xs">
-            <p>Midjourney 当前拥挤。可改用 GPT-image 出 1 张图（预估 {formatComputeQuote(estimatePublishingCoverFallbackCost().estimatedCny)}，约为 Midjourney 的 8 倍），不会自动切换。</p>
+            <p>{_ui("Midjourney 当前拥挤。可改用 GPT-image 出 1 张图（预估")}{" "}{formatComputeQuote(estimatePublishingCoverFallbackCost().estimatedCny).replace(/算力$/, _ui("算力"))}{_ui("，约为 Midjourney 的 8 倍），不会自动切换。")}</p>
             <button type="button" className="mt-1 rounded border px-2 py-1"
               onClick={() => { setImageProvider("gpt-image"); setOfferGpt(false); setError(""); }}>
-              改用 GPT-image
-            </button>
+              {_ui("改用 GPT-image")}</button>
           </div>
         )}
         {quote && !result && (
           <button
-            disabled={busy}
+            disabled={busy || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
               void run(async () => {
                 await prepare();
                 if(source.kind === "narration") {
-                  const data=await narration.mutateAsync({storyId,operation:operation.current,subtitleCueId:quote.subtitleCueId!,quoteToken:quote.quoteToken});
+                  setNarrationSubmitted(true);
+                  let data;
+                  try {
+                    data=await narration.mutateAsync({storyId,operation:operation.current,subtitleCueId:quote.subtitleCueId!,quoteToken:quote.quoteToken});
+                  } catch {
+                    throw new Error(_ui("有声书生成结果尚未确认，原文已保留。请先核对任务和费用，暂勿重复提交。"));
+                  }
+                  if(data.status === "submission-unknown" || data.status === "pending") throw new Error(_ui("有声书生成结果尚未确认，原文已保留。请先核对任务和费用，暂勿重复提交。"));
                   if(data.status!=="candidate-ready")throw new Error(data.message);
                   const text=bookAudioText(storyId,data.candidate.assetId,"有声书","narration");
                   setResult(text);void utils.timelineMedia.audioAssetLibrary.invalidate({storyId});insertGenerated(text);return;
@@ -283,13 +290,13 @@ export function BookModuleConvert({
               })
             }
           >
-            {source.kind === "narration" ? "确认按原文朗读" : "确认生成约30秒音乐"}（{formatComputeQuote(quote.estimatedCny)}）
+            {source.kind === "narration" ? _ui("确认按原文朗读") : _ui("确认生成约30秒音乐")}（{formatComputeQuote(quote.estimatedCny).replace(/算力$/, _ui("算力"))}）
           </button>
         )}
         {result &&
           (source.kind === "text" || translating ? (
             <textarea
-              aria-label="生成的文字"
+              aria-label={_ui("生成的文字")}
               className="min-h-32 rounded border p-2"
               value={result}
               onChange={e => setResult(e.target.value)}
@@ -304,30 +311,29 @@ export function BookModuleConvert({
               void run(async () => onInsert(translating ? result : result.replace(/\s*\n\s*/g, " ")))
             }
           >
-            插入原模块后
-          </button>
+            {_ui("插入原模块后")}</button>
         )}
         {images.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             {images.map(url => (
               <button
                 key={url}
-                aria-label="插入这张图片"
+                aria-label={_ui("插入这张图片")}
                 onClick={() =>
                   void run(async () => onInsert(bookImageText(url)))
                 }
               >
-                <img src={url} alt="生成的插图" className="w-full rounded" />
-                <span>插入这张图片</span>
+                <img src={url} alt={_ui("生成的插图")} className="w-full rounded" />
+                <span>{_ui("插入这张图片")}</span>
               </button>
             ))}
           </div>
         )}
-        {busy && <p role="status">{protectedTask ? "正在查询已有图片任务，请稍候…" : "正在生成，请稍候…"}</p>}
+        {busy && <p role="status">{protectedTask ? _ui("正在查询已有图片任务，请稍候…") : _ui("正在生成，请稍候…")}</p>}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
-            {submitted ? " 请先查看仓库或核实任务状态，暂勿重复提交。" : ""}
+            {submitted ? _ui(" 请先查看仓库或核实任务状态，暂勿重复提交。") : ""}
           </p>
         )}
       </DialogContent>

@@ -1,3 +1,4 @@
+import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -40,4 +41,12 @@ describe("StudioCreateMenu", () => {
     expect(button(html, "音乐")).not.toContain('disabled=""');
     expect(html).not.toContain("先准备视频镜头");
   });
+});
+
+it("renders every create option and prerequisite in English", () => {
+ const html=renderToStaticMarkup(<UiLanguageContext.Provider value={{language:"en",setLanguage:()=>{}}}><StudioCreateMenu storyId={null} input="用户原文" blocked={false} hasShots={false}/></UiLanguageContext.Provider>);
+ expect(html).toContain("Create from this content");
+ expect(html).toContain("Open a story before continuing.");
+ for(const label of ["Images","Videos","Music"]) expect(html).toContain(label);
+ expect(html).not.toMatch(/[\u3400-\u9fff]/);
 });

@@ -12,7 +12,7 @@ export type AuthoritativeStoryBlock={text?:string;photoId?:string;blockId:string
 export type AuthoritativeStoryDocument={familyId:string;storyId:string;revisionId:string;version:number;title:string;updatedAt:string;provenanceVersion:1;
   chapters:Array<{id:string;title:string;content:AuthoritativeStoryBlock[]}>};
 type Fetcher=(input:string|URL,init?:RequestInit)=>Promise<Response>;
-type AuthorityOptions={enabled?:boolean;baseUrl?:string;secret?:string;fetcher?:Fetcher;now?:()=>number;nonce?:()=>string;timeoutMs?:number};
+type AuthorityOptions={enabled?:boolean;baseUrl?:string;secret?:string;fetcher?:Fetcher;now?:()=>number;nonce?:()=>string;timeoutMs?:number;maxResponseBytes?:number};
 export type ShiguangStoryWriteEdit={action:"edit";blockId:string;text:string}|{action:"merge";blockIds:string[];text:string}|{action:"appendOwn";chapterId:string;text:string};
 export type ShiguangStoryWriteInput={revisionId:string;expectedVersion:number;requestId:string;edits:ShiguangStoryWriteEdit[]};
 export type ShiguangStoryWriteResult={ok:true;storyId:string;revisionId:string;version:number;replayed:boolean};
@@ -74,7 +74,7 @@ export async function readShiguangAuthoritativeStory(binding:BoundShiguangStory,
   return document;
 }
 
-async function authorityRequest(path:string,body:Record<string,unknown>,options:AuthorityOptions):Promise<unknown>{
+export async function authorityRequest(path:string,body:Record<string,unknown>,options:AuthorityOptions):Promise<unknown>{
   const configuration=authorityConfiguration(path,options);
   if(!configuration.enabled)throw new Error("story_authority_disabled");
   if(!configuration.url||!configuration.secret)throw new Error("story_authority_not_configured");
@@ -82,9 +82,9 @@ async function authorityRequest(path:string,body:Record<string,unknown>,options:
   const timestamp=String((options.now??Date.now)()),nonce=(options.nonce??(()=>randomBytes(18).toString("base64url")))();
   if(!/^\d{13}$/.test(timestamp)||!/^[0-9A-Za-z_-]{16,64}$/.test(nonce))throw new Error("story_authority_request_invalid");
   let response:Response;try{response=await (options.fetcher??fetch)(url,{method:"POST",headers:{"content-type":"application/json","x-shiguang-timestamp":timestamp,
-    "x-shiguang-nonce":nonce,"x-shiguang-signature":bridgeSignature(secret,path,timestamp,nonce,body)},body:JSON.stringify(body),signal:AbortSignal.timeout(options.timeoutMs??12000)});}catch{throw new Error("story_authority_unavailable");}
+    "x-shiguang-nonce":nonce,"x-shiguang-signature":bridgeSignature(secret,path,timestamp,nonce,body)},body:JSON.stringify(body),redirect:"error",signal:AbortSignal.timeout(options.timeoutMs??12000)});}catch{throw new Error("story_authority_unavailable");}
   if(!/^application\/json\b/i.test(response.headers.get("content-type")||"")){try{await response.body?.cancel();}catch{}throw new Error("story_authority_unavailable");}
-  const raw=await boundedText(response,600000);
+  const raw=await boundedText(response,options.maxResponseBytes??600000);
   let value:unknown;try{value=JSON.parse(raw);}catch{throw new Error("story_authority_response_invalid");}
   if(!response.ok){if(response.status===404)throw new Error("story_access_revoked");if(response.status===409)throw new Error("story_version_conflict");throw new Error("story_authority_unavailable");}
   return value;

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React from "react";
 import {
   Dialog,
@@ -17,6 +18,7 @@ export function DesktopMemorySpace({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
@@ -24,10 +26,9 @@ export function DesktopMemorySpace({
         className="max-h-[90dvh] w-[94vw] sm:max-w-5xl overflow-y-auto p-6 sm:p-9"
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>回忆</DialogTitle>
+          <DialogTitle>{_ui("回忆")}</DialogTitle>
           <DialogDescription>
-            整理故事书架，查看参与创作的人与亲友关系。
-          </DialogDescription>
+            {_ui("整理故事书架，查看参与创作的人与亲友关系。")}</DialogDescription>
         </DialogHeader>
         {open && (
           <MemorySpace

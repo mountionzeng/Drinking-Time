@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 提示词提醒组件 — 偏好驱动 + 缺口驱动
  *
@@ -39,6 +40,7 @@ export function PreferenceReminder({
   visualPreference: string;
   onApply?: (hint: string) => void;
 }) {
+  const _ui = useDesktopUiText();
   const hints = useMemo(() => extractPreferenceHints(visualPreference), [visualPreference]);
 
   if (hints.length === 0) return null;
@@ -47,7 +49,7 @@ export function PreferenceReminder({
     <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-md bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30">
       <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
       <div className="text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
-        <span>你常喜欢</span>
+        <span>{_ui("你常喜欢")}</span>
         {hints.map((hint, i) => (
           <span key={hint}>
             {i > 0 && '、'}
@@ -64,7 +66,7 @@ export function PreferenceReminder({
             )}
           </span>
         ))}
-        <span>，要用上吗？</span>
+        <span>{_ui("，要用上吗？")}</span>
       </div>
     </div>
   );
@@ -79,6 +81,7 @@ export function GapReminder({
   pool: PromptFragment[];
   onPickFromPool?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   // 候选：按 confidence 排序取前 3
   const candidates = useMemo(() => {
     return [...pool]
@@ -90,11 +93,10 @@ export function GapReminder({
     <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-md bg-sky-50/80 dark:bg-sky-950/20 border border-sky-200/50 dark:border-sky-800/30">
       <ImageOff className="w-3.5 h-3.5 text-sky-500 shrink-0 mt-0.5" />
       <div className="text-[10px] leading-relaxed text-sky-700 dark:text-sky-300">
-        <span>这镜还没视觉提示词</span>
+        <span>{_ui("这镜还没视觉提示词")}</span>
         {candidates.length > 0 && (
           <span>
-            ，试试
-            {candidates.map((c, i) => (
+            {_ui("，试试")}{candidates.map((c, i) => (
               <span key={c.id}>
                 {i > 0 && '、'}
                 <span className="font-medium">「{c.text.length > 8 ? c.text.slice(0, 8) + '…' : c.text}」</span>
@@ -108,8 +110,7 @@ export function GapReminder({
             onClick={onPickFromPool}
             className="ml-1 font-medium underline decoration-dotted hover:decoration-solid cursor-pointer"
           >
-            从池里挑？
-          </button>
+            {_ui("从池里挑？")}</button>
         ) : (
           <span>？</span>
         )}

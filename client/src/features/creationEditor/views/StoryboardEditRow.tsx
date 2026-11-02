@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { GripVertical, Loader2, Magnet } from "lucide-react";
 import {
   useCallback,
@@ -132,6 +133,7 @@ export {
  * 右键出剪辑菜单，键盘走主流剪辑软件那一套快捷键。
  */
 function StoryboardAudioRowHeader({ legacy = false }: { legacy?: boolean }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       role="rowheader"
@@ -141,9 +143,9 @@ function StoryboardAudioRowHeader({ legacy = false }: { legacy?: boolean }) {
         background: "var(--background)",
       }}
     >
-      <span>{legacy ? "旧音频 · 只读" : "听觉 · 音轨"}</span>
+      <span>{legacy ? _ui("旧音频 · 只读") : _ui("听觉 · 音轨")}</span>
       <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
-        {legacy ? "显式导入后可剪辑" : "强弱 · 停顿"}
+        {legacy ? _ui("显式导入后可剪辑") : _ui("强弱 · 停顿")}
       </span>
     </div>
   );
@@ -179,6 +181,7 @@ function StoryboardEditGapMenu({
   onClose: () => void;
   onPaste?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("pointerdown", close);
@@ -194,7 +197,7 @@ function StoryboardEditGapMenu({
   return (
     <div
       role="menu"
-      aria-label="空档剪辑菜单"
+      aria-label={_ui("空档剪辑菜单")}
       data-testid="storyboard-edit-gap-menu"
       className="fixed z-[100] min-w-[220px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg"
       style={{
@@ -205,7 +208,7 @@ function StoryboardEditGapMenu({
       onContextMenu={event => event.preventDefault()}
     >
       <div className="border-b border-border/60 px-3 pb-1 text-[9px] text-muted-foreground">
-        空档 · {formatStoryboardTimestamp(menu.atMs)}
+        {_ui("空档 ·")}{" "}{formatStoryboardTimestamp(menu.atMs)}
       </div>
       <button
         type="button"
@@ -216,8 +219,7 @@ function StoryboardEditGapMenu({
         className="flex w-full items-center gap-1.5 px-3 py-1 text-left text-[11px] text-foreground transition disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-muted"
       >
         {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
-        自动创建镜头（用前后帧生成过渡）
-      </button>
+        {_ui("自动创建镜头（用前后帧生成过渡）")}</button>
       {onPaste ? (
         <button
           type="button"
@@ -226,8 +228,7 @@ function StoryboardEditGapMenu({
           onClick={onPaste}
           className="flex w-full items-center px-3 py-1 text-left text-[11px] hover:bg-muted disabled:opacity-40"
         >
-          粘贴到这里
-        </button>
+          {_ui("粘贴到这里")}</button>
       ) : null}
     </div>
   );
@@ -265,6 +266,7 @@ function StoryboardEditContextMenu({
   onPick: (action: StoryboardEditAction) => void;
   onClose: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const items = storyboardEditMenuItems({
     shotLabel: menu.shot.shotLabel,
     canSplitHere,
@@ -293,7 +295,7 @@ function StoryboardEditContextMenu({
   return (
     <div
       role="menu"
-      aria-label={`${menu.shot.shotLabel} 剪辑菜单`}
+      aria-label={_ui("{0} 剪辑菜单", [menu.shot.shotLabel])}
       data-testid="storyboard-edit-menu"
       className="fixed z-[100] min-w-[190px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg"
       style={{
@@ -372,6 +374,7 @@ function StoryboardVisualObjectMenu({
   onPick: (command: VisualObjectCommand) => void;
   onClose: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const capabilities = visualObjectCapabilities(menu.object);
   const focusable = () =>
@@ -392,7 +395,7 @@ function StoryboardVisualObjectMenu({
       <div
         ref={menuRef}
         role="menu"
-        aria-label={`${menu.object.type} 操作`}
+        aria-label={_ui("{0} 操作", [menu.object.type])}
         className="fixed min-w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-xl"
         style={{ left: menu.clientX, top: menu.clientY }}
         onPointerDown={event => event.stopPropagation()}
@@ -442,7 +445,7 @@ function StoryboardVisualObjectMenu({
             >
               <span>{VISUAL_OBJECT_COMMAND_LABELS[capability.command]}</span>
               {disabled ? (
-                <span className="ml-3 text-[9px]">暂不可用</span>
+                <span className="ml-3 text-[9px]">{_ui("暂不可用")}</span>
               ) : null}
             </button>
           );
@@ -463,11 +466,12 @@ function StoryboardVisualPasteMenu({
   onPaste: () => void;
   onClose: () => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div className="fixed inset-0 z-[120]" onPointerDown={onClose}>
       <div
         role="menu"
-        aria-label={`视觉层 ${menu.visualLayer + 1} 空白操作`}
+        aria-label={_ui("视觉层 {0} 空白操作", [menu.visualLayer + 1])}
         className="fixed min-w-44 rounded-md border bg-popover p-1 shadow-xl"
         style={{ left: menu.clientX, top: menu.clientY }}
         onPointerDown={event => event.stopPropagation()}
@@ -482,7 +486,7 @@ function StoryboardVisualPasteMenu({
           data-testid="storyboard-visual-paste"
           className="flex w-full justify-between gap-6 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-45"
         >
-          <span>粘贴</span>
+          <span>{_ui("粘贴")}</span>
           <span className="text-[9px] text-muted-foreground">⌘V</span>
         </button>
       </div>
@@ -546,6 +550,7 @@ function StoryboardEditTrack({
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
   onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
+  const _ui = useDesktopUiText();
   const isCurrentStorySession = () =>
     timeline.isStorySessionCurrent?.() !== false;
   const dragAnchorMsRef = useRef<number | null>(null);
@@ -1392,8 +1397,8 @@ function StoryboardEditTrack({
         tabIndex={0}
         aria-label={
           singleMoveEnabled
-            ? "剪辑时间条，拖动镜头或六点抓手只移动这一镜，按住 Shift 拖六点抓手才整体移动连续镜头，按住 Shift 拖镜头画面则选中一段交给聊聊，右键出剪辑菜单"
-            : "剪辑时间条，拖动选中一段交给聊聊，右键出剪辑菜单"
+            ? _ui("剪辑时间条，拖动镜头或六点抓手只移动这一镜，按住 Shift 拖六点抓手才整体移动连续镜头，按住 Shift 拖镜头画面则选中一段交给聊聊，右键出剪辑菜单")
+            : _ui("剪辑时间条，拖动选中一段交给聊聊，右键出剪辑菜单")
         }
         aria-keyshortcuts="Space ArrowLeft ArrowRight ArrowUp ArrowDown S F X I O Delete"
         aria-valuemin={0}
@@ -1664,8 +1669,8 @@ function StoryboardEditTrack({
                 selectedVisualObject.clipId === clip.id
               }
               aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
-              aria-label={`${clip.label}，图片`}
-              title={`${clip.label} · 方向键左右移动、上下换层，Shift+左右移动 15 帧`}
+              aria-label={_ui("{0}，图片", [clip.label])}
+              title={_ui("{0} · 方向键左右移动、上下换层，Shift+左右移动 15 帧", [clip.label])}
               data-testid={`storyboard-main-image-clip-${clip.imageId}`}
             >
               <img
@@ -1738,15 +1743,15 @@ function StoryboardEditTrack({
               style={{ left: drawnLeftPx, width: drawnWidthPx }}
               title={
                 singleMoveEnabled
-                  ? `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 拖动或六点抓手只移动这一镜 · ⇧拖六点抓手才整体移动 · ⇧拖画面改选一段 · 右键出剪辑菜单`
-                  : `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`
+                  ? _ui("{0} · {1} · {2}s · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 拖动或六点抓手只移动这一镜 · ⇧拖六点抓手才整体移动 · ⇧拖画面改选一段 · 右键出剪辑菜单", [shot.shotLabel, formatStoryboardTimestamp(timing.startMs), (durationMs / 1000).toFixed(1)])
+                  : _ui("{0} · {1} · {2}s · 右键出剪辑菜单", [shot.shotLabel, formatStoryboardTimestamp(timing.startMs), (durationMs / 1000).toFixed(1)])
               }
               data-visual-clip-move-target="true"
               data-visual-object-type="story-shot"
               data-visual-object-id={shot.stableShotId}
               aria-selected={selected}
               aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
-              aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
+              aria-label={_ui("{0} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速", [shot.shotLabel])}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
               data-storyboard-edit-shot-no={shot.shotNo}
               // 抓住镜头本身只移动它自己——和主流剪辑软件一致。要整体移动一串
@@ -1984,7 +1989,7 @@ function StoryboardEditTrack({
                           selectedVisualObject?.type === "owned-video-clip" &&
                           selectedVisualObject.clipId === segment.clip.id
                         }
-                        aria-label={`${segment.clip.label}，视频片段`}
+                        aria-label={_ui("{0}，视频片段", [segment.clip.label])}
                         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
                         data-visual-clip-move-target="true"
                         onPointerDown={event => {
@@ -2119,7 +2124,7 @@ function StoryboardEditTrack({
               <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-4 items-end justify-center bg-gradient-to-t from-black/70 to-transparent px-1 pb-0.5 font-mono text-[8px] leading-none text-white drop-shadow-sm">
                 <span className="truncate">
                   {shot.shotLabel}
-                  {timing.anchorFrames.length > 0 ? " · 锁" : ""}
+                  {timing.anchorFrames.length > 0 ? _ui(" · 锁") : ""}
                 </span>
               </span>
               {selected ? (
@@ -2131,8 +2136,8 @@ function StoryboardEditTrack({
                     onPointerUp={event => void endTrim(event)}
                     onPointerCancel={cancelTrim}
                     className="absolute bottom-0 left-0 top-0 z-20 w-2 cursor-ew-resize touch-none bg-primary/70"
-                    aria-label={`拖动左边缘修剪 ${shot.shotLabel} 的时长`}
-                    title={`拖动左边缘修剪时长 · 当前 ${(durationMs / 1000).toFixed(1)}s`}
+                    aria-label={_ui("拖动左边缘修剪 {0} 的时长", [shot.shotLabel])}
+                    title={_ui("拖动左边缘修剪时长 · 当前 {0}s", [(durationMs / 1000).toFixed(1)])}
                     data-testid={`storyboard-edit-trim-start-${shot.stableShotId}`}
                   />
                   <button
@@ -2176,18 +2181,18 @@ function StoryboardEditTrack({
                     className="absolute -top-4 left-1/2 z-30 flex h-4 w-8 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-t-sm bg-primary/70 text-[var(--background)] shadow-sm active:cursor-grabbing disabled:cursor-wait"
                     aria-label={
                       singleMoveEnabled
-                        ? `拖动只移动 ${shot.shotLabel}；按住 Shift 拖动才整体移动连续镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
+                        ? _ui("拖动只移动 {0}；按住 Shift 拖动才整体移动连续镜头；改顺序用 ⌥← / ⌥→ 或右键菜单", [shot.shotLabel])
                         : groupEnabled
-                          ? `拖动 ${shot.shotLabel} 整体移动它和同侧连续的镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
-                          : `拖动 ${shot.shotLabel} 调整镜头顺序`
+                          ? _ui("拖动 {0} 整体移动它和同侧连续的镜头；改顺序用 ⌥← / ⌥→ 或右键菜单", [shot.shotLabel])
+                          : _ui("拖动 {0} 调整镜头顺序", [shot.shotLabel])
                     }
                     aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
                     title={
                       singleMoveEnabled
-                        ? "拖动：只移动这一镜 · Shift+拖动：整体移动连续镜头 · 改顺序用 ⌥← / ⌥→"
+                        ? _ui("拖动：只移动这一镜 · Shift+拖动：整体移动连续镜头 · 改顺序用 ⌥← / ⌥→")
                         : groupEnabled
-                          ? "向左/向右拖：整体移动这一镜和同侧连续的镜头，遇到锚定镜头为止 · 改顺序用 ⌥← / ⌥→"
-                          : "拖到别的镜头上改顺序 · ⌥← / ⌥→"
+                          ? _ui("向左/向右拖：整体移动这一镜和同侧连续的镜头，遇到锚定镜头为止 · 改顺序用 ⌥← / ⌥→")
+                          : _ui("拖到别的镜头上改顺序 · ⌥← / ⌥→")
                     }
                     data-testid={
                       groupEnabled
@@ -2204,8 +2209,8 @@ function StoryboardEditTrack({
                     onPointerUp={event => void endTrim(event)}
                     onPointerCancel={cancelTrim}
                     className="absolute bottom-0 right-0 top-0 z-10 w-2 cursor-ew-resize touch-none bg-primary/70"
-                    aria-label={`拖动修剪 ${shot.shotLabel} 的时长`}
-                    title={`拖动修剪时长 · 当前 ${(durationMs / 1000).toFixed(1)}s · , / .`}
+                    aria-label={_ui("拖动修剪 {0} 的时长", [shot.shotLabel])}
+                    title={_ui("拖动修剪时长 · 当前 {0}s · , / .", [(durationMs / 1000).toFixed(1)])}
                     data-testid={`storyboard-edit-trim-${shot.stableShotId}`}
                   />
                 </>
@@ -2291,9 +2296,9 @@ function StoryboardEditTrack({
               tabIndex={focused ? 0 : -1}
               className="absolute -top-1 z-40 h-3 w-3 -translate-x-1/2 rounded-sm bg-amber-500 outline-none ring-white/70 focus-visible:ring-2"
               style={{ left: leftPx }}
-              aria-label={`${label} 的位置锚点，${formatStoryboardTimestamp(anchor.timelineFrame * (1000 / 30))}，按 Delete 取消`}
+              aria-label={_ui("{0} 的位置锚点，{1}，按 Delete 取消", [label, formatStoryboardTimestamp(anchor.timelineFrame * (1000 / 30))])}
               aria-keyshortcuts="Delete Backspace ArrowLeft ArrowRight"
-              title={`${label} 位置锚点 · Delete 取消`}
+              title={_ui("{0} 位置锚点 · Delete 取消", [label])}
               data-testid={`storyboard-edit-anchor-${anchor.id}`}
               data-storyboard-edit-anchor="true"
               onFocus={() => onFocusAnchor(anchor.id)}
@@ -2370,7 +2375,7 @@ function StoryboardEditTrack({
           <span
             className="pointer-events-none absolute bottom-0 top-0 z-30 w-0.5 bg-amber-500"
             style={{ left: markInPx }}
-            title="入点，按 O 打出点"
+            title={_ui("入点，按 O 打出点")}
             data-testid="storyboard-edit-mark-in"
           />
         ) : null}
@@ -2406,12 +2411,12 @@ function StoryboardEditTrack({
               })
             : (singleDrag?.blockedReason ??
               (singleDrag
-                ? `移动 ${labelByShotId.get(singleDrag.stableShotId) ?? singleDrag.stableShotId} · ${singleDrag.deltaFrames > 0 ? "+" : ""}${(singleDrag.deltaFrames / 30).toFixed(2)}s`
+                ? _ui("移动 {0} · {1}{2}s", [labelByShotId.get(singleDrag.stableShotId) ?? singleDrag.stableShotId, singleDrag.deltaFrames > 0 ? "+" : "", (singleDrag.deltaFrames / 30).toFixed(2)])
                 : draftTrim
                   ? `${(draftTrim.durationMs / 1000).toFixed(1)}s`
                   : markInMs != null
-                    ? `入点 ${formatStoryboardTimestamp(markInMs)} · 按 O 打出点`
-                    : `${shots.length} 镜`)))}
+                    ? _ui("入点 {0} · 按 O 打出点", [formatStoryboardTimestamp(markInMs)])
+                    : _ui("{0} 镜", [shots.length]))))}
       </span>
     </div>
   );
@@ -2464,6 +2469,7 @@ export function StoryboardEditRow({
   selectedVisualObject?: VisualObjectRef | null;
   onSelectVisualObject?: (object: VisualObjectRef | null) => void;
 }) {
+  const _ui = useDesktopUiText();
   // 生产看板显式传入和标尺、缩放控件同一个 viewport。回退只服务
   // 独立渲染与旧测试夹具，坐标语义仍是像素。
   const viewport =
@@ -3498,7 +3504,7 @@ export function StoryboardEditRow({
             timeline.addMedia ? (
               <AddTimelineMediaMenu
                 {...timeline.addMedia}
-                triggerLabel="添加声音"
+                triggerLabel={_ui("添加声音")}
                 compact
               />
             ) : undefined
@@ -3554,8 +3560,7 @@ export function StoryboardEditRow({
               background: "var(--background)",
             }}
           >
-            属性
-          </div>
+            {_ui("属性")}</div>
           <div
             role="cell"
             className="border-b border-r p-1"

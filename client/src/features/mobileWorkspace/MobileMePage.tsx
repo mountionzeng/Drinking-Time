@@ -31,6 +31,7 @@ import { LiaoliaoMascot } from "./LiaoliaoMascot";
 import { LIAOLIAO_FORMS } from "./liaoliaoForms";
 import { MobileDesktopLogin } from "./MobileDesktopLogin";
 import { MobileSheet } from "./MobileSheet";
+import { accountLabel } from "@/features/auth/accountLabel";
 
 function Row({
   title,
@@ -164,7 +165,7 @@ export function MobileMePage({
             {t("名字由你自己定。分享故事时，对方会看到这个名字。")}
           </p>
           <p className="mt-1 break-all text-sm text-muted-foreground">
-            {user?.email ?? (user ? t("访客身份 · 未绑定邮箱") : t("未登录"))}
+            {user?.loginMethod === "wechat" && user.email ? t("微信账号 · {0}", [user.email]) : t(accountLabel(user))}
           </p>
         </div>
       </div>
@@ -262,8 +263,8 @@ export function MobileMePage({
         title={t("我的风格")}
         hint={
           visualTheme === "shiguang"
-            ? "拾光家忆"
-            : `纳音五行 · ${previewElement ? t(LIAOLIAO_FORMS.find(form => form.element === element)?.label.split(" · ")[0] ?? "") : t("跟随当天五行")}`
+            ? t("拾光家忆")
+            : t("纳音五行 · {0}", [previewElement ? t(LIAOLIAO_FORMS.find(form => form.element === element)?.label.split(" · ")[0] ?? "") : t("跟随当天五行")])
         }
         onClick={() => setStyleOpen(true)}
       />
@@ -284,7 +285,7 @@ export function MobileMePage({
               alt=""
               className="size-12 object-contain"
             />
-            <span className="flex-1">拾光家忆</span>
+            <span className="flex-1">{t("拾光家忆")}</span>
             {visualTheme === "shiguang" && (
               <span className="text-xs text-primary">{t("已选")}</span>
             )}
@@ -360,6 +361,10 @@ export function MobileMePage({
           onClick={() => setDesktopLoginOpen(true)}
         />
       )}
+
+      <a href="/wechat-import" className="block border-b border-border/70 px-4 py-4 text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+        {t("微信故事")}<span className="mt-1 block text-xs text-muted-foreground">{t("选择导入到网页，保留微信原稿")}</span>
+      </a>
 
       <Row
         title={t("出生信息")}

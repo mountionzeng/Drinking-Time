@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * TopBar — Simplified top navigation
  * Shows: 五行饮品 Logo（兼故事菜单）、story panel toggles、user avatar
@@ -79,6 +80,7 @@ export default function TopBar({
   showLocalDraftRecovery = false,
   onOpenLetter,
 }: TopBarProps) {
+  const _ui = useDesktopUiText();
   const { element, visualTheme } = useNayin();
   const { user } = useAuth();
   const { visibleStoryPanels, toggleVisibleStoryPanel } =
@@ -127,7 +129,7 @@ export default function TopBar({
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 {showStoryPanelNav ? (
                   <nav
-                    aria-label="故事面板切换"
+                    aria-label={_ui("故事面板切换")}
                     className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
                   >
                     {STORY_PANELS.map(panel => {
@@ -157,7 +159,7 @@ export default function TopBar({
                           }
                         >
                           <span className="shiguang-nav-label">
-                            {panel.label}
+                            {_ui(panel.label)}
                           </span>
                         </button>
                       );
@@ -165,7 +167,7 @@ export default function TopBar({
                   </nav>
                 ) : editingPanelToggles.length > 0 ? (
                   <nav
-                    aria-label="剪辑面板切换"
+                    aria-label={_ui("剪辑面板切换")}
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
                   >
                     {editingPanelToggles.map((toggle, index) => (
@@ -184,8 +186,8 @@ export default function TopBar({
                           data-tour={toggle.tourAnchor}
                           aria-pressed={toggle.active}
                           aria-controls={toggle.controls}
-                          aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
-                          title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
+                          aria-label={_ui(toggle.active ? "隐藏{0}" : "显示{0}", [_ui(toggle.label)])}
+                          title={_ui(toggle.active ? "隐藏{0}" : "显示{0}", [_ui(toggle.label)])}
                           onClick={toggle.onToggle}
                           className={`shiguang-toolbar-button min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
                             toggle.active ? "" : "hover:brightness-110"
@@ -215,7 +217,7 @@ export default function TopBar({
                             />
                           ) : null}
                           <span className="shiguang-nav-label">
-                            {toggle.label}
+                            {_ui(toggle.label)}
                           </span>
                         </button>
                         {toggle.subnav ? (
@@ -257,7 +259,7 @@ export default function TopBar({
                         boxShadow:
                           "0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)",
                       }}
-                      aria-label="用户"
+                      aria-label={_ui("用户")}
                       data-tour="account"
                     >
                       {visualTheme === "shiguang" ? (
@@ -282,7 +284,7 @@ export default function TopBar({
                             color: "var(--foreground)",
                           }}
                         >
-                          {user?.name ? user.name[0].toUpperCase() : "G"}
+                          {user?.name ? Array.from(user.name)[0].toUpperCase() : user?.loginMethod === "wechat" ? _ui("微") : _ui("我")}
                         </span>
                       )}
                     </button>
@@ -313,8 +315,7 @@ export default function TopBar({
                           }}
                         >
                           <BarChart3 className="h-3.5 w-3.5" />
-                          用户管理
-                        </button>
+                          {_ui("用户管理")}</button>
                       ) : null}
                       {showLocalDraftRecovery && <LegacyStoryRecoveryEntry onOpen={() => setUserOpen(false)} />}
                       {onReplayTour ? (
@@ -328,8 +329,7 @@ export default function TopBar({
                           }}
                         >
                           <Compass className="h-3.5 w-3.5" />
-                          重看使用引导
-                        </button>
+                          {_ui("重看使用引导")}</button>
                       ) : null}
                     </div>
                   </PopoverContent>

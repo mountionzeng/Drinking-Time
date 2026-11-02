@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { Images, Loader2, Sparkles, X } from "lucide-react";
 import { chatImageRefRole } from "../chatImageRefs";
@@ -15,6 +16,7 @@ export default function ChatImageRemixTray({
 }: {
   remix: ChatImageRemixController;
 }) {
+  const _ui = useDesktopUiText();
   const { refs, status, draft, result, error } = remix;
   if (refs.length === 0 && !draft && !result && !error) return null;
 
@@ -29,15 +31,13 @@ export default function ChatImageRemixTray({
                 className={`group relative h-13 w-13 shrink-0 overflow-hidden rounded-md bg-muted ${
                   index === 0 ? "ring-1 ring-[var(--nayin-accent)]" : ""
                 }`}
-                title={`${ref.label} · 图片 #${ref.imageId}${
-                  index === 0 ? "（底图）" : "，点一下设为底图"
-                }`}
+                title={_ui("{0} · 图片 #{1}{2}", [ref.label, ref.imageId, index === 0 ? _ui("（底图）") : _ui("，点一下设为底图")])}
               >
                 <button
                   type="button"
                   onClick={() => remix.promoteRef(ref.imageId)}
                   className="block h-full w-full"
-                  aria-label={`把 ${ref.label} 设为底图`}
+                  aria-label={_ui("把 {0} 设为底图", [ref.label])}
                 >
                   <img
                     src={ref.imageUrl}
@@ -46,13 +46,13 @@ export default function ChatImageRemixTray({
                   />
                 </button>
                 <span className="absolute bottom-0.5 left-0.5 rounded bg-black/65 px-1 text-[8px] font-mono text-white">
-                  {index === 0 ? "图1底" : `图${index + 1}`}
+                  {index === 0 ? _ui("图1底") : _ui("图{0}", [index + 1])}
                 </span>
                 <button
                   type="button"
                   onClick={() => remix.removeRef(ref.imageId)}
                   className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded bg-black/65 text-white opacity-85 transition-opacity hover:opacity-100"
-                  aria-label={`取消引用 ${ref.label}`}
+                  aria-label={_ui("取消引用 {0}", [ref.label])}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -60,20 +60,18 @@ export default function ChatImageRemixTray({
             ))}
           </div>
           <p className="mt-0.5 truncate text-[9.5px] text-muted-foreground">
-            引用 {refs.length} 张 · 图1 是底图（画幅和构图从它来）·
-            说清楚从每张取什么
-          </p>
+            {_ui("引用")}{" "}{refs.length} {_ui("张 · 图1 是底图（画幅和构图从它来）· 说清楚从每张取什么")}</p>
         </>
       ) : null}
 
       {draft && status === "confirming" ? (
         <article
           className="mt-1.5 rounded-md border border-[var(--nayin-accent)] bg-[var(--nayin-glow)] px-2.5 py-2"
-          aria-label="确认改图"
+          aria-label={_ui("确认改图")}
         >
           <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
             <Images className="h-3 w-3" />
-            <span>多图改图 · {draft.refs.length} 张参考</span>
+            <span>{_ui("多图改图 ·")}{" "}{draft.refs.length} {_ui("张参考")}</span>
           </div>
           <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-foreground/80">
             {draft.refs.map((ref, index) => (
@@ -89,24 +87,20 @@ export default function ChatImageRemixTray({
             {draft.instruction}
           </p>
           <p className="mt-1 text-[9.5px] text-muted-foreground">
-            预计{formatComputeQuote(draft.estimatedCny)}；确认后才会提交 302
-            并产生费用。新图先进素材仓库，拖到时间轴或镜头设计表才算采用。
-          </p>
+            {_ui("预计")}{formatComputeQuote(draft.estimatedCny).replace(/算力$/, _ui("算力"))}{_ui("；确认后才会提交 302 并产生费用。新图先进素材仓库，拖到时间轴或镜头设计表才算采用。")}</p>
           <div className="mt-1.5 flex gap-1.5">
             <button
               type="button"
               onClick={() => void remix.confirm()}
               className="rounded bg-[var(--nayin-accent)] px-2 py-1 text-[10px] font-medium text-white transition-opacity hover:opacity-90"
             >
-              确认并生成
-            </button>
+              {_ui("确认并生成")}</button>
             <button
               type="button"
               onClick={remix.cancel}
               className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             >
-              取消
-            </button>
+              {_ui("取消")}</button>
           </div>
         </article>
       ) : null}
@@ -114,14 +108,13 @@ export default function ChatImageRemixTray({
       {status === "generating" ? (
         <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          正在按你说的合成新图…别重复提交，这一单已经在跑了。
-        </p>
+          {_ui("正在按你说的合成新图…别重复提交，这一单已经在跑了。")}</p>
       ) : null}
 
       {result && status === "done" ? (
         <article
           className="mt-1.5 flex items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2"
-          aria-label="改图结果"
+          aria-label={_ui("改图结果")}
         >
           <img
             src={result.imageUrl}
@@ -140,20 +133,19 @@ export default function ChatImageRemixTray({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
               <Sparkles className="h-3 w-3" />
-              <span>新图 #{result.imageId} · 已存进素材仓库</span>
+              <span>{_ui("新图 #")}{result.imageId} {_ui("· 已存进素材仓库")}</span>
             </div>
             <p className="mt-0.5 truncate text-[10.5px] text-foreground/80">
               {result.instruction}
             </p>
             <p className="mt-0.5 text-[9.5px] text-muted-foreground">
-              拖到时间轴的镜头上或镜头设计表的行里，那一镜就换成它；拖到空白处新建一镜。
-            </p>
+              {_ui("拖到时间轴的镜头上或镜头设计表的行里，那一镜就换成它；拖到空白处新建一镜。")}</p>
           </div>
           <button
             type="button"
             onClick={remix.dismissResult}
             className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="收起改图结果"
+            aria-label={_ui("收起改图结果")}
           >
             <X className="h-3 w-3" />
           </button>

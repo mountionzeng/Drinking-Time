@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   Ban,
   Check,
@@ -56,6 +57,7 @@ export default function AnimaticMaterialDrawer({
   onReuseVideo,
   onMarkVideoTakeUnusable,
 }: Props) {
+  const _ui = useDesktopUiText();
   const [scope, setScope] = useState<"shot" | "all">("shot");
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [loadedVideoTakeIds, setLoadedVideoTakeIds] = useState<Set<number>>(
@@ -93,17 +95,16 @@ export default function AnimaticMaterialDrawer({
         <div className="flex items-center gap-2">
           <Library className="h-4 w-4 text-primary" />
           <div>
-            <h3 className="text-sm font-semibold">素材库</h3>
+            <h3 className="text-sm font-semibold">{_ui("素材库")}</h3>
             <p className="text-[11px] text-muted-foreground">
-              先预览，再替换同镜头素材
-            </p>
+              {_ui("先预览，再替换同镜头素材")}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:text-foreground"
-          aria-label="关闭素材库"
+          aria-label={_ui("关闭素材库")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -120,7 +121,7 @@ export default function AnimaticMaterialDrawer({
                 : "text-muted-foreground hover:bg-muted"
             }`}
           >
-            {value === "shot" ? "当前镜头" : "全部素材"}
+            {value === "shot" ? _ui("当前镜头") : _ui("全部素材")}
           </button>
         ))}
       </div>
@@ -148,9 +149,8 @@ export default function AnimaticMaterialDrawer({
                 </button>
                 {shot.videoTakes.length > 0 ? (
                   <span className="text-[10px] text-muted-foreground">
-                    Take {usableVideoTakeCount}/{shot.videoTakes.length} 可用
-                    {inactiveVideoTakeCount > 0
-                      ? ` · ${inactiveVideoTakeCount} 不占位`
+                    Take {usableVideoTakeCount}/{shot.videoTakes.length} {_ui("可用")}{inactiveVideoTakeCount > 0
+                      ? _ui(" · {0} 不占位", [inactiveVideoTakeCount])
                       : ""}
                   </span>
                 ) : null}
@@ -166,13 +166,12 @@ export default function AnimaticMaterialDrawer({
                     >
                       <img
                         src={image.imageUrl}
-                        alt={`${displayShotCode(shot)} 图片版本`}
+                        alt={_ui("{0} 图片版本", [displayShotCode(shot)])}
                         className="aspect-video w-full bg-muted object-cover"
                       />
                       <div className="flex items-center justify-between gap-1 p-1.5">
                         <span className="inline-flex min-w-0 items-center gap-1 truncate text-[10px] text-muted-foreground">
-                          <ImageIcon className="h-3 w-3 shrink-0" />图 #
-                          {image.id}
+                          <ImageIcon className="h-3 w-3 shrink-0" />{_ui("图 #")}{image.id}
                         </span>
                         <button
                           type="button"
@@ -187,10 +186,9 @@ export default function AnimaticMaterialDrawer({
                           ) : current ? (
                             <span className="inline-flex items-center gap-1">
                               <Check className="h-3 w-3" />
-                              当前
-                            </span>
+                              {_ui("当前")}</span>
                           ) : (
-                            "设为主图"
+                            _ui("设为主图")
                           )}
                         </button>
                       </div>
@@ -264,8 +262,7 @@ export default function AnimaticMaterialDrawer({
                           className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-muted text-xs text-muted-foreground transition hover:bg-muted/80 hover:text-foreground"
                         >
                           <Video className="h-5 w-5" />
-                          载入预览
-                        </button>
+                          {_ui("载入预览")}</button>
                       ) : (
                         <div className="flex aspect-video items-center justify-center bg-muted text-xs text-muted-foreground">
                           {take.errorMessage
@@ -277,8 +274,8 @@ export default function AnimaticMaterialDrawer({
                         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
                           <Video className="h-3 w-3" />
                           Take {take.id} · {affordance.label}
-                          {stale ? " · 基于旧主图" : ""}
-                          {inactive ? " · 不占位" : ""}
+                          {stale ? _ui(" · 基于旧主图") : ""}
+                          {inactive ? _ui(" · 不占位") : ""}
                         </span>
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                           {canReuseToSelected ? (
@@ -303,8 +300,7 @@ export default function AnimaticMaterialDrawer({
                               ) : (
                                 <Copy className="h-3 w-3" />
                               )}
-                              复用到当前镜头
-                            </button>
+                              {_ui("复用到当前镜头")}</button>
                           ) : null}
                           {onMarkVideoTakeUnusable &&
                           take.status !== "unfollowable" &&
@@ -324,8 +320,7 @@ export default function AnimaticMaterialDrawer({
                               ) : (
                                 <Ban className="h-3 w-3" />
                               )}
-                              不可用
-                            </button>
+                              {_ui("不可用")}</button>
                           ) : null}
                           <button
                             type="button"
@@ -343,9 +338,9 @@ export default function AnimaticMaterialDrawer({
                             {savingKey === key ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : adopted ? (
-                              "已采用"
+                              _ui("已采用")
                             ) : (
-                              "采用"
+                              _ui("采用")
                             )}
                           </button>
                         </div>
@@ -359,8 +354,7 @@ export default function AnimaticMaterialDrawer({
         })}
         {shots.length === 0 ? (
           <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-            当前镜头还没有历史素材。
-          </div>
+            {_ui("当前镜头还没有历史素材。")}</div>
         ) : null}
       </div>
     </aside>

@@ -16,6 +16,8 @@ import { createWebLoginRequest, pollWebLoginRequest } from "../services/webLogin
 import { ENV } from "./env";
 import { registerOAuthRoutes } from "./oauth";
 import { sdk } from "./sdk";
+vi.mock("../services/wechatLoginQr",()=>({wechatLoginQrConfigured:vi.fn(),createWechatLoginQr:vi.fn()}));
+import { createWechatLoginQr, wechatLoginQrConfigured } from "../services/wechatLoginQr";
 
 let server: Server;
 let baseUrl: string;
@@ -45,6 +47,8 @@ beforeEach(() => {
   vi.stubEnv("WECHAT_SCAN_LOGIN_ENABLED", "true");
   create.mockReset().mockResolvedValue(created);
   poll.mockReset().mockResolvedValue({ status: "pending" });
+  vi.mocked(wechatLoginQrConfigured).mockReset().mockReturnValue(false);
+  vi.mocked(createWechatLoginQr).mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 afterAll(async () => {
@@ -68,6 +72,26 @@ async function cookieIdentity(response: Response) {
 }
 
 describe("网页六位码登录 HTTP 边界", () => {
+  it("QR mode only returns an image and browser credentials, never a confirmation token", async () => {
+    vi.mocked(wechatLoginQrConfigured).mockReturnValue(true);
+    vi.mocked(createWechatLoginQr).mockResolvedValue("data:image/png;base64,aW1hZ2U=");
+    const code="A".repeat(28);create.mockResolvedValue({...created,code});
+    const response=await post("wechat-scan/create",{presentation:"qr",code:"forged"});
+    expect(response.status).toBe(200);
+    const body=await response.json();expect(body.qrDataUrl).toBe("data:image/png;base64,aW1hZ2U=");
+    expect(body.code).toBeUndefined();expect(body).toMatchObject({l:created.l,v:created.v});
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({qr:true}));
+    expect(createWechatLoginQr).toHaveBeenCalledWith(code,created.expiresAt);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+  it("unconfigured or failed QR generation does not masquerade as a successful login", async () => {
+    expect((await post("wechat-scan/create",{presentation:"qr"})).status).toBe(503);
+    expect(create).not.toHaveBeenCalled();
+    vi.mocked(wechatLoginQrConfigured).mockReturnValue(true);
+    vi.mocked(createWechatLoginQr).mockRejectedValue(new Error("unavailable"));
+    const response=await post("wechat-scan/create",{presentation:"qr"});expect(response.status).toBe(503);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
   it("关闭时 create/poll 为 no-store 404，不访问服务或写 Cookie", async () => {
     vi.stubEnv("WECHAT_SCAN_LOGIN_ENABLED", "false");
     for (const path of ["wechat-scan/create", "wechat-scan/poll"]) {

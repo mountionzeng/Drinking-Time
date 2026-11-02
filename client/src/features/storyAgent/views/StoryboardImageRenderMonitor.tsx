@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -20,6 +21,7 @@ export function StoryboardImageRenderMonitor({
   onDismiss: () => void;
   onOpen: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function StoryboardImageRenderMonitor({
           : ""
       }`}
       aria-live="polite"
-      aria-label="图片渲染监控"
+      aria-label={_ui("图片渲染监控")}
       data-testid="storyboard-image-render-monitor"
       role={monitor.status === "success" ? "button" : undefined}
       tabIndex={monitor.status === "success" ? 0 : undefined}
@@ -66,14 +68,14 @@ export function StoryboardImageRenderMonitor({
           <div className="flex items-center justify-between gap-2">
             <p className="truncate text-xs font-semibold text-foreground">
               {monitor.status === "running"
-                ? "图片正在后台渲染"
+                ? _ui("图片正在后台渲染")
                 : monitor.status === "success"
-                  ? "图片渲染完成"
-                  : "图片渲染失败"}
+                  ? _ui("图片渲染完成")
+                  : _ui("图片渲染失败")}
             </p>
             <button
               type="button"
-              aria-label="关闭渲染提醒"
+              aria-label={_ui("关闭渲染提醒")}
               className="shrink-0 text-muted-foreground transition hover:text-foreground"
               onClick={event => {
                 event.stopPropagation();
@@ -107,15 +109,14 @@ export function StoryboardImageRenderMonitor({
             />
           </div>
           <p className="mt-1.5 text-[10px] text-muted-foreground">
-            预计还需约{" "}
+            {_ui("预计还需约")}{" "}
             {Math.max(
               1,
               Math.ceil(
                 monitor.estimatedSeconds - (now - monitor.startedAt) / 1_000
               )
             )}{" "}
-            秒 · 你可以继续编辑其他内容
-          </p>
+            {_ui("秒 · 你可以继续编辑其他内容")}</p>
         </>
       ) : (
         <p
@@ -127,8 +128,8 @@ export function StoryboardImageRenderMonitor({
         >
           {monitor.message ??
             (monitor.status === "success"
-              ? "新版本已回到对应镜头"
-              : "请检查错误信息后再试")}
+              ? _ui("新版本已回到对应镜头")
+              : _ui("请检查错误信息后再试"))}
         </p>
       )}
     </aside>,

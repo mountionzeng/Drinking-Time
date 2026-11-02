@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useState } from "react";
 import { textChanges, type TextChange } from "./textChanges";
 import type { Chapter } from "./useChapters";
@@ -25,6 +26,7 @@ function Preview({
   side: "before" | "after";
   mode: "text" | "images" | "all";
 }) {
+  const _ui = useDesktopUiText();
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -79,24 +81,24 @@ function Preview({
       <h3 className="font-medium">
         {label} · <ChangedText changes={titleChanges} side={side} />
       </h3>
-      <p className="text-xs text-muted-foreground">{content.blocks.attribution?.editorName || "未记录编辑者"}</p>
+      <p className="text-xs text-muted-foreground">{content.blocks.attribution?.editorName || _ui("未记录编辑者")}</p>
       {content.blocks.attribution?.changeNote && <p className="text-sm">{content.blocks.attribution.changeNote}</p>}
       {content.blocks.containsAiText && (
-        <p className="text-xs text-muted-foreground">包含 AI 辅助文字</p>
+        <p className="text-xs text-muted-foreground">{_ui("包含 AI 辅助文字")}</p>
       )}
       {mode !== "images" && <p className="max-h-80 overflow-auto whitespace-pre-wrap text-sm">
         <ChangedText changes={changes} side={side} />
-        {!content.blocks.body && "（空白章节）"}
+        {!content.blocks.body && _ui("（空白章节）")}
       </p>}
       {mode !== "text" && <>
-      <div className="flex gap-2 overflow-auto">{[...new Set([content.blocks.coverKey, content.blocks.bodyTextureKey, ...content.blocks.illustrations.map(image => image.key)].filter((key): key is string => Boolean(key)))].map(key => <figure key={key} className="w-28 shrink-0"><img src={urls[key] ?? key} alt={`${label}的${key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}`} className="h-28 w-28 object-contain" /><figcaption className="text-xs">{key === content.blocks.coverKey ? "封面" : key === content.blocks.bodyTextureKey ? "底图" : "插图"}</figcaption></figure>)}</div>
+      <div className="flex gap-2 overflow-auto">{[...new Set([content.blocks.coverKey, content.blocks.bodyTextureKey, ...content.blocks.illustrations.map(image => image.key)].filter((key): key is string => Boolean(key)))].map(key => <figure key={key} className="w-28 shrink-0"><img src={urls[key] ?? key} alt={_ui("{0}的{1}", [label, key === content.blocks.coverKey ? _ui("封面") : key === content.blocks.bodyTextureKey ? _ui("底图") : _ui("插图")])} className="h-28 w-28 object-contain" /><figcaption className="text-xs">{key === content.blocks.coverKey ? _ui("封面") : key === content.blocks.bodyTextureKey ? _ui("底图") : _ui("插图")}</figcaption></figure>)}</div>
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       )}
       {!content.layout && (
-        <p className="text-xs text-muted-foreground">未编排，打开时自动排版</p>
+        <p className="text-xs text-muted-foreground">{_ui("未编排，打开时自动排版")}</p>
       )}
       <div className="flex gap-2 overflow-auto">
         {images.map((url, index) => (
@@ -104,7 +106,7 @@ function Preview({
             key={url}
             className="w-40 shrink-0 object-contain"
             src={url}
-            alt={`${label}第 ${index + 1} 页排版`}
+            alt={_ui("{0}第 {1} 页排版", [label, index + 1])}
           />
         ))}
       </div>
@@ -127,13 +129,14 @@ export function ChapterComparison({
   candidateLabel?: string;
   mode?: "text" | "images" | "all";
 }) {
+  const _ui = useDesktopUiText();
   const changes = useMemo(() => textChanges(candidate.blocks.body, current.blocks.body), [current.blocks.body, candidate.blocks.body]);
   const titleChanges = useMemo(() => textChanges(candidate.title, current.title), [current.title, candidate.title]);
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      <p className="text-xs text-muted-foreground md:col-span-2">左侧为所选版本，右侧为当前稿。{mode === "images" ? "对比图片及排版；正文内容保留在各自排版中。" : <>红色下划线表示新增或改写，红色删除线表示删除。{current.blocks.body === candidate.blocks.body ? "正文没有变化。" : ""}</>}</p>
+      <p className="text-xs text-muted-foreground md:col-span-2">{_ui("左侧为所选版本，右侧为当前稿。")}{mode === "images" ? _ui("对比图片及排版；正文内容保留在各自排版中。") : <>{_ui("红色下划线表示新增或改写，红色删除线表示删除。")}{current.blocks.body === candidate.blocks.body ? _ui("正文没有变化。") : ""}</>}</p>
       <Preview label={candidateLabel} content={candidate} urls={candidateUrls} changes={changes} titleChanges={titleChanges} side="before" mode={mode} />
-      <Preview label="当前章节" content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="after" mode={mode} />
+      <Preview label={_ui("当前章节")} content={current} urls={currentUrls} changes={changes} titleChanges={titleChanges} side="after" mode={mode} />
     </div>
   );
 }

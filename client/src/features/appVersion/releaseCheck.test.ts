@@ -17,5 +17,5 @@ it('blocks writes after detecting a new app release, without reloading or cleari
   const { assertCurrentApp, markAppStale } = await import('./releaseCheck');
   expect(() => assertCurrentApp()).not.toThrow();
   markAppStale();
-  expect(() => assertCurrentApp()).toThrow('此页面已过期');
+  expect(() => assertCurrentApp()).toThrow('保留草稿，打开新版');
 });

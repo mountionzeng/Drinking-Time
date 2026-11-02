@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
@@ -211,6 +212,7 @@ export default function AnimaticPlayer({
   onUndoStoryOperation,
   onDurationChange,
 }: AnimaticPlayerProps) {
+  const _ui = useDesktopUiText();
   const playbackShots = useMemo(
     () =>
       shots.map(shot => ({
@@ -931,7 +933,7 @@ export default function AnimaticPlayer({
         ) : activeFrameUrl ? (
           <img
             src={activeFrameUrl}
-            alt={currentShot ? shotLabel(currentShot) : "当前镜头"}
+            alt={currentShot ? shotLabel(currentShot) : _ui("当前镜头")}
             className="h-full w-full object-contain"
           />
         ) : (
@@ -940,14 +942,13 @@ export default function AnimaticPlayer({
               <Play className="h-5 w-5 text-primary" />
             </div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {currentShot ? shotLabel(currentShot) : "未选镜头"}
+              {currentShot ? shotLabel(currentShot) : _ui("未选镜头")}
             </p>
             <p className="mt-2 text-base font-medium leading-relaxed text-foreground">
               {shotTextFallback(currentShot)}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              暂无画面素材，播放时先以文字镜头占位。
-            </p>
+              {_ui("暂无画面素材，播放时先以文字镜头占位。")}</p>
           </div>
         )}
         {(currentVideoPreview?.videoUrl || activeFrameUrl) &&
@@ -964,7 +965,7 @@ export default function AnimaticPlayer({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-foreground">
                 <ScanLine className="h-3.5 w-3.5 text-primary" />
-                <span className="min-w-[52px] whitespace-nowrap">剪辑素材</span>
+                <span className="min-w-[52px] whitespace-nowrap">{_ui("剪辑素材")}</span>
                 <span
                   className={`min-w-[64px] shrink-0 rounded-full border px-2 py-0.5 text-center text-[11px] font-normal ${
                     currentVideoPreview?.videoUrl
@@ -975,10 +976,10 @@ export default function AnimaticPlayer({
                   }`}
                 >
                   {currentVideoPreview?.videoUrl
-                    ? "当前视频"
+                    ? _ui("当前视频")
                     : activeFrameUrl
-                      ? "当前主图"
-                      : "缺素材"}
+                      ? _ui("当前主图")
+                      : _ui("缺素材")}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -990,12 +991,12 @@ export default function AnimaticPlayer({
                   disabled={!onDurationChange}
                   aria-label={
                     currentShot
-                      ? `调整${shotLabel(currentShot)}时长`
-                      : "调整镜头时长"
+                      ? _ui("调整{0}时长", [shotLabel(currentShot)])
+                      : _ui("调整镜头时长")
                   }
                 >
                   <Clock3 className="h-4 w-4" />
-                  时长 {(duration / 1000).toFixed(1)}s
+                  {_ui("时长")}{" "}{(duration / 1000).toFixed(1)}s
                 </Button>
                 <Button
                   type="button"
@@ -1005,26 +1006,24 @@ export default function AnimaticPlayer({
                   disabled={!deriveSourceUrl}
                   title={
                     deriveSourceType === "image"
-                      ? "框选当前主图区域并发送给聊聊"
+                      ? _ui("框选当前主图区域并发送给聊聊")
                       : canPersistDerivedFrame
-                        ? "框选视频帧区域，可先问聊聊，也可继续派生新镜头"
-                        : "可以框选并询问聊聊；当前视频尚未完成同源托管，暂时不能生成派生候选"
+                        ? _ui("框选视频帧区域，可先问聊聊，也可继续派生新镜头")
+                        : _ui("可以框选并询问聊聊；当前视频尚未完成同源托管，暂时不能生成派生候选")
                   }
                 >
                   <ScanLine className="h-4 w-4" />
-                  框选问聊聊
-                </Button>
+                  {_ui("框选问聊聊")}</Button>
                 {canRefreshVideo ? (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => void refreshVideoStatus()}
-                    aria-label="刷新视频状态"
+                    aria-label={_ui("刷新视频状态")}
                   >
                     <Video className="h-4 w-4" />
-                    刷新视频状态
-                  </Button>
+                    {_ui("刷新视频状态")}</Button>
                 ) : null}
               </div>
             </div>
@@ -1034,11 +1033,9 @@ export default function AnimaticPlayer({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-semibold text-foreground">
-                      {shotLabel(currentShot)} 时长
-                    </div>
+                      {shotLabel(currentShot)} {_ui("时长")}{" "}</div>
                     <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      调整后会同步影响播放进度和底部时间轴。
-                    </div>
+                      {_ui("调整后会同步影响播放进度和底部时间轴。")}</div>
                   </div>
                   <span className="rounded-md border border-border bg-background px-2 py-1 text-xs font-semibold tabular-nums text-foreground">
                     {(duration / 1000).toFixed(1)}s
@@ -1051,7 +1048,7 @@ export default function AnimaticPlayer({
                     variant="outline"
                     onClick={() => changeCurrentShotDuration(duration - 200)}
                     disabled={duration <= MIN_SHOT_DURATION_MS}
-                    aria-label={`缩短${shotLabel(currentShot)}时长`}
+                    aria-label={_ui("缩短{0}时长", [shotLabel(currentShot)])}
                   >
                     <Minus className="h-4 w-4" />
                     0.2s
@@ -1064,7 +1061,7 @@ export default function AnimaticPlayer({
                     onValueChange={value =>
                       changeCurrentShotDuration(value[0] ?? duration)
                     }
-                    aria-label={`${shotLabel(currentShot)} 时长`}
+                    aria-label={_ui("{0} 时长", [shotLabel(currentShot)])}
                   />
                   <Button
                     type="button"
@@ -1072,7 +1069,7 @@ export default function AnimaticPlayer({
                     variant="outline"
                     onClick={() => changeCurrentShotDuration(duration + 200)}
                     disabled={duration >= MAX_SHOT_DURATION_MS}
-                    aria-label={`延长${shotLabel(currentShot)}时长`}
+                    aria-label={_ui("延长{0}时长", [shotLabel(currentShot)])}
                   >
                     <Plus className="h-4 w-4" />
                     0.2s
@@ -1083,7 +1080,7 @@ export default function AnimaticPlayer({
 
             {currentVideoTake?.errorMessage ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">
-                {`当前 Take ${currentVideoTake.id} 失败原因：${videoTakeErrorMessage(currentVideoTake.errorMessage)}`}
+                {_ui("当前 Take {0} 失败原因：{1}", [currentVideoTake.id, videoTakeErrorMessage(currentVideoTake.errorMessage)])}
               </p>
             ) : null}
           </div>
@@ -1093,7 +1090,7 @@ export default function AnimaticPlayer({
               <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-foreground">
-                    当前 Take {currentVideoTake.id} ·{" "}
+                    {_ui("当前 Take")}{" "}{currentVideoTake.id} ·{" "}
                     {currentTakeAffordance?.label}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
@@ -1111,8 +1108,7 @@ export default function AnimaticPlayer({
                       ) : (
                         <Ban className="h-3.5 w-3.5" />
                       )}
-                      标记不可用
-                    </Button>
+                      {_ui("标记不可用")}</Button>
                     <Button
                       type="button"
                       size="sm"
@@ -1124,8 +1120,7 @@ export default function AnimaticPlayer({
                       }
                       onClick={() => void useFullTakeOnTimeline()}
                     >
-                      整段用于时间轴
-                    </Button>
+                      {_ui("整段用于时间轴")}</Button>
                     <Button
                       type="button"
                       size="sm"
@@ -1137,15 +1132,13 @@ export default function AnimaticPlayer({
                       }
                       onClick={() => void clearTimelineSegment()}
                     >
-                      清空选择
-                    </Button>
+                      {_ui("清空选择")}</Button>
                   </div>
                 </div>
                 {currentVideoPreview?.videoUrl ? (
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[10px] text-muted-foreground">
-                      播放速度
-                    </span>
+                      {_ui("播放速度")}</span>
                     {[0.5, 1.0, 1.5, 2.0].map(speed => (
                       <button
                         key={speed}
@@ -1165,16 +1158,15 @@ export default function AnimaticPlayer({
                 {currentTakeAffordance?.canUseOnTimeline && rangeDraft ? (
                   <div className="space-y-2">
                     <p className="text-[10px] text-muted-foreground">
-                      当前视频 {currentTakeDurationSec.toFixed(1)}
-                      s，拖动入点/出点框选一段；可以先发给聊聊判断，也可以保存到时间轴。
-                      {playbackSpeed !== 1.0
-                        ? ` 以 ${playbackSpeed}x 速度播放，时间轴时长约 ${((rangeDraft.endSec - rangeDraft.startSec) / playbackSpeed).toFixed(1)}s。`
-                        : ` 时间轴时长 ${(rangeDraft.endSec - rangeDraft.startSec).toFixed(1)}s。`}
+                      {_ui("当前视频")}{" "}{currentTakeDurationSec.toFixed(1)}
+                      {_ui("s，拖动入点/出点框选一段；可以先发给聊聊判断，也可以保存到时间轴。")}{playbackSpeed !== 1.0
+                        ? _ui(" 以 {0}x 速度播放，时间轴时长约 {1}s。", [playbackSpeed, ((rangeDraft.endSec - rangeDraft.startSec) / playbackSpeed).toFixed(1)])
+                        : _ui(" 时间轴时长 {0}s。", [(rangeDraft.endSec - rangeDraft.startSec).toFixed(1)])}
                     </p>
                     <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
                       <label className="block text-[10px] text-muted-foreground">
                         <span className="mb-1 block">
-                          入点 {rangeDraft.startSec.toFixed(1)}s
+                          {_ui("入点")}{" "}{rangeDraft.startSec.toFixed(1)}s
                         </span>
                         <input
                           type="range"
@@ -1188,12 +1180,12 @@ export default function AnimaticPlayer({
                             })
                           }
                           className="w-full accent-[var(--primary)]"
-                          aria-label="可用片段入点"
+                          aria-label={_ui("可用片段入点")}
                         />
                       </label>
                       <label className="block text-[10px] text-muted-foreground">
                         <span className="mb-1 block">
-                          出点 {rangeDraft.endSec.toFixed(1)}s
+                          {_ui("出点")}{" "}{rangeDraft.endSec.toFixed(1)}s
                         </span>
                         <input
                           type="range"
@@ -1207,7 +1199,7 @@ export default function AnimaticPlayer({
                             })
                           }
                           className="w-full accent-[var(--primary)]"
-                          aria-label="可用片段出点"
+                          aria-label={_ui("可用片段出点")}
                         />
                       </label>
                       <Button
@@ -1216,8 +1208,7 @@ export default function AnimaticPlayer({
                         disabled={rangeBusy || !onCreateVideoTakeRange}
                         onClick={() => void saveRangeToTimeline()}
                       >
-                        保存片段
-                      </Button>
+                        {_ui("保存片段")}</Button>
                       <Button
                         type="button"
                         size="sm"
@@ -1226,8 +1217,7 @@ export default function AnimaticPlayer({
                         onClick={openRangeInChat}
                       >
                         <MessageCircle className="h-4 w-4" />
-                        发送给聊聊
-                      </Button>
+                        {_ui("发送给聊聊")}</Button>
                     </div>
                   </div>
                 ) : null}
@@ -1283,12 +1273,11 @@ export default function AnimaticPlayer({
               <div className="min-w-0">
                 <DialogTitle className="text-base">
                   {currentShot
-                    ? `从 ${shotLabel(currentShot)} 派生新镜头`
-                    : "派生新镜头"}
+                    ? _ui("从 {0} 派生新镜头", [shotLabel(currentShot)])
+                    : _ui("派生新镜头")}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs">
-                  先选帧和画面局部，再发送给聊聊判断；派生候选生成是单独的下一步。
-                </DialogDescription>
+                  {_ui("先选帧和画面局部，再发送给聊聊判断；派生候选生成是单独的下一步。")}</DialogDescription>
               </div>
             </div>
           </DialogHeader>
@@ -1331,8 +1320,8 @@ export default function AnimaticPlayer({
                           src={deriveSourceUrl}
                           alt={
                             currentShot
-                              ? `${shotLabel(currentShot)} 派生取样`
-                              : "派生取样"
+                              ? _ui("{0} 派生取样", [shotLabel(currentShot)])
+                              : _ui("派生取样")
                           }
                           className="max-h-full max-w-full object-contain"
                           onLoad={event => {
@@ -1351,7 +1340,7 @@ export default function AnimaticPlayer({
                       onPointerMove={updatePixelSelection}
                       onPointerUp={finishPixelSelection}
                       onPointerCancel={finishPixelSelection}
-                      aria-label="框选派生像素区域"
+                      aria-label={_ui("框选派生像素区域")}
                       role="presentation"
                     >
                       <div
@@ -1366,13 +1355,11 @@ export default function AnimaticPlayer({
                     </div>
                     <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
                       <ScanLine className="h-3.5 w-3.5 text-primary" />
-                      拖拽框选，右侧发送给聊聊
-                    </div>
+                      {_ui("拖拽框选，右侧发送给聊聊")}</div>
                   </>
                 ) : (
                   <div className="px-6 text-center text-sm text-muted-foreground">
-                    当前镜头还没有可派生的图片或视频。
-                  </div>
+                    {_ui("当前镜头还没有可派生的图片或视频。")}</div>
                 )}
               </div>
 
@@ -1380,16 +1367,16 @@ export default function AnimaticPlayer({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-semibold text-foreground">
-                      帧 {deriveFrameIndex + 1} / {deriveFrameCount}
+                      {_ui("帧")}{" "}{deriveFrameIndex + 1} / {deriveFrameCount}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {deriveSourceType === "video"
-                        ? `${deriveFrameTimeSec.toFixed(2)}s · 按 24fps 映射`
-                        : "当前主图静帧"}
+                        ? _ui("{0}s · 按 24fps 映射", [deriveFrameTimeSec.toFixed(2)])
+                        : _ui("当前主图静帧")}
                     </div>
                   </div>
                   <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    {deriveSourceType === "video" ? "视频取帧" : "图片取样"}
+                    {deriveSourceType === "video" ? _ui("视频取帧") : _ui("图片取样")}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -1400,7 +1387,7 @@ export default function AnimaticPlayer({
                     value={[deriveFrameIndex]}
                     disabled={deriveFrameCount <= 1}
                     onValueChange={value => setDeriveFrameIndex(value[0] ?? 0)}
-                    aria-label="选择派生帧"
+                    aria-label={_ui("选择派生帧")}
                   />
                 </div>
                 <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
@@ -1421,7 +1408,7 @@ export default function AnimaticPlayer({
                       <span className="mt-0.5 block text-[10px]">
                         {deriveSourceType === "video"
                           ? `${(index / DERIVE_FRAME_RATE).toFixed(2)}s`
-                          : "主图"}
+                          : _ui("主图")}
                       </span>
                     </button>
                   ))}
@@ -1433,8 +1420,7 @@ export default function AnimaticPlayer({
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-foreground">
-                    画面缩放
-                  </span>
+                    {_ui("画面缩放")}</span>
                   <span className="text-[11px] text-muted-foreground">
                     {deriveZoom.toFixed(1)}x
                   </span>
@@ -1447,7 +1433,7 @@ export default function AnimaticPlayer({
                     step={0.1}
                     value={[deriveZoom]}
                     onValueChange={value => setDeriveZoom(value[0] ?? 1)}
-                    aria-label="派生画面缩放"
+                    aria-label={_ui("派生画面缩放")}
                   />
                   <ZoomIn className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -1455,8 +1441,7 @@ export default function AnimaticPlayer({
 
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="text-xs font-semibold text-foreground">
-                  这块区域用来参考什么
-                </div>
+                  {_ui("这块区域用来参考什么")}</div>
                 <div className="mt-2 grid grid-cols-2 gap-1">
                   {(
                     [
@@ -1484,37 +1469,34 @@ export default function AnimaticPlayer({
 
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="text-xs font-semibold text-foreground">
-                  选中区域
-                </div>
+                  {_ui("选中区域")}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                   <span>x {pct(deriveSelection.x)}</span>
                   <span>y {pct(deriveSelection.y)}</span>
-                  <span>宽 {pct(deriveSelection.width)}</span>
-                  <span>高 {pct(deriveSelection.height)}</span>
+                  <span>{_ui("宽")}{" "}{pct(deriveSelection.width)}</span>
+                  <span>{_ui("高")}{" "}{pct(deriveSelection.height)}</span>
                 </div>
                 {deriveSelectionPixels ? (
                   <div className="mt-2 rounded-md bg-background px-2 py-1.5 text-[11px] leading-5 text-muted-foreground">
-                    约 {deriveSelectionPixels.width} x{" "}
-                    {deriveSelectionPixels.height}px，左上{" "}
+                    {_ui("约")}{" "}{deriveSelectionPixels.width} x{" "}
+                    {deriveSelectionPixels.height}{_ui("px，左上")}{" "}
                     {deriveSelectionPixels.x}, {deriveSelectionPixels.y}
                   </div>
                 ) : null}
               </div>
 
               <label className="block text-xs font-semibold text-foreground">
-                告诉聊聊怎么派生
-                <Textarea
+                {_ui("告诉聊聊怎么派生")}<Textarea
                   value={deriveInstruction}
                   onChange={event => setDeriveInstruction(event.target.value)}
-                  placeholder="例如：用这块窗边的光和人物背影，生成一个更近的反应镜头。"
+                  placeholder={_ui("例如：用这块窗边的光和人物背影，生成一个更近的反应镜头。")}
                   className="mt-2 min-h-24 resize-none text-xs"
                 />
               </label>
 
               <div className="min-h-[150px] rounded-md border border-border bg-muted/20 p-3">
                 <div className="mb-2 text-xs font-semibold text-foreground">
-                  给聊聊的上下文
-                </div>
+                  {_ui("给聊聊的上下文")}</div>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-muted-foreground">
                   {deriveContextMessage}
                 </pre>
@@ -1523,8 +1505,7 @@ export default function AnimaticPlayer({
               {deriveResult ? (
                 <div className="rounded-md border border-border bg-muted/20 p-3">
                   <div className="text-xs font-semibold text-foreground">
-                    聊聊建议
-                  </div>
+                    {_ui("聊聊建议")}</div>
                   <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                     {String(
                       deriveResult.proposal?.intent ||
@@ -1546,7 +1527,7 @@ export default function AnimaticPlayer({
                       >
                         <img
                           src={image.imageUrl}
-                          alt="派生候选"
+                          alt={_ui("派生候选")}
                           className="aspect-video w-full object-cover"
                         />
                         {deriveSelectedImageId === image.id ? (
@@ -1575,8 +1556,7 @@ export default function AnimaticPlayer({
                     disabled={!canOpenSelectionInChat}
                   >
                     <MessageCircle className="h-4 w-4" />
-                    发送给聊聊
-                  </Button>
+                    {_ui("发送给聊聊")}</Button>
                 ) : null}
                 <Button
                   type="button"
@@ -1586,7 +1566,7 @@ export default function AnimaticPlayer({
                   disabled={!deriveContextMessage}
                 >
                   <Copy className="h-4 w-4" />
-                  {deriveCopied ? "已复制" : "复制上下文"}
+                  {deriveCopied ? _ui("已复制") : _ui("复制上下文")}
                 </Button>
                 <Button
                   type="button"
@@ -1610,7 +1590,7 @@ export default function AnimaticPlayer({
                   ) : (
                     <GitBranchPlus className="h-4 w-4" />
                   )}
-                  {deriveResult ? "确认派生镜头" : "生成派生候选"}
+                  {deriveResult ? _ui("确认派生镜头") : _ui("生成派生候选")}
                 </Button>
                 {deriveOperationId != null ? (
                   <Button
@@ -1621,8 +1601,7 @@ export default function AnimaticPlayer({
                     disabled={deriveBusy}
                   >
                     <Undo2 className="h-4 w-4" />
-                    撤销派生
-                  </Button>
+                    {_ui("撤销派生")}</Button>
                 ) : null}
               </div>
             </aside>
@@ -1641,8 +1620,8 @@ export default function AnimaticPlayer({
                 : onPlayingChange(!isPlaying)
             }
             disabled={shots.length === 0}
-            aria-label={isPlaying ? "暂停全片" : "播放全片"}
-            title={isPlaying ? "暂停全片" : "播放全片"}
+            aria-label={isPlaying ? _ui("暂停全片") : _ui("播放全片")}
+            title={isPlaying ? _ui("暂停全片") : _ui("播放全片")}
           >
             {isPlaying ? (
               <Pause className="h-4 w-4" />
@@ -1661,7 +1640,7 @@ export default function AnimaticPlayer({
               onPlayingChange(false);
             }}
             disabled={shots.length === 0}
-            aria-label="回到开头"
+            aria-label={_ui("回到开头")}
           >
             <RotateCcw className="h-4 w-4" />
           </Button>

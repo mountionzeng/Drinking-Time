@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { ImageSubtitleOverlay } from "./ImageSubtitleOverlay";
 import { Check, Crosshair, Loader2, Pencil, Video } from "lucide-react";
@@ -116,6 +117,7 @@ export default function ShotPreview({
   onMaskAdopted?: () => void;
   extractingCurrentVideoFrame?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const { registerImageRegionEditRunner, setActiveSelection } =
@@ -630,7 +632,7 @@ export default function ShotPreview({
           0.001
       ) {
         throw new Error(
-          `费用已变化为 ${formatComputeQuote(quoted.quote.estimatedCny)}，请核对后重新确认`
+          `费用已变化为 ${formatComputeQuote(quoted.quote.estimatedCny).replace(/算力$/, _ui("算力"))}，请核对后重新确认`
         );
       }
       providerSubmissionStarted = true;
@@ -819,7 +821,7 @@ export default function ShotPreview({
           ) : null}
           <span
             className="ml-2 font-mono text-[9px] tabular-nums text-muted-foreground"
-            title="项目画布尺寸"
+            title={_ui("项目画布尺寸")}
           >
             {formatLabel}
           </span>
@@ -828,8 +830,7 @@ export default function ShotPreview({
               className="ml-2 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary"
               data-testid="editing-preview-live-draft"
             >
-              参数预览
-            </span>
+              {_ui("参数预览")}</span>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -839,11 +840,11 @@ export default function ShotPreview({
               onClick={prepareFrameForAdjustment}
               disabled={frameEditBusy}
               className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border border-cyan-400/50 bg-cyan-400/10 px-2 text-[10px] font-medium text-foreground transition hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="调整 Preview 当前画面"
+              aria-label={_ui("调整 Preview 当前画面")}
               title={
                 editingCurrentVideo
-                  ? "暂停视频并抽取当前帧"
-                  : "选中当前图片，在下方或聊天框中修改"
+                  ? _ui("暂停视频并抽取当前帧")
+                  : _ui("选中当前图片，在下方或聊天框中修改")
               }
               data-testid="preview-frame-edit-trigger"
             >
@@ -853,10 +854,10 @@ export default function ShotPreview({
                 <Pencil className="h-3 w-3" />
               )}
               {frameEditBusy
-                ? "正在抽帧…"
+                ? _ui("正在抽帧…")
                 : editingCurrentVideo
-                  ? "调整画面"
-                  : "调整这张图"}
+                  ? _ui("调整画面")
+                  : _ui("调整这张图")}
             </button>
           ) : null}
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
@@ -1026,13 +1027,13 @@ export default function ShotPreview({
                         ? timelineTransformStyle(videoTransform)
                         : undefined
                     }
-                    aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
+                    aria-label={_ui("{0} 视频预览", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                   />
                 </div>
                 {overlayImageUrl ? (
                   <img
                     src={overlayImageUrl}
-                    alt={`${shot ? shotLabel(shot) : "当前镜头"} 当前图片帧`}
+                    alt={_ui("{0} 当前图片帧", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                     className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
                     style={timelineTransformStyle(
                       timelineImageSource?.transform
@@ -1051,7 +1052,7 @@ export default function ShotPreview({
               <>
                 <img
                   src={standaloneImageUrl}
-                  alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
+                  alt={_ui("{0} 预览", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                   className="h-full w-full object-cover"
                   style={timelineTransformStyle(
                     timelineImageSource?.transform ??
@@ -1070,23 +1071,23 @@ export default function ShotPreview({
                 />
                 <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
                   {timelineImageSource
-                    ? "时间线图片帧"
-                    : "静态首帧占位 · 尚未采用视频"}
+                    ? _ui("时间线图片帧")
+                    : _ui("静态首帧占位 · 尚未采用视频")}
                 </span>
               </>
             ) : (
               <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
                 <Video className="h-7 w-7" />
-                <span className="text-xs">当前镜头尚未关联画面</span>
+                <span className="text-xs">{_ui("当前镜头尚未关联画面")}</span>
                 <span className="max-w-[260px] truncate text-[10px] text-neutral-500">
-                  {shot ? chatCutSourceNameFromShot(shot) : "从左侧选择镜头"}
+                  {shot ? chatCutSourceNameFromShot(shot) : _ui("从左侧选择镜头")}
                 </span>
               </div>
             )}
             {maskState.mask && maskState.target ? (
               <img
                 src={maskState.mask.previewMaskUrl}
-                alt="当前局部修改选区"
+                alt={_ui("当前局部修改选区")}
                 className="pointer-events-none absolute inset-0 z-20 h-full w-full object-cover"
                 style={timelineTransformStyle(maskState.target.transform)}
                 data-testid="preview-object-mask-overlay"
@@ -1095,7 +1096,7 @@ export default function ShotPreview({
             {currentFrameReady && maskEditTarget?.textOverlay ? <ImageSubtitleOverlay overlay={maskEditTarget.textOverlay} /> : null}
             {currentFrameReady && onSelectImageForChat && maskState.phase === "idle" ? (
               <button type="button" onClick={onSelectImageForChat}
-                aria-label="选中这张图片，在聊天框修改" title="点击图片，在聊天框描述修改"
+                aria-label={_ui("选中这张图片，在聊天框修改")} title={_ui("点击图片，在聊天框描述修改")}
                 className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
             ) : null}
             {maskSelectionActive ? (
@@ -1104,8 +1105,8 @@ export default function ShotPreview({
                 data-testid="preview-object-mask-hit-layer"
                 aria-label={
                   semanticRegionSelection
-                    ? "按住并圈住要修改的物体"
-                    : "当前未配置语义对象识别"
+                    ? _ui("按住并圈住要修改的物体")
+                    : _ui("当前未配置语义对象识别")
                 }
                 onPointerDown={startMaskSelectionGesture}
                 onPointerMove={moveMaskSelectionGesture}
@@ -1140,24 +1141,24 @@ export default function ShotPreview({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 text-[11px]">
                     {maskState.phase === "extracting"
-                      ? "正在抽取当前帧…"
+                      ? _ui("正在抽取当前帧…")
                       : maskState.phase === "segmenting"
-                        ? "正在识别物体轮廓…"
+                        ? _ui("正在识别物体轮廓…")
                         : maskState.phase === "selecting"
                           ? semanticRegionSelection
-                            ? "按住并沿外侧圈住要修改的物体"
-                            : "当前未配置语义对象识别；不会把圈选范围直接当成修改区域"
+                            ? _ui("按住并沿外侧圈住要修改的物体")
+                            : _ui("当前未配置语义对象识别；不会把圈选范围直接当成修改区域")
                           : maskState.phase === "generating"
-                            ? "正在生成局部修改候选…"
+                            ? _ui("正在生成局部修改候选…")
                             : maskState.phase === "uncertain"
-                              ? "付费任务状态未知，已停止自动重试"
+                              ? _ui("付费任务状态未知，已停止自动重试")
                               : maskState.phase === "adopting"
-                                ? "正在采用候选…"
+                                ? _ui("正在采用候选…")
                                 : maskState.phase === "candidate-ready"
-                                  ? "候选已生成，原图尚未改变"
+                                  ? _ui("候选已生成，原图尚未改变")
                                   : maskState.maskConfirmed
-                                    ? "选区已确认，请描述修改"
-                                    : "检查高亮范围，确认后再生成"}
+                                    ? _ui("选区已确认，请描述修改")
+                                    : _ui("检查高亮范围，确认后再生成")}
                     {maskState.error ? (
                       <p className="mt-1 text-[10px] text-red-300">
                         {maskState.error}
@@ -1169,8 +1170,7 @@ export default function ShotPreview({
                     onClick={resetMaskSession}
                     className="rounded px-1.5 py-0.5 text-[10px] text-white/70 hover:bg-white/10 hover:text-white"
                   >
-                    退出
-                  </button>
+                    {_ui("退出")}</button>
                 </div>
                 {maskState.phase === "mask-ready" &&
                 !maskState.maskConfirmed ? (
@@ -1181,15 +1181,13 @@ export default function ShotPreview({
                       className="inline-flex items-center gap-1 rounded bg-cyan-500 px-2.5 py-1.5 text-[10px] font-medium text-black"
                     >
                       <Check className="h-3 w-3" />
-                      确认选区
-                    </button>
+                      {_ui("确认选区")}</button>
                     <button
                       type="button"
                       onClick={reselectMaskRegion}
                       className="rounded border border-white/20 px-2.5 py-1.5 text-[10px]"
                     >
-                      重新点选
-                    </button>
+                      {_ui("重新点选")}</button>
                   </div>
                 ) : null}
                 {maskState.phase === "mask-ready" && maskState.maskConfirmed ? (
@@ -1200,14 +1198,13 @@ export default function ShotPreview({
                       onChange={event =>
                         setMaskPrompt(event.currentTarget.value)
                       }
-                      placeholder="例如：把杯子改成蓝色陶瓷杯"
+                      placeholder={_ui("例如：把杯子改成蓝色陶瓷杯")}
                       rows={2}
                       className="w-full resize-none rounded border border-white/20 bg-white/10 px-2 py-1.5 text-[11px] text-white outline-none placeholder:text-white/40 focus:border-cyan-400"
                     />
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[9px] text-white/60">
-                        仅透明蒙版内可修改，预计
-                        {formatComputeQuote(maskedEstimate.estimatedCny)}
+                        {_ui("仅透明蒙版内可修改，预计")}{formatComputeQuote(maskedEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
                       </span>
                       <button
                         type="button"
@@ -1215,8 +1212,7 @@ export default function ShotPreview({
                         disabled={!maskPrompt.trim()}
                         className="rounded bg-cyan-500 px-2.5 py-1.5 text-[10px] font-medium text-black disabled:opacity-40"
                       >
-                        确认费用并生成
-                      </button>
+                        {_ui("确认费用并生成")}</button>
                     </div>
                   </div>
                 ) : null}
@@ -1225,7 +1221,7 @@ export default function ShotPreview({
                   <div className="mt-2 flex items-center gap-3">
                     <img
                       src={maskState.candidate.imageUrl}
-                      alt="局部修改候选"
+                      alt={_ui("局部修改候选")}
                       className="h-16 w-16 rounded border border-white/20 object-cover"
                     />
                     <div className="flex gap-2">
@@ -1234,15 +1230,13 @@ export default function ShotPreview({
                         onClick={() => void adoptMaskedCandidate()}
                         className="rounded bg-cyan-500 px-3 py-1.5 text-[10px] font-medium text-black"
                       >
-                        采用候选
-                      </button>
+                        {_ui("采用候选")}</button>
                       <button
                         type="button"
                         onClick={resetMaskSession}
                         className="rounded border border-white/20 px-3 py-1.5 text-[10px]"
                       >
-                        保留原图
-                      </button>
+                        {_ui("保留原图")}</button>
                     </div>
                   </div>
                 ) : null}
@@ -1258,13 +1252,13 @@ export default function ShotPreview({
             <div className="min-w-0">
               <p className="text-[10px] font-medium text-foreground">
                 {currentFrameIsTimelineImage
-                  ? "当前抽帧已就绪"
-                  : "当前图片已就绪"}
+                  ? _ui("当前抽帧已就绪")
+                  : _ui("当前图片已就绪")}
               </p>
               <p className="text-[9px] text-muted-foreground">
                 {currentFrameIsTimelineImage
-                  ? "点击这一帧，在左侧聊天框描述修改"
-                  : "点击图片，在左侧聊天框描述修改"}
+                  ? _ui("点击这一帧，在左侧聊天框描述修改")
+                  : _ui("点击图片，在左侧聊天框描述修改")}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -1273,28 +1267,25 @@ export default function ShotPreview({
                   type="button"
                   onClick={onEditImage}
                   className="inline-flex h-7 items-center gap-1 rounded-sm border border-border bg-background px-2 text-[10px] font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                  aria-label="编辑这张图片的字幕"
+                  aria-label={_ui("编辑这张图片的字幕")}
                 >
-                  <Pencil className="h-3 w-3" /> 字幕
-                </button>
+                  <Pencil className="h-3 w-3" /> {_ui("字幕")}</button>
               ) : null}
               <button
                 type="button"
                 onClick={() => void beginMaskEdit()}
                 disabled={frameEditBusy}
                 className="inline-flex h-7 items-center gap-1 rounded-sm border border-cyan-400/50 bg-cyan-400/10 px-2 text-[10px] font-medium transition hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="圈选当前抽帧中的物体并局部修改"
+                aria-label={_ui("圈选当前抽帧中的物体并局部修改")}
               >
-                <Crosshair className="h-3 w-3" /> 圈选局部
-              </button>
+                <Crosshair className="h-3 w-3" /> {_ui("圈选局部")}</button>
               {onSelectImageForChat ? (
                 <button
                   type="button"
                   onClick={onSelectImageForChat}
                   className="inline-flex h-7 items-center rounded-sm px-2 text-[10px] font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
-                  在聊天框修改
-                </button>
+                  {_ui("在聊天框修改")}</button>
               ) : null}
             </div>
           </div>
@@ -1322,8 +1313,7 @@ export default function ShotPreview({
                       className="mr-1 rounded-sm bg-muted px-1 text-[9px] align-middle"
                       data-testid="editing-preview-subtitle-candidate-badge"
                     >
-                      候选
-                    </span>
+                      {_ui("候选")}</span>
                   ) : null}
                   {line.text}
                 </p>

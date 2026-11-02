@@ -1,3 +1,4 @@
+vi.mock("wouter", () => ({ useLocation: () => ["/editing", vi.fn()] }));
 vi.mock("./BookMusicInsert",()=>({BookMusicInsert:()=>null}));
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";

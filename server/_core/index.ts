@@ -1,4 +1,5 @@
 import { handleChapterMedia } from "../chapterMediaStore";
+import { handleWechatImportMedia } from "./wechatImportMediaRoute";
 import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
 import "dotenv/config";
 import express from "express";
@@ -127,6 +128,7 @@ async function startServer() {
   app.get("/api/chapter-media", handleChapterMedia);
   app.use("/api/material-captures", materialCaptureRoutes());
   app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());
+  app.get("/api/wechat-import/media/:file", handleWechatImportMedia);
   // Cookie-free game namespace has its own strict bearer authentication.
   app.use("/api/minigame", minigameRoutes());
   // 拾光家忆云函数用 HMAC 调用，不依赖浏览器 Cookie，也不受浏览器 Origin 门禁。

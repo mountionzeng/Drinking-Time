@@ -3,6 +3,8 @@ import { Route, Switch, Redirect } from "wouter";
 import CreationPage from "@/pages/CreationPage";
 import EditingStudioPage from "@/pages/EditingStudioPage";
 import LoginPage from "@/pages/LoginPage";
+import WechatImportPage from "@/pages/WechatImportPage";
+import WechatImportPrompt from "@/features/shiguang/WechatImportPrompt";
 import MobileWorkspacePage from "@/pages/MobileWorkspacePage";
 import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
 import ShiguangLandingPage from "@/pages/ShiguangLandingPage";
@@ -91,6 +93,7 @@ export default function AppRouter() {
       <Route path="/login">
         <LoginEntry />
       </Route>
+      <Route path="/wechat-import"><AuthGuard returnPath="/wechat-import"><WechatImportPage /></AuthGuard></Route>
       <Route path="/welcome">
         <WelcomePreviewPage />
       </Route>
@@ -113,6 +116,7 @@ export default function AppRouter() {
       <Route path="/editing">
         <AuthGuard>
           <EditingEntry />
+          <WechatImportPrompt />
         </AuthGuard>
       </Route>
       <Route path="/personal-memory">
@@ -132,6 +136,7 @@ export default function AppRouter() {
       <Route path="/m">
         <AuthGuard returnPath={typeof window === "undefined" ? "/m" : `/m${window.location.search}`}>
           <MobileWorkspacePage />
+          <WechatImportPrompt />
         </AuthGuard>
       </Route>
       <Route path="/admin/compute"><AdminGuard><AdminComputePage /></AdminGuard></Route>

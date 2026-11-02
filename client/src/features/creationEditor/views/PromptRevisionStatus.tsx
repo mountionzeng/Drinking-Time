@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import * as React from "react";
 import { CheckCircle2, History, Loader2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
@@ -30,6 +31,7 @@ export default function PromptRevisionStatus({
   onOpenHistory,
   onRestoreRevision,
 }: Props) {
+  const _ui = useDesktopUiText();
   if (!row) return null;
 
   return (
@@ -42,11 +44,10 @@ export default function PromptRevisionStatus({
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
           <div className="min-w-0">
             <p className="text-xs font-semibold text-foreground">
-              当前已确认 revision：rev #{row.revisionId}
+              {_ui("当前已确认 revision：rev #")}{row.revisionId}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {row.label} · 权重 {Math.round(row.weight * 100)}% ·
-              故事提示词版本 v{storyVersion}
+              {row.label} {_ui("· 权重")}{" "}{Math.round(row.weight * 100)}{_ui("% · 故事提示词版本 v")}{storyVersion}
             </p>
           </div>
         </div>
@@ -56,7 +57,7 @@ export default function PromptRevisionStatus({
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <History className="h-3.5 w-3.5" />
-          {historyOpen ? "收起 revision 历史" : "查看 revision 历史"}
+          {historyOpen ? _ui("收起 revision 历史") : _ui("查看 revision 历史")}
         </button>
       </div>
 
@@ -65,12 +66,11 @@ export default function PromptRevisionStatus({
           {historyLoading ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在读取 revision 历史…
-            </p>
+              {_ui("正在读取 revision 历史…")}</p>
           ) : historyError ? (
             <p className="text-xs text-destructive">{historyError}</p>
           ) : historyItems.length === 0 ? (
-            <p className="text-xs text-muted-foreground">暂无 revision 历史。</p>
+            <p className="text-xs text-muted-foreground">{_ui("暂无 revision 历史。")}</p>
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {historyItems.map(revision => {
@@ -87,11 +87,11 @@ export default function PromptRevisionStatus({
                       rev #{revision.id}
                     </p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      权重 {Math.round(revision.weight * 100)}% ·{" "}
+                      {_ui("权重")}{" "}{Math.round(revision.weight * 100)}% ·{" "}
                       {STATUS_LABELS[revision.status]}
                     </p>
                     <p className="mt-1 text-[10px] font-medium text-primary">
-                      {current ? "当前版本" : "恢复此版本"}
+                      {current ? _ui("当前版本") : _ui("恢复此版本")}
                     </p>
                   </button>
                 );

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState } from "react";
 import type { LayoutMemoryContext } from "@shared/layoutOperationMemory";
 import { clearLayoutMemory } from "./layoutOperationMemory";
@@ -11,17 +12,17 @@ export function LayoutMemoryDetails({
   accountId: number | null;
   onClear?(): void;
 }) {
+  const _ui = useDesktopUiText();
   const [error, setError] = useState("");
   return (
     <details className="min-w-0 text-[11px] text-muted-foreground">
       <summary className="cursor-pointer py-1">
-        已记住 {memory.total} 次排版调整 · 本机
-      </summary>
+        {_ui("已记住")}{" "}{memory.total} {_ui("次排版调整 · 本机")}</summary>
       <ol className="max-h-32 space-y-1 overflow-y-auto py-1">
         {memory.recent.slice(-6).map((event, index) => (
           <li key={`${event.at}:${index}`}>
-            {event.undone ? "已撤销 · " : ""}
-            {event.sameSource ? "" : "其他版本 · "}
+            {event.undone ? _ui("已撤销 · ") : ""}
+            {event.sameSource ? "" : _ui("其他版本 · ")}
             {event.summary}
           </li>
         ))}
@@ -40,8 +41,7 @@ export function LayoutMemoryDetails({
             }
           }}
         >
-          清除这个故事的操作记录
-        </button>
+          {_ui("清除这个故事的操作记录")}</button>
       )}
       {error && <p role="alert">{error}</p>}
     </details>

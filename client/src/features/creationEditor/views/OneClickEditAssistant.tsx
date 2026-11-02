@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -136,6 +137,7 @@ function AnchorPicker({
   onSelect: (id: string) => void;
   emptyMessage?: string;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <section className="rounded-md border border-border bg-background">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
@@ -144,7 +146,7 @@ function AnchorPicker({
           {title}
         </div>
         <span className="text-xs text-muted-foreground">
-          {candidates.length ? `${candidates.length} 个候选` : "待识别"}
+          {candidates.length ? _ui("{0} 个候选", [candidates.length]) : _ui("待识别")}
         </span>
       </div>
       <div className="grid max-h-56 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
@@ -205,6 +207,7 @@ export function OneClickShotPreview({
   title: string;
   preview: OneClickShotCheck["visualPreview"];
 }) {
+  const _ui = useDesktopUiText();
   if (!preview) {
     return (
       <span className="flex h-full w-full items-center justify-center text-muted-foreground">
@@ -226,7 +229,7 @@ export function OneClickShotPreview({
     <>
       <video
         src={preview.url}
-        aria-label={`${title} 当前视频预览`}
+        aria-label={_ui("{0} 当前视频预览", [title])}
         muted
         playsInline
         preload="metadata"
@@ -234,8 +237,7 @@ export function OneClickShotPreview({
       />
       <span className="pointer-events-none absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-sm">
         <Film className="h-2.5 w-2.5" />
-        当前视频
-      </span>
+        {_ui("当前视频")}</span>
     </>
   );
 }
@@ -247,6 +249,7 @@ export function OneClickMaterialLinkStatus({
   linkedCount: number;
   totalCount: number;
 }) {
+  const _ui = useDesktopUiText();
   const missingCount = Math.max(0, totalCount - linkedCount);
   return (
     <section className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
@@ -256,15 +259,13 @@ export function OneClickMaterialLinkStatus({
         </span>
         <div className="min-w-0">
           <div className="text-xs font-semibold text-emerald-900">
-            已关联 {linkedCount} 个当前视频
-          </div>
+            {_ui("已关联")}{" "}{linkedCount} {_ui("个当前视频")}</div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-800/80">
-            素材仓库里已经采用和复用的镜头会保留，一键剪辑只处理你勾选的视频。
-          </p>
+            {_ui("素材仓库里已经采用和复用的镜头会保留，一键剪辑只处理你勾选的视频。")}</p>
         </div>
       </div>
       <span className="shrink-0 rounded-full border border-emerald-200 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-emerald-800">
-        {missingCount > 0 ? `待补 ${missingCount} 个` : "全部已关联"}
+        {missingCount > 0 ? _ui("待补 {0} 个", [missingCount]) : _ui("全部已关联")}
       </span>
     </section>
   );
@@ -283,6 +284,7 @@ function ShotCheckRow({
   onToggle: () => void;
   onSelectShot: (shotNo: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   const shotCode = displayShotCode(check);
   return (
     <article className="grid grid-cols-[1.25rem_4.5rem_minmax(0,1fr)] gap-3 border-b border-border/70 px-3 py-3 last:border-b-0 sm:grid-cols-[1.25rem_4.5rem_minmax(0,1fr)_auto]">
@@ -290,14 +292,14 @@ function ShotCheckRow({
         checked={selected}
         disabled={!conformSelectable}
         onCheckedChange={onToggle}
-        aria-label={`选择 ${shotCode} 视频`}
+        aria-label={_ui("选择 {0} 视频", [shotCode])}
         className="mt-1"
       />
       <button
         type="button"
         onClick={() => onSelectShot(check.shotNo)}
         className="group relative aspect-square overflow-hidden rounded-md border border-border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-        aria-label={`查看 ${shotCode}`}
+        aria-label={_ui("查看 {0}", [shotCode])}
       >
         <OneClickShotPreview
           title={check.title}
@@ -317,8 +319,7 @@ function ShotCheckRow({
           {check.hasCurrentVideo ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
               <Film className="h-3 w-3" />
-              视频
-            </span>
+              {_ui("视频")}</span>
           ) : null}
           {check.videoAspectRatio ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -333,8 +334,7 @@ function ShotCheckRow({
           ) ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
               <CheckCircle2 className="h-3 w-3" />
-              画幅已匹配
-            </span>
+              {_ui("画幅已匹配")}</span>
           ) : null}
         </div>
         <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -342,16 +342,15 @@ function ShotCheckRow({
         </div>
         {check.hasCurrentVideo ? (
           <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground">运镜：</span>
-            {check.cameraMove || "未填写，请在确认台播放视频判断"}
+            <span className="font-medium text-foreground">{_ui("运镜：")}</span>
+            {check.cameraMove || _ui("未填写，请在确认台播放视频判断")}
           </div>
         ) : null}
         <div className="mt-2 flex flex-wrap gap-1.5">
           {check.issues.length === 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
               <CheckCircle2 className="h-3 w-3" />
-              可预剪
-            </span>
+              {_ui("可预剪")}</span>
           ) : (
             check.issues.map(item => (
               <span
@@ -369,8 +368,7 @@ function ShotCheckRow({
         onClick={() => onSelectShot(check.shotNo)}
         className="col-start-3 h-8 justify-self-start rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary sm:col-start-4 sm:justify-self-auto"
       >
-        查看
-      </button>
+        {_ui("查看")}</button>
     </article>
   );
 }
@@ -386,6 +384,7 @@ export default function OneClickEditAssistant({
   onConformVideos,
   onAnalyzeConsistency,
 }: OneClickEditAssistantProps) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const [targetAspectRatio, setTargetAspectRatio] =
     useState<OneClickTargetAspectRatio>("1:1");
@@ -665,8 +664,7 @@ export default function OneClickEditAssistant({
           disabled={shots.length === 0}
         >
           <Scissors className="h-3.5 w-3.5" />
-          一键剪辑
-        </button>
+          {_ui("一键剪辑")}</button>
       </SheetTrigger>
       <SheetContent className="w-[min(960px,calc(100vw-1rem))] gap-0 p-0 sm:max-w-none">
         <SheetHeader className="border-b border-border pr-12">
@@ -674,10 +672,9 @@ export default function OneClickEditAssistant({
             <div>
               <SheetTitle className="flex items-center gap-2">
                 <Scissors className="h-4 w-4 text-primary" />
-                一键剪辑
-              </SheetTitle>
+                {_ui("一键剪辑")}</SheetTitle>
               <SheetDescription>
-                故事 {activeStoryId ?? "未打开"} · {summaryState}
+                {_ui("故事")}{" "}{activeStoryId ?? _ui("未打开")} · {summaryState}
               </SheetDescription>
             </div>
             <button
@@ -689,8 +686,7 @@ export default function OneClickEditAssistant({
               className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               <ListChecks className="h-4 w-4" />
-              预排时间轴
-            </button>
+              {_ui("预排时间轴")}</button>
           </div>
         </SheetHeader>
 
@@ -698,9 +694,9 @@ export default function OneClickEditAssistant({
           <div className="grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
             <section className="rounded-md border border-border bg-background p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold">目标尺寸</div>
+                <div className="text-sm font-semibold">{_ui("目标尺寸")}</div>
                 <span className="text-xs text-muted-foreground">
-                  当前：{targetAspectRatio}
+                  {_ui("当前：")}{targetAspectRatio}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -726,7 +722,7 @@ export default function OneClickEditAssistant({
                 <div className="text-lg font-semibold text-foreground">
                   {metricLabel(report.readyShots)}
                 </div>
-                <div className="text-[11px] text-muted-foreground">可预剪</div>
+                <div className="text-[11px] text-muted-foreground">{_ui("可预剪")}</div>
               </div>
               <div>
                 <div className="text-lg font-semibold text-foreground">
@@ -735,15 +731,14 @@ export default function OneClickEditAssistant({
                     `/${report.totalShots}`
                   )}
                 </div>
-                <div className="text-[11px] text-muted-foreground">视频</div>
+                <div className="text-[11px] text-muted-foreground">{_ui("视频")}</div>
               </div>
               <div>
                 <div className="text-lg font-semibold text-foreground">
                   {metricLabel(report.aspectMismatchCount)}
                 </div>
                 <div className="text-[11px] text-muted-foreground">
-                  尺寸不齐
-                </div>
+                  {_ui("尺寸不齐")}</div>
               </div>
             </section>
           </div>
@@ -756,10 +751,9 @@ export default function OneClickEditAssistant({
           <section className="mt-4 rounded-md border border-border bg-background p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-semibold">画幅统一流程</div>
+                <div className="text-sm font-semibold">{_ui("画幅统一流程")}</div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
-                  先逐镜播放确认运镜，再决定裁切还是专业外扩
-                </div>
+                  {_ui("先逐镜播放确认运镜，再决定裁切还是专业外扩")}</div>
               </div>
               <button
                 type="button"
@@ -768,8 +762,8 @@ export default function OneClickEditAssistant({
                 className="h-8 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {allSelected
-                  ? "取消全选"
-                  : `全选 ${selectableVideoKeys.length}`}
+                  ? _ui("取消全选")
+                  : _ui("全选 {0}", [selectableVideoKeys.length])}
               </button>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -777,54 +771,50 @@ export default function OneClickEditAssistant({
                 <Crop className="h-4 w-4 shrink-0 text-emerald-700" />
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-emerald-800">
-                    直接裁切
-                  </span>
+                    {_ui("直接裁切")}</span>
                   <span className="block text-[11px] text-muted-foreground">
-                    本地 ffmpeg · 免费 · 适合主体始终在安全区
-                  </span>
+                    {_ui("本地 ffmpeg · 免费 · 适合主体始终在安全区")}</span>
                 </span>
               </div>
               <div className="flex min-h-14 items-center gap-2.5 rounded-md border border-violet-200 bg-violet-50/70 px-3">
                 <WandSparkles className="h-4 w-4 shrink-0 text-violet-700" />
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-violet-800">
-                    302 专业视频外扩
-                  </span>
+                    {_ui("302 专业视频外扩")}</span>
                   <span className="block text-[11px] text-muted-foreground">
                     {aiExpandReady
-                      ? "Runway Expand · 逐镜确认后才提交"
-                      : "缺 API302_KEY · 当前只能选择免费裁切"}
+                      ? _ui("Runway Expand · 逐镜确认后才提交")
+                      : _ui("缺 API302_KEY · 当前只能选择免费裁切")}
                   </span>
                 </span>
               </div>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              这里不会直接执行或扣费；点击底部按钮后，才会打开每个镜头的运镜确认台。
-            </p>
+              {_ui("这里不会直接执行或扣费；点击底部按钮后，才会打开每个镜头的运镜确认台。")}</p>
           </section>
 
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             <AnchorPicker
-              title="人物锚点"
+              title={_ui("人物锚点")}
               icon={<UserRound className="h-4 w-4 text-primary" />}
               candidates={characterCandidates}
               selectedId={selectedCharacterAnchor}
               onSelect={setSelectedCharacterAnchor}
               emptyMessage={
                 report.currentVideoCount > 0
-                  ? "视频已关联；人物锚点仍需首帧图或参考图。"
+                  ? _ui("视频已关联；人物锚点仍需首帧图或参考图。")
                   : undefined
               }
             />
             <AnchorPicker
-              title="场景锚点"
+              title={_ui("场景锚点")}
               icon={<ImageIcon className="h-4 w-4 text-primary" />}
               candidates={sceneCandidates}
               selectedId={selectedSceneAnchor}
               onSelect={setSelectedSceneAnchor}
               emptyMessage={
                 report.currentVideoCount > 0
-                  ? "视频已关联；场景锚点仍需首帧图或参考图。"
+                  ? _ui("视频已关联；场景锚点仍需首帧图或参考图。")
                   : undefined
               }
             />
@@ -834,8 +824,7 @@ export default function OneClickEditAssistant({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Sparkles className="h-4 w-4 text-primary" />
-                视觉一致性
-              </div>
+                {_ui("视觉一致性")}</div>
               <button
                 type="button"
                 onClick={() => void runConsistency()}
@@ -847,14 +836,13 @@ export default function OneClickEditAssistant({
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {analyzing ? "识别中" : "AI 找不一致"}
+                {analyzing ? _ui("识别中") : _ui("AI 找不一致")}
               </button>
             </div>
             <div className="px-3 py-2">
               {consistency == null ? (
                 <p className="py-1 text-xs text-muted-foreground">
-                  用视觉模型把人物锚点和每个镜头的当前画面成对对比，识别五官、发型、服饰、场景、画风的漂移，逐条由你裁决。
-                </p>
+                  {_ui("用视觉模型把人物锚点和每个镜头的当前画面成对对比，识别五官、发型、服饰、场景、画风的漂移，逐条由你裁决。")}</p>
               ) : consistency.status === "not_configured" ? (
                 <p className="py-1 text-xs text-amber-700">
                   {consistency.message}
@@ -866,7 +854,7 @@ export default function OneClickEditAssistant({
               ) : (
                 <div>
                   <div className="pb-2 text-[11px] text-muted-foreground">
-                    已检查 {consistency.findings.length} 个镜头 · 模型{" "}
+                    {_ui("已检查")}{" "}{consistency.findings.length} {_ui("个镜头 · 模型")}{" "}
                     {consistency.modelLabel} ·{" "}
                     {
                       consistency.findings.filter(
@@ -875,8 +863,7 @@ export default function OneClickEditAssistant({
                           !acceptedImageIds.has(finding.imageId)
                       ).length
                     }{" "}
-                    个待处理
-                  </div>
+                    {_ui("个待处理")}</div>
                   <div className="grid gap-1.5">
                     {consistency.findings.map(finding => {
                       const accepted = acceptedImageIds.has(finding.imageId);
@@ -891,15 +878,15 @@ export default function OneClickEditAssistant({
                         >
                           <img
                             src={finding.imageUrl}
-                            alt={`镜头 ${finding.shotNo ?? ""} 当前画面`}
+                            alt={_ui("镜头 {0} 当前画面", [finding.shotNo ?? ""])}
                             className="h-12 w-12 shrink-0 rounded object-cover"
                             loading="lazy"
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
-                              <span>镜头 {finding.shotNo ?? "?"}</span>
+                              <span>{_ui("镜头")}{" "}{finding.shotNo ?? "?"}</span>
                               <span className="rounded border border-current/30 px-1 py-0.5 text-[10px]">
-                                {accepted ? "已确认 OK" : verdictLabel(finding.verdict)}
+                                {accepted ? _ui("已确认 OK") : verdictLabel(finding.verdict)}
                               </span>
                               {finding.mismatches.map(mismatch => (
                                 <span
@@ -931,8 +918,7 @@ export default function OneClickEditAssistant({
                               onClick={() => acceptFinding(finding.imageId)}
                               className="h-7 shrink-0 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary"
                             >
-                              这张 OK
-                            </button>
+                              {_ui("这张 OK")}</button>
                           ) : null}
                         </div>
                       );
@@ -947,12 +933,10 @@ export default function OneClickEditAssistant({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="h-4 w-4 text-primary" />
-                按场次检查
-              </div>
+                {_ui("按场次检查")}</div>
               <span className="text-xs text-muted-foreground">
-                已选 {selectedCount} · {report.warningCount} 个提醒 ·{" "}
-                {report.blockingCount} 个阻塞
-              </span>
+                {_ui("已选")}{" "}{selectedCount} · {report.warningCount} {_ui("个提醒 ·")}{" "}
+                {report.blockingCount} {_ui("个阻塞")}</span>
             </div>
             <div>
               {report.sceneGroups.map(group => (
@@ -991,7 +975,7 @@ export default function OneClickEditAssistant({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background px-4 py-3">
           <div className="min-w-0 text-xs text-muted-foreground">
-            {selectedCount} 个视频 · {targetAspectRatio} ·{" "}
+            {selectedCount} {_ui("个视频 ·")}{" "}{targetAspectRatio} ·{" "}
             {targetDimensions.width} × {targetDimensions.height}
           </div>
           <button
@@ -1006,12 +990,12 @@ export default function OneClickEditAssistant({
               <Film className="h-4 w-4" />
             )}
             {conforming
-              ? "处理中"
+              ? _ui("处理中")
               : selectedCount > 0
-                ? `确认 ${selectedCount} 个镜头的运镜`
+                ? _ui("确认 {0} 个镜头的运镜", [selectedCount])
                 : selectableVideoKeys.length > 0
-                  ? "请先勾选镜头"
-                  : "没有待统一的视频"}
+                  ? _ui("请先勾选镜头")
+                  : _ui("没有待统一的视频")}
           </button>
         </div>
       </SheetContent>

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 选中一个时间线媒体对象后的简短属性面板。
  *
@@ -100,6 +101,7 @@ export function TimelineMediaInspector({
     candidateAssetId: number
   ) => Promise<boolean> | boolean;
 }) {
+  const _ui = useDesktopUiText();
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const [caretIndex, setCaretIndex] = useState(0);
   const selectedAudio = useMemo(() => {
@@ -135,12 +137,11 @@ export function TimelineMediaInspector({
           className="self-start rounded-sm border border-border px-2 py-0.5 text-[10px] enabled:hover:bg-muted disabled:opacity-40"
           data-testid="timeline-media-inspector-generate-narration"
         >
-          {cue.speechBindingId ? "重新生成旁白" : "从这条字幕生成旁白"}
+          {cue.speechBindingId ? _ui("重新生成旁白") : _ui("从这条字幕生成旁白")}
         </button>
         {candidates.length === 0 ? (
           <span className="text-[9px] text-muted-foreground">
-            生成后会先留在这里试听，不会自动替换时间线。
-          </span>
+            {_ui("生成后会先留在这里试听，不会自动替换时间线。")}</span>
         ) : (
           candidates.map(candidate => (
             <div
@@ -153,7 +154,7 @@ export function TimelineMediaInspector({
                 preload="none"
                 src={candidate.audioUrl}
                 className="h-7 min-w-[180px] flex-1"
-                aria-label={`试听旁白候选 ${candidate.assetId}`}
+                aria-label={_ui("试听旁白候选 {0}", [candidate.assetId])}
               />
               <button
                 type="button"
@@ -173,7 +174,7 @@ export function TimelineMediaInspector({
                 }
                 className="rounded-sm border border-primary/50 px-1.5 py-0.5 text-[9px] disabled:opacity-40"
               >
-                {candidate.adopted ? "使用中" : "采用"}
+                {candidate.adopted ? _ui("使用中") : _ui("采用")}
               </button>
               <button
                 type="button"
@@ -185,8 +186,7 @@ export function TimelineMediaInspector({
                 }
                 className="rounded-sm border border-destructive/40 px-1.5 py-0.5 text-[9px] text-destructive disabled:opacity-40"
               >
-                删除候选
-              </button>
+                {_ui("删除候选")}</button>
               {candidate.unavailableReason ? (
                 <span className="w-full text-[9px] text-amber-600">
                   {candidate.unavailableReason}
@@ -248,7 +248,7 @@ export function TimelineMediaInspector({
       >
         <div className="flex items-baseline justify-between text-[10px]">
           <span className="font-semibold text-foreground">
-            {profile.label} · 素材 #{clip.assetId}
+            {profile.label} {_ui("· 素材 #")}{clip.assetId}
           </span>
           <span className="font-mono text-[9px] text-muted-foreground">
             {timecode(clip.timelineStartFrame)} –{" "}
@@ -258,8 +258,7 @@ export function TimelineMediaInspector({
 
         <div className="grid grid-cols-2 gap-2 text-[9px] text-muted-foreground">
           <label className="flex flex-col gap-1">
-            类型
-            <select
+            {_ui("类型")}<select
               value={kind}
               disabled={pending || !onReclassifyAudio}
               data-testid="timeline-media-inspector-audio-kind"
@@ -286,8 +285,7 @@ export function TimelineMediaInspector({
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            音量（0–400%）
-            <input
+            {_ui("音量（0–400%）")}<input
               type="number"
               min={0}
               max={400}
@@ -325,12 +323,10 @@ export function TimelineMediaInspector({
                 })
               }
             />
-            静音这段
-          </label>
-          <span className="self-center">时长 {clip.durationFrames} 帧</span>
+            {_ui("静音这段")}</label>
+          <span className="self-center">{_ui("时长")}{clip.durationFrames} {_ui("帧")}</span>
           <label className="flex flex-col gap-1">
-            淡入（帧）
-            <input
+            {_ui("淡入（帧）")}<input
               type="number"
               min={0}
               step={1}
@@ -351,8 +347,7 @@ export function TimelineMediaInspector({
             />
           </label>
           <label className="flex flex-col gap-1">
-            淡出（帧）
-            <input
+            {_ui("淡出（帧）")}<input
               type="number"
               min={0}
               step={1}
@@ -381,10 +376,10 @@ export function TimelineMediaInspector({
               data-testid="timeline-media-inspector-narration-state"
             >
               {clip.textStale
-                ? "字幕文字已变化，可试听旧旁白；重新生成不会自动发生。"
+                ? _ui("字幕文字已变化，可试听旧旁白；重新生成不会自动发生。")
                 : clip.speechBindingId
-                  ? "已与字幕绑定"
-                  : "尚未与字幕绑定"}
+                  ? _ui("已与字幕绑定")
+                  : _ui("尚未与字幕绑定")}
             </p>
             {narrationCue ? renderNarrationCandidates(narrationCue) : null}
           </>
@@ -397,8 +392,7 @@ export function TimelineMediaInspector({
           onClick={() => void onDeleteAudio?.(clip.id)}
           className="self-start rounded-sm border border-destructive/50 px-2 py-0.5 text-[10px] text-destructive transition enabled:hover:bg-destructive/10 disabled:opacity-40"
         >
-          删除引用
-        </button>
+          {_ui("删除引用")}</button>
       </div>
     );
   }
@@ -409,8 +403,7 @@ export function TimelineMediaInspector({
         className="rounded-md border border-border/60 p-2 text-[10px] text-muted-foreground"
         data-testid="timeline-media-inspector-empty"
       >
-        选中字幕或声音块后可以在这里继续调整。
-      </div>
+        {_ui("选中字幕或声音块后可以在这里继续调整。")}</div>
     );
   }
 
@@ -420,7 +413,7 @@ export function TimelineMediaInspector({
       data-testid="timeline-media-inspector"
     >
       <div className="flex items-baseline justify-between text-[10px]">
-        <span className="font-semibold text-foreground">字幕</span>
+        <span className="font-semibold text-foreground">{_ui("字幕")}</span>
         <span className="font-mono text-[9px] text-muted-foreground">
           {timecode(selectedCue.startFrame)} –{" "}
           {timecode(subtitleCueEndFrame(selectedCue))}
@@ -428,8 +421,7 @@ export function TimelineMediaInspector({
       </div>
 
       <label className="flex flex-col gap-1 text-[9px] text-muted-foreground">
-        在文字里点一下决定拆分位置
-        <textarea
+        {_ui("在文字里点一下决定拆分位置")}<textarea
           ref={textRef}
           readOnly
           value={selectedCue.text}
@@ -448,7 +440,7 @@ export function TimelineMediaInspector({
         <button
           type="button"
           disabled={pending || !split.enabled}
-          title={split.reason ?? "在播放头与光标处拆成两条"}
+          title={split.reason ?? _ui("在播放头与光标处拆成两条")}
           data-testid="timeline-media-inspector-split"
           onClick={() =>
             void onSplit({
@@ -460,32 +452,29 @@ export function TimelineMediaInspector({
           }
           className="rounded-sm border border-border px-2 py-0.5 text-[10px] transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
         >
-          在播放头拆分
-        </button>
+          {_ui("在播放头拆分")}</button>
         <button
           type="button"
           disabled={pending || !mergePrevious.enabled}
-          title={mergePrevious.reason ?? "与上一条合并"}
+          title={mergePrevious.reason ?? _ui("与上一条合并")}
           data-testid="timeline-media-inspector-merge-previous"
           onClick={() =>
             void onMerge({ cueId: selectedCue.id, direction: "previous" })
           }
           className="rounded-sm border border-border px-2 py-0.5 text-[10px] transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
         >
-          与上一条合并
-        </button>
+          {_ui("与上一条合并")}</button>
         <button
           type="button"
           disabled={pending || !mergeNext.enabled}
-          title={mergeNext.reason ?? "与下一条合并"}
+          title={mergeNext.reason ?? _ui("与下一条合并")}
           data-testid="timeline-media-inspector-merge-next"
           onClick={() =>
             void onMerge({ cueId: selectedCue.id, direction: "next" })
           }
           className="rounded-sm border border-border px-2 py-0.5 text-[10px] transition enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
         >
-          与下一条合并
-        </button>
+          {_ui("与下一条合并")}</button>
         <button
           type="button"
           disabled={pending}
@@ -493,8 +482,7 @@ export function TimelineMediaInspector({
           onClick={() => void onDelete(selectedCue.id)}
           className="rounded-sm border border-destructive/50 px-2 py-0.5 text-[10px] text-destructive transition enabled:hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          删除
-        </button>
+          {_ui("删除")}</button>
       </div>
 
       {!split.enabled && split.reason ? (

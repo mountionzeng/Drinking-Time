@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import type { StoryTimelineImageTextOverlay } from "@shared/storyMaterial";
 import { preparePublishingAlbumExportPage } from "@/features/publishingAlbum/publishingAlbumExport";
@@ -11,6 +12,7 @@ export function ImageSubtitleOverlay({
 }: {
   overlay: StoryTimelineImageTextOverlay;
 }) {
+  const _ui = useDesktopUiText();
   const [result, setResult] = useState<{
     source: StoryTimelineImageTextOverlay;
     plan?: PublishingAlbumLayoutPlan;
@@ -44,7 +46,7 @@ export function ImageSubtitleOverlay({
   return (
     <div
       className="pointer-events-none absolute inset-0 z-10"
-      aria-label="图片字幕层"
+      aria-label={_ui("图片字幕层")}
     >
       {result.plan ? (
         <PublishingAlbumTextLayer plan={result.plan} canvas={CANVAS} />

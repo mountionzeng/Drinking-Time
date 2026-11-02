@@ -22,7 +22,7 @@ type Dependencies = {
   /** 契约 1.6.0：网页扫码/输码登录确认。默认关闭，缺省则路由不存在。 */
   webLogin?: {
     enabled: boolean;
-    confirm: (input: { subject: string; code: string; decision: ConfirmDecision }) => Promise<ConfirmWebLoginResult>;
+    confirm: (input: { subject: string; code: string; decision: ConfirmDecision; displayName?: string }) => Promise<ConfirmWebLoginResult>;
   };
   chapterDelivery?: {
     enabled: boolean;
@@ -124,16 +124,17 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       if (!hasValidBridgeSignature(req, deps.secret, now)) return res.status(401).json({ error: "invalid_bridge_signature" });
       const timestamp = req.header("x-shiguang-timestamp")!, nonce = req.header("x-shiguang-nonce")!;
       if (!await deps.claimNonce(timestamp, nonce, now)) return res.status(401).json({ error: "replayed_request" });
-      const { subject, code, decision } = req.body ?? {};
+      const { subject, code, decision, displayName } = req.body ?? {};
       const keys = Object.keys(req.body ?? {});
       if (typeof subject !== "string" || !/^shiguang:[0-9a-f]{64}$/.test(subject) ||
-        typeof code !== "string" || code.length > 16 ||
+        typeof code !== "string" || (code.length > 16 && !/^[A-F0-9]{28}$/.test(code)) ||
         !["preview", "confirm", "deny"].includes(decision) ||
-        keys.some(key => !["subject", "code", "decision"].includes(key))) {
+        (displayName !== undefined && (typeof displayName !== "string" || Array.from(displayName).length > 8 || !displayName.trim())) ||
+        keys.some(key => !["subject", "code", "decision", "displayName"].includes(key))) {
         return res.status(400).json({ error: "invalid_input" });
       }
       if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
-      const result = await deps.webLogin.confirm({ subject, code, decision });
+      const result = await deps.webLogin.confirm({ subject, code, decision, ...(displayName !== undefined ? { displayName } : {}) });
       if (result.outcome === "rate_limited") return res.status(429).json({ error: "rate_limited" });
       if (result.outcome === "not_configured") return res.status(503).json({ error: "not_configured" });
       // 码不存在、过期、已用过对外只有一种失败。

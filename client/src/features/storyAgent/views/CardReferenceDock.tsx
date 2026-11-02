@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useRef, useState, type DragEvent } from "react";
 import { ImagePlus, Loader2, Star, Trash2 } from "lucide-react";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
@@ -19,6 +20,7 @@ export function CardReferenceDock({
   imageRationale?: string | null;
   onDeleteGeneratedImage?: (image: GeneratedImageItem) => void;
 }) {
+  const _ui = useDesktopUiText();
   const { isArtWorking, artDirection } = useCardReferenceDockSlice();
   const {
     addVisualReference,
@@ -70,7 +72,7 @@ export function CardReferenceDock({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-[9px] font-semibold text-muted-foreground">
-            故事材料 {visualItems.length ? `· ${visualItems.length} 张` : ""}
+            {_ui("故事材料")}{" "}{visualItems.length ? _ui("· {0} 张", [visualItems.length]) : ""}
           </span>
           <button
             type="button"
@@ -84,8 +86,7 @@ export function CardReferenceDock({
             ) : (
               <ImagePlus className="h-3 w-3" />
             )}
-            添加参考
-          </button>
+            {_ui("添加参考")}</button>
           <input
             ref={inputRef}
             type="file"
@@ -119,36 +120,34 @@ export function CardReferenceDock({
                 onDeleteGeneratedImage?.(generatedImage);
               }}
               className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm transition hover:text-destructive"
-              aria-label="删除已选择画面"
-              title="删除这张已选择画面，并记录为不想要"
+              aria-label={_ui("删除已选择画面")}
+              title={_ui("删除这张已选择画面，并记录为不想要")}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
             <img
               src={generatedImage.imageUrl}
-              alt={generatedImage.prompt || "当前生成画面"}
+              alt={generatedImage.prompt || _ui("当前生成画面")}
               className="aspect-square w-full rounded object-cover"
             />
             {isFinalizing ? (
               <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/90 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shadow-sm">
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                正在出正式版
-              </span>
+                {_ui("正在出正式版")}</span>
             ) : isDraft ? (
               <span className="absolute left-2 top-2 rounded-full bg-background/90 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shadow-sm">
-                草稿待确认
-              </span>
+                {_ui("草稿待确认")}</span>
             ) : null}
             <div className="min-w-0 self-center">
               <div className="text-[10px] font-semibold text-foreground">
-                {isFinalizing ? "正式版生成中" : "当前生成画面"}
+                {isFinalizing ? _ui("正式版生成中") : _ui("当前生成画面")}
               </div>
               <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
                 {isFinalizing
-                  ? "已收下草稿，正式版完成后会自动替换到这里"
+                  ? _ui("已收下草稿，正式版完成后会自动替换到这里")
                   : displayReason ||
                     generatedImage.prompt ||
-                    "从手机端同步的故事画面"}
+                    _ui("从手机端同步的故事画面")}
               </p>
               <button
                 type="button"
@@ -174,10 +173,10 @@ export function CardReferenceDock({
                   className={`h-2.5 w-2.5 ${generatedImage.imageUrl === characterUrl ? "fill-amber-400 text-amber-400" : ""}`}
                 />
                 {generatedImage.status !== "ready"
-                  ? "待正式版"
+                  ? _ui("待正式版")
                   : generatedImage.imageUrl === characterUrl
-                    ? "已设为主角"
-                    : "设为主角"}
+                    ? _ui("已设为主角")
+                    : _ui("设为主角")}
               </button>
             </div>
           </div>
@@ -198,8 +197,7 @@ export function CardReferenceDock({
           >
             <ImagePlus className="h-3.5 w-3.5 text-nayin-bright" />
             <span className="text-[9px] font-medium text-muted-foreground">
-              把与这一刻有关的照片拖进来
-            </span>
+              {_ui("把与这一刻有关的照片拖进来")}</span>
           </button>
         ) : (
           <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
@@ -216,7 +214,7 @@ export function CardReferenceDock({
                       : "var(--panel-border)",
                   }}
                   title={
-                    isCharacter ? "主角参照（跨镜头锁人物长相）" : item.title
+                    isCharacter ? _ui("主角参照（跨镜头锁人物长相）") : item.title
                   }
                 >
                   <img
@@ -236,16 +234,15 @@ export function CardReferenceDock({
                       setCharacterReferenceByUrl(itemUrl, item.title)
                     }
                     className="absolute bottom-1 left-1 flex h-5 items-center gap-0.5 rounded-full bg-background/85 px-1.5 text-[9px] font-medium text-muted-foreground opacity-0 transition hover:text-foreground group-hover/reference:opacity-100"
-                    aria-label={`设为主角参照 ${item.title}`}
+                    aria-label={_ui("设为主角参照 {0}", [item.title])}
                   >
                     <Star className="h-2.5 w-2.5" />
-                    主角
-                  </button>
+                    {_ui("主角")}</button>
                   <button
                     type="button"
                     onClick={() => removeVisualCanvasItem(item.id)}
                     className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/85 text-muted-foreground opacity-0 transition group-hover/reference:opacity-100"
-                    aria-label={`移除 ${item.title}`}
+                    aria-label={_ui("移除 {0}", [item.title])}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -259,7 +256,7 @@ export function CardReferenceDock({
       <StoryboardMediaPreviewDialog
         preview={
           previewImageUrl
-            ? { kind: "image", url: previewImageUrl, label: "预览" }
+            ? { kind: "image", url: previewImageUrl, label: _ui("预览") }
             : null
         }
         onClose={() => setPreviewImageUrl(null)}

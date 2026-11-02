@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { DailyLetterBody } from "./DailyLetterBody";
 import {
@@ -170,6 +171,7 @@ export default function DailyLetterWelcome({
   onOpenStory?: (storyId: number) => void;
   onStartLetterStory?: (message: string) => void;
 }) {
+  const _ui = useDesktopUiText();
   const { user } = useAuth();
   const { language } = useUiLanguage();
   const { today, visualTheme } = useNayin();
@@ -529,7 +531,7 @@ export default function DailyLetterWelcome({
         className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
-        aria-label="今日来信"
+        aria-label={_ui("今日来信")}
       >
         <section
           ref={dialogRef}
@@ -546,8 +548,7 @@ export default function DailyLetterWelcome({
             <header className="flex items-start justify-between gap-5">
               <div>
                 <p className="text-[10px] text-muted-foreground">
-                  {publicLetter.date} · 写给今天打开页面的你
-                </p>
+                  {publicLetter.date} {_ui("· 写给今天打开页面的你")}</p>
                 <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
                   {dailyLetterGreeting(new Date().getHours())}
                 </h1>
@@ -556,8 +557,8 @@ export default function DailyLetterWelcome({
                 type="button"
                 onClick={closeLetter}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="收起今日来信"
-                title="收起今日来信"
+                aria-label={_ui("收起今日来信")}
+                title={_ui("收起今日来信")}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -580,8 +581,7 @@ export default function DailyLetterWelcome({
                 onClick={closeLetter}
                 className="px-2 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                把信收好，开始今天
-              </button>
+                {_ui("把信收好，开始今天")}</button>
             </div>
           </div>
         </section>
@@ -598,7 +598,7 @@ export default function DailyLetterWelcome({
         className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
-        aria-label="导入本机资料"
+        aria-label={_ui("导入本机资料")}
       >
         <section className="mx-auto flex min-h-full w-full max-w-xl items-center">
           <div
@@ -609,22 +609,18 @@ export default function DailyLetterWelcome({
             }
           >
             <p className="text-[10px] text-muted-foreground">
-              登录成功 · 由你决定
-            </p>
+              {_ui("登录成功 · 由你决定")}</p>
             <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
-              把这台设备上的旧话带进账号吗？
-            </h1>
+              {_ui("把这台设备上的旧话带进账号吗？")}</h1>
             <p className="mt-4 text-sm leading-7 text-muted-foreground">
-              我们找到了生日 {guestProfile.birthDate}
+              {_ui("我们找到了生日")}{" "}{guestProfile.birthDate}
               {localMessageCount
-                ? `，以及 ${localMessageCount} 条你说过的话`
-                : "和一份本地资料"}
-              。带进账号后，换设备也能接着聊。
-            </p>
+                ? _ui("，以及 {0} 条你说过的话", [localMessageCount])
+                : _ui("和一份本地资料")}
+              {_ui("。带进账号后，换设备也能接着聊。")}</p>
             {profile ? (
               <p className="mt-2 text-xs leading-6 text-muted-foreground/80">
-                账号已经有生日资料，因此这里只合并旧话和缺少的地点，不覆盖账号里的生日。
-              </p>
+                {_ui("账号已经有生日资料，因此这里只合并旧话和缺少的地点，不覆盖账号里的生日。")}</p>
             ) : null}
             <div className="mt-6 flex flex-wrap gap-3">
               <button
@@ -639,20 +635,17 @@ export default function DailyLetterWelcome({
                 ) : (
                   <Check className="h-3.5 w-3.5" />
                 )}
-                带进账号
-              </button>
+                {_ui("带进账号")}</button>
               <button
                 type="button"
                 onClick={() => setGuestImportDismissed(true)}
                 disabled={importGuestProfileMut.isPending}
                 className="h-10 rounded-md px-4 text-xs text-muted-foreground hover:bg-foreground/[0.04]"
               >
-                暂时不带
-              </button>
+                {_ui("暂时不带")}</button>
             </div>
             <p className="mt-4 text-[10px] leading-5 text-muted-foreground/70">
-              暂时不带不会删除本机内容；下次登录仍可以再决定。
-            </p>
+              {_ui("暂时不带不会删除本机内容；下次登录仍可以再决定。")}</p>
           </div>
         </section>
       </div>
@@ -665,7 +658,7 @@ export default function DailyLetterWelcome({
         className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
         role="dialog"
         aria-modal="true"
-        aria-label="第一次写回信"
+        aria-label={_ui("第一次写回信")}
       >
         <section
           ref={dialogRef}
@@ -682,22 +675,18 @@ export default function DailyLetterWelcome({
           >
             <div>
               <p className="text-[10px] text-muted-foreground">
-                只需填写一次，之后可以随时修改
-              </p>
+                {_ui("只需填写一次，之后可以随时修改")}</p>
               <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
-                先留一点关于你的信息
-              </h1>
+                {_ui("先留一点关于你的信息")}</h1>
               <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                这些资料会保存在你的账号里。今天的回信会由服务器重新计算，
-                不再使用浏览器里的固定模板。
-              </p>
+                {_ui("这些资料会保存在你的账号里。今天的回信会由服务器重新计算， 不再使用浏览器里的固定模板。")}</p>
             </div>
             <button
               type="button"
               onClick={dismissInitialProfileSetup}
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="暂时跳过资料设置"
-              title="暂时跳过资料设置"
+              aria-label={_ui("暂时跳过资料设置")}
+              title={_ui("暂时跳过资料设置")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -725,8 +714,7 @@ export default function DailyLetterWelcome({
               onClick={dismissInitialProfileSetup}
               className="px-2 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              暂时跳过，先去创作
-            </button>
+              {_ui("暂时跳过，先去创作")}</button>
           </div>
         </section>
       </div>
@@ -748,7 +736,7 @@ export default function DailyLetterWelcome({
       className={`${visualTheme === "shiguang" ? "daily-letter-backdrop" : ""} fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6`}
       role="dialog"
       aria-modal="true"
-      aria-label="你的每日回信"
+      aria-label={_ui("你的每日回信")}
     >
       <section
         ref={dialogRef}
@@ -770,15 +758,15 @@ export default function DailyLetterWelcome({
             <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
               {selectedDate === profileDate
                 ? dailyLetterGreeting(new Date().getHours())
-                : `${dateLabel(selectedDate)}的回信`}
+                : _ui("{0}的回信", [dateLabel(selectedDate)])}
             </h1>
           </div>
           <button
             type="button"
             onClick={closeLetter}
             className="daily-letter-close inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="收起回信"
-            title="收起回信"
+            aria-label={_ui("收起回信")}
+            title={_ui("收起回信")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -793,8 +781,7 @@ export default function DailyLetterWelcome({
             htmlFor="daily-letter-date"
             className="text-xs text-muted-foreground"
           >
-            想翻回哪一天
-          </label>
+            {_ui("想翻回哪一天")}</label>
           <select
             id="daily-letter-date"
             value={selectedDate}
@@ -807,7 +794,7 @@ export default function DailyLetterWelcome({
           >
             {letterDates.map(date => (
               <option key={date} value={date}>
-                {date === profileDate ? `今天 · ${date}` : date}
+                {date === profileDate ? _ui("今天 · {0}", [date]) : date}
               </option>
             ))}
           </select>
@@ -827,14 +814,13 @@ export default function DailyLetterWelcome({
         <section
           className="border-b py-5"
           style={{ borderColor: "var(--nayin-border)" }}
-          aria-label="你在这天说的话"
+          aria-label={_ui("你在这天说的话")}
         >
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4 text-nayin" />
               <h2 className="font-chat-brand text-lg font-normal text-foreground">
-                那天，你这样说
-              </h2>
+                {_ui("那天，你这样说")}</h2>
             </div>
             {!editingMessage && (
               <button
@@ -845,10 +831,10 @@ export default function DailyLetterWelcome({
               >
                 <Pencil className="h-3 w-3" />
                 {!selectedLetter
-                  ? "整理中"
+                  ? _ui("整理中")
                   : selectedMessage
-                    ? "修改"
-                    : "写一点"}
+                    ? _ui("修改")
+                    : _ui("写一点")}
               </button>
             )}
           </div>
@@ -860,7 +846,7 @@ export default function DailyLetterWelcome({
                 onChange={event => setMessageDraft(event.target.value)}
                 rows={4}
                 maxLength={800}
-                placeholder="今天发生了什么，或者你现在是什么感受？"
+                placeholder={_ui("今天发生了什么，或者你现在是什么感受？")}
                 className="w-full resize-none border-0 bg-transparent p-0 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground/55 focus:ring-0"
                 autoFocus
               />
@@ -877,8 +863,7 @@ export default function DailyLetterWelcome({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  记下这句
-                </button>
+                  {_ui("记下这句")}</button>
                 {selectedDate === profileDate && onStartVisualConversation ? (
                   <button
                     type="button"
@@ -892,49 +877,45 @@ export default function DailyLetterWelcome({
                     ) : (
                       <ImageIcon className="h-3.5 w-3.5 text-nayin transition-transform group-hover:scale-110" />
                     )}
-                    把今天的想法做成画面
-                  </button>
+                    {_ui("把今天的想法做成画面")}</button>
                 ) : null}
                 <button
                   type="button"
                   onClick={() => setEditingMessage(false)}
                   className="h-9 px-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  先放着
-                </button>
+                  {_ui("先放着")}</button>
               </div>
             </div>
           ) : (
             <>
               <p className="mt-3 text-sm leading-7 text-foreground">
                 {selectedMessage ||
-                  "这一天还没有留言，想说时再写就好。"}
+                  _ui("这一天还没有留言，想说时再写就好。")}
               </p>
               {(saidAt || editedAt) && (
                 <p className="mt-1 text-[9px] text-muted-foreground/65">
-                  {saidAt ? `说于 ${timestampLabel(saidAt)}` : ""}
+                  {saidAt ? _ui("说于 {0}", [timestampLabel(saidAt)]) : ""}
                   {saidAt && editedAt ? " · " : ""}
-                  {editedAt ? `改于 ${timestampLabel(editedAt)}` : ""}
+                  {editedAt ? _ui("改于 {0}", [timestampLabel(editedAt)]) : ""}
                 </p>
               )}
             </>
           )}
           <p className="mt-3 text-[10px] leading-5 text-muted-foreground/70">
-            来信可以参考你保存的文章，延续创作话题；不会把故事当成你的真实经历。
-          </p>
+            {_ui("来信可以参考你保存的文章，延续创作话题；不会把故事当成你的真实经历。")}</p>
         </section>
 
         {relatedStories.length > 0 && onOpenStory ? (
           <section
             className="border-b py-5"
             style={{ borderColor: "var(--nayin-border)" }}
-            aria-label="这天聊过的故事"
+            aria-label={_ui("这天聊过的故事")}
           >
             <div className="flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-nayin" />
               <h2 className="font-chat-brand text-lg font-normal text-foreground">
-                那天，也聊过这些故事
-              </h2>
+                {_ui("那天，也聊过这些故事")}</h2>
             </div>
             <div
               className="mt-3 divide-y"
@@ -955,7 +936,7 @@ export default function DailyLetterWelcome({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-foreground transition-colors group-hover:text-[var(--nayin-accent)]">
-                        {story.title.trim() || "未命名故事"}
+                        {story.title.trim() || _ui("未命名故事")}
                       </span>
                       {detail ? (
                         <span className="mt-1 block truncate text-[11px] text-muted-foreground">
@@ -969,8 +950,7 @@ export default function DailyLetterWelcome({
                       </span>
                     ) : null}
                     <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground transition-colors group-hover:text-[var(--nayin-accent)]">
-                      继续聊
-                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                      {_ui("继续聊")}<ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                     </span>
                   </button>
                 );
@@ -979,24 +959,23 @@ export default function DailyLetterWelcome({
           </section>
         ) : null}
 
-        <section className="py-6" aria-label="聊会儿的回信">
+        <section className="py-6" aria-label={_ui("聊会儿的回信")}>
           <div className="space-y-4">
             <DailyLetterBody summary={selectedReference.summary} date={selectedDate} />
           </div>
           <p className="mt-5 text-[9px] text-muted-foreground/60">
-            第 {selectedLetter?.revision ?? 1} 版
-            {selectedLetter?.updatedAt
-              ? ` · 更新于 ${timestampLabel(selectedLetter.updatedAt)}`
+            {_ui("第")}{" "}{selectedLetter?.revision ?? 1} {_ui("版")}{selectedLetter?.updatedAt
+              ? _ui(" · 更新于 {0}", [timestampLabel(selectedLetter.updatedAt)])
               : ""}
           </p>
           {currentVersionContext ? (
             <p className="mt-2 text-[10px] leading-5 text-muted-foreground/75">
               {currentVersionContext.memoryEvidenceCount > 0
-                ? `这版参考了 ${currentVersionContext.memoryEvidenceCount} 条长期记忆`
-                : "这版没有使用长期记忆"}
+                ? _ui("这版参考了 {0} 条长期记忆", [currentVersionContext.memoryEvidenceCount])
+                : _ui("这版没有使用长期记忆")}
               {currentVersionContext.usedAlmanac
-                ? " · 已结合当天黄历"
-                : " · 未使用黄历事实"}
+                ? _ui(" · 已结合当天黄历")
+                : _ui(" · 未使用黄历事实")}
             </p>
           ) : null}
           {selectedDate === profileDate ? (
@@ -1012,7 +991,7 @@ export default function DailyLetterWelcome({
               ) : (
                 <RefreshCw className="h-3.5 w-3.5 text-nayin" />
               )}
-              {rereadMut.isPending ? "正在重新读…" : "用最新记忆，再读一遍"}
+              {rereadMut.isPending ? _ui("正在重新读…") : _ui("用最新记忆，再读一遍")}
             </button>
           ) : null}
           {onStartLetterStory ? (
@@ -1023,8 +1002,7 @@ export default function DailyLetterWelcome({
               style={{ borderColor: "var(--nayin-border)" }}
             >
               <Sparkles className="h-3.5 w-3.5 text-nayin transition-transform group-hover:rotate-6 group-hover:scale-110" />
-              把这封回信变成新故事
-            </button>
+              {_ui("把这封回信变成新故事")}</button>
           ) : null}
         </section>
 
@@ -1037,8 +1015,7 @@ export default function DailyLetterWelcome({
             onClick={closeLetter}
             className={`${visualTheme === "shiguang" ? "daily-letter-action px-3" : "px-2"} py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
           >
-            把信收好，继续聊
-          </button>
+            {_ui("把信收好，继续聊")}</button>
         </div>
       </section>
     </div>

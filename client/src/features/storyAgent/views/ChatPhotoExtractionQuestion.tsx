@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   PHOTO_EXTRACTION_QUESTION,
   PHOTO_EXTRACTION_REPLIES,
@@ -10,12 +11,12 @@ export default function ChatPhotoExtractionQuestion({
   disabled: boolean;
   onReply: (reply: string) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
-    <section aria-label="照片提取追问" className="mt-2 text-[11px] leading-5">
+    <section aria-label={_ui("照片提取追问")} className="mt-2 text-[11px] leading-5">
       <p role="status">{PHOTO_EXTRACTION_QUESTION}</p>
       <p className="text-[10px] text-muted-foreground">
-        直接在聊天框回答，比如“小猫”或“左边的花瓶，不要背景”。多张照片可以按顺序说明。
-      </p>
+        {_ui("直接在聊天框回答，比如“小猫”或“左边的花瓶，不要背景”。多张照片可以按顺序说明。")}</p>
       <div className="mt-1 flex flex-wrap gap-1">
         {PHOTO_EXTRACTION_REPLIES.map(reply => (
           <button
@@ -30,8 +31,7 @@ export default function ChatPhotoExtractionQuestion({
         ))}
       </div>
       <p className="text-[9.5px] text-muted-foreground">
-        选择只会填入回复，发送后才上传处理；不会生成新图。
-      </p>
+        {_ui("选择只会填入回复，发送后才上传处理；不会生成新图。")}</p>
     </section>
   );
 }

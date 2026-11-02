@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { createPortal } from "react-dom";
 /**
  * StoryLogoMenu — 顶栏最左边那颗五行饮品 Logo，兼故事入口。
@@ -111,6 +112,7 @@ export default function StoryLogoMenu({
   trigger,
   placement = "bottom",
 }: StoryLogoMenuProps) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const [awake, setAwake] = useState(false);
   const hasHover = usePointerHasHover();
@@ -282,7 +284,7 @@ export default function StoryLogoMenu({
         type="button"
         aria-haspopup={interactive ? "menu" : undefined}
         aria-expanded={interactive ? open : undefined}
-        aria-label={`${visualTheme === "shiguang" ? "拾光" : "聊聊"} · 故事菜单${unreadShareBacks > 0 ? ` · ${unreadShareBacks} 个朋友分享回来的新版本` : ""}`}
+        aria-label={_ui("{0} · 故事菜单{1}", [visualTheme === "shiguang" ? _ui("拾光") : _ui("聊聊"), unreadShareBacks > 0 ? ` · ${unreadShareBacks} 个朋友分享回来的新版本` : ""])}
         onClick={handleButtonClick}
         onKeyDown={handleButtonKeyDown}
         onFocus={() => setAwake(true)}
@@ -314,7 +316,7 @@ export default function StoryLogoMenu({
             size={56}
             awake={awake}
             animated={false}
-            title="聊聊"
+            title={_ui("聊聊")}
           />
         ))}
         {unreadShareBacks > 0 ? (
@@ -333,7 +335,7 @@ export default function StoryLogoMenu({
           onMouseEnter={clearTimers}
           onMouseLeave={handleLeave}
           role="menu"
-          aria-label="故事"
+          aria-label={_ui("故事")}
           onKeyDown={handlePanelKeyDown}
           className={`dt-panel absolute left-0 ${placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"} z-50 flex w-80 max-w-[calc(100vw-24px)] max-h-[60vh] overflow-y-auto flex-col gap-0.5 rounded-[14px] p-2`}
           style={{
@@ -367,8 +369,7 @@ export default function StoryLogoMenu({
             >
               ＋
             </span>
-            开启新故事
-          </button>
+            {_ui("开启新故事")}</button>
 
           <div
             className="mx-1 my-1.5 h-px"
@@ -378,8 +379,7 @@ export default function StoryLogoMenu({
           {shareBacks.length > 0 ? (
             <>
               <div className="px-3 pb-1.5 pt-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-                朋友分享回来的
-              </div>
+                {_ui("朋友分享回来的")}</div>
               {shareBacks.slice(0, SHARE_BACK_LIMIT).map(notice => (
                 <button
                   key={notice.id}
@@ -400,8 +400,7 @@ export default function StoryLogoMenu({
                     {shareBackLabel(notice)}
                   </span>
                   <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
-                    {notice.storyTitle} · 打开看看，采用或忽略
-                  </span>
+                    {notice.storyTitle} {_ui("· 打开看看，采用或忽略")}</span>
                 </button>
               ))}
               <div
@@ -412,13 +411,11 @@ export default function StoryLogoMenu({
           ) : null}
 
           <div className="px-3 pb-1.5 pt-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-            回到以前的故事
-          </div>
+            {_ui("回到以前的故事")}</div>
 
           {recent.length === 0 ? (
             <div className="px-3 pb-2 pt-1 text-xs text-muted-foreground">
-              还没有故事，先开一个吧
-            </div>
+              {_ui("还没有故事，先开一个吧")}</div>
           ) : (
             recent.map(story => (
               <button
@@ -439,7 +436,7 @@ export default function StoryLogoMenu({
                 <StoryMenuCover story={story} visualTheme={visualTheme} />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <span className="text-[13.5px] font-medium leading-[1.35] text-foreground">
-                    {story.title?.trim() || "未命名故事"}
+                    {story.title?.trim() || _ui("未命名故事")}
                   </span>
                   {story.logline?.trim() || story.summary?.trim() ? (
                     <span className="w-full truncate text-xs leading-[1.4] text-muted-foreground">
@@ -447,7 +444,7 @@ export default function StoryLogoMenu({
                     </span>
                   ) : null}
                   <span className="font-mono text-[11px] text-muted-foreground/80">
-                    {storyMeta(story) || "还没动过"}
+                    {storyMeta(story) || _ui("还没动过")}
                   </span>
                 </span>
               </button>
@@ -463,8 +460,7 @@ export default function StoryLogoMenu({
               className={`${itemBase} px-3 pb-1 pt-2 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2`}
               style={focusRing}
             >
-              查看全部故事 →
-            </button>
+              {_ui("查看全部故事 →")}</button>
           ) : null}
         </div>
       ) : null}

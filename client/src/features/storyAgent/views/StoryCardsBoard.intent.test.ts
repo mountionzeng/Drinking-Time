@@ -1314,9 +1314,7 @@ describe("StoryCardsBoard intent entry", () => {
       "utf8"
     );
 
-    expect(boardSource).toContain(
-      "aria-label={`删除 ${displayShotCode(shot)} 图片 #${frame.id}`}"
-    );
+    expect(boardSource).toMatch(/aria-label=\{_ui\("(?:删除 \{0\} 图片 #\{1\}|从镜头移除 \{0\} 图片 #\{1\})", \[displayShotCode\(shot\), frame.id\]\)\}/);
     expect(boardSource).toContain("void deleteStoryboardFrame(manageInput)");
     expect(boardSource).toContain("可右键设置角色");
   });
@@ -1342,7 +1340,7 @@ describe("StoryCardsBoard intent entry", () => {
       "utf8"
     );
     expect((boardSource.match(/<DeleteShotButton/g) ?? []).length).toBe(2);
-    expect(boardSource).toContain("const label = `删除 ${shotLabel}`");
+    expect(boardSource).toContain('const label = _ui("删除 {0}", [shotLabel])');
     expect(boardSource).toContain("删除");
     expect(boardSource).toContain("至少保留一个镜头");
     expect(panelSource).toContain("deletePersistedShot");
@@ -1417,8 +1415,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(panelSource).toContain("<StoryboardReviewBoard");
     expect(panelSource).toContain("整理好求职优势后");
     expect(boardSource).toContain("GenerationSettingsPanel");
-    expect(settingsSource).toContain('aria-label="剧本生成设置"');
-    expect(settingsSource).toContain('aria-label="美术生成设置"');
+    expect(settingsSource).toContain('aria-label={_ui("剧本生成设置")}');
+    expect(settingsSource).toContain('aria-label={_ui("美术生成设置")}');
     expect(boardSource).toContain("generationProfile");
     expect(boardSource).toContain(
       "generateScript(undefined, generationProfile)"

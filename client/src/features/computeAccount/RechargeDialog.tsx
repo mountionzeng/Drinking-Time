@@ -190,7 +190,7 @@ function RechargeAvailability() {
           )}
         </section>
       )}
-      <p role="status">{data.message}</p>
+      <p role="status">{t(data.message)}</p>
       <a
         className="text-muted-foreground underline underline-offset-4 break-all"
         href={`mailto:${data.contactEmail}`}

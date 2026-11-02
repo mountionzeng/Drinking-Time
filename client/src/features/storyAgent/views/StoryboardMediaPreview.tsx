@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
@@ -96,6 +97,7 @@ export function StoryboardMediaPreviewDialog({
   preview: StoryboardMediaPreview | null;
   onClose: () => void;
 }) {
+  const _ui = useDesktopUiText();
   if (!preview) return null;
 
   return (
@@ -115,7 +117,7 @@ export function StoryboardMediaPreviewDialog({
           type="button"
           onClick={onClose}
           className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground shadow-sm transition hover:text-foreground"
-          aria-label="关闭预览"
+          aria-label={_ui("关闭预览")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -127,7 +129,7 @@ export function StoryboardMediaPreviewDialog({
             autoPlay
             playsInline
             className="max-h-[80vh] max-w-[80vw] object-contain"
-            aria-label={`${preview.label} 视频预览`}
+            aria-label={_ui("{0} 视频预览", [preview.label])}
           />
         ) : (
           <img

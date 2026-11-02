@@ -37,13 +37,26 @@ describe("website login gift", () => {
     await claimWebLoginGift(b);
     expect((await getAccountBalance(b.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
   });
-  it("keeps the website gift at 5 for a new WeChat account that also received the 5-unit WeChat gift", async () => {
+  it("shares one five-unit registration gift across WeChat and website", async () => {
     const account = await user("wx0000000000000001:new-wechat", "wechat");
     await ensureWechatRegistrationGift(account.id, "wx0000000000000001:new-wechat");
     expect((await getAccountBalance(account.id)).balanceMinor).toBe(2_500_000);
     await claimWebLoginGift(account);
-    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WECHAT_REGISTRATION_GIFT_MINOR + WEB_LOGIN_GIFT_MINOR);
+    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
     expect(WEB_LOGIN_GIFT_MINOR).toBe(2_500_000);
+  });
+  it("deduplicates concurrent website and WeChat gifts under the account lock", async () => {
+    const account = await user("wx:concurrent", "wechat");
+    await Promise.all(Array.from({ length: 8 }, (_, i) => i % 2
+      ? claimWebLoginGift(account)
+      : ensureWechatRegistrationGift(account.id, "concurrent-subject")));
+    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
+  });
+  it("does not add a second gift when an email account later links WeChat", async () => {
+    const account = await user("email:first");
+    await claimWebLoginGift(account);
+    await ensureWechatRegistrationGift(account.id, "linked-wechat");
+    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
   });
   it("does not top up or claw back an account that already received the old 10-unit WeChat gift", async () => {
     const subject = "wx0000000000000001:old-wechat";
@@ -51,7 +64,7 @@ describe("website login gift", () => {
     await grantCredit({ userId: account.id, amountMinor: 5_000_000, idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject), reason: "账号首次登录赠送 10 算力" });
     await claimWebLoginGift(account);
     const before = await getAccountBalance(account.id);
-    expect(before.balanceMinor).toBe(7_500_000);
+    expect(before.balanceMinor).toBe(5_000_000);
     for (let i = 0; i < 3; i++) {
       await ensureWechatRegistrationGift(account.id, subject);
       await ensureWechatRegistrationGift(account.id, "wx0000000000000001:other-identity");

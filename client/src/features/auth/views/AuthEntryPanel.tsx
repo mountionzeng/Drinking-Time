@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * AuthEntryPanel - 可嵌入欢迎页的登录面板。
  * 登录页使用邮箱验证码；欢迎页保留已有的邀请码入口。
@@ -38,6 +39,7 @@ export default function AuthEntryPanel({
   returnPath = null,
   variant = "legacy",
 }: AuthEntryPanelProps) {
+  const _ui = useDesktopUiText();
   const compact = variant !== "legacy";
   const pairingOnly = variant === "pairing";
   const { refresh } = useAuth();
@@ -202,7 +204,8 @@ export default function AuthEntryPanel({
         // 存储被禁不该把成功登录变成错误。
       }
     }
-    navigate(pairingLoginDestination(false, returnPath));
+    // Authentication enters the ordinary workspace. Import is an optional prompt there.
+    navigate(resolvePostLoginDestination(returnPath, rootWorkspacePath()));
   }
 
   async function handlePairingLogin(e: React.FormEvent) {
@@ -254,7 +257,7 @@ export default function AuthEntryPanel({
     <section
       id="auth-entry"
       className="shiguang-auth-entry w-full max-w-xl scroll-mt-24"
-      aria-label="登录后继续"
+      aria-label={_ui("登录后继续")}
     >
       <div
         className={
@@ -269,8 +272,7 @@ export default function AuthEntryPanel({
         {!compact && (
           <div className="monitor-panel-header justify-center text-center text-base font-medium normal-case tracking-normal text-foreground">
             <span className="status-dot" />
-            登录拾光
-          </div>
+            {_ui("登录拾光")}</div>
         )}
 
         <div
@@ -286,11 +288,10 @@ export default function AuthEntryPanel({
               href={googleLoginHref}
               className="shiguang-auth-button shiguang-auth-button-google flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              使用 Google 账号登录
-            </a>
+              {_ui("使用 Google 账号登录")}</a>
             <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
-              {compact ? "或使用邮箱" : "或使用邀请码"}
+              {compact ? _ui("或使用邮箱") : _ui("或使用邀请码")}
               <span className="h-px flex-1 bg-border" />
             </div>
           {oauthError && (
@@ -302,10 +303,10 @@ export default function AuthEntryPanel({
               }}
             >
               {oauthError === "invite_required"
-                ? "这个账号还没有内测权限"
+                ? _ui("这个账号还没有内测权限")
                 : oauthError === "oauth_failed"
-                  ? "登录失败，请重试"
-                  : "登录出错，请重试"}
+                  ? _ui("登录失败，请重试")
+                  : _ui("登录出错，请重试")}
             </div>
           )}
 
@@ -313,8 +314,8 @@ export default function AuthEntryPanel({
             <input
               ref={emailInputRef}
               type="email"
-              aria-label="邮箱"
-              placeholder="邮箱"
+              aria-label={_ui("邮箱")}
+              placeholder={_ui("邮箱")}
               value={email}
               onChange={e => {
                 setEmail(e.target.value);
@@ -349,8 +350,7 @@ export default function AuthEntryPanel({
                 }}
                 className="self-end text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                换一个邮箱
-              </button>
+                {_ui("换一个邮箱")}</button>
             ) : null}
             {compact && (
               <button
@@ -366,16 +366,16 @@ export default function AuthEntryPanel({
                 className="self-end rounded px-2 py-1 text-xs text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               >
                 {sendingCode
-                  ? "发送中…"
+                  ? _ui("发送中…")
                   : resendSeconds > 0
-                    ? `${resendSeconds} 秒后重新获取`
-                    : "获取验证码"}
+                    ? _ui("{0} 秒后重新获取", [resendSeconds])
+                    : _ui("获取验证码")}
               </button>
             )}
             <input
               type="text"
-              placeholder={compact ? "6 位邮箱验证码" : "邀请码"}
-              aria-label={compact ? "邮箱验证码" : "邀请码"}
+              placeholder={compact ? _ui("6 位邮箱验证码") : _ui("邀请码")}
+              aria-label={compact ? _ui("邮箱验证码") : _ui("邀请码")}
               value={inviteCode}
               onChange={e =>
                 setInviteCode(
@@ -416,10 +416,10 @@ export default function AuthEntryPanel({
               }}
             >
               {emailLoading
-                ? "登录中…"
+                ? _ui("登录中…")
                 : compact
-                  ? "登录拾光"
-                  : "使用邀请码登录"}
+                  ? _ui("登录拾光")
+                  : _ui("使用邀请码登录")}
             </button>
           </form>
 
@@ -429,16 +429,14 @@ export default function AuthEntryPanel({
                 role="status"
                 className="text-center text-xs text-muted-foreground"
               >
-                验证码已发送，请查看邮箱。
-              </p>
+                {_ui("验证码已发送，请查看邮箱。")}</p>
             )
           ) : (
             <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-              使用邮箱和专属邀请码直接登录。
-              <br />
+              {_ui("使用邮箱和专属邀请码直接登录。")}<br />
               {betaWechatId
-                ? `申请内测微信：${betaWechatId}`
-                : "还没有邀请码，请联系邀请你来测试的人。"}
+                ? _ui("申请内测微信：{0}", [betaWechatId])
+                : _ui("还没有邀请码，请联系邀请你来测试的人。")}
             </p>
           )}
           </>}
@@ -453,21 +451,18 @@ export default function AuthEntryPanel({
                   : "hidden"
               }
             >
-              用其他设备的配对码登录
-            </summary>
+              {_ui("用其他设备的配对码登录")}</summary>
             {pairingOnly ? (
               <div className="mb-5 text-center">
-                <h2 className="text-base font-medium">打开微信里的故事</h2>
+                <h2 className="text-base font-medium">{_ui("打开微信里的故事")}</h2>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  微信里的拾光家忆 → 我的 → 在电脑上继续
-                  <br />
-                  生成一次性登录码后填在这里
-                </p>
+                  {_ui("微信里的拾光家忆 → 我的 → 在电脑上继续")}<br />
+                  {_ui("生成一次性登录码后填在这里")}</p>
               </div>
             ) : (
               <div className="flex items-center gap-3 pt-1">
                 <span className="h-px flex-1 bg-border/70" />
-                <span className="text-[10px] text-muted-foreground">或</span>
+                <span className="text-[10px] text-muted-foreground">{_ui("或")}</span>
                 <span className="h-px flex-1 bg-border/70" />
               </div>
             )}
@@ -481,8 +476,8 @@ export default function AuthEntryPanel({
                 autoCapitalize="characters"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder={pairingOnly ? "6 位电脑登录码" : "配对码"}
-                aria-label={pairingOnly ? "电脑登录码" : "配对码"}
+                placeholder={pairingOnly ? _ui("6 位电脑登录码") : _ui("配对码")}
+                aria-label={pairingOnly ? _ui("电脑登录码") : _ui("配对码")}
                 value={pairingCode}
                 onChange={e =>
                   setPairingCode(
@@ -516,17 +511,17 @@ export default function AuthEntryPanel({
                 }}
               >
                 {pairingLoading
-                  ? "正在连接…"
+                  ? _ui("正在连接…")
                   : pairingOnly
-                    ? "打开微信故事"
-                    : "用配对码登录"}
+                    ? _ui("打开微信故事")
+                    : _ui("用配对码登录")}
               </button>
             </form>
 
             <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
               {pairingOnly
-                ? "先在拾光家忆选择故事。登录码五分钟内有效，只能使用一次；连接后该故事会出现在电脑故事库。"
-                : "在另一台已登录设备上生成，五分钟内有效。"}
+                ? _ui("先在拾光家忆选择故事。登录码五分钟内有效，只能使用一次；连接后该故事会出现在电脑故事库。")
+                : _ui("在另一台已登录设备上生成，五分钟内有效。")}
             </p>
           </details>
         </div>

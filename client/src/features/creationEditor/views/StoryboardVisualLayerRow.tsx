@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ArrowLeft,
   ArrowRight,
@@ -546,18 +547,19 @@ export function StoryboardEditTransport({
 }: {
   timeline: StoryboardBoardTimeline;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <span
       className="inline-flex items-center gap-1"
-      aria-label="故事版走带控制"
+      aria-label={_ui("故事版走带控制")}
       data-testid="storyboard-edit-transport"
     >
       <button
         type="button"
         onClick={() => timeline.onSeek(0)}
         className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        aria-label="回到开头"
-        title="回到开头"
+        aria-label={_ui("回到开头")}
+        title={_ui("回到开头")}
       >
         <SkipBack className="h-3 w-3" />
       </button>
@@ -565,8 +567,8 @@ export function StoryboardEditTransport({
         type="button"
         onClick={() => timeline.onTogglePlay(!timeline.isPlaying)}
         className="flex h-6 w-6 items-center justify-center rounded-sm border border-rose-500/45 bg-rose-500/10 text-rose-600 transition hover:bg-rose-500/20"
-        aria-label={timeline.isPlaying ? "暂停" : "播放"}
-        title={timeline.isPlaying ? "暂停" : "播放"}
+        aria-label={timeline.isPlaying ? _ui("暂停") : _ui("播放")}
+        title={timeline.isPlaying ? _ui("暂停") : _ui("播放")}
       >
         {timeline.isPlaying ? (
           <Pause className="h-3 w-3" />
@@ -609,6 +611,7 @@ export function StoryboardVisualLayerHeader({
   onDelete: () => void;
   onDropLayer: (sourceLayer: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       role="rowheader"
@@ -645,17 +648,17 @@ export function StoryboardVisualLayerHeader({
             event.dataTransfer.effectAllowed = "move";
           }}
           className="flex min-w-0 flex-1 cursor-grab items-center gap-0.5 truncate active:cursor-grabbing"
-          title="拖动可调整整层顺序"
+          title={_ui("拖动可调整整层顺序")}
         >
           <GripVertical className="h-3 w-3 shrink-0" />
-          {visualLayer === 0 ? "视觉 · 剪辑" : `视觉层 ${visualLayer + 1}`}
+          {visualLayer === 0 ? _ui("视觉 · 剪辑") : _ui("视觉层 {0}", [visualLayer + 1])}
         </span>
         <button
           type="button"
           className="flex h-5 w-5 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground"
           onClick={onToggleHidden}
-          aria-label={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}
-          title={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}
+          aria-label={_ui("{0}视觉层 {1}", [hidden ? _ui("显示") : _ui("隐藏"), visualLayer + 1])}
+          title={_ui("{0}视觉层 {1}", [hidden ? _ui("显示") : _ui("隐藏"), visualLayer + 1])}
         >
           {hidden ? (
             <EyeOff className="h-3 w-3" />
@@ -668,11 +671,11 @@ export function StoryboardVisualLayerHeader({
           disabled={!canDelete}
           className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30"
           onClick={onDelete}
-          aria-label={`删除视觉层 ${visualLayer + 1}`}
+          aria-label={_ui("删除视觉层 {0}", [visualLayer + 1])}
           title={
             canDelete
-              ? "删除图层；非空层会先确认并把素材合并到相邻层"
-              : "最高的空白投放层始终保留，删不掉"
+              ? _ui("删除图层；非空层会先确认并把素材合并到相邻层")
+              : _ui("最高的空白投放层始终保留，删不掉")
           }
         >
           <Trash2 className="h-3 w-3" />
@@ -680,31 +683,29 @@ export function StoryboardVisualLayerHeader({
       </div>
       <div
         className="flex items-center gap-0.5"
-        aria-label={`视觉层 ${visualLayer + 1} 排列控制`}
+        aria-label={_ui("视觉层 {0} 排列控制", [visualLayer + 1])}
       >
         <button
           type="button"
           className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
           onClick={onAddAbove}
-          title="在上方插入图层"
+          title={_ui("在上方插入图层")}
         >
-          <Plus className="h-2.5 w-2.5" />上
-        </button>
+          <Plus className="h-2.5 w-2.5" />{_ui("上")}</button>
         <button
           type="button"
           className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
           onClick={onAddBelow}
-          title="在下方插入图层"
+          title={_ui("在下方插入图层")}
         >
-          <Plus className="h-2.5 w-2.5" />下
-        </button>
+          <Plus className="h-2.5 w-2.5" />{_ui("下")}</button>
         <button
           type="button"
           disabled={!canMoveUp}
           className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
           onClick={onMoveUp}
-          aria-label={`视觉层 ${visualLayer + 1} 上移`}
-          title="整层上移"
+          aria-label={_ui("视觉层 {0} 上移", [visualLayer + 1])}
+          title={_ui("整层上移")}
         >
           <ArrowUp className="h-2.5 w-2.5" />
         </button>
@@ -713,8 +714,8 @@ export function StoryboardVisualLayerHeader({
           disabled={!canMoveDown}
           className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
           onClick={onMoveDown}
-          aria-label={`视觉层 ${visualLayer + 1} 下移`}
-          title="整层下移"
+          aria-label={_ui("视觉层 {0} 下移", [visualLayer + 1])}
+          title={_ui("整层下移")}
         >
           <ArrowDown className="h-2.5 w-2.5" />
         </button>
@@ -792,6 +793,7 @@ export function StoryboardVisualLayerRow({
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
   onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
+  const _ui = useDesktopUiText();
   const totalMs = viewport.totalMs;
   const isCurrentStorySession = () =>
     timeline.isStorySessionCurrent?.() !== false;
@@ -1255,7 +1257,7 @@ export function StoryboardVisualLayerRow({
           className="relative h-12 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
           data-testid={`storyboard-visual-layer-track-${visualLayer + 1}`}
           data-storyboard-visual-layer={visualLayer}
-          aria-label={`视觉层 ${visualLayer + 1} 时间线`}
+          aria-label={_ui("视觉层 {0} 时间线", [visualLayer + 1])}
           role="button"
           tabIndex={0}
           aria-keyshortcuts="Shift+F10 ContextMenu"
@@ -1426,8 +1428,7 @@ export function StoryboardVisualLayerRow({
             shot => (shot.timelineItem?.visualLayer ?? 0) === visualLayer
           ) ? (
             <span className="pointer-events-none absolute inset-0 flex items-center px-2 text-[8px] text-muted-foreground/65">
-              在剪辑条上右键，选择“抽帧”
-            </span>
+              {_ui("在剪辑条上右键，选择“抽帧”")}</span>
           ) : null}
           {shots
             .filter(
@@ -1568,8 +1569,8 @@ export function StoryboardVisualLayerRow({
                   }
                   data-testid={`storyboard-visual-layer-shot-${visualLayer + 1}-${shot.stableShotId}`}
                   aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
-                  aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
-                  title={`${shot.shotLabel} · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 可继续切割`}
+                  aria-label={_ui("{0} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速", [shot.shotLabel])}
+                  title={_ui("{0} · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 可继续切割", [shot.shotLabel])}
                 >
                   <StoryboardEditFilmstrip
                     frameUrls={storyboardEditFilmstripFrameUrls({
@@ -1849,8 +1850,8 @@ export function StoryboardVisualLayerRow({
                     ? "ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
                     : "Shift+F10 ContextMenu"
                 }
-                aria-label={`查看抽帧 ${shot.shotLabel} ${formatStoryboardTimestamp(frame.atMs)}${clip ? "，方向键左右移动、上下换层，按住 Shift 加速" : ""}`}
-                title={`${shot.shotLabel} · 抽帧 ${formatStoryboardTimestamp(frame.atMs)} · 图片 #${frame.imageId}${clip ? " · 方向键左右移动、上下换层，Shift+左右移动 15 帧" : ""}`}
+                aria-label={_ui("查看抽帧 {0} {1}{2}", [shot.shotLabel, formatStoryboardTimestamp(frame.atMs), clip ? _ui("，方向键左右移动、上下换层，按住 Shift 加速") : ""])}
+                title={_ui("{0} · 抽帧 {1} · 图片 #{2}{3}", [shot.shotLabel, formatStoryboardTimestamp(frame.atMs), frame.imageId, clip ? _ui(" · 方向键左右移动、上下换层，Shift+左右移动 15 帧") : ""])}
                 data-testid={`storyboard-extracted-frame-${frame.imageId}`}
               >
                 <img
@@ -1868,7 +1869,7 @@ export function StoryboardVisualLayerRow({
           {pairingStart && pairingCandidate?.kind === "ok" ? (
             <button
               type="button"
-              aria-label={`选择候选抽帧 ${formatStoryboardTimestamp(pairingCandidate.candidate.atMs)}`}
+              aria-label={_ui("选择候选抽帧 {0}", [formatStoryboardTimestamp(pairingCandidate.candidate.atMs)])}
               data-testid="storyboard-extracted-frame-pair-candidate"
               className="absolute z-[30] -translate-x-1/2 rounded-full border border-primary bg-primary p-1 text-primary-foreground shadow-lg"
               style={{
@@ -1939,7 +1940,7 @@ export function StoryboardVisualLayerRow({
                             left: leftPx + mediaWidthPx,
                             width: gapWidthPx,
                           }}
-                          title="未生成区间 · 留空"
+                          title={_ui("未生成区间 · 留空")}
                         />
                       ) : null}
                     </div>
@@ -1950,12 +1951,12 @@ export function StoryboardVisualLayerRow({
             <div
               role="slider"
               tabIndex={0}
-              aria-label="拖动顶层播放头"
+              aria-label={_ui("拖动顶层播放头")}
               aria-valuemin={0}
               aria-valuemax={Math.round(totalMs)}
               aria-valuenow={Math.round(timeline.playheadMs)}
               aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
-              title="播放头位于所有视觉剪辑层最上方"
+              title={_ui("播放头位于所有视觉剪辑层最上方")}
               className="group absolute bottom-0 top-0 z-50 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
               style={{ left: playheadPx }}
               data-testid="storyboard-top-playhead"
@@ -2023,8 +2024,8 @@ export function StoryboardVisualLayerRow({
               }}
             >
               {pending
-                ? "正在生成确认卡…"
-                : `用左右抽帧生成 ${transitionMenu.durationSec} 秒覆盖视频…`}
+                ? _ui("正在生成确认卡…")
+                : _ui("用左右抽帧生成 {0} 秒覆盖视频…", [transitionMenu.durationSec])}
             </button>
             {timeline.canPasteVisualObject ? (
               <button
@@ -2042,15 +2043,14 @@ export function StoryboardVisualLayerRow({
                   });
                 }}
               >
-                粘贴到这一层
-              </button>
+                {_ui("粘贴到这一层")}</button>
             ) : null}
           </div>
         ) : null}
         {frameMenu ? (
           <div
             role="menu"
-            aria-label="抽帧操作"
+            aria-label={_ui("抽帧操作")}
             className="fixed z-[110] min-w-48 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
             style={{
               left: Math.min(frameMenu.clientX, window.innerWidth - 208),
@@ -2062,8 +2062,8 @@ export function StoryboardVisualLayerRow({
           >
             <div className="border-b border-border/60 px-2 pb-1 text-[9px] text-muted-foreground">
               {frameMenu.frames.length > 1
-                ? `此处有 ${frameMenu.frames.length} 张重叠抽帧`
-                : `${frameMenu.frames[0]?.shotLabel ?? "抽帧"} · ${formatStoryboardTimestamp(frameMenu.frames[0]?.atMs ?? 0)} · 图片 #${frameMenu.frames[0]?.imageId ?? "-"}`}
+                ? _ui("此处有 {0} 张重叠抽帧", [frameMenu.frames.length])
+                : _ui("{0} · {1} · 图片 #{2}", [frameMenu.frames[0]?.shotLabel ?? _ui("抽帧"), formatStoryboardTimestamp(frameMenu.frames[0]?.atMs ?? 0), frameMenu.frames[0]?.imageId ?? "-"])}
             </div>
             {frameMenu.frames.map(candidate => (
               <button
@@ -2112,10 +2112,10 @@ export function StoryboardVisualLayerRow({
                   <Trash2 className="h-3 w-3" />
                 )}
                 {deletingImageId === candidate.imageId
-                  ? "正在删除…"
+                  ? _ui("正在删除…")
                   : frameMenu.frames.length > 1
-                    ? `删除 ${candidate.shotLabel} ${formatStoryboardTimestamp(candidate.atMs)} · 图片 #${candidate.imageId}`
-                    : "删除这张抽帧"}
+                    ? _ui("删除 {0} {1} · 图片 #{2}", [candidate.shotLabel, formatStoryboardTimestamp(candidate.atMs), candidate.imageId])
+                    : _ui("删除这张抽帧")}
               </button>
             ))}
             {deleteError ? (

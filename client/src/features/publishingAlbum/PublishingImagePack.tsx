@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { warehouseCover } from "./warehouseCover";
 import { withModuleBackground } from "./moduleBackground";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
@@ -186,8 +187,9 @@ function MaterialSwatch({
 }
 
 export function PublishingImagePack({ workspaceMode = "images", ...props }: React.ComponentProps<typeof PublishingImagePackCanvas> & { workspaceMode?: "text" | "images" }) {
+  const _ui = useDesktopUiText();
   const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
-  if (workspaceMode === "text" && !enabled.data?.enabled) return <p role={enabled.isLoading ? "status" : "alert"} className="py-4 text-sm">{enabled.isLoading ? "正在读取书稿…" : "模块编辑暂不可用，请稍后重试。"}</p>;
+  if (workspaceMode === "text" && !enabled.data?.enabled) return <p role={enabled.isLoading ? "status" : "alert"} className="py-4 text-sm">{enabled.isLoading ? _ui("正在读取书稿…") : _ui("模块编辑暂不可用，请稍后重试。")}</p>;
   if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
   return <ChapterWorkspace key={props.storyId} {...props} mode={workspaceMode}
     render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} />;
@@ -273,6 +275,7 @@ export function PublishingImagePackCanvas({
   generationStartedAt?: number;
   onIllustrationsChange?(placements: IllustrationPlacement[]): void;
 }) {
+  const _ui = useDesktopUiText();
   const t = useUiText();
 
   const key = `publishing-image-pack:${scope}`;
@@ -1067,7 +1070,7 @@ export function PublishingImagePackCanvas({
       >
         <div>
           {!mobile && (
-            <h2 className="font-chat-brand text-lg">这个故事的图片</h2>
+            <h2 className="font-chat-brand text-lg">{_ui("这个故事的图片")}</h2>
           )}
           <p className="mt-1 text-xs text-muted-foreground" role="status">
             {t("已有图片 {0} 张", [layoutAssets.length])}
@@ -1125,37 +1128,36 @@ export function PublishingImagePackCanvas({
             }}
           >
             <ImagePlus className="mr-1 inline h-3.5 w-3.5" />
-            生成图片
-          </button>
+            {_ui("生成图片")}</button>
         )}
       </header>
       <Dialog open={storyGenerate} onOpenChange={setStoryGenerate}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>基于当前文案生成图片</DialogTitle>
-            <DialogDescription>生成后放入本故事的图片列表，选好再加入排版。</DialogDescription>
+            <DialogTitle>{_ui("基于当前文案生成图片")}</DialogTitle>
+            <DialogDescription>{_ui("生成后放入本故事的图片列表，选好再加入排版。")}</DialogDescription>
           </DialogHeader>
-          <textarea aria-label="图片生成要求" value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)}
-            rows={4} maxLength={1000} placeholder="想要怎样的画面？也可以在聊天框里补充要求。" className={control} />
+          <textarea aria-label={_ui("图片生成要求")} value={coverInstruction} onChange={event => setCoverInstruction(event.target.value)}
+            rows={4} maxLength={1000} placeholder={_ui("想要怎样的画面？也可以在聊天框里补充要求。")} className={control} />
           {generationBlockedReason || coverBusy || !onGenerateCover || !body.trim() || illustrationCost == null ? <p role="status" className="text-xs text-muted-foreground">
             {generationBlockedReason || (!body.trim()
-              ? "先写好并保存文案，即可根据文案生成图片；已有图片可以直接排版。"
-              : coverBusy ? "当前操作正在处理，完成后即可继续。"
-              : !onGenerateCover ? "请先在文字区确认要使用的文案。"
-              : "正在获取生成费用，请稍后再试。")}
+              ? _ui("先写好并保存文案，即可根据文案生成图片；已有图片可以直接排版。")
+              : coverBusy ? _ui("当前操作正在处理，完成后即可继续。")
+              : !onGenerateCover ? _ui("请先在文字区确认要使用的文案。")
+              : _ui("正在获取生成费用，请稍后再试。"))}
           </p> : null}
           {onSaveDraft || savingDraft ? <button type="button" className={control} disabled={savingDraft || !onSaveDraft}
             onClick={() => void onSaveDraft?.()}>
-            {savingDraft ? "正在保存文案…" : "保存文案，继续"}
+            {savingDraft ? _ui("正在保存文案…") : _ui("保存文案，继续")}
           </button> : <button type="button" className={control} disabled={coverBusy || !onGenerateCover || !body.trim() || Boolean(generationBlockedReason) || illustrationCost == null}
             onClick={() => { setStoryGenerate(false); void onGenerateCover?.(coverInstruction); }}>
-            确认生成 4 张{illustrationCost != null ? ` · ${formatComputeQuote(illustrationCost)}` : ""}
+            {_ui("确认生成 4 张")}{illustrationCost != null ? ` · ${formatComputeQuote(illustrationCost).replace(/算力$/, _ui("算力"))}` : ""}
           </button>}
         </DialogContent>
       </Dialog>
       {!mobile && (
         <nav
-          aria-label="图像与排版"
+          aria-label={_ui("图像与排版")}
           className="mb-3 flex items-center gap-6 border-b border-[var(--panel-border)]"
         >
           {(
@@ -1171,7 +1173,7 @@ export function PublishingImagePackCanvas({
               onClick={() => setDesktopSection(id)}
               className={`pb-2 text-sm ${desktopSection === id ? "border-b-2 border-[var(--nayin-accent)] text-foreground" : "text-muted-foreground"}`}
             >
-              {label}
+              {_ui(label)}
             </button>
           ))}
         </nav>
@@ -1196,7 +1198,7 @@ export function PublishingImagePackCanvas({
               onClick={() => void changeMobileStep(id)}
               className={`min-h-12 text-sm ${mobileStep === id ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
             >
-              {label}
+              {_ui(label)}
             </button>
           ))}
         </nav>
@@ -1220,10 +1222,9 @@ export function PublishingImagePackCanvas({
           }
           className="space-y-4"
         >
-          {!mobile && <p className="text-xs text-muted-foreground">上传和生成的故事图片集中在这里，加入排版后仍会保留。</p>}
+          {!mobile && <p className="text-xs text-muted-foreground">{_ui("上传和生成的故事图片集中在这里，加入排版后仍会保留。")}</p>}
           {materialQuery.isError && <p role="alert" className="text-xs text-destructive">
-            故事图片读取失败，当前版本图片仍可使用。
-            <button type="button" className="ml-2 underline" onClick={() => void materialQuery.refetch()}>重试</button>
+            {_ui("故事图片读取失败，当前版本图片仍可使用。")}<button type="button" className="ml-2 underline" onClick={() => void materialQuery.refetch()}>{_ui("重试")}</button>
           </p>}
           {
             <div className="flex items-center gap-3">
@@ -1232,14 +1233,12 @@ export function PublishingImagePackCanvas({
                 className={control}
                 onClick={() => libraryUpload.current?.click()}
               >
-                上传图片
-              </button>
+                {_ui("上传图片")}</button>
               <span className="text-xs text-muted-foreground">
-                生成或上传图片，再到排版里组合。
-              </span></>}
+                {_ui("生成或上传图片，再到排版里组合。")}</span></>}
               <input
                 ref={libraryUpload}
-                aria-label="上传图像素材"
+                aria-label={_ui("上传图像素材")}
                 type="file"
                 multiple
                 accept="image/png,image/jpeg,image/webp"
@@ -1258,27 +1257,27 @@ export function PublishingImagePackCanvas({
               />
             </div>
           }
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4" aria-label="故事图片素材库">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4" aria-label={_ui("故事图片素材库")}>
             {layoutAssets.map(asset => (
               <article key={asset.id} className="min-w-0">
                 <ImageCandidatePreview touchOnly={mobile} label={asset.label} preview={<img src={asset.imageUrl} alt={asset.label} />}>
-                  <button type="button" aria-label={`预览：${asset.label}`} className="w-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]">
+                  <button type="button" aria-label={_ui("预览：{0}", [asset.label])} className="w-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]">
                     <img src={asset.imageUrl} alt={asset.label} loading="lazy" className="aspect-[4/3] w-full rounded-lg bg-muted/40 object-contain" />
                   </button>
                 </ImageCandidatePreview>
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="truncate text-[11px]">{asset.label}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? "已用于排版" : asset.sourceLabel ?? (asset.id < 0 ? "本机上传" : "未用于排版")}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{usedImages.has(asset.imageUrl) ? _ui("已用于排版") : asset.sourceLabel ?? (asset.id < 0 ? _ui("本机上传") : _ui("未用于排版"))}</span>
                 </div>
                 {asset.warning && <p className="mt-1 text-[10px] text-amber-700">{asset.warning}</p>}
-                <button type="button" disabled={asset.warning === "原文件缺失" || Boolean(insertRequest)}
-                  onClick={() => useImageInLayout(asset)} className={`${control} mt-2 w-full`} aria-label={`加入排版：${asset.label}`}>加入排版</button>
+                <button type="button" disabled={asset.warning === _ui("原文件缺失") || Boolean(insertRequest)}
+                  onClick={() => useImageInLayout(asset)} className={`${control} mt-2 w-full`} aria-label={_ui("加入排版：{0}", [asset.label])}>{_ui("加入排版")}</button>
               </article>
             ))}
           </div>
-          {!layoutAssets.length && <p className="py-6 text-center text-sm text-muted-foreground">{materialQuery.isLoading ? "正在整理故事图片…" : "还没有图片，上传素材或根据文案生成一组。"}</p>}
+          {!layoutAssets.length && <p className="py-6 text-center text-sm text-muted-foreground">{materialQuery.isLoading ? _ui("正在整理故事图片…") : _ui("还没有图片，上传素材或根据文案生成一组。")}</p>}
           <details>
-            <summary className="cursor-pointer py-3 text-xs text-muted-foreground">封面、插图和底图设置</summary>
+            <summary className="cursor-pointer py-3 text-xs text-muted-foreground">{_ui("封面、插图和底图设置")}</summary>
             <div className="space-y-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs">{t("封面")}</p>
@@ -1334,7 +1333,7 @@ export function PublishingImagePackCanvas({
                         {t("确认生成 4 张 ·")}{" "}
                         {illustrationCost == null
                           ? ""
-                          : formatComputeQuote(illustrationCost)}
+                          : formatComputeQuote(illustrationCost).replace(/算力$/, _ui("算力"))}
                       </button>
                     ) : null}
                   </PopoverContent>
@@ -1449,7 +1448,7 @@ export function PublishingImagePackCanvas({
                           {t("确认生成 4 张 ·")}{" "}
                           {illustrationCost == null
                             ? ""
-                            : formatComputeQuote(illustrationCost)}
+                            : formatComputeQuote(illustrationCost).replace(/算力$/, _ui("算力"))}
                         </button>
                       </>
                     ) : (
@@ -1602,7 +1601,7 @@ export function PublishingImagePackCanvas({
                           {t("确认生成 4 张 ·")}{" "}
                           {illustrationCost == null
                             ? ""
-                            : formatComputeQuote(illustrationCost)}
+                            : formatComputeQuote(illustrationCost).replace(/算力$/, _ui("算力"))}
                         </button>
                       </>
                     ) : (
@@ -1868,11 +1867,11 @@ export function PublishingImagePackCanvas({
                       <DialogContent
                         className={`w-72 space-y-3 ${mobile ? "[&_button]:min-h-11 [&_textarea]:text-base" : ""}`}
                       >
-                        <DialogTitle>根据选中文字生成图片</DialogTitle>
+                        <DialogTitle>{_ui("根据选中文字生成图片")}</DialogTitle>
                         <p className="max-h-40 overflow-auto whitespace-pre-wrap text-sm">{layoutSelectedText}</p>
-                        <p className="text-xs text-muted-foreground">补充画面要求（可不填）</p>
+                        <p className="text-xs text-muted-foreground">{_ui("补充画面要求（可不填）")}</p>
                         <textarea
-                          aria-label="排版配图要求"
+                          aria-label={_ui("排版配图要求")}
                           value={layoutInstruction}
                           onChange={event =>
                             setLayoutInstruction(event.target.value)
@@ -1901,15 +1900,15 @@ export function PublishingImagePackCanvas({
                               : onGenerateCover?.(layoutInstruction, layoutSelectedText));
                           }}
                         >
-                          确认生成 4 张 ·{" "}
+                          {_ui("确认生成 4 张 ·")}{" "}
                           {illustrationCost == null
                             ? ""
-                            : formatComputeQuote(illustrationCost)}
+                            : formatComputeQuote(illustrationCost).replace(/算力$/, _ui("算力"))}
                         </button>
                         <p className="text-xs text-muted-foreground">
                           {mobile
-                            ? "出图后会放进图片列表，轻点再加入成品。"
-                            : "出图后会放在右侧，选中再加入成品。"}
+                            ? _ui("出图后会放进图片列表，轻点再加入成品。")
+                            : _ui("出图后会放在右侧，选中再加入成品。")}
                         </p>
                       </DialogContent>
                     </Dialog>
@@ -2061,8 +2060,7 @@ export function PublishingImagePackCanvas({
                   disabled={preparingPreview}
                   onClick={() => void changeMobileStep("layout")}
                 >
-                  编辑排版
-                </button>
+                  {_ui("编辑排版")}</button>
               )}
               <button
                 type="button"

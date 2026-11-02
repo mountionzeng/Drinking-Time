@@ -453,6 +453,7 @@ export type AppendCreditEntryInput = {
   idempotencyKey: string;
   /** Registration gifts additionally deduplicate across identities of one account. */
   oncePerAccountPrefix?: string;
+  oncePerAccountPrefixes?: readonly string[];
   giftCardId?: number | null;
   actorUserId?: number | null;
   reason?: string | null;
@@ -484,13 +485,17 @@ export async function appendCreditLedgerEntry(
     throw new Error("账本写入必须带幂等键");
   }
 
+  const giftPrefixes = [
+    ...(input.oncePerAccountPrefixes ?? []),
+    ...(input.oncePerAccountPrefix ? [input.oncePerAccountPrefix] : []),
+  ];
   const db = await getDb();
   if (!db) {
     return memoryCreditAccountLock.run(input.userId, async () => {
       const duplicate = memoryState.creditLedgerEntries.some(
         item => item.idempotencyKey === input.idempotencyKey ||
-          (Boolean(input.oncePerAccountPrefix) && item.userId === input.userId &&
-            Boolean(item.idempotencyKey?.startsWith(input.oncePerAccountPrefix!)))
+          (item.userId === input.userId &&
+            giftPrefixes.some(prefix => item.idempotencyKey?.startsWith(prefix)))
       );
       if (duplicate) return { kind: "duplicate" as const };
 
@@ -541,11 +546,11 @@ export async function appendCreditLedgerEntry(
       .limit(1);
     if (duplicate) return { kind: "duplicate" as const };
 
-    if (input.oncePerAccountPrefix) {
+    if (giftPrefixes.length) {
       const [accountGift] = await tx.select({ id: creditLedgerEntries.id })
         .from(creditLedgerEntries)
         .where(and(eq(creditLedgerEntries.userId, input.userId),
-          sql`LEFT(${creditLedgerEntries.idempotencyKey}, ${input.oncePerAccountPrefix.length}) = ${input.oncePerAccountPrefix}`))
+          or(...giftPrefixes.map(prefix => sql`LEFT(${creditLedgerEntries.idempotencyKey}, ${prefix.length}) = ${prefix}`))))
         .limit(1);
       if (accountGift) return { kind: "duplicate" as const };
     }

@@ -132,3 +132,8 @@ describe("PublishingVideoScriptReview", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
+
+vi.mock("@/features/uiLanguage/UiLanguage", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+ return {...actual, useUiText: () => (source: string, values?: readonly (string | number | null | undefined)[]) => actual.translateUi("zh", source, values)};
+});

@@ -1,3 +1,4 @@
+import { prepareDraftRecoveryUrl, readRecoveredDraft, registerDraftRecovery } from '@/features/appVersion/draftRecovery';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -115,4 +116,23 @@ it.each([null,3])('editing an actually stale draft (%s) does not silently author
   await expect(handle.current!.prepare().then(generate)).rejects.toThrow('较早或未知版本');
   expect(handle.current!.snapshot().baseVersion).toBe(baseVersion);
   expect(save).not.toHaveBeenCalled();expect(generate).not.toHaveBeenCalled();
+});
+
+it('restores an update-recovery snapshot ahead of shared cache and preserves format until reviewed save',async()=>{
+  const style=[{id:'h',format:'heading1',collapsed:true,parentId:null}];
+  const raw=JSON.stringify({title:chapter.title,body:'更新前的本页正文',baseVersion:3,writingStyle:style});
+  const unregister=registerDraftRecovery(()=>({scope:'account9:story1',chapterId:2,storyId:1,raw}));
+  const url=new URL(prepareDraftRecoveryUrl('http://localhost:3000/editing'));
+  unregister();
+  Object.defineProperty(window,'location',{value:{search:url.search},configurable:true});
+  cache.set(key,JSON.stringify({title:chapter.title,body:'另一页草稿',baseVersion:4}));
+  const save=vi.fn().mockResolvedValue({...chapter,version:5,blocks:{body:'更新前的本页正文',writingStyle:style}});
+  const {handle}=mount(save,4);
+  expect(handle.current!.snapshot()).toMatchObject({body:'更新前的本页正文',writingStyle:style,baseVersion:3});
+  await handle.current!.prepare();
+  expect(save).toHaveBeenCalledWith({title:chapter.title,body:'更新前的本页正文',writingStyle:style});
+  expect(cache.get(key)).toContain('另一页草稿');
+  expect(readRecoveredDraft('account9:story1',2)).toBeNull();
+  await expect(handle.current!.prepare()).resolves.toBeUndefined();
+  expect(save).toHaveBeenCalledTimes(1);
 });

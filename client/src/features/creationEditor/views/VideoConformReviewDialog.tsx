@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ArrowRight,
   CheckCircle2,
@@ -90,6 +91,7 @@ export function CropPathControls({
   disabled: boolean;
   onChange: (value: VideoCropPath) => void;
 }) {
+  const _ui = useDesktopUiText();
   const rows = [
     { key: "start" as const, label: "第一帧" },
     { key: "end" as const, label: "最后一帧" },
@@ -100,8 +102,7 @@ export function CropPathControls({
     <section className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold text-emerald-900">
-          裁剪路径
-        </span>
+          {_ui("裁剪路径")}</span>
         <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-emerald-800">
           {pathLabel}
         </span>
@@ -142,8 +143,7 @@ export function CropPathControls({
         ))}
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-emerald-900/70">
-        裁剪窗口会在整段视频中平滑移动；起止位置相同就是固定裁切。
-      </p>
+        {_ui("裁剪窗口会在整段视频中平滑移动；起止位置相同就是固定裁切。")}</p>
     </section>
   );
 }
@@ -173,6 +173,7 @@ export function VideoConformReviewPanel({
   onAllCrop: () => void;
   onConfirm: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const targetDimensions = VIDEO_TARGET_DIMENSIONS[targetAspectRatio];
   const confirmedCount = items.filter(item =>
     decisions.has(videoConformReviewKey(item))
@@ -190,8 +191,7 @@ export function VideoConformReviewPanel({
       <div className="grid gap-2 border-b border-border bg-muted/30 px-5 py-3 sm:grid-cols-3">
         <div className="rounded-md border border-border bg-background px-3 py-2">
           <div className="text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
-            目标画幅
-          </div>
+            {_ui("目标画幅")}</div>
           <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
             {targetAspectRatio}
             <span className="font-normal text-muted-foreground">
@@ -201,12 +201,11 @@ export function VideoConformReviewPanel({
         </div>
         <div className="rounded-md border border-border bg-background px-3 py-2">
           <div className="text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
-            已确认
-          </div>
+            {_ui("已确认")}</div>
           <div className="mt-1 text-sm font-semibold">
             {confirmedCount}/{items.length}
             <span className="ml-2 font-normal text-muted-foreground">
-              裁切 {cropCount}
+              {_ui("裁切")}{" "}{cropCount}
             </span>
           </div>
         </div>
@@ -219,13 +218,10 @@ export function VideoConformReviewPanel({
         >
           <div className="flex items-center gap-1 text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
             <CircleDollarSign className="h-3 w-3" />
-            302 专业外扩
-          </div>
+            {_ui("302 专业外扩")}</div>
           <div className="mt-1 text-sm font-semibold">
-            {expandCount} 个
-            <span className="ml-2 font-normal text-muted-foreground">
-              提交时可能消耗额度
-            </span>
+            {expandCount} {_ui("个")}<span className="ml-2 font-normal text-muted-foreground">
+              {_ui("提交时可能消耗额度")}</span>
           </div>
         </div>
       </div>
@@ -260,7 +256,7 @@ export function VideoConformReviewPanel({
                     playsInline
                     preload="metadata"
                     className="aspect-video h-full max-h-52 w-full bg-black object-contain"
-                    aria-label={`${shotLabel(item)} 运镜预览`}
+                    aria-label={_ui("{0} 运镜预览", [shotLabel(item)])}
                   />
                   <span className="pointer-events-none absolute top-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
                     {shotLabel(item)}
@@ -273,7 +269,7 @@ export function VideoConformReviewPanel({
                       {item.title}
                     </h3>
                     <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {item.sourceAspectRatio ?? "未知比例"}
+                      {item.sourceAspectRatio ?? _ui("未知比例")}
                       <ArrowRight className="h-2.5 w-2.5" />
                       {targetAspectRatio}
                     </span>
@@ -297,11 +293,10 @@ export function VideoConformReviewPanel({
                   >
                     <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                       <Clapperboard className="h-3 w-3" />
-                      运镜说明
-                    </div>
+                      {_ui("运镜说明")}</div>
                     <p className="mt-1 text-xs leading-relaxed text-foreground">
                       {item.cameraMove ||
-                        "未填写运镜说明，请播放视频确认主体是否会进入裁切边缘。"}
+                        _ui("未填写运镜说明，请播放视频确认主体是否会进入裁切边缘。")}
                     </p>
                   </div>
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -318,7 +313,7 @@ export function VideoConformReviewPanel({
                         onDecisionChange(reviewKey, value);
                       }
                     }}
-                    aria-label={`${shotLabel(item)} 画幅处理方式`}
+                    aria-label={_ui("{0} 画幅处理方式", [shotLabel(item)])}
                     className="grid gap-2"
                   >
                     <label
@@ -337,11 +332,9 @@ export function VideoConformReviewPanel({
                       <span className="min-w-0">
                         <span className="flex items-center gap-1.5 text-xs font-semibold">
                           <Crop className="h-3.5 w-3.5 text-emerald-700" />
-                          直接裁切
-                        </span>
+                          {_ui("直接裁切")}</span>
                         <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                          本地 ffmpeg 取目标画幅，不消耗 302 额度。
-                        </span>
+                          {_ui("本地 ffmpeg 取目标画幅，不消耗 302 额度。")}</span>
                       </span>
                     </label>
                     <label
@@ -363,13 +356,12 @@ export function VideoConformReviewPanel({
                       <span className="min-w-0">
                         <span className="flex items-center gap-1.5 text-xs font-semibold">
                           <WandSparkles className="h-3.5 w-3.5 text-violet-700" />
-                          302 专业视频外扩
-                        </span>
+                          {_ui("302 专业视频外扩")}</span>
                         <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
                           {!aiExpandReady
-                            ? "缺少 API302_KEY；仍可选择免费裁切。"
+                            ? _ui("缺少 API302_KEY；仍可选择免费裁切。")
                             : (item.aiExpandUnavailableReason ??
-                              "Runway Expand 补出画面边缘，异步处理，可能消耗额度。")}
+                              _ui("Runway Expand 补出画面边缘，异步处理，可能消耗额度。"))}
                         </span>
                       </span>
                     </label>
@@ -402,8 +394,7 @@ export function VideoConformReviewPanel({
             disabled={submitting || items.length === 0}
             className="h-8 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            全部直接裁切
-          </button>
+            {_ui("全部直接裁切")}</button>
           <button
             type="button"
             onClick={onApplyRecommendations}
@@ -411,11 +402,9 @@ export function VideoConformReviewPanel({
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            采用全部建议
-          </button>
+            {_ui("采用全部建议")}</button>
           <span className="text-[11px] text-muted-foreground">
-            建议只作判断辅助，最终以你的播放确认和选择为准。
-          </span>
+            {_ui("建议只作判断辅助，最终以你的播放确认和选择为准。")}</span>
         </div>
         <button
           type="button"
@@ -435,10 +424,10 @@ export function VideoConformReviewPanel({
             <CheckCircle2 className="h-4 w-4" />
           )}
           {submitting
-            ? "处理中"
+            ? _ui("处理中")
             : pendingCount > 0
-              ? `还有 ${pendingCount} 个镜头待确认`
-              : `执行 ${items.length} 个视频${expandCount > 0 ? `（含 ${expandCount} 个 302）` : ""}`}
+              ? _ui("还有 {0} 个镜头待确认", [pendingCount])
+              : _ui("执行 {0} 个视频{1}", [items.length, expandCount > 0 ? `（含 ${expandCount} 个 302）` : ""])}
         </button>
       </div>
     </div>
@@ -462,6 +451,7 @@ export default function VideoConformReviewDialog({
   submitting: boolean;
   onConfirm: (items: VideoConformBatchItem[]) => Promise<void>;
 }) {
+  const _ui = useDesktopUiText();
   const [decisions, setDecisions] = useState<
     Map<string, VideoConformReviewMode>
   >(() => new Map());
@@ -575,12 +565,9 @@ export default function VideoConformReviewDialog({
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Clapperboard className="h-4 w-4 text-primary" />
-            运镜与画幅确认台
-          </DialogTitle>
+            {_ui("运镜与画幅确认台")}</DialogTitle>
           <DialogDescription>
-            逐镜播放确认相机运动，再选择直接裁切或 302
-            专业视频外扩。打开本窗口不会提交任务或消耗额度。
-          </DialogDescription>
+            {_ui("逐镜播放确认相机运动，再选择直接裁切或 302 专业视频外扩。打开本窗口不会提交任务或消耗额度。")}</DialogDescription>
         </DialogHeader>
         <VideoConformReviewPanel
           items={items}

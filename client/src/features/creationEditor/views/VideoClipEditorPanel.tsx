@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   Gauge,
   HeartPulse,
@@ -103,6 +104,7 @@ export default function VideoClipEditorPanel({
   onApply: (draft: VideoClipEditDraft) => Promise<void>;
   onPreviewChange: (draft: VideoClipEditDraft) => void;
 }) {
+  const _ui = useDesktopUiText();
   const initialDraft = useMemo<VideoClipEditDraft>(
     () => ({
       sourceStartSec: target.sourceStartSec,
@@ -147,7 +149,7 @@ export default function VideoClipEditorPanel({
   return (
     <aside
       role="dialog"
-      aria-label={`${target.label} 视频编辑`}
+      aria-label={_ui("{0} 视频编辑", [target.label])}
       data-testid="video-clip-editor"
       data-preview-target="editing-preview-stage"
       className="absolute bottom-0 left-0 top-0 z-50 flex w-[360px] max-w-[42vw] flex-col border-r border-border bg-background shadow-xl"
@@ -158,18 +160,17 @@ export default function VideoClipEditorPanel({
           <p className="truncate text-xs font-semibold">{target.label}</p>
           <p className="truncate font-mono text-[9px] text-muted-foreground">
             Take {target.takeId}
-            {target.clipId ? ` · ${target.clipId}` : " · 主镜头"}
+            {target.clipId ? ` · ${target.clipId}` : _ui(" · 主镜头")}
           </p>
         </div>
         <span className="shrink-0 rounded-sm bg-primary/10 px-1.5 py-1 text-[9px] font-medium text-primary">
-          实时预览
-        </span>
+          {_ui("实时预览")}</span>
         <button
           type="button"
           onClick={onClose}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="关闭视频编辑"
-          title="关闭"
+          aria-label={_ui("关闭视频编辑")}
+          title={_ui("关闭")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -178,14 +179,14 @@ export default function VideoClipEditorPanel({
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
         <section className="border-b border-border px-3 py-3">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[11px] font-semibold">裁切</h2>
+            <h2 className="text-[11px] font-semibold">{_ui("裁切")}</h2>
             <span className="font-mono text-[9px] text-muted-foreground">
               {(outputDurationMs / 1_000).toFixed(2)}s
             </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <NumberField
-              label="入点"
+              label={_ui("入点")}
               value={draft.sourceStartSec}
               min={0}
               max={Math.max(0, target.mediaDurationSec - 1 / 30)}
@@ -196,7 +197,7 @@ export default function VideoClipEditorPanel({
               }
             />
             <NumberField
-              label="出点"
+              label={_ui("出点")}
               value={draft.sourceEndSec}
               min={1 / 30}
               max={target.mediaDurationSec}
@@ -212,12 +213,12 @@ export default function VideoClipEditorPanel({
         <section className="border-b border-border px-3 py-3">
           <div className="mb-2 flex items-center gap-2">
             <Gauge className="h-3.5 w-3.5 text-muted-foreground" />
-            <h2 className="text-[11px] font-semibold">速度与方向</h2>
+            <h2 className="text-[11px] font-semibold">{_ui("速度与方向")}</h2>
           </div>
           <div
             className="mb-3 grid grid-cols-4 gap-1"
             role="group"
-            aria-label="常用速度"
+            aria-label={_ui("常用速度")}
           >
             {[0.5, 1, 1.5, 2].map(rate => (
               <button
@@ -231,7 +232,7 @@ export default function VideoClipEditorPanel({
             ))}
           </div>
           <RangeRow
-            label="播放速度"
+            label={_ui("播放速度")}
             value={draft.effects.playbackRate}
             min={0.25}
             max={4}
@@ -240,13 +241,13 @@ export default function VideoClipEditorPanel({
             onChange={playbackRate => updateEffects({ playbackRate })}
           />
           <label className="mt-3 flex h-8 items-center justify-between text-[10px]">
-            <span>倒放</span>
+            <span>{_ui("倒放")}</span>
             <Checkbox
               checked={draft.effects.reverse}
               onCheckedChange={checked =>
                 updateEffects({ reverse: checked === true })
               }
-              aria-label="倒放视频"
+              aria-label={_ui("倒放视频")}
             />
           </label>
         </section>
@@ -254,10 +255,10 @@ export default function VideoClipEditorPanel({
         <section className="border-b border-border px-3 py-3">
           <div className="mb-2 flex items-center gap-2">
             <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
-            <h2 className="text-[11px] font-semibold">原声</h2>
+            <h2 className="text-[11px] font-semibold">{_ui("原声")}</h2>
           </div>
           <RangeRow
-            label="音量"
+            label={_ui("音量")}
             value={draft.effects.volume}
             min={0}
             max={2}
@@ -266,13 +267,13 @@ export default function VideoClipEditorPanel({
             onChange={volume => updateEffects({ volume })}
           />
           <label className="mt-3 flex h-8 items-center justify-between text-[10px]">
-            <span>静音</span>
+            <span>{_ui("静音")}</span>
             <Checkbox
               checked={draft.effects.muted}
               onCheckedChange={checked =>
                 updateEffects({ muted: checked === true })
               }
-              aria-label="静音原声"
+              aria-label={_ui("静音原声")}
             />
           </label>
         </section>
@@ -280,10 +281,10 @@ export default function VideoClipEditorPanel({
         <section className="border-b border-border px-3 py-3">
           <div className="mb-2 flex items-center gap-2">
             <HeartPulse className="h-3.5 w-3.5 text-muted-foreground" />
-            <h2 className="text-[11px] font-semibold">节奏运动</h2>
+            <h2 className="text-[11px] font-semibold">{_ui("节奏运动")}</h2>
           </div>
           <label className="flex h-8 items-center justify-between text-[10px]">
-            <span>心跳缩放</span>
+            <span>{_ui("心跳缩放")}</span>
             <Checkbox
               checked={draft.effects.motionPreset?.kind === "heartbeat"}
               onCheckedChange={checked =>
@@ -294,13 +295,13 @@ export default function VideoClipEditorPanel({
                       : null,
                 })
               }
-              aria-label="心跳缩放"
+              aria-label={_ui("心跳缩放")}
             />
           </label>
           {draft.effects.motionPreset?.kind === "heartbeat" ? (
             <div className="mt-3 grid gap-3">
               <RangeRow
-                label="心跳频率"
+                label={_ui("心跳频率")}
                 value={draft.effects.motionPreset.bpm}
                 min={36}
                 max={180}
@@ -316,7 +317,7 @@ export default function VideoClipEditorPanel({
                 }
               />
               <RangeRow
-                label="缩放幅度"
+                label={_ui("缩放幅度")}
                 value={draft.effects.motionPreset.scaleAmount}
                 min={0.01}
                 max={0.16}
@@ -336,7 +337,7 @@ export default function VideoClipEditorPanel({
         </section>
 
         <section className="px-3 py-3">
-          <h2 className="mb-3 text-[11px] font-semibold">画面</h2>
+          <h2 className="mb-3 text-[11px] font-semibold">{_ui("画面")}</h2>
           <VisualTransformControls
             transform={normalized.transform}
             minZoom={1}
@@ -354,8 +355,7 @@ export default function VideoClipEditorPanel({
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          还原
-        </button>
+          {_ui("还原")}</button>
         <button
           type="button"
           onClick={() => void onApply(normalized)}
@@ -363,7 +363,7 @@ export default function VideoClipEditorPanel({
           className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           <Save className="h-3.5 w-3.5" />
-          {saving ? "保存中…" : "应用到时间线"}
+          {saving ? _ui("保存中…") : _ui("应用到时间线")}
         </button>
       </footer>
     </aside>

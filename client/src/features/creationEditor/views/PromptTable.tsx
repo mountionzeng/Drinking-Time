@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Eye, Filter, ListFilter, Video } from 'lucide-react';
 import type { CreationEditorShot } from '../types';
@@ -182,6 +183,7 @@ export default function PromptTable({
   onOverrideChange,
   onRerenderShot,
 }: PromptTableProps) {
+  const _ui = useDesktopUiText();
   const [sortMode, setSortMode] = useState<PromptSortMode>('weight');
   const [sourceFilter, setSourceFilter] = useState<PromptSourceFilter>('all');
   const previousShots = useMemo(
@@ -235,8 +237,7 @@ export default function PromptTable({
   if (!shot) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        选择一个镜头后查看镜头设计表
-      </div>
+        {_ui("选择一个镜头后查看镜头设计表")}</div>
     );
   }
 
@@ -261,7 +262,7 @@ export default function PromptTable({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <ListFilter className="h-4 w-4" />
-          <span>{displayedRows.length} 条镜头设计</span>
+          <span>{displayedRows.length} {_ui("条镜头设计")}</span>
           <span className={`rounded-full border px-2 py-0.5 ${promptStateClass}`}>
             {promptStateLabel}
           </span>
@@ -277,16 +278,14 @@ export default function PromptTable({
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
           >
             <Eye className="h-3.5 w-3.5" />
-            查看最终生成提示词
-          </button>
+            {_ui("查看最终生成提示词")}</button>
           <button
             type="button"
             onClick={() => setShowVideoRecipe((value) => !value)}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
           >
             <Video className="h-3.5 w-3.5" />
-            查看本镜视频包
-          </button>
+            {_ui("查看本镜视频包")}</button>
           <div className="flex rounded-md border border-border bg-background p-0.5">
             {(Object.keys(SORT_LABELS) as PromptSortMode[]).map((mode) => (
               <button
@@ -333,10 +332,10 @@ export default function PromptTable({
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="font-semibold text-foreground">
               {shot.promptRun
-                ? '本镜真实出图提示词'
+                ? _ui("本镜真实出图提示词")
                 : shot.imagePrompt
-                  ? '本镜当前画面提示词'
-                  : '本镜下次出图提示词预览'}
+                  ? _ui("本镜当前画面提示词")
+                  : _ui("本镜下次出图提示词预览")}
             </span>
             {shot.promptRun ? (
               <span className="text-muted-foreground">
@@ -345,7 +344,7 @@ export default function PromptTable({
             ) : null}
           </div>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-2 leading-5 text-muted-foreground">
-            {shot.promptRun?.finalPrompt || shot.imagePrompt || compiledPrompt?.finalPrompt || '暂无提示词'}
+            {shot.promptRun?.finalPrompt || shot.imagePrompt || compiledPrompt?.finalPrompt || _ui("暂无提示词")}
           </pre>
           {shot.promptRun?.references?.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -366,7 +365,7 @@ export default function PromptTable({
       {showVideoRecipe && videoRecipe ? (
         <div className="rounded-md border border-border bg-background p-3 text-xs" data-testid="video-recipe-panel">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="font-semibold text-foreground">本镜图生视频输入包</span>
+            <span className="font-semibold text-foreground">{_ui("本镜图生视频输入包")}</span>
             <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${videoStateClass}`}>
               {videoStateReady ? <CheckCircle2 className="h-3 w-3" /> : <Video className="h-3 w-3" />}
               {videoStateLabel}
@@ -377,13 +376,12 @@ export default function PromptTable({
               {videoRecipe.sourceImageUrl ? (
                 <img
                   src={videoRecipe.sourceImageUrl}
-                  alt={`${displayShotCode(shot)} 首帧图`}
+                  alt={_ui("{0} 首帧图", [displayShotCode(shot)])}
                   className="aspect-video h-full w-full object-cover"
                 />
               ) : (
                 <div className="flex aspect-video items-center justify-center px-3 text-center text-muted-foreground">
-                  缺首帧图
-                </div>
+                  {_ui("缺首帧图")}</div>
               )}
             </div>
             <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-2 leading-5 text-muted-foreground">

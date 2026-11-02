@@ -334,9 +334,9 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("createNewStory();");
     expect(storyLogoMenu).toContain("回到以前的故事");
     expect(storyLogoMenu).toContain("开启新故事");
-    expect(editingPage).toContain("仓库</span>");
+    expect(editingPage).toContain('{_ui("仓库")}</span>');
     expect(editingPage).not.toContain('aria-label="视频子类目"');
-    expect(editingPage).toContain('aria-label="打开仓库"');
+    expect(editingPage).toContain('aria-label={_ui("打开仓库")}');
     expect(editingPage).not.toContain('workspace === "editing" && materialVisible');
     expect(editingPage).toContain("nav-warehouse-watercolor.webp");
     expect(editingPage).not.toContain("nav-timeline-v2.png");
@@ -372,7 +372,7 @@ describe("creation editor spine boundary", () => {
     expect(shotPreview).toContain('aria-label="Preview"');
     expect(shotPreview).toContain("editing-panel-heading");
     expect(shotPreview).toContain("Preview");
-    expect(shotPreview).toContain('aria-label="调整 Preview 当前画面"');
+    expect(shotPreview).toContain('aria-label={_ui("调整 Preview 当前画面")}');
     expect(editingWorkspace).toContain("editCurrentVideoFrame");
     expect(editingWorkspace).toContain("当前帧已抽取并打开图片编辑器");
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");

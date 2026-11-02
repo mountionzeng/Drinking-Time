@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from "react";
 import { Headphones, Music2, Sparkles, Volume2, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,7 @@ export function TimelineAudioCreationDialog({
   }) => Promise<boolean>;
   onImport: (kind: TimelineGeneratedAudioKind) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [intent, setIntent] = useState("");
   const [scope, setScope] = useState<TimelineAudioGenerationScope>("shot");
 
@@ -134,10 +136,10 @@ export function TimelineAudioCreationDialog({
             <span className="flex size-7 items-center justify-center rounded-full border border-border bg-background text-foreground">
               <KindIcon kind={request.kind} />
             </span>
-            添加声音 · {copy.label}
+            {_ui("添加声音 ·")}{copy.label}
           </div>
           <DialogTitle className="pt-1 text-base">
-            {isNarration ? "让声音跟着字幕走" : `为${scope === "story" ? "整个故事" : "当前镜头"}生成${copy.label}`}
+            {isNarration ? _ui("让声音跟着字幕走") : _ui("为{0}生成{1}", [scope === "story" ? _ui("整个故事") : _ui("当前镜头"), copy.label])}
           </DialogTitle>
           <DialogDescription className="text-xs leading-5">
             {copy.description}
@@ -149,34 +151,30 @@ export function TimelineAudioCreationDialog({
             cue ? (
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="mb-1 flex items-center justify-between gap-3 text-[10px] font-medium text-muted-foreground">
-                  <span>字幕内容</span>
+                  <span>{_ui("字幕内容")}</span>
                   <span>{frameRange(cue.startFrame, cue.durationFrames)}</span>
                 </div>
                 <p className="text-sm leading-6 text-foreground">{cue.text}</p>
                 <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                  生成结果先成为候选；采用后，旁白入点和移动会与这条字幕保持绑定。
-                </p>
+                  {_ui("生成结果先成为候选；采用后，旁白入点和移动会与这条字幕保持绑定。")}</p>
               </div>
             ) : (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-                字幕已经变化，请重新选择一条字幕。
-              </p>
+                {_ui("字幕已经变化，请重新选择一条字幕。")}</p>
             )
           ) : (
             <>
               <div className="flex items-start gap-3 rounded-md border border-border bg-muted/20 p-3">
                 <Headphones className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="text-[11px] leading-5 text-muted-foreground">
-                  <p className="font-medium text-foreground">自动镜头范围</p>
+                  <p className="font-medium text-foreground">{_ui("自动镜头范围")}</p>
                   <p>
-                    起点由当前播放头决定；服务端会重新读取镜头位置、时长、情绪、动作和场景，前端不能伪造落点或价格。
-                  </p>
+                    {_ui("起点由当前播放头决定；服务端会重新读取镜头位置、时长、情绪、动作和场景，前端不能伪造落点或价格。")}</p>
                 </div>
               </div>
               <fieldset className="space-y-2">
                 <legend className="text-[11px] font-medium text-foreground">
-                  覆盖范围
-                </legend>
+                  {_ui("覆盖范围")}</legend>
                 <div className="grid grid-cols-3 gap-2">
                   {TIMELINE_AUDIO_SCOPE_OPTIONS.map(option => (
                     <button
@@ -204,8 +202,7 @@ export function TimelineAudioCreationDialog({
               </fieldset>
               <label className="block space-y-1.5">
                 <span className="text-[11px] font-medium text-foreground">
-                  这段声音希望是什么感觉？
-                </span>
+                  {_ui("这段声音希望是什么感觉？")}</span>
                 <Textarea
                   autoFocus
                   value={intent}
@@ -217,8 +214,7 @@ export function TimelineAudioCreationDialog({
                   className="min-h-24 resize-none text-xs leading-5"
                 />
                 <span className="block text-right text-[9px] text-muted-foreground">
-                  {intent.length}/800 · 留空则完全按镜头已有情绪生成
-                </span>
+                  {intent.length}{_ui("/800 · 留空则完全按镜头已有情绪生成")}</span>
               </label>
             </>
           )}
@@ -242,8 +238,7 @@ export function TimelineAudioCreationDialog({
               disabled={pending}
               onClick={() => onImport(request.kind)}
             >
-              导入本地文件
-            </Button>
+              {_ui("导入本地文件")}</Button>
           ) : null}
           <div className="flex-1" />
           <Button
@@ -253,8 +248,7 @@ export function TimelineAudioCreationDialog({
             disabled={pending}
             onClick={onClose}
           >
-            取消
-          </Button>
+            {_ui("取消")}</Button>
           <Button
             type="button"
             size="sm"
@@ -262,7 +256,7 @@ export function TimelineAudioCreationDialog({
             data-testid="timeline-audio-generation-submit"
             onClick={() => void submit()}
           >
-            {pending ? "正在处理…" : `生成${copy.label}`}
+            {pending ? _ui("正在处理…") : _ui("生成{0}", [copy.label])}
           </Button>
         </DialogFooter>
       </DialogContent>

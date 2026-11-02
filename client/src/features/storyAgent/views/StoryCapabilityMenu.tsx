@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ArrowLeft,
   Briefcase,
@@ -265,6 +266,7 @@ export function shouldShowCapabilityMenu({
 }
 
 export default function StoryCapabilityMenu() {
+  const _ui = useDesktopUiText();
   const { setConfirmedIntent } = useStoryAgentActions();
   const nayin = useOptionalNayin();
   const [selectedGroupId, setSelectedGroupId] =
@@ -301,8 +303,7 @@ export default function StoryCapabilityMenu() {
                 className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
               >
                 <ArrowLeft className="h-3 w-3" />
-                返回
-              </button>
+                {_ui("返回")}</button>
             ) : (
               // 当天五行的饮品图标：这张卡是新故事的第一屏，用 logo 认领它属于聊会儿。
               nayin ? (
@@ -313,22 +314,21 @@ export default function StoryCapabilityMenu() {
                 />
               ) : null
             )}
-            <span>{selectedGroup ? "聊聊 · 再选一个" : "新故事 · 第一步"}</span>
+            <span>{selectedGroup ? _ui("聊聊 · 再选一个") : _ui("新故事 · 第一步")}</span>
           </div>
           <h2 className="mt-1.5 text-[14px] font-semibold tracking-tight text-foreground">
-            {selectedGroup ? selectedGroup.label : "你想从哪一种故事开始？"}
+            {selectedGroup ? selectedGroup.label : _ui("你想从哪一种故事开始？")}
           </h2>
           <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
             {selectedGroup
-              ? "聊聊想再确认一下，你更接近下面哪一种？"
-              : "先选一个大方向，聊聊会接着问。"}
+              ? _ui("聊聊想再确认一下，你更接近下面哪一种？")
+              : _ui("先选一个大方向，聊聊会接着问。")}
           </p>
         </header>
         {selectedGroup ? (
           <div className="bg-border/60">
             <div className="bg-card px-3 py-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
-              好，我们从“{selectedGroup.label}”开始。选一个更具体的方向：
-            </div>
+              {_ui("好，我们从“")}{selectedGroup.label}{_ui("”开始。选一个更具体的方向：")}</div>
             <div className="grid gap-px">
               {childOptions.map(option => {
                 const Icon = option.icon;
@@ -403,8 +403,7 @@ export default function StoryCapabilityMenu() {
           className="mt-0.5 border-t px-3 py-2 text-[9.5px] leading-relaxed text-muted-foreground"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          不想选？直接说你的事也可以，聊聊会自己判断。
-        </footer>
+          {_ui("不想选？直接说你的事也可以，聊聊会自己判断。")}</footer>
       </div>
     </div>
   );

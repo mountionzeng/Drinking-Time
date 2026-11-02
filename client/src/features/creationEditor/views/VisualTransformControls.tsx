@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   FlipHorizontal2,
   FlipVertical2,
@@ -55,6 +56,7 @@ export default function VisualTransformControls({
   maxZoom?: number;
   onChange: (patch: Partial<TimelineTransform>) => void;
 }) {
+  const _ui = useDesktopUiText();
   const rotationDeg = transform.rotationDeg ?? 0;
   const rotateBy = (degrees: number) =>
     onChange({
@@ -65,7 +67,7 @@ export default function VisualTransformControls({
     <div className="grid gap-4">
       <div className="grid gap-3">
         <RangeRow
-          label="缩放"
+          label={_ui("缩放")}
           value={transform.zoom}
           min={minZoom}
           max={maxZoom}
@@ -74,7 +76,7 @@ export default function VisualTransformControls({
           onChange={zoom => onChange({ zoom })}
         />
         <RangeRow
-          label="水平位置"
+          label={_ui("水平位置")}
           value={transform.panX}
           min={-1}
           max={1}
@@ -83,7 +85,7 @@ export default function VisualTransformControls({
           onChange={panX => onChange({ panX })}
         />
         <RangeRow
-          label="垂直位置"
+          label={_ui("垂直位置")}
           value={transform.panY}
           min={-1}
           max={1}
@@ -94,9 +96,9 @@ export default function VisualTransformControls({
       </div>
 
       <div>
-        <h3 className="mb-3 text-[11px] font-semibold">旋转与翻转</h3>
+        <h3 className="mb-3 text-[11px] font-semibold">{_ui("旋转与翻转")}</h3>
         <RangeRow
-          label="旋转"
+          label={_ui("旋转")}
           value={rotationDeg}
           min={-180}
           max={180}
@@ -109,8 +111,8 @@ export default function VisualTransformControls({
             type="button"
             onClick={() => rotateBy(-90)}
             className="flex h-8 items-center justify-center rounded-sm border border-border hover:bg-muted"
-            aria-label="向左旋转九十度"
-            title="左转 90°"
+            aria-label={_ui("向左旋转九十度")}
+            title={_ui("左转 90°")}
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -118,8 +120,8 @@ export default function VisualTransformControls({
             type="button"
             onClick={() => rotateBy(90)}
             className="flex h-8 items-center justify-center rounded-sm border border-border hover:bg-muted"
-            aria-label="向右旋转九十度"
-            title="右转 90°"
+            aria-label={_ui("向右旋转九十度")}
+            title={_ui("右转 90°")}
           >
             <RotateCw className="h-3.5 w-3.5" />
           </button>
@@ -127,8 +129,8 @@ export default function VisualTransformControls({
             type="button"
             onClick={() => onChange({ flipX: !transform.flipX })}
             className={`flex h-8 items-center justify-center rounded-sm border ${transform.flipX ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted"}`}
-            aria-label="水平翻转"
-            title="水平翻转"
+            aria-label={_ui("水平翻转")}
+            title={_ui("水平翻转")}
           >
             <FlipHorizontal2 className="h-3.5 w-3.5" />
           </button>
@@ -136,8 +138,8 @@ export default function VisualTransformControls({
             type="button"
             onClick={() => onChange({ flipY: !transform.flipY })}
             className={`flex h-8 items-center justify-center rounded-sm border ${transform.flipY ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted"}`}
-            aria-label="垂直翻转"
-            title="垂直翻转"
+            aria-label={_ui("垂直翻转")}
+            title={_ui("垂直翻转")}
           >
             <FlipVertical2 className="h-3.5 w-3.5" />
           </button>

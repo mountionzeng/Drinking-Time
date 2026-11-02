@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useState } from "react";
 import { msToPx, type TimelineViewport } from "@shared/timelineViewport";
 
@@ -233,6 +234,7 @@ export function StoryboardAudioTrack({
   viewport: TimelineViewport;
   playheadMs: number;
 }) {
+  const _ui = useDesktopUiText();
   const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
   return (
     <div
@@ -240,7 +242,7 @@ export function StoryboardAudioTrack({
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
-      aria-label="声音强弱与停顿波形"
+      aria-label={_ui("声音强弱与停顿波形")}
       data-testid="storyboard-audio-track"
     >
       {clips.length > 0 ? (
@@ -249,8 +251,7 @@ export function StoryboardAudioTrack({
         ))
       ) : (
         <span className="absolute inset-0 flex items-center justify-center text-[8px] text-muted-foreground/70">
-          导入旁白、音乐或原声后显示声音变化
-        </span>
+          {_ui("导入旁白、音乐或原声后显示声音变化")}</span>
       )}
       {playheadPx != null ? (
         <span

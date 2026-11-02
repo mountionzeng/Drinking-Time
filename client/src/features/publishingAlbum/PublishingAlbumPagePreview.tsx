@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { PublishingAlbumTextLayer } from "./PublishingAlbumTextLayer";
 import type { PublishingAlbumLayoutPlan } from "./publishingAlbumLayout";
 import { type CSSProperties } from "react";
@@ -19,6 +20,7 @@ export function PublishingAlbumPagePreview({
   backgroundStyle?: CSSProperties;
   onDoubleClick?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       className="relative w-full overflow-hidden rounded-xl bg-black/10"
@@ -37,14 +39,12 @@ export function PublishingAlbumPagePreview({
         />
       ) : (
         <div className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
-          尚未采用底图
-        </div>
+          {_ui("尚未采用底图")}</div>
       )}
       {plan ? <PublishingAlbumTextLayer plan={plan} canvas={canvas} /> : null}
       {candidate ? (
         <span className="absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[10px] text-white">
-          候选 · 尚未采用
-        </span>
+          {_ui("候选 · 尚未采用")}</span>
       ) : null}
     </div>
   );

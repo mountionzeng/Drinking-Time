@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { ArrowRight, Check, Loader2, X } from "lucide-react";
 import {
   Dialog,
@@ -140,6 +141,7 @@ export function PublishingIntentProposalDialog({
   acceptLabel?: string;
   presentation?: PublishingIntentProposalPresentation;
 }) {
+  const _ui = useDesktopUiText();
   const differences = publishingIntentDiff(current, proposed);
   const changed = differences.filter(line => line.changed);
   if (presentation === "inline") {
@@ -148,13 +150,13 @@ export function PublishingIntentProposalDialog({
       <section
         className="rounded-lg border px-3 py-2.5 text-[12px] leading-relaxed"
         style={{ borderColor: "var(--panel-border)", background: "var(--panel-header)" }}
-        aria-label="用途变化建议"
+        aria-label={_ui("用途变化建议")}
       >
         <p className="font-medium text-foreground">{copy.title}</p>
         <p className="mt-1 text-[11px] text-muted-foreground">
           {changed.length > 0
             ? changed.map(line => `${line.label}：${line.from} → ${line.to}`).join("；")
-            : "我会先把这个判断当成建议，仍由你确认。"}
+            : _ui("我会先把这个判断当成建议，仍由你确认。")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <button
@@ -174,8 +176,7 @@ export function PublishingIntentProposalDialog({
             style={{ borderColor: "var(--panel-border)" }}
           >
             <X className="h-3.5 w-3.5" />
-            先不，继续聊
-          </button>
+            {_ui("先不，继续聊")}</button>
         </div>
       </section>
     );
@@ -184,15 +185,15 @@ export function PublishingIntentProposalDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg" showCloseButton={!busy}>
         <DialogHeader>
-          <DialogTitle>写作目的好像变了，要开一个新版本吗？</DialogTitle>
+          <DialogTitle>{_ui("写作目的好像变了，要开一个新版本吗？")}</DialogTitle>
           <DialogDescription>
             {hasPublishingVersion
-              ? "接受后会先处理当前未应用修改，再创建新版本；旧版本的文字、封面和故事版都不会被覆盖。"
-              : "这是建议，不会自动生成文字稿。接受后只确认用途和观众。"}
+              ? _ui("接受后会先处理当前未应用修改，再创建新版本；旧版本的文字、封面和故事版都不会被覆盖。")
+              : _ui("这是建议，不会自动生成文字稿。接受后只确认用途和观众。")}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 py-1" aria-label="意图变化对比">
+        <div className="space-y-2 py-1" aria-label={_ui("意图变化对比")}>
           {(changed.length > 0 ? changed : differences.slice(0, 2)).map(line => (
             <div
               key={line.label}
@@ -212,8 +213,7 @@ export function PublishingIntentProposalDialog({
         {evidence.length > 0 ? (
           <details className="rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground">
-              为什么这样判断
-            </summary>
+              {_ui("为什么这样判断")}</summary>
             <ul className="mt-2 list-disc space-y-1 pl-4">
               {evidence.slice(0, 5).map((item, index) => (
                 <li key={`${index}:${item}`}>{item}</li>
@@ -231,8 +231,7 @@ export function PublishingIntentProposalDialog({
             style={{ borderColor: "var(--panel-border)" }}
           >
             <X className="h-3.5 w-3.5" />
-            不采用这次建议
-          </button>
+            {_ui("不采用这次建议")}</button>
           <button
             type="button"
             onClick={onAccept}
@@ -245,7 +244,7 @@ export function PublishingIntentProposalDialog({
               <Check className="h-3.5 w-3.5" />
             )}
             {acceptLabel ??
-              (hasPublishingVersion ? "确认并创建新版本" : "确认这个目的")}
+              (hasPublishingVersion ? _ui("确认并创建新版本") : _ui("确认这个目的"))}
           </button>
         </DialogFooter>
       </DialogContent>

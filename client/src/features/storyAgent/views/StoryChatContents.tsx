@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useRef, useState } from "react";
 import { BookOpen, List, ArrowDown } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ export default function StoryChatContents({
   onLatest: () => void;
   disabled: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const locating = useRef(false);
@@ -52,7 +54,7 @@ export default function StoryChatContents({
   const visible = storyChatHistoryEntries(messages, query);
   return (
     <nav
-      aria-label="故事对话内容"
+      aria-label={_ui("故事对话内容")}
       className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1 text-xs text-muted-foreground"
     >
       <Popover open={open} onOpenChange={setOpen}>
@@ -62,8 +64,7 @@ export default function StoryChatContents({
             className="inline-flex min-h-9 items-center gap-1.5 hover:text-foreground"
           >
             <List size={14} />
-            聊天目录
-          </button>
+            {_ui("聊天目录")}</button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -73,13 +74,12 @@ export default function StoryChatContents({
             locating.current = false;
           }}
         >
-          <h2 className="font-serif text-base">故事里的对话</h2>
+          <h2 className="font-serif text-base">{_ui("故事里的对话")}</h2>
           <p className="mb-3 mt-1 text-xs text-muted-foreground">
-            点一句原话，回到当时的上下文。
-          </p>
+            {_ui("点一句原话，回到当时的上下文。")}</p>
           <input
-            aria-label="查找当前故事对话"
-            placeholder="查找这段对话…"
+            aria-label={_ui("查找当前故事对话")}
+            placeholder={_ui("查找这段对话…")}
             className="mb-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             value={search}
             onChange={event => setSearch(event.target.value)}
@@ -99,7 +99,7 @@ export default function StoryChatContents({
                         hour: "2-digit",
                         minute: "2-digit",
                       })
-                    : "较早的聊天"}
+                    : _ui("较早的聊天")}
                 </h3>
                 {group.entries.map(message => (
                   <button
@@ -114,7 +114,7 @@ export default function StoryChatContents({
                   >
                     {(query || message.role === "assistant") && (
                       <span className="mr-1 text-xs text-muted-foreground">
-                        {message.role === "user" ? "我说" : "小忆"} ·
+                        {message.role === "user" ? _ui("我说") : _ui("小忆")} ·
                       </span>
                     )}
                     {excerpt(visibleMessageText(message))}
@@ -125,8 +125,8 @@ export default function StoryChatContents({
             {!visible.length && (
               <p className="py-5 text-sm text-muted-foreground">
                 {query
-                  ? "没有找到这句话，试试其它关键词。"
-                  : "从第一句话开始，聊天会留在这里。"}
+                  ? _ui("没有找到这句话，试试其它关键词。")
+                  : _ui("从第一句话开始，聊天会留在这里。")}
               </p>
             )}
           </div>
@@ -139,12 +139,11 @@ export default function StoryChatContents({
         onClick={() => openMemoryWarehouse("story")}
       >
         <BookOpen size={14} />
-        记事与文章来源
-      </button>
+        {_ui("记事与文章来源")}</button>
       <button
         type="button"
-        aria-label="回到最新对话"
-        title="回到最新对话"
+        aria-label={_ui("回到最新对话")}
+        title={_ui("回到最新对话")}
         className="grid size-9 place-items-center rounded hover:bg-muted"
         onClick={onLatest}
       >

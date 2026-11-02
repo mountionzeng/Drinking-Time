@@ -6,5 +6,5 @@ export function isNewRelease(loaded: string, response: unknown): boolean {
 let stale = false;
 export function markAppStale() { stale = true; }
 export function assertCurrentApp() {
-  if (stale) throw new Error('此页面已过期，内容仍保留。请在新版页面继续编辑。');
+  if (stale) throw new Error('编辑器已更新，尚未提交这次修改。请点击顶部“保留草稿，打开新版”，恢复后继续保存和制作视频。');
 }

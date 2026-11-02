@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import type { PublishingAlbumContrastStyle } from "@shared/publishingAlbum";
 import type { PublishingAlbumCanonicalGeometry } from "./publishingAlbumGeometry";
 
@@ -23,13 +24,14 @@ export function TypographyAppearanceControls({
   lineSpacing: number;
   onLineSpacing: (spacing: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       className="grid gap-3 rounded-xl border border-[var(--panel-border)] p-3 text-[11px]"
-      aria-label="字幕方向与效果"
+      aria-label={_ui("字幕方向与效果")}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span>排列</span>
+        <span>{_ui("排列")}</span>
         {(["horizontal", "vertical"] as const).map(direction => (
           <button
             key={direction}
@@ -55,7 +57,7 @@ export function TypographyAppearanceControls({
               )
             }
           >
-            {direction === "horizontal" ? "横排" : "竖排"}
+            {direction === "horizontal" ? _ui("横排") : _ui("竖排")}
           </button>
         ))}
         {geometry?.kind === "path" ? (
@@ -69,16 +71,15 @@ export function TypographyAppearanceControls({
               })
             }
           >
-            反转走向
-          </button>
+            {_ui("反转走向")}</button>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2">
-          字色{" "}
+          {_ui("字色")}{" "}
           <input
             type="color"
-            aria-label="字幕颜色"
+            aria-label={_ui("字幕颜色")}
             value={contrast.textColor}
             onChange={event =>
               onContrast({ ...contrast, textColor: event.target.value })
@@ -87,10 +88,10 @@ export function TypographyAppearanceControls({
           />
         </label>
         <label className="flex items-center gap-2">
-          描边{" "}
+          {_ui("描边")}{" "}
           <input
             type="color"
-            aria-label="字幕描边颜色"
+            aria-label={_ui("字幕描边颜色")}
             value={contrast.outlineColor ?? "#000000"}
             onChange={event =>
               onContrast({ ...contrast, outlineColor: event.target.value })
@@ -99,13 +100,13 @@ export function TypographyAppearanceControls({
           />
         </label>
         <label className="flex items-center gap-2">
-          粗细{" "}
+          {_ui("粗细")}{" "}
           <input
             type="range"
             min={0}
             max={8}
             step={0.5}
-            aria-label="字幕描边粗细"
+            aria-label={_ui("字幕描边粗细")}
             value={contrast.outlineWidth}
             onChange={event =>
               onContrast({
@@ -121,10 +122,9 @@ export function TypographyAppearanceControls({
       </div>
       {geometry?.kind === "region" ? (
         <label className="flex items-center gap-3">
-          行间距
-          <input
+          {_ui("行间距")}<input
             type="range"
-            aria-label="行间距"
+            aria-label={_ui("行间距")}
             min={0.8}
             max={3}
             step={0.1}

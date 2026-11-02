@@ -39,7 +39,7 @@ function appReturnUrl() {
   const origin = process.env.APP_ORIGIN?.trim();
   if (!origin) return null;
   try {
-    const url = new URL("/account?payment=return", origin);
+    const url = new URL("/m?payment=return", origin);
     return process.env.NODE_ENV === "production" && url.protocol !== "https:"
       ? null
       : url.toString();

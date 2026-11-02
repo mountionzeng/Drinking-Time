@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
@@ -19,6 +20,7 @@ const control =
 
 /** A book-side entry into the existing generation callbacks; opening never generates. */
 export function BookImageGenerator(props: Props) {
+  const _ui = useDesktopUiText();
   const generate = trpc.storyAgent.generateForMobile.useMutation();
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
@@ -56,17 +58,15 @@ export function BookImageGenerator(props: Props) {
   return (
     <>
       <button type="button" className={control} onClick={() => setOpen(true)}>
-        生成图片
-      </button>
+        {_ui("生成图片")}</button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>封面、插图和底图</DialogTitle>
+            <DialogTitle>{_ui("封面、插图和底图")}</DialogTitle>
             <DialogDescription>
-              根据当前文章生成，结果保留在仓库，选好后再使用。
-            </DialogDescription>
+              {_ui("根据当前文章生成，结果保留在仓库，选好后再使用。")}</DialogDescription>
           </DialogHeader>
-          <div className="flex gap-2" role="group" aria-label="图片用途">
+          <div className="flex gap-2" role="group" aria-label={_ui("图片用途")}>
             {(
               [
                 ["cover", "封面"],
@@ -93,13 +93,13 @@ export function BookImageGenerator(props: Props) {
             <div
               className="flex gap-2 overflow-x-auto"
               role="group"
-              aria-label="选择图片参考"
+              aria-label={_ui("选择图片参考")}
             >
               {references.map(asset => (
                 <button
                   type="button"
                   key={asset.id}
-                  aria-label={`参考：${asset.label}`}
+                  aria-label={_ui("参考：{0}", [asset.label])}
                   aria-pressed={referenceId === asset.id}
                   onClick={() => setReference(asset.id)}
                   className={`w-16 shrink-0 rounded border-2 ${referenceId === asset.id ? "border-primary" : "border-transparent"}`}
@@ -114,10 +114,10 @@ export function BookImageGenerator(props: Props) {
             </div>
           )}
           <textarea
-            aria-label="图片生成要求"
+            aria-label={_ui("图片生成要求")}
             rows={3}
             maxLength={1000}
-            placeholder="想要怎样的画面？留空则根据文章生成。"
+            placeholder={_ui("想要怎样的画面？留空则根据文章生成。")}
             value={instruction}
             onChange={event => setInstruction(event.target.value)}
             className={control}
@@ -181,8 +181,8 @@ export function BookImageGenerator(props: Props) {
             }}
           >
             {submitting
-              ? "正在生成…"
-              : `确认生成 4 张${cost != null ? ` · ${formatComputeQuote(cost)}` : ""}`}
+              ? _ui("正在生成…")
+              : _ui("确认生成 4 张{0}", [cost != null ? ` · ${formatComputeQuote(cost).replace(/算力$/, _ui("算力"))}` : ""])}
           </button>
         </DialogContent>
       </Dialog>

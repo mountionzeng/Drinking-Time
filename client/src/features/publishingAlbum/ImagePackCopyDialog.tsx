@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
@@ -29,6 +30,7 @@ export function ImagePackCopyDialog({
   mobile?: boolean;
   className?: string;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const [chooseImages, setChooseImages] = useState(false);
   const [pages, setPages] = useState<(ImagePackResult & { url: string })[]>([]);
@@ -147,20 +149,19 @@ export function ImagePackCopyDialog({
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <button type="button" disabled={disabled} className={className}>
-          复制…
-        </button>
+          {_ui("复制…")}</button>
       </DialogTrigger>
       <DialogContent
         className={`flex max-h-[90dvh] flex-col gap-4 ${mobile ? "top-auto bottom-0 w-full translate-y-0 rounded-b-none pb-[max(1.5rem,env(safe-area-inset-bottom))]" : ""}`}
       >
         <DialogHeader>
           <DialogTitle>
-            {chooseImages ? "选择要复制的图片" : "复制内容"}
+            {chooseImages ? _ui("选择要复制的图片") : _ui("复制内容")}
           </DialogTitle>
           <DialogDescription>
             {chooseImages
-              ? "按页码顺序复制，原排版不变。"
-              : "复制当前排版的全文文字或图片。"}
+              ? _ui("按页码顺序复制，原排版不变。")
+              : _ui("复制当前排版的全文文字或图片。")}
           </DialogDescription>
         </DialogHeader>
         {chooseImages ? (
@@ -172,9 +173,8 @@ export function ImagePackCopyDialog({
                 disabled={copying}
                 onClick={() => setChooseImages(false)}
               >
-                返回
-              </button>
-              <span>已选 {selected.length} 张</span>
+                {_ui("返回")}</button>
+              <span>{_ui("已选")}{" "}{selected.length} {_ui("张")}</span>
               <button
                 type="button"
                 className={action}
@@ -189,19 +189,19 @@ export function ImagePackCopyDialog({
                 }}
               >
                 {pages.length > 0 && selected.length === pages.length
-                  ? "取消全选"
-                  : "全选"}
+                  ? _ui("取消全选")
+                  : _ui("全选")}
               </button>
             </div>
             <div
               className="grid min-h-0 grid-cols-3 gap-3 overflow-y-auto p-1"
-              aria-label="选择图片"
+              aria-label={_ui("选择图片")}
             >
               {pages.map((page, index) => (
                 <button
                   key={index}
                   type="button"
-                  aria-label={`选择第 ${index + 1} 张：${page.label}`}
+                  aria-label={_ui("选择第 {0} 张：{1}", [index + 1, page.label])}
                   aria-pressed={selection.includes(index)}
                   disabled={locked}
                   className={`rounded border-2 p-1 text-xs focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40 ${selection.includes(index) ? "border-primary" : "border-transparent"}`}
@@ -216,7 +216,7 @@ export function ImagePackCopyDialog({
                 >
                   <img
                     src={page.url}
-                    alt={`第 ${index + 1} 张预览`}
+                    alt={_ui("第 {0} 张预览", [index + 1])}
                     className="aspect-[3/4] w-full object-contain"
                   />
                   <span className="mt-1 block">
@@ -228,8 +228,7 @@ export function ImagePackCopyDialog({
             </div>
             {selected.length > 1 && (
               <p className="text-xs text-muted-foreground">
-                多张复制会合成一张长图；需要独立图片可下载所选。
-              </p>
+                {_ui("多张复制会合成一张长图；需要独立图片可下载所选。")}</p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
               <button
@@ -242,8 +241,7 @@ export function ImagePackCopyDialog({
                   setMessage(`已开始下载 ${selected.length} 张独立图片`);
                 }}
               >
-                下载所选图片
-              </button>
+                {_ui("下载所选图片")}</button>
               <button
                 type="button"
                 className={`${action} bg-primary text-primary-foreground hover:bg-primary/90`}
@@ -251,10 +249,10 @@ export function ImagePackCopyDialog({
                 onClick={() => void copy("selected")}
               >
                 {copying
-                  ? "正在复制…"
+                  ? _ui("正在复制…")
                   : selected.length > 1
-                    ? `复制为长图（${selected.length} 张）`
-                    : "复制所选图片"}
+                    ? _ui("复制为长图（{0} 张）", [selected.length])
+                    : _ui("复制所选图片")}
               </button>
             </div>
           </>
@@ -266,35 +264,30 @@ export function ImagePackCopyDialog({
               disabled={locked || !text.trim()}
               onClick={() => void copy("text")}
             >
-              复制全文文字
-            </button>
+              {_ui("复制全文文字")}</button>
             <button
               type="button"
               className={`${action} text-left`}
               disabled={locked || !pages[currentPageIndex]}
               onClick={() => void copy("current")}
             >
-              复制当前图片
-            </button>
+              {_ui("复制当前图片")}</button>
             <button
               type="button"
               className={`${action} text-left`}
               disabled={locked}
               onClick={() => setChooseImages(true)}
             >
-              选择图片…
-            </button>
+              {_ui("选择图片…")}</button>
           </div>
         )}
         {loading && (
           <p role="status" className="text-xs text-muted-foreground">
-            正在准备最新图片…
-          </p>
+            {_ui("正在准备最新图片…")}</p>
         )}
         {disabled && (
           <p role="alert" className="text-sm text-destructive">
-            内容已变化，请关闭后重新打开。
-          </p>
+            {_ui("内容已变化，请关闭后重新打开。")}</p>
         )}
         {error && (
           <p role="alert" className="text-sm text-destructive">

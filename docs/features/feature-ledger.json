@@ -1828,7 +1828,8 @@
         "server/services/videoGen.test.ts",
         "shared/shotDirector.test.ts",
         "server/services/bookVideoCreation.test.ts",
-        "docs/qa/2026-10-29-book-video-conversation.md"
+        "docs/qa/2026-10-29-book-video-conversation.md",
+        "docs/qa/2026-11-03-video-button-wait.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -1993,6 +1994,10 @@
           "date": "2026-10-29",
           "kind": "fix",
           "summary": "发布前修复视频报价跨供应商混用：MJ路径使用任务价，旧自定义路径沿用时长与运动报价；前端确认、服务端校验及账本预占依据同一配置。MJ输出时长按5秒显示并记录，修正turbo路径的MJ导演判断。网页全量6054项、手机215项通过（末次时长修正后另做46项定向、69项草稿安全、类型和构建）；无付费成片验收。"
+        },
+        {
+          "date": "2026-11-03",
+          "summary": "未选当前主图时提示处理方法；人物一致性预检超过30秒中止，不提交生成，详见 docs/qa/2026-11-03-video-button-wait.md。"
         }
       ]
     },
@@ -8650,7 +8655,8 @@
         "client/src/features/publishingAlbum/bookColumns.test.ts",
         "docs/qa/2026-10-30-book-columns.md",
         "docs/qa/2026-10-30-book-columns-release.md",
-        "docs/qa/2026-10-31-book-selection-chat.md"
+        "docs/qa/2026-10-31-book-selection-chat.md",
+        "docs/qa/2026-11-02-stale-save-recovery.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8865,6 +8871,10 @@
           "date": "2026-10-31",
           "kind": "fix",
           "summary": "修复左侧小图片仍占半页空栏造成并排正文距离过远：叶子图片左栏以实际可见右边缘加16设计像素作为文字起点，空余宽度归正文；保留原图frame/crop、栏宽比例、正文和分页。覆盖带frame裁切小图及20/50/80栏比回归。25项布局/双栏/多选测试及类型检查通过。恢复主仓3000服务，新页恢复草稿并显示已保存，实测截图中图文间距约12屏幕像素，未部署。"
+        },
+        {
+          "date": "2026-11-03",
+          "summary": "旧页打开新版前备份已挂载书稿，账号及章节匹配后恢复，保留版本冲突和CAS保护；验证见 docs/qa/2026-11-02-stale-save-recovery.md。"
         }
       ]
     },
@@ -9249,7 +9259,8 @@
         "server/services/legnextImage.test.ts",
         "server/services/bookModuleImageRecovery.test.ts",
         "docs/qa/2026-11-02-legnext-release.md",
-        "server/services/legnextImageDownload.test.ts"
+        "server/services/legnextImageDownload.test.ts",
+        "docs/qa/2026-11-03-audiobook-500.md"
       ],
       "invariants": [
         "转换仅使用所选模块，服务端解析所属故事/章节/模块与图片资产，禁止跨账号读取。",
@@ -9351,6 +9362,10 @@
         {
           "date": "2026-11-02",
           "summary": "ed084cc3已push main并部署legnext-book-20261102，115产物哈希、HTTPS前端版本/资源与readyz通过；223专项+75草稿安全测试、tsc/构建/账本通过。生产同一已付费任务四图GET下载通过，无新增付费POST。未声称完整书稿按钮付费闭环已验收。"
+        },
+        {
+          "date": "2026-11-03",
+          "summary": "有声书提交结果未知时提醒核对费用并阻止当前弹窗重复提交；上游500及跨窗口持久防重仍待核实。验证见 docs/qa/2026-11-03-audiobook-500.md。"
         }
       ]
     },

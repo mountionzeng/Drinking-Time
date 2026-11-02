@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 故事版固定表头上的唯一「添加」入口。
  *
@@ -76,6 +77,7 @@ export function AddTimelineMediaMenu({
   triggerLabel?: string;
   compact?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -106,7 +108,7 @@ export function AddTimelineMediaMenu({
             disabled={pending}
             data-testid="start-sound-director"
             onClick={onStartSoundDirector}
-            aria-label={triggerLabel}
+            aria-label={_ui(triggerLabel)}
             title={triggerLabel}
             className={
               compact
@@ -114,15 +116,15 @@ export function AddTimelineMediaMenu({
                 : "whitespace-nowrap rounded-sm bg-[var(--nayin-accent)] px-2 py-0.5 text-[10px] font-medium text-background transition enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             }
           >
-            {compact ? <Sparkles className="size-3.5" /> : triggerLabel}
+            {compact ? <Sparkles className="size-3.5" /> : _ui(triggerLabel)}
           </button>
         ) : null}
         <button
           type="button"
           aria-haspopup="menu"
           aria-expanded={open}
-          aria-label={directorEntry ? "手动添加声音" : triggerLabel}
-          title={directorEntry ? "手动添加声音" : triggerLabel}
+          aria-label={directorEntry ? _ui("手动添加声音") : _ui(triggerLabel)}
+          title={directorEntry ? _ui("手动添加声音") : _ui(triggerLabel)}
           disabled={pending}
           data-testid="add-timeline-media-trigger"
           onClick={() => setOpen(value => !value)}
@@ -135,7 +137,7 @@ export function AddTimelineMediaMenu({
           {compact ? (
             <Plus className="size-3.5" />
           ) : directorEntry ? (
-            "手动添加"
+            _ui("手动添加")
           ) : (
             triggerLabel
           )}
@@ -144,7 +146,7 @@ export function AddTimelineMediaMenu({
       {open ? (
         <div
           role="menu"
-          aria-label="添加时间线媒体"
+          aria-label={_ui("添加时间线媒体")}
           data-testid="add-timeline-media-menu"
           className={`absolute ${compact ? "left-0" : "right-0"} z-[100] mt-1 min-w-[200px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg`}
         >
@@ -165,7 +167,7 @@ export function AddTimelineMediaMenu({
                 }}
                 className="flex w-full items-center justify-between gap-2 px-3 py-1 text-left text-[11px] text-foreground transition disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-muted"
               >
-                <span>{item.label}</span>
+                <span>{_ui(item.label)}</span>
                 <span className="text-[8px] text-muted-foreground">
                   {enabled ? item.hint : reason}
                 </span>

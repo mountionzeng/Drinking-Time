@@ -16,6 +16,13 @@ export const CHAPTER_MAX_PER_STORY = 100;
 
 /** One nonblank body line per blockId. Layout stores bindings; it never stores another text copy. */
 export type StoredChapterBlocks = {
+  /** Immutable import provenance; normal saves preserve this receipt separately from prose. */
+  wechatImport?: {
+    storyId: string; revisionId: string; version: number; importedAt: string;
+    editorName?: string; receivedFromName?: string; changeSummary?: string;
+    modules: Array<{ id: string; chapterId: string; sourceBlockId?: string; sourceIds: string[]; photoRef?: string }>;
+    warnings: string[];
+  };
   /** Display provenance stored with each version, never used for authorization. */
   attribution?: { editorName: string; sourceName?: string; changeNote?: string; action: "created" | "edited" | "received" | "restored" };
   body: string;

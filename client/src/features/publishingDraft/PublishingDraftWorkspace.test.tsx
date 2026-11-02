@@ -28,6 +28,7 @@ const actions = vi.hoisted(() => ({
 }));
 
 const api = vi.hoisted(() => ({
+  chaptersEnabled: false,
   readData: undefined as any,
   finishedProductData: undefined as any,
   textDraftHistory: undefined as any,
@@ -74,7 +75,7 @@ vi.mock("@/lib/trpc", () => {
         },
       }),
       chapters: {
-        enabled: { useQuery: () => ({ data: { enabled: false } }) },
+        enabled: { useQuery: () => ({ data: { enabled: api.chaptersEnabled } }) },
         list: { useQuery: () => ({ data: undefined }) },
         create: { useMutation: () => ({ mutate: vi.fn() }) },
         save: { useMutation: () => ({ mutate: vi.fn() }) },
@@ -159,6 +160,7 @@ import { publishingErrorMessage } from "./publishingDraftViewModel";
 
 describe("PublishingDraftWorkspace", () => {
   beforeEach(() => {
+    api.chaptersEnabled = false;
     story.activeStoryId = 7;
     story.publishing = emptyPublishingDraftState(1);
     story.publishingBuffers = {};
@@ -254,6 +256,15 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).not.toContain("生成 小红书 文字稿");
     expect(html).not.toContain('id="publishing-body"');
     expect(html).toMatch(/<button[^>]*>[\s\S]*?分享链接<\/button>/);
+  });
+
+  it("offers writing for an unsaved first story with chapters enabled", () => {
+    api.chaptersEnabled = true;
+    story.activeStoryId = -1;
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace view="text" />);
+    expect(html).toContain("开始手写文稿");
+    expect(html).not.toContain("故事图片素材库");
+    expect(html).not.toContain("正在更新图片");
   });
 
   it("opens the story image library without requiring a text draft or starting generation", () => {

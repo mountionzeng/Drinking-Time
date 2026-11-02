@@ -91,6 +91,7 @@ import { visualAssetsRouter } from "./visualAssets";
 import { timelineMediaRouter } from "./timelineMedia";
 import { storySoundDirectorRouter } from "./storySoundDirector";
 import { shiguangStoryAccessRouter } from "./shiguangStoryAccess";
+import { wechatBookImportRouter } from "./wechatBookImport";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -368,6 +369,7 @@ export const appRouter = router({
   computePayment: computePaymentRouter,
 
   shiguangStoryAccess: shiguangStoryAccessRouter,
+  wechatBookImport: wechatBookImportRouter,
 
   promptLineage: promptLineageRouter,
 

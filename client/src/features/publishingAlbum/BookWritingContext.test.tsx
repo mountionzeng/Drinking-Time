@@ -256,3 +256,71 @@ it('applies generated prose through the mounted book editor, saving the original
   await expect(context.applyGenerated('不能覆盖', expected)).rejects.toThrow('书稿已变化');
   expect(save).toHaveBeenCalledTimes(2);
 });
+
+vi.mock("@/features/uiLanguage/UiLanguage", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+ return {...actual, useUiText: () => (source: string, values?: readonly (string | number | null | undefined)[]) => actual.translateUi("zh", source, values), useUiLanguage: () => ({ language: "zh", setLanguage: () => {} })};
+});
+
+it('shows imported chapters numbered and folded without writing the source document', () => {
+  const blocks = [
+    { ...newWritingBlock('First'), id: 'chapter-a', format: 'heading1' as const },
+    { ...newWritingBlock('Original text', 'chapter-a'), id: 'text-a' },
+    { ...newWritingBlock('Photo', 'chapter-a'), id: 'photo-a' },
+    { ...newWritingBlock('Second'), id: 'chapter-b', format: 'heading1' as const },
+    { ...newWritingBlock('Other text', 'chapter-b'), id: 'text-b' },
+  ];
+  const original = JSON.stringify(blocks), onCommit = vi.fn();
+  const draw = () => render(() => BookBlockCanvas({ blocks, importedChapterIds: ['chapter-a', 'chapter-b'], disabled: false,
+    activeId: null, onSelect: vi.fn(), onCommit, children: block => <span>{block.text}</span> }));
+  let tree = draw();
+  expect(nodes(tree).filter(node => node.props?.['aria-expanded'] === false)).toHaveLength(2);
+  expect(nodes(tree).some(node => node.props?.['data-book-block'] === 'text-a')).toBe(false);
+  nodes(tree).find(node => node.props?.['aria-expanded'] === false).props.onClick();
+  tree = draw();
+  expect(nodes(tree).some(node => node.props?.['data-book-block'] === 'text-a')).toBe(true);
+  expect(nodes(tree).some(node => node.props?.['data-book-block'] === 'photo-a')).toBe(true);
+  expect(nodes(tree).some(node => node.props?.['data-book-block'] === 'text-b')).toBe(false);
+  nodes(tree).find(node => node.props?.['aria-label'] === '收起第一章').props.onClick();
+  tree = draw();
+  expect(nodes(tree).some(node => node.props?.['data-book-block'] === 'text-a')).toBe(false);
+  expect(onCommit).not.toHaveBeenCalled();
+  expect(JSON.stringify(blocks)).toBe(original);
+});
+
+it('adds text inside an opened imported chapter even if its saved fold flag was closed', () => {
+  let value = 'First';
+  let style: any = [{ id: 'chapter-a', parentId: null, format: 'heading1', collapsed: true, lineCount: 1 }];
+  const draw = () => render(() => ChapterTextModules({ value, onChange: next => { value = next; }, disabled: false,
+    importedChapterIds: ['chapter-a'], writingStyle: style,
+    onFormattedChange: (next, nextStyle) => { value = next; style = nextStyle; }, selection: { current: null } }));
+  let tree = draw();
+  const canvas = nodes(tree).find(node => node.type === BookBlockCanvas).props;
+  const field = canvas.children(canvas.blocks[0], 0, {});
+  field.props.onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 5, selectionEnd: 5 }, preventDefault: vi.fn() });
+  hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
+  tree = draw();
+  const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;
+  expect(after).toHaveLength(2);
+  expect(after[1].parentId).toBe('chapter-a');
+});
+
+it.each(['image', 'audio'] as const)('inserts %s inside an open imported chapter with an old saved fold flag', kind => {
+  let value = 'First';
+  let style: any = [{ id: 'chapter-a', parentId: null, format: 'heading1', collapsed: true, lineCount: 1 }];
+  const imageInsert = { current: null } as any;
+  const draw = () => render(() => ChapterTextModules({ value, onChange: next => { value = next; }, disabled: false,
+    importedChapterIds: ['chapter-a'], writingStyle: style, imageInsert,
+    contextSource: { storyId: 7, scope: 'account:story', chapterId: '2' }, prepareMedia: async () => {},
+    onFormattedChange: (next, nextStyle) => { value = next; style = nextStyle; }, selection: { current: null } }));
+  let tree = draw();
+  nodes(tree).find(node => node.type === BookBlockCanvas).props.onSelect('chapter-a');
+  tree = draw();
+  if (kind === 'image') imageInsert.current('/uploads/sample.png');
+  else nodes(tree).find(node => node.type?.name === 'BookMusicInsert').props.onInsert('audio fixture');
+  hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
+  tree = draw();
+  const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;
+  expect(after).toHaveLength(2);
+  expect(after[1].parentId).toBe('chapter-a');
+});

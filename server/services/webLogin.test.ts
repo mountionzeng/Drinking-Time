@@ -16,6 +16,11 @@ vi.mock("./accountIdentity", () => ({
   resolveWechatAccount: vi.fn(async () => 77),
   bindWechatAccount: vi.fn(async (_userId: number, _subject: string, tx?: unknown) => { bind.transactions.push(tx); return bind.result; }),
 }));
+const profile = vi.hoisted(() => ({ save: vi.fn(), method: "wechat" }));
+vi.mock("../repositories/users", () => ({
+  getUserById: vi.fn(async () => ({ id: 77, openId: "wx:77", loginMethod: profile.method })),
+  upsertUser: profile.save,
+}));
 const transaction = {};
 vi.mock("../repositories/webLoginRequests", () => ({
   insertWebLoginRequest: vi.fn(async (row: Omit<Row, "id" | "status" | "userId" | "confirmedAt" | "consumedAt">) => {
@@ -55,7 +60,7 @@ const subject = `shiguang:${"b".repeat(64)}`;
 const now = new Date("2026-10-23T10:00:00.000Z");
 const later = (ms: number) => new Date(now.getTime() + ms);
 
-async function create(extra: { bindUserId?: number } = {}) {
+async function create(extra: { bindUserId?: number; qr?: boolean } = {}) {
   const created = await createWebLoginRequest({ requestIp: "1.2.3.4", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0 Safari/537.36", now, ...extra });
   if (created.outcome !== "created") throw new Error("not created");
   return created;
@@ -64,6 +69,25 @@ async function create(extra: { bindUserId?: number } = {}) {
 beforeEach(() => { store.rows = []; store.limited.clear(); bind.result = "bound"; bind.transactions = []; });
 
 describe("网页登录请求", () => {
+  it("syncs the trusted mini-program name only on confirmed WeChat login", async () => {
+    profile.save.mockClear(); profile.method = "wechat";
+    const c = await create({ qr: true });
+    await confirmWebLoginBySubject({ subject, code: c.code, decision: "preview", displayName: "岱", now: later(1000) });
+    expect(profile.save).not.toHaveBeenCalled();
+    await confirmWebLoginBySubject({ subject, code: c.code, decision: "confirm", displayName: "岱", now: later(2000) });
+    expect(profile.save).toHaveBeenCalledWith({ openId: "wx:77", name: "岱" });
+  });
+  it("QR uses a separate high-entropy token, requires confirmation and is collected only by the original browser", async () => {
+    const c=await create({qr:true});
+    expect(c.code).toMatch(/^[A-F0-9]{28}$/);
+    expect(JSON.stringify(store.rows)).not.toContain(c.code);
+    expect(await confirmWebLoginBySubject({subject,code:c.code,decision:"preview",now:later(1000)})).toMatchObject({outcome:"preview"});
+    expect(await pollWebLoginRequest({l:c.l,v:c.v,requestIp:"1",now:later(2000)})).toEqual({status:"scanned"});
+    expect(await confirmWebLoginBySubject({subject,code:c.code,decision:"confirm",now:later(3000)})).toEqual({outcome:"confirmed"});
+    expect(await pollWebLoginRequest({l:c.l,v:"a".repeat(43),requestIp:"2",now:later(4000)})).toEqual({status:"expired"});
+    expect(await pollWebLoginRequest({l:c.l,v:c.v,requestIp:"1",now:later(5000)})).toMatchObject({status:"confirmed",userId:77});
+    expect(await pollWebLoginRequest({l:c.l,v:c.v,requestIp:"1",now:later(6000)})).toEqual({status:"expired"});
+  });
   it("只存摘要：库里没有明文的码、L 或验证值", async () => {
     const c = await create();
     const row = store.rows[0];

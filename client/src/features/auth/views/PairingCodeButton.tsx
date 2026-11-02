@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 「手机登录」：在已登录的设备上签发一个短命配对码，抄到手机上就进同一个账号。
  *
@@ -19,6 +20,7 @@ function formatRemaining(ms: number): string {
 }
 
 export default function PairingCodeButton() {
+  const _ui = useDesktopUiText();
   const [state, setState] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const mountedRef = useRef(true);
@@ -76,14 +78,12 @@ export default function PairingCodeButton() {
     return (
       <div className="px-2.5 py-2">
         <p className="text-[10px] text-muted-foreground">
-          手机上打开 /login，输入这个码
-        </p>
+          {_ui("手机上打开 /login，输入这个码")}</p>
         <p className="mt-1.5 select-all text-center font-mono text-lg tracking-[0.3em] text-foreground">
           {state.code}
         </p>
         <p className="mt-1 text-center text-[10px] text-muted-foreground">
-          {formatRemaining(state.expiresAt - now)} 后失效
-        </p>
+          {formatRemaining(state.expiresAt - now)} {_ui("后失效")}</p>
       </div>
     );
   }
@@ -97,10 +97,10 @@ export default function PairingCodeButton() {
       >
         <Smartphone className="h-3.5 w-3.5" />
         {state.kind === "loading"
-          ? "生成中…"
+          ? _ui("生成中…")
           : expired
-            ? "配对码已过期，重新生成"
-            : "手机登录"}
+            ? _ui("配对码已过期，重新生成")
+            : _ui("手机登录")}
       </button>
       {state.kind === "error" && (
         <p className="px-2.5 pb-1 text-[10px] text-muted-foreground">

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { normalizeLoginPhone } from "@shared/phoneLogin";
 import { resolvePostLoginDestination } from "../mobileReturnPath";
@@ -24,6 +25,7 @@ export default function PhoneLoginPanel({
   returnPath?: string | null;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -146,8 +148,7 @@ export default function PhoneLoginPanel({
         }}
       >
         <label className="text-sm" htmlFor="login-phone">
-          手机号
-        </label>
+          {_ui("手机号")}</label>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">+86</span>
           <input
@@ -155,7 +156,7 @@ export default function PhoneLoginPanel({
             type="tel"
             autoComplete="tel-national"
             inputMode="tel"
-            placeholder="请输入手机号"
+            placeholder={_ui("请输入手机号")}
             maxLength={20}
             required
             disabled={disabled}
@@ -170,15 +171,14 @@ export default function PhoneLoginPanel({
           />
         </div>
         <label className="text-sm" htmlFor="login-phone-code">
-          短信验证码
-        </label>
+          {_ui("短信验证码")}</label>
         <div className="flex gap-2">
           <input
             id="login-phone-code"
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
-            placeholder="6 位验证码"
+            placeholder={_ui("6 位验证码")}
             pattern="[0-9]{6}"
             maxLength={6}
             required
@@ -194,15 +194,15 @@ export default function PhoneLoginPanel({
             onClick={() => void submit("send")}
           >
             {busy === "send"
-              ? "发送中…"
+              ? _ui("发送中…")
               : seconds > 0
-                ? `${seconds} 秒后重发`
-                : "获取验证码"}
+                ? _ui("{0} 秒后重发", [seconds])
+                : _ui("获取验证码")}
           </button>
         </div>
         <div aria-live="polite" className="text-xs leading-relaxed">
           {configured === null && (
-            <p className="text-muted-foreground">正在检查登录服务…</p>
+            <p className="text-muted-foreground">{_ui("正在检查登录服务…")}</p>
           )}
           {configured === false && !error && (
             <p className="text-muted-foreground">{errors.sms_not_configured}</p>
@@ -221,11 +221,10 @@ export default function PhoneLoginPanel({
             disabled || !normalizeLoginPhone(phone) || code.length !== 6
           }
         >
-          {busy === "login" ? "正在登录…" : "登录"}
+          {busy === "login" ? _ui("正在登录…") : _ui("登录")}
         </button>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          未注册的手机号验证后将创建新账号。已有邮箱或微信账号，请使用原登录方式。
-        </p>
+          {_ui("未注册的手机号验证后将创建新账号。已有邮箱或微信账号，请使用原登录方式。")}</p>
       </form>
     </div>
   );

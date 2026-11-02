@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { estimateStoryNarrationCostMinor } from "@shared/narrationCost";
 import { formatComputeUnits } from "@shared/computeMoney";
 import { formatComputeQuote } from "@shared/computeMoney";
@@ -112,6 +113,7 @@ export function StoryboardCostCell({
   estimate: StoryboardShotCostEstimate;
   selected: boolean;
 }) {
+  const _ui = useDesktopUiText();
   return (
     <div
       role="cell"
@@ -122,24 +124,23 @@ export function StoryboardCostCell({
           ? "color-mix(in srgb, var(--nayin-glow) 46%, transparent)"
           : "transparent",
       }}
-      aria-label={`预计费用：图片 ${formatComputeQuote(estimate.imageCny)}，视频 ${formatComputeQuote(estimate.videoCny)}，合计 ${formatComputeQuote(estimate.totalCny)}`}
+      aria-label={_ui("预计费用：图片 {0}，视频 {1}，合计 {2}", [formatComputeQuote(estimate.imageCny).replace(/算力$/, _ui("算力")), formatComputeQuote(estimate.videoCny).replace(/算力$/, _ui("算力")), formatComputeQuote(estimate.totalCny).replace(/算力$/, _ui("算力"))])}
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[8px] text-muted-foreground">
-          图片 · {estimate.imageCandidateCount} 张
-        </span>
+          {_ui("图片 ·")}{" "}{estimate.imageCandidateCount} {_ui("张")}</span>
         <span className="text-[9px] font-medium tabular-nums text-foreground">
-          {formatComputeQuote(estimate.imageCny)}
+          {formatComputeQuote(estimate.imageCny).replace(/算力$/, _ui("算力"))}
         </span>
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
-        <span className="text-[8px] text-muted-foreground">视频</span>
+        <span className="text-[8px] text-muted-foreground">{_ui("视频")}</span>
         <span className="text-[9px] font-medium tabular-nums text-foreground">
-          {formatComputeQuote(estimate.videoCny)}
+          {formatComputeQuote(estimate.videoCny).replace(/算力$/, _ui("算力"))}
         </span>
       </div>
       <div className="mt-1 border-t border-border/45 pt-1 text-right text-[10px] font-semibold tabular-nums text-[var(--nayin-accent)]">
-        合计 {formatComputeQuote(estimate.totalCny)}
+        {_ui("合计")}{" "}{formatComputeQuote(estimate.totalCny).replace(/算力$/, _ui("算力"))}
       </div>
     </div>
   );
@@ -167,6 +168,7 @@ export function StoryboardVoiceCell({
   ) => void | Promise<void>;
   onGenerate?: (text: string) => void | Promise<void>;
 }) {
+  const _ui = useDesktopUiText();
   const narrationValue = shot.dialogue?.trim() || "";
   const soundValue = shot.sound ?? "";
   const [narrationText, setNarrationText] = useState(narrationValue);
@@ -203,33 +205,31 @@ export function StoryboardVoiceCell({
       }}
     >
       <label className="block text-[8px] font-semibold text-muted-foreground/80">
-        旁白 / 对白
-        <textarea
+        {_ui("旁白 / 对白")}<textarea
           value={narrationText}
           rows={2}
-          placeholder="暂用文字稿原文，可在这里调整朗读内容"
+          placeholder={_ui("暂用文字稿原文，可在这里调整朗读内容")}
           disabled={!editable}
           onFocus={onFocus}
           onChange={event => setNarrationText(event.currentTarget.value)}
           onBlur={() => commit("dialogue", narrationText, narrationValue)}
           onPointerDown={event => event.stopPropagation()}
           className="mt-0.5 block min-h-12 w-full resize-none rounded-sm bg-transparent px-1.5 py-1 text-[9px] font-normal leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:opacity-70"
-          aria-label={`${shotLabel} 旁白或对白`}
+          aria-label={_ui("{0} 旁白或对白", [shotLabel])}
         />
       </label>
       <label className="mt-1 block border-t border-border/45 pt-1 text-[8px] font-semibold text-muted-foreground/80">
-        背景音 / 音效
-        <textarea
+        {_ui("背景音 / 音效")}<textarea
           value={soundText}
           rows={1}
-          placeholder="环境声、音乐、音效或声音桥"
+          placeholder={_ui("环境声、音乐、音效或声音桥")}
           disabled={!editable}
           onFocus={onFocus}
           onChange={event => setSoundText(event.currentTarget.value)}
           onBlur={() => commit("sound", soundText, soundValue)}
           onPointerDown={event => event.stopPropagation()}
           className="mt-0.5 block min-h-8 w-full resize-none rounded-sm bg-transparent px-1.5 py-1 text-[9px] font-normal leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:opacity-70"
-          aria-label={`${shotLabel} 背景音或音效`}
+          aria-label={_ui("{0} 背景音或音效", [shotLabel])}
         />
       </label>
       <div className="mt-1 flex min-h-8 flex-wrap items-center gap-1.5 border-t border-border/45 pt-1">
@@ -246,11 +246,11 @@ export function StoryboardVoiceCell({
           ) : (
             <Volume2 className="h-3 w-3" />
           )}
-          {generating ? "生成中…" : "生成旁白"}
+          {generating ? _ui("生成中…") : _ui("生成旁白")}
           </span>
           {narrationText.trim() && (
             <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
-              约{" "}
+              {_ui("约")}{" "}
               {formatComputeUnits(
                 estimateStoryNarrationCostMinor(narrationText)
               )}
@@ -263,13 +263,12 @@ export function StoryboardVoiceCell({
             preload="none"
             src={shot.voiceAudioUrl}
             className="h-7 min-w-[120px] max-w-full flex-1"
-            aria-label={`${shotLabel} 已生成旁白`}
+            aria-label={_ui("{0} 已生成旁白", [shotLabel])}
           />
         ) : null}
         {audioStale ? (
           <span className="text-[8px] text-amber-600 dark:text-amber-400">
-            文字已修改，请重新生成
-          </span>
+            {_ui("文字已修改，请重新生成")}</span>
         ) : null}
       </div>
     </div>
@@ -287,6 +286,7 @@ export function StoryboardFieldVersionSelect({
   restoring: boolean;
   onRestore: (revision: number) => void;
 }) {
+  const _ui = useDesktopUiText();
   const currentRevision = track.currentRevision || 1;
   const history =
     track.history.length > 0
@@ -309,17 +309,17 @@ export function StoryboardFieldVersionSelect({
       }}
       onPointerDown={event => event.stopPropagation()}
       className="h-6 rounded-sm border border-border bg-background px-1 text-[8px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:cursor-default disabled:opacity-80"
-      aria-label={`${label}版本`}
+      aria-label={_ui("{0}版本", [label])}
       title={
         history.length < 2
-          ? `${label}当前为 V${currentRevision}`
-          : `切换${label}版本`
+          ? _ui("{0}当前为 V{1}", [label, currentRevision])
+          : _ui("切换{0}版本", [label])
       }
     >
       {history.map(entry => (
         <option key={entry.revision} value={entry.revision}>
           V{entry.revision}
-          {entry.revision === currentRevision ? " · 当前" : ""}
+          {entry.revision === currentRevision ? _ui(" · 当前") : ""}
         </option>
       ))}
     </select>
@@ -399,6 +399,7 @@ export function StoryboardMatrixFieldCell({
   onDrop: (event: DragEvent<HTMLDivElement>) => void;
   action?: ReactNode;
 }) {
+  const _ui = useDesktopUiText();
   const currentValue = value ?? "";
   const [draftValue, setDraftValue] = useState(currentValue);
   const [isFocused, setIsFocused] = useState(false);
@@ -447,8 +448,8 @@ export function StoryboardMatrixFieldCell({
           onDragEnd={onDragEnd}
           onPointerDown={event => event.stopPropagation()}
           className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 cursor-grab items-center justify-center rounded-sm text-muted-foreground/65 hover:bg-background hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-          aria-label={`拖动 ${shotLabel} 的${row.label}`}
-          title={`拖动交换${row.label}`}
+          aria-label={_ui("拖动 {0} 的{1}", [shotLabel, _ui(row.label)])}
+          title={_ui("拖动交换{0}", [_ui(row.label)])}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
@@ -457,7 +458,7 @@ export function StoryboardMatrixFieldCell({
         ref={textareaRef}
         value={draftValue}
         rows={1}
-        placeholder={row.placeholder}
+        placeholder={_ui(row.placeholder)}
         disabled={!editable}
         onFocus={() => {
           setIsFocused(true);
@@ -490,12 +491,12 @@ export function StoryboardMatrixFieldCell({
                 ? 72
                 : 44,
         }}
-        aria-label={`${shotLabel} ${row.label}`}
+        aria-label={`${shotLabel} ${_ui(row.label)}`}
         aria-describedby={descriptionId}
       />
       {row.description ? (
         <span id={descriptionId} className="sr-only">
-          {row.description}
+          {_ui(row.description)}
         </span>
       ) : null}
       {action ? (
@@ -508,18 +509,25 @@ export function StoryboardMatrixFieldCell({
 }
 
 
+export function StoryboardVideoBlockHint({ reason }: { reason?: string | null }) {
+  const t = useDesktopUiText();
+  const message = reason === "需要先选择当前主图" ? "先选中镜头，再到仓库把图片设为当前首帧。" : reason;
+  return message ? <p role="status" className="text-[10px] leading-snug text-muted-foreground">{t(message)}</p> : null;
+}
+
 export function StoryboardVideoButtonContent({ checking, busy, estimatedCny }: {
   checking: boolean;
   busy: boolean;
   estimatedCny: number;
 }) {
+  const _ui = useDesktopUiText();
   return <>
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
       {checking || busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Video className="h-3 w-3" />}
-      {checking ? "检查人物" : "渲染视频"}
+      {checking ? _ui("检查人物") : _ui("渲染视频")}
     </span>
     <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
-      约 {formatComputeQuote(estimatedCny)}
+      {_ui("约")}{" "}{formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}
     </span>
   </>;
 }

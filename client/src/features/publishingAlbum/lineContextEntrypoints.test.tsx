@@ -10,7 +10,11 @@ vi.mock("react", async () => {
   };
 });
 vi.mock("./useLayoutOperationMemory", () => ({ useLayoutOperationMemory: () => ({ context: null, record: vi.fn(), travel: vi.fn() }) }));
-vi.mock("@/features/uiLanguage/UiLanguage", () => ({ useUiText: () => (text: string) => text }));
+vi.mock("@/features/uiLanguage/UiLanguage", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/features/uiLanguage/UiLanguage")>();
+ return {...actual, useUiText: () => (source: string, values?: readonly (string | number | null | undefined)[]) => actual.translateUi("zh", source, values)};
+});
+
 vi.mock("@/lib/trpc", () => ({ trpc: {
   useUtils: () => ({}),
   textDrafts: { revise: { useMutation: () => ({ mutateAsync: mock.mutation }) } },

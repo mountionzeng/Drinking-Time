@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * StudioTour — 电脑版工作室的首次使用引导。
  *
@@ -67,6 +68,7 @@ export default function StudioTour({
   /** 每日来信这类弹层开着的时候先不抢屏。 */
   blockedByOverlay?: boolean;
 }) {
+  const _ui = useDesktopUiText();
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [running, setRunning] = useState(false);
@@ -253,10 +255,10 @@ export default function StudioTour({
           {index + 1} / {steps.length}
         </p>
         <h2 className="studio-tour-title" id="studio-tour-title">
-          {activeStep.title}
+          {_ui(activeStep.title)}
         </h2>
         <p className="studio-tour-body" id="studio-tour-body">
-          {activeStep.body}
+          {_ui(activeStep.body)}
         </p>
         <div className="studio-tour-actions">
           <button
@@ -265,8 +267,7 @@ export default function StudioTour({
             onClick={finish}
             data-testid="studio-tour-skip"
           >
-            跳过
-          </button>
+            {_ui("跳过")}</button>
           <span className="studio-tour-actions-spacer" />
           {index > 0 ? (
             <button
@@ -275,8 +276,7 @@ export default function StudioTour({
               onClick={goPrevious}
               data-testid="studio-tour-previous"
             >
-              上一步
-            </button>
+              {_ui("上一步")}</button>
           ) : null}
           <button
             type="button"
@@ -285,7 +285,7 @@ export default function StudioTour({
             autoFocus
             data-testid="studio-tour-next"
           >
-            {isLast ? "开始用吧" : "下一步"}
+            {isLast ? _ui("开始用吧") : _ui("下一步")}
           </button>
         </div>
       </div>

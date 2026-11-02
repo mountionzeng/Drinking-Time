@@ -1,3 +1,5 @@
+import { StoryboardPreflightTimeout, withStoryboardPreflightTimeout } from "./storyboardPreflightTimeout";
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { shotVideoPriceProfile } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
@@ -148,6 +150,7 @@ import {
   StoryboardFieldVersionSelect,
   StoryboardCostCell,
   StoryboardVideoButtonContent,
+  StoryboardVideoBlockHint,
   StoryboardMatrixFieldCell,
   StoryboardVoiceCell,
   STORYBOARD_MATRIX_VISIBLE_ROWS,
@@ -313,6 +316,7 @@ function StoryboardMediaSelectionIndicator({
 }: {
   selected: boolean;
 }) {
+  const _ui = useDesktopUiText();
   if (!selected) return null;
   return (
     <span
@@ -320,8 +324,7 @@ function StoryboardMediaSelectionIndicator({
       data-storyboard-media-selection-indicator="true"
     >
       <Check className="h-2.5 w-2.5" />
-      已选
-    </span>
+      {_ui("已选")}</span>
   );
 }
 
@@ -566,6 +569,7 @@ export function StoryboardReviewBoard({
   onConfirmCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
   onRejectCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
 }) {
+  const _ui = useDesktopUiText();
   const [previewMedia, setPreviewMedia] =
     useState<StoryboardMediaPreview | null>(null);
   const [selectedStoryboardMedia, setSelectedStoryboardMedia] =
@@ -1169,13 +1173,13 @@ export function StoryboardReviewBoard({
     }
     if (!onAnalyzeShotConsistency) return anchorOption;
 
+    const cacheKey = JSON.stringify([
+      referenceAnchor.imageUrl,
+      input.creationShot.imageId,
+      input.creationShot.imageUrl,
+    ]);
+    let analysisPromise = continuityAnalysisCacheRef.current.get(cacheKey);
     try {
-      const cacheKey = JSON.stringify([
-        referenceAnchor.imageUrl,
-        input.creationShot.imageId,
-        input.creationShot.imageUrl,
-      ]);
-      let analysisPromise = continuityAnalysisCacheRef.current.get(cacheKey);
       if (!analysisPromise) {
         analysisPromise = onAnalyzeShotConsistency({
           anchorImageUrl: referenceAnchor.imageUrl,
@@ -1194,7 +1198,7 @@ export function StoryboardReviewBoard({
           }
         });
       }
-      const analysis = await analysisPromise;
+      const analysis = await withStoryboardPreflightTimeout(analysisPromise);
       if (analysis.status !== "ok") {
         toast.info("人物一致性暂时无法自动判断，本次仍按人物基准约束");
         return anchorOption;
@@ -1215,6 +1219,14 @@ export function StoryboardReviewBoard({
         mismatches,
       });
     } catch (error) {
+      if (error instanceof StoryboardPreflightTimeout) {
+        // Do not advance to confirmation or submit a video when preflight hangs.
+        if (continuityAnalysisCacheRef.current.get(cacheKey) === analysisPromise) {
+          continuityAnalysisCacheRef.current.delete(cacheKey);
+        }
+        toast.error(_ui("人物检查超时，请稍后重试；本次未提交视频生成。"));
+        return STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED;
+      }
       console.warn("[storyboard-continuity] preflight failed", error);
       toast.info("人物一致性检查未完成，本次仍按人物基准约束");
       return anchorOption;
@@ -2878,7 +2890,7 @@ export function StoryboardReviewBoard({
           window.confirm(
             usesLocalTransform
               ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
           );
         if (!confirmed) {
           toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -2941,7 +2953,7 @@ export function StoryboardReviewBoard({
         window.confirm(
           plan.renderDecision.strategy === "local-transform"
             ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计${formatComputeQuote(plan.estimatedCny)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
         );
       if (!confirmed) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -3029,7 +3041,7 @@ export function StoryboardReviewBoard({
         : `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成四图候选，并按固定规则采用左上候选作为当前主图，再生成视频。`
       : "";
     const confirmed = window.confirm(
-      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(plan.estimatedCny)}；新资产会保留旧版本。确认一键生成？`
+      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}；新资产会保留旧版本。确认一键生成？`
     );
     if (!confirmed) {
       toast.info("已取消一键生成，未产生费用");
@@ -3142,20 +3154,20 @@ export function StoryboardReviewBoard({
     const targetLabel = displayShotCode(targetShot);
     const operation = plan.targetValue ? "交换" : "移动";
     const confirmed = window.confirm(
-      `${operation} ${sourceLabel} 与 ${targetLabel} 的“${row.label}”内容？`
+      `${operation} ${sourceLabel} 与 ${targetLabel} 的“${_ui(row.label)}”内容？`
     );
     if (!confirmed) return;
     onUpdateShotField(dragged.sourceIndex, row.field, plan.targetValue);
     onUpdateShotField(targetIndex, row.field, plan.sourceValue);
     onSelectShot?.(targetShot.shotNo);
-    toast.success(`已${operation}“${row.label}”`);
+    toast.success(`已${operation}“${_ui(row.label)}”`);
   };
 
   return (
     <section
       ref={boardRef}
       className={`creation-board-panel h-full min-h-0 flex flex-col ${className}`.trim()}
-      aria-label="故事版看板"
+      aria-label={_ui("故事版看板")}
       onDragOver={event => {
         if (!hasStoryboardScrollableDragPayload(event.dataTransfer)) return;
         if (hasVideoTakeDragPayload(event.dataTransfer)) {
@@ -3179,7 +3191,7 @@ export function StoryboardReviewBoard({
       <div className="creation-board-panel-header shrink-0 justify-between">
         <div className="creation-board-panel-title">
           <Clapperboard className="creation-board-panel-icon" />
-          <span className="creation-board-panel-title-text">故事版看板</span>
+          <span className="creation-board-panel-title-text">{_ui("故事版看板")}</span>
         </div>
         <div className="flex items-center gap-2">
           {headerAction}
@@ -3187,15 +3199,14 @@ export function StoryboardReviewBoard({
             <span
               className="hidden items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[9px] text-muted-foreground sm:inline-flex"
               style={{ borderColor: "var(--panel-border)" }}
-              title="人物设计、色板、材质、光线与情绪继承自文字稿正式封面"
+              title={_ui("人物设计、色板、材质、光线与情绪继承自文字稿正式封面")}
             >
               <img
                 src={inheritedPublishingCover.imageUrl}
                 alt=""
                 className="h-4 w-4 rounded-[2px] object-cover"
               />
-              继承文字稿封面
-            </span>
+              {_ui("继承文字稿封面")}</span>
           ) : null}
           {shots.length > 0 && onGenerateShotVideo ? (
             <button
@@ -3207,9 +3218,9 @@ export function StoryboardReviewBoard({
                   !onPromoteFrameCrop)
               }
               className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-[var(--nayin-accent)] px-2.5 text-[10px] font-semibold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-60"
-              aria-label="根据现有图案和文字一键生成约30秒视频"
+              aria-label={_ui("根据现有图案和文字一键生成约30秒视频")}
               data-testid="storyboard-one-click-video"
-              title="读取完整故事版；缺图时先继承正式封面生成主图，再生成约 30 秒视频"
+              title={_ui("读取完整故事版；缺图时先继承正式封面生成主图，再生成约 30 秒视频")}
             >
               {oneClickVideoProgress ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -3218,24 +3229,24 @@ export function StoryboardReviewBoard({
               )}
               {oneClickVideoProgress
                 ? `${oneClickVideoProgress.completed}/${oneClickVideoProgress.total}`
-                : "一键生成 · 约30秒"}
+                : _ui("一键生成 · 约30秒")}
             </button>
           ) : null}
           {!headerAction ? (
             <span className="creation-board-panel-status">
               {isGeneratingScript
-                ? "生成故事版中"
+                ? _ui("生成故事版中")
                 : storyboardTimelineDurationMs > 0
-                  ? `${shots.length} 镜 · ${(storyboardTimelineDurationMs / 1000).toFixed(1)}s · ${frames.length} 图`
-                  : `${shots.length} 镜 · ${frames.length} 图`}
+                  ? _ui("{0} 镜 · {1}s · {2} 图", [shots.length, (storyboardTimelineDurationMs / 1000).toFixed(1), frames.length])
+                  : _ui("{0} 镜 · {1} 图", [shots.length, frames.length])}
             </span>
           ) : null}
           {activeRenderShotNos.length > 0 ? (
             <span
               className="creation-board-panel-status"
-              aria-label="渲染线状态"
+              aria-label={_ui("渲染线状态")}
             >
-              渲染线 {activeRenderShotNos.length}/
+              {_ui("渲染线")}{" "}{activeRenderShotNos.length}/
               {MAX_CONCURRENT_STORYBOARD_RENDERS}
             </span>
           ) : null}
@@ -3247,7 +3258,7 @@ export function StoryboardReviewBoard({
               type="button"
               aria-pressed={compactShots}
               aria-label={
-                compactShots ? "恢复所有镜头完整宽度" : "缩小所有镜头"
+                compactShots ? _ui("恢复所有镜头完整宽度") : _ui("缩小所有镜头")
               }
               data-testid="storyboard-compact-shots-toggle"
               onClick={() => {
@@ -3260,8 +3271,8 @@ export function StoryboardReviewBoard({
               style={{ borderColor: "var(--panel-border)" }}
               title={
                 compactShots
-                  ? "恢复所有镜头的完整宽度"
-                  : "缩小所有镜头；点击某镜可单独展开"
+                  ? _ui("恢复所有镜头的完整宽度")
+                  : _ui("缩小所有镜头；点击某镜可单独展开")
               }
             >
               {compactShots ? (
@@ -3269,13 +3280,13 @@ export function StoryboardReviewBoard({
               ) : (
                 <Minimize2 className="h-3 w-3" />
               )}
-              {compactShots ? "恢复" : "缩小"}
+              {compactShots ? _ui("恢复") : _ui("缩小")}
             </button>
           ) : null}
           {shots.length > 0 ? (
             <span
               className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
-              aria-label="故事版看板视图"
+              aria-label={_ui("故事版看板视图")}
             >
               <button
                 type="button"
@@ -3291,8 +3302,7 @@ export function StoryboardReviewBoard({
                       : "var(--muted-foreground)",
                 }}
               >
-                完整
-              </button>
+                {_ui("完整")}</button>
               <button
                 type="button"
                 aria-pressed={viewMode === "simple"}
@@ -3309,8 +3319,7 @@ export function StoryboardReviewBoard({
                       : "var(--muted-foreground)",
                 }}
               >
-                简读
-              </button>
+                {_ui("简读")}</button>
             </span>
           ) : null}
         </div>
@@ -3322,10 +3331,9 @@ export function StoryboardReviewBoard({
           role="status"
           data-testid="storyboard-image-provider-blocked"
         >
-          图片付费生成已暂停：
-          {imageProviderStatus?.reason ?? "正在确认图片供应商状态"}
+          {_ui("图片付费生成已暂停：")}{imageProviderStatus?.reason ?? _ui("正在确认图片供应商状态")}
           {imageProviderStatus?.retryAt
-            ? `；系统将在 ${new Date(imageProviderStatus.retryAt).toLocaleTimeString()} 后自动重试状态`
+            ? _ui("；系统将在 {0} 后自动重试状态", [new Date(imageProviderStatus.retryAt).toLocaleTimeString()])
             : ""}
         </div>
       ) : null}
@@ -3390,7 +3398,7 @@ export function StoryboardReviewBoard({
             >
               <div
                 role="table"
-                aria-label="完整故事版横向分镜表"
+                aria-label={_ui("完整故事版横向分镜表")}
                 className="grid min-w-max"
                 style={{
                   gridTemplateColumns: matrixGridTemplateColumns,
@@ -3409,8 +3417,7 @@ export function StoryboardReviewBoard({
                     background: "var(--panel-header)",
                   }}
                 >
-                  镜头
-                </div>
+                  {_ui("镜头")}</div>
                 {hasMatrixLeadingGap ? (
                   <div
                     aria-hidden="true"
@@ -3480,7 +3487,7 @@ export function StoryboardReviewBoard({
                         type="button"
                         onClick={() => selectMatrixShot(shot.shotNo)}
                         className="flex w-full min-w-0 items-baseline gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                        aria-label={`选择 ${shotLabel} ${title}`}
+                        aria-label={_ui("选择 {0} {1}", [shotLabel, title])}
                       >
                         <span className="shrink-0 font-mono text-[10px] font-semibold text-foreground">
                           {shotLabel}
@@ -3521,8 +3528,8 @@ export function StoryboardReviewBoard({
                               onSelectShot?.(shot.shotNo);
                             }}
                             className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                            aria-label={`把 ${shotLabel} 加入时间轴`}
-                            title="加入时间轴"
+                            aria-label={_ui("把 {0} 加入时间轴", [shotLabel])}
+                            title={_ui("加入时间轴")}
                           >
                             <ListPlus className="h-3 w-3" />
                           </button>
@@ -3581,11 +3588,11 @@ export function StoryboardReviewBoard({
                               event.stopPropagation();
                               void rerenderShotVideo(shot, creationShot);
                             }}
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-45"
-                            aria-label={`根据当前图片、正式封面和视频要求生成 ${shotLabel} 视频`}
+                            className={`inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-45 ${headerVideoBlockReason ? "disabled:cursor-not-allowed" : "disabled:cursor-wait"}`}
+                            aria-label={_ui("根据当前图片、正式封面和视频要求生成 {0} 视频", [shotLabel])}
                             title={
-                              headerVideoBlockReason ??
-                              "以当前主图为首帧，继承正式封面风格并按视频要求生成"
+                              (headerVideoBlockReason ? _ui(headerVideoBlockReason) : null) ??
+                              _ui("以当前主图为首帧，继承正式封面风格并按视频要求生成")
                             }
                           >
                             {continuityCheckingByShot[shot.shotNo] ===
@@ -3625,8 +3632,7 @@ export function StoryboardReviewBoard({
                     background: "var(--background)",
                   }}
                 >
-                  画面
-                </div>
+                  {_ui("画面")}</div>
                 {hasMatrixLeadingGap ? (
                   <div
                     aria-hidden="true"
@@ -3804,19 +3810,19 @@ export function StoryboardReviewBoard({
                             aria-live="polite"
                             title={
                               isAwaitingVideoContinuityChoice
-                                ? "请在弹窗中选择本次视频要遵循的人物版本"
+                                ? _ui("请在弹窗中选择本次视频要遵循的人物版本")
                                 : isCheckingVideoContinuity
-                                  ? "正在比较脸、发型和服饰"
-                                  : "正在保存镜头信息并提交视频任务"
+                                  ? _ui("正在比较脸、发型和服饰")
+                                  : _ui("正在保存镜头信息并提交视频任务")
                             }
                           >
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             <span className="text-[7px] font-semibold">
                               {isAwaitingVideoContinuityChoice
-                                ? "等待确认"
+                                ? _ui("等待确认")
                                 : isCheckingVideoContinuity
-                                  ? "检查人物"
-                                  : "正在提交"}
+                                  ? _ui("检查人物")
+                                  : _ui("正在提交")}
                             </span>
                           </div>
                         ) : null}
@@ -3873,7 +3879,7 @@ export function StoryboardReviewBoard({
                               aria-label={`${displayShotCode(shot)} Take ${take.id} ${statusLabel}`}
                               title={
                                 error ??
-                                `${progress.label} · Take ${take.id}${affordance.canRefresh ? " · 点击刷新" : ""}`
+                                `${progress.label} · Take ${take.id}${affordance.canRefresh ? _ui(" · 点击刷新") : ""}`
                               }
                             >
                               {isRefreshing ||
@@ -3919,8 +3925,8 @@ export function StoryboardReviewBoard({
                                       deleting ? "opacity-45" : ""
                                     }`}
                                     role="group"
-                                    aria-label={`${displayShotCode(shot)} 四张图片候选`}
-                                    title="右键可删除这组候选"
+                                    aria-label={_ui("{0} 四张图片候选", [displayShotCode(shot)])}
+                                    title={_ui("右键可删除这组候选")}
                                   >
                                     {FRAME_QUADRANTS.map(
                                       (candidate, candidateIndex) => {
@@ -3986,16 +3992,16 @@ export function StoryboardReviewBoard({
                                                 ? "h-[148px] w-[148px] border-[var(--nayin-accent)] ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
                                                 : "h-[59px] w-[59px] border-[var(--nayin-accent)]/40"
                                             }`}
-                                            aria-label={`采用 ${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                            aria-label={_ui("采用 {0} 候选 {1}", [displayShotCode(shot), candidateIndex + 1])}
                                             aria-pressed={candidateSelected}
                                             data-storyboard-media-selected={
                                               candidateSelected
                                             }
-                                            title={`${candidate.label}候选 · ${candidateSelected ? "已选中" : "点击设为当前主图"}`}
+                                            title={_ui("{0}候选 · {1}", [candidate.label, candidateSelected ? _ui("已选中") : _ui("点击设为当前主图")])}
                                           >
                                             <img
                                               src={frame.imageUrl}
-                                              alt={`${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                              alt={_ui("{0} 候选 {1}", [displayShotCode(shot), candidateIndex + 1])}
                                               draggable={false}
                                               className="absolute object-fill"
                                               style={storyboardCandidateImageStyle(
@@ -4003,7 +4009,7 @@ export function StoryboardReviewBoard({
                                               )}
                                             />
                                             <span className="absolute inset-x-0 bottom-0 bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                              候选 {candidateIndex + 1}
+                                              {_ui("候选")}{" "}{candidateIndex + 1}
                                             </span>
                                             <StoryboardMediaSelectionIndicator
                                               selected={candidateSelected}
@@ -4030,8 +4036,8 @@ export function StoryboardReviewBoard({
                                           );
                                         }}
                                         className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center rounded-sm bg-black/72 text-white shadow-sm transition-colors hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-45"
-                                        aria-label={`删除 ${displayShotCode(shot)} 这组候选`}
-                                        title="删除这组候选"
+                                        aria-label={_ui("删除 {0} 这组候选", [displayShotCode(shot)])}
+                                        title={_ui("删除这组候选")}
                                       >
                                         {deleting ? (
                                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -4063,8 +4069,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                      删除这组候选
-                                    </ContextMenu.Item>
+                                      {_ui("删除这组候选")}</ContextMenu.Item>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4110,7 +4115,7 @@ export function StoryboardReviewBoard({
                                   stableShotId: insertStableShotId,
                                   imageId: frame.id,
                                   imageUrl: frame.imageUrl,
-                                  label: `${displayShotCode(shot)} · ${frameRole}`,
+                                  label: `${displayShotCode(shot)} · ${_ui(frameRole)}`,
                                 })
                               : null;
                           const imageTarget = {
@@ -4138,7 +4143,7 @@ export function StoryboardReviewBoard({
                                     draggable={Boolean(
                                       insertStableShotId && onMoveStoryImage
                                     )}
-                                    data-storyboard-frame-role={frameRole}
+                                    data-storyboard-frame-role={_ui(frameRole)}
                                     className={`relative h-full w-full overflow-hidden rounded-sm bg-muted text-left transition-[box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
                                       imageSelected
                                         ? "ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
@@ -4184,7 +4189,7 @@ export function StoryboardReviewBoard({
                                       showImageHoverPreview(
                                         event,
                                         frame.imageUrl,
-                                        `${displayShotCode(shot)} ${frameRole}`
+                                        `${displayShotCode(shot)} ${_ui(frameRole)}`
                                       )
                                     }
                                     onMouseLeave={() =>
@@ -4194,7 +4199,7 @@ export function StoryboardReviewBoard({
                                       showImageHoverPreview(
                                         event,
                                         frame.imageUrl,
-                                        `${displayShotCode(shot)} ${frameRole}`
+                                        `${displayShotCode(shot)} ${_ui(frameRole)}`
                                       )
                                     }
                                     onBlur={() => setHoveredImagePreview(null)}
@@ -4207,16 +4212,16 @@ export function StoryboardReviewBoard({
                                       event.stopPropagation();
                                       onEditImage(imageEditTarget);
                                     }}
-                                    aria-label={`查看 ${displayShotCode(shot)} ${frameRole}`}
+                                    aria-label={_ui("查看 {0} {1}", [displayShotCode(shot), _ui(frameRole)])}
                                     aria-pressed={imageSelected}
                                     data-storyboard-media-selected={
                                       imageSelected
                                     }
-                                    title={`${frameRole} · 图片 #${frame.id} · ${imageSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 可右键设置角色，可拖到其他镜头`}
+                                    title={_ui("{0} · 图片 #{1} · {2} · 双击编辑 · 可右键设置角色，可拖到其他镜头", [_ui(frameRole), frame.id, imageSelected ? _ui("已选中") : _ui("点击选中并放大")])}
                                   >
                                     <img
                                       src={frame.imageUrl}
-                                      alt={`${displayShotCode(shot)} ${frameRole}`}
+                                      alt={`${displayShotCode(shot)} ${_ui(frameRole)}`}
                                       draggable={false}
                                       className="h-full w-full object-cover"
                                       style={timelineTransformStyle(
@@ -4229,7 +4234,7 @@ export function StoryboardReviewBoard({
                                       </span>
                                     ) : null}
                                     <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                      {frameRole}
+                                      {_ui(frameRole)}
                                     </span>
                                     <StoryboardMediaSelectionIndicator
                                       selected={imageSelected}
@@ -4257,8 +4262,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                                     >
                                       <SkipBack className="h-3.5 w-3.5" />
-                                      设为首帧
-                                      {role === "first" ? (
+                                      {_ui("设为首帧")}{role === "first" ? (
                                         <Check className="ml-auto h-3.5 w-3.5" />
                                       ) : null}
                                     </ContextMenu.Item>
@@ -4278,8 +4282,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                                     >
                                       <SkipForward className="h-3.5 w-3.5" />
-                                      设为尾帧
-                                      {role === "last" ? (
+                                      {_ui("设为尾帧")}{role === "last" ? (
                                         <Check className="ml-auto h-3.5 w-3.5" />
                                       ) : null}
                                     </ContextMenu.Item>
@@ -4299,8 +4302,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                                     >
                                       <Focus className="h-3.5 w-3.5" />
-                                      设为中间参考
-                                      {role === "reference" ? (
+                                      {_ui("设为中间参考")}{role === "reference" ? (
                                         <Check className="ml-auto h-3.5 w-3.5" />
                                       ) : null}
                                     </ContextMenu.Item>
@@ -4318,8 +4320,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                      删除图片
-                                    </ContextMenu.Item>
+                                      {_ui("删除图片")}{" "}</ContextMenu.Item>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4334,8 +4335,8 @@ export function StoryboardReviewBoard({
                                     void deleteStoryboardFrame(manageInput);
                                   }}
                                   className="absolute right-0.5 top-0.5 z-10 flex h-5 w-5 items-center justify-center rounded-sm bg-black/72 text-white shadow-sm transition-colors hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-45"
-                                  aria-label={`删除 ${displayShotCode(shot)} 图片 #${frame.id}`}
-                                  title={`删除图片 #${frame.id}`}
+                                  aria-label={_ui("删除 {0} 图片 #{1}", [displayShotCode(shot), frame.id])}
+                                  title={_ui("删除图片 #{0}", [frame.id])}
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </button>
@@ -4358,16 +4359,15 @@ export function StoryboardReviewBoard({
                                       shotIndex: index,
                                       imageId: frame.id,
                                       imageUrl: frame.imageUrl,
-                                      label: `${displayShotCode(shot)} · ${frameRole}`,
+                                      label: `${displayShotCode(shot)} · ${_ui(frameRole)}`,
                                     });
                                   }}
                                   className="absolute bottom-0.5 right-0.5 z-10 flex h-6 items-center gap-1 rounded-sm bg-[var(--nayin-accent)] px-1.5 text-[9px] font-semibold text-background shadow-sm transition-colors hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-45"
-                                  aria-label={`基于 ${displayShotCode(shot)} 当前图像修改`}
-                                  title="保留当前图像，基于它生成并升级一个新版本"
+                                  aria-label={_ui("基于 {0} 当前图像修改", [displayShotCode(shot)])}
+                                  title={_ui("保留当前图像，基于它生成并升级一个新版本")}
                                 >
                                   <Sparkles className="h-3 w-3" />
-                                  修改这张
-                                </button>
+                                  {_ui("修改这张")}</button>
                               ) : null}
                             </div>
                           );
@@ -4428,12 +4428,12 @@ export function StoryboardReviewBoard({
                                       event.stopPropagation();
                                       onEditVideo(videoEditTarget);
                                     }}
-                                    aria-label={`播放 ${displayShotCode(shot)} ${clip.label}`}
+                                    aria-label={_ui("播放 {0} {1}", [displayShotCode(shot), clip.label])}
                                     aria-pressed={clipSelected}
                                     data-storyboard-media-selected={
                                       clipSelected
                                     }
-                                    title={`${clip.label} · ${clipSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 右键可移除`}
+                                    title={_ui("{0} · {1} · 双击编辑 · 右键可移除", [clip.label, clipSelected ? _ui("已选中") : _ui("点击选中并放大")])}
                                   >
                                     <StoryboardVideoThumbnail
                                       src={clip.videoUrl}
@@ -4451,7 +4451,7 @@ export function StoryboardReviewBoard({
                                       </span>
                                     ) : null}
                                     <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                      切片 {clipIndex + 1}
+                                      {_ui("切片")}{" "}{clipIndex + 1}
                                     </span>
                                   </button>
                                 </ContextMenu.Trigger>
@@ -4492,8 +4492,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                                     >
                                       <Copy className="h-3.5 w-3.5" />
-                                      复制视频
-                                    </ContextMenu.Item>
+                                      {_ui("复制视频")}</ContextMenu.Item>
                                     <ContextMenu.Separator className="my-1 h-px bg-border" />
                                     <ContextMenu.Item
                                       disabled={
@@ -4551,8 +4550,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                      从画面移除
-                                    </ContextMenu.Item>
+                                      {_ui("从画面移除")}</ContextMenu.Item>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4564,8 +4562,8 @@ export function StoryboardReviewBoard({
                             type="button"
                             className="order-2 flex h-[59px] min-w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm border border-dashed border-emerald-500/35 bg-emerald-500/5 px-1 text-emerald-700 transition-colors hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 dark:text-emerald-300"
                             aria-expanded={videoCandidatesExpanded}
-                            aria-label={`${displayShotCode(shot)} 待选择视频 ${unselectedPlayableTakes.length} 个`}
-                            title="这些视频仍属于当前镜头，点击展开查看"
+                            aria-label={_ui("{0} 待选择视频 {1} 个", [displayShotCode(shot), unselectedPlayableTakes.length])}
+                            title={_ui("这些视频仍属于当前镜头，点击展开查看")}
                             onClick={() =>
                               setExpandedVideoCandidatesByShot(current => ({
                                 ...current,
@@ -4576,8 +4574,8 @@ export function StoryboardReviewBoard({
                             <Video className="h-3.5 w-3.5" />
                             <span className="text-[7px] font-semibold">
                               {videoCandidatesExpanded
-                                ? "收起候选"
-                                : `待选择 ${unselectedPlayableTakes.length}`}
+                                ? _ui("收起候选")
+                                : _ui("待选择 {0}", [unselectedPlayableTakes.length])}
                             </span>
                           </button>
                         ) : null}
@@ -4691,12 +4689,12 @@ export function StoryboardReviewBoard({
                                       event.stopPropagation();
                                       onEditVideo(videoEditTarget);
                                     }}
-                                    aria-label={`播放 ${displayShotCode(shot)} Take ${take.id}`}
+                                    aria-label={_ui("播放 {0} Take {1}", [displayShotCode(shot), take.id])}
                                     aria-pressed={takeMediaSelected}
                                     data-storyboard-media-selected={
                                       takeMediaSelected
                                     }
-                                    title={`${progress.label} · Take ${take.id} · ${takeMediaSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 可拖动`}
+                                    title={_ui("{0} · Take {1} · {2} · 双击编辑 · 可拖动", [progress.label, take.id, takeMediaSelected ? _ui("已选中") : _ui("点击选中并放大")])}
                                     data-video-take-stage={progress.stage}
                                     data-video-take-id={take.id}
                                   >
@@ -4756,8 +4754,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                                     >
                                       <Copy className="h-3.5 w-3.5" />
-                                      复制视频
-                                    </ContextMenu.Item>
+                                      {_ui("复制视频")}</ContextMenu.Item>
                                     <ContextMenu.Separator className="my-1 h-px bg-border" />
                                     <ContextMenu.Item
                                       disabled={
@@ -4805,8 +4802,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                      从画面移除
-                                    </ContextMenu.Item>
+                                      {_ui("从画面移除")}</ContextMenu.Item>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4851,8 +4847,8 @@ export function StoryboardReviewBoard({
                                 );
                             }}
                             className="order-2 flex h-[59px] w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-50 dark:text-emerald-300"
-                            aria-label={`采用 ${displayShotCode(shot)} Take ${readyCandidate.id}`}
-                            title={`采用 ${mjVideoVariantLabel(readyCandidate) ?? `Take ${readyCandidate.id}`} 进入时间线`}
+                            aria-label={_ui("采用 {0} Take {1}", [displayShotCode(shot), readyCandidate.id])}
+                            title={_ui("采用 {0} 进入时间线", [mjVideoVariantLabel(readyCandidate) ?? `Take ${readyCandidate.id}`])}
                           >
                             {adoptingVideoTakeId === readyCandidate.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4860,8 +4856,7 @@ export function StoryboardReviewBoard({
                               <Check className="h-3.5 w-3.5" />
                             )}
                             <span className="text-[7px] font-semibold">
-                              采用
-                            </span>
+                              {_ui("采用")}</span>
                           </button>
                         ) : null}
                         <ContextMenu.Root>
@@ -4876,11 +4871,11 @@ export function StoryboardReviewBoard({
                                   ? "flex items-center gap-1.5 px-1"
                                   : ""
                               }`}
-                              aria-label={`${displayShotCode(shot)} 媒体空白区`}
+                              aria-label={_ui("{0} 媒体空白区", [displayShotCode(shot)])}
                               title={
                                 videoClipboardLabel
-                                  ? `右键粘贴 ${videoClipboardLabel}`
-                                  : "右键可粘贴已复制的视频"
+                                  ? _ui("右键粘贴 {0}", [videoClipboardLabel])
+                                  : _ui("右键可粘贴已复制的视频")
                               }
                             >
                               {frameImages.length === 0 &&
@@ -4894,8 +4889,7 @@ export function StoryboardReviewBoard({
                                     <ImagePlus className="h-3.5 w-3.5 shrink-0" />
                                   )}
                                   <span className="truncate">
-                                    拖入图片或视频
-                                  </span>
+                                    {_ui("拖入图片或视频")}</span>
                                 </>
                               ) : null}
                             </button>
@@ -4929,8 +4923,8 @@ export function StoryboardReviewBoard({
                                 )}
                                 <span className="min-w-0 flex-1 truncate">
                                   {videoClipboardLabel
-                                    ? "替换主视频"
-                                    : "剪贴板没有视频"}
+                                    ? _ui("替换主视频")
+                                    : _ui("剪贴板没有视频")}
                                 </span>
                               </ContextMenu.Item>
                               <ContextMenu.Item
@@ -4952,8 +4946,7 @@ export function StoryboardReviewBoard({
                               >
                                 <ClipboardPaste className="h-3.5 w-3.5" />
                                 <span className="min-w-0 flex-1 truncate">
-                                  追加为新片段
-                                </span>
+                                  {_ui("追加为新片段")}</span>
                               </ContextMenu.Item>
                               {videoClipboardLabel ? (
                                 <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
@@ -4980,10 +4973,10 @@ export function StoryboardReviewBoard({
                       }}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className="block">{row.label}</span>
+                        <span className="block">{_ui(row.label)}</span>
                         {isStoryboardVersionedField(row.field) ? (
                           <StoryboardFieldVersionSelect
-                            label={row.label}
+                            label={_ui(row.label)}
                             track={
                               storyboardFieldVersions?.tracks[row.field] ?? {
                                 currentRevision: 0,
@@ -5002,14 +4995,14 @@ export function StoryboardReviewBoard({
                               )
                                 .then(() =>
                                   toast.success(
-                                    `${row.label}已恢复到 V${revision}，并保存为新版本`
+                                    `${_ui(row.label)}已恢复到 V${revision}，并保存为新版本`
                                   )
                                 )
                                 .catch(error =>
                                   toast.error(
                                     error instanceof Error
                                       ? error.message
-                                      : `${row.label}版本恢复失败`
+                                      : `${_ui(row.label)}版本恢复失败`
                                   )
                                 )
                                 .finally(() =>
@@ -5023,7 +5016,7 @@ export function StoryboardReviewBoard({
                       </div>
                       {row.description ? (
                         <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
-                          {row.description}
+                          {_ui(row.description)}
                         </span>
                       ) : null}
                     </div>
@@ -5154,7 +5147,7 @@ export function StoryboardReviewBoard({
                               event.dataTransfer.effectAllowed = "move";
                               event.dataTransfer.setData(
                                 "text/plain",
-                                shotLabel + " " + row.label
+                                shotLabel + " " + _ui(row.label)
                               );
                             }}
                             onDragEnd={() => {
@@ -5216,7 +5209,7 @@ export function StoryboardReviewBoard({
                                       className="sr-only"
                                       htmlFor={`shot-${shot.shotNo}-duration`}
                                     >
-                                      {`${shotLabel} 视频时长（秒）`}
+                                      {_ui("{0} 视频时长（秒）", [shotLabel])}
                                     </label>
                                     <select
                                       id={`shot-${shot.shotNo}-duration`}
@@ -5248,12 +5241,12 @@ export function StoryboardReviewBoard({
                                         );
                                       }}
                                       className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                      title="本次生成时长；首尾帧支持1至8秒，普通视频支持3至8秒"
+                                      title={_ui("本次生成时长；首尾帧支持1至8秒，普通视频支持3至8秒")}
                                     >
                                       {STORYBOARD_START_END_DURATION_OPTIONS.filter(seconds => usesStartEndVideo || seconds >= 3).map(
                                         seconds => (
                                           <option key={seconds} value={seconds}>
-                                            {`${seconds} 秒`}
+                                            {_ui("{0} 秒", [seconds])}
                                           </option>
                                         )
                                       )}
@@ -5262,7 +5255,7 @@ export function StoryboardReviewBoard({
                                       className="sr-only"
                                       htmlFor={`shot-${shot.shotNo}-amplitude`}
                                     >
-                                      {`${shotLabel} 运动幅度`}
+                                      {_ui("{0} 运动幅度", [shotLabel])}
                                     </label>
                                     <select
                                       id={`shot-${shot.shotNo}-amplitude`}
@@ -5292,7 +5285,7 @@ export function StoryboardReviewBoard({
                                         );
                                       }}
                                       className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                      title="画面运动幅度；变形大的镜头选「大」"
+                                      title={_ui("画面运动幅度；变形大的镜头选「大」")}
                                     >
                                       {STORYBOARD_START_END_AMPLITUDE_OPTIONS.map(
                                         option => (
@@ -5300,7 +5293,7 @@ export function StoryboardReviewBoard({
                                             key={option.value}
                                             value={option.value}
                                           >
-                                            {`幅度 ${option.label}`}
+                                            {_ui("幅度 {0}", [_ui(option.label)])}
                                           </option>
                                         )
                                       )}
@@ -5322,11 +5315,11 @@ export function StoryboardReviewBoard({
                                         creationShot
                                       );
                                     }}
-                                    className="inline-flex min-h-10 w-full flex-col items-center justify-center gap-0.5 py-1 rounded-sm border border-border bg-background px-1 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                    aria-label={`按视频要求渲染 ${shotLabel} 视频`}
+                                    className={`inline-flex min-h-10 w-full flex-col items-center justify-center gap-0.5 py-1 rounded-sm border border-border bg-background px-1 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55 ${matrixVideoBlockReason ? "disabled:cursor-not-allowed" : "disabled:cursor-wait"}`}
+                                    aria-label={_ui("按视频要求渲染 {0} 视频", [shotLabel])}
                                     title={
-                                      matrixVideoBlockReason ??
-                                      "先保存本镜文字并确认算力消耗，再生成候选 Take"
+                                      (matrixVideoBlockReason ? _ui(matrixVideoBlockReason) : null) ??
+                                      _ui("先保存本镜文字并确认算力消耗，再生成候选 Take")
                                     }
                                   >
                                     <StoryboardVideoButtonContent
@@ -5335,6 +5328,7 @@ export function StoryboardReviewBoard({
                                       estimatedCny={matrixCostEstimate(shot).videoCny}
                                     />
                                   </button>
+                                  <StoryboardVideoBlockHint reason={matrixVideoBlockReason} />
                                 </div>
                               ) : null
                             }
@@ -5354,10 +5348,9 @@ export function StoryboardReviewBoard({
                     background: "var(--background)",
                   }}
                 >
-                  <span className="block">预计费用</span>
+                  <span className="block">{_ui("预计费用")}</span>
                   <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
-                    图片与视频预估（不含旁白及提示词整理）· 提交前确认
-                  </span>
+                    {_ui("图片与视频预估（不含旁白及提示词整理）· 提交前确认")}</span>
                 </div>
                 {hasMatrixLeadingGap ? (
                   <div
@@ -5392,8 +5385,8 @@ export function StoryboardReviewBoard({
               <Clapperboard className="h-3.5 w-3.5" />
             )}
             {isGeneratingScript
-              ? "正在写剧本并准备关键帧草稿"
-              : "还没有故事版，点“生成故事版”后会出现在这里"}
+              ? _ui("正在写剧本并准备关键帧草稿")
+              : _ui("还没有故事版，点“生成故事版”后会出现在这里")}
           </div>
         )}
       </div>
@@ -5412,11 +5405,9 @@ export function StoryboardReviewBoard({
                   id="storyboard-cover-reference-title"
                   className="text-sm font-semibold text-foreground"
                 >
-                  选择这组画面的封面风格
-                </h2>
+                  {_ui("选择这组画面的封面风格")}</h2>
                 <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  当前镜头还没有底图。选一张属于这个故事的封面候选，只作为本次静态画面的风格参考；不会自动采用正式封面，也不会改动视频。
-                </p>
+                  {_ui("当前镜头还没有底图。选一张属于这个故事的封面候选，只作为本次静态画面的风格参考；不会自动采用正式封面，也不会改动视频。")}</p>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {inheritedPublishingCoverCandidates.map(candidate => {
                     const selected =
@@ -5434,7 +5425,7 @@ export function StoryboardReviewBoard({
                           setSelectedPublishingCoverCandidateId(candidate.id)
                         }
                         aria-pressed={selected}
-                        aria-label={`选择封面候选 ${candidate.id}`}
+                        aria-label={_ui("选择封面候选 {0}", [candidate.id])}
                       >
                         <img
                           src={candidate.imageUrl}
@@ -5442,7 +5433,7 @@ export function StoryboardReviewBoard({
                           className="aspect-[3/4] w-full object-cover"
                         />
                         <span className="block truncate px-2 py-1.5 text-[10px] text-muted-foreground">
-                          候选 #{candidate.id}
+                          {_ui("候选 #")}{candidate.id}
                         </span>
                       </button>
                     );
@@ -5457,8 +5448,7 @@ export function StoryboardReviewBoard({
                       setSelectedPublishingCoverCandidateId(null);
                     }}
                   >
-                    取消
-                  </button>
+                    {_ui("取消")}</button>
                   <button
                     type="button"
                     className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-3 text-[11px] font-medium text-background transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
@@ -5466,8 +5456,7 @@ export function StoryboardReviewBoard({
                     onClick={() => void continueWithPublishingCoverCandidate()}
                   >
                     <ImagePlus className="h-3.5 w-3.5" />
-                    用作风格参考并继续
-                  </button>
+                    {_ui("用作风格参考并继续")}</button>
                 </div>
               </div>
             </div>,
@@ -5494,12 +5483,10 @@ export function StoryboardReviewBoard({
                       id="storyboard-image-edit-title"
                       className="text-sm font-semibold text-foreground"
                     >
-                      基于当前图像修改
-                    </h2>
+                      {_ui("基于当前图像修改")}</h2>
                     <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                      {imageEditDialog.label} · 图片 #{imageEditDialog.imageId}{" "}
-                      · 原图会保留，生成结果会成为新版本
-                    </p>
+                      {imageEditDialog.label} {_ui("· 图片 #")}{imageEditDialog.imageId}{" "}
+                      {_ui("· 原图会保留，生成结果会成为新版本")}</p>
                   </div>
                 </div>
                 <textarea
@@ -5517,13 +5504,12 @@ export function StoryboardReviewBoard({
                       void submitSelectedImageEdit();
                     }
                   }}
-                  placeholder="例如：保留人物和构图，把红色空间改成更深的暗红，增加压迫感。"
+                  placeholder={_ui("例如：保留人物和构图，把红色空间改成更深的暗红，增加压迫感。")}
                   className="mt-4 min-h-24 w-full resize-y rounded-md border border-border bg-muted/20 px-3 py-2 text-xs leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                   disabled={imageEditSubmitting}
                 />
                 <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                  提交前会显示费用确认；不会覆盖当前图像，也不会自动改动视频。
-                </p>
+                  {_ui("提交前会显示费用确认；不会覆盖当前图像，也不会自动改动视频。")}</p>
                 <div className="mt-4 flex justify-end gap-2">
                   <button
                     type="button"
@@ -5534,8 +5520,7 @@ export function StoryboardReviewBoard({
                     }}
                     disabled={imageEditSubmitting}
                   >
-                    取消
-                  </button>
+                    {_ui("取消")}</button>
                   {imageEditSubmitting ? (
                     <button
                       type="button"
@@ -5545,8 +5530,7 @@ export function StoryboardReviewBoard({
                         setImageEditInstruction("");
                       }}
                     >
-                      后台运行
-                    </button>
+                      {_ui("后台运行")}</button>
                   ) : null}
                   <button
                     type="button"
@@ -5561,8 +5545,7 @@ export function StoryboardReviewBoard({
                     ) : (
                       <Sparkles className="h-3.5 w-3.5" />
                     )}
-                    生成新版本
-                  </button>
+                    {_ui("生成新版本")}</button>
                 </div>
               </div>
             </div>,

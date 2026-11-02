@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ export default function PromptCellEditor({
   onApply,
   onRerender,
 }: PromptCellEditorProps) {
+  const _ui = useDesktopUiText();
   const [value, setValue] = useState(row.value);
   const [weight, setWeight] = useState(row.weight);
   const [isApplying, setIsApplying] = useState(false);
@@ -41,7 +43,7 @@ export default function PromptCellEditor({
         onChange={(event) => setValue(event.currentTarget.value)}
         disabled={disabled || isApplying}
         className="min-h-[72px] w-full resize-y rounded-md border border-input bg-background px-2.5 py-2 text-sm leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-        aria-label={`${row.label} 提示词`}
+        aria-label={_ui("{0} 提示词", [row.label])}
       />
       <label className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="w-10 tabular-nums">{Math.round(weight * 100)}%</span>
@@ -54,7 +56,7 @@ export default function PromptCellEditor({
           disabled={disabled || isApplying}
           onChange={(event) => setWeight(Number(event.currentTarget.value))}
           className="flex-1 accent-[var(--primary)]"
-          aria-label={`${row.label} 权重`}
+          aria-label={_ui("{0} 权重", [row.label])}
         />
       </label>
       <div className="flex flex-wrap gap-2">
@@ -86,8 +88,7 @@ export default function PromptCellEditor({
           onClick={() => onRerender(override)}
         >
           {rerendering ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          重渲本镜
-        </Button>
+          {_ui("重渲本镜")}</Button>
       </div>
     </div>
   );

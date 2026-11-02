@@ -1,5 +1,5 @@
 import { createSign, createVerify, generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createAlipayPagePayUrl,
   getAlipayConfig,
@@ -21,6 +21,7 @@ const config = {
   gateway: "https://openapi.alipay.com/gateway.do",
 };
 describe("Alipay PC checkout", () => {
+  afterEach(() => vi.useRealTimers());
   it("remains unavailable until every server-only credential is configured", () => {
     expect(
       getAlipayConfig({
@@ -30,6 +31,8 @@ describe("Alipay PC checkout", () => {
     ).toBeNull();
   });
   it("creates a signed server-owned payment request", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-02T13:30:00Z"));
     const url = new URL(
       createAlipayPagePayUrl({
         config,
@@ -41,6 +44,7 @@ describe("Alipay PC checkout", () => {
     );
     const parameters = Object.fromEntries(url.searchParams.entries());
     expect(parameters.app_id).toBe(config.appId);
+    expect(parameters.timestamp).toBe("2026-11-02 21:30:00");
     expect(JSON.parse(parameters.biz_content)).toMatchObject({
       total_amount: "19.90",
     });

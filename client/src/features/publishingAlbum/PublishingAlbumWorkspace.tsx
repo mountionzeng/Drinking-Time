@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Download, ImagePlus, Loader2 } from "lucide-react";
@@ -46,6 +47,7 @@ export function PublishingAlbumWorkspace({
   onBackToDraft(): void;
   onOpenCoverStudio(): void;
 }) {
+  const _ui = useDesktopUiText();
   const utils = trpc.useUtils();
   const albumQuery = trpc.publishingDraft.readAlbum.useQuery({ storyId, versionId: version.versionId }, { retry: false });
   const updateTextMut = trpc.publishingDraft.updateAlbumPageText.useMutation();
@@ -90,8 +92,8 @@ export function PublishingAlbumWorkspace({
 
   if (!album || !page) {
     return (
-      <section className="grid h-full place-items-center p-6" aria-label="画册工作区空状态">
-        <div className="text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin" /><p className="mt-2 text-sm">正在建立画册页面…</p></div>
+      <section className="grid h-full place-items-center p-6" aria-label={_ui("画册工作区空状态")}>
+        <div className="text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin" /><p className="mt-2 text-sm">{_ui("正在建立画册页面…")}</p></div>
       </section>
     );
   }
@@ -207,20 +209,20 @@ export function PublishingAlbumWorkspace({
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[var(--nayin-surface-dim)]/45" aria-label="静态画册工作区" data-story-panel="publishing-album">
+    <section className="flex h-full min-h-0 flex-col bg-[var(--nayin-surface-dim)]/45" aria-label={_ui("静态画册工作区")} data-story-panel="publishing-album">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--panel-border)] px-4 py-3">
-        <nav className="flex items-center gap-1" aria-label="发布工作区子导航">
-          <button type="button" onClick={onBackToDraft} className="rounded-lg px-3 py-2 text-xs hover:bg-muted"><ArrowLeft className="mr-1 inline h-4 w-4" />正文</button>
-          <button type="button" onClick={onOpenCoverStudio} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">编辑封面</button>
-          <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-2 text-xs font-medium">画册</span>
+        <nav className="flex items-center gap-1" aria-label={_ui("发布工作区子导航")}>
+          <button type="button" onClick={onBackToDraft} className="rounded-lg px-3 py-2 text-xs hover:bg-muted"><ArrowLeft className="mr-1 inline h-4 w-4" />{_ui("正文")}</button>
+          <button type="button" onClick={onOpenCoverStudio} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">{_ui("编辑封面")}</button>
+          <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-2 text-xs font-medium">{_ui("画册")}</span>
         </nav>
         <div className="flex gap-2">
-          <button type="button" onClick={() => void exportPages(false)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />导出本页</button>
-          <button type="button" onClick={() => void exportPages(true)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />{exportProgress ? `导出 ${exportProgress}` : "导出整册"}</button>
+          <button type="button" onClick={() => void exportPages(false)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />{_ui("导出本页")}</button>
+          <button type="button" onClick={() => void exportPages(true)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />{exportProgress ? _ui("导出 {0}", [exportProgress]) : _ui("导出整册")}</button>
         </div>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-[104px_minmax(0,1fr)]">
-        <aside className="overflow-y-auto border-r border-[var(--panel-border)] p-2" aria-label="画册页面列表">
+        <aside className="overflow-y-auto border-r border-[var(--panel-border)] p-2" aria-label={_ui("画册页面列表")}>
           {album.pages.map(candidate => {
             const selected = candidate.pageId === page.pageId;
             const asset = candidate.adoptedBackgroundAssetId ? assets.get(candidate.adoptedBackgroundAssetId) : null;
@@ -233,7 +235,7 @@ export function PublishingAlbumWorkspace({
                 className={`mb-2 w-full rounded-lg border p-1 text-left ${selected ? "border-[var(--nayin-accent)]" : "border-[var(--panel-border)]"}`}
               >
                 <div className="aspect-[3/4] overflow-hidden rounded bg-muted">{asset ? <img src={asset.imageUrl} alt="" className="h-full w-full object-cover" /> : null}</div>
-                <span className="mt-1 block text-center text-[10px]">第 {candidate.ordinal} 页{candidate.typography ? " · 已排版" : ""}</span>
+                <span className="mt-1 block text-center text-[10px]">{_ui("第")}{" "}{candidate.ordinal} {_ui("页")}{candidate.typography ? _ui(" · 已排版") : ""}</span>
               </button>
             );
           })}
@@ -252,49 +254,46 @@ export function PublishingAlbumWorkspace({
             />
             <div className="space-y-4">
               <section className="rounded-xl border border-[var(--panel-border)] bg-background/70 p-3">
-                <h2 className="text-sm font-medium">第 {page.ordinal} 页文字</h2>
+                <h2 className="text-sm font-medium">{_ui("第")}{" "}{page.ordinal} {_ui("页文字")}</h2>
                 <textarea
                   value={text}
                   onChange={event => setText(event.target.value)}
                   maxLength={2_000}
                   rows={7}
-                  aria-label={`第 ${page.ordinal} 页文字`}
+                  aria-label={_ui("第 {0} 页文字", [page.ordinal])}
                   className="mt-2 w-full resize-y rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-sm leading-6"
                 />
                 <button type="button" onClick={() => void saveText()} disabled={text === page.text || updateTextMut.isPending} className="mt-2 rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs text-[var(--background)] disabled:opacity-40">
-                  <Check className="mr-1 inline h-4 w-4" />保存文字
-                </button>
+                  <Check className="mr-1 inline h-4 w-4" />{_ui("保存文字")}</button>
               </section>
 
               <section className="rounded-xl border border-[var(--panel-border)] bg-background/70 p-3">
-                <h2 className="text-sm font-medium">无字底图</h2>
+                <h2 className="text-sm font-medium">{_ui("无字底图")}</h2>
                 {!coverAvailable ? (
                   <div className="mt-2 rounded-lg bg-amber-500/10 p-3 text-xs leading-5 text-amber-800">
-                    采用封面后可生成底图。
-                  </div>
+                    {_ui("采用封面后可生成底图。")}</div>
                 ) : null}
-                <textarea value={feedback} onChange={event => setFeedback(event.target.value)} maxLength={2_000} rows={2} placeholder="可选：这一页希望更安静、留白靠左……" className="mt-2 w-full rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs" />
+                <textarea value={feedback} onChange={event => setFeedback(event.target.value)} maxLength={2_000} rows={2} placeholder={_ui("可选：这一页希望更安静、留白靠左……")} className="mt-2 w-full rounded-lg border border-[var(--panel-border)] bg-background px-3 py-2 text-xs" />
                 {quote ? (
                   <div className="mt-2 rounded-lg border border-[var(--nayin-accent)] p-3 text-xs">
-                    {quote.candidateCount} 张底图 · 预计 {formatComputeQuote(quote.estimatedCny)}
+                    {quote.candidateCount} {_ui("张底图 · 预计")}{" "}{formatComputeQuote(quote.estimatedCny).replace(/算力$/, _ui("算力"))}
                     <div className="mt-2 flex gap-2">
-                      <button type="button" onClick={() => setQuote(null)} className="rounded px-2 py-1">取消</button>
-                      <button type="button" onClick={() => void confirmGeneration()} className="rounded bg-[var(--nayin-accent)] px-2 py-1 text-[var(--background)]">确认付费生成</button>
+                      <button type="button" onClick={() => setQuote(null)} className="rounded px-2 py-1">{_ui("取消")}</button>
+                      <button type="button" onClick={() => void confirmGeneration()} className="rounded bg-[var(--nayin-accent)] px-2 py-1 text-[var(--background)]">{_ui("确认付费生成")}</button>
                     </div>
                   </div>
                 ) : (
                   <button type="button" onClick={() => void requestQuote()} disabled={!coverAvailable || pageTextDirty || quoteMut.isPending || generateMut.isPending} className="mt-2 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40">
-                    {quoteMut.isPending || generateMut.isPending ? <Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> : <ImagePlus className="mr-1 inline h-4 w-4" />}生成底图
-                  </button>
+                    {quoteMut.isPending || generateMut.isPending ? <Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> : <ImagePlus className="mr-1 inline h-4 w-4" />}{_ui("生成底图")}</button>
                 )}
                 {page.backgroundGeneration && page.backgroundGeneration.status !== "completed" ? (
-                  <p className="mt-2 text-[11px] text-muted-foreground" role="status">任务状态：{page.backgroundGeneration.status}；已有任务编号时只恢复原任务，不会自动重提。</p>
+                  <p className="mt-2 text-[11px] text-muted-foreground" role="status">{_ui("任务状态：")}{page.backgroundGeneration.status}{_ui("；已有任务编号时只恢复原任务，不会自动重提。")}</p>
                 ) : null}
               </section>
 
               {page.backgroundRounds.length > 0 ? (
                 <section className="rounded-xl border border-[var(--panel-border)] bg-background/70 p-3">
-                  <h2 className="text-sm font-medium">底图候选</h2>
+                  <h2 className="text-sm font-medium">{_ui("底图候选")}</h2>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {page.backgroundRounds.flatMap(round => round.assetIds.map(assetId => {
                       const asset = assets.get(assetId);
@@ -302,8 +301,8 @@ export function PublishingAlbumWorkspace({
                       const flagged = round.qualityFlaggedAssetIds.includes(assetId);
                       return (
                         <button key={assetId} type="button" onClick={() => void adopt(assetId)} className="relative overflow-hidden rounded-lg border border-[var(--panel-border)] text-left">
-                          <img src={asset.imageUrl} alt={`第 ${page.ordinal} 页底图候选`} className="aspect-[3/4] w-full object-cover" />
-                          <span className="block px-2 py-1 text-[10px]">{page.adoptedBackgroundAssetId === assetId ? "已采用" : "采用这张"}{flagged ? " · 疑似含字" : ""}{round.stale ? " · 旧输入" : ""}</span>
+                          <img src={asset.imageUrl} alt={_ui("第 {0} 页底图候选", [page.ordinal])} className="aspect-[3/4] w-full object-cover" />
+                          <span className="block px-2 py-1 text-[10px]">{page.adoptedBackgroundAssetId === assetId ? _ui("已采用") : _ui("采用这张")}{flagged ? _ui(" · 疑似含字") : ""}{round.stale ? _ui(" · 旧输入") : ""}</span>
                         </button>
                       );
                     }))}

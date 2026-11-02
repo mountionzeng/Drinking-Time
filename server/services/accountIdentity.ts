@@ -252,7 +252,7 @@ export async function ensureWechatRegistrationGift(
     userId,
     amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
-    oncePerAccountPrefix: "wechat-registration-gift:",
+    oncePerAccountPrefixes: ["wechat-registration-gift:", "web-login-gift:"],
     reason: "账号首次登录赠送 5 算力",
     enableAccess: true,
   });

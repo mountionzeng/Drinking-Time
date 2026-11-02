@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 
+import { getUserById, upsertUser } from "../repositories/users";
 import { ENV } from "../_core/env";
 import {
   consumeConfirmedWebLogin,
@@ -68,6 +69,8 @@ export async function createWebLoginRequest(input: {
   userAgent?: string;
   /** 已登录用户发起「绑定微信」时传入；登录模式为 undefined。 */
   bindUserId?: number;
+  /** QR scenes carry a separate 112-bit confirmation token, never L or V. */
+  qr?: boolean;
   now?: Date;
 }): Promise<CreateWebLoginResult> {
   if (!secret().trim()) return { outcome: "not_configured" };
@@ -81,7 +84,7 @@ export async function createWebLoginRequest(input: {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const l = randomBytes(32).toString("base64url");
     const v = randomBytes(32).toString("base64url");
-    const code = generatePairingCode();
+    const code = input.qr ? randomBytes(14).toString("hex").toUpperCase() : generatePairingCode();
     const expiresAt = new Date(now.getTime() + WEB_LOGIN_TTL_MS);
     const inserted = await insertWebLoginRequest({
       lookupHash: digest("lookup", l),
@@ -145,6 +148,7 @@ export async function confirmWebLoginBySubject(input: {
   subject: string;
   code: string;
   decision: ConfirmDecision;
+  displayName?: string;
   now?: Date;
 }): Promise<ConfirmWebLoginResult> {
   if (!secret().trim()) return { outcome: "not_configured" };
@@ -159,7 +163,7 @@ export async function confirmWebLoginBySubject(input: {
   }
 
   const normalized = normalizePairingCode(input.code);
-  if (normalized.length !== PAIRING_CODE_LENGTH) return { outcome: "invalid" };
+  if (normalized.length !== PAIRING_CODE_LENGTH && !/^[A-F0-9]{28}$/.test(normalized)) return { outcome: "invalid" };
   const row = await findOpenWebLoginByCode(digest("code", normalized), now);
   if (!row) return { outcome: "invalid" };
 
@@ -181,5 +185,14 @@ export async function confirmWebLoginBySubject(input: {
     return { outcome };
   }
   const userId = await resolveWechatAccount(input.subject);
+  const name = input.displayName?.trim();
+  if (name && Array.from(name).length <= 8) {
+    // Only the signed cloud bridge supplies this profile. Never rename a linked
+    // email account, and do not make optional profile sync block authentication.
+    try {
+      const user = await getUserById(userId);
+      if (user?.loginMethod === "wechat") await upsertUser({ openId: user.openId, name });
+    } catch { console.warn("[web-login] profile sync unavailable"); }
+  }
   return (await decideWebLogin({ id: row.id, status: "confirmed", userId, now })) ? { outcome: "confirmed" } : { outcome: "invalid" };
 }

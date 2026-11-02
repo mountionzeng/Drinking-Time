@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { prepareBookForVideo } from "@/features/bookVideo/bookPreparation";
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
 import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
@@ -327,6 +328,7 @@ export default function PublishingDraftWorkspace({
   createRequest?: StudioCreateRequest | null;
   onCreateRequestHandled?: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const {
     activeStoryId,
     publishing,
@@ -1181,7 +1183,7 @@ export default function PublishingDraftWorkspace({
       });
       if (result.status === "confirmation_required") {
         toast.error(
-          `费用预估已变化，请重新确认${formatComputeQuote(result.estimate.estimatedCny)}`
+          `费用预估已变化，请重新确认${formatComputeQuote(result.estimate.estimatedCny).replace(/算力$/, _ui("算力"))}`
         );
         return;
       }
@@ -1611,13 +1613,12 @@ export default function PublishingDraftWorkspace({
     return (
       <section
         className="flex h-full items-center justify-center px-8"
-        aria-label="文字稿空状态"
+        aria-label={_ui("文字稿空状态")}
       >
         <div className="max-w-sm text-center">
           <MessageCircleMore className="mx-auto h-8 w-8 text-[var(--nayin-accent)]" />
           <h2 className="font-chat-brand mt-4 text-xl text-foreground">
-            先从左侧打开一个故事
-          </h2>
+            {_ui("先从左侧打开一个故事")}</h2>
         </div>
       </section>
     );
@@ -1718,7 +1719,7 @@ export default function PublishingDraftWorkspace({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       className="h-full overflow-y-auto bg-[var(--nayin-surface-dim)]/45 p-3 sm:p-5"
-      aria-label={view === "images" ? "图像工作区" : "书工作区"}
+      aria-label={view === "images" ? _ui("图像工作区") : _ui("书工作区")}
       data-story-panel="publishing-draft"
     >
       <div className={`mx-auto flex min-h-full flex-col ${view === "images" ? "w-full" : "max-w-5xl"}`}>
@@ -1731,8 +1732,7 @@ export default function PublishingDraftWorkspace({
               }
               className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
             >
-              文字历史
-            </button> : null}
+              {_ui("文字历史")}</button> : null}
             {legacyPublishingControlsVisible ? <PublishingVersionControls
               versions={finishedProduct?.versions ?? []}
               purpose={finishedProductPurpose}
@@ -1797,11 +1797,11 @@ export default function PublishingDraftWorkspace({
                       value={tab}
                       className="shrink-0 rounded-none border-b-2 border-x-0 border-t-0 bg-transparent px-3 pb-2 text-xs shadow-none data-[state=active]:border-[var(--nayin-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     >
-                      {PUBLISHING_PLATFORM_REGISTRY[tab].label}
+                      {_ui(PUBLISHING_PLATFORM_REGISTRY[tab].label)}
                       {publishing.drafts[tab]?.needsReview ? (
                         <span
                           className="h-1.5 w-1.5 rounded-full bg-rose-500"
-                          aria-label="建议复核"
+                          aria-label={_ui("建议复核")}
                         />
                       ) : null}
                     </TabsTrigger>
@@ -1810,16 +1810,14 @@ export default function PublishingDraftWorkspace({
               </Tabs>
             ) : (
               <div className="pb-3 text-[11px] text-muted-foreground">
-                尚未生成任何平台版本
-              </div>
+                {_ui("尚未生成任何平台版本")}</div>
             )}
           </div> : null}
 
-          {!editorContent && (view === "images" || unifiedChapters) ? (
+          {!editorContent && (view === "images" || (unifiedChapters && activeStoryId > 0)) ? (
             <div className="p-4">
               <p hidden={unifiedChapters} className="mb-4 text-xs text-muted-foreground">
-                先整理图片，也可以直接加入排版，再添加文字。
-                <button type="button" className="ml-2 underline" onClick={onOpenWriting}>去写文案</button>
+                {_ui("先整理图片，也可以直接加入排版，再添加文字。")}<button type="button" className="ml-2 underline" onClick={onOpenWriting}>{_ui("去写文案")}</button>
               </p>
               <PublishingImagePack
                 workspaceMode={view === "text" ? "text" : "images"}
@@ -1838,7 +1836,7 @@ export default function PublishingDraftWorkspace({
               {!publishing.core && (
                 <button
                   type="button"
-                  aria-label="开始手写文稿"
+                  aria-label={_ui("开始手写文稿")}
                   aria-busy={startingBody}
                   disabled={busy}
                   onClick={() => void startBlankBody()}
@@ -1851,10 +1849,10 @@ export default function PublishingDraftWorkspace({
                 </div>
                 <h2 className="font-chat-brand mt-5 text-2xl text-foreground">
                   {publishing.core
-                    ? `把现有内容转为 ${adapter.label}`
-                    : startingBody ? "正在准备…" : "点击这里，开始写文稿"}
+                    ? _ui("把现有内容转为 {0}", [adapter.label])
+                    : startingBody ? _ui("正在准备…") : _ui("点击这里，开始写文稿")}
                 </h2>
-                {!publishing.core && <p className="mt-3 text-sm text-muted-foreground">写下的内容会成为左侧聊天的上下文</p>}
+                {!publishing.core && <p className="mt-3 text-sm text-muted-foreground">{_ui("写下的内容会成为左侧聊天的上下文")}</p>}
                 {publishing.core ? <div className="mt-4">
                 <ActionButton
                   onClick={() => void generateOrConvert()}
@@ -1867,8 +1865,8 @@ export default function PublishingDraftWorkspace({
                     <Sparkles className="h-4 w-4" />
                   )}
                   {publishing.core
-                    ? `转为 ${adapter.label}`
-                    : `生成 ${adapter.label} 文字稿`}
+                    ? _ui("转为 {0}", [adapter.label])
+                    : _ui("生成 {0} 文字稿", [adapter.label])}
                 </ActionButton>
                 </div> : null}
               </div>
@@ -1876,7 +1874,7 @@ export default function PublishingDraftWorkspace({
           ) : (
             <div ref={articleTopRef} className="flex min-h-0 flex-1 flex-col">
               <header
-                aria-label="文稿操作"
+                aria-label={_ui("文稿操作")}
                 className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"
                 style={{ borderColor: "var(--panel-border)", display: unifiedChapters || view === "images" ? "none" : undefined }}
               >
@@ -1892,7 +1890,7 @@ export default function PublishingDraftWorkspace({
                       ) : (
                         <Check className="h-4 w-4" aria-hidden="true" />
                       )}
-                      {saving ? "正在保存…" : "保存"}
+                      {saving ? _ui("正在保存…") : _ui("保存")}
                     </ActionButton>
                   ) : draft ? (
                     <span
@@ -1900,21 +1898,18 @@ export default function PublishingDraftWorkspace({
                       role="status"
                     >
                       <Check className="h-4 w-4" aria-hidden="true" />
-                      已保存
-                    </span>
+                      {_ui("已保存")}</span>
                   ) : null}
                   <ActionButton
                     onClick={() => void copyText()}
                     disabled={busy || Boolean(contentError)}
                   >
                     <Clipboard className="h-4 w-4" />
-                    复制文案
-                  </ActionButton>
+                    {_ui("复制文案")}</ActionButton>
                   {dirty ? (
                     <ActionButton onClick={discardChanges} disabled={busy}>
                       <Undo2 className="h-4 w-4" />
-                      放弃修改
-                    </ActionButton>
+                      {_ui("放弃修改")}</ActionButton>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">
@@ -1922,12 +1917,12 @@ export default function PublishingDraftWorkspace({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        aria-label="打开文字版本历史"
+                        aria-label={_ui("打开文字版本历史")}
                         className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
                       >
-                        {previewVersion ? "文字历史 · 新版本 · 待保存" : draft
-                          ? "文字历史"
-                          : "文字历史 · 待采用"}
+                        {previewVersion ? _ui("文字历史 · 新版本 · 待保存") : draft
+                          ? _ui("文字历史")
+                          : _ui("文字历史 · 待采用")}
                         <ChevronDown className="h-3 w-3" aria-hidden="true" />
                       </button>
                     </PopoverTrigger>
@@ -1936,7 +1931,7 @@ export default function PublishingDraftWorkspace({
                       className="w-[min(24rem,calc(100vw-2rem))] p-2"
                     >
                       <div className="px-2 pb-2 pt-1">
-                        <p className="text-xs font-medium">文字版本</p>
+                        <p className="text-xs font-medium">{_ui("文字版本")}</p>
                       </div>
                       {textDraftVersions.length ? (
                         <div className="max-h-72 space-y-1 overflow-y-auto">
@@ -1948,9 +1943,9 @@ export default function PublishingDraftWorkspace({
                               className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
                             >
                               <span className="flex items-center justify-between gap-2 text-xs font-medium">
-                                <span>文字 {version.sequence}</span>
+                                <span>{_ui("文字")}{" "}{version.sequence}</span>
                                 <span className="font-normal text-muted-foreground">
-                                  {version.adoption ? "已采用" : "未采用"}
+                                  {version.adoption ? _ui("已采用") : _ui("未采用")}
                                 </span>
                               </span>
                               <span className="mt-0.5 block text-[10px] text-muted-foreground">
@@ -1961,7 +1956,7 @@ export default function PublishingDraftWorkspace({
                                   key={message.id}
                                   className="mt-1 block truncate text-[10px] leading-4 text-muted-foreground"
                                 >
-                                  {message.role === "assistant" ? "助手整理：" : "你的补充："}
+                                  {message.role === "assistant" ? _ui("助手整理：") : _ui("你的补充：")}
                                   {message.content}
                                 </span>
                               ))}
@@ -1970,23 +1965,20 @@ export default function PublishingDraftWorkspace({
                         </div>
                       ) : (
                         <p className="px-2 py-3 text-[11px] text-muted-foreground">
-                          还没有可查看的文字历史。
-                        </p>
+                          {_ui("还没有可查看的文字历史。")}</p>
                       )}
                       <button
                         type="button"
                         onClick={() => openTextDraftHistory()}
                         className="mt-1 w-full rounded-md px-2 py-2 text-left text-[11px] font-medium text-[var(--nayin-accent)] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
                       >
-                        查看全部文字历史
-                      </button>
+                        {_ui("查看全部文字历史")}</button>
                     </PopoverContent>
                   </Popover>
                   {draft?.needsReview ? (
                     <span className="inline-flex items-center gap-1 text-[10px] text-rose-700">
                       <RefreshCcw className="h-3 w-3" />
-                      内核已变化，建议复核
-                    </span>
+                      {_ui("内核已变化，建议复核")}</span>
                   ) : null}
                 </div>
               </header>
@@ -2008,16 +2000,14 @@ export default function PublishingDraftWorkspace({
                 <div className={unifiedChapters || view === "images" ? "hidden" : "flex flex-1 flex-col"} data-publishing-surface="text">
                 {legacyPublishingControlsVisible ? <section
                   className="mb-7 border-b border-[var(--panel-border)] pb-5"
-                  aria-label="按要求重写文案"
+                  aria-label={_ui("按要求重写文案")}
                 >
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div>
                       <p className="font-chat-brand text-base text-foreground">
-                        这版不对？直接告诉我
-                      </p>
+                        {_ui("这版不对？直接告诉我")}</p>
                       <p className="mt-1 text-[11px] text-muted-foreground">
-                        先生成改写预览，不会直接保存，也不会自动改变你的核心观点。
-                      </p>
+                        {_ui("先生成改写预览，不会直接保存，也不会自动改变你的核心观点。")}</p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <button
@@ -2030,8 +2020,7 @@ export default function PublishingDraftWorkspace({
                         disabled={busy}
                         className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                       >
-                        少点矫情
-                      </button>
+                        {_ui("少点矫情")}</button>
                       <button
                         type="button"
                         onClick={() =>
@@ -2042,8 +2031,7 @@ export default function PublishingDraftWorkspace({
                         disabled={busy}
                         className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                       >
-                        更短更直接
-                      </button>
+                        {_ui("更短更直接")}</button>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -2055,8 +2043,8 @@ export default function PublishingDraftWorkspace({
                       disabled={busy}
                       maxLength={2_000}
                       rows={2}
-                      aria-label="告诉我怎么重写这篇文案"
-                      placeholder="例如：太矫情了，改得克制直接一点，少用比喻，保留我的判断。"
+                      aria-label={_ui("告诉我怎么重写这篇文案")}
+                      placeholder={_ui("例如：太矫情了，改得克制直接一点，少用比喻，保留我的判断。")}
                       className="min-h-[68px] flex-1 resize-y rounded-lg border border-[var(--panel-border)] bg-[var(--nayin-surface)]/45 px-3 py-2 text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
                     />
                     <ActionButton
@@ -2068,8 +2056,7 @@ export default function PublishingDraftWorkspace({
                       ) : (
                         <RefreshCcw className="h-4 w-4" />
                       )}
-                      只修格式
-                    </ActionButton>
+                      {_ui("只修格式")}</ActionButton>
                     <ActionButton
                       onClick={() => void rewriteDraft()}
                       disabled={
@@ -2084,24 +2071,20 @@ export default function PublishingDraftWorkspace({
                       ) : (
                         <MessageCircleMore className="h-4 w-4" />
                       )}
-                      按要求重写
-                    </ActionButton>
+                      {_ui("按要求重写")}</ActionButton>
                   </div>
                 </section> : null}
 
                 {platform === "x" ? (
                   <div className="rounded-md bg-[var(--nayin-surface)] px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                    X 不使用独立标题。长内容请用空行拆成
-                    thread，复制时会自动逐条编号。
-                  </div>
+                    {_ui("X 不使用独立标题。长内容请用空行拆成 thread，复制时会自动逐条编号。")}</div>
                 ) : (
                   <>
                     <label
                       className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                       htmlFor="publishing-title"
                     >
-                      标题
-                    </label>
+                      {_ui("标题")}</label>
                     <input
                       id="publishing-title"
                       disabled={adoptTextMut.isPending}
@@ -2114,7 +2097,7 @@ export default function PublishingDraftWorkspace({
                       }
                       className="font-chat-brand mt-2 border-0 border-b bg-transparent px-0 pb-3 text-2xl text-foreground outline-none transition-colors focus:border-[var(--nayin-accent)]"
                       style={{ borderColor: "var(--panel-border)" }}
-                      placeholder="标题（可留空）"
+                      placeholder={_ui("标题（可留空）")}
                     />
                   </>
                 )}
@@ -2124,8 +2107,7 @@ export default function PublishingDraftWorkspace({
                     className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                     htmlFor="publishing-body"
                   >
-                    正文
-                  </label>
+                    {_ui("正文")}</label>
                   {!unifiedChapters && active && view !== "images" && <DesktopWritingContext
                     key={`${activeStoryId}:${versionId}:${platform}:${previewVersion?.id ?? "current"}`}
                     storyId={activeStoryId!}
@@ -2146,7 +2128,7 @@ export default function PublishingDraftWorkspace({
                       className={`text-[10px] ${contentError ? "text-rose-700" : "text-muted-foreground"}`}
                       role="status"
                     >
-                      {xThreadStats.postCount} 条 thread · 最长{" "}
+                      {xThreadStats.postCount} {_ui("条 thread · 最长")}{" "}
                       {xThreadStats.maxWeightedLength}/280
                     </span>
                   ) : null}
@@ -2168,7 +2150,7 @@ export default function PublishingDraftWorkspace({
                     })
                   }
                   className="mt-2 min-h-[280px] flex-1 resize-y border-0 bg-transparent p-0 text-[15px] leading-8 text-foreground outline-none"
-                  placeholder="你的正文会出现在这里…"
+                  placeholder={_ui("你的正文会出现在这里…")}
                 />
                 {contentError ? (
                   <p className="mt-2 text-[11px] text-rose-700">
@@ -2180,8 +2162,7 @@ export default function PublishingDraftWorkspace({
                   className="mt-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                   htmlFor="publishing-tags"
                 >
-                  话题标签
-                </label>
+                  {_ui("话题标签")}</label>
                 <input
                   id="publishing-tags"
                   disabled={adoptTextMut.isPending}
@@ -2196,23 +2177,21 @@ export default function PublishingDraftWorkspace({
                   }
                   className="mt-2 rounded-md border bg-transparent px-3 py-2 text-xs text-muted-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/20"
                   style={{ borderColor: "var(--panel-border)" }}
-                  placeholder="#话题（可选）"
+                  placeholder={_ui("#话题（可选）")}
                 />
 
                 {view !== "images" ? (
                   <div className="mt-6 flex justify-end gap-2">
                     {onOpenImages && editorContent.body.trim() ? <ActionButton onClick={onOpenImages} primary>
                       <ImagePlus className="h-4 w-4" aria-hidden="true" />
-                      配图
-                    </ActionButton> : null}
+                      {_ui("配图")}</ActionButton> : null}
                   </div>
                 ) : null}
 
                 </div>
                 <div hidden={!unifiedChapters && view === "text"} data-publishing-surface="images">
                 {dirty && <p className="mt-5 text-xs text-muted-foreground" role="status">
-                  正文有未保存的修改，保存后即可生成图片。
-                  <button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>保存正文</button>
+                  {_ui("正文有未保存的修改，保存后即可生成图片。")}<button type="button" className="ml-2 underline underline-offset-4 text-[var(--nayin-accent)]" disabled={busy || Boolean(contentError)} onClick={() => void applyChanges()}>{_ui("保存正文")}</button>
                 </p>}
                 <PublishingImagePack
                   workspaceMode={view === "text" ? "text" : "images"}
@@ -2228,7 +2207,7 @@ export default function PublishingDraftWorkspace({
                   title={editorContent.title || storyTitle || ""}
                   body={editorContent.body}
                   assets={[
-                    ...(coverAsset ? [{ id: coverAsset.id, imageUrl: coverAsset.imageUrl, label: "正式封面" }] : []),
+                    ...(coverAsset ? [{ id: coverAsset.id, imageUrl: coverAsset.imageUrl, label: _ui("正式封面") }] : []),
                     ...coverRounds.flatMap((round, index) => round.candidates.map((asset, ordinal) => ({
                       id: asset.id, imageUrl: asset.imageUrl, label: `${round.outputKind === "body-texture" ? "花纹底图" : round.outputKind === "illustration" ? "横版插图" : "第"} ${index + 1} 轮 · ${ordinal + 1}`,
                       kind: round.outputKind, parentAssetId: round.parentAssetId,
@@ -2278,8 +2257,7 @@ export default function PublishingDraftWorkspace({
                     disabled={busy || coverBusy}
                   >
                     <Download className="h-4 w-4" />
-                    下载原封面
-                  </ActionButton>
+                    {_ui("下载原封面")}</ActionButton>
                 ) : null}
                 {view !== "images" && targetOptions.map(target => (
                   <ActionButton
@@ -2287,7 +2265,7 @@ export default function PublishingDraftWorkspace({
                     onClick={() => void convertTo(target.id)}
                     disabled={busy || dirty}
                   >
-                    一键转为 {target.label}
+                    {_ui("一键转为")}{" "}{_ui(target.label)}
                   </ActionButton>
                 ))}
                 <div className={view === "text" ? "hidden" : "ml-auto flex flex-wrap items-center justify-end gap-2"} aria-live="polite">
@@ -2299,12 +2277,10 @@ export default function PublishingDraftWorkspace({
                     {videoPreparing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        正在生成故事版…
-                      </>
+                        {_ui("正在生成故事版…")}</>
                     ) : (
                       <>
-                        进入视频制作
-                        <ArrowRight className="h-4 w-4" />
+                        {_ui("进入视频制作")}<ArrowRight className="h-4 w-4" />
                       </>
                     )}
                   </ActionButton>
@@ -2323,8 +2299,7 @@ export default function PublishingDraftWorkspace({
                 />
                 {!unifiedChapters && <ActionButton onClick={() => setShareOpen(true)}>
                   <Link2 className="h-4 w-4" />
-                  分享链接
-                </ActionButton>}
+                  {_ui("分享链接")}</ActionButton>}
               </div>
             ) : null}
           </div>
@@ -2335,23 +2310,22 @@ export default function PublishingDraftWorkspace({
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {selectedNarrativeSpec === "album9" ? "制作画册" : "制作视频"}
+              {selectedNarrativeSpec === "album9" ? _ui("制作画册") : _ui("制作视频")}
             </DialogTitle>
             <DialogDescription>
               {selectedNarrativeSpec === "album9"
-                ? "新建画册，文字可编辑。"
-                : "新建故事版，保留已有内容。"}
+                ? _ui("新建画册，文字可编辑。")
+                : _ui("新建故事版，保留已有内容。")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-1">
             <fieldset className="space-y-2">
               <legend className="text-xs font-medium text-foreground">
-                成片形态
-              </legend>
+                {_ui("成片形态")}</legend>
               <div
                 className="grid grid-cols-2 gap-2"
                 role="radiogroup"
-                aria-label="成片形态"
+                aria-label={_ui("成片形态")}
               >
                 {NARRATIVE_SPEC_IDS.map(spec => {
                   const selected = selectedNarrativeSpec === spec;
@@ -2378,8 +2352,8 @@ export default function PublishingDraftWorkspace({
                       </span>
                       <span className="mt-1 block text-[10px] text-muted-foreground">
                         {spec === "album9"
-                          ? "适合只看画面的故事"
-                          : "按整片预算分配镜头"}
+                          ? _ui("适合只看画面的故事")
+                          : _ui("按整片预算分配镜头")}
                       </span>
                     </button>
                   );
@@ -2392,8 +2366,7 @@ export default function PublishingDraftWorkspace({
               onClick={() => setVideoSetupOpen(false)}
               disabled={busy || videoPreparing}
             >
-              取消
-            </ActionButton>
+              {_ui("取消")}</ActionButton>
             <ActionButton
               onClick={confirmVideoSetup}
               disabled={busy || videoPreparing}
@@ -2404,7 +2377,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <ArrowRight className="h-4 w-4" />
               )}
-              {selectedNarrativeSpec === "album9" ? "生成画册" : "生成故事版"}
+              {selectedNarrativeSpec === "album9" ? _ui("生成画册") : _ui("生成故事版")}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
@@ -2423,14 +2396,12 @@ export default function PublishingDraftWorkspace({
               <div className="flex flex-wrap items-start justify-between gap-3 pr-7">
                 <div>
                   <DialogTitle className="font-chat-brand text-xl">
-                    编辑封面
-                  </DialogTitle>
+                    {_ui("编辑封面")}</DialogTitle>
                   <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
-                    选图后可修改或设为封面。
-                  </DialogDescription>
+                    {_ui("选图后可修改或设为封面。")}</DialogDescription>
                 </div>
                 <div className="rounded-full border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-3 py-1.5 text-[10px] text-muted-foreground">
-                  每轮 4 张 · {formatComputeQuote(coverEstimate.estimatedCny)}
+                  {_ui("每轮 4 张 ·")}{" "}{formatComputeQuote(coverEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
                 </div>
               </div>
             </div>
@@ -2441,13 +2412,12 @@ export default function PublishingDraftWorkspace({
               <div className="flex items-center gap-3 rounded-xl border border-emerald-600/15 bg-emerald-500/[0.06] p-3">
                 <img
                   src={coverAsset.imageUrl}
-                  alt="目前使用中的正式封面"
+                  alt={_ui("目前使用中的正式封面")}
                   className="h-14 w-11 rounded-md object-cover"
                 />
                 <div>
                   <p className="text-xs font-medium text-foreground">
-                    当前封面
-                  </p>
+                    {_ui("当前封面")}</p>
                 </div>
               </div>
             ) : null}
@@ -2455,7 +2425,7 @@ export default function PublishingDraftWorkspace({
             {studioCoverRounds.length > 0 ? (
               <div
                 className="flex gap-2 overflow-x-auto pb-1"
-                aria-label="封面候选轮次"
+                aria-label={_ui("封面候选轮次")}
               >
                 {studioCoverRounds.map((round, index) => {
                   const active = round.id === activeCoverRound?.id;
@@ -2476,8 +2446,7 @@ export default function PublishingDraftWorkspace({
                           : "border-[var(--panel-border)] text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      第 {index + 1} 轮
-                    </button>
+                      {_ui("第")}{" "}{index + 1} {_ui("轮")}</button>
                   );
                 })}
               </div>
@@ -2487,17 +2456,16 @@ export default function PublishingDraftWorkspace({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                    候选封面
-                  </p>
+                    {_ui("候选封面")}</p>
                   <p className="text-[10px] text-muted-foreground">
                     {activeCoverRound.parentAssetId
-                      ? "修改版"
-                      : "新一轮"}
+                      ? _ui("修改版")
+                      : _ui("新一轮")}
                   </p>
                 </div>
                 <div
                   role="radiogroup"
-                  aria-label="本轮封面候选"
+                  aria-label={_ui("本轮封面候选")}
                   className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4"
                 >
                   {activeCoverRound.candidates.map((candidate, index) => {
@@ -2511,7 +2479,7 @@ export default function PublishingDraftWorkspace({
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        aria-label={`选择第 ${index + 1} 张封面候选`}
+                        aria-label={_ui("选择第 {0} 张封面候选", [index + 1])}
                         disabled={coverBusy}
                         onClick={() =>
                           setSelectedCoverAssetId(
@@ -2526,7 +2494,7 @@ export default function PublishingDraftWorkspace({
                       >
                         <img
                           src={candidate.imageUrl}
-                          alt={`第 ${index + 1} 张封面候选`}
+                          alt={_ui("第 {0} 张封面候选", [index + 1])}
                           className="aspect-[3/4] w-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
                         />
                         <span className="absolute left-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-black/55 px-1.5 text-[10px] font-medium text-white backdrop-blur-sm">
@@ -2538,36 +2506,33 @@ export default function PublishingDraftWorkspace({
                         </span>
                         {flagged ? (
                           <span
-                            title="像素质检怀疑这张有文字、Logo 或水印，仅作提示，你仍然可以采用"
+                            title={_ui("像素质检怀疑这张有文字、Logo 或水印，仅作提示，你仍然可以采用")}
                             className="absolute right-2 top-2 rounded-full bg-amber-500/90 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
                           >
-                            疑似文字
-                          </span>
+                            {_ui("疑似文字")}</span>
                         ) : null}
                       </button>
                     );
                   })}
                 </div>
                 {activeCoverRound.qualityCheckPendingUntil ? (
-                  <p role="status" className="mt-2 text-[11px] leading-5 text-amber-700">质检中 · 可选图</p>
+                  <p role="status" className="mt-2 text-[11px] leading-5 text-amber-700">{_ui("质检中 · 可选图")}</p>
                 ) : activeCoverRound.qualityCheckUnavailable ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    质检未完成，请检查文字与水印。
-                  </p>
+                    {_ui("质检未完成，请检查文字与水印。")}</p>
                 ) : (activeCoverRound.qualityFlaggedAssetIds?.length ?? 0) >
                   0 ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    {`${activeCoverRound.qualityFlaggedAssetIds!.length} 张疑似含字或水印，仍可采用。`}
+                    {_ui("{0} 张疑似含字或水印，仍可采用。", [activeCoverRound.qualityFlaggedAssetIds!.length])}
                   </p>
                 ) : (activeCoverRound.qualityRejectedCount ?? 0) > 0 ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                    {`旧轮次有 ${activeCoverRound.qualityRejectedCount} 张含字图片未保留。`}
+                    {_ui("旧轮次有 {0} 张含字图片未保留。", [activeCoverRound.qualityRejectedCount])}
                   </p>
                 ) : activeCoverRound.candidates.length !==
                   activeCoverRound.assetIds.length ? (
                   <p className="mt-2 text-[11px] text-rose-700">
-                    部分图片暂不可用。
-                  </p>
+                    {_ui("部分图片暂不可用。")}</p>
                 ) : null}
               </div>
             ) : (
@@ -2576,8 +2541,7 @@ export default function PublishingDraftWorkspace({
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <p className="font-chat-brand mt-3 text-base text-foreground">
-                  暂无候选封面
-                </p>
+                  {_ui("暂无候选封面")}</p>
               </div>
             )}
 
@@ -2585,11 +2549,9 @@ export default function PublishingDraftWorkspace({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                    风格参考图（可选）
-                  </p>
+                    {_ui("风格参考图（可选）")}</p>
                   <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                    仅参考画风，不复制人物和内容。
-                  </p>
+                    {_ui("仅参考画风，不复制人物和内容。")}</p>
                 </div>
                 <button
                   type="button"
@@ -2602,7 +2564,7 @@ export default function PublishingDraftWorkspace({
                   ) : (
                     <ImagePlus className="h-3.5 w-3.5" />
                   )}
-                  {coverArtReference ? "更换参考图" : "上传参考图"}
+                  {coverArtReference ? _ui("更换参考图") : _ui("上传参考图")}
                 </button>
                 <input
                   ref={coverReferenceInputRef}
@@ -2644,7 +2606,7 @@ export default function PublishingDraftWorkspace({
                         setCoverReferencePreview(null);
                       }}
                       disabled={coverBusy}
-                      aria-label="移除封面美术参考图"
+                      aria-label={_ui("移除封面美术参考图")}
                       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-rose-500/10 hover:text-rose-700 disabled:opacity-50"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -2656,14 +2618,14 @@ export default function PublishingDraftWorkspace({
                         key={field.key}
                         className="grid grid-cols-[40px_1fr] items-center gap-2 text-[9px] font-medium text-muted-foreground"
                       >
-                        <span>{field.label}</span>
+                        <span>{_ui(field.label)}</span>
                         <input
                           value={coverArtReference[field.key].join("、")}
                           onChange={event =>
                             updateCoverArtDna(field.key, event.target.value)
                           }
                           disabled={coverBusy}
-                          placeholder={field.placeholder}
+                          placeholder={_ui(field.placeholder)}
                           className="h-8 min-w-0 rounded-md border border-[var(--panel-border)] bg-[var(--background)] px-2 text-[10px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
                         />
                       </label>
@@ -2678,8 +2640,7 @@ export default function PublishingDraftWorkspace({
                 htmlFor="publishing-cover-feedback"
                 className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground"
               >
-                本轮要求
-              </label>
+                {_ui("本轮要求")}</label>
               <textarea
                 id="publishing-cover-feedback"
                 value={coverFeedback}
@@ -2690,15 +2651,14 @@ export default function PublishingDraftWorkspace({
                 className="mt-2 w-full resize-none rounded-lg border border-[var(--panel-border)] bg-[var(--background)] px-3 py-2.5 text-xs leading-5 text-foreground outline-none transition-shadow placeholder:text-muted-foreground/65 focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
                 placeholder={
                   selectedCoverAsset
-                    ? "例如：去掉画面里的字体，让人物更小、机器更压迫……"
-                    : "例如：不要海报感，不要任何文字；让空间更陌生，材质更有想象力。"
+                    ? _ui("例如：去掉画面里的字体，让人物更小、机器更压迫……")
+                    : _ui("例如：不要海报感，不要任何文字；让空间更陌生，材质更有想象力。")
                 }
               />
               {coverInstructions.length > 0 ? (
                 <div className="mt-2.5">
                   <p className="text-[9px] font-medium text-muted-foreground">
-                    持续要求
-                  </p>
+                    {_ui("持续要求")}</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {coverInstructions.map((instruction, index) => (
                       <span
@@ -2716,7 +2676,7 @@ export default function PublishingDraftWorkspace({
                             )
                           }
                           disabled={coverBusy}
-                          aria-label={`持续要求 ${index + 1}`}
+                          aria-label={_ui("持续要求 {0}", [index + 1])}
                           className="min-w-[72px] max-w-[260px] bg-transparent outline-none disabled:opacity-60"
                           style={{
                             width: `${Math.min(30, Math.max(8, instruction.length + 1))}ch`,
@@ -2726,7 +2686,7 @@ export default function PublishingDraftWorkspace({
                           type="button"
                           onClick={() => removeCoverInstruction(index)}
                           disabled={coverBusy}
-                          aria-label={`不再参考：${instruction}`}
+                          aria-label={_ui("不再参考：{0}", [instruction])}
                           className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-rose-500/10 hover:text-rose-700 disabled:opacity-50"
                         >
                           <X className="h-3 w-3" />
@@ -2754,8 +2714,7 @@ export default function PublishingDraftWorkspace({
               disabled={coverBusy}
               className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
-              关闭
-            </button>
+              {_ui("关闭")}</button>
             <ActionButton
               onClick={() => void generateCover("fresh")}
               disabled={coverBusy}
@@ -2766,8 +2725,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <RefreshCcw className="h-4 w-4" />
               )}
-              {studioCoverRounds.length > 0 ? "重新生成" : "生成"} 4 张 ·
-              {formatComputeQuote(coverEstimate.estimatedCny)}
+              {studioCoverRounds.length > 0 ? _ui("重新生成") : _ui("生成")} {_ui("4 张 ·")}{formatComputeQuote(coverEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
             </ActionButton>
             {canUseCoverFallback ? (
               <ActionButton
@@ -2777,8 +2735,7 @@ export default function PublishingDraftWorkspace({
                 disabled={coverBusy}
               >
                 <Sparkles className="h-4 w-4" />
-                快速生成 1 张 ·
-                {formatComputeQuote(coverFallbackEstimate.estimatedCny)}
+                {_ui("快速生成 1 张 ·")}{formatComputeQuote(coverFallbackEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (
@@ -2791,8 +2748,7 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                修改选中图 · 4 张 ·
-                {formatComputeQuote(coverEstimate.estimatedCny)}
+                {_ui("修改选中图 · 4 张 ·")}{formatComputeQuote(coverEstimate.estimatedCny).replace(/算力$/, _ui("算力"))}
               </ActionButton>
             ) : null}
             {selectedCoverAsset ? (
@@ -2805,8 +2761,7 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                设为封面
-              </ActionButton>
+                {_ui("设为封面")}</ActionButton>
             ) : null}
             {selectedCoverAsset ? (
               <ActionButton
@@ -2819,7 +2774,7 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <ArrowRight className="h-4 w-4" />
                 )}
-                {coverStudioReturnToAlbum ? "采用并返回画册" : "采用并进入视频"}
+                {coverStudioReturnToAlbum ? _ui("采用并返回画册") : _ui("采用并进入视频")}
               </ActionButton>
             ) : coverAsset ? (
               <ActionButton
@@ -2831,7 +2786,7 @@ export default function PublishingDraftWorkspace({
                 disabled={coverBusy}
                 primary
               >
-                {coverStudioReturnToAlbum ? "使用当前封面返回画册" : "使用当前封面进入视频"}
+                {coverStudioReturnToAlbum ? _ui("使用当前封面返回画册") : _ui("使用当前封面进入视频")}
                 <ArrowRight className="h-4 w-4" />
               </ActionButton>
             ) : null}

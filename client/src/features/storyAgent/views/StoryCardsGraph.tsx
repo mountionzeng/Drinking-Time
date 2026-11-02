@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GitBranch,
@@ -450,6 +451,7 @@ export default function StoryCardsGraph({
   onRemoveCard,
   mode = 'default',
 }: StoryCardsGraphProps) {
+  const _ui = useDesktopUiText();
   const steps = mode === 'fiction' ? FICTION_STEPS : JOB_CAUSAL_STEPS;
   const edges = mode === 'fiction' ? FICTION_EDGES : JOB_CAUSAL_EDGES;
   const stepsByKey = useMemo(() => stepByKeyFor(steps), [steps]);
@@ -496,14 +498,12 @@ export default function StoryCardsGraph({
             className="rounded-full border px-2 py-0.5 text-muted-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
           >
-            {steps.length} 列
-          </span>
+            {steps.length} {_ui("列")}</span>
           <span
             className="rounded-full border px-2 py-0.5 text-muted-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
           >
-            {edges.length} 条关系
-          </span>
+            {edges.length} {_ui("条关系")}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
@@ -512,7 +512,7 @@ export default function StoryCardsGraph({
             onClick={() => zoomBy(0.08)}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="放大因果链图"
+            aria-label={_ui("放大因果链图")}
           >
             <ZoomIn className="h-3 w-3" />
           </button>
@@ -521,7 +521,7 @@ export default function StoryCardsGraph({
             onClick={() => zoomBy(-0.08)}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="缩小因果链图"
+            aria-label={_ui("缩小因果链图")}
           >
             <ZoomOut className="h-3 w-3" />
           </button>
@@ -530,7 +530,7 @@ export default function StoryCardsGraph({
             onClick={resetViewport}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="重置因果链图"
+            aria-label={_ui("重置因果链图")}
           >
             <LocateFixed className="h-3 w-3" />
           </button>
@@ -631,7 +631,7 @@ export default function StoryCardsGraph({
 
                                 <div className="mt-2 grid grid-cols-2 gap-1 text-[8px] leading-tight text-muted-foreground">
                                   <span className="rounded border px-1 py-0.5" style={{ borderColor: 'var(--panel-border)' }}>
-                                    权重 {node.weight}/5
+                                    {_ui("权重")}{" "}{node.weight}/5
                                   </span>
                                   <span className="rounded border px-1 py-0.5" style={{ borderColor: 'var(--panel-border)' }}>
                                     {node.location}
@@ -647,8 +647,8 @@ export default function StoryCardsGraph({
                                   }}
                                   className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background/90 text-muted-foreground opacity-75 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
                                   style={{ borderColor: 'var(--panel-border)' }}
-                                  aria-label={`删除卡片：${node.card.title || node.label}`}
-                                  title="删除这张卡片"
+                                  aria-label={_ui("删除卡片：{0}", [node.card.title || node.label])}
+                                  title={_ui("删除这张卡片")}
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </button>
@@ -661,8 +661,7 @@ export default function StoryCardsGraph({
                           className="flex min-h-[86px] items-center justify-center rounded-md border border-dashed px-2 text-center text-[9px] leading-relaxed text-muted-foreground"
                           style={{ borderColor: 'var(--panel-border)' }}
                         >
-                          等待材料
-                        </div>
+                          {_ui("等待材料")}</div>
                       )}
                     </div>
                   </section>
@@ -698,10 +697,10 @@ export default function StoryCardsGraph({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
               <Tags className="h-3 w-3 text-nayin-bright" />
-              {selected ? stepsByKey[selected.stepKey].label : mode === 'fiction' ? '故事世界' : '因果链'}
+              {selected ? stepsByKey[selected.stepKey].label : mode === 'fiction' ? _ui("故事世界") : _ui("因果链")}
             </div>
             <h4 className="mt-1 text-sm font-semibold text-foreground">
-              {selected?.card.title || selected?.label || '未选择卡片'}
+              {selected?.card.title || selected?.label || _ui("未选择卡片")}
             </h4>
           </div>
 
@@ -714,7 +713,7 @@ export default function StoryCardsGraph({
                 className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
                 style={{ borderColor: 'var(--panel-border)' }}
               >
-                权重 {selected.weight}/5
+                {_ui("权重")}{" "}{selected.weight}/5
               </span>
               <span
                 className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
@@ -728,12 +727,11 @@ export default function StoryCardsGraph({
                   onClick={() => onRemoveCard(selected.card.id)}
                   className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
                   style={{ borderColor: 'var(--panel-border)' }}
-                  aria-label={`删除卡片：${selected.card.title || selected.label}`}
-                  title="删除这张卡片"
+                  aria-label={_ui("删除卡片：{0}", [selected.card.title || selected.label])}
+                  title={_ui("删除这张卡片")}
                 >
                   <Trash2 className="h-3 w-3" />
-                  删除
-                </button>
+                  {_ui("删除")}</button>
               ) : null}
             </div>
           ) : null}
@@ -741,23 +739,23 @@ export default function StoryCardsGraph({
 
         <div className="grid gap-2 text-[11px] leading-relaxed text-muted-foreground">
           <p>
-            <span className="font-semibold text-foreground">内容：</span>
+            <span className="font-semibold text-foreground">{_ui("内容：")}</span>
             {compact(selected?.card.content || selected?.card.sourceQuote, '选择上方卡片查看具体内容。', 148)}
           </p>
           <p>
-            <span className="font-semibold text-foreground">证据：</span>
+            <span className="font-semibold text-foreground">{_ui("证据：")}</span>
             {readableEvidence(selected)}
           </p>
           <p>
-            <span className="font-semibold text-foreground">因果解释：</span>
+            <span className="font-semibold text-foreground">{_ui("因果解释：")}</span>
             {readableCause(selected)}
           </p>
           <p>
-            <span className="font-semibold text-foreground">发生作用：</span>
+            <span className="font-semibold text-foreground">{_ui("发生作用：")}</span>
             {readableEffect(selected)}
           </p>
           <p>
-            <span className="font-semibold text-foreground">外部价值：</span>
+            <span className="font-semibold text-foreground">{_ui("外部价值：")}</span>
             {readableValue(selected)}
           </p>
 
@@ -779,8 +777,8 @@ export default function StoryCardsGraph({
           <p className="flex items-center gap-1.5 text-[10px]">
             <Sparkles className="h-3 w-3 text-nayin-bright" />
             {selected?.status === 'ready'
-              ? '这张卡已经能进入镜头任务。'
-              : '这张卡还需要补足证据、因果或对外价值。'}
+              ? _ui("这张卡已经能进入镜头任务。")
+              : _ui("这张卡还需要补足证据、因果或对外价值。")}
           </p>
         </div>
       </div>

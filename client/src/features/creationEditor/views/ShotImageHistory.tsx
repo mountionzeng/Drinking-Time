@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from "react";
 import { Check, Clock, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -25,6 +26,7 @@ export default function ShotImageHistory({
   inspectedCandidateId,
   onInspectCandidate,
 }: Props) {
+  const _ui = useDesktopUiText();
   const {
     selectedShot,
     selectedShotNo,
@@ -111,15 +113,14 @@ export default function ShotImageHistory({
   return (
     <section
       className="border-b border-border/70 px-4 py-3"
-      aria-label="图片版本"
+      aria-label={_ui("图片版本")}
     >
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground">图片版本</span>
+          <span className="text-xs font-medium text-foreground">{_ui("图片版本")}</span>
           <span className="text-[10px] text-muted-foreground">
-            {sortedImages.length} 版
-          </span>
+            {sortedImages.length} {_ui("版")}</span>
         </div>
       </div>
 
@@ -129,8 +130,7 @@ export default function ShotImageHistory({
 
       {sortedImages.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
-          还没有图片版本，点击下方“重渲本镜”生成第一版。
-        </p>
+          {_ui("还没有图片版本，点击下方“重渲本镜”生成第一版。")}</p>
       ) : (
         <div className="flex gap-2 overflow-x-auto pb-1">
           {sortedImages.map((img, index) => {
@@ -184,22 +184,22 @@ export default function ShotImageHistory({
                   }}
                   title={
                     candidateSheet
-                      ? `放大比较候选版本 V${candidateVersion}`
+                      ? _ui("放大比较候选版本 V{0}", [candidateVersion])
                       : img.isPrimary
-                        ? "当前使用版本"
-                        : `使用版本 V${version}`
+                        ? _ui("当前使用版本")
+                        : _ui("使用版本 V{0}", [version])
                   }
                 >
                   <img
                     src={img.imageUrl}
-                    alt={`${shotLabel} 图片版本 V${version}`}
+                    alt={_ui("{0} 图片版本 V{1}", [shotLabel, version])}
                     className="h-full w-full object-cover"
                     loading="lazy"
                   />
                   <span className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/65 px-1.5 py-1 text-[10px] text-white">
                     <span>
                       V{version}
-                      {candidateSheet ? " · 四张" : ""}
+                      {candidateSheet ? _ui(" · 四张") : ""}
                     </span>
                     <span>{formatTime(img.createdAt)}</span>
                   </span>
@@ -207,13 +207,11 @@ export default function ShotImageHistory({
 
                 {inspecting ? (
                   <div className="absolute right-1 top-1 rounded bg-primary px-1 py-0.5 text-[9px] text-primary-foreground">
-                    正在比较
-                  </div>
+                    {_ui("正在比较")}</div>
                 ) : img.isPrimary ? (
                   <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-primary px-1 py-0.5 text-[9px] text-primary-foreground">
                     <Check className="h-2.5 w-2.5" />
-                    当前
-                  </div>
+                    {_ui("当前")}</div>
                 ) : null}
                 {selectingId === img.id ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/45">
@@ -223,8 +221,7 @@ export default function ShotImageHistory({
                 {img.status === "rejected" && (
                   <div className="absolute inset-0 bg-destructive/30 flex items-center justify-center">
                     <span className="text-destructive-foreground text-[10px] font-medium">
-                      已拒绝
-                    </span>
+                      {_ui("已拒绝")}</span>
                   </div>
                 )}
                 <button
@@ -241,7 +238,7 @@ export default function ShotImageHistory({
                       storyId: activeStoryId,
                     });
                   }}
-                  title="删除这张图片"
+                  title={_ui("删除这张图片")}
                 >
                   {deletingId === img.id ? (
                     <Loader2 className="h-3 w-3 animate-spin" />

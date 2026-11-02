@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { bookAudioText } from "@shared/bookAudioBlock";
@@ -13,6 +14,7 @@ export function WarehouseBookMedia({
   storyId: number;
   kind: "music" | "text";
 }) {
+  const _ui = useDesktopUiText();
   const [offset, setOffset] = useState(0);
   const [audioKind,setAudioKind]=useState<"music"|"narration">("music");
   const music = trpc.timelineMedia.audioAssetLibrary.useQuery(
@@ -32,13 +34,12 @@ export function WarehouseBookMedia({
   }
   const query = kind === "music" ? music : text;
   return (
-    <section aria-label={kind === "music" ? "音乐仓库" : "文字仓库"}>
-      {kind==='music'&&<div className="mb-2 flex gap-3 text-xs">{([['music','音乐'],['narration','有声书']] as const).map(([value,label])=><button key={value} aria-pressed={audioKind===value} className={audioKind===value?'font-semibold text-primary':'text-muted-foreground'} onClick={()=>setAudioKind(value)}>{label}</button>)}</div>}
-      {query.isLoading && <p role="status">正在读取素材…</p>}
+    <section aria-label={kind === "music" ? _ui("音乐仓库") : _ui("文字仓库")}>
+      {kind==='music'&&<div className="mb-2 flex gap-3 text-xs">{([['music','音乐'],['narration','有声书']] as const).map(([value,label])=><button key={value} aria-pressed={audioKind===value} className={audioKind===value?'font-semibold text-primary':'text-muted-foreground'} onClick={()=>setAudioKind(value)}>{_ui(label)}</button>)}</div>}
+      {query.isLoading && <p role="status">{_ui("正在读取素材…")}</p>}
       {query.error && (
         <p role="alert">
-          读取失败，
-          <button onClick={() => void query.refetch()}>重新读取</button>
+          {_ui("读取失败，")}<button onClick={() => void query.refetch()}>{_ui("重新读取")}</button>
         </p>
       )}
       {kind === "music" ? (
@@ -62,14 +63,12 @@ export function WarehouseBookMedia({
                     insert(bookAudioText(storyId, a.id, a.displayName,audioKind))
                   }
                 >
-                  插入书中
-                </button>
+                  {_ui("插入书中")}</button>
               </article>
             ))}
           {music.data && !music.data.some(a => a.mediaKind === audioKind) && (
             <p className="text-xs text-muted-foreground">
-              生成或导入的音乐会保存在这里。
-            </p>
+              {_ui("生成或导入的音乐会保存在这里。")}</p>
           )}
         </div>
       ) : (
@@ -78,7 +77,7 @@ export function WarehouseBookMedia({
             {text.data?.cards.map(c => (
               <article key={c.id} className="w-64 shrink-0 rounded border p-2">
                 <p className="text-xs text-muted-foreground">
-                  {c.title} · {c.origin === "assistant" ? "AI生成" : "文字素材"}
+                  {c.title} · {c.origin === "assistant" ? _ui("AI生成") : _ui("文字素材")}
                 </p>
                 <p className="max-h-24 overflow-y-auto whitespace-pre-wrap text-sm">
                   {c.content}
@@ -87,26 +86,22 @@ export function WarehouseBookMedia({
                   className="text-xs underline"
                   onClick={() => insert(c.content)}
                 >
-                  插入书中
-                </button>
+                  {_ui("插入书中")}</button>
               </article>
             ))}
             {text.data && !text.data.cards.length && (
               <p className="text-xs text-muted-foreground">
-                生成的文字会保存在这里。
-              </p>
+                {_ui("生成的文字会保存在这里。")}</p>
             )}
           </div>
           <div className="mt-2 flex gap-3 text-xs">
             {offset > 0 && (
               <button onClick={() => setOffset(Math.max(0, offset - 50))}>
-                上一页
-              </button>
+                {_ui("上一页")}</button>
             )}
             {text.data?.nextOffset != null && (
               <button onClick={() => setOffset(text.data!.nextOffset!)}>
-                下一页
-              </button>
+                {_ui("下一页")}</button>
             )}
           </div>
         </>

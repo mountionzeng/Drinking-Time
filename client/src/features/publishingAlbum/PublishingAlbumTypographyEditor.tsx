@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Check, Redo2, Type, Undo2 } from "lucide-react";
@@ -109,6 +110,7 @@ export function PublishingAlbumTypographyEditor({
   saveSuccessMessage?: string;
   onSave(layout: PublishingAlbumTypographyLayout): Promise<void> | void;
 }) {
+  const _ui = useDesktopUiText();
   const resolvedArtDirectionTags =
     resolvePublishingAlbumTypographyArtDirectionTags(artDirectionTags);
   const savedGeometry = useMemo(
@@ -360,7 +362,7 @@ export function PublishingAlbumTypographyEditor({
     <section className={defaultPlacement ? "grid grid-cols-1 gap-3 min-[900px]:grid-cols-[minmax(0,1fr)_176px]" : "space-y-3"} aria-label={editorLabel}>
       <div
         className="sticky top-0 z-20 col-span-full flex flex-wrap items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-background p-2"
-        aria-label="文字排版工具栏"
+        aria-label={_ui("文字排版工具栏")}
       >
         <button
           type="button"
@@ -383,18 +385,16 @@ export function PublishingAlbumTypographyEditor({
           className="rounded-lg px-3 py-2 text-xs hover:bg-muted disabled:opacity-40"
         >
           <Undo2 className="mr-1 inline h-4 w-4" />
-          撤销
-        </button>
+          {_ui("撤销")}</button>
         <button
           type="button"
           onClick={beginDrawing}
           className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
         >
           <Redo2 className="mr-1 inline h-4 w-4" />
-          重画
-        </button>
+          {_ui("重画")}</button>
         <label className="text-xs">
-          <span className="sr-only">字体</span>
+          <span className="sr-only">{_ui("字体")}</span>
           <select
             value={fontId}
             onChange={event => {
@@ -406,7 +406,7 @@ export function PublishingAlbumTypographyEditor({
             {installedPublishingAlbumFonts().map(font => (
               <option key={font.fontId} value={font.fontId}>
                 {recommendations.some(item => item.fontId === font.fontId)
-                  ? "推荐 · "
+                  ? _ui("推荐 · ")
                   : ""}
                 {font.nameZh}
               </option>
@@ -414,7 +414,7 @@ export function PublishingAlbumTypographyEditor({
           </select>
         </label>
         <label className="text-xs">
-          <span className="sr-only">对齐</span>
+          <span className="sr-only">{_ui("对齐")}</span>
           <select
             value={alignment}
             onChange={event =>
@@ -422,9 +422,9 @@ export function PublishingAlbumTypographyEditor({
             }
             className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
           >
-            <option value="start">起点对齐</option>
-            <option value="center">居中</option>
-            <option value="end">终点对齐</option>
+            <option value="start">{_ui("起点对齐")}</option>
+            <option value="center">{_ui("居中")}</option>
+            <option value="end">{_ui("终点对齐")}</option>
           </select>
         </label>
         <button
@@ -434,12 +434,11 @@ export function PublishingAlbumTypographyEditor({
           className="ml-auto rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs font-medium text-[var(--background)] disabled:opacity-40"
         >
           <Check className="mr-1 inline h-4 w-4" />
-          {saving ? "保存中…" : saveLabel}
+          {saving ? _ui("保存中…") : saveLabel}
         </button>
       </div>
       <p className="col-span-full text-[11px] text-muted-foreground">
-        画一条线，文字沿线排列；画一个圈，文字填入区域。调整后保存即可。
-      </p>
+        {_ui("画一条线，文字沿线排列；画一个圈，文字填入区域。调整后保存即可。")}</p>
       <div className={defaultPlacement ? "relative mx-auto w-full self-start min-[900px]:row-span-2" : "relative mx-auto max-w-md"}>
         <PublishingAlbumPagePreview
           backgroundUrl={backgroundUrl}
@@ -448,8 +447,8 @@ export function PublishingAlbumTypographyEditor({
           backgroundStyle={backgroundStyle}
           label={
             defaultPlacement
-              ? "字幕预览，双击画出文字走向"
-              : "双击进入画册文字排版"
+              ? _ui("字幕预览，双击画出文字走向")
+              : _ui("双击进入画册文字排版")
           }
           onDoubleClick={beginDrawing}
         />
@@ -457,7 +456,7 @@ export function PublishingAlbumTypographyEditor({
           <div
             className="absolute inset-0 touch-none cursor-crosshair rounded-xl ring-2 ring-[var(--nayin-accent)]"
             role="application"
-            aria-label="在图片上绘制文字区域或路径"
+            aria-label={_ui("在图片上绘制文字区域或路径")}
             onPointerDown={event => {
               event.currentTarget.setPointerCapture(event.pointerId);
               drawingRef.current = true;
@@ -498,7 +497,7 @@ export function PublishingAlbumTypographyEditor({
 
       <div className="grid gap-2 rounded-xl border border-[var(--panel-border)] bg-background/70 p-2.5">
         <label className="grid grid-cols-[54px_1fr_44px] items-center gap-2 text-[11px]">
-          <span className="font-medium text-foreground">字号</span>
+          <span className="font-medium text-foreground">{_ui("字号")}</span>
           <input
             type="range"
             min={8}
@@ -508,14 +507,14 @@ export function PublishingAlbumTypographyEditor({
             disabled={!geometry}
             onChange={event => setFontSize(Number(event.target.value))}
             className="h-1.5 w-full accent-[var(--nayin-accent)] disabled:opacity-40"
-            aria-label="字号"
+            aria-label={_ui("字号")}
           />
           <span className="text-right font-mono text-[10px] text-muted-foreground">
             {Math.round(fontSize ?? plan?.fontSize ?? 48)}px
           </span>
         </label>
         <label className="grid grid-cols-[54px_1fr_44px] items-center gap-2 text-[11px]">
-          <span className="font-medium text-foreground">字间距</span>
+          <span className="font-medium text-foreground">{_ui("字间距")}</span>
           <input
             type="range"
             min={-5}
@@ -525,7 +524,7 @@ export function PublishingAlbumTypographyEditor({
             disabled={!geometry}
             onChange={event => setLetterSpacing(Number(event.target.value))}
             className="h-1.5 w-full accent-[var(--nayin-accent)] disabled:opacity-40"
-            aria-label="字间距"
+            aria-label={_ui("字间距")}
           />
           <span className="text-right font-mono text-[10px] text-muted-foreground">
             {letterSpacing > 0 ? "+" : ""}
@@ -548,7 +547,7 @@ export function PublishingAlbumTypographyEditor({
       {!defaultPlacement && recommendations.length > 0 ? (
         <ul
           className="col-span-full grid gap-1 text-[11px] text-muted-foreground"
-          aria-label="为这页推荐的字体"
+          aria-label={_ui("为这页推荐的字体")}
         >
           {recommendations.map(item => (
             <li key={item.fontId}>
@@ -564,7 +563,7 @@ export function PublishingAlbumTypographyEditor({
         aria-live="polite"
       >
         {saveBlocked
-          ? "请先保存这一页文字，再保存与这份文字对应的排版"
+          ? _ui("请先保存这一页文字，再保存与这份文字对应的排版")
           : layoutResult?.status === "overflow"
             ? layoutResult.suggestion
             : layoutResult?.status === "invalid"

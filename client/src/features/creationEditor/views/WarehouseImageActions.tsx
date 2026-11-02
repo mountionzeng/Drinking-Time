@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -44,6 +45,7 @@ export function WarehouseImageActions({
   imageUrl: string;
   onDialogOpenChange?: (open: boolean) => void;
 }) {
+  const _ui = useDesktopUiText();
   const [open, setOpen] = useState(false);
   useEffect(() => { onDialogOpenChange?.(open); }, [open]);
   const [instruction, setInstruction] = useState("");
@@ -70,17 +72,14 @@ export function WarehouseImageActions({
         className={button}
         onClick={() => requestWarehouseImage(storyId, imageId, "cover")}
       >
-        设为封面
-      </button>
+        {_ui("设为封面")}</button>
       <button
         className={button}
         onClick={() => requestWarehouseImage(storyId, imageId, "illustration")}
       >
-        作为插图
-      </button>
+        {_ui("作为插图")}</button>
       <button className={button} onClick={() => setOpen(true)}>
-        参考生成底图
-      </button>
+        {_ui("参考生成底图")}</button>
       <Dialog
         open={open}
         onOpenChange={value => {
@@ -89,14 +88,13 @@ export function WarehouseImageActions({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>参考这张图生成底图</DialogTitle>
+            <DialogTitle>{_ui("参考这张图生成底图")}</DialogTitle>
             <DialogDescription>
-              沿用配色和材质，生成适合放文字的底图。原图保留，生成后由你选择是否使用。
-            </DialogDescription>
+              {_ui("沿用配色和材质，生成适合放文字的底图。原图保留，生成后由你选择是否使用。")}</DialogDescription>
           </DialogHeader>
           <img
             src={result?.url ?? imageUrl}
-            alt={result ? "生成的底图" : "底图参考图"}
+            alt={result ? _ui("生成的底图") : _ui("底图参考图")}
             className="max-h-64 w-full object-contain"
           />
           {result ? (
@@ -107,13 +105,12 @@ export function WarehouseImageActions({
                 setOpen(false);
               }}
             >
-              使用这张底图
-            </button>
+              {_ui("使用这张底图")}</button>
           ) : (
             <>
               <textarea
-                aria-label="底图要求（选填）"
-                placeholder="补充要求（选填）"
+                aria-label={_ui("底图要求（选填）")}
+                placeholder={_ui("补充要求（选填）")}
                 value={instruction}
                 onChange={e => setInstruction(e.target.value)}
                 maxLength={1000}
@@ -165,8 +162,8 @@ export function WarehouseImageActions({
                 }}
               >
                 {generate.isPending
-                  ? "正在生成…"
-                  : `确认生成 1 张 · ${formatComputeQuote(quote.estimatedCny)}`}
+                  ? _ui("正在生成…")
+                  : _ui("确认生成 1 张 · {0}", [formatComputeQuote(quote.estimatedCny).replace(/算力$/, _ui("算力"))])}
               </button>
             </>
           )}

@@ -1,3 +1,4 @@
+import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Archive,
@@ -41,6 +42,7 @@ export default function MemoryWarehouse({
 }: {
   onOpenWriting: () => void;
 }) {
+  const _ui = useDesktopUiText();
   const {
     publishing,
     activeStoryId,
@@ -334,20 +336,19 @@ export default function MemoryWarehouse({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <BookOpen className="h-5 w-5" />
-            {showAll ? "回忆" : "对话里的记事"}
+            {showAll ? _ui("回忆") : _ui("对话里的记事")}
           </DialogTitle>
           <DialogDescription>
             {showAll
-              ? "这个账号留下的全部回忆，可以跨故事选取片段。"
-              : "这个故事的聊天记事与文章来源；完整对话留在左侧聊天框。"}
-            选取不同片段，自由组合成不同的故事。
-          </DialogDescription>
+              ? _ui("这个账号留下的全部回忆，可以跨故事选取片段。")
+              : _ui("这个故事的聊天记事与文章来源；完整对话留在左侧聊天框。")}
+            {_ui("选取不同片段，自由组合成不同的故事。")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-2">
             <select
               className={button}
-              aria-label="记忆范围"
+              aria-label={_ui("记忆范围")}
               disabled={Boolean(draft) || busy || save.isPending}
               value={showAll ? "account" : "story"}
               onChange={event => {
@@ -359,8 +360,8 @@ export default function MemoryWarehouse({
                 setSearch("");
               }}
             >
-              <option value="story">当前故事</option>
-              <option value="account">账号全部记忆</option>
+              <option value="story">{_ui("当前故事")}</option>
+              <option value="account">{_ui("账号全部记忆")}</option>
             </select>
             <button
               className={button}
@@ -370,8 +371,7 @@ export default function MemoryWarehouse({
                 setOffset(0);
               }}
             >
-              已归档
-            </button>
+              {_ui("已归档")}</button>
           </div>
           <button
             className={button}
@@ -388,48 +388,43 @@ export default function MemoryWarehouse({
             }
           >
             <Plus className="h-3.5 w-3.5" />
-            记一张卡片
-          </button>
+            {_ui("记一张卡片")}</button>
         </div>
         {syncing && (
           <p role="status" className="text-xs text-muted-foreground">
             {showAll
-              ? "正在收录账号的聊天记忆…"
-              : "正在收录当前故事的聊天记忆…"}
+              ? _ui("正在收录账号的聊天记忆…")
+              : _ui("正在收录当前故事的聊天记忆…")}
           </p>
         )}
         {syncError && (
           <p role="alert" className="text-xs text-destructive">
-            部分聊天还未收录，原聊天仍保留。
-            <button
+            {_ui("部分聊天还未收录，原聊天仍保留。")}<button
               className={button}
               onClick={() => setSyncAttempt(value => value + 1)}
             >
-              重新收录
-            </button>
+              {_ui("重新收录")}</button>
           </p>
         )}
         {draft && (
           <section
-            aria-label="整理记忆卡片"
+            aria-label={_ui("整理记忆卡片")}
             className="space-y-3 rounded-lg border border-[var(--nayin-accent)] bg-[var(--nayin-glow)] p-4"
           >
-            <h3 className="text-sm font-medium">存为记忆卡片</h3>
+            <h3 className="text-sm font-medium">{_ui("存为记忆卡片")}</h3>
             <label className="block text-xs">
-              标题
-              <input
+              {_ui("标题")}<input
                 className={`${field} mt-1`}
-                aria-label="记忆标题"
+                aria-label={_ui("记忆标题")}
                 maxLength={120}
                 value={draft.title}
                 disabled={save.isPending}
                 onChange={e => setDraft({ ...draft, title: e.target.value })}
-                placeholder="给这段记忆起个名字"
+                placeholder={_ui("给这段记忆起个名字")}
               />
             </label>
             <label className="block text-xs">
-              类型
-              <select
+              {_ui("类型")}<select
                 className={`${field} mt-1`}
                 value={draft.kind}
                 disabled={save.isPending}
@@ -440,26 +435,24 @@ export default function MemoryWarehouse({
                   })
                 }
               >
-                <option value="event">一件事</option>
-                <option value="thought">一个思绪</option>
+                <option value="event">{_ui("一件事")}</option>
+                <option value="thought">{_ui("一个思绪")}</option>
               </select>
             </label>
             <label className="block text-xs">
-              内容
-              <textarea
+              {_ui("内容")}<textarea
                 className={`${field} mt-1 min-h-32`}
-                aria-label="记忆内容"
+                aria-label={_ui("记忆内容")}
                 maxLength={12000}
                 value={draft.content}
                 disabled={save.isPending}
                 onChange={e => setDraft({ ...draft, content: e.target.value })}
-                placeholder="随便写，记下你想留住的片段…"
+                placeholder={_ui("随便写，记下你想留住的片段…")}
               />
             </label>
             {draft.origin === "assistant" && (
               <p className="text-xs text-muted-foreground">
-                这张卡片来自助手整理，请核对内容；保存后仍保留来源标记。
-              </p>
+                {_ui("这张卡片来自助手整理，请核对内容；保存后仍保留来源标记。")}</p>
             )}
             <div className="flex justify-end gap-2">
               <button
@@ -467,8 +460,7 @@ export default function MemoryWarehouse({
                 disabled={save.isPending}
                 onClick={() => setDraft(null)}
               >
-                取消
-              </button>
+                {_ui("取消")}</button>
               <button
                 className={`${button} bg-[var(--nayin-accent)] text-background`}
                 disabled={
@@ -479,42 +471,39 @@ export default function MemoryWarehouse({
                 }
                 onClick={() => void saveCard()}
               >
-                {save.isPending ? "保存中…" : "保存记忆卡片"}
+                {save.isPending ? _ui("保存中…") : _ui("保存记忆卡片")}
               </button>
             </div>
           </section>
         )}
         <div className="grid min-h-0 gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
-          <section aria-label="记忆卡片列表" className="max-h-[48vh] min-w-0 space-y-3 overflow-y-auto pr-1 md:max-h-[60vh]">
+          <section aria-label={_ui("记忆卡片列表")} className="max-h-[48vh] min-w-0 space-y-3 overflow-y-auto pr-1 md:max-h-[60vh]">
             <input
               className={field}
-              aria-label="筛选本页记忆"
-              placeholder="筛选本页记忆…"
+              aria-label={_ui("筛选本页记忆")}
+              placeholder={_ui("筛选本页记忆…")}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
             {query.isLoading && (
               <p role="status" className="text-sm text-muted-foreground">
-                正在打开记忆仓库…
-              </p>
+                {_ui("正在打开记忆仓库…")}</p>
             )}
             {query.isError && (
               <div role="alert" className="text-sm text-destructive">
-                记忆读取失败。
-                <button className={button} onClick={() => void query.refetch()}>
-                  重试
-                </button>
+                {_ui("记忆读取失败。")}<button className={button} onClick={() => void query.refetch()}>
+                  {_ui("重试")}</button>
               </div>
             )}
             {!query.isLoading && !query.isError && cards.length === 0 && (
               <p className="py-10 text-center text-sm text-muted-foreground">
                 {search
-                  ? "本页没有匹配的记忆"
+                  ? _ui("本页没有匹配的记忆")
                   : archived
-                    ? "没有已归档的卡片"
+                    ? _ui("没有已归档的卡片")
                     : syncing
-                      ? "正在整理已有聊天…"
-                      : "还没有聊天记忆。随便聊聊，内容会自动出现在这里。"}
+                      ? _ui("正在整理已有聊天…")
+                      : _ui("还没有聊天记忆。随便聊聊，内容会自动出现在这里。")}
               </p>
             )}
             {cards.map(card => {
@@ -540,22 +529,22 @@ export default function MemoryWarehouse({
                   </label>
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     {card.kind === "conversation"
-                      ? "聊天记忆"
+                      ? _ui("聊天记忆")
                       : card.kind === "event"
-                        ? "一件事"
-                        : "一个思绪"}{" "}
+                        ? _ui("一件事")
+                        : _ui("一个思绪")}{" "}
                     ·{" "}
                     {card.origin === "assistant"
-                      ? "助手整理"
+                      ? _ui("助手整理")
                       : card.origin === "user"
-                        ? "我的原话"
-                        : "随手记"}{" "}
+                        ? _ui("我的原话")
+                        : _ui("随手记")}{" "}
                     · {new Date(card.createdAt).toLocaleDateString("zh-CN")}
                     {!showAll && card.sourceStoryId !== activeStoryId &&
-                      " · 已引用到当前故事"}
+                      _ui(" · 已引用到当前故事")}
                   </p>
                   {card.content.length > 240 ? <details className="mt-2 text-sm leading-6">
-                    <summary className="cursor-pointer whitespace-pre-wrap break-words text-muted-foreground">{Array.from(card.content).slice(0, 180).join("")}… <span className="text-xs underline">展开原话</span></summary>
+                    <summary className="cursor-pointer whitespace-pre-wrap break-words text-muted-foreground">{Array.from(card.content).slice(0, 180).join("")}… <span className="text-xs underline">{_ui("展开原话")}</span></summary>
                     <p className="mt-2 whitespace-pre-wrap break-words">{card.content}</p>
                   </details> : <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{card.content}</p>}
                   <div className="mt-2 flex justify-end">
@@ -565,7 +554,7 @@ export default function MemoryWarehouse({
                       onClick={() => void setArchive(card.id, !archived)}
                     >
                       <Archive className="h-3 w-3" />
-                      {archived ? "恢复" : "归档"}
+                      {archived ? _ui("恢复") : _ui("归档")}
                     </button>
                   </div>
                 </article>
@@ -577,31 +566,28 @@ export default function MemoryWarehouse({
                 disabled={offset === 0 || query.isFetching}
                 onClick={() => setOffset(Math.max(0, offset - 50))}
               >
-                上一页
-              </button>
-              <span>第 {offset / 50 + 1} 页</span>
+                {_ui("上一页")}</button>
+              <span>{_ui("第")}{" "}{offset / 50 + 1} {_ui("页")}</span>
               <button
                 className={button}
                 disabled={visibleData?.nextOffset == null || query.isFetching}
                 onClick={() => setOffset(visibleData!.nextOffset!)}
               >
-                下一页
-              </button>
+                {_ui("下一页")}</button>
             </div>
           </section>
           <section
-            aria-label="组合文章"
+            aria-label={_ui("组合文章")}
             className="space-y-3 border-t border-[var(--panel-border)] pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0"
           >
             <h3 className="text-sm font-medium">
-              用记忆写文章{" "}
+              {_ui("用记忆写文章")}{" "}
               <span className="text-xs text-muted-foreground">
                 {selected.length} / 20
               </span>
             </h3>
             <p className="text-xs leading-5 text-muted-foreground">
-              选卡后调整顺序。同一张卡片可以用于多篇文章。
-            </p>
+              {_ui("选卡后调整顺序。同一张卡片可以用于多篇文章。")}</p>
             <ol className="space-y-2">
               {selected.map((card, index) => (
                 <li key={card.id} className="flex items-center gap-1 text-xs">
@@ -610,7 +596,7 @@ export default function MemoryWarehouse({
                   </span>
                   <button
                     className={button}
-                    aria-label={`上移${card.title}`}
+                    aria-label={_ui("上移{0}", [card.title])}
                     disabled={index === 0 || busy}
                     onClick={() => move(index, -1)}
                   >
@@ -618,7 +604,7 @@ export default function MemoryWarehouse({
                   </button>
                   <button
                     className={button}
-                    aria-label={`下移${card.title}`}
+                    aria-label={_ui("下移{0}", [card.title])}
                     disabled={index === selected.length - 1 || busy}
                     onClick={() => move(index, 1)}
                   >
@@ -626,7 +612,7 @@ export default function MemoryWarehouse({
                   </button>
                   <button
                     className={button}
-                    aria-label={`取消选择${card.title}`}
+                    aria-label={_ui("取消选择{0}", [card.title])}
                     disabled={busy}
                     onClick={() => toggle(card)}
                   >
@@ -636,41 +622,37 @@ export default function MemoryWarehouse({
               ))}
             </ol>
             <label className="block text-xs">
-              这次想写什么？
-              <textarea
+              {_ui("这次想写什么？")}<textarea
                 className={`${field} mt-1 min-h-24`}
                 maxLength={8000}
                 disabled={busy}
                 value={instruction}
                 onChange={e => setInstruction(e.target.value)}
-                placeholder="例如：把这些片段写成一篇关于回家的文章"
+                placeholder={_ui("例如：把这些片段写成一篇关于回家的文章")}
               />
             </label>
             <label className="block text-xs">
-              组合到
-              <select
-                aria-label="组合到"
+              {_ui("组合到")}<select
+                aria-label={_ui("组合到")}
                 className={`${field} mt-1`}
                 disabled={busy}
                 value={target}
                 onChange={e => setTarget(e.target.value as "new" | "current")}
               >
-                <option value="new">一个新故事</option>
+                <option value="new">{_ui("一个新故事")}</option>
                 <option value="current" disabled={activeStoryId == null}>
-                  当前故事的新文稿
-                </option>
+                  {_ui("当前故事的新文稿")}</option>
               </select>
             </label>
             {activeStoryId == null && target === "current" ? (
               <button className={button} onClick={createNewStory}>
-                新建故事，开始组合
-              </button>
+                {_ui("新建故事，开始组合")}</button>
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">
                   {target === "new"
-                    ? "这组记忆将组成独立的新故事；原记忆仍可用于其他故事。"
-                    : "生成后存入当前故事的文字历史，查看后再采用。"}
+                    ? _ui("这组记忆将组成独立的新故事；原记忆仍可用于其他故事。")
+                    : _ui("生成后存入当前故事的文字历史，查看后再采用。")}
                 </p>
                 <button
                   className={`${button} w-full bg-[var(--nayin-accent)] text-background`}
@@ -686,10 +668,10 @@ export default function MemoryWarehouse({
                 >
                   {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {busy
-                    ? "正在组合记忆…"
+                    ? _ui("正在组合记忆…")
                     : target === "new"
-                      ? "组合成新故事"
-                      : "用所选记忆生成文章"}
+                      ? _ui("组合成新故事")
+                      : _ui("用所选记忆生成文章")}
                 </button>
               </>
             )}
@@ -698,10 +680,10 @@ export default function MemoryWarehouse({
         {result && (
           <section
             className="space-y-3 border-t border-[var(--panel-border)] pt-4"
-            aria-label="记忆生成的文章"
+            aria-label={_ui("记忆生成的文章")}
           >
             <h3 className="text-base font-medium">
-              {result.title || "新文章"}
+              {result.title || _ui("新文章")}
             </h3>
             <p className="whitespace-pre-wrap text-sm leading-7">
               {result.body}
@@ -723,8 +705,7 @@ export default function MemoryWarehouse({
                 );
               }}
             >
-              查看与采用
-            </button>
+              {_ui("查看与采用")}</button>
           </section>
         )}
       </DialogContent>
