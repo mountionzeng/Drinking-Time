@@ -219,12 +219,18 @@ async function loadPreviewContext(input: {
   const bookSource = input.bookSource ? await readBookVideoSource(input) : null;
   if(input.bookSource && !bookSource) throw new PublishingVideoStoryboardEligibilityError("当前书稿不存在");
   if(bookSource && draft) draft={...draft,content:{...draft.content,body:bookSource.layout.body}};
+  // 纯书稿故事可能从未生成过发布稿：正文以章节为准，内存中补一份只读草稿（不回写）。
+  if(bookSource && !draft) {
+    const content={title:typeof story.title==="string"?story.title:"",body:bookSource.layout.body,tags:[]};
+    draft={platform:version.activePlatform,content,appliedBaseline:content,sourceCoreRevision:version.core?.revision ?? 0,revision:0,needsReview:false,updatedAt:0};
+  }
   if (!draft || !draft.content.body.trim()) {
     throw new PublishingVideoStoryboardEligibilityError(
       "请先保存一份非空文字稿"
     );
   }
-  if (draft.needsReview) {
+  // 书稿模式下正文来自章节（已由章节编辑器保存），旧发布稿的“待确认变更”不再阻挡视频。
+  if (draft.needsReview && !bookSource) {
     throw new PublishingVideoStoryboardEligibilityError(
       "这份文字稿需要先确认内容变更"
     );

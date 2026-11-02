@@ -121,6 +121,26 @@ const imagePromptDirectorMocks = vi.hoisted(() => ({
 
 vi.mock("./services/imagePromptDirector", () => imagePromptDirectorMocks);
 
+const promptRefundMocks = vi.hoisted(() => ({
+  billings: [] as { operationId: string; chargeMinor: number }[],
+  refundImagePromptCharges: vi.fn(async (input: { billings: { operationId: string }[] }) => ({
+    refunded: new Set(input.billings.map(b => b.operationId)).size,
+    refundedMinor: 0,
+    failed: 0,
+  })),
+}));
+vi.mock("./services/imagePromptRefund", async importOriginal => ({
+  ...(await importOriginal<typeof import("./services/imagePromptRefund")>()),
+  refundImagePromptCharges: promptRefundMocks.refundImagePromptCharges,
+}));
+vi.mock("./_core/inferenceOrchestrator", async importOriginal => {
+  const actual = await importOriginal<typeof import("./_core/inferenceOrchestrator")>();
+  return {
+    ...actual,
+    collectedInferenceBilling: () => [...actual.collectedInferenceBilling(), ...promptRefundMocks.billings],
+  };
+});
+
 process.env.DATABASE_URL = "";
 process.env.LOCAL_PERSIST_PATH = path.join(
   os.tmpdir(),
@@ -1191,6 +1211,50 @@ describe("storyAgent tRPC router", () => {
         primaryReferenceLock: true,
       })
     );
+  });
+
+  it("generateForMobile 出图明确失败时退回本次所有提示词整理扣费；已受理/不确定时不退", async () => {
+    promptRefundMocks.billings = [
+      { operationId: "op-director", chargeMinor: 30 },
+      { operationId: "op-compiler", chargeMinor: 20 },
+    ];
+    promptRefundMocks.refundImagePromptCharges.mockClear();
+    const userId = 3968;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    seedProjectForTesting({ id: 73968, userId });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "提示词退费故事",
+      projectId: 73968,
+      body: { cards: [], characters: [{ name: "SheSelf", role: "主角" }], shots: [{ shotNo: 7, cueCode: "0208", subject: "SheSelf" }] },
+    });
+    const run = () =>
+      caller.storyAgent.generateForMobile({
+        storyId: story!.id,
+        shotNo: 7,
+        prompt: "SheSelf 保持原有构图",
+        imageProvider: "gpt-image",
+        referenceImageUrl: "data:image/webp;base64,UklGRg==",
+      });
+    try {
+      imageGenMocks.editImage.mockResolvedValueOnce({ status: "error", message: "上游过载" });
+      const failed = await run();
+      expect(failed).toMatchObject({ status: "error", promptChargeRefunded: true });
+      expect(promptRefundMocks.refundImagePromptCharges).toHaveBeenCalledTimes(1);
+      expect(promptRefundMocks.refundImagePromptCharges.mock.calls[0]![0]).toMatchObject({
+        userId,
+        billings: expect.arrayContaining(promptRefundMocks.billings),
+      });
+
+      imageGenMocks.editImage.mockResolvedValueOnce({ status: "error", message: "断线", submissionUncertain: true });
+      const uncertain = await run();
+      expect(uncertain).not.toHaveProperty("promptChargeRefunded");
+      imageGenMocks.editImage.mockResolvedValueOnce({ status: "error", message: "轮询中断", providerTaskId: "task-x" });
+      const accepted = await run();
+      expect(accepted).not.toHaveProperty("promptChargeRefunded");
+      expect(promptRefundMocks.refundImagePromptCharges).toHaveBeenCalledTimes(1);
+    } finally {
+      promptRefundMocks.billings = [];
+    }
   });
 
   it("generateForMobile 不丢失已受理任务号，避免网络中断后重复付费", async () => {

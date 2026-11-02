@@ -22,8 +22,9 @@ import { compositeMaskedEditPixels } from "./imageMaskComposite";
 import { prepareLocalImagePatch, compositeLocalImagePatch, localImagePatchPrompt } from "./localImagePatch";
 import { resolveVisionComputeProvider } from "./textComputeProvider";
 import {
-  circuitBreakerMessage,
   isCircuitOpen,
+  providerCooldownRejection,
+  providerRetryAt,
   recordFailure,
   recordProviderFailure,
   recordSuccess,
@@ -60,6 +61,35 @@ export interface ImageGenResult {
   submissionUncertain?: boolean;
   /** Provider receipt recovered even if persisting it through the callback failed. */
   providerTaskId?: string;
+  /**
+   * Stable failure code for UI mapping (do not match on message text):
+   * - overloaded: upstream said "model is overloaded" and did not accept the task
+   * - cooling_down: rejected locally because this provider is cooling down
+   * - timeout_pending: task accepted, still running upstream when we stopped waiting
+   * - uncertain: request may have been accepted; never auto-resubmit
+   */
+  errorCode?: ImageGenErrorCode;
+  /** ISO time when the provider is expected to accept requests again. */
+  retryAt?: string;
+}
+
+export type ImageGenErrorCode =
+  | "overloaded"
+  | "cooling_down"
+  | "timeout_pending"
+  | "uncertain";
+
+export const IMAGE_OVERLOADED_MESSAGE =
+  "图片模型当前拥挤（上游过载），本次未生成，也未扣出图算力。请约 1 分钟后再试，或改用 GPT-image。";
+export const IMAGE_TASK_PENDING_MESSAGE =
+  "图片仍在生成（任务已受理），本次等待超时。已保存任务，请稍后查看，不要重复提交以免重复计费。";
+
+/** Delays between resubmits after an explicit, unaccepted 302 overload (≈20s total with jitter). */
+export const MJ_OVERLOAD_RETRY_DELAYS_MS = [2_000, 5_000, 12_000] as const;
+
+/** Local cooldown rejection; nothing was sent upstream and nothing was charged. */
+export function imageCooldownResult(provider?: ImageProvider): ImageGenResult {
+  return { status: "error", ...providerCooldownRejection(provider) };
 }
 
 interface FetchResponseLike {
@@ -98,6 +128,10 @@ export interface ImageGenOptions {
   referenceRevision?: boolean;
   mjPollIntervalMs?: number;
   mjSubmitTimeoutMs?: number;
+  /** Test hook: delays between overload resubmits (default MJ_OVERLOAD_RETRY_DELAYS_MS). */
+  mjOverloadRetryDelaysMs?: readonly number[];
+  /** Test hook: sleep used between overload resubmits. */
+  sleep?: (ms: number) => Promise<void>;
   mjTimeoutMs?: number;
   /** 302 GPT-image synchronous generation budget; high-quality images often exceed 30s. */
   gptTimeoutMs?: number;
@@ -220,6 +254,15 @@ function providerErrorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
   const cause = error.cause ? String(error.cause).trim() : "";
   return cause ? `${error.message}（${cause}）` : error.message;
+}
+
+/** 302 HTTP 429 body that explicitly says the model is overloaded and has no task id. */
+export function isExplicitUnacceptedOverload(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const b = body as { error?: { message?: unknown }; result?: unknown; taskId?: unknown };
+  if (b.result != null && String(b.result).trim()) return false;
+  if (b.taskId != null && String(b.taskId).trim()) return false;
+  return typeof b.error?.message === "string" && /\bmodel is overloaded\b/i.test(b.error.message);
 }
 
 /** Only DNS/connection setup failures prove that no HTTP request was sent. */
@@ -1131,7 +1174,7 @@ export async function generateImage(
       : requested;
 
   if (isCircuitOpen(provider)) {
-    return { status: "error", message: circuitBreakerMessage(provider) };
+    return imageCooldownResult(provider);
   }
 
   if (provider === "gpt-image" && ENV.api302Key) {
@@ -1183,7 +1226,7 @@ async function generateFalImage(
     );
 
     if (!response.ok) {
-      recordFailure();
+      recordFailure("fal");
       return { status: "error", message: `fal.ai API HTTP ${response.status}` };
     }
 
@@ -1194,20 +1237,20 @@ async function generateFalImage(
 
     const imageUrl = json.images?.[0]?.url;
     if (!imageUrl) {
-      recordFailure();
+      recordFailure("fal");
       return { status: "error", message: "fal.ai returned no images" };
     }
 
     const stored = await storeImageFromUrl(imageUrl, fetcher);
     if (stored.status !== "ok") {
-      recordFailure();
+      recordFailure("fal");
       return stored;
     }
 
-    recordSuccess();
+    recordSuccess("fal");
     return stored;
   } catch (error) {
-    recordFailure();
+    recordFailure("fal");
     const message =
       error instanceof Error ? error.message : "image generation failed";
     return { status: "error", message };
@@ -1281,11 +1324,11 @@ async function generate302GptImage(
     );
 
     if (stored.status !== "ok") {
-      recordFailure();
+      recordFailure("gpt-image");
       return stored;
     }
 
-    recordSuccess();
+    recordSuccess("gpt-image");
     return stored;
   } catch (error) {
     const message = `302 GPT-image 生成失败：${readableError(error, "未知错误")}`;
@@ -1388,7 +1431,7 @@ export async function resume302GptImageTask(
   try {
     const result = await poll302GptImageTask(taskId, options, fetcher);
     if (result.status !== "ok") return { ...result, providerTaskId: taskId };
-    recordSuccess();
+    recordSuccess("gpt-image");
     return result;
   } catch (error) {
     const message = `302 GPT-image 任务恢复失败：${readableError(error, "未知错误")}`;
@@ -1461,11 +1504,11 @@ async function generate302FluxKontext(
     );
 
     if (stored.status !== "ok") {
-      recordFailure();
+      recordFailure("gpt-image");
       return stored;
     }
 
-    recordSuccess();
+    recordSuccess("gpt-image");
     return stored;
   } catch (error) {
     const message = `FLUX Kontext 生成失败：${readableError(error, "未知错误")}`;
@@ -1591,11 +1634,11 @@ async function generate302GptImageEdit(
     }
     const stored = await storeGptEditResult(responseJson, { ...options, referenceImageUrl: imageUrl }, fetcher);
     if (stored.status !== "ok") {
-      recordFailure();
+      recordFailure("gpt-image");
       return stored;
     }
 
-    recordSuccess();
+    recordSuccess("gpt-image");
     return stored;
   } catch (error) {
     const message = `302 图生图失败：${readableError(error, "未知错误")}`;
@@ -1682,10 +1725,6 @@ export async function editImage(
   prompt: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
-  if (isCircuitOpen()) {
-    return { status: "error", message: circuitBreakerMessage() };
-  }
-
   const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   if (options.provider === "midjourney" && !ENV.api302Key) {
     return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
@@ -1693,6 +1732,10 @@ export async function editImage(
   const provider = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
   );
+  // Per-provider: a crowded Midjourney must not block GPT-image / Kontext edits.
+  if (isCircuitOpen(provider)) {
+    return imageCooldownResult(provider);
+  }
 
   if (options.referenceRevision) {
     if (!["midjourney", "gpt-image"].includes(provider) || !ENV.api302Key || options.editMaskImageUrl || options.referenceContextImageUrls?.length) {
@@ -1893,7 +1936,7 @@ async function generate302MidjourneyImage(
       options.requireInputImage &&
       base64Array.length !== inputImageUrls.length
     ) {
-      recordFailure();
+      recordFailure("midjourney");
       return {
         status: "error",
         message: "MJ 图生图未能读取输入照片，已停止，避免回落成纯文生图。",
@@ -1933,31 +1976,69 @@ async function generate302MidjourneyImage(
       }),
     };
     let submitResponse: FetchResponseLike;
-    for (let attempt = 0; ; attempt++) {
+    let failureBody: unknown = undefined;
+    const overloadDelays = options.mjOverloadRetryDelaysMs ?? MJ_OVERLOAD_RETRY_DELAYS_MS;
+    const sleep = options.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
+    for (let attempt = 0, connectRetries = 0, overloadRetries = 0; ; attempt++) {
       submissionDidNotStart = false;
+      failureBody = undefined;
       try {
         submitResponse = await withTimeout(
           fetcher(submitUrl.toString(), request),
           Math.max(1, deadline - Date.now())
         );
-        break;
       } catch (error) {
+        // Only connection-setup failures prove nothing was sent. A request that was
+        // sent but got no response (read timeout / reset) is NEVER retried.
         submissionDidNotStart = isConnectionSetupFailure(error);
-        if (attempt === 0 && submissionDidNotStart && Date.now() < deadline)
+        if (connectRetries === 0 && submissionDidNotStart && Date.now() < deadline) {
+          connectRetries++;
           continue;
+        }
         controller.abort();
         throw error;
       }
+      if (submitResponse.ok || submitResponse.status !== 429) break;
+      // 302 also uses HTTP 429 for upstream model overload. Retry only when the
+      // response explicitly says "model is overloaded" and carries no task id:
+      // that proves the paid task was not accepted, so resubmitting cannot double-charge.
+      failureBody = await submitResponse.json().catch(() => null);
+      if (
+        !isExplicitUnacceptedOverload(failureBody) ||
+        overloadRetries >= overloadDelays.length
+      )
+        break;
+      const wait = Math.round(
+        overloadDelays[overloadRetries]! * (0.7 + Math.random() * 0.6)
+      );
+      if (Date.now() + wait >= deadline) break;
+      overloadRetries++;
+      console.warn(
+        `[302 MJ] 上游过载且未受理，${wait}ms 后第 ${overloadRetries} 次重试提交`
+      );
+      await sleep(wait);
     }
 
     if (!submitResponse.ok) {
-      // 302 also uses HTTP 429 for upstream model overload, not just caller rate limits.
       // Only map the known reason; never expose raw provider payloads or trace IDs.
-      const failure = await submitResponse.json().catch(() => null) as { error?: { message?: unknown } } | null;
-      const overloaded = submitResponse.status === 429 && typeof failure?.error?.message === "string" &&
-        /\bmodel is overloaded\b/i.test(failure.error.message);
-      const message = overloaded ? "图片模型当前过载，请稍后再试。" : `302 Midjourney submit HTTP ${submitResponse.status}`;
+      const failure =
+        failureBody !== undefined
+          ? failureBody
+          : await submitResponse.json().catch(() => null);
+      const overloaded = isExplicitUnacceptedOverload(failure);
+      const message = overloaded
+        ? IMAGE_OVERLOADED_MESSAGE
+        : `302 Midjourney submit HTTP ${submitResponse.status}`;
       recordProviderFailure("midjourney", message);
+      if (overloaded) {
+        const retryAtMs = providerRetryAt("midjourney");
+        return {
+          status: "error",
+          message,
+          errorCode: "overloaded",
+          ...(retryAtMs != null ? { retryAt: new Date(retryAtMs).toISOString() } : {}),
+        };
+      }
       return { status: "error", message };
     }
 
@@ -1997,6 +2078,7 @@ async function generate302MidjourneyImage(
       status: "error",
       message,
       submissionUncertain: !acceptedTaskId && !submissionDidNotStart,
+      ...(!acceptedTaskId && !submissionDidNotStart ? { errorCode: "uncertain" as const } : {}),
       ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : {}),
     };
   }
@@ -2063,7 +2145,7 @@ async function poll302MidjourneyTask(
             );
             continue;
           }
-          recordFailure();
+          recordFailure("midjourney");
           return {
             status: "error",
             message: `302 Midjourney task HTTP ${taskResponse.status}`,
@@ -2103,7 +2185,7 @@ async function poll302MidjourneyTask(
           )
         ).slice(0, 4);
         if (imageUrls.length === 0) {
-          recordFailure();
+          recordFailure("midjourney");
           return {
             status: "error",
             message: "302 Midjourney returned no image URL",
@@ -2117,7 +2199,7 @@ async function poll302MidjourneyTask(
           candidate => candidate.status !== "ok"
         );
         if (failedIndex >= 0) {
-          recordFailure();
+          recordFailure("midjourney");
           return {
             status: "error",
             message: `302 Midjourney candidate ${failedIndex + 1} could not be stored: ${stored[failedIndex]?.message ?? "unknown storage error"}`,
@@ -2129,7 +2211,7 @@ async function poll302MidjourneyTask(
           ...(candidate.imageKey ? { imageKey: candidate.imageKey } : {}),
         }));
         const first = candidates[0]!;
-        recordSuccess();
+        recordSuccess("midjourney");
         return {
           status: "ok",
           imageUrl: first.imageUrl,
@@ -2148,10 +2230,11 @@ async function poll302MidjourneyTask(
       }
     }
 
-    const message = "302 Midjourney task timeout";
+    const message = IMAGE_TASK_PENDING_MESSAGE;
+    // Not a provider fault: the accepted task may still finish. Does not cool down.
     recordProviderFailure("midjourney", message);
     // The task id is a paid receipt; a poll that gave up must still hand it back.
-    return { status: "error", message, providerTaskId: taskId };
+    return { status: "error", message, providerTaskId: taskId, errorCode: "timeout_pending" };
   } catch (error) {
     // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
     console.warn(

@@ -91,20 +91,53 @@ describe("generateImage", () => {
     falApiKey: ENV.falApiKey,
   };
 
-  it("distinguishes provider overload from client rate limiting without retrying or leaking upstream payload", async () => {
+  const overloadBody={ok:false,status:429,json:{error:{message:"The model is overloaded. Please try again later. tid:private-trace"}}};
+  it("retries an explicit, unaccepted overload at most 3 times, then cools only Midjourney down without leaking upstream payload", async () => {
     ENV.api302Key = "test-key";
-    const fetcher = makeFetcher([{ok:false,status:429,json:{error:{message:"The model is overloaded. Please try again later. tid:private-trace"}}}]);
-    const accepted=vi.fn();
-    const result=await generateImage("test boat",{provider:"midjourney",fetcher,onMidjourneyTaskAccepted:accepted});
-    expect(result).toMatchObject({status:"error",message:"图片模型当前过载，请稍后再试。"});
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    const fetcher = makeFetcher([overloadBody]);
+    const accepted=vi.fn();const sleep=vi.fn().mockResolvedValue(undefined);
+    const result=await generateImage("test boat",{provider:"midjourney",fetcher,onMidjourneyTaskAccepted:accepted,mjOverloadRetryDelaysMs:[1,1,1],sleep});
+    expect(result).toMatchObject({status:"error",errorCode:"overloaded"});
+    expect(result.message).toContain("未扣出图算力");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
     expect(accepted).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("private-trace");
     expect(isCircuitOpen("midjourney")).toBe(true);
     expect(isCircuitOpen("gpt-image")).toBe(false);
     expect(getImageProviderStatus().lastFailure?.provider).toBe("midjourney");
-    await generateImage("same boat", {provider:"midjourney",fetcher});
+    const blocked = await generateImage("same boat", {provider:"midjourney",fetcher});
+    expect(blocked).toMatchObject({status:"error",errorCode:"cooling_down"});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("succeeds when an explicit overload clears on retry", async () => {
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([overloadBody,{ok:true,status:200,json:{code:1,result:"task-after-retry"}},{ok:true,status:200,json:{status:"SUCCESS",imageUrl:"https://cdn.example.com/a.png"}}]);
+    const sleep=vi.fn().mockResolvedValue(undefined);
+    await generateImage("test boat",{provider:"midjourney",fetcher,mjOverloadRetryDelaysMs:[1,1,1],sleep,mjPollIntervalMs:1});
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("submit")).length).toBe(2);
+  });
+
+  it("never retries a 429 that already carries a task id", async () => {
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([{ok:false,status:429,json:{result:"task-accepted",error:{message:"The model is overloaded."}}}]);
+    const sleep=vi.fn().mockResolvedValue(undefined);
+    const result=await generateImage("test boat",{provider:"midjourney",fetcher,mjOverloadRetryDelaysMs:[1,1,1],sleep});
+    expect(result.status).toBe("error");
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("never retries a submit that was sent but got no response", async () => {
+    ENV.api302Key = "test-key";
+    const fetcher = vi.fn().mockRejectedValue(Object.assign(new Error("socket hang up"),{code:"ECONNRESET"}));
+    const sleep=vi.fn().mockResolvedValue(undefined);
+    const result=await generateImage("test boat",{provider:"midjourney",fetcher,mjOverloadRetryDelaysMs:[1,1,1],sleep});
+    expect(result.status).toBe("error");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
@@ -223,7 +256,7 @@ describe("generateImage", () => {
     const result = await generateImage("d", { fetcher: freshFetcher });
 
     expect(result.status).toBe("error");
-    expect(result.message).toContain("暂时停用");
+    expect(result.message).toContain("暂时停止提交");
     expect(freshFetcher).not.toHaveBeenCalled();
   });
 
@@ -1019,25 +1052,16 @@ describe("generateImage", () => {
       mjTimeoutMs: 1,
     });
 
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("timeout");
-    expect(isCircuitOpen()).toBe(true);
-    expect(getImageProviderStatus()).toMatchObject({
-      ready: false,
-      lastFailure: {
-        provider: "midjourney",
-        message: "302 Midjourney task timeout",
-      },
+    // A poll timeout means the task was accepted and may still finish: report it in
+    // Chinese, keep the task id, and do NOT cool the provider down.
+    expect(result).toMatchObject({
+      status: "error",
+      errorCode: "timeout_pending",
+      providerTaskId: "task-1",
     });
-
-    const blockedFetcher = vi.fn();
-    const blocked = await generateImage("another paid request", {
-      fetcher: blockedFetcher,
-      provider: "midjourney",
-    });
-    expect(blocked.status).toBe("error");
-    expect(blocked.message).toContain("暂时停用");
-    expect(blockedFetcher).not.toHaveBeenCalled();
+    expect(result.message).toContain("图片仍在生成");
+    expect(isCircuitOpen("midjourney")).toBe(false);
+    expect(isCircuitOpen()).toBe(false);
   });
 });
 

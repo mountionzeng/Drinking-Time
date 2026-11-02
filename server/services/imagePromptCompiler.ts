@@ -12,7 +12,9 @@ export async function invokeImagePromptCompiler(messages: Message[]) {
     Number.isFinite(configuredTimeout) && configuredTimeout > 0
       ? Math.floor(configuredTimeout)
       : 30_000;
+  const billingReceipt: { operationId?: string; chargeMinor?: number } = {};
   const outcome = await runInference({
+    billingReceipt,
     useCase: "text",
     messages,
     candidates: {
@@ -40,7 +42,14 @@ export async function invokeImagePromptCompiler(messages: Message[]) {
   if (!text || choice?.finish_reason === "length") {
     throw new Error("配图提示词未完整生成，本次未提交图片生成");
   }
-  return { text, modelLabel: outcome.result.model || outcome.model };
+  return {
+    text,
+    modelLabel: outcome.result.model || outcome.model,
+    billing:
+      billingReceipt.operationId && (billingReceipt.chargeMinor ?? 0) > 0
+        ? { operationId: billingReceipt.operationId, chargeMinor: billingReceipt.chargeMinor! }
+        : null,
+  };
 }
 
 export function imagePromptPreparationError(error: unknown): string {

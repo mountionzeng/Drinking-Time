@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import {
   ComputeAccessError,
@@ -102,8 +103,27 @@ export type InferenceCandidate = TextComputeProvider & {
   protocol?: InferenceProtocol;
 };
 
+type InferenceBillingEntry = { operationId: string; chargeMinor: number };
+const inferenceBillingScope = new AsyncLocalStorage<InferenceBillingEntry[]>();
+/**
+ * Run `fn` while recording every metered inference charge it triggers, so a caller
+ * that makes several AI calls can refund them if the downstream paid step fails.
+ */
+export function collectInferenceBilling<T>(fn: () => Promise<T>): Promise<T> {
+  return inferenceBillingScope.run([], fn);
+}
+/** Snapshot of charges recorded so far in the current collectInferenceBilling scope. */
+export function collectedInferenceBilling(): InferenceBillingEntry[] {
+  return [...(inferenceBillingScope.getStore() ?? [])];
+}
+
 export type InferenceRequest = {
   useCase: TextComputeUseCase;
+  /**
+   * Optional out-param: filled with the ledger operation id and the amount
+   * actually charged, so a caller can refund it if the downstream paid step fails.
+   */
+  billingReceipt?: { operationId?: string; chargeMinor?: number };
   messages: Message[];
   /** OpenAI Next 不可用时的 302 模型与凭据，透传给 U1 的候选解析。 */
   candidates: ComputeCandidateOptions;
@@ -706,9 +726,10 @@ export async function runInference(
   if (resolved.length === 0) return runInferenceChain(request);
 
   const maxCostMinor = estimateInferenceMaxCostMinor(request, resolved);
+  const operationId = `inference:${randomUUID()}`;
   const metered = await runMeteredCompute({
     userId: scope.userId,
-    operationId: `inference:${randomUUID()}`,
+    operationId,
     operationType: `inference.${request.useCase}`,
     requestHash: inferenceRequestHash(request, resolved),
     maxCostMinor,
@@ -716,7 +737,18 @@ export async function runInference(
     costOf: outcome => inferenceVerifiedCostMinor(outcome, maxCostMinor),
     failureOutcome: inferenceFailureOutcome,
   });
-  if (metered.kind === "completed") return metered.value;
+  if (metered.kind === "completed") {
+    const s = metered.settlement;
+    const chargeMinor =
+      s.outcome === "settled" || s.outcome === "exception" ? s.chargeMinor : 0;
+    if (request.billingReceipt) {
+      request.billingReceipt.operationId = operationId;
+      request.billingReceipt.chargeMinor = chargeMinor;
+    }
+    if (chargeMinor > 0)
+      inferenceBillingScope.getStore()?.push({ operationId, chargeMinor });
+    return metered.value;
+  }
   if (metered.kind === "failed") throw metered.error;
   if (metered.kind === "insufficient_balance") {
     throw new ComputeAccessError({

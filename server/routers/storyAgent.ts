@@ -52,6 +52,12 @@ import {
   generateDraftImage,
   generateImage as generateMobileImage,
 } from "../services/imageGen";
+import {
+  isCircuitOpen as isImageProviderCoolingDown,
+  providerCooldownRejection,
+} from "../services/imageProviderHealth";
+import { collectInferenceBilling, collectedInferenceBilling } from "../_core/inferenceOrchestrator";
+import { refundImagePromptCharges } from "../services/imagePromptRefund";
 import { renderViaGate } from "../services/renderGate";
 import { normalizeColorDesign } from "../../shared/colorHarmony";
 import {
@@ -1806,7 +1812,9 @@ export const storyAgentRouter = router({
           .optional(), // GPT-image 透明遮罩：alpha=0 是唯一允许修改的区域
       })
     )
-    .mutation(async ({ ctx, input }) => {
+    // Every metered AI call made while preparing the prompt is recorded so that a
+    // definite image failure can refund them (each one exactly once).
+    .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
         if (input.warehouseTextureSourceId) {
@@ -1915,6 +1923,18 @@ export const storyAgentRouter = router({
               error: `费用预估已变化，请重新确认预计算力 ${formatComputeQuote(estimate.estimatedCny)}`,
             };
           }
+        }
+
+        // Reject a cooling-down provider before any paid prompt preparation runs.
+        const plannedProvider = input.imageProvider ?? "midjourney";
+        if (input.mode !== "draft" && isImageProviderCoolingDown(plannedProvider)) {
+          const rejection = providerCooldownRejection(plannedProvider);
+          return {
+            status: "error" as const,
+            error: rejection.message,
+            errorCode: rejection.errorCode,
+            ...(rejection.retryAt ? { retryAt: rejection.retryAt } : {}),
+          };
         }
 
         const storyBody =
@@ -2434,6 +2454,9 @@ export const storyAgentRouter = router({
           `[generateForMobile] prompt length: ${prompt.length} chars, mode: ${input.mode ?? "final"}`
         );
 
+        // Prompt preparation is finished: these are the AI charges to refund if the image definitely fails.
+        const promptBillings = collectedInferenceBilling();
+
         // 快轨：复制旧版 7b7d9bf 的 flux-schnell 草稿小样，先让弹窗快速返回单张图。
         // 失败（额度/网络/网关不支持）自动回落到下面的 MJ 正式轨，用户无感知。
         if (input.mode === "draft") {
@@ -2466,10 +2489,20 @@ export const storyAgentRouter = router({
               mode: "draft" as const,
             };
           }
+          const draftTaskId = draft.providerTaskId?.trim();
+          const draftRefund =
+            !draftTaskId && draft.submissionUncertain !== true
+              ? await refundImagePromptCharges({
+                  userId: ctx.user.id,
+                  billings: promptBillings,
+                  reason: draft.message ?? "草稿图生成失败",
+                })
+              : null;
           return {
             status: "error" as const,
             error: draft.message ?? "草稿图生成失败",
             mode: "draft" as const,
+            ...(draftRefund?.refunded ? { promptChargeRefunded: true } : {}),
           };
         }
 
@@ -2537,11 +2570,28 @@ export const storyAgentRouter = router({
             : submissionUncertain
               ? `图片提交过程中连接中断，未拿到 302 任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
               : (result.message ?? "图片生成返回空结果");
+          // Definite failure (no accepted task, not uncertain): refund every
+          // prompt-preparation AI charge of this request, each exactly once.
+          const promptRefund =
+            !providerTaskId && !submissionUncertain
+              ? await refundImagePromptCharges({
+                  userId: ctx.user.id,
+                  billings: promptBillings,
+                  reason: result.message ?? "图片生成失败",
+                })
+              : null;
           return {
+            ...(promptRefund?.refunded ? { promptChargeRefunded: true } : {}),
             status: "error" as const,
             error,
             ...(providerTaskId ? { providerTaskId } : {}),
             ...(submissionUncertain ? { submissionUncertain: true } : {}),
+            ...(!providerTaskId && !submissionUncertain && result.errorCode
+              ? { errorCode: result.errorCode }
+              : {}),
+            ...(!providerTaskId && !submissionUncertain && result.retryAt
+              ? { retryAt: result.retryAt }
+              : {}),
           };
         }
         // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）。
@@ -2633,7 +2683,7 @@ export const storyAgentRouter = router({
           error: err instanceof Error ? err.message : "图片生成失败",
         };
       }
-    }),
+    })),
 
   // mobileInpaint: 局部修复（基于原图改画；MJ 模式内部自带「图生图失败→文生图」兜底）
   mobileInpaint: protectedProcedure

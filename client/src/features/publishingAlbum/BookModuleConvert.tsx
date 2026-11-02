@@ -43,6 +43,8 @@ export function BookModuleConvert({
     subtitleCueId?: string;
   } | null>(null);
   const [imageProvider, setImageProvider] = useState<"midjourney" | "gpt-image">("midjourney");
+  // Must stay after the existing useState calls (tests rely on hook order).
+  const [offerGpt, setOfferGpt] = useState(false);
   const translate = trpc.bookMedia.translate.useMutation({ retry: false });
   const translating = source.kind === "translate-en" || source.kind === "translate-zh";
   const describe = trpc.bookMedia.describe.useMutation(),
@@ -170,13 +172,18 @@ export function BookModuleConvert({
                   });
                   if (data.status === "error") {
                     // A definite submit rejection is different from an accepted/unknown task.
-                    if (!("providerTaskId" in data && data.providerTaskId) && !("submissionUncertain" in data && data.submissionUncertain) && data.error === "图片模型当前过载，请稍后再试。") {
+                    const definite = !("providerTaskId" in data && data.providerTaskId) && !("submissionUncertain" in data && data.submissionUncertain);
+                    const errorCode = "errorCode" in data ? data.errorCode : undefined;
+                    const legacyRateLimit = data.error === "302 Midjourney submit HTTP 429";
+                    const overloaded = errorCode === "overloaded" || errorCode === "cooling_down" || legacyRateLimit || /过载|拥挤/.test(data.error);
+                    if (definite && overloaded) {
+                      // Nothing was accepted and nothing was charged: allow retry, and offer
+                      // GPT-image as an explicit (never automatic) alternative.
                       setSubmitted(false);
-                      throw new Error(`${data.error}原文字已保留。`);
-                    }
-                    if (!("providerTaskId" in data && data.providerTaskId) && !("submissionUncertain" in data && data.submissionUncertain) && data.error === "302 Midjourney submit HTTP 429") {
-                      setSubmitted(false);
-                      throw new Error("图片生成服务当前限流，本次未取得任务号。请稍后再试，原文字已保留。");
+                      if (imageProvider === "midjourney") setOfferGpt(true);
+                      throw new Error(legacyRateLimit
+                        ? "图片生成服务当前限流，本次未取得任务号，未扣出图算力。请稍后再试，原文字已保留。"
+                        : `${data.error}原文字已保留。`);
                     }
                     throw new Error(data.error);
                   }
@@ -214,6 +221,15 @@ export function BookModuleConvert({
                 ? "生成文字"
                 : source.kind === "narration" ? "查看朗读费用" : "查看音乐生成费用"}
           </button>
+        )}
+        {offerGpt && source.kind === "image" && imageProvider === "midjourney" && !busy && !submitted && images.length === 0 && (
+          <div className="rounded border p-2 text-xs">
+            <p>Midjourney 当前拥挤。可改用 GPT-image 出 1 张图（预估 {formatComputeQuote(estimatePublishingCoverFallbackCost().estimatedCny)}，约为 Midjourney 的 8 倍），不会自动切换。</p>
+            <button type="button" className="mt-1 rounded border px-2 py-1"
+              onClick={() => { setImageProvider("gpt-image"); setOfferGpt(false); setError(""); }}>
+              改用 GPT-image
+            </button>
+          </div>
         )}
         {quote && !result && (
           <button

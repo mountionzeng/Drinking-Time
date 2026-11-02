@@ -13,7 +13,13 @@ import { getAccountBalance, grantCredit } from "../services/computeLedger";
 import { runMeteredCompute } from "../services/computeMetering";
 import { withComputeUser } from "../services/computeRequestAccess";
 import { ENV } from "./env";
-import { runInference, type InferenceRequest } from "./inferenceOrchestrator";
+import {
+  collectInferenceBilling,
+  collectedInferenceBilling,
+  runInference,
+  type InferenceRequest,
+} from "./inferenceOrchestrator";
+import { refundImagePromptCharges } from "../services/imagePromptRefund";
 import { estimateInferenceMaxCostMinor } from "./inferenceBilling";
 
 const saved = { ...ENV };
@@ -191,5 +197,44 @@ describe("runInference 统一计费", () => {
     }));
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect((await getAccountBalance(userId)).availableMinor).toBe(fromYuan(9.9));
+  });
+});
+
+describe("出图失败退回提示词整理算力（多次 AI 调用）", () => {
+  it("逐笔记录同一请求内的每次 AI 扣费，失败后全部退回且同一笔只退一次", async () => {
+    const userId = await fundedUser("inf-refund", 10);
+    stubProvider({ prompt_tokens: 100, completion_tokens: 400, total_tokens: 500 });
+    const billings = await collectInferenceBilling(async () => {
+      await withComputeUser(userId, () => runInference(request));
+      await withComputeUser(userId, () => runInference(request));
+      return collectedInferenceBilling();
+    });
+    expect(billings).toHaveLength(2);
+    expect(new Set(billings.map(b => b.operationId)).size).toBe(2);
+    expect((await getAccountBalance(userId)).availableMinor).toBe(fromYuan(9));
+
+    const first = await refundImagePromptCharges({ userId, billings, reason: "上游过载" });
+    expect(first).toMatchObject({ refunded: 2, failed: 0, refundedMinor: fromYuan(1) });
+    expect((await getAccountBalance(userId)).availableMinor).toBe(fromYuan(10));
+
+    const again = await refundImagePromptCharges({ userId, billings: [...billings, billings[0]!], reason: "重复" });
+    expect(again.refunded).toBe(0);
+    expect((await getAccountBalance(userId)).availableMinor).toBe(fromYuan(10));
+  });
+
+  it("不在收集范围内的调用不会被记录，范围之间互不串扰", async () => {
+    const userId = await fundedUser("inf-scope", 10);
+    stubProvider({ total_tokens: 500 });
+    await withComputeUser(userId, () => runInference(request));
+    expect(collectedInferenceBilling()).toEqual([]);
+    const [a, b] = await Promise.all([
+      collectInferenceBilling(async () => {
+        await withComputeUser(userId, () => runInference(request));
+        return collectedInferenceBilling();
+      }),
+      collectInferenceBilling(async () => collectedInferenceBilling()),
+    ]);
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(0);
   });
 });

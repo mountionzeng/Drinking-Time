@@ -39,7 +39,7 @@ it('shows rate limiting and restores the button only for a definite HTTP 429 rej
  m.image.mockResolvedValue({status:'error',error:'302 Midjourney submit HTTP 429'});
  nodes(BookModuleConvert(props)).find(n=>n.type==='button').props.onClick();await settle();
  m.index=m.ref=0;const tree=BookModuleConvert(props);
- expect(nodes(tree).find(n=>n.props?.role==='alert').props.children).toContain('图片生成服务当前限流，本次未取得任务号。请稍后再试，原文字已保留。');
+ expect(nodes(tree).find(n=>n.props?.role==='alert').props.children).toContain('图片生成服务当前限流，本次未取得任务号，未扣出图算力。请稍后再试，原文字已保留。');
  expect(nodes(tree).some(n=>n.type==='button')).toBe(true);
  expect(m.image).toHaveBeenCalledTimes(1);expect(props.onInsert).not.toHaveBeenCalled();
 });
@@ -53,11 +53,25 @@ it('does not offer resubmission when a provider task or uncertain submission exi
 
 it('reports provider overload accurately and leaves the manuscript untouched',async()=>{
  const props={source:{id:'x',text:'雨天',kind:'image' as const},storyId:1,chapterId:2,prepare:async()=>{},onInsert:vi.fn(),onClose:vi.fn()};
- m.image.mockResolvedValue({status:'error',error:'图片模型当前过载，请稍后再试。'});
+ m.image.mockResolvedValue({status:'error',error:'图片模型当前拥挤（上游过载），本次未生成，也未扣出图算力。请约 1 分钟后再试，或改用 GPT-image。',errorCode:'overloaded'});
  nodes(BookModuleConvert(props)).find(n=>n.type==='button').props.onClick();await settle();
  m.index=m.ref=0;const tree=BookModuleConvert(props);
- expect(nodes(tree).find(n=>n.props?.role==='alert').props.children).toContain('图片模型当前过载，请稍后再试。原文字已保留。');
+ expect(nodes(tree).find(n=>n.props?.role==='alert').props.children).toContain('图片模型当前拥挤（上游过载），本次未生成，也未扣出图算力。请约 1 分钟后再试，或改用 GPT-image。原文字已保留。');
  expect(nodes(tree).some(n=>n.type==='button')).toBe(true);expect(m.image).toHaveBeenCalledTimes(1);expect(props.onInsert).not.toHaveBeenCalled();
+});
+
+it('offers an explicit GPT-image switch after a Midjourney overload without switching automatically',async()=>{
+ const props={source:{id:'x',text:'雨天',kind:'image' as const},storyId:1,chapterId:2,prepare:async()=>{},onInsert:vi.fn(),onClose:vi.fn()};
+ m.image.mockResolvedValue({status:'error',error:'图片模型当前拥挤（上游过载），本次未生成，也未扣出图算力。',errorCode:'overloaded'});
+ nodes(BookModuleConvert(props)).find(n=>n.type==='button').props.onClick();await settle();
+ m.index=m.ref=0;let tree=nodes(BookModuleConvert(props));
+ const gpt=tree.find(n=>n.type==='button'&&n.props.children==='改用 GPT-image');
+ expect(gpt).toBeTruthy();expect(m.image).toHaveBeenCalledTimes(1);
+ expect(tree.find(n=>n.type==='select').props.value).toBe('midjourney');
+ gpt.props.onClick();m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ expect(tree.find(n=>n.type==='select').props.value).toBe('gpt-image');
+ expect(tree.some(n=>n.type==='button'&&n.props.children==='改用 GPT-image')).toBe(false);
+ expect(m.image).toHaveBeenCalledTimes(1);
 });
 
 it('inserts the English translation below the unchanged source, preserving newlines',async()=>{

@@ -1320,15 +1320,27 @@ export default function PublishingDraftWorkspace({
 
   const openVideoSetup = async () => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
-    if (!activeVersion || !editorContent?.body.trim()) { toast.info("请先保存书稿，再制作视频"); return; }
+    // 书稿模式：视频以章节正文为准，不再要求旧发布稿正文非空。
+    if (!activeVersion || (!unifiedChapters && !editorContent?.body.trim())) { toast.info("请先保存书稿，再制作视频"); return; }
     const scope = storySpineStore.getState();
-    try { if(unifiedChapters) await prepareBookForVideo(activeStoryId,scope.accountId); }
+    let videoBody = editorContent?.body ?? "";
+    let bookMode = false;
+    try {
+      if(unifiedChapters) {
+        // 先落盘章节里未保存的手动修改（失败则提示并中止），再读取已保存的章节正文。
+        await prepareBookForVideo(activeStoryId,scope.accountId);
+        const chapters = await utils.chapters.list.fetch({storyId:activeStoryId});
+        const chapterBody = chapters.map(chapter => chapter.blocks.body).join("\n\n").trim();
+        if (chapterBody) { videoBody = chapterBody; bookMode = true; }
+      }
+    }
     catch(error){toast.error(error instanceof Error?error.message:"书稿保存失败");return;}
+    if (!videoBody.trim()) { toast.info("请先在章节里写入正文并保存，再制作视频"); return; }
     const currentScope=storySpineStore.getState();
     if(currentScope.activeStoryId!==activeStoryId || currentScope.accountId!==scope.accountId || currentScope.storyScopeEpoch!==scope.storyScopeEpoch)return;
     useBookMediaSession.getState().setSession(null);
     useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId,
-      layout:{body:editorContent.body,illustrations:selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
+      layout:{body:videoBody,illustrations:bookMode ? [] : selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
       onAdopt:async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId});onContinueToVideo?.()},
       onAlbum:()=>{useBookVideoSession.getState().setSession(null);setSelectedNarrativeSpec("album9");setVideoSetupOpen(true)},
     });
@@ -1338,7 +1350,7 @@ export default function PublishingDraftWorkspace({
   useEffect(() => {
     if (!createRequest || createRequest.storyId !== activeStoryId || createRequest.kind !== "video") return;
     onCreateRequestHandled?.();
-    if (!draft || dirty || !editorContent?.body.trim()) {
+    if (!unifiedChapters && (!draft || dirty || !editorContent?.body.trim())) {
       toast.info("请先在文字区保存当前文案，再制作视频。");
       onOpenWriting?.();
       return;
@@ -1348,7 +1360,7 @@ export default function PublishingDraftWorkspace({
       return;
     }
     openVideoSetup();
-  }, [createRequest, activeStoryId, draft, dirty, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
+  }, [createRequest, activeStoryId, draft, dirty, unifiedChapters, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
 
   const confirmVideoSetup = async () => {
     setVideoSetupOpen(false);

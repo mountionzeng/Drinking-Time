@@ -200,3 +200,21 @@ it("uses the current saved book and inserted image instead of stale publishing t
  await saveChapterContent({reason:"test update",id:chapter.id,userId:31,expectedVersion:chapter.version,content:{title:chapter.title,layout:null,blocks:{...chapter.blocks,body:"书稿又更新了。"}}});
  await expect(service.generateBookVideo({...input,id:other.id})).rejects.toThrow("书稿已更新");
 });
+
+it("纯书稿故事从未生成发布稿时，以章节正文进入视频制作，不再要求非空文字稿", async()=>{
+ const base=await fixture();
+ const story=await db.getStoryById(base.storyId,31);
+ const body=story!.body as {publishing:{drafts:unknown;versions:{drafts:unknown}[]}};
+ const publishing={...body.publishing,drafts:{},versions:body.publishing.versions.map(v=>({...v,drafts:{}}))};
+ const pure=await db.createStory({userId:31,title:"纯书稿",body:{_revision:1,shots:[],publishing}});
+ const input={...base,storyId:pure.id,id:crypto.randomUUID()};
+ const {insertChapter}=await import("../repositories/chapters");
+ await insertChapter({storyId:pure.id,userId:31,content:{title:"第一章",layout:null,blocks:{body:"只在书稿里写过的段落。",blockIds:[],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const proposed=await service.proposeBookVideo(input);
+ expect(proposed.bookSource).toBe(true);
+ expect(proposed.layout.body).toBe("只在书稿里写过的段落。");
+ const ready=await service.generateBookVideo(input);
+ expect(ready.preview?.source?.bookContentHash).toBe(proposed.sourceHash);
+ const generated=mocks.generate.mock.calls.at(-1)![0] as {articleRows:{text?:string}[]};
+ expect(JSON.stringify(generated.articleRows)).toContain("只在书稿里写过的段落");
+});

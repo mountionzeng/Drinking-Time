@@ -53,6 +53,11 @@ import {
   resume302GptImageTask,
   resume302MidjourneyTask,
 } from "../services/imageGen";
+import {
+  isCircuitOpen as isImageProviderCoolingDown,
+  providerCooldownRejection,
+} from "../services/imageProviderHealth";
+import { refundImagePromptCharge, type PromptBilling } from "../services/imagePromptRefund";
 import { engineerImagePrompt } from "../services/renderGate";
 import { extractPublishingCoverArtDirection } from "../services/publishingCoverArtDirection";
 import {
@@ -2304,7 +2309,29 @@ export const publishingDraftRouter = router({
          * lettering and signatures appearing in the pixels. They get a short
          * English scene compiled from that same brief instead.
          */
+        // Check the provider cooldown BEFORE any paid prompt preparation: while a
+        // provider is cooling down we reject for free instead of charging the
+        // prompt compiler and then failing immediately.
+        if (!generation.taskId && isImageProviderCoolingDown(imageOptions.provider)) {
+          const rejection = providerCooldownRejection(imageOptions.provider);
+          const failed = await writePublishingDraftState({
+            storyId: input.storyId, userId: ctx.user.id,
+            operation: {
+              type: "update_cover_generation", operationToken, status: "failed",
+              error: rejection.message,
+            },
+          });
+          return {
+            status: "error" as const, error: failed.publishing.coverGeneration!.error!,
+            errorCode: rejection.errorCode,
+            ...(rejection.retryAt ? { retryAt: rejection.retryAt } : {}),
+            estimate, ...failed,
+            coverAsset: await loadPublishingCoverAsset({ assetId: failed.publishing.cover?.assetId, storyId: input.storyId, userId: ctx.user.id }),
+            coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
+          };
+        }
         let renderPrompt = prompt;
+        let promptBilling: PromptBilling = null;
         if (!generation.taskId && coverProvider !== "gpt-image") {
           let compiled;
           try {
@@ -2342,6 +2369,7 @@ export const publishingDraftRouter = router({
               coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
             };
           }
+          promptBilling = compiled.billing ?? null;
           const compiledText = compiled.text.trim();
           if (compiledText) {
             renderPrompt = generation.outputKind === "body-texture"
@@ -2396,6 +2424,16 @@ export const publishingDraftRouter = router({
               ? `提交封面任务时连接中断，未拿到 302 任务编号，无法确认上游是否已经受理（${generated.message || "网络连接异常"}）。系统不会自动重新提交，以免重复扣费；请先在 302 后台确认本轮记录，再决定是否开启新一轮。`
               : generated.message ||
                 `本轮只收到 ${generatedCandidates.length} 张可用候选`;
+          // Definite failure (no image, no accepted task, not uncertain): refund the
+          // prompt-preparation charge once. Pending/uncertain tasks keep it until resolved.
+          const promptRefund =
+            !submissionUncertain && !acceptedTaskId && !generation.taskId
+              ? await refundImagePromptCharge({
+                  userId: ctx.user.id,
+                  billing: promptBilling,
+                  reason: generated.message || "封面出图失败",
+                })
+              : "skipped";
           const failed = await writePublishingDraftState({
             storyId: input.storyId,
             userId: ctx.user.id,
@@ -2416,6 +2454,9 @@ export const publishingDraftRouter = router({
                 ? generationError
                 : generated.message ||
                   `本轮只收到 ${generatedCandidates.length} 张可用候选，没有写入正式封面，请重试`,
+            ...(generated.errorCode ? { errorCode: generated.errorCode } : {}),
+            ...(generated.retryAt ? { retryAt: generated.retryAt } : {}),
+            ...(promptRefund === "refunded" ? { promptChargeRefunded: true } : {}),
             estimate,
             ...failed,
             coverAsset: await loadPublishingCoverAsset({
