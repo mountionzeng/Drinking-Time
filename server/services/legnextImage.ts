@@ -1,3 +1,4 @@
+import { downloadLegnextImage } from "./legnextImageDownload";
 import { createHash } from "node:crypto";
 import { assertComputeRequestAccess } from "./computeRequestAccess";
 import { storeImageBytes, type ImageGenResult } from "./imageGen";
@@ -28,9 +29,7 @@ export async function resumeLegnextImage(id: string): Promise<ImageGenResult> {
     for (const [index, value] of urls.entries()) {
       const url = new URL(String(value));
       if (url.protocol !== "https:" || url.hostname !== "images.sexapi.ai" || url.port || url.username || url.password) return pending(id);
-      const image = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-      if (!image.ok) return pending(id);
-      const bytes = new Uint8Array(await image.arrayBuffer());
+      const bytes = await downloadLegnextImage(url);
       if (bytes.length > 25 * 1024 * 1024 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71) return pending(id);
       const key = createHash("sha256").update(job).digest("hex");
       const saved = await storeImageBytes(bytes, "image/png", { storageKey: `generated/legnext-${key}-${index}.png` });

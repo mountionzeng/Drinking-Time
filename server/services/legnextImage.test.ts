@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ save: vi.fn(), access: vi.fn() }));
+const m = vi.hoisted(() => ({ save: vi.fn(), access: vi.fn(), download: vi.fn() }));
+vi.mock("./legnextImageDownload", () => ({ downloadLegnextImage: m.download }));
 vi.mock("./imageGen", () => ({ storeImageBytes: m.save }));
 vi.mock("./computeRequestAccess", () => ({ assertComputeRequestAccess: m.access }));
 import { generateLegnextImage, legnextPrompt, resumeLegnextImage } from "./legnextImage";
@@ -34,6 +35,7 @@ it("persists all four completed outputs with stable keys before success", async 
   const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ status: "completed", output: { image_urls: [1,2,3,4].map(n => `https://images.sexapi.ai/${n}.png`) } }) })
     .mockResolvedValue({ ok: true, arrayBuffer: async () => Uint8Array.from([137,80,78,71]).buffer });
   vi.stubGlobal("fetch", fetcher); m.save.mockImplementation(async (_bytes, _mime, o) => ({ imageUrl: "/api/images/" + o.storageKey, imageKey: o.storageKey }));
+  m.download.mockResolvedValue(Uint8Array.from([137,80,78,71]));
   const result = await resumeLegnextImage(receipt);
   expect(result.status).toBe("ok"); expect(result.candidates).toHaveLength(4); expect(m.save).toHaveBeenCalledTimes(4);
   expect(result.imageUrl).not.toContain(id);

@@ -9224,7 +9224,8 @@
         "server/services/legnextImage.ts",
         "server/services/bookModuleImageRecovery.ts",
         "server/repositories/bookModuleImageTasks.ts",
-        "shared/bookModuleImageTask.ts"
+        "shared/bookModuleImageTask.ts",
+        "server/services/legnextImageDownload.ts"
       ],
       "evidence": [
         "server/services/bookModuleSource.test.ts",
@@ -9247,7 +9248,8 @@
         "server/services/imageGen.test.ts",
         "server/services/legnextImage.test.ts",
         "server/services/bookModuleImageRecovery.test.ts",
-        "docs/qa/2026-11-02-legnext-release.md"
+        "docs/qa/2026-11-02-legnext-release.md",
+        "server/services/legnextImageDownload.test.ts"
       ],
       "invariants": [
         "转换仅使用所选模块，服务端解析所属故事/章节/模块与图片资产，禁止跨账号读取。",
