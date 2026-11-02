@@ -9220,7 +9220,11 @@
         "client/src/features/mobileWorkspace/MobileBookContext.tsx",
         "client/src/features/publishingAlbum/bookModuleActions.ts",
         "client/src/features/mobileWorkspace/MobileBookModuleActions.tsx",
-        "server/services/bookModuleTranslation.ts"
+        "server/services/bookModuleTranslation.ts",
+        "server/services/legnextImage.ts",
+        "server/services/bookModuleImageRecovery.ts",
+        "server/repositories/bookModuleImageTasks.ts",
+        "shared/bookModuleImageTask.ts"
       ],
       "evidence": [
         "server/services/bookModuleSource.test.ts",
@@ -9240,7 +9244,10 @@
         "server/services/bookModuleTranslation.test.ts",
         "docs/qa/2026-11-01-web-button-acceptance.md",
         "server/services/imageProviderHealth.test.ts",
-        "server/services/imageGen.test.ts"
+        "server/services/imageGen.test.ts",
+        "server/services/legnextImage.test.ts",
+        "server/services/bookModuleImageRecovery.test.ts",
+        "docs/qa/2026-11-02-legnext-release.md"
       ],
       "invariants": [
         "转换仅使用所选模块，服务端解析所属故事/章节/模块与图片资产，禁止跨账号读取。",
@@ -9334,6 +9341,10 @@
           "date": "2026-11-01",
           "kind": "feature",
           "summary": "用户授权显式GPT备用。模块入口报价2.86算力/单图，旧GPT1.5实测参数拒绝后改为仅该入口显式GPT Image2，其他调用模型不变。虚构1216真实生成图片1990、自动插入、保存刷新通过；原文与2342字实际美术提示词保留。170项专项、25项提示词回归、类型通过；未部署。"
+        },
+        {
+          "date": "2026-11-02",
+          "summary": "书稿文字生成图片接入 Legnext MJ V7 Fast，回执先保存、恢复不重购；旧302回执保留原通道。供应商直测四图成功消耗$0.08；报价保持现有保守上限1.36算力，非供应商实收美元。发布验证见专属QA。"
         }
       ]
     },

@@ -85,3 +85,34 @@ it('retries the retained draft when the connection returns',async()=>{
   await vi.advanceTimersByTimeAsync(0);
   expect(save).toHaveBeenCalledTimes(2);expect(cache.has(key)).toBe(false);
 });
+
+it('keeps the acknowledged base when editing again before parent props refresh',async()=>{
+  const save=vi.fn()
+    .mockResolvedValueOnce({...chapter,version:5,blocks:{body:'第一稿'}})
+    .mockResolvedValueOnce({...chapter,version:6,blocks:{body:'第二稿'}});
+  const {handle,change}=mount(save);
+  change('第一稿');await handle.current!.prepare();
+  change('第二稿');
+  expect(handle.current!.snapshot()).toMatchObject({body:'第二稿',baseVersion:5});
+  await expect(handle.current!.prepare()).resolves.toBeUndefined();
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
+it('does not roll back the base when undo reaches old props before the next edit',async()=>{
+  const save=vi.fn().mockResolvedValue({...chapter,version:5,blocks:{body:'已提交的新稿'}});
+  const {handle,change}=mount(save);
+  change('已提交的新稿');await handle.current!.prepare();
+  change(chapter.blocks.body);change('撤销之后继续写');
+  expect(handle.current!.snapshot()).toMatchObject({body:'撤销之后继续写',baseVersion:5});
+  expect(JSON.parse(cache.get(key)!)).toMatchObject({baseVersion:5});
+});
+
+it.each([null,3])('editing an actually stale draft (%s) does not silently authorize generation',async baseVersion=>{
+  cache.set(key,JSON.stringify({title:chapter.title,body:'旧草稿',baseVersion}));
+  const save=vi.fn(), generate=vi.fn();
+  const {handle,change}=mount(save);
+  change('旧草稿继续编辑');
+  await expect(handle.current!.prepare().then(generate)).rejects.toThrow('较早或未知版本');
+  expect(handle.current!.snapshot().baseVersion).toBe(baseVersion);
+  expect(save).not.toHaveBeenCalled();expect(generate).not.toHaveBeenCalled();
+});

@@ -124,6 +124,8 @@ export interface ImageGenOptions {
   fidelity?: ImageFidelity;
   /** MJ v7 Draft Mode：~10x 速度、半价，仍是 MJ 美术血统。双轨「快轨」用 */
   mjDraft?: boolean;
+  /** Pin the confirmed book-module model instead of following the upstream default. */
+  mjVersion?: "7";
   /** Regenerate from one selected image without changing providers or dropping the source. */
   referenceRevision?: boolean;
   mjPollIntervalMs?: number;
@@ -169,7 +171,7 @@ export interface ImageGenOptions {
   editMaskImageUrl?: string;
   /** Confirmed local edit: generate a low-cost crop, then extract an RGBA patch. */
   localImagePatch?: boolean;
-  /** Called after 302 accepts an MJ task, before the first poll. */
+  /** Persist this opaque receipt before polling; nonstandard MJ channels include a prefix. */
   onMidjourneyTaskAccepted?: (taskId: string) => void | Promise<void>;
   /** Called after any asynchronous provider accepts a paid task. */
   onProviderTaskAccepted?: (taskId: string) => void | Promise<void>;
@@ -1945,8 +1947,29 @@ async function generate302MidjourneyImage(
   }
 
   try {
+    const versionedPrompt = options.mjVersion
+      ? `${prompt.replace(/(?:^|\s)--(?:v|version)\s+\S+/gi, "").trim()} --v ${options.mjVersion}`
+      : prompt;
+    const finalPrompt = midjourneyPromptFor(
+      versionedPrompt,
+      options.aspectRatio,
+      options.fidelity,
+      options.mjDraft,
+      options.characterRef,
+      options.styleRef,
+      options.characterWeight,
+      options.imageWeight
+    );
+    // Hostnames do not prove channel availability: the documented .ai gateway
+    // also returned 404 in a real submission. Keep the established /mj/ contract
+    // and speed flags unless dedicated channels are explicitly configured.
+    // Never discover a route by retrying a paid POST on another endpoint.
+    const dedicatedChannels = process.env.IMAGE_302_MJ_ROUTE_MODE === "dedicated";
+    const channel = dedicatedChannels && /(?:^|\s)--turbo\b/i.test(finalPrompt)
+      ? "mj-turbo"
+      : dedicatedChannels && /(?:^|\s)--relax\b/i.test(finalPrompt) ? "mj-relax" : "mj";
     const submitUrl = new URL(
-      "/mj/submit/imagine",
+      `/${channel}/submit/imagine`,
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
     const controller = new AbortController();
@@ -1962,16 +1985,7 @@ async function generate302MidjourneyImage(
         base64Array,
         botType: "MID_JOURNEY",
         notifyHook: "",
-        prompt: midjourneyPromptFor(
-          prompt,
-          options.aspectRatio,
-          options.fidelity,
-          options.mjDraft,
-          options.characterRef,
-          options.styleRef,
-          options.characterWeight,
-          options.imageWeight
-        ),
+        prompt: finalPrompt,
         state: "",
       }),
     };
@@ -2058,9 +2072,11 @@ async function generate302MidjourneyImage(
       };
     }
 
-    acceptedTaskId = taskId;
-    await options.onMidjourneyTaskAccepted?.(taskId);
-    return poll302MidjourneyTask(taskId, options, fetcher, Date.now());
+    // Keep the channel in the persisted receipt: recovery may happen after a
+    // restart with different options. Historical unprefixed IDs remain standard.
+    acceptedTaskId = channel === "mj" ? taskId : `${channel}:${taskId}`;
+    await options.onMidjourneyTaskAccepted?.(acceptedTaskId);
+    return poll302MidjourneyTask(acceptedTaskId, options, fetcher, Date.now());
   } catch (error) {
     // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
     console.warn(
@@ -2102,6 +2118,9 @@ async function poll302MidjourneyTask(
   fetcher: Fetcher,
   startedAt: number
 ): Promise<ImageGenResult> {
+  const channelReceipt = /^(mj-turbo|mj-relax):(.+)$/.exec(taskId);
+  const channel = channelReceipt?.[1] ?? "mj";
+  const providerTaskId = channelReceipt?.[2] ?? taskId;
   const pollIntervalMs =
     options.mjPollIntervalMs ?? parseNumber(ENV.image302MjPollMs, 4_000);
   const timeoutMs =
@@ -2113,7 +2132,7 @@ async function poll302MidjourneyTask(
       nextPollDelayMs = pollIntervalMs;
 
       const taskUrl = new URL(
-        `/mj/task/${encodeURIComponent(taskId)}/fetch`,
+        `/${channel}/task/${encodeURIComponent(providerTaskId)}/fetch`,
         `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
       );
       let taskResponse: FetchResponseLike;

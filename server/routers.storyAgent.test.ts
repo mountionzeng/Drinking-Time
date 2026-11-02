@@ -1,3 +1,5 @@
+const legnextMocks = vi.hoisted(() => ({ generateLegnextImage: vi.fn(), resumeLegnextImage: vi.fn(), isLegnextReceipt: (id: string) => id.startsWith("legnext:") }));
+vi.mock("./services/legnextImage", () => legnextMocks);
 import { estimateStoryboardMaskedEditCost } from "../shared/imageRenderCost";
 import { formatComputeQuote } from "../shared/computeMoney";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -187,6 +189,29 @@ function createAuthContext(userId = 42): TrpcContext {
 }
 
 describe("storyAgent tRPC router", () => {
+  it("persists module image results and replays through the recovery API without another generation", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    const userId = 4968;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "模块恢复接口", body: {} });
+    const chapter = await insertChapter({ storyId: story.id, userId, content: {
+      title: "纸船", layout: null, blocks: { body: "纸船", writingStyle: [{ id: "module-1", format: "text", lineCount: 1 }], blockIds: ["module-1"], containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] },
+    } });
+    const scope = { storyId: story.id, chapterId: chapter.id, moduleId: "module-1" };
+    legnextMocks.generateLegnextImage.mockImplementationOnce(async (...args: any[]) => {
+      await args[1]("legnext:module-router-task");
+      return { status: "error", message: "仍在生成", providerTaskId: "legnext:module-router-task" } as any;
+    });
+    const result = await caller.storyAgent.generateForMobile({ storyId: story.id, mode: "final", imageProvider: "midjourney", prompt: "纸船", moduleTarget: { chapterId: chapter.id, moduleId: "module-1", expectedText: "纸船", requestId: crypto.randomUUID() } });
+    expect(result.status).toBe("error");
+    expect(await caller.storyAgent.bookModuleImageTask(scope)).toMatchObject({ status: "accepted", providerTaskId: "legnext:module-router-task" });
+    legnextMocks.resumeLegnextImage.mockResolvedValueOnce({ status: "ok", imageUrl: "https://storage.example/module.png", imageKey: "module.png" });
+    expect(await caller.storyAgent.recoverBookModuleImage(scope)).toMatchObject({ status: "ok" });
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    expect(await getStoryGeneratedImages(story.id, userId)).toHaveLength(1);
+    await expect(appRouter.createCaller(createAuthContext(userId + 1)).storyAgent.recoverBookModuleImage(scope)).rejects.toThrow();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     imageGenMocks.toPublicImageUrl.mockImplementation(

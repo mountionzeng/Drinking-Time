@@ -1,3 +1,4 @@
+import { generateLegnextImage } from "../services/legnextImage";
 import { storyTagsSchema } from "../../shared/storyTags";
 import { getStoryTags, setStoryTags } from "../services/storyTags";
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
@@ -77,6 +78,7 @@ import {
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
+import { readModuleImageTask, recoverModuleImageTask, runModuleImageTask, type ModuleImageHooks } from "../services/bookModuleImageRecovery";
 import { resolveVisualAssetGenerationContext } from "../services/visualAssetGenerationContext";
 import {
   applyPublishingCoverArtDirection,
@@ -1752,11 +1754,19 @@ export const storyAgentRouter = router({
       }
     }),
 
+  bookModuleImageTask: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240) }))
+    .query(({ ctx, input }) => readModuleImageTask({ ...input, userId: ctx.user.id })),
+  recoverBookModuleImage: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240) }))
+    .mutation(({ ctx, input }) => recoverModuleImageTask({ ...input, userId: ctx.user.id })),
+
   // generateForMobile: 用户确认后触发图片生成（可选传入用户照片作为基底）
   generateForMobile: protectedProcedure
     .input(
       z.object({
         warehouseTextureSourceId: z.number().int().positive().optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
@@ -1815,6 +1825,7 @@ export const storyAgentRouter = router({
     // Every metered AI call made while preparing the prompt is recorded so that a
     // definite image failure can refund them (each one exactly once).
     .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
+      const execute = async (moduleImage?: ModuleImageHooks) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
         if (input.warehouseTextureSourceId) {
@@ -1927,7 +1938,7 @@ export const storyAgentRouter = router({
 
         // Reject a cooling-down provider before any paid prompt preparation runs.
         const plannedProvider = input.imageProvider ?? "midjourney";
-        if (input.mode !== "draft" && isImageProviderCoolingDown(plannedProvider)) {
+        if (!(moduleImage && plannedProvider === "midjourney") && input.mode !== "draft" && isImageProviderCoolingDown(plannedProvider)) {
           const rejection = providerCooldownRejection(plannedProvider);
           return {
             status: "error" as const,
@@ -2523,8 +2534,13 @@ export const storyAgentRouter = router({
                 : "none"
             }`
           );
+          if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
+            return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted);
+          }
           return referenceImage
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
+                ...(moduleImage ? { onMidjourneyTaskAccepted: moduleImage.onMidjourneyTaskAccepted, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted } : {}),
+                ...(moduleImage && (input.imageProvider ?? "midjourney") === "midjourney" ? { mjVersion: "7" as const } : {}),
                 provider: input.imageProvider ?? "midjourney",
                 referenceRevision: input.referenceRevision,
                 preferStructuralEdit: input.remixEdit && input.imageProvider === "gpt-image",
@@ -2553,6 +2569,8 @@ export const storyAgentRouter = router({
                   Boolean(input.renderReferences) || referencePlan.usesStoryboardFrames || Boolean(lockedAssets),
               })
             : generateMobileImage(renderedFinalPrompt, {
+                ...(moduleImage ? { onMidjourneyTaskAccepted: moduleImage.onMidjourneyTaskAccepted, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted } : {}),
+                ...(moduleImage && (input.imageProvider ?? "midjourney") === "midjourney" ? { mjVersion: "7" as const } : {}),
                 provider: input.imageProvider ?? "midjourney",
                 gptImageModel: input.gptImageModel,
                 ...injection,
@@ -2566,9 +2584,9 @@ export const storyAgentRouter = router({
           const submissionUncertain =
             result.submissionUncertain === true && !providerTaskId;
           const error = providerTaskId
-            ? `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`
+            ? (providerTaskId.startsWith("legnext:") ? `图片任务已受理，${result.message ?? "结果尚未返回"} 请勿重复提交，稍后恢复该任务。` : `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`)
             : submissionUncertain
-              ? `图片提交过程中连接中断，未拿到 302 任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
+              ? `图片提交过程中连接中断，未拿到供应商任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
               : (result.message ?? "图片生成返回空结果");
           // Definite failure (no accepted task, not uncertain): refund every
           // prompt-preparation AI charge of this request, each exactly once.
@@ -2609,8 +2627,10 @@ export const storyAgentRouter = router({
                   ...(result.imageKey ? { imageKey: result.imageKey } : {}),
                 },
               ];
-        const storedImages = [];
-        for (const candidate of providerCandidates) {
+        const storedImages = moduleImage
+          ? await moduleImage.storeCandidates(providerCandidates, { prompt: renderedFinalPrompt, promptCompilationId })
+          : [];
+        if (!moduleImage) for (const candidate of providerCandidates) {
           storedImages.push(
             await createGeneratedImage({
               projectId: story.projectId ?? null,
@@ -2662,7 +2682,7 @@ export const storyAgentRouter = router({
         }
         return {
           status: "ok" as const,
-          imageUrl: result.imageUrl,
+          imageUrl: image.imageUrl,
           imageId: image.id,
           // 这一次任务产出的全部候选（含首张）。调用方据此展示真实张数，
           ...(timelinePlacementWarning ? { timelinePlacementWarning } : {}),
@@ -2683,6 +2703,13 @@ export const storyAgentRouter = router({
           error: err instanceof Error ? err.message : "图片生成失败",
         };
       }
+      };
+      if (!input.moduleTarget) return execute();
+      if (input.referenceImageUrl || input.referenceIdentityImageUrl || input.referenceContextImageUrls?.length || input.renderReferences || input.mode !== "final" || input.autoSelect || input.shotNo != null || input.referenceRevision || input.editMaskImageUrl || input.remixEdit || input.warehouseTextureSourceId || (input.imageProvider && !["midjourney", "gpt-image"].includes(input.imageProvider))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "模块任务只支持已确认的文字生成图片" });
+      }
+      return runModuleImageTask({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget,
+        provider: input.imageProvider === "gpt-image" ? "gpt-image" : "midjourney" }, execute);
     })),
 
   // mobileInpaint: 局部修复（基于原图改画；MJ 模式内部自带「图生图失败→文生图」兜底）

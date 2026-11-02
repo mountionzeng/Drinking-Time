@@ -141,6 +141,7 @@ describe("generateImage", () => {
   });
 
   beforeEach(() => {
+    vi.stubEnv("IMAGE_302_MJ_ROUTE_MODE", "");
     resetCircuitBreaker();
     ENV.imageProviderDefault = "fal";
     ENV.falApiKey = "test-fal-key";
@@ -165,6 +166,7 @@ describe("generateImage", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     ENV.imageProviderDefault = originalEnv.imageProviderDefault;
     ENV.api302Key = originalEnv.api302Key;
     ENV.api302BaseUrl = originalEnv.api302BaseUrl;
@@ -563,6 +565,105 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
   });
 
+  it.each([
+    { prompt: "a boat", options: {}, channel: "mj-turbo", receipt: "mj-turbo:task-channel" },
+    { prompt: "a boat --fast", options: {}, channel: "mj", receipt: "task-channel" },
+    { prompt: "a boat --relax", options: {}, channel: "mj-relax", receipt: "mj-relax:task-channel" },
+    { prompt: "a boat", options: { mjDraft: true }, channel: "mj", receipt: "task-channel" },
+  ])("submits and polls $channel, persisting a recoverable channel receipt", async ({ prompt, options, channel, receipt }) => {
+    vi.stubEnv("IMAGE_302_MJ_ROUTE_MODE", "dedicated");
+    ENV.api302Key = "test-key";
+    const accepted = vi.fn();
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 22, result: "task-channel" } },
+      { ok: true, status: 200, json: { status: "IN_PROGRESS" } },
+    ]);
+    const result = await generateImage(prompt, {
+      provider: "midjourney", fetcher, ...options,
+      onMidjourneyTaskAccepted: accepted, mjPollIntervalMs: 1, mjTimeoutMs: 10,
+    });
+    expect(new URL(fetcher.mock.calls[0][0]).pathname).toBe(`/${channel}/submit/imagine`);
+    expect(accepted).toHaveBeenCalledTimes(1);
+    expect(accepted).toHaveBeenCalledWith(receipt);
+    expect(result).toMatchObject({ status: "error", errorCode: "timeout_pending", providerTaskId: receipt });
+    const polls = fetcher.mock.calls.filter(([, init]) => init.method === "GET");
+    expect(polls.length).toBeGreaterThan(0);
+    expect(polls.every(([url]) => new URL(url).pathname === `/${channel}/task/task-channel/fetch`)).toBe(true);
+    expect(fetcher.mock.calls.filter(([, init]) => init.method === "POST")).toHaveLength(1);
+  });
+
+  it.each([
+    ["legacy-task", "mj", "legacy-task"],
+    ["mj-turbo:turbo-task", "mj-turbo", "turbo-task"],
+    ["mj-relax:relax-task", "mj-relax", "relax-task"],
+  ])("recovers receipt %s on its original channel without submitting", async (receipt, channel, rawTaskId) => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/recovered.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+    const result = await resume302MidjourneyTask(receipt, { fetcher, mjDraft: false, mjPollIntervalMs: 1 });
+    expect(result.status).toBe("ok");
+    expect(new URL(fetcher.mock.calls[0][0]).pathname).toBe(`/${channel}/task/${rawTaskId}/fetch`);
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it.each([
+    ["https://api.302ai.cn", "mj", "legacy-gateway-task"],
+    ["https://gateway.example", "mj", "legacy-gateway-task"],
+    ["https://api.302ai.com", "mj", "legacy-gateway-task"],
+    ["https://api.302.ai", "mj", "legacy-gateway-task"],
+  ])("preserves the supported submit and recovery route for gateway %s", async (baseUrl, channel, receipt) => {
+    ENV.api302Key = "test-key";
+    ENV.api302BaseUrl = baseUrl;
+    const accepted = vi.fn();
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "legacy-gateway-task" } },
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/result.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+    const result = await generateImage("a boat", { provider: "midjourney", fetcher, mjPollIntervalMs: 1, onMidjourneyTaskAccepted: accepted });
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toBe(`${baseUrl}/${channel}/submit/imagine`);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain("--turbo");
+    expect(accepted).toHaveBeenCalledWith(receipt);
+    expect(fetcher.mock.calls[1][0]).toBe(`${baseUrl}/${channel}/task/legacy-gateway-task/fetch`);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("keeps the Turbo channel receipt if persisting the accepted task fails", async () => {
+    vi.stubEnv("IMAGE_302_MJ_ROUTE_MODE", "dedicated");
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([{ ok: true, status: 200, json: { code: 1, result: "paid-task" } }]);
+    const result = await generateImage("a boat", {
+      provider: "midjourney", fetcher,
+      onMidjourneyTaskAccepted: async () => { throw new Error("persistence unavailable"); },
+    });
+    expect(result).toMatchObject({ status: "error", providerTaskId: "mj-turbo:paid-task", submissionUncertain: false });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a missing dedicated endpoint on another paid route", async () => {
+    vi.stubEnv("IMAGE_302_MJ_ROUTE_MODE", "dedicated");
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([{ ok: false, status: 404, json: {} }]);
+    const result = await generateImage("a boat", { provider: "midjourney", fetcher });
+    expect(result).toMatchObject({ status: "error", message: "302 Midjourney submit HTTP 404" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toContain("/mj-turbo/submit/imagine");
+  });
+
+  it("pins the selected V7 model without inheriting another prompt version or enabling draft mode", async () => {
+    ENV.api302Key = "test-key";
+    const fetcher = makeFetcher([{ ok: false, status: 429, json: {} }]);
+    await generateImage("a paper boat --v 8.1", { provider: "midjourney", mjVersion: "7", fetcher });
+    const prompt = JSON.parse(fetcher.mock.calls[0][1].body).prompt;
+    expect(prompt).toContain("--v 7");
+    expect(prompt).not.toContain("--v 8.1");
+    expect(prompt).not.toContain("--draft");
+    expect(prompt).toContain("--turbo");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("starts the Midjourney polling budget only after the paid task is accepted", async () => {
     vi.useFakeTimers();
     try {
@@ -644,7 +745,7 @@ describe("generateImage", () => {
     );
     expect(
       fetcher.mock.calls.some(call =>
-        String(call[0]).includes("/mj/submit/imagine")
+        String(call[0]).includes("/submit/imagine")
       )
     ).toBe(false);
   });

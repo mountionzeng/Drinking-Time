@@ -1,12 +1,36 @@
 import React from 'react';
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0}));
+const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0}));
 vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
-vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
+vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleImageTask:{useQuery:()=>({data:m.task,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
 import {BookModuleConvert} from './BookModuleConvert';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
-beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);});
+beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
+it('reopens an accepted task with recovery instead of a second purchase and inserts its result',async()=>{
+ const props={source:{id:'x',text:'纸船',kind:'image' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
+ m.task={id:'task',status:'accepted',providerTaskId:'paid',inserted:false,sourceChanged:false};
+ const tree=nodes(BookModuleConvert(props));
+ expect(tree.some(n=>n.type==='button'&&String(n.props.children).startsWith('生成图片（'))).toBe(false);
+ m.recover.mockResolvedValue({status:'ok',imageUrl:'/api/images/recovered.png',candidates:[{imageUrl:'/api/images/recovered.png',imageId:1}]});
+ tree.find(n=>n.type==='button'&&n.props.children==='恢复上次生成').props.onClick();await settle();
+ expect(m.recover).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'x'});
+ expect(props.onInsert).toHaveBeenCalledTimes(1);expect(props.onInsert).toHaveBeenCalledWith('![图片](/api/images/recovered.png)');
+ expect(m.image).not.toHaveBeenCalled();expect(props.prepare).not.toHaveBeenCalled();
+});
+it.each(['loading','failed'])('blocks new purchases when the durable task lookup is %s',state=>{
+ m.taskLoading=state==='loading';m.taskError=state==='failed'?new Error('offline'):null;
+ const tree=nodes(BookModuleConvert({source:{id:'x',text:'纸船',kind:'image'},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()}));
+ expect(tree.some(n=>n.type==='button'&&String(n.props.children).startsWith('生成图片（'))).toBe(false);
+ expect(m.image).not.toHaveBeenCalled();
+});
+it('keeps recovered candidates in the warehouse when the source module changed',async()=>{
+ m.task={status:'accepted',inserted:false,sourceChanged:true};
+ m.recover.mockResolvedValue({status:'ok',imageUrl:'/api/images/recovered.png',candidates:[{imageUrl:'/api/images/recovered.png',imageId:1}]});
+ const insert=vi.fn();
+ nodes(BookModuleConvert({source:{id:'x',text:'改过的正文',kind:'image'},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:insert,onClose:vi.fn()})).find(n=>n.type==='button').props.onClick();await settle();
+ expect(insert).not.toHaveBeenCalled();expect(m.image).not.toHaveBeenCalled();
+});
 it('automatically inserts generated text without a second confirmation',async()=>{
  m.describe.mockResolvedValue({text:'图中的雨天'});const insert=vi.fn();
  const tree=BookModuleConvert({source:{id:'x',text:'图片',kind:'text'},storyId:1,chapterId:2,prepare:async()=>{},onInsert:insert,onClose:vi.fn()});

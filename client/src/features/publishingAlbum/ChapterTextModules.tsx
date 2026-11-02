@@ -307,6 +307,8 @@ export function ChapterTextModules({ prepareMedia, writingStyle, onFormattedChan
     }} onInsert={text=>{
       const latest=mediaLatest.current, index=latest.blocks.findIndex(b=>b.id===conversion.id);
       if(latest.disabled || index<0 || latest.blocks[index].text!==conversion.text)throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
+      const image = readBookImage(text);
+      if (image && latest.blocks.some(block => readBookImage(block.text)?.url === image.url)) { setConversion(null); return; }
       const current=latest.blocks[index], at=isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
       const added=newWritingBlock(text,current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)];
       if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');

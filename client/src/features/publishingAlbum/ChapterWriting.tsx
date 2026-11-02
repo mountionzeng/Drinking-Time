@@ -121,8 +121,12 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     window.addEventListener('beforeunload', prevent); return () => window.removeEventListener('beforeunload', prevent);
   }, [dirty]);
   function update(next: Draft) {
-    // Once the last submitted text is acknowledged, subsequent typing starts from that version.
-    if (draftRef.current.title === chapter.title && draftRef.current.body === chapter.blocks.body && sameWritingStyle(draftRef.current.writingStyle,chapter.blocks.writingStyle)) next = {...next,baseVersion:chapter.version};
+    // Event handlers can still close over pre-save props/draft. The live draft
+    // owns its base; only an exact match to the acknowledged copy can rebase it.
+    const current = draftRef.current;
+    const saved = acknowledged.current;
+    const matchesSaved = current.title === saved.title && current.body === saved.blocks.body && sameWritingStyle(current.writingStyle,saved.blocks.writingStyle);
+    next = {...next,baseVersion:matchesSaved ? saved.version : current.baseVersion};
     draftRef.current = next; setDraft(next);
     try { localStorage.setItem(key, JSON.stringify(next)); setError(''); setBackupError(''); }
     catch { setError(''); setBackupError('本机备份暂不可用，正在尝试保存到账号。'); }
