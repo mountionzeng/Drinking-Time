@@ -91,11 +91,14 @@ function usePointerHasHover(): boolean {
   return fine;
 }
 
-function storyMeta(story: StoryLogoMenuStory): string {
+export function storyMeta(story: StoryLogoMenuStory): string {
   const when = formatStoryTimestamp(story.updatedAt ?? story.createdAt);
   // 卡片数在库里常年是 0，放上去只会占位；镜头数才有信息量。
+  // 纯文字稿/书稿没有分镜，shotCount 为 0 时显示「0 个镜头」会让人以为文章丢了，故不显示。
   const shots =
-    typeof story.shotCount === "number" ? `${story.shotCount} 个镜头` : "";
+    typeof story.shotCount === "number" && story.shotCount > 0
+      ? `${story.shotCount} 个镜头`
+      : "";
   return [when, shots].filter(Boolean).join(" · ");
 }
 

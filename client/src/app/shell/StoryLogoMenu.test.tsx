@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import StoryLogoMenu, { StoryMenuCover } from "./StoryLogoMenu";
+import StoryLogoMenu, { StoryMenuCover, storyMeta } from "./StoryLogoMenu";
 
 vi.stubGlobal("React", React);
 
@@ -65,5 +65,14 @@ describe("StoryLogoMenu share-back reminder", () => {
       onNewStory={() => {}} shareBacks={[notice]} unreadShareBacks={0} />);
     expect(html).not.toContain("data-share-back-dot");
     expect(html).not.toContain("朋友分享回来的新版本");
+  });
+});
+
+describe("storyMeta shot count", () => {
+  it("hides a zero shot count for text-only stories", () => {
+    expect(storyMeta({ id: 1, title: "傍晚在海边走了一会儿", shotCount: 0 } as never)).not.toContain("镜头");
+  });
+  it("still shows a positive shot count", () => {
+    expect(storyMeta({ id: 2, title: "x", shotCount: 3 } as never)).toContain("3 个镜头");
   });
 });
