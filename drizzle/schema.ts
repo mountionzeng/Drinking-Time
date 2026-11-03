@@ -3130,6 +3130,11 @@ export const imageGenerationTasks = mysqlTable("image_generation_tasks", {
   candidates: json("candidates").$type<{ imageId: number; imageUrl: string }[]>().notNull(),
   error: text("error"),
   billingOperationId: varchar("billingOperationId", { length: 128 }),
+  /** Final prompt sent to the provider; copied onto warehouse rows by the worker. */
+  prompt: text("prompt"),
+  promptCompilationId: int("promptCompilationId"),
+  /** Prompt-preparation inference charges, refunded once if the provider confirms failure. */
+  promptBillings: json("promptBillings").$type<{ operationId: string; chargeMinor: number }[]>(),
   settlement: varchar("settlement", { length: 16 }),
   version: int("version").default(0).notNull(),
   pollCount: int("pollCount").default(0).notNull(),

@@ -44,3 +44,9 @@ it("refuses unexpected asset hosts without fetching them", async () => {
   const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "completed", output: { image_urls: Array(4).fill("http://127.0.0.1/private") } }) }); vi.stubGlobal("fetch", fetcher);
   expect(await resumeLegnextImage(receipt)).toMatchObject({ status: "error", providerTaskId: receipt }); expect(fetcher).toHaveBeenCalledTimes(1);
 });
+it("inlinePoll:false returns pending right after the durable receipt, without any GET", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test"); const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job_id: id }) }); vi.stubGlobal("fetch", fetcher);
+  const accepted = vi.fn().mockResolvedValue(undefined);
+  expect(await generateLegnextImage("boat", accepted, { inlinePoll: false })).toMatchObject({ status: "error", providerTaskId: receipt });
+  expect(accepted).toHaveBeenCalledWith(receipt); expect(fetcher).toHaveBeenCalledTimes(1);
+});

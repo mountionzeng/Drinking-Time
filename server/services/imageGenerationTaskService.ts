@@ -13,8 +13,8 @@ export type ImageTaskDeps = {
   store: ImageTaskStore;
   /** Query only. Must never POST a new generation. */
   resume: (task: ImageGenerationTaskRow) => Promise<ImageGenResult>;
-  /** Persist provider images into generated_images; returns warehouse rows. */
-  storeCandidates: (task: ImageGenerationTaskRow, candidates: ImageGenCandidate[]) => Promise<{ imageId: number; imageUrl: string }[]>;
+  /** Refund prompt-preparation charges once when the provider confirms failure (imagePromptRefund). */
+  refundPrompt?: (task: ImageGenerationTaskRow, reason: string) => Promise<void>;
   /** Ledger settlement; idempotent per operationId (terminal statuses are noop). */
   settle: (operationId: string, outcome: SettleOutcome) => Promise<void>;
   now?: () => Date;
@@ -27,6 +27,8 @@ export type RegisterInput = {
   userId: number; requestId: string; scope: ImageTaskScope; provider: string; model?: string | null;
   storyId?: number | null; chapterId?: number | null; moduleId?: string | null; sourceHash?: string | null;
   billingOperationId?: string | null;
+  prompt?: string | null; promptCompilationId?: number | null;
+  promptBillings?: { operationId: string; chargeMinor: number }[] | null;
 };
 
 /** Durable claim before any provider call. Replays of the same requestId return the existing row. */
@@ -35,7 +37,8 @@ export async function registerImageTask(store: ImageTaskStore, input: RegisterIn
     id: randomUUID(), userId: input.userId, storyId: input.storyId ?? null, chapterId: input.chapterId ?? null,
     moduleId: input.moduleId ?? null, scope: input.scope, requestId: input.requestId, sourceHash: input.sourceHash ?? null,
     provider: input.provider, model: input.model ?? null, providerTaskId: null, status: "submitting", candidates: [],
-    error: null, billingOperationId: input.billingOperationId ?? null, settlement: null, version: 0, pollCount: 0,
+    error: null, billingOperationId: input.billingOperationId ?? null, prompt: input.prompt ?? null,
+    promptCompilationId: input.promptCompilationId ?? null, promptBillings: input.promptBillings ?? null, settlement: null, version: 0, pollCount: 0,
     nextPollAt: null, leaseOwner: null, leaseUntil: null, requestSentAt: null, submittedAt: null, completedAt: null,
     createdAt: now, updatedAt: now,
   };
@@ -49,10 +52,11 @@ async function transition(store: ImageTaskStore, row: ImageGenerationTaskRow, to
 }
 
 /** Call immediately before the provider POST. After this, failure without receipt = submission_unknown. */
-export async function markRequestSent(store: ImageTaskStore, id: string, now = new Date()) {
+export async function markRequestSent(store: ImageTaskStore, id: string, now = new Date(),
+  meta: Pick<ImageTaskPatch, "prompt" | "promptCompilationId" | "promptBillings"> = {}) {
   const row = await store.get(id);
   if (!row || row.status !== "submitting" || row.requestSentAt) throw new Error("出图任务不可提交（已提交过或状态已变化）");
-  const next = await transition(store, row, "submitting", { requestSentAt: now }, now);
+  const next = await transition(store, row, "submitting", { ...meta, requestSentAt: now }, now);
   if (!next) throw new Error("出图任务已被其他请求占用");
   return next;
 }
@@ -71,7 +75,7 @@ export async function markAccepted(store: ImageTaskStore, id: string, providerTa
 export async function markRejected(deps: ImageTaskDeps, id: string, message: string) {
   const now = nowOf(deps);
   const row = await deps.store.get(id);
-  if (!row || row.providerTaskId) return row; // never fail a task that has a receipt
+  if (!row || row.providerTaskId || row.status !== "submitting") return row; // never fail a task that has a receipt
   const next = await transition(deps.store, row, "failed", { error: message, completedAt: now }, now);
   if (next) await settleTask(deps, next);
   return next;
@@ -122,13 +126,33 @@ export async function pollImageTask(deps: ImageTaskDeps, row: ImageGenerationTas
       { pollCount: row.pollCount + 1, nextPollAt: new Date(now.getTime() + 60 * 60_000) }, now);
   }
   if (decision.action === "fail") {
-    const next = await transition(deps.store, row, "failed", { error: dedupeAcceptedPrefix(result.message ?? "供应商确认生成失败"), completedAt: now }, now);
+    const message = dedupeAcceptedPrefix(result.message ?? "供应商确认生成失败");
+    const next = await transition(deps.store, row, "failed", { error: message, completedAt: now }, now);
+    if (next) await refundPromptOnce(deps, next, message);
     return next ? settleTask(deps, next) : null;
   }
   const raw = result.candidates ?? (result.imageUrl ? [{ imageUrl: result.imageUrl, imageKey: result.imageKey }] : []);
-  const stored = await deps.storeCandidates(row, raw.slice(0, 4) as ImageGenCandidate[]);
-  const next = await transition(deps.store, row, "succeeded", { candidates: stored, error: null, completedAt: now }, now);
-  return next ? settleTask(deps, next) : null;
+  return completeTask(deps, row.id, raw as ImageGenCandidate[]);
+}
+
+/**
+ * Store images and mark succeeded in ONE transaction; a second caller (worker, user
+ * recovery, or the original request) gets the existing candidates and inserts nothing.
+ */
+export async function completeTask(deps: ImageTaskDeps, id: string, candidates: ImageGenCandidate[]) {
+  if (!candidates.length || candidates.length > 4) throw new Error("图片候选数量无效");
+  const done = await deps.store.succeedWithImages(id, candidates.map(c => ({ imageUrl: c.imageUrl, imageKey: c.imageKey ?? null })), nowOf(deps));
+  if (!done) return null;
+  // Only the writer that actually stored the images settles; a duplicate completion is a no-op
+  // (a crash in between leaves settlement=null for reconciliation, never a double charge).
+  if (!done.inserted) return done.row;
+  return settleTask(deps, done.row);
+}
+
+async function refundPromptOnce(deps: ImageTaskDeps, row: ImageGenerationTaskRow, reason: string) {
+  if (!row.promptBillings?.length || !deps.refundPrompt) return;
+  try { await deps.refundPrompt(row, reason); } // ledger refund itself is idempotent per operationId
+  catch (error) { deps.log?.("[image-task] prompt refund failed", { id: row.id, error: error instanceof Error ? error.message : "unknown" }); }
 }
 
 /** Handle a stale `submitting` row by the expiry rule. Never resubmits. */
@@ -172,4 +196,20 @@ export function pickTaskForModule(
   if (fromTable) return { source: "table" as const, row: fromTable };
   const old = legacy.filter(t => t.chapterId === target.chapterId && t.moduleId === target.moduleId).at(-1);
   return old ? { source: "legacy" as const, row: legacyBookModuleTaskToRow(storyId, old) } : null;
+}
+
+/** Copy one legacy story-body record into the table (idempotent by (userId, requestId)). */
+export async function importLegacyModuleTask(store: ImageTaskStore, userId: number, storyId: number, legacy: BookModuleImageTask, now = new Date()) {
+  const m = legacyBookModuleTaskToRow(storyId, legacy);
+  const row: ImageGenerationTaskRow = {
+    id: m.id, userId, storyId, chapterId: m.chapterId, moduleId: m.moduleId, scope: m.scope, requestId: m.requestId,
+    sourceHash: m.sourceHash, provider: m.provider, model: null, providerTaskId: m.providerTaskId, status: m.status,
+    candidates: m.candidates, error: m.error, billingOperationId: null, prompt: null, promptCompilationId: null,
+    promptBillings: null, settlement: null, version: 0, pollCount: 0, nextPollAt: m.status === "accepted" ? now : null,
+    leaseOwner: null, leaseUntil: null,
+    // Legacy rows cannot prove "nothing was sent": mark as sent so expiry never releases them.
+    requestSentAt: now, submittedAt: m.providerTaskId ? now : null,
+    completedAt: m.status === "succeeded" || m.status === "failed" ? now : null, createdAt: now, updatedAt: now,
+  };
+  return store.insert(row);
 }

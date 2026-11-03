@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "b2a6069c-287d-4e82-b480-e8ede2b84faf",
+  "id": "3fd00d39-6d79-442c-b8af-c475a64ff707",
   "prevId": "623ba1f0-acc8-4d8e-8c2c-2055d1d00b5b",
   "tables": {
     "access_sessions": {
@@ -3801,6 +3801,27 @@
         "billingOperationId": {
           "name": "billingOperationId",
           "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "promptCompilationId": {
+          "name": "promptCompilationId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "promptBillings": {
+          "name": "promptBillings",
+          "type": "json",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

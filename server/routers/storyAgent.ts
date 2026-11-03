@@ -59,6 +59,15 @@ import {
 } from "../services/imageProviderHealth";
 import { collectInferenceBilling, collectedInferenceBilling } from "../_core/inferenceOrchestrator";
 import { refundImagePromptCharges } from "../services/imagePromptRefund";
+import { imageTaskAsyncSubmitEnabled, registerAcceptedImageTask } from "../services/imageGenerationTaskWorker";
+import { getImageTaskStore } from "../repositories/imageGenerationTasks";
+
+/** One "已受理" prefix only (the provider message may already carry it). */
+export function legnextPendingMessage(message?: string) {
+  const body = (message ?? "结果尚未返回。").replace(/^(\s*图片任务已受理[，,。]?\s*)+/, "");
+  if (body.includes("请勿重复提交")) return `图片任务已受理，${body}`;
+  return `图片任务已受理，${body.replace(/[。.]?\s*$/, "。")}请勿重复提交，稍后恢复该任务。`;
+}
 import { renderViaGate } from "../services/renderGate";
 import { normalizeColorDesign } from "../../shared/colorHarmony";
 import {
@@ -1716,6 +1725,14 @@ export const storyAgentRouter = router({
     }),
 
   // uploadPhoto: 用户上传手机照片（base64 → storage）
+  /** Background image task status (owner only); images live in the warehouse once succeeded. */
+  imageTaskStatus: protectedProcedure
+    .input(z.object({ imageTaskId: z.string().min(1).max(64) }))
+    .query(async ({ ctx, input }) => {
+      const row = await (await getImageTaskStore()).get(input.imageTaskId);
+      if (!row || row.userId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND" });
+      return { id: row.id, status: row.status, storyId: row.storyId, providerTaskId: row.providerTaskId, error: row.error ?? null, updatedAt: row.updatedAt };
+    }),
   uploadPhoto: protectedProcedure
     .input(
       z.object({
@@ -2520,8 +2537,10 @@ export const storyAgentRouter = router({
         // 慢轨正式版：全质量 MJ turbo。人物锁(--oref/--ow 100)跨镜头锁脸/发/衣；
         // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
         let renderedFinalPrompt = prompt;
-        const result = await renderViaGate(gateContext, renderedPrompt => {
+        const result = await renderViaGate(gateContext, async renderedPrompt => {
           renderedFinalPrompt = renderedPrompt;
+          // Table mode: durable "request sent" mark + prompt, immediately before the provider call.
+          await moduleImage?.onPrepared?.({ prompt: renderedPrompt, promptCompilationId, promptBillings });
           console.log(
             `[generateForMobile] final prompt after gate: ${renderedFinalPrompt.length} chars`
           );
@@ -2535,7 +2554,7 @@ export const storyAgentRouter = router({
             }`
           );
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
-            return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted);
+            return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted, { inlinePoll: !moduleImage.asyncSubmit });
           }
           return referenceImage
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
@@ -2584,12 +2603,24 @@ export const storyAgentRouter = router({
           const submissionUncertain =
             result.submissionUncertain === true && !providerTaskId;
           const error = providerTaskId
-            ? (providerTaskId.startsWith("legnext:") ? `图片任务已受理，${result.message ?? "结果尚未返回"} 请勿重复提交，稍后恢复该任务。` : `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`)
+            ? (providerTaskId.startsWith("legnext:") ? legnextPendingMessage(result.message) : `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`)
             : submissionUncertain
               ? `图片提交过程中连接中断，未拿到供应商任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
               : (result.message ?? "图片生成返回空结果");
           // Definite failure (no accepted task, not uncertain): refund every
           // prompt-preparation AI charge of this request, each exactly once.
+          if (!providerTaskId && !submissionUncertain) moduleImage?.onDefiniteFailure?.();
+          // Table mode, non-module request: hand the accepted receipt to the background worker
+          // (query only) so the paid result is fetched into the warehouse instead of being lost.
+          const backgroundTask =
+            providerTaskId && !moduleImage && imageTaskAsyncSubmitEnabled() &&
+            ["midjourney", "gpt-image"].includes(input.imageProvider ?? "midjourney")
+              ? await registerAcceptedImageTask({
+                  userId: ctx.user.id, storyId: input.storyId, provider: input.imageProvider ?? "midjourney",
+                  model: input.gptImageModel ?? null, providerTaskId, prompt: renderedFinalPrompt,
+                  promptCompilationId: promptCompilationId ?? null, promptBillings: promptBillings.filter(Boolean) as { operationId: string; chargeMinor: number }[],
+                }).catch(error => { console.warn("[generateForMobile] background task registration failed", error instanceof Error ? error.message : error); return null; })
+              : null;
           const promptRefund =
             !providerTaskId && !submissionUncertain
               ? await refundImagePromptCharges({
@@ -2601,7 +2632,8 @@ export const storyAgentRouter = router({
           return {
             ...(promptRefund?.refunded ? { promptChargeRefunded: true } : {}),
             status: "error" as const,
-            error,
+            error: backgroundTask ? "图片任务已受理，正在后台生成，完成后自动保存到仓库，请勿重复提交。" : error,
+            ...(backgroundTask ? { pending: true, imageTaskId: backgroundTask.id } : {}),
             ...(providerTaskId ? { providerTaskId } : {}),
             ...(submissionUncertain ? { submissionUncertain: true } : {}),
             ...(!providerTaskId && !submissionUncertain && result.errorCode

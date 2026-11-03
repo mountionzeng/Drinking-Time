@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMemoryImageTaskStore } from "../repositories/imageGenerationTasks";
 import {
-  expireSubmittingTask, markAccepted, markRejected, markRequestSent, markSubmissionUnknown, pickTaskForModule,
+  completeTask, importLegacyModuleTask, expireSubmittingTask, markAccepted, markRejected, markRequestSent, markSubmissionUnknown, pickTaskForModule,
   registerImageTask, settleTask, sweepImageTasks, type ImageTaskDeps,
 } from "./imageGenerationTaskService";
 import {
@@ -11,14 +11,15 @@ import type { ImageGenResult } from "./imageGen";
 
 const T0 = new Date("2026-11-03T04:00:00Z");
 function setup(resume: (n: number) => ImageGenResult = () => ({ status: "error", message: "图片任务已受理" })) {
-  const store = createMemoryImageTaskStore();
+  const storeCandidates = vi.fn(async (_t: unknown, c: { imageUrl: string }[]) => c.map((x, i) => ({ imageId: i + 1, imageUrl: x.imageUrl })));
+  const store = createMemoryImageTaskStore([], storeCandidates as never);
   let clock = T0;
   let calls = 0;
   const settle = vi.fn(async () => {});
-  const storeCandidates = vi.fn(async (_t, c: { imageUrl: string }[]) => c.map((x, i) => ({ imageId: i + 1, imageUrl: x.imageUrl })));
+  const refundPrompt = vi.fn(async () => {});
   const resumeFn = vi.fn(async () => resume(++calls));
-  const deps: ImageTaskDeps = { store, settle, storeCandidates, resume: resumeFn, now: () => clock };
-  return { store, deps, settle, storeCandidates, resumeFn, tick: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
+  const deps: ImageTaskDeps = { store, settle, refundPrompt, resume: resumeFn, now: () => clock };
+  return { store, deps, settle, refundPrompt, storeCandidates, resumeFn, tick: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
 }
 const base = { userId: 7, requestId: "req-1", scope: "book_module" as const, provider: "midjourney", storyId: 117, chapterId: 3, moduleId: "m1", billingOperationId: "op-1" };
 const ok: ImageGenResult = { status: "ok", imageUrl: "/api/images/a.png", candidates: [{ imageUrl: "/api/images/a.png" }, { imageUrl: "/api/images/b.png" }] };
@@ -165,5 +166,33 @@ describe("service state machine", () => {
     const { row } = await registerImageTask(store, base, T0);
     expect(await store.update(row.id, { version: row.version, status: "submitting" }, { error: "x" }, T0)).not.toBeNull();
     expect(await store.update(row.id, { version: row.version, status: "submitting" }, { error: "y" }, T0)).toBeNull();
+  });
+  it("completeTask dedupes: a second completion inserts nothing and never re-settles", async () => {
+    const { store, deps, settle, storeCandidates } = setup(() => ok);
+    const { row } = await registerImageTask(store, base, T0);
+    await markAccepted(store, row.id, "legnext:6", T0);
+    const cands = [{ imageUrl: "/api/images/a.png" }];
+    await Promise.all([completeTask(deps, row.id, cands), completeTask(deps, row.id, cands)]);
+    expect(storeCandidates).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect((await store.get(row.id))?.status).toBe("succeeded");
+  });
+  it("provider failure refunds the prompt fee once", async () => {
+    const { store, deps, refundPrompt, tick } = setup(() => ({ status: "error", message: "供应商确认本次图片生成失败" }));
+    const { row } = await registerImageTask(store, base, T0);
+    await markRequestSent(store, row.id, T0, { prompt: "p", promptCompilationId: 1, promptBillings: [{ operationId: "inf-1", chargeMinor: 5 }] });
+    await markAccepted(store, row.id, "legnext:7", T0);
+    await sweepImageTasks(deps, "w1");
+    tick(60_000);
+    await sweepImageTasks(deps, "w1");
+    expect(refundPrompt).toHaveBeenCalledTimes(1);
+  });
+  it("legacy body record migrates into the table once and keeps its receipt", async () => {
+    const { store } = setup();
+    const legacy = { id: "a", requestId: "r-legacy", chapterId: 3, moduleId: "m1", sourceHash: "h", provider: "midjourney" as const, status: "accepted" as const, providerTaskId: "legnext:abc", candidates: [] };
+    const a = (await importLegacyModuleTask(store, 7, 117, legacy)).row;
+    const b = (await importLegacyModuleTask(store, 7, 117, legacy)).row;
+    expect(a.id).toBe(b.id);
+    expect(a).toMatchObject({ status: "accepted", providerTaskId: "legnext:abc" });
   });
 });

@@ -40,7 +40,8 @@ export async function resumeLegnextImage(id: string): Promise<ImageGenResult> {
   } catch { return pending(id); } // No raw errors containing capability URLs or credentials.
 }
 
-export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>): Promise<ImageGenResult> {
+/** `inlinePoll: false` returns right after the receipt is durable; the image task worker fetches the result. */
+export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>, options: { inlinePoll?: boolean } = {}): Promise<ImageGenResult> {
   const key = process.env.LEGNEXT_API_KEY?.trim();
   if (!key) return { status: "error", message: "MJ 新供应商尚未配置，请联系管理员。" };
   const prompt = legnextPrompt(text);
@@ -59,6 +60,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     if (typeof task.job_id !== "string" || !/^[a-f0-9-]{36}$/i.test(task.job_id)) throw new Error("unknown");
     receipt = PREFIX + task.job_id;
     await onAccepted(receipt); // Durable before the first poll.
+    if (options.inlinePoll === false) return pending(receipt);
     for (let attempt = 0; attempt < 12; attempt++) {
       const result = await resumeLegnextImage(receipt);
       if (result.status === "ok" || result.message?.includes("供应商确认")) return result;

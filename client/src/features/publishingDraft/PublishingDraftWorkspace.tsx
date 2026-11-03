@@ -1,4 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { COVER_POLL_MS, GATEWAY_TIMEOUT_MESSAGE, IMAGE_TASK_POLL_LIMIT_MS, isGatewayTimeoutError } from "@/lib/imageTaskPolling";
 import { prepareBookForVideo } from "@/features/bookVideo/bookPreparation";
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
 import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
@@ -346,11 +347,14 @@ export default function PublishingDraftWorkspace({
   const selection = usePublishingPlatformSelection();
   const chaptersEnabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const unifiedChapters = chaptersEnabled.data?.enabled === true;
+  // After a gateway timeout the cover request may still finish server-side: follow the draft for ~10 min.
+  const coverGatewayPollUntilRef = useRef(0);
   const readQuery = trpc.publishingDraft.read.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
     {
       enabled: Boolean(activeStoryId && activeStoryId > 0), retry: false,
-      refetchInterval: query => query.state.data?.coverRounds.some(round => round.qualityCheckPendingUntil) ? 1_500 : false,
+      refetchInterval: query => query.state.data?.coverRounds.some(round => round.qualityCheckPendingUntil) ? 1_500
+        : Date.now() < coverGatewayPollUntilRef.current ? COVER_POLL_MS : false,
     }
   );
   const initBodyMut = trpc.publishingDraft.initBody.useMutation({ retry: false });
@@ -1282,9 +1286,14 @@ export default function PublishingDraftWorkspace({
             : `新一轮 ${result.coverRound.candidates.length} 张候选已就绪，正式封面没有改变`
       );
     } catch (error) {
-      toast.error(
-        publishingErrorMessage(error, "封面生成失败，原封面仍然保留")
-      );
+      if (isGatewayTimeoutError(error instanceof Error ? error.message : String(error))) {
+        coverGatewayPollUntilRef.current = Date.now() + IMAGE_TASK_POLL_LIMIT_MS;
+        toast.info(GATEWAY_TIMEOUT_MESSAGE);
+      } else {
+        toast.error(
+          publishingErrorMessage(error, "封面生成失败，原封面仍然保留")
+        );
+      }
     } finally {
       coverGenerationInFlightRef.current = false;
       setCoverGenerationMode(current => (current === mode ? null : current));

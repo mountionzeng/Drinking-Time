@@ -9529,38 +9529,52 @@
     },
     {
       "id": "image-generation-task-table",
-      "name": "出图任务表与后台取回（第 1 步，默认关闭）",
+      "name": "出图任务表与后台取回（第 2 步接入，开关默认关闭）",
       "status": "partial",
       "userValue": "出图任务独立落表，网关或浏览器断开后由后台按任务号取回入仓并结算，预占不再长期悬挂。",
       "entryPoints": [
-        "server/services/imageGenerationTaskWorker.ts"
+        "server/services/imageGenerationTaskWorker.ts",
+        "server/routers/storyAgent.ts",
+        "client/src/features/publishingAlbum/BookModuleConvert.tsx",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
       ],
       "owners": [
         "drizzle/0040_image_generation_tasks.sql",
         "shared/imageGenerationTask.ts",
         "server/repositories/imageGenerationTasks.ts",
         "server/services/imageGenerationTaskService.ts",
-        "server/services/imageGenerationTaskWorker.ts"
+        "server/services/imageGenerationTaskWorker.ts",
+        "server/services/bookModuleImageRecovery.ts",
+        "server/services/legnextImage.ts",
+        "client/src/lib/imageTaskPolling.ts"
       ],
       "evidence": [
         "server/services/imageGenerationTaskService.test.ts",
         "server/services/imageGenerationTaskWorker.test.ts",
         "command:pnpm check",
-        "command:pnpm migration:verify"
+        "command:pnpm migration:verify",
+        "server/services/bookModuleImageRecovery.async.test.ts",
+        "server/services/legnextImage.test.ts",
+        "client/src/features/publishingAlbum/BookModuleConvert.test.tsx",
+        "client/src/lib/imageTaskPolling.test.ts",
+        "server/routers/legnextPendingMessage.test.ts"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
         "预占过期只释放可证明未发出请求（requestSentAt 为空）的任务；有任务号的只按供应商结果结算，超时转人工对账并保留预占。",
         "每次状态变更都是 (id, version, status) 的 CAS；后台按租约认领，多实例同一任务只处理一次；最终结算每任务一次（settlement 列 + 账本终态幂等）。",
-        "0040 只新增 image_generation_tasks 表，旧代码不读；回滚为删表。worker 默认关闭，仅 IMAGE_TASK_WORKER_ENABLED=1 时运行。"
+        "0040 只新增 image_generation_tasks 表，旧代码不读；回滚为删表。worker 默认关闭，仅 IMAGE_TASK_WORKER_ENABLED=1 时运行。",
+        "入仓与标记成功在同一事务内（行锁 FOR UPDATE），同一任务只入仓一次、只结算一次。",
+        "开关：IMAGE_TASK_WORKER_ENABLED=1 且 IMAGE_TASK_ASYNC_SUBMIT=1 才走提交即返回；任一关闭时与原同步行为一致，任务仍写 stories.body。"
       ],
       "dependencies": [
         "publishing-image-modules"
       ],
       "replaces": [],
       "knownGaps": [
-        "第 2 步前接口与前端尚未接入，仍写 stories.body.bookModuleImageTasks。",
-        "旧 body 任务只提供纯函数映射，尚未懒迁移入表。",
+        "publishingDraft.generateCover 后端仍为同步轮询（已有 coverGeneration 持久化恢复），仅前端补 504 提示与轮询；留第 3 步。",
+        "302 供应商（MJ/GPT Image）仍在提交请求内有限时轮询，未完成才交给后台。",
+        "开关从开切回关时，表中进行中任务旧代码不可见（图片仍由 worker 入仓）；旧 body 任务不会被删除。",
         "成功结算按报价（maxCost）计费，与现有媒体结算口径相同。"
       ],
       "history": [
@@ -9568,6 +9582,11 @@
           "date": "2026-11-03",
           "kind": "feature",
           "summary": "新增出图任务表、任务服务、租约认领与后台取回 worker（默认关闭），未接入现有接口。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "第 2 步：模块出图/Legnext 提交即返回任务号，worker 原子入仓去重并按确定失败退提示词费；旧 body 任务懒迁移入表；前端轮询、重开恢复与 504 友好提示；修复「已受理」重复文案。"
         }
       ]
     }

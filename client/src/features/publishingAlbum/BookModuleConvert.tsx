@@ -1,4 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { GATEWAY_TIMEOUT_MESSAGE, IMAGE_TASK_POLL_MS, isGatewayTimeoutError, shouldKeepPolling } from "@/lib/imageTaskPolling";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -58,9 +59,17 @@ export function BookModuleConvert({
   const narration=trpc.timelineMedia.generateNarrationCandidate.useMutation();
   const utils = trpc.useUtils();
   const taskScope = { storyId, chapterId, moduleId: source.id };
+  // Follow a running task (also after reopening the dialog) every few seconds, for up to ~10 min.
+  const pollStartedAt = useRef<number | null>(null);
   const imageTask = trpc.storyAgent.bookModuleImageTask.useQuery(taskScope, {
     enabled: source.kind === "image", retry: false, refetchOnWindowFocus: false,
     refetchOnMount: "always",
+    refetchInterval: query => {
+      const status = query.state.data?.status;
+      if (status !== "accepted" && status !== "preparing") { pollStartedAt.current = null; return false; }
+      pollStartedAt.current ??= Date.now();
+      return shouldKeepPolling(status, pollStartedAt.current) ? IMAGE_TASK_POLL_MS : false;
+    },
   });
   const recoverImage = trpc.storyAgent.recoverBookModuleImage.useMutation({ retry: false });
   const savedTask = imageTask.data;
@@ -79,6 +88,18 @@ export function BookModuleConvert({
       active.current = false;
     };
   }, []);
+  // A task that finishes while we are polling is shown and inserted once, like a direct success.
+  const lastStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const status = savedTask?.status;
+    const was = lastStatus.current;
+    lastStatus.current = status;
+    if (!savedTask || status !== "succeeded" || (was !== "accepted" && was !== "preparing") || savedTask.inserted || images.length) return;
+    const first = savedTask.candidates[0];
+    setImages(savedTask.candidates.map(c => c.imageUrl));
+    void utils.storyAgent.storyMaterialState.invalidate({ storyId });
+    if (!savedTask.sourceChanged && first) insertGenerated(bookImageText(first.imageUrl));
+  }, [savedTask?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   function insertGenerated(text: string) {
     if (active.current) onInsert(text);
   }
@@ -99,9 +120,11 @@ export function BookModuleConvert({
     } catch (e) {
       const message = e instanceof Error ? e.message : "转换失败";
       setError(
-        /outcome unknown|reconciliation|Failed to fetch|timeout/i.test(message)
-          ? "生成服务暂时没有返回结果，原模块已保留。请稍后查看仓库，暂勿重复提交。"
-          : message
+        isGatewayTimeoutError(message)
+          ? GATEWAY_TIMEOUT_MESSAGE
+          : /outcome unknown|reconciliation|Failed to fetch|timeout/i.test(message)
+            ? "生成服务暂时没有返回结果，原模块已保留。请稍后查看仓库，暂勿重复提交。"
+            : message
       );
     } finally {
       lock.current = false;
@@ -143,7 +166,9 @@ export function BookModuleConvert({
             }}
           />
         )}
-        {checkingTask && <p role="status">{_ui("正在核对已有图片任务…")}</p>}
+        {source.kind === "image" && (savedTask?.status === "accepted" || savedTask?.status === "preparing") && !busy && !images.length &&
+          <p role="status">{shouldKeepPolling(savedTask.status, pollStartedAt.current) ? _ui("图片正在后台生成，完成后会自动显示，可关闭窗口稍后再来。") : _ui("图片仍未完成，可点击「恢复上次生成」再次查询。")}</p>}
+        {checkingTask && !savedTask && <p role="status">{_ui("正在核对已有图片任务…")}</p>}
         {source.kind === "image" && imageTask.error && <p role="alert">{_ui("暂时无法读取图片任务，请重新打开窗口核对，避免重复生成。")}</p>}
         {protectedTask && !busy && !images.length && <div>
           <p>{savedTask.sourceChanged ? _ui("原模块已变化；恢复的图片会保留在仓库。") : _ui("已有图片任务，恢复只查询同一个任务，不会重新购买生成。")}</p>
