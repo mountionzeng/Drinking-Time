@@ -7,3 +7,14 @@
 生产预检：现有wechat-home-qr-20261103的116产物全部哈希匹配，ready/mysql/required通过，无发布锁。拟仅原子替换后端并重启既有服务；保留前端和旧静态资源、配置、依赖、数据库，不执行迁移。失败恢复原后端并验证ready。本记录提交时尚未切换生产，结果另追加。
 
 原生客户端清理另仓提交；旧chatInterview死链清理已在此前部署版本217a836包含，不重复部署旧main。客户端正式发布仍须完成既有完整验收，不使用本次清理检查替代缺失的新账号/真机等证据。
+
+
+## 实际发布结果（2026-11-03）
+
+Web源码fa62493a已推送main，生产release为document07-cleanup-20261103。116个产物哈希与配置保护校验通过；ready/mysql/required正常。仅替换后端，前端、依赖、配置和数据库未改。保留备份dist.bak-document07-cleanup-20261103-r2。
+
+首次脚本因服务器Python 3.6不支持capture_output参数，在重启前失败，已恢复旧文件并复核全部原产物；修正参数后的第二次部署成功。服务器经HTTPS域名/SNI和正常证书校验访问/readyz、/m、/editing、/app-release.json均HTTP 200。本机curl TLS握手失败，因此公网路径证据来自服务器；未作浏览器点击或真实账号业务写入验收。
+
+原生清理ba657ab经PR #10必需CI通过后合入main，合并提交f53dbfe5cc657f3c2d4386008172215b7f83f52e：https://github.com/mountionzeng/shiguang-jiayi-hackathon/pull/10 。隔离源码类型检查和1595项测试通过。chatInterview旧分析链删除此前已包含在线上217a836中；此次没有用旧main覆盖云函数。客户端删除旧适配层的变更已合入源码，但尚未上传/提审/发布，仍缺此前要求的新真实账号、真机冷启动、真实云端断连等完整验收。
+
+两个主仓原有脏文件哈希核对保持不变（仅本会话SESSION-BOARD登记发生预期变化）。本轮隔离工作树和临时发布分支已删除，独占合并/部署窗口释放。
