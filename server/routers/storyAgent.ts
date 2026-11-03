@@ -16,7 +16,7 @@ import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
-import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
+import { normalizeSuggestedStoryTitle, resolveUpsertStoryTitle } from "@shared/storyTitle";
 import { protectedProcedure, router } from "../_core/trpc";
 import { assertOptionalProjectOwner } from "./_projectAccess";
 import { ENV } from "../_core/env";
@@ -883,10 +883,12 @@ export const storyAgentRouter = router({
               ? input.baseRevision !== currentRevision
               : input.body !== undefined && currentRevision > 0;
           const nextRevision = currentRevision + 1;
-          const title =
-            !input.preserveTitle && !syncConflict && input.title !== undefined
-              ? input.title.trim().slice(0, 255) || existing.title
-              : existing.title;
+          const title = resolveUpsertStoryTitle({
+            existingTitle: existing.title,
+            inputTitle: input.title,
+            preserveTitle: input.preserveTitle,
+            syncConflict,
+          });
           const nextBody =
             input.body === undefined
               ? prepareStoryBody(existing.body, nextRevision)

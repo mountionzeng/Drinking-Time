@@ -309,6 +309,7 @@ export default function StoryAgentChat({
   );
   const writingSource = useDesktopWritingSession(state => state.session);
   const accountId = useStorySpine(state => state.accountId);
+  const storyList = useStorySpine(state => state.storyList);
   const scopeEpoch = useStorySpine(state => state.storyScopeEpoch);
   const writingSession = writingSource?.storyId === activeStoryId && writingSource.accountId === accountId && writingSource.epoch === scopeEpoch
     ? writingSource : null;
@@ -466,8 +467,12 @@ export default function StoryAgentChat({
   const hasPublishingVersion = Boolean(
     publishing && hasPersistedPublishingVersion(publishing)
   );
+  const displayStoryId = remoteStoryId ?? activeStoryId;
   const storyDisplayTitle =
     storyTitle?.trim() ||
+    (displayStoryId && displayStoryId > 0
+      ? storyList.find(item => item.id === displayStoryId)?.title?.trim()
+      : undefined) ||
     (remoteStoryId || (activeStoryId && activeStoryId > 0)
       ? _ui("故事 #{0}", [remoteStoryId ?? activeStoryId])
       : _ui("新故事草稿"));

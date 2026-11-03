@@ -54,3 +54,24 @@ export function resolveAutoStoryTitle(
   if (!isUntitledStoryTitle(currentTitle)) return undefined;
   return normalizeSuggestedStoryTitle(suggestedTitle) ?? undefined;
 }
+
+/**
+ * storyUpsert 的标题落库规则。preserveTitle（自动保存）默认保留库里的标题，
+ * 但库里仍是占位标题（空/未命名）时允许用本次带来的真实标题补上——否则
+ * 新故事首存时还没名字，之后生成出的标题永远落不了库，切回时只剩「故事 #id」。
+ * 用户手动改过的名字不是占位标题，不会被自动保存覆盖。
+ */
+export function resolveUpsertStoryTitle(input: {
+  existingTitle: string;
+  inputTitle: string | undefined;
+  preserveTitle: boolean | undefined;
+  syncConflict: boolean;
+}): string {
+  if (input.syncConflict || input.inputTitle === undefined) return input.existingTitle;
+  const next = input.inputTitle.trim().slice(0, 255);
+  if (!next) return input.existingTitle;
+  if (!input.preserveTitle) return next;
+  return isUntitledStoryTitle(input.existingTitle) && !isUntitledStoryTitle(next)
+    ? next
+    : input.existingTitle;
+}

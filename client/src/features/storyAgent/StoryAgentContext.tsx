@@ -111,6 +111,7 @@ import {
   type StorySaveStatus,
 } from "./spine/storySpine";
 import { createActionFacade } from "./spine/actionFacade";
+import { upsertCreatedStoryListItem } from "./storyListUpsert";
 import { selectPromptPool } from "./spine/selectors";
 import {
   resolveSelectionEditText,
@@ -1498,7 +1499,7 @@ export function StoryAgentProvider({
           setSaveStatus("saving");
           const saved = await storyUpsertMut.mutateAsync({
             id: storyId,
-            preserveTitle: storyId != null,
+            preserveTitle: storyId != null && storyId > 0,
             // The body and revision must come from the same snapshot. Reading the
             // latest revision here can make an older queued body look current and
             // overwrite atomic shot-director edits that landed in the meantime.
@@ -1541,6 +1542,14 @@ export function StoryAgentProvider({
             if (storyId == null || storyId < 0) {
               setPublishingBuffers(currentBuffers =>
                 remapPublishingBuffers(currentBuffers, -1, saved.id)
+              );
+              setStoryList(current =>
+                upsertCreatedStoryListItem(current, {
+                  id: saved.id,
+                  title,
+                  logline,
+                  summary: snapshot.summary ?? "",
+                })
               );
             }
             setRemoteStoryId(saved.id);
