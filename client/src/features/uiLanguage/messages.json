@@ -9671,9 +9671,9 @@
     "en": "This draft has unapplied changes",
     "fr": "这篇文字稿还有未应用修改"
   },
-  "你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个 Story。": {
+  "你的文字仍安全保存在当前故事的本地缓冲区，不会带到下一个故事。": {
     "en": "Your text is safely stored in this story's local draft and will not carry over to the next story.",
-    "fr": "你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个 Story。"
+    "fr": "你的文字仍安全保存在当前故事的本地缓冲区，不会带到下一个故事。"
   },
   "回到文字稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。": {
     "en": "Return to the draft to apply your changes, keep them for later, or explicitly discard them before leaving.",

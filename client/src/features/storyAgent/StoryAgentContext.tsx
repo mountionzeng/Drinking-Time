@@ -84,6 +84,8 @@ import {
   remapPublishingBuffers,
   reconcilePublishingBuffersFromState,
   setPublishingBuffer as putPublishingBuffer,
+  getPublishingBuffer,
+  resolvePublishingBufferOrigin,
   removePublishingBuffer,
 } from "./storyAgentPersistence";
 import {
@@ -464,7 +466,8 @@ interface StoryAgentContextValue {
     platform: PublishingPlatformId,
     content: PublishingDraftContent,
     versionId?: string,
-    textDraftVersionId?: string
+    textDraftVersionId?: string,
+    origin?: "generated" | "user"
   ) => void;
   discardPublishingBuffer: (
     storyId: number,
@@ -1755,17 +1758,19 @@ export function StoryAgentProvider({
   }, [saveArchiveStory]);
 
   const setLocalPublishingBuffer = useCallback<StoryAgentContextValue["setPublishingBuffer"]>(
-    (storyId, platform, content, versionId = "v1", textDraftVersionId) => {
-      setPublishingBuffers(current =>
-        putPublishingBuffer(current, {
+    (storyId, platform, content, versionId = "v1", textDraftVersionId, origin) => {
+      setPublishingBuffers(current => {
+        const previous = getPublishingBuffer(current, storyId, platform, versionId);
+        return putPublishingBuffer(current, {
           storyId,
           platform,
           versionId,
           textDraftVersionId,
           content,
           updatedAt: Date.now(),
-        })
-      );
+          origin: resolvePublishingBufferOrigin(previous, content, origin),
+        });
+      });
     },
     [setPublishingBuffers]
   );

@@ -738,7 +738,7 @@ export default function PublishingDraftWorkspace({
           return;
         setPublishing(result.publishing);
         if (result.status === "candidate") {
-          setPublishingBuffer(storyId, platform, result.content, versionId);
+          setPublishingBuffer(storyId, platform, result.content, versionId, undefined, "generated");
         }
         toast.success(
           result.status === "candidate"
@@ -838,7 +838,7 @@ export default function PublishingDraftWorkspace({
         return;
       setPublishing(result.publishing);
       if (result.status === "candidate") {
-        setPublishingBuffer(storyId, targetPlatform, result.content, versionId);
+        setPublishingBuffer(storyId, targetPlatform, result.content, versionId, undefined, "generated");
       } else {
         discardPublishingBuffer(storyId, targetPlatform, versionId);
       }
@@ -904,7 +904,7 @@ export default function PublishingDraftWorkspace({
         })
       )
         return;
-      setPublishingBuffer(storyId, platform, result.content, versionId);
+      setPublishingBuffer(storyId, platform, result.content, versionId, undefined, "generated");
       setRewriteInstruction("");
       toast.success("改写预览已放进编辑器；看完后再决定是否应用");
     } catch (error) {

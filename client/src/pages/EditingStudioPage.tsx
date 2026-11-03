@@ -59,6 +59,7 @@ import {
   useConfirmedIntent,
 } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
+import { filterUnsavedPublishingBuffers } from "@/features/storyAgent/storyAgentPersistence";
 import { buildCapabilityIntent } from "@/features/storyAgent/views/StoryCapabilityMenu";
 import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
@@ -293,8 +294,11 @@ function EditingStudioBody({
   const previousStoryIdRef = useRef<number | null>(null);
   const hasEnteredStoryRef = useRef(false);
   const creationFlowOrigin = useRef<StudioWorkspace | null>(null);
-  const dirtyBuffers = Object.values(publishingBuffers).filter(
-    buffer => buffer.storyId === activeStoryId
+  const savedPublishing = useStorySpine(state => state.publishing);
+  const dirtyBuffers = filterUnsavedPublishingBuffers(
+    publishingBuffers,
+    activeStoryId,
+    savedPublishing
   );
 
   useEffect(() => {
@@ -620,7 +624,7 @@ function EditingStudioBody({
           <DialogHeader>
             <DialogTitle>{_ui("这篇文字稿还有未应用修改")}</DialogTitle>
             <DialogDescription>
-              {_ui("你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个 Story。")}</DialogDescription>
+              {_ui("你的文字仍安全保存在当前故事的本地缓冲区，不会带到下一个故事。")}</DialogDescription>
           </DialogHeader>
           <p className="text-xs leading-5 text-muted-foreground">
             {_ui("回到文字稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。")}</p>

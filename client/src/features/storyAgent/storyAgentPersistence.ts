@@ -45,6 +45,11 @@ export type PublishingDraftBuffer = {
   textDraftVersionId?: string;
   content: PublishingDraftContent;
   updatedAt: number;
+  /**
+   * "generated"：生成/转换/改写预览直接放进编辑器、用户还没动过的内容。
+   * 这类缓冲区不算「未保存的文字」，离开故事时不弹警告。缺省视为用户编辑。
+   */
+  origin?: "generated" | "user";
 };
 
 export type PublishingDraftBufferMap = Record<string, PublishingDraftBuffer>;
@@ -165,6 +170,7 @@ export function normalizePublishingBuffers(
       ...(typeof buffer.textDraftVersionId === "string" && buffer.textDraftVersionId
         ? { textDraftVersionId: buffer.textDraftVersionId }
         : {}),
+      ...(buffer.origin === "generated" ? { origin: "generated" as const } : {}),
       updatedAt:
         typeof buffer.updatedAt === "number" &&
         Number.isFinite(buffer.updatedAt)
@@ -458,4 +464,50 @@ export function findOrphanStory(
     }
   }
   return best?.state ?? null;
+}
+
+function sameBufferContent(left: PublishingDraftContent, right: PublishingDraftContent) {
+  return (
+    left.title === right.title &&
+    left.body === right.body &&
+    left.tags.length === right.tags.length &&
+    left.tags.every((tag, index) => tag === right.tags[index])
+  );
+}
+
+/**
+ * 显式 origin 优先；未指定（编辑器回写）时，内容与已有生成缓冲区一致就保留
+ * "generated"，避免编辑器挂载时的原样回写把生成预览误判成用户编辑。
+ */
+export function resolvePublishingBufferOrigin(
+  previous: PublishingDraftBuffer | undefined,
+  content: PublishingDraftContent,
+  origin: "generated" | "user" | undefined
+): "generated" | "user" {
+  if (origin) return origin;
+  if (previous?.origin === "generated" && sameBufferContent(previous.content, content)) {
+    return "generated";
+  }
+  return "user";
+}
+
+/**
+ * 离开故事前真正需要提醒的缓冲区：属于当前故事、是用户编辑、且与已保存稿不同。
+ */
+export function filterUnsavedPublishingBuffers(
+  buffers: PublishingDraftBufferMap,
+  storyId: number | null,
+  publishing?: {
+    activeVersionId?: string;
+    drafts: Partial<Record<PublishingPlatformId, { content: PublishingDraftContent } | null | undefined>>;
+  } | null
+): PublishingDraftBuffer[] {
+  if (storyId == null) return [];
+  return Object.values(buffers).filter(buffer => {
+    if (buffer.storyId !== storyId) return false;
+    if (buffer.origin === "generated") return false;
+    const sameVersion = (buffer.versionId ?? "v1") === (publishing?.activeVersionId ?? "v1");
+    const saved = sameVersion ? publishing?.drafts[buffer.platform] : null;
+    return !(saved && sameBufferContent(saved.content, buffer.content));
+  });
 }

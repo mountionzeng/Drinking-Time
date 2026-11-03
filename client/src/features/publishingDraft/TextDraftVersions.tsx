@@ -285,7 +285,8 @@ export function TextDraftVersions({
               platform,
               next.generated,
               requestVersionId,
-              next.id
+              next.id,
+              "generated"
             );
             window.dispatchEvent(new Event("dt:show-generated-text"));
             }
