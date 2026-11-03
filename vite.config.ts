@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { manusRuntimePlugins } from "./scripts/manusRuntimePolicy";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -197,18 +198,18 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [
+const plugins = (command: "serve" | "build") => [
   appReleasePlugin(),
   react(),
   tailwindcss(),
   jsxLocPlugin(),
-  vitePluginManusRuntime(),
+  ...manusRuntimePlugins(command, vitePluginManusRuntime),
   vitePluginVisionPage(),
   vitePluginManusDebugCollector(),
 ];
 
-export default defineConfig({
-  plugins,
+export default defineConfig(({ command }) => ({
+  plugins: plugins(command),
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -240,4 +241,4 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
-});
+}));
