@@ -9539,7 +9539,8 @@
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
         "server/routers/timelineMedia.ts",
         "server/services/videoJobs.ts",
-        "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts"
+        "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts",
+        "server/services/computeStaleRelease.ts"
       ],
       "owners": [
         "drizzle/0040_image_generation_tasks.sql",
@@ -9568,7 +9569,8 @@
         "client/src/lib/imageTaskPolling.test.ts",
         "server/routers/legnextPendingMessage.test.ts",
         "server/services/mediaTask.test.ts",
-        "command:pnpm feature:validate"
+        "command:pnpm feature:validate",
+        "server/services/computeStaleRelease.test.ts"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -9579,7 +9581,8 @@
         "开关：IMAGE_TASK_WORKER_ENABLED=1 且 IMAGE_TASK_ASYNC_SUBMIT=1 才走提交即返回；任一关闭时与原同步行为一致，任务仍写 stories.body。",
         "媒体行 mediaKind≠image 由各自 handler 结算（不带 billingOperationId，通用 settleTask 不会二次结算）。",
         "配音/音乐结果不明 30 分钟后：已入仓→按报价扣费不退；有供应商音频地址证据未入仓→保留预占转人工；无法证明产出→自动退回；账本已终态→只关任务。",
-        "视频查询超时/HTTP 错误在 30 分钟内视为仍在生成（不冻结）；供应商确认失败释放预占。MEDIA_TASK_ASYNC_SUBMIT 关闭时保持原行为。"
+        "视频查询超时/HTTP 错误在 30 分钟内视为仍在生成（不冻结）；供应商确认失败释放预占。MEDIA_TASK_ASYNC_SUBMIT 关闭时保持原行为。",
+        "COMPUTE_STALE_RELEASE_ENABLED（默认关）开启后：推理类超 10 分钟、媒体类（含 shiguang.*、出图、音频）超 30 分钟的未终态预占按证据处理——已入库→结算不退；有产出未入库→保留转人工；有任务号仍在跑→不动（24 小时上限转人工）；无证据→释放。每条记原因，复用幂等 settleOperation，终态只发生一次。"
       ],
       "dependencies": [
         "publishing-image-modules"
@@ -9592,7 +9595,8 @@
         "成功结算按报价（maxCost）计费，与现有媒体结算口径相同。",
         "storyAgent.generateStoryShotVoice（tts）无 operationId 与预占，未接入后台路径。",
         "nginx 660s 超时仅为文档草稿，未改线上配置。",
-        "未做真实生成验收，待用户用真实生成验收。"
+        "未做真实生成验收，待用户用真实生成验收。",
+        "统一兜底开关默认关闭，未在线上开启；配音写库失败后若结算也失败，无持久证据，30 分钟后会被释放（用户免费得到音频）。分镜配音未接入任务表（仅由兜底扫描覆盖账本）。"
       ],
       "history": [
         {
@@ -9609,6 +9613,11 @@
           "date": "2026-11-03",
           "kind": "feature",
           "summary": "第 3 步：任务表加 mediaKind；视频任务号入表由 worker 取回结算、查询超时不再冻结；配音/音乐后台执行立即返回进行中、30 分钟无证据自动退回；结果不明记录 HTTP 状态/响应类型/耗时；前端轮询与播放器失败提示。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "统一过期预占兜底：新增 COMPUTE_STALE_RELEASE_ENABLED 扫描器；mediaBillingRecovery 开关开启时不再 5 分钟冻结；分镜配音写库失败不丢产出；出图结果不明无任务号 30 分钟后失败并退提示词费。"
         }
       ]
     }

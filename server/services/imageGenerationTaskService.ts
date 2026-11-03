@@ -1,3 +1,4 @@
+import { MEDIA_STALE_MS } from "../../shared/computeStaleRelease";
 import { randomUUID } from "node:crypto";
 import type { ImageGenerationTaskRow } from "../../drizzle/schema";
 import {
@@ -25,6 +26,8 @@ export type ImageTaskDeps = {
   media?: Partial<Record<Exclude<MediaKind, "image">, (row: ImageGenerationTaskRow) => Promise<void>>>;
   now?: () => Date;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
+  /** COMPUTE_STALE_RELEASE_ENABLED: release stale no-receipt unknown tasks + refund prompt. */
+  staleRelease?: boolean;
 };
 
 const nowOf = (deps: Pick<ImageTaskDeps, "now">) => (deps.now ?? (() => new Date()))();
@@ -97,6 +100,22 @@ export async function markSubmissionUnknown(deps: ImageTaskDeps, id: string, mes
   const next = await transition(deps.store, row, "submission_unknown", { error: message }, now);
   if (next?.billingOperationId) await deps.settle(next.billingOperationId, { kind: "submission_unknown" });
   return next;
+}
+
+/**
+ * Stale-release fallback (deps.staleRelease): an unknown submission with no receipt past
+ * 30 min has no output we could ever fetch. Fail it, refund the prompt fee once, release.
+ */
+export async function releaseStaleUnknownTask(deps: ImageTaskDeps, row: ImageGenerationTaskRow) {
+  if (!deps.staleRelease || row.providerTaskId || row.status !== "submission_unknown") return row;
+  const now = nowOf(deps);
+  if (now.getTime() - new Date(row.updatedAt).getTime() < MEDIA_STALE_MS) return row;
+  const message = "提交结果未知超过 30 分钟且无任务号，已退回预占和提示词费用。";
+  const next = await transition(deps.store, row, "failed", { error: message, completedAt: now }, now);
+  if (!next) return row;
+  await refundPromptOnce(deps, next, message);
+  deps.log?.("[stale-release] image unknown released", { id: row.id, billingOperationId: row.billingOperationId });
+  return settleTask(deps, next);
 }
 
 /** Final ledger step, once per task: `settlement` CAS + ledger terminal-status idempotency. */
@@ -174,7 +193,8 @@ export async function expireSubmittingTask(deps: ImageTaskDeps, row: ImageGenera
 /** One sweep. Each row is leased first so concurrent workers/instances process it once. */
 export async function sweepImageTasks(deps: ImageTaskDeps, owner: string, limit = 20) {
   const now = nowOf(deps);
-  const due = await deps.store.listDue(now, new Date(now.getTime() - SUBMITTING_STALE_MS), limit);
+  const due = await deps.store.listDue(now, new Date(now.getTime() - SUBMITTING_STALE_MS), limit,
+    deps.staleRelease ? new Date(now.getTime() - MEDIA_STALE_MS) : undefined);
   let processed = 0;
   for (const candidate of due) {
     if (!await deps.store.claim(candidate.id, owner, now, new Date(now.getTime() + 120_000))) continue;
@@ -189,6 +209,7 @@ export async function sweepImageTasks(deps: ImageTaskDeps, owner: string, limit 
       }
       if (row.status === "accepted") await pollImageTask(deps, row);
       else if (row.status === "submitting") await expireSubmittingTask(deps, row);
+      else if (row.status === "submission_unknown") await releaseStaleUnknownTask(deps, row);
       else await settleTask(deps, row);
       processed++;
     } catch (error) {

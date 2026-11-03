@@ -21,7 +21,7 @@ export interface ImageTaskStore {
   insert(row: ImageGenerationTaskRow): Promise<{ row: ImageGenerationTaskRow; replayed: boolean }>;
   get(id: string): Promise<ImageGenerationTaskRow | null>;
   /** Rows the sweeper should look at: accepted & due, stale submitting, or terminal but unsettled. */
-  listDue(now: Date, staleBefore: Date, limit: number): Promise<ImageGenerationTaskRow[]>;
+  listDue(now: Date, staleBefore: Date, limit: number, unknownBefore?: Date): Promise<ImageGenerationTaskRow[]>;
   /** Lease a row for one worker. Returns true only for the single winner. */
   claim(id: string, owner: string, now: Date, leaseUntil: Date): Promise<boolean>;
   releaseLease(id: string, owner: string): Promise<void>;
@@ -71,8 +71,9 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
       return { row: clone(row), replayed: false };
     },
     async get(id) { const r = rows.find(x => x.id === id); return r ? clone(r) : null; },
-    async listDue(now, staleBefore, limit) {
+    async listDue(now, staleBefore, limit, unknownBefore) {
       return clone(rows.filter(r =>
+        (!!unknownBefore && r.status === "submission_unknown" && !r.providerTaskId && r.updatedAt <= unknownBefore) ||
         (r.status === "accepted" && (!r.nextPollAt || r.nextPollAt <= now)) ||
         (r.status === "submitting" && r.updatedAt <= staleBefore) ||
         ((r.status === "succeeded" || r.status === "failed") && !!r.billingOperationId && !r.settlement)).slice(0, limit));
@@ -134,8 +135,9 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
       return { row: stored, replayed: !created || stored.id !== row.id };
     },
     get,
-    async listDue(now, staleBefore, limit) {
+    async listDue(now, staleBefore, limit, unknownBefore) {
       return db.select().from(t).where(or(
+        unknownBefore ? and(eq(t.status, "submission_unknown"), isNull(t.providerTaskId), lte(t.updatedAt, unknownBefore)) : sql`false`,
         and(eq(t.status, "accepted"), or(isNull(t.nextPollAt), lte(t.nextPollAt, now))),
         and(eq(t.status, "submitting"), lte(t.updatedAt, staleBefore)),
         and(inArray(t.status, ["succeeded", "failed"]), isNotNull(t.billingOperationId), isNull(t.settlement)),

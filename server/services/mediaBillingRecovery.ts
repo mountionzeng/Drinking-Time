@@ -7,6 +7,7 @@ import {
   mediaBillingEnabled,
 } from "./mediaComputeBilling";
 import { settleOperation } from "./computeLedger";
+import { computeStaleReleaseEnabled } from "./computeStaleRelease";
 import { refreshShotVideoTask } from "./videoGen";
 import { refreshViduTransition } from "./videoTransition302";
 
@@ -28,7 +29,9 @@ export async function reconcileMediaBilling(afterId = 0): Promise<number> {
         typeof receipt?.takeId !== "number"
       ) {
         // A lost response has no safe provider retry. Keep the hold for reconciliation.
-        if (Date.now() - new Date(operation.createdAt).getTime() > 5 * 60_000) {
+        // With the stale-release fallback on, leave it open: that sweeper decides at 30 min
+        // (stored output -> settle, unstored output -> manual, no evidence -> release).
+        if (!computeStaleReleaseEnabled() && Date.now() - new Date(operation.createdAt).getTime() > 5 * 60_000) {
           await settleOperation({
             operationId: operation.operationId,
             outcome: { kind: "submission_unknown" },

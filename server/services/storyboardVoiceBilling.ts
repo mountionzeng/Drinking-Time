@@ -13,6 +13,7 @@ import {
   recordMediaResult,
   settleMediaQuote,
 } from "./mediaComputeBilling";
+import { computeStaleReleaseEnabled } from "./computeStaleRelease";
 
 /** A stable narration intent recovers its durable URL after a crash/CAS failure. */
 export async function generateBilledStoryboardVoice(
@@ -90,7 +91,24 @@ export async function generateBilledStoryboardVoice(
     throw error;
   }
   // Store before settlement and Story CAS. A later retry reuses this exact URL.
-  await recordMediaResult(operationId, result.provider, result);
-  await settleMediaQuote(operationId);
+  if (!computeStaleReleaseEnabled()) {
+    await recordMediaResult(operationId, result.provider, result);
+    await settleMediaQuote(operationId);
+    return result;
+  }
+  // Fallback on: the provider already produced audio. A failed ledger write must not
+  // throw the paid output away; retry once, then charge at quote, then log for a human.
+  try {
+    await recordMediaResult(operationId, result.provider, result);
+  } catch {
+    try { await recordMediaResult(operationId, result.provider, result); }
+    catch (error) {
+      console.warn("[media-unknown] voice output not recorded", { operationId, error: error instanceof Error ? error.message : "unknown" });
+    }
+  }
+  try { await settleMediaQuote(operationId); }
+  catch (error) {
+    console.warn("[media-unknown] voice output not settled", { operationId, error: error instanceof Error ? error.message : "unknown" });
+  }
   return result;
 }

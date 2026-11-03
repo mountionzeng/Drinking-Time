@@ -2,6 +2,7 @@ import { handleChapterMedia } from "../chapterMediaStore";
 import { handleWechatImportMedia } from "./wechatImportMediaRoute";
 import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
 import { startImageTaskWorker } from "../services/imageGenerationTaskWorker";
+import { startComputeStaleRelease } from "../services/computeStaleRelease";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
@@ -82,6 +83,8 @@ async function startServer() {
   const stopMediaBillingRecovery = startMediaBillingRecovery();
   // Dark launch: no-op unless IMAGE_TASK_WORKER_ENABLED=1.
   const stopImageTaskWorker = startImageTaskWorker();
+  // Dark launch: no-op unless COMPUTE_STALE_RELEASE_ENABLED=1.
+  const stopComputeStaleRelease = startComputeStaleRelease();
   const personalMemoryJobRunner = startPersonalMemoryJobRunner();
   if (process.env.PERSONAL_MEMORY_RUNNER_PAUSED === "true") {
     personalMemoryJobRunner.pause();
@@ -95,6 +98,7 @@ async function startServer() {
     shuttingDown = true;
     stopMediaBillingRecovery();
     stopImageTaskWorker();
+    stopComputeStaleRelease();
     console.log(`[Server] 收到 ${signal}，停止提炼 runner...`);
     stopPersonalMemoryJobRunner()
       .catch(error => console.error("[Server] 停止提炼 runner 失败：", error))

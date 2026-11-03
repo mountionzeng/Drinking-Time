@@ -1,5 +1,5 @@
 /** Persistence operations for computeLedger. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, asc, gt, inArray, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, gt, lte, inArray, or, sql } from "drizzle-orm";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   creditAccounts,
@@ -934,6 +934,19 @@ export async function listUnsettledMediaOperations(afterId = 0, limit = 25): Pro
   ).sort((a, b) => a.id - b.id).slice(0, limit);
   return db.select().from(billingOperations).where(and(
     gt(billingOperations.id, afterId), inArray(billingOperations.operationType, ["media.voice", "media.video"]),
+    inArray(billingOperations.status, [...statuses]),
+  )).orderBy(asc(billingOperations.id)).limit(limit);
+}
+
+/** Keyset scan for the stale-reservation fallback: open operations created before `createdBefore`. */
+export async function listStaleOpenOperations(createdBefore: Date, afterId = 0, limit = 50): Promise<BillingOperation[]> {
+  const db = await getDb();
+  const statuses = ["created", "reserved", "submitted", "submission_unknown"] as const;
+  if (!db) return memoryState.billingOperations.filter(row =>
+    row.id > afterId && row.createdAt <= createdBefore && statuses.some(status => status === row.status)
+  ).sort((a, b) => a.id - b.id).slice(0, limit);
+  return db.select().from(billingOperations).where(and(
+    gt(billingOperations.id, afterId), lte(billingOperations.createdAt, createdBefore),
     inArray(billingOperations.status, [...statuses]),
   )).orderBy(asc(billingOperations.id)).limit(limit);
 }

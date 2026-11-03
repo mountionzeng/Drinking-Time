@@ -42,6 +42,7 @@ export async function defaultImageTaskDeps(): Promise<ImageTaskDeps> {
     },
     media: await defaultMediaHandlers(),
     log: (msg, extra) => console.warn(msg, extra ?? {}),
+    staleRelease: process.env.COMPUTE_STALE_RELEASE_ENABLED === "1",
   };
 }
 
