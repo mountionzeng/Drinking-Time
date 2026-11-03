@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { generateMobileStoryConversationTurn } from "./storyConversation";
 import {
   CURSOR_MARKER,
+  LAYOUT_NUMBERS_PRIVATE_RULE,
   WritingCompanionInputError,
   composeWritingParagraph,
   draftWithCursorMarker,
@@ -825,5 +826,18 @@ describe("writing companion on the shared conversation", () => {
         cursor: 0,
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("layout companion keeps layout numbers private", () => {
+  it("tells the model not to echo coordinates, pixels or font sizes", async () => {
+    const invoke = fakeInvoke("这块比较窄，字可以再小一点。");
+    await replyAsWritingCompanion(
+      { message: "这块怎么排", history: [], writingContext: { draft: "", cursor: 0, module: layoutModule } },
+      invoke
+    );
+    const system = systemText(invoke);
+    expect(system).toContain(LAYOUT_NUMBERS_PRIVATE_RULE);
+    expect(system).toContain("用自然语言描述");
   });
 });
