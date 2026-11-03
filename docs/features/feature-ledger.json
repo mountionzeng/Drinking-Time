@@ -9407,6 +9407,114 @@
           "summary": "增加可选分类标签编辑和标题/标签搜索，持久保存与CAS冲突保护；不调用AI。"
         }
       ]
+    },
+    {
+      "id": "wechat-web-book-import",
+      "name": "微信登录后选择故事，导入独立网页书稿",
+      "status": "observing",
+      "userValue": "用户用微信登录后先进入正常网页，仅有未迁移的小程序故事时询问是否迁移，可跳过或稍后选择；导入书稿按章节编号、默认收起，点开编辑；网页与微信原稿各自保留。",
+      "entryPoints": [
+        "client/src/pages/ShiguangLandingPage.tsx",
+        "client/src/features/auth/views/AuthEntryPanel.tsx",
+        "client/src/pages/WechatImportPage.tsx",
+        "client/src/features/mobileWorkspace/MobileMePage.tsx",
+        "client/src/app/router/AppRouter.tsx"
+      ],
+      "owners": [
+        "shared/wechatBookImport.ts",
+        "server/services/wechatBookImport.ts",
+        "server/repositories/wechatBookImport.ts",
+        "server/routers/wechatBookImport.ts",
+        "server/_core/wechatImportMediaRoute.ts",
+        "client/src/features/shiguang/WechatEntry.tsx",
+        "client/src/features/shiguang/WechatImportPrompt.tsx",
+        "client/src/features/shiguang/wechatImportOffer.ts",
+        "client/src/pages/WechatImportPage.tsx",
+        "git:shiguang-jiayi-hackathon:cloudfunctions/storyDesktopAccess/webImport.js",
+        "git:shiguang-jiayi-hackathon:cloudfunctions/drinkingTimeBridge/egress.js",
+        "client/public/shiguang/wechat-trial-qr.png",
+        "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
+        "client/src/features/publishingAlbum/ChapterWriting.tsx"
+      ],
+      "evidence": [
+        "server/services/wechatBookImport.test.ts",
+        "server/_core/wechatImportMediaRoute.test.ts",
+        "server/integration/wechatBookImport.mysql.test.ts",
+        "client/src/pages/WechatImportPage.test.tsx",
+        "client/src/pages/ShiguangLandingPage.test.tsx",
+        "shared/loginReturnPath.test.ts",
+        "docs/qa/2026-11-02-wechat-book-import.md",
+        "docs/qa/2026-11-02-wechat-qr-login.md",
+        "client/src/features/shiguang/wechatImportPrompt.test.ts",
+        "client/src/app/router/AppRouter.test.tsx",
+        "git:shiguang-jiayi-hackathon:tests/web-book-import.test.js",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "docs/qa/2026-11-02-wechat-chapter-presentation.md",
+        "client/src/features/shiguang/WechatEntry.test.tsx"
+      ],
+      "invariants": [
+        "微信与邮箱是同级登录选项；微信确认成功进入正常工作区，仅有未迁移修订才询问，空账号/全部已迁移/读取失败都不阻挡使用。用户明确选择才复制，可跳过或稍后再来；首页微信入口归属原“从哪里开始？”弹窗。",
+        "迁移询问按当前账号隔离并取消过期请求；关闭后本标签页会话不重复询问，切换账号不能显示前账号的迟到列表。",
+        "微信身份仅由可信APPID/OPENID和服务端已有身份解析；不按昵称、不跨AppID猜关联。重复登录复用同一账号。浏览器不能指定userId、subject或grantId。",
+        "列表只返回当前微信主体所属空间的metadata；内容与图片在明确选择后读取，签名持久nonce及每次主体/空间/来源权限/修订校验不可绕过。",
+        "一个来源故事导入一个网页书稿：章名为heading1，正文与图片通过parentId归属；不恢复独立章节工作台。保留空行、空章及原来源说明。",
+        "原子写入书稿和导入回执，同来源同修订幂等；微信新修订另存新书，不覆盖已编辑网页稿，不改微信原稿。",
+        "受限来源不能通过导入解除限制：文本与复制图片均须允许view/copy/export/ai/publish/forward。媒体下载前后及提交前复核；缺失图片明确提示。",
+        "保存的是私有持久图片字节与稳定受控URL；每次读取核对当前登录账号，不把临时链接当永久图片。",
+        "真实小程序码必须有对应版本/有效性证据；临时体验版访问权限须如实说明。二维码进入小程序与确认网页登录是两个动作。",
+        "导入书稿按当前标题顺序编号并以章节行默认收起；展开状态仅为界面状态，不写入正文、图片、字号和层级；普通书稿仍使用原有画布行为。"
+      ],
+      "dependencies": [
+        "wechat-web-code-login",
+        "wechat-desktop-story-entry",
+        "story-chapters",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "自动询问目前只对loginMethod=wechat的账号启用；已绑定微信的原邮箱账号仍可手动进入微信故事，自动识别该类绑定身份尚未实现。",
+        "2026-11-02用户提供体验二维码并明确要求先展示，已接入首页原弹窗；图片标注11月9日前有效。未核实其版本号/体验成员限制或真机扫码，后续由用户提供更新码。",
+        "原生principal/storyBooks未初始化账号的导入仍会明确失败；只验证已初始化空账号为空列表。旧无chapters结构需先在微信迁移。",
+        "微信本机图片、受限/缺失云图显示占位；分页、底图、自由布局重新排布。每图2MiB、每稿100张的上限和云函数运行时限需真实验证。",
+        "手机切换微信后返回及页面被系统回收未真机验收；刷新需重新生成登录码。付费图片/视频工具消费导入媒体未实测。",
+        "2026-11-02已发布wechat-import-20261102，真实微信开发工具身份→正常网页→有故事才询问→跳过→稍后列表→虚构故事文字迁移打开通过。真机/全新微信账号、云图片迁移尚未真实验收；用户已确认将测试网页副本#115清理；浏览器连接未恢复，尚未独立复核回收状态。源小程序故事未改。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-02",
+          "kind": "feature",
+          "summary": "本地实现选择导入及原弹窗微信入口，复用身份与原子章节事务；123项Web回归、33项原生回归、真实临时MySQL跨仓测试、75项草稿安全、类型及构建通过。浏览器入口/登录同级/关闭提示实点通过，真实二维码和云桥仍缺，状态partial，未部署。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "feature",
+          "summary": "按用户授权接入其提供的临时体验二维码，源PNG原样保存为client/public/shiguang/wechat-trial-qr.png，原设备选择弹窗显示二维码及11月9日前有效；前端框选隐藏截图中的开发路径。浏览器实点完整展示、首页3项回归及账本通过。未部署或重新生成二维码，未宣称真机扫码验收。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "improvement",
+          "summary": "按用户纠正，微信登录先进入正常工作区，再分页检查metadata，仅存在未迁移修订才询问；关闭/空/失败不阻挡页面，按userId隔离迟到结果。微信无邮箱账号显示微信账号。相关81项回归、询问/路由19项复验、临时MySQL验证登录不创建故事、虚构交互页有故事/跳过/空/失败实点及清理后构建通过。未部署或真实微信联通。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "improvement",
+          "summary": "用户确认后新增签名/v1/web-import路由，两个云函数WEB_STORY_IMPORT_ENABLED开启；隔离25文件发布，115产物与ready/mysql/required通过。48项隔离专项、75项草稿安全、真实MySQL1项和类型通过。线上正常登录后有故事才询问，跳过和微信账号标签实测；虚构故事迁移为#115，章节及两段正文打开成功，源稿未改。测试副本回收待用户处理浏览器确认。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "fix",
+          "summary": "用户回复“已清理”，确认处理虚构测试副本#115回收提示。浏览器工具连接未恢复，本轮未独立复核，不将用户确认描述为工具实测；小程序原稿未改。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "fix",
+          "summary": "微信导入书稿的来源章标题显示按现有顺序计算的章号，默认收起并可逐章打开；状态仅在当前界面，原正文、图片、字号和层级不变。76项定向测试、类型、构建及本地虚构样例验收通过；生产验收见 docs/qa/2026-11-02-wechat-chapter-presentation.md。 已发布 wechat-chapter-view-20261102，115 产物核对通过，正式站实际书稿11章与逐章展开只读验证通过；已有正文按原书页分页。"
+        },
+        {
+          "date": "2026-11-03",
+          "summary": "拾光首页原设备选择弹窗显示用户提供的体验版微信码及11月9日前有效期，保留手机版和电脑版入口；真机扫码及体验资格待确认。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,

@@ -157,6 +157,13 @@
 .shiguang-choice-links strong, .shiguang-choice-links small { display: block; }
 .shiguang-choice-links strong { font-size: 16px; font-weight: 550; }
 .shiguang-choice-links small { margin-top: 5px; color: #718078; font-size: 12px; line-height: 1.4; }
+.shiguang-choice-wechat { display: grid; grid-template-columns: minmax(0, 1fr) min(180px, 55%); align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid rgba(49, 95, 80, .2); border-radius: 14px; background: rgba(255, 255, 255, .58); }
+.shiguang-choice-wechat > div { width: 100%; }
+.shiguang-choice-wechat p { margin: 5px 0; color: #65736c; font-size: 13px; line-height: 1.6; }
+.shiguang-choice-wechat-code { width: 180px; max-width: 100%; margin: 0; text-align: center; }
+.shiguang-choice-wechat-code > div { aspect-ratio: 358 / 296; overflow: hidden; border-radius: 8px; background: white; }
+.shiguang-choice-wechat img { display: block; width: 100%; height: auto; }
+.shiguang-choice-wechat figcaption { margin-top: 8px; color: #65736c; font-size: 12px; line-height: 1.5; }
 .shiguang-choice-dialog :focus-visible, .shiguang-primary:focus-visible { outline: 2px solid #315f50; outline-offset: 3px; }
 .shiguang-choice-dialog--en { border-color: #c99c46; background: #f5f1e8; font-family: "Avenir Next", "Helvetica Neue", sans-serif; }
 .shiguang-choice-dialog--en .shiguang-choice-title { font-family: "Iowan Old Style", Baskerville, Georgia, serif; }

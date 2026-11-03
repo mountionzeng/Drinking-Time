@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import type { NayinElement } from "@/features/nayin/nayin";
 import "./ShiguangLandingPage.css";
+import { WechatEntry } from "@/features/shiguang/WechatEntry";
 
 const MOBILE_MAKER_URL = "https://www.drinkingtime.top/m";
 const DESKTOP_MAKER_URL = "https://www.drinkingtime.top/editing";
@@ -231,6 +232,7 @@ export default function ShiguangLandingPage() {
             <span><strong>{english ? "Computer" : "电脑版"}</strong><small>{english ? "Turn what you kept into a personal film." : "制作美丽的私人影像"}</small></span>
             <ArrowIcon />
           </a>
+          <WechatEntry english={english} qrSrc="/shiguang/wechat-trial-qr.png" />
         </div>
       </Dialog.Content>
     </Dialog.Portal>
