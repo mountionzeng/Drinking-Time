@@ -144,10 +144,13 @@ function ComputeBalanceBadgeInner({
             ? t("额度用完，付费生成暂停")
             : t("额度用完了，浏览和手动编辑不受影响")}
         </span>
-      ) : balance.reservedText && !compact ? (
-        <span className="text-[10px] leading-4 text-muted-foreground">
+      ) : balance.reservedText ? (
+        <span
+          className="compute-balance-reserved text-[10px] leading-4 text-muted-foreground"
+          title={t("生成结束后按实际用量结算，多占的部分会退回可用余额")}
+        >
           {t("另有")}
-          {balance.reservedText} {t("正在生成中占用")}
+          {balance.reservedText} {compact ? t("预占中") : t("正在生成中占用")}
         </span>
       ) : null}
       <span className="inline-flex flex-wrap items-center gap-3">

@@ -61,6 +61,14 @@ import {
 } from "../services/imageProviderHealth";
 import { refundImagePromptCharge, type PromptBilling } from "../services/imagePromptRefund";
 import { engineerImagePrompt } from "../services/renderGate";
+import {
+  PublishingCoverBillingError,
+  classifyPublishingCoverRender,
+  finishPublishingCoverBilling,
+  publishingCoverOperationId,
+  reservePublishingCoverRender,
+} from "../services/publishingCoverBilling";
+import { mediaBillingEnabled } from "../services/mediaComputeBilling";
 import { extractPublishingCoverArtDirection } from "../services/publishingCoverArtDirection";
 import {
   COVER_PROMPT_COMPILER_SYSTEM,
@@ -2363,6 +2371,42 @@ export const publishingDraftRouter = router({
             coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
           };
         }
+        // 出图费用：供应商调用之前按服务端报价（estimate，来自
+        // estimatePublishingCover*Cost，不是前端传值）预占。同一 operationToken
+        // 重复点击只会 replay 同一笔预占；余额不足直接拦截，不编译提示词、不出图。
+        // 恢复已受理的任务（有 taskId）不再新建预占，只对已有的 operation 结算。
+        let coverBillingOperationId: string | null =
+          generation.taskId && mediaBillingEnabled()
+            ? publishingCoverOperationId(ctx.user.id, input.storyId, operationToken)
+            : null;
+        if (!generation.taskId) {
+          try {
+            const reservation = await reservePublishingCoverRender({
+              userId: ctx.user.id,
+              storyId: input.storyId,
+              operationToken,
+              provider: coverProvider,
+              serverEstimateCny: estimate.estimatedCny,
+            });
+            coverBillingOperationId = reservation.operationId;
+          } catch (error) {
+            if (!(error instanceof PublishingCoverBillingError)) throw error;
+            const failed = await writePublishingDraftState({
+              storyId: input.storyId, userId: ctx.user.id,
+              operation: {
+                type: "update_cover_generation", operationToken, status: "failed",
+                error: error.message,
+              },
+            });
+            return {
+              status: "error" as const, error: error.message,
+              billingError: error.code,
+              estimate, ...failed,
+              coverAsset: await loadPublishingCoverAsset({ assetId: failed.publishing.cover?.assetId, storyId: input.storyId, userId: ctx.user.id }),
+              coverRounds: await loadPublishingCoverRounds({ publishing: failed.publishing, storyId: input.storyId, userId: ctx.user.id }),
+            };
+          }
+        }
         let renderPrompt = prompt;
         let promptBilling: PromptBilling = null;
         if (!generation.taskId && coverProvider !== "gpt-image") {
@@ -2388,6 +2432,11 @@ export const publishingDraftRouter = router({
           } catch (error) {
             // No image provider call has happened yet. Release the claim instead
             // of leaving a phantom pending/uncertain paid image task behind.
+            await finishPublishingCoverBilling(
+              coverBillingOperationId,
+              "definite_failure",
+              "提示词准备失败，未调用出图供应商"
+            );
             const failed = await writePublishingDraftState({
               storyId: input.storyId, userId: ctx.user.id,
               operation: {
@@ -2459,6 +2508,15 @@ export const publishingDraftRouter = router({
                 `本轮只收到 ${generatedCandidates.length} 张可用候选`;
           // Definite failure (no image, no accepted task, not uncertain): refund the
           // prompt-preparation charge once. Pending/uncertain tasks keep it until resolved.
+          await finishPublishingCoverBilling(
+            coverBillingOperationId,
+            classifyPublishingCoverRender({
+              generated,
+              deliveredCount: generatedCandidates.length,
+              hadPersistedTaskId: Boolean(generation.taskId),
+            }),
+            generated.message || "封面出图失败"
+          );
           const promptRefund =
             !submissionUncertain && !acceptedTaskId && !generation.taskId
               ? await refundImagePromptCharge({
@@ -2505,6 +2563,8 @@ export const publishingDraftRouter = router({
           };
         }
 
+        // 供应商已交付（部分交付也是已付费交付）：按报价结算。
+        await finishPublishingCoverBilling(coverBillingOperationId, "succeeded");
         const images = await Promise.all(
           generatedCandidates.map(candidate =>
             createGeneratedImage({

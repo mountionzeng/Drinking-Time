@@ -1599,6 +1599,14 @@
     "en": "Also ",
     "fr": "Également "
   },
+  "预占中": {
+    "en": "on hold",
+    "fr": "en réserve"
+  },
+  "生成结束后按实际用量结算，多占的部分会退回可用余额": {
+    "en": "Settled at actual usage when generation finishes; any excess returns to your available balance.",
+    "fr": "Réglé selon l'usage réel à la fin de la création ; l'excédent revient au solde disponible."
+  },
   "正在生成中占用": {
     "en": "reserved for generation",
     "fr": "réservés à la création"
