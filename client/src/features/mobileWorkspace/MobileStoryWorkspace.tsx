@@ -25,6 +25,7 @@ import {
 } from "./MobileSyncedEditor";
 import { MobileImageStudio } from "./MobileImageStudio";
 import { MobileTextDraftFlow } from "./MobileTextDraftFlow";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 export const MOBILE_STORY_STAGES = [
   { id: "text", label: "文字" },
@@ -126,7 +127,7 @@ export function MobileStoryWorkspace({
 
   const history = trpc.textDrafts.read.useQuery(
     { storyId },
-    { enabled: stage === "text", retry: false }
+    { enabled: stage === "text" && isPersistedStoryId(storyId), retry: false }
   );
   const [versionChoice, setSelectedVersion] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -503,7 +504,7 @@ export function MobileStoryVideos({ storyId }: { storyId: number }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const videos = trpc.storyAgent.storyVideoAssets.useQuery(
     { storyId },
-    { retry: false }
+    { enabled: isPersistedStoryId(storyId), retry: false }
   );
   const selected =
     videos.data?.find(v => v.id === selectedId) ?? videos.data?.[0];

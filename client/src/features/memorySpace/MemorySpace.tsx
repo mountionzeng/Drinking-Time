@@ -28,6 +28,7 @@ import { MemoryBookCover } from "./MemoryBookPreview";
 import "./memorySpace.css";
 import { useMobileBookGesture } from "./useMobileBookGesture";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 const date = (time: number | null) =>
   time
@@ -975,7 +976,7 @@ function MemoryReader({
   const _ui = useDesktopUiText();
   const query = trpc.memorySpace.book.useQuery(
     { storyId },
-    { retry: false, refetchOnWindowFocus: true }
+    { enabled: isPersistedStoryId(storyId), retry: false, refetchOnWindowFocus: true }
   );
   const [versionId, setVersionId] = useState("");
   const seen = trpc.memorySpace.seen.useMutation();

@@ -31,6 +31,7 @@ import {
   recordTimelineCommandUndo,
   trackCreationEditorOperation,
 } from "../timelineUndoStore";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 export type MediaCommandResult =
   | {
@@ -334,11 +335,11 @@ export function useTimelineMediaController(
   const narrationCandidatesQuery =
     trpc.timelineMedia.narrationCandidates.useQuery(
       { storyId: storyId ?? 0 },
-      { enabled: storyId != null }
+      { enabled: isPersistedStoryId(storyId) }
     );
   const audioAssetsQuery = trpc.timelineMedia.audioAssetLibrary.useQuery(
     { storyId: storyId ?? 0 },
-    { enabled: storyId != null }
+    { enabled: isPersistedStoryId(storyId) }
   );
   const discardAudioAssetMut = trpc.timelineMedia.discardAudioAsset.useMutation();
 

@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { bookAudioText } from "@shared/bookAudioBlock";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 export const BOOK_MUSIC_OPEN = "dt:book-music-open";
 export function BookMusicInsert({
   storyId,
@@ -46,7 +47,7 @@ export function BookMusicInsert({
   }, []);
   const assets = trpc.timelineMedia.audioAssetLibrary.useQuery(
     { storyId },
-    { enabled: open }
+    { enabled: open && isPersistedStoryId(storyId) }
   );
   const utils=trpc.useUtils();
   const upload = trpc.timelineMedia.importLocalAudio.useMutation();

@@ -12,6 +12,7 @@ import {
   type BookVideoRecord,
 } from "@shared/bookVideoCreation";
 import { useBookVideoSession, type BookVideoSession } from "./bookVideoSession";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 export type BookVideoChatHandle = { submit(text: string): Promise<boolean> };
 const button = "rounded-md border px-2 py-1 text-xs disabled:opacity-40";
 const labels = {
@@ -44,6 +45,7 @@ export function BookVideoChat({
   const query = trpc.bookVideo.list.useQuery(
     { storyId },
     {
+      enabled: isPersistedStoryId(storyId),
       refetchOnWindowFocus: true,
       refetchInterval: q =>
         q.state.data?.records.some(r => r.status === "planning") ? 3000 : false,

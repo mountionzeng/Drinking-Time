@@ -28,6 +28,7 @@ import {
   loadProjectState,
   saveProjectState,
 } from '@/features/_agentKit/projectScopedStore';
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 // ── Persisted state ──
 
@@ -156,7 +157,7 @@ export function CreationAgentProvider({
   // 图片按当前故事独立（故事为唯一单位）：按 storyId 取，故事间不共享图片。
   const assetsQuery = trpc.creationAgent.getProjectAssets.useQuery(
     { storyId: storyId! },
-    { enabled: storyId != null },
+    { enabled: isPersistedStoryId(storyId) },
   );
 
   useEffect(() => {

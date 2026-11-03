@@ -7,6 +7,7 @@ import {
   type WarehouseBookInsert,
 } from "@/features/publishingAlbum/warehouseBookInsert";
 import { toast } from "sonner";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 export function WarehouseBookMedia({
   storyId,
   kind,
@@ -19,11 +20,11 @@ export function WarehouseBookMedia({
   const [audioKind,setAudioKind]=useState<"music"|"narration">("music");
   const music = trpc.timelineMedia.audioAssetLibrary.useQuery(
     { storyId },
-    { enabled: kind === "music", refetchOnMount: "always" }
+    { enabled: kind === "music" && isPersistedStoryId(storyId), refetchOnMount: "always" }
   );
   const text = trpc.memoryWarehouse.forStory.useQuery(
     { storyId, offset },
-    { enabled: kind === "text", refetchOnMount: "always" }
+    { enabled: kind === "text" && isPersistedStoryId(storyId), refetchOnMount: "always" }
   );
   function insert(content: string) {
     const detail: WarehouseBookInsert = { storyId, text: content };

@@ -9,6 +9,7 @@ import {
 } from "@shared/chapterStore";
 import { chapterLocalImages } from "./chapterLocalImages";
 import { ChapterSaveQueue } from "./chapterSaveQueue";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 export type Chapter = inferRouterOutputs<AppRouter>["chapters"]["list"][number];
 export type ChapterEdit = {
@@ -25,7 +26,7 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
   const utils = trpc.useUtils();
   const list = trpc.chapters.list.useQuery(
     { storyId },
-    { retry: false, refetchOnWindowFocus: false }
+    { enabled: isPersistedStoryId(storyId), retry: false, refetchOnWindowFocus: false }
   );
   const save = trpc.chapters.save.useMutation();
   const [openId, setOpenId] = useState<number | null>(() => {

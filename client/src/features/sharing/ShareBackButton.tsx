@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 /**
  * Shown only on a copy taken from a friend's share that allows co-editing.
@@ -17,7 +18,7 @@ export function ShareBackButton({
 }) {
   const status = trpc.storyContextShare.backStatus.useQuery(
     { storyId },
-    { retry: false, refetchOnWindowFocus: false }
+    { enabled: isPersistedStoryId(storyId), retry: false, refetchOnWindowFocus: false }
   );
   const shareBack = trpc.storyContextShare.shareBack.useMutation();
   const [operationToken, setOperationToken] = useState(() =>

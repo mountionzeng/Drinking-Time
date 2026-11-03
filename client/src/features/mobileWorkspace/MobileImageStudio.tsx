@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 const button =
   "min-h-11 rounded-full border border-border px-4 text-sm disabled:opacity-40";
@@ -49,6 +50,7 @@ export function MobileImageStudio({
   const read = trpc.publishingDraft.read.useQuery(
     { storyId },
     {
+      enabled: isPersistedStoryId(storyId),
       retry: false,
       refetchInterval: query =>
         query.state.data?.publishing.coverGeneration?.status === "pending" ||
@@ -86,7 +88,7 @@ export function MobileImageStudio({
   const history = trpc.textDrafts.read.useQuery(
     { storyId },
     {
-      enabled: !isMemory && (!draft?.content.body.trim() || Boolean(source)),
+      enabled: isPersistedStoryId(storyId) && !isMemory && (!draft?.content.body.trim() || Boolean(source)),
       retry: false,
     }
   );

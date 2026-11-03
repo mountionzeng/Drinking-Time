@@ -15,6 +15,7 @@ export type MobileLibraryStage =
   | "image"
   | "video";
 import { MobileAccountImages } from "./MobileAccountImages";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 const labels = {
   memory: "故事",
@@ -296,7 +297,7 @@ function StoryTexts({ storyId }: { storyId: number }) {
   const history = trpc.textDrafts.read.useQuery({ storyId }, { retry: false });
   const current = trpc.publishingDraft.readBody.useQuery(
     { storyId },
-    { retry: false }
+    { enabled: isPersistedStoryId(storyId), retry: false }
   );
   const bodyUnavailable =
     current.error?.data?.code === "BAD_REQUEST" &&
@@ -355,7 +356,7 @@ function StoryVideos({ storyId }: { storyId: number }) {
   useEffect(() => () => select(null), [select]);
   const query = trpc.storyAgent.storyVideoAssets.useQuery(
     { storyId },
-    { retry: false }
+    { enabled: isPersistedStoryId(storyId), retry: false }
   );
   if (query.isLoading) return <p role="status">{t("正在读取视频…")}</p>;
   if (query.isError) return <QueryError retry={query.refetch} />;

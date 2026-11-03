@@ -17,6 +17,7 @@ import {
   storyContextBackgroundText,
   type StoryContextSnapshot,
 } from "@shared/storyContextShare";
+import { isPersistedStoryId } from "@shared/persistedStoryId";
 
 export function StoryContextText({
   snapshot,
@@ -64,7 +65,7 @@ export function InheritedStorySource({ storyId }: { storyId: number }) {
   const _ui = useDesktopUiText();
   const source = trpc.storyContextShare.source.useQuery(
     { storyId },
-    { staleTime: Infinity }
+    { enabled: isPersistedStoryId(storyId), staleTime: Infinity }
   );
   if (!source.data) return null;
   return (
