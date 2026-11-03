@@ -43,7 +43,8 @@
         "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
         "client/src/features/publishingAlbum/bookShareArticle.test.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
-        "docs/qa/2026-11-04-book-send-menu.md"
+        "docs/qa/2026-11-04-book-send-menu.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "收件人的新故事属于收件人，原作者的故事和归属不变。",
@@ -66,7 +67,7 @@
         "本机固定开发游客账号限制真实双账号浏览器承接；归属隔离、承接保存和幂等已通过隔离接口测试，公网正式账号与真实模型改写仍待验收。",
         "首版提供链接，不含二维码、自动过期或原始媒体复制。",
         "2026-10-07正式库0026及网页版本已发布；本机故事与图片未导入线上，真实双账号分享承接仍待验收。",
-        "2026-11-04书稿发送菜单已在本地恢复入口；无图继续文字快照，有图交由mobile-artwork-production-sharing的独立图文快照，图片不会经原文字承接链路复制。未部署，真实双账号验收仍待完成。"
+        "2026-11-04书稿发送菜单已在本地恢复入口；无图继续文字快照，有图交由mobile-artwork-production-sharing的独立图文快照，图片不会经原文字承接链路复制。已随0db079d4上线，真实双账号验收仍待完成。"
       ],
       "history": [
         {
@@ -128,6 +129,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "找回原文字分享代码并从书稿发送菜单接入，先保存再取当前全文与故事标题，保存失败不打开分享；有图交由原artworkShare扩展连续阅读，无图保留原文字分享及权限。43项专项/类型/构建通过，真实页面预览通过；未创建真实链接或部署，状态保持observing。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -1777,7 +1783,8 @@
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
         "docs/qa/2026-11-03-book-story-title.md",
-        "client/src/features/storyAgent/useStoryRename.test.ts"
+        "client/src/features/storyAgent/useStoryRename.test.ts",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "自动标题只能替换未命名标题。",
@@ -1823,6 +1830,11 @@
           "date": "2026-11-04",
           "kind": "refactor",
           "summary": "汇总发布时将双标题输入共用的串行改名保存抽到useStoryRename，保持故事/账号范围、失败可重试与最新名称不被旧请求覆盖；遵守StoryAgentContext热点上限，新增顺序与账号切换回归。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -6029,7 +6041,8 @@
         "server/routers.storyAgent.test.ts",
         "docs/qa/2026-10-11-mobile-me.md",
         "docs/qa/2026-10-11-mobile-navigation.md",
-        "docs/qa/2026-11-03-chat-composer-layout.md"
+        "docs/qa/2026-11-03-chat-composer-layout.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -6178,6 +6191,11 @@
           "date": "2026-11-03",
           "kind": "improvement",
           "summary": "按用户实测截图放大桌面拾光故事Logo，从72×62调整为96×82。初版移到底部并完成9项测试、类型与浏览器验证后，用户明确要求位置不变，已恢复输入框上方原位与底部按钮布局；插画透明留白不增加原62px行高，并移除拾光输入行顶部额外6–8px间距。纠正后9项测试、类型与diff检查通过；浏览器连接不可用，最终位置尚待页面复验，旧移位截图与高度测量不作为最终证据。未修改故事数据或调用生成；本地未提交、未部署，待今日汇总版本。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -6310,7 +6328,8 @@
         "client/src/features/publishingDraft/articleGenerationOptions.test.ts",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
         "docs/qa/2026-11-03-book-text-format.md",
-        "shared/bookTextFormat.test.ts"
+        "shared/bookTextFormat.test.ts",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -6468,6 +6487,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "书稿入口显式传book-latex格式，提示词two-pass.5并在模型输出后确定性转换Markdown强调/标题；先规范模型片段再拼回选区，旧请求兼容。真实CAS持久化与选区外原文不变回归通过，保持observing，不扩展手机/旧平台输出。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -7064,7 +7088,8 @@
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
         "server/routers.sharePermissions.test.ts",
         "server/routers.sharedLayout.test.ts",
-        "docs/qa/2026-11-04-book-send-menu.md"
+        "docs/qa/2026-11-04-book-send-menu.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -7097,7 +7122,7 @@
         "历史稿采用遵守现有标题冲突及已采用版本不可重写约束，冲突需回正文处理，不能静默替换。",
         "账号暂无个人头像图片字段，作品页使用昵称生成的文字头像；本机已生成并打开5页作品链接，正式站已用通用文字创建匿名作品链接；未向第三方平台发送，未购买图片生成。",
         "对话内容工具中的记忆图文支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。",
-        "2026-11-04书稿连续图文分享本地完成：保留正文顺序、裁切、标题/加粗/公式，未复制分页/双栏和模块精确位置；音频仅名称、视频按图片表示，未新增整本图文编辑回传。真实6图预览与匿名读取测试通过，尚未部署或发布真实文章做公网浏览器验收。"
+        "2026-11-04书稿连续图文分享本地完成：保留正文顺序、裁切、标题/加粗/公式，未复制分页/双栏和模块精确位置；音频仅名称、视频按图片表示，未新增整本图文编辑回传。真实6图预览与匿名读取测试通过，已随0db079d4上线；真实文章公网分享闭环仍待验收。"
       ],
       "history": [
         {
@@ -7169,6 +7194,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "修复书稿发送只含文字：复用artworkShare加入可选reading快照，先准备全部图片再预览，默认只读并沿用重编码、哈希令牌、幂等与撤销；保留旧成品页分享。发送菜单位于视频按钮右侧。43项专项、76项草稿安全、类型/构建通过；主仓3000真实6图预览通过，未生成真实分享链接、未提交部署。详见2026-11-04-book-send-menu QA。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -7360,6 +7390,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "桌面书稿无模块/文字选区时，伴写明确以当前未保存全文为目标，历史旧选区不再作为本轮范围，移除全文中的光标标记；桌面正文接口上限对齐编辑器200000字符。超过20000字符全文的模拟模型真实路由通过，105项定向测试及类型通过；原手机与排版操作记忆不变，无付费调用，未提交部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ],
       "knownGaps": [
@@ -7420,7 +7455,8 @@
         "server/services/lineContext.test.ts",
         "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx",
         "docs/qa/2026-11-01-conversation-exploration.md",
-        "docs/qa/2026-11-03-book-fulltext-context.md"
+        "docs/qa/2026-11-03-book-fulltext-context.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ]
     },
     {
@@ -8122,7 +8158,8 @@
         "server/routers.creationAgentMaskEditing.test.ts",
         "server/services/localImagePatch.test.ts",
         "shared/imageRenderCost.test.ts",
-        "docs/qa/2026-11-03-book-fulltext-context.md"
+        "docs/qa/2026-11-03-book-fulltext-context.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
@@ -8210,6 +8247,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "无模块时显示已定位：全文；书页空白/Esc同时清模块与文字选区，过滤失焦后迟到select事件。当前作用域快照不携带旧选区，保留显式选中模块及发送队列快照。105项定向测试、类型与临时真实编辑器浏览器验证通过，用户当前未保存草稿未刷新，未提交部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -8783,7 +8825,8 @@
         "docs/qa/2026-11-03-book-cross-module-selection.md",
         "docs/qa/2026-11-03-book-image-import.md",
         "docs/qa/2026-11-03-book-story-title.md",
-        "docs/qa/2026-11-03-book-change-note-position.md"
+        "docs/qa/2026-11-03-book-change-note-position.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -9035,6 +9078,11 @@
           "date": "2026-11-04",
           "kind": "improvement",
           "summary": "按用户要求将书稿修改说明折叠项移到顶部版本按钮后面，同一行显示；沿用ChapterWriting草稿changeNote、自动保存、恢复与CAS，不新增按钮或重复入口。保留无顶部插槽的旧入口及正文间距。21项既有章节回归和类型检查通过，主仓3000实点展开/收起与位置核对通过，未改用户正文/说明，未提交部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -9073,7 +9121,8 @@
         "docs/qa/2026-10-26-chapter-attribution.md",
         "docs/qa/2026-10-27-web-version-parity.md",
         "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
-        "docs/qa/2026-11-04-book-send-menu.md"
+        "docs/qa/2026-11-04-book-send-menu.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -9181,6 +9230,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "按用户要求找回发送能力，文字模式将生成故事链接、收件箱和有来源的发回修改稿收进书稿发送菜单，调用原处理函数；图片模式原入口保留，两个开关、收件人及来源约束不变。本机未开启投递，菜单分支测试通过，未实际投递或部署；状态保持partial。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -9828,7 +9882,8 @@
         "command:pnpm check",
         "command:pnpm verify:draft-safety",
         "docs/qa/2026-11-03-book-text-format.md",
-        "client/src/features/publishingAlbum/BookMathText.test.tsx"
+        "client/src/features/publishingAlbum/BookMathText.test.tsx",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "仅在明确的改写结果后提供一个替换按钮；点击前聊天不自动修改正文，不新增常驻工具栏或二次确认。",
@@ -9846,7 +9901,7 @@
       "knownGaps": [
         "真实模型的结构化改写遵循质量本轮未付费调用验证；服务与真实路由使用模拟模型，真实浏览器使用仅内存测试稿。",
         "历史聊天回复未记录发送时目标，不能安全追补替换按钮；仅新改写携带目标。",
-        "当前支持桌面书稿连续文字范围；手机、旧排版画布、媒体、非连续多选和折叠隐藏内容不提供此按钮。本地未提交部署。"
+        "当前支持桌面书稿连续文字范围；手机、旧排版画布、媒体、非连续多选和折叠隐藏内容不提供此按钮。已随0db079d4上线，其他验收边界不变。"
       ],
       "history": [
         {
@@ -9858,6 +9913,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "书稿聊天改写在生成时规范LaTeX文字格式；聊天中的改写提议与书稿阅读共用安全显示，不泄露格式命令，未改变发送时固定目标、原文校验和点击采用边界。模拟服务及阅读测试通过，未付费调用。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -9890,7 +9950,8 @@
         "command:pnpm exec vite build --outDir /tmp/book-latex-build-20261103",
         "shared/bookTextFormat.test.ts",
         "client/src/features/publishingAlbum/BookMathText.test.tsx",
-        "docs/qa/2026-11-03-book-text-format.md"
+        "docs/qa/2026-11-03-book-text-format.md",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "识别$...$、\\(...\\)、$$...$$、\\[...\\]；原始正文与保存数据不变，渲染HTML不得写回书稿。",
@@ -9907,7 +9968,7 @@
       "knownGaps": [
         "版本差异对比保留源码显示；导出、配音和旧排版画布未接入公式渲染。",
         "不编译完整.tex文档、导言区或自定义宏包。历史公式已分成多个稳定模块时需沿用现有合并操作，不能静默迁移ID。",
-        "超长/超高公式、真机触摸、打印与跨端分页未全面实测。本地未提交部署。",
+        "超长/超高公式、真机触摸、打印与跨端分页未全面实测。已随0db079d4上线，其他验收边界不变。",
         "点击编辑时保留源码；仅支持有限文字命令，不是所见即所得TeX编辑器。"
       ],
       "history": [
@@ -9920,6 +9981,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "修复生成正文露出Markdown星号：书稿生成规范为LaTeX文字格式，阅读兼容旧稿加粗/标题，聊天改写复用安全渲染；137项专项、76项草稿安全、类型/构建与3000内存页编辑/撤销/跨模块选区通过。原稿未迁移，本地未部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     },
@@ -9945,7 +10011,8 @@
         "server/routers.creationAgentImport.test.ts",
         "docs/qa/2026-11-03-book-image-import.md",
         "command:pnpm check",
-        "command:pnpm verify:draft-safety"
+        "command:pnpm verify:draft-safety",
+        "docs/qa/2026-11-04-book-editor-release.md"
       ],
       "invariants": [
         "沿用当前书稿布局，无常驻按钮；多图按输入顺序创建独立图片模块，稳定地址入正文，原图进入本故事仓库，不自动绑定镜头、设置封面或调用AI。",
@@ -9968,6 +10035,11 @@
           "date": "2026-11-03",
           "kind": "feature",
           "summary": "新增书稿粘贴/拖入图片与原仓库上传链路；光标/可见落点、批次顺序、部分失败、一次撤销及异步作用域校验。74项相关、76项草稿安全、类型/构建及临时浏览器验证通过；本地未提交部署，原生Finder拖入待实测。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "verification",
+          "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
         }
       ]
     }

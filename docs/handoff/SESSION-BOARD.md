@@ -125,6 +125,8 @@
 
 ## 最近落地
 
+2026-11-04 书稿编辑与图文分享已上线，释放main合并/生产发布窗口：0db079d4已push，release=book-editor-20261104，manifest=/opt/Drinking-Time/dist.release-book-editor-20261104.json，前端be19c96d-5a0a-4ad9-a4be-8fd132be34b6；175产物、HTTPS页面/JS/CSS/公式字体、ready/mysql/required通过。已含本轮Logo/聊天布局、跨模块选字、改写采用、LaTeX/生成格式、全文定位、图片导入、共用标题、快捷按钮精简/说明位置及发送图文；未包含其他会话视频/分镜增量。148原变动文件按审核三方结果保留，主仓类型通过，临时worktree/分支/stash已清理；备份与源码包/private/tmp/book-editor-release-20261104，生产回滚dist.bak-book-editor-20261104。配置/数据库未改，正式站入口实点通过，无付费请求；10项全量剩余失败在原基线复现，详见docs/qa/2026-11-04-book-editor-release.md。
+
 2026-11-01 晚间网页整合发布收工：`ede75c81` 已 push main 并于 20:54 部署电脑/手机 Web；6223 项全量测试、类型、构建、76 卡账本及 40 项迁移校验通过。生产 117 文件、HTTPS 页面/资源、版本标识、401 素材权限与 MySQL readyz 验证通过；备份 `backups/web-all-20261101-r2`。首次裁剪依赖缺 Vite，自动回退后改为完整锁定依赖，启动成功。本机线上浏览器受连接关闭限制，未宣称线上点击验收通过。主仓提交与发布窗口释放；原生小程序未上传或提审。证据：`docs/qa/2026-11-01-web-all-release.md`。
 
 2026-11-01 GPT备用与标准核对完成（未提交/未部署）：BookModuleConvert及测试、imageGen及测试、storyAgent可选GPT2参数/报价守卫及路由测试已释放。MJ默认不变，显式GPT2单图预估2.86算力；虚构1216图片1990真实出图、插入、刷新保留通过。170专项/25提示词/类型通过；音乐新编曲标准尚未接入，详见web-button-acceptance QA。
