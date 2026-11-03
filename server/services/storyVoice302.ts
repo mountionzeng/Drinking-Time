@@ -42,6 +42,27 @@ function safeOption(value: string, label: string): string {
   return normalized;
 }
 
+const ERROR_BODY_LIMIT = 300;
+
+/** 脱敏：去掉 Bearer/sk-/key=/token 等可能出现在上游错误体里的凭据。 */
+export function redactUpstreamErrorBody(raw: string): string {
+  return raw
+    .replace(/(authorization["']?\s*[:=]\s*["']?)(bearer\s+)?[^"',\s}]+/gi, "$1***")
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer ***")
+    .replace(/\bsk-[A-Za-z0-9._-]+/g, "sk-***")
+    .replace(/((?:api[_-]?key|token|secret|access[_-]?key)["']?\s*[:=]\s*["']?)[^"',\s}&]+/gi, "$1***")
+    .replace(/\s+/g, " ")
+    .slice(0, ERROR_BODY_LIMIT);
+}
+
+async function readErrorBodySnippet(response: Response): Promise<string> {
+  try {
+    return redactUpstreamErrorBody(await response.text());
+  } catch {
+    return "";
+  }
+}
+
 export async function generateStoryVoice302(input: {
   text: string;
   provider?: string;
@@ -96,12 +117,24 @@ export async function generateStoryVoice302(input: {
       }
     );
     if (!response.ok) {
+      const bodySnippet = await readErrorBodySnippet(response);
+      console.warn("[302 TTS] 上游返回非 2xx", {
+        httpStatus: response.status,
+        body: bodySnippet,
+      });
+      // 302 明确回 500 且没有给音频地址：供应商已确认失败、没有产出，可以释放预占。
+      // 408/429/502/503/504 等可能已接单或网关中断，仍保持结果未知。
+      const confirmedFailure =
+        response.status === 500 && !/audio_url/i.test(bodySnippet);
       throw new StoryVoice302Error(
-        response.status === 408 ||
-        response.status === 429 ||
-        response.status >= 500
-          ? "submission_unknown"
-          : "not_charged_failure",
+        confirmedFailure ||
+          !(
+            response.status === 408 ||
+            response.status === 429 ||
+            response.status >= 500
+          )
+          ? "not_charged_failure"
+          : "submission_unknown",
         `302 语音生成失败（HTTP ${response.status}）`
       );
     }

@@ -124,8 +124,10 @@ import {
   estimateStoryboardMaskedEditCost,
 } from "../../shared/imageRenderCost";
 import {
+  StoryVoice302Error,
   type StoryVoice302Result,
 } from "../services/storyVoice302";
+
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
@@ -193,6 +195,10 @@ function storyVoiceGenerationKey(input: {
 }): string {
   return JSON.stringify(input);
 }
+
+const STORY_VOICE_UNAVAILABLE_MESSAGE = "配音服务暂时不可用，未扣费，请稍后重试";
+const STORY_VOICE_PENDING_MESSAGE =
+  "配音结果待确认，算力暂时预占；确认未生成会自动退回，请勿重复点击";
 
 function generateStoryVoiceOnce(input: {
   userId: number;
@@ -1160,21 +1166,41 @@ export const storyAgentRouter = router({
         };
       }
 
-      const voice = await generateStoryVoiceOnce({
-        userId: ctx.user.id,
-        storyId: input.storyId,
-        key: storyVoiceGenerationKey({
+      let voice: StoryVoice302Result;
+      try {
+        voice = await generateStoryVoiceOnce({
           userId: ctx.user.id,
           storyId: input.storyId,
-          stableShotId: input.stableShotId,
+          key: storyVoiceGenerationKey({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            stableShotId: input.stableShotId,
+            text: input.text,
+            provider: requestedProvider,
+            voice: requestedVoice,
+          }),
           text: input.text,
-          provider: requestedProvider,
-          voice: requestedVoice,
-        }),
-        text: input.text,
-        provider: input.provider,
-        voice: input.voice,
-      });
+          provider: input.provider,
+          voice: input.voice,
+        });
+      } catch (error) {
+        console.warn("[storyVoice] 旁白生成失败", {
+          storyId: input.storyId,
+          outcome: error instanceof StoryVoice302Error ? error.outcome : "other",
+          message: error instanceof Error ? error.message : "unknown",
+        });
+        return {
+          status: "error" as const,
+          error:
+            (error instanceof StoryVoice302Error &&
+              error.outcome === "not_charged_failure") ||
+            (!(error instanceof StoryVoice302Error) &&
+              error instanceof Error &&
+              error.message.includes("未扣费"))
+              ? STORY_VOICE_UNAVAILABLE_MESSAGE
+              : STORY_VOICE_PENDING_MESSAGE,
+        };
+      }
 
       // TTS 可能耗时；付费调用只做一次，CAS 冲突时基于最新 Story 重新合并音频字段。
       for (let attempt = 0; attempt < 3; attempt += 1) {

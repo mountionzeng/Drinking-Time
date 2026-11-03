@@ -18,7 +18,7 @@ import { fromYuan } from "../../shared/computeMoney";
 import { grantCredit, getAccountBalance } from "./computeLedger";
 import * as media from "./mediaComputeBilling";
 import { generateBilledStoryboardVoice } from "./storyboardVoiceBilling";
-import { StoryVoice302Error } from "./storyVoice302";
+import { StoryVoice302Error, generateStoryVoice302 } from "./storyVoice302";
 import { startShotVideoJob, refreshVideoTakeStatus } from "./videoJobs";
 import { reconcileMediaBilling } from "./mediaBillingRecovery";
 import { ENV } from "../_core/env";
@@ -89,6 +89,19 @@ describe("durable storyboard billing", () => {
       });
     }
   );
+  it("releases the hold immediately when 302 answers HTTP 500 without audio", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const generate = (i: Parameters<typeof generateStoryVoice302>[0]) =>
+      generateStoryVoice302({ ...i, apiKey: "k", baseUrl: "https://api.302ai.cn", fetcher: async () => new Response(JSON.stringify({ error: "internal" }), { status: 500 }) });
+    await expect(generateBilledStoryboardVoice(input, generate)).rejects.toMatchObject({ outcome: "not_charged_failure" });
+    expect(await getAccountBalance(1)).toMatchObject({ reservedMinor: 0, lifetimeSpentMinor: 0 });
+  });
+  it("keeps the hold when 302 times out", async () => {
+    const generate = (i: Parameters<typeof generateStoryVoice302>[0]) =>
+      generateStoryVoice302({ ...i, apiKey: "k", baseUrl: "https://api.302ai.cn", timeoutMs: 5, fetcher: ((_: unknown, init?: RequestInit) => new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); }))) as never });
+    await expect(generateBilledStoryboardVoice(input, generate)).rejects.toMatchObject({ outcome: "submission_unknown" });
+    expect(await getAccountBalance(1)).toMatchObject({ reservedMinor: fromYuan(0.02), lifetimeSpentMinor: 0 });
+  });
   it("allows an explicit retry after a proven uncharged rejection", async () => {
     const generate = vi
       .fn()

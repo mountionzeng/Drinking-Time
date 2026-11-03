@@ -332,6 +332,21 @@ describe("storyAgent.updateStoryShotFields", () => {
 });
 
 describe("storyAgent.generateStoryShotVoice", () => {
+  it("returns a friendly error instead of throwing when 302 TTS answers HTTP 500", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.tts302Provider = "openai";
+    ENV.tts302Voice = "alloy";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "internal" }), { status: 500, headers: { "Content-Type": "application/json" } })));
+    const caller = appRouter.createCaller(context(615));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "Voice 500",
+      body: { shots: [{ stableShotId: "voice-500", shotIdentity: "voice-500", shotNo: 1, scriptText: "文字", dialogue: "" }] },
+    });
+    if (!created) throw new Error("story creation failed");
+    const result = await caller.storyAgent.generateStoryShotVoice({ storyId: created.id, stableShotId: "voice-500", text: "文字" });
+    expect(result).toEqual({ status: "error", error: "配音服务暂时不可用，未扣费，请稍后重试" });
+  });
   it("generates narration through 302 and saves audio metadata on the latest shot", async () => {
     ENV.api302Key = "test-302-key";
     ENV.tts302Provider = "openai";

@@ -77,7 +77,7 @@ describe("generateStoryVoice302", () => {
       })
     ).rejects.toThrow("没有返回可播放的音频地址");
   });
-  it.each([408, 429, 500, 504])("keeps HTTP %s as an unknown submission", async status => {
+  it.each([408, 429, 502, 503, 504])("keeps HTTP %s as an unknown submission", async status => {
     await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response("{}", { status }) }))
       .rejects.toMatchObject({ outcome: "submission_unknown" });
   });
@@ -85,5 +85,25 @@ describe("generateStoryVoice302", () => {
     await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response("invalid json") }))
       .rejects.toMatchObject({ outcome: "submission_unknown" });
   });
-
+  it("treats an explicit HTTP 500 without audio as an uncharged failure and logs a redacted body", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response(JSON.stringify({ error: { message: "internal error", authorization: "Bearer sk-secret123", api_key: "abc" } }) + "x".repeat(800), { status: 500, headers: { "Content-Type": "application/json" } }) }))
+      .rejects.toMatchObject({ outcome: "not_charged_failure", message: "302 语音生成失败（HTTP 500）" });
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("internal error");
+    expect(logged).not.toContain("sk-secret123");
+    expect(logged).not.toMatch(/api_key[^,]*abc/);
+    const body = (warn.mock.calls[0]?.[1] as { body: string }).body;
+    expect(body.length).toBeLessThanOrEqual(300);
+    warn.mockRestore();
+  });
+  it("keeps HTTP 500 unknown when the body mentions an audio_url", async () => {
+    await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", fetcher: async () => new Response(JSON.stringify({ audio_url: "https://file.302.ai/a.mp3", error: "store failed" }), { status: 500 }) }))
+      .rejects.toMatchObject({ outcome: "submission_unknown" });
+  });
+  it("keeps a timeout as an unknown submission", async () => {
+    const fetcher = (_: unknown, init?: RequestInit) => new Promise<Response>((_, reject) => { init?.signal?.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); }); });
+    await expect(generateStoryVoice302({ text: "你好", apiKey: "test-key", provider: "openai", voice: "alloy", timeoutMs: 5, fetcher: fetcher as never }))
+      .rejects.toMatchObject({ outcome: "submission_unknown" });
+  });
 });
