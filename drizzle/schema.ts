@@ -3107,3 +3107,45 @@ export const chapterDeliveryAssets = mysqlTable("chapter_delivery_assets", {
   hashIndex: index("chapter_delivery_assets_hash").on(table.sha256),
 }));
 export type ChapterDeliveryAsset = typeof chapterDeliveryAssets.$inferSelect;
+
+/**
+ * Durable image generation tasks (step 1 of the task-table migration).
+ * Expand-only: old code never reads this table; rollback = DROP TABLE.
+ * Safety rule: a row that has a providerTaskId, or whose submission outcome is
+ * unknown, must never be submitted to the provider again.
+ */
+export const imageGenerationTasks = mysqlTable("image_generation_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull(),
+  storyId: int("storyId"),
+  chapterId: int("chapterId"),
+  moduleId: varchar("moduleId", { length: 128 }),
+  scope: varchar("scope", { length: 20 }).notNull(),
+  requestId: varchar("requestId", { length: 128 }).notNull(),
+  sourceHash: varchar("sourceHash", { length: 128 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  model: varchar("model", { length: 64 }),
+  providerTaskId: varchar("providerTaskId", { length: 191 }),
+  status: varchar("status", { length: 24 }).notNull(),
+  candidates: json("candidates").$type<{ imageId: number; imageUrl: string }[]>().notNull(),
+  error: text("error"),
+  billingOperationId: varchar("billingOperationId", { length: 128 }),
+  settlement: varchar("settlement", { length: 16 }),
+  version: int("version").default(0).notNull(),
+  pollCount: int("pollCount").default(0).notNull(),
+  nextPollAt: timestamp("nextPollAt", { mode: "date", fsp: 3 }),
+  leaseOwner: varchar("leaseOwner", { length: 64 }),
+  leaseUntil: timestamp("leaseUntil", { mode: "date", fsp: 3 }),
+  /** Set immediately before the provider POST; null proves nothing was sent. */
+  requestSentAt: timestamp("requestSentAt", { mode: "date", fsp: 3 }),
+  submittedAt: timestamp("submittedAt", { mode: "date", fsp: 3 }),
+  completedAt: timestamp("completedAt", { mode: "date", fsp: 3 }),
+  createdAt: timestamp("createdAt", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: timestamp("updatedAt", { mode: "date", fsp: 3 }).notNull(),
+}, table => [
+  uniqueIndex("image_task_provider_task_uq").on(table.providerTaskId),
+  uniqueIndex("image_task_request_uq").on(table.userId, table.requestId),
+  index("image_task_poll_idx").on(table.status, table.nextPollAt),
+  index("image_task_owner_idx").on(table.userId, table.storyId),
+]);
+export type ImageGenerationTaskRow = typeof imageGenerationTasks.$inferSelect;

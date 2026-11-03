@@ -281,6 +281,13 @@
       "when": 1793369975400,
       "tag": "0039_mobile_material_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1793680369021,
+      "tag": "0040_image_generation_tasks",
+      "breakpoints": true
     }
   ]
 }

@@ -9526,8 +9526,52 @@
           "summary": "目录导入标记由逐本读取完整回执改为按账号和当前页requestId一次批量读取requestId/storyId，50本页由50次回执查询降至1次，空页不查库；保留单本导入幂等、已删除副本回执及接口字段。24项专项通过，SQL谓词/投影与账号隔离覆盖；未部署、未实测线上时延。"
         }
       ]
+    },
+    {
+      "id": "image-generation-task-table",
+      "name": "出图任务表与后台取回（第 1 步，默认关闭）",
+      "status": "partial",
+      "userValue": "出图任务独立落表，网关或浏览器断开后由后台按任务号取回入仓并结算，预占不再长期悬挂。",
+      "entryPoints": [
+        "server/services/imageGenerationTaskWorker.ts"
+      ],
+      "owners": [
+        "drizzle/0040_image_generation_tasks.sql",
+        "shared/imageGenerationTask.ts",
+        "server/repositories/imageGenerationTasks.ts",
+        "server/services/imageGenerationTaskService.ts",
+        "server/services/imageGenerationTaskWorker.ts"
+      ],
+      "evidence": [
+        "server/services/imageGenerationTaskService.test.ts",
+        "server/services/imageGenerationTaskWorker.test.ts",
+        "command:pnpm check",
+        "command:pnpm migration:verify"
+      ],
+      "invariants": [
+        "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
+        "预占过期只释放可证明未发出请求（requestSentAt 为空）的任务；有任务号的只按供应商结果结算，超时转人工对账并保留预占。",
+        "每次状态变更都是 (id, version, status) 的 CAS；后台按租约认领，多实例同一任务只处理一次；最终结算每任务一次（settlement 列 + 账本终态幂等）。",
+        "0040 只新增 image_generation_tasks 表，旧代码不读；回滚为删表。worker 默认关闭，仅 IMAGE_TASK_WORKER_ENABLED=1 时运行。"
+      ],
+      "dependencies": [
+        "publishing-image-modules"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "第 2 步前接口与前端尚未接入，仍写 stories.body.bookModuleImageTasks。",
+        "旧 body 任务只提供纯函数映射，尚未懒迁移入表。",
+        "成功结算按报价（maxCost）计费，与现有媒体结算口径相同。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "新增出图任务表、任务服务、租约认领与后台取回 worker（默认关闭），未接入现有接口。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-01"
+  "updatedAt": "2026-11-03"
 }

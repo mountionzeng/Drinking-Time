@@ -1,6 +1,7 @@
 import { handleChapterMedia } from "../chapterMediaStore";
 import { handleWechatImportMedia } from "./wechatImportMediaRoute";
 import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
+import { startImageTaskWorker } from "../services/imageGenerationTaskWorker";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
@@ -79,6 +80,8 @@ async function startServer() {
   // PERSONAL_MEMORY_RUNNER_PAUSED=true 时启动即暂停，不 claim 任何任务，
   // 但已经 pending 的任务原样留着，不受影响。
   const stopMediaBillingRecovery = startMediaBillingRecovery();
+  // Dark launch: no-op unless IMAGE_TASK_WORKER_ENABLED=1.
+  const stopImageTaskWorker = startImageTaskWorker();
   const personalMemoryJobRunner = startPersonalMemoryJobRunner();
   if (process.env.PERSONAL_MEMORY_RUNNER_PAUSED === "true") {
     personalMemoryJobRunner.pause();
@@ -91,6 +94,7 @@ async function startServer() {
     if (shuttingDown) return;
     shuttingDown = true;
     stopMediaBillingRecovery();
+    stopImageTaskWorker();
     console.log(`[Server] 收到 ${signal}，停止提炼 runner...`);
     stopPersonalMemoryJobRunner()
       .catch(error => console.error("[Server] 停止提炼 runner 失败：", error))
