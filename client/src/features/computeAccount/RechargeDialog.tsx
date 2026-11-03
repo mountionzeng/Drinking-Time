@@ -183,6 +183,9 @@ function RechargeAvailability() {
           >
             {order.isPending ? t("正在前往支付宝…") : t("支付宝付款")}
           </Button>
+          <p className="text-xs text-muted-foreground">
+            {t("扫码页二维码约 1 分钟刷新；若提示失效，请回到本站重新点“支付宝付款”下单。")}
+          </p>
           {checkoutError && (
             <p role="alert" className="text-xs text-destructive">
               {t("暂时无法创建订单，请稍后重试。")}

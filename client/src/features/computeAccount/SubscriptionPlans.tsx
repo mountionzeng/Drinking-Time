@@ -85,6 +85,9 @@ export function SubscriptionPlans({
             ? t("开通支付宝自动续费")
             : t("前往支付宝付款")}
       </Button>
+      <p className="text-xs text-muted-foreground">
+        {t("扫码页二维码约 1 分钟刷新；若提示失效，请回到本站重新点“支付宝付款”下单。")}
+      </p>
       <p id="alipay-checkout-status" className="text-xs text-muted-foreground">
         {order.isError
           ? t("暂时无法创建订单，请稍后重试。")

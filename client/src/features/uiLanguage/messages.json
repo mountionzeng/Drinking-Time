@@ -12383,6 +12383,10 @@
     "en": "Pay with Alipay",
     "fr": "支付宝付款"
   },
+  "扫码页二维码约 1 分钟刷新；若提示失效，请回到本站重新点“支付宝付款”下单。": {
+    "en": "The Alipay QR code refreshes about every minute. If it says expired, come back here and tap \"Pay with Alipay\" again.",
+    "fr": "扫码页二维码约 1 分钟刷新；若提示失效，请回到本站重新点“支付宝付款”下单。"
+  },
   "暂时无法创建订单，请稍后重试。": {
     "en": "Unable to create an order right now. Try again later.",
     "fr": "暂时无法创建订单，请稍后重试。"
