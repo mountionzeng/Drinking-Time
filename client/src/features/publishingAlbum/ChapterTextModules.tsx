@@ -1,4 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { MediaPlayer } from "@/components/ui/media-player";
 import { useBookModuleActions } from "./bookModuleActions";
 import { mergeBookText } from "./mergeBookText";
 import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
@@ -218,7 +219,7 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
   function renderField(block: WritingBlock, index: number, style: CSSProperties) {
     const audio = readBookAudio(block.text);
     if (audio) return <div key={block.id} aria-label={_ui("{0}模块 {1}", [audio.kind==='narration'?_ui("有声书"):_ui("音乐"), index + 1])} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
-      <p className="truncate text-sm">♫ {audio.title}</p><audio aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
+      <p className="truncate text-sm">♫ {audio.title}</p><MediaPlayer kind="audio" aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
     if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {

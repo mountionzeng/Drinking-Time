@@ -1,3 +1,4 @@
+import { getMediaTaskStatus, mediaTaskAsyncSubmitEnabled, runSyncMediaInBackground } from "../services/mediaTaskSwitch";
 import { listChapters, listChapterVersions } from "../repositories/chapters";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 /**
@@ -610,12 +611,24 @@ export const timelineMediaRouter = router({
           message: "这个剪辑会话已经失效，请刷新后重试",
         };
       }
-      return generateStorySceneAudio({
-        storyId: input.storyId,
-        userId: ctx.user.id,
-        operation: input.operation,
-        quoteToken: input.quoteToken,
-      });
+      const run = () =>
+        generateStorySceneAudio({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operation: input.operation,
+          quoteToken: input.quoteToken,
+        });
+      // Switch off = original synchronous call. On = return 进行中 at once; client polls mediaTaskStatus.
+      return mediaTaskAsyncSubmitEnabled()
+        ? runSyncMediaInBackground({ userId: ctx.user.id, storyId: input.storyId, kind: "music", operationId: input.operation.operationId, run })
+        : run();
+    }),
+
+  mediaTaskStatus: protectedProcedure
+    .input(z.object({ mediaTaskId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const view = await getMediaTaskStatus(ctx.user.id, input.mediaTaskId);
+      return view ?? { state: "missing" as const, mediaTaskId: input.mediaTaskId };
     }),
 
   // ── Narration generation/candidates (U5) ─────────────────────────────
@@ -651,13 +664,17 @@ export const timelineMediaRouter = router({
           message: "这个剪辑会话已经失效，请刷新后重试",
         };
       }
-      return generateStoryNarrationCandidate({
-        storyId: input.storyId,
-        userId: ctx.user.id,
-        subtitleCueId: input.subtitleCueId,
-        operationId: input.operation.operationId,
-        quoteToken: input.quoteToken,
-      });
+      const run = () =>
+        generateStoryNarrationCandidate({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          subtitleCueId: input.subtitleCueId,
+          operationId: input.operation.operationId,
+          quoteToken: input.quoteToken,
+        });
+      return mediaTaskAsyncSubmitEnabled()
+        ? runSyncMediaInBackground({ userId: ctx.user.id, storyId: input.storyId, kind: "narration", operationId: input.operation.operationId, run })
+        : run();
     }),
 
   narrationCandidates: protectedProcedure

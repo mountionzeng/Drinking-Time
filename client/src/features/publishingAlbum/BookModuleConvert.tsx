@@ -1,4 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { awaitMediaTask } from "@/lib/mediaTaskPolling";
+import { MediaPlayer } from "@/components/ui/media-player";
 import { GATEWAY_TIMEOUT_MESSAGE, IMAGE_TASK_POLL_MS, isGatewayTimeoutError, shouldKeepPolling } from "@/lib/imageTaskPolling";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -291,7 +293,7 @@ export function BookModuleConvert({
                   setNarrationSubmitted(true);
                   let data;
                   try {
-                    data=await narration.mutateAsync({storyId,operation:operation.current,subtitleCueId:quote.subtitleCueId!,quoteToken:quote.quoteToken});
+                    data=await awaitMediaTask(await narration.mutateAsync({storyId,operation:operation.current,subtitleCueId:quote.subtitleCueId!,quoteToken:quote.quoteToken}),id=>utils.timelineMedia.mediaTaskStatus.fetch({mediaTaskId:id},{staleTime:0}));
                   } catch {
                     throw new Error(_ui("有声书生成结果尚未确认，原文已保留。请先核对任务和费用，暂勿重复提交。"));
                   }
@@ -300,11 +302,14 @@ export function BookModuleConvert({
                   const text=bookAudioText(storyId,data.candidate.assetId,"有声书","narration");
                   setResult(text);void utils.timelineMedia.audioAssetLibrary.invalidate({storyId});insertGenerated(text);return;
                 }
-                const data = await music.mutateAsync({
-                  storyId,
-                  operation: operation.current,
-                  quoteToken: quote.quoteToken,
-                });
+                const data = await awaitMediaTask(
+                  await music.mutateAsync({
+                    storyId,
+                    operation: operation.current,
+                    quoteToken: quote.quoteToken,
+                  }),
+                  id => utils.timelineMedia.mediaTaskStatus.fetch({ mediaTaskId: id }, { staleTime: 0 })
+                );
                 if (data.status !== "ready") throw new Error(data.message);
                 const text = bookAudioText(storyId, data.assetId, "模块配乐");
                 setResult(text);
@@ -327,7 +332,7 @@ export function BookModuleConvert({
               onChange={e => setResult(e.target.value)}
             />
           ) : (
-            <audio controls src={/\]\(([^)]+)\)/.exec(result)?.[1]} />
+            <MediaPlayer kind="audio" controls src={/\]\(([^)]+)\)/.exec(result)?.[1]} />
           ))}
         {result && (
           <button

@@ -1,4 +1,5 @@
 import { formatComputeQuote } from "@shared/computeMoney";
+import { awaitMediaTask } from "@/lib/mediaTaskPolling";
 /**
  * The single client entry point for subtitle (U3) and, later, audio (U9)
  * timeline-media commands.
@@ -318,6 +319,9 @@ export function useTimelineMediaController(
   const unbindSpeechMut = trpc.timelineMedia.unbindSpeech.useMutation();
   const moveBoundSpeechMut = trpc.timelineMedia.moveBoundSpeech.useMutation();
   const quoteSceneAudioMut = trpc.timelineMedia.quoteSceneAudio.useMutation();
+  const mediaTaskUtils = trpc.useUtils();
+  const fetchMediaTask = (mediaTaskId: string) =>
+    mediaTaskUtils.timelineMedia.mediaTaskStatus.fetch({ mediaTaskId }, { staleTime: 0 });
   const generateSceneAudioMut =
     trpc.timelineMedia.generateSceneAudio.useMutation();
   const quoteNarrationMut = trpc.timelineMedia.quoteNarration.useMutation();
@@ -736,11 +740,13 @@ export function useTimelineMediaController(
           const operationRef = operation();
           const result = await trackCreationEditorOperation(
             storyId,
-            generateSceneAudioMut.mutateAsync({
-              storyId,
-              operation: operationRef,
-              quoteToken: quote.quoteToken,
-            })
+            generateSceneAudioMut
+              .mutateAsync({
+                storyId,
+                operation: operationRef,
+                quoteToken: quote.quoteToken,
+              })
+              .then(first => awaitMediaTask(first, fetchMediaTask))
           );
           if (sessionKeyRef.current !== commandSessionKey) return false;
           if (result.status !== "ready") {
@@ -824,12 +830,15 @@ export function useTimelineMediaController(
             `将按当前字幕生成一份旁白候选，预计最高 ${formatComputeQuote(quote.estimatedCny)}。候选不会自动替换时间线，是否继续？`
           );
           if (!accepted) return false;
-          const result = await generateNarrationMut.mutateAsync({
-            storyId,
-            subtitleCueId,
-            operation: operation(),
-            quoteToken: quote.quoteToken,
-          });
+          const result = await awaitMediaTask(
+            await generateNarrationMut.mutateAsync({
+              storyId,
+              subtitleCueId,
+              operation: operation(),
+              quoteToken: quote.quoteToken,
+            }),
+            fetchMediaTask
+          );
           if (sessionKeyRef.current !== commandSessionKey) return false;
           if (result.status !== "candidate-ready") {
             setLastError(result.message);

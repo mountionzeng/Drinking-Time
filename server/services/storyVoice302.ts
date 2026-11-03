@@ -1,3 +1,4 @@
+import { logMediaUnknown, startMediaDiagnostics, trackMediaResponse } from "./mediaUnknownLog";
 import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 
@@ -74,13 +75,14 @@ export async function generateStoryVoice302(input: {
   if (!baseUrl)
     throw new StoryVoice302Error("not_charged_failure", "302 API 地址未配置");
 
+  const diag = startMediaDiagnostics("tts");
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
     input.timeoutMs ?? positiveInteger(ENV.tts302TimeoutMs, 60_000)
   );
   try {
-    const response = await guardComputeFetch(input.fetcher ?? fetch)(
+    const response = await trackMediaResponse(guardComputeFetch(input.fetcher ?? fetch), diag)(
       `${baseUrl}/302/tts/generate`,
       {
         method: "POST",
@@ -123,6 +125,8 @@ export async function generateStoryVoice302(input: {
     }
     return { audioUrl, provider, voice };
   } catch (error) {
+    if (!(error instanceof ComputeAccessError) && (!(error instanceof StoryVoice302Error) || error.outcome === "submission_unknown"))
+      logMediaUnknown(diag, error instanceof Error ? error.message : "unknown");
     if (error instanceof ComputeAccessError)
       throw new StoryVoice302Error("not_charged_failure", error.message);
     if (error instanceof Error && error.name === "AbortError") {
