@@ -10,7 +10,7 @@ export type InsertTaskImages = (task: ImageGenerationTaskRow, images: ImageTaskI
 
 export type ImageTaskPatch = Partial<Pick<ImageGenerationTaskRow,
   "status" | "providerTaskId" | "candidates" | "error" | "settlement" | "pollCount" | "nextPollAt" |
-  "requestSentAt" | "submittedAt" | "completedAt" | "prompt" | "promptCompilationId" | "promptBillings">>;
+  "requestSentAt" | "submittedAt" | "completedAt" | "prompt" | "promptCompilationId" | "promptBillings" | "resultPayload" | "targetRef">>;
 
 /**
  * Storage port. Every mutation is a compare-and-set on (id, version, status) so two

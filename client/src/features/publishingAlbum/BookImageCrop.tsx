@@ -1,4 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { MediaPlayer } from "@/components/ui/media-player";
 import { useEffect, useState } from "react";
 import { readBookImage } from "@shared/bookImageBlock";
 
@@ -19,7 +20,7 @@ export function BookInlineImage({ text }: { text: string }) {
     };
   }, [image.url]);
   const c = image.crop;
-  if (image.videoUrl) return <video aria-label={_ui("文章短视频")} controls playsInline preload="metadata" poster={image.url} src={image.videoUrl} className="h-full w-full object-contain" />;
+  if (image.videoUrl) return <MediaPlayer kind="video" aria-label={_ui("文章短视频")} controls playsInline preload="metadata" poster={image.url} src={image.videoUrl} className="h-full w-full object-contain" />;
   return (
     <svg
       role="img"

@@ -3121,6 +3121,12 @@ export const imageGenerationTasks = mysqlTable("image_generation_tasks", {
   chapterId: int("chapterId"),
   moduleId: varchar("moduleId", { length: 128 }),
   scope: varchar("scope", { length: 20 }).notNull(),
+  /** image | video | music | narration | tts. Existing rows/readers default to image. */
+  mediaKind: varchar("mediaKind", { length: 16 }).default("image").notNull(),
+  /** Non-image targets, e.g. "video_take:123" or the audio operationId. */
+  targetRef: varchar("targetRef", { length: 191 }),
+  /** Final route payload for background sync media (music/narration/tts), read by status polling. */
+  resultPayload: json("resultPayload").$type<Record<string, unknown>>(),
   requestId: varchar("requestId", { length: 128 }).notNull(),
   sourceHash: varchar("sourceHash", { length: 128 }),
   provider: varchar("provider", { length: 32 }).notNull(),
@@ -3152,5 +3158,6 @@ export const imageGenerationTasks = mysqlTable("image_generation_tasks", {
   uniqueIndex("image_task_request_uq").on(table.userId, table.requestId),
   index("image_task_poll_idx").on(table.status, table.nextPollAt),
   index("image_task_owner_idx").on(table.userId, table.storyId),
+  index("image_task_kind_idx").on(table.mediaKind, table.status),
 ]);
 export type ImageGenerationTaskRow = typeof imageGenerationTasks.$inferSelect;

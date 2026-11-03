@@ -5,6 +5,9 @@ CREATE TABLE `image_generation_tasks` (
 	`chapterId` int,
 	`moduleId` varchar(128),
 	`scope` varchar(20) NOT NULL,
+	`mediaKind` varchar(16) NOT NULL DEFAULT 'image',
+	`targetRef` varchar(191),
+	`resultPayload` json,
 	`requestId` varchar(128) NOT NULL,
 	`sourceHash` varchar(128),
 	`provider` varchar(32) NOT NULL,
@@ -34,4 +37,5 @@ CREATE TABLE `image_generation_tasks` (
 );
 --> statement-breakpoint
 CREATE INDEX `image_task_poll_idx` ON `image_generation_tasks` (`status`,`nextPollAt`);--> statement-breakpoint
-CREATE INDEX `image_task_owner_idx` ON `image_generation_tasks` (`userId`,`storyId`);
+CREATE INDEX `image_task_owner_idx` ON `image_generation_tasks` (`userId`,`storyId`);--> statement-breakpoint
+CREATE INDEX `image_task_kind_idx` ON `image_generation_tasks` (`mediaKind`,`status`);

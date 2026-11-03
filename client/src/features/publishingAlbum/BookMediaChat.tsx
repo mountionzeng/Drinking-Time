@@ -1,4 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { MediaPlayer } from "@/components/ui/media-player";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { BookMediaModes } from "./BookMediaModes";
 import { trpc } from "@/lib/trpc";
@@ -469,7 +470,8 @@ export function BookMediaChat({
       {result && (
         <div className="space-y-1">
           {result.videoUrl ? (
-            <video
+            <MediaPlayer
+              kind="video"
               controls
               playsInline
               src={result.videoUrl}

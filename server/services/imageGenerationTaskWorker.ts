@@ -40,8 +40,45 @@ export async function defaultImageTaskDeps(): Promise<ImageTaskDeps> {
       if (outcome.kind === "succeeded_at_quote") await settleMediaQuote(operationId);
       else await settleOperation({ operationId, outcome });
     },
+    media: await defaultMediaHandlers(),
     log: (msg, extra) => console.warn(msg, extra ?? {}),
   };
+}
+
+/** Video / music / narration / tts handlers. All are read-or-settle only; none submits a generation. */
+async function defaultMediaHandlers(): Promise<NonNullable<ImageTaskDeps["media"]>> {
+  const store = await getImageTaskStore();
+  const log = (msg: string, extra?: Record<string, unknown>) => console.warn(msg, extra ?? {});
+  const { handleStaleSyncMediaTask, handleVideoTask } = await import("./mediaTaskHandlers");
+  const video = async (row: Parameters<typeof handleVideoTask>[1]) => {
+    const { refreshVideoTakeStatus } = await import("./videoJobs");
+    await handleVideoTask({ store, refreshTake: refreshVideoTakeStatus, log }, row);
+  };
+  const sync = async (row: Parameters<typeof handleStaleSyncMediaTask>[1]) => {
+    const [{ findReusableReadyStoryAudioAsset }, { listOperationProviderAttempts }, { findBillingOperation }] = await Promise.all([
+      import("./storyAudioAssets"), import("./computeLedger"), import("../repositories/computeLedger"),
+    ]);
+    await handleStaleSyncMediaTask({
+      store, log,
+      evidence: async task => {
+        const operationId = task.targetRef!;
+        const [asset, attempts, operation] = await Promise.all([
+          task.storyId ? findReusableReadyStoryAudioAsset({ scope: { storyId: task.storyId, userId: task.userId }, sourceKind: "tts", sourceKey: operationId }) : null,
+          listOperationProviderAttempts(operationId),
+          findBillingOperation(operationId),
+        ]);
+        const providerOutputRecorded = attempts.some(a => {
+          const usage = a.usage as Record<string, unknown> | null;
+          return typeof usage?.providerAudioUrl === "string";
+        });
+        return { assetId: asset?.id ?? null, providerOutputRecorded, ledgerStatus: operation?.status ?? null };
+      },
+      chargeAtQuote: async operationId => { await settleMediaQuote(operationId); },
+      release: async (operationId, reason) => { await settleOperation({ operationId, outcome: { kind: "not_charged_failure" }, reason }); },
+      freeze: async (operationId, reason) => { await settleOperation({ operationId, outcome: { kind: "submission_unknown" }, reason }); },
+    }, row);
+  };
+  return { video, music: sync, narration: sync, tts: sync };
 }
 
 export function startImageTaskWorker(intervalMs = 15_000): () => void {

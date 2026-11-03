@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "3fd00d39-6d79-442c-b8af-c475a64ff707",
+  "id": "b1b94ae1-7bdd-44fd-8521-b07e9140bf33",
   "prevId": "623ba1f0-acc8-4d8e-8c2c-2055d1d00b5b",
   "tables": {
     "access_sessions": {
@@ -3742,6 +3742,28 @@
           "notNull": true,
           "autoincrement": false
         },
+        "mediaKind": {
+          "name": "mediaKind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'image'"
+        },
+        "targetRef": {
+          "name": "targetRef",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "resultPayload": {
+          "name": "resultPayload",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "requestId": {
           "name": "requestId",
           "type": "varchar(128)",
@@ -3935,6 +3957,14 @@
           "columns": [
             "userId",
             "storyId"
+          ],
+          "isUnique": false
+        },
+        "image_task_kind_idx": {
+          "name": "image_task_kind_idx",
+          "columns": [
+            "mediaKind",
+            "status"
           ],
           "isUnique": false
         }

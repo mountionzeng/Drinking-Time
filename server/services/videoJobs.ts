@@ -1,5 +1,10 @@
 import { shotVideoPriceProfile } from "../../shared/shotDirector";
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
+import { VIDEO_TASK_POLL_WINDOW_MS } from "../../shared/mediaTask";
+import {
+  mediaTaskAsyncSubmitEnabled,
+  registerVideoMediaTask,
+} from "./mediaTaskSwitch";
 import {
   mediaBillingEnabled,
   mediaOperationId,
@@ -801,6 +806,20 @@ export async function startShotVideoJob(
       taskId: submitted.taskId ?? null,
       status: "processing",
     });
+    if (submitted.taskId && !submitted.videoUrl && mediaTaskAsyncSubmitEnabled()) {
+      // Background worker fetches/downloads/settles even if nobody keeps the page open.
+      await registerVideoMediaTask({
+        userId,
+        storyId: input.storyId,
+        takeId: take.id,
+        providerTaskId: submitted.taskId,
+      }).catch(error =>
+        console.warn("[video-task] register failed; client polling still works", {
+          takeId: take.id,
+          error: error instanceof Error ? error.message : "unknown",
+        })
+      );
+    }
     const managed = submitted.videoUrl
       ? await materializeVideoUrl(submitted.videoUrl, take.id)
       : null;
@@ -989,10 +1008,51 @@ export async function refreshVideoTakeStatus(
     return { status: "ok", take: updated ?? take };
   }
 
-  await finishVideoBilling(take, { unknown: true });
+  // Switch off = original behaviour (any non-ok refresh freezes the hold as unknown).
+  const decision = mediaTaskAsyncSubmitEnabled()
+    ? decideVideoRefreshFailure(
+        refreshed,
+        Date.now() - new Date(take.createdAt).getTime()
+      )
+    : "unknown";
+  if (decision === "keep_processing") {
+    // Our query failed or timed out; the provider task is still alive. Keep the hold, retry later.
+    console.warn("[video-task] status query failed; kept processing", {
+      takeId: take.id,
+      taskId: take.taskId,
+      status: refreshed.status,
+      message: refreshed.message,
+    });
+    const updated = await updateVideoTake(take.id, userId, {
+      status: "processing",
+      errorMessage: "视频仍在生成，暂时查不到进度，稍后会自动重试。",
+    });
+    return { status: "ok", take: updated ?? take };
+  }
+  await finishVideoBilling(
+    take,
+    decision === "failed" ? { failed: true } : { unknown: true }
+  );
   const updated = await updateVideoTake(take.id, userId, {
     status: statusForRefresh(refreshed.status),
     errorMessage: explainVideoProviderError(refreshed.message),
   });
   return { status: "ok", take: updated ?? take };
+}
+
+/**
+ * A non-ok status refresh. Only a provider-confirmed FAILURE releases the hold; our own
+ * query errors/timeouts keep the take processing until the poll window ends, after which
+ * the hold stays frozen for reconciliation (never released by time).
+ */
+export function decideVideoRefreshFailure(
+  refreshed: { status: string; providerConfirmed?: true; queryFailed?: true },
+  ageMs: number
+): "keep_processing" | "failed" | "unknown" {
+  if (refreshed.status === "failed" && refreshed.providerConfirmed) return "failed";
+  const transient =
+    refreshed.status === "timeout" ||
+    (refreshed.status === "failed" && refreshed.queryFailed === true);
+  if (transient && ageMs < VIDEO_TASK_POLL_WINDOW_MS) return "keep_processing";
+  return "unknown";
 }

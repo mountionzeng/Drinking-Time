@@ -28,6 +28,8 @@ export type ShotVideoResult =
       status: "error";
       message: string;
       taskId?: string;
+      /** Inline polling ran out but the provider accepted the task: still generating, never "unknown". */
+      stillGenerating?: true;
     };
 
 export type ShotVideoSubmitResult =
@@ -62,6 +64,10 @@ export type ShotVideoTaskRefreshResult =
       status: "failed" | "timeout" | "unfollowable";
       message: string;
       taskId: string;
+      /** The provider itself reported FAILURE (not our query failing). */
+      providerConfirmed?: true;
+      /** Our status query failed (HTTP error); says nothing about the generation. */
+      queryFailed?: true;
     };
 
 function normalizeBaseUrl(value: string): string {
@@ -287,7 +293,13 @@ async function pollVideoTask(
     }
   }
 
-  return { status: "error", taskId, message: "视频生成超时" };
+  // Timing out our own wait says nothing about the provider: the task is still generating.
+  return {
+    status: "error",
+    taskId,
+    stillGenerating: true,
+    message: "视频仍在生成，可稍后在视频版本里刷新查看（不会重复扣费）",
+  };
 }
 
 function buildSubmitRequest(input: ShotVideoInput) {
@@ -502,6 +514,7 @@ export async function refreshShotVideoTask(
       return {
         status: "failed",
         taskId,
+        queryFailed: true,
         message: failureMessage(
           json,
           `视频任务查询失败 HTTP ${response.status}`
@@ -530,6 +543,7 @@ export async function refreshShotVideoTask(
       return {
         status: "failed",
         taskId,
+        providerConfirmed: true,
         message: failureMessage(json, "视频生成失败"),
       };
     }

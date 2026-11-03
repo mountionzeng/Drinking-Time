@@ -7,6 +7,7 @@ import {
 import type { BookModuleImageTask } from "../../shared/bookModuleImageTask";
 import type { ImageTaskPatch, ImageTaskStore } from "../repositories/imageGenerationTasks";
 import type { ImageGenCandidate, ImageGenResult } from "./imageGen";
+import type { MediaKind } from "../../shared/mediaTask";
 
 export type SettleOutcome = { kind: "succeeded_at_quote" } | { kind: "not_charged_failure" } | { kind: "submission_unknown" };
 export type ImageTaskDeps = {
@@ -17,6 +18,11 @@ export type ImageTaskDeps = {
   refundPrompt?: (task: ImageGenerationTaskRow, reason: string) => Promise<void>;
   /** Ledger settlement; idempotent per operationId (terminal statuses are noop). */
   settle: (operationId: string, outcome: SettleOutcome) => Promise<void>;
+  /**
+   * Non-image kinds (video/music/narration/tts). Each handler owns its own ledger
+   * settlement (media rows carry no billingOperationId, so settleTask never double-settles).
+   */
+  media?: Partial<Record<Exclude<MediaKind, "image">, (row: ImageGenerationTaskRow) => Promise<void>>>;
   now?: () => Date;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 };
@@ -29,13 +35,15 @@ export type RegisterInput = {
   billingOperationId?: string | null;
   prompt?: string | null; promptCompilationId?: number | null;
   promptBillings?: { operationId: string; chargeMinor: number }[] | null;
+  mediaKind?: MediaKind; targetRef?: string | null;
 };
 
 /** Durable claim before any provider call. Replays of the same requestId return the existing row. */
 export async function registerImageTask(store: ImageTaskStore, input: RegisterInput, now = new Date()) {
   const row: ImageGenerationTaskRow = {
     id: randomUUID(), userId: input.userId, storyId: input.storyId ?? null, chapterId: input.chapterId ?? null,
-    moduleId: input.moduleId ?? null, scope: input.scope, requestId: input.requestId, sourceHash: input.sourceHash ?? null,
+    moduleId: input.moduleId ?? null, scope: input.scope, mediaKind: input.mediaKind ?? "image",
+    targetRef: input.targetRef ?? null, resultPayload: null, requestId: input.requestId, sourceHash: input.sourceHash ?? null,
     provider: input.provider, model: input.model ?? null, providerTaskId: null, status: "submitting", candidates: [],
     error: null, billingOperationId: input.billingOperationId ?? null, prompt: input.prompt ?? null,
     promptCompilationId: input.promptCompilationId ?? null, promptBillings: input.promptBillings ?? null, settlement: null, version: 0, pollCount: 0,
@@ -173,6 +181,12 @@ export async function sweepImageTasks(deps: ImageTaskDeps, owner: string, limit 
     try {
       const row = await deps.store.get(candidate.id);
       if (!row) continue;
+      const kind = (row.mediaKind ?? "image") as MediaKind;
+      if (kind !== "image") {
+        const handler = deps.media?.[kind];
+        if (handler) { await handler(row); processed++; }
+        continue;
+      }
       if (row.status === "accepted") await pollImageTask(deps, row);
       else if (row.status === "submitting") await expireSubmittingTask(deps, row);
       else await settleTask(deps, row);
@@ -202,7 +216,7 @@ export function pickTaskForModule(
 export async function importLegacyModuleTask(store: ImageTaskStore, userId: number, storyId: number, legacy: BookModuleImageTask, now = new Date()) {
   const m = legacyBookModuleTaskToRow(storyId, legacy);
   const row: ImageGenerationTaskRow = {
-    id: m.id, userId, storyId, chapterId: m.chapterId, moduleId: m.moduleId, scope: m.scope, requestId: m.requestId,
+    id: m.id, userId, storyId, chapterId: m.chapterId, moduleId: m.moduleId, scope: m.scope, mediaKind: "image", targetRef: null, resultPayload: null, requestId: m.requestId,
     sourceHash: m.sourceHash, provider: m.provider, model: null, providerTaskId: m.providerTaskId, status: m.status,
     candidates: m.candidates, error: m.error, billingOperationId: null, prompt: null, promptCompilationId: null,
     promptBillings: null, settlement: null, version: 0, pollCount: 0, nextPollAt: m.status === "accepted" ? now : null,

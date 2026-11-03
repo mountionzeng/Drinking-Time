@@ -95,7 +95,7 @@ export async function settleMediaQuote(operationId: string) {
 
 export async function finishVideoBilling(
   take: VideoTake,
-  result: { videoUrl: string } | { unknown: true }
+  result: { videoUrl: string } | { unknown: true } | { failed: true }
 ) {
   const metadata = take.parameterSnapshot as Record<string, unknown> | null;
   const operationId = metadata?.computeOperationId;
@@ -115,6 +115,13 @@ export async function finishVideoBilling(
       takeId: take.id,
     });
     await settleMediaQuote(operationId);
+  } else if ("failed" in result) {
+    // Provider confirmed the task failed: nothing was delivered, release the hold.
+    await settleOperation({
+      operationId,
+      outcome: { kind: "not_charged_failure" },
+      reason: "供应商确认视频生成失败",
+    });
   } else {
     await settleOperation({
       operationId,
