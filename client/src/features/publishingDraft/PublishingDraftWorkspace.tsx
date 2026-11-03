@@ -87,6 +87,7 @@ import { downloadPublishingCover } from "./publishingCoverExport";
 import {
   getCoverGenerationPresentation,
   shouldRecoverCoverGeneration,
+  claimAutoCoverRecoveryAttempt,
   type CoverGenerationMode,
 } from "./publishingCoverGenerationState";
 import {
@@ -1319,6 +1320,9 @@ export default function PublishingDraftWorkspace({
     }
     recoveredCoverOperationRef.current =
       persistedCoverGeneration.operationToken;
+    if (!claimAutoCoverRecoveryAttempt(persistedCoverGeneration.operationToken)) {
+      return;
+    }
     void generateCover(
       persistedCoverGeneration.referenceAssetId ? "revise" : "fresh",
       persistedCoverGeneration.operationToken,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimAutoCoverRecoveryAttempt,
+  MAX_AUTO_COVER_RECOVERY_ATTEMPTS,
   getCoverGenerationPresentation,
   shouldRecoverCoverGeneration,
 } from "./publishingCoverGenerationState";
@@ -114,5 +116,24 @@ describe("shouldRecoverCoverGeneration", () => {
     expect(shouldRecoverCoverGeneration({ ...generation, taskId: null })).toBe(
       false
     );
+  });
+});
+
+describe("claimAutoCoverRecoveryAttempt", () => {
+  const memoryStore = () => {
+    const data = new Map<string, string>();
+    return { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) };
+  };
+  it("caps automatic recovery per operation token across remounts", () => {
+    const store = memoryStore();
+    const results = Array.from({ length: MAX_AUTO_COVER_RECOVERY_ATTEMPTS + 2 }, () =>
+      claimAutoCoverRecoveryAttempt("cover-a", store)
+    );
+    expect(results.filter(Boolean)).toHaveLength(MAX_AUTO_COVER_RECOVERY_ATTEMPTS);
+    expect(results.at(-1)).toBe(false);
+    expect(claimAutoCoverRecoveryAttempt("cover-b", store)).toBe(true);
+  });
+  it("still allows recovery when storage is unavailable", () => {
+    expect(claimAutoCoverRecoveryAttempt("cover-x", null)).toBe(true);
   });
 });
