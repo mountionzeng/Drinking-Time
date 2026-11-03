@@ -1293,7 +1293,7 @@ describe("publishingDraft router", () => {
       operationToken: "rewrite-replay",
       requestHash: computePublishingTextOperationRequestHash({ kind: "rewrite", scope, payload }),
       scope,
-      claimedAt: 10,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 20,
       expiresAt: 1_000,
       result: {
@@ -1378,7 +1378,7 @@ describe("publishingDraft router", () => {
       operationToken: "rewrite-old-version",
       requestHash: computePublishingTextOperationRequestHash({ kind: "rewrite", scope, payload }),
       scope,
-      claimedAt: 10,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 20,
       expiresAt: 1_000,
       result: {
@@ -2480,7 +2480,7 @@ describe("publishingDraft router", () => {
       publishing: { ...publishing, coverRounds: [round], coverGeneration: {
         operationToken: "done-cover", versionId: "v1", status: "completed", platform: "xiaohongshu",
         referenceAssetId: null, feedback: "", prompt: "saved", roundId: round.id,
-        taskId: "paid-task", claimedAt: 1, updatedAt: 2, expiresAt: 2,
+        taskId: "paid-task", claimedAt: Date.now() - 1_000, updatedAt: 2, expiresAt: 2,
       } },
     });
     const result = await publishingDraftRouter.createCaller(context()).generateCover({
@@ -2506,7 +2506,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-resumed",
       taskId: "302-task-1",
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 1,
       expiresAt: 600_000,
     };
@@ -2580,7 +2580,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-timeout",
       taskId: "302-task-timeout",
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 2,
       expiresAt: 3,
       error: "302 Midjourney task timeout",
@@ -2666,7 +2666,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-orphaned",
       taskId: "302-task-orphaned",
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 2,
       expiresAt: 3,
       error: "timeout",
@@ -2750,7 +2750,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-unknown",
       taskId: null,
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 1,
       expiresAt: Date.now() + 600_000,
     };
@@ -2818,7 +2818,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-unknown",
       taskId: null,
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 1,
       expiresAt: 1,
     };
@@ -2965,7 +2965,7 @@ describe("publishingDraft router", () => {
       prompt: "durable cover prompt",
       roundId: "round-mj-unknown",
       taskId: null,
-      claimedAt: 1,
+      claimedAt: Date.now() - 1_000,
       updatedAt: 2,
       expiresAt: 3,
       error: "fetch failed",
