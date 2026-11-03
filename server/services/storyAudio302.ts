@@ -1,6 +1,7 @@
 import { logMediaUnknown, startMediaDiagnostics, trackMediaResponse } from "./mediaUnknownLog";
 import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
+import { log302FileUrl } from "./provider302FileUrlLog";
 
 export type GeneratedStoryAudioKind = "music" | "ambience" | "sfx";
 
@@ -262,6 +263,7 @@ export async function generateStoryAudio302(input: {
       const url = audioUrlFromPayload(
         await limitedJsonPayload(response, "302 音乐模型")
       );
+      log302FileUrl("audio", url);
       if (!url) {
         throw new StoryAudio302Error(
           "charged_failure",

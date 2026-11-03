@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { guardComputeFetch } from "./computeRequestAccess";
+import { log302FileUrl } from "./provider302FileUrlLog";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -961,6 +962,7 @@ async function storeImageFromUrl(
 ): Promise<ImageGenResult> {
   // 302's domestic gateway can still return the international file domain.
   // Its domestic OSS alias serves the same path; keep TLS and query parameters.
+  log302FileUrl("image", imageUrl);
   let downloadUrl = imageUrl;
   try {
     const gateway = new URL(ENV.api302BaseUrl);

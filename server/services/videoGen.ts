@@ -1,5 +1,6 @@
 import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
+import { log302FileUrl } from "./provider302FileUrlLog";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
 
@@ -440,6 +441,7 @@ export async function submitShotVideo(
     }
 
     const directUrl = videoUrlFromJson(json);
+    log302FileUrl("video", directUrl);
     if (directUrl) {
       return {
         status: "ok",
@@ -524,6 +526,9 @@ export async function refreshShotVideoTask(
     const previewVideoUrl = directVideoUrlFromJson(json);
     const candidateVideoUrls = candidateVideoUrlsFromJson(json);
     const videoUrl = candidateVideoUrls[0] || previewVideoUrl;
+    for (const candidate of uniqueUrls([videoUrl, ...candidateVideoUrls])) {
+      log302FileUrl("video", candidate);
+    }
     if (videoUrl) {
       return {
         status: "available",
