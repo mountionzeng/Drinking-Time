@@ -6115,6 +6115,11 @@
           "date": "2026-10-28",
           "kind": "improvement",
           "summary": "按截图移除纳音主题仓库按钮的旧线条插图并删除无引用SVG组件，纳音导航均为文字；拾光水彩收纳盒保留。主仓3000截图确认，仓库点击处理不变。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "refactor",
+          "summary": "Knip及全仓引用核对后删除无生产/测试调用的WuxingMotifIcon装饰组件182行；实际WuxingDrinkIcon、主题选择、五行计算与资产保留。27项相关测试和全项目类型通过，不改变功能状态或上线验收结论。"
         }
       ]
     },
@@ -9450,7 +9455,8 @@
         "git:shiguang-jiayi-hackathon:tests/web-book-import.test.js",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
         "docs/qa/2026-11-02-wechat-chapter-presentation.md",
-        "client/src/features/shiguang/WechatEntry.test.tsx"
+        "client/src/features/shiguang/WechatEntry.test.tsx",
+        "server/repositories/wechatBookImport.test.ts"
       ],
       "invariants": [
         "微信与邮箱是同级登录选项；微信确认成功进入正常工作区，仅有未迁移修订才询问，空账号/全部已迁移/读取失败都不阻挡使用。用户明确选择才复制，可跳过或稍后再来；首页微信入口归属原“从哪里开始？”弹窗。",
@@ -9513,6 +9519,11 @@
         {
           "date": "2026-11-03",
           "summary": "拾光首页原设备选择弹窗显示用户提供的体验版微信码及11月9日前有效期，保留手机版和电脑版入口；真机扫码及体验资格待确认。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "refactor",
+          "summary": "目录导入标记由逐本读取完整回执改为按账号和当前页requestId一次批量读取requestId/storyId，50本页由50次回执查询降至1次，空页不查库；保留单本导入幂等、已删除副本回执及接口字段。24项专项通过，SQL谓词/投影与账号隔离覆盖；未部署、未实测线上时延。"
         }
       ]
     }

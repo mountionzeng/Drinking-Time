@@ -1,5 +1,5 @@
-import { and, eq, sql } from "drizzle-orm";
-import { accountIdentities, storyChapters } from "../../drizzle/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { accountIdentities, chapterImports, storyChapters } from "../../drizzle/schema";
 import { getDb, memoryState } from "./runtime";
 
 /** The browser never supplies a WeChat identity, appid, openid or grant. */
@@ -52,4 +52,24 @@ export async function ownsWechatImportImage(userId: number, key: string) {
       r.userId === userId &&
       Boolean(r.blocks.wechatImport && r.blocks.images[key])
   );
+}
+
+/** Catalog markers use receipts even when the imported copy has been deleted. */
+export async function wechatImportedStoryIds(
+  userId: number,
+  requestIds: string[]
+): Promise<Map<string, number>> {
+  if (!requestIds.length) return new Map();
+  const db = await getDb();
+  if (db) {
+    const rows = await db
+      .select({ requestId: chapterImports.requestId, storyId: chapterImports.storyId })
+      .from(chapterImports)
+      .where(and(eq(chapterImports.userId, userId), inArray(chapterImports.requestId, requestIds)));
+    return new Map(rows.map(row => [row.requestId, row.storyId]));
+  }
+  const requested = new Set(requestIds);
+  return new Map(memoryState.chapterImports
+    .filter(row => row.userId === userId && requested.has(row.requestId))
+    .map(row => [row.requestId, row.storyId]));
 }

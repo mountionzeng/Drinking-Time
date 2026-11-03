@@ -19,7 +19,7 @@ import {
   findImportReceipt,
   type ChapterContent,
 } from "../repositories/chapters";
-import { wechatImportSubject } from "../repositories/wechatBookImport";
+import { wechatImportSubject, wechatImportedStoryIds } from "../repositories/wechatBookImport";
 import { putChapterMedia } from "../chapterMediaStore";
 import { authorityRequest } from "./shiguangStoryAuthorityClient";
 
@@ -190,6 +190,7 @@ export type WechatImportDependencies = {
   subject: typeof wechatImportSubject;
   request: typeof readAuthority;
   receipt: typeof findImportReceipt;
+  receipts: typeof wechatImportedStoryIds;
   commit: typeof commitChapterImport;
   storeImage: (userId: number, base64: string) => Promise<SavedImage>;
 };
@@ -223,6 +224,7 @@ const defaults: WechatImportDependencies = {
   subject: wechatImportSubject,
   request: readAuthority,
   receipt: findImportReceipt,
+  receipts: wechatImportedStoryIds,
   commit: commitChapterImport,
   storeImage,
 };
@@ -245,17 +247,14 @@ export function createWechatBookImportService(
         page = wechatCatalogSchema.parse(
           await deps.request(owner, { operation: "list", cursor })
         );
+      const requestIds = page.stories.map(story => importRequestId(owner, story));
+      const imported = await deps.receipts(userId, requestIds);
       return {
         ...page,
-        stories: await Promise.all(
-          page.stories.map(async story => {
-            const prior = await deps.receipt(
-              userId,
-              importRequestId(owner, story)
-            );
-            return { ...story, importedStoryId: prior?.storyId ?? null };
-          })
-        ),
+        stories: page.stories.map((story, index) => ({
+          ...story,
+          importedStoryId: imported.get(requestIds[index]) ?? null,
+        })),
       };
     },
     async importBook(userId: number, ref: WechatStoryRef) {

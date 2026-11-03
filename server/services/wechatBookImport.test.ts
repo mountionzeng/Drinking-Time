@@ -260,3 +260,26 @@ it("resolves only verified identity records, never user names or request identit
     wechatBookImportRouter.createCaller(ctx(10)).list({ cursor: 0 })
   ).rejects.toThrow("尚未开放");
 });
+
+it("loads import markers once for a full catalog page without per-story reads", async () => {
+  const stories = Array.from({ length: 50 }, (_, index) => ({
+    ...ref, storyId: `story-${index}`, title: `故事${index}`, updatedAt: book.updatedAt,
+  }));
+  const requestIds = stories.map(story => importRequestId(subject, story));
+  const receipts = vi.fn(async () => new Map([[requestIds[0], 123]]));
+  const receipt = vi.fn(async () => null);
+  const api = createWechatBookImportService({
+    subject: async () => subject,
+    request: async () => ({ stories, nextCursor: 50 }),
+    receipts,
+    receipt,
+  });
+  const result = await api.catalog(10);
+  expect(receipts).toHaveBeenCalledTimes(1);
+  expect(receipts).toHaveBeenCalledWith(10, requestIds);
+  expect(receipt).not.toHaveBeenCalled();
+  expect(result.nextCursor).toBe(50);
+  expect(result.stories).toEqual(stories.map((story, index) => ({
+    ...story, importedStoryId: index === 0 ? 123 : null,
+  })));
+});
