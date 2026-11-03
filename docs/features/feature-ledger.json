@@ -9529,14 +9529,17 @@
     },
     {
       "id": "image-generation-task-table",
-      "name": "出图任务表与后台取回（第 2 步接入，开关默认关闭）",
+      "name": "出图/媒体任务表与后台取回（第 3 步接入视频与配音/音乐，开关默认关闭）",
       "status": "partial",
       "userValue": "出图任务独立落表，网关或浏览器断开后由后台按任务号取回入仓并结算，预占不再长期悬挂。",
       "entryPoints": [
         "server/services/imageGenerationTaskWorker.ts",
         "server/routers/storyAgent.ts",
         "client/src/features/publishingAlbum/BookModuleConvert.tsx",
-        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "server/routers/timelineMedia.ts",
+        "server/services/videoJobs.ts",
+        "client/src/features/creationEditor/timelineMedia/useTimelineMediaController.ts"
       ],
       "owners": [
         "drizzle/0040_image_generation_tasks.sql",
@@ -9546,7 +9549,13 @@
         "server/services/imageGenerationTaskWorker.ts",
         "server/services/bookModuleImageRecovery.ts",
         "server/services/legnextImage.ts",
-        "client/src/lib/imageTaskPolling.ts"
+        "client/src/lib/imageTaskPolling.ts",
+        "shared/mediaTask.ts",
+        "server/services/mediaTaskSwitch.ts",
+        "server/services/mediaTaskHandlers.ts",
+        "server/services/mediaUnknownLog.ts",
+        "client/src/lib/mediaTaskPolling.ts",
+        "client/src/components/ui/media-player.tsx"
       ],
       "evidence": [
         "server/services/imageGenerationTaskService.test.ts",
@@ -9557,7 +9566,9 @@
         "server/services/legnextImage.test.ts",
         "client/src/features/publishingAlbum/BookModuleConvert.test.tsx",
         "client/src/lib/imageTaskPolling.test.ts",
-        "server/routers/legnextPendingMessage.test.ts"
+        "server/routers/legnextPendingMessage.test.ts",
+        "server/services/mediaTask.test.ts",
+        "command:pnpm feature:validate"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -9565,7 +9576,10 @@
         "每次状态变更都是 (id, version, status) 的 CAS；后台按租约认领，多实例同一任务只处理一次；最终结算每任务一次（settlement 列 + 账本终态幂等）。",
         "0040 只新增 image_generation_tasks 表，旧代码不读；回滚为删表。worker 默认关闭，仅 IMAGE_TASK_WORKER_ENABLED=1 时运行。",
         "入仓与标记成功在同一事务内（行锁 FOR UPDATE），同一任务只入仓一次、只结算一次。",
-        "开关：IMAGE_TASK_WORKER_ENABLED=1 且 IMAGE_TASK_ASYNC_SUBMIT=1 才走提交即返回；任一关闭时与原同步行为一致，任务仍写 stories.body。"
+        "开关：IMAGE_TASK_WORKER_ENABLED=1 且 IMAGE_TASK_ASYNC_SUBMIT=1 才走提交即返回；任一关闭时与原同步行为一致，任务仍写 stories.body。",
+        "媒体行 mediaKind≠image 由各自 handler 结算（不带 billingOperationId，通用 settleTask 不会二次结算）。",
+        "配音/音乐结果不明 30 分钟后：已入仓→按报价扣费不退；有供应商音频地址证据未入仓→保留预占转人工；无法证明产出→自动退回；账本已终态→只关任务。",
+        "视频查询超时/HTTP 错误在 30 分钟内视为仍在生成（不冻结）；供应商确认失败释放预占。MEDIA_TASK_ASYNC_SUBMIT 关闭时保持原行为。"
       ],
       "dependencies": [
         "publishing-image-modules"
@@ -9575,7 +9589,10 @@
         "publishingDraft.generateCover 后端仍为同步轮询（已有 coverGeneration 持久化恢复），仅前端补 504 提示与轮询；留第 3 步。",
         "302 供应商（MJ/GPT Image）仍在提交请求内有限时轮询，未完成才交给后台。",
         "开关从开切回关时，表中进行中任务旧代码不可见（图片仍由 worker 入仓）；旧 body 任务不会被删除。",
-        "成功结算按报价（maxCost）计费，与现有媒体结算口径相同。"
+        "成功结算按报价（maxCost）计费，与现有媒体结算口径相同。",
+        "storyAgent.generateStoryShotVoice（tts）无 operationId 与预占，未接入后台路径。",
+        "nginx 660s 超时仅为文档草稿，未改线上配置。",
+        "未做真实生成验收，待用户用真实生成验收。"
       ],
       "history": [
         {
@@ -9587,6 +9604,11 @@
           "date": "2026-11-03",
           "kind": "feature",
           "summary": "第 2 步：模块出图/Legnext 提交即返回任务号，worker 原子入仓去重并按确定失败退提示词费；旧 body 任务懒迁移入表；前端轮询、重开恢复与 504 友好提示；修复「已受理」重复文案。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "第 3 步：任务表加 mediaKind；视频任务号入表由 worker 取回结算、查询超时不再冻结；配音/音乐后台执行立即返回进行中、30 分钟无证据自动退回；结果不明记录 HTTP 状态/响应类型/耗时；前端轮询与播放器失败提示。"
         }
       ]
     }

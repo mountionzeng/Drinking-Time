@@ -1,4 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { awaitMediaTask } from "@/lib/mediaTaskPolling";
+import { MediaPlayer } from "@/components/ui/media-player";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -178,11 +180,14 @@ export function BookMusicInsert({
               disabled={busy || disabled}
               onClick={() =>
                 void run(async () => {
-                  const result = await generate.mutateAsync({
-                    storyId,
-                    operation: operation.current,
-                    quoteToken: quote.quoteToken,
-                  });
+                  const result = await awaitMediaTask(
+                    await generate.mutateAsync({
+                      storyId,
+                      operation: operation.current,
+                      quoteToken: quote.quoteToken,
+                    }),
+                    id => utils.timelineMedia.mediaTaskStatus.fetch({ mediaTaskId: id }, { staleTime: 0 })
+                  );
                   if (result.status !== "ready")
                     throw new Error(result.message);
                   insert(result.assetId, "故事配乐");
@@ -208,7 +213,8 @@ export function BookMusicInsert({
               .map(asset => (
                 <div key={asset.id}>
                   <p className="truncate text-sm">{asset.displayName}</p>
-                  <audio
+                  <MediaPlayer
+                    kind="audio"
                     controls
                     preload="none"
                     src={asset.audioUrl}

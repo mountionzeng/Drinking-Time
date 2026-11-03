@@ -1,3 +1,4 @@
+import { logMediaUnknown, startMediaDiagnostics, trackMediaResponse } from "./mediaUnknownLog";
 import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { ENV } from "../_core/env";
 
@@ -211,7 +212,8 @@ export async function generateStoryAudio302(input: {
     () => controller.abort(),
     input.timeoutMs ?? positiveInteger(ENV.audio302TimeoutMs, 180_000)
   );
-  const fetcher = guardComputeFetch(input.fetcher ?? fetch);
+  const diag = startMediaDiagnostics(`audio:${input.kind}`);
+  const fetcher = trackMediaResponse(guardComputeFetch(input.fetcher ?? fetch), diag);
   try {
     if (input.kind === "music") {
       const model = safeModel(
@@ -311,6 +313,11 @@ export async function generateStoryAudio302(input: {
       model,
       source: { kind: "url", url },
     };
+  } catch (error) {
+    // Callers map StoryAudio302Error(submission_unknown) and any non-302 error to "unknown".
+    if (!(error instanceof StoryAudio302Error) || error.outcome === "submission_unknown")
+      logMediaUnknown(diag, error instanceof Error ? error.message : "unknown");
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
