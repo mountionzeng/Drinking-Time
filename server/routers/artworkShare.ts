@@ -115,6 +115,7 @@ export const artworkShareRouter = router({
           JSON.stringify({
             title: input.title,
             pages: input.pages,
+            ...(input.reading ? { reading: input.reading } : {}),
             ...(input.permissions ? { permissions, work } : {}),
             ...(input.layout ? { layout: input.layout } : {}),
           })
@@ -123,6 +124,7 @@ export const artworkShareRouter = router({
           title: input.title,
           author: { name: artworkAuthorName(ctx.user.name) },
           pages,
+          ...(input.reading ? { reading: input.reading } : {}),
           permissions,
           ...(work ? { work } : {}),
           ...(layout ? { layout } : {}),

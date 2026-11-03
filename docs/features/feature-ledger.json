@@ -8,7 +8,8 @@
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
         "client/src/pages/SharedStoryPage.tsx",
-        "server/routers/storyContextShare.ts"
+        "server/routers/storyContextShare.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx"
       ],
       "owners": [
         "shared/storyContextShare.ts",
@@ -17,7 +18,9 @@
         "server/routers/storyContextShare.ts",
         "client/src/features/storyAgent/views/StoryContextShare.tsx",
         "client/src/pages/SharedStoryPage.tsx",
-        "shared/loginReturnPath.ts"
+        "shared/loginReturnPath.ts",
+        "client/src/features/publishingAlbum/BookSendMenu.tsx",
+        "client/src/features/publishingAlbum/bookShareArticle.ts"
       ],
       "evidence": [
         "server/services/storyContextSnapshot.test.ts",
@@ -36,7 +39,11 @@
         "docs/qa/2026-10-02-story-context-sharing.md",
         "docs/qa/2026-10-03-editor-ui-simplification.md",
         "docs/qa/2026-10-03-editor-button-audit.md",
-        "docs/qa/2026-10-07-web-release.md"
+        "docs/qa/2026-10-07-web-release.md",
+        "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
+        "client/src/features/publishingAlbum/bookShareArticle.test.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "docs/qa/2026-11-04-book-send-menu.md"
       ],
       "invariants": [
         "收件人的新故事属于收件人，原作者的故事和归属不变。",
@@ -58,7 +65,8 @@
       "knownGaps": [
         "本机固定开发游客账号限制真实双账号浏览器承接；归属隔离、承接保存和幂等已通过隔离接口测试，公网正式账号与真实模型改写仍待验收。",
         "首版提供链接，不含二维码、自动过期或原始媒体复制。",
-        "2026-10-07正式库0026及网页版本已发布；本机故事与图片未导入线上，真实双账号分享承接仍待验收。"
+        "2026-10-07正式库0026及网页版本已发布；本机故事与图片未导入线上，真实双账号分享承接仍待验收。",
+        "2026-11-04书稿发送菜单已在本地恢复入口；无图继续文字快照，有图交由mobile-artwork-production-sharing的独立图文快照，图片不会经原文字承接链路复制。未部署，真实双账号验收仍待完成。"
       ],
       "history": [
         {
@@ -115,6 +123,11 @@
           "date": "2026-10-28",
           "kind": "simplification",
           "summary": "按用户截图删除书页顶部重复的“书”和故事名栏；分享链接与发回按钮移至正文区域下方，保留分享能力与原弹窗。无数据变更，本地未部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "fix",
+          "summary": "找回原文字分享代码并从书稿发送菜单接入，先保存再取当前全文与故事标题，保存失败不打开分享；有图交由原artworkShare扩展连续阅读，无图保留原文字分享及权限。43项专项/类型/构建通过，真实页面预览通过；未创建真实链接或部署，状态保持observing。"
         }
       ]
     },
@@ -1744,21 +1757,32 @@
       "status": "working",
       "userValue": "故事更容易识别，同时自动命名不会覆盖人工标题。",
       "entryPoints": [
-        "client/src/features/storyAgent/StoryAgentContext.tsx"
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/features/storyAgent/views/StoryTitleInput.tsx"
       ],
       "owners": [
         "shared/storyTitle.ts",
         "server/repositories/stories.ts",
-        "server/routers/storyAgent.ts"
+        "server/routers/storyAgent.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/StoryTitleInput.tsx",
+        "client/src/features/storyAgent/useStoryRename.ts"
       ],
       "evidence": [
         "shared/storyTitle.test.ts",
         "client/src/features/storyAgent/storyTitle.test.ts",
-        "server/routers.storyAgent.test.ts"
+        "server/routers.storyAgent.test.ts",
+        "client/src/features/storyAgent/views/StoryTitleInput.test.tsx",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "docs/qa/2026-11-03-book-story-title.md",
+        "client/src/features/storyAgent/useStoryRename.test.ts"
       ],
       "invariants": [
         "自动标题只能替换未命名标题。",
-        "改名只更新标题，不重写 Story body。"
+        "改名只更新标题，不重写 Story body。",
+        "桌面书稿顶部与聊天故事名直接共用storyTitle及storyRename；改名不重写章节正文、不批量迁移历史章节名，不新增同步按钮。标题输入失败保留，输入法确认不提前提交。"
       ],
       "dependencies": [
         "story-ownership"
@@ -1766,7 +1790,8 @@
       "replaces": [],
       "knownGaps": [
         "writeStoryTitle 的数据库分支（drizzle UPDATE 的条件 WHERE 组装）没有测试执行过：仓库里全部测试都强制 DATABASE_URL=\"\" 跑内存分支，这是项目级既有状况、非本次引入。两条不变量目前只在内存分支有测试证据；数据库分支的等价性是靠审查逐条比对 drizzle and() 源码确认的（空条件展开不会让 WHERE 丢失或放宽），不是靠测试保证。",
-        "内存分支用 JS .trim() 判占位标题、数据库分支用 MySQL TRIM()，前者会去掉 \\n/\\t/全角空格而后者不会，因此形如「未命名\\n」的标题在两种模式下判定不同。此分歧在合并前就存在，合并成一个函数后更容易被误当成单一行为，故登记。"
+        "内存分支用 JS .trim() 判占位标题、数据库分支用 MySQL TRIM()，前者会去掉 \\n/\\t/全角空格而后者不会，因此形如「未命名\\n」的标题在两种模式下判定不同。此分歧在合并前就存在，合并成一个函数后更容易被误当成单一行为，故登记。",
+        "跨浏览器并发手动改名沿用原最后写入规则；本轮仅串行同一页面Provider中的改名。历史章节包/旧平台/手机章节标题不在本轮迁移。"
       ],
       "history": [
         {
@@ -1788,6 +1813,16 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "将 db.ts 中本能力的持久化实现迁至 repositories/stories；保留原函数签名、本地与 MySQL 分支、归属校验、事务边界及单实例写盘安全机制。db.ts 仅作兼容导出，既有回归与新增仓库边界／共享状态测试用于验证。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "按用户要求，将桌面书稿顶部从独立chapter.title输入替换为共用storyTitle与原改名动作；1.5秒自动/回车/失焦保存，无新增按钮，失败保留输入和同页面请求串行。118项相关、76项草稿安全、类型/构建、3000内存页双向同步及真实页面两处launch video通过，未改用户实际故事，未部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "refactor",
+          "summary": "汇总发布时将双标题输入共用的串行改名保存抽到useStoryRename，保持故事/账号范围、失败可重试与最新名称不被旧请求覆盖；遵守StoryAgentContext热点上限，新增顺序与账号切换回归。"
         }
       ]
     },
@@ -5975,7 +6010,9 @@
         "client/public/shiguang/nav-video-watercolor.png",
         "client/public/shiguang/nav-memory-watercolor.png",
         "client/public/shiguang/nav-book-watercolor.webp",
-        "client/public/shiguang/nav-warehouse-watercolor.webp"
+        "client/public/shiguang/nav-warehouse-watercolor.webp",
+        "client/src/features/storyAgent/views/desktopCompanion.css",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "evidence": [
         "client/src/features/nayin/visualTheme.test.ts",
@@ -5991,7 +6028,8 @@
         "shared/publishingDraft.test.ts",
         "server/routers.storyAgent.test.ts",
         "docs/qa/2026-10-11-mobile-me.md",
-        "docs/qa/2026-10-11-mobile-navigation.md"
+        "docs/qa/2026-10-11-mobile-navigation.md",
+        "docs/qa/2026-11-03-chat-composer-layout.md"
       ],
       "invariants": [
         "新用户和没有保存偏好的用户默认进入拾光家忆插画主题；用户选择必须在浏览器本地持久保存。",
@@ -6135,6 +6173,11 @@
           "date": "2026-11-03",
           "kind": "refactor",
           "summary": "Knip及全仓引用核对后删除无生产/测试调用的WuxingMotifIcon装饰组件182行；实际WuxingDrinkIcon、主题选择、五行计算与资产保留。27项相关测试和全项目类型通过，不改变功能状态或上线验收结论。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "improvement",
+          "summary": "按用户实测截图放大桌面拾光故事Logo，从72×62调整为96×82。初版移到底部并完成9项测试、类型与浏览器验证后，用户明确要求位置不变，已恢复输入框上方原位与底部按钮布局；插画透明留白不增加原62px行高，并移除拾光输入行顶部额外6–8px间距。纠正后9项测试、类型与diff检查通过；浏览器连接不可用，最终位置尚待页面复验，旧移位截图与高度测量不作为最终证据。未修改故事数据或调用生成；本地未提交、未部署，待今日汇总版本。"
         }
       ]
     },
@@ -6236,7 +6279,8 @@
         "client/src/features/publishingDraft/articleGenerationOptions.ts",
         "client/src/features/writingCompanion/DesktopWritingContext.tsx",
         "client/src/features/writingCompanion/desktopWritingSession.ts",
-        "client/src/features/publishingAlbum/ChapterWriting.tsx"
+        "client/src/features/publishingAlbum/ChapterWriting.tsx",
+        "shared/bookTextFormat.ts"
       ],
       "evidence": [
         "server/services/textDraftHistory.test.ts",
@@ -6264,7 +6308,9 @@
         "docs/qa/2026-11-01-conversation-exploration.md",
         "client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx",
         "client/src/features/publishingDraft/articleGenerationOptions.test.ts",
-        "client/src/features/publishingAlbum/BookWritingContext.test.tsx"
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "docs/qa/2026-11-03-book-text-format.md",
+        "shared/bookTextFormat.test.ts"
       ],
       "invariants": [
         "独立文字历史不自动建立成品组合；生成和查看不等于采用，采用不能改写成品已引用的文字快照。",
@@ -6417,6 +6463,11 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "修复下一稿只传conversationDelta而丢失前轮用途/禁写范围：已校验同故事快照拆为未变化上下文与本轮变化，最新纠正优先、选卡隔离，提示词版本two-pass.4；服务端持久化路径与编译器回归先红后绿，相关82项与类型通过。未追加真实模型/自动写入验收，未部署。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "书稿入口显式传book-latex格式，提示词two-pass.5并在模型输出后确定性转换Markdown强调/标题；先规范模型片段再拼回选区，旧请求兼容。真实CAS持久化与选区外原文不变回归通过，保持observing，不扩展手机/旧平台输出。"
         }
       ]
     },
@@ -6965,7 +7016,8 @@
       "entryPoints": [
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
         "client/src/pages/SharedArtworkPage.tsx",
-        "client/src/features/mobileWorkspace/MobileChatContents.tsx"
+        "client/src/features/mobileWorkspace/MobileChatContents.tsx",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx"
       ],
       "owners": [
         "client/src/features/mobileWorkspace/MobileImageStudio.tsx",
@@ -6981,7 +7033,12 @@
         "client/src/features/mobileWorkspace/MobileEditableMemories.tsx",
         "client/src/features/publishingAlbum/MobileModuleTools.tsx",
         "client/src/features/publishingAlbum/SharedLayoutBar.tsx",
-        "client/src/features/publishingAlbum/sharedLayoutClient.ts"
+        "client/src/features/publishingAlbum/sharedLayoutClient.ts",
+        "client/src/features/publishingAlbum/BookSendMenu.tsx",
+        "client/src/features/publishingAlbum/bookShareArticle.ts",
+        "client/src/features/publishingAlbum/prepareBookShare.ts",
+        "client/src/features/publishingAlbum/SharedBookContent.tsx",
+        "shared/bookShare.ts"
       ],
       "evidence": [
         "client/src/features/mobileWorkspace/MobileImageStudio.test.tsx",
@@ -6999,26 +7056,37 @@
         "docs/qa/2026-10-21-mobile-image-library.md",
         "docs/qa/2026-10-21-mobile-story-chat.md",
         "docs/qa/2026-10-24-mobile-text-confirmation.md",
-        "scripts/verify-mobile-text-confirmation.cjs"
+        "scripts/verify-mobile-text-confirmation.cjs",
+        "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
+        "client/src/features/publishingAlbum/bookShareArticle.test.ts",
+        "client/src/features/publishingAlbum/prepareBookShare.test.ts",
+        "client/src/features/publishingAlbum/SharedBookContent.test.tsx",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "server/routers.sharePermissions.test.ts",
+        "server/routers.sharedLayout.test.ts",
+        "docs/qa/2026-11-04-book-send-menu.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
         "手机与电脑复用同一Story图片候选和生成服务；正文未保存时不得进入制作，历史稿采用必须明确确认。",
-        "默认只读分享仅包含最终图片、作品标题和用户已确认公开的昵称/头像，不包含聊天、邮箱、账号标识、原图URL或Story内部数据；公开读取无需登录，创建和停止必须验证归属。当前头像由昵称生成，昵称取服务端登录用户。",
-        "链接固定到确认时的图片快照；持有链接的人可以查看和转发。停止后拒绝新读取，已保存图片不能收回。",
         "令牌仅以哈希落库；发布限制9张、输入合计8MiB和单故事10个有效链接；同令牌重试幂等，图片由服务端解码重编码去元数据。",
         "分享不自动发布到第三方；系统分享由用户选择目标应用和收件人。",
         "原桌面画册和视频制作能力保留；新文字分享隐私范围与权限遵循 shared-story-collaboration。",
         "记忆图文使用用户选中的单条当前记忆、历史来源快照或聊天内容；按记忆标识隔离排版设置，不自动采用为发布正文，不自动生成文字或购买图片。",
         "2026-10-14可明确授权随图片附上经预览的作品文字供改写/另建故事；不附加作者私人记忆、聊天或内部标识。",
-        "手机排版复用电脑模块能力，轻点选择后拖动、44px四角触点缩放；文字/图片/页面操作通过底部面板访问，裁切显式开启。进入预览先保存待提交文字并渲染最新模块稿，失败留在排版且不允许导出过期图；切换预览/配图/排版保留模块会话与撤销。"
+        "手机排版复用电脑模块能力，轻点选择后拖动、44px四角触点缩放；文字/图片/页面操作通过底部面板访问，裁切显式开启。进入预览先保存待提交文字并渲染最新模块稿，失败留在排版且不允许导出过期图；切换预览/配图/排版保留模块会话与撤销。",
+        "默认只读分享包含最终图片、作品标题和用户已确认公开的昵称/头像；2026-11-04按用户要求，书稿分享另含经预览确认的正文及插图阅读顺序。不包含聊天、邮箱、账号标识、原图URL或Story内部数据；公开读取无需登录，创建和停止必须验证归属。当前头像由昵称生成，昵称取服务端登录用户。",
+        "链接固定到确认时的图文或成品图片快照；持有链接的人可以查看和转发。停止后拒绝新读取，已保存内容不能收回。",
+        "书稿分享先保存当前正文并准备全部插图，保存或任一图片失败不得发布缺图副本；文字与图片引用共同参与幂等校验，旧成品图片分享保持兼容。"
       ],
       "dependencies": [
         "mobile-cross-device-chat-document",
         "publishing-workspace",
         "publishing-static-album",
         "story-ownership",
-        "publishing-image-modules"
+        "publishing-image-modules",
+        "story-chapters",
+        "shared-story-collaboration"
       ],
       "replaces": [],
       "knownGaps": [
@@ -7028,7 +7096,8 @@
         "停止链接以故事为单位；不支持单独撤销某一个链接。",
         "历史稿采用遵守现有标题冲突及已采用版本不可重写约束，冲突需回正文处理，不能静默替换。",
         "账号暂无个人头像图片字段，作品页使用昵称生成的文字头像；本机已生成并打开5页作品链接，正式站已用通用文字创建匿名作品链接；未向第三方平台发送，未购买图片生成。",
-        "对话内容工具中的记忆图文支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。"
+        "对话内容工具中的记忆图文支持已有配图、免费纹理、排版、PNG下载和链接分享；新AI配图仍在文字稿阶段生成，避免静默覆盖发布正文。",
+        "2026-11-04书稿连续图文分享本地完成：保留正文顺序、裁切、标题/加粗/公式，未复制分页/双栏和模块精确位置；音频仅名称、视频按图片表示，未新增整本图文编辑回传。真实6图预览与匿名读取测试通过，尚未部署或发布真实文章做公网浏览器验收。"
       ],
       "history": [
         {
@@ -7095,6 +7164,11 @@
           "date": "2026-10-24",
           "kind": "verification",
           "summary": "bf705978已合入并推送main、正式站前端发布：95文件摘要一致，仅更新首页/JS/CSS，服务端包和PM2进程不变。类型/构建/67卡/36迁移基线、215项小程序、手机80项通过；完整回归9项既有失败在远端基线复现，另1项归档Git环境失败补齐后通过。公网手机/编辑/健康200，首页和资源摘要一致；真机验收仍待完成，详见2026-10-24-mobile-text-confirmation QA。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "fix",
+          "summary": "修复书稿发送只含文字：复用artworkShare加入可选reading快照，先准备全部图片再预览，默认只读并沿用重编码、哈希令牌、幂等与撤销；保留旧成品页分享。发送菜单位于视频按钮右侧。43项专项、76项草稿安全、类型/构建通过；主仓3000真实6图预览通过，未生成真实分享链接、未提交部署。详见2026-11-04-book-send-menu QA。"
         }
       ]
     },
@@ -7281,6 +7355,11 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "排版聊天系统提示增加“坐标/像素/字号等为内部数据，只用自然语言描述”规则。单测通过，本地提交，未部署。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "桌面书稿无模块/文字选区时，伴写明确以当前未保存全文为目标，历史旧选区不再作为本轮范围，移除全文中的光标标记；桌面正文接口上限对齐编辑器200000字符。超过20000字符全文的模拟模型真实路由通过，105项定向测试及类型通过；原手机与排版操作记忆不变，无付费调用，未提交部署。"
         }
       ],
       "knownGaps": [
@@ -7340,7 +7419,8 @@
         "docs/qa/2026-10-19-chat-queue-ui.md",
         "server/services/lineContext.test.ts",
         "client/src/features/publishingAlbum/lineContextEntrypoints.test.tsx",
-        "docs/qa/2026-11-01-conversation-exploration.md"
+        "docs/qa/2026-11-01-conversation-exploration.md",
+        "docs/qa/2026-11-03-book-fulltext-context.md"
       ]
     },
     {
@@ -8013,7 +8093,8 @@
         "shared/bookImageBlock.ts",
         "server/routers/bookMedia.ts",
         "server/services/bookMediaTarget.ts",
-        "server/services/localImagePatch.ts"
+        "server/services/localImagePatch.ts",
+        "client/src/features/publishingAlbum/ChapterWriting.tsx"
       ],
       "evidence": [
         "client/src/features/publishingAlbum/moduleCompanionContext.test.ts",
@@ -8040,7 +8121,8 @@
         "server/services/imageGen.test.ts",
         "server/routers.creationAgentMaskEditing.test.ts",
         "server/services/localImagePatch.test.ts",
-        "shared/imageRenderCost.test.ts"
+        "shared/imageRenderCost.test.ts",
+        "docs/qa/2026-11-03-book-fulltext-context.md"
       ],
       "invariants": [
         "选中模块供两端原聊天讨论，文字采用当前输入及显示稿；快照包含位置/尺寸/样式/裁切和有界本页JPEG，不发送原图URL；无图时不猜测画面。",
@@ -8050,7 +8132,8 @@
         "本机按账号/故事保留最近100条，聊天取最近20条、详情显示最近6条；其他来源版本有标记，撤销/重做修改原事件解释，不能把已撤销尝试当成偏好。",
         "操作摘要不存整份文档、原图URL或图片字节，改字片段有长度限制；清除记录不改作品，存储失败说明仅当前会话保留。",
         "只在用户提问时建议，不自动改正文、模块或购买生成；历史内容及操作摘要是引用材料，当前用户要求优先于推测偏好，不把单次操作宣称为固定习惯。",
-        "书页与排版共用模块对话契约：点选、正在输入、回车新块、格式/拖动/缩放均识别当前块；进入左侧聊天保留目标，清空选择/删块/换来源不得串用旧块；发布UI改动必须回归验证此链路。"
+        "书页与排版共用模块对话契约：点选、正在输入、回车新块、格式/拖动/缩放均识别当前块；进入左侧聊天保留目标，清空选择/删块/换来源不得串用旧块；发布UI改动必须回归验证此链路。",
+        "书稿未选模块时定位当前未保存全文；空白或Esc取消同时清文字选区，失焦迟到select不得重新定位旧模块；进入聊天仍保留显式选择。"
       ],
       "dependencies": [
         "publishing-image-modules",
@@ -8117,6 +8200,16 @@
           "date": "2026-10-29",
           "kind": "improvement",
           "summary": "按用户要求局部改图改为低成本裁片：原图邻域裁片与整体缩略图继承美术，GPT Image 2 low单张生成后按同一蒙版提取RGBA透明补片，本地合成且原图外像素不变。签名报价降为0.54算力；虚构图1987→1988真实生成约57秒，按回传用量折算0.312算力（不含识别），已原位采用保存。112定向测试、类型、构建通过；删除无调用者FAL inpaint导出及重复结果存储。未部署。 本轮追加82项相邻回归通过，重开确认当前版本4和旧版本3/2仍保留。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "桌面书稿聊天接通明确改写结果的采用按钮，详见book-chat-rewrite-adoption；保留讨论不自动写入与发送时固定上下文约束。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "无模块时显示已定位：全文；书页空白/Esc同时清模块与文字选区，过滤失焦后迟到select事件。当前作用域快照不携带旧选区，保留显式选中模块及发送队列快照。105项定向测试、类型与临时真实编辑器浏览器验证通过，用户当前未保存草稿未刷新，未提交部署。"
         }
       ]
     },
@@ -8644,7 +8737,9 @@
         "client/src/features/publishingAlbum/bookImageTransform.ts",
         "shared/bookImageBlock.ts",
         "shared/bookWritingStyle.ts",
-        "client/src/features/publishingAlbum/bookBlockSelection.ts"
+        "client/src/features/publishingAlbum/bookBlockSelection.ts",
+        "client/src/features/publishingAlbum/bookTextRange.ts",
+        "client/src/features/publishingAlbum/useBookTextRange.tsx"
       ],
       "evidence": [
         "server/routers.chapters.test.ts",
@@ -8682,7 +8777,13 @@
         "docs/qa/2026-10-30-book-columns.md",
         "docs/qa/2026-10-30-book-columns-release.md",
         "docs/qa/2026-10-31-book-selection-chat.md",
-        "docs/qa/2026-11-02-stale-save-recovery.md"
+        "docs/qa/2026-11-02-stale-save-recovery.md",
+        "docs/qa/2026-11-02-writing-base-version.md",
+        "client/src/features/publishingAlbum/bookTextRange.test.ts",
+        "docs/qa/2026-11-03-book-cross-module-selection.md",
+        "docs/qa/2026-11-03-book-image-import.md",
+        "docs/qa/2026-11-03-book-story-title.md",
+        "docs/qa/2026-11-03-book-change-note-position.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -8700,7 +8801,8 @@
       "dependencies": [
         "publishing-image-modules",
         "publishing-static-album",
-        "story-context-sharing"
+        "story-context-sharing",
+        "safe-story-titles"
       ],
       "replaces": [],
       "knownGaps": [
@@ -8710,7 +8812,8 @@
         "只存在浏览器的 data URL 图片会阻止章节云端保存，原本机缓存保留；未实现自动上传本机图库。",
         "未覆盖排版的正文块仍完整存储并导出；接收端自动补排、跨端多行模块几何一致性仍需联调验收。",
         "本轮沿用每行正文与 blockIds 的内部存储；照片通过插图引用保存，尚未把内部存储统一成与包完全一致的 blocks[]/assetId 结构。",
-        "本地已验证跨浏览器正文及格式保存/接收；微信章节包尚未携带新增writingStyle元数据，真实断网浏览器和生产MySQL本轮未复验。"
+        "本地已验证跨浏览器正文及格式保存/接收；微信章节包尚未携带新增writingStyle元数据，真实断网浏览器和生产MySQL本轮未复验。",
+        "2026-11-03跨模块文字范围已实测桌面鼠标和键盘；触屏沿用原生选择及原多选菜单。真实系统输入法候选、复杂双向文字和长文跨页自动滚动未完整实测；文字范围到媒体或折叠内容处停止。"
       ],
       "history": [
         {
@@ -8899,8 +9002,39 @@
           "summary": "修复左侧小图片仍占半页空栏造成并排正文距离过远：叶子图片左栏以实际可见右边缘加16设计像素作为文字起点，空余宽度归正文；保留原图frame/crop、栏宽比例、正文和分页。覆盖带frame裁切小图及20/50/80栏比回归。25项布局/双栏/多选测试及类型检查通过。恢复主仓3000服务，新页恢复草稿并显示已保存，实测截图中图文间距约12屏幕像素，未部署。"
         },
         {
+          "date": "2026-11-02",
+          "kind": "fix",
+          "summary": "修复ChapterWriting保存确认后旧事件闭包/旧props将baseVersion从5回退4导致生成前prepare误报冲突。update继承实时草稿基准，仅内容与已确认快照完全一致时绑定快照版本；真正旧/未知草稿继续拦截。39项相关测试通过，截图实际浏览器缓存未读取，真实付费出图未复验；未提交部署。"
+        },
+        {
+          "date": "2026-11-02",
+          "kind": "fix",
+          "summary": "修复首次恢复本机草稿后父组件清空writingDraft导致版本冲突入口消失；从实时编辑器snapshot恢复状态。书稿新增升级恢复记录，独立保留格式/base并在确认保存后清理。真实对比→保留修改→已保存→进入视频通过，CAS保护不变。 33项相关测试、类型通过；本地未部署。"
+        },
+        {
           "date": "2026-11-03",
-          "summary": "旧页打开新版前备份已挂载书稿，账号及章节匹配后恢复，保留版本冲突和CAS保护；验证见 docs/qa/2026-11-02-stale-save-recovery.md。"
+          "kind": "improvement",
+          "summary": "文字从独立输入框向相邻模块连续拖选，双向字符高亮/Shift方向键/复制和局部替换接入现有模块多选；直接使用原把手整组移动、角标同比缩放和右键合并，未增加常驻按钮。合并保留完整模块和换行，替换保留前后文及首块ID；到媒体/隐藏内容停止，取消/内容变化结束手势。主仓3000实际故事只读选区及无后端写入临时测试稿的移动、缩放、合并、复制、粘贴与撤销通过。详见2026-11-03-book-cross-module-selection QA；用户正文未改、无付费调用、本地待汇总发布。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "书稿接入LaTeX阅读显示；新增/粘贴完整公式保留内部多行，公式内Enter保留源码换行，普通正文拆段与既有ID/撤销/CAS保持。详见book-latex-display。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "书稿新增复制粘贴/本地多图拖入，复用故事素材上传并以稳定地址插入图片模块，详见book-image-import；保留原排版本机图库、保存CAS及仓库候选语义。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "桌面书稿顶部接入共享故事标题插槽，用户不再同时维护顶部章节名与聊天故事名。章节正文/版本/CAS及历史章节title保持；无插槽的手机/旧入口保留原章节标题编辑。相关118项及76项草稿安全通过，本地未部署。"
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "improvement",
+          "summary": "按用户要求将书稿修改说明折叠项移到顶部版本按钮后面，同一行显示；沿用ChapterWriting草稿changeNote、自动保存、恢复与CAS，不新增按钮或重复入口。保留无顶部插槽的旧入口及正文间距。21项既有章节回归和类型检查通过，主仓3000实点展开/收起与位置核对通过，未改用户正文/说明，未提交部署。"
         }
       ]
     },
@@ -8922,7 +9056,8 @@
         "drizzle/0037_chapter_delivery.sql",
         "server/_core/shiguangDesktopBridgeRoutes.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
-        "client/src/pages/ChapterClaimPage.tsx"
+        "client/src/pages/ChapterClaimPage.tsx",
+        "client/src/features/publishingAlbum/BookSendMenu.tsx"
       ],
       "evidence": [
         "server/repositories/chapterDeliveries.test.ts",
@@ -8936,7 +9071,9 @@
         "client/src/features/publishingAlbum/chapterDeliveryImport.test.ts",
         "server/routers.chapters.test.ts",
         "docs/qa/2026-10-26-chapter-attribution.md",
-        "docs/qa/2026-10-27-web-version-parity.md"
+        "docs/qa/2026-10-27-web-version-parity.md",
+        "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
+        "docs/qa/2026-11-04-book-send-menu.md"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -8957,7 +9094,8 @@
         "0036/0037已于2026-10-24备份后执行并核对38项迁移账本；0035不得重跑。",
         "图片上传使用对象存储内容哈希键；当前 storage.ts 没有已知删除 API，过期对象物理清理尚未实现。",
         "每日 UTC 20 次上限已有事务内账号行锁和定向回归测试；媒体 HTTP capability、来源、MIME、长度、哈希及重定向已有定向测试。MySQL 集成测试因没有 TEST_MYSQL_DATABASE_URL 而跳过，不能据此认定数据库并发与迁移已验收。",
-        "每日上限仍需产品验收；真实图片对象过期后的物理清理仍待确认存储供应商能力。"
+        "每日上限仍需产品验收；真实图片对象过期后的物理清理仍待确认存储供应商能力。",
+        "2026-11-04当前本机chapterDelivery.status未启用；文字模式入口收进发送菜单，开关关闭时不显示，未改变服务配置或认定跨端发送已验收。"
       ],
       "history": [
         {
@@ -9038,6 +9176,11 @@
           "date": "2026-10-27",
           "kind": "verification",
           "summary": "Web version comparison deployed: read-only historical endpoint, authenticated editors, optional writer-supplied notes, red text differences, recipient-only dismissal. 108 focused tests pass; typecheck/build pass. Live fictional story edit/compare/restore verified; five images preserved. Two unrelated full-suite failures reproduced on previous release. Full mini/web parity remains partial; see QA checklist."
+        },
+        {
+          "date": "2026-11-04",
+          "kind": "fix",
+          "summary": "按用户要求找回发送能力，文字模式将生成故事链接、收件箱和有来源的发回修改稿收进书稿发送菜单，调用原处理函数；图片模式原入口保留，两个开关、收件人及来源约束不变。本机未开启投递，菜单分支测试通过，未实际投递或部署；状态保持partial。"
         }
       ]
     },
@@ -9652,8 +9795,183 @@
           "summary": "统一过期预占兜底：新增 COMPUTE_STALE_RELEASE_ENABLED 扫描器；mediaBillingRecovery 开关开启时不再 5 分钟冻结；分镜配音写库失败不丢产出；出图结果不明无任务号 30 分钟后失败并退提示词费。"
         }
       ]
+    },
+    {
+      "id": "book-chat-rewrite-adoption",
+      "name": "书稿聊天改写一键替换",
+      "status": "working",
+      "userValue": "选中书稿文字并在原聊天里讨论改写，满意时点击结果后的一个小按钮，直接替换对应文字且可撤销。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/publishingAlbum/BookRewriteButton.tsx"
+      ],
+      "owners": [
+        "shared/bookRewrite.ts",
+        "client/src/features/publishingAlbum/bookRewrite.ts",
+        "client/src/features/publishingAlbum/bookRewriteChat.ts",
+        "client/src/features/publishingAlbum/bookModuleActions.ts",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/types.ts",
+        "server/services/writingCompanion.ts",
+        "server/routers/storyAgent.ts",
+        "shared/bookTextFormat.ts",
+        "client/src/features/publishingAlbum/BookMathText.tsx"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/bookRewrite.test.ts",
+        "client/src/features/publishingAlbum/bookRewriteChat.test.ts",
+        "client/src/features/publishingAlbum/BookRewriteButton.test.tsx",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "server/services/writingCompanion.test.ts",
+        "docs/qa/2026-11-03-book-chat-rewrite.md",
+        "command:pnpm check",
+        "command:pnpm verify:draft-safety",
+        "docs/qa/2026-11-03-book-text-format.md",
+        "client/src/features/publishingAlbum/BookMathText.test.tsx"
+      ],
+      "invariants": [
+        "仅在明确的改写结果后提供一个替换按钮；点击前聊天不自动修改正文，不新增常驻工具栏或二次确认。",
+        "发送时固定storyId、scope、稳定模块ID、原文和字符范围；排队与后续选区改变不得重定向目标。",
+        "替换前核对来源、模块顺序和完整原文；源变化、删除、夹入其他块、媒体或隐藏内容均拒绝覆盖；不按重复文本搜索另一个目标。",
+        "只替换选中字符，保留未选中的前后文、换行/空行、首块ID和其他模块；沿用原编辑撤销及保存CAS，原文与保存基准不被模型响应静默覆盖。",
+        "同一次伴写调用返回说明与完整改写正文；只把正文应用到书稿，不将解释、提问和多个备选自动猜成改写。"
+      ],
+      "dependencies": [
+        "publishing-module-chat-context",
+        "story-chapters",
+        "book-latex-display"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "真实模型的结构化改写遵循质量本轮未付费调用验证；服务与真实路由使用模拟模型，真实浏览器使用仅内存测试稿。",
+        "历史聊天回复未记录发送时目标，不能安全追补替换按钮；仅新改写携带目标。",
+        "当前支持桌面书稿连续文字范围；手机、旧排版画布、媒体、非连续多选和折叠隐藏内容不提供此按钮。本地未提交部署。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "新增聊天改写显式采用：发送时固定目标，结构化说明/正文同轮返回，原编辑器一次替换及撤销；91项专项、76项保存安全、类型与主仓3000真实组件内存页实点通过。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "书稿聊天改写在生成时规范LaTeX文字格式；聊天中的改写提议与书稿阅读共用安全显示，不泄露格式命令，未改变发送时固定目标、原文校验和点击采用边界。模拟服务及阅读测试通过，未付费调用。"
+        }
+      ]
+    },
+    {
+      "id": "book-latex-display",
+      "name": "书稿LaTeX文字与公式显示",
+      "status": "working",
+      "userValue": "书稿阅读时将LaTeX显示为标题、加粗和排版公式，并兼容旧稿文字标记；直接点击编辑源码，不增加工具栏按钮。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx"
+      ],
+      "owners": [
+        "client/src/features/publishingAlbum/BookMathText.tsx",
+        "client/src/features/publishingAlbum/bookLatex.ts",
+        "client/src/features/publishingAlbum/bookMathText.css",
+        "client/src/features/publishingAlbum/chapterBlockTree.ts",
+        "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
+        "client/src/features/publishingAlbum/bookBlockLayout.ts",
+        "client/src/features/publishingAlbum/useBookTextRange.tsx",
+        "shared/bookLatex.ts",
+        "shared/bookTextFormat.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/bookLatex.test.ts",
+        "client/src/features/publishingAlbum/ChapterTextModules.test.tsx",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "docs/qa/2026-11-03-book-latex.md",
+        "command:pnpm check",
+        "command:pnpm verify:draft-safety",
+        "command:pnpm exec vite build --outDir /tmp/book-latex-build-20261103",
+        "shared/bookTextFormat.test.ts",
+        "client/src/features/publishingAlbum/BookMathText.test.tsx",
+        "docs/qa/2026-11-03-book-text-format.md"
+      ],
+      "invariants": [
+        "识别$...$、\\(...\\)、$$...$$、\\[...\\]；原始正文与保存数据不变，渲染HTML不得写回书稿。",
+        "直接编辑原textarea，阅读显示公式，无新增常驻按钮；普通文字、货币、代码和不完整/无效公式保留原文。",
+        "新建/粘贴完整多行公式作为一个模块保存并保留换行；既有稳定模块ID和边界不自动重建或合并。",
+        "跨块选区与复制使用源码，移动/缩放、改写替换、撤销与CAS保存沿用原流程；公式实际高度参与布局，不挤压相邻文字。",
+        "仅本地KaTeX渲染，不调用模型或外部字体服务；不信任公式的HTML/链接指令，限制输入长度、宏展开和尺寸。",
+        "文字格式只解析安全的强调与标题命令，React转义正文；旧Markdown仅阅读兼容，不静默迁移已保存正文。模型新正文可规范为LaTeX，选区外原文不进入格式转换。"
+      ],
+      "dependencies": [
+        "story-chapters"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "版本差异对比保留源码显示；导出、配音和旧排版画布未接入公式渲染。",
+        "不编译完整.tex文档、导言区或自定义宏包。历史公式已分成多个稳定模块时需沿用现有合并操作，不能静默迁移ID。",
+        "超长/超高公式、真机触摸、打印与跨端分页未全面实测。本地未提交部署。",
+        "点击编辑时保留源码；仅支持有限文字命令，不是所见即所得TeX编辑器。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "KaTeX阅读预览与原textarea编辑接通；多行公式分块/高度、跨模块源码选择与安全回退完成。89项模块专项、76项草稿安全、类型/前端构建及3000内存测试页编辑、复制、粘贴、撤销通过。"
+        },
+        {
+          "date": "2026-11-03",
+          "kind": "fix",
+          "summary": "修复生成正文露出Markdown星号：书稿生成规范为LaTeX文字格式，阅读兼容旧稿加粗/标题，聊天改写复用安全渲染；137项专项、76项草稿安全、类型/构建与3000内存页编辑/撤销/跨模块选区通过。原稿未迁移，本地未部署。"
+        }
+      ]
+    },
+    {
+      "id": "book-image-import",
+      "name": "书稿粘贴与拖入图片",
+      "status": "working",
+      "userValue": "在文章光标处粘贴图片或拖入多张本地图片，自动创建图片模块，并保存到当前故事素材仓库。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx"
+      ],
+      "owners": [
+        "client/src/features/publishingAlbum/BookImageImportBoundary.tsx",
+        "client/src/features/publishingAlbum/bookImageImport.ts",
+        "client/src/features/publishingAlbum/bookImageInsert.ts",
+        "server/routers/creationAgent.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/BookImageImportBoundary.test.tsx",
+        "client/src/features/publishingAlbum/bookImageImport.test.ts",
+        "client/src/features/publishingAlbum/bookImageInsert.test.ts",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "server/routers.creationAgentImport.test.ts",
+        "docs/qa/2026-11-03-book-image-import.md",
+        "command:pnpm check",
+        "command:pnpm verify:draft-safety"
+      ],
+      "invariants": [
+        "沿用当前书稿布局，无常驻按钮；多图按输入顺序创建独立图片模块，稳定地址入正文，原图进入本故事仓库，不自动绑定镜头、设置封面或调用AI。",
+        "粘贴保留光标前后全部文字；普通文字及带文字的混排HTML保留原粘贴，弹窗不接管。上传前固定落点，完成时校验scope/账号/故事epoch及目标原文，不能覆盖上传期间的新文字或写入另一故事。",
+        "成功的批次作为一次可撤销编辑；撤销正文插图不删除仓库原图。上传失败不自动重试，部分成功保留并报告失败，迟到或失效目标的原图仍可从原故事仓库找回。",
+        "一次最多20张、单张30MB，PNG/JPG/WebP；不把外部HTML渲染入文档，不透传任意远程地址到服务器代理，不把data URL写入章节正文。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "image-asset-history",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "Finder原生拖入、其他浏览器/移动真机和正式站上传重开尚未验收；已验证浏览器原生PNG粘贴、双文件drop事件和真实导入路由内存库。",
+        "受CORS/认证或仅file://路径影响的来源需保存本地后拖入；带文字的网页混排粘贴仍走原文字路径，图片需单独复制。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-03",
+          "kind": "feature",
+          "summary": "新增书稿粘贴/拖入图片与原仓库上传链路；光标/可见落点、批次顺序、部分失败、一次撤销及异步作用域校验。74项相关、76项草稿安全、类型/构建及临时浏览器验证通过；本地未提交部署，原生Finder拖入待实测。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-03"
+  "updatedAt": "2026-11-04"
 }

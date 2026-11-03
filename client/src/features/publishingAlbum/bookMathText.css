@@ -1,0 +1,10 @@
+.book-math-block[data-source="false"] .book-math-source { opacity: 0; }
+.book-math-block[data-source="true"] .book-math-preview { visibility: hidden; }
+.book-formatted-text .katex { font-size: 1.05em; }
+.book-formatted-text .katex-display { margin: .35em 0; overflow-x: auto; overflow-y: hidden; }
+.book-formatted-text .katex-display > .katex { white-space: nowrap; }
+.book-formatted-text strong { font-weight: 700; }
+.book-formatted-text .book-text-heading { display: block; font-weight: 700; line-height: 1.4; }
+.book-formatted-text .book-text-heading-1 { font-size: 1.25em; }
+.book-formatted-text .book-text-heading-2 { font-size: 1.15em; }
+.book-formatted-text .book-text-heading-3 { font-size: 1.05em; }

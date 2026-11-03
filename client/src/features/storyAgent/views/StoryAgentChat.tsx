@@ -3,6 +3,9 @@ import { BookVideoChat, type BookVideoChatHandle } from "@/features/bookVideo/Bo
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
 import { BookMediaChat, type BookMediaChatHandle } from "@/features/publishingAlbum/BookMediaChat";
 import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
+import { useBookModuleActions } from '@/features/publishingAlbum/bookModuleActions';
+import { BookRewriteButton } from '@/features/publishingAlbum/BookRewriteButton';
+import { bookRewriteChatSnapshot } from '@/features/publishingAlbum/bookRewriteChat';
 import { useContext } from "react";
 import { useIsMutating } from "@tanstack/react-query";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
@@ -97,6 +100,7 @@ import {
   saveStoryConversationDraft,
 } from "../storyConversationStore";
 import { tokenizeChatMessageText } from "../chatMessageFormat";
+import { BookFormattedText } from "@/features/publishingAlbum/BookMathText";
 import type { StoryIntent } from "../intentTypes";
 import {
   defaultPublishingNarrativeIntent,
@@ -832,7 +836,8 @@ export default function StoryAgentChat({
       (layoutContext || (!soundDirector.active && activeSelection == null));
     if (text && ordinaryText && !voice.isBusy && !isImportingMedia &&
       (writingSession || isReplying || chatQueue.items.length > 0)) {
-      if (chatQueue.enqueue(text, writingSession?.getSnapshot())) {
+      const snapshot = bookRewriteChatSnapshot(writingSession?.getSnapshot(), useBookModuleActions.getState().session);
+      if (chatQueue.enqueue(text, snapshot)) {
         setInput("");
         resizeAndFocusInput();
       }
@@ -1554,7 +1559,7 @@ export default function StoryAgentChat({
                     className="whitespace-pre-wrap"
                     data-selection-source={`chat:${m.id}`}
                   >
-                    {tokenizeChatMessageText(
+                    {m.role === 'assistant' && m.bookRewrite ? <BookFormattedText text={displayAssistantName(stripAssistantReasoning(m.content))} /> : tokenizeChatMessageText(
                       m.role === "assistant"
                         ? displayAssistantName(stripAssistantReasoning(m.content))
                         : m.content
@@ -1573,6 +1578,7 @@ export default function StoryAgentChat({
                   </p>
                 )}
                 {m.role === "user" && renderQueueStatus(m.id)}
+                {m.role === 'assistant' && m.bookRewrite && <BookRewriteButton proposal={m.bookRewrite} storyId={activeStoryId} />}
                 {m.promptCandidate ? (
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <div className="text-[10px] text-muted-foreground">
@@ -2099,7 +2105,7 @@ export default function StoryAgentChat({
         )}
 
         <div
-          className={`flex shrink-0 items-end gap-1.5 ${!activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
+          className={`flex shrink-0 items-end gap-1.5 ${visualTheme === "shiguang" ? "" : !activeSelection && pendingMedia.length === 0 ? "pt-2" : "pt-1.5"}`}
         >
           <div className="flex shrink-0 flex-col items-center gap-1">
             {interactionMode === "story" || showCreationActions ? (
@@ -2179,7 +2185,7 @@ export default function StoryAgentChat({
             ? <span className="block truncate" title={writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}>
                 {_ui("已选中：")}{writingSession.snapshot.draft.slice(writingSession.snapshot.selection.start, writingSession.snapshot.selection.end)}
               </span>
-            : <span>{_ui("正在聊右侧这篇文字")}</span>}
+            : <span>{_ui("已定位：全文")}</span>}
           {writingSession.snapshot.layoutMemory && <LayoutMemoryDetails memory={writingSession.snapshot.layoutMemory} accountId={accountId} />}
         </section>}
           {!bookVideo && (!writingSession || (activeSelection && !layoutContext)) && <span className="text-[11px] text-muted-foreground" role="status">

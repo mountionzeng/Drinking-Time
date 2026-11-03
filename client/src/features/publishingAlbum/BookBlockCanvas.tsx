@@ -27,7 +27,8 @@ function chineseChapterNumber(number: number): string {
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert }: {
+export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, textSelectionIds }: {
+  textSelectionIds?: string[];
   importedChapterIds?: readonly string[];
   blocks: WritingBlock[]; disabled: boolean;
   onConvert?(id:string,kind:"text"|"image"|"music"|"narration"|"translate-en"|"translate-zh"):void;
@@ -41,6 +42,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   const root = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [imageRatios, setImageRatios] = useState<Record<string,number>>({});
+  const [formulaHeights,setFormulaHeights]=useState<Record<string,number>>({});
   const imageUrls = Array.from(new Set(blocks.map(block=>bookImageUrl(block.text)).filter((url): url is string=>Boolean(url)))).join('\n');
   useEffect(()=>{
     let cancelled=false;
@@ -59,6 +61,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   const [menuId, setMenuId] = useState<string | null>(null);
   const [preview, setPreview] = useState<WritingBlock[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  useLayoutEffect(() => { if (textSelectionIds) setSelectedIds(textSelectionIds); }, [textSelectionIds]);
   const [selecting, setSelecting] = useState(false);
   const selected = selectedBookIds(blocks, selectedIds);
   useLayoutEffect(() => { onSelectionChange?.([...selected]); }, [selectedIds, blocks, onSelectionChange]);
@@ -118,7 +121,21 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   const displayed = (preview ?? blocks).map(block => chapterNumbers.has(block.id)
     ? { ...block, collapsed: !openImportedChapters.has(block.id) }
     : block);
-  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds);
+  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds,formulaHeights);
+  useLayoutEffect(()=>{
+    const formulas=Array.from(root.current?.querySelectorAll<HTMLElement>('[data-book-math-preview]')??[]);
+    let cancelled=false;
+    const measure=()=>{
+      if(cancelled)return;
+      const next=Object.fromEntries(formulas.map(node=>[node.dataset.bookMathPreview!,Math.ceil(node.scrollHeight/scale)+4]));
+      setFormulaHeights(previous=>Object.keys(previous).length===Object.keys(next).length&&Object.entries(next).every(([id,height])=>previous[id]===height)?previous:next);
+    };
+    measure();
+    if(!formulas.length)return;
+    const observer=new ResizeObserver(measure);formulas.forEach(node=>observer.observe(node));
+    void document.fonts?.ready.then(measure);
+    return()=>{cancelled=true;observer.disconnect();};
+  },[blocks,preview,width,zoom,openImportedChapters]);
   // "After a heading" means after its entire visible group, not between the heading and its children.
   const dropMarkerId = drop?.position === 'after'
     ? layouts.filter(item => item.block.id === drop.id || blockAncestors(displayed, item.block.id).includes(drop.id)).at(-1)?.block.id
@@ -241,7 +258,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   <div ref={root} onContextMenu={event=>{
     if(disabled || selected.size<2 || mergeBookText(blocks,[...selected])===blocks)return;
     event.preventDefault();setMergeMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-180)),y:Math.max(8,Math.min(event.clientY,window.innerHeight-64))});
-  }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); } }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
+  }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); root.current?.focus({preventScroll:true}); onSelect(null); } }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
     {Array.from({ length: pageCount }, (_, page) => <section key={page} aria-label={_ui("第 {0} 页", [page + 1])}
       className="relative"
       style={{ height: 1200 * scale }}
@@ -266,7 +283,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
           onPointerDownCapture={event => {
             if (disabled || event.button !== 0) return;
             if (matchTarget) { event.preventDefault(); event.stopPropagation(); return; }
-            if (selecting || event.shiftKey && event.button === 0) {
+            if (selecting || event.shiftKey && !(event.target as HTMLElement).closest('textarea')) {
               event.preventDefault(); event.stopPropagation();
               setSelectedIds(previous => { const ids = previous.length ? previous : activeId ? [activeId] : []; return ids.includes(block.id) ? ids.filter(id => id !== block.id) : [...ids, block.id]; });
             } else if (!selected.has(block.id) || (event.target as HTMLElement).closest('textarea')) setSelectedIds([]);

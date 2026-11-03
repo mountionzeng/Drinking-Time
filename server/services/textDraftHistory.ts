@@ -1,4 +1,5 @@
 import { readyTextSource } from "../repositories/textSourceLineage";
+import { generatedBookText } from "../../shared/bookTextFormat";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -401,6 +402,9 @@ export async function generateTextDraft(
     if (request.source === "unknown" || request.source === "reference") {
       if (!evidence.length) output.observation.confidence = "insufficient";
     }
+    // Normalize only the model's new text, before splicing it into an existing selection.
+    if (request.outputFormat === "book-latex")
+      output.draft.body = generatedBookText(output.draft.body);
     if (request.basis)
       output.draft = {
         ...output.draft,

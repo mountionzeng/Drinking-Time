@@ -8,6 +8,7 @@ import { WRITING_TECHNIQUES } from "./writingTechniqueLibrary";
 import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import type { MemoryCardSnapshot } from "../../shared/memoryWarehouse";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
+import { BOOK_TEXT_FORMAT_RULE } from "../../shared/bookTextFormat";
 
 export type WritingEvidence = {
   storyId: number;
@@ -69,6 +70,7 @@ export function compileTextDraftPrompt(
       input.platform === "x"
         ? "X 标题必须为空；正文最多8条，以空行分隔并用1/N编号，每条含编号与末条标签不超过280加权字符，标签最多3个。"
         : "不使用 Markdown 粗体；标签可为空。",
+      ...(input.outputFormat === "book-latex" ? [BOOK_TEXT_FORMAT_RULE] : []),
       `只输出 JSON：{"observation":{"originalExpression":"第一过程的证据与假设","adoptionLearning":"第二过程根据实际采用稿的校正；无样本说明不足","confidence":"insufficient|tentative|supported","choices":[{"id":"技巧库ID","reason":"具体选择依据","strength":"light|medium"}]},"draft":{"title":"标题","body":"${input.selection ? "只返回选区的新文字" : "完整正文"}","tags":[]}}`,
     ].join("\n"),
     modelMessage: JSON.stringify({

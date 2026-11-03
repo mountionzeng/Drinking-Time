@@ -5,6 +5,7 @@ import {
   type SharedWork,
 } from "./sharePermissions";
 import { z } from "zod";
+import { bookShareReadingSchema, type BookShareReading } from "./bookShare";
 import {
   sharedLayoutPackageSchema,
   type SharedLayoutPackage,
@@ -19,6 +20,8 @@ export type ArtworkSnapshot = {
   work?: SharedWork;
   author?: { name: string };
   pages: Array<{ dataUrl: string; width: number; height: number }>;
+  /** Optional continuous book reading order; old finished-page links stay unchanged. */
+  reading?: BookShareReading;
   /** Editable layout package. Server-only: never returned by the public read. */
   layout?: SharedLayoutPackage;
 };
@@ -37,6 +40,7 @@ export const artworkShareCreateSchema = z
     storyId: z.number().int().positive(),
     token: artworkShareTokenSchema,
     title: z.string().trim().min(1).max(200),
+    reading: bookShareReadingSchema.optional(),
     pages: z
       .array(
         z
@@ -49,6 +53,8 @@ export const artworkShareCreateSchema = z
     layout: sharedLayoutPackageSchema.optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.reading?.blocks.some(block => block.kind === "image" && block.image >= value.pages.length))
+      ctx.addIssue({ code: "custom", message: "分享插图不完整，请重新准备" });
     if (
       value.pages.reduce((size, page) => size + page.length, 0) >
       ARTWORK_SHARE_MAX_BYTES

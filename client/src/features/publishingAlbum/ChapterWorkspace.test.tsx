@@ -4,6 +4,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ChapterWorkspace, mapChapterImages, chapterImageAssets } from "./ChapterWorkspace";
+import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
+import * as shareArticle from "./bookShareArticle";
 import type { Chapter } from "./useChapters";
 vi.stubGlobal("React", React);
 const deliveryState = vi.hoisted(() => ({ enabled: false, externalVersion: null as number | null, inbox: [] as any[], candidates: [] as any[], inboxOptions: null as any, candidateOptions: null as any }));
@@ -46,6 +48,7 @@ vi.mock("./useChapters", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    creationAgent: { importStoryMaterial: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
     chapterDelivery: {
       status: { useQuery: () => ({ data: { enabled: deliveryState.enabled } }) },
       contacts: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
@@ -88,6 +91,35 @@ vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({ DesktopWri
 vi.mock("./BookImageGenerator", () => ({BookImageGenerator: () => <button>生成图片</button>}));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
+  it.each([false, true])("prepares current writing before sharing and blocks a failed save=%s", async failed => {
+    let handle!: React.MutableRefObject<ChapterWritingHandle | null>;
+    let share!: () => void;
+    const createElement = React.createElement;
+    const capture = vi.spyOn(React, "createElement").mockImplementation(((type: any, props: any, ...children: any[]) => {
+      if (type === ChapterWriting) { handle = props.handle; share = props.footerActions.props.onShare; }
+      return createElement(type, props, ...children);
+    }) as typeof React.createElement);
+    const build = vi.spyOn(shareArticle, "bookShareArticle");
+    try {
+      renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} accountId={9} versionId="v1" hasAlbum={false} title="过期平台标题" body="过期平台正文" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={() => null} />);
+      let body = "保存前正文";
+      const prepare = vi.fn(async () => { if (failed) throw new Error("保存冲突"); body = "保存期间继续写的当前正文"; });
+      handle.current = { prepare, snapshot: () => ({ title: "当前标题", body, baseVersion: 4 }), insertImage: vi.fn(), releaseCleanDraft: () => true };
+      expect(build).not.toHaveBeenCalled();
+      share();
+      await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+      if (failed) expect(build).not.toHaveBeenCalled();
+      else await vi.waitFor(() => expect(build).toHaveBeenCalledWith("当前标题", "保存期间继续写的当前正文", undefined));
+    } finally { capture.mockRestore(); build.mockRestore(); }
+  });
+  it('uses the shared story title editor while retaining independent chapter content', () => {
+    const html = renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} accountId={9} versionId="v1" hasAlbum={false} title="旧平台标题" body="" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={() => null}
+      titleEditor={<input aria-label="故事名称" value="launch video" readOnly />} />);
+    expect(html).toContain('value="launch video"');
+    expect(html).not.toContain('aria-label="章节标题"');
+    expect(html).toContain('这一章自己的正文');
+    expect(chapter.title).toBe('第二章');
+  });
   it("opens chapter writing directly with the same chapter and an inline history entry", () => {
     const render = vi.fn();
     const html = renderToStaticMarkup(<ChapterWorkspace scope="platform:v1" storyId={1} accountId={9} versionId="v1" hasAlbum={false} title="旧平台标题" body="" assets={[]} adoptedCoverId={null} coverBusy={false} mode="text" render={render} />);

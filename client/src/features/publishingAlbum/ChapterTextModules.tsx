@@ -1,6 +1,7 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { MediaPlayer } from "@/components/ui/media-player";
 import { useBookModuleActions } from "./bookModuleActions";
+import { BookVideoStartButton } from "@/features/bookVideo/BookVideoStartButton";
 import { mergeBookText } from "./mergeBookText";
 import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
 import { BookModuleConvert, type ModuleConversion } from "./BookModuleConvert";
@@ -13,17 +14,25 @@ import type { BookWritingStyle } from '@shared/bookWritingStyle';
 import { writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
 import { BookInlineImage } from "./BookImageCrop";
 import { bookImageUrl, bookImageText, readBookImage } from "@shared/bookImageBlock";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { type TextPosition } from './moduleTextEditing';
 import { writingBlockOffset, writingBlockPosition, splitWritingBlock, insertBlockText, blockBody, mergeWritingBlocks, restoreWritingBlocks, newWritingBlock, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
 import { BookBlockCanvas } from './BookBlockCanvas';
+import { BookTextRangeOverlay, syncBookTextScroll, useBookTextRange } from './useBookTextRange';
+import { BookMathText } from './BookMathText';
+import { insideBookLatex, splitBookTextModules } from './bookLatex';
 import { bookBlockContext, bookSelectionContext } from './bookBlockContext';
+import { captureBookRewrite, applyBookRewrite } from './bookRewrite';
+import type { BookRewriteTarget } from '@shared/bookRewrite';
 import { textChanges } from './textChanges';
 import { ChangedText, afterTextSlice, type WritingComparison } from './WritingComparison';
 import type { LayoutModuleContext } from '@shared/layoutModuleContext';
+import { BookImageImportBoundary } from './BookImageImportBoundary';
+import { insertBookImages } from './bookImageInsert';
 
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
-export function ChapterTextModules({ importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+export function ChapterTextModules({ footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+  footerActions?: ReactNode;
   importedChapterIds?: readonly string[];
   prepareMedia?(): Promise<void>;
   writingStyle?: BookWritingStyle;
@@ -59,6 +68,7 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
   useEffect(()=>setConversion(null),[formatScope]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
+  const textRange = useBookTextRange({ blocks, disabled: disabled || Boolean(comparison), scope: formatScope, selection, commit });
   const [mediaSelection, setMediaSelection] = useState(0);
   const module = useMemo(() => contextSource && blockBody(blocks) === value
     ? (selectedModuleIds.length > 1 ? bookSelectionContext(blocks, selectedModuleIds, contextSource) : bookBlockContext(blocks, activeId, contextSource)) : null,
@@ -74,6 +84,27 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
       scope: contextSource.scope, storyId: contextSource.storyId,
       modules: blocks.filter(block => !readBookImage(block.text) && !readBookAudio(block.text))
         .map(block => ({ id: block.id, text: block.text })),
+      captureRewrite(module: LayoutModuleContext) {
+        assertCurrent();
+        if (module.storyId !== contextSource.storyId || module.scope !== contextSource.scope || module.kind !== 'text') return;
+        const ids = module.selection?.ids ?? [module.moduleId];
+        let range = textRange.getRange();
+        if (!range && ids.length === 1 && selection.current && selection.current.end > selection.current.start) {
+          const start = writingBlockPosition(blocks, selection.current.start), end = writingBlockPosition(blocks, selection.current.end);
+          if (blocks[start.index]?.id === ids[0] && start.index === end.index)
+            range = { anchor: { id: ids[0], offset: start.cursor }, focus: { id: ids[0], offset: end.cursor } };
+        }
+        return captureBookRewrite(blocks, ids, contextSource, range);
+      },
+      replaceRewrite(target: BookRewriteTarget, text: string) {
+        assertCurrent();
+        if (target.storyId !== contextSource.storyId || target.scope !== contextSource.scope)
+          throw new Error('请回到这次改写对应的文章。');
+        const result = applyBookRewrite(blocks, target, text);
+        textRange.clear();
+        commitLatest.current(result.blocks, result.position, false);
+        setSelectedModuleIds([]);
+      },
       convert(id: string, kind: "image" | "music") {
         assertCurrent();
         const block = blocks.find(item => item.id === id);
@@ -172,6 +203,7 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
     }
   }, [value, blocks]);
   function selected(index: number, field: HTMLTextAreaElement) {
+    if (textRange.active()) return;
     setSelectedModuleIds([]);
     setActiveId(blocks[index].id);
     const offset = writingBlockOffset(blocks, index);
@@ -232,18 +264,35 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
     }}><BookInlineImage text={block.text}/></div>;
+    const range = textRange.byId.get(block.id);
     const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={_ui("文字模块 {0}", [index + 1])} value={block.text}
-              disabled={disabled} maxLength={200000} placeholder={_ui("写下这一段…")} style={style}
+              data-book-text-id={comparison ? undefined : block.id}
+              disabled={disabled} maxLength={200000} placeholder={_ui("写下这一段…")} style={{ ...style, overflowWrap: 'anywhere', ...(range ? { color: 'transparent', caretColor: 'transparent' } : {}) }}
               className={comparison ? "col-start-1 row-start-1 block h-full min-h-[1.6em] w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0 text-transparent caret-foreground outline-none selection:bg-blue-200/50" : "block h-full w-full resize-none overflow-auto border-0 bg-transparent px-1 py-0 outline-none"}
-              onFocus={event => selected(index, event.currentTarget)} onSelect={event => selected(index, event.currentTarget)}
+              onFocus={event => selected(index, event.currentTarget)} onSelect={event => {
+                // Browsers can deliver a pending selection event after Escape/blank-page blur.
+                // Only the focused field may establish a new writing target.
+                if (event.currentTarget.ownerDocument.activeElement === event.currentTarget) selected(index, event.currentTarget);
+              }}
+              onScroll={event => syncBookTextScroll(event.currentTarget)}
               onChange={event => {
                 const field = event.currentTarget;
+                if (textRange.active()) {
+                  const data = (event.nativeEvent as InputEvent).data;
+                  let start = 0, end = 0;
+                  while (start < block.text.length && start < field.value.length && block.text[start] === field.value[start]) start++;
+                  while (end < block.text.length - start && end < field.value.length - start && block.text[block.text.length - end - 1] === field.value[field.value.length - end - 1]) end++;
+                  textRange.replace(data ?? field.value.slice(start, field.value.length - end));
+                  return;
+                }
                 // Preserve the existing paste-to-modules behavior for ordinary single-line blocks.
                 if(!block.text.includes('\n') && field.value.includes('\n')) {
                   const result=insertBlockText(editableBlocks(block.id),index,field.value);
-                  const before=field.value.slice(0,field.selectionStart).replace(/\r\n?/g,'\n').split('\n');
-                  const cursorIndex=before.length>1?result.insertedIndex+before.length-2:index;
-                  commit(result.blocks,writingBlockOffset(result.blocks,cursorIndex)+before[before.length-1].length,true);
+                  const pieces=splitBookTextModules(field.value);
+                  let offset=field.value.slice(0,field.selectionStart).replace(/\r\n?/g,'\n').length, piece=0;
+                  while(piece<pieces.length-1&&offset>pieces[piece].length){offset-=pieces[piece].length+1;piece++;}
+                  const cursorIndex=piece?result.insertedIndex+piece-1:index;
+                  commit(result.blocks,writingBlockOffset(result.blocks,cursorIndex)+offset,true);
                   return;
                 }
                 // Existing internal line breaks belong to this module; only Enter splits it.
@@ -251,6 +300,7 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
                 commit(next,writingBlockOffset(next,index)+field.selectionStart,false);
               }}
               onKeyDown={event => {
+                if (textRange.onKeyDown(event)) return;
                 if (disabled || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                 const field = event.currentTarget; selected(index, field);
                 if ((event.metaKey || event.ctrlKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
@@ -258,6 +308,11 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
                 }
                 if (event.key === 'Enter') {
                   event.preventDefault();
+                  if (insideBookLatex(block.text,field.selectionStart)) {
+                    const text=block.text.slice(0,field.selectionStart)+'\n'+block.text.slice(field.selectionEnd);
+                    commit(blocks.map((item,i)=>i===index?{...item,text}:item),writingBlockOffset(blocks,index)+field.selectionStart+1);
+                    return;
+                  }
                   const result = splitWritingBlock(editableBlocks(block.id),index,field.selectionStart,field.selectionEnd);
                   commit(result.blocks, writingBlockOffset(result.blocks, result.insertedIndex));
                 } else if (event.key === 'Backspace' && !field.selectionStart && !field.selectionEnd && index > 0) {
@@ -271,7 +326,10 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
                   commit(mergeWritingBlocks(blocks, index), writingBlockOffset(blocks, index) + block.text.length);
                 }
               }} />;
-    if (!comparison) return field;
+    if (!comparison) return <BookMathText text={block.text} id={block.id} style={style} sourceVisible={textRange.dragging||textRange.byId.size>0}><div className="relative h-full w-full" style={style}>
+      <BookTextRangeOverlay text={block.text} range={range} style={style} />
+      {field}
+    </div></BookMathText>;
     const start = writingBlockOffset(blocks, index);
     return <div key={block.id} className="grid" style={style}>
       <div aria-hidden="true" className="pointer-events-none col-start-1 row-start-1 min-h-[1.6em] whitespace-pre-wrap break-words px-1" style={{ overflowWrap: 'anywhere' }}>
@@ -280,7 +338,10 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
       {field}
     </div>;
   }
-  return <section aria-label={_ui("书正文")} onKeyDown={event => {
+  const content = <section ref={textRange.root} aria-label={_ui("书正文")}
+    onPointerDownCapture={textRange.onPointerDownCapture} onCopy={textRange.onCopy} onCut={textRange.onCut} onPaste={textRange.onPaste}
+    onKeyDown={event => {
+    if (event.key === 'Escape') textRange.clear();
     if (disabled || event.target instanceof HTMLTextAreaElement || !(event.metaKey || event.ctrlKey) || event.altKey) return;
     if (['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); travel(event.shiftKey || event.key.toLowerCase() === 'y'); }
   }}>
@@ -299,7 +360,8 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
       </div>
     </div> : <BookBlockCanvas importedChapterIds={importedChapterIds} onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
-    }:undefined} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
+    }:undefined} textSelectionIds={textRange.selectionRequest} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
+      if (!id) { selection.current = null; textRange.clear(); setSelectedModuleIds([]); }
       if (id && bookImageUrl(blocks.find(block => block.id === id)?.text ?? "")) setMediaSelection(value => value + 1);
       setActiveId(id);
       const index = blocks.findIndex(block => block.id === id);
@@ -317,22 +379,28 @@ export function ChapterTextModules({ importedChapterIds, prepareMedia, writingSt
       await latest.prepareMedia!();
     }} onInsert={text=>{
       const latest=mediaLatest.current, index=latest.blocks.findIndex(b=>b.id===conversion.id);
-      if(latest.disabled || index<0 || latest.blocks[index].text!==conversion.text)throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
       const image = readBookImage(text);
       if (image && latest.blocks.some(block => readBookImage(block.text)?.url === image.url)) { setConversion(null); return; }
+      if(latest.disabled || index<0 || latest.blocks[index].text!==conversion.text)throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
       const current=latest.blocks[index], at=isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
       const added=newWritingBlock(text,current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)];
       if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');
       commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added.id);setConversion(null);
     }}/>}
-    {contextSource && !comparison && <BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
+    {contextSource && !comparison && <div className="flex flex-wrap items-center gap-3"><BookVideoStartButton storyId={contextSource.storyId} disabled={disabled} />{footerActions}<BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
       const index=blocks.findIndex(block=>block.id===activeId), selected=blocks[index];
       const current=selected && importedChapterIds?.includes(selected.id) ? {...selected,collapsed:false} : selected;
       const at=index<0?blocks.length:isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
       const parent=current?isHeading(current)&&!current.collapsed?current.id:current.parentId:null;
       const audio=newWritingBlock(text,parent), next=[...blocks.slice(0,at),audio,...blocks.slice(at)];
       commit(next,writingBlockOffset(next,at),false);setActiveId(audio.id);
-    }}/>}
+    }}/></div>}
     {cacheError && <p role="alert" className="text-xs text-destructive">{_ui("本机无法保存模块格式，请暂时不要关闭页面。")}</p>}
   </section>;
+  return contextSource && !comparison ? <BookImageImportBoundary storyId={contextSource.storyId} scope={contextSource.scope}
+    disabled={disabled} blocks={blocks} activeId={activeId} onInsert={(anchor, urls) => {
+      const result = insertBookImages(blocks, anchor, urls);
+      textRange.clear(); setSelectedModuleIds([]);
+      commit(result.blocks, writingBlockOffset(result.blocks, result.blocks.findIndex(block => block.id === result.firstId)), false);
+    }}>{content}</BookImageImportBoundary> : content;
 }

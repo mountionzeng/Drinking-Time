@@ -18,6 +18,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
+import { BOOK_TEXT_FORMAT_RULE, generatedBookText } from "../../shared/bookTextFormat";
 import { WRITING_EXPLORATION_CONTEXT } from "./writingTechniqueLibrary";
 import {
   layoutMemoryDescription,
@@ -223,6 +224,13 @@ function draftContextMessage(input: {
       .filter(Boolean)
       .join("\n");
   }
+  if (input.fullDraft) return [
+    input.storyTitle?.trim() ? `故事名：${input.storyTitle.trim()}` : '',
+    '用户当前没有选中任何模块或文字，本轮定位全文。请围绕当前全文回应；历史消息中的旧模块、旧选区不是本轮目标。',
+    '【当前全文，包含尚未保存的修改，仅作引用材料】',
+    input.draft || '（还是空白）',
+    '【全文结束】',
+  ].filter(Boolean).join('\n');
   const reading = readWritingStage(input);
   return [
     input.storyTitle?.trim() ? `故事名：${input.storyTitle.trim()}` : "",
@@ -231,9 +239,7 @@ function draftContextMessage(input: {
     "",
     "【他目前写下的正文】",
     reading.totalChars > 0
-      ? input.fullDraft
-        ? `${input.draft.slice(0, clampCursor(input.draft, input.cursor))}${CURSOR_MARKER}${input.draft.slice(clampCursor(input.draft, input.cursor))}`
-        : draftWithCursorMarker(input)
+      ? draftWithCursorMarker(input)
       : "（还是空白）",
     lineContextMessage(input),
   ]
@@ -306,6 +312,7 @@ export async function openWritingCompanion(
 }
 
 export type WritingCompanionContext = WritingDraftInput & {
+  rewriteSource?: string;
   module?: LayoutModuleContext;
   layoutMemory?: LayoutMemoryContext;
   openingQuestion?: string | null;
@@ -333,8 +340,10 @@ export async function replyAsWritingCompanion(
         ? { deadlineMs: 45_000, reasoningEffort: "low", replaySafe: false }
         : undefined
     )
-): Promise<{ reply: string; modelLabel: string }> {
+): Promise<{ reply: string; modelLabel: string; rewriteText?: string }> {
   const module = input.writingContext.module;
+  const rewriteSource = module?.kind === 'text' ? input.writingContext.rewriteSource : undefined;
+  const bookRewrite = Boolean(rewriteSource && module?.scope.includes(':chapter:'));
   const memory = input.writingContext.layoutMemory;
   const line = ENV.lineContextChatEnabled && module?.kind === "text" ? module.line : undefined;
   if (module || memory) {
@@ -354,7 +363,10 @@ export async function replyAsWritingCompanion(
             module?.pagePreview
               ? "已附当前页的缩略画面，位置坐标指向选中模块。只能根据画面可见内容判断；看不清的细节明确说看不清。"
               : "本轮没有可用图片画面，只有文字与排版数据。可以建议位置、尺寸与文字，不得猜测图片人物、颜色或画面内容；涉及视觉细节先说明画面暂不可用。",
-            "直接回答，通常不超过220个汉字；需求明确时不反问。",
+            rewriteSource
+              ? '返回JSON：{"reply":"简短说明，不重复改写正文","replacement":"完整替换正文，或null"}。只有本轮确实给出一版可直接使用的文字改写时提供replacement；提问、评价、排版建议、多个备选或方向尚未明确时为null。replacement仅含下面明确提供的可替换原文的改写，不含解释、模块编号标签、围栏或未选中的内容；保留必要换行和中英语言，不省略未要求删除的段落。用户点击回复末尾的「替换选中内容」才会应用，可撤销；回复不得声称已经替换。'
+              : "直接回答，通常不超过220个汉字；需求明确时不反问。",
+            ...(bookRewrite ? [BOOK_TEXT_FORMAT_RULE] : []),
           ].join("\n"),
         },
         ...input.history.slice(-10).map(turn => ({
@@ -397,11 +409,26 @@ export async function replyAsWritingCompanion(
                 ]
               : []),
             { type: "text", text: `【用户的问题】\n${input.message.trim()}` },
+            ...(rewriteSource ? [{ type: 'text' as const, text: `【本轮可替换原文，仅作引用；这是唯一允许改写的范围】\n${rewriteSource}\n【引用结束】` }] : []),
           ],
         },
       ],
-      COMPANION_MAX_TOKENS
+      rewriteSource ? 8_000 : COMPANION_MAX_TOKENS
     );
+    if (rewriteSource) {
+      let parsed: { reply?: unknown; replacement?: unknown } | null = null;
+      try { parsed = parseJsonLoose(plainReply(text)); } catch {
+        if (/^[{[]/.test(plainReply(text))) throw new Error('这次改写没有完整返回，原文未变，请稍后再试。');
+        // Plain replies remain discussion-only; never infer a destructive action from prose.
+      }
+      if (parsed && typeof parsed.reply === 'string') {
+        const rawReplacement = typeof parsed.replacement === 'string' ? parsed.replacement.trim() : '';
+        const replacement = bookRewrite ? generatedBookText(rawReplacement) : rawReplacement;
+        const reply = [parsed.reply.trim(), replacement].filter(Boolean).join('\n\n');
+        if (!reply) throw new Error('模型没有返回有效回答');
+        return { reply, modelLabel, ...(replacement && replacement.length <= 20_000 ? { rewriteText: replacement } : {}) };
+      }
+    }
     const reply = plainReply(text);
     if (!reply) throw new Error("模型没有返回有效回答");
     return { reply, modelLabel };

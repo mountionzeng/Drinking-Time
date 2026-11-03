@@ -13,15 +13,56 @@ import { BookBlockCanvas } from './BookBlockCanvas';
 import { ChapterWriting } from './ChapterWriting';
 import { DesktopWritingContext } from '../writingCompanion/DesktopWritingContext';
 import { useBookMediaSession } from './bookMediaSession';
+import { useBookModuleActions } from './bookModuleActions';
 import { newWritingBlock } from './chapterBlockTree';
+import { BookImageImportBoundary } from './BookImageImportBoundary';
+import { captureBookImageAnchor } from './bookImageInsert';
 
 function nodes(node: any): any[] { return !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]; }
+function textField(canvas: any, index: number) { return nodes(canvas.children(canvas.blocks[index], index, {})).find(node => node.type === 'textarea').props; }
 function render(fn: () => any) { hooks.state = hooks.ref = 0; hooks.effects = []; const tree = fn(); hooks.effects.forEach(fn => fn()); return tree; }
 beforeEach(() => {
   hooks.states = []; hooks.refs = [];
   vi.stubGlobal('React', React);
   vi.stubGlobal('window', { dispatchEvent: vi.fn() });
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn() });
+});
+
+it('inserts multiple uploaded images at the captured cursor as one undoable edit', () => {
+  let value = '甲乙丙丁\n尾段';
+  const draw = () => nodes(render(() => ChapterTextModules({ value, onChange: next => { value = next; }, disabled: false,
+    selection: { current: null }, contextSource: { storyId: 7, scope: 'import', chapterId: '2' } })));
+  let tree = draw();
+  const boundary = tree.find(node => node.type === BookImageImportBoundary).props;
+  const anchor = captureBookImageAnchor(boundary.blocks, boundary.blocks[0].id, 2);
+  boundary.onInsert(anchor, ['/api/images/a.png', '/api/images/b.png']);
+  tree = draw();
+  expect(value).toBe('甲乙\n![图片](/api/images/a.png)\n![图片](/api/images/b.png)\n丙丁\n尾段');
+  const canvas = tree.find(node => node.type === BookBlockCanvas).props;
+  textField(canvas, 0).onKeyDown({ key: 'z', ctrlKey: true, nativeEvent: {}, currentTarget: { selectionStart: 0, selectionEnd: 0 }, preventDefault: vi.fn() });
+  hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
+  draw();
+  expect(value).toBe('甲乙丙丁\n尾段');
+});
+
+it('applies a captured chat rewrite through the editor undo flow, not the later selection', () => {
+  let value='前文\n中文原文\nEnglish original\n后文';
+  const selection={current:null} as any;
+  const context=vi.fn();
+  const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection,onContextChange:context,contextSource:{storyId:7,scope:'rewrite',chapterId:'2'}}))).find(node=>node.type===BookBlockCanvas).props;
+  let canvas=draw();
+  canvas.onSelectionChange([canvas.blocks[1].id,canvas.blocks[2].id]);canvas=draw();
+  const target=useBookModuleActions.getState().session!.captureRewrite!(context.mock.lastCall![0])!;
+  canvas.onSelect(canvas.blocks[3].id);canvas=draw();
+  useBookModuleActions.getState().session!.replaceRewrite!(target,'新中文\nNew English');
+  canvas=draw();
+  expect(value).toBe('前文\n新中文\nNew English\n后文');
+  expect(()=>useBookModuleActions.getState().session!.replaceRewrite!(target,'重复')).toThrow('原文已变化');
+  textField(canvas,1).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
+  draw();
+  expect(value).toBe('前文\n中文原文\nEnglish original\n后文');
+  expect(()=>useBookModuleActions.getState().session!.replaceRewrite!({...target,scope:'different'},'新')).toThrow('对应的文章');
 });
 
 it('tracks focus, typing, Enter and canvas selection through the existing context callback', () => {
@@ -34,7 +75,7 @@ it('tracks focus, typing, Enter and canvas selection through the existing contex
     return nodes(tree).find(node => node.type === BookBlockCanvas).props;
   };
   let canvas = draw();
-  const field = (index: number) => canvas.children(canvas.blocks[index], index, {}).props;
+  const field = (index: number) => textField(canvas, index);
   field(2).onFocus({ currentTarget: { selectionStart: 1, selectionEnd: 1 } });
   canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toMatchObject({ text: '重复', line: { position: { index: 2 } } });
@@ -48,6 +89,15 @@ it('tracks focus, typing, Enter and canvas selection through the existing contex
   expect(onContextChange.mock.lastCall?.[0]?.text).toBe('第一段');
   canvas.onSelect(null); canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toBeNull();
+  const blurredField = { selectionStart: 0, selectionEnd: 2, ownerDocument: { activeElement: null } };
+  field(0).onSelect({ currentTarget: blurredField }); canvas = draw();
+  expect(onContextChange.mock.lastCall?.[0]).toBeNull();
+  expect(selection.current).toBeNull();
+  const focusedField = { ...blurredField, ownerDocument: {} as any };
+  focusedField.ownerDocument.activeElement = focusedField;
+  field(0).onSelect({ currentTarget: focusedField }); canvas = draw();
+  expect(onContextChange.mock.lastCall?.[0]?.text).toBe('第一段');
+  expect(selection.current).toEqual({ start: 0, end: 2 });
   field(1).onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 1, selectionEnd: 1 }, preventDefault: vi.fn() });
   // Avoid DOM focus in the hook harness; the browser check covers real focus restoration.
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
@@ -63,8 +113,17 @@ it('the chapter chat snapshot carries the selected block and rejects an old vers
   const module = { storyId: 7, scope: editor.contextSource.scope, moduleId: 'b2', text: '新内容' };
   editor.onChange('新内容'); editor.onContextChange(module);
   expect(context.getSnapshot()).toMatchObject({ draft: '新内容', module });
+  editor.selection.current = { start: 0, end: 2 };
+  expect(context.getSnapshot().selection).toEqual({ start: 0, end: 2 });
+  editor.onContextChange(null);
+  expect(editor.selection.current).toBeNull();
+  expect(context.getSnapshot()).toMatchObject({ draft:'新内容', cursor:3 });
+  expect(context.getSnapshot().module).toBeUndefined();
+  expect(context.getSnapshot().selection).toBeUndefined();
+  editor.selection.current = { start: 0, end: 2 };
   editor.onContextChange({ ...module, scope: 'other-story' });
   expect(context.getSnapshot().module).toBeUndefined();
+  expect(context.getSnapshot().selection).toBeUndefined();
 });
 
 it('keeps block identity, heading format, undo and chat target while editing beside an older version', () => {
@@ -112,6 +171,8 @@ it('canvas format focus, drag and resize select the same block; blank paper clea
   canvas.props.ref.current = { focus: vi.fn(), setPointerCapture: vi.fn(), getBoundingClientRect: () => ({ left: 0, top: 0 }) };
   all.find(node => node.props?.['aria-label'] === '文章缩放视图').props.onPointerDown({ ...event, pointerType: 'mouse', target: paper, currentTarget: paper });
   expect(onSelect).toHaveBeenLastCalledWith(null);
+  canvas.props.onKeyDown({ key:'Escape' });
+  expect(onSelect).toHaveBeenLastCalledWith(null);
 });
 
 it('pointer dragging inserts a paragraph into a heading; cancelling leaves the manuscript untouched', () => {
@@ -143,7 +204,7 @@ it('marquee from the page gutter exposes a shared resize handle and reports the 
   const draw=()=>render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onSelectionChange,onCommit,children:()=>null}));
   let tree=draw();
   let canvas=nodes(tree).find(node=>node.props?.['aria-label']==='书页');
-  canvas.props.ref.current={focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0}),querySelectorAll:()=>blocks.map((block,i)=>({dataset:{bookBlock:block.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
+  canvas.props.ref.current={focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0}),querySelectorAll:(selector:string)=>selector==='[data-book-math-preview]'?[]:blocks.map((block,i)=>({dataset:{bookBlock:block.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
   const event={button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:40,target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn()}};
   nodes(tree).find(node=>node.props?.['aria-label']==='文章缩放视图').props.onPointerDown(event);
   canvas.props.onPointerMove({...event,clientX:210,clientY:175}); canvas.props.onPointerUp(event);
@@ -164,7 +225,7 @@ it('forwards multiselection from canvas to the writing conversation and returns 
   expect(onContextChange.mock.lastCall?.[0].selection.count).toBe(2);
   expect(onContextChange.mock.lastCall?.[0].text).toContain('第二块');
   canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
-  canvas.children(canvas.blocks[0],0,{}).props.onFocus({currentTarget:{selectionStart:0,selectionEnd:0}});draw();
+  textField(canvas,0).onFocus({currentTarget:{selectionStart:0,selectionEnd:0}});draw();
   expect(onContextChange.mock.lastCall?.[0].selection).toBeUndefined();
   expect(onContextChange.mock.lastCall?.[0].text).toBe('第一块');
 });
@@ -204,12 +265,12 @@ it('editing a merged multiline module preserves its boundary, context, saving an
  const context=vi.fn(),selection={current:null} as any;
  const draw=()=>nodes(render(()=>ChapterTextModules({value,writingStyle,onFormattedChange:(body,style)=>{value=body;writingStyle=style;},onChange:vi.fn(),disabled:false,selection,onContextChange:context,contextSource:{storyId:7,scope:'merged',chapterId:'2'}}))).find(n=>n.type===BookBlockCanvas).props;
  let canvas=draw();
- canvas.children(canvas.blocks[0],0,{}).props.onChange({currentTarget:{value:'甲改\n\n乙',selectionStart:2}});
+ textField(canvas,0).onChange({currentTarget:{value:'甲改\n\n乙',selectionStart:2}});
  canvas=draw();expect(canvas.blocks).toHaveLength(2);expect(context.mock.lastCall?.[0].text).toBe('甲改\n\n乙');
  expect(restoreStyledBlocks(value,writingStyle).map(b=>b.text)).toEqual(['甲改\n\n乙','尾段']);
- canvas.children(canvas.blocks[1],1,{}).props.onFocus({currentTarget:{selectionStart:1,selectionEnd:1}});
+ textField(canvas,1).onFocus({currentTarget:{selectionStart:1,selectionEnd:1}});
  expect(selection.current.start).toBe('甲改\n\n乙\n'.length+1);
- canvas.children(canvas.blocks[0],0,{}).props.onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
  canvas=draw();expect(canvas.blocks.map((b:any)=>b.text)).toEqual(['甲\n\n乙','尾段']);
 });
@@ -296,8 +357,8 @@ it('adds text inside an opened imported chapter even if its saved fold flag was 
     onFormattedChange: (next, nextStyle) => { value = next; style = nextStyle; }, selection: { current: null } }));
   let tree = draw();
   const canvas = nodes(tree).find(node => node.type === BookBlockCanvas).props;
-  const field = canvas.children(canvas.blocks[0], 0, {});
-  field.props.onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 5, selectionEnd: 5 }, preventDefault: vi.fn() });
+  const field = textField(canvas, 0);
+  field.onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 5, selectionEnd: 5 }, preventDefault: vi.fn() });
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
   tree = draw();
   const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;

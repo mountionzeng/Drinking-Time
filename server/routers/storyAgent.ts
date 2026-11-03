@@ -260,9 +260,10 @@ export const storyAgentRouter = router({
       z.object({
         message: z.string().min(1),
         writingContext: z.object({
+          rewriteSource: z.string().min(1).max(12_000).optional(),
           module: layoutModuleContextSchema.optional(),
           layoutMemory: layoutMemoryContextSchema.optional(),
-          draft: z.string().max(20_000),
+          draft: z.string().max(200_000),
           cursor: z.number().int().nonnegative(),
           selection: z.object({ start: z.number().int().nonnegative(), end: z.number().int().positive() }).optional(),
         }).optional(),

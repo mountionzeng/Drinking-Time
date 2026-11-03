@@ -3,8 +3,13 @@ import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import type { ChapterWritingDraft } from "./chapterWritingDraft";
 import { storyLibraryImages } from "./storyImageLibrary";
-import { BookImageGenerator } from "./BookImageGenerator";
 import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
+import { BookSendMenu } from "./BookSendMenu";
+import { bookShareArticle } from "./bookShareArticle";
+import { prepareBookShare } from "./prepareBookShare";
+import { ArtworkShareDialog } from "./ArtworkShareDialog";
+import { StoryContextShareDialog } from "@/features/storyAgent/views/StoryContextShare";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import {
   useCallback,
   useEffect,
@@ -67,8 +72,9 @@ export function mapChapterImages(
 export function ChapterWorkspace({
   render,
   mode = "images",
+  titleEditor,
   ...props
-}: Props & { mode?: "text" | "images"; render(props: Props): ReactNode }) {
+}: Props & { mode?: "text" | "images"; titleEditor?: ReactNode; render(props: Props): ReactNode }) {
   const _ui = useDesktopUiText();
   const [displayMode, setDisplayMode] = useState(mode);
   const writing = useRef<ChapterWritingHandle | null>(null);
@@ -115,6 +121,11 @@ export function ChapterWorkspace({
     current: Chapter;
   } | null>(null);
   const [claimLink, setClaimLink] = useState("");
+  const shareScope = `${props.accountId ?? "current"}:${props.storyId}:${active?.id}`;
+  const currentShareScope = useRef(shareScope);
+  currentShareScope.current = shareScope;
+  const [textShare, setTextShare] = useState<{ scope: string; article: ReturnType<typeof bookShareArticle>; book: Awaited<ReturnType<typeof prepareBookShare>> } | null>(null);
+  useEffect(() => setTextShare(null), [shareScope]);
   const changeNote = writingDraft?.changeNote ?? "";
   const [historyComparison, setHistoryComparison] = useState<{
     version: number; latest?: boolean; current: Chapter; chapter: Pick<Chapter, "title" | "blocks" | "layout">; imageUrls: Record<string, string>;
@@ -362,14 +373,14 @@ export function ChapterWorkspace({
       setComparison(null); setGeneratedOpen(false); setHistoryOpen(false);
     }, false);
   }
-  const editorControls = (
+  const editorControls = (changeNote?: ReactNode) => (
     <>
       <nav
         aria-label={_ui("章节栏")}
-        className="flex flex-wrap items-center gap-2 border-b border-[var(--panel-border)] pb-3"
+        className="flex flex-wrap items-start gap-2 border-b border-[var(--panel-border)] pb-3"
       >
-        {active && mode === "text" && <BookImageGenerator {...props} title={writingDraft?.title ?? active.title} body={writingDraft?.body ?? active.blocks.body} />}
         {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui("版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
+        {changeNote}
       </nav>
       {(state.error || state.queryError) && (
         <p role="alert" className="text-sm text-destructive">
@@ -476,10 +487,28 @@ export function ChapterWorkspace({
   );
   return (
     <div className="space-y-3" aria-label={_ui("故事章节")}>
-      {(displayMode === "text" || !active) && editorControls}
+      {!active && editorControls()}
       {active && (<>
-          <div hidden={displayMode !== "text"}>
+          <div hidden={displayMode !== "text"} className="space-y-3">
             {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active}
+              titleEditor={titleEditor}
+              renderHeader={editorControls}
+              footerActions={<BookSendMenu disabled={busy} onShare={() => void run(async () => {
+                if (currentShareScope.current !== shareScope) return;
+                const draft = writing.current?.snapshot();
+                if (!draft) throw new Error("请回到当前书稿后重试");
+                const story = storySpineStore.getState();
+                const title = story.activeStoryId === props.storyId && story.accountId === props.accountId
+                  ? story.storyTitle || draft.title : draft.title;
+                const book = await prepareBookShare(draft.body);
+                if (currentShareScope.current !== shareScope) return;
+                const article = bookShareArticle(title, draft.body, props.sharePlatform);
+                setTextShare({ scope: shareScope, article, book });
+              })} delivery={deliveryEnabled.data?.enabled ? {
+                onCreateLink: () => { setDeliveryPanel("send"); setSelectedDelivery(null); void deliverActiveChapter("link"); },
+                onInbox: () => { setDeliveryPanel("inbox"); setSelectedDelivery(null); void deliveryInbox.refetch(); },
+                ...(active.blocks.lineage?.parentPackageId ? { onReturn: () => setDeliveryPanel("send") } : {}),
+              } : undefined} />}
               scope={`${props.accountId ?? "current"}:${props.storyId}`} handle={writing}
               save={draft => state.saveText(draft, (state.externalVersion || localDraftConflict) && historyComparison?.latest ? historyComparison.version : undefined)} onChange={setWritingDraft} disabled={busy}
               reviewedVersion={historyComparison?.latest ? historyComparison.version : undefined}
@@ -489,7 +518,7 @@ export function ChapterWorkspace({
           </div>
           {displayMode === "images" && render({
             ...props,
-            layoutHeader: <div className="space-y-3 pb-3">{editorControls}</div>,
+            layoutHeader: <div className="space-y-3 pb-3">{editorControls()}</div>,
             scope: `chapter:${props.accountId ?? "current"}:${props.storyId}:${active.id}:v${active.version}:${state.epoch}`,
             title: active.title,
             body: active.blocks.body,
@@ -539,7 +568,10 @@ export function ChapterWorkspace({
           } as Props)}
         </>
       )}
-      {deliveryEnabled.data?.enabled && (
+      {textShare?.scope === shareScope && (textShare.book
+        ? <ArtworkShareDialog key={shareScope} storyId={props.storyId} title={textShare.article.title} pages={textShare.book.pages} reading={textShare.book.reading} work={textShare.article.body.trim() ? textShare.article : undefined} defaultOpen hideTrigger onClose={() => setTextShare(null)} />
+        : <StoryContextShareDialog key={shareScope} storyId={props.storyId} article={textShare.article} open onOpenChange={open => { if (!open) setTextShare(null); }} />)}
+      {deliveryEnabled.data?.enabled && displayMode !== "text" && (
         <div className="flex flex-wrap gap-2 border-t border-[var(--panel-border)] pt-3" aria-label={_ui("章节投递")}>
           <button className={button} disabled={busy || !active} onClick={() => {
             setDeliveryPanel("send"); setSelectedDelivery(null);

@@ -73,6 +73,7 @@
     "fast-xml-parser": "5.5.8",
     "framer-motion": "^12.23.22",
     "jose": "6.1.0",
+    "katex": "^0.19.1",
     "lucide-react": "^0.453.0",
     "lunar-javascript": "1.7.7",
     "mysql2": "^3.24.6",

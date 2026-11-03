@@ -244,6 +244,7 @@ export function TextDraftVersions({
           .map(m => ({ id: m.id, role: m.role, content: m.content })),
         instruction,
         source,
+        ...(writingSnapshot?.scope?.includes(":chapter:") ? { outputFormat: "book-latex" as const } : {}),
       });
       utils.textDrafts.read.setData({ storyId: id }, result);
       if (!requestStillCurrent()) return;

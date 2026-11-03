@@ -60,6 +60,23 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it('normalizes model Markdown into LaTeX before persistence without changing selection-external text', async () => {
+    const input = await setup();
+    const basis = { title: '人工标题', body: '**旧前文**。原句。$x^2$后文', tags: [] };
+    const start = basis.body.indexOf('原句');
+    model.mockResolvedValueOnce(modelResult('**新表达** $E=mc^2$'));
+    const history = await service.generateTextDraft({ ...input, outputFormat: 'book-latex', basis, selection: { start, end: start + 3 } });
+    expect(history.versions[0].generated).toEqual({ ...basis, body: String.raw`**旧前文**。\textbf{新表达} $E=mc^2$$x^2$后文` });
+    expect(history.versions[0].systemPrompt).toContain('LaTeX');
+    expect((await service.getTextDraftHistory(input)).versions[0].generated).toEqual(history.versions[0].generated);
+  });
+  it('does not add LaTeX commands to legacy platform or mobile requests', async () => {
+    const input = await setup();
+    model.mockResolvedValueOnce(modelResult('**保留平台输出**'));
+    const history = await service.generateTextDraft(input);
+    expect(history.versions[0].generated?.body).toBe('**保留平台输出**');
+    expect(history.versions[0].systemPrompt).not.toContain('LaTeX');
+  });
   it("generates a selected rewrite as a complete unsaved version, preserving everything outside the selection", async () => {
     const input = await setup();
     const basis = { title: "我的标题", body: "前文不能动。原句。后文不能动。", tags: ["原标签"] };

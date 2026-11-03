@@ -1,4 +1,5 @@
 import type { SelectionContext } from "@shared/selectionContext";
+import { bookRewriteProposalSchema } from '@shared/bookRewrite';
 
 /**
  * Story Guide Agent — shared types
@@ -96,6 +97,7 @@ export type StoryboardImageRerenderActionReference = {
 export type ImageRevision = { storyId: number; stableShotId: string; shotNo: number; imageId: number; imageUrl: string };
 
 export interface ChatMessage {
+  bookRewrite?: import('@shared/bookRewrite').BookRewriteProposal;
   imageRevision?: ImageRevision;
   id: string;
   role: "user" | "assistant";
@@ -592,6 +594,10 @@ export function normalizeChatMessages(
         message.spawnedCardId = pending.cardId;
       }
       message.selectionQuote = normalizeSelectionQuote(obj.selectionQuote);
+      if (role === 'assistant') {
+        const rewrite = bookRewriteProposalSchema.safeParse(obj.bookRewrite);
+        if (rewrite.success) message.bookRewrite = rewrite.data;
+      }
       if (obj.promptCandidate && typeof obj.promptCandidate === "object") {
         const candidate = obj.promptCandidate as Record<string, unknown>;
         if (

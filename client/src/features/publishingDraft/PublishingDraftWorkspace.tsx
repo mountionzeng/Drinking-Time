@@ -44,6 +44,7 @@ import {
   useStoryAgentActions,
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
+import { StoryTitleInput } from "@/features/storyAgent/views/StoryTitleInput";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
 import {
@@ -348,6 +349,7 @@ export default function PublishingDraftWorkspace({
     ensureActiveStoryPersisted,
     loadStory,
     clearSelection,
+    renameStory,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
   const chaptersEnabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
@@ -1838,6 +1840,7 @@ export default function PublishingDraftWorkspace({
               </p>
               <PublishingImagePack
                 workspaceMode={view === "text" ? "text" : "images"}
+                titleEditor={<StoryTitleInput key={`${storySpineStore.getState().accountId}:${activeStoryId}`} title={storyTitle ?? ""} save={title => renameStory(activeStoryId, title)} />}
                 key={`${activeStoryId}:${versionId}:${platform}`}
                 scope={`${activeStoryId}:${versionId}:${platform}`}
                 storyId={activeStoryId!} accountId={storySpineStore.getState().accountId}
@@ -2212,6 +2215,7 @@ export default function PublishingDraftWorkspace({
                 </p>}
                 <PublishingImagePack
                   workspaceMode={view === "text" ? "text" : "images"}
+                  titleEditor={<StoryTitleInput key={`${storySpineStore.getState().accountId}:${activeStoryId}`} title={storyTitle ?? ""} save={title => renameStory(activeStoryId, title)} />}
                   createRequest={createRequest?.kind === "image" || createRequest?.kind === "layout" ? createRequest : null}
                   onCreateRequestHandled={onCreateRequestHandled}
                   key={`${activeStoryId}:${versionId}:${platform}`}

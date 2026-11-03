@@ -1,4 +1,4 @@
-/* Keep the mobile artwork whole; the input rim sits just beneath it. */
+/* Keep the original artwork above the input without reserving its transparent margins. */
 .desktop-companion-peek {
   position: relative;
   display: inline-block;
@@ -14,11 +14,17 @@
   height: 38px;
   transition: translate 180ms ease-out;
 }
-.desktop-companion-peek[data-theme="shiguang"],
-.desktop-companion-peek[data-theme="shiguang"] .desktop-companion-character {
-  width: 72px;
+.desktop-companion-peek[data-theme="shiguang"] {
+  width: 96px;
   height: 62px;
-  flex-basis: 72px;
+  flex-basis: 96px;
+}
+.desktop-companion-peek[data-theme="shiguang"] .desktop-companion-character {
+  position: absolute;
+  top: -10px;
+  left: 0;
+  width: 96px;
+  height: 82px;
 }
 .desktop-companion-input .desktop-companion-composer {
   position: relative;

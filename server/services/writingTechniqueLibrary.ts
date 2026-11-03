@@ -2,7 +2,7 @@
  * Author associations are editorial interpretations, not verified textual analysis.
  */
 export const WRITING_LIBRARY_VERSION = "2026-10-20.1";
-export const WRITING_PROMPT_VERSION = "text-draft-two-pass.4";
+export const WRITING_PROMPT_VERSION = "text-draft-two-pass.5";
 export const WRITING_TECHNIQUES = [
   {
     id: "concrete-memory",

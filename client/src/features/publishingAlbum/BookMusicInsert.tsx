@@ -88,13 +88,6 @@ export function BookMusicInsert({
   }
   return (
     <>
-      <button
-        type="button"
-        disabled={disabled}
-        className="mt-2 rounded-full border px-3 py-1 text-xs"
-        onClick={() => setOpen(true)}
-      >
-        {_ui("添加音乐")}</button>
       <Dialog
         open={open}
         onOpenChange={value => {

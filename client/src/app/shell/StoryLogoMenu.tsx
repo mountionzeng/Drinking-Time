@@ -294,7 +294,7 @@ export default function StoryLogoMenu({
         onBlur={() => {
           if (!open) setAwake(false);
         }}
-        className={`relative grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${trigger ? (visualTheme === "shiguang" ? "h-[62px] w-[72px]" : "h-16 w-16") : visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
+        className={`relative grid place-items-center rounded-full border-0 p-0 transition-[background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${trigger ? (visualTheme === "shiguang" ? "h-[62px] w-24" : "h-16 w-16") : visualTheme === "shiguang" ? "h-[4.75rem] w-[4.75rem]" : "h-16 w-16"}`}
         style={{
           background: open
             ? `color-mix(in oklab, ${ink} 8%, transparent)`

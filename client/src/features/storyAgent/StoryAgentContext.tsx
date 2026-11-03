@@ -1,3 +1,4 @@
+import { useStoryRename } from "./useStoryRename";
 import { useStoryTrashEvents } from "./useStoryTrashEvents";
 /**
  * StoryAgentContext — shared store for chat messages, cards, and generated scripts
@@ -692,6 +693,7 @@ const storyAgentActionKeys = [
 const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
 
 type StoryAgentChatResult = {
+  rewriteText?: string;
   reply?: string;
   suggestedTitle?: string;
   card?: Partial<StoryCard> | null;
@@ -1062,7 +1064,6 @@ export function StoryAgentProvider({
   const rejectedIntentProposalIdsRef = useRef(new Set<string>());
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyAutoRenameMut = trpc.storyAgent.storyAutoRename.useMutation();
-  const storyRenameMut = trpc.storyAgent.storyRename.useMutation();
   const storyDeleteMut = trpc.memorySpace.trash.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
@@ -1591,43 +1592,7 @@ export function StoryAgentProvider({
     ]
   );
 
-  const renameStory = useCallback(
-    async (storyId: number | null, title: string) => {
-      const nextTitle = title.trim().slice(0, 255);
-      if (!nextTitle) throw new Error("故事名称不能为空");
-
-      if (storyId == null || storyId <= 0) {
-        setStoryTitle(nextTitle);
-        return;
-      }
-
-      const result = await storyRenameMut.mutateAsync({
-        id: storyId,
-        title: nextTitle,
-      });
-      if (result.status !== "ok") throw new Error(result.error);
-
-      const current = storySpineStore.getState();
-      if (
-        current.activeStoryId === storyId ||
-        current.remoteStoryId === storyId
-      ) {
-        setStoryTitle(nextTitle);
-      }
-      setStoryList(items =>
-        items.map(item =>
-          item.id === storyId
-            ? { ...item, title: nextTitle, updatedAt: new Date() }
-            : item
-        )
-      );
-      await Promise.all([
-        utils.storyAgent.storyGet.invalidate({ id: storyId }),
-        utils.storyAgent.storyList.invalidate(),
-      ]);
-    },
-    [setStoryList, setStoryTitle, storyRenameMut, utils.storyAgent]
-  );
+  const renameStory = useStoryRename();
 
   useEffect(() => {
     if (!ownsScope || projectId === null) return;
@@ -2209,6 +2174,9 @@ export function StoryAgentProvider({
           content: result.reply || "我在。你可以再多说一点那个感觉。",
           timestamp: Date.now(),
           spawnedCardId,
+          ...(result.rewriteText && options?.writingContext?.bookRewriteTarget ? {
+            bookRewrite: { text: result.rewriteText, target: options.writingContext.bookRewriteTarget },
+          } : {}),
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);

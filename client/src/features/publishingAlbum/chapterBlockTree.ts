@@ -14,7 +14,7 @@ export function readBookPlacement(raw: unknown): BookPlacement | undefined {
 }
 
 
-import { textModuleLines } from './moduleTextEditing';
+import { splitBookTextModules } from './bookLatex';
 
 export type BlockFormat = 'text' | 'heading1' | 'heading2' | 'heading3';
 export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; columnRatio?: number; book?: BookPlacement };
@@ -40,7 +40,7 @@ export function blockSubtreeEnd(blocks: WritingBlock[], index: number) {
 
 /** A heading owns explicit children; collapsing does not change that ownership. */
 export function insertBlockText(blocks: WritingBlock[], index: number, text: string) {
-  const lines = textModuleLines(text);
+  const lines = splitBookTextModules(text);
   const current = blocks[index];
   const next = blocks.map(block => ({ ...block }));
   next[index].text = lines[0];
@@ -83,7 +83,7 @@ export function mergeWritingBlocks(blocks: WritingBlock[], index: number) {
 }
 
 export function restoreWritingBlocks(value: string, saved: unknown): WritingBlock[] {
-  const fresh = () => textModuleLines(value).map(line => newWritingBlock(line));
+  const fresh = () => splitBookTextModules(value).map(line => newWritingBlock(line));
   if (!saved || typeof saved !== 'object') return fresh();
   const record = saved as { body?: unknown; blocks?: unknown; formats?: Record<string, unknown> };
   if (record.body !== value) return fresh();

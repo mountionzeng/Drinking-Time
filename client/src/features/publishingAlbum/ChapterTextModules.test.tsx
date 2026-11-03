@@ -19,6 +19,17 @@ function setup(body: string) {
 }
 const key = (name: string, start: number, end = start, composing = false) => ({ key: name, currentTarget: { selectionStart: start, selectionEnd: end }, nativeEvent: { isComposing: composing }, preventDefault: vi.fn() });
 describe('paragraph text modules', () => {
+  it('renders formulas while keeping their exact editable source and adding no math button',()=>{
+    const {html,fields}=setup(String.raw`能量 $E=mc^2$`);
+    expect(html).toContain('class="katex"');expect(html).toContain('<math');
+    expect(fields['文字模块 1'].value).toBe(String.raw`能量 $E=mc^2$`);
+    expect(html).not.toContain('插入公式');
+  });
+  it('keeps Enter inside a display formula in the same module',()=>{
+    const {fields,onChange}=setup('$$x$$\n后文');
+    fields['文字模块 1'].onKeyDown(key('Enter',3));
+    expect(onChange).toHaveBeenCalledWith('$$x\n$$\n后文');
+  });
   it('renders an inline video in the existing book module without nesting playback in a button', () => {
     const { html } = setup('前文\n![图片](https://example.com/image.png "book:0.1,0.2,0.5,0.6,1.5" "video:https://example.com/clip.mp4")\n后文');
     expect(html).toContain('aria-label="文章短视频"');

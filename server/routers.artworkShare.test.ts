@@ -34,6 +34,30 @@ async function fixture() {
   };
 }
 describe("rendered artwork sharing", () => {
+  it("preserves book text/image order in an anonymous immutable reading copy", async () => {
+    const input = await fixture();
+    const reading = { blocks: [
+      {kind:"text" as const,text:"第一段"},
+      {kind:"image" as const,image:0,crop:{x:0,y:0,width:1,height:1}},
+      {kind:"text" as const,text:"图片后的正文 $x^2$"},
+    ] };
+    await caller(10).create({...input,reading});
+    const published = await caller(null).read({token:input.token});
+    expect(published.reading).toEqual(reading);
+    expect(published.pages[0].dataUrl).toMatch(/^data:image\/webp;base64,/);
+    expect(published.work).toBeUndefined();
+    expect(JSON.stringify(published)).not.toMatch(/private-memory|secret-open-id|\/api\/images\//);
+    await expect(caller(10).create({...input,reading:{blocks:[{kind:"text",text:"替换已发布正文"}]}})).rejects.toMatchObject({code:"CONFLICT"});
+    await caller(10).revoke({storyId:input.storyId});
+    await expect(caller(null).read({token:input.token})).rejects.toMatchObject({code:"NOT_FOUND"});
+  });
+  it("rejects missing image references, external source fields and invalid crops", async () => {
+    const input = await fixture();
+    const image = {kind:"image",image:0,crop:{x:0,y:0,width:1,height:1}};
+    for (const block of [{...image,image:1},{...image,url:"https://private.example/image"},{...image,crop:{x:0.5,y:0,width:1,height:1}}])
+      await expect(caller(10).create({...input,reading:{blocks:[block]}} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(runtime.memoryState.artworkShares).toHaveLength(0);
+  });
   it("publishes only re-encoded rendered pages, anonymously, without source account or story data", async () => {
     const input = await fixture();
     expect(await caller(10).create(input)).toEqual({

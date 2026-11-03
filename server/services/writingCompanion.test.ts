@@ -56,6 +56,38 @@ const layoutModule = {
 };
 
 describe("layout module advice", () => {
+  it('formats book replacements at generation while preserving ordinary layout output', async () => {
+    const raw = '**第 1 幕 · 相遇**\n## 尾声\n$E=mc^2$';
+    for (const scope of ['account:1:chapter:2', 'layout:v1']) {
+      const invoke = fakeInvoke(JSON.stringify({ reply: '可以这样写：', replacement: raw }));
+      const result = await replyAsWritingCompanion({ message: '改写', history: [], writingContext: { draft: '原文', cursor: 0, module: { ...layoutModule, scope }, rewriteSource: '原文' } }, invoke);
+      const expected = scope.includes(':chapter:') ? String.raw`\textbf{第 1 幕 · 相遇}
+\subsection{尾声}
+$E=mc^2$` : raw;
+      expect(result.rewriteText).toBe(expected);
+      expect(result.reply).toBe(`可以这样写：\n\n${expected}`);
+      expect(systemText(invoke).includes('LaTeX')).toBe(scope.includes(':chapter:'));
+    }
+  });
+  it('returns an explicit replacement separately from the explanation, without applying it', async () => {
+    const invoke = fakeInvoke(JSON.stringify({reply:'保留相遇的意思：',replacement:'在另一颗心里生长。\nGrow in another soul.'}));
+    const result = await replyAsWritingCompanion({message:'改得更贴近相遇',history:[],writingContext:{draft:'全文',cursor:0,module:layoutModule,rewriteSource:'原来这一段'}},invoke);
+    expect(result).toMatchObject({reply:'保留相遇的意思：\n\n在另一颗心里生长。\nGrow in another soul.',rewriteText:'在另一颗心里生长。\nGrow in another soul.'});
+    expect(systemText(invoke)).toContain('只有本轮确实给出一版');
+    expect(JSON.stringify(invoke.mock.calls[0][0])).toContain('原来这一段');
+    expect(systemText(invoke)).toContain('不得声称已经替换');
+  });
+  it.each(['普通排版建议', JSON.stringify({reply:'你希望更轻还是更直接？',replacement:null})])('does not offer replacement for discussion-only replies: %s', async text => {
+    const result=await replyAsWritingCompanion({message:'你觉得呢',history:[],writingContext:{draft:'',cursor:0,module:layoutModule,rewriteSource:'原文'}},fakeInvoke(text));
+    expect(result.rewriteText).toBeUndefined();
+    expect(result.reply).not.toContain('replacement');
+  });
+  it('does not enable rewrite payloads without a text target', async () => {
+    const invoke=fakeInvoke('画面暂不可用');
+    const result=await replyAsWritingCompanion({message:'改一下',history:[],writingContext:{draft:'',cursor:0,module:{...layoutModule,kind:'image'},rewriteSource:'原文'}},invoke);
+    expect(result.rewriteText).toBeUndefined();
+    expect(systemText(invoke)).not.toContain('返回JSON');
+  });
   it("uses passive editing history even without a selection and treats reverted attempts as observations, not preferences", async () => {
     const invoke = fakeInvoke("你刚才试过浅色字又撤销了，可以先保留正常文字。");
     const layoutMemory = {
@@ -573,6 +605,26 @@ async function seedStory(userId: number) {
 
 describe("writing companion on the shared conversation", () => {
   afterEach(() => vi.restoreAllMocks());
+  it('targets the entire unsaved manuscript after deselection, ignoring historical module references',async()=>{
+    const {caller,story}=await seedStory(908);
+    const invoke=vi.spyOn(agentChannel,'invokeAgent').mockResolvedValue({text:'从全文结构来看，可以这样调整。',modelLabel:'test'});
+    const draft='开头尚未保存。\n'+'中间正文'.repeat(6000)+'\n结尾也需要一起考虑。';
+    await caller.storyAgent.chat({storyId:story.id,message:'整体看一下',history:[{role:'user',content:'之前只看第三段'}],writingContext:{draft,cursor:0}});
+    const draftContext=invoke.mock.calls[0][0].find(message => typeof message.content === 'string' && message.content.includes('【当前全文，'))?.content;
+    expect(draftContext).toContain('本轮定位全文');
+    expect(draftContext).toContain('旧选区不是本轮目标');
+    expect(draftContext).toContain(draft);
+    expect(draftContext).not.toContain('⟦光标⟧');
+    expect(draftContext).not.toContain('【唯一允许改写的范围】');
+  });
+  it('passes rewrite metadata through the owned desktop route without writing the story',async()=>{
+    const {caller,story}=await seedStory(908);
+    vi.spyOn(agentChannel,'invokeAgent').mockResolvedValue({text:JSON.stringify({reply:'这样更贴近：',replacement:'新的正文'}),modelLabel:'test'});
+    const before=(await getStoryById(story.id,908))?.body;
+    const result=await caller.storyAgent.chat({storyId:story.id,message:'改写',writingContext:{draft:'原文',cursor:0,rewriteSource:'原文',module:{...layoutModule,storyId:story.id}}});
+    expect(result).toMatchObject({reply:'这样更贴近：\n\n新的正文',rewriteText:'新的正文'});
+    expect((await getStoryById(story.id,908))?.body).toEqual(before);
+  });
   it("carries module advice through both owned routes and rejects a cross-story module before inference", async () => {
     const { caller, story } = await seedStory(908);
     const invoke = vi.spyOn(agentChannel, "invokeAgent").mockResolvedValue({

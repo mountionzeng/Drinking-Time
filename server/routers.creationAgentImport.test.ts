@@ -40,6 +40,20 @@ afterEach(() => {
 });
 
 describe("creationAgent.importStoryMaterial", () => {
+  it('archives book imports without adopting a cover or shot, and rejects another account', async () => {
+    const caller = appRouter.createCaller(context(705));
+    const story = await caller.storyAgent.storyUpsert({ title: '图片粘贴验收', body: { shots: [] } });
+    if (!story) throw new Error('story creation failed');
+    const input = { storyId: story.id, fileName: 'book-photo.png', mimeType: 'image/png', fileBase64: 'iVBORw0KGgo=' };
+    const result = await caller.creationAgent.importStoryMaterial(input);
+    expect(result).toMatchObject({ status: 'ok', kind: 'image', shotNo: null, stableShotId: null });
+    const materials = await getStoryMaterialState(story.id, 705);
+    expect(materials?.warehouseImages).toEqual(expect.arrayContaining([expect.objectContaining({ id: result.status === 'ok' && result.kind === 'image' ? result.imageId : -1, isCurrent: false })]));
+    expect(materials?.unassignedImages).toHaveLength(1);
+    expect(materials?.shots).toHaveLength(0);
+    expect(await appRouter.createCaller(context(706)).creationAgent.importStoryMaterial(input)).toMatchObject({ status: 'error', errorKind: 'invalid' });
+    expect((await getStoryMaterialState(story.id, 705))?.warehouseImages).toHaveLength(1);
+  });
   it("binds an imported image directly to the requested stable shot", async () => {
     const caller = appRouter.createCaller(context(702));
     const story = await caller.storyAgent.storyUpsert({

@@ -5,7 +5,7 @@ import { restoreWritingBlocks, writingStyleOf } from "./chapterBlockTree";
 import { ChapterTextModules } from "./ChapterTextModules";
 import { compactGeneratedBody, type TextPosition } from "./moduleTextEditing";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Chapter } from "./useChapters";
 
 import type { LayoutModuleContext } from "@shared/layoutModuleContext";
@@ -17,7 +17,10 @@ type Draft = ChapterWritingDraft;
 export type ChapterWritingHandle = { prepare(): Promise<void>; insertImage(url: string): void; snapshot(): Draft; releaseCleanDraft(latest: Chapter): boolean };
 
 /** Comparison keeps this editor mounted; view switches save before opening the other editor. */
-export function ChapterWriting({ chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion }: {
+export function ChapterWriting({ chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+  footerActions?: ReactNode;
+  renderHeader?: (changeNote: ReactNode) => ReactNode;
+  titleEditor?: ReactNode;
   comparison?: WritingComparison;
   reviewedVersion?: number;
   chapter: Chapter; scope: string; handle: MutableRefObject<ChapterWritingHandle | null>;
@@ -28,6 +31,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   const contextScope = `${scope}:chapter:${chapter.id}`;
   const onContextChange = useCallback((context: LayoutModuleContext | null) => {
     module.current = context;
+    if (!context) selection.current = null;
     window.dispatchEvent(new Event('dt:writing-selection-change'));
   }, []);
   const selection = useRef<TextPosition | null>(null);
@@ -138,7 +142,8 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     try { localStorage.setItem(key, JSON.stringify(next)); updateRecoveredDraft(scope, chapter.id, JSON.stringify(next)); setError(''); setBackupError(''); }
     catch { setError(''); setBackupError('本机备份暂不可用，正在尝试保存到账号。'); }
   }
-  return <section aria-label={_ui("章节写作")} className="space-y-4">
+  const changeNote = <details className={renderHeader ? "min-w-0 flex-1" : undefined}><summary className={`cursor-pointer text-xs text-muted-foreground${renderHeader ? ' py-2' : ''}`}>{_ui("修改说明（选填）")}</summary><textarea aria-label={_ui("修改说明（选填）")} maxLength={500} disabled={disabled} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draftRef.current, changeNote: e.target.value })} placeholder={_ui("由你自己填写；留空就不显示。")} /></details>;
+  return <>{renderHeader?.(changeNote)}<section aria-label={_ui("章节写作")} className="space-y-4">
     <DesktopWritingContext storyId={chapter.storyId} applyGenerated={async (body, expected) => {
       const assertUnchanged = () => {
         if (disabled || expected.scope !== contextScope || draftRef.current.body !== expected.draft)
@@ -152,15 +157,16 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       await prepare();
     }} getSnapshot={() => {
       const body = draftRef.current.body;
-      const start = selection.current?.start ?? body.length;
+      const currentModule = module.current?.scope === contextScope ? module.current : undefined;
+      const start = currentModule ? selection.current?.start ?? body.length : body.length;
       const end = selection.current?.end ?? start;
-      return { draft: body, module: module.current?.scope === contextScope ? module.current : undefined, cursor: start, ...(end > start ? { selection: { start, end } } : {}), scope: contextScope };
+      return { draft: body, module: currentModule, cursor: start, ...(currentModule && end > start ? { selection: { start, end } } : {}), scope: contextScope };
     }} />
     <span role="status" className="sr-only">{saving ? _ui("正在自动保存") : dirty ? _ui("等待自动保存") : _ui("已保存")}</span>
-    <input aria-label={_ui("章节标题")} maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />
-    <ChapterTextModules importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
-    <details><summary className="cursor-pointer text-xs text-muted-foreground">{_ui("修改说明（选填）")}</summary><textarea aria-label={_ui("修改说明（选填）")} maxLength={500} disabled={disabled} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draft, changeNote: e.target.value })} placeholder={_ui("由你自己填写；留空就不显示。")} /></details>
+    {titleEditor ?? <input aria-label={_ui("章节标题")} maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />}
+    <ChapterTextModules footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
+    {!renderHeader && changeNote}
     {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}
 
-  </section>;
+  </section></>;
 }

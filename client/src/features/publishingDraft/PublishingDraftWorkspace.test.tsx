@@ -21,6 +21,7 @@ const story = vi.hoisted(() => ({
 }));
 
 const actions = vi.hoisted(() => ({
+  renameStory: vi.fn(async (_id: number, _title: string) => {}),
   setPublishing: vi.fn(),
   setPublishingBuffer: vi.fn(),
   discardPublishingBuffer: vi.fn(),
@@ -156,6 +157,7 @@ import PublishingDraftWorkspace, {
   isCurrentCoverReferenceAnalysis,
   textDraftChangeSummary,
 } from "./PublishingDraftWorkspace";
+import { PublishingImagePack } from '@/features/publishingAlbum/PublishingImagePack';
 import { publishingErrorMessage } from "./publishingDraftViewModel";
 
 describe("PublishingDraftWorkspace", () => {
@@ -174,6 +176,31 @@ describe("PublishingDraftWorkspace", () => {
     };
     api.buildVideoStoryboardPending = false;
     api.applyEditPending = false;
+    actions.renameStory.mockClear();
+  });
+
+  it.each([false, true])('binds the book title to the same story title and rename action, with platform content=%s', async hasDraft => {
+    api.chaptersEnabled = true;
+    if (hasDraft) story.publishingBuffers = { '7:xiaohongshu': {
+      storyId: 7, platform: 'xiaohongshu', versionId: 'v1', content: { title: '旧平台标题', body: '已有正文', tags: [] }, updatedAt: 1,
+    } };
+    let titleEditor: any;
+    const create = React.createElement;
+    const spy = vi.spyOn(React, 'createElement').mockImplementation(((type: any, props: any, ...children: any[]) => {
+      if (type === PublishingImagePack) {
+        titleEditor = props.titleEditor;
+        return create('div', null, titleEditor);
+      }
+      return create(type, props, ...children);
+    }) as typeof create);
+    try {
+      const html = renderToStaticMarkup(<PublishingDraftWorkspace view="text" />);
+      expect(html).toContain('aria-label="故事名称"');
+      expect(titleEditor.props.title).toBe('AI 时代的浪费');
+      await titleEditor.props.save('两处共用的新名称');
+      expect(actions.renameStory).toHaveBeenCalledTimes(1);
+      expect(actions.renameStory).toHaveBeenCalledWith(7, '两处共用的新名称');
+    } finally { spy.mockRestore(); }
   });
 
   it("explains that a disconnected local service never submitted the paid image job", () => {

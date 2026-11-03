@@ -37,6 +37,8 @@ export const textDraftRequestSchema = z.object({
   messages: z.array(textDraftMessageSchema).max(200),
   instruction: z.string().max(8_000),
   source: textSourceSchema,
+  // Opt in only from the book editor; platform exports and mobile keep their existing format.
+  outputFormat: z.literal("book-latex").optional(),
   memoryCardIds: memoryCardSelectionSchema.optional(),
 });
 export type TextDraftRequest = z.infer<typeof textDraftRequestSchema>;

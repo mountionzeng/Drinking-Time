@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { artworkShareTokenSchema } from "@shared/artworkShare";
 import { ArtworkAuthor } from "@/features/publishingAlbum/ArtworkAuthor";
 import { ImageCandidatePreview } from "@/features/publishingAlbum/ImageCandidatePreview";
+import { SharedBookContent } from "@/features/publishingAlbum/SharedBookContent";
 
 export default function SharedArtworkPage({ token }: { token: string }) {
   const valid = artworkShareTokenSchema.safeParse(token).success;
@@ -45,10 +46,10 @@ export default function SharedArtworkPage({ token }: { token: string }) {
                 </div>
               ) : null}
               <p className="mt-3 text-sm text-[#706b60]">
-                共 {query.data.pages.length} 张 · 长按图片可保存
+                {query.data.reading ? `图文全文 · ${query.data.pages.length} 张插图` : `共 ${query.data.pages.length} 张 · 长按图片可保存`}
               </p>
             </header>
-            <div className="space-y-6">
+            {query.data.reading ? <SharedBookContent reading={query.data.reading} images={query.data.pages} /> : <div className="space-y-6">
               {query.data.pages.map((page, index) => (
                 <figure key={index}>
                   <ImageCandidatePreview
@@ -78,7 +79,7 @@ export default function SharedArtworkPage({ token }: { token: string }) {
                   </figcaption>
                 </figure>
               ))}
-            </div>
+            </div>}
             <SharedWorkActions
               kind="artwork"
               token={token}

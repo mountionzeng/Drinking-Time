@@ -58,6 +58,8 @@ export function writingCompanionErrorMessage(error: unknown): string {
 }
 
 export type WritingCompanionSnapshot = {
+  bookRewriteTarget?: import('@shared/bookRewrite').BookRewriteTarget;
+  rewriteSource?: string;
   module?: import("@shared/layoutModuleContext").LayoutModuleContext;
   layoutMemory?: import("@shared/layoutOperationMemory").LayoutMemoryContext;
   draft: string;

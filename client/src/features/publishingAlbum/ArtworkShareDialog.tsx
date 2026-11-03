@@ -17,6 +17,8 @@ import type { SharedLayoutPackage } from "@shared/sharedLayout";
 import { ArtworkAuthor } from "./ArtworkAuthor";
 import { ImageCandidatePreview } from "./ImageCandidatePreview";
 import type { ImagePackResult } from "./imagePackComposition";
+import type { BookShareReading } from "@shared/bookShare";
+import { SharedBookContent } from "./SharedBookContent";
 const button =
   "min-h-11 rounded-full border border-border px-4 text-sm disabled:opacity-40";
 
@@ -26,18 +28,27 @@ export function ArtworkShareDialog({
   pages,
   work,
   loadLayout,
+  reading,
+  defaultOpen = false,
+  hideTrigger = false,
+  onClose,
 }: {
+  reading?: BookShareReading;
+  defaultOpen?: boolean;
+  hideTrigger?: boolean;
+  onClose?(): void;
   /** Whole editable layout, sent only when the friend may rewrite or save a copy. */
   loadLayout?(): Promise<SharedLayoutPackage>;
   work?: SharedWork;
   storyId: number;
   title: string;
-  pages: Array<ImagePackResult & { url: string }>;
+  pages: Array<ImagePackResult & { url: string; width?: number; height?: number }>;
 }) {
   const _ui = useDesktopUiText();
   const t = useUiText();
 
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [token, setToken] = useState(() => crypto.randomUUID());
   const [permissions, setPermissions] = useState(VIEW_ONLY);
   const [link, setLink] = useState("");
@@ -73,6 +84,7 @@ export function ArtworkShareDialog({
         title: title.trim() || "我的图文作品",
         token,
         pages: prepared.current,
+        reading,
         permissions,
         work: editable ? work : undefined,
         layout,
@@ -89,31 +101,31 @@ export function ArtworkShareDialog({
   }
   return (
     <>
-      <button className={button} onClick={() => setOpen(true)}>
+      {!hideTrigger && <button className={button} onClick={() => setOpen(true)}>
         {t("分享作品链接")}
-      </button>
+      </button>}
       <Dialog
         open={open}
         onOpenChange={value => {
-          if (!busy) setOpen(value);
+          if (!busy) { setOpen(value); if (!value) onClose?.(); }
         }}
       >
-        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto" onOpenAutoFocus={reading ? event => { event.preventDefault(); titleRef.current?.focus({ preventScroll: true }); } : undefined}>
           <DialogHeader>
-            <DialogTitle>{t("分享这套图文")}</DialogTitle>
+            <DialogTitle ref={titleRef} tabIndex={reading ? -1 : undefined}>{t(reading ? "分享这篇图文" : "分享这套图文")}</DialogTitle>
             <DialogDescription>
-              {t("将昵称、头像、作品标题和下方")}
+              {reading ? t("分享下方文字和插图。持有链接的人都能阅读、转发；之后修改原稿不会改变这份副本。") : <>{t("将昵称、头像、作品标题和下方")}
               {pages.length}{" "}
               {t(
                 "张成品图片做成网页。无需登录，持有链接的人都能查看和转发。之后修改原稿不会改变这份作品。"
-              )}
+              )}</>}
             </DialogDescription>
           </DialogHeader>
           <ArtworkAuthor name={artworkAuthorName(me.data?.name)} />
           <p className="font-serif text-lg">
             {title.trim() || t("我的图文作品")}
           </p>
-          <div className="flex gap-3 overflow-x-auto py-2">
+          {reading ? <SharedBookContent reading={reading} images={pages.map(page => ({ dataUrl: page.url, width: page.width ?? 1, height: page.height ?? 1 }))} /> : <div className="flex gap-3 overflow-x-auto py-2">
             {pages.map((page, i) => (
               <ImageCandidatePreview
                 touchOnly
@@ -136,7 +148,7 @@ export function ArtworkShareDialog({
                 </button>
               </ImageCandidatePreview>
             ))}
-          </div>
+          </div>}
           {!link && work && <>
             <SharePermissions value={permissions} disabled={busy} onChange={value => { setPermissions(value); setToken(crypto.randomUUID()); }} />
             {(permissions.rewrite || permissions.fork) && loadLayout && <p className="text-xs leading-6 text-muted-foreground">{t("对方会收到可编辑的整套排版和其中的图片，可以接着改，也可以把改好的排版分享回给你。")}</p>}
@@ -216,7 +228,7 @@ export function ArtworkShareDialog({
               disabled={busy}
               onClick={() => void publish()}
             >
-              {busy ? progress || t("正在准备图片…") : t("确认图片并生成链接")}
+              {busy ? progress || t("正在准备图片…") : t(reading ? "确认图文并生成链接" : "确认图片并生成链接")}
             </button>
           )}
         </DialogContent>

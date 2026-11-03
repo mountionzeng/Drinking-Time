@@ -186,12 +186,12 @@ function MaterialSwatch({
   );
 }
 
-export function PublishingImagePack({ workspaceMode = "images", ...props }: React.ComponentProps<typeof PublishingImagePackCanvas> & { workspaceMode?: "text" | "images" }) {
+export function PublishingImagePack({ workspaceMode = "images", titleEditor, ...props }: React.ComponentProps<typeof PublishingImagePackCanvas> & { workspaceMode?: "text" | "images"; titleEditor?: ReactNode }) {
   const _ui = useDesktopUiText();
   const enabled = trpc.chapters.enabled.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   if (workspaceMode === "text" && !enabled.data?.enabled) return <p role={enabled.isLoading ? "status" : "alert"} className="py-4 text-sm">{enabled.isLoading ? _ui("正在读取书稿…") : _ui("模块编辑暂不可用，请稍后重试。")}</p>;
   if (!enabled.data?.enabled || props.storyId <= 0) return <PublishingImagePackCanvas {...props} />;
-  return <ChapterWorkspace key={props.storyId} {...props} mode={workspaceMode}
+  return <ChapterWorkspace key={props.storyId} {...props} mode={workspaceMode} titleEditor={titleEditor}
     render={chapterProps => <PublishingImagePackCanvas key={chapterProps.scope} {...chapterProps} />} />;
 }
 
