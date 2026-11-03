@@ -83,9 +83,7 @@ import {
   shouldSaveArchiveStory,
   remapPublishingBuffers,
   reconcilePublishingBuffersFromState,
-  setPublishingBuffer as putPublishingBuffer,
-  getPublishingBuffer,
-  resolvePublishingBufferOrigin,
+  setPublishingBuffer as putPublishingBuffer, getPublishingBuffer, resolvePublishingBufferOrigin,
   removePublishingBuffer,
 } from "./storyAgentPersistence";
 import {
@@ -1546,14 +1544,7 @@ export function StoryAgentProvider({
               setPublishingBuffers(currentBuffers =>
                 remapPublishingBuffers(currentBuffers, -1, saved.id)
               );
-              setStoryList(current =>
-                upsertCreatedStoryListItem(current, {
-                  id: saved.id,
-                  title,
-                  logline,
-                  summary: snapshot.summary ?? "",
-                })
-              );
+              setStoryList(current => upsertCreatedStoryListItem(current, { id: saved.id, title, logline, summary: snapshot.summary ?? "" }));
             }
             setRemoteStoryId(saved.id);
             // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
@@ -1759,18 +1750,10 @@ export function StoryAgentProvider({
 
   const setLocalPublishingBuffer = useCallback<StoryAgentContextValue["setPublishingBuffer"]>(
     (storyId, platform, content, versionId = "v1", textDraftVersionId, origin) => {
-      setPublishingBuffers(current => {
-        const previous = getPublishingBuffer(current, storyId, platform, versionId);
-        return putPublishingBuffer(current, {
-          storyId,
-          platform,
-          versionId,
-          textDraftVersionId,
-          content,
-          updatedAt: Date.now(),
-          origin: resolvePublishingBufferOrigin(previous, content, origin),
-        });
-      });
+      setPublishingBuffers(current => putPublishingBuffer(current, {
+        storyId, platform, versionId, textDraftVersionId, content, updatedAt: Date.now(),
+        origin: resolvePublishingBufferOrigin(getPublishingBuffer(current, storyId, platform, versionId), content, origin),
+      }));
     },
     [setPublishingBuffers]
   );
