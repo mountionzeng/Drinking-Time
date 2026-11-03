@@ -3,7 +3,7 @@ import { registerDraftRecovery, readRecoveredDraft, clearRecoveredDraft, updateR
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import { restoreWritingBlocks, writingStyleOf } from "./chapterBlockTree";
 import { ChapterTextModules } from "./ChapterTextModules";
-import type { TextPosition } from "./moduleTextEditing";
+import { compactGeneratedBody, type TextPosition } from "./moduleTextEditing";
 import { DesktopWritingContext } from "@/features/writingCompanion/DesktopWritingContext";
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Chapter } from "./useChapters";
@@ -148,7 +148,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       // Save the current manuscript first, so an unsaved original also has a version.
       await prepare();
       assertUnchanged();
-      update({ ...draftRef.current, body, writingStyle: undefined });
+      update({ ...draftRef.current, body: compactGeneratedBody(body), writingStyle: undefined });
       await prepare();
     }} getSnapshot={() => {
       const body = draftRef.current.body;
