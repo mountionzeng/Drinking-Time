@@ -472,3 +472,73 @@ it('quotes only the selected text module and rejects a removed source before cha
  await expect(quoteStorySceneAudio({storyId,userId:923,kind:'music',scope:'book',targetFrame:0,bookTarget})).rejects.toThrow();
  await expect(quoteStorySceneAudio({storyId,userId:922,kind:'music',scope:'book',targetFrame:0,bookTarget:{...bookTarget,moduleId:'missing'}})).rejects.toThrow();
 });
+
+describe("story scene audio download recovery", () => {
+  async function setup(userId: number, operationId: string) {
+    const storyId = await seed(userId);
+    const quote = await quoteStorySceneAudio({
+      storyId,
+      userId,
+      kind: "music",
+      targetFrame: 80,
+      intent: "钢琴",
+      now: () => NOW,
+    });
+    const generate = vi.fn(async () => generatedUrl());
+    return {
+      storyId,
+      generate,
+      request: (importRemote: any) => ({
+        storyId,
+        userId,
+        operation: { editorSessionEpoch: "tab-r", operationId },
+        quoteToken: quote.quoteToken,
+        dependencies: { now: () => NOW + 1_000, generate, importRemote },
+      }),
+    };
+  }
+  const downloadFails = () =>
+    vi.fn(async () => ({
+      status: "failed" as const,
+      reason: "远程音频下载失败",
+      failureCode: "download-failed",
+    }));
+
+  it("keeps the provider URL and re-downloads without a second submit or charge", async () => {
+    const { generate, request } = await setup(930, "scene-music-redownload");
+    const failing = downloadFails();
+    const first = await generateStorySceneAudio(request(failing));
+    expect(first).toMatchObject({ status: "error" });
+    expect(first.status === "error" && first.message).toContain("不会重复扣费");
+    expect(await findBillingOperation("scene-music-redownload")).toMatchObject({
+      status: "reserved",
+    });
+
+    const ok = fakeRemoteImport("r");
+    const second = await generateStorySceneAudio(request(ok));
+    expect(second).toMatchObject({ status: "ready", replayed: true });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(ok).toHaveBeenCalledTimes(1);
+    expect((ok.mock.calls[0] as any)[0].url).toBe(
+      "https://file.302.ai/audio/scene.mp3"
+    );
+    expect(await findBillingOperation("scene-music-redownload")).toMatchObject({
+      status: "settled",
+    });
+  });
+
+  it("refunds after repeated download failures", async () => {
+    const { generate, request } = await setup(931, "scene-music-refund");
+    const failing = downloadFails();
+    for (let i = 0; i < 2; i += 1) {
+      await generateStorySceneAudio(request(failing));
+    }
+    const last = await generateStorySceneAudio(request(failing));
+    expect(last.status === "error" && last.message).toContain("已退回");
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(failing).toHaveBeenCalledTimes(3);
+    const op = (await findBillingOperation("scene-music-refund")) as any;
+    expect(op.status).not.toBe("reserved");
+    expect(op.actualCostMinor ?? 0).toBe(0);
+  });
+});

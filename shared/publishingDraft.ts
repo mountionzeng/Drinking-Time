@@ -420,10 +420,31 @@ const RECOVERABLE_COVER_GENERATION_ERROR =
  * failures we caused after delivery — a round the pixel gate quarantined was
  * still produced and still billed, and its images are one free query away.
  */
+/** A cover round older than this (from its first claim) is never resumed again. */
+export const PUBLISHING_COVER_ABSOLUTE_LIMIT_MS = 24 * 60 * 60 * 1000;
+export const PUBLISHING_COVER_EXPIRED_MESSAGE =
+  "上次封面任务超过 24 小时仍未完成，已判定过期，可重新生成。";
+
+/**
+ * True when an unfinished round has outlived the absolute limit counted from
+ * its first claim. Resuming never extends this deadline, so a provider task
+ * that can no longer be reached stops locking the image buttons forever.
+ */
+export function isPublishingCoverGenerationExpired(
+  generation: PublishingCoverGeneration | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!generation || generation.status === "completed") return false;
+  if (!Number.isFinite(generation.claimedAt)) return false;
+  return now - generation.claimedAt >= PUBLISHING_COVER_ABSOLUTE_LIMIT_MS;
+}
+
 export function isRecoverablePublishingCoverGeneration(
-  generation: PublishingCoverGeneration | null | undefined
+  generation: PublishingCoverGeneration | null | undefined,
+  now = Date.now()
 ): generation is PublishingCoverGeneration & { taskId: string } {
   if (!generation?.taskId?.trim()) return false;
+  if (isPublishingCoverGenerationExpired(generation, now)) return false;
   if (generation.status === "pending") return true;
   if (generation.status !== "failed" && generation.status !== "unknown") {
     return false;

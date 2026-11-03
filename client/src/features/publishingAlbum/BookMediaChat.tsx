@@ -52,6 +52,8 @@ export function BookMediaChat({
     moduleId: session.moduleId,
   };
   const source = trpc.bookMedia.resolve.useQuery(target, {
+    // A book-level session has no chapter yet; chapterId 0 is not resolvable.
+    enabled: target.chapterId > 0,
     retry: false,
     refetchInterval: query => (query.state.data?.image ? false : 3000),
   });

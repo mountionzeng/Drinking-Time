@@ -3,6 +3,10 @@ import {
   getCoverGenerationPresentation,
   shouldRecoverCoverGeneration,
 } from "./publishingCoverGenerationState";
+import {
+  isPublishingCoverGenerationExpired,
+  PUBLISHING_COVER_ABSOLUTE_LIMIT_MS,
+} from "@shared/publishingDraft";
 
 describe("getCoverGenerationPresentation", () => {
   it("only marks the fresh action as loading when creating a new round", () => {
@@ -39,11 +43,39 @@ describe("shouldRecoverCoverGeneration", () => {
     prompt: "durable prompt",
     roundId: "round-1",
     taskId: "302-task-1",
-    claimedAt: 1,
-    updatedAt: 2,
-    expiresAt: 3,
+    claimedAt: Date.now() - 60_000,
+    updatedAt: Date.now() - 30_000,
+    expiresAt: Date.now() - 1,
     error: "302 Midjourney task timeout",
   };
+
+  it("stops recovering once the round is 24 h past its first claim", () => {
+    const claimedAt = Date.now() - PUBLISHING_COVER_ABSOLUTE_LIMIT_MS - 1;
+    for (const status of ["pending", "failed", "unknown"] as const) {
+      const stale = { ...generation, status, claimedAt };
+      expect(isPublishingCoverGenerationExpired(stale)).toBe(true);
+      expect(shouldRecoverCoverGeneration(stale)).toBe(false);
+    }
+    expect(
+      isPublishingCoverGenerationExpired({ ...generation, status: "completed", claimedAt })
+    ).toBe(false);
+    // Moving expiresAt forward (an old resume) never revives an expired round.
+    expect(
+      shouldRecoverCoverGeneration({
+        ...generation,
+        status: "pending",
+        claimedAt,
+        expiresAt: Date.now() + 3_600_000,
+      })
+    ).toBe(false);
+  });
+
+  it("keeps the limit absolute from claimedAt, just inside the window", () => {
+    const now = 10 * PUBLISHING_COVER_ABSOLUTE_LIMIT_MS;
+    const g = { ...generation, claimedAt: now - PUBLISHING_COVER_ABSOLUTE_LIMIT_MS + 1 };
+    expect(isPublishingCoverGenerationExpired(g, now)).toBe(false);
+    expect(isPublishingCoverGenerationExpired(g, now + 1)).toBe(true);
+  });
 
   it("recovers an accepted paid task after a transient network failure", () => {
     expect(shouldRecoverCoverGeneration(generation)).toBe(true);

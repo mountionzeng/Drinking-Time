@@ -532,6 +532,21 @@ export type GenerateStorySceneAudioResult =
     }
   | { status: "pending" | "submission-unknown" | "error"; message: string };
 
+/** Download attempts of one provider result before we refund it. */
+export const STORY_AUDIO_MAX_DOWNLOAD_ATTEMPTS = 3;
+const RETRYABLE_AUDIO_DOWNLOAD_FAILURES = new Set([
+  "download-failed",
+  "dns-failed",
+  "dns-empty",
+  "resolved-not-public",
+  "upstream-status",
+]);
+
+/** Network-type failures where the provider result is likely still fetchable. */
+export function isRetryableAudioDownloadFailure(code: string): boolean {
+  return RETRYABLE_AUDIO_DOWNLOAD_FAILURES.has(code);
+}
+
 function importOperationId(operationId: string): string {
   return `scene-audio-${sha256(operationId).slice(0, 48)}`;
 }
@@ -783,6 +798,10 @@ export async function generateStorySceneAudio(input: {
         },
         dependencies,
         replayed: true,
+        priorDownloadFailures:
+          typeof usage?.downloadFailures === "number"
+            ? usage.downloadFailures
+            : 0,
       });
     }
     const lastAttempt =
@@ -899,6 +918,7 @@ async function continueWithProviderResult(input: {
   providerResult: StoryAudio302Result;
   dependencies: StoryAudioGenerationDependencies;
   replayed: boolean;
+  priorDownloadFailures?: number;
 }): Promise<GenerateStorySceneAudioResult> {
   const { claims, dependencies, providerResult, provenance } = input;
   const displayName = `${claims.kind}-SH${String(claims.context.shotNo).padStart(2, "0")}.mp3`;
@@ -911,11 +931,57 @@ async function continueWithProviderResult(input: {
     mediaKind: claims.kind,
     provenance,
   };
+  const providerAudioUrl = providerResult.source.url;
   const imported = await dependencies.importRemote({
     ...common,
-    url: providerResult.source.url,
+    url: providerAudioUrl,
   });
   if (imported.status !== "ready") {
+    const downloadFailures = (input.priorDownloadFailures ?? 0) + 1;
+    if (isRetryableAudioDownloadFailure(imported.failureCode)) {
+      if (downloadFailures < STORY_AUDIO_MAX_DOWNLOAD_ATTEMPTS) {
+        // Keep the paid provider URL and the hold: the next call on the same
+        // operation re-downloads it without a second provider submission.
+        await dependencies.recordAttempt({
+          operationId: input.input.operation.operationId,
+          attemptIndex: 1,
+          provider: claims.provider,
+          model: claims.model,
+          status: "submitted",
+          usage: {
+            ...provenance,
+            providerAudioUrl,
+            importFailure: imported.failureCode,
+            downloadFailures,
+          },
+        });
+        return {
+          status: "error",
+          message: `声音已生成，但下载到服务器失败（第 ${downloadFailures} 次），可以直接重试，不会重复扣费`,
+        };
+      }
+      // Our side could not fetch a result the provider delivered: refund.
+      await dependencies.recordAttempt({
+        operationId: input.input.operation.operationId,
+        attemptIndex: 1,
+        provider: claims.provider,
+        model: claims.model,
+        status: "not_charged_failure",
+        usage: {
+          ...provenance,
+          providerAudioUrl,
+          importFailure: imported.failureCode,
+          downloadFailures,
+        },
+      });
+      const message = `声音已生成，但连续 ${downloadFailures} 次下载失败，本次费用已退回`;
+      await dependencies.settle({
+        operationId: input.input.operation.operationId,
+        outcome: { kind: "not_charged_failure" },
+        reason: message,
+      });
+      return { status: "error", message };
+    }
     await dependencies.recordAttempt({
       operationId: input.input.operation.operationId,
       attemptIndex: 1,
@@ -923,7 +989,11 @@ async function continueWithProviderResult(input: {
       model: claims.model,
       status: "charged_failure",
       costMinor: claims.maxCostMinor,
-      usage: { ...provenance, importFailure: imported.failureCode },
+      usage: {
+        ...provenance,
+        providerAudioUrl,
+        importFailure: imported.failureCode,
+      },
     });
     await dependencies.settle({
       operationId: input.input.operation.operationId,

@@ -64,7 +64,7 @@ export function BookModuleConvert({
   // Follow a running task (also after reopening the dialog) every few seconds, for up to ~10 min.
   const pollStartedAt = useRef<number | null>(null);
   const imageTask = trpc.storyAgent.bookModuleImageTask.useQuery(taskScope, {
-    enabled: source.kind === "image", retry: false, refetchOnWindowFocus: false,
+    enabled: source.kind === "image" && chapterId > 0, retry: false, refetchOnWindowFocus: false,
     refetchOnMount: "always",
     refetchInterval: query => {
       const status = query.state.data?.status;

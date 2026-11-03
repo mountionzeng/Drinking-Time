@@ -8,6 +8,8 @@ import {
   computePublishingTextOperationRequestHash,
   getPublishingContentError,
   isRecoverablePublishingCoverGeneration,
+  isPublishingCoverGenerationExpired,
+  PUBLISHING_COVER_EXPIRED_MESSAGE,
   normalizePublishingNarrativeIntent,
   resolvePublishingActiveVersion,
   type PublishingCoverArtReference,
@@ -1941,10 +1943,38 @@ export const publishingDraftRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const current = await getPublishingDraftState(
+        let current = await getPublishingDraftState(
           input.storyId,
           ctx.user.id
         );
+        const revisionBeforeExpiry = current.publishing.revision;
+        const staleGeneration = current.publishing.coverGeneration;
+        if (
+          staleGeneration &&
+          isPublishingCoverGenerationExpired(staleGeneration) &&
+          (staleGeneration.status === "pending" ||
+            staleGeneration.error !== PUBLISHING_COVER_EXPIRED_MESSAGE)
+        ) {
+          // Past the absolute limit from its first claim: stop resuming the
+          // provider task and unlock the buttons. Nothing new is submitted.
+          try {
+            current = await writePublishingDraftState({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              operation: {
+                type: "update_cover_generation",
+                operationToken: staleGeneration.operationToken,
+                status: "failed",
+                error: PUBLISHING_COVER_EXPIRED_MESSAGE,
+              },
+            });
+          } catch (error) {
+            console.warn(
+              "[publishingCover] 标记过期封面任务失败：",
+              error instanceof Error ? error.message : error
+            );
+          }
+        }
         const persistedGeneration = current.publishing.coverGeneration;
         /**
          * A fresh click mints a new operation token, which used to skip the
@@ -1967,6 +1997,7 @@ export const publishingDraftRouter = router({
         const outstandingPaidReceipt =
           !stalePendingWithoutTask &&
           input.operationToken !== persistedGeneration?.operationToken &&
+          !isPublishingCoverGenerationExpired(persistedGeneration) &&
           (persistedGeneration?.status === "pending" || isRecoverablePublishingCoverGeneration(persistedGeneration))
             ? persistedGeneration
             : null;
@@ -1988,7 +2019,8 @@ export const publishingDraftRouter = router({
           (persistedGeneration.status === "pending" || recoveringAcceptedTask);
         if (
           !matchingOperation &&
-          current.publishing.revision !== input.basePublishingRevision
+          current.publishing.revision !== input.basePublishingRevision &&
+          revisionBeforeExpiry !== input.basePublishingRevision
         ) {
           throw new PublishingDraftConflictError(
             "publishing",
@@ -2181,7 +2213,8 @@ export const publishingDraftRouter = router({
                 operationToken,
                 status: "pending",
                 error: "",
-                expiresAt: Date.now() + PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+                // Resuming never extends the deadline; the absolute limit from
+                // claimedAt (isPublishingCoverGenerationExpired) ends retries.
               },
             });
             generation = recovered.publishing.coverGeneration;

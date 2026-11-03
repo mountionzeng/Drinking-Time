@@ -9,6 +9,10 @@ import { formatComputeQuote } from "@shared/computeMoney";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
+  isPublishingCoverGenerationExpired,
+  PUBLISHING_COVER_EXPIRED_MESSAGE,
+} from "@shared/publishingDraft";
+import {
   ArrowRight,
   Check,
   ChevronDown,
@@ -2234,7 +2238,11 @@ export default function PublishingDraftWorkspace({
                   onSaveDraft={dirty && (draft || previewVersion) && editorContent.body.trim() && !contentError && !busy && !coverBusy && !videoBusy
                     ? applyChanges : undefined}
                   generationStartedAt={generateCoverMut.isPending ? generateCoverMut.submittedAt : undefined}
-                  generationError={persistedCoverGeneration?.error}
+                  generationError={
+                    isPublishingCoverGenerationExpired(persistedCoverGeneration)
+                      ? PUBLISHING_COVER_EXPIRED_MESSAGE
+                      : persistedCoverGeneration?.error
+                  }
                   illustrationCost={coverEstimate.estimatedCny}
                   onGenerateCover={(instruction, selectedText) => generateCover("fresh", undefined, "midjourney", undefined, instruction, selectedText)}
                   onGenerateIllustration={(coverId, instruction, selectedText) => generateCover("revise", undefined, "midjourney", { coverId, instruction, kind: "illustration" }, undefined, selectedText)}
