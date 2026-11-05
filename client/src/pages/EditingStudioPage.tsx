@@ -1,5 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { BOOK_MUSIC_OPEN } from "@/features/publishingAlbum/BookMusicInsert";
+import { useBookModuleActions } from '@/features/publishingAlbum/bookModuleActions';
 import { StoryActivityTracker } from "@/features/memorySpace/StoryActivityTracker";
 import { DesktopMemorySpace } from "@/features/memorySpace/DesktopMemorySpace";
 import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
@@ -275,6 +276,11 @@ function EditingStudioBody({
       const request = (event as CustomEvent<StudioCreateRequest>).detail;
       if (!request || request.storyId !== activeStoryId) return;
       setChatCollapsed(false);
+      const modules = useBookModuleActions.getState().session;
+      if (request.kind === 'image' && !request.warehouseImage && workspace === 'publishing' && modules?.storyId === activeStoryId && modules.composeImage) {
+        void modules.composeImage(request.instruction).catch(e => toast.error(e instanceof Error ? e.message : '未能整理素材'));
+        return;
+      }
       if (request.kind === "music" && workspace === "publishing") {
         window.dispatchEvent(new CustomEvent(BOOK_MUSIC_OPEN, {detail:request})); return;
       }

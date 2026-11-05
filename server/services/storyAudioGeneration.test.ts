@@ -1,4 +1,4 @@
-import { insertChapter, deleteChapter } from "../repositories/chapters";
+import { insertChapter, deleteChapter, saveChapterContent } from "../repositories/chapters";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fromYuan } from "../../shared/computeMoney";
 import {
@@ -471,6 +471,18 @@ it('quotes only the selected text module and rejects a removed source before cha
  expect(await findBillingOperation('module-deleted')).toBeFalsy();
  await expect(quoteStorySceneAudio({storyId,userId:923,kind:'music',scope:'book',targetFrame:0,bookTarget})).rejects.toThrow();
  await expect(quoteStorySceneAudio({storyId,userId:922,kind:'music',scope:'book',targetFrame:0,bookTarget:{...bookTarget,moduleId:'missing'}})).rejects.toThrow();
+});
+
+it('signs every group member and rejects a changed later module before billing',async()=>{
+ const storyId=await seed(924);
+ const chapter=await insertChapter({storyId,userId:924,content:{title:'整组',layout:null,blocks:{body:`${'雨'.repeat(1900)}\n钢琴结尾\n无关摇滚`,blockIds:['a','b','c'],writingStyle:['a','b','c'].map(id=>({id,format:'text',parentId:null,collapsed:false})),containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const bookTarget={chapterId:chapter.id,moduleId:'a',moduleIds:['a','b']};
+ const quote=await quoteStorySceneAudio({storyId,userId:924,kind:'music',scope:'book',targetFrame:0,bookTarget,now:()=>NOW});
+ expect(quote.prompt).toContain('钢琴结尾');expect(quote.prompt).not.toContain('无关摇滚');
+ await saveChapterContent({id:chapter.id,userId:924,expectedVersion:chapter.version,content:{blocks:{...chapter.blocks,body:`${'雨'.repeat(1900)}\n新结尾\n无关摇滚`}},reason:'test'});
+ const generate=vi.fn();
+ const result=await generateStorySceneAudio({storyId,userId:924,quoteToken:quote.quoteToken,operation:{editorSessionEpoch:'group',operationId:'group-changed'},dependencies:{now:()=>NOW+1000,generate}});
+ expect(result.status).toBe('error');expect(generate).not.toHaveBeenCalled();expect(await findBillingOperation('group-changed')).toBeFalsy();
 });
 
 describe("story scene audio download recovery", () => {

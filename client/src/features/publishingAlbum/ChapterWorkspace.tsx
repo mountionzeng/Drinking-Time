@@ -5,6 +5,8 @@ import type { ChapterWritingDraft } from "./chapterWritingDraft";
 import { storyLibraryImages } from "./storyImageLibrary";
 import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
 import { BookSendMenu } from "./BookSendMenu";
+import { BookPlatformShareDialog } from "./BookPlatformShareDialog";
+import type { PublishingPlatformId } from "@shared/publishingDraft";
 import { bookShareArticle } from "./bookShareArticle";
 import { prepareBookShare } from "./prepareBookShare";
 import { ArtworkShareDialog } from "./ArtworkShareDialog";
@@ -125,7 +127,8 @@ export function ChapterWorkspace({
   const currentShareScope = useRef(shareScope);
   currentShareScope.current = shareScope;
   const [textShare, setTextShare] = useState<{ scope: string; article: ReturnType<typeof bookShareArticle>; book: Awaited<ReturnType<typeof prepareBookShare>> } | null>(null);
-  useEffect(() => setTextShare(null), [shareScope]);
+  const [platformShare, setPlatformShare] = useState<{ scope: string; title: string; body: string; platform: PublishingPlatformId } | null>(null);
+  useEffect(() => { setTextShare(null); setPlatformShare(null); }, [shareScope]);
   const changeNote = writingDraft?.changeNote ?? "";
   const [historyComparison, setHistoryComparison] = useState<{
     version: number; latest?: boolean; current: Chapter; chapter: Pick<Chapter, "title" | "blocks" | "layout">; imageUrls: Record<string, string>;
@@ -504,8 +507,17 @@ export function ChapterWorkspace({
                 if (currentShareScope.current !== shareScope) return;
                 const article = bookShareArticle(title, draft.body, props.sharePlatform);
                 setTextShare({ scope: shareScope, article, book });
+              })} onPlatform={platform => void run(async () => {
+                if (currentShareScope.current !== shareScope) return;
+                const draft = writing.current?.snapshot();
+                if (!draft) throw new Error("请回到当前书稿后重试");
+                const story = storySpineStore.getState();
+                const title = story.activeStoryId === props.storyId && story.accountId === props.accountId
+                  ? story.storyTitle || draft.title : draft.title;
+                bookShareArticle(title, draft.body, platform);
+                setPlatformShare({ scope: shareScope, title, body: draft.body, platform });
               })} delivery={deliveryEnabled.data?.enabled ? {
-                onCreateLink: () => { setDeliveryPanel("send"); setSelectedDelivery(null); void deliverActiveChapter("link"); },
+                onCreateLink: () => { setDeliveryPanel("send"); setSelectedDelivery(null); setClaimLink(""); },
                 onInbox: () => { setDeliveryPanel("inbox"); setSelectedDelivery(null); void deliveryInbox.refetch(); },
                 ...(active.blocks.lineage?.parentPackageId ? { onReturn: () => setDeliveryPanel("send") } : {}),
               } : undefined} />}
@@ -568,6 +580,7 @@ export function ChapterWorkspace({
           } as Props)}
         </>
       )}
+      {platformShare?.scope === shareScope && <BookPlatformShareDialog key={`${shareScope}:${platformShare.platform}`} title={platformShare.title} body={platformShare.body} platform={platformShare.platform} onClose={() => setPlatformShare(null)} />}
       {textShare?.scope === shareScope && (textShare.book
         ? <ArtworkShareDialog key={shareScope} storyId={props.storyId} title={textShare.article.title} pages={textShare.book.pages} reading={textShare.book.reading} work={textShare.article.body.trim() ? textShare.article : undefined} defaultOpen hideTrigger onClose={() => setTextShare(null)} />
         : <StoryContextShareDialog key={shareScope} storyId={props.storyId} article={textShare.article} open onOpenChange={open => { if (!open) setTextShare(null); }} />)}
@@ -589,6 +602,7 @@ export function ChapterWorkspace({
       {deliveryPanel === "send" && (
         <section className="space-y-2 rounded-xl border p-3" aria-label={_ui("投递章节")}>
           <p className="text-sm">{_ui("链接包含当前故事的文字与图片，打开后可接收。")}</p>
+          {!claimLink && <button className={button} disabled={busy || !deliveryEnabled.data?.enabled} onClick={() => void deliverActiveChapter("link")}>{_ui("生成故事链接")}</button>}
 
           {active?.blocks.lineage?.parentPackageId && <button className={button} disabled={busy} onClick={() => void deliverActiveChapter("return")}>{_ui("发回原作者")}</button>}
           <button className={button} onClick={() => { setDeliveryPanel(null); deliveryAttempt.current = null; }}>{_ui("关闭")}</button>

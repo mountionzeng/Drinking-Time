@@ -1,11 +1,16 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PendingShotImageError } from "@shared/shotImageRender";
 import { useShotImageRender } from "./useShotImageRender";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import type { StoryMaterialState } from "@shared/storyMaterial";
+const pendingTasks = vi.hoisted(() => ({ fetch: vi.fn(async () => [] as Array<{requestId: string; shotIdentity: string; recoverable: boolean}>) }));
+const recovery = vi.hoisted(() => ({ mutateAsync: vi.fn(), invalidate: vi.fn(async () => {}) }));
 vi.stubGlobal("React", React);
-vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("@/lib/trpc", () => ({ trpc: { storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: recovery.mutateAsync, isPending: false }) } }, useUtils: () => ({ storyAgent: { pendingStoryboardImages: { fetch: pendingTasks.fetch, invalidate: recovery.invalidate }, storyImages: { invalidate: recovery.invalidate }, storyMaterialState: { invalidate: recovery.invalidate }, storyGet: { invalidate: recovery.invalidate } } }) } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), warning: vi.fn() } }));
+afterEach(() => { vi.useRealTimers(); recovery.mutateAsync.mockReset(); recovery.invalidate.mockClear(); });
 function setup() {
   let api!: ReturnType<typeof useShotImageRender>;
   function Host() {
@@ -123,4 +128,56 @@ describe("MJ revision cost and submission", () => {
     expect(await api.render(input)).toMatchObject({ status: "error" });
     expect(input.generate).not.toHaveBeenCalled();
   });
+});
+
+it("checks persisted tasks before quoting after reopening and never generates again", async () => {
+  const { api, input } = setup();
+  pendingTasks.fetch.mockResolvedValueOnce([{requestId: "existing", shotIdentity: "shot-a", recoverable: true}]);
+  recovery.mutateAsync.mockResolvedValueOnce({ status: "ok", imageId: 48, imageUrl: "/48.png", candidates: [1,2,3,4] });
+  const result = await api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true });
+  expect(result).toMatchObject({status: "success", imageId: 48});
+  expect(recovery.mutateAsync).toHaveBeenCalledWith({storyId: 7, requestId: "existing"});
+  expect(input.generate).not.toHaveBeenCalled();
+});
+
+it("automatically follows the same accepted task to four images without another purchase", async () => {
+  vi.useFakeTimers();
+  const { api, input } = setup();
+  input.generate.mockRejectedValueOnce(new PendingShotImageError("仍在生成", "original"));
+  recovery.mutateAsync.mockResolvedValueOnce({ status: "error", recoveryPending: true, error: "pending" })
+    .mockResolvedValueOnce({ status: "ok", imageId: 48, imageUrl: "/48.png", candidates: [1,2,3,4] });
+  const result = api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(input.finish).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(await result).toMatchObject({status: "success", imageId: 48});
+  expect(input.generate).toHaveBeenCalledTimes(1);
+  expect(recovery.mutateAsync.mock.calls).toEqual([[{storyId: 7, requestId: "original"}], [{storyId: 7, requestId: "original"}]]);
+  expect(recovery.invalidate).toHaveBeenCalledTimes(4);
+  expect(input.finish).toHaveBeenCalledTimes(1);
+});
+
+it("coalesces repeated recovery of the same request", async () => {
+  vi.useFakeTimers();
+  const { api, input } = setup();
+  const task = { requestId: "same", shotIdentity: "shot-a", recoverable: true };
+  pendingTasks.fetch.mockResolvedValueOnce([task]).mockResolvedValueOnce([task]);
+  recovery.mutateAsync.mockResolvedValueOnce({ status: "error", recoveryPending: true })
+    .mockResolvedValueOnce({ status: "ok", imageId: 48, imageUrl: "/48.png", candidates: [1,2,3,4] });
+  const args = { ...input, revisionInstruction: undefined, skipCostConfirmation: true };
+  const first = api.render(args);
+  const second = api.render(args);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect((await Promise.all([first, second])).map(result => result.status)).toEqual(["success", "success"]);
+  expect(recovery.mutateAsync).toHaveBeenCalledTimes(2);
+  expect(recovery.invalidate).toHaveBeenCalledTimes(4);
+  expect(input.generate).not.toHaveBeenCalled();
+});
+
+it("does not query or generate when submission is still uncertain", async () => {
+  const { api, input } = setup();
+  pendingTasks.fetch.mockResolvedValueOnce([{ requestId: "unknown", shotIdentity: "shot-a", recoverable: false }]);
+  expect(await api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true })).toMatchObject({status: "error"});
+  expect(recovery.mutateAsync).not.toHaveBeenCalled();
+  expect(input.generate).not.toHaveBeenCalled();
 });

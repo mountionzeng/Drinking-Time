@@ -1,17 +1,17 @@
 import { downloadLegnextImage } from "./legnextImageDownload";
 import { createHash } from "node:crypto";
 import { assertComputeRequestAccess } from "./computeRequestAccess";
-import { storeImageBytes, type ImageGenResult } from "./imageGen";
+import { storeImageBytes, toPublicImageUrl, type ImageGenResult } from "./imageGen";
 
 const BASE = "https://api.legnext.ai/api";
 const PREFIX = "legnext:";
-const pending = (id: string): ImageGenResult => ({ status: "error", providerTaskId: id, message: "图片任务已受理，请稍后恢复同一任务，不会重复购买。" });
+const pending = (id: string): ImageGenResult => ({ status: "error", errorCode: "timeout_pending", providerTaskId: id, message: "图片任务已受理，请稍后恢复同一任务，不会重复购买。" });
 export const isLegnextReceipt = (id: string) => id.startsWith(PREFIX);
 
 /** Fixed V7 Fast price profile. Never forward model/speed switches from generated prose. */
-export function legnextPrompt(text: string) {
+export function legnextPrompt(text: string, aspectRatio = "3:4") {
   return text.replace(/--(?:version|v|quality|q|ar|aspect)\s+\S+/gi, "")
-    .replace(/--(?:turbo|fast|relax|draft|hd)\b/gi, "").trim() + " --v 7 --fast --ar 3:4";
+    .replace(/--(?:turbo|fast|relax|draft|hd)\b/gi, "").trim() + ` --v 7 --fast --ar ${aspectRatio}`;
 }
 
 export async function resumeLegnextImage(id: string): Promise<ImageGenResult> {
@@ -41,10 +41,24 @@ export async function resumeLegnextImage(id: string): Promise<ImageGenResult> {
 }
 
 /** `inlinePoll: false` returns right after the receipt is durable; the image task worker fetches the result. */
-export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>, options: { inlinePoll?: boolean } = {}): Promise<ImageGenResult> {
+type LegnextOptions = { inlinePoll?: boolean; aspectRatio?: string; referenceImageUrl?: string; referenceContextImageUrls?: string[]; characterRef?: string; styleRef?: string; characterWeight?: number; imageWeight?: number };
+export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>, options: LegnextOptions = {}): Promise<ImageGenResult> {
   const key = process.env.LEGNEXT_API_KEY?.trim();
   if (!key) return { status: "error", message: "MJ 新供应商尚未配置，请联系管理员。" };
-  const prompt = legnextPrompt(text);
+  let prompt = legnextPrompt(text, options.aspectRatio === "16:9" ? "16:9" : "3:4");
+  try {
+    const publicReference = async (source: string) => {
+      const url = await toPublicImageUrl(source);
+      if (!url || !/^https:\/\//i.test(url)) throw new Error("参考图上传未返回可读取的 HTTPS 地址");
+      return url;
+    };
+    const refs = [options.referenceImageUrl, ...(options.referenceContextImageUrls ?? [])].filter((v): v is string => Boolean(v));
+    if (refs.length) prompt = (await Promise.all([...new Set(refs)].map(publicReference))).join(" ") + " " + prompt + ` --iw ${options.imageWeight ?? 0.5}`;
+    if (options.characterRef) prompt += ` --oref ${await publicReference(options.characterRef)} --ow ${options.characterWeight ?? 100}`;
+    if (options.styleRef) prompt += ` --sref ${await publicReference(options.styleRef)}`;
+  } catch {
+    return { status: "error", message: "参考图暂时无法上传到模型可读取的位置，请稍后重试。本次没有提交图片任务。" };
+  }
   if (prompt.length > 8192) return { status: "error", message: "图片描述过长，请缩短后再试。" };
   await assertComputeRequestAccess();
   let receipt: string | undefined;
@@ -61,7 +75,8 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     receipt = PREFIX + task.job_id;
     await onAccepted(receipt); // Durable before the first poll.
     if (options.inlinePoll === false) return pending(receipt);
-    for (let attempt = 0; attempt < 12; attempt++) {
+    const deadline = Date.now() + 90_000;
+    for (let attempt = 0; attempt < 12 && Date.now() < deadline; attempt++) {
       const result = await resumeLegnextImage(receipt);
       if (result.status === "ok" || result.message?.includes("供应商确认")) return result;
       await new Promise(resolve => setTimeout(resolve, 5_000));

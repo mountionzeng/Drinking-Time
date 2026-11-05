@@ -259,6 +259,7 @@ export type ShotMaterialState = {
   currentImage: ImageAsset | null;
   /** Source illustration for rendering a new composition; not a video start frame. */
   imageGenerationReference?: ImageAsset | null;
+  imageGenerationReferences?: ImageAsset[];
   imageVersions: ImageAsset[];
   /**
    * Existing story images used by, or derived from inputs to, this shot.

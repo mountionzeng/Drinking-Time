@@ -51,6 +51,7 @@ type StoryShotFact = {
   stableShotId: string;
   publishingReferenceImageId?: number | null;
   publishingContinuityImageId?: number | null;
+  publishingReferenceImageIds?: number[];
   splitSourceStableShotId: string | null;
   relatedImageIds: number[];
   shotNo: number;
@@ -308,6 +309,14 @@ function storyShots(story: Story): StoryShotFact[] {
     return [
       {
         stableShotId,
+        publishingReferenceImageIds: (() => {
+          const provenance = shot.publishingVideo as Record<string, unknown> | undefined;
+          if (!Array.isArray(provenance?.referenceImageIds)) return undefined;
+          let params: Record<string, unknown> = {};
+          try { params = typeof shot.generationParams === "string" ? JSON.parse(shot.generationParams) : {}; } catch { /* legacy */ }
+          const ids = Array.isArray(params.referenceFrameImageIds) ? params.referenceFrameImageIds : provenance.referenceImageIds;
+          return ids.map(positiveImageId).filter((id): id is number => id != null);
+        })(),
         publishingReferenceImageId: positiveImageId(
           shot.publishingVideo && typeof shot.publishingVideo === "object"
             ? (shot.publishingVideo as Record<string, unknown>).referenceImageId
@@ -865,7 +874,7 @@ export async function getStoryMaterialState(
     const ownedImageVersions = availableImages
       .filter(image =>
         keysOverlap(
-          shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
+          shotMaterialKeys(fact, fact.publishingReferenceImageIds == null && shotNoCounts.get(fact.shotNo) === 1),
           shotIdentityMatchKeys(
             image.shotIdentity,
             shotNoFromCanonical(image.canonicalShotNo ?? image.rawShotNo)
@@ -927,6 +936,7 @@ export async function getStoryMaterialState(
         )
     );
     const relatedSeedIds = new Set<number>(fact.relatedImageIds);
+    for (const id of fact.publishingReferenceImageIds ?? []) relatedSeedIds.add(id);
     for (const overlay of timeline.overlays ?? []) {
       if (overlay.sourceStableShotId !== fact.stableShotId) continue;
       relatedSeedIds.add(overlay.leftImageId);
@@ -948,7 +958,7 @@ export async function getStoryMaterialState(
     // Stop at article references even when reached through a generated child
     // or video input: their cover and sibling candidates belong to the article.
     const referenceOnlyIds = new Set(
-      [fact.publishingReferenceImageId, fact.publishingContinuityImageId].filter(
+      [fact.publishingReferenceImageId, fact.publishingContinuityImageId, ...(fact.publishingReferenceImageIds ?? [])].filter(
         (id): id is number => id != null && !ownedImageVersions.some(image => image.id === id)
       )
     );
@@ -1026,6 +1036,10 @@ export async function getStoryMaterialState(
       currentImage,
       imageGenerationReference: fact.publishingContinuityImageId == null
         ? null : (imageById.get(fact.publishingContinuityImageId) ?? null),
+      imageGenerationReferences: (fact.publishingReferenceImageIds ?? []).flatMap(id => {
+        const image = imageById.get(id);
+        return image && image.status !== "rejected" && image.availability !== "missing" ? [image] : [];
+      }),
       imageVersions,
       relatedImages,
       currentVideo,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readBookVideoSource } from "./bookVideoSource";
 
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import {
@@ -140,6 +141,7 @@ export async function initializePublishingAlbum(input: {
   userId: number;
   versionId: string;
   platform?: PublishingPlatformId;
+  bookSource?: boolean;
   baseContainerRevision: number;
   baseVersionRevision: number;
   operationToken: string;
@@ -150,12 +152,14 @@ export async function initializePublishingAlbum(input: {
   if (!version) throw new Error("发布版本不存在或已经切换");
   const platform = input.platform ?? version.activePlatform;
   const draft = version.drafts[platform];
-  if (!draft) throw new Error("当前平台还没有可制作画册的文字稿");
+  const book = input.bookSource ? await readBookVideoSource(input) : null;
+  if (input.bookSource && !book?.layout.body.trim()) throw new Error("请先写入并保存书稿，再制作画册");
+  if (!draft && !book) throw new Error("当前平台还没有可制作画册的文字稿");
   const album = buildPublishingAlbumDraft({
     versionId: version.versionId,
     platform,
-    draftRevision: draft.revision,
-    content: draft.content,
+    draftRevision: draft?.revision ?? 0,
+    content: book ? { title: draft?.content.title ?? "", body: book.layout.body, tags: draft?.content.tags ?? [] } : draft!.content,
     now: input.now,
   });
   return writePublishingDraftState({

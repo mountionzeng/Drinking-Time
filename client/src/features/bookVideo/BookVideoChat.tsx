@@ -1,4 +1,7 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { confirmBookVideo } from "./confirmBookVideo";
+import { prepareBookForVideo } from "./bookPreparation";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -9,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   BOOK_VIDEO_QUESTION,
+  confirmedBookVideoVersions,
   type BookVideoRecord,
 } from "@shared/bookVideoCreation";
 import { useBookVideoSession, type BookVideoSession } from "./bookVideoSession";
@@ -32,6 +36,7 @@ export function BookVideoChat({
   session,
   handle,
   onAdopt,
+  onProgressChange,
 }: {
   storyId: number;
   accountId: number | null;
@@ -39,6 +44,7 @@ export function BookVideoChat({
   session: BookVideoSession | null;
   handle: MutableRefObject<BookVideoChatHandle | null>;
   onAdopt: () => Promise<void>;
+  onProgressChange?: (message: string) => void;
 }) {
   const _ui = useDesktopUiText();
   const utils = trpc.useUtils();
@@ -63,14 +69,68 @@ export function BookVideoChat({
     null
   );
   const lock = useRef(false);
+  const [running, setRunning] = useState(false);
   const busy =
+    running ||
     propose.isPending ||
     generate.isPending ||
     adopt.isPending ||
     edit.isPending;
+  const progress = !busy ? "" : propose.isPending ? _ui("正在整理视频方向…") : generate.isPending ? _ui("正在编排画面、台词与音乐…") : adopt.isPending ? _ui("正在采用视频素材表…") : edit.isPending ? _ui("正在保存方案参数…") : _ui("正在准备视频表格…");
+  useEffect(() => {
+    onProgressChange?.(progress);
+  }, [onProgressChange, progress]);
+  useEffect(() => () => onProgressChange?.(""), [onProgressChange]);
   const records = query.data?.records ?? [];
   const current = records.find(r => r.id === selected);
   const detail = records.find(r => r.id === opened);
+  const confirmedVersions = confirmedBookVideoVersions(records);
+  const versionLabel = (r: BookVideoRecord) => confirmedVersions.find(item => item.record.id === r.id)?.version;
+  const nextRecord = current ?? records.at(-1);
+  async function confirmAndOpen(record: BookVideoRecord, reviewed = false) {
+    await run(async () => {
+      await confirmBookVideo(record, {
+        prepare: async () => {
+          const scope = storySpineStore.getState();
+          if (scope.activeStoryId !== storyId || scope.accountId !== accountId) throw new Error("已切换故事，请回到原故事继续。");
+          if (record.bookSource) await prepareBookForVideo(storyId, accountId);
+        },
+        generate: () => generate.mutateAsync({ storyId, id: record.id, confirmBrief: true }),
+        adopt: () => adopt.mutateAsync({ storyId, id: record.id, reviewedRevision:record.revision }),
+        review: async ready => { await refresh(); setOpened(ready.id); setDraft(undefined); },
+        openTimeline: async () => {
+          void refresh().catch(error => {
+            console.warn("Video history refresh failed", error);
+          });
+          // Media reloads independently; a slow material index must not block navigation.
+          void utils.storyAgent.storyMaterialState.invalidate({ storyId }).catch(error => {
+            console.warn("Video media refresh failed", error);
+          });
+          const scope = storySpineStore.getState();
+          if (scope.activeStoryId !== storyId || scope.accountId !== accountId) return;
+          await onAdopt();
+          if (storySpineStore.getState().activeStoryId !== storyId) return;
+          setOpened(null);
+          useBookVideoSession.getState().setSession(null);
+          window.dispatchEvent(new CustomEvent("dt:creation-flow-focus", { detail: { storyId, target: "editing" } }));
+        },
+      }, reviewed ? record.revision : undefined);
+    });
+  }
+  function nextStep(record: BookVideoRecord, reviewed = false) {
+    if (record.status === "planning") return <p role="status">{_ui("正在整理方案，完成后即可确认进入视频表格。")}</p>;
+    if (!record.brief) return <div className="space-y-2">
+      <p>{record.error || _ui("请先补充视频想法。")}</p>
+      <button className={button} disabled={busy} onClick={() => resume(record)}>{_ui("继续确认制作条件")}</button>
+    </div>;
+    return <div className="space-y-2">
+      {record.brief.question && record.status !== "adopted" && <p className="text-muted-foreground">{_ui("可以直接确认以上建议；想调整的话，在聊天里补充即可。")}</p>}
+      <button className="rounded-md bg-[var(--nayin-accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-40" disabled={busy || Boolean(draft)} onClick={() => void confirmAndOpen(record,reviewed)}>
+        {busy ? _ui("正在准备视频表格…") : record.status === "adopted" ? _ui("进入视频表格") : record.preview ? reviewed ? _ui("确认人物、台词和背景音，进入视频") : _ui("查看并确认分镜") : _ui("确认方向，整理分镜")}
+      </button>
+      <p className="text-muted-foreground">{record.status === "adopted" ? _ui("视频 V{0} 已保留。", [versionLabel(record)]) : _ui("先核对每个镜头的人物、台词/字幕与背景音，再确认进入视频。")} {_ui("在表格里生成图片、制作视频；媒体费用会另行确认。")}</p>
+    </div>;
+  }
   useEffect(() => {
     setSelected(null);
     setOpened(null);
@@ -82,6 +142,7 @@ export function BookVideoChat({
   async function run(task: () => Promise<void>) {
     if (lock.current) return false;
     lock.current = true;
+    setRunning(true);
     setError("");
     try {
       await task();
@@ -91,6 +152,7 @@ export function BookVideoChat({
       return false;
     } finally {
       lock.current = false;
+      setRunning(false);
     }
   }
   useEffect(() => {
@@ -98,19 +160,21 @@ export function BookVideoChat({
       async submit(text) {
         if (!session) return false;
         if (lock.current) return false;
+        const request = !selected && session.preferredDuration
+          ? `此前选择的参考时长：${session.preferredDuration}（若本轮描述修改时长，以本轮为准）。\n${text}` : text;
         return await run(async () => {
           const parentId = selected ?? undefined;
           if (
             !token.current ||
-            token.current.text !== text ||
+            token.current.text !== request ||
             token.current.parentId !== parentId
           )
-            token.current = { text, id: crypto.randomUUID(), parentId };
+            token.current = { text: request, id: crypto.randomUUID(), parentId };
           const r = await propose.mutateAsync({
             storyId,
             versionId: session.versionId,
             layout: session.layout,
-            request: text,
+            request,
             ...token.current,
           });
           await refresh();
@@ -140,7 +204,7 @@ export function BookVideoChat({
       {records.map(r => (
         <article key={r.id} className="rounded-lg border bg-background/70 p-2">
           <div className="flex items-center justify-between">
-            <strong>{_ui("视频创作方案")}</strong>
+            <strong>{r.status === "adopted" ? _ui("视频 V{0} · 已确认", [versionLabel(r)]) : r.status === "ready" ? _ui("视频素材表 · 待确认") : r.status === "failed" ? _ui("视频创作 · 未完成") : _ui("视频创作方案")}</strong>
             <span className="text-[10px] text-muted-foreground">
               {new Date(r.createdAt).toLocaleString()}
             </span>
@@ -177,22 +241,27 @@ export function BookVideoChat({
           aria-label={_ui("当前视频创作")}
         >
           <div className="flex items-center justify-between">
-            <strong>{_ui("制作视频")}</strong>
+            <strong>{_ui("把书做成视频")}</strong>
             <button
               className={button}
               disabled={busy}
               onClick={() => useBookVideoSession.getState().setSession(null)}
             >
-              {_ui("结束讨论")}{" "}</button>
+              {_ui("暂时收起")}</button>
           </div>
           {!current ? (
-            <p>{BOOK_VIDEO_QUESTION}</p>
+            <div className="space-y-2">
+              <p>{BOOK_VIDEO_QUESTION}</p>
+              {session.preferredDuration && <p>{_ui("参考时长：")}{session.preferredDuration}{_ui("，也可以在描述里调整。")}</p>}
+              <p className="text-muted-foreground">{_ui("我会结合书稿，帮你确认时长、氛围和用途。确认后再安排画面、台词与音乐。")}</p>
+            </div>
           ) : current.brief ? (
             <>
               <p>
-                {current.brief.question ||
+                {current.briefConfirmedAt ? _ui("本版制作条件已确认，可以继续讨论下一版本。") : current.brief.question ||
                   _ui("这是根据你的想法整理的方向，可以继续在下方补充或修改。")}
               </p>
+              <p className="font-medium">{current.briefConfirmedAt ? _ui("已确认的制作条件") : _ui("请确认这些制作条件")}</p>
               <dl className="space-y-1">
                 {Object.entries(labels).map(([key, label]) => (
                   <div key={key}>
@@ -203,35 +272,7 @@ export function BookVideoChat({
                   </div>
                 ))}
               </dl>
-              {!current.brief.question && !current.preview && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      const r = await generate.mutateAsync({
-                        storyId,
-                        id: current.id,
-                      });
-                      await refresh();
-                      if (r.preview) setOpened(r.id);
-                      else
-                        setError(
-                          "方案正在整理，稍后再次查询同一方案即可，不会生成图片或视频。"
-                        );
-                    })
-                  }
-                >
-                  {busy ? _ui("正在整理…") : _ui("确认方向，整理素材表")}
-                </button>
-              )}
-              {current.preview && (
-                <button
-                  className={button}
-                  onClick={() => setOpened(current.id)}
-                >
-                  {_ui("查看素材表")}{" "}</button>
-              )}
+              {nextStep(current)}
             </>
           ) : (
             <p>{current.error || _ui("正在整理创作方向…")}</p>
@@ -244,6 +285,14 @@ export function BookVideoChat({
             {_ui("此步只整理文字方案，不购买图片、配音或视频。")}</p>
         </div>
       )}
+      {!session && nextRecord && <div className="rounded-lg border p-3 space-y-2" aria-label={_ui("视频制作下一步")}>
+        <strong>{_ui("下一步：进入视频制作")}</strong>
+        {nextRecord.brief && nextRecord.status !== "adopted" && <dl className="space-y-1">{Object.entries(labels).map(([key,label]) => <div key={key}><dt className="inline text-muted-foreground">{_ui(label)}：</dt><dd className="inline">{nextRecord.brief![key as keyof typeof labels]}</dd></div>)}</dl>}
+        {nextStep(nextRecord)}
+      </div>}
+      {busy && !onProgressChange && <p role="status" aria-live="polite" className="text-muted-foreground">
+        {propose.isPending ? _ui("正在根据书稿和你的要求整理视频方向…") : generate.isPending ? _ui("正在编排画面、台词与音乐，整理视频素材表…") : adopt.isPending ? _ui("正在采用素材表，保留原书稿和已有素材…") : edit.isPending ? _ui("正在保存方案参数…") : _ui("正在准备视频表格…")}
+      </p>}
       {error && (
         <p role="alert" className="text-red-600">
           {error}
@@ -267,7 +316,7 @@ export function BookVideoChat({
               <p className="text-sm whitespace-pre-wrap">
                 {_ui("本轮要求：")}{detail.request}
               </p>
-              <details>
+              <details open={detail.status === "proposed"}>
                 <summary className="cursor-pointer text-sm">{_ui("创作方向与参数")}</summary>
               <dl className="grid gap-2 sm:grid-cols-2 mt-2">
                 {detail.brief &&
@@ -281,18 +330,27 @@ export function BookVideoChat({
                   ))}
               </dl>
               </details>
+              {detail.bookSource && detail.musicAssets !== undefined && <p className="text-sm text-muted-foreground" role="status">
+                {_ui("书内可用素材：")}{detail.layout.illustrations.length} {_ui("张图片、")}{detail.musicAssets?.length ?? 0} {_ui("段音乐。图片优先沿用，复用无需重新生成。")}{Boolean(detail.musicAssets?.length) && (detail.brief?.useBookMusic === false
+                  ? _ui("本轮按讨论结果不自动加入书内音乐。")
+                  : _ui("配乐优先使用「{0}」，按书内顺序衔接、裁到成片长度；已编辑的配乐保留。", [detail.musicAssets!.map(a => a.title).join("、")]))}
+              </p>}
+              {Boolean(detail.missingMusic) && <p role="status" className="text-amber-700 text-sm">{_ui("有")}{" "}{detail.missingMusic} {_ui("段书内音乐尚不可用，本轮不自动生成替代音乐。")}</p>}
               {Boolean(detail.missingImages) && <p role="status" className="text-amber-700 text-sm">{_ui("有")}{" "}{detail.missingImages} {_ui("张书内图片尚未匹配到可用素材，请先重新上传到仓库；本方案未把它们算作已复用。")}</p>}
               {detail.preview && (
                 <div className="overflow-x-auto">
+                  <p className="mb-2 text-sm">{detail.status==='ready' ? _ui("请逐镜核对：谁说什么、画面如何呈现、背景音乐和音效是什么。可以直接修改，保存后再确认。") : _ui("这是已保留的视频方案。可查看人物、台词/字幕和背景音；调整请继续讨论新版本。")}</p>
+                  {detail.layout.dialogueRanges !== undefined && <p className="mb-2 text-xs text-muted-foreground">{_ui("已按书中“台词/字幕”标记带入原文，其他文字用于画面和上下文；你仍可在这里调整。")}</p>}
                   <table className="w-full min-w-[850px] text-xs">
                     <thead>
                       <tr>
                         {[
                           "画面与素材",
-                          "台词／旁白",
+                          "说话人／旁白",
+                          "台词／字幕",
                           "画面设计",
                           "动作与镜头",
-                          "音乐／音效",
+                          "背景音乐／环境声／音效",
                         ].map(h => (
                           <th key={h} className="border p-2 text-left">
                             {h}
@@ -320,8 +378,9 @@ export function BookVideoChat({
                                   alt={_ui("镜头{0}复用图片", [index + 1])}
                                 />
                               )}
+                            {shot.referenceImageIds?.map(id=>query.data?.images[id] ? <img key={id} className="mt-2 max-h-24" src={query.data.images[id]} alt={_ui("镜头{0}参考图片",[index+1])}/> : null)}
                             <p>
-                              {shot.referenceImageId
+                              {shot.referenceImageIds?.length ? _ui("书内参考图 · {0} 张",[shot.referenceImageIds.length]) : shot.referenceImageId
                                 ? _ui("复用书内图片")
                                 : shot.continuityImageId
                                   ? _ui("参考已有图，需补画面")
@@ -337,6 +396,7 @@ export function BookVideoChat({
                           </td>
                           {(
                             [
+                              "speaker",
                               "voiceText",
                               "action",
                               "videoRequirement",
@@ -345,9 +405,10 @@ export function BookVideoChat({
                           ).map(field => (
                             <td key={field} className="border p-1 align-top">
                               <textarea
-                                aria-label={_ui("镜头{0}{1}", [index + 1, field])}
+                                aria-label={_ui("镜头{0}{1}", [index + 1, ({speaker:'说话人',voiceText:'台词/字幕',action:'画面描述',videoRequirement:'动作与镜头',soundRequirement:'背景音乐与音效'})[field]])}
                                 className="min-h-28 w-full resize-y bg-transparent p-1"
-                                value={shot[field]}
+                                value={shot[field] ?? (field==='speaker' ? shot.voiceText ? detail.status==='adopted'?'旧方案未标注':'待确认' : '无台词' : '')}
+                                placeholder={field==='soundRequirement'?'无（可填写音乐或音效要求）':undefined}
                                 disabled={busy || detail.status !== "ready"}
                                 onChange={e => {
                                   const value = e.target.value;
@@ -414,22 +475,7 @@ export function BookVideoChat({
                   >
                     {_ui("保存方案修改")}</button>
                 )}
-                {detail.status === "ready" && (
-                  <button
-                    className={button}
-                    disabled={busy || Boolean(draft)}
-                    onClick={() =>
-                      void run(async () => {
-                        await adopt.mutateAsync({ storyId, id: detail.id });
-                        await refresh();
-                        await (session?.onAdopt ?? onAdopt)();
-                        setOpened(null);
-                        useBookVideoSession.getState().setSession(null);
-                      })
-                    }
-                  >
-                    {_ui("采用到视频素材表")}{" "}</button>
-                )}
+                {detail.brief && nextStep(detail,Boolean(detail.preview))}
                 <button
                   className={button}
                   disabled={busy || Boolean(draft)}
@@ -446,7 +492,7 @@ export function BookVideoChat({
                       {p.shots
                         .map(
                           (s, n) =>
-                            `${n + 1}. ${s.subject}\n台词：${s.voiceText}\n画面：${s.action}\n镜头：${s.videoRequirement}\n声音：${s.soundRequirement}`
+                            `${n + 1}. ${s.subject}\n说话人：${s.speaker ?? '待确认'}\n台词/字幕：${s.voiceText}\n画面：${s.action}\n镜头：${s.videoRequirement}\n声音：${s.soundRequirement}`
                         )
                         .join("\n\n")}
                     </pre>

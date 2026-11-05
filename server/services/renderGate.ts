@@ -96,6 +96,8 @@ export type RenderContext = {
    * 置为 true 时只保留内容主权、用户要求、参考边界、故事板事实与两条硬约束。
    */
   authoredBrief?: boolean;
+  /** Explicit reference-preservation exception approved by the user; not a new style preset. */
+  strictReferenceFidelity?: boolean;
   /** Immutable user-confirmed asset facts; these outrank inferred art direction. */
   lockedVisualAssets?: LockedVisualAssetPromptContract;
   /** 测试/重放时固定“当下”的日期；运行时默认使用上海时区当天。 */
@@ -389,6 +391,17 @@ function withoutPreviousColorSection(prompt: string): string {
 }
 
 export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledImagePrompt> {
+  if (ctx.strictReferenceFidelity && ctx.referenceImages?.length && ctx.userInstructions?.some(value => value.trim())) {
+    const prompt = [
+      "【原图优先】参考图片定义最终视觉，严格保留用户指定的主体形状、比例、相对位置、构图、配色、线条和材质。只修改用户明确点名的部分，不重新设计，不擅自添加笔触、电影光效、景深或装饰。",
+      "参考图中已有的界面、Logo和文字属于原图内容，按用户要求保留，不删除、不发明替代内容。多张参考分别保留用户点名的内容，不擅自混合成新风格。",
+      ctx.lockedVisualAssets?.promptContract.trim(),
+      "【本次用户原始要求】",
+      ...ctx.userInstructions.map(value => value.trim()).filter(Boolean),
+    ].filter(Boolean).join("\n");
+    if (prompt.length > promptMaxLengthFor(ctx)) throw new Error("保留原图的要求过长，请缩短后再生成；本次未提交图片任务。");
+    return { prompt };
+  }
   if (ctx.preservePrompt) {
     return { prompt: ctx.prompt.trim().slice(0, promptMaxLengthFor(ctx)) };
   }

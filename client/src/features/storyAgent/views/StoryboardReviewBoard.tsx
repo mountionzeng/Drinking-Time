@@ -1,6 +1,6 @@
 import { StoryboardPreflightTimeout, withStoryboardPreflightTimeout } from "./storyboardPreflightTimeout";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
-import { shotVideoPriceProfile } from "@shared/shotDirector";
+import { shotVideoPriceProfile, storyboardVideoRenderMode, type ShotVideoRenderMode } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
 import { useShotImageRender } from "./useShotImageRender";
@@ -143,7 +143,6 @@ import {
 import {
   storyboardExtractedFrameTimeMs,
   storyboardTimelineContentTotalMs,
-  type StoryboardEditFrameSource,
   type StoryboardShotTimingPreview,
 } from "@/features/creationEditor/storyboardEditRow";
 import {
@@ -234,6 +233,7 @@ import {
   shouldAnnounceVideoGenerationCancellation,
   shouldUseSingleImageFallback,
   storyShotInsertIdentity,
+  storyboardPrimaryFrameSource,
   type StoryboardFrameRole,
   type StoryboardNeighborFrameSource,
   type StoryboardContinuityResolution,
@@ -272,45 +272,6 @@ import {
  */
 const MANUAL_BOARD_SCROLL_GRACE_MS = 2_500;
 
-function storyboardPrimaryFrameSource(
-  shot: CreationEditorShot
-): StoryboardEditFrameSource | null {
-  const edit = shot.timelineItem?.primaryVideoEdit;
-  if (edit) {
-    return {
-      takeId: edit.takeId,
-      sourceStartSec: edit.sourceStartSec,
-      sourceEndSec: edit.sourceEndSec,
-      reverse: edit.effects.reverse,
-    };
-  }
-
-  const take = [shot.selectedVideoTake, ...(shot.videoTakes ?? [])].find(
-    candidate =>
-      Boolean(candidate?.videoUrl) &&
-      candidate != null &&
-      videoTakeAffordance(candidate.status).canPlay
-  );
-  if (!take) return null;
-  const range =
-    take.selectedSelectionType === "range" && take.selectedRangeId != null
-      ? (take.ranges.find(candidate => candidate.id === take.selectedRangeId) ??
-        null)
-      : null;
-  const sourceStartSec = Math.max(0, range?.startSec ?? 0);
-  const sourceEndSec = Math.max(
-    sourceStartSec,
-    range?.endSec ?? take.durationSec ?? sourceStartSec
-  );
-  if (!(sourceEndSec > sourceStartSec)) return null;
-  return {
-    takeId: take.id,
-    rangeId: range?.id ?? null,
-    sourceStartSec,
-    sourceEndSec,
-  };
-}
-
 function StoryboardMediaSelectionIndicator({
   selected,
 }: {
@@ -342,6 +303,7 @@ export function StoryboardReviewBoard({
   onUpdateShotField,
   onGenerateShotVoice,
   generatingVoiceShotIds = [],
+  voiceGenerationErrors = {},
   storyboardFieldVersions,
   onRestoreStoryboardFieldVersion,
   creationShots = [],
@@ -409,6 +371,7 @@ export function StoryboardReviewBoard({
     text: string
   ) => void | Promise<void>;
   generatingVoiceShotIds?: readonly string[];
+  voiceGenerationErrors?: Readonly<Record<string, string>>;
   storyboardFieldVersions?: StoryboardFieldVersions;
   onRestoreStoryboardFieldVersion?: (
     field: StoryboardVersionedField,
@@ -469,6 +432,7 @@ export function StoryboardReviewBoard({
   }) => Promise<ShotConsistencyAnalysis>;
   generatingVideoShotNos?: readonly number[];
   onGenerateShotVideo?: (input: {
+    renderMode?: ShotVideoRenderMode;
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
@@ -621,7 +585,7 @@ export function StoryboardReviewBoard({
   );
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [compactShots, setCompactShots] = useState(false);
-  const [simplifiedDisplay, setSimplifiedDisplay] = useState(false);
+  const [simplifiedDisplay, setSimplifiedDisplay] = useState(true);
   const [shotTimingPreview, setShotTimingPreview] =
     useState<StoryboardMatrixTimingPreviewState | null>(null);
   const updateShotTimingPreview = useCallback(
@@ -1544,7 +1508,7 @@ export function StoryboardReviewBoard({
       ) {
         setPreviewMedia(null);
       }
-      toast.success(`图片 #${input.imageId} 已删除`);
+      toast.success(`图片 #${input.imageId} 已从镜头移除，原图保留在仓库`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "图片删除失败");
     } finally {
@@ -2161,7 +2125,7 @@ export function StoryboardReviewBoard({
       toast.info(message);
       return { status: "cancelled", message };
     }
-    if (creationShot.publishingVideo?.continuityImageId && !creationShot.imageId && !request?.imageId) {
+    if ((creationShot.publishingVideo?.continuityImageId || creationShot.publishingVideo?.referenceImageIds?.length) && !creationShot.imageId && !request?.imageId) {
       const stableId = storyShotInsertIdentity(shot, shotIndex) ?? String(shot.shotNo);
       const settings = loadShotRenderSettings(storyId ?? 0, stableId, materialState);
       return renderConfiguredShotImages(shot, creationShot, shotIndex,
@@ -2654,7 +2618,7 @@ export function StoryboardReviewBoard({
   const [startEndTuningOverrides, setStartEndTuningOverrides] = useState<
     Record<
       string,
-      { durationSec?: number; movementAmplitude?: StoryboardStartEndAmplitude }
+      { durationSec?: number; movementAmplitude?: StoryboardStartEndAmplitude; videoRenderMode?: ShotVideoRenderMode }
     >
   >({});
   const startEndTuningOverridesRef = useRef(startEndTuningOverrides);
@@ -2664,6 +2628,7 @@ export function StoryboardReviewBoard({
   const updateStartEndTuning = (
     creationShot: CreationEditorShot | undefined,
     tuning: {
+      videoRenderMode?: ShotVideoRenderMode;
       durationSec?: number;
       movementAmplitude?: StoryboardStartEndAmplitude;
     }
@@ -2693,6 +2658,12 @@ export function StoryboardReviewBoard({
       });
   };
 
+  const videoMode = (shot: CreationEditorShot | undefined): ShotVideoRenderMode =>
+    startEndTuningOverridesRef.current[shot?.stableShotId ?? shot?.shotIdentity ?? ""]?.videoRenderMode ?? storyboardVideoRenderMode(shot?.generationParams);
+  const videoPriceProfile = (shot: CreationEditorShot | undefined) => videoMode(shot) === "economy" ? "vidu-economy" as const : shotVideoPriceProfile(shotVideoProviderStatus?.submitPath);
+  const singleVideoReady = (shot: CreationEditorShot | undefined) => Boolean(shotVideoProviderStatus &&
+    (videoMode(shot) === "economy" ? !shotVideoProviderStatus.missing.includes("API302_KEY") : shotVideoProviderStatus.ready));
+
   const matrixCostEstimate = (shot: StoryShot) => {
     const index = shots.indexOf(shot);
     const identity =
@@ -2703,7 +2674,7 @@ export function StoryboardReviewBoard({
       startEndTuningOverrides[source?.stableShotId ?? source?.shotIdentity ?? ""] ?? {},
       creationShots,
       loadShotRenderSettings(storyId ?? 0, identity, materialState).count,
-      shotVideoPriceProfile(shotVideoProviderStatus?.submitPath)
+      videoPriceProfile(source)
     );
   };
 
@@ -2712,6 +2683,7 @@ export function StoryboardReviewBoard({
     creationShot: CreationEditorShot | undefined,
     options: {
       skipCostConfirmation?: boolean;
+      approvedVideoCny?: number;
       sourceImage?: { imageId: number; imageUrl: string };
     } = {}
   ) => {
@@ -2766,7 +2738,7 @@ export function StoryboardReviewBoard({
       };
     }
     const videoBlockReason = storyboardVideoRenderBlockReason(effectiveShot, {
-      ready: Boolean(shotVideoProviderStatus?.ready),
+      ready: singleVideoReady(effectiveShot),
       reason:
         shotVideoProviderStatus?.missing.filter(Boolean).join("、") ||
         "视频模型状态尚未就绪",
@@ -2880,6 +2852,7 @@ export function StoryboardReviewBoard({
           throw new Error("这个首尾帧镜头暂时无法提交视频生成");
         }
         const estimate = await onEstimateStartEndShotVideo(stableShotId);
+        if (options.skipCostConfirmation && Math.abs((options.approvedVideoCny ?? -1) - estimate.estimatedCny) > 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
         const usesLocalTransform =
           estimate.renderStrategy === "local-transform";
         const frameConstraintNotice = estimate.frameConstraintWarning
@@ -2932,14 +2905,14 @@ export function StoryboardReviewBoard({
       const plan = quickShotVideoRenderPlan(
         effectiveShot,
         previousCreationShotsByNo.get(effectiveShot.shotNo) ?? [],
-        shotVideoPriceProfile(shotVideoProviderStatus?.submitPath)
+        videoPriceProfile(effectiveShot)
       );
       if (plan.missing.length > 0) {
         throw new Error(`${label} 还缺少：${plan.missing.join("、")}`);
       }
       if (
         plan.renderDecision.strategy === "paid-302" &&
-        !shotVideoProviderStatus?.ready
+        !singleVideoReady(effectiveShot)
       ) {
         const missing = shotVideoProviderStatus?.missing
           .filter(Boolean)
@@ -2948,18 +2921,20 @@ export function StoryboardReviewBoard({
           missing ? `视频模型未就绪：${missing}` : "视频模型状态尚未就绪"
         );
       }
+      if (options.skipCostConfirmation && Math.abs((options.approvedVideoCny ?? -1) - plan.estimatedCny) > 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
       const confirmed =
         options.skipCostConfirmation ||
         window.confirm(
           plan.renderDecision.strategy === "local-transform"
             ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n${videoMode(effectiveShot) === "economy" ? "Vidu Q2 Pro Fast · 720p · 生成1条视频" : videoPriceProfile(effectiveShot) === "mj-turbo" ? "MJ · 一次生成4条候选，每条5秒" : "当前配置的视频模型"}。总计约${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}，${plan.durationSec}秒。人物版本：${continuityChoice?.label ?? "当前镜头"}。会保留旧版本，生成后由你选择采用。确认提交？`
         );
       if (!confirmed) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
         return false;
       }
       const result = (await onGenerateShotVideo({
+        renderMode: videoMode(effectiveShot),
         shotNo: effectiveShot.shotNo,
         imageId: effectiveShot.imageId,
         characterReferenceImageUrl: continuityChoice?.imageUrl,
@@ -3040,8 +3015,13 @@ export function StoryboardReviewBoard({
         ? `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成单张主图，再生成视频。`
         : `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成四图候选，并按固定规则采用左上候选作为当前主图，再生成视频。`
       : "";
+    const approvedVideoCosts = new Map(plan.shots.map(planned => {
+      const shot = shots.find(item => item.shotNo === planned.shotNo);
+      return [planned.shotNo, shot ? matrixCostEstimate(shot).videoCny : 0] as const;
+    }));
+    const totalQuote = [...approvedVideoCosts.values()].reduce((sum, cost) => sum + cost, plan.imageGenerationCount * imageEstimate);
     const confirmed = window.confirm(
-      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}；新资产会保留旧版本。确认一键生成？`
+      `将读取整个故事版，根据各镜选择的模型生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(totalQuote).replace(/算力$/, _ui("算力"))}；费用变化时停止该镜提交，新资产会保留旧版本。确认一键生成？`
     );
     if (!confirmed) {
       toast.info("已取消一键生成，未产生费用");
@@ -3101,6 +3081,7 @@ export function StoryboardReviewBoard({
           }
           const submitted = await rerenderShotVideo(shot, creationShot, {
             skipCostConfirmation: true,
+            approvedVideoCny: approvedVideoCosts.get(plannedShot.shotNo),
             sourceImage,
           });
           if (submitted) completed += 1;
@@ -3393,6 +3374,17 @@ export function StoryboardReviewBoard({
             />
             <div
               ref={boardScrollRef}
+              tabIndex={-1}
+              onPointerDownCapture={event => {
+                if (event.button !== 0) return;
+                const target = event.target as Element;
+                const control = target.closest(
+                  'button, a, input, textarea, select, [contenteditable]:not([contenteditable="false"]), [tabindex], [role="button"]'
+                );
+                if (!control || control === event.currentTarget) {
+                  event.currentTarget.focus({ preventScroll: true });
+                }
+              }}
               className="min-h-0 flex-1 overflow-auto custom-scrollbar"
               style={{ scrollPaddingLeft: 76 }}
             >
@@ -3486,6 +3478,7 @@ export function StoryboardReviewBoard({
                       <button
                         type="button"
                         onClick={() => selectMatrixShot(shot.shotNo)}
+                        data-playback-space="true"
                         className="flex w-full min-w-0 items-baseline gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                         aria-label={_ui("选择 {0} {1}", [shotLabel, title])}
                       >
@@ -4214,6 +4207,7 @@ export function StoryboardReviewBoard({
                                     }}
                                     aria-label={_ui("查看 {0} {1}", [displayShotCode(shot), _ui(frameRole)])}
                                     aria-pressed={imageSelected}
+                                    data-playback-space="true"
                                     data-storyboard-media-selected={
                                       imageSelected
                                     }
@@ -4320,7 +4314,7 @@ export function StoryboardReviewBoard({
                                       className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                      {_ui("删除图片")}{" "}</ContextMenu.Item>
+                                      {_ui("从镜头移除（仓库保留）")}</ContextMenu.Item>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4335,8 +4329,8 @@ export function StoryboardReviewBoard({
                                     void deleteStoryboardFrame(manageInput);
                                   }}
                                   className="absolute right-0.5 top-0.5 z-10 flex h-5 w-5 items-center justify-center rounded-sm bg-black/72 text-white shadow-sm transition-colors hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-45"
-                                  aria-label={_ui("删除 {0} 图片 #{1}", [displayShotCode(shot), frame.id])}
-                                  title={_ui("删除图片 #{0}", [frame.id])}
+                                  aria-label={_ui("从镜头移除 {0} 图片 #{1}", [displayShotCode(shot), frame.id])}
+                                  title={_ui("从镜头移除（仓库保留） #{0}", [frame.id])}
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </button>
@@ -4430,6 +4424,7 @@ export function StoryboardReviewBoard({
                                     }}
                                     aria-label={_ui("播放 {0} {1}", [displayShotCode(shot), clip.label])}
                                     aria-pressed={clipSelected}
+                                    data-playback-space="true"
                                     data-storyboard-media-selected={
                                       clipSelected
                                     }
@@ -4691,6 +4686,7 @@ export function StoryboardReviewBoard({
                                     }}
                                     aria-label={_ui("播放 {0} Take {1}", [displayShotCode(shot), take.id])}
                                     aria-pressed={takeMediaSelected}
+                                    data-playback-space="true"
                                     data-storyboard-media-selected={
                                       takeMediaSelected
                                     }
@@ -5056,7 +5052,7 @@ export function StoryboardReviewBoard({
                                 )
                               ),
                               {
-                                ready: Boolean(shotVideoProviderStatus?.ready),
+                                ready: usesStartEndVideo ? Boolean(shotVideoProviderStatus?.ready) : singleVideoReady(creationShot),
                                 reason:
                                   shotVideoProviderStatus?.missing
                                     .filter(Boolean)
@@ -5072,6 +5068,7 @@ export function StoryboardReviewBoard({
                               shotLabel={shotLabel}
                               selected={selected}
                               editable={Boolean(onUpdateShotField)}
+                              generationError={voiceGenerationErrors[`${storyId}:${stableShotId}`]}
                               generating={Boolean(
                                 stableShotId &&
                                   generatingVoiceShotIds.includes(stableShotId)
@@ -5205,6 +5202,18 @@ export function StoryboardReviewBoard({
                                     onGenerateStartEndShotVideo)) ? (
                                 <div className="flex w-full flex-col gap-1">
                                   <div className="flex flex-col gap-1">
+                                    {!usesStartEndVideo && <select
+                                      aria-label={_ui("{0} 视频生成方式", [shotLabel])}
+                                      value={videoMode(creationShot)}
+                                      disabled={!onUpdateShotFields || isShotRenderActive(shot.shotNo)}
+                                      onPointerDown={event => event.stopPropagation()}
+                                      onClick={event => event.stopPropagation()}
+                                      onChange={event => { event.stopPropagation(); void updateStartEndTuning(creationShot, { videoRenderMode: event.target.value as ShotVideoRenderMode }); }}
+                                      className="h-7 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground"
+                                    >
+                                      <option value="economy">{_ui("经济单条 · Vidu 720p")}</option>
+                                      <option value="existing">{shotVideoPriceProfile(shotVideoProviderStatus?.submitPath) === "mj-turbo" ? _ui("MJ · 4条候选 × 5秒") : _ui("原视频模型")}</option>
+                                    </select>}
                                     <label
                                       className="sr-only"
                                       htmlFor={`shot-${shot.shotNo}-duration`}
@@ -5213,7 +5222,7 @@ export function StoryboardReviewBoard({
                                     </label>
                                     <select
                                       id={`shot-${shot.shotNo}-duration`}
-                                      value={Math.max(usesStartEndVideo ? 1 : 3,
+                                      value={!usesStartEndVideo && videoPriceProfile(creationShot) === "mj-turbo" && matrixCostEstimate(shot).videoCny > 0 ? 5 : Math.max(usesStartEndVideo || videoMode(creationShot) === "economy" ? 1 : 3,
                                         startEndTuningOverrides[
                                           creationShot.stableShotId ??
                                             creationShot.shotIdentity ??
@@ -5224,7 +5233,7 @@ export function StoryboardReviewBoard({
                                           creationShot.durationMs
                                         )
                                       )}
-                                      disabled={!onUpdateShotFields}
+                                      disabled={!onUpdateShotFields || (!usesStartEndVideo && videoPriceProfile(creationShot) === "mj-turbo" && matrixCostEstimate(shot).videoCny > 0)}
                                       onPointerDown={event =>
                                         event.stopPropagation()
                                       }
@@ -5241,9 +5250,9 @@ export function StoryboardReviewBoard({
                                         );
                                       }}
                                       className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
-                                      title={_ui("本次生成时长；首尾帧支持1至8秒，普通视频支持3至8秒")}
+                                      title={_ui("经济单条可按秒生成；MJ候选固定5秒；首尾帧保留原设置")}
                                     >
-                                      {STORYBOARD_START_END_DURATION_OPTIONS.filter(seconds => usesStartEndVideo || seconds >= 3).map(
+                                      {STORYBOARD_START_END_DURATION_OPTIONS.filter(seconds => usesStartEndVideo || videoMode(creationShot) === "economy" || seconds >= 3).map(
                                         seconds => (
                                           <option key={seconds} value={seconds}>
                                             {_ui("{0} 秒", [seconds])}
@@ -5251,7 +5260,7 @@ export function StoryboardReviewBoard({
                                         )
                                       )}
                                     </select>
-                                    <label
+                                    {(usesStartEndVideo || videoMode(creationShot) !== "economy") && <><label
                                       className="sr-only"
                                       htmlFor={`shot-${shot.shotNo}-amplitude`}
                                     >
@@ -5297,7 +5306,7 @@ export function StoryboardReviewBoard({
                                           </option>
                                         )
                                       )}
-                                    </select>
+                                    </select></>}
                                   </div>
                                   <button
                                     type="button"
@@ -5326,6 +5335,7 @@ export function StoryboardReviewBoard({
                                       checking={continuityCheckingByShot[shot.shotNo] === "video"}
                                       busy={rerenderingShotNos.includes(shot.shotNo) || generatingVideoShotNos.includes(shot.shotNo)}
                                       estimatedCny={matrixCostEstimate(shot).videoCny}
+                                      candidateCount={!usesStartEndVideo && videoPriceProfile(creationShot) === "mj-turbo" ? 4 : 1}
                                     />
                                   </button>
                                   <StoryboardVideoBlockHint reason={matrixVideoBlockReason} />

@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { blockBody, insertBlockText, mergeWritingBlocks, moveWritingBlock, restoreWritingBlocks, setBlockFormat, type WritingBlock } from './chapterBlockTree';
+import { blockBody, insertBlockText, mergeWritingBlocks, moveWritingBlock, restoreWritingBlocks, restoreStyledBlocks, writingStyleOf, splitWritingBlock, setBlockFormat, type WritingBlock } from './chapterBlockTree';
 const b = (id: string, text: string, parentId: string | null = null, heading = false): WritingBlock => ({ id, text, parentId, format: heading ? 'heading2' : 'text', collapsed: false });
 const sample = () => [b('h', '标题', null, true), b('a', '段落甲', 'h'), b('b', '段落乙', 'h'), b('outside', '外部正文')];
 describe('explicit local writing block hierarchy', () => {
+  it('persists dialogue classification through save, restore, typing and splitting; normal text clears it',()=>{
+    const blocks=[{...b('a','第一句\n第二句'),videoRole:'dialogue' as const}];
+    expect(restoreStyledBlocks(blockBody(blocks),writingStyleOf(blocks))[0].videoRole).toBe('dialogue');
+    expect(insertBlockText(blocks,0,'第一句\n下一句').blocks.every(b=>b.videoRole==='dialogue')).toBe(true);
+    expect(splitWritingBlock(blocks,0,3,3).blocks.every(b=>b.videoRole==='dialogue')).toBe(true);
+    expect(setBlockFormat(blocks,0,'text')[0].videoRole).toBeUndefined();
+  });
   it('creates text inside an expanded heading, before existing children', () => {
     const result = insertBlockText(sample(), 0, '标题\n新文字');
     expect(result.insertedIndex).toBe(1);

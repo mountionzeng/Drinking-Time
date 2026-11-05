@@ -1,3 +1,5 @@
+import { detachGeneratedImageFromShot } from "../repositories/images";
+import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
 import { generateLegnextImage } from "../services/legnextImage";
 import { storyTagsSchema } from "../../shared/storyTags";
 import { getStoryTags, setStoryTags } from "../services/storyTags";
@@ -6,7 +8,7 @@ import { listAccountImages } from "../repositories/accountImages";
 import { syncStoryChatMemories, syncStoryChatMemoriesSafely } from "../services/chatMemoryWarehouse";
 import { readTrashedStories } from "../repositories/storyTrashState";
 import { formatComputeQuote } from "../../shared/computeMoney";
-import { shotRenderReferencesSchema } from "../../shared/shotImageRender";
+import { shotRenderReferencesSchema, requestsStrictReferenceFidelity } from "../../shared/shotImageRender";
 import { placeImageRevisionForStory } from "../services/visualClipEditing";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -1812,6 +1814,7 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         warehouseTextureSourceId: z.number().int().positive().optional(),
+        shotImageRequestId: z.string().uuid().optional(),
         moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
@@ -1871,7 +1874,7 @@ export const storyAgentRouter = router({
     // Every metered AI call made while preparing the prompt is recorded so that a
     // definite image failure can refund them (each one exactly once).
     .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
-      const execute = async (moduleImage?: ModuleImageHooks) => {
+      const execute = async (moduleImage?: ModuleImageHooks, storyboardImage?: StoryboardImageRender) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
         if (input.warehouseTextureSourceId) {
@@ -1984,7 +1987,7 @@ export const storyAgentRouter = router({
 
         // Reject a cooling-down provider before any paid prompt preparation runs.
         const plannedProvider = input.imageProvider ?? "midjourney";
-        if (!(moduleImage && plannedProvider === "midjourney") && input.mode !== "draft" && isImageProviderCoolingDown(plannedProvider)) {
+        if (!((moduleImage || storyboardImage) && plannedProvider === "midjourney") && input.mode !== "draft" && isImageProviderCoolingDown(plannedProvider)) {
           const rejection = providerCooldownRejection(plannedProvider);
           return {
             status: "error" as const,
@@ -2315,6 +2318,8 @@ export const storyAgentRouter = router({
           lockedAssets?.sceneRef ??
           lockedAssets?.petRef ??
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
+        const strictReferenceFidelity = Boolean(referenceImage) &&
+          requestsStrictReferenceFidelity(input.explicitInstruction ?? "");
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
@@ -2356,7 +2361,11 @@ export const storyAgentRouter = router({
                   referencePlan.referencePurpose !== "scene-style",
               })
             : await deriveInjection(story, input.sceneAnalysis);
-        if (input.remixEdit) {
+        if (strictReferenceFidelity) {
+          // The user's preservation request is authoritative; vision rewriting
+          // previously invented steam, lighting and a new interface composition.
+          prompt = input.explicitInstruction!.trim();
+        } else if (input.remixEdit) {
           // 多图重组时，客户端已经把「图1＝…图2＝…」的清单和用户原话拼成 prompt，
           // 图号和实际发送顺序严格对齐。这里不能再走 directImagePrompt：它只看
           // 底图一张，会把「取图2的那件外套」重写成对图1的整体画面描述，跨图指令
@@ -2418,10 +2427,10 @@ export const storyAgentRouter = router({
           }
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
-        if (!lockedAssets && !input.renderReferences) {
+        if (!strictReferenceFidelity && !lockedAssets && !input.renderReferences) {
           prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
         }
-        if (coverArtDirection && !lockedAssets && !input.renderReferences) {
+        if (!strictReferenceFidelity && coverArtDirection && !lockedAssets && !input.renderReferences) {
           prompt = await compilePublishingCoverStoryboardPrompt({
             prompt,
             provider: input.imageProvider ?? "midjourney",
@@ -2429,6 +2438,7 @@ export const storyAgentRouter = router({
         }
         const gateContext = {
           prompt,
+          strictReferenceFidelity,
           userInstructions: input.explicitInstruction
             ? [input.explicitInstruction]
             : undefined,
@@ -2582,6 +2592,18 @@ export const storyAgentRouter = router({
                 : "none"
             }`
           );
+          if (storyboardImage) {
+            return storyboardImage(accepted => generateLegnextImage(renderedFinalPrompt, accepted, {
+              ...injection, referenceImageUrl: referenceImage,
+              referenceContextImageUrls: Array.from(new Set([
+                ...(input.referenceContextImageUrls ?? []),
+                ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(d => d.providerReferenceUrl) : []),
+                ...(lockedAssets?.sceneRef ? [lockedAssets.sceneRef] : []),
+                ...(lockedAssets?.petRef ? [lockedAssets.petRef] : []),
+              ])).filter(url => url !== referenceImage).slice(0, 3),
+              imageWeight, aspectRatio: "16:9",
+            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial" });
+          }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
             return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted, { inlinePoll: !moduleImage.asyncSubmit });
           }
@@ -2765,6 +2787,16 @@ export const storyAgentRouter = router({
         };
       }
       };
+      if (!input.moduleTarget && input.shotImageRequestId && input.shotNo != null && (input.imageProvider ?? "midjourney") === "midjourney" && input.mode !== "draft" && !input.referenceRevision && !input.editMaskImageUrl) {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+        const identity = shotIdentityForStoryShot(story, input.shotNo);
+        if (!identity) throw new TRPCError({ code: "BAD_REQUEST", message: "镜头已变化，请重新打开分镜表" });
+        return runStoryboardImageTask({ storyId: input.storyId, userId: ctx.user.id, shotIdentity: identity, requestId: input.shotImageRequestId }, async render => {
+          const result = await execute(undefined, render);
+          return result.status === "ok" ? { ...result, candidates: "candidates" in result ? result.candidates : [{ imageId: result.imageId, imageUrl: result.imageUrl }] } : result;
+        });
+      }
       if (!input.moduleTarget) return execute();
       if (input.referenceImageUrl || input.referenceIdentityImageUrl || input.referenceContextImageUrls?.length || input.renderReferences || input.mode !== "final" || input.autoSelect || input.shotNo != null || input.referenceRevision || input.editMaskImageUrl || input.remixEdit || input.warehouseTextureSourceId || (input.imageProvider && !["midjourney", "gpt-image"].includes(input.imageProvider))) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "模块任务只支持已确认的文字生成图片" });
@@ -2951,9 +2983,17 @@ export const storyAgentRouter = router({
         }));
     }),
 
+  pendingStoryboardImages: protectedProcedure
+    .input(z.object({ storyId: z.number() }))
+    .query(({ ctx, input }) => pendingStoryboardImageTasks(input.storyId, ctx.user.id)),
+
+  recoverStoryboardImage: protectedProcedure
+    .input(z.object({ storyId: z.number(), requestId: z.string().min(1).max(100) }))
+    .mutation(({ ctx, input }) => recoverStoryboardImageTask(input.storyId, ctx.user.id, input.requestId)),
+
   // deleteShotImage: 删除某张图片，释放 primary 给下一张
   deleteShotImage: protectedProcedure
-    .input(z.object({ imageId: z.number(), storyId: z.number() }))
+    .input(z.object({ imageId: z.number(), storyId: z.number(), keepInWarehouse: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const [image, story] = await Promise.all([
         getGeneratedImageById(input.imageId),
@@ -2967,7 +3007,8 @@ export const storyAgentRouter = router({
       ) {
         return { status: "error" as const, error: "图片不存在或无权操作" };
       }
-      await deleteGeneratedImage(input.imageId, ctx.user.id);
+      if (input.keepInWarehouse) await detachGeneratedImageFromShot(input.imageId, input.storyId, ctx.user.id);
+      else await deleteGeneratedImage(input.imageId, ctx.user.id);
 
       const body =
         story.body && typeof story.body === "object"

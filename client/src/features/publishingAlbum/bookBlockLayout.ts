@@ -58,7 +58,9 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       const offsetY = frame ? frame.y * factor : 0;
       let x = baseX + (frame?.x ?? 0) * factor;
       let width = image ? (frame?.width ?? 900) * factor : available;
-      let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, chapterIds.has(block.id) && block.format === "heading1" ? Math.max(24, width - 120) : width, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
+      // Match BookDialogueText's two decorative gutters at every font/column size.
+      const textWidth = width - (block.videoRole === 'dialogue' ? Math.min(1.5 * fontSize, width * .3) : 0);
+      let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, chapterIds.has(block.id) && block.format === "heading1" ? Math.max(24, textWidth - 120) : textWidth, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
       if (!image && !readBookAudio(block.text)) height = Math.min(1104,Math.max(height,formulaHeights[block.id]??0));
       const aspect = image && imageRatios[image.url];
       if (image && !frame && aspect && aspect > 0) {
@@ -127,5 +129,16 @@ export function moveBookBlockByKey(blocks: WritingBlock[], id: string, key: stri
 export function deleteBookBlock(blocks: WritingBlock[], id: string): WritingBlock[] {
   const removed = blocks.find(block => block.id === id); if (!removed) return blocks;
   const next = blocks.filter(block => block.id !== id).map(block => block.parentId === id ? { ...block, parentId: removed.parentId } : block);
+  return next.length ? next : [newWritingBlock('')];
+}
+
+/** One manuscript edit so the entire deletion can be undone together. Assets stay in the warehouse. */
+export function deleteBookBlocks(blocks: WritingBlock[], ids: string[]): WritingBlock[] {
+  const removed = new Set(ids);
+  if (!blocks.some(block => removed.has(block.id))) return blocks;
+  const next = blocks.filter(block => !removed.has(block.id)).map(block =>
+    block.parentId && removed.has(block.parentId)
+      ? { ...block, parentId: blockAncestors(blocks, block.id).find(id => !removed.has(id)) ?? null }
+      : block);
   return next.length ? next : [newWritingBlock('')];
 }

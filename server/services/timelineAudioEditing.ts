@@ -48,6 +48,7 @@ import {
 } from "../../shared/timelineSubtitleModel";
 import {
   loadOwnedStoryTimelineEnvelope,
+  loadOwnedStoryVisualAggregate,
   saveStoryTimelineExtensionCas,
 } from "../persistence/storyVisualPersistence";
 import { loadReadyStoryAudioAsset } from "./storyAudioAssets";
@@ -57,7 +58,11 @@ import {
   recordTimelineMediaEditUndo,
 } from "./visualEditUndoJournal";
 import { withVisualEditServiceLock } from "./visualClipEditing";
-import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
+import {
+  activateVisualEditSession,
+  isVisualEditSessionEpochAllowed,
+} from "./visualEditSessionRegistry";
+import { projectStoryTimelineDocument } from "./storyMaterials";
 import {
   appendDurableTimelineMediaOperation,
   findDurableTimelineMediaOperation,
@@ -127,6 +132,7 @@ async function runMediaCommand(
     userId: number;
     operation: VisualEditOperationRef;
     commandPayload: unknown;
+    initializeMissingTimeline?: boolean;
     /**
      * A provider job that was accepted while the epoch was active may finish
      * after the editor moved on. Only that server-owned continuation may
@@ -138,6 +144,7 @@ async function runMediaCommand(
     slices: {
       audio: TimelineAudioState;
       subtitle: TimelineSubtitleState;
+      extensions: Record<string, unknown>;
     },
     ids: { next: () => string }
   ) =>
@@ -205,10 +212,26 @@ async function runMediaCommand(
     }
 
     for (let attempt = 0; ; attempt += 1) {
-      const envelope = await loadOwnedStoryTimelineEnvelope({
+      let envelope = await loadOwnedStoryTimelineEnvelope({
         storyId: input.storyId,
         userId: input.userId,
       });
+      let createsTimeline = false;
+      if (!envelope && input.initializeMissingTimeline) {
+        const aggregate = await loadOwnedStoryVisualAggregate(input);
+        if (aggregate?.timeline) continue;
+        if (aggregate) {
+          const projected = projectStoryTimelineDocument(aggregate.story, null);
+          envelope = {
+            version: 0,
+            items: projected.items,
+            overlays: projected.overlays,
+            visualLayerState: projected.visualLayerState,
+            extensions: {},
+          };
+          createsTimeline = true;
+        }
+      }
       if (!envelope) {
         return {
           status: "error",
@@ -238,6 +261,7 @@ async function runMediaCommand(
         {
           audio: audioStateOf(envelope.extensions),
           subtitle: subtitleStateOf(envelope.extensions),
+          extensions: envelope.extensions,
         },
         { next: () => randomUUID() }
       );
@@ -269,6 +293,12 @@ async function runMediaCommand(
           userId: input.userId,
           expectedVersion: envelope.version,
           currentItems: envelope.items,
+          ...(createsTimeline
+            ? {
+                currentOverlays: envelope.overlays,
+                currentVisualLayerState: envelope.visualLayerState,
+              }
+            : {}),
           extensions: nextExtensions,
         });
         const receipt = recordTimelineMediaEditUndo({
@@ -439,6 +469,100 @@ export async function insertAudioClipForStory(
   input: InsertAudioClipCommand
 ): Promise<TimelineMediaCommandResult> {
   return insertAudioClipForStoryWithSessionPolicy(input, false);
+}
+
+/** Confirmed book plans reuse selected music through the same CAS writer as manual edits.
+ * No provider call; source assets stay owned by the book. Remember considered assets
+ * even after a user removes a clip so a later plan cannot resurrect deleted music.
+ */
+export async function reuseBookMusicForStory(input: {
+  storyId: number;
+  userId: number;
+  planId: string;
+  assetIds: number[];
+  durationFrames: number;
+}): Promise<TimelineMediaCommandResult> {
+  if (!Number.isSafeInteger(input.durationFrames) || input.durationFrames <= 0)
+    return {
+      status: "error",
+      error: "视频时长无效，无法安排配乐",
+      errorKind: "invalid",
+    };
+  const assetIds = [...new Set(input.assetIds)];
+  const assets = await Promise.all(
+    assetIds.map(assetId => loadReadyStoryAudioAsset({ scope: input, assetId }))
+  );
+  if (
+    assets.some(
+      a => !a || !(a.durationFrames! > 0) || a.mediaKind === "narration"
+    )
+  )
+    return {
+      status: "error",
+      error: "书内配乐已不可用，请检查音乐素材后重试",
+      errorKind: "invalid",
+    };
+  const epoch = `book-video-music:${input.planId}`;
+  const activated = activateVisualEditSession({
+    ...input,
+    editorClientId: epoch,
+    editorSessionEpoch: epoch,
+    activationSequence: 0,
+  });
+  if (activated.status === "error")
+    return { ...activated, errorKind: "invalid" };
+  return runMediaCommand(
+    {
+      ...input,
+      operation: { editorSessionEpoch: epoch, operationId: "reuse-book-music" },
+      commandPayload: {
+        kind: "book-music-reuse",
+        assetIds,
+        durationFrames: input.durationFrames,
+      },
+      initializeMissingTimeline: true,
+    },
+    ({ audio, extensions }, ids) => {
+      const seen = new Set(
+        Array.isArray(extensions.bookMusicReuse)
+          ? (extensions.bookMusicReuse as number[])
+          : []
+      );
+      const music = audio.tracks.find(t => t.kind === "music")!;
+      // A pre-existing track is an explicit editing choice, including a muted one.
+      const preserveMusic = music.clips.length > 0 || music.muted;
+      let next = audio;
+      let cursor = 0;
+      let changed = false;
+      for (const asset of assets) {
+        if (!asset || seen.has(asset.id)) continue;
+        seen.add(asset.id);
+        changed = true;
+        if (preserveMusic || cursor >= input.durationFrames) continue;
+        const length = Math.min(
+          asset.durationFrames!,
+          input.durationFrames - cursor
+        );
+        const added = insertAudioClip(next, {
+          id: ids.next(),
+          kind: "music",
+          assetId: asset.id,
+          timelineStartFrame: cursor,
+          sourceInFrame: 0,
+          sourceOutFrame: length,
+          gain: 0.25,
+        });
+        if (added.status === "error") return added;
+        next = added.state;
+        cursor += length;
+      }
+      return {
+        status: "ok",
+        changed,
+        nextExtensions: { audioTracks: next, bookMusicReuse: [...seen] },
+      };
+    }
+  );
 }
 
 /**

@@ -52,7 +52,7 @@ export async function reconcileMediaBilling(afterId = 0): Promise<number> {
       const refreshed =
         snapshot.kind === "shot-start-end"
           ? await refreshViduTransition(receipt.taskId)
-          : await refreshShotVideoTask(receipt.taskId);
+          : await refreshShotVideoTask(receipt.taskId, { renderMode: snapshot.renderMode === "economy" ? "economy" : "existing" });
       if (refreshed.status === "available") {
         await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
       } else if (

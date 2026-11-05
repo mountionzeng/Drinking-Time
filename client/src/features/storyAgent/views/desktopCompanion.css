@@ -30,10 +30,22 @@
   position: relative;
   min-height: 38px;
   margin-bottom: -3px;
+  background: transparent;
 }
 .desktop-companion-input .desktop-companion-composer > section,
 .desktop-companion-input .desktop-companion-composer > span:not(.desktop-companion-peek) {
   padding-bottom: 7px;
+}
+
+/* The cup stays anchored to the input; surrounding space belongs to the conversation. */
+.story-chat-scroll-surface {
+  padding-bottom: 4px;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+.story-chat-composer {
+  background: transparent;
 }
 .desktop-companion-input:focus-within .desktop-companion-character {
   translate: 0 -2px;

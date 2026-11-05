@@ -3,6 +3,8 @@ import { ENV } from "../_core/env";
 import { log302FileUrl } from "./provider302FileUrlLog";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
+import type { ShotVideoRenderMode } from "../../shared/shotDirector";
+import { submitViduSingleVideo, refreshViduSingleVideo, VIDU_SINGLE_MODEL, VIDU_SINGLE_PATH } from "./viduSingleVideo";
 
 type Fetcher = typeof fetch;
 const MJ_VIDEO_MODEL = "mj-video";
@@ -10,6 +12,7 @@ const MJ_VIDEO_SUBMIT_PATH = "/mj-turbo/submit/video";
 const MJ_VIDEO_POLL_PATH = "/mj-turbo/task/{taskId}/fetch";
 
 export type ShotVideoInput = {
+  renderMode?: ShotVideoRenderMode;
   prompt: string;
   sourceImage: string;
   subtitle?: string;
@@ -342,15 +345,16 @@ function buildSubmitRequest(input: ShotVideoInput) {
   return { url, body };
 }
 
-export function getShotVideoProviderStatus(): ShotVideoProviderStatus {
+export function getShotVideoProviderStatus(renderMode?: ShotVideoRenderMode): ShotVideoProviderStatus {
   const baseUrl = normalizeBaseUrl(ENV.api302BaseUrl);
-  const submitPath = configuredSubmitPath();
-  const pollPath = configuredPollPath(submitPath);
-  const model = configuredModel(submitPath);
-  const imageField = configuredImageField(submitPath);
+  const economy = renderMode === "economy";
+  const submitPath = economy ? VIDU_SINGLE_PATH : configuredSubmitPath();
+  const pollPath = economy ? "/vidu/ent/v2/tasks/{taskId}/creations" : configuredPollPath(submitPath);
+  const model = economy ? VIDU_SINGLE_MODEL : configuredModel(submitPath);
+  const imageField = economy ? "images" : configuredImageField(submitPath);
   const missing = [
     !ENV.api302Key ? "API302_KEY" : "",
-    requiresModel(submitPath) && !ENV.video302Model.trim()
+    !economy && requiresModel(submitPath) && !ENV.video302Model.trim()
       ? "VIDEO_302_MODEL"
       : "",
   ].filter(Boolean);
@@ -379,6 +383,7 @@ export async function submitShotVideo(
   input: ShotVideoInput,
   options: { fetcher?: Fetcher } = {}
 ): Promise<ShotVideoSubmitResult> {
+  if (input.renderMode === "economy") return submitViduSingleVideo({ ...input, durationSec: input.durationSec ?? 5 }, options);
   const providerStatus = getShotVideoProviderStatus();
   if (providerStatus.missing.includes("API302_KEY")) {
     return {
@@ -480,8 +485,9 @@ export async function submitShotVideo(
 
 export async function refreshShotVideoTask(
   taskId: string,
-  options: { fetcher?: Fetcher } = {}
+  options: { fetcher?: Fetcher; renderMode?: ShotVideoRenderMode } = {}
 ): Promise<ShotVideoTaskRefreshResult> {
+  if (options.renderMode === "economy") return refreshViduSingleVideo(taskId, options);
   if (!ENV.api302Key) {
     return {
       status: "unfollowable",

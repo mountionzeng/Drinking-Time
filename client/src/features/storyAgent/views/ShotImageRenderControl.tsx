@@ -131,9 +131,13 @@ export function loadShotRenderSettings(
   } catch {
     /* No saved preferences. */
   }
-  const illustration = material?.shots.find(
+  const shotMaterial = material?.shots.find(
     shot => shot.stableShotId === stableShotId
-  )?.imageGenerationReference;
+  );
+  if (shotMaterial?.imageGenerationReferences?.length) {
+    return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: shotMaterial.imageGenerationReferences.map(image => image.id), assets: {} } };
+  }
+  const illustration = shotMaterial?.imageGenerationReference;
   if (illustration) {
     return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: [illustration.id], assets: {} } };
   }

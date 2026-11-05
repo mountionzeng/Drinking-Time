@@ -12,6 +12,8 @@
  * `subtitleTracks`, no next Story body. The version lives here.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { buildTimelineLayout } from "../../shared/timelineLayout";
+import { generatedSubtitleSpans } from "../../shared/generatedSubtitles";
 import type { VisualEditOperationRef } from "../../shared/visualEditReceipt";
 import type { VisualEditReceipt } from "../../shared/visualEditReceipt";
 import {
@@ -36,8 +38,10 @@ import {
   loadOwnedStoryVisualAggregate,
   loadOwnedStoryTimelineEnvelope,
   saveStoryTimelineExtensionCas,
+  type OwnedStoryTimelineEnvelope,
 } from "../persistence/storyVisualPersistence";
 import { projectStoryTimelineDocument } from "./storyMaterials";
+import { projectLegacyTimelineMedia } from "./legacyTimelineMedia";
 import {
   consumeTimelineMediaEditUndo,
   findTimelineMediaEditUndo,
@@ -97,8 +101,9 @@ function subtitleStateFromExtensions(
 
 type SubtitlePlanner = (
   state: TimelineSubtitleState,
-  ids: { next: () => string }
-) => SubtitlePlannerResult;
+  ids: { next: () => string },
+  timeline: OwnedStoryTimelineEnvelope
+) => SubtitlePlannerResult | Promise<SubtitlePlannerResult>;
 
 async function runSubtitleCommand(
   input: {
@@ -111,6 +116,7 @@ async function runSubtitleCommand(
   options: {
     markBoundNarrationStale?: boolean;
     initializeMissingTimeline?: boolean;
+    preserveExistingTrack?: boolean;
   } = {}
 ): Promise<TimelineMediaCommandResult> {
   return withVisualEditServiceLock(input.storyId, input.userId, async () => {
@@ -145,6 +151,14 @@ async function runSubtitleCommand(
         };
       }
       if (replay.status !== "available") {
+        if (options.preserveExistingTrack) {
+          const current = await loadOwnedStoryTimelineEnvelope(input);
+          return {
+            status: "ok",
+            timelineVersion: current?.version ?? 0,
+            changed: false,
+          };
+        }
         return {
           status: "error",
           error: "这条操作已经撤销，不能再次重放",
@@ -234,7 +248,25 @@ async function runSubtitleCommand(
         };
       }
       const beforeState = subtitleStateFromExtensions(envelope.extensions);
-      const result = planner(beforeState, { next: () => randomUUID() });
+      // An intentional empty track is just as authoritative as edited captions.
+      if (
+        options.preserveExistingTrack &&
+        Object.prototype.hasOwnProperty.call(
+          envelope.extensions,
+          SUBTITLE_SLICE_KEY
+        )
+      ) {
+        return {
+          status: "ok",
+          timelineVersion: envelope.version,
+          changed: false,
+        };
+      }
+      const result = await planner(
+        beforeState,
+        { next: () => randomUUID() },
+        envelope
+      );
       if (result.status === "error") {
         return { status: "error", error: result.message, errorKind: "invalid" };
       }
@@ -331,6 +363,82 @@ async function runSubtitleCommand(
 }
 
 // ── Public commands ──────────────────────────────────────────────────────
+
+/** Initial captions are part of confirming a generated storyboard, never a page-load write. */
+export function initializeGeneratedSubtitlesForStory(input: {
+  storyId: number;
+  userId: number;
+  generationId: string;
+}): Promise<TimelineMediaCommandResult> {
+  const generationKey = createHash("sha256")
+    .update(input.generationId)
+    .digest("hex")
+    .slice(0, 32);
+  return runSubtitleCommand(
+    {
+      ...input,
+      operation: {
+        editorSessionEpoch: `generated-subtitles-${generationKey}`,
+        operationId: "initialize",
+      },
+      commandPayload: {
+        kind: "initialize-generated",
+        generationId: input.generationId,
+      },
+    },
+    async (state, ids, timeline) => {
+      const aggregate = await loadOwnedStoryVisualAggregate(input);
+      if (!aggregate)
+        return { status: "error", message: "故事不存在或无权操作" };
+      // Existing imported captions remain authoritative through their read-only adapter.
+      if (
+        projectLegacyTimelineMedia(
+          aggregate.story.body
+        ).subtitleState.tracks.some(track => track.cues.length)
+      ) {
+        return { status: "ok", state, changed: false };
+      }
+      const body = aggregate.story.body as {
+        shots?: unknown;
+        _revision?: number;
+      } | null;
+      const shots = new Map<string, string>();
+      for (const raw of Array.isArray(body?.shots) ? body.shots : []) {
+        if (!raw || typeof raw !== "object") continue;
+        const shot = raw as { stableShotId?: string; dialogue?: string };
+        if (
+          typeof shot.stableShotId === "string" &&
+          typeof shot.dialogue === "string"
+        )
+          shots.set(shot.stableShotId, shot.dialogue);
+      }
+      const projected = projectStoryTimelineDocument(aggregate.story, timeline);
+      return initializeSubtitleCues(state, {
+        candidates: buildTimelineLayout(
+          projected.items.filter(item => item.included !== false)
+        ).flatMap(row => {
+          const text = shots.get(row.item.stableShotId)?.trim();
+          return text
+            ? generatedSubtitleSpans(
+                text,
+                row.startFrame,
+                row.durationFrames
+              ).map(span => ({
+                id: ids.next(),
+                ...span,
+                provenance: {
+                  kind: "shot-dialogue" as const,
+                  stableShotId: row.item.stableShotId,
+                },
+                sourceTextRevision: body?._revision ?? 0,
+              }))
+            : [];
+        }),
+      });
+    },
+    { initializeMissingTimeline: true, preserveExistingTrack: true }
+  );
+}
 
 export function initializeSubtitlesForStory(input: {
   storyId: number;

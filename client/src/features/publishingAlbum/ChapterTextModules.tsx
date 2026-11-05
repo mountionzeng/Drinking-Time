@@ -1,7 +1,11 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { MediaPlayer } from "@/components/ui/media-player";
 import { useBookModuleActions } from "./bookModuleActions";
+import { compositionSources } from '@shared/bookImageComposition';
+import { gatherBookMaterials, useBookImageCompositionSession } from './bookImageCompositionSession';
+import { toast } from 'sonner';
 import { BookVideoStartButton } from "@/features/bookVideo/BookVideoStartButton";
+import { useBookVideoSession } from '@/features/bookVideo/bookVideoSession';
 import { mergeBookText } from "./mergeBookText";
 import { INSERT_WAREHOUSE_BOOK, type WarehouseBookInsert } from "./warehouseBookInsert";
 import { BookModuleConvert, type ModuleConversion } from "./BookModuleConvert";
@@ -20,6 +24,7 @@ import { writingBlockOffset, writingBlockPosition, splitWritingBlock, insertBloc
 import { BookBlockCanvas } from './BookBlockCanvas';
 import { BookTextRangeOverlay, syncBookTextScroll, useBookTextRange } from './useBookTextRange';
 import { BookMathText } from './BookMathText';
+import { BookDialogueText } from './BookDialogueText';
 import { insideBookLatex, splitBookTextModules } from './bookLatex';
 import { bookBlockContext, bookSelectionContext } from './bookBlockContext';
 import { captureBookRewrite, applyBookRewrite } from './bookRewrite';
@@ -77,11 +82,65 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
   const mediaLatest = useRef({ blocks, disabled, prepareMedia });
   mediaLatest.current = { blocks, disabled, prepareMedia };
   const commitLatest = useRef(commit); commitLatest.current = commit;
+  const compositionSelection = useRef<string[]>([]);
+  compositionSelection.current = selectedModuleIds.length ? selectedModuleIds : activeId ? [activeId] : [];
+  const mountedScope = useRef(contextSource?.scope);
+  mountedScope.current = contextSource?.scope;
+  useEffect(() => () => { mountedScope.current = undefined; }, []);
+  async function composeImage(instruction = '', requestedIds?: string[], resumeOnly = false) {
+    if (!contextSource || !mediaLatest.current.prepareMedia || mediaLatest.current.disabled) throw new Error('请先打开可编辑的文章');
+    const scope = contextSource.scope, spine = storySpineStore.getState();
+    const sources = compositionSources(mediaLatest.current.blocks, requestedIds ?? compositionSelection.current);
+    const assertSource = () => {
+      const latest = mediaLatest.current, current = storySpineStore.getState();
+      if (mountedScope.current !== scope || latest.disabled || current.accountId !== spine.accountId || current.storyScopeEpoch !== spine.storyScopeEpoch || sources.some(s => latest.blocks.find(b => b.id === s.id)?.text !== s.text))
+        throw new Error('文章或所选模块已变化，请重新选择');
+    };
+    assertSource();
+    await mediaLatest.current.prepareMedia();
+    assertSource();
+    gatherBookMaterials(sources.map(s => s.id));
+    useBookMediaSession.getState().setSession(null);
+    useBookVideoSession.getState().setSession(null);
+    useBookImageCompositionSession.getState().setSession({
+      key: crypto.randomUUID(), scope, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
+      createdAt:Date.now(),resumeOnly,
+      storyId: contextSource.storyId, chapterId: Number(contextSource.chapterId), sources, instruction,
+      prepare: async () => { assertSource(); await mediaLatest.current.prepareMedia!(); assertSource(); },
+      insert: async (url, previousUrl) => {
+        assertSource();
+        const latest = mediaLatest.current.blocks;
+        if (latest.some(b => bookImageUrl(b.text) === url)) return;
+        const previousIndex = previousUrl ? latest.findIndex(b => bookImageUrl(b.text) === previousUrl) : -1;
+        const anchor = Math.max(...sources.map(source => latest.findIndex(b => b.id === source.id)));
+        const at = previousIndex >= 0 ? previousIndex : isHeading(latest[anchor]) ? blockSubtreeEnd(latest, anchor) : anchor + 1;
+        const next = previousIndex >= 0 ? latest.map((b,i) => i === at ? { ...b, text: bookImageText(url) } : b)
+          : [...latest.slice(0, at), newWritingBlock(bookImageText(url), latest[anchor].parentId), ...latest.slice(at)];
+        if (blockBody(next).length > 200000) throw new Error('文章已达到长度上限');
+        commitLatest.current(next, writingBlockOffset(next, at), false);
+        // Wait for the editor's state/save closure to see the inserted block.
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        if (mountedScope.current !== scope) throw new Error('已切换文章');
+        await mediaLatest.current.prepareMedia!();
+      },
+    });
+  }
+  const composeLatest = useRef(composeImage); composeLatest.current = composeImage;
   const warehouseAnchor=useRef(activeId);warehouseAnchor.current=activeId;
   useLayoutEffect(() => {
     if (!contextSource || disabled || comparison || blockBody(blocks) !== value) return;
     const session = {
       scope: contextSource.scope, storyId: contextSource.storyId,
+      chapterId:Number(contextSource.chapterId),
+      composeImage: (instruction?: string, ids?: string[]) => composeLatest.current(instruction, ids),
+      resumeImageComposition: async (task: import('@shared/bookModuleImageTask').BookModuleImageTask) => {
+        assertCurrent();
+        if(task.chapterId!==Number(contextSource.chapterId) || !task.composition) throw new Error('请先打开此方案对应的文章');
+        const expected=task.composition.sources;
+        const actual=compositionSources(mediaLatest.current.blocks,expected.map(s=>s.id));
+        if(JSON.stringify(actual)!==JSON.stringify(expected)) throw new Error('原素材已变化，请重新选择素材开始方案；旧版仍可查看');
+        await composeLatest.current('',expected.map(s=>s.id),true);
+      },
       modules: blocks.filter(block => !readBookImage(block.text) && !readBookAudio(block.text))
         .map(block => ({ id: block.id, text: block.text })),
       captureRewrite(module: LayoutModuleContext) {
@@ -326,17 +385,17 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
                   commit(mergeWritingBlocks(blocks, index), writingBlockOffset(blocks, index) + block.text.length);
                 }
               }} />;
-    if (!comparison) return <BookMathText text={block.text} id={block.id} style={style} sourceVisible={textRange.dragging||textRange.byId.size>0}><div className="relative h-full w-full" style={style}>
+    if (!comparison) return <BookDialogueText dialogue={block.videoRole === 'dialogue'} style={style}><BookMathText text={block.text} id={block.id} style={style} sourceVisible={textRange.dragging||textRange.byId.size>0}><div className="relative h-full w-full" style={style}>
       <BookTextRangeOverlay text={block.text} range={range} style={style} />
       {field}
-    </div></BookMathText>;
+    </div></BookMathText></BookDialogueText>;
     const start = writingBlockOffset(blocks, index);
-    return <div key={block.id} className="grid" style={style}>
+    return <BookDialogueText key={block.id} dialogue={block.videoRole === 'dialogue'} style={style}><div className="grid" style={style}>
       <div aria-hidden="true" className="pointer-events-none col-start-1 row-start-1 min-h-[1.6em] whitespace-pre-wrap break-words px-1" style={{ overflowWrap: 'anywhere' }}>
         <ChangedText changes={afterTextSlice(changes, start, start + block.text.length)} side="after" />{!block.text || block.text.endsWith('\n') ? '\u200b' : ''}
       </div>
       {field}
-    </div>;
+    </div></BookDialogueText>;
   }
   const content = <section ref={textRange.root} aria-label={_ui("书正文")}
     onPointerDownCapture={textRange.onPointerDownCapture} onCopy={textRange.onCopy} onCut={textRange.onCut} onPaste={textRange.onPaste}
@@ -358,7 +417,12 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas importedChapterIds={importedChapterIds} onConvert={contextSource && prepareMedia ? (id,kind)=>{
+    </div> : <BookBlockCanvas importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+      const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
+      if(parts.length < (kind === 'narration' ? 1 : 2)) return;
+      if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }
+      setConversion({ ...parts[0], kind, ...(parts.length > 1 ? { parts } : {}) });
+    } : undefined} onComposeImage={contextSource && prepareMedia ? ids => { void composeImage('', ids).catch(e => toast.error(e instanceof Error ? e.message : '未能整理素材')); } : undefined} onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
     }:undefined} textSelectionIds={textRange.selectionRequest} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
       if (!id) { selection.current = null; textRange.clear(); setSelectedModuleIds([]); }
@@ -374,14 +438,17 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
     }}>{renderField}
     </BookBlockCanvas>}
     {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
-      const latest=mediaLatest.current;
-      if(latest.disabled || latest.blocks.find(b=>b.id===conversion.id)?.text!==conversion.text)throw new Error('原模块已变化，请重新选择');
-      await latest.prepareMedia!();
+      const assertSource=()=>{
+        const latest=mediaLatest.current;
+        if(latest.disabled || (conversion.parts ?? [conversion]).some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，请重新选择');
+      };
+      assertSource(); await mediaLatest.current.prepareMedia!(); assertSource();
     }} onInsert={text=>{
-      const latest=mediaLatest.current, index=latest.blocks.findIndex(b=>b.id===conversion.id);
+      const latest=mediaLatest.current, parts=conversion.parts ?? [conversion];
+      const index=latest.blocks.findLastIndex(b=>parts.some(part=>part.id===b.id));
       const image = readBookImage(text);
       if (image && latest.blocks.some(block => readBookImage(block.text)?.url === image.url)) { setConversion(null); return; }
-      if(latest.disabled || index<0 || latest.blocks[index].text!==conversion.text)throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
+      if(latest.disabled || index<0 || parts.some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
       const current=latest.blocks[index], at=isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
       const added=newWritingBlock(text,current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)];
       if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');

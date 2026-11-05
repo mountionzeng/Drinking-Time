@@ -56,6 +56,12 @@ beforeEach(async () => {
 });
 
 describe("creationAgent.generateShotVideo cost confirmation", () => {
+  it("checks the explicit economy mode against its own quote, not the MJ default", async () => {
+    const caller = appRouter.createCaller(context());
+    const result = await caller.creationAgent.generateShotVideo({ ...generationInput, storyId,
+      renderMode: "economy", costConfirmation: { accepted: true, estimatedCny: 4.04 } });
+    expect(result).toEqual({ status: "error", error: "费用预估已变化，请重新确认预计 1.08 算力" });
+  });
   it("rejects a paid generation request without explicit confirmation", async () => {
     const caller = appRouter.createCaller(context());
 

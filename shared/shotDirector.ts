@@ -63,7 +63,14 @@ export type ShotVideoCostEstimate = {
   aspectRatio: typeof SHOT_VIDEO_ASPECT_RATIO;
 };
 
-export type ShotVideoPriceProfile = "mj-turbo" | "legacy";
+export type ShotVideoRenderMode = "economy" | "existing";
+export type ShotVideoPriceProfile = "mj-turbo" | "vidu-economy" | "legacy";
+
+/** New storyboard renders opt in explicitly; historical jobs keep their provider. */
+export function storyboardVideoRenderMode(params: string | null | undefined): ShotVideoRenderMode {
+  try { return JSON.parse(params || "{}").videoRenderMode === "existing" ? "existing" : "economy"; }
+  catch { return "economy"; }
+}
 
 export function shotVideoPriceProfile(submitPath: string | null | undefined): ShotVideoPriceProfile {
   return /^\/mj(?:-turbo)?\/submit\/video\/?$/.test(submitPath?.trim() ?? "") ? "mj-turbo" : "legacy";
@@ -76,9 +83,16 @@ export function estimateShotVideoCost(input: {
 }): ShotVideoCostEstimate {
   // 302 MJ-Turbo video: one task produces four 5-second candidates, 0.6 PTC.
   // Motion does not affect price. Use the same PTC/CNY baseline as image quotes.
-  const durationSec = Math.max(3, Math.min(10, input.durationSec));
+  if (input.priceProfile === "vidu-economy" && (!Number.isInteger(input.durationSec) || input.durationSec < 1 || input.durationSec > 10)) {
+    throw new Error("经济视频时长须为1至10秒的整数");
+  }
+  const durationSec = Math.max(input.priceProfile === "vidu-economy" ? 1 : 3, Math.min(10, input.durationSec));
   const raw = input.priceProfile === "mj-turbo"
     ? (0.6 / 0.052) * 0.35
+    // Vidu Q2 Pro Fast, 720p, one result: 8 credits first second, +2 per second.
+    // 302 public pricing: 1 credit = .005 PTC. Inline image, no upload charge.
+    : input.priceProfile === "vidu-economy"
+      ? ((8 + (durationSec - 1) * 2) * 0.005 / 0.052) * 0.35
     : durationSec * 0.175 * (input.motion === "high" ? 1.2 : 1);
   return {
     currency: "CNY",

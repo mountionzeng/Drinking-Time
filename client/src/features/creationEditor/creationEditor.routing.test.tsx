@@ -114,6 +114,20 @@ function videoTake(
 }
 
 describe("creation editor route and shell", () => {
+  it("projects book references into the picture row without selecting a first frame", () => {
+    const act = shot(1, {stableShotId:"book-act-1",shotIdentity:"book-act-1",publishingVideo:{referenceImageIds:[11,12],versionId:"v2",groupId:"book",segmentIds:[],sourceParagraphIds:[],confirmedRevision:2}});
+    const images = resolveCreationEditorImages({storyId:54,timeline:{storyId:54,version:1,items:[]},shots:[{stableShotId:"book-act-1",shotNo:1,currentImage:null,imageVersions:[],imageGenerationReferences:[materialImage(11,"/ref1.png",false,"none"),materialImage(12,"/ref2.png",false,"none")],currentVideo:null,videoTakes:[],timelineItem:null}],unassignedImages:[],unassignedVideoTakes:[],reusableVideoTakes:[]}, []);
+    const merged = mergeShotsWithImages([act], images)[0];
+    expect(merged.imageVersions?.map(image => image.id)).toEqual([11,12]);
+    expect(merged.imageId).toBeUndefined();
+  });
+  it("does not borrow the previous video's image via a matching shot number", () => {
+    const act = shot(2, { stableShotId: "new-act-2", shotIdentity: "new-act-2", publishingVideo: {referenceImageIds: [], versionId:"v1", groupId:"new", segmentIds:[], sourceParagraphIds:[], confirmedRevision:2} });
+    const images = resolveCreationEditorImages(null, [{id:2002,shotNo:2,shotIdentity:"old-shot-2",imageUrl:"/old.png",status:"selected",isCurrent:true}]);
+    const merged = mergeShotsWithImages([act], images)[0];
+    expect(merged.imageId).toBeUndefined();
+    expect(merged.imageVersions ?? []).toEqual([]);
+  });
   it("normalizes story body shots and selects the first shot by default", () => {
     const shots = normalizeStoryShots({
       shots: [

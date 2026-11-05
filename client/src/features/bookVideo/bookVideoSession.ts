@@ -6,6 +6,7 @@ export type BookVideoSession = {
   epoch: number;
   versionId: string;
   layout: PublishingArticleLayout;
+  preferredDuration?: string;
   onAdopt?(): Promise<void>;
   onAlbum?(): void;
 };

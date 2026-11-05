@@ -6,7 +6,7 @@
  * 什么、以及是不是只读候选。组件本身只是把它 map 成 <p>。
  */
 import { describe, expect, it } from "vitest";
-import { previewSubtitleLines } from "../previewPlaybackModel";
+import { previewSubtitleLines, previewShotDescription } from "../previewPlaybackModel";
 import {
   SUBTITLE_TRACK_ID,
   buildSubtitleRenderPlan,
@@ -33,6 +33,13 @@ function cue(overrides: Partial<SubtitleCue>): SubtitleCue {
 function state(cues: SubtitleCue[]): TimelineSubtitleState {
   return { tracks: [{ id: SUBTITLE_TRACK_ID, cues }] };
 }
+
+it("shows the current shot direction even without media, and clears it in a timeline gap", () => {
+  expect(previewShotDescription({ subject: "小茶壶", action: "镜头拉远，露出对话框" })).toBe("小茶壶 · 镜头拉远，露出对话框");
+  expect(previewShotDescription({ subject: "下一镜", action: "文字逐渐出现" })).toBe("下一镜 · 文字逐渐出现");
+  expect(previewShotDescription(null)).toBe("");
+  expect(previewShotDescription({ subject: "重复", action: "重复" })).toBe("重复");
+});
 
 describe("previewSubtitleLines", () => {
   it("shows the formal cue at its head frame and hides it at its end frame", () => {

@@ -528,6 +528,10 @@ describe("publishing video storyboard confirmation", () => {
 
   it("promotes every rewritten shot atomically, keeps manual shots, and stores the cover at Story scope", async () => {
     const fixture = await createConfirmFixture();
+    await expect(fixture.persistence.confirmPublishingVideoStoryboard({
+      storyId:fixture.id,userId:41,versionId:fixture.versionId,previewId:fixture.previewId,
+      expectedPreviewRevision:999,operationToken:'stale-script-review',now:300,
+    })).rejects.toThrow('方案内容已更新');
     const result = await fixture.persistence.confirmPublishingVideoStoryboard({
       storyId: fixture.id,
       userId: 41,

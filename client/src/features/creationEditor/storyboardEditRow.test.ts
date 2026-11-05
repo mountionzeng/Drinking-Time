@@ -625,6 +625,8 @@ describe("storyboard edit shortcuts", () => {
       metaKey: boolean;
       ctrlKey: boolean;
       altKey: boolean;
+      isComposing: boolean;
+      keyCode: number;
     }> = {}
   ) =>
     storyboardEditShortcut({
@@ -643,6 +645,17 @@ describe("storyboard edit shortcuts", () => {
     expect(press("j")).toEqual({ kind: "seekBy", deltaMs: -1000 });
     expect(press("Home")).toEqual({ kind: "seekTo", position: "start" });
     expect(press("End")).toEqual({ kind: "seekTo", position: "end" });
+  });
+
+  it.each(["shiftKey", "metaKey", "ctrlKey", "altKey"] as const)(
+    "does not toggle playback for %s + Space",
+    modifier => expect(press(" ", { [modifier]: true })).toBeNull()
+  );
+
+  it("leaves IME confirmation and composition keystrokes alone", () => {
+    expect(press(" ", { isComposing: true })).toBeNull();
+    expect(press(" ", { keyCode: 229 })).toBeNull();
+    expect(press("s", { isComposing: true })).toBeNull();
   });
 
   it("steps one frame with the arrows and one second with shift", () => {

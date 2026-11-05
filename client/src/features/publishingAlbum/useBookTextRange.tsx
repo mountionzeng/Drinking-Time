@@ -180,9 +180,10 @@ export function useBookTextRange(options: Options) {
   function onPointerDownCapture(event: ReactPointerEvent<HTMLElement>) {
     if (options.disabled || event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (target.closest('[data-book-selecting="true"]')) return;
     const field = target.closest<HTMLTextAreaElement>('textarea[data-book-text-id]');
     if (!field) {
-      if (!target.closest('button,[role="menu"]')) { stop(); clear(); }
+      if (!target.closest('button,[role="button"],[role="menu"]')) { stop(); clear(); }
       return;
     }
     // Leave native long press / touch scrolling untouched.

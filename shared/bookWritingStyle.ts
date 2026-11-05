@@ -3,6 +3,7 @@ const finite=z.number().finite();
 export const bookWritingStyleSchema=z.array(z.object({
   lineCount:z.number().int().min(1).max(200001).optional(),
   id:z.string().min(1).max(100),format:z.enum(['text','heading1','heading2','heading3']),
+  videoRole:z.enum(['dialogue']).optional(),
   parentId:z.string().max(100).nullable(),collapsed:z.boolean(),
   columnGroup:z.string().min(1).max(100).optional(),
   columnRatio:finite.min(.2).max(.8).optional(),
@@ -17,7 +18,7 @@ export function sameWritingStyle(a:BookWritingStyle|undefined,b:BookWritingStyle
   if(!a || !b || a.length!==b.length) return false;
   return a.every((row,index)=>{
     const other=b[index];
-    if((row.lineCount ?? 1)!==(other.lineCount ?? 1) || row.id!==other.id || row.format!==other.format || row.parentId!==other.parentId || row.collapsed!==other.collapsed || row.columnGroup!==other.columnGroup || (row.columnRatio ?? .5)!==(other.columnRatio ?? .5) ||
+    if(row.videoRole!==other.videoRole || (row.lineCount ?? 1)!==(other.lineCount ?? 1) || row.id!==other.id || row.format!==other.format || row.parentId!==other.parentId || row.collapsed!==other.collapsed || row.columnGroup!==other.columnGroup || (row.columnRatio ?? .5)!==(other.columnRatio ?? .5) ||
       (row.emphasis ?? 'normal')!==(other.emphasis ?? 'normal') || Boolean(row.backdrop)!==Boolean(other.backdrop)) return false;
     if(!row.book || !other.book) return row.book===other.book;
     return row.book.page===other.book.page && row.book.fontSize===other.book.fontSize &&

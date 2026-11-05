@@ -11,6 +11,13 @@ import {
 import type { StoryMaterialState } from "@shared/storyMaterial";
 beforeEach(() => vi.stubGlobal("React", React));
 describe("shot render control", () => {
+  it("prefills every book-act reference, while an explicit saved empty selection stays empty", () => {
+    const material = { shots: [{ stableShotId: "act-1", imageGenerationReferences: [{id: 1}, {id: 2}] }] } as unknown as StoryMaterialState;
+    expect(loadShotRenderSettings(1, "act-1", material).references.imageIds).toEqual([1, 2]);
+    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({count: 4, references: {imageIds: [], assets: {}}}) });
+    expect(loadShotRenderSettings(1, "act-1", material).references.imageIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
   it("prefills the supplemental illustration reference but preserves an explicit user removal", () => {
     const image = { id: 88, imageUrl: "/illustration.png" };
     const material = { shots: [{ stableShotId: "detail", imageVersions: [], imageGenerationReference: image }], unassignedImages: [] } as unknown as StoryMaterialState;

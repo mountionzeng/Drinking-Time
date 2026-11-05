@@ -53,6 +53,7 @@ import {
   shouldForwardPreviewPlay,
   shouldForwardPreviewPause,
   previewSubtitleLines,
+  previewShotDescription,
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
   type TimelineVideoSource,
@@ -334,6 +335,7 @@ export default function ShotPreview({
     sourceEndSec: sourceEndSeconds,
     reverse,
   });
+  const shotDescription = previewShotDescription(shot);
   const subtitleLines = previewSubtitleLines({
     subtitlePlan: subtitlePlan ?? null,
     formalSubtitlePresent,
@@ -801,6 +803,17 @@ export default function ShotPreview({
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
       aria-label="Preview"
+      tabIndex={-1}
+      onPointerDownCapture={event => {
+        if (event.button !== 0) return;
+        const target = event.target as Element;
+        const control = target.closest(
+          'button, a, input, textarea, select, video, [contenteditable]:not([contenteditable="false"]), [tabindex], [role="button"]'
+        );
+        if (!control || control === event.currentTarget) {
+          event.currentTarget.focus({ preventScroll: true });
+        }
+      }}
       onPointerEnter={() => {
         keyboardShortcutZoneRef.current = true;
       }}
@@ -868,6 +881,13 @@ export default function ShotPreview({
         </div>
       </div>
 
+      {shotDescription && (videoUrl || standaloneImageUrl) && <p
+        className="m-0 max-h-20 shrink-0 overflow-y-auto border-b border-border/60 px-3 py-2 text-xs leading-5 text-muted-foreground"
+        data-testid="editing-preview-shot-description"
+        aria-label={_ui("当前镜头描述")}
+      >
+        {shotDescription}
+      </p>}
       <div className="flex min-h-[150px] flex-1 flex-col overflow-hidden bg-muted/35">
         <div
           ref={previewStageRef}
@@ -1078,9 +1098,10 @@ export default function ShotPreview({
             ) : (
               <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
                 <Video className="h-7 w-7" />
-                <span className="text-xs">{_ui("当前镜头尚未关联画面")}</span>
-                <span className="max-w-[260px] truncate text-[10px] text-neutral-500">
-                  {shot ? chatCutSourceNameFromShot(shot) : _ui("从左侧选择镜头")}
+                <span className="text-xs">{shot ? _ui("画面尚未就绪，可先播放分镜与字幕") : _ui("从左侧选择镜头")}</span>
+                <span className="max-h-[55%] max-w-[320px] overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-neutral-200"
+                  data-testid="editing-preview-shot-description" aria-label={_ui("当前镜头描述")}>
+                  {shotDescription || (shot ? chatCutSourceNameFromShot(shot) : "")}
                 </span>
               </div>
             )}
@@ -1095,7 +1116,7 @@ export default function ShotPreview({
             ) : null}
             {currentFrameReady && maskEditTarget?.textOverlay ? <ImageSubtitleOverlay overlay={maskEditTarget.textOverlay} /> : null}
             {currentFrameReady && onSelectImageForChat && maskState.phase === "idle" ? (
-              <button type="button" onClick={onSelectImageForChat}
+              <button type="button" onClick={onSelectImageForChat} data-playback-space="true"
                 aria-label={_ui("选中这张图片，在聊天框修改")} title={_ui("点击图片，在聊天框描述修改")}
                 className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
             ) : null}

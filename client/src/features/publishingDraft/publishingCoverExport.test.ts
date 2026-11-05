@@ -3,10 +3,29 @@ import {
   buildPublishingCoverExportPlan,
   coverCropRect,
   publishingCoverFileName,
+  publishingImageContainPlan,
   wrapPublishingCoverTitle,
 } from "./publishingCoverExport";
 
 describe("publishing cover export", () => {
+  it("keeps the chosen illustration crop within every platform frame without stretching", () => {
+    const square = publishingImageContainPlan(1600, 900, "wechat_moments");
+    expect(square.source).toEqual({ x: 0, y: 0, width: 1600, height: 900 });
+    expect(square.target).toEqual({
+      x: 0,
+      y: 236.25,
+      width: 1080,
+      height: 607.5,
+    });
+    const cropped = publishingImageContainPlan(1000, 1000, "xiaohongshu", {
+      x: 0.1,
+      y: 0.2,
+      width: 0.4,
+      height: 0.6,
+    });
+    expect(cropped.source).toEqual({ x: 100, y: 200, width: 400, height: 600 });
+    expect(cropped.target).toEqual({ x: 60, y: 0, width: 960, height: 1440 });
+  });
   it("derives different deterministic crops from the same square master", () => {
     const xCrop = coverCropRect(1080, 1080, 1600, 900);
     const xiaohongshuCrop = coverCropRect(1080, 1080, 1080, 1440);

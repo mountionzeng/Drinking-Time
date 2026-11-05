@@ -1,4 +1,4 @@
-import { shotVideoPriceProfile } from "../../shared/shotDirector";
+import { shotVideoPriceProfile, type ShotVideoRenderMode } from "../../shared/shotDirector";
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
 import { VIDEO_TASK_POLL_WINDOW_MS } from "../../shared/mediaTask";
 import {
@@ -57,6 +57,7 @@ import {
 } from "./videoPromptDirector";
 import {
   compileMjVideoProviderPrompt,
+  compileViduSinglePrompt,
   compileVideoPromptEngineering,
   finalizeVideoPromptEngineering,
   VIDEO_PROMPT_ENGINEERING_VERSION,
@@ -372,6 +373,7 @@ function sanitizeApprovedVideoPrompt(raw: string): string {
 }
 
 function snapshot(input: {
+  renderMode?: ShotVideoRenderMode;
   computeOperationId?: string | null;
   submitUrl?: string;
   submittedParameters?: Record<string, unknown>;
@@ -387,7 +389,7 @@ function snapshot(input: {
   taskId?: string | null;
   promptDirector: VideoSubmissionPromptDirectorResult;
 }) {
-  const providerStatus = getShotVideoProviderStatus();
+  const providerStatus = getShotVideoProviderStatus(input.renderMode);
   const characterReferenceImageUrl =
     input.characterReferenceImageUrl?.startsWith("data:")
       ? "inline-image"
@@ -397,6 +399,8 @@ function snapshot(input: {
       ? "inline-image"
       : input.storyStyleReferenceImageUrl;
   return {
+    renderMode: input.renderMode,
+    ...(input.renderMode === "economy" ? { resolution: "720p", candidateCount: 1 } : {}),
     computeOperationId: input.computeOperationId,
     provider: "302",
     model: providerStatus.model,
@@ -439,6 +443,7 @@ function statusForRefresh(
 }
 
 export type StartShotVideoJobInput = {
+  renderMode?: ShotVideoRenderMode;
   bookTarget?: { chapterId: number; moduleId: string };
   storyId: number;
   shotNo: number;
@@ -563,7 +568,7 @@ export async function startShotVideoJob(
       rerenderRequestId: input.rerenderRequestId,
     });
   }
-  const providerStatus = getShotVideoProviderStatus();
+  const providerStatus = getShotVideoProviderStatus(input.renderMode);
   const motion = input.motion ?? providerStatus.motion;
   if (shotVideoPriceProfile(providerStatus.submitPath) === "mj-turbo") durationSec = 5;
   const previousReference = videoReferenceAsset(
@@ -666,7 +671,7 @@ export async function startShotVideoJob(
         storyId: input.storyId,
         requestHash: idempotencyKey,
         maxCostMinor: fromYuan(
-          estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) }).estimatedCny
+          estimateShotVideoCost({ durationSec, motion, priceProfile: input.renderMode === "economy" ? "vidu-economy" : shotVideoPriceProfile(providerStatus.submitPath) }).estimatedCny
         ),
       });
       if (reservation.outcome === "replayed") {
@@ -727,6 +732,8 @@ export async function startShotVideoJob(
     const videoPrompt =
       isMjVideo && !input.directorPromptApproved
         ? compileMjVideoProviderPrompt(promptDirector.engineering)
+        : input.renderMode === "economy" && !input.directorPromptApproved
+          ? compileViduSinglePrompt(promptDirector.engineering)
         : promptDirector.prompt;
 
     const take = await createVideoTake({
@@ -743,6 +750,7 @@ export async function startShotVideoJob(
       durationSec,
       aspectRatio,
       parameterSnapshot: snapshot({
+        renderMode: input.renderMode,
         computeOperationId,
         sourceImageId: input.imageId,
         previousReference,
@@ -761,6 +769,7 @@ export async function startShotVideoJob(
 
     providerStarted = true;
     const submitted = await submitShotVideo({
+      renderMode: input.renderMode,
       prompt: videoPrompt,
       sourceImage,
       subtitle: input.subtitle,
@@ -839,6 +848,7 @@ export async function startShotVideoJob(
       extractionCapability:
         managed?.status === "ok" ? "available" : "unavailable",
       parameterSnapshot: snapshot({
+        renderMode: input.renderMode,
         computeOperationId,
         submitUrl: submitted.submitUrl,
         submittedParameters: submitted.submittedParameters,
@@ -897,7 +907,7 @@ export async function refreshVideoTakeStatus(
 
   const refreshed = isRunwayExpandTake(take)
     ? await refreshRunwayVideoExpandTask(take.taskId)
-    : await refreshShotVideoTask(take.taskId);
+    : await refreshShotVideoTask(take.taskId, { renderMode: parameterSnapshotRecord(take.parameterSnapshot).renderMode === "economy" ? "economy" : "existing" });
   if (refreshed.status === "available") {
     await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
     const mjCandidateVideoUrls =

@@ -12,6 +12,7 @@ import {
   bindSpeechForStory,
   deleteAudioClipForStory,
   insertAudioClipForStory,
+  reuseBookMusicForStory,
   insertGeneratedAudioClipForStory,
   moveAudioClipForStory,
   moveBoundSpeechForStory,
@@ -618,5 +619,44 @@ describe("timelineAudioEditing", () => {
       (await audioState(storyId))!.tracks.find(track => track.kind === "music")!
         .clips[0]
     ).toMatchObject({ timelineStartFrame: 206 });
+  });
+});
+
+describe("book soundtrack reuse", () => {
+  it("places multiple tracks sequentially, clips to film length, and deduplicates concurrent requests", async () => {
+    const storyId = await seedStory();
+    const first = await seedReadyAsset(storyId, 90);
+    const second = await seedReadyAsset(storyId, 300);
+    const input = {storyId, userId: USER_ID, planId: "confirmed-a", assetIds: [first, second, first], durationFrames: 210};
+    const results = await Promise.all([reuseBookMusicForStory(input), reuseBookMusicForStory(input)]);
+    expect(results.every(r => r.status === "ok")).toBe(true);
+    const state = await audioState(storyId);
+    expect(state?.tracks.find(t => t.kind === "music")?.clips).toMatchObject([
+      {assetId: first, timelineStartFrame: 0, durationFrames: 90},
+      {assetId: second, timelineStartFrame: 90, durationFrames: 120},
+    ]);
+  });
+  it("preserves manual music and never resurrects music deleted after adoption", async () => {
+    const storyId = await seedStory();
+    const assetId = await seedReadyAsset(storyId);
+    const input = {storyId, userId: USER_ID, planId: "original", assetIds: [assetId], durationFrames: 150};
+    await reuseBookMusicForStory(input);
+    const clip = (await audioState(storyId))!.tracks.find(t => t.kind === "music")!.clips[0] as {id: string};
+    await deleteAudioClipForStory({storyId, userId: USER_ID, operation: nextOp(), clipId: clip.id});
+    await reuseBookMusicForStory({...input, planId: "revision"});
+    expect((await audioState(storyId))!.tracks.find(t => t.kind === "music")!.clips).toEqual([]);
+    await insertAudioClipForStory({storyId, userId: USER_ID, operation: nextOp(), kind: "music", assetId, timelineStartFrame: 20, gain: 0.7});
+    const before = await audioState(storyId);
+    const newAsset = await seedReadyAsset(storyId);
+    await reuseBookMusicForStory({...input, planId: "another", assetIds: [newAsset]});
+    expect(await audioState(storyId)).toEqual(before);
+  });
+  it("rejects foreign and not-ready assets without touching the timeline", async () => {
+    const storyId = await seedStory();
+    const foreign = await seedStory();
+    const assetId = await seedReadyAsset(foreign);
+    const before = await version(storyId);
+    expect(await reuseBookMusicForStory({storyId, userId: USER_ID, planId: "forged", assetIds: [assetId], durationFrames: 210})).toMatchObject({status: "error"});
+    expect(await version(storyId)).toBe(before);
   });
 });

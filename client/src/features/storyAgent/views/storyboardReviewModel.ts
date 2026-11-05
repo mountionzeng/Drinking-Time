@@ -1,4 +1,6 @@
-import type { ShotVideoPriceProfile } from "@shared/shotDirector";
+import type { ShotVideoPriceProfile, ShotVideoRenderMode } from "@shared/shotDirector";
+import type { StoryboardEditFrameSource } from "@/features/creationEditor/storyboardEditRow";
+import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
 import { estimateViduQ2TransitionCny } from "@shared/videoRenderCost";
 import { quoteShotImages } from "@shared/shotImageRender";
 /** Pure rules for the storyboard review workspace. */
@@ -41,6 +43,35 @@ import {
 } from "./StoryboardMatrix";
 import { hasStoryboardImageDragPayload } from "../storyboardLocalMedia";
 import type { StoryboardContinuityOption } from "./StoryboardContinuityDialog";
+
+export function storyboardPrimaryFrameSource(
+  shot: CreationEditorShot
+): StoryboardEditFrameSource | null {
+  const edit = shot.timelineItem?.primaryVideoEdit;
+  if (edit) {
+    return {
+      takeId: edit.takeId,
+      sourceStartSec: edit.sourceStartSec,
+      sourceEndSec: edit.sourceEndSec,
+      reverse: edit.effects.reverse,
+    };
+  }
+  const take = [shot.selectedVideoTake, ...(shot.videoTakes ?? [])].find(
+    candidate =>
+      Boolean(candidate?.videoUrl) &&
+      candidate != null &&
+      videoTakeAffordance(candidate.status).canPlay
+  );
+  if (!take) return null;
+  const range =
+    take.selectedSelectionType === "range" && take.selectedRangeId != null
+      ? (take.ranges.find(candidate => candidate.id === take.selectedRangeId) ?? null)
+      : null;
+  const sourceStartSec = Math.max(0, range?.startSec ?? 0);
+  const sourceEndSec = Math.max(sourceStartSec, range?.endSec ?? take.durationSec ?? sourceStartSec);
+  if (!(sourceEndSec > sourceStartSec)) return null;
+  return { takeId: take.id, rangeId: range?.id ?? null, sourceStartSec, sourceEndSec };
+}
 
 /**
  * A pending continuity choice can be interrupted when the user leaves the
@@ -371,7 +402,7 @@ export function quickShotVideoRenderPlan(
       ? "high"
       : "low";
   const durationSec = Math.max(
-    3,
+    priceProfile === "vidu-economy" ? 1 : 3,
     storyboardStartEndDurationSec(shot.generationParams, shot.durationMs ?? 5_000)
   );
   const estimate = estimateShotVideoCost({ durationSec, motion, priceProfile });
@@ -1588,11 +1619,13 @@ export function storyboardStartEndAmplitude(
 export function storyboardStartEndTuningGenerationParams(
   generationParams: string | null | undefined,
   tuning: {
+    videoRenderMode?: ShotVideoRenderMode;
     durationSec?: number;
     movementAmplitude?: StoryboardStartEndAmplitude;
   }
 ): string {
   const current = generationParamsRecord(generationParams);
+  if (tuning.videoRenderMode) current.videoRenderMode = tuning.videoRenderMode;
   if (tuning.durationSec != null) {
     current.durationSec = clampStoryboardStartEndDurationSec(
       tuning.durationSec

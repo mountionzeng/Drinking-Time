@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   quoteShotImages,
+  requestsStrictReferenceFidelity,
   renderShotImageBatch,
   shotImageRenderSettingsSchema,
 } from "./shotImageRender";
 describe("unified shot image rendering", () => {
+  it.each(["我希望和参考图一模一样", "保留茶壶形状和位置不变", "严格保留原图", "keep the reference exactly the same"])("recognizes an explicit preservation instruction: %s", text => {
+    expect(requestsStrictReferenceFidelity(text)).toBe(true);
+  });
+  it.each(["不要和原图一模一样，重新设计", "无需完全一致", "参考它画一只猫", "换一种风格"])("does not invent a strict lock: %s", text => {
+    expect(requestsStrictReferenceFidelity(text)).toBe(false);
+  });
   it.each([1, 2, 3, 4, 5, 8])(
     "quotes and submits %i requested images in MJ tasks",
     async count => {
@@ -63,4 +70,12 @@ describe("unified shot image rendering", () => {
       }).success
     ).toBe(false);
   });
+});
+
+it("preserves an accepted receipt rather than converting it into a failed batch", async () => {
+  const { PendingShotImageError, renderShotImageBatch } = await import("./shotImageRender");
+  const pending = new PendingShotImageError("已受理", "receipt");
+  const generate = vi.fn().mockRejectedValue(pending);
+  await expect(renderShotImageBatch(4, generate)).rejects.toBe(pending);
+  expect(generate).toHaveBeenCalledTimes(1);
 });

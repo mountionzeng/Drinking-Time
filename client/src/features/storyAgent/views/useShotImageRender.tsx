@@ -1,4 +1,7 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { trpc } from "@/lib/trpc";
+import { PendingShotImageError } from "@shared/shotImageRender";
+import { pollStoryboardImage } from "./pollStoryboardImage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { toast } from "sonner";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
@@ -22,9 +25,13 @@ import {
 } from "@/components/ui/dialog";
 import {
   quoteShotImages,
+  requestsStrictReferenceFidelity,
+  STRICT_REFERENCE_MJ_NOTICE,
   renderShotImageBatch,
   type ShotImageRenderSettings,
 } from "@shared/shotImageRender";
+
+type RecoveryOutcome = { status: "success" | "error" | "cancelled"; message: string; imageId?: number; imageUrl?: string };
 
 /** Owns quote dialogs and cancellation for a story's image-render session. */
 export function useShotImageRender(
@@ -32,6 +39,51 @@ export function useShotImageRender(
   imageConfirmationScope: string
 ) {
   const _ui = useDesktopUiText();
+  const recovery = trpc.storyAgent.recoverStoryboardImage.useMutation();
+  const utils = trpc.useUtils();
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const activeRecoveries = useRef(new Map<string, { controller: AbortController; promise: Promise<RecoveryOutcome> }>());
+  const followTask = (requestId: string): Promise<RecoveryOutcome> => {
+    const active = activeRecoveries.current.get(requestId);
+    if (active) return active.promise;
+    if (!storyId) return Promise.resolve({ status: "cancelled", message: "已离开当前故事" });
+    const scope = imageBatchScope.current;
+    const controller = new AbortController();
+    setImageRenderError(null);
+    const notice = toast.loading("图片仍在生成，正在自动取回原任务，无需重复提交", { duration: Infinity });
+    const promise = pollStoryboardImage(
+      () => recovery.mutateAsync({ storyId, requestId }), controller.signal,
+    ).then(async (result): Promise<RecoveryOutcome> => {
+      if (scope !== imageBatchScope.current || result.status === "cancelled")
+        return { status: "cancelled", message: "已离开当前故事" };
+      if (result.status !== "ok") {
+        const message = result.status === "error" ? result.error : "等待时间较长，原任务已保留。稍后可恢复原任务，不会重新提交生成。";
+        setPendingRequestId(requestId);
+        setImageRenderError(message);
+        return { status: "error", message };
+      }
+      const refreshed = await Promise.allSettled([
+        utils.storyAgent.storyImages.invalidate({ storyId }),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.pendingStoryboardImages.invalidate({ storyId }),
+      ]);
+      if (scope !== imageBatchScope.current) return { status: "cancelled", message: "已离开当前故事" };
+      setPendingRequestId(current => current === requestId ? null : current);
+      const message = `已取回 ${result.candidates.length} 张图片，已放入画面行和仓库`;
+      toast.success(message);
+      if (refreshed.some(item => item.status === "rejected")) toast.warning("图片已保存，页面刷新暂未完成，请稍后重新打开查看");
+      return { status: "success", message, imageId: result.imageId, imageUrl: result.imageUrl };
+    }).finally(() => {
+      toast.dismiss(notice);
+      if (activeRecoveries.current.get(requestId)?.controller === controller) activeRecoveries.current.delete(requestId);
+    });
+    activeRecoveries.current.set(requestId, { controller, promise });
+    return promise;
+  };
+  const recover = () => {
+    if (pendingRequestId) void followTask(pendingRequestId);
+  };
   const [imageCostConfirmation, setImageCostConfirmation] = useState<
     string | null
   >(null);
@@ -48,8 +100,11 @@ export function useShotImageRender(
   useEffect(() => {
     setImageCostConfirmation(null);
     setImageRenderError(null);
+    setPendingRequestId(null);
     return () => {
       imageBatchScope.current += 1;
+      activeRecoveries.current.forEach(task => task.controller.abort());
+      activeRecoveries.current.clear();
       imageCostResolver.current?.(false);
       imageCostResolver.current = null;
     };
@@ -88,8 +143,32 @@ export function useShotImageRender(
       imageUrl?: string;
     }>;
   }) => {
+    setPendingRequestId(null);
     const scope = imageBatchScope.current;
     const { label, settings, shot, material } = input;
+    if (storyId && !input.revisionInstruction?.trim()) {
+      try {
+        const pending = await utils.storyAgent.pendingStoryboardImages.fetch({ storyId });
+        if (scope !== imageBatchScope.current) return { status: "cancelled" as const, message: "已离开当前故事" };
+        const task = pending.find(t => t.shotIdentity === shot.stableShotId);
+        if (task) {
+          if (task.recoverable) {
+            if (!input.canStart()) return { status: "cancelled" as const, message: "镜头正在渲染" };
+            input.start();
+            try { return await followTask(task.requestId); }
+            finally { if (scope === imageBatchScope.current) input.finish(); }
+          }
+          const message = "原任务受理状态尚未确认，请联系支持核对，不要重新购买。";
+          setImageRenderError(message);
+          return { status: "error" as const, message };
+        }
+      } catch {
+        if (scope !== imageBatchScope.current) return { status: "cancelled" as const, message: "已离开当前故事" };
+        const message = "暂时无法核对原任务，请稍后再试；尚未提交新的生成请求。";
+        setImageRenderError(message);
+        return { status: "error" as const, message };
+      }
+    }
     const isRevision = Boolean(input.revisionInstruction?.trim());
     const provider = isRevision ? input.revisionProvider ?? "midjourney" : "midjourney";
     const isGptRevision = provider === "gpt-image";
@@ -117,8 +196,10 @@ export function useShotImageRender(
     // Legacy saved settings may request eight; this entry always buys one task.
     const quote = isGptRevision ? estimateStoryboardMaskedEditCost() : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
     const estimatedCny = quote.estimatedCny;
+    const fidelityNotice = !isGptRevision && names.length > 0 && requestsStrictReferenceFidelity(instruction)
+      ? `${STRICT_REFERENCE_MJ_NOTICE}\n\n` : "";
     const confirmed = (!isRevision && input.skipCostConfirmation) || await confirmImageCost(
-      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。`
+      `${label} · ${isGptRevision ? "重新生成图（GPT Image 1.5）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${fidelityNotice}${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };
@@ -168,8 +249,12 @@ export function useShotImageRender(
         imageUrl: last?.imageUrl,
       };
     } catch (cause) {
+      if (scope !== imageBatchScope.current) return { status: "cancelled" as const, message: "已离开当前故事" };
       const message = cause instanceof Error ? cause.message : "图片生成失败";
-      if (scope === imageBatchScope.current) setImageRenderError(message);
+      if (scope === imageBatchScope.current) {
+        if (cause instanceof PendingShotImageError) return await followTask(cause.requestId);
+        setImageRenderError(message);
+      }
       return { status: "error" as const, message };
     } finally {
       if (scope === imageBatchScope.current) input.finish();
@@ -220,7 +305,7 @@ export function useShotImageRender(
         >
           <DialogContent className="z-[160] max-w-lg">
             <DialogHeader>
-              <DialogTitle>{_ui("图片渲染未完成")}</DialogTitle>
+              <DialogTitle>{pendingRequestId ? "图片任务已受理，等待取回" : "图片渲染未完成"}</DialogTitle>
               <DialogDescription className="whitespace-pre-wrap">
                 {imageRenderError}
               </DialogDescription>
@@ -233,6 +318,9 @@ export function useShotImageRender(
               >
                 {_ui("知道了")}
               </button>
+              {pendingRequestId && <button type="button" disabled={recovery.isPending} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground" onClick={recover}>
+                {recovery.isPending ? "正在取回…" : "恢复原任务（不重复扣费）"}
+              </button>}
             </DialogFooter>
           </DialogContent>
         </Dialog>

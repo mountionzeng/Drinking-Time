@@ -212,6 +212,43 @@ describe("storyAgent tRPC router", () => {
     expect(await getStoryGeneratedImages(story.id, userId)).toHaveLength(1);
     await expect(appRouter.createCaller(createAuthContext(userId + 1)).storyAgent.recoverBookModuleImage(scope)).rejects.toThrow();
   });
+  it("routes storyboard image requests to Legnext and replays the same request without 302", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 4971;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "分镜供应商", body: { shots: [{ shotNo: 1, stableShotId: "legnext-shot", subject: "paper boat" }] } });
+    legnextMocks.generateLegnextImage.mockImplementationOnce(async (_prompt: string, accepted: (id: string) => Promise<void>, options: any) => {
+      expect(options.aspectRatio).toBe("16:9");
+      await accepted("legnext:storyboard-task");
+      return { status: "ok", imageUrl: "/api/images/shot.png", candidates: [{ imageUrl: "/api/images/shot.png", imageKey: "shot.png" }] };
+    });
+    const input = { storyId: story.id, shotNo: 1, imageProvider: "midjourney" as const, prompt: "paper boat", shotImageRequestId: crypto.randomUUID(), autoSelect: false };
+    const result = await caller.storyAgent.generateForMobile(input);
+    expect(result.status).toBe("ok");
+    expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "ok" });
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+  it("keeps the user's faithful reference brief through the real gate and Legnext route", async () => {
+    const {createStory}=await import("./repositories/stories");
+    const userId=4972;
+    const caller=appRouter.createCaller(createAuthContext(userId));
+    const story=await createStory({userId,title:"原图优先",body:{shots:[{shotNo:1,stableShotId:"faithful-shot",subject:"茶壶"}]}});
+    const reference=await createGeneratedImage({storyId:story.id,userId,shotNo:null,shotIdentity:null,imageUrl:"https://storage.example/original.png",imageKey:"original.png",prompt:"原图",generationType:"upload",isCurrent:false});
+    const instruction="保留茶壶形状和聊天框位置，和参考图一模一样";
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({status:"error",message:"test stops before submission"});
+    await caller.storyAgent.generateForMobile({storyId:story.id,shotNo:1,imageProvider:"midjourney",prompt:"old invented cinematic style",explicitInstruction:instruction,shotImageRequestId:crypto.randomUUID(),renderReferences:{imageIds:[reference.id],assets:{}},costConfirmation:{accepted:true,estimatedCny:0.68}});
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    const [prompt,,options]=legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(prompt).toContain(instruction);
+    expect(prompt).toContain("原图优先");
+    expect(prompt).not.toContain("风格化硬约束");
+    expect(prompt).not.toContain("静态图片无字硬约束");
+    expect(options.referenceImageUrl).toBe(reference.imageUrl);
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     imageGenMocks.toPublicImageUrl.mockImplementation(

@@ -60,6 +60,7 @@ export interface ImageGenResult {
    * Callers must not treat this as proof that the provider rejected the job.
    */
   submissionUncertain?: boolean;
+  providerConfirmedFailure?: boolean;
   /** Provider receipt recovered even if persisting it through the callback failed. */
   providerTaskId?: string;
   /**
@@ -139,7 +140,9 @@ export interface ImageGenOptions {
   /** 302 GPT-image synchronous generation budget; high-quality images often exceed 30s. */
   gptTimeoutMs?: number;
   /** Explicitly quoted GPT 2 generation; omitted callers retain their configured model. */
-  gptImageModel?: "gpt-image-2";
+  gptImageModel?: "gpt-image-2" | "gpt-image-2.5-sunburst";
+  /** Caller owns durable polling after the receipt has been saved. */
+  gptSubmitOnly?: boolean;
   /** Poll interval for 302 GPT-image asynchronous jobs. */
   gptPollIntervalMs?: number;
   /** 主角参照（MJ --oref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
@@ -444,7 +447,7 @@ function compactForPrompt(value: string, maxLength: number): string {
 }
 
 function gptImageSizeFor(aspectRatio?: string): string {
-  if (aspectRatio === "16:9") return "1536x1024";
+  if (aspectRatio === "16:9" || aspectRatio === "3:2") return "1536x1024";
   if (aspectRatio === "9:16") return "1024x1536";
   return ENV.image302GptSize || "1024x1024";
 }
@@ -834,11 +837,14 @@ export async function toPublicImageUrl(
       publicUrlCache.set(url, ossUrl);
       return ossUrl;
     }
-    const { url: publicUrl } = await storagePut(
-      `character-refs/${match[1]}`,
-      buf,
-      mime
-    );
+    // 302's storage proxy is not its file-upload API. Local MJ references
+    // need an anonymous HTTPS file URL even when generation uses Legnext.
+    const publicUrl = ENV.api302Key
+      ? await (await import("./videoTransition302")).uploadFileTo302({
+          fileName: match[1], bytes: buf, contentType: mime,
+        })
+      : (await storagePut(`character-refs/${match[1]}`, buf, mime)).url;
+    if (!/^https:\/\//i.test(publicUrl)) return undefined;
     publicUrlCache.set(url, publicUrl);
     return publicUrl;
   } catch (err) {
@@ -1141,6 +1147,8 @@ export async function generateImage(
   prompt: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
+  if (options.gptImageModel === "gpt-image-2.5-sunburst" && !ENV.api302Key)
+    return { status: "error", message: "尚未配置 302 图片服务，未切换到其他模型" };
   const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   if (options.provider === "midjourney" && !ENV.api302Key) {
     return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};
@@ -1267,6 +1275,7 @@ async function generate302GptImage(
   fetcher: Fetcher
 ): Promise<ImageGenResult> {
   let acceptedTaskId = "";
+  let submissionStarted = false;
   try {
     const startedAt = Date.now();
     const timeoutMs = options.gptTimeoutMs ?? GPT_IMAGE_GENERATION_TIMEOUT_MS;
@@ -1280,6 +1289,7 @@ async function generate302GptImage(
     // image is ready, even though the paid job may still be running.
     endpoint.searchParams.set("async", "true");
 
+    submissionStarted = true;
     const response = await withTimeout(
       fetcher(endpoint.toString(), {
         method: "POST",
@@ -1289,7 +1299,7 @@ async function generate302GptImage(
           prompt,
           size: gptImageSizeFor(options.aspectRatio),
           n: 1,
-          quality: gptQualityFor(options.fidelity),
+          quality: options.gptImageModel === "gpt-image-2.5-sunburst" ? "high" : gptQualityFor(options.fidelity),
           output_format: "png",
           moderation: "auto",
         }),
@@ -1303,6 +1313,7 @@ async function generate302GptImage(
       return {
         status: "error",
         message,
+        ...(options.gptSubmitOnly && response.status >= 500 ? { submissionUncertain: true } : {}),
       };
     }
 
@@ -1318,6 +1329,7 @@ async function generate302GptImage(
 
     if (taskId && !Array.isArray(submitted.data)) {
       await options.onProviderTaskAccepted?.(taskId);
+      if (options.gptSubmitOnly) return { status: "error", providerTaskId: taskId, errorCode: "timeout_pending", message: IMAGE_TASK_PENDING_MESSAGE };
       return await poll302GptImageTask(taskId, options, fetcher, startedAt);
     }
 
@@ -1329,7 +1341,7 @@ async function generate302GptImage(
 
     if (stored.status !== "ok") {
       recordFailure("gpt-image");
-      return stored;
+      return options.gptSubmitOnly ? { ...stored, submissionUncertain: true } : stored;
     }
 
     recordSuccess("gpt-image");
@@ -1341,6 +1353,7 @@ async function generate302GptImage(
       status: "error",
       message,
       ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : {}),
+      ...(options.gptSubmitOnly && submissionStarted ? { submissionUncertain: true } : {}),
     };
   }
 }
@@ -1360,6 +1373,7 @@ async function storeGptEditResult(payload: unknown, options: ImageGenOptions, fe
   return storeImageBytes(pixels, "image/png");
 }
 
+class GptImageTaskFailed extends Error {}
 async function poll302GptImageTask(
   taskId: string,
   options: ImageGenOptions,
@@ -1402,9 +1416,6 @@ async function poll302GptImageTask(
           : polled.data;
       return await storeGptEditResult(payload, options, fetcher);
     }
-    if (polled.err && !/pending|processing|running/i.test(polled.err)) {
-      throw new Error(polled.err);
-    }
     if (
       polled.status_code !== undefined &&
       polled.status_code !== 202 &&
@@ -1420,7 +1431,10 @@ async function poll302GptImageTask(
       const reason = code === -10003
         ? "生成服务拒绝了请求参数"
         : code === -10008 ? "生成服务当前没有可用模型" : "异步任务失败";
-      throw new Error(`${reason}（状态 ${polled.status_code}${typeof code === "number" ? `，错误码 ${code}` : ""}）`);
+      throw new GptImageTaskFailed(`${reason}（状态 ${polled.status_code}${typeof code === "number" ? `，错误码 ${code}` : ""}）`);
+    }
+    if (polled.err && !/pending|processing|running/i.test(polled.err)) {
+      throw new Error(polled.err);
     }
   }
 
@@ -1440,7 +1454,7 @@ export async function resume302GptImageTask(
   } catch (error) {
     const message = `302 GPT-image 任务恢复失败：${readableError(error, "未知错误")}`;
     recordProviderFailure("gpt-image", message);
-    return { status: "error", message, providerTaskId: taskId };
+    return { status: "error", message, providerTaskId: taskId, ...(error instanceof GptImageTaskFailed ? { providerConfirmedFailure: true } : {}) };
   }
 }
 
@@ -1545,7 +1559,7 @@ async function generate302GptImageEdit(
       ? [{ bytes: patch.overviewPng, mimeType: "image/png", filename: "style-overview.png" }]
       : mask ? [] : await Promise.all(
           Array.from(new Set((options.referenceContextImageUrls ?? []).filter(Boolean).filter(url => url !== imageUrl)))
-            .slice(0, 3).map(url => readImageInput(url, fetcher)));
+            .slice(0, options.gptImageModel === "gpt-image-2.5-sunburst" ? 15 : 3).map(url => readImageInput(url, fetcher)));
     const endpoint = new URL(
       "/v1/images/edits",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
@@ -1557,7 +1571,7 @@ async function generate302GptImageEdit(
     const form = new FormData();
     form.append(
       "model",
-      patch ? LOCAL_IMAGE_PATCH_PROFILE.model : mask || options.referenceRevision || options.preferStructuralEdit ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
+      patch ? LOCAL_IMAGE_PATCH_PROFILE.model : options.gptImageModel ?? (mask || options.referenceRevision || options.preferStructuralEdit ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel)
     );
     form.append("prompt", patch ? localImagePatchPrompt(prompt) : prompt);
     form.append(
@@ -1569,7 +1583,7 @@ async function generate302GptImageEdit(
     form.append("n", "1");
     form.append(
       "quality",
-      patch ? LOCAL_IMAGE_PATCH_PROFILE.quality : mask || options.referenceRevision
+      patch ? LOCAL_IMAGE_PATCH_PROFILE.quality : options.gptImageModel === "gpt-image-2.5-sunburst" ? "high" : mask || options.referenceRevision
         ? STORYBOARD_MASKED_EDIT_PROFILE.quality
         : gptQualityFor(options.fidelity)
     );
@@ -1622,6 +1636,7 @@ async function generate302GptImageEdit(
       return {
         status: "error",
         message,
+        ...(options.gptSubmitOnly && response.status >= 500 ? { submissionUncertain: true } : {}),
       };
     }
 
@@ -1632,6 +1647,7 @@ async function generate302GptImageEdit(
     if (typeof taskId === "string" && taskId && !Array.isArray(receipt.data)) {
       acceptedTaskId = taskId;
       await options.onProviderTaskAccepted?.(taskId);
+      if (options.gptSubmitOnly) return { status: "error", providerTaskId: taskId, errorCode: "timeout_pending", message: IMAGE_TASK_PENDING_MESSAGE };
       const result = await resume302GptImageTask(taskId, { ...options, fetcher,
         ...(mask ? { referenceImageUrl: imageUrl } : {}) });
       return result.status === "ok" ? result : { ...result, providerTaskId: taskId };
@@ -1639,7 +1655,7 @@ async function generate302GptImageEdit(
     const stored = await storeGptEditResult(responseJson, { ...options, referenceImageUrl: imageUrl }, fetcher);
     if (stored.status !== "ok") {
       recordFailure("gpt-image");
-      return stored;
+      return options.gptSubmitOnly ? { ...stored, submissionUncertain: true } : stored;
     }
 
     recordSuccess("gpt-image");
@@ -1729,6 +1745,8 @@ export async function editImage(
   prompt: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
+  if (options.gptImageModel === "gpt-image-2.5-sunburst" && !ENV.api302Key)
+    return { status: "error", message: "尚未配置 302 图片服务，未切换到其他模型" };
   const fetcher: Fetcher = guardComputeFetch((options.fetcher ?? globalThis.fetch) as Fetcher);
   if (options.provider === "midjourney" && !ENV.api302Key) {
     return {status: "error", message: "MJ尚未配置302凭据，未切换到其他模型"};

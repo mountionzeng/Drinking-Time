@@ -18,6 +18,7 @@ import { bookAudioText } from "@shared/bookAudioBlock";
 export type ModuleConversion = {
   id: string;
   text: string;
+  parts?: Array<{ id: string; text: string }>;
   kind: "text" | "image" | "music" | "narration" | "translate-en" | "translate-zh";
 };
 export function BookModuleConvert({
@@ -108,10 +109,10 @@ export function BookModuleConvert({
   const cost = (imageProvider === "gpt-image" ? estimatePublishingCoverFallbackCost() : estimateStoryboardImageCost()).estimatedCny;
   const title = translating ? (source.kind === "translate-en" ? "翻译成英文" : "翻译成中文") :
     source.kind === "text"
-      ? "图片写成文字"
+      ? source.parts ? "所选模块合并为文字" : "图片写成文字"
       : source.kind === "image"
         ? "文字生成图片"
-        : source.kind === "narration" ? "文字生成有声书" : "模块生成音乐";
+        : source.kind === "narration" ? "文字生成有声书" : source.parts ? "所选模块合并为音乐" : "模块生成音乐";
   async function run(work: () => Promise<void>) {
     if (lock.current) return;
     lock.current = true;
@@ -146,7 +147,12 @@ export function BookModuleConvert({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {_ui("生成后自动在原模块下方新增模块，同时保存到仓库。原内容保留。")}</DialogDescription>
+          {source.parts && <p className="text-xs text-muted-foreground">{_ui("已选")}{" "}{source.parts.length} {_ui("个模块")}</p>}
         </DialogHeader>
+        {source.kind === 'narration' && <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">{_ui("按文章顺序朗读所选文字，图片和音乐不参与。每次最多5000字。")}</p>
+          <div aria-label={_ui("朗读原文")} className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded border p-3 text-sm">{source.parts ? source.parts.map(part=>part.text).join('\n\n') : source.text}</div>
+        </div>}
         {source.kind === "image" && <label className="text-sm">
           {_ui("生成方式")}<select aria-label={_ui("图片生成方式")} className="mt-1 w-full rounded border bg-transparent p-2" value={imageProvider} disabled={busy || submitted || images.length > 0 || blockNewImage}
             onChange={event => { setImageProvider(event.target.value as "midjourney" | "gpt-image"); setError(""); }}>
@@ -200,6 +206,7 @@ export function BookModuleConvert({
                     storyId,
                     chapterId,
                     moduleId: source.id,
+                    ...(source.parts ? { moduleIds: source.parts.map(part => part.id) } : {}),
                   });
                   setResult(data.text);
                   void utils.memoryWarehouse.forStory.invalidate({ storyId });
@@ -252,7 +259,7 @@ export function BookModuleConvert({
                   } else
                     setError("任务已提交，结果可在仓库查看。请勿重复提交。");
                 } else if(source.kind === "narration") {
-                  setQuote(await narrationPrice.mutateAsync({storyId,chapterId,moduleId:source.id}));
+                  setQuote(await narrationPrice.mutateAsync({storyId,chapterId,moduleId:source.id,...(source.parts ? {moduleIds:source.parts.map(part=>part.id)} : {})}));
                 } else {
                   setQuote(
                     await price.mutateAsync({
@@ -260,7 +267,7 @@ export function BookModuleConvert({
                       kind: "music",
                       targetFrame: 0,
                       scope: "book",
-                      bookTarget: { chapterId, moduleId: source.id },
+                      bookTarget: { chapterId, moduleId: source.id, ...(source.parts ? { moduleIds: source.parts.map(part => part.id) } : {}) },
                       intent,
                     })
                   );

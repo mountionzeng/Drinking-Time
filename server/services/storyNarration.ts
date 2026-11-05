@@ -218,8 +218,8 @@ async function resolveCue(input: {
 }) {
   if(input.bookTarget){
     const source=await resolveBookModuleSource({...input,...input.bookTarget});
-    if(source.image)throw new Error("请选择文字模块生成有声书");
-    if(source.source.length>5000)throw new Error("每段有声书最多5000字，请先拆分模块");
+    if(source.image || source.parts?.some(part=>part.image))throw new Error("请选择文字模块生成有声书");
+    if(source.source.length>5000)throw new Error("每次有声书最多5000字，请减少所选文字或先拆分模块");
     return {cue:{id:input.subtitleCueId,text:source.source,textRevision:1,speechBindingId:null},timeline:null};
   }
   const [story, timeline] = await Promise.all([

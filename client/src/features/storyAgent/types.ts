@@ -210,6 +210,7 @@ export interface StoryShot {
   scriptText?: string;
   /** Immutable lineage for shots confirmed from a publishing-version preview. */
   publishingVideo?: {
+    referenceImageIds?: number[];
     referenceImageId?: number;
     continuityImageId?: number;
     versionId: string;

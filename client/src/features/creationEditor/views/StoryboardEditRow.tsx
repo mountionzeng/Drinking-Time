@@ -3250,6 +3250,7 @@ export function StoryboardEditRow({
     }
     event.preventDefault();
     event.stopPropagation();
+    if (shortcut.kind === "togglePlay" && event.repeat) return;
     if (objectRoute.kind === "blocked") return;
     if (objectRoute.kind === "object") {
       if (selectedObjectContext) {
@@ -3344,12 +3345,14 @@ export function StoryboardEditRow({
         defaultPrevented: event.defaultPrevented,
         isEditableTarget: Boolean(
           target?.closest(
-            'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+            'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
           )
         ),
         isButtonTarget: Boolean(target?.closest("button, a, [role='button']")),
         isTimelineTarget: Boolean(
-          target?.closest("[data-storyboard-visual-layer]")
+          target?.closest(
+            '[data-storyboard-visual-layer], [data-playback-space="true"]'
+          )
         ),
         isAnchorTarget: Boolean(
           target?.closest('[data-storyboard-edit-anchor="true"]')

@@ -1,4 +1,5 @@
 import { shotVideoPriceProfile } from "../../shared/shotDirector";
+import { TRPCError } from "@trpc/server";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import path from "node:path";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
@@ -1166,6 +1167,7 @@ export const creationAgentRouter = router({
   generateShotVideo: protectedProcedure
     .input(
       z.object({
+        renderMode: z.enum(["economy", "existing"]).optional(),
         storyId: z.number(),
         shotNo: z.number(),
         stableShotId: z.string().optional(),
@@ -1177,7 +1179,7 @@ export const creationAgentRouter = router({
         nextReferenceImageId: z.number().optional(),
         prompt: z.string().min(1),
         subtitle: z.string().optional(),
-        durationSec: z.number().min(3).max(10).optional(),
+        durationSec: z.number().min(1).max(10).optional(),
         motion: z.enum(["low", "high"]).optional(),
         aspectRatio: z.literal(SHOT_VIDEO_ASPECT_RATIO).optional(),
         directorPromptApproved: z.boolean().optional(),
@@ -1190,7 +1192,9 @@ export const creationAgentRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const durationSec = input.durationSec ?? 5;
-      const motion = input.motion ?? getShotVideoProviderStatus().motion;
+      const providerStatus = getShotVideoProviderStatus(input.renderMode);
+      const motion = input.motion ?? providerStatus.motion;
+      if (input.renderMode !== "economy" && durationSec < 3) throw new TRPCError({ code: "BAD_REQUEST", message: "当前视频模型至少需要3秒" });
       const renderDecision = await resolveShotVideoRenderDecision(
         {
           storyId: input.storyId,
@@ -1200,7 +1204,7 @@ export const creationAgentRouter = router({
         },
         ctx.user.id
       );
-      const paidEstimate = estimateShotVideoCost({ durationSec, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) });
+      const paidEstimate = estimateShotVideoCost({ durationSec, motion, priceProfile: input.renderMode === "economy" ? "vidu-economy" : shotVideoPriceProfile(providerStatus.submitPath) });
       const estimate = {
         ...paidEstimate,
         estimatedCny:
@@ -1219,6 +1223,7 @@ export const creationAgentRouter = router({
       }
       const result = await startShotVideoJob(
         {
+          renderMode: input.renderMode,
           storyId: input.storyId,
           shotNo: input.shotNo,
           stableShotId: input.stableShotId ?? null,

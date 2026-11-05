@@ -19,6 +19,7 @@ import {
   resolveBookModuleSource,
   describeBookModule,
 } from "./bookModuleSource";
+import { bookAudioText } from "../../shared/bookAudioBlock";
 const target = { storyId: 1, userId: 2, chapterId: 3, moduleId: "selected" };
 beforeEach(() => {
   vi.resetAllMocks();
@@ -73,4 +74,37 @@ it("reads the full merged module and correctly locates the following module",asy
  m.chapter.mockResolvedValue({storyId:1,blocks:{body:'第一段\n\n第二段\n尾段',writingStyle:[style('selected',3),style('last')]}});
  expect((await resolveBookModuleSource(target)).source).toBe('第一段\n\n第二段');
  expect((await resolveBookModuleSource({...target,moduleId:'last'})).source).toBe('尾段');
+});
+
+it('resolves every selected module in manuscript order and fingerprints all of them', async()=>{
+ const group={...target,moduleIds:['selected','other']};
+ const first=await resolveBookModuleSource(group);
+ expect(first.parts?.map(p=>p.id)).toEqual(['other','selected']);
+ expect(await describeBookModule(first)).toBe('无关的文字\n\n雨中的旧车站');
+ m.chapter.mockResolvedValue({storyId:1,blocks:{body:'无关的文字\n改了第二段',writingStyle:[{id:'other'},{id:'selected'}]}});
+ expect((await resolveBookModuleSource(group)).fingerprint).not.toBe(first.fingerprint);
+ await expect(resolveBookModuleSource({...group,moduleIds:['selected','missing']})).rejects.toThrow('原模块已变化');
+ await expect(resolveBookModuleSource({...group,moduleIds:['selected','selected']})).rejects.toThrow('不同模块');
+ expect(m.vision).not.toHaveBeenCalled();
+});
+
+it('combines mixed sources in a single vision request and checks every image ownership', async()=>{
+ m.chapter.mockResolvedValue({storyId:1,blocks:{body:'![图片](/api/images/a.png)\n保留手绘质感\n![图片](/api/images/b.png)\n无关内容',writingStyle:['a','b','c','d'].map(id=>({id}))}});
+ m.assets.mockResolvedValue(['/api/images/a.png','/api/images/b.png'].map(imageUrl=>({imageUrl,availability:'ready'})));
+ m.image.mockImplementation(async(url:string)=>`bytes:${url}`);m.vision.mockResolvedValue({text:'整合的描述'});
+ const group={...target,moduleId:'a',moduleIds:['c','a','b']};
+ expect(await describeBookModule(await resolveBookModuleSource(group))).toBe('整合的描述');
+ expect(m.vision).toHaveBeenCalledTimes(1);
+ expect(m.vision.mock.calls[0][0]).toMatchObject({imageUrls:['bytes:/api/images/a.png','bytes:/api/images/b.png'],userText:expect.stringContaining('[图片 1]\n\n保留手绘质感\n\n[图片 2]')});
+ expect(m.vision.mock.calls[0][0].userText).not.toContain('无关内容');
+ m.assets.mockResolvedValue([{imageUrl:'/api/images/a.png',availability:'ready'}]);
+ await expect(resolveBookModuleSource(group)).rejects.toThrow('图片不可用');
+});
+
+it('rejects audio and oversized groups before invoking models',async()=>{
+ m.chapter.mockResolvedValue({storyId:1,blocks:{body:`文字\n${bookAudioText(1,2,'音乐')}`,writingStyle:[{id:'a'},{id:'b'}]}});
+ await expect(resolveBookModuleSource({...target,moduleId:'a',moduleIds:['a','b']})).rejects.toThrow('音乐模块');
+ m.chapter.mockResolvedValue({storyId:1,blocks:{body:`${'字'.repeat(30001)}\n结尾`,writingStyle:[{id:'a'},{id:'b'}]}});
+ await expect(resolveBookModuleSource({...target,moduleId:'a',moduleIds:['a','b']})).rejects.toThrow('30000');
+ expect(m.vision).not.toHaveBeenCalled();
 });

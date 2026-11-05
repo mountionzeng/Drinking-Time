@@ -11,6 +11,7 @@ import {
   deleteSubtitleCueForStory,
   editSubtitleTextForStory,
   initializeSubtitlesForStory,
+  initializeGeneratedSubtitlesForStory,
   mergeSubtitleCueForStory,
   moveSubtitleCueForStory,
   splitSubtitleCueForStory,
@@ -109,6 +110,216 @@ beforeEach(() => {
 });
 
 describe("timelineSubtitleEditing narrow commands", () => {
+  async function generatedStory() {
+    return createStory({
+      userId: USER_ID,
+      title: "生成中的分镜",
+      body: {
+        _revision: 2,
+        shots: [
+          {
+            stableShotId: "a",
+            shotNo: 1,
+            dialogue: "第一句字幕",
+            durationMs: 2000,
+          },
+          {
+            stableShotId: "b",
+            shotNo: 2,
+            dialogue: "第二句字幕",
+            durationMs: 3000,
+          },
+          { stableShotId: "c", shotNo: 3, dialogue: "", durationMs: 1000 },
+        ],
+      },
+    });
+  }
+
+  it("initializes timed captions before any video is ready and deduplicates concurrent confirmations", async () => {
+    const story = await generatedStory();
+    const input = {
+      storyId: story.id,
+      userId: USER_ID,
+      generationId: "preview-1",
+    };
+    const results = await Promise.all([
+      initializeGeneratedSubtitlesForStory(input),
+      initializeGeneratedSubtitlesForStory(input),
+    ]);
+    expect(results.every(result => result.status === "ok")).toBe(true);
+    // Replayed receipts retain changed=true; the durable document must advance only once.
+    expect(await timelineVersion(story.id)).toBe(1);
+    expect(await subtitleCues(story.id)).toMatchObject([
+      {
+        text: "第一句字幕",
+        startFrame: 0,
+        durationFrames: 60,
+        provenance: { kind: "shot-dialogue", stableShotId: "a" },
+      },
+      { text: "第二句字幕", startFrame: 60, durationFrames: 90 },
+    ]);
+    const timeline = await getStoryTimeline(story.id, USER_ID);
+    expect(timeline!.items as unknown[]).toHaveLength(3);
+    clearVisualEditUndoForTesting();
+    await initializeGeneratedSubtitlesForStory(input);
+    expect(await getStoryTimeline(story.id, USER_ID)).toEqual(timeline);
+  });
+
+  it("preserves edited and deliberately emptied captions across new generations", async () => {
+    const story = await generatedStory();
+    const input = { storyId: story.id, userId: USER_ID, generationId: "first" };
+    await initializeGeneratedSubtitlesForStory(input);
+    const first = (await subtitleCues(story.id))[0] as {
+      id: string;
+      textRevision: number;
+    };
+    await editSubtitleTextForStory({
+      storyId: story.id,
+      userId: USER_ID,
+      operation: nextOp(),
+      cueId: first.id,
+      text: "人工改稿",
+      expectedTextRevision: first.textRevision,
+    });
+    const edited = await getStoryTimeline(story.id, USER_ID);
+    await initializeGeneratedSubtitlesForStory({
+      ...input,
+      generationId: "second",
+    });
+    expect(await getStoryTimeline(story.id, USER_ID)).toEqual(edited);
+    for (const cue of await subtitleCues(story.id)) {
+      await deleteSubtitleCueForStory({
+        storyId: story.id,
+        userId: USER_ID,
+        operation: nextOp(),
+        cueId: (cue as { id: string }).id,
+      });
+    }
+    await initializeGeneratedSubtitlesForStory({
+      ...input,
+      generationId: "third",
+    });
+    expect(await subtitleCues(story.id)).toEqual([]);
+  });
+
+  it("uses absolute timeline positions and excludes omitted shots without moving visual items", async () => {
+    const story = await generatedStory();
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: USER_ID,
+      expectedVersion: 0,
+      items: [
+        { stableShotId: "a", included: false, position: 0, durationFrames: 60 },
+        {
+          stableShotId: "b",
+          included: true,
+          position: 1,
+          timelineStartFrame: 90,
+          durationFrames: 120,
+        },
+        {
+          stableShotId: "c",
+          included: true,
+          position: 2,
+          timelineStartFrame: 210,
+          durationFrames: 30,
+        },
+      ],
+    });
+    const before = await getStoryTimeline(story.id, USER_ID);
+    await initializeGeneratedSubtitlesForStory({
+      storyId: story.id,
+      userId: USER_ID,
+      generationId: "gap",
+    });
+    expect(await subtitleCues(story.id)).toMatchObject([
+      { text: "第二句字幕", startFrame: 90, durationFrames: 120 },
+    ]);
+    expect((await getStoryTimeline(story.id, USER_ID))?.items).toEqual(
+      before?.items
+    );
+  });
+
+  it("does not create captions for a different owner", async () => {
+    const story = await generatedStory();
+    expect(
+      await initializeGeneratedSubtitlesForStory({
+        storyId: story.id,
+        userId: 999,
+        generationId: "other",
+      })
+    ).toMatchObject({ status: "error" });
+    expect(await getStoryTimeline(story.id, USER_ID)).toBeNull();
+  });
+
+  it("does not replay an automatic caption initialization after undo", async () => {
+    const story = await generatedStory();
+    const input = { storyId: story.id, userId: USER_ID, generationId: "undo" };
+    const initialized = await initializeGeneratedSubtitlesForStory(input);
+    if (initialized.status !== "ok" || !initialized.receipt)
+      throw new Error("字幕未初始化");
+    expect(
+      await undoLatestTimelineMediaEditForStory({
+        storyId: story.id,
+        userId: USER_ID,
+        operation: initialized.receipt,
+      })
+    ).toMatchObject({ status: "ok" });
+    const undone = await getStoryTimeline(story.id, USER_ID);
+    expect(await initializeGeneratedSubtitlesForStory(input)).toMatchObject({
+      status: "ok",
+      changed: false,
+    });
+    expect(await getStoryTimeline(story.id, USER_ID)).toEqual(undone);
+    clearVisualEditUndoForTesting();
+    await initializeGeneratedSubtitlesForStory(input);
+    expect(await getStoryTimeline(story.id, USER_ID)).toEqual(undone);
+  });
+
+  it("keeps legacy imported captions authoritative", async () => {
+    const story = await createStory({
+      userId: USER_ID,
+      title: "旧字幕",
+      body: {
+        _revision: 1,
+        shots: [
+          {
+            stableShotId: "a",
+            shotNo: 1,
+            durationMs: 2000,
+            dialogue: "不能替换旧字幕",
+          },
+        ],
+        chatCutImport: {
+          sourceFormat: "xmeml",
+          fps: 25,
+          scriptCues: [{ code: "0101", text: "导入字幕" }],
+          audioTracks: [
+            {
+              index: 1,
+              clips: [
+                {
+                  id: "voice",
+                  name: "VO-0101.wav",
+                  startFrame: 0,
+                  endFrame: 50,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(
+      await initializeGeneratedSubtitlesForStory({
+        storyId: story.id,
+        userId: USER_ID,
+        generationId: "legacy",
+      })
+    ).toMatchObject({ status: "ok", changed: false });
+    expect(await getStoryTimeline(story.id, USER_ID)).toBeNull();
+  });
+
   it("atomically creates a missing Timeline from Story shots when subtitles are first initialized", async () => {
     const storyId = await seedStoryWithoutTimeline();
     const operation = nextOp();

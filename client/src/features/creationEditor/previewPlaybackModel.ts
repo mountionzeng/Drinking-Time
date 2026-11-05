@@ -22,6 +22,11 @@ import type {
 
 export const PREVIEW_CANVAS_INSET_PX = 12;
 
+/** Preview-only shot direction; never becomes a subtitle or rendered video text. */
+export function previewShotDescription(shot: Pick<CreationEditorShot, "subject" | "action"> | null | undefined): string {
+  return [...new Set([shot?.subject?.trim(), shot?.action?.trim()].filter(Boolean))].join(" · ");
+}
+
 export type VideoEditorPreview = {
   target: VideoClipEditorTarget;
   draft: VideoClipEditDraft;

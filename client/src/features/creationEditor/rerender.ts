@@ -1,3 +1,4 @@
+import { PendingShotImageError } from "@shared/shotImageRender";
 import { formatComputeQuote } from "@shared/computeMoney";
 import type { ShotRenderReferences } from "@shared/shotImageRender";
 import type { CreationEditorShot } from "./types";
@@ -23,6 +24,7 @@ export type RerenderReference = {
 };
 
 export type GenerateForMobileInput = {
+  shotImageRequestId?: string;
   renderReferences?: ShotRenderReferences;
   referenceRevision?: boolean;
   storyId: number;
@@ -122,6 +124,7 @@ export function createGenerateForMobileInput(params: {
     rows: params.rows,
   });
   return {
+    shotImageRequestId: crypto.randomUUID(),
     renderReferences: params.reference?.selection,
     referenceRevision: params.reference?.referenceRevision,
     storyId: params.storyId,
@@ -175,6 +178,9 @@ export async function rerenderShotImage(params: {
     throw new Error(readableRerenderError(error, "重渲请求失败"));
   }
   if (result.status !== "ok" || !result.imageUrl) {
+    if (result.providerTaskId && input.shotImageRequestId && !input.referenceRevision) {
+      throw new PendingShotImageError(result.error || "图片任务已受理，请恢复原任务", result.providerTaskId);
+    }
     throw new Error(readableRerenderError(result.error, "图片生成失败"));
   }
   return result;

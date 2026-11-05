@@ -14,6 +14,30 @@ const body = "开头。\n\n阿宁走进铺子。\n\n爷爷修好旧伞。\n\n雨
 const paragraphs = imagePackParagraphs(body);
 
 describe("article illustrations carried into video", () => {
+  it('keeps marked dialogue exact even when the model rewrites it, with speaker surviving normalization',()=>{
+    const rows=publishingArticleVideoRows({body:'镜头推近\n你好',illustrations:[],bookScenes:[{id:'a',text:'镜头推近\n你好',referenceImageIds:[],dialogueText:'你好'}]});
+    const preview=buildPublishingArticleVideoPreview({rows,now:1,requirements:new Map([['a',{subject:'小雨',action:'抬头',imageRequirement:'原图',videoRequirement:'推近',soundRequirement:'雨声，无音乐',voiceText:'读出镜头推近',speaker:'小雨'}]])});
+    expect(preview.shots[0]).toMatchObject({scriptText:'镜头推近\n你好',voiceText:'你好',speaker:'小雨'});
+    expect(normalizePublishingVideoStoryboardAggregate({version:1,latestPreview:preview})?.latestPreview?.shots[0].speaker).toBe('小雨');
+  });
+  it('uses offsets for repeated words and does not duplicate dialogue for pictures at the same position',()=>{
+    const rows=publishingArticleVideoRows({body:'你好\n你好',dialogueRanges:[{start:3,end:5}],illustrations:[{assetId:1,after:null},{assetId:2,after:null}]});
+    expect(rows.map(r=>r.dialogueText)).toEqual(['你好','']);
+    expect(buildPublishingArticleVideoPreview({rows,requirements:new Map(),now:1}).shots.map(s=>s.voiceText)).toEqual(['你好','']);
+  });
+  it("keeps multiple book references on one act through preview normalization without assigning a first frame", () => {
+    const rows = publishingArticleVideoRows({body: "第一幕。\n第二幕。", illustrations: [], bookScenes: [
+      {id: "book-scene-1", text: "第一幕。", referenceImageIds: [1, 2]},
+      {id: "book-scene-2", text: "第二幕。", referenceImageIds: []},
+    ]});
+    const preview = buildPublishingArticleVideoPreview({rows, requirements: new Map(), now: 10});
+    expect(preview.shots).toHaveLength(2);
+    expect(preview.shots.map(shot => shot.referenceImageIds)).toEqual([[1, 2], []]);
+    expect(preview.shots.every(shot => !shot.referenceImageId && !shot.continuityImageId)).toBe(true);
+    const normalized = normalizePublishingVideoStoryboardAggregate({version: 1, latestPreview: preview});
+    expect(normalized?.latestPreview?.shots.map(shot => shot.referenceImageIds)).toEqual([[1, 2], []]);
+    expect(validatePublishingVideoPreview(preview)).toEqual([]);
+  });
   it("inserts only the planned missing shots in place and keeps original narration and frames", () => {
     const rows = publishingArticleVideoRows({
       body,

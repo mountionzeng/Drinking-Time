@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CreationEditorShot } from "@/features/creationEditor/types";
-import { storyboardShotCostEstimate, storyboardVideoCostEstimate, quickShotVideoRenderPlan } from "./storyboardReviewModel";
+import { storyboardShotCostEstimate, storyboardVideoCostEstimate, quickShotVideoRenderPlan, storyboardStartEndTuningGenerationParams } from "./storyboardReviewModel";
 
 const shot = {
   shotNo: 1,
@@ -12,6 +12,15 @@ const shot = {
   imageId: 1,
   imageUrl: "/image.png",
 } as CreationEditorShot;
+
+it("keeps two-second economy shots and persisted model choice without touching frames", () => {
+  const params = storyboardStartEndTuningGenerationParams('{"firstFrameImageId":1,"durationSec":2}', { videoRenderMode: "economy" });
+  expect(JSON.parse(params)).toEqual({ firstFrameImageId: 1, durationSec: 2, videoRenderMode: "economy" });
+  const plan = quickShotVideoRenderPlan({ ...shot, generationParams: params }, [], "vidu-economy");
+  expect(plan.durationSec).toBe(2);
+  expect(plan.estimatedCny).toBe(0.34);
+  expect(storyboardVideoCostEstimate({ ...shot, action: "", videoPrompt: "平移画面", cameraMove: "平移画面" }, [], "vidu-economy")).toBe(0);
+});
 
 describe("storyboardShotCostEstimate", () => {
   it("shows the four-candidate image path plus video estimate", () => {

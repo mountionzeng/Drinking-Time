@@ -2,6 +2,7 @@ import {
   PUBLISHING_PLATFORM_REGISTRY,
   type PublishingPlatformId,
 } from "@shared/publishingDraft";
+import { fullBookImageCrop, type BookImageCrop } from "@shared/bookImageBlock";
 
 export type PublishingCoverCrop = {
   sourceX: number;
@@ -67,6 +68,33 @@ export function buildPublishingCoverExportPlan(params: {
       y: height * safeArea.top,
       width: width * (safeArea.right - safeArea.left),
       height: height * (safeArea.bottom - safeArea.top),
+    },
+  };
+}
+
+/** Keep the article's chosen crop intact, adding paper margins for the target ratio. */
+export function publishingImageContainPlan(
+  sourceWidth: number,
+  sourceHeight: number,
+  platform: PublishingPlatformId,
+  crop: BookImageCrop = fullBookImageCrop
+) {
+  const { width, height } = PUBLISHING_PLATFORM_REGISTRY[platform].cover;
+  const source = {
+    x: crop.x * sourceWidth,
+    y: crop.y * sourceHeight,
+    width: crop.width * sourceWidth,
+    height: crop.height * sourceHeight,
+  };
+  if (source.width <= 0 || source.height <= 0) throw new Error("图片尺寸无效");
+  const scale = Math.min(width / source.width, height / source.height);
+  return {
+    source,
+    target: {
+      x: (width - source.width * scale) / 2,
+      y: (height - source.height * scale) / 2,
+      width: source.width * scale,
+      height: source.height * scale,
     },
   };
 }
@@ -157,6 +185,8 @@ export async function renderPublishingCover(params: {
   imageUrl: string;
   platform: PublishingPlatformId;
   title?: string;
+  /** Article illustrations must not acquire an additional cover crop. */
+  containCrop?: BookImageCrop;
 }): Promise<Blob> {
   const prepared = await prepareImageSource(params.imageUrl);
   try {
@@ -175,17 +205,38 @@ export async function renderPublishingCover(params: {
     if (!context) throw new Error("当前浏览器无法导出封面");
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(
-      image,
-      plan.crop.sourceX,
-      plan.crop.sourceY,
-      plan.crop.sourceWidth,
-      plan.crop.sourceHeight,
-      0,
-      0,
-      plan.output.width,
-      plan.output.height
-    );
+    if (params.containCrop) {
+      const { source, target } = publishingImageContainPlan(
+        sourceWidth,
+        sourceHeight,
+        params.platform,
+        params.containCrop
+      );
+      context.fillStyle = "#f6f3eb";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        image,
+        source.x,
+        source.y,
+        source.width,
+        source.height,
+        target.x,
+        target.y,
+        target.width,
+        target.height
+      );
+    } else
+      context.drawImage(
+        image,
+        plan.crop.sourceX,
+        plan.crop.sourceY,
+        plan.crop.sourceWidth,
+        plan.crop.sourceHeight,
+        0,
+        0,
+        plan.output.width,
+        plan.output.height
+      );
 
     const title = params.title?.trim() ?? "";
     if (title) {

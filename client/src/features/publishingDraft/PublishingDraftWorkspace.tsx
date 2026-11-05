@@ -1339,7 +1339,7 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const openVideoSetup = async () => {
+  const openVideoSetup = async (preferredDuration?: string) => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
     // 书稿模式：视频以章节正文为准，不再要求旧发布稿正文非空。
     if (!activeVersion || (!unifiedChapters && !editorContent?.body.trim())) { toast.info("请先保存书稿，再制作视频"); return; }
@@ -1360,10 +1360,21 @@ export default function PublishingDraftWorkspace({
     const currentScope=storySpineStore.getState();
     if(currentScope.activeStoryId!==activeStoryId || currentScope.accountId!==scope.accountId || currentScope.storyScopeEpoch!==scope.storyScopeEpoch)return;
     useBookMediaSession.getState().setSession(null);
-    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId,
+    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId, preferredDuration,
       layout:{body:videoBody,illustrations:bookMode ? [] : selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
       onAdopt:async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId});onContinueToVideo?.()},
-      onAlbum:()=>{useBookVideoSession.getState().setSession(null);setSelectedNarrativeSpec("album9");setVideoSetupOpen(true)},
+      onAlbum:()=>{
+        useBookVideoSession.getState().setSession(null);
+        const current = publishingStateRef.current;
+        const version = current.versions?.find(item => item.versionId === current.activeVersionId);
+        if (version?.album) {
+          setAlbumWorkspaceOpen(true);
+          if (!unifiedChapters) onOpenImages?.();
+          return;
+        }
+        setSelectedNarrativeSpec("album9");
+        setVideoSetupOpen(true);
+      },
     });
     toast.info("在左侧聊聊视频的用途和想法");
   };
@@ -1384,23 +1395,22 @@ export default function PublishingDraftWorkspace({
   }, [createRequest, activeStoryId, draft, dirty, unifiedChapters, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
 
   const confirmVideoSetup = async () => {
-    setVideoSetupOpen(false);
     if (
       activeStoryId == null ||
-      !publishing.core ||
-      !draft ||
-      !editorContent ||
       !activeVersion
     ) {
+      toast.info("书稿尚未载入，请先打开并保存书稿后再试");
       return;
     }
     const storyId = activeStoryId;
     try {
       if (selectedNarrativeSpec === "album9") {
+        if (unifiedChapters) await prepareBookForVideo(storyId, storySpineStore.getState().accountId);
         const initialized = await initializeAlbumMut.mutateAsync({
           storyId,
           versionId: activeVersion.versionId,
           platform,
+          bookSource: unifiedChapters,
           baseContainerRevision:
             publishing.containerRevision ?? publishing.revision,
           baseVersionRevision: activeVersion.versionRevision,
@@ -1416,12 +1426,14 @@ export default function PublishingDraftWorkspace({
         }
         setPublishing(initialized.publishing);
         await refreshPublishingRead(storyId);
+        setVideoSetupOpen(false);
         setAlbumWorkspaceOpen(true);
-        onOpenImages?.();
+        if (!unifiedChapters) onOpenImages?.();
         toast.success("画册页面已建立；文字稿和视频故事板没有改变");
         return;
       }
-      openVideoSetup();
+      await openVideoSetup(NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]);
+      setVideoSetupOpen(false);
     } catch (error) {
       toast.error(
         publishingErrorMessage(
@@ -2295,7 +2307,7 @@ export default function PublishingDraftWorkspace({
                 ))}
                 <div className={view === "text" ? "hidden" : "ml-auto flex flex-wrap items-center justify-end gap-2"} aria-live="polite">
                   <ActionButton
-                    onClick={openVideoSetup}
+                    onClick={() => void openVideoSetup()}
                     disabled={busy || videoBusy || dirty}
                     primary={Boolean(coverAsset)}
                   >
@@ -2331,6 +2343,18 @@ export default function PublishingDraftWorkspace({
 
       </div>
 
+      <Dialog open={unifiedChapters && albumWorkspaceOpen && Boolean(activeVersion?.album)} onOpenChange={setAlbumWorkspaceOpen}>
+        <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{_ui("画册编辑")}</DialogTitle><DialogDescription>{_ui("已根据当前书稿建立画册，可在这里调整文字与排版。")}</DialogDescription></DialogHeader>
+          {activeStoryId != null && activeVersion?.album && <PublishingAlbumWorkspace
+            key={`${activeStoryId}:${activeVersion.versionId}`}
+            storyId={activeStoryId} version={activeVersion}
+            coverAvailable={Boolean(activeVersion.cover?.assetId)} onPublishingChange={setPublishing}
+            onBackToDraft={() => setAlbumWorkspaceOpen(false)}
+            onOpenCoverStudio={() => { setAlbumWorkspaceOpen(false); openCoverStudio(true); }}
+          />}
+        </DialogContent>
+      </Dialog>
       <Dialog open={videoSetupOpen} onOpenChange={setVideoSetupOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -2340,7 +2364,7 @@ export default function PublishingDraftWorkspace({
             <DialogDescription>
               {selectedNarrativeSpec === "album9"
                 ? _ui("新建画册，文字可编辑。")
-                : _ui("新建故事版，保留已有内容。")}
+                : _ui("先描述想法，再在聊天里确认时长、氛围与用途。")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-1">
@@ -2402,7 +2426,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <ArrowRight className="h-4 w-4" />
               )}
-              {selectedNarrativeSpec === "album9" ? _ui("生成画册") : _ui("生成故事版")}
+              {selectedNarrativeSpec === "album9" ? _ui("生成画册") : _ui("继续描述视频想法")}
             </ActionButton>
           </DialogFooter>
         </DialogContent>

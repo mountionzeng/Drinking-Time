@@ -1,5 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, FileUp, Loader2, Upload } from "lucide-react";
+import { BookVideoStartButton } from "@/features/bookVideo/BookVideoStartButton";
 import {
   useCallback,
   useEffect,
@@ -2628,11 +2629,11 @@ export default function EditingNleWorkspace({
           <p className="mt-4 text-base font-semibold tracking-tight text-foreground">
             {isGeneratingScript
               ? _ui("正在生成 Storyboard 表格…")
-              : _ui("先从左边，讲一句你的故事")}
+              : _ui("把书里的故事，变成视频")}
           </p>
           <p className="mx-auto mt-1.5 max-w-[26rem] text-xs leading-relaxed text-muted-foreground">
             {!confirmedIntent
-              ? _ui("选择这次想做成什么，或直接说出脑海里的第一句话。这里随后会长出镜头和时间线。")
+              ? _ui("已有书稿可以直接开始。在左侧聊清用途和风格，再一起安排画面、台词与音乐。")
               : !hasConversationSource
                 ? _ui("意图已经确认。请先在左侧说出要讲的内容，再直接生成表格。")
                 : _ui("直接使用对话原文生成镜头表，不再要求先生成 Story Card。")}
@@ -2643,9 +2644,9 @@ export default function EditingNleWorkspace({
               aria-label={_ui("新故事步骤")}
             >
               {[
-                ["01", "选一个方向"],
-                ["02", "说出故事"],
-                ["03", "生成镜头"],
+                ["01", "聊清视频用途"],
+                ["02", "确认素材方案"],
+                ["03", "制作镜头"],
               ].map(([step, label]) => (
                 <li
                   key={step}
@@ -2663,6 +2664,8 @@ export default function EditingNleWorkspace({
             </ol>
           ) : null}
         </div>
+        <div className="mt-5"><BookVideoStartButton storyId={activeStoryId} disabled={isGeneratingScript} /></div>
+        <p className="mt-2 text-xs text-muted-foreground">{_ui("讨论、方案和素材表都留在左侧聊天里，随时可以打开查看。")}</p>
         <button
           type="button"
           onClick={() => void generateScript()}

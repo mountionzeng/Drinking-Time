@@ -17,10 +17,17 @@ import { useBookModuleActions } from './bookModuleActions';
 import { newWritingBlock } from './chapterBlockTree';
 import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { captureBookImageAnchor } from './bookImageInsert';
+import { deleteBookBlocks } from './bookBlockLayout';
 
 function nodes(node: any): any[] { return !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]; }
 function textField(canvas: any, index: number) { return nodes(canvas.children(canvas.blocks[index], index, {})).find(node => node.type === 'textarea').props; }
 function render(fn: () => any) { hooks.state = hooks.ref = 0; hooks.effects = []; const tree = fn(); hooks.effects.forEach(fn => fn()); return tree; }
+it('classifies a text module from its existing menu without changing its text',()=>{
+ const block=newWritingBlock('你好'),commit=vi.fn();
+ const tree=nodes(render(()=>BookBlockCanvas({blocks:[block],disabled:false,activeId:block.id,onSelect:vi.fn(),onCommit:commit,children:()=>null})));
+ tree.find(n=>n.type==='button'&&String(n.props.children).includes('转换成台词/字幕')).props.onClick();
+ expect(commit.mock.calls[0][0][0]).toMatchObject({id:block.id,text:'你好',format:'text',videoRole:'dialogue'});
+});
 beforeEach(() => {
   hooks.states = []; hooks.refs = [];
   vi.stubGlobal('React', React);
@@ -384,4 +391,181 @@ it.each(['image', 'audio'] as const)('inserts %s inside an open imported chapter
   const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;
   expect(after).toHaveLength(2);
   expect(after[1].parentId).toBe('chapter-a');
+});
+
+it('opens image composition from a mixed selection and preserves source modules', async () => {
+  const { useBookImageCompositionSession } = await import('./bookImageCompositionSession');
+  vi.stubGlobal('document', { querySelector: () => null });
+  vi.stubGlobal('requestAnimationFrame', (fn: () => void) => { fn(); return 1; });
+  let value='![图片](/api/images/a.png)\n\n保留原图风格\n不选这段';
+  const prepare=vi.fn().mockResolvedValue(undefined);
+  const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null},prepareMedia:prepare,contextSource:{storyId:7,scope:'compose',chapterId:'2'}}))).find(n=>n.type===BookBlockCanvas).props;
+  let canvas=draw();const original=canvas.blocks;
+  canvas.onSelectionChange(original.slice(0,3).map((b:any)=>b.id));draw();
+  await useBookModuleActions.getState().session!.composeImage!('去掉阴影');
+  const session=useBookImageCompositionSession.getState().session!;
+  expect(session.sources.map(b=>b.text)).toEqual(['![图片](/api/images/a.png)','保留原图风格']);expect(session.instruction).toBe('去掉阴影');
+  await session.insert('/api/images/new.png');canvas=draw();
+  expect(canvas.blocks.map((b:any)=>b.text)).toEqual(['![图片](/api/images/a.png)','','保留原图风格','![图片](/api/images/new.png)','不选这段']);
+  // A later refinement replaces only the generated image, keeping source IDs/text.
+  await session.insert('/api/images/newer.png','/api/images/new.png');canvas=draw();
+  expect(canvas.blocks.slice(0,3)).toEqual(original.slice(0,3));expect(value).toContain('/api/images/newer.png');expect(value).not.toContain('/api/images/new.png');
+  canvas.onSelect(null);draw();await useBookModuleActions.getState().session!.composeImage!('全文画一张图');
+  expect(useBookImageCompositionSession.getState().session!.sources).toHaveLength(4);
+});
+it('resumes an archived image plan using its exact source snapshot without editing the manuscript',async()=>{
+ const {useBookImageCompositionSession}=await import('./bookImageCompositionSession');
+ vi.stubGlobal('document',{querySelector:()=>null});
+ let value='![图片](/api/images/a.png)\n手绘茶壶';
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null},prepareMedia:async()=>{},contextSource:{storyId:7,scope:'resume-images',chapterId:'2'}}))).find(n=>n.type===BookBlockCanvas).props;
+ const canvas=draw();const sources=canvas.blocks.map((b:any)=>({id:b.id,text:b.text}));
+ const task={id:'previous',chapterId:2,composition:{sources}} as any;
+ await useBookModuleActions.getState().session!.resumeImageComposition!(task);
+ expect(value).toBe('![图片](/api/images/a.png)\n手绘茶壶');
+ expect(useBookImageCompositionSession.getState().session).toMatchObject({sources,resumeOnly:true});
+ await expect(useBookModuleActions.getState().session!.resumeImageComposition!({...task,chapterId:9})).rejects.toThrow('对应的文章');
+ await expect(useBookModuleActions.getState().session!.resumeImageComposition!({...task,composition:{sources:[sources[0],{...sources[1],text:'旧文字'}]}})).rejects.toThrow('原素材已变化');
+});
+
+it('mixed image context menu dispatches composition without merging or clearing the selection', () => {
+  const blocks=[newWritingBlock('![图片](/api/images/a.png)'),newWritingBlock('想法')];
+  const ids=blocks.map(b=>b.id),compose=vi.fn(),commit=vi.fn();
+  const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:commit,onComposeImage:compose,textSelectionIds:ids,children:()=>null})));
+  draw();let tree=draw();
+  tree.find(n=>n.props?.['aria-label']==='书页').props.onContextMenu({preventDefault:vi.fn(),clientX:100,clientY:100});tree=draw();
+  const menu=tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='合并为图像');expect(menu).toBeDefined();menu.props.onClick();
+  expect(compose).toHaveBeenCalledWith(ids);expect(commit).not.toHaveBeenCalled();
+  expect(tree.some(n=>n.props?.['aria-label']==='多模块选区')).toBe(true);
+});
+
+it('highlights the six-dot handle, opens all four group actions on click and preserves selection',()=>{
+ const blocks=['一','二','三'].map(text=>newWritingBlock(text)),ids=blocks.slice(0,2).map(b=>b.id),commit=vi.fn(),select=vi.fn(),convert=vi.fn();
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:select,onCommit:commit,onConvertSelection:convert,onComposeImage:vi.fn(),textSelectionIds:ids,children:()=>null})));
+ draw();let tree=draw();
+ const handle=tree.find(n=>n.props?.['aria-label']==='拖动模块 1');
+ expect(handle.props.className).toContain('bg-[var(--nayin-accent)]');
+ const event={button:0,pointerId:1,clientX:30,clientY:60,preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn(),setPointerCapture:vi.fn()}};
+ handle.props.onPointerDown(event);tree.find(n=>n.props?.['aria-label']==='书页').props.onPointerUp(event);tree=draw();
+ expect(tree.filter(n=>n.props?.role==='menuitem').map(n=>n.props.children)).toEqual(['合并为文字','合并为音乐','合并为图像','转为有声书','转为台词/字幕','删除所选模块']);
+ expect(select).not.toHaveBeenCalled();expect(commit).not.toHaveBeenCalled();
+ tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='合并为音乐').props.onClick();
+ expect(convert).toHaveBeenCalledWith(ids,'music');
+});
+
+it('bulk dialogue marks only selected text in one commit and narration receives those same text IDs',()=>{
+ const blocks=['第一句','![图片](/api/images/a.png)','第二句','不选'].map(text=>newWritingBlock(text));
+ const ids=blocks.slice(0,3).map(b=>b.id),commit=vi.fn(),convert=vi.fn();
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:commit,onConvertSelection:convert,textSelectionIds:ids,children:()=>null})));
+ draw();let tree=draw();
+ const open=()=>{tree.find(n=>n.props?.['aria-label']==='书页').props.onContextMenu({preventDefault:vi.fn(),clientX:100,clientY:100});tree=draw();};
+ open();tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='转为有声书').props.onClick();
+ expect(convert).toHaveBeenCalledWith([blocks[0].id,blocks[2].id],'narration');expect(commit).not.toHaveBeenCalled();
+ tree=draw();open();tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='转为台词/字幕').props.onClick();
+ expect(commit).toHaveBeenCalledTimes(1);
+ const next=commit.mock.calls[0][0];
+ expect(next.map((b:any)=>b.text)).toEqual(blocks.map(b=>b.text));
+ expect(next.map((b:any)=>b.videoRole)).toEqual(['dialogue',undefined,'dialogue',undefined]);
+ expect(next[1]).toBe(blocks[1]);expect(next[3]).toBe(blocks[3]);
+});
+
+it('disables narration and dialogue when the selected group contains no text',()=>{
+ const blocks=['![图片](/api/images/a.png)','![图片](/api/images/b.png)'].map(text=>newWritingBlock(text));
+ const ids=blocks.map(b=>b.id);
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:vi.fn(),onConvertSelection:vi.fn(),textSelectionIds:ids,children:()=>null})));
+ draw();let tree=draw();tree.find(n=>n.props?.['aria-label']==='书页').props.onContextMenu({preventDefault:vi.fn(),clientX:100,clientY:100});tree=draw();
+ for(const label of ['转为有声书','转为台词/字幕'])expect(tree.find(n=>n.props?.role==='menuitem'&&n.props.children===label).props.disabled).toBe(true);
+});
+
+it('opens the group menu from the handle while selection mode is active and deletes once',()=>{
+ const blocks=['一','二','三'].map(text=>newWritingBlock(text)),commit=vi.fn();
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:blocks[0].id,onSelect:vi.fn(),onCommit:commit,children:()=>null})));
+ let tree=draw();tree.find(n=>n.type==='button'&&n.props.children==='选择多个模块').props.onClick();tree=draw();
+ const e={button:0,shiftKey:false,target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn()};
+ tree.find(n=>n.props?.['data-book-block']===blocks[1].id).props.onPointerDownCapture(e);tree=draw();
+ const handleTarget={closest:(selector:string)=>selector==='[data-book-handle]'?{}:null};
+ const capture={...e,target:handleTarget,preventDefault:vi.fn(),stopPropagation:vi.fn()};
+ const wrapper=tree.find(n=>n.props?.['data-book-block']===blocks[0].id);
+ wrapper.props.onPointerDownCapture(capture);wrapper.props.onClickCapture(capture);
+ expect(capture.stopPropagation).not.toHaveBeenCalled();
+ tree.find(n=>n.props?.['aria-label']==='拖动模块 1').props.onKeyDown({key:'Enter',preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{getBoundingClientRect:()=>({right:30,bottom:60})}});tree=draw();
+ tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='删除所选模块').props.onClick();
+ expect(commit).toHaveBeenCalledTimes(1);expect(commit.mock.calls[0][0]).toEqual([blocks[2]]);
+});
+
+it('dragging the highlighted handle moves the entire selection without opening its menu',()=>{
+ const blocks=['一','二','三'].map(text=>newWritingBlock(text)),ids=blocks.slice(0,2).map(b=>b.id),commit=vi.fn();
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:commit,textSelectionIds:ids,children:()=>null})));
+ draw();let tree=draw();const canvas=tree.find(n=>n.props?.['aria-label']==='书页');
+ canvas.props.ref.current={setPointerCapture:vi.fn(),querySelectorAll:(selector:string)=>selector==='[data-book-math-preview]'?[]:blocks.map((b,i)=>({dataset:{bookBlock:b.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
+ const event={button:0,pointerId:1,clientX:30,clientY:60,preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn()}};
+ tree.find(n=>n.props?.['aria-label']==='拖动模块 1').props.onPointerDown(event);
+ canvas.props.onPointerMove({...event,clientY:250});canvas.props.onPointerUp({...event,clientY:250});tree=draw();
+ expect(commit.mock.calls[0][0].map((b:any)=>b.id)).toEqual([blocks[2].id,...ids]);
+ expect(tree.some(n=>n.props?.role==='menu')).toBe(false);
+});
+
+it.each(['Delete','Backspace'])('deletes an active module with %s in one undoable commit',key=>{
+ const blocks=['一','二','三'].map(text=>newWritingBlock(text)),commit=vi.fn(),select=vi.fn();
+ const tree=nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:blocks[1].id,onSelect:select,onCommit:commit,children:()=>null})));
+ const event={key,nativeEvent:{},target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn()};
+ tree.find(n=>n.props?.['aria-label']==='书页').props.onKeyDown(event);
+ expect(commit).toHaveBeenCalledTimes(1);
+ expect(commit.mock.calls[0][0].map((b:any)=>b.text)).toEqual(['一','三']);
+ expect(commit.mock.calls[0][2]).toBe(false);
+ expect(select).toHaveBeenLastCalledWith(null);
+ expect(event.preventDefault).toHaveBeenCalled();expect(event.stopPropagation).toHaveBeenCalled();
+});
+
+it.each([false,true])('deletes the selected group, preserving unselected modules or one empty module (all=%s)',all=>{
+ const blocks=['一','![图片](/api/images/a.png)','三'].map(text=>newWritingBlock(text));
+ const ids=(all?blocks:blocks.slice(0,2)).map(b=>b.id),commit=vi.fn();
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:blocks[2].id,onSelect:vi.fn(),onCommit:commit,textSelectionIds:ids,children:()=>null})));
+ draw();const tree=draw();
+ tree.find(n=>n.props?.['aria-label']==='书页').props.onKeyDown({key:'Delete',nativeEvent:{},target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn()});
+ expect(commit).toHaveBeenCalledTimes(1);
+ expect(commit.mock.calls[0][0].map((b:any)=>b.text)).toEqual(all?['']:['三']);
+});
+
+it.each(['textarea','input','select','textbox','contenteditable','composing','repeat','handled','ctrl','meta','alt','disabled','unselected'])('does not delete modules while %s',mode=>{
+ const blocks=[newWritingBlock('保留')],commit=vi.fn();
+ const tree=nodes(render(()=>BookBlockCanvas({blocks,disabled:mode==='disabled',activeId:mode==='unselected'?null:blocks[0].id,onSelect:vi.fn(),onCommit:commit,children:()=>null})));
+ const event={key:'Backspace',nativeEvent:{isComposing:mode==='composing'},repeat:mode==='repeat',defaultPrevented:mode==='handled',ctrlKey:mode==='ctrl',metaKey:mode==='meta',altKey:mode==='alt',
+  target:{closest:()=>['textarea','input','select','textbox'].includes(mode)?{}:null,isContentEditable:mode==='contenteditable'},preventDefault:vi.fn(),stopPropagation:vi.fn()};
+ tree.find(n=>n.props?.['aria-label']==='书页').props.onKeyDown(event);
+ expect(commit).not.toHaveBeenCalled();expect(event.preventDefault).not.toHaveBeenCalled();
+});
+
+it('batch deletion restores every removed module with one undo',()=>{
+ let value='第一段\n![图片](/api/images/a.png)\n末段';const original=value;
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null}}))).find(n=>n.type===BookBlockCanvas).props;
+ let canvas=draw();const next=deleteBookBlocks(canvas.blocks,canvas.blocks.slice(0,2).map((b:any)=>b.id));
+ canvas.onCommit(next,next[0].id,false);canvas=draw();expect(value).toBe('末段');
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+ hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});draw();expect(value).toBe(original);
+});
+
+it('narrates the remaining text when a mixed selection has just one text module',async()=>{
+ const {BookModuleConvert}=await import('./BookModuleConvert');
+ const value='![图片](/api/images/a.png)\n朗读这句';
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:vi.fn(),disabled:false,selection:{current:null},prepareMedia:async()=>{},contextSource:{storyId:7,scope:'mixed-narration',chapterId:'2'}})));
+ let tree=draw();const canvas=tree.find(n=>n.type===BookBlockCanvas).props;
+ canvas.onConvertSelection(canvas.blocks.map((b:any)=>b.id),'narration');tree=draw();
+ expect(tree.find(n=>n.type===BookModuleConvert).props.source).toMatchObject({id:canvas.blocks[1].id,text:'朗读这句',kind:'narration'});
+ expect(tree.find(n=>n.type===BookModuleConvert).props.source.parts).toBeUndefined();
+});
+
+it.each(['music','narration'] as const)('group %s conversion inserts after the last selected source and rejects any changed member',async kind=>{
+ const {BookModuleConvert}=await import('./BookModuleConvert');
+ let value='第一段\n中间不选\n末段\n尾声';
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null},prepareMedia:async()=>{},contextSource:{storyId:7,scope:'group-convert',chapterId:'2'}})));
+ let tree=draw(),canvas=tree.find(n=>n.type===BookBlockCanvas).props;
+ canvas.onConvertSelection([canvas.blocks[0].id,canvas.blocks[2].id],kind);tree=draw();
+ const conversion=tree.find(n=>n.type===BookModuleConvert).props;
+ expect(conversion.source.parts.map((p:any)=>p.text)).toEqual(['第一段','末段']);await conversion.prepare();conversion.onInsert('新配乐');
+ expect(value).toBe('第一段\n中间不选\n末段\n新配乐\n尾声');
+ tree=draw();canvas=tree.find(n=>n.type===BookBlockCanvas).props;canvas.onConvertSelection([canvas.blocks[0].id,canvas.blocks[2].id],'text');tree=draw();
+ const stale=tree.find(n=>n.type===BookModuleConvert).props;
+ canvas=tree.find(n=>n.type===BookBlockCanvas).props;
+ textField(canvas,2).onChange({currentTarget:{value:'修改末段',selectionStart:0,selectionEnd:0},target:{value:'修改末段'}});draw();
+ await expect(stale.prepare()).rejects.toThrow('原模块已变化');expect(()=>stale.onInsert('旧结果')).toThrow('原模块已变化');
 });

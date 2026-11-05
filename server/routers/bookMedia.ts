@@ -1,4 +1,5 @@
 import { translateBookModule } from "../services/bookModuleTranslation";
+import { generateBookImageComposition, readBookImageComposition, refreshBookImageComposition, listBookImageCompositions } from '../services/bookImageComposition';
 import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import { quoteStoryNarration } from "../services/storyNarration";
 import { insertMemoryCard } from "../repositories/memoryCards";
@@ -25,14 +26,23 @@ const target = z.object({
 });
 const videoIdentity = (chapterId: number, moduleId: string) =>
   `book:${chapterId}:${createHash("sha256").update(moduleId).digest("hex").slice(0, 32)}`;
+const compositionTarget = z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleIds: z.array(z.string().min(1).max(100)).min(1).max(200) });
 export const bookMediaRouter = router({
+  compositionHistory: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(({ctx,input})=>listBookImageCompositions({...input,userId:ctx.user.id})),
+  composition: protectedProcedure.input(compositionTarget).query(({ ctx, input }) => readBookImageComposition({ ...input, userId: ctx.user.id })),
+  refreshComposition: protectedProcedure.input(compositionTarget).mutation(({ ctx, input }) => refreshBookImageComposition({ ...input, userId: ctx.user.id })),
+  generateComposition: protectedProcedure.input(compositionTarget.extend({
+    sources: z.array(z.object({ id: z.string().min(1).max(100), text: z.string().max(30000) })).min(1).max(200),
+    instruction: z.string().trim().max(4000), previousTaskId: z.string().uuid().nullable(),
+    estimatedCny: z.number().positive(), accepted: z.literal(true),
+  })).mutation(({ ctx, input }) => generateBookImageComposition({ ...input, userId: ctx.user.id })),
   translate: protectedProcedure.input(target.extend({ targetLanguage: z.enum(["en", "zh"]), expectedText: z.string().min(1).max(200000) })).mutation(async ({ctx,input}) => {
     const result = await translateBookModule({...input,userId:ctx.user.id});
     const card = await insertMemoryCard(ctx.user.id,{id:randomUUID(),title:input.targetLanguage === "en" ? "英文译文" : "中文译文",content:result.text,kind:"thought",origin:"assistant",sourceStoryId:input.storyId});
     return {...result,cardId:card.id};
   }),
-  quoteNarration: protectedProcedure.input(target).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,subtitleCueId:videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId}})),
-  describe: protectedProcedure.input(target).mutation(async ({ctx,input}) => {
+  quoteNarration: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,subtitleCueId:videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
+  describe: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(async ({ctx,input}) => {
     const source = await resolveBookModuleSource({...input,userId:ctx.user.id});
     const text = await describeBookModule(source);
     const card = await insertMemoryCard(ctx.user.id,{id:randomUUID(),title:"图片生成的文字",content:text,kind:"thought",origin:"assistant",sourceStoryId:input.storyId});

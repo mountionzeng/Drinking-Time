@@ -18,6 +18,23 @@ vi.mock("../db", async importOriginal => {
 import { renderViaGate, type RenderContext } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
+  it("keeps an explicitly faithful reference brief without restyling or banning its UI", async () => {
+    const instruction = "请保留茶壶的形状以及茶壶和聊天框的位置，我希望和参考图一模一样";
+    let seen = "";
+    await renderViaGate({prompt:"an invented cinematic oil painting",strictReferenceFidelity:true,referenceImages:["/ref.png"],userInstructions:[instruction],storyId:1217,projectId:1},async prompt => {seen=prompt;});
+    expect(seen).toContain(instruction);
+    expect(seen).toContain("原图优先");
+    expect(seen).not.toContain("invented");
+    expect(seen).not.toContain("风格化硬约束");
+    expect(seen).not.toContain("静态图片无字硬约束");
+    expect(seen).not.toContain("用户拒绝过的风格");
+  });
+  it("does not remove ordinary generation rules without an actual reference", async () => {
+    let seen="";
+    await renderViaGate({prompt:"a cat",strictReferenceFidelity:true,userInstructions:["和参考图一模一样"]},async prompt=>{seen=prompt;});
+    expect(seen).toContain("风格化硬约束");
+    expect(seen).toContain("静态图片无字硬约束");
+  });
   it("资产锁进入最高优先级提示词，锁定风格时不再混入自动美术方向", async () => {
     let seen = "";
     await renderViaGate(

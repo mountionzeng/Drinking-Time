@@ -6,7 +6,7 @@ import { bookImageModule, transformBookImage } from "./bookImageTransform";
 import { bookImageUrl, readBookImage } from "@shared/bookImageBlock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { bookBaseFont, deleteBookBlock, findBookDrop, layoutBookBlocks, moveBookBlockByKey, resizeBookBlock, type BookDropTarget, type BookPlacement } from './bookBlockLayout';
+import { bookBaseFont, deleteBookBlock, deleteBookBlocks, findBookDrop, layoutBookBlocks, moveBookBlockByKey, resizeBookBlock, type BookDropTarget, type BookPlacement } from './bookBlockLayout';
 import { blockAncestors, isHeading, setBlockFormat, type BlockFormat, type WritingBlock } from './chapterBlockTree';
 import type { ImageModule, ModuleHandle } from './imagePackModules';
 import { flushSync } from 'react-dom';
@@ -27,7 +27,9 @@ function chineseChapterNumber(number: number): string {
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, textSelectionIds }: {
+export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+  onComposeImage?(ids: string[]): void;
+  onConvertSelection?(ids: string[], kind: 'text' | 'music' | 'narration'): void;
   textSelectionIds?: string[];
   importedChapterIds?: readonly string[];
   blocks: WritingBlock[]; disabled: boolean;
@@ -64,6 +66,14 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   useLayoutEffect(() => { if (textSelectionIds) setSelectedIds(textSelectionIds); }, [textSelectionIds]);
   const [selecting, setSelecting] = useState(false);
   const selected = selectedBookIds(blocks, selectedIds);
+  const hasSelectedAudio = blocks.some(block => selected.has(block.id) && readBookAudio(block.text));
+  const selectedTextBlocks = blocks.filter(block => selected.has(block.id) && !bookImageUrl(block.text) && !readBookAudio(block.text));
+  const groupMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (mergeMenu) groupMenu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); }, [mergeMenu]);
+  function openGroupMenu(x: number, y: number) {
+    setMenuId(null);
+    setMergeMenu({x:Math.max(8,Math.min(x,window.innerWidth-208)),y:Math.max(8,Math.min(y,window.innerHeight-370))});
+  }
   useLayoutEffect(() => { onSelectionChange?.([...selected]); }, [selectedIds, blocks, onSelectionChange]);
   const [marquee, setMarquee] = useState<SelectionBox | null>(null);
   const selectionGesture = useRef<{ pointer: number; x: number; y: number; initial: string[] } | null>(null);
@@ -245,20 +255,36 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
     gesture.current = null; setPreview(null); setDrop(null);
     if (cancelled || current.source !== blocksRef.current) return;
     if (current.handle === 'move' && !current.image) {
-      if (Math.hypot(event.clientX-current.x,event.clientY-current.y)<4 && !current.drop) { setMenuId(current.id); return; }
+      if (Math.hypot(event.clientX-current.x,event.clientY-current.y)<4 && !current.drop) {
+        if(current.ids.length>1) openGroupMenu(event.clientX,event.clientY); else setMenuId(current.id);
+        return;
+      }
       if (current.drop) apply(moveBookSelection(blocks, current.ids, current.drop), current.id, false);
     } else apply(current.next, current.id, false);
   }
 
   return <>{selecting && <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 bg-background py-2 text-sm" data-stage-swipe="ignore">
     <span>{_ui("已选")}{" "}{selected.size} {_ui("个")}</span>
-    <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);}}>{_ui("完成选择")}</button>
+    <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);root.current?.focus({preventScroll:true});}}>{_ui("完成选择")}</button>
     {selected.size > 1 && mergeBookText(blocks,[...selected]) !== blocks && <button type="button" className="min-h-11 px-2" onClick={() => {const first=blocks.find(b=>selected.has(b.id));if(first) apply(mergeBookText(blocks,[...selected]),first.id);setSelectedIds([]);setSelecting(false);}}>{_ui("合并文字")}</button>}
   </div>}<div ref={viewport} aria-label={_ui("文章缩放视图")} data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
-  <div ref={root} onContextMenu={event=>{
-    if(disabled || selected.size<2 || mergeBookText(blocks,[...selected])===blocks)return;
-    event.preventDefault();setMergeMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-180)),y:Math.max(8,Math.min(event.clientY,window.innerHeight-64))});
-  }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); root.current?.focus({preventScroll:true}); onSelect(null); } }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
+  <div ref={root} data-book-selecting={selecting || undefined} onContextMenu={event=>{
+    if(disabled || selected.size<2)return;
+    event.preventDefault();openGroupMenu(event.clientX,event.clientY);
+  }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => {
+    if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); root.current?.focus({preventScroll:true}); onSelect(null); }
+    if (!['Delete', 'Backspace'].includes(event.key) || disabled || event.defaultPrevented || event.repeat || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('textarea,input,select,[role="textbox"]') || target.isContentEditable) return;
+    const ids = selected.size ? [...selected] : activeId ? [activeId] : [];
+    const first = blocks.findIndex(block => ids.includes(block.id));
+    if (first < 0 || gesture.current || selectionGesture.current) return;
+    event.preventDefault(); event.stopPropagation();
+    const next = deleteBookBlocks(blocks, ids);
+    setMergeMenu(null); setSelectedIds([]); setSelecting(false); onSelect(null);
+    apply(next, next[Math.min(first, next.length - 1)].id, false);
+    root.current?.focus({ preventScroll: true });
+  }} style={{ width: width * zoom, gap: 20 * zoom }} onPointerMove={move} onPointerUp={end} onPointerCancel={event => end(event, true)} onLostPointerCapture={event => end(event, true)}>
     {Array.from({ length: pageCount }, (_, page) => <section key={page} aria-label={_ui("第 {0} 页", [page + 1])}
       className="relative"
       style={{ height: 1200 * scale }}
@@ -283,11 +309,15 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
           onPointerDownCapture={event => {
             if (disabled || event.button !== 0) return;
             if (matchTarget) { event.preventDefault(); event.stopPropagation(); return; }
+            if ((event.target as HTMLElement).closest('[data-book-handle]')) return;
             if (selecting || event.shiftKey && !(event.target as HTMLElement).closest('textarea')) {
               event.preventDefault(); event.stopPropagation();
+              root.current?.focus({ preventScroll: true });
               setSelectedIds(previous => { const ids = previous.length ? previous : activeId ? [activeId] : []; return ids.includes(block.id) ? ids.filter(id => id !== block.id) : [...ids, block.id]; });
             } else if (!selected.has(block.id) || (event.target as HTMLElement).closest('textarea')) setSelectedIds([]);
           }} onClickCapture={event => {
+            if ((event.target as HTMLElement).closest('[data-book-handle]')) return;
+            if (selecting || event.shiftKey && !(event.target as HTMLElement).closest('textarea')) { event.preventDefault(); event.stopPropagation(); return; }
             if (!matchTarget || disabled) return;
             event.preventDefault(); event.stopPropagation();
             if (bookImageUrl(block.text) || block.id === matchTarget) return;
@@ -309,12 +339,16 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
             <Popover open={menuId === block.id} onOpenChange={open => setMenuId(open ? block.id : null)}>
               <PopoverTrigger asChild><button type="button" aria-label={_ui("模块 {0} 格式", [index + 1])} disabled={disabled}
                 className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-20">
-                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?_ui("有声书"):_ui("音乐")) : bookImageUrl(block.text) ? _ui("图片") : block.format === 'text' ? _ui("正文") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
+                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?_ui("有声书"):_ui("音乐")) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
               </button></PopoverTrigger>
               <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={_ui("模块 {0} 设置", [index + 1])}>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
                 <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled} className={action}
-                  aria-pressed={block.format === value || block.format === 'heading3' && value === 'heading2'} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{block.format === value || block.format === 'heading3' && value === 'heading2' ? '✓ ' : ''}{_ui(label)}</button>)}</div>
+                  aria-pressed={!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2')} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2') ? '✓ ' : ''}{_ui(label)}</button>)}</div>
+                {!bookImageUrl(block.text) && !readBookAudio(block.text) && <button type="button" className={action} disabled={disabled} aria-pressed={block.videoRole==='dialogue'} onClick={()=>{
+                  const next=setBlockFormat(blocks,index,'text').map(item=>item.id===block.id?{...item,videoRole:'dialogue' as const}:item);
+                  apply(next,block.id);
+                }}>{block.videoRole==='dialogue'?'✓ ':''}{_ui("转换成台词/字幕")}</button>}
                 {!bookImageUrl(block.text) && !readBookAudio(block.text) && <button type="button" className={action} disabled={disabled} onClick={() => { setMatchTarget(block.id); setMatchError(false); setMenuId(null); }}>{_ui("匹配文字大小")}</button>}
                 {onConvert && !readBookAudio(block.text) && <div className="border-t py-1">
                   <button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,bookImageUrl(block.text)?'text':'image');}}>{bookImageUrl(block.text)?_ui("生成一段文字"):_ui("生成一张图片")}</button>
@@ -322,7 +356,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
                   {!bookImageUrl(block.text) && ([['translate-en','翻译成英文'],['translate-zh','翻译成中文']] as const).filter(([kind]) => kind === 'translate-en' ? /\p{Script=Han}/u.test(block.text) : /[a-zA-Z]/.test(block.text)).map(([kind,label]) => <button type="button" key={kind} className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,kind);}}>{_ui(label)}</button>)}
                   {!bookImageUrl(block.text)&&<button type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);onConvert(block.id,'narration');}}>{_ui("生成有声书")}</button>}
                 </div>}
-                <button type="button" className={action} onClick={() => { setSelecting(true); setSelectedIds([block.id]); setMenuId(null); }}>{_ui("选择多个模块")}</button>
+                <button type="button" className={action} onClick={() => { setSelecting(true); setSelectedIds([block.id]); setMenuId(null); root.current?.focus({preventScroll:true}); }}>{_ui("选择多个模块")}</button>
                 <div className="my-1 border-t" />
                 {(['normal', 'bright'] as const).map(value => <button type="button" key={value} disabled={disabled} className={action}
                   aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? _ui("正常") : _ui("加粗提亮")}</button>)}
@@ -334,11 +368,15 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
               </PopoverContent>
             </Popover>
           </div>
-          <button type="button" disabled={disabled} aria-label={_ui("拖动模块 {0}", [index + 1])} title={_ui("拖到上下调整顺序，拖到左右并排；上下键排序，左右键调整归属")}
-            className={`absolute ${block.columnGroup && blocks.find(item => item.columnGroup === block.columnGroup)?.id !== block.id ? '-left-3 px-0' : '-left-6 px-1'} top-1 touch-none cursor-grab rounded text-muted-foreground active:cursor-grabbing ${active ? '' : 'opacity-40'}`}
+          <button type="button" data-book-handle disabled={disabled} aria-haspopup="menu" aria-label={_ui("拖动模块 {0}", [index + 1])} title={grouped ? _ui("点击处理所选模块，拖动移动整组") : _ui("拖到上下调整顺序，拖到左右并排；上下键排序，左右键调整归属")}
+            className={`absolute ${block.columnGroup && blocks.find(item => item.columnGroup === block.columnGroup)?.id !== block.id ? '-left-3 px-0' : '-left-6 px-1'} top-1 touch-none cursor-grab rounded active:cursor-grabbing ${grouped ? 'bg-[var(--nayin-accent)] text-white shadow-sm' : `text-muted-foreground ${active ? '' : 'opacity-40'}`}`}
             onPointerDown={event => start(event, block.id, placement, 'move')}
             onKeyDown={event => {
-              if (['Enter',' '].includes(event.key)) {event.preventDefault();onSelect(block.id);setMenuId(block.id);return;}
+              if (['Enter',' '].includes(event.key)) {
+                event.preventDefault(); event.stopPropagation();
+                if(grouped) { const rect=event.currentTarget.getBoundingClientRect(); openGroupMenu(rect.right,rect.bottom); }
+                else {onSelect(block.id);setMenuId(block.id);} return;
+              }
               if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key) || disabled) return;
               event.preventDefault();
               if (grouped) {
@@ -397,10 +435,41 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
       })}
       <span className="pointer-events-none absolute bottom-2 left-0 w-full text-center text-xs text-muted-foreground">{page + 1}</span>
     </section>)}
-    {mergeMenu&&<div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div role="menu" aria-label={_ui("多选文字操作")} className="fixed w-40 rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()}><button role="menuitem" className={action} onClick={()=>{
-      const next=mergeBookText(blocks,[...selected]);const first=blocks.find(b=>selected.has(b.id));
-      setMergeMenu(null);setSelectedIds([]);if(first)apply(next,first.id);
-    }}>{_ui("合并文字模块")}</button></div></div>}
+    {mergeMenu && selected.size>1 && !disabled && <div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div ref={groupMenu} role="menu" aria-label={_ui("多选模块操作")} className="fixed max-h-[calc(100vh-16px)] w-48 overflow-y-auto rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>{
+      if(event.key==='Escape') { event.preventDefault(); event.stopPropagation(); setMergeMenu(null); root.current?.focus({preventScroll:true}); }
+      if(['ArrowUp','ArrowDown','Home','End'].includes(event.key)) {
+        event.preventDefault(); event.stopPropagation();
+        const items=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+        const index=items.indexOf(document.activeElement as HTMLButtonElement);
+        const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;
+        items[next]?.focus();
+      }
+    }}>
+      <p className="px-3 py-1 text-xs text-muted-foreground">{_ui("已选")}{" "}{selected.size} {_ui("个模块")}</p>
+      <button type="button" role="menuitem" className={action} disabled={hasSelectedAudio || (!onConvertSelection && mergeBookText(blocks,[...selected])===blocks)} onClick={()=>{
+        const next=mergeBookText(blocks,[...selected]),first=blocks.find(b=>selected.has(b.id));
+        setMergeMenu(null);setSelecting(false);
+        if(next!==blocks && first) {setSelectedIds([]);apply(next,first.id);}
+        else onConvertSelection?.([...selected],'text');
+      }}>{_ui("合并为文字")}</button>
+      <button type="button" role="menuitem" className={action} disabled={hasSelectedAudio || !onConvertSelection} onClick={()=>{setMergeMenu(null);setSelecting(false);onConvertSelection?.([...selected],'music');}}>{_ui("合并为音乐")}</button>
+      <button type="button" role="menuitem" className={action} disabled={hasSelectedAudio || !onComposeImage} onClick={()=>{setMergeMenu(null);setSelecting(false);onComposeImage?.([...selected]);}}>{_ui("合并为图像")}</button>
+      <button type="button" role="menuitem" className={action} disabled={!onConvertSelection || !selectedTextBlocks.some(block=>block.text.trim())} onClick={()=>{
+        setMergeMenu(null);setSelecting(false);onConvertSelection?.(selectedTextBlocks.filter(block=>block.text.trim()).map(block=>block.id),'narration');
+      }}>{_ui("转为有声书")}</button>
+      <button type="button" role="menuitem" className={action} disabled={!selectedTextBlocks.length} onClick={()=>{
+        let next=blocks;
+        for(const block of selectedTextBlocks) next=setBlockFormat(next,next.findIndex(item=>item.id===block.id),'text');
+        const ids=new Set(selectedTextBlocks.map(block=>block.id));
+        next=next.map(block=>ids.has(block.id)?{...block,videoRole:'dialogue' as const}:block);
+        setMergeMenu(null);setSelecting(false);apply(next,selectedTextBlocks[0].id,false);root.current?.focus({preventScroll:true});
+      }}>{_ui("转为台词/字幕")}</button>
+      {hasSelectedAudio && <p className="px-3 py-1 text-xs text-muted-foreground">{_ui("音乐模块暂不支持转换")}</p>}
+      <button type="button" role="menuitem" className={`${action} border-t text-destructive`} onClick={()=>{
+        const first=blocks.findIndex(block=>selected.has(block.id)),next=deleteBookBlocks(blocks,[...selected]);
+        setMergeMenu(null);setSelectedIds([]);setSelecting(false);onSelect(null);apply(next,next[Math.min(first,next.length-1)].id);
+      }}>{_ui("删除所选模块")}</button>
+    </div></div>}
     {matchTarget && <div role="status" className="sticky bottom-2 z-40 flex items-center gap-2 rounded bg-[var(--nayin-surface)] px-3 py-2 text-sm shadow-sm" onKeyDown={event => { if (event.key === 'Escape') setMatchTarget(null); }}>
       <span>{matchError ? _ui("这段字号超过当前模块上限，请选择另一段文字") : _ui("点击另一段文字，匹配它的大小")}</span>
       <button type="button" className="underline" onClick={() => setMatchTarget(null)}>{_ui("取消")}</button>

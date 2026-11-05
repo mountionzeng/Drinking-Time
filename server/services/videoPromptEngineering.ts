@@ -12,6 +12,15 @@ import {
 export const VIDEO_PROMPT_ENGINEERING_VERSION =
   "video-prompt-engineering/v2" as const;
 
+/** Single-image Vidu has a 2000-character limit. Omit repeated director scaffolding,
+ * keep user requirements and visual constraints intact; adapter rejects overflow. */
+export function compileViduSinglePrompt(engineering: VideoPromptEngineering): string {
+  return [engineering.materialLock, `用户要求：${engineering.userRequirement}`,
+    `画面与动作：${engineering.editorHardConstraints}`, `运镜：${engineering.cameraPlan}`,
+    `保持：${engineering.preservationPlan}`, `视觉：${engineering.visualContinuity}`,
+    `避免：${engineering.negativeConstraints}`].filter(Boolean).join("\n");
+}
+
 export type VideoPromptEngineeringShot = Partial<{
   shotType: string;
   cameraAngle: string;

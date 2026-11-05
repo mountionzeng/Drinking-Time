@@ -28,6 +28,8 @@ function requestShape(req: {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // The shared config is command-dependent; resolve it before applying dev overrides.
+  const config = await viteConfig({ command: "serve", mode: "development" });
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -35,7 +37,7 @@ export async function setupVite(app: Express, server: Server) {
   };
 
   const vite = await createViteServer({
-    ...viteConfig,
+    ...config,
     configFile: false,
     server: serverOptions,
     appType: "custom",

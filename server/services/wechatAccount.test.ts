@@ -37,7 +37,7 @@ it('defines one opaque, stable 5-compute-unit gift for an app-scoped WeChat iden
     userId: 23,
     amountMinor: 2_500_000,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
-    oncePerAccountPrefix: 'wechat-registration-gift:',
+    oncePerAccountPrefixes: ['wechat-registration-gift:', 'web-login-gift:'],
     reason: '账号首次登录赠送 5 算力',
     enableAccess: true,
   });

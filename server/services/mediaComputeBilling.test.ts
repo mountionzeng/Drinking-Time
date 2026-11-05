@@ -207,6 +207,39 @@ async function videoInput() {
   };
 }
 describe("video submission and reconciliation with the real ledger", () => {
+  it("reserves the economy quote, records its provider and recovers once after default changes", async () => {
+    const request = { ...await videoInput(), durationSec: 5, renderMode: "economy" as const };
+    const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        expect(String(url)).toContain("/vidu/ent/v2/img2video");
+        expect(JSON.parse(String(init.body))).toMatchObject({ model: "viduq2-pro-fast", duration: 5, resolution: "720p" });
+        return new Response('{"task_id":"economy-receipt"}');
+      }
+      expect(String(url)).toContain("/vidu/ent/v2/tasks/economy-receipt/creations");
+      return new Response('{"state":"success","creations":[{"url":"https://file.302.ai/test.mp4"}]}');
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const result = await startShotVideoJob(request, 1);
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "ok", take: { model: "viduq2-pro-fast", parameterSnapshot: { renderMode: "economy", resolution: "720p", candidateCount: 1 } } });
+    expect(await getAccountBalance(1)).toMatchObject({ reservedMinor: fromYuan(0.54), lifetimeSpentMinor: 0 });
+    ENV.video302SubmitPath = "/mj-turbo/submit/video";
+    await startShotVideoJob(request, 1);
+    await reconcileMediaBilling();
+    await reconcileMediaBilling();
+    expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
+    expect(await getAccountBalance(1)).toMatchObject({ reservedMinor: 0, lifetimeSpentMinor: fromYuan(0.54) });
+  });
+
+  it("does not repay an economy submission with an unknown response", async () => {
+    const request = { ...await videoInput(), durationSec: 2, renderMode: "economy" as const };
+    const fetcher = vi.fn(async () => { throw new Error("network disconnected"); });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await startShotVideoJob(request, 1)).toMatchObject({ status: "error", take: { status: "unfollowable" } });
+    await startShotVideoJob(request, 1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await getAccountBalance(1)).toMatchObject({ reservedMinor: fromYuan(0.34), lifetimeSpentMinor: 0 });
+  });
+
   it("does not submit video when the remaining balance cannot cover its quote", async () => {
     const request = await videoInput();
     await media.reserveMedia({ userId: 1, storyId: request.storyId, operationId: "other-hold", requestHash: "other", maxCostMinor: fromYuan(10) });

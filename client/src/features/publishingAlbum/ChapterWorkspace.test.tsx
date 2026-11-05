@@ -91,12 +91,14 @@ vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({ DesktopWri
 vi.mock("./BookImageGenerator", () => ({BookImageGenerator: () => <button>生成图片</button>}));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
-  it.each([false, true])("prepares current writing before sharing and blocks a failed save=%s", async failed => {
+  it.each([
+    [false, undefined], [true, undefined], [false, "wechat_moments"], [true, "wechat_moments"],
+  ] as const)("prepares current writing before sharing, failed save=%s, platform=%s", async (failed, platform) => {
     let handle!: React.MutableRefObject<ChapterWritingHandle | null>;
     let share!: () => void;
     const createElement = React.createElement;
     const capture = vi.spyOn(React, "createElement").mockImplementation(((type: any, props: any, ...children: any[]) => {
-      if (type === ChapterWriting) { handle = props.handle; share = props.footerActions.props.onShare; }
+      if (type === ChapterWriting) { handle = props.handle; share = platform ? () => props.footerActions.props.onPlatform(platform) : props.footerActions.props.onShare; }
       return createElement(type, props, ...children);
     }) as typeof React.createElement);
     const build = vi.spyOn(shareArticle, "bookShareArticle");
@@ -109,7 +111,7 @@ describe("chapter workspace", () => {
       share();
       await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
       if (failed) expect(build).not.toHaveBeenCalled();
-      else await vi.waitFor(() => expect(build).toHaveBeenCalledWith("当前标题", "保存期间继续写的当前正文", undefined));
+      else await vi.waitFor(() => expect(build).toHaveBeenCalledWith("当前标题", "保存期间继续写的当前正文", platform));
     } finally { capture.mockRestore(); build.mockRestore(); }
   });
   it('uses the shared story title editor while retaining independent chapter content', () => {

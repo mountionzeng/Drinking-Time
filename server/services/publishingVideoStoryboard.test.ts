@@ -206,6 +206,19 @@ describe("publishing video storyboard generation", () => {
     expect(result.preview.shots.filter(shot => !shot.supplementReason).map(shot => shot.scriptText)).toEqual(rows.map(row => row.text));
   });
 
+  it("keeps both shots when the confirmed close-up and wide shot share one source paragraph", async () => {
+    const rows=publishingArticleVideoRows({body:"小何放纸船",illustrations:[]});
+    vi.stubGlobal("fetch",vi.fn(async()=>({ok:true,status:200,text:async()=>"",json:async()=>({choices:[{message:{content:JSON.stringify({paragraphs:[{
+      paragraphId:rows[0].id,scriptText:"小何放纸船",visualTreatment:"特写再全景",shots:[
+        {subject:"小何",action:"特写",imageRequirement:"小何面部特写",videoRequirement:"低头看纸船",soundRequirement:"水声",voiceText:"",durationSec:2},
+        {subject:"小何与纸船",action:"全景",imageRequirement:"水面和灯塔全景",videoRequirement:"纸船漂向灯塔",soundRequirement:"水声",voiceText:"",durationSec:3},
+      ]}],supplements:[]})}}]})})));
+    const result=await generatePublishingVideoStoryboardPreview({body:"小何放纸船",platform:"xiaohongshu",core:null,articleRows:rows,creativeIntent:"5秒，小男孩特写和全景"});
+    expect(result.preview.shots.map(shot=>shot.action)).toEqual(["特写","全景"]);
+    expect(result.preview.shots.map(shot=>shot.durationSec)).toEqual([2,3]);
+    expect(result.preview.shots.map(shot=>shot.voiceText)).toEqual(["",""]);
+  });
+
   it("routes text storyboard compute to OpenAI Next when configured", async () => {
     ENV.openaiNextApiKey = "test-next-key";
     ENV.openaiNextTextModel = "gpt-5.6-terra";

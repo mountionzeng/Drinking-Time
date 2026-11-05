@@ -17,7 +17,7 @@ export function readBookPlacement(raw: unknown): BookPlacement | undefined {
 import { splitBookTextModules } from './bookLatex';
 
 export type BlockFormat = 'text' | 'heading1' | 'heading2' | 'heading3';
-export type WritingBlock = { id: string; text: string; format: BlockFormat; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; columnRatio?: number; book?: BookPlacement };
+export type WritingBlock = { id: string; text: string; format: BlockFormat; videoRole?: 'dialogue'; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; columnRatio?: number; book?: BookPlacement };
 export type BlockDrop = 'before' | 'inside' | 'after';
 export const blockBody = (blocks: WritingBlock[]) => blocks.map(block => block.text).join('\n');
 export const newWritingBlock = (text: string, parentId: string | null = null): WritingBlock => ({ id: crypto.randomUUID(), text, parentId, format: 'text', collapsed: false });
@@ -46,7 +46,7 @@ export function insertBlockText(blocks: WritingBlock[], index: number, text: str
   next[index].text = lines[0];
   const parent = isHeading(current) && !current.collapsed ? current.id : current.parentId;
   const at = isHeading(current) && current.collapsed ? blockSubtreeEnd(blocks, index) : index + 1;
-  const inserted = lines.slice(1).map(line => newWritingBlock(line, parent));
+  const inserted = lines.slice(1).map(line => ({...newWritingBlock(line, parent),videoRole:current.videoRole}));
   next.splice(at, 0, ...inserted);
   return { blocks: next, insertedIndex: inserted.length ? at : index };
 }
@@ -54,7 +54,7 @@ export function insertBlockText(blocks: WritingBlock[], index: number, text: str
 export function setBlockFormat(blocks: WritingBlock[], index: number, format: BlockFormat) {
   const current = blocks[index];
   // Turning a title into ordinary text lifts its children one level without moving them.
-  return blocks.map((block, i) => i === index ? { ...block, format, collapsed: false, ...(block.book ? { book: { ...block.book, fontSize: format === 'heading1' ? 36 : format === 'heading2' ? 32 : format === 'heading3' ? 28 : 24 } } : {}) } :
+  return blocks.map((block, i) => i === index ? { ...block, format, videoRole: undefined, collapsed: false, ...(block.book ? { book: { ...block.book, fontSize: format === 'heading1' ? 36 : format === 'heading2' ? 32 : format === 'heading3' ? 28 : 24 } } : {}) } :
     format === 'text' && block.parentId === current.id ? { ...block, parentId: current.parentId } : block);
 }
 
@@ -79,7 +79,7 @@ export function moveWritingBlock(blocks: WritingBlock[], sourceId: string, targe
 export function mergeWritingBlocks(blocks: WritingBlock[], index: number) {
   const left = blocks[index], right = blocks[index + 1];
   if (!left || !right || left.parentId !== right.parentId || isHeading(left) || isHeading(right)) return blocks;
-  return [...blocks.slice(0, index), { ...left, text: left.text + right.text }, ...blocks.slice(index + 2)];
+  return [...blocks.slice(0, index), { ...left, text: left.text + right.text, videoRole:left.videoRole===right.videoRole?left.videoRole:undefined }, ...blocks.slice(index + 2)];
 }
 
 export function restoreWritingBlocks(value: string, saved: unknown): WritingBlock[] {
@@ -97,6 +97,7 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
         ...(typeof raw.columnRatio === 'number' && Number.isFinite(raw.columnRatio) && raw.columnRatio >= .2 && raw.columnRatio <= .8 ? { columnRatio: raw.columnRatio } : {}),
         ...(typeof raw.columnGroup === 'string' && raw.columnGroup.length > 0 && raw.columnGroup.length <= 100 ? { columnGroup: raw.columnGroup } : {}),
         ...(raw.emphasis === "bright" ? { emphasis: "bright" as const } : {}),
+        ...(raw.videoRole === 'dialogue' && raw.format === 'text' ? {videoRole:'dialogue' as const} : {}),
         ...(raw.backdrop === true ? { backdrop: true } : {}),
         ...(readBookPlacement(raw.book) ? { book: readBookPlacement(raw.book) } : {}),
       });
@@ -140,6 +141,6 @@ export function splitWritingBlock(blocks:WritingBlock[],index:number,start:numbe
   const current=blocks[index],next=blocks.map(b=>({...b}));
   next[index].text=current.text.slice(0,start);
   const at=isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
-  next.splice(at,0,newWritingBlock(current.text.slice(end),isHeading(current)&&!current.collapsed?current.id:current.parentId));
+  next.splice(at,0,{...newWritingBlock(current.text.slice(end),isHeading(current)&&!current.collapsed?current.id:current.parentId),videoRole:current.videoRole});
   return {blocks:next,insertedIndex:at};
 }

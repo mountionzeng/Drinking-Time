@@ -152,6 +152,7 @@ export function StoryboardVoiceCell({
   selected,
   editable,
   generating,
+  generationError,
   onFocus,
   onCommit,
   onGenerate,
@@ -161,6 +162,7 @@ export function StoryboardVoiceCell({
   selected: boolean;
   editable: boolean;
   generating: boolean;
+  generationError?: string;
   onFocus: () => void;
   onCommit: (
     field: "dialogue" | "sound",
@@ -271,6 +273,11 @@ export function StoryboardVoiceCell({
             {_ui("文字已修改，请重新生成")}</span>
         ) : null}
       </div>
+      {generationError && !generating ? (
+        <p role="alert" className="mt-1 break-words text-[9px] leading-relaxed text-destructive">
+          {generationError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -509,25 +516,29 @@ export function StoryboardMatrixFieldCell({
 }
 
 
+/** Explain a disabled render control without implying that a job is running. */
 export function StoryboardVideoBlockHint({ reason }: { reason?: string | null }) {
   const t = useDesktopUiText();
-  const message = reason === "需要先选择当前主图" ? "先选中镜头，再到仓库把图片设为当前首帧。" : reason;
+  const message = reason === "需要先选择当前主图"
+    ? "先选中镜头，再到仓库把图片设为当前首帧。"
+    : reason;
   return message ? <p role="status" className="text-[10px] leading-snug text-muted-foreground">{t(message)}</p> : null;
 }
 
-export function StoryboardVideoButtonContent({ checking, busy, estimatedCny }: {
+export function StoryboardVideoButtonContent({ checking, busy, estimatedCny, candidateCount = 1 }: {
   checking: boolean;
   busy: boolean;
   estimatedCny: number;
+  candidateCount?: number;
 }) {
   const _ui = useDesktopUiText();
   return <>
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
       {checking || busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Video className="h-3 w-3" />}
-      {checking ? _ui("检查人物") : _ui("渲染视频")}
+      {checking ? _ui("检查人物") : busy ? _ui("正在生成") : estimatedCny === 0 ? _ui("生成本地动画") : _ui("生成{0}条视频", [candidateCount])}
     </span>
     <span className="whitespace-nowrap text-[8px] font-normal tabular-nums text-muted-foreground">
-      {_ui("约")}{" "}{formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}
+      {estimatedCny === 0 ? _ui("免费 · 不调用AI") : _ui("总计约 {0}", [formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))])}
     </span>
   </>;
 }

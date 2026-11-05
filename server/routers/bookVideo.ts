@@ -41,7 +41,7 @@ export const bookVideoRouter = router({
       proposeBookVideo({ ...input, userId: ctx.user.id })
     ),
   generate: protectedProcedure
-    .input(record)
+    .input(record.extend({ confirmBrief: z.boolean().optional() }))
     .mutation(({ ctx, input }) =>
       generateBookVideo({ ...input, userId: ctx.user.id })
     ),
@@ -56,7 +56,7 @@ export const bookVideoRouter = router({
       editBookVideo({ ...input, userId: ctx.user.id })
     ),
   adopt: protectedProcedure
-    .input(record)
+    .input(record.extend({reviewedRevision:z.number().int().positive().optional()}))
     .mutation(({ ctx, input }) =>
       adoptBookVideo({ ...input, userId: ctx.user.id })
     ),

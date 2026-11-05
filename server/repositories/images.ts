@@ -736,6 +736,22 @@ export async function createGeneratedImage(
   return image;
 }
 
+/** Remove only shot assignment. Keep the asset, lineage and stored file available in the warehouse. */
+export async function detachGeneratedImageFromShot(imageId: number, storyId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const image = memoryState.generatedImages.find(img => img.id === imageId && img.storyId === storyId && img.userId === userId);
+    if (!image) throw new Error("图片不存在或无权操作");
+    image.shotNo = null;
+    image.shotIdentity = null;
+    image.isCurrent = false;
+    await persistMemoryState();
+    return;
+  }
+  await db.update(generatedImages).set({ shotNo: null, shotIdentity: null, isCurrent: false }).where(and(eq(generatedImages.id, imageId), eq(generatedImages.storyId, storyId), eq(generatedImages.userId, userId)));
+}
+
 export async function deleteGeneratedImage(
   imageId: number,
   userId: number

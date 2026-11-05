@@ -574,7 +574,7 @@ export const timelineMediaRouter = router({
         kind: generatedAudioKind,
         targetFrame: frame,
         scope: z.enum(["shot", "from-shot", "story", "book"]).default("shot"),
-        bookTarget: z.object({chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100)}).optional(),
+        bookTarget: z.object({chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100),moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()}).optional(),
         intent: z.string().trim().max(800).optional(),
       })
     )

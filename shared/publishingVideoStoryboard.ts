@@ -54,6 +54,8 @@ export type PublishingVideoStoryboardShot = {
   draftShotId: string;
   /** Non-owning reference to an existing same-story illustration. */
   referenceImageId?: number;
+  /** Book-act reference pictures; none is implicitly adopted as a first frame. */
+  referenceImageIds?: number[];
   /** Illustration used to compose a new shot, never an already-rendered first frame. */
   continuityImageId?: number;
   supplementReason?: string;
@@ -68,6 +70,8 @@ export type PublishingVideoStoryboardShot = {
   scriptText: string;
   /** 直接用于旁白/对白的文字；同一正文段拆多镜时只放在第一镜，避免重复朗读。 */
   voiceText: string;
+  /** Character name, narrator, or an explicit unresolved proposal shown before adoption. */
+  speaker?: string;
   durationSec?: number;
   /** 环境声、音乐和音效制作要求，不传给图生视频提示词。 */
   soundRequirement: string;
@@ -360,6 +364,11 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
   const stableShotId = stringValue(record.stableShotId).trim();
   return {
     draftShotId,
+    ...(Array.isArray(record.referenceImageIds) ? {
+      referenceImageIds: [...new Set(record.referenceImageIds.filter(
+        (id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0
+      ))],
+    } : {}),
     ...(typeof record.referenceImageId === "number" &&
     Number.isSafeInteger(record.referenceImageId) &&
     record.referenceImageId > 0
@@ -378,6 +387,7 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
     sourceParagraphIds: stringArray(record.sourceParagraphIds),
     scriptText: normalizedText(stringValue(record.scriptText)),
     voiceText: normalizedText(stringValue(record.voiceText)),
+    ...(typeof record.speaker==='string' ? {speaker:record.speaker.trim().slice(0,300)} : {}),
     ...(typeof record.durationSec === "number" && record.durationSec >= 1 && record.durationSec <= 120 ? {durationSec:record.durationSec} : {}),
     soundRequirement: normalizedText(stringValue(record.soundRequirement)),
     subject: normalizedText(stringValue(record.subject)),
@@ -832,6 +842,7 @@ export function validatePublishingVideoPreview(
 const BASELINE_FIELDS: Array<keyof PublishingVideoStoryboardShot> = [
   "scriptText",
   "voiceText",
+  "speaker",
   "soundRequirement",
   "subject",
   "action",

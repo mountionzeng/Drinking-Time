@@ -939,7 +939,7 @@ export function storyboardEditShouldHandleKey(input: {
   defaultPrevented: boolean;
   isEditableTarget: boolean;
   isButtonTarget: boolean;
-  /** 焦点位于任一可视时间轨或其剪辑块内。 */
+  /** 焦点位于可视时间轨、镜头标题或媒体选择块内；空格统一走带。 */
   isTimelineTarget?: boolean;
   rowVisible: boolean;
   /** 焦点是否落在时间尺的位置锚点标记上。 */
@@ -1084,11 +1084,18 @@ export function storyboardVisualObjectShortcutRoute(input: {
  */
 export function storyboardEditShortcut(event: {
   key: string;
+  isComposing?: boolean;
+  keyCode?: number;
   shiftKey: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
 }): StoryboardEditShortcut | null {
+  if (event.isComposing || event.keyCode === 229) return null;
+  if (
+    event.key === " " &&
+    (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
+  ) return null;
   const modified = event.metaKey || event.ctrlKey;
   if (modified && !event.altKey && event.key.toLowerCase() === "c") {
     return { kind: "copyVisualObject" };

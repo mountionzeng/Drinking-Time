@@ -395,6 +395,7 @@ type CreationEditorContextValue = {
     videoDirection: StoryImageMaterialAdvice["videoDirection"];
   }) => Promise<void>;
   generateShotVideo: (input: {
+    renderMode?: "economy" | "existing";
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
@@ -1119,7 +1120,10 @@ export function resolveCreationEditorImages(
       ...(shot.currentImage ? [shot.currentImage] : []),
     ];
     for (const image of normalizeStoryImages(ownedImages)) mergeImage(image);
-    for (const image of normalizeStoryImages(shot.relatedImages)) {
+    for (const image of normalizeStoryImages([
+      ...(shot.relatedImages ?? []),
+      ...(shot.imageGenerationReferences ?? []),
+    ])) {
       mergeImage({
         ...image,
         relatedShotIdentities: [shot.stableShotId],
@@ -1229,6 +1233,7 @@ export function mergeShotsWithImages(
           return true;
         }
         return (
+          shot.publishingVideo?.referenceImageIds === undefined &&
           image.shotNo === shot.shotNo && shotNoCounts.get(shot.shotNo) === 1
         );
       })
@@ -1237,7 +1242,7 @@ export function mergeShotsWithImages(
       imageVersions.length > 0 ? { ...shot, imageVersions } : shot;
     const matchedIdentityImage = shotIdentityMatchKeys(
       identity,
-      hasUniqueShotNo ? shot.shotNo : null
+      hasUniqueShotNo && shot.publishingVideo?.referenceImageIds === undefined ? shot.shotNo : null
     )
       .filter(key => hasUniqueShotNo || key === normalizeShotIdentity(identity))
       .reduce<CreationEditorImage | undefined>((selected, key) => {
@@ -1252,7 +1257,7 @@ export function mergeShotsWithImages(
         : undefined;
     const matchedImageCandidate =
       matchedIdentityImage ??
-      (hasUniqueShotNo ? displayByShotNo.get(shot.shotNo) : undefined);
+      (hasUniqueShotNo && shot.publishingVideo?.referenceImageIds === undefined ? displayByShotNo.get(shot.shotNo) : undefined);
     const matchedImage =
       matchedImageCandidate &&
       !imageRelatesExactlyToShot(matchedImageCandidate, identity)
@@ -3096,6 +3101,7 @@ export function CreationEditorProvider({
   const deleteStoryImage = async (imageId: number) => {
     if (activeId == null) throw new Error("故事尚未加载，无法删除图片");
     const result = await deleteStoryImageMut.mutateAsync({
+      keepInWarehouse: true,
       storyId: activeId,
       imageId,
     });
@@ -3272,23 +3278,7 @@ export function CreationEditorProvider({
     ]);
   };
 
-  const generateShotVideo = async (input: {
-    shotNo: number;
-    imageId: number;
-    characterReferenceImageUrl?: string;
-    storyStyleReferenceImageUrl?: string;
-    prompt: string;
-    subtitle?: string;
-    durationSec?: number;
-    motion?: ShotVideoMotion;
-    aspectRatio?: "1:1";
-    directorPromptApproved?: boolean;
-    rerenderRequestId?: string;
-    costConfirmation: {
-      accepted: true;
-      estimatedCny: number;
-    };
-  }) => {
+  const generateShotVideo = async (input: Parameters<CreationEditorContextValue['generateShotVideo']>[0]) => {
     if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
     setGeneratingVideoShotNos(current =>
       addShotToRenderSlots(current, input.shotNo)

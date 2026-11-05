@@ -1,6 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { StoryboardReviewBoard } from "./StoryboardReviewBoard";
@@ -99,6 +99,7 @@ export default function StoryboardPanel({
   videoClipboardLabel?: string | null;
 }) {
   const _ui = useDesktopUiText();
+  const [voiceGenerationErrors, setVoiceGenerationErrors] = useState<Record<string, string>>({});
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
@@ -302,7 +303,10 @@ export default function StoryboardPanel({
         }
       }}
       generatingVoiceShotIds={generatingVoiceShotIds}
+      voiceGenerationErrors={voiceGenerationErrors}
       onGenerateShotVoice={async (stableShotId, text) => {
+        const errorKey = `${activeStoryId}:${stableShotId}`;
+        setVoiceGenerationErrors(current => ({ ...current, [errorKey]: "" }));
         try {
           await generateShotVoice(stableShotId, text);
           setSaveStatus("saved");
@@ -310,9 +314,9 @@ export default function StoryboardPanel({
           toast.success("旁白已生成并保存到当前镜头");
         } catch (error) {
           setSaveStatus("error");
-          toast.error(
-            error instanceof Error ? error.message : "旁白生成失败，请重试"
-          );
+          const message = error instanceof Error ? error.message : "旁白生成失败，请重试";
+          setVoiceGenerationErrors(current => ({ ...current, [errorKey]: message }));
+          toast.error(message);
         }
       }}
       storyboardFieldVersions={storyboardFieldVersions}

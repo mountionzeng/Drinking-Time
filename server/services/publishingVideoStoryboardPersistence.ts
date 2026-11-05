@@ -43,6 +43,7 @@ import {
 } from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { generatePublishingVideoStoryboardPreview } from "./publishingVideoStoryboard";
+import { initializeGeneratedSubtitlesForStory } from "./timelineSubtitleEditing";
 import {
   ARTICLE_VIDEO_PLANNING_VERSION,
   publishingArticleVideoRows,
@@ -583,6 +584,13 @@ export async function generateAndPersistPublishingVideoPreview(input: {
   if (articleRows) {
     const assets = await getStoryImageAssets(input.storyId, input.userId);
     for (const row of articleRows) {
+      if (row.referenceImageIds) {
+        row.referenceImages = row.referenceImageIds.map(id => {
+          const asset = assets.find(asset => asset.id === id && asset.status !== "rejected" && asset.availability !== "missing");
+          if (!asset) throw new PublishingVideoStoryboardEligibilityError("本幕参考图片不可用，请回到书稿检查");
+          return { id, imageUrl: asset.imageUrl, prompt: asset.prompt?.slice(0, 6_000) };
+        });
+      }
       if (!row.referenceImageId) continue;
       const asset = assets.find(
         asset =>
@@ -858,6 +866,7 @@ function formalShotFromPreview(input: {
     action: input.shot.action || "按剧本完成动作",
     scriptText: input.shot.scriptText,
     dialogue: input.shot.voiceText,
+    ...(input.shot.speaker ? {speaker:input.shot.speaker} : {}),
     shotType: input.shot.supplementReason ? "补充镜头" : "剧本镜头",
     beat: input.shot.beat ?? "正文推进",
     cameraAngle: "",
@@ -874,7 +883,12 @@ function formalShotFromPreview(input: {
     sourceCardContent: "",
     promptDraft: input.shot.imageRequirement,
     videoPrompt: input.shot.videoRequirement,
+    ...(input.shot.referenceImageIds ? { generationParams: JSON.stringify({
+      storyboardFrameRoles: { firstImageId: null, lastImageId: null, referenceImageIds: input.shot.referenceImageIds },
+      referenceFrameImageIds: input.shot.referenceImageIds,
+    }) } : {}),
     publishingVideo: {
+      ...(input.shot.referenceImageIds ? { referenceImageIds: [...input.shot.referenceImageIds] } : {}),
       ...(input.shot.referenceImageId
         ? { referenceImageId: input.shot.referenceImageId }
         : {}),
@@ -997,11 +1011,25 @@ function confirmationRequestHash(input: {
     .digest("hex");
 }
 
-export async function confirmPublishingVideoStoryboard(input: {
+export async function confirmPublishingVideoStoryboard(
+  input: Parameters<typeof confirmPublishingVideoShots>[0]
+): Promise<PublishingVideoConfirmationResult> {
+  const result = await confirmPublishingVideoShots(input);
+  const subtitles = await initializeGeneratedSubtitlesForStory({
+    storyId: input.storyId, userId: input.userId, generationId: input.previewId,
+  });
+  if (subtitles.status === "error") {
+    throw new PublishingVideoStoryboardConfirmationError(`视频方案已保留，字幕尚未完成：${subtitles.error}。可再次确认继续，不会重复生成。`);
+  }
+  return result;
+}
+
+async function confirmPublishingVideoShots(input: {
   storyId: number;
   userId: number;
   versionId: string;
   previewId: string;
+  expectedPreviewRevision?: number;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
@@ -1027,6 +1055,8 @@ export async function confirmPublishingVideoStoryboard(input: {
         "剧本预览不存在或已经更新，请重新检查"
       );
     }
+    if(input.expectedPreviewRevision !== undefined && preview.revision !== input.expectedPreviewRevision && preview.status !== 'confirmed')
+      throw new PublishingVideoStoryboardConfirmationError('方案内容已更新，请重新查看人物、台词和背景音后确认');
     const validation = validatePublishingVideoPreview(preview);
     if (preview.status === "stale" || validation.length > 0) {
       throw new PublishingVideoStoryboardConfirmationError(
@@ -1130,6 +1160,9 @@ export async function confirmPublishingVideoStoryboard(input: {
     }
     const removedIndexes = new Set([
       ...Array.from(reusedManagedIndexes),
+      // A newly confirmed book-act version replaces the active table, while the
+      // old plan and exact formal/media fields are archived below in the same CAS.
+      ...(input.bookSource && preview.shots.every(shot => shot.referenceImageIds !== undefined) ? managedIndexes : []),
       ...(legacyIndex >= 0 ? [legacyIndex] : []),
     ]);
     const retained = rawShots.filter((_, index) => !removedIndexes.has(index));
@@ -1150,6 +1183,15 @@ export async function confirmPublishingVideoStoryboard(input: {
       })
     );
     const confirmedRevision = context.storyRevision + 1;
+    const archivedBookRecords = input.bookSource && preview.shots.every(shot => shot.referenceImageIds !== undefined) && managedIndexes.length && Array.isArray(body.bookVideoRecords)
+      ? body.bookVideoRecords.map(raw => {
+          const record = storyBodyRecord(raw);
+          const oldPreview = storyBodyRecord(record.preview);
+          return record.status === "adopted" && `publishing-group-${record.versionId}-${oldPreview.previewId}` === activeGroupId
+            ? { ...record, storyboardSnapshot: { shots: managedIndexes.map(index => structuredClone(rawShots[index])), archivedAt: now } }
+            : raw;
+        })
+      : body.bookVideoRecords;
     const confirmedShots = preview.shots.map(shot => {
       const stableShotId =
         stableShotIdByDraftShotId.get(shot.draftShotId) ??
@@ -1294,6 +1336,7 @@ export async function confirmPublishingVideoStoryboard(input: {
         ...body,
         publishing,
         storyboardTextSource: normalizeTextSource(context.version.textSource),
+        ...(archivedBookRecords ? { bookVideoRecords: archivedBookRecords } : {}),
       }
     );
     try {

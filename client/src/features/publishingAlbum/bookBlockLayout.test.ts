@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { blockBody, moveWritingBlock, readBookPlacement, restoreWritingBlocks, type WritingBlock } from './chapterBlockTree';
-import { deleteBookBlock, layoutBookBlocks, findBookDrop, moveBookBlockByKey, resizeBookBlock } from './bookBlockLayout';
+import { deleteBookBlock, deleteBookBlocks, layoutBookBlocks, findBookDrop, moveBookBlockByKey, resizeBookBlock } from './bookBlockLayout';
 const block = (id: string, text = id): WritingBlock => ({ id, text, format: 'text', parentId: null, collapsed: false });
 
 describe('book module layout', () => {
+  it('reflows dialogue around quote gutters without overlapping the next module or changing text', () => {
+    for (const [pageWidth, length] of [[900, 30], [480, 15]]) {
+      const plain = [block('a', '词'.repeat(length)), block('b', '下一段')];
+      const marked = [{ ...plain[0], videoRole: 'dialogue' as const }, plain[1]];
+      const normal = layoutBookBlocks(plain, {}, pageWidth);
+      const dialogue = layoutBookBlocks(marked, {}, pageWidth);
+      expect(dialogue[0].placement.rect.height).toBeGreaterThan(normal[0].placement.rect.height);
+      expect(dialogue[1].placement.rect.y).toBeGreaterThan(dialogue[0].placement.rect.y + dialogue[0].placement.rect.height);
+      expect(blockBody(marked)).toBe(blockBody(plain));
+    }
+  });
   it('reflows narrow viewports without rewriting stored widths, fonts or multiline text', () => {
     const blocks = [block('a', '这是一段较长的测试文字，用来验证手机换行。'.repeat(5) + '\n第二行'), block('b', '下一段')];
     const before=JSON.stringify(blocks);
@@ -91,5 +102,12 @@ describe('book module layout', () => {
     const blocks = [{ ...block('a'), emphasis: 'bright' as const, backdrop: true, book: { page: 1, rect: { x: 60, y: 100, width: 600, height: 80 }, fontSize: 24 } }];
     expect(restoreWritingBlocks('a', { body: 'a', blocks })).toEqual(blocks);
     expect(restoreWritingBlocks('different', { body: 'a', blocks })[0].book).toBeUndefined();
+  });
+  it('deletes exactly the selected blocks, lifts surviving children, and retains an editable empty block',()=>{
+    const blocks=[{...block('chapter'),format:'heading1' as const},{...block('section'),format:'heading2' as const,parentId:'chapter'},{...block('child'),parentId:'section'},block('outside')];
+    expect(deleteBookBlocks(blocks,['chapter','section'])).toMatchObject([{id:'child',parentId:null},{id:'outside'}]);
+    expect(deleteBookBlocks(blocks,['section'])).toMatchObject([{id:'chapter'},{id:'child',parentId:'chapter'},{id:'outside'}]);
+    expect(deleteBookBlocks(blocks,blocks.map(b=>b.id))).toMatchObject([{text:'',format:'text'}]);
+    expect(deleteBookBlocks(blocks,[])).toBe(blocks);
   });
 });

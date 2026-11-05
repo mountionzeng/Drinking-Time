@@ -7,6 +7,15 @@ import {BookModuleConvert} from './BookModuleConvert';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
 beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
+it.each(['text','music'] as const)('sends all selected IDs for %s conversion without starting paid music',async kind=>{
+ m.describe.mockResolvedValue({text:'整合结果'});m.price.mockResolvedValue({quoteToken:'signed',estimatedCny:1});
+ const props={source:{id:'a',text:'首段',kind,parts:[{id:'a',text:'首段'},{id:'b',text:'第二段'}]},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
+ const tree=nodes(BookModuleConvert(props));
+ tree.find(n=>n.type==='button'&&n.props.children===(kind==='text'?'生成文字':'查看音乐生成费用')).props.onClick();await settle();
+ if(kind==='text')expect(m.describe).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'a',moduleIds:['a','b']});
+ else expect(m.price).toHaveBeenCalledWith(expect.objectContaining({bookTarget:{chapterId:2,moduleId:'a',moduleIds:['a','b']}}));
+ expect(m.music).not.toHaveBeenCalled();
+});
 it('reopens an accepted task with recovery instead of a second purchase and inserts its result',async()=>{
  const props={source:{id:'x',text:'纸船',kind:'image' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
  m.task={id:'task',status:'accepted',providerTaskId:'paid',inserted:false,sourceChanged:false};
@@ -49,6 +58,15 @@ it('automatically inserts ready music and refreshes its library',async()=>{
  const tree=BookModuleConvert({source:{id:'x',text:'雨天',kind:'music'},storyId:1,chapterId:2,prepare:async()=>{},onInsert:insert,onClose:vi.fn()});
  nodes(tree).filter(n=>n.type==='button')[1].props.onClick();await settle();
  expect(insert).toHaveBeenCalledWith(expect.stringContaining('/api/story-audio-asset/1/7'));expect(m.invalidate).toHaveBeenCalledWith({storyId:1});
+});
+it('previews and quotes every selected narration module without starting generation',async()=>{
+ m.price.mockResolvedValue({quoteToken:'signed',estimatedCny:.04});
+ const source={id:'a',text:'第一句',kind:'narration' as const,parts:[{id:'a',text:'第一句'},{id:'b',text:'第二句'}]};
+ const tree=nodes(BookModuleConvert({source,storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()}));
+ expect(tree.find(n=>n.props?.['aria-label']==='朗读原文').props.children).toBe('第一句\n\n第二句');
+ tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.onClick();await settle();
+ expect(m.price).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'a',moduleIds:['a','b']});
+ expect(m.music).not.toHaveBeenCalled();
 });
 it('inserts a completed audiobook with its classification and refreshes the audio library',async()=>{
  m.states=[false,'','', '',[],false,{quoteToken:'quote',estimatedCny:.02,subtitleCueId:'book-one'}];m.music.mockResolvedValue({status:'candidate-ready',candidate:{assetId:9}});const insert=vi.fn();

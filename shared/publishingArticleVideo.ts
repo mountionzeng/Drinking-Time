@@ -12,6 +12,15 @@ import {
 
 export const publishingArticleLayoutSchema = z.object({
   body: z.string().min(1).max(100_000),
+  /** Explicit book dialogue spans in the trimmed body; offsets disambiguate repeated text. */
+  dialogueRanges: z.array(z.object({start:z.number().int().nonnegative(),end:z.number().int().positive()})).max(20000).optional(),
+  /** Server-resolved book acts. Pictures guide the act, never become separate shots. */
+  bookScenes: z.array(z.object({
+    id: z.string().min(1),
+    text: z.string().min(1).max(100_000),
+    dialogueText: z.string().max(100_000).optional(),
+    referenceImageIds: z.array(z.number().int().positive()).max(100),
+  })).max(100).optional(),
   illustrations: z
     .array(
       z.object({
@@ -35,16 +44,29 @@ export type PublishingArticleVideoRow = {
   id: string;
   text: string;
   voiceText: string;
+  dialogueText?: string;
   referenceImageId?: number;
   referencePrompt?: string;
   referenceImageUrl?: string;
+  referenceImageIds?: number[];
+  referenceImages?: Array<{ id: number; imageUrl: string; prompt?: string }>;
 };
 
 /** The layout, not the model, owns text coverage and image placement. */
 export function publishingArticleVideoRows(
   layout: PublishingArticleLayout
 ): PublishingArticleVideoRow[] {
+  if (layout.bookScenes?.length) {
+    return layout.bookScenes.map(scene => ({
+      id: scene.id, text: scene.text, voiceText: scene.text,
+      ...(scene.dialogueText !== undefined ? {dialogueText:scene.dialogueText} : {}),
+      referenceImageIds: [...new Set(scene.referenceImageIds)],
+    }));
+  }
   const body = normalizeImagePackBody(layout.body);
+  const dialogue = (from:number,to:number) => layout.dialogueRanges === undefined ? {} : {dialogueText:layout.dialogueRanges
+    .filter(range=>range.start<to && range.end>from)
+    .map(range=>body.slice(Math.max(from,range.start),Math.min(to,range.end)).trim()).filter(Boolean).join('\n')};
   const paragraphs = imagePackParagraphs(body);
   const seen = new Set<number>();
   const placements = layout.illustrations
@@ -60,7 +82,7 @@ export function publishingArticleVideoRows(
   const rows: PublishingArticleVideoRow[] = [];
   const leading = body.slice(0, placements[0]?.offset ?? body.length).trim();
   if (leading)
-    rows.push({ id: "article-leading", text: leading, voiceText: leading });
+    rows.push({ id: "article-leading", text: leading, voiceText: leading, ...dialogue(0,placements[0]?.offset ?? body.length) });
   for (let index = 0; index < placements.length; ) {
     const start = index;
     const offset = placements[index].offset;
@@ -77,13 +99,14 @@ export function publishingArticleVideoRows(
         referenceImageId: placement.assetId,
         text,
         voiceText: current === start ? text : "",
+        ...(current === start ? dialogue(offset,placements[index]?.offset ?? body.length) : layout.dialogueRanges !== undefined ? {dialogueText:''} : {}),
       });
     }
   }
   return rows;
 }
 
-export type ArticleVideoRequirements = {voiceText?:string;durationSec?:number} & Pick<
+export type ArticleVideoRequirements = {voiceText?:string;speaker?:string;durationSec?:number} & Pick<
   PublishingVideoStoryboardShot,
   | "subject"
   | "action"
@@ -105,6 +128,7 @@ export const articleVideoSupplementSchema = z.object({
   videoRequirement: z.string().trim().min(1).max(4_000),
   soundRequirement: z.string().max(2_000).default(""),
   voiceText: z.string().max(4000).optional(),
+  speaker: z.string().max(300).optional(),
   durationSec: z.number().min(1).max(120).optional(),
   beat: z.enum(["开场", "起势", "转折", "收束"]).optional(),
 });
@@ -168,7 +192,10 @@ export function buildPublishingArticleVideoPreview(input: {
         ...(row.referenceImageId
           ? { referenceImageId: row.referenceImageId }
           : {}),
+        ...(row.referenceImageIds ? { referenceImageIds: [...row.referenceImageIds] } : {}),
         ...requirements,
+        // Explicit classification is authoritative; model guesses cannot turn stage directions into speech.
+        ...(row.dialogueText !== undefined ? {voiceText:row.dialogueText} : {}),
       };
     }
   );
@@ -194,7 +221,8 @@ export function buildPublishingArticleVideoPreview(input: {
           segmentIds: [...sourceShot.segmentIds],
           sourceParagraphIds: [...sourceShot.sourceParagraphIds],
           scriptText: addition.action,
-          voiceText: addition.voiceText ?? "",
+          voiceText: source.dialogueText !== undefined ? "" : addition.voiceText ?? "",
+          ...(addition.speaker ? {speaker:addition.speaker} : {}),
           ...(addition.durationSec !== undefined ? { durationSec: addition.durationSec } : {}),
           ...(source.referenceImageId
             ? { continuityImageId: source.referenceImageId }

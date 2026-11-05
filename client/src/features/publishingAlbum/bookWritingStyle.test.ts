@@ -28,3 +28,9 @@ it('treats server-normalized key order and default styling as the same saved ver
  expect(sameWritingStyle(editor,[{...server[0],emphasis:'normal',backdrop:false}])).toBe(true);
  expect(sameWritingStyle(editor,[{...server[0],book:{...server[0].book!,fontSize:25}}])).toBe(false);
 });
+it('detects a role-only edit and retains it through server validation',()=>{
+ const original=[{id:'a',format:'text' as const,parentId:null,collapsed:false}];
+ const marked=bookWritingStyleSchema.parse([{...original[0],videoRole:'dialogue'}]);
+ expect(sameWritingStyle(original,marked)).toBe(false);
+ expect(restoreStyledBlocks('你好',marked)[0].videoRole).toBe('dialogue');
+});

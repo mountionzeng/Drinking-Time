@@ -541,3 +541,27 @@ it('reads a book module verbatim, saves narration without timeline mutation, rej
  await deleteChapter(chapter.id,899);expect(await generateStoryNarrationCandidate({...request,operationId:'book-narration-deleted'})).toMatchObject({status:'error'});
  expect(generateVoice).toHaveBeenCalledTimes(1);
 });
+
+it('quotes and reads all selected book text in document order and rejects a later source change before charging',async()=>{
+ const {insertChapter,saveChapterContent}=await import('../repositories/chapters');
+ const {storyId}=await seed(898);
+ const chapter=await insertChapter({storyId,userId:898,content:{title:'书',layout:null,blocks:{body:'第一段。\n不选这段\n第二段。',blockIds:['a','skip','b'],writingStyle:['a','skip','b'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false})),containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const bookTarget={chapterId:chapter.id,moduleId:'a',moduleIds:['b','a']},subtitleCueId='book-group';
+ const quote=await quoteStoryNarration({storyId,userId:898,subtitleCueId,bookTarget,now:()=>NOW});
+ const before=await getStoryTimeline(storyId,898),generateVoice=vi.fn(async(_input:{text:string})=>({audioUrl:'https://file.302.ai/voice/test.mp3',provider:'openai',voice:'alloy'}));
+ const request={storyId,userId:898,subtitleCueId,operationId:'book-group-narration',quoteToken:quote.quoteToken,dependencies:{now:()=>NOW+1000,generateVoice,materializeRemote:async(input:any)=>fakeProviderAsset(90)({...input,operationId:input.sourceKey})}};
+ expect(await generateStoryNarrationCandidate(request)).toMatchObject({status:'candidate-ready'});
+ expect(generateVoice).toHaveBeenCalledWith(expect.objectContaining({text:'第一段。\n\n第二段。'}));
+ expect(await getStoryTimeline(storyId,898)).toEqual(before);
+ const balance=await getCreditAccountSummary(898);
+ await saveChapterContent({id:chapter.id,userId:898,expectedVersion:chapter.version,reason:'autosave',content:{blocks:{...chapter.blocks,body:'第一段。\n不选这段\n第二段改了。'}}});
+ expect(await generateStoryNarrationCandidate({...request,operationId:'stale-group'})).toMatchObject({status:'error'});
+ expect(generateVoice).toHaveBeenCalledTimes(1);expect(await getCreditAccountSummary(898)).toEqual(balance);
+ await expect(quoteStoryNarration({storyId,userId:999,subtitleCueId,bookTarget,now:()=>NOW})).rejects.toThrow();
+});
+
+it('rejects oversized selected narration instead of truncating it',async()=>{
+ const {insertChapter}=await import('../repositories/chapters');const {storyId}=await seed(897);
+ const chapter=await insertChapter({storyId,userId:897,content:{title:'书',layout:null,blocks:{body:'甲'.repeat(2500)+'\n'+'乙'.repeat(2500),blockIds:['a','b'],writingStyle:['a','b'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false})),containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ await expect(quoteStoryNarration({storyId,userId:897,subtitleCueId:'too-long',bookTarget:{chapterId:chapter.id,moduleId:'a',moduleIds:['a','b']},now:()=>NOW})).rejects.toThrow('最多5000字');
+});

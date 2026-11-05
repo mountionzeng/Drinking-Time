@@ -1169,6 +1169,7 @@ export const publishingDraftRouter = router({
       storyId: z.number().int().positive(),
       versionId: z.string().trim().min(1).max(64),
       platform: platformSchema.optional(),
+      bookSource: z.boolean().optional(),
       baseContainerRevision: z.number().int().nonnegative(),
       baseVersionRevision: z.number().int().nonnegative(),
       operationToken: z.string().trim().min(1).max(200),

@@ -24,6 +24,86 @@
 
 ## 当前在场
 
+2026-11-05 Codex 本对话书稿/视频汇总发布进行中：独占 main 提交/push/生产发布窗口，范围为本对话书稿多选/台词/图像方案/平台分享、视频字幕预览/参考图/供应商恢复等增量与对应账本/QA。保留其他会话微信文档/配置样例/集成测试和 outputs 未提交文件，不修改生产配置、数据库或付费生成。预计本轮收工。
+
+2026-11-04 批量有声书/台词完成并释放 BookBlockCanvas/ChapterTextModules/BookModuleConvert、bookMedia路由/storyNarration及测试/账本：多选仅提取文字，完整原文预览/全组报价签名和源变更拒绝，结果按末源插入并入仓库；台词批量分类一次提交。91项相关测试、类型通过；3000实点六项菜单/两段朗读预览，未付费生成、未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
+
+2026-11-04 模块删除快捷键完成并释放 BookBlockCanvas、BookWritingContext.test 及账本/QA：单选多选 Delete/Backspace 复用删除撤销，选择后书页聚焦，保护文字编辑/IME/连发/组合键。61项相关测试、类型通过；主仓3000纯内存临时页实测单删、多删、恢复与输入保护，临时文件已清理；未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
+
+2026-11-04 引号尺寸微调完成并释放 BookDialogueText 及账本/QA：字号减半为0.625em，主仓3000截图及DOM比例验证通过，83卡和差异检查通过；未提交/部署。
+
+2026-11-04 台词高亮引号本地完成并释放 ChapterTextModules、BookDialogueText、bookBlockLayout 及测试/账本：按分类显示绿色前后引号，装饰不入正文，布局自动留位重排。56项相关测试、类型检查通过；主仓3000既有台词截图/DOM核对通过，未改真实正文、未调用模型、未提交/部署。QA docs/qa/2026-11-04-book-dialogue-review.md。
+
+2026-11-04 图像方案历史卡本地完成并释放 BookImageCompositionChat/History/Card/Session、bookModuleActions/ChapterTextModules、StoryAgentChat、bookImageComposition/bookMedia/shared 类型及测试账本：原任务历史显示Vn状态/时间/摘要卡，打开参数、接续最新讨论；校验源快照且重开不重复插图。54项相关测试、类型、83卡和差异检查通过；主仓3000实点既有V1/V2卡片、V2参数/结果与源变化拒绝。旧任务无时间显示历史记录，未确认草稿仍为临时，未真实生成/扣费/提交/部署。QA docs/qa/2026-11-04-book-image-history-cards.md。
+
+2026-11-04 台词字幕分类与视频确认本地完成并释放 bookWritingStyle/chapterBlockTree/BookBlockCanvas/mergeBookText、bookVideoSource/Creation、publishingArticleVideo/publishingVideoStoryboard 生成与持久化、BookVideoChat/confirmBookVideo 及测试/账本：持久用途分类与精确台词传递，方向确认只到预览，逐镜人物/台词/背景音核对后显式采用并校验修订；旧稿/参考图/CAS/费用确认保留。139项相关回归、类型、83卡和差异检查通过；主仓3000实点菜单及V2只读核对表，第一幕2图/第三幕3图可见。未改真实正文、未调用真实模型/付费媒体、未提交/部署；完整新方案人工验收仍待试用。QA docs/qa/2026-11-04-book-dialogue-review.md。
+
+2026-11-04 多选六点菜单本地完成并释放 BookBlockCanvas、ChapterTextModules、BookModuleConvert、bookBlockLayout、bookModuleSource、storyAudioGeneration、bookMedia/timelineMedia 及测试/账本：原位绿色把手统一文字/音乐/图像/删除四项菜单；全组选材及签名指纹、最后源之后插入、批量删除与一次撤销，拖动/缩放保留。108项相关测试、类型、82卡与差异检查通过；主仓3000实点两图多选/六点菜单/音乐弹窗通过，未调用付费生成、未删真实正文、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
+
+2026-11-04 书稿合并为图像本地完成并释放所登记文件：多选右键、图片菜单、自然语言三个入口统一聊天方案；轻量汇聚、原图优先302 Sunburst、逐轮确认、事务防重与GET恢复、书稿安全插入及仓库保存。216项回归、类型、82卡、差异检查通过；主仓3000实点图文混选/全文菜单/聊天触发与补充要求通过。未新增真实付费生成，未提交/部署；全链付费验收与生产MySQL仍列缺口。详见 docs/qa/2026-11-04-book-image-composition.md。
+
+2026-11-04 分镜图片自动取回完成并释放 useShotImageRender、pollStoryboardImage、storyboardImageTask/legnextImage及测试、账本/QA：正常排队自动串行查询原任务，完成刷新画面行与仓库；切换取消、明确失败停止、十分钟后保留原恢复入口。75专项、类型/81卡/差异检查通过；真实三轮共12图已入库，新自动流程以模拟测试验证，浏览器绑定不可用。未新购媒体/提交/部署。QA docs/qa/2026-11-04-storyboard-auto-recovery.md。
+
+2026-11-04 原图优先修复完成并释放 shared/shotImageRender、renderGate、storyAgent生成路由、useShotImageRender及测试/账本/QA：用户明确批准严格保留时取消冲突的强制重绘/无字规则；有有效参考和明确保留要求才跳过导演二次改写与历史偏好，原费用确认说明MJ不能保证像素级复刻。135专项、类型/81卡通过；未改原图/已选候选，不切模型、不付费生成，未提交/部署。QA docs/qa/2026-11-04-reference-fidelity.md。
+
+2026-11-04 视频参考图上传修复完成并释放 imageGen/legnextImage及对应测试/账本/QA：视频按钮已走Legnext，修复本地参考图误走旧302存储代理，改用现有302文件上传，保留OSS优先和模型/报价/单次提交。219测试、类型/81卡通过，空白1像素测试图真实上传及匿名GET200通过，未发起付费生成；原参考图上传被自动审批拒绝而未执行。未提交/部署。QA docs/qa/2026-11-04-storyboard-reference-upload.md。
+
+2026-11-04 书稿按幕多参考图完成并释放：bookVideoSource/Creation、publishingArticleVideo/publishingVideoStoryboard及持久化、storyMaterials与客户端参考图投影、测试/账本/QA。故事1217真实生成并采用V2七镜，画面行第一幕2图、第三幕3图，其余无图；V1八镜快照与原资产保留。133专项及新增画面投影39项、类型/81卡通过，未提交/部署。另用户授权旧第02镜旁白一次最高0.04算力诊断，连接失败无HTTP响应、供应商结果未知，未重试。QA docs/qa/2026-11-04-book-act-references.md 与 storyboard-voice-failure.md。
+
+2026-11-04 旁白失败反馈本地修复完成并释放 StoryboardPanel/StoryboardReviewBoard/StoryboardMatrix：失败按故事+镜头显示在原按钮下，52专项/类型/81卡通过；1217请求178已失败且预占释放、实际扣费0。供应商真实生成仍未恢复，待用户确认一次最高0.04算力测试（尚未提交），未部署。QA docs/qa/2026-11-04-storyboard-voice-failure.md。
+
+2026-11-04 空格播放与默认简化显示已完成并释放：StoryboardEditRow 路由、ShotPreview/StoryboardReviewBoard 焦点与默认状态、相关测试/账本/QA；176专项、类型/81卡门禁通过，主仓3000真实标题及Preview空格播放暂停、输入空格保护、默认简化和双向切换通过。未提交/部署，未购买媒体，未动用户原标签。QA docs/qa/2026-11-04-storyboard-space-default.md。
+
+2026-11-03 文档07输入布局候选待真机：987d444已push，0.1.1103qb已上传；移除写作提示、避免普通正文键盘双重缩放、区分本机冲突与云端已保存。1673测试/类型及真实虚构标题正文保存重开和清理通过。保留Documents/Codex/2026-11-03/document07-miniapp-acceptance候选待验，释放代码/开发工具独占；未合主干/提审/部署云函数，用户冲突草稿保留。
+
+2026-11-03 文档07小程序内部验收待用户：bf1438b隔离候选整合12ce517与main清理，1671测试及七核心云源码下载核对通过；电脑保存/重开及清理完成，0.1.1103qa已上传，待用户设体验版及新账号真机验收。微信后台站点策略阻止自动操作；未提审/未正式发布。释放开发工具独占，保留候选工作树供续验，主仓脏文件未覆盖。
+
+2026-11-03 文档07提交发布完成，独占main收敛/生产发布窗口已释放：Web fa62493a已上线，116产物及ready校验通过；原生PR #10 CI通过并合入f53dbfe5，客户端仍待既有完整验收，未上传/提审。其他会话脏文件保留。详见docs/qa/2026-11-03-document07-cleanup-release.md。
+
+2026-11-02 22:04 支付宝最小发布成功，释放生产发布窗口：以微信账号续修为基线，/tmp/alipay-enable-20261102/src为最新后端源码，只有返回/m与北京时间两处修复。15专项/隔离类型通过；线上manifest=/opt/Drinking-Time/dist.release-alipay-enable-20261102.json，后端SHA7572fce979a69b877e226cbbc6935f41d6ae2081f95c3ec2bf111d368ee718af，PID498425，ready/mysql/required通过。115产物除后端外全部保留；ALIPAY_PC_CHECKOUT_ENABLED=true，其余配置未改。备份dist.bak-alipay-enable-20261102。真实网页¥1/1算力下单已进入支付宝官方收银台，订单pending，等待用户扫码核验回调。后续发布必须保留支付源码修复及开关，勿用旧manifest覆盖。详见支付宝QA。
+
+2026-11-02 支付宝准备完成（释放代码、不占发布窗口）：server/routers/computePayment.ts 返回/account 404修为/m，server/services/payments/alipay.ts 改北京时间，15项专项及77卡账本通过；未提交部署。真实应用已上线、电脑网站支付可调用、生产查单签名与响应验签通过，订单表和唯一索引就绪。线上开关仍false、零订单。微信会话仍占窗口，已询问用户能否联系协调；无授权不跨对话发消息，不重启。全仓类型检查另有computeLedger.ts:147未提交错误。证据 docs/qa/2026-11-02-alipay-readiness.md。
+
+2026-11-02 分镜等待与移除本地完成：上述文件释放，106项专项通过；原第02镜GET恢复1996–1999，无新购买。镜头移除1997后仓库仍可预览/绑定；恢复按钮与重新打开查询原任务已接入。尚未提交/部署，发布树旧包需要同步本轮增量，禁止直接发布旧包；微信窗口仍不占用。详见storyboard-legnext QA。
+
+2026-11-02 分镜Legnext发布准备：用户已授权部署；本会话只在隔离树打包分镜供应商/任务恢复与验证，不占用线上窗口。保留微信已部署兼容后端，待微信窗口明确释放再push/切换服务。
+
+2026-11-02 书转电影续验完成并释放 BookVideoChat.tsx/test：历史列表后台刷新，运行等待反馈与防重复点击；慢列表回归先红后绿，25项及类型通过，实点V3进入两镜表格。未提交/部署/购买媒体，缺主图与最终成片仍待验；证据见book-video-entry QA。
+
+2026-11-02 书转视频待发布（准备已完成、不占窗口）：用户要求合main/push/部署；隔离工作树 /tmp/book-video-release-20261102/worktree，分支 codex/book-video-release-20261102，提交 a557124e。139项视频、45项微信后端兼容、75项草稿安全测试及构建通过；线上微信扫码后端与main不同，已核对已发布源码。微信会话仍占发布窗口，待释放并核实其他发布收敛后合并/推送/部署；不得重置或删除此待发布分支。具体交接 /tmp/book-video-release-20261102/HANDOFF.md。
+
+2026-11-02 分镜MJ过载本地修复完成并释放：storyAgent/legnextImage/storyboardImageTask/storySync/rerender及测试，分镜新请求改走Legnext V7 Fast，回执CAS与并发恢复保护。故事1214第01镜单次80点/$0.08，超时后恢复取回1992–1995四图，刷新仍显示；116项/类型/账本通过，未新增第二单、未生成视频、未提交/部署。微信发布窗口不占用，QA docs/qa/2026-11-02-storyboard-legnext.md。
+
+2026-11-02 书内图乐复用已完成并释放 bookVideoSource/Creation/shared、BookVideoChat、timelineAudioEditing 及对应测试：正文/旧布局选图引用、书内ready音乐盘点与确认后配乐复用，保留人工轨/删除选择，持久去重、失败可续。76项相关与最终类型/77卡账本通过，实点进入视频表格通过；没有新增付费生成，未提交部署，真实带音乐成片未验。QA docs/qa/2026-11-02-book-video-media-reuse.md。
+
+
+2026-11-02 微信真实出码续接（本对话）：用户授权继续至登录页出现真实二维码。占用微信扫码服务/配置及独立3001预览、相关QA/账本；Legnext已释放，现登记微信网页登录后端发布窗口，基于c155d0bc隔离准备最小扫码增量，不重启本地3000、不覆盖其他会话代码。原生独立codex/wechat-qr-live-20261102，提交3bbd25a已部署两个微信函数，云端密钥由用户保存、腾讯云二次验证已完成；Web兼容扫码后端已发布且ready/mysql/required，前端未切换。HTTPS出码网关、客户端和真实扫码继续接通，部署后云源码下载ECONNRESET待核对。
+
+2026-11-02 Legnext发布完成并释放窗口：ed084cc3已push main并部署，书稿模块MJ V7 Fast、回执恢复及IPv4图片下载。223专项+75草稿安全、类型/构建/账本、115产物与HTTPS资源/readyz通过；生产四图同任务GET通过无新增付费。完整按钮付费闭环待验。主仓113份工作文件内容保留，临时worktree/分支已删除，视频会话不受影响。QA docs/qa/2026-11-02-legnext-release.md。
+
+2026-11-02 视频确认直达表格已完成并释放上述文件：BookVideoChat/confirmBookVideo、VideoVersionHistory、shared/bookVideoCreation、bookVideoCreation/router、publishingVideoStoryboard及测试。收起后保留下一步，确认直达表格并保留V1/V2历史；修同段多镜丢失，真实V3特写+全景及历史展开通过。47项/类型通过；仅本地未提交/部署、未购买媒体。QA docs/qa/2026-11-02-book-video-entry.md。
+
+2026-11-02 旧页保存恢复完成并释放 appVersion、ChapterWriting/ChapterWorkspace及测试：独立草稿恢复入口；修首次挂载抹掉冲突提示。用户当前纸船故事实点对比→保留修改→已保存→视频需求对话通过；33项回归/类型通过，无付费生成，未提交/部署。QA docs/qa/2026-11-02-stale-save-recovery.md。
+
+
+2026-11-02 模块MJ版本选择本地完成并释放：用户授权直接选择，核对302目录后固定书稿文生图V7正式版，imageGen/storyAgent/BookModuleConvert及测试；206项相关测试通过，未新增付费请求/未部署，不能视为过载已解决。其他入口默认与历史任务原通道保留；详见MJ routing QA。
+
+2026-11-02 本地MJ续验收工释放：imageGen默认普通/mj/，专用通道显式配置（取消域名推断）；首次404、修正后真实请求明确过载未受理，无候选/出图扣费，不再提交。209项回归及新增404不跨路由重买测试通过，未部署/提交，详见MJ routing QA。
+
+
+
+2026-11-02 模块图片任务恢复本地完成并释放（未提交/部署）：BookModuleConvert/storyAgent及测试，新增回执服务/仓储/共享类型；storySync保护回执，ChapterTextModules防重复图片插入。217项回归+真实MySQL事务/多进程测试、tsc、76卡账本通过。等待中的模块不阻塞其他模块；无新付费生成，MJ旧49%仍未解决。QA：docs/qa/2026-11-02-midjourney-routing.md。保留其他助手改动。
+
+2026-11-02 视频需求确认：已完成并释放 BookVideoChat、bookVideoCreation/shared定义及 PublishingDraftWorkspace。自由描述→条件追问真实推理通过，画册生成/重开已接通，35项回归通过；见 docs/qa/2026-11-02-book-video-entry.md。本地未提交/部署，保留其他会话改动。
+
+2026-11-02 书转视频入口收工并释放：ChapterTextModules与EditingNleWorkspace新增共用BookVideoStartButton，BookVideoChat补步骤与处理中状态；两入口实点进入同一左侧对话，书稿/参数/历史保留。48项相关测试、类型通过，未付费生成、未提交/部署。保留其他未提交修改；未改PublishingDraftWorkspace既有差异。QA：docs/qa/2026-11-02-book-video-entry.md。
+
+2026-11-02 草稿版本发布收工，发布窗口释放：以已上线1d79e444为基底追加ChapterWriting修复，新版本6dd8d506-7d0f-480a-9a1b-487a69db366f。仅3个前端产物更新，后端/配置不变；39专项、75草稿安全、类型/构建通过，115产物及服务器HTTPS页面资源/readyz通过。本机浏览器ERR_CONNECTION_CLOSED，线上生成闭环未验。未commit/push，其他会话文件未变，证据docs/qa/2026-11-02-writing-base-version.md。
+
+2026-11-02 草稿基准回退修复完成并释放 ChapterWriting.tsx/test：保存确认后旧事件不得将baseVersion回退；39项测试、tsc、76卡账本通过。仅修改这两文件及QA/账本，本轮未提交/部署，其他会话文件哈希未变。续验：保留旧页草稿，新版同故事单次授权MJ请求通过prepare并到达供应商，但上游过载未受理（服务端现有3次重试），未出图、未切备用。闭环未验收，详见docs/qa/2026-11-02-writing-base-version.md。
+
+2026-11-02 微信续验收工，释放工具/云环境占用：原生 quick-memory-conversation-20261101 干净cbac7c7，业务0523fe3。拒绝授权提示和正常设置恢复已实点；真实两轮纠正→整理→明确追加→重开通过，测试新增段落已正常删除并重开核对基线，原图/原文/历史保留。未发送测试输入和生成草稿已清空，本机虚构聊天历史保留。每日一问一次DAILY_TOPIC_INVALID后手动重试成功；DevTools Offline不能阻断云函数，已恢复Online，不计断网通过。仍缺真实新账号、真机冷启动、真实断网及其余图片/记忆入文分支，无二维码/提审。完整记录见原生docs/handoff/2026-11-01-release-acceptance-followup.md。
+
 
 
 2026-11-01 手机图片过载隔离修复完成并释放imageGen/imageProviderHealth及测试：MJ过载只冷却自身、不污染全局失败计数，107项/类型通过；供应商未恢复，无新付费请求。备用GPT入口等待用户选择，默认MJ不变，未部署。
@@ -125,7 +205,54 @@
 
 ## 最近落地
 
+- 2026-11-04 自动字幕与生成中预览完成并释放（main，未提交/部署）：timelineSubtitleEditing/publishingVideoStoryboardPersistence、shared/generatedSubtitles、ShotPreview/previewPlaybackModel及相关测试/QA/账本。确认方案自动按台词与绝对帧初始化正式分段字幕；人工改字/删空/撤销/legacy保持权威，失败可幂等续做。复用走带，Preview随镜头显示描述、静帧与已有字幕。82专项（含FFmpeg一致性）、76草稿安全、类型、81卡账本与环境通过；真实launch video第1至7镜预览通过，原3条字幕未改，无付费生成。QA：docs/qa/2026-11-04-auto-subtitles-preview.md。
+
+- 2026-11-04 聊天底部留白与状态收拢完成并释放（main，未提交/部署）：StoryAgentChat、desktopCompanion.css、新增ChatCompanionStatus、BookVideoChat及QA/账本。保留Logo/输入框尺寸与位置，透明区域多出约24px聊天空间；状态单行4.2秒轮换、220ms渐变，视频进度复用同一行，错误/确认和排版详情保留。30项回归、类型、81卡账本通过；真实模块定位/进入聊天/Esc回全文及无业务模拟动画验证通过，无付费/发送，临时验证页已删。QA：docs/qa/2026-11-04-chat-status-spacing.md。
+
+- 2026-11-04 发送平台入口恢复完成并释放（main，未提交/部署）：BookSendMenu/ChapterWorkspace、新增BookPlatformShareDialog/bookPlatformExport及测试、publishingCoverExport及测试和账本/QA。现有发送按钮选择小程序/朋友圈/其他平台，保留文章链接；先保存当前稿，平台文案及全套配图独立导出，不自动改稿或发布。36项专项、76项草稿安全、类型、81卡账本及环境门禁通过；真实6图朋友圈1080×1080、小红书1080×1440预览通过。小程序本机未启用，显示禁用态，未改开关/付费/发送。QA：docs/qa/2026-11-04-book-send-platforms.md。
+
+- 2026-11-04 本地白屏修复完成并释放（main，未提交/部署）：server/_core/vite.ts先求值函数配置再创建嵌入式Vite，恢复client目录、别名和插件；新增配置接线测试先红后绿，19项专项、类型、81卡账本及env:check通过。原白屏标签刷新后《launch video》聊天/正文/6图正常，发送菜单实点通过；用户稿件未编辑，未触发生成，主仓仅3000服务。QA：docs/qa/2026-11-04-local-editor-white-screen.md。
+
 2026-11-04 书稿编辑与图文分享已上线，释放main合并/生产发布窗口：0db079d4已push，release=book-editor-20261104，manifest=/opt/Drinking-Time/dist.release-book-editor-20261104.json，前端be19c96d-5a0a-4ad9-a4be-8fd132be34b6；175产物、HTTPS页面/JS/CSS/公式字体、ready/mysql/required通过。已含本轮Logo/聊天布局、跨模块选字、改写采用、LaTeX/生成格式、全文定位、图片导入、共用标题、快捷按钮精简/说明位置及发送图文；未包含其他会话视频/分镜增量。148原变动文件按审核三方结果保留，主仓类型通过，临时worktree/分支/stash已清理；备份与源码包/private/tmp/book-editor-release-20261104，生产回滚dist.bak-book-editor-20261104。配置/数据库未改，正式站入口实点通过，无付费请求；10项全量剩余失败在原基线复现，详见docs/qa/2026-11-04-book-editor-release.md。
+
+2026-11-04 书稿发送及图片分享本地完成，释放相关文件（未提交/部署）：ChapterWorkspace/ChapterWriting/ChapterTextModules接入视频按钮右侧发送菜单，ArtworkShareDialog/SharedArtworkPage与artworkShare增加连续图文阅读快照；原权限、重编码、幂等、撤销、保存CAS及投递开关保留。43项分享专项、76项草稿安全、类型/构建、80卡账本和差异检查通过；主仓3000真实文章6图预览通过，未创建真实链接、向他人发送或调用付费模型。后续发布须同时包含前后端；QA docs/qa/2026-11-04-book-send-menu.md。
+
+- 2026-11-04 修改说明位置调整本地完成（未提交/部署）：释放ChapterWriting/ChapterWorkspace及QA/账本；修改说明原折叠项紧接版本按钮，保留草稿/自动保存/CAS与正文间距。21项章节回归、类型、80卡账本和diff检查通过；主仓3000实点展开/收起与同排位置确认，未改用户正文或说明。QA docs/qa/2026-11-03-book-change-note-position.md。
+
+- 2026-11-03 书稿两个快捷按钮已移除（本地未提交/部署）：释放ChapterWorkspace/BookMusicInsert及QA/账本。按用户要求去掉生成图片与添加音乐按钮，音乐聊天弹窗及模块图片转换保留；36项相关、类型、80卡账本与3000真实页只读核对通过。QA docs/qa/2026-11-03-book-shortcut-removal.md。
+
+- 2026-11-03 故事与书稿标题统一本地完成（未提交/部署）：释放 PublishingDraftWorkspace/PublishingImagePack/ChapterWorkspace/ChapterWriting、StoryTitleInput/StoryAgentContext 及测试/QA/账本。桌面书稿与聊天共用storyTitle和改名接口，自动/回车/失焦保存，无新增按钮；118项相关、76项草稿安全、类型/构建、80卡账本通过。临时页双向同步/失败重试、真实用户页两处launch video只读核对通过，未改真实故事；QA docs/qa/2026-11-03-book-story-title.md。
+
+- 2026-11-03 生成正文格式修复（本地未提交/部署）：已释放 textDraftHistory/textDraftPrompt/writingTechniqueLibrary/writingCompanion、shared/textDraftHistory/bookLatex/bookTextFormat、TextDraftVersions、BookMathText/StoryAgentChat 及测试/QA/账本。书稿新生成从源头规范LaTeX加粗/标题，旧Markdown仅阅读兼容；137项专项、76项草稿安全、类型/构建、80卡账本与3000内存页编辑/撤销/跨块选区通过。未改用户真实稿、未刷新旧页、未操作剪贴板/购买生成。QA：docs/qa/2026-11-03-book-text-format.md。
+
+2026-11-03 书稿粘贴/拖入图片本地完成并释放文件（未提交/部署）：新增BookImageImportBoundary/bookImageImport/bookImageInsert接入ChapterTextModules，原素材导入API入库、光标拆段/拖放落点、多图顺序、部分失败、一次撤销及scope/原文校验。74项相关+新增弹窗边界后5项复验、76项草稿安全、类型/前端构建/80卡账本通过。原生PNG粘贴及双文件drop事件浏览器通过，Finder原生拖入待验。未改用户正文/真实上传/付费请求，临时页及素材已清理；剪贴板恢复/只读核对被自动审批拒绝，已停止，可能保留测试PNG。QA docs/qa/2026-11-03-book-image-import.md；截图/tmp/book-image-import-20261103.png。
+
+2026-11-03 无模块定位全文本地完成并释放上述文件（未提交/部署）：无选择显示“已定位：全文”，空白/Esc清模块及文字选区，修失焦迟到select重新选中旧模块；聊天取当前未保存全文，桌面接口支持200000字符。105项专项、类型、79卡账本及临时真实编辑器浏览器验证通过，无付费调用。用户真实页正在编辑且有版本保护提示，未刷新/恢复/声称草稿已保存。QA docs/qa/2026-11-03-book-fulltext-context.md，截图/tmp/book-fulltext-context-20261103.png；临时页/源码已清理，其他修改保留。
+
+- 2026-11-03 书稿LaTeX公式显示（main本地未提交/未部署，文件释放）：ChapterTextModules/BookMathText/bookLatex、bookBlockLayout/Canvas与选区接入阅读公式/点击源码，多行公式分块与实际高度保护，KaTeX及字体本地打包。89项模块专项、76项草稿安全、类型、前端临时目录构建、79卡账本及diff通过；同一3000内存页公式显示/编辑/跨段复制/粘贴/撤销实点通过，临时页已清理。用户故事未改，无付费调用，纳入今日待发布内容；见 docs/qa/2026-11-03-book-latex.md。
+
+- 2026-11-03 聊天改写一键替换（main本地未提交/未部署，文件释放）：StoryAgentChat/Context、伴写服务/路由、ChapterTextModules 与新 bookRewrite 辅助模块新增结果末尾单按钮；发送时固定目标，显式点击替换、原文变化拦截及原撤销/CAS保留。91项专项、76项保存安全、类型、78卡账本和diff检查通过；同一3000内存测试页实点替换/撤销/改文拦截通过，临时页已清理。无付费调用、未改用户故事；真实模型遵循质量待用户新一轮对话，旧回复不追补目标。见 docs/qa/2026-11-03-book-chat-rewrite.md，纳入今日待发布内容。
+
+- 2026-11-03 跨模块文字拖选（main本地未提交/未部署，文件释放）：ChapterTextModules/BookBlockCanvas 接入跨段精确选区，复用原多模块拖动、整组缩放及右键合并，支持复制/剪切/粘贴/替换与撤销，不增常驻按钮。11文件86项模块测试、7文件76项保存安全回归、类型、77卡账本及浏览器验证通过；主仓3000已生效，未修改用户正文、无付费请求，保留其他会话修改。纳入今日汇总版本；见 docs/qa/2026-11-03-book-cross-module-selection.md。
+
+- 2026-11-03 聊天Logo放大与位置纠正（main本地未提交/未部署，文件释放）：StoryAgentChat/desktopCompanion.css/StoryLogoMenu 保留放大效果；按用户最新要求恢复输入框上方原位，维持原62px行高并收紧顶部间距。9项菜单/头像测试、类型和diff检查通过；浏览器本轮连接不可用，待页面复验。上一版底部位置的截图和223.5→207px测量已作废。待今日汇总版本；见 docs/qa/2026-11-03-chat-composer-layout.md。
+
+- 2026-11-03 文档07双仓死代码首批（本地未提交/未部署，文件释放）：Web删除无人调用WuxingMotifIcon；原生删除旧backendApi、专用测试及2项死配置，共449行。Web27项/类型/77卡通过；原生类型通过，1632项通过、1项既有二维码权限期望失败（未改该权限）。详见07清单，兼容/恢复路径及其他会话修改保留。
+
+- 2026-11-03 文档07导入目录精简（main本地未提交/未部署，文件释放）：server/repositories/wechatBookImport及server/services/wechatBookImport的目录回执改为账号+当前页批量窄读，50本页50次查询降为1次；保留单本幂等和删除回执。24项专项、全项目类型、77卡账本及diff检查通过，无真实付费/用户数据修改/生产操作。
+
+2026-11-02 视频经济单条本地完成并释放：shared/shotDirector、viduSingleVideo、videoGen/videoJobs/mediaBillingRecovery/videoPromptEngineering、creationAgent视频路由、CreationEditorContext、StoryboardReviewBoard/Matrix/reviewModel及对应测试。默认Vidu单条720p，5秒1.08算力；保留MJ四条8.08、首尾帧和免费本地动画。78项/类型通过，真实UI模型报价切换通过；未付费验证供应商出片、未提交/部署。QA docs/qa/2026-11-02-video-economy.md。
+
+2026-11-02 微信扫码与可选迁移本地完成并释放：AuthEntryPanel/WechatCodeLogin、AppRouter、MobileMePage、webLogin/oauth与新出码/提示组件；原生storyDesktopAccess、drinkingTimeBridge及确认页。单入口扫码确认→正常网页→有未迁移故事才问，跳过不阻挡，原稿保留。Web81项/原生38项、询问路由19项复验、临时MySQL跨仓、两端类型/Web构建（76草稿安全）、77卡账本通过；虚构预览已清理。未提交/部署/改运行配置，真实扫码与云桥未验收，保持observing/partial；两仓他人修改保留。QA：docs/qa/2026-11-02-wechat-qr-login.md。
+
+2026-11-02 微信体验码补图收工（未提交/部署）：用户提供临时二维码已原样接入原设备弹窗，标注11月9日前有效；浏览器完整展示、首页3项回归/77卡账本通过。释放WechatEntry、ShiguangLandingPage/CSS、public二维码与QA/账本。未改登录/导入服务，后续用户更新码。
+
+2026-11-02 微信登录后选择导入本地收工（未提交/部署）：原设备弹窗新增微信区块，单微信登录后选择/跳过导入，原稿保留，章名映射折叠标题，私有图片与幂等事务。123项Web、33项原生、1项真实临时MySQL跨仓、75项草稿安全、类型/构建/77卡账本通过；真实体验码与云桥仍缺，partial。释放AuthEntryPanel/WechatCodeLogin、landing/router、MobileMePage、导入新文件、server入口/authority client与来源类型；原生bridge/desktopAccess文件也释放。QA：docs/qa/2026-11-02-wechat-book-import.md。保留所有他人未提交改动。
+
+
+2026-11-02 MJ不付费续查完成（仅QA/账本，无业务代码修改）：成功与49%旧任务同为V7 Draft，不能以换版本保证恢复。另在临时副本复现模块已受理超时后无恢复按钮、关闭重开丢失任务状态的两项失败测试；需接管BookModuleConvert/storyAgent及测试才能修复，用户此前只放行imageGen路由，故未动受保护文件，等待协调。未付费、未换模型、未部署；证据见midjourney-routing QA续查节。
+
+2026-11-02 MJ路由续修已上线并释放imageGen.ts/test及发布窗口（未commit/push）：授权单次1.36线上验收404，余额仍3.86；首轮遗漏旧.cn网关兼容，已修旧/自定义网关沿用/mj/、文档新网关按速度分流，保留其他助手重试/冷却/退款与回执恢复。精确快照267项测试、类型/构建通过；后端mj-legacy-gateway-20261102，115产物/PM2/HTTPS/readyz通过，前端仍6dd8d506、配置不变。旧MJ任务49%和原上游过载未解决，不能声称真实出图通过；未再次提交或换模型。QA：docs/qa/2026-11-02-midjourney-routing.md。
 
 2026-11-01 晚间网页整合发布收工：`ede75c81` 已 push main 并于 20:54 部署电脑/手机 Web；6223 项全量测试、类型、构建、76 卡账本及 40 项迁移校验通过。生产 117 文件、HTTPS 页面/资源、版本标识、401 素材权限与 MySQL readyz 验证通过；备份 `backups/web-all-20261101-r2`。首次裁剪依赖缺 Vite，自动回退后改为完整锁定依赖，启动成功。本机线上浏览器受连接关闭限制，未宣称线上点击验收通过。主仓提交与发布窗口释放；原生小程序未上传或提审。证据：`docs/qa/2026-11-01-web-all-release.md`。
 
@@ -256,3 +383,61 @@
 2026-11-01 书模块发布窗口：本会话独占main提交/push/部署，隔离发布多选/栏宽/章节字号、音乐/仓库/转换、合并换行及429提示；保留其他会话未提交工作，不含改图/视频/手机采集数据库迁移。
 
 2026-11-01 书模块发布收工：c05eba77已push main并部署；109产物文件校验、生产readyz通过，保留旧hash资源及回退备份。模块专项61项/修正回归25项/小程序215项通过，MySQL68项+超时文件重跑10项通过；全量15项既有失败主干复现。发布窗口及文件占用释放，其他会话工作完整保留。详见docs/qa/2026-11-01-book-modules-release.md。
+
+2026-11-02 17:35 微信出码待凭据：HTTPS签名/nonce已通过，SDK invalid access_token；原生e1cfcbd服务端出码适配21专项通过，等待用户从微信后台取得AppSecret后亲自填腾讯云WECHAT_APP_SECRET。相关截图/日志/tmp/wechat-qr-live-20261102，Web前端未切、兼容后端已上线。暂停占用Web生产发布窗口，其他发布必须保留已上线扫码兼容后端；本对话恢复时重新核对线上基线，禁止直接复用旧frontend发布包覆盖其他会话。
+
+2026-11-02 18:05 微信出码恢复独占发布窗口：用户已保存AppSecret，签名请求200且真实PNG/JPEG头通过（78,961字节）。线上兼容后端及前端491ce1bd基线仍匹配，无发布锁。继续网页配置、小程序二维码编译验收和内部develop上传；其他会话暂不切换生产。
+
+2026-11-02 微信真实扫码发布完成并释放生产窗口：原生e1cfcbd服务端出码已部署，用户AppSecret配置后200；生产Web+DevTools真实二维码确认→/editing、拒绝、过期均通过，无故事写入。内部开发版0.1.1102qr上传；Web前端ececbb11已切换，ready/mysql/required与115产物校验通过。重要：保留已上线11文件扫码兼容代码和3项QR配置；其他待发布工作树须重建在此基线上，不能覆盖为旧六位码UI。env_version=develop，普通用户正式版/手机扫码和故事导入UI尚未完成；原生工作树保留e1cfcbd部署来源，待安全收敛。QA docs/qa/2026-11-02-wechat-qr-login.md。
+
+2026-11-02 微信手机扫码六位码反馈续修（本对话）：占用原生web-login确认页/入口生命周期及专项测试，Web扫码发布内容暂不改。检查冷/热启动scene处理；保留签名、本人确认、两分钟和旧协议。手机尚未通过，不把DevTools成功代替真机验收。原生沿用codex/wechat-qr-live-20261102独立树。
+
+2026-11-02 用户确认登录/迁移顺序：本对话继续原生确认页默认扫码与兼容入口、Web迁移提示联通核对；不抢占其他会话发布，不把登录/导入本地验证称为线上完成。
+
+2026-11-02 微信故事迁移发布准备：本对话占用生产发布窗口，基于已上线扫码ececbb11隔离25文件增量；不合并主仓其他修改。新增/v1/web-import已获用户确认并提交，两个云端WEB_STORY_IMPORT_ENABLED已保存。原生93e9907内部0.1.1102qr2上传成功；Web仍旧版，等待隔离类型检查和暂存上传完成后切换。
+
+2026-11-02 微信故事迁移已发布并释放生产发布窗口：wechat-import-20261102隔离25文件、115产物验证、48专项/75草稿/1MySQL/类型通过。签名/v1/web-import路由及两云开关、Web WECHAT_BOOK_IMPORT_ENABLED已开启。真实登录→可选迁移→虚构#115书稿打开通过；回收测试副本待用户浏览器确认。其他发布必须保留本次登录与迁移代码/开关，旧扫码ececbb11已不是当前线上基线。原生93e9907/0.1.1102qr2已上传，真机待验收。
+
+2026-11-02 清理回执：用户明确回复“已清理”，确认处理本次虚构网页测试副本#115的回收提示。浏览器连接未恢复，未独立复核状态；小程序源稿未改。
+
+2026-11-02 微信登录后续排查：用户明确要求小程序同一账号及余额。本会话占用 PublishingDraftWorkspace 新草稿空态及对应测试、TopBar 微信身份展示的定向修复，核查小程序共享账本与 profile 来源；保留其他会话视频/章节改动，不合并账号、不直接修改余额、不触发付费生成。尚未占用生产发布窗口。
+
+2026-11-02 21:38 本对话占用生产发布窗口：以 wechat-import-20261102 为唯一基线，隔离发布新草稿空态、微信称呼同步、用户新确认的两端合计5算力赠送去重；启用已存在的签名共享钱包接口。用户已亲自保存 getOpenId 钱包连接配置。111专项、真实MySQL跨进程赠送去重1项、构建/类型通过；不合并主仓其他修改，不回收任何历史赠送。
+
+2026-11-02 21:49 微信账号续修发布完成，立即释放生产发布窗口（支付宝会话可接手）。最新权威运行源：/tmp/wechat-account-followup-20261102/src；生产manifest=/opt/Drinking-Time/dist.release-wechat-account-followup-20261102.json，release=wechat-account-followup-20261102，115产物校验及ready/mysql/required通过。旧wechat-import/qr基线不得覆盖。必须保留本次TopBar无名微信头像、新故事-1文字入口、server/services/{webLogin,webLoginGift,accountIdentity,computeLedger}.ts、server/repositories/computeLedger.ts、server/_core/shiguangDesktopBridge.ts及此前25项登录/导入源码。新增服务器SHIGUANG_COMPUTE_ENABLED=true，既有QR/导入/桥接配置保持。用户亲自保存getOpenId连接配置，DevTools余额15.00与网页一致；用户重登后岱真实可见。支付宝本地computePayment/payments/alipay改动未覆盖、未包含本次发布。主仓临时账本类型错误已修复，隔离tsc通过。下一会话请基于上述源复制支付宝最小差异并校验当前manifest；不要从主仓整体构建覆盖他人未发布工作。QA docs/qa/2026-11-02-wechat-account-followup.md；本对话只继续文档和导入入口说明，不再占用部署。
+
+2026-11-02 英文界面覆盖续修：本对话按用户要求补齐桌面英文UI，沿用uiLanguage显式词典；占用uiLanguage/messages与桌面导航、聊天、书稿、生成菜单及相关弹窗的界面文案。只翻译UI，不改写用户故事/输入/生成内容，不抢支付宝发布窗口。完成后另行核对最新线上基线。
+
+2026-11-02 23:04 英文界面发布窗口：本对话以支付宝最新 alipay-enable-20261102 源为基线隔离语言文案增量；服务器该manifest与后端7572fce9一致、无发布锁。仅发布前端资源，不重启服务、不改.env/数据库/后端；保留微信与支付宝链路。上线验证完成后释放。主仓其他未发布视频流程仍不包含。
+
+2026-11-02 23:20 英文界面已发布并释放生产窗口。最终权威运行源=/tmp/desktop-ui-english-20261102/src；最终manifest=/opt/Drinking-Time/dist.release-desktop-ui-english-polish-20261102.json。115产物和ready/mysql/required通过；只更新前端JS/index/app-release，后端仍支付宝7572fce979a69b877e226cbbc6935f41d6ae2081f95c3ec2bf111d368ee718af，.env/数据库/进程未改。正式站English导航、书稿、导入提示、账号页已验收，岱/15.00未变。后续发布必须在本源基础保留全部语言词典与已接入UI；旧alipay-enable源不能直接覆盖前端。主仓其他未发布视频工作仍保留，未整体提交/合并。1255隔离回归的源代码断言更新后69项复跑通过，最终文案11项/类型/构建通过，账本77卡通过。详见docs/qa/2026-11-02-desktop-english-ui.md；语言新增法语及旧helper通知仍列缺口，不声称法语全量翻译。
+
+2026-11-02 微信导入章节展示修复：本对话占用 ChapterWriting / ChapterTextModules / BookBlockCanvas 的定向界面改动及对应测试，按现有导入凭据的 heading1/parentId 显示章节序号和收起目录；不重导、不覆盖已编辑的正文/图片/字体，不恢复独立章节工作台。未占用生产发布窗口，其他会话请避免同时修改这些文件。
+
+2026-11-02 微信章节目录修复申请发布窗口：以 desktop-ui-english-polish-20261102 源为基线，隔离六个文件的展示增量；仅替换前端资源，不重启服务，不改数据库/原故事/环境，保留微信账号与英文功能。76项测试和类型/构建通过。本次生产校验后释放窗口。
+
+2026-11-03 微信导入章节目录修复上线并释放发布窗口。当前权威运行源=/tmp/wechat-chapter-presentation-20261102/src；manifest=/opt/Drinking-Time/dist.release-wechat-chapter-view-20261102.json；115产物与ready/mysql/required通过。仅前端，后端/环境/数据库未改；保留微信扫码、迁移与英文界面。新标签正式站对已有真实书稿只读验证11章顺序及第六章展开/收起；原文、图片和字号未写入，展开状态仅当次界面。76项测试、类型、构建及77卡账本通过；保留原书页分页和跨页行为。下一发布以此源为基线，不要覆盖为旧英文源。QA docs/qa/2026-11-02-wechat-chapter-presentation.md。主仓其他未提交修改保留。
+
+2026-11-03 视频按钮转圈排查：本对话占用 StoryboardReviewBoard 视频生成按钮状态、人物一致性预检与对应测试；保持主图/连续性/费用确认及既有任务、账务和去重约束，不提交或重试付费生成。尚未占用生产发布窗口；具体故事与镜头待用户确认。
+
+2026-11-03 视频按钮等待修复本地完成并释放文件：缺主图时按钮显示不可用及选择首帧的具体提示，不再显示等待鼠标；人物一致性预检30秒超时中止当次未提交的视频，迟到结果不触发提交。58项测试、类型和77卡账本通过；本地3000示例镜头01只读复现0.68算力场景，未调用AI、付费提交、刷新或取消任务。用户截图未提供故事/镜头身份，不将示例推断为用户实际请求；未提交、未部署。代码涉及StoryboardReviewBoard/StoryboardMatrix/预检deadline与语言词典；现有生产源与其他未提交修改保留。QA docs/qa/2026-11-03-video-button-wait.md。
+
+2026-11-03 有声书 500 排查：本会话占用 BookModuleConvert 及对应测试、uiLanguage/messages 有声书提示，修正结果未知提示和当前弹窗重复提交；不触发或重试付费生成，不改变原文、账务和其他功能。跨弹窗/设备的持久任务防重与供应商 HTTP 500 根因仍需核实。未占用生产发布窗口。
+
+2026-11-03 有声书 500 续查本地完成并释放文件：BookModuleConvert 对结果未知、等待与网络断开提示核对任务和费用，禁用当前弹窗再次提交，新增中英法文案；34 项测试、类型、77 卡账本通过。未调用付费生成、未部署；跨弹窗/设备持久防重、用户该笔费用及上游500原因尚待核实。详见 docs/qa/2026-11-03-audiobook-500.md。
+
+2026-11-03 会话修复发布准备：本会话核对生产 wechat-chapter-view-20261102 与 main 的差异，隔离准备有声书提示、旧页草稿恢复和视频按钮修复；保留已上线微信/支付宝/语言/章节及其他会话未提交工作。尚未占用生产发布窗口，未触发付费生成。
+
+2026-11-03 会话修复发布准备暂停：已在 /tmp/conversation-fixes-release-20261103/src 以线上 wechat-chapter-view 基线隔离草稿恢复、有声书提示与视频按钮改动，组合68项测试、类型、构建通过；远端现有115项manifest哈希一致、ready/mysql/required、无发布锁。主干 c155d0bc 与线上已发布源码相差至少153个跟踪文件，直接移植出现微信章节类型/接口不匹配；主仓另有247项未提交修改。为避免覆盖线上既有功能及其他会话工作，本次未合并、未push、未部署；临时git worktree及分支已删除，隔离源码保留。下一步须先将线上已发布源码完整、可审计地收敛进main并保护当前工作区，再核验和发布；不得从旧main构建覆盖生产。
+
+2026-11-03 继续发布：按用户要求本会话负责跨分支收敛及生产发布；以线上 wechat-chapter-view 快照为权威基线，隔离核对并纳入此前已部署代码及本次三个修复，保留主仓未提交更改。不启动额外服务，不调用付费生成。其他会话请暂勿同时进行跨分支收敛或生产发布。
+
+2026-11-03 会话修复开始生产发布：线上 wechat-chapter-view 基线已对齐并推送 main 044dd40c；保留主仓259个未提交文件内容并备份。仅前端资源发布，服务器后端、环境、数据库和账号余额不改；发布前重新核验manifest与锁，完成验证后立即释放窗口。组合147项测试、类型、构建和76卡账本通过；本次不触发付费生成。
+
+2026-11-03 会话修复上线完成并释放生产/收敛窗口：main 044dd40c 代码、9f12d94b 验证记录均已push；生产 conversation-fixes-20261103 以前端独立发布，115产物、ready/mysql/required、HTTPS HTML/版本/JS哈希及三项提示文案通过；后端SHA 7572fce9、环境和数据库未改，旧资源保留。主仓259个未提交文件内容在推进main时均校验未变，备份 /tmp/conversation-fixes-release-20261103/workspace-before-merge。隔离源码 /tmp/conversation-fixes-release-20261103/src，实际产物 /tmp/conversation-fixes-release-20261103/published-artifacts，临时git worktree和分支已删除。组合147项测试、类型/构建/账本通过；未触发付费生成。旧页先复制未保存内容再打开新版；有声书供应商500、费用核对及跨窗口防重仍为缺口。QA docs/qa/2026-11-03-conversation-fixes-release.md。
+
+2026-11-03 首页微信码发布：本会话占用 ShiguangLandingPage、WechatEntry、对应样式和临时体验码，保留原手机版/电脑版入口及微信登录导入，二维码原图不变并如实标注11月9日前有效；拟按正式站当前前端基线隔离发布，不改账号/故事/账务。尚未占用发布窗口。
+
+2026-11-03 首页微信码申请合并/发布窗口：以 main 9f12d94b 和生产 conversation-fixes-20261103 为基线，隔离9个文件（含原有功能账本和证据），仅前端发布；保留所有主仓未提交文件，其他会话请避免同时进行跨分支合并/生产发布。4项入口测试、类型、构建和77卡账本通过；体验码未真机验证。
+
+2026-11-03 首页微信码已上线并释放合并/发布窗口：main 2973a9d1（入口）及08590c90（验证记录）均已push，生产 release=wechat-home-qr-20261103，manifest=/opt/Drinking-Time/dist.release-wechat-home-qr-20261103.json。116产物哈希、ready/mysql/required、HTTPS二维码原图哈希通过；正式站浏览器实点确认原设备选择弹窗内手机版、电脑版、微信版二维码与11月9日前有效提示完整可见。仅前端发布，后端/环境/数据库不变，旧资源保留。4项测试、类型、构建、77卡账本通过；未进行手机扫码或体验资格验收。源码与产物保存在/tmp/wechat-home-qr-release-20261103/src，正式截图/tmp/wechat-home-qr-release-20261103/production-entry.png；临时git worktree/分支已删除。主仓原87个未提交文件已保留，备份/tmp/wechat-home-qr-workspace-before-merge-20261103。后续发布以该线上基线为准。QA docs/qa/2026-11-03-wechat-home-qr.md。

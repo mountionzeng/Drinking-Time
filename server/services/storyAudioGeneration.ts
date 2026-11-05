@@ -479,14 +479,15 @@ export async function quoteStorySceneAudio(input: {
   const source = input.bookTarget ? await resolveBookModuleSource({...input,...input.bookTarget}) : null;
   const context: StorySceneAudioContext = source ? {
     stableShotId: `book:${input.bookTarget!.chapterId}:${input.bookTarget!.moduleId}`, shotNo:0,endShotNo:0,startFrame:0,durationFrames:900,
-    emotionSummary:"Follow the mood of the selected module",sceneSummary:(await describeBookModule(source)).slice(0,1800),
-    actionSummary:"Background music inspired only by this module",soundSummary:"Instrumental music, no speech"
+    emotionSummary:source.parts ? "Follow the mood of the selected modules" : "Follow the mood of the selected module",sceneSummary:source.parts ? await describeBookModule(source) : (await describeBookModule(source)).slice(0,1800),
+    actionSummary:source.parts ? "Background music inspired only by the selected modules" : "Background music inspired only by this module",soundSummary:"Instrumental music, no speech"
   } : await currentContext({ ...input, scope });
   const prompt = composeStorySceneAudioPrompt({
     kind: input.kind,
     context,
     intent,
   });
+  if (source?.parts && prompt.length > 10_000) throw new Error("所选素材过长，请减少模块后再生成音乐");
   const { provider, model } = providerFor(input.kind);
   if (!model || !/^[\w.+-]+$/i.test(model)) {
     throw new Error("302 声音模型尚未配置或配置无效");
