@@ -22,11 +22,18 @@
 
 ## 产物与发布方式
 
-- 构建177项产物，较生产清单变更7项；增量包2.16 MiB。
+- 最终应用产物175项，较生产清单变更5项；增量包2.16 MiB。构建目录两份macOS Finder元数据已从包、生产目录和最终清单剔除，不计应用产物。
 - 前端版本 `b705715c-e7be-4c3b-83b6-94a5417a5966`。
 - 目标清单 `/opt/Drinking-Time/dist.release-book-video-20261105.json`，回滚副本 `/opt/Drinking-Time/dist.bak-book-video-20261105`。
 - 部署前再次核对全部旧产物；上传校验SHA256，保留旧静态资源，备份dist后覆盖增量，重启既有PM2。健康/哈希失败自动恢复旧dist。
 - `.env`、服务器依赖文件、schema和迁移元数据采用发布前后哈希检查，不修改服务器旧源码目录；生产沿用经过验证的产物部署机制。
 - 本地源码保护副本、产物、清单、脚本和验证日志：`/private/tmp/book-video-release-20261105`。
 
-提交和生产实际验收结果在完成后补充。
+## 实际发布结果
+
+- 代码提交 `42ee3e29e1093a57ebbf4ed65fa9342d8b4034ae` 已在 main 并成功推送 origin/main。本来就在 main，没有创建额外 worktree 或分支。
+- 生产 `book-video-20261105` 发布成功；175项应用产物全量SHA256一致，旧静态资源与回滚副本保留。PM2重启后的 ready/mysql/required 通过；配置、依赖文件、schema和迁移元数据发布前后哈希一致。
+- 正式 `https://www.drinkingtime.top` 下 `/healthz`、`/readyz`、`/editing`、`/m`、`/app-release.json` 均200；新版本号、HTML、JS和CSS与构建哈希一致。
+- 新浏览器标签实点正式编辑页，关闭可选迁移/资料提示后打开“发送”，可见“小程序 / 朋友圈1:1 / 其他平台 / 分享文章链接 / 收件箱”。图像创作记录与书转视频入口均加载。没有改稿、导入来稿、发送文章或发起付费媒体；账号余额仍15.00算力。
+- 上线截图 `/private/tmp/book-video-release-20261105/production-editor.png`；部署日志 `deploy.log`、最终清单校验 `final-manifest-verified.log`、公网校验 `public-verified.json` 均在同一目录。
+- 原4份其他会话未提交文件与 `outputs/` 留在本地；发布窗口释放。真实供应商付费链路、跨设备完整写入和一次性MySQL集成仍属于已列明的验收缺口。

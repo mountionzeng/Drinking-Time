@@ -24,8 +24,6 @@
 
 ## 当前在场
 
-2026-11-05 Codex 本对话书稿/视频汇总发布进行中：独占 main 提交/push/生产发布窗口，范围为本对话书稿多选/台词/图像方案/平台分享、视频字幕预览/参考图/供应商恢复等增量与对应账本/QA。保留其他会话微信文档/配置样例/集成测试和 outputs 未提交文件，不修改生产配置、数据库或付费生成。预计本轮收工。
-
 2026-11-04 批量有声书/台词完成并释放 BookBlockCanvas/ChapterTextModules/BookModuleConvert、bookMedia路由/storyNarration及测试/账本：多选仅提取文字，完整原文预览/全组报价签名和源变更拒绝，结果按末源插入并入仓库；台词批量分类一次提交。91项相关测试、类型通过；3000实点六项菜单/两段朗读预览，未付费生成、未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
 
 2026-11-04 模块删除快捷键完成并释放 BookBlockCanvas、BookWritingContext.test 及账本/QA：单选多选 Delete/Backspace 复用删除撤销，选择后书页聚焦，保护文字编辑/IME/连发/组合键。61项相关测试、类型通过；主仓3000纯内存临时页实测单删、多删、恢复与输入保护，临时文件已清理；未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
@@ -204,6 +202,8 @@
 ---
 
 ## 最近落地
+
+2026-11-05 本对话书稿/视频汇总发布完成，main/生产发布窗口已释放：42ee3e29已push并上线book-video-20261105；前端版本b705715c-e7be-4c3b-83b6-94a5417a5966。6733测试、类型/构建/83卡/41迁移基线通过；175产物哈希、正式HTTPS/ready/mysql/required与发送平台菜单实点通过，保留旧资源和dist备份。未改生产配置/数据库、未付费生成；其他会话4份修改与outputs保留，MySQL集成未配置不算通过。无本轮临时worktree/分支。QA docs/qa/2026-11-05-book-video-release.md。
 
 - 2026-11-04 自动字幕与生成中预览完成并释放（main，未提交/部署）：timelineSubtitleEditing/publishingVideoStoryboardPersistence、shared/generatedSubtitles、ShotPreview/previewPlaybackModel及相关测试/QA/账本。确认方案自动按台词与绝对帧初始化正式分段字幕；人工改字/删空/撤销/legacy保持权威，失败可幂等续做。复用走带，Preview随镜头显示描述、静帧与已有字幕。82专项（含FFmpeg一致性）、76草稿安全、类型、81卡账本与环境通过；真实launch video第1至7镜预览通过，原3条字幕未改，无付费生成。QA：docs/qa/2026-11-04-auto-subtitles-preview.md。
 
