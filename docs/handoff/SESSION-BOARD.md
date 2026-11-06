@@ -203,6 +203,8 @@
 
 ## 最近落地
 
+2026-11-06 拾光算力只读流水（`4d824576`，分支 `feat/shiguang-compute-statement`，待审，未合并、未部署）：`POST /api/shiguang/compute/statement` 复用余额鉴权，只返回本人预占、结算和释放。触达 `server/db.ts` 只读导出、`server/repositories/computeLedger.ts`、`server/services/computeLedger.ts`、`server/_core/shiguangComputeBridge.ts` 及测试和功能账本。6 项桥测试、类型检查和功能账本通过。未改 `.env`、价格或退款。
+
 2026-11-05 本对话书稿/视频汇总发布完成，main/生产发布窗口已释放：42ee3e29已push并上线book-video-20261105；前端版本b705715c-e7be-4c3b-83b6-94a5417a5966。6733测试、类型/构建/83卡/41迁移基线通过；175产物哈希、正式HTTPS/ready/mysql/required与发送平台菜单实点通过，保留旧资源和dist备份。未改生产配置/数据库、未付费生成；其他会话4份修改与outputs保留，MySQL集成未配置不算通过。无本轮临时worktree/分支。QA docs/qa/2026-11-05-book-video-release.md。
 
 - 2026-11-04 自动字幕与生成中预览完成并释放（main，未提交/部署）：timelineSubtitleEditing/publishingVideoStoryboardPersistence、shared/generatedSubtitles、ShotPreview/previewPlaybackModel及相关测试/QA/账本。确认方案自动按台词与绝对帧初始化正式分段字幕；人工改字/删空/撤销/legacy保持权威，失败可幂等续做。复用走带，Preview随镜头显示描述、静帧与已有字幕。82专项（含FFmpeg一致性）、76草稿安全、类型、81卡账本与环境通过；真实launch video第1至7镜预览通过，原3条字幕未改，无付费生成。QA：docs/qa/2026-11-04-auto-subtitles-preview.md。
