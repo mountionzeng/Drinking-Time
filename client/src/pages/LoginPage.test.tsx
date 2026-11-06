@@ -63,18 +63,18 @@ describe("LoginPage", () => {
   });
 
   it.each(["shiguang", "nayin"] as const)(
-    "does not duplicate working login controls with placeholder tabs in %s",
+    "does not restore disabled placeholder login tabs in %s",
     theme => {
       themeState.visualTheme = theme;
       const html = renderToStaticMarkup(<LoginPage />);
 
+      // Oct-28 removed aria-disabled fake tabs ("目前仅支持邮箱登录").
+      // Real phone entry lives inside AuthEntryPanel, mocked here.
       expect(html).not.toContain('aria-label="登录方式"');
       expect(html).not.toContain("目前仅支持邮箱登录");
-      expect(html).not.toContain("手机号登录");
-      expect(html).not.toContain("微信登录");
+      expect(html).not.toContain('aria-disabled="true"');
       expect(html).toContain('data-testid="auth-entry">email');
       expect(html).not.toContain('data-testid="auth-entry">pairing');
-      expect(html).not.toContain('aria-label="手机号"');
     }
   );
 

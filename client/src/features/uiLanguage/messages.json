@@ -12734,5 +12734,57 @@
   "一次最多加入20张图片，请分批拖入。": {
     "en": "Add up to 20 images at a time. Drop them in smaller batches.",
     "fr": "Ajoutez au maximum 20 images à la fois, par petits groupes."
+  },
+  "或使用手机号": {
+    "en": "Or use phone number",
+    "fr": "或使用手机号"
+  },
+  "手机号登录": {
+    "en": "Phone sign-in",
+    "fr": "手机号登录"
+  },
+  "手机号登录暂未开放，请使用邮箱或 Google 登录": {
+    "en": "Phone sign-in is not available yet. Please use email or Google.",
+    "fr": "手机号登录暂未开放，请使用邮箱或 Google 登录"
+  },
+  "请输入有效的中国大陆手机号": {
+    "en": "Enter a valid mainland China mobile number",
+    "fr": "请输入有效的中国大陆手机号"
+  },
+  "请输入 6 位短信验证码": {
+    "en": "Enter the 6-digit SMS code",
+    "fr": "请输入 6 位短信验证码"
+  },
+  "验证码不正确或已过期，请重新获取": {
+    "en": "Incorrect or expired code. Request a new one.",
+    "fr": "验证码不正确或已过期，请重新获取"
+  },
+  "短信暂时未能发送，请稍后重试": {
+    "en": "Could not send the SMS. Try again later.",
+    "fr": "短信暂时未能发送，请稍后重试"
+  },
+  "验证码已发送，5 分钟内有效": {
+    "en": "Code sent. Valid for 5 minutes.",
+    "fr": "验证码已发送，5 分钟内有效"
+  },
+  "暂时无法检查手机号登录状态，请刷新后重试": {
+    "en": "Could not check phone sign-in status. Refresh and try again.",
+    "fr": "暂时无法检查手机号登录状态，请刷新后重试"
+  },
+  "网络连接失败，请稍后重试": {
+    "en": "Network error. Try again later.",
+    "fr": "网络连接失败，请稍后重试"
+  },
+  "手机号登录暂时不可用，请稍后再试": {
+    "en": "Phone sign-in is temporarily unavailable. Try again later.",
+    "fr": "手机号登录暂时不可用，请稍后再试"
+  },
+  "尝试太频繁，请稍后再试": {
+    "en": "尝试太频繁，请稍后再试",
+    "fr": "尝试太频繁，请稍后再试"
+  },
+  "这个账号需要协助处理，请联系管理员": {
+    "en": "这个账号需要协助处理，请联系管理员",
+    "fr": "这个账号需要协助处理，请联系管理员"
   }
 }

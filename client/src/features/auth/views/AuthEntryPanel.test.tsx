@@ -26,7 +26,17 @@ describe("AuthEntryPanel", () => {
         setItem: vi.fn(),
         removeItem: vi.fn(),
       },
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+      setInterval: vi.fn(() => 1),
+      clearInterval: vi.fn(),
+      AbortController,
+      navigator: { userAgent: "Mozilla/5.0 (Macintosh) Chrome/120" },
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
   });
 
   it("欢迎页保留邮箱邀请码和测试站已有的 Google 入口", () => {
@@ -46,7 +56,7 @@ describe("AuthEntryPanel", () => {
     expect(html).not.toContain("用 Google 帐号继续");
   });
 
-  it("邮箱登录视图使用验证码并保留 Google 和折叠配对入口", () => {
+  it("邮箱登录视图使用验证码并保留 Google、手机号和折叠配对入口", () => {
     const html = renderToStaticMarkup(<AuthEntryPanel variant="email" />);
     expect(html).toContain('href="/api/auth/google"');
     expect(html).toContain('autoComplete="one-time-code"');
@@ -54,9 +64,21 @@ describe("AuthEntryPanel", () => {
     expect(html.match(/使用微信登录/g)).toHaveLength(1);
     expect(html).toContain("shiguang-auth-button-google");
     expect(html).toContain("shiguang-auth-entry");
+    expect(html).toContain("或使用手机号");
+    expect(html).toContain('aria-label="手机号登录"');
+    expect(html).toContain('data-testid="phone-login-panel"');
+    expect(html).toContain("正在检查登录服务…");
+    expect(html).not.toContain('aria-label="登录方式"');
+    expect(html).not.toContain("目前仅支持邮箱登录");
     expect(html).not.toContain('placeholder="邀请码"');
     expect(html).not.toContain("使用邀请码登录");
     expect(html).toContain('<details class="group">');
+  });
+
+  it("配对码视图不挂载手机号入口", () => {
+    const html = renderToStaticMarkup(<AuthEntryPanel variant="pairing" />);
+    expect(html).not.toContain('data-testid="phone-login-panel"');
+    expect(html).not.toContain("或使用手机号");
   });
 
   it("手机入口把受控返回路径带到 Google 登录", () => {
@@ -85,7 +107,17 @@ describe("AuthEntryPanel", () => {
         setItem: vi.fn(),
         removeItem: vi.fn(),
       },
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+      setInterval: vi.fn(() => 1),
+      clearInterval: vi.fn(),
+      AbortController,
+      navigator: { userAgent: "Mozilla/5.0 (Macintosh) Chrome/120" },
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
 
     const html = renderToStaticMarkup(<AuthEntryPanel />);
 

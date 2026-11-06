@@ -127,3 +127,4 @@ art-repository/references/*
 # Keep these outside the repo; this is a public remote.
 docs/*投资人*
 docs/*奇绩*
+.artifacts/

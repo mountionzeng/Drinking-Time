@@ -13,6 +13,7 @@ import {
 } from "@/features/mobileWorkspace/mobileRecoveryIdentity";
 import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEntry";
 import WechatCodeLogin from "./WechatCodeLogin";
+import PhoneLoginPanel from "./PhoneLoginPanel";
 
 type AuthEntryPanelProps = {
   autofocus?: boolean;
@@ -289,6 +290,14 @@ export default function AuthEntryPanel({
               className="shiguang-auth-button shiguang-auth-button-google flex h-12 items-center justify-center rounded-md border border-border bg-background text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {_ui("使用 Google 账号登录")}</a>
+            <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              {_ui("或使用手机号")}
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <div aria-label={_ui("手机号登录")}>
+              <PhoneLoginPanel returnPath={returnPath} />
+            </div>
             <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
               {compact ? _ui("或使用邮箱") : _ui("或使用邀请码")}
