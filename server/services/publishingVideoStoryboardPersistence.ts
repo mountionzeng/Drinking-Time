@@ -1,4 +1,5 @@
 import { readBookVideoSource } from "./bookVideoSource";
+import { matchBookVideoShots, inheritBookFrameParameters } from './bookVideoShotContinuity';
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -888,6 +889,7 @@ function formalShotFromPreview(input: {
       referenceFrameImageIds: input.shot.referenceImageIds,
     }) } : {}),
     publishingVideo: {
+      ...(input.shot.sourceModuleIds ? {sourceModuleIds:[...input.shot.sourceModuleIds]} : {}),
       ...(input.shot.referenceImageIds ? { referenceImageIds: [...input.shot.referenceImageIds] } : {}),
       ...(input.shot.referenceImageId
         ? { referenceImageId: input.shot.referenceImageId }
@@ -955,6 +957,9 @@ function mergeUserEnrichment(input: {
   return {
     ...input.generated,
     ...preserved,
+    ...(Array.isArray(storyBodyRecord(input.generated.publishingVideo).referenceImageIds) ? {
+      generationParams: inheritBookFrameParameters(input.current.generationParams,input.baseline.generationParams,input.generated.generationParams),
+    } : {}),
     stableShotId: input.generated.stableShotId,
     shotIdentity: input.generated.shotIdentity,
     shotNo: input.generated.shotNo,
@@ -1129,8 +1134,9 @@ async function confirmPublishingVideoShots(input: {
         : [];
     });
     const legacyIndex = rawShots.findIndex(isUntouchedLegacyPublishingOpening);
-    const previousConfirmed =
-      aggregate.confirmed?.groupId === activeGroupId
+    const previousConfirmed = input.bookSource
+      ? context.publishing.versions?.find(version => version.videoStoryboard?.confirmed?.groupId === activeGroupId)?.videoStoryboard?.confirmed ?? null
+      : aggregate.confirmed?.groupId === activeGroupId
         ? aggregate.confirmed
         : null;
     const currentManagedByStableId = new Map(
@@ -1145,9 +1151,9 @@ async function confirmPublishingVideoShots(input: {
         return stableShotId ? [[stableShotId, { index, shot }] as const] : [];
       })
     );
-    const previousByDraftShotId = new Map(
-      (previousConfirmed?.shots ?? []).map(shot => [shot.draftShotId, shot])
-    );
+    const previousByDraftShotId = input.bookSource
+      ? matchBookVideoShots(preview.shots, previousConfirmed?.shots ?? [])
+      : new Map((previousConfirmed?.shots ?? []).map(shot => [shot.draftShotId, shot]));
     const reusedManagedIndexes = new Set<number>();
     const stableShotIdByDraftShotId = new Map<string, string>();
     for (const shot of preview.shots) {

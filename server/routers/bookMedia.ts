@@ -41,7 +41,10 @@ export const bookMediaRouter = router({
     const card = await insertMemoryCard(ctx.user.id,{id:randomUUID(),title:input.targetLanguage === "en" ? "英文译文" : "中文译文",content:result.text,kind:"thought",origin:"assistant",sourceStoryId:input.storyId});
     return {...result,cardId:card.id};
   }),
-  quoteNarration: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,subtitleCueId:videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
+  quoteNarration: protectedProcedure.input(target.extend({
+    moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional(),
+    voiceGender: z.enum(["female", "male"]).default("female"),
+  })).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,voiceGender:input.voiceGender,subtitleCueId:videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
   describe: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(async ({ctx,input}) => {
     const source = await resolveBookModuleSource({...input,userId:ctx.user.id});
     const text = await describeBookModule(source);

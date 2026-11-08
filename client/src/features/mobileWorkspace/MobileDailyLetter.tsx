@@ -1,4 +1,4 @@
-import { DailyLetterBody } from "@/features/analysis/views/DailyLetterBody";
+import { DailyLetterBody, DailyLetterDate } from "@/features/analysis/views/DailyLetterBody";
 import { useUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 /**
  * MobileDailyLetter — 每日来信的手机版。
@@ -288,10 +288,7 @@ export function MobileDailyLetter({
         >
           <div className="min-w-0">
             <p className="text-[10px] text-muted-foreground">
-              {selectedDate}
-              {selectedReference?.lunarLabel
-                ? ` · ${selectedReference.lunarLabel}`
-                : ""}
+              <DailyLetterDate date={selectedDate} />
             </p>
             <h1 className="font-chat-brand mt-1.5 text-2xl font-normal text-foreground">
               {isToday
@@ -421,7 +418,7 @@ export function MobileDailyLetter({
               style={{ borderColor: "var(--nayin-border)" }}
             >
               <div className="flex items-center justify-between gap-3">
-                <SectionTitle>{t("那天，你这样说")}</SectionTitle>
+                <SectionTitle>{t("给来信的留言")}</SectionTitle>
                 {editingMessage ? null : (
                   <button
                     type="button"
@@ -481,7 +478,7 @@ export function MobileDailyLetter({
                   <p className="mt-2 text-[15px] leading-8 text-foreground">
                     {selectedMessage ||
                       t(
-                        "这一天还没有留言，想说时再写就好。"
+                        "这里还没有单独给来信留言；已保存的书稿也可以作为创作参考。"
                       )}
                   </p>
                   {saidAt || editedAt ? (
@@ -592,7 +589,7 @@ export function MobileDailyLetter({
                   )}
                   {rereadMut.isPending
                     ? t("正在重新读…")
-                    : t("用最新记忆，再读一遍")}
+                    : t("结合最新创作，再读一遍")}
                 </button>
               ) : null}
             </section>

@@ -11,6 +11,7 @@ import type { StoryMaterialState } from "@shared/storyMaterial";
  * Full storyboard review and directed media workflow.
  * Kept separate so card-list changes do not load the entire review workspace.
  */
+import { StoryboardManuscriptSection } from "./StoryboardManuscriptSection";
 import {
   StoryboardTimelineRulerRow,
   StoryboardTimelineZoomBar,
@@ -164,6 +165,7 @@ import {
 } from "@shared/storyboardFieldVersions";
 import {
   StoryboardMediaPreviewDialog,
+  StoryboardMediaSelectionIndicator,
   StoryboardVideoThumbnail,
   type StoryboardMediaPreview,
 } from "./StoryboardMediaPreview";
@@ -272,23 +274,6 @@ import {
  */
 const MANUAL_BOARD_SCROLL_GRACE_MS = 2_500;
 
-function StoryboardMediaSelectionIndicator({
-  selected,
-}: {
-  selected: boolean;
-}) {
-  const _ui = useDesktopUiText();
-  if (!selected) return null;
-  return (
-    <span
-      className="absolute left-1 top-1 z-20 inline-flex items-center gap-0.5 rounded-sm bg-[var(--nayin-accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white shadow-sm"
-      data-storyboard-media-selection-indicator="true"
-    >
-      <Check className="h-2.5 w-2.5" />
-      {_ui("已选")}</span>
-  );
-}
-
 export function StoryboardReviewBoard({
   storyId,
   materialState,
@@ -340,6 +325,7 @@ export function StoryboardReviewBoard({
   imageProviderStatus = null,
   defaultViewMode = "simple",
   embeddedEditorMode = false,
+  presentation = "editing",
   headerAction,
   inheritedPublishingCover = null,
   inheritedPublishingCoverCandidates = [],
@@ -521,6 +507,7 @@ export function StoryboardReviewBoard({
   imageProviderStatus?: ImageProviderStatus | null;
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
+  presentation?: "manuscript" | "editing";
   headerAction?: ReactNode;
   inheritedPublishingCover?: { imageUrl: string } | null;
   inheritedPublishingCoverCandidates?: readonly {
@@ -1671,14 +1658,14 @@ export function StoryboardReviewBoard({
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
   const [boardAvailableWidth, setBoardAvailableWidth] = useState(720);
   useLayoutEffect(() => {
-    const scroller = boardScrollRef.current;
+    const scroller = presentation === "manuscript" ? boardRef.current : boardScrollRef.current;
     if (!scroller) return;
     const measure = () => setBoardAvailableWidth(Math.max(1, scroller.clientWidth - 76));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [viewMode, shots.length]);
+  }, [viewMode, shots.length, presentation]);
   const expandedShotNo = simplifiedDisplay
     ? storyboardTimingWinnerAt(storyboardTimingRows, boardTimeline?.playheadMs ?? 0, boardTimeline?.visualLayerState?.hidden)?.shotNo ?? null
     : compactExpandedShotNo;
@@ -1689,11 +1676,13 @@ export function StoryboardReviewBoard({
   } = useStoryboardTimelineViewport(storyboardTimelineDurationMs, boardAvailableWidth);
   // Compact information columns are a reading view; the editable time strip
   // remains proportional and fits their combined width.
-  const storyboardViewport = useMemo(() => simplifiedDisplay && !shotTimingPreview
+  const storyboardViewport = useMemo(() => presentation === "manuscript"
+    ? storyboardZoomViewport(storyboardTimelineDurationMs, boardAvailableWidth, 0)
+    : simplifiedDisplay && !shotTimingPreview
     ? storyboardZoomViewport(storyboardTimelineDurationMs,
         Math.max(1, shots.length * 72 + (expandedShotNo == null ? 0 : matrixShotColumnWidth - 72)), 0)
     : zoomedStoryboardViewport,
-    [simplifiedDisplay, shotTimingPreview, storyboardTimelineDurationMs, shots.length, expandedShotNo, matrixShotColumnWidth, zoomedStoryboardViewport]);
+    [presentation, boardAvailableWidth, simplifiedDisplay, shotTimingPreview, storyboardTimelineDurationMs, shots.length, expandedShotNo, matrixShotColumnWidth, zoomedStoryboardViewport]);
   useLayoutEffect(() => {
     if (!simplifiedDisplay || expandedShotNo == null) return;
     const scroller = boardScrollRef.current;
@@ -3234,7 +3223,7 @@ export function StoryboardReviewBoard({
           {boardTimeline && shots.length > 0 && viewMode === "full" ? (
             <StoryboardEditTransport timeline={boardTimeline} />
           ) : null}
-          {shots.length > 0 && viewMode === "full" ? (
+          {presentation === "editing" && shots.length > 0 && viewMode === "full" ? (
             <button
               type="button"
               aria-pressed={compactShots}
@@ -3264,7 +3253,7 @@ export function StoryboardReviewBoard({
               {compactShots ? _ui("恢复") : _ui("缩小")}
             </button>
           ) : null}
-          {shots.length > 0 ? (
+          {presentation === "editing" && shots.length > 0 ? (
             <span
               className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
               aria-label={_ui("故事版看板视图")}
@@ -3319,7 +3308,16 @@ export function StoryboardReviewBoard({
         </div>
       ) : null}
 
+      <StoryboardManuscriptSection visible={presentation === "manuscript"} timeline={boardTimeline} viewport={storyboardViewport}
+        shots={storyboardEditShots} selectedShotNo={selectedShotNo} selectMatrixShot={selectMatrixShot}
+        shotActions={storyboardEditShotActions} updateShotTimingPreview={updateShotTimingPreview}
+        entries={matrixShotEntries.entries} timings={storyboardTimingRows} onSelectShot={onSelectShot}
+        onUpdateShotFields={onUpdateShotFields} isShotRenderActive={isShotRenderActive}
+        generatingVoiceShotIds={generatingVoiceShotIds} voiceGenerationErrors={voiceGenerationErrors} storyId={storyId}
+        creationShots={creationShotByNo} setPreviewMedia={setPreviewMedia} renderImage={renderShotImageCandidates}
+        renderVideo={rerenderShotVideo} onGenerateShotVoice={onGenerateShotVoice} />
       <div
+        hidden={presentation === "manuscript"}
         ref={viewMode === "simple" ? boardScrollRef : undefined}
         className={`creation-board-panel-body min-h-0 flex-1 custom-scrollbar ${
           viewMode === "full" ? "overflow-hidden" : "overflow-y-auto"
@@ -3603,7 +3601,7 @@ export function StoryboardReviewBoard({
                   );
                 })}
 
-                {boardTimeline ? (
+                {presentation === "editing" && boardTimeline ? (
                   <StoryboardEditRow
                     timeline={boardTimeline}
                     viewport={storyboardViewport}

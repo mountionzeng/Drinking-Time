@@ -389,6 +389,7 @@ function isVisualFile(file: File) {
 }
 
 function EditingStoryboardPanel({
+  presentation,
   onRelink,
   relinkProgress,
   onAttachXml,
@@ -401,6 +402,7 @@ function EditingStoryboardPanel({
   videoClipboardLabel,
   boardTimeline,
 }: {
+  presentation?: "manuscript" | "editing";
   boardTimeline: StoryboardBoardTimeline;
   onRelink: (files: File[]) => Promise<void>;
   relinkProgress: string | null;
@@ -452,6 +454,7 @@ function EditingStoryboardPanel({
       />
       <div className="min-h-0 flex-1">
         <StoryboardPanel
+          presentation={presentation}
           defaultViewMode="full"
           embeddedEditorMode
           boardTimeline={boardTimeline}
@@ -949,11 +952,15 @@ export {
 } from "../useVisualObjectEditingSession";
 
 export default function EditingNleWorkspace({
+  presentation = "editing",
+  suspended = false,
   videoEditorHandoffTarget = null,
   onVideoEditorHandoffHandled,
   musicRequest,
   onMusicRequestHandled,
 }: {
+  presentation?: "manuscript" | "editing";
+  suspended?: boolean;
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
   musicRequest?: import("@/features/publishingDraft/StudioCreateMenu").StudioCreateRequest | null;
@@ -1215,6 +1222,9 @@ export default function EditingNleWorkspace({
     totalMs: boardTimelineTotalMs,
     onPlayheadCommit: selectShotFromPlayhead,
   });
+  useEffect(() => {
+    if (suspended) playbackClock.setPlaying(false);
+  }, [suspended, playbackClock.setPlaying]);
   const subtitleRenderPlan = useMemo(
     () => buildSubtitleRenderPlan(timelineMedia.subtitleState),
     [timelineMedia.subtitleState]
@@ -1519,6 +1529,7 @@ export default function EditingNleWorkspace({
 
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
+      if (suspended) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (
         !shouldHandleCreationEditorUndoShortcut({
@@ -1551,7 +1562,7 @@ export default function EditingNleWorkspace({
     window.addEventListener("keydown", handleUndoShortcut, true);
     return () =>
       window.removeEventListener("keydown", handleUndoShortcut, true);
-  }, [undoTimeline]);
+  }, [undoTimeline, suspended]);
 
   const openVideoEditor = useCallback(
     (target: VideoClipEditorTarget) => {
@@ -2705,9 +2716,10 @@ export default function EditingNleWorkspace({
           defaultSize={DEFAULT_STORYBOARD_PANEL_SIZE}
           minSize={30}
           maxSize={68}
-          className="min-w-0"
+          className={presentation === "manuscript" ? "min-w-0 !flex-[1_1_0%]" : "min-w-0"}
         >
           <EditingStoryboardPanel
+            presentation={presentation}
             boardTimeline={boardTimeline}
             onRelink={relinkFiles}
             relinkProgress={relinkProgress}
@@ -2723,7 +2735,8 @@ export default function EditingNleWorkspace({
         </ResizablePanel>
         <ResizableHandle
           withHandle
-          className="creation-board-resize-handle !w-2 after:!w-2"
+          className={`creation-board-resize-handle !w-2 after:!w-2 ${presentation === "manuscript" ? "!hidden" : ""}`}
+          disabled={presentation === "manuscript"}
           aria-label="Resize Storyboard and Preview"
           title="Resize Storyboard and Preview"
         />
@@ -2732,7 +2745,7 @@ export default function EditingNleWorkspace({
           order={2}
           defaultSize={DEFAULT_PREVIEW_PANEL_SIZE}
           minSize={32}
-          className="min-w-0"
+          className={presentation === "manuscript" ? "!hidden" : "min-w-0"}
         >
           <ShotPreview
             storyId={activeStoryId}

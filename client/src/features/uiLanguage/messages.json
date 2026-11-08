@@ -1,4 +1,22 @@
 {
+  "{0} 场戏 · {1} 个镜头": {"en": "{0} scenes · {1} shots", "fr": "{0} scènes · {1} plans"},
+  "{0} 节": {"en": "{0} sections", "fr": "{0} sections"},
+  "{0} 句台词": {"en": "{0} dialogue lines", "fr": "{0} répliques"},
+  "{0} 张图片": {"en": "{0} images", "fr": "{0} images"},
+  "无音乐": {"en": "No music", "fr": "Sans musique"},
+  "{0} 段音乐 · 时长待读取": {"en": "{0} music clips · duration unavailable", "fr": "{0} extraits musicaux · durée indisponible"},
+  "{0} 秒音乐": {"en": "{0}s of music", "fr": "{0} s de musique"},
+  "{0} 段有声书": {"en": "{0} narration clips", "fr": "{0} extraits narrés"},
+  "镜头参考图": {"en": "Shot reference images", "fr": "Images de référence du plan"},
+  "镜头参考图 {0}": {"en": "Shot reference image {0}", "fr": "Image de référence du plan {0}"},
+  "公历 {0}": { "en": "Gregorian {0}", "fr": "Grégorien {0}" },
+  "农历 {0}": { "en": "Lunar {0}", "fr": "Lunaire {0}" },
+  "给来信的留言": { "en": "Your note to the letter", "fr": "Votre message pour la lettre" },
+  "这里还没有单独给来信留言；已保存的书稿也可以作为创作参考。": { "en": "No separate note here yet. Saved writing can also inform the letter.", "fr": "Aucun message distinct ici. Vos textes enregistrés peuvent aussi nourrir la lettre." },
+  "结合最新创作，再读一遍": { "en": "Reread with the latest writing", "fr": "Relire avec les derniers textes" },
+  "转换成一场": { "en": "Convert to scene", "fr": "Convertir en scène" },
+  "转换成一个镜头": { "en": "Convert to shot", "fr": "Convertir en plan" },
+  "场": { "en": "Scene", "fr": "Scène" },
   "当前文章": {
     "en": "Current article",
     "fr": "Article actuel"
@@ -9202,6 +9220,18 @@
   "查看朗读费用": {
     "en": "Review narration cost",
     "fr": "查看朗读费用"
+  },
+  "朗读声音": {
+    "en": "Narration voice",
+    "fr": "Voix de narration"
+  },
+  "女声 · 温柔小雅": {
+    "en": "Female · Xiaoya",
+    "fr": "Voix féminine · Xiaoya"
+  },
+  "男声 · 温暖阿虎": {
+    "en": "Male · Ahu",
+    "fr": "Voix masculine · Ahu"
   },
   "查看音乐生成费用": {
     "en": "Review music generation cost",

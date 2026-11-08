@@ -1,4 +1,6 @@
 import { bookVideoRouter } from "./bookVideo";
+import { selectDailyLetterWorks } from "../services/dailyLetterWorks";
+import { dailyLetterReadingContext } from "../../shared/dailyLetterReading";
 import { bookMediaRouter } from "./bookMedia";
 import { upsertUser } from "../repositories/users";
 import { memorySpaceRouter } from "./memorySpace";
@@ -1013,12 +1015,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     dailyLetterVersionContext: protectedProcedure
       .input(z.object({ letterDate: birthDateSchema }))
       .query(async ({ ctx, input }) => {
-        const [letter, versions] = await Promise.all([
+        const [letter, versions, works] = await Promise.all([
           getEmotionDailyLetter(ctx.user.id, input.letterDate),
           listEmotionDailyLetterVersions(ctx.user.id, input.letterDate),
+          selectDailyLetterWorks(ctx.user.id, input.letterDate),
         ]);
+        const current = versions.find(version => version.id === letter?.currentVersionId);
         return {
           currentVersionId: letter?.currentVersionId ?? null,
+          reading: dailyLetterReadingContext(works,
+            current?.envelope.generatedAt ?? letter?.createdAt.toISOString() ?? null,
+            current?.payload?.dailyReference ?? letter?.dailyReference),
           versions: versions.map(version => ({
             id: version.id,
             versionNumber: version.envelope.versionNumber,

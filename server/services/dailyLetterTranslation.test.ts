@@ -11,6 +11,14 @@ function deps(summary = "今天可以慢一点。") {
   };
 }
 describe("daily letter reading translations", () => {
+  it("clarifies lunar month-end for translation while keeping the immutable source identity", async () => {
+    const source = "今天是中国记者日，也是九月最后一天。";
+    const d = deps(source);
+    const result = await translateDailyLetter(9106, "2026-11-08", "en", d);
+    expect(result.sourceSummary).toBe(source);
+    const input = JSON.parse(String(d.invoke.mock.calls[0][0].messages[1].content));
+    expect(input.sourceLetter).toBe("今天是中国记者日，也是农历九月最后一天。");
+  });
   it("deduplicates concurrent reads but isolates users, languages and changed source", async () => {
     const d = deps();
     const results = await Promise.all(Array.from({ length: 5 }, () => translateDailyLetter(9101, "2026-10-18", "en", d)));

@@ -34,6 +34,7 @@ import type { StoryPanel } from "@/features/analysis/storyPanels";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
 import { VideoVersionHistory } from "@/features/creationEditor/VideoVersionHistory";
+import { BookVideoWorkspace, BookVideoWorkspaceProvider } from "@/features/bookVideo/BookVideoWorkspace";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
@@ -478,6 +479,8 @@ function EditingStudioBody({
   );
 
   return (
+    <BookVideoWorkspaceProvider key={`${creationUser?.id}:${activeStoryId}`} storyId={activeStoryId}
+      onOpen={() => onWorkspaceChange("editing")} onDiscuss={() => setChatCollapsed(false)}>
     <CreationEditorProvider activeStoryId={activeStoryId}>
       <StoryActivityTracker storyId={activeStoryId} userId={creationUser?.id ?? null} enabled={!accountMemoriesOpen} />
       <DesktopMemorySpace open={accountMemoriesOpen} onOpenChange={onAccountMemoriesOpenChange} onOpenWriting={() => onWorkspaceChange("publishing")} />
@@ -555,46 +558,35 @@ function EditingStudioBody({
               }}
             />
           </div>
+          {activeStoryId !== null && <BookVideoWorkspace
+            active={workspace === "editing"}
+            preferEditing={Boolean(videoEditorHandoffTarget || createRequest?.kind === "music")}
+            toolbar={<>
+              <VideoVersionHistory key={activeStoryId} storyId={activeStoryId} disabled={pendingStoryRequestId !== null} />
+              <ExportButton storyId={activeStoryId} pendingStoryRequestId={pendingStoryRequestId} />
+            </>}
+            editor={(presentation, suspended) => <EditingNleWorkspace
+              presentation={presentation}
+              suspended={suspended}
+              musicRequest={createRequest?.kind === "music" ? createRequest : null}
+              onMusicRequestHandled={() => setCreateRequest(null)}
+              videoEditorHandoffTarget={videoEditorHandoffTarget}
+              onVideoEditorHandoffHandled={() => setVideoEditorHandoffTarget(null)}
+            />}
+          />}
           {workspace === "publishing" ||
-          workspace === "images" ? null : activeStoryId !== null ? (
+          workspace === "images" || (workspace === "editing" && activeStoryId !== null) ? null : activeStoryId !== null ? (
             <div
-              id={
-                workspace === "editing"
-                  ? "editing-nle-workspace"
-                  : `studio-${workspace}-workspace`
-              }
+              id={`studio-${workspace}-workspace`}
               className="flex h-full min-h-0 flex-col overflow-hidden"
-              data-story-panel={
-                workspace === "editing" ? "editing-nle" : workspace
-              }
+              data-story-panel={workspace}
               aria-label={
                 _ui(STUDIO_WORKSPACE_OPTIONS.find(option => option.id === workspace)
                   ?.label ?? "")
               }
             >
-              {workspace === "editing" && (
-                <div
-                  className="flex shrink-0 items-start justify-end gap-3 border-b border-border px-4 py-2"
-                  aria-label={_ui("视频导出操作")}
-                >
-                  <VideoVersionHistory key={activeStoryId} storyId={activeStoryId} disabled={pendingStoryRequestId !== null} />
-                  <ExportButton
-                    storyId={activeStoryId}
-                    pendingStoryRequestId={pendingStoryRequestId}
-                  />
-                </div>
-              )}
               <div className="relative min-h-0 flex-1 overflow-hidden">
-                {workspace === "editing" ? (
-                  <EditingNleWorkspace
-                    musicRequest={createRequest?.kind === "music" ? createRequest : null}
-                    onMusicRequestHandled={() => setCreateRequest(null)}
-                    videoEditorHandoffTarget={videoEditorHandoffTarget}
-                    onVideoEditorHandoffHandled={() =>
-                      setVideoEditorHandoffTarget(null)
-                    }
-                  />
-                ) : isStoryPanelWorkspace(workspace) ? (
+                {isStoryPanelWorkspace(workspace) ? (
                   <StoryPanelWorkspace
                     workspace={workspace}
                     onEditVideo={openStoryboardVideoEditor}
@@ -658,6 +650,7 @@ function EditingStudioBody({
         </DialogContent>
       </Dialog>
     </CreationEditorProvider>
+    </BookVideoWorkspaceProvider>
   );
 }
 

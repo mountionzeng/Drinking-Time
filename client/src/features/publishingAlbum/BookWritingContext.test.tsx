@@ -15,6 +15,7 @@ import { DesktopWritingContext } from '../writingCompanion/DesktopWritingContext
 import { useBookMediaSession } from './bookMediaSession';
 import { useBookModuleActions } from './bookModuleActions';
 import { newWritingBlock } from './chapterBlockTree';
+import { moveWritingBlock, writingStyleOf, blockBody, type WritingBlock } from './chapterBlockTree';
 import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { captureBookImageAnchor } from './bookImageInsert';
 import { deleteBookBlocks } from './bookBlockLayout';
@@ -22,11 +23,64 @@ import { deleteBookBlocks } from './bookBlockLayout';
 function nodes(node: any): any[] { return !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]; }
 function textField(canvas: any, index: number) { return nodes(canvas.children(canvas.blocks[index], index, {})).find(node => node.type === 'textarea').props; }
 function render(fn: () => any) { hooks.state = hooks.ref = 0; hooks.effects = []; const tree = fn(); hooks.effects.forEach(fn => fn()); return tree; }
+it('shows shot content counts when folded and places actual reference images beside the expanded heading', () => {
+ const blocks:WritingBlock[] = [
+  {...newWritingBlock('场名'),id:'scene',format:'scene'},
+  {...newWritingBlock('镜头名','scene'),id:'shot',format:'shot',collapsed:true},
+  {...newWritingBlock('你好。再见！','shot'),videoRole:'dialogue'},
+  newWritingBlock('![图片](/api/images/a.png)','shot'),
+ ];
+ const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:vi.fn(),children:b=><span>{b.text}</span>})));
+ let tree=draw();
+ expect(tree.find(n=>n.props?.['data-book-summary']==='shot').props.children).toBe('4 字 · 2 句台词 · 1 张图片 · 无音乐');
+ expect(tree.some(n=>n.type==='img')).toBe(false);
+ blocks[1]={...blocks[1],collapsed:false};tree=draw();
+ expect(tree.find(n=>n.type==='img').props).toMatchObject({src:'/api/images/a.png',alt:'镜头参考图 1'});
+ expect(tree.some(n=>n.props?.children==='你好。再见！')).toBe(true);
+});
 it('classifies a text module from its existing menu without changing its text',()=>{
  const block=newWritingBlock('你好'),commit=vi.fn();
  const tree=nodes(render(()=>BookBlockCanvas({blocks:[block],disabled:false,activeId:block.id,onSelect:vi.fn(),onCommit:commit,children:()=>null})));
  tree.find(n=>n.type==='button'&&String(n.props.children).includes('转换成台词/字幕')).props.onClick();
  expect(commit.mock.calls[0][0][0]).toMatchObject({id:block.id,text:'你好',format:'text',videoRole:'dialogue'});
+});
+it('offers scene and shot in the existing format menu and keeps editable titles separate from numbering',()=>{
+ const scene={...newWritingBlock('自写场名'),id:'s',format:'scene' as const};
+ const shot={...newWritingBlock('自写镜头名','s'),id:'a',format:'shot' as const};
+ const commit=vi.fn();
+ const tree=nodes(render(()=>BookBlockCanvas({blocks:[scene,shot],disabled:false,activeId:'a',onSelect:vi.fn(),onCommit:commit,children:block=><span>{block.text}</span>})));
+ expect(tree.filter(n=>n.props?.['data-book-number']).map(n=>n.props.children)).toEqual(['一场','一场一镜']);
+ const format=tree.find(n=>n.props?.['aria-label']==='模块 2 设置');
+ const options=nodes(format).filter(n=>n.type==='button');
+ expect(options.some(n=>String(n.props.children).includes('转换成一章'))).toBe(true);
+ expect(options.some(n=>String(n.props.children).includes('转换成一节'))).toBe(true);
+ expect(options.some(n=>String(n.props.children).includes('转换成一场'))).toBe(true);
+ options.find(n=>String(n.props.children).includes('转换成一个镜头')).props.onClick();
+ expect(commit.mock.calls[0][0][1]).toMatchObject({id:'a',text:'自写镜头名',format:'shot',parentId:'s'});
+});
+it('undoes a cross-scene shot move with all children and classification in one step',()=>{
+ const initial:WritingBlock[]=[{...newWritingBlock('场一'),id:'s1',format:'scene'},{...newWritingBlock('场二'),id:'s2',format:'scene'},
+  {...newWritingBlock('我的镜头','s2'),id:'shot',format:'shot'},{...newWritingBlock('台词','shot'),id:'line',videoRole:'dialogue'},newWritingBlock('![图片](/api/images/a.png)','shot')];
+ let value=blockBody(initial),style=writingStyleOf(initial);
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,writingStyle:style,onChange:next=>{value=next;},onFormattedChange:(next,s)=>{value=next;style=s;},disabled:false,selection:{current:null}}))).find(n=>n.type===BookBlockCanvas).props;
+ let canvas=draw();canvas.onCommit(moveWritingBlock(canvas.blocks,'shot','s1','inside'),'shot',false);canvas=draw();
+ expect(canvas.blocks.find((b:WritingBlock)=>b.id==='shot').parentId).toBe('s1');
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+ hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});canvas=draw();
+ expect(canvas.blocks).toEqual(initial);
+});
+it.each(['music','image'] as const)('inserts generated %s inside its source shot and reveals it without losing existing children',async kind=>{
+ const {BookModuleConvert}=await import('./BookModuleConvert');
+ const initial:WritingBlock[]=[{...newWritingBlock('场'),id:'scene',format:'scene'},
+  {...newWritingBlock('镜头','scene'),id:'shot',format:'shot',collapsed:true},newWritingBlock('已有说明','shot'),newWritingBlock('外部内容')];
+ let value=blockBody(initial),style=writingStyleOf(initial);
+ const draw=()=>nodes(render(()=>ChapterTextModules({value,writingStyle:style,onChange:next=>{value=next;},onFormattedChange:(next,s)=>{value=next;style=s;},
+  disabled:false,selection:{current:null},prepareMedia:async()=>{},contextSource:{storyId:7,scope:'shot-generated',chapterId:'2'}})));
+ let tree=draw();tree.find(n=>n.type===BookBlockCanvas).props.onConvert('shot',kind);tree=draw();
+ tree.find(n=>n.type===BookModuleConvert).props.onInsert(kind==='image'?'![图片](/api/images/new.png)':'新配乐引用');
+ const blocks=draw().find(n=>n.type===BookBlockCanvas).props.blocks;
+ expect(blocks[1]).toMatchObject({id:'shot',collapsed:false});
+ expect(blocks[2]).toEqual(initial[2]);expect(blocks[3].parentId).toBe('shot');expect(blocks[4]).toEqual(initial[3]);
 });
 beforeEach(() => {
   hooks.states = []; hooks.refs = [];

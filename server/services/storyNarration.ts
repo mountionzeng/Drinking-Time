@@ -1,4 +1,5 @@
 import { resolveBookModuleSource, type BookModuleTarget } from "./bookModuleSource";
+import { BOOK_NARRATION_VOICES, type BookNarrationVoiceGender } from "../../shared/bookNarrationVoice";
 import { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
 export { estimateStoryNarrationCostMinor } from "../../shared/narrationCost";
 import { formatComputeQuote } from "../../shared/computeMoney";
@@ -45,6 +46,8 @@ import {
 import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
 import {
   generateStoryVoice302,
+  narrationModelForProvider,
+  ELEVENLABS_NARRATION_SETTINGS,
   StoryVoice302Error,
   type StoryVoice302Result,
 } from "./storyVoice302";
@@ -56,11 +59,18 @@ import { withVisualEditServiceLock } from "./visualClipEditing";
 
 const NARRATION_OPERATION_TYPE = "tts.narration";
 const NARRATION_PRICE_VERSION = "tts-302-cny-v1";
+function narrationPriceVersion(provider: string): string {
+  const model = narrationModelForProvider(provider);
+  return model
+    ? `tts-302-${model}-cny-v1${provider === "elevenlabs" ? `-${sha256(JSON.stringify(ELEVENLABS_NARRATION_SETTINGS)).slice(0, 12)}` : ""}`
+    : NARRATION_PRICE_VERSION;
+}
 const NARRATION_QUOTE_TTL_MS = 5 * 60 * 1_000;
 const NARRATION_PREPARED_RECOVERY_GRACE_MS = 10 * 60 * 1_000;
 
 type NarrationQuoteClaims = {
   bookTarget?: BookModuleTarget;
+  voiceGender?: BookNarrationVoiceGender;
   version: 1;
   userId: number;
   storyId: number;
@@ -89,7 +99,9 @@ export type StoryNarrationQuote = {
 };
 
 type NarrationCandidateProvenance = {
+  model?: string;
   bookTarget?: BookModuleTarget;
+  voiceGender?: BookNarrationVoiceGender;
   kind: "story-narration-candidate";
   operationId: string;
   storyId: number;
@@ -241,7 +253,18 @@ async function resolveCue(input: {
   return { cue, timeline };
 }
 
-function providerAndVoice(input: { provider?: string; voice?: string }) {
+function providerAndVoice(input: { provider?: string; voice?: string; bookTarget?: BookModuleTarget; voiceGender?: BookNarrationVoiceGender }) {
+  if (input.voiceGender !== undefined) {
+    if (!input.bookTarget || (input.voiceGender !== "female" && input.voiceGender !== "male")) {
+      throw new Error("有声书声音选择无效");
+    }
+    const preset = BOOK_NARRATION_VOICES[input.voiceGender];
+    if ((input.provider !== undefined && input.provider !== preset.provider) ||
+      (input.voice !== undefined && input.voice !== preset.voice)) {
+      throw new Error("有声书声音已更新，请重新确认费用");
+    }
+    return { provider: preset.provider, voice: preset.voice };
+  }
   const configuredProvider = ENV.tts302Provider.trim();
   const configuredVoice = ENV.tts302Voice.trim();
   const provider = (input.provider ?? configuredProvider).trim();
@@ -254,6 +277,7 @@ function providerAndVoice(input: { provider?: string; voice?: string }) {
 
 export async function quoteStoryNarration(input: {
   bookTarget?: BookModuleTarget;
+  voiceGender?: BookNarrationVoiceGender;
   storyId: number;
   userId: number;
   subtitleCueId: string;
@@ -266,6 +290,7 @@ export async function quoteStoryNarration(input: {
   const requestedAt = (input.now ?? Date.now)();
   const claims: NarrationQuoteClaims = {
     bookTarget:input.bookTarget,
+    ...(input.voiceGender ? { voiceGender: input.voiceGender } : {}),
     version: 1,
     userId: input.userId,
     storyId: input.storyId,
@@ -276,7 +301,7 @@ export async function quoteStoryNarration(input: {
     provider,
     voice,
     maxCostMinor: estimateStoryNarrationCostMinor(cue.text),
-    priceVersion: NARRATION_PRICE_VERSION,
+    priceVersion: narrationPriceVersion(provider),
     requestedAt,
     expiresAt: requestedAt + NARRATION_QUOTE_TTL_MS,
   };
@@ -442,7 +467,7 @@ export async function generateStoryNarrationCandidate(input: {
     claims.userId !== input.userId ||
     claims.storyId !== input.storyId ||
     claims.subtitleCueId !== input.subtitleCueId ||
-    claims.priceVersion !== NARRATION_PRICE_VERSION
+    claims.priceVersion !== narrationPriceVersion(claims.provider)
   ) {
     return { status: "error", message: "旁白报价已过期或作用域不匹配" };
   }
@@ -450,7 +475,7 @@ export async function generateStoryNarrationCandidate(input: {
   let resolved;
   try {
     resolved = await resolveCue({...input,bookTarget:claims.bookTarget});
-    providerAndVoice({ provider: claims.provider, voice: claims.voice });
+    providerAndVoice({ provider: claims.provider, voice: claims.voice, bookTarget: claims.bookTarget, voiceGender: claims.voiceGender });
   } catch (error) {
     return {
       status: "error",
@@ -470,6 +495,8 @@ export async function generateStoryNarrationCandidate(input: {
     };
   }
 
+  const model = narrationModelForProvider(claims.provider);
+  const providerModel = model ?? claims.voice;
   const requestHash = sha256(
     JSON.stringify({
       operationType: NARRATION_OPERATION_TYPE,
@@ -485,7 +512,9 @@ export async function generateStoryNarrationCandidate(input: {
     })
   );
   const provenance: NarrationCandidateProvenance = {
+    ...(model ? { model } : {}),
     bookTarget:claims.bookTarget,
+    ...(claims.voiceGender ? { voiceGender: claims.voiceGender } : {}),
     kind: "story-narration-candidate",
     operationId: input.operationId,
     storyId: input.storyId,
@@ -600,7 +629,7 @@ export async function generateStoryNarrationCandidate(input: {
           operationId: input.operationId,
           attemptIndex: 1,
           provider: claims.provider,
-          model: claims.voice,
+          model: providerModel,
           status: "submission_unknown",
           usage: provenance,
         });
@@ -619,7 +648,7 @@ export async function generateStoryNarrationCandidate(input: {
       operationId: input.operationId,
       attemptIndex: 1,
       provider: claims.provider,
-      model: claims.voice,
+      model: providerModel,
       status: "prepared",
       usage: provenance,
     });
@@ -643,7 +672,7 @@ export async function generateStoryNarrationCandidate(input: {
         operationId: input.operationId,
         attemptIndex: 1,
         provider: claims.provider,
-        model: claims.voice,
+        model: providerModel,
         status: providerError.outcome,
         usage: provenance,
         ...(providerError.outcome === "charged_failure"
@@ -671,7 +700,7 @@ export async function generateStoryNarrationCandidate(input: {
       operationId: input.operationId,
       attemptIndex: 1,
       provider: claims.provider,
-      model: claims.voice,
+      model: providerModel,
       status: "submitted",
       usage: { ...provenance, providerAudioUrl: voice.audioUrl },
     });
@@ -692,7 +721,7 @@ export async function generateStoryNarrationCandidate(input: {
       operationId: input.operationId,
       attemptIndex: 1,
       provider: claims.provider,
-      model: claims.voice,
+      model: providerModel,
       status: "charged_failure",
       costMinor: claims.maxCostMinor,
       usage: { ...provenance, assetFailureCode: imported.failureCode },
@@ -714,7 +743,7 @@ export async function generateStoryNarrationCandidate(input: {
     operationId: input.operationId,
     attemptIndex: 1,
     provider: claims.provider,
-    model: claims.voice,
+    model: providerModel,
     status: "succeeded",
     costMinor: claims.maxCostMinor,
     usage: provenance,

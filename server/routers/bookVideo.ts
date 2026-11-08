@@ -1,4 +1,9 @@
 import { getStoryImageAssets } from "../services/imageAssets";
+import { prepareBookStoryboard } from "../services/bookStoryboardPreparation";
+import { getStoryById } from "../repositories/stories";
+import { bookVideoImageContinuity } from "../services/bookVideoImageContinuity";
+import { normalizePublishingDraftState } from "../../shared/publishingDraft";
+import { chapterEnabled } from "../../shared/chapterStore";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { publishingArticleLayoutSchema } from "../../shared/publishingArticleVideo";
@@ -13,14 +18,30 @@ import {
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().min(8).max(100) });
 export const bookVideoRouter = router({
+  prepareManuscript: protectedProcedure
+    .input(owner.extend({ request: z.string().trim().min(1).max(4000) }))
+    .mutation(({ ctx, input }) => {
+      if (!chapterEnabled())
+        // The legacy article-to-video conversation still works with chapters off.
+        return { chapters: [], shotCount: 0, changed: false };
+      return prepareBookStoryboard({ ...input, userId: ctx.user.id });
+    }),
   list: protectedProcedure.input(owner).query(async ({ ctx, input }) => {
     const records = await listBookVideoRecords({
       ...input,
       userId: ctx.user.id,
     });
     const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
+    const story = await getStoryById(input.storyId, ctx.user.id);
+    const body = story?.body as { publishing?: unknown } | undefined;
+    const publishing = normalizePublishingDraftState(body?.publishing);
+    const confirmed = publishing.versions?.flatMap(version => {
+      const candidate=version.videoStoryboard?.confirmed;
+      return candidate && candidate.groupId===publishing.activeVideoStoryboardGroupId ? [candidate] : [];
+    })[0];
     return {
       records,
+      continuity: bookVideoImageContinuity(records, assets, confirmed),
       images: Object.fromEntries(
         assets
           .filter(a => a.availability !== "missing")
@@ -56,7 +77,11 @@ export const bookVideoRouter = router({
       editBookVideo({ ...input, userId: ctx.user.id })
     ),
   adopt: protectedProcedure
-    .input(record.extend({reviewedRevision:z.number().int().positive().optional()}))
+    .input(
+      record.extend({
+        reviewedRevision: z.number().int().positive().optional(),
+      })
+    )
     .mutation(({ ctx, input }) =>
       adoptBookVideo({ ...input, userId: ctx.user.id })
     ),

@@ -1,5 +1,6 @@
 import React from "react";
-import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
+import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
+import { dailyLetterCalendar, clarifyDailyLetterCalendar } from "@shared/dailyLetterCalendar";
 import { trpc } from "@/lib/trpc";
 import { dailyLetterParagraphs } from "../dailyLetterFormat";
 
@@ -12,8 +13,14 @@ function sourceKey(text: string) {
 
 export function DailyLetterBody({ summary, date, className = "text-sm leading-7 text-foreground" }: { summary: string; date: string; className?: string }) {
   const { language } = useUiLanguage();
-  if (language === "zh") return <LetterParagraphs text={summary} className={className} />;
+  if (language === "zh") return <LetterParagraphs text={clarifyDailyLetterCalendar(summary, date)} className={className} />;
   return <TranslatedLetter summary={summary} date={date} language={language} className={className} />;
+}
+
+export function DailyLetterDate({ date }: { date: string }) {
+  const t = useUiText();
+  const calendar = dailyLetterCalendar(date);
+  return <>{t("公历 {0}", [date])}{calendar ? ` · ${t("农历 {0}", [calendar.lunarDate])}` : ""}</>;
 }
 
 function LetterParagraphs({ text, className }: { text: string; className: string }) {
@@ -22,7 +29,7 @@ function LetterParagraphs({ text, className }: { text: string; className: string
 
 function TranslatedLetter({ summary, date, language, className }: { summary: string; date: string; language: "en" | "fr"; className: string }) {
   const translation = trpc.emotionAnalysis.translatedDailyLetter.useQuery(
-    { letterDate: date, language: language === "fr" ? "fr" : "en", sourceKey: sourceKey(summary) },
+    { letterDate: date, language: language === "fr" ? "fr" : "en", sourceKey: sourceKey(clarifyDailyLetterCalendar(summary, date)) },
     { enabled: Boolean(summary && date), retry: false, staleTime: 60 * 60 * 1000, refetchOnWindowFocus: false },
   );
   const text = translation.data?.sourceSummary === summary ? translation.data.summary : null;

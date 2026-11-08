@@ -173,6 +173,10 @@ export function ChapterWorkspace({
     if(displayMode === "text") await writing.current?.prepare(); else await prepare.current?.();
     if(state.error) throw new Error(state.error);
     await state.flush();
+  }, async chapters => {
+    const saved=chapters.find(chapter => chapter.id === active?.id);
+    if(saved && active && saved.version > active.version) await state.acceptLatest(saved.version);
+    await state.reloadList();
   }));
   async function run(action: () => Promise<void>, flush = true) {
     if (lock.current) return;

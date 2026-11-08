@@ -7,6 +7,23 @@ type StoryVoiceFetch = (
   init?: RequestInit
 ) => Promise<Response>;
 
+// Fixed per-provider model: changing it also invalidates that provider's quotes.
+export const MINIMAX_NARRATION_MODEL = "speech-2.8-turbo";
+export const ELEVENLABS_NARRATION_MODEL = "eleven_multilingual_v2";
+// Keep this preset paired with the signed narration price version.
+export const ELEVENLABS_NARRATION_SETTINGS = {
+  stability: 0.35, similarity_boost: 0.75, style: 0, speed: 0.94,
+  use_speaker_boost: true,
+} as const;
+
+export function narrationModelForProvider(provider: string): string | undefined {
+  if (provider === "minimaxi") return MINIMAX_NARRATION_MODEL;
+  if (provider === "elevenlabs") return ELEVENLABS_NARRATION_MODEL;
+  // The 302 wrapper does not disclose Doubao's backing model revision.
+  if (provider === "doubao") return "doubao-tts-unversioned";
+  return undefined;
+}
+
 export type StoryVoice302Result = {
   audioUrl: string;
   provider: string;
@@ -103,8 +120,13 @@ export async function generateStoryVoice302(input: {
     input.timeoutMs ?? positiveInteger(ENV.tts302TimeoutMs, 60_000)
   );
   try {
+    const isMiniMax = provider === "minimaxi";
+    const isElevenLabs = provider === "elevenlabs";
+    const endpoint = isMiniMax ? "/minimaxi/v1/t2a_v2"
+      : isElevenLabs ? `/elevenlabs/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128&response_format=url`
+      : "/302/tts/generate";
     const response = await trackMediaResponse(guardComputeFetch(input.fetcher ?? fetch), diag)(
-      `${baseUrl}/302/tts/generate`,
+      `${baseUrl}${endpoint}`,
       {
         method: "POST",
         headers: {
@@ -112,7 +134,17 @@ export async function generateStoryVoice302(input: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text: narration, provider, voice }),
+        body: JSON.stringify(isMiniMax ? {
+          model: MINIMAX_NARRATION_MODEL,
+          text: narration,
+          stream: false,
+          output_format: "url",
+          voice_setting: { voice_id: voice, speed: 1, vol: 1, pitch: 0 },
+          audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 },
+        } : isElevenLabs ? {
+          text: narration, model_id: ELEVENLABS_NARRATION_MODEL,
+          voice_settings: ELEVENLABS_NARRATION_SETTINGS,
+        } : { text: narration, provider, voice }),
         signal: controller.signal,
       }
     );
@@ -125,7 +157,7 @@ export async function generateStoryVoice302(input: {
       // 302 明确回 500 且没有给音频地址：供应商已确认失败、没有产出，可以释放预占。
       // 408/429/502/503/504 等可能已接单或网关中断，仍保持结果未知。
       const confirmedFailure =
-        response.status === 500 && !/audio_url/i.test(bodySnippet);
+        !isMiniMax && !isElevenLabs && provider !== "doubao" && response.status === 500 && !/audio_url/i.test(bodySnippet);
       throw new StoryVoice302Error(
         confirmedFailure ||
           !(
@@ -138,9 +170,17 @@ export async function generateStoryVoice302(input: {
         `302 语音生成失败（HTTP ${response.status}）`
       );
     }
-    const payload = (await response.json()) as { audio_url?: unknown };
-    const audioUrl =
-      typeof payload.audio_url === "string" ? payload.audio_url.trim() : "";
+    const payload = (await response.json()) as {
+      audio_url?: unknown;
+      url?: unknown;
+      base_resp?: { status_code?: number };
+      data?: { audio?: unknown; status?: number };
+    };
+    if (isMiniMax && (payload.base_resp?.status_code !== 0 || payload.data?.status !== 2)) {
+      throw new StoryVoice302Error("submission_unknown", "302 MiniMax 未确认语音生成成功，不会自动重试");
+    }
+    const rawUrl = isMiniMax ? payload.data?.audio : isElevenLabs ? payload.url : payload.audio_url;
+    const audioUrl = typeof rawUrl === "string" ? rawUrl.trim() : "";
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(audioUrl);

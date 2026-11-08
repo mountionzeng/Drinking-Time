@@ -296,9 +296,9 @@ describe("creation editor spine boundary", () => {
       "client/src/features/creationEditor/views/ShotPreview.tsx"
     );
 
-    expect(editingPage).toContain(
-      'workspace === "editing" ? "editing-nle" : workspace'
-    );
+    expect(editingPage).toContain('<BookVideoWorkspace');
+    expect(editingPage).toContain('active={workspace === "editing"}');
+    expect(source('client/src/features/bookVideo/BookVideoWorkspace.tsx')).toContain('data-story-panel="editing-nle"');
     expect(editingPage).toContain("<EditingNleWorkspace");
     expect(editingPage).toContain("openStoryboardVideoEditor");
     expect(editingPage).toContain("onEditVideo={openStoryboardVideoEditor}");

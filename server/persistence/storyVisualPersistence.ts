@@ -103,6 +103,7 @@ export async function saveStoryVisualTimelineCas(input: {
   document: VisualEditDocument;
 }): Promise<StoryVisualTimelineRecord> {
   return updateStoryTimeline({
+    recordVideoRevision: true,
     storyId: input.storyId,
     userId: input.userId,
     expectedVersion: input.expectedVersion,
@@ -125,6 +126,7 @@ export async function saveStoryVisualAggregateCas(input: {
   nextDocument: VisualEditDocument;
 }) {
   return updateStoryAndTimelineAtomic({
+    recordVideoRevision: true,
     storyId: input.storyId,
     userId: input.userId,
     expectedStoryRevision: input.expectedStoryRevision,

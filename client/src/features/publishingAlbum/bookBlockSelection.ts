@@ -1,7 +1,7 @@
 import { normalizeWritingColumns, validColumnPairs } from '@shared/bookWritingStyle';
 import { bookImageText, readBookImage } from '@shared/bookImageBlock';
-import { blockAncestors, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
-import { BOOK_BODY_FONT_SIZE, bookBaseFont, layoutBookBlocks, type BookDropTarget } from './bookBlockLayout';
+import { blockAncestors, blockSubtreeEnd, canPlaceWritingSubtree, isHeading, type WritingBlock } from './chapterBlockTree';
+import { BOOK_BLOCK_INDENT, BOOK_BODY_FONT_SIZE, bookBaseFont, layoutBookBlocks, type BookDropTarget } from './bookBlockLayout';
 
 /** A selected heading carries its subtree, even while collapsed. */
 export function selectedBookIds(blocks: WritingBlock[], ids: readonly string[]): Set<string> {
@@ -19,11 +19,13 @@ export function moveBookSelection(blocks: WritingBlock[], ids: readonly string[]
   const side = drop.position === 'left' || drop.position === 'right';
   const roots = blocks.filter(block => selected.has(block.id) && (!block.parentId || !selected.has(block.parentId)));
   if (side && (roots.length !== 1 || blockAncestors(blocks, roots[0].id).includes(target.id))) return blocks;
-  const parentId = drop.position === 'inside' ? target.id : target.parentId;
+  const atOwner = !side && roots.every(root => target.format === 'scene' && root.format === 'shot' || target.format === 'heading1' && root.format === 'heading2');
+  const parentId = drop.position === 'inside' || atOwner ? target.id : target.parentId;
+  if (roots.some(root => !canPlaceWritingSubtree(blocks, root.id, parentId))) return blocks;
   const moving = blocks.filter(block => selected.has(block.id)).map(block =>
     block.parentId && selected.has(block.parentId) ? block : { ...block, parentId });
-  const at = drop.position === 'before' || drop.position === 'left' ? targetIndex : blockSubtreeEnd(rest, targetIndex);
-  const result = rest.map(block => block.id === target.id && drop.position === 'inside' ? { ...block, collapsed: false } : block);
+  const at = drop.position === 'before' || drop.position === 'left' ? targetIndex + (atOwner ? 1 : 0) : blockSubtreeEnd(rest, targetIndex);
+  const result = rest.map(block => block.id === target.id && (drop.position === 'inside' || atOwner) ? { ...block, collapsed: false } : block);
   result.splice(at, 0, ...moving);
   if (side) {
     const group = crypto.randomUUID();
@@ -58,7 +60,7 @@ export function resizeBookSelection(blocks: WritingBlock[], ids: readonly string
     lower = Math.max(lower, (image ? .5 : BOOK_BODY_FONT_SIZE / bookBaseFont(block)) / size); upper = Math.min(upper, 2 / size);
     if (image) {
       const placement = layouts.get(block.id);
-      const baseX = 24 + Math.min(blockAncestors(blocks, block.id).length, 4) * 12;
+      const baseX = 24 + Math.min(blockAncestors(blocks, block.id).length, 4) * BOOK_BLOCK_INDENT;
       const unit = units.get(block.id) ?? Math.min((884 - baseX) / 900, 1104 / 1200);
       const frame = image.frame ?? (placement ? { x: (placement.rect.x - (origins.get(block.id) ?? baseX)) / unit, y: 0, width: placement.rect.width / unit, height: placement.rect.height / unit } : undefined);
       if (frame) upper = Math.min(upper, (leftColumns.has(block.id) ? frame.x + frame.width : 900 - frame.x) / frame.width, (1200 - frame.y) / frame.height);
@@ -71,7 +73,7 @@ export function resizeBookSelection(blocks: WritingBlock[], ids: readonly string
     const image = readBookImage(block.text);
     if (image) {
       const placement = layouts.get(block.id);
-      const baseX = 24 + Math.min(blockAncestors(blocks, block.id).length, 4) * 12;
+      const baseX = 24 + Math.min(blockAncestors(blocks, block.id).length, 4) * BOOK_BLOCK_INDENT;
       const unit = units.get(block.id) ?? Math.min((884 - baseX) / 900, 1104 / 1200);
       const frame = image.frame ?? (placement ? { x: (placement.rect.x - (origins.get(block.id) ?? baseX)) / unit, y: 0, width: placement.rect.width / unit, height: placement.rect.height / unit } : undefined);
       return { ...block, text: bookImageText(image.url, image.crop, image.scale * factor,

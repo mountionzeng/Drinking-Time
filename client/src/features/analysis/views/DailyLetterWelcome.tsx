@@ -1,6 +1,6 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
-import { DailyLetterBody } from "./DailyLetterBody";
+import { DailyLetterBody, DailyLetterDate } from "./DailyLetterBody";
 import {
   BookOpen,
   CalendarDays,
@@ -753,7 +753,7 @@ export default function DailyLetterWelcome({
         >
           <div className="min-w-0">
             <p className="text-[10px] text-muted-foreground">
-              {selectedDate} · {selectedReference.lunarLabel}
+              <DailyLetterDate date={selectedDate} />
             </p>
             <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
               {selectedDate === profileDate
@@ -820,7 +820,7 @@ export default function DailyLetterWelcome({
             <div className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4 text-nayin" />
               <h2 className="font-chat-brand text-lg font-normal text-foreground">
-                {_ui("那天，你这样说")}</h2>
+                {_ui("给来信的留言")}</h2>
             </div>
             {!editingMessage && (
               <button
@@ -891,7 +891,7 @@ export default function DailyLetterWelcome({
             <>
               <p className="mt-3 text-sm leading-7 text-foreground">
                 {selectedMessage ||
-                  _ui("这一天还没有留言，想说时再写就好。")}
+                  _ui("这里还没有单独给来信留言；已保存的书稿也可以作为创作参考。")}
               </p>
               {(saidAt || editedAt) && (
                 <p className="mt-1 text-[9px] text-muted-foreground/65">
@@ -991,7 +991,7 @@ export default function DailyLetterWelcome({
               ) : (
                 <RefreshCw className="h-3.5 w-3.5 text-nayin" />
               )}
-              {rereadMut.isPending ? _ui("正在重新读…") : _ui("用最新记忆，再读一遍")}
+              {rereadMut.isPending ? _ui("正在重新读…") : _ui("结合最新创作，再读一遍")}
             </button>
           ) : null}
           {onStartLetterStory ? (

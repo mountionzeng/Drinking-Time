@@ -15,6 +15,7 @@ import { estimateStoryboardImageCost, estimatePublishingCoverFallbackCost } from
 import { formatComputeQuote } from "@shared/computeMoney";
 import { bookImageText } from "@shared/bookImageBlock";
 import { bookAudioText } from "@shared/bookAudioBlock";
+import { BOOK_NARRATION_VOICES, type BookNarrationVoiceGender } from "@shared/bookNarrationVoice";
 export type ModuleConversion = {
   id: string;
   text: string;
@@ -52,6 +53,7 @@ export function BookModuleConvert({
   // Must stay after the existing useState calls (tests rely on hook order).
   const [offerGpt, setOfferGpt] = useState(false);
   const [narrationSubmitted, setNarrationSubmitted] = useState(false);
+  const [voiceGender, setVoiceGender] = useState<BookNarrationVoiceGender>("female");
   const translate = trpc.bookMedia.translate.useMutation({ retry: false });
   const translating = source.kind === "translate-en" || source.kind === "translate-zh";
   const describe = trpc.bookMedia.describe.useMutation(),
@@ -152,6 +154,22 @@ export function BookModuleConvert({
         {source.kind === 'narration' && <div className="space-y-2">
           <p className="text-xs text-muted-foreground">{_ui("按文章顺序朗读所选文字，图片和音乐不参与。每次最多5000字。")}</p>
           <div aria-label={_ui("朗读原文")} className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded border p-3 text-sm">{source.parts ? source.parts.map(part=>part.text).join('\n\n') : source.text}</div>
+          <label className="block text-sm">
+            {_ui("朗读声音")}
+            <select aria-label={_ui("朗读声音")} className="mt-1 w-full rounded border bg-transparent p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={voiceGender} disabled={busy || narrationSubmitted || Boolean(result)}
+              onChange={event => {
+                if (lock.current || narrationSubmitted || result) return;
+                const value = event.target.value;
+                if (value !== "female" && value !== "male") return;
+                setVoiceGender(value);
+                setQuote(null);
+                setError("");
+              }}>
+              <option value="female">{_ui(BOOK_NARRATION_VOICES.female.label)}</option>
+              <option value="male">{_ui(BOOK_NARRATION_VOICES.male.label)}</option>
+            </select>
+          </label>
         </div>}
         {source.kind === "image" && <label className="text-sm">
           {_ui("生成方式")}<select aria-label={_ui("图片生成方式")} className="mt-1 w-full rounded border bg-transparent p-2" value={imageProvider} disabled={busy || submitted || images.length > 0 || blockNewImage}
@@ -190,7 +208,7 @@ export function BookModuleConvert({
         </div>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
-            disabled={busy}
+            disabled={busy || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
               void run(async () => {
                 await prepare();
@@ -259,7 +277,7 @@ export function BookModuleConvert({
                   } else
                     setError("任务已提交，结果可在仓库查看。请勿重复提交。");
                 } else if(source.kind === "narration") {
-                  setQuote(await narrationPrice.mutateAsync({storyId,chapterId,moduleId:source.id,...(source.parts ? {moduleIds:source.parts.map(part=>part.id)} : {})}));
+                  setQuote(await narrationPrice.mutateAsync({storyId,chapterId,moduleId:source.id,voiceGender,...(source.parts ? {moduleIds:source.parts.map(part=>part.id)} : {})}));
                 } else {
                   setQuote(
                     await price.mutateAsync({

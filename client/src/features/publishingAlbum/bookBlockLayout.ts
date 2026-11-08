@@ -1,20 +1,23 @@
 import { readBookAudio } from "@shared/bookAudioBlock";
 import { validColumnPairs } from '@shared/bookWritingStyle';
 import { readBookImage, bookImageText } from "@shared/bookImageBlock";
-import { blockAncestors, blockSubtreeEnd, isHeading, moveWritingBlock, newWritingBlock, type BlockDrop, type WritingBlock, type BookPlacement } from './chapterBlockTree';
+import { blockAncestors, blockSubtreeEnd, canPlaceWritingSubtree, isHeading, moveWritingBlock, newWritingBlock, type BlockDrop, type WritingBlock, type BookPlacement } from './chapterBlockTree';
 import { textModuleHeight } from './imagePackModules';
+import { bookOutlineSummaries, bookOutlineExtraHeight } from './bookOutlineSummary';
 
 export type { BookPlacement } from "./chapterBlockTree";
 export type BookBlockLayout = { block: WritingBlock; index: number; placement: BookPlacement; imageFactor: number; imageOriginX: number };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export const BOOK_BODY_FONT_SIZE = 24;
+export const BOOK_BLOCK_INDENT = 28;
 
-export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' ? 36 : block.format === 'heading2' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
+export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' || block.format === 'scene' ? 36 : block.format === 'heading2' || block.format === 'shot' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
 
 /** All paragraphs follow document order. Legacy free coordinates are retained in cache but never used for placement. */
 export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900, chapterIds: ReadonlySet<string> = new Set(), formulaHeights: Record<string, number> = {}): BookBlockLayout[] {
   const pairs = validColumnPairs(blocks);
+  const summaries = bookOutlineSummaries(blocks);
   const result: BookBlockLayout[] = [];
   type Cursor = { page: number; bottom: number };
   function range(from: number, end: number, left: number, right: number, depth: number, cursor: Cursor, skipPair?: string): Cursor {
@@ -26,7 +29,7 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       if (partner && block.id !== skipPair) {
         const second = blocks.findIndex(item => item.id === partner);
         const after = blockSubtreeEnd(blocks, second);
-        const rowLeft = left + Math.min(Math.max(0, ancestors.length - depth), 4) * 12;
+        const rowLeft = left + Math.min(Math.max(0, ancestors.length - depth), 4) * BOOK_BLOCK_INDENT;
         const columnWidth = (right - rowLeft - 16) * (block.columnRatio ?? .5);
         // Start both columns together; each column paginates without overlapping the other.
         const start = { page, bottom };
@@ -51,7 +54,7 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       }
       const image = readBookImage(block.text), base = bookBaseFont(block);
       const fontSize = clamp(image ? base * image.scale : block.book?.fontSize ?? base, image ? base / 2 : BOOK_BODY_FONT_SIZE, base * 2);
-      const baseX = left + (isHeading(block) ? 16 : 0) + Math.min(Math.max(0, ancestors.length - depth), 4) * 12;
+      const baseX = left + (isHeading(block) ? 16 : 0) + Math.min(Math.max(0, ancestors.length - depth), 4) * BOOK_BLOCK_INDENT;
       const available = Math.max(24, right - baseX);
       const factor = Math.min(available / 900, 1104 / 1200);
       const frame = image?.frame;
@@ -62,6 +65,8 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
       const textWidth = width - (block.videoRole === 'dialogue' ? Math.min(1.5 * fontSize, width * .3) : 0);
       let height = readBookAudio(block.text) ? 160 : frame ? frame.height * factor : image ? Math.min(1104, 300 * fontSize / base) : Math.min(1104, Math.max(52, textModuleHeight(block.text, chapterIds.has(block.id) && block.format === "heading1" ? Math.max(24, textWidth - 120) : textWidth, fontSize, (glyph, size) => /[\u0000-\u007f]/.test(glyph) ? size * .6 : size)));
       if (!image && !readBookAudio(block.text)) height = Math.min(1104,Math.max(height,formulaHeights[block.id]??0));
+      if (isHeading(block) && !(chapterIds.has(block.id) && block.format === 'heading1')) height = Math.min(1104, height + 32);
+      height = Math.min(1104, height + bookOutlineExtraHeight(block, summaries.get(block.id)!));
       const aspect = image && imageRatios[image.url];
       if (image && !frame && aspect && aspect > 0) {
         const croppedAspect = aspect * image.crop.width / image.crop.height;
@@ -107,7 +112,7 @@ export function findBookDrop(blocks: WritingBlock[], sourceId: string, boxes: Bo
     if (x <= target.left + width * .22) return { id: target.id, position: 'left' };
     if (x >= target.right - width * .22) return { id: target.id, position: 'right' };
   }
-  return { id: target.id, position: isHeading(block) && fraction >= .25 && fraction <= .75
+  return { id: target.id, position: isHeading(block) && canPlaceWritingSubtree(blocks, sourceId, block.id) && fraction >= .25 && fraction <= .75
     ? 'inside' : fraction < .5 ? 'before' : 'after' };
 }
 
@@ -116,6 +121,12 @@ export function moveBookBlockByKey(blocks: WritingBlock[], id: string, key: stri
   const index = visible.findIndex(block => block.id === id);
   if (index < 0) return blocks;
   const current = visible[index];
+  if (['scene', 'shot', 'heading1', 'heading2'].includes(current.format) && (key === 'ArrowUp' || key === 'ArrowDown')) {
+    const siblings = blocks.filter(block => block.parentId === current.parentId);
+    const at = siblings.findIndex(block => block.id === id);
+    const target = siblings[at + (key === 'ArrowUp' ? -1 : 1)];
+    return target ? moveWritingBlock(blocks, id, target.id, key === 'ArrowUp' ? 'before' : 'after') : blocks;
+  }
   const previous = visible[index - 1];
   const following = visible.slice(index + 1).find(block => !blockAncestors(blocks, block.id).includes(id));
   if (key === 'ArrowUp' && previous) return moveWritingBlock(blocks, id, previous.id, 'before');

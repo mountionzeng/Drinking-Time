@@ -219,6 +219,45 @@ describe("publishing video storyboard generation", () => {
     expect(result.preview.shots.map(shot=>shot.voiceText)).toEqual(["",""]);
   });
 
+  it('preserves each explicit shot and its dialogue even when model narration differs',async()=>{
+    const rows=publishingArticleVideoRows({body:'同一场中的两个镜头',illustrations:[],bookScenes:[
+      {id:'book-shot-a',sourceKind:'shot',text:'场景说明\n特写',dialogueText:'逐字保留这句',referenceImageIds:[]},
+      {id:'book-shot-b',sourceKind:'shot',text:'场景说明\n远景',dialogueText:'',referenceImageIds:[]},
+    ]});
+    vi.stubGlobal('fetch',vi.fn(async(_url:string,init:RequestInit)=>{
+      const request=JSON.parse(String(init.body));
+      expect(request.messages[0].content).toContain('不合并同场镜头');
+      return {ok:true,status:200,text:async()=>'',json:async()=>({choices:[{message:{content:JSON.stringify({paragraphs:rows.map(row=>({
+        paragraphId:row.id,scriptText:'模型改写',visualTreatment:'动作',shots:[{subject:'人物',action:'看窗外',imageRequirement:'场景中的人物',videoRequirement:'缓慢推近人物',voiceText:'错误台词',soundRequirement:'雨声',durationSec:5}],
+      })),supplements:[]})}}]})};
+    }));
+    const result=await generatePublishingVideoStoryboardPreview({body:'同一场中的两个镜头',platform:'xiaohongshu',core:null,articleRows:rows,creativeIntent:'保留分镜'});
+    expect(result.preview.shots.map(shot=>shot.draftShotId)).toEqual(['book-shot-a','book-shot-b']);
+    expect(result.preview.shots.map(shot=>shot.voiceText)).toEqual(['逐字保留这句','']);
+    expect(result.preview.shots.map(shot=>shot.scriptText)).toEqual(rows.map(row=>row.text));
+  });
+
+  it.each([false,true])('bounds whole-manuscript planning while honoring a configured timeout: %s',async(configured)=>{
+    vi.useFakeTimers();
+    const timeout=vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{
+      const controller=new AbortController();
+      setTimeout(()=>controller.abort(new DOMException('Timed out','TimeoutError')),ms);
+      return controller.signal;
+    });
+    vi.stubEnv('PUBLISHING_VIDEO_STORYBOARD_302_TIMEOUT_MS',configured?'90000':undefined);
+    const rows=Array.from({length:7},(_,i)=>({id:`shot-${i}`,text:'人物走入画面',voiceText:'',dialogueText:'',sourceKind:'shot' as const,referenceImageIds:[]}));
+    vi.stubGlobal('fetch',vi.fn((_url,init:RequestInit)=>new Promise((_resolve,reject)=>init.signal!.addEventListener('abort',()=>reject(new DOMException('Timed out','TimeoutError'))))));
+    let completed=false;
+    const result=generatePublishingVideoStoryboardPreview({body:'七镜分镜稿',core:null,platform:'xiaohongshu',articleRows:rows,creativeIntent:'保留七镜'}).catch(error=>{completed=true;return error;});
+    try {
+      await vi.advanceTimersByTimeAsync(90000);
+      expect(completed).toBe(configured);
+      if(!configured) await vi.advanceTimersByTimeAsync(85000);
+      expect((await result).message).toContain('文本服务未及时返回可用方案');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {timeout.mockRestore();vi.useRealTimers();vi.unstubAllEnvs();}
+  });
+
   it("routes text storyboard compute to OpenAI Next when configured", async () => {
     ENV.openaiNextApiKey = "test-next-key";
     ENV.openaiNextTextModel = "gpt-5.6-terra";

@@ -341,3 +341,33 @@ it("an unavailable music asset leaves the adopted table recoverable; retry compl
   expect(((await db.getStoryById(input.storyId, input.userId))!.body as any).shots).toEqual(shots.shots);
   expect((await service.listBookVideoRecords(input))[0].status).toBe("adopted");
 });
+
+it.each([false,true])('inherits rendered frames and chosen endpoints when legacy acts become scene/shot modules, new publishing version=%s',async(newPublishingVersion)=>{
+ const input=await fixture();
+ const {insertChapter,saveChapterContent}=await import('../repositories/chapters');
+ const {applyStoryboardPlan}=await import('./bookStoryboardPreparation');
+ const original=await insertChapter({storyId:input.storyId,userId:31,content:{title:'旧伞',layout:null,blocks:{body:'第1幕\n阿宁撑开那把修好的旧伞。\n第2幕\n旅人撑着这把旧伞慢慢走远。',blockIds:['a','b','c','d'],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ await service.proposeBookVideo(input);await service.generateBookVideo(input);const first=await reviewAndAdopt(input);
+ const stable=first.shots[0].stableShotId as string;
+ const image=await db.createGeneratedImage({storyId:input.storyId,userId:31,projectId:null,shotNo:'SH01',shotIdentity:stable,imageUrl:'/api/images/inherited.png',imageKey:null,prompt:'原画面',generationType:'initial',isCurrent:true});
+ const story=await db.getStoryById(input.storyId,31);const body=story!.body as any;
+ const changed={...body,_revision:body._revision+1,shots:body.shots.map((shot:any,index:number)=>index===0?{...shot,generationParams:JSON.stringify({storyboardFrameRoles:{firstImageId:image.id,lastImageId:image.id,referenceImageIds:[]},referenceFrameImageIds:[],durationSec:8})}:shot)};
+ expect(await db.updateStoryBodyIfRevision({id:input.storyId,userId:31,expectedRevision:body._revision,body:changed})).toBe(true);
+ const blocks=applyStoryboardPlan(original.id,original.blocks,{scenes:[{title:'雨中',shots:[{title:'开伞',units:[0,1]}]},{title:'街边',shots:[{title:'离开',units:[2,3]}]}]});
+ await saveChapterContent({id:original.id,userId:31,expectedVersion:original.version,content:{blocks},reason:'storyboard-test'});
+ let versionId=input.versionId;
+ if(newPublishingVersion) {
+  versionId='v-next';
+  const current=(await db.getStoryById(input.storyId,31))!.body as any;
+  const oldVersion=current.publishing.versions.find((v:any)=>v.versionId===input.versionId);
+  const publishing={...current.publishing,activeVersionId:versionId,versions:[...current.publishing.versions,{...oldVersion,versionId,videoStoryboard:undefined}]};
+  expect(await db.updateStoryBodyIfRevision({id:input.storyId,userId:31,expectedRevision:current._revision,body:{...current,_revision:current._revision+1,publishing}})).toBe(true);
+ }
+ const next={...input,versionId,id:crypto.randomUUID(),parentId:input.id,request:'沿用旧画面，以分镜稿制作'};
+ await service.proposeBookVideo(next);await service.generateBookVideo(next);const adopted=await reviewAndAdopt(next);
+ expect(adopted.shots.map(s=>s.stableShotId)).toEqual(first.shots.map(s=>s.stableShotId));
+ expect(JSON.parse(adopted.shots[0].generationParams as string).storyboardFrameRoles).toMatchObject({firstImageId:image.id,lastImageId:image.id});
+ const {getStoryMaterialState}=await import('./storyMaterials');
+ expect((await getStoryMaterialState(input.storyId,31))?.shots[0].imageVersions.some(i=>i.id===image.id)).toBe(true);
+ expect((await service.listBookVideoRecords(input))[0].storyboardSnapshot?.shots[0].generationParams).toBe(changed.shots[0].generationParams);
+});

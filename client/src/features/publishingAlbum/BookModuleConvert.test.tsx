@@ -65,9 +65,38 @@ it('previews and quotes every selected narration module without starting generat
  const tree=nodes(BookModuleConvert({source,storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()}));
  expect(tree.find(n=>n.props?.['aria-label']==='朗读原文').props.children).toBe('第一句\n\n第二句');
  tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.onClick();await settle();
- expect(m.price).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'a',moduleIds:['a','b']});
+ expect(m.price).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'a',moduleIds:['a','b'],voiceGender:'female'});
  expect(m.music).not.toHaveBeenCalled();
 });
+it('defaults to the approved female voice, clears a quote on voice change, and requotes the male voice',async()=>{
+ const props={source:{id:'a',text:'原文',kind:'narration' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
+ m.price.mockResolvedValue({quoteToken:'female-quote',estimatedCny:.02,subtitleCueId:'book-a'});
+ let tree=nodes(BookModuleConvert(props));
+ expect(tree.find(n=>n.type==='select').props.value).toBe('female');
+ expect(tree.filter(n=>n.type==='option').map(n=>n.props.children)).toEqual(['女声 · 温柔小雅','男声 · 温暖阿虎']);
+ tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.onClick();await settle();
+ m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ expect(tree.some(n=>n.type==='button'&&String(n.props.children).includes('确认按原文朗读'))).toBe(true);
+ tree.find(n=>n.type==='select').props.onChange({target:{value:'male'}});
+ m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ expect(tree.find(n=>n.type==='select').props.value).toBe('male');
+ expect(tree.some(n=>n.type==='button'&&String(n.props.children).includes('确认按原文朗读'))).toBe(false);
+ tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.onClick();await settle();
+ expect(m.price).toHaveBeenLastCalledWith({storyId:1,chapterId:2,moduleId:'a',voiceGender:'male'});
+ expect(m.music).not.toHaveBeenCalled();
+});
+
+it('locks voice selection during a pending quote so a late quote cannot describe another voice',async()=>{
+ let resolve!: (value:any)=>void;m.price.mockReturnValue(new Promise(r=>{resolve=r;}));
+ const props={source:{id:'a',text:'原文',kind:'narration' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
+ const tree=nodes(BookModuleConvert(props));tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.onClick();await settle();
+ tree.find(n=>n.type==='select').props.onChange({target:{value:'male'}});
+ m.index=m.ref=0;let next=nodes(BookModuleConvert(props));expect(next.find(n=>n.type==='select').props.disabled).toBe(true);
+ resolve({quoteToken:'female',estimatedCny:.02});await settle();
+ m.index=m.ref=0;next=nodes(BookModuleConvert(props));expect(next.find(n=>n.type==='select').props.value).toBe('female');
+ expect(m.music).not.toHaveBeenCalled();
+});
+
 it('inserts a completed audiobook with its classification and refreshes the audio library',async()=>{
  m.states=[false,'','', '',[],false,{quoteToken:'quote',estimatedCny:.02,subtitleCueId:'book-one'}];m.music.mockResolvedValue({status:'candidate-ready',candidate:{assetId:9}});const insert=vi.fn();
  const tree=BookModuleConvert({source:{id:'x',text:'照原文朗读',kind:'narration'},storyId:1,chapterId:2,prepare:async()=>{},onInsert:insert,onClose:vi.fn()});
@@ -84,6 +113,8 @@ it.each(['submission-unknown', 'pending'])('warns and prevents another submissio
  m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
  expect(tree.find(n=>n.props?.role==='alert').props.children.join('')).toContain('结果尚未确认');
  expect(tree.find(n=>n.type==='button'&&String(n.props.children).includes('确认按原文朗读')).props.disabled).toBe(true);
+ expect(tree.find(n=>n.type==='select').props.disabled).toBe(true);
+ expect(tree.find(n=>n.type==='button'&&n.props.children==='查看朗读费用').props.disabled).toBe(true);
  expect(m.music).toHaveBeenCalledTimes(1);expect(props.onInsert).not.toHaveBeenCalled();
 });
 
