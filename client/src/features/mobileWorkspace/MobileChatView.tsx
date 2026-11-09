@@ -214,6 +214,8 @@ export function MobileChatView({
   const setDraft = onDraftChange ?? setLocalDraft;
   const [announcement, setAnnouncement] = useState("");
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voicePreview, setVoicePreview] = useState("");
+  const [voiceNotice, setVoiceNotice] = useState("");
   const draftRef = useRef(draft);
   draftRef.current = draft;
   useEffect(() => {
@@ -437,14 +439,19 @@ export function MobileChatView({
         onSubmit={handleSubmit}
       >
         {capture && <MobileCaptureAttachments capture={capture} />}
+        {voiceNotice && <p role="status" className="mx-auto max-w-2xl pb-2 text-xs leading-5 text-muted-foreground">{voiceNotice}</p>}
         <div className="mx-auto flex max-w-2xl items-end gap-2">
-          {capture && <MobileCaptureButton capture={capture} />}
+          {capture && <MobileCaptureButton capture={capture} disabled={voiceBusy} />}
           {!capture?.active &&
           <MobileVoiceInput
             disabled={composerDisabled || controller.historyState === "loading"}
             onBusyChange={setVoiceBusy}
+            onPreviewChange={setVoicePreview}
+            onNoticeChange={setVoiceNotice}
             onText={text => {
-              setDraft([draftRef.current, text].filter(Boolean).join("\n"));
+              const next = [draftRef.current, text].filter(Boolean).join("\n");
+              draftRef.current = next;
+              setDraft(next);
               setAnnouncement("语音已转成文字，请确认后发送");
             }}
           />
@@ -455,7 +462,8 @@ export function MobileChatView({
             disabled={controller.historyState === "loading" || composerDisabled || capture?.busy || capture?.locked}
             placeholder={t("继续聊聊…")}
             rows={1}
-            value={draft}
+            value={[draft, voicePreview].filter(Boolean).join("\n")}
+            readOnly={Boolean(voicePreview)}
             onChange={event => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
           />

@@ -5,8 +5,8 @@ import type { useMaterialCapture } from "./useMaterialCapture";
 import { CaptureShareSetup } from "./CaptureShareSetup";
 export type CaptureController = ReturnType<typeof useMaterialCapture>;
 
-export function MobileCaptureButton({capture}:{capture:CaptureController}) {
-  return <button type="button" className="size-11 shrink-0 rounded-full text-primary" aria-label="添加素材" title="添加素材" disabled={!capture.ready || capture.busy} onClick={() => capture.activate()}><Paperclip className="mx-auto size-5" /></button>;
+export function MobileCaptureButton({capture,disabled=false}:{capture:CaptureController;disabled?:boolean}) {
+  return <button type="button" className="size-11 shrink-0 rounded-full text-primary" aria-label="添加素材" title="添加素材" disabled={disabled || !capture.ready || capture.busy} onClick={() => capture.activate()}><Paperclip className="mx-auto size-5" /></button>;
 }
 function Attachment({file,onRemove,disabled}:{file:File;onRemove:()=>void;disabled:boolean}) {
   const [url,setUrl] = useState("");

@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { CaptureReceipt } from "@shared/materialCapture";
-import { MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
+import { MobileCaptureButton, MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
 
 function receipt(id: string, storyId: number | null, status: CaptureReceipt["status"] = "saved"): CaptureReceipt {
   return { id, storyId, status, manifest: { origin: "chat", text: id, files: [] },
@@ -18,6 +18,11 @@ function render(overrides: Partial<CaptureController> = {}, storyId = 1215) {
 }
 
 describe("capture receipts in a story conversation", () => {
+  it("prevents switching to material capture while dictation owns the microphone", () => {
+    const capture = {ready:true,busy:false,activate:vi.fn()} as unknown as CaptureController;
+    expect(renderToStaticMarkup(<MobileCaptureButton capture={capture} disabled />)).toContain('disabled=""');
+    expect(renderToStaticMarkup(<MobileCaptureButton capture={capture} />)).not.toContain('disabled=""');
+  });
   it("shows only records linked to the current story", () => {
     const html = render();
     expect(html).toContain("current-story");

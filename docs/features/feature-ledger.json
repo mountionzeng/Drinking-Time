@@ -5190,7 +5190,8 @@
         "client/src/features/nayin/views/EmotiveWuxingIcon.tsx",
         "client/src/features/mobileWorkspace/mobileConversationStore.ts",
         "client/src/features/mobileWorkspace/MobileVoiceInput.tsx",
-        "client/src/features/storyAgent/hooks/useVoiceInput.ts"
+        "client/src/features/storyAgent/hooks/useVoiceInput.ts",
+        "client/src/features/mobileWorkspace/liveDictation.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -5235,7 +5236,10 @@
         "scripts/verify-mobile-text-confirmation.cjs",
         "docs/qa/2026-11-01-conversation-exploration.md",
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "client/src/features/mobileWorkspace/liveDictation.test.ts",
+        "client/src/features/mobileWorkspace/MobileVoiceInput.test.tsx",
+        "docs/qa/2026-11-09-mobile-live-dictation.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -5245,7 +5249,7 @@
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
         "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。",
         "手机新增与电脑相同的文字候选生成/预览/显式采用入口；人工正文仍走body-only，候选采用走已有textDrafts.adopt并校验发布修订，不自动修改正式正文。",
-        "故事对话显示完整权威历史，不再按接着聊时的本机基线隐藏旧消息；语音复用电脑转写服务，结果仅追加草稿，由用户发送。关闭后迟到的权限与转写结果不得写入新对话。"
+        "故事对话显示完整权威历史，不再按接着聊时的本机基线隐藏旧消息；按用户2026-11-09要求，手机优先浏览器实时听写，不支持时沿用电脑录后转写服务，结果仅追加草稿，由用户发送。关闭后迟到的权限与转写结果不得写入新对话。"
       ],
       "dependencies": [
         "story-ownership",
@@ -5259,7 +5263,8 @@
       "knownGaps": [
         "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
-        "手机媒体导入仍保存素材及说明；电脑聊天的识图归类、图片提取/重绘和声音导演等高级素材工具尚未整体迁入，不能宣称全部高级对话工具已对齐。"
+        "手机媒体导入仍保存素材及说明；电脑聊天的识图归类、图片提取/重绘和声音导演等高级素材工具尚未整体迁入，不能宣称全部高级对话工具已对齐。",
+        "2026-11-09实时听写仅完成本地模拟识别事件与页面交互验证，未部署，iOS Safari/Android Chrome真实麦克风、系统识别权限及网络可达性待验。浏览器不支持时退回录后转写；截图中旧豆包极速版403和302回退500的上游故障未修复，不宣称兼容路径可用。实时听写不生成可回听音频原件，原件收集仍使用素材录音入口。"
       ],
       "history": [
         {
@@ -5626,6 +5631,11 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "首页恢复上次聊天时改为继续上次对话，避免错误标为新故事；不清除原对话。电脑生成写入与版本保留、手机保存后电脑提示更新并明确接收实测通过。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "enhancement",
+          "summary": "手机话筒单击直接启动浏览器实时听写，临时文字进入原输入框，确认片段追加草稿；停止/断网保留已识别文字，等待超时和卸载停止识别，不自动重试或发送。旧录后转写兼容保留，报错改为整行短提示；听写中禁止切换素材，原素材录音/系统分享不变。本地单元与隔离页面验收见QA；未部署、未真实录音或付费调用。"
         }
       ]
     },
