@@ -1,4 +1,6 @@
 import { bookVideoRouter } from "./bookVideo";
+import { bookWorkflowRouter } from "./bookWorkflow";
+import { videoWorkflowRouter } from "./videoWorkflow";
 import { selectDailyLetterWorks } from "../services/dailyLetterWorks";
 import { dailyLetterReadingContext } from "../../shared/dailyLetterReading";
 import { bookMediaRouter } from "./bookMedia";
@@ -1218,6 +1220,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   chapters: chaptersRouter,
   bookMedia: bookMediaRouter,
   bookVideo: bookVideoRouter,
+  bookWorkflow: bookWorkflowRouter,
+  videoWorkflow: videoWorkflowRouter,
   chapterDelivery: chapterDeliveryRouter,
   publishingDraft: publishingDraftRouter,
   textDrafts: textDraftsRouter,

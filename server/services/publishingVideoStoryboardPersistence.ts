@@ -1,4 +1,6 @@
 import { readBookVideoSource } from "./bookVideoSource";
+import type { VersionActor } from "../../shared/bookWorkflow";
+import { preserveVideoWhileReplacing, VideoSnapshotConflictError } from "./videoWorkflow";
 import { matchBookVideoShots, inheritBookFrameParameters } from './bookVideoShotContinuity';
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -1035,6 +1037,7 @@ async function confirmPublishingVideoShots(input: {
   versionId: string;
   previewId: string;
   expectedPreviewRevision?: number;
+  preserveVideoActor?: VersionActor;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
@@ -1346,12 +1349,15 @@ async function confirmPublishingVideoShots(input: {
       }
     );
     try {
-      const saved = await persistPreparedStoryBody({
+      const saveInput = {
         storyId: input.storyId,
         userId: input.userId,
         expectedRevision: context.storyRevision,
         body: nextBody,
-      });
+      };
+      const saved = input.preserveVideoActor && rawShots.length
+        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID() })
+        : await persistPreparedStoryBody(saveInput);
       return {
         status: "confirmed",
         storyId: input.storyId,
@@ -1362,7 +1368,7 @@ async function confirmPublishingVideoShots(input: {
         reused: false,
       };
     } catch (error) {
-      if (error instanceof StoryBodyRevisionConflictError) continue;
+      if (error instanceof StoryBodyRevisionConflictError || error instanceof VideoSnapshotConflictError) continue;
       throw error;
     }
   }

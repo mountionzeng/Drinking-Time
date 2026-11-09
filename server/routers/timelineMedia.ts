@@ -727,7 +727,7 @@ export const timelineMediaRouter = router({
           track.clips.some(clip => clip.assetId === input.assetId)
         );
         if (used) return { status: "error" as const, message: "这份声音正在时间线上使用，请先删除时间线片段" };
-        const chapters = await listChapters(input.storyId, ctx.user.id);
+        const chapters = await listChapters(input.storyId, ctx.user.id, "all");
         for (const chapter of chapters) {
           const versions = await listChapterVersions(chapter.id, ctx.user.id);
           if ([chapter, ...versions].some(row => row.blocks.body.split('\n').some(line => {

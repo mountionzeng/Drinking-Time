@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   clear: vi.fn(),
   flush: vi.fn(),
   organize: vi.fn(),
+  workflow: vi.fn(),
   refresh: vi.fn(),
   propose: vi.fn(),
   effects: [] as Array<() => unknown>,
@@ -62,6 +63,7 @@ vi.mock("./BookVideoStartButton", () => ({ BookVideoStartButton: () => null }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({
+      bookWorkflow: { get: { fetch: api.workflow } },
       bookVideo: { list: { invalidate: api.invalidate } },
       storyAgent: { storyMaterialState: { invalidate: api.mediaInvalidate } },
     }),
@@ -147,6 +149,7 @@ beforeEach(() => {
   });
   api.adopt.mockResolvedValue({});
   api.effects = [];
+  api.workflow.mockResolvedValue({ drafts: { storyboard: { version: { id: "board-v1" }, dirty: false } } });
   api.organizeFirst = true;
   api.activeStoryId = 1;
   api.organize.mockResolvedValue({
@@ -307,46 +310,28 @@ function openSession() {
   api.effects.forEach(effect => effect());
   return handle.current!;
 }
-it("flushes live writing, prepares the manuscript, refreshes it, then proposes the video direction", async () => {
-  const result = await openSession().submit("把修伞的故事做成视频");
-  expect(result).toBe(true);
+it("flushes live writing and checks the confirmed storyboard before proposing", async () => {
+  expect(await openSession().submit("把修伞的故事做成视频")).toBe(true);
   expect(api.flush).toHaveBeenCalledWith(1, 9);
-  expect(api.organize).toHaveBeenCalledWith({
-    storyId: 1,
-    request: "把修伞的故事做成视频",
-  });
-  expect(api.refresh).toHaveBeenCalledWith(1, 9, [{ id: 3, version: 5 }]);
-  expect(api.flush.mock.invocationCallOrder[0]).toBeLessThan(
-    api.organize.mock.invocationCallOrder[0]
-  );
-  expect(api.organize.mock.invocationCallOrder[0]).toBeLessThan(
-    api.refresh.mock.invocationCallOrder[0]
-  );
-  expect(api.refresh.mock.invocationCallOrder[0]).toBeLessThan(
-    api.propose.mock.invocationCallOrder[0]
-  );
-  expect(api.generate).not.toHaveBeenCalled();
-  expect(api.adopt).not.toHaveBeenCalled();
-});
-it("allows skipping manuscript preparation through the existing checkbox", async () => {
-  api.organizeFirst = false;
-  expect(await openSession().submit("直接讨论视频")).toBe(true);
-  expect(api.flush).toHaveBeenCalledOnce();
   expect(api.organize).not.toHaveBeenCalled();
-  expect(api.propose).toHaveBeenCalledOnce();
+  expect(api.workflow).toHaveBeenCalledWith({ storyId: 1 });
+  expect(api.flush.mock.invocationCallOrder[0]).toBeLessThan(api.workflow.mock.invocationCallOrder[0]);
+  expect(api.workflow.mock.invocationCallOrder[0]).toBeLessThan(api.propose.mock.invocationCallOrder[0]);
+  expect(api.generate).not.toHaveBeenCalled(); expect(api.adopt).not.toHaveBeenCalled();
 });
-it("retains the chat request and stops proposing when refreshed writing would conflict with a live draft", async () => {
-  api.refresh.mockRejectedValueOnce(new Error("当前文字尚未保存"));
+it("cannot bypass the storyboard confirmation when no version exists", async () => {
+  api.workflow.mockResolvedValueOnce({ drafts: { storyboard: { version: null, dirty: false } } });
+  expect(await openSession().submit("直接讨论视频")).toBe(false);
+  expect(api.propose).not.toHaveBeenCalled();
+});
+it("preserves the request when the storyboard has unsaved version changes", async () => {
+  api.workflow.mockResolvedValueOnce({ drafts: { storyboard: { version: { id: "v1" }, dirty: true } } });
   expect(await openSession().submit("整理")).toBe(false);
   expect(api.propose).not.toHaveBeenCalled();
 });
-it("never proposes into another story after preparation finishes", async () => {
-  api.organize.mockImplementationOnce(async () => {
-    api.activeStoryId = 2;
-    return { chapters: [{ id: 3, version: 5 }], shotCount: 2, changed: true };
-  });
+it("never proposes into another story after source checks finish", async () => {
+  api.workflow.mockImplementationOnce(async () => { api.activeStoryId = 2; return { drafts: { storyboard: { version: { id: "v1" }, dirty: false } } }; });
   await openSession().submit("整理");
-  expect(api.refresh).not.toHaveBeenCalled();
   expect(api.propose).not.toHaveBeenCalled();
 });
 

@@ -13,11 +13,10 @@ it('keeps the article-only flow working while the chapter feature is off, withou
   expect(await caller(7).prepareManuscript({storyId:4,request:'整理'})).toEqual({chapters:[],shotCount:0,changed:false});
   expect(prepare).not.toHaveBeenCalled();
 });
-it('passes only the authenticated owner to manuscript preparation',async()=>{
+it('retires destructive in-place preparation and requires a separately reviewed manuscript',async()=>{
   vi.stubEnv('CHAPTER_PACKAGE_ENABLED','true');
-  prepare.mockResolvedValue({chapters:[{id:5,version:2}],shotCount:3,changed:true});
-  await caller(7).prepareManuscript({storyId:4,request:'整理'});
-  expect(prepare).toHaveBeenCalledWith({storyId:4,userId:7,request:'整理'});
+  await expect(caller(7).prepareManuscript({storyId:4,request:'整理'})).rejects.toMatchObject({code:'PRECONDITION_FAILED'});
+  expect(prepare).not.toHaveBeenCalled();
 });
 it('requires authentication before preparation',async()=>{
   vi.stubEnv('CHAPTER_PACKAGE_ENABLED','true');

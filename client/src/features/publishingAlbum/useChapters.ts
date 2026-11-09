@@ -1,3 +1,4 @@
+import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
@@ -22,10 +23,11 @@ export type ChapterEdit = {
 };
 
 /** Mounted only behind the server's enabled flag. No platform draft is ever written here. */
-export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter) => boolean) {
+export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter) => boolean, kind?: ManuscriptKind) {
   const utils = trpc.useUtils();
+  const listInput = { storyId, ...(kind ? { kind } : {}) };
   const list = trpc.chapters.list.useQuery(
-    { storyId },
+    listInput,
     { enabled: isPersistedStoryId(storyId), retry: false, refetchOnWindowFocus: false }
   );
   const save = trpc.chapters.save.useMutation();
@@ -117,7 +119,7 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
             ...chapterLocalImages(edit),
             autosave: true,
           });
-          utils.chapters.list.setData({ storyId }, rows =>
+          utils.chapters.list.setData(listInput, rows =>
             rows?.map(row => (row.id === id ? saved : row))
           );
           return saved.version;
@@ -196,7 +198,7 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
         expectedVersion: comparedVersion ?? queue.current?.queue.version ?? active.version, ...draft });
       if (queue.current?.id === active.id) queue.current.queue.version = saved.version;
       utils.chapters.get.setData({ chapterId: active.id }, previous => previous ? {...previous,chapter:saved} : previous);
-      utils.chapters.list.setData({storyId}, rows=>rows?.map(row=>row.id===saved.id?saved:row));
+      utils.chapters.list.setData(listInput, rows=>rows?.map(row=>row.id===saved.id?saved:row));
       setExternalVersion(null);
       return saved;
     },
@@ -206,7 +208,7 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
       if (fresh.chapter.version !== expectedVersion) throw new Error("对比期间又有新版本，请重新查看更新后接收。");
       if (queue.current?.queue.dirty || releaseText.current?.(fresh.chapter) === false) throw new Error("当前文字尚未保存，请保留草稿并重新对比。");
       utils.chapters.get.setData({ chapterId: active.id }, fresh);
-      utils.chapters.list.setData({ storyId }, rows => rows?.map(row => row.id === active.id ? fresh.chapter : row));
+      utils.chapters.list.setData(listInput, rows => rows?.map(row => row.id === active.id ? fresh.chapter : row));
       setExternalVersion(null);
       setEpoch(value => value + 1);
     },

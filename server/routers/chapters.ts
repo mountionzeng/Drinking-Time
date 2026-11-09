@@ -1,4 +1,5 @@
 import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
+import { manuscriptKindSchema } from "../../shared/bookWorkflow";
 import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
 import { getUserById } from "../repositories/users";
 import { createHash, randomUUID } from "node:crypto";
@@ -104,10 +105,10 @@ export const chaptersRouter = router({
   /** The UI hides every chapter entry when this is false. */
   enabled: protectedProcedure.query(() => ({ enabled: chapterEnabled() })),
 
-  list: protectedProcedure.input(storyInput).query(async ({ ctx, input }) => {
+  list: protectedProcedure.input(storyInput.extend({ kind: manuscriptKindSchema.optional() })).query(async ({ ctx, input }) => {
     requireEnabled();
     await ownStory(input.storyId, ctx.user.id);
-    return (await listChapters(input.storyId, ctx.user.id)).map(view);
+    return (await listChapters(input.storyId, ctx.user.id, input.kind)).map(view);
   }),
 
   /** One chapter plus fresh image urls; urls are never stored. */
@@ -132,6 +133,7 @@ export const chaptersRouter = router({
         body: z.string().max(MAX_BODY).default(""),
         draftSource: z.string().max(300).optional(),
         containsAiText: z.boolean().default(false),
+        kind: manuscriptKindSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -145,6 +147,7 @@ export const chaptersRouter = router({
             title: input.title,
             blocks: {
               ...emptyBlocks(input.body),
+              manuscriptKind: input.kind,
               attribution: { editorName: artworkAuthorName(ctx.user.name), action: "created" },
               containsAiText: input.containsAiText,
               ...(input.draftSource
@@ -330,12 +333,13 @@ export const chaptersRouter = router({
     .input(
       storyInput.extend({
         order: z.array(z.number().int().positive()).max(100),
+        kind: manuscriptKindSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       await ownStory(input.storyId, ctx.user.id);
-      await reorderChapters(input.storyId, ctx.user.id, input.order);
+      await reorderChapters(input.storyId, ctx.user.id, input.order, input.kind);
       return { ok: true as const };
     }),
 

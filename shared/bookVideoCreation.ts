@@ -4,6 +4,7 @@ import type { PublishingVideoStoryboardPreview } from "./publishingVideoStoryboa
 export const bookVideoBriefSchema = z.object({
   purpose: z.string().trim().min(1).max(500),
   audience: z.string().trim().min(1).max(300),
+  platform: z.string().trim().max(200).optional(),
   tone: z.string().trim().min(1).max(500),
   duration: z.string().trim().min(1).max(200),
   narration: z.string().trim().min(1).max(800),
@@ -15,6 +16,10 @@ export const bookVideoBriefSchema = z.object({
 });
 export type BookVideoBrief = z.infer<typeof bookVideoBriefSchema>;
 export type BookVideoRecord = {
+  manuscriptSource?: import("./bookWorkflow").ManuscriptReference;
+  creationIntent?: import("./bookWorkflow").CreationIntent;
+  author?: import("./bookWorkflow").VersionActor;
+  confirmedBy?: import("./bookWorkflow").VersionActor;
   id: string;
   parentId?: string;
   versionId: string;

@@ -1677,7 +1677,8 @@
         "shared/scopedResource.test.ts",
         "client/src/features/creationEditor/publishingHandoffScope.test.ts",
         "server/services/publishingPersistence.test.ts",
-        "server/services/storyBodyPersistence.test.ts"
+        "server/services/storyBodyPersistence.test.ts",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "已完成的成品版本不可修改；新更新只能建立或修改唯一一条 editing 组合行。",
@@ -1765,6 +1766,11 @@
           "date": "2026-11-07",
           "kind": "feature",
           "summary": "原历史版本入口加入独立自动剪辑修订；保留成品显式保存/完成规则，自动剪辑不得冻结或覆盖成品Vn。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
         }
       ]
     },
@@ -9356,11 +9362,12 @@
         "docs/qa/2026-11-04-book-multiselect-menu.md",
         "docs/qa/2026-11-04-book-dialogue-review.md",
         "docs/qa/2026-11-06-book-scene-shot-modules.md",
-        "docs/qa/2026-11-08-book-outline-overview.md"
+        "docs/qa/2026-11-08-book-outline-overview.md",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
-        "章节内容不写入 stories.body；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
+        "活动章节正文仍存章节仓库；显式保存的不可变作品版本快照存入 stories.body.bookWorkflow；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
         "Chapter writes use expectedVersion CAS. Switching chapters/views saves current work first. Comparison reads do not flush or adopt. Adoption first saves pending work and uses the resulting local queue version, preserving overwritten content.",
         "Generated platform text is an explicit comparison candidate in the chapter workspace; it does not automatically overwrite chapter writing. The legacy draft marker remains only for compatible initial layout recovery.",
         "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
@@ -9642,6 +9649,11 @@
           "date": "2026-11-08",
           "kind": "fix",
           "summary": "按用户反馈将场/章编号统一放大为26设计像素，导入章的展开与收起编号同步调整，沿用原位置和32像素编号行。53项现有编辑器测试及类型通过，3000截图确认场编号大于镜头编号，未改书稿内容或部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
         }
       ]
     },
@@ -10917,7 +10929,8 @@
         "docs/qa/2026-11-06-launch-video-manuscript.md",
         "docs/qa/2026-11-06-reusable-book-storyboard.md",
         "docs/qa/2026-11-08-book-outline-overview.md",
-        "client/src/features/publishingAlbum/bookOutlineSummary.test.ts"
+        "client/src/features/publishingAlbum/bookOutlineSummary.test.ts",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "场/镜头是持久格式和parentId子树；编号从顺序与归属推导，不写进标题，不用显示序号替代稳定ID。",
@@ -10960,13 +10973,18 @@
           "date": "2026-11-08",
           "kind": "fix",
           "summary": "按用户反馈将场/章编号统一放大为26设计像素，导入章的展开与收起编号同步调整，沿用原位置和32像素编号行。53项现有编辑器测试及类型通过，3000截图确认场编号大于镜头编号，未改书稿内容或部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
         }
       ]
     },
     {
       "id": "book-storyboard-preparation",
       "name": "书稿自动整理为可编辑分镜稿",
-      "status": "observing",
+      "status": "superseded",
       "userValue": "从原书转视频入口先将全部原模块组织为场和镜头，沿用图文音频并保留可恢复原稿，用户可编辑后再确认视频。",
       "entryPoints": [
         "client/src/features/bookVideo/BookVideoChat.tsx",
@@ -11023,8 +11041,14 @@
           "date": "2026-11-08",
           "kind": "fix",
           "summary": "新整理分镜稿默认展开场、收起镜头详情，让用户先看每场镜头及内容统计；生成保留全部原模块、媒体、ID和版本CAS。默认折叠与原素材保留测试通过，本轮不发起真实模型生成。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "decision",
+          "summary": "用户确认双稿件、目的驱动互转与版本留存；原地分组入口退役，改写仅作用于待确认的目标稿，旧服务和历史保留。"
         }
-      ]
+      ],
+      "replacedBy": "book-workflow-versions"
     },
     {
       "id": "video-edit-revisions",
@@ -11069,6 +11093,102 @@
           "date": "2026-11-07",
           "kind": "feature",
           "summary": "本地接通自动剪辑修订与原历史入口；6项仓储、2项纯快照和67项剪辑回归通过。未改变真实时间轴、未提交部署。"
+        }
+      ]
+    },
+    {
+      "id": "book-workflow-versions",
+      "name": "文字与分镜的目的驱动版本",
+      "status": "working",
+      "userValue": "同一本书独立维护文字和分镜，按用途、受众和平台改编，预览确认后形成可追溯的新版本。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/BookWorkflowControls.tsx",
+        "server/routers/bookWorkflow.ts"
+      ],
+      "owners": [
+        "shared/bookWorkflow.ts",
+        "server/services/bookWorkflow.ts",
+        "server/services/manuscriptSnapshot.ts",
+        "server/repositories/bookWorkflow.ts"
+      ],
+      "evidence": [
+        "server/services/bookWorkflow.test.ts",
+        "client/src/features/publishingAlbum/BookWorkflowControls.test.tsx",
+        "docs/qa/2026-11-09-book-video-workflow.md"
+      ],
+      "invariants": [
+        "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复才建立版本。",
+        "记录时间、用途、受众、平台、发起/编辑/确认人、AI标记和来源；身份由服务端账号确定。",
+        "互转按创作意图改编；原稿、媒体、历史保留，采用前校验源和目标指纹。",
+        "恢复另建新版本并保留当前脏稿；普通故事保存不能伪造或抹除版本。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "book-scene-shot-modules",
+        "text-compute-provider-routing"
+      ],
+      "replaces": [
+        "book-storyboard-preparation"
+      ],
+      "knownGaps": [
+        "未执行真实模型转写、生产MySQL或触屏真机验收。",
+        "同一故事body上限4MiB、最多200个稿件版本/100次转换；达到上限拒绝写入并保留旧内容。",
+        "超过10万字不转换；旧排版独有媒体须先放入正文模块。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "按用户确认替换原地分组流程，新增两类稿件和目的驱动互转；接口/交互/草稿保护测试及本地构建通过，未部署。"
+        }
+      ]
+    },
+    {
+      "id": "video-workflow-versions",
+      "name": "视频作品快照与来源追溯",
+      "status": "working",
+      "userValue": "书稿修改后规划新视频，旧视频的镜头、剪辑、素材、字幕、音轨及导出记录可独立追溯。",
+      "entryPoints": [
+        "client/src/features/creationEditor/VideoWorkflowControls.tsx",
+        "server/routers/videoWorkflow.ts",
+        "client/src/features/bookVideo/BookVideoChat.tsx"
+      ],
+      "owners": [
+        "shared/videoWorkflow.ts",
+        "server/services/videoWorkflow.ts",
+        "server/services/bookVideoCreation.ts",
+        "server/services/videoExport.ts"
+      ],
+      "evidence": [
+        "server/services/videoWorkflow.test.ts",
+        "server/services/bookVideoCreation.test.ts",
+        "client/src/features/creationEditor/VideoWorkflowControls.test.tsx",
+        "client/src/features/bookVideo/BookVideoChat.test.tsx",
+        "docs/qa/2026-11-09-book-video-workflow.md"
+      ],
+      "invariants": [
+        "章节流程开启时必须确认干净的分镜版本再规划视频；文字稿先转换并采用分镜。",
+        "视频独立编号并固定来源分镜/文字版本、用途、时间和作者；旧作品来源缺失如实展示。",
+        "书稿更新只提示；采用新方案前保留上一版剪辑快照，费用确认和算力释放不变。",
+        "导出指定不可变快照并保存成功/失败记录，旧快照不随当前剪辑改变；同一导出请求幂等。",
+        "旧成品组合/视频方案/自动修订历史继续可查看，不替换原有成品模型编号。"
+      ],
+      "dependencies": [
+        "book-workflow-versions",
+        "publishing-versions",
+        "publishing-video-storyboard"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "整版视频恢复到编辑器尚未提供；本轮支持快照查看和指定版本导出。",
+        "媒体引用随版本保存，源媒体文件若被外部删除仍会明确导出失败；不复制媒体二进制。",
+        "最多100个视频快照并共享4MiB故事容量；真实模型/生产MySQL/真机未验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "新增视频快照和导出回执；冻结来源、音轨、字幕及旧音频URL，测试覆盖旧稿保留、并发拒绝、账号隔离、失败回滚与幂等。"
         }
       ]
     }

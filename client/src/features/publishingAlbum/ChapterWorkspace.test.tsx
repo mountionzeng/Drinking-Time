@@ -1,3 +1,4 @@
+vi.mock("./BookWorkflowControls", () => ({ BookWorkflowControls: () => <div>稿件与作品版本</div> }));
 vi.mock("wouter", () => ({ useLocation: () => ["/editing", vi.fn()] }));
 vi.mock("./BookMusicInsert",()=>({BookMusicInsert:()=>null}));
 import React from "react";

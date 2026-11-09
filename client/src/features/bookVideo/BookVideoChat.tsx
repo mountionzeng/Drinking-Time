@@ -11,7 +11,6 @@ import {
 import {
   prepareBookForVideo,
   prepareMountedBook,
-  refreshPreparedBook,
 } from "./bookPreparation";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -34,6 +33,7 @@ const button = "rounded-md border px-2 py-1 text-xs disabled:opacity-40";
 const labels = {
   purpose: "用途",
   audience: "给谁看",
+  platform: "发布平台",
   tone: "表达风格",
   duration: "时长建议",
   narration: "台词与旁白",
@@ -71,9 +71,6 @@ export function BookVideoChat({
     }
   );
   const propose = trpc.bookVideo.propose.useMutation();
-  const organize = trpc.bookVideo.prepareManuscript.useMutation();
-  const [organizeFirst, setOrganizeFirst] = useState(true);
-  const [manuscriptNotice, setManuscriptNotice] = useState("");
   const generate = trpc.bookVideo.generate.useMutation();
   const adopt = trpc.bookVideo.adopt.useMutation();
   const edit = trpc.bookVideo.edit.useMutation();
@@ -95,16 +92,13 @@ export function BookVideoChat({
   const [running, setRunning] = useState(false);
   const busy =
     running ||
-    organize.isPending ||
     propose.isPending ||
     generate.isPending ||
     adopt.isPending ||
     edit.isPending;
   const progress = !busy
     ? ""
-    : organize.isPending
-      ? "正在整理分镜稿，保留原文与素材…"
-      : propose.isPending
+    : propose.isPending
         ? _ui("正在整理视频方向…")
         : generate.isPending
           ? _ui("正在编排画面、台词与音乐…")
@@ -254,8 +248,6 @@ export function BookVideoChat({
     draftRevision.current = savedDraft?.revision ?? null;
     setError("");
     token.current = null;
-    setManuscriptNotice("");
-    setOrganizeFirst(true);
   }, [storyId, accountId, epoch]);
   useEffect(() => {
     const protectDraft = (event: BeforeUnloadEvent) => {
@@ -309,23 +301,9 @@ export function BookVideoChat({
           assertScope();
           await prepareMountedBook(storyId, accountId);
           assertScope();
-          if (organizeFirst) {
-            const result = await organize.mutateAsync({ storyId, request });
-            const scope = storySpineStore.getState();
-            if (
-              scope.activeStoryId !== storyId ||
-              scope.accountId !== accountId
-            )
-              return;
-            await refreshPreparedBook(storyId, accountId, result.chapters);
-            setManuscriptNotice(
-              !result.shotCount
-                ? ""
-                : result.changed
-                  ? `已整理为 ${result.shotCount} 镜的分镜稿。原文、图片和音频完整保留，原稿可从“版本”恢复；可在书页调整后继续讨论。`
-                  : "已沿用现有分镜稿，原文与素材保持原样。"
-            );
-          }
+          const workflow = await utils.bookWorkflow.get.fetch({ storyId });
+          if (!workflow.drafts.storyboard.version || workflow.drafts.storyboard.dirty)
+            throw new Error("请先到书页的‘作品版本与转换’，确认分镜版并保存版本，再继续制作视频。文字版和原视频都会保留。");
           assertScope();
           const parentId = selected ?? undefined;
           if (
@@ -355,7 +333,7 @@ export function BookVideoChat({
     return () => {
       handle.current = null;
     };
-  }, [session, selected, storyId, organizeFirst, accountId, draft]);
+  }, [session, selected, storyId, accountId, draft]);
   function openReview(r: BookVideoRecord) {
     if (draft && detail?.id !== r.id) {
       setError("请先保存当前分镜稿的修改，再切换方案。");
@@ -937,17 +915,7 @@ export function BookVideoChat({
           ) : (
             <p>{current.error || _ui("正在整理创作方向…")}</p>
           )}
-          <label className="flex items-start gap-2 text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={organizeFirst}
-              disabled={busy}
-              onChange={event => setOrganizeFirst(event.target.checked)}
-            />
-            <span>
-              先整理为可编辑的分镜稿，保留原稿版本。已有场／镜头则直接沿用。
-            </span>
-          </label>
+          <p className="text-xs text-muted-foreground">视频依据已确认的分镜版制作。文字版请先在书页转换并确认；修改书稿后可建立新的视频版本。</p>
           {!current && session.onAlbum && (
             <button className={button} onClick={session.onAlbum}>
               {_ui("制作静态画册")}
@@ -983,9 +951,7 @@ export function BookVideoChat({
       )}
       {busy && !onProgressChange && (
         <p role="status" aria-live="polite" className="text-muted-foreground">
-          {organize.isPending
-            ? "正在整理分镜稿，保留原文与素材…"
-            : propose.isPending
+          {propose.isPending
               ? _ui("正在根据书稿和你的要求整理视频方向…")
               : generate.isPending
                 ? _ui("正在编排画面、台词与音乐，整理视频素材表…")
@@ -1001,11 +967,7 @@ export function BookVideoChat({
           {error}
         </p>
       )}
-      {manuscriptNotice && (
-        <p role="status" className="text-muted-foreground">
-          {manuscriptNotice}
-        </p>
-      )}
+
       {workspace ? (
         workspace.host && createPortal(reviewContent, workspace.host)
       ) : (

@@ -1,3 +1,5 @@
+import { BookWorkflowControls } from "./BookWorkflowControls";
+import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
@@ -79,8 +81,9 @@ export function ChapterWorkspace({
 }: Props & { mode?: "text" | "images"; titleEditor?: ReactNode; render(props: Props): ReactNode }) {
   const _ui = useDesktopUiText();
   const [displayMode, setDisplayMode] = useState(mode);
+  const [manuscriptKind, setManuscriptKind] = useState<ManuscriptKind | undefined>();
   const writing = useRef<ChapterWritingHandle | null>(null);
-  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true);
+  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true, manuscriptKind);
   const { active } = state;
   const [writingDraft, setWritingDraft] = useState<ChapterWritingDraft | null>(null);
   const localDraftConflict = active && writingDraft && (writingDraft.title !== active.title || writingDraft.body !== active.blocks.body || !sameWritingStyle(writingDraft.writingStyle,active.blocks.writingStyle)) && writingDraft.baseVersion !== active.version;
@@ -229,6 +232,7 @@ export function ChapterWorkspace({
   // Seed once per mounted story. A failure is explicit and can be retried from the toolbar.
   useEffect(() => {
     if (
+      manuscriptKind !== undefined ||
       state.loading ||
       state.queryError ||
       state.chapters.length ||
@@ -494,6 +498,10 @@ export function ChapterWorkspace({
   );
   return (
     <div className="space-y-3" aria-label={_ui("故事章节")}>
+      <BookWorkflowControls key={`${props.accountId}:${props.storyId}`} storyId={props.storyId} accountId={props.accountId} kind={manuscriptKind}
+        beforeChange={async () => { if (displayMode === "text") await writing.current?.prepare(); else await prepare.current?.(); if (state.error) throw new Error(state.error); await state.flush(); }}
+        onSelect={kind => { setManuscriptKind(kind); setWritingDraft(null); setHistoryOpen(false); setHistoryComparison(null); setComparison(null); setGeneratedOpen(false); }}
+        onChanged={async () => { if (active) await state.refresh(); else await state.reloadList(); }} />
       {!active && editorControls()}
       {active && (<>
           <div hidden={displayMode !== "text"} className="space-y-3">
