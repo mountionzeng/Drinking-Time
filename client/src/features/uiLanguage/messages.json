@@ -1,23 +1,264 @@
 {
-  "图片取回时网络中断，请恢复原任务。": { "en": "The connection was interrupted while retrieving the images. Resume the original task.", "fr": "La connexion a été interrompue lors de la récupération des images. Reprenez la tâche initiale." },
-  "{0} 场戏 · {1} 个镜头": {"en": "{0} scenes · {1} shots", "fr": "{0} scènes · {1} plans"},
-  "{0} 节": {"en": "{0} sections", "fr": "{0} sections"},
-  "{0} 句台词": {"en": "{0} dialogue lines", "fr": "{0} répliques"},
-  "{0} 张图片": {"en": "{0} images", "fr": "{0} images"},
-  "无音乐": {"en": "No music", "fr": "Sans musique"},
-  "{0} 段音乐 · 时长待读取": {"en": "{0} music clips · duration unavailable", "fr": "{0} extraits musicaux · durée indisponible"},
-  "{0} 秒音乐": {"en": "{0}s of music", "fr": "{0} s de musique"},
-  "{0} 段有声书": {"en": "{0} narration clips", "fr": "{0} extraits narrés"},
-  "镜头参考图": {"en": "Shot reference images", "fr": "Images de référence du plan"},
-  "镜头参考图 {0}": {"en": "Shot reference image {0}", "fr": "Image de référence du plan {0}"},
-  "公历 {0}": { "en": "Gregorian {0}", "fr": "Grégorien {0}" },
-  "农历 {0}": { "en": "Lunar {0}", "fr": "Lunaire {0}" },
-  "给来信的留言": { "en": "Your note to the letter", "fr": "Votre message pour la lettre" },
-  "这里还没有单独给来信留言；已保存的书稿也可以作为创作参考。": { "en": "No separate note here yet. Saved writing can also inform the letter.", "fr": "Aucun message distinct ici. Vos textes enregistrés peuvent aussi nourrir la lettre." },
-  "结合最新创作，再读一遍": { "en": "Reread with the latest writing", "fr": "Relire avec les derniers textes" },
-  "转换成一场": { "en": "Convert to scene", "fr": "Convertir en scène" },
-  "转换成一个镜头": { "en": "Convert to shot", "fr": "Convertir en plan" },
-  "场": { "en": "Scene", "fr": "Scène" },
+  "来源：{0} V{1}": {
+    "en": "Source: {0} V{1}",
+    "fr": "Source : {0} V{1}"
+  },
+  "＋ 添加声音": {
+    "en": "＋ Add audio",
+    "fr": "＋ Ajouter du son"
+  },
+  "背景音乐": {
+    "en": "Background music",
+    "fr": "Musique de fond"
+  },
+  "台词": {
+    "en": "Dialogue",
+    "fr": "Dialogues"
+  },
+  "这次有什么新想法？（选填）": {
+    "en": "What would you like to change? (optional)",
+    "fr": "Qu’aimeriez-vous changer ? (facultatif)"
+  },
+  "新的想法": {
+    "en": "New ideas",
+    "fr": "Nouvelles idées"
+  },
+  "想表达什么、给谁看、准备发在哪里……": {
+    "en": "What do you want to express, who is it for, and where will you share it?",
+    "fr": "Que souhaitez-vous exprimer, pour qui et où le partager ?"
+  },
+  "这次想做成影片，还是直接用文字呈现？": {
+    "en": "Would you like to make a film or present it as text?",
+    "fr": "Souhaitez-vous en faire un film ou le présenter sous forme de texte ?"
+  },
+  "做成影片": {
+    "en": "Make a film",
+    "fr": "Créer un film"
+  },
+  "文字呈现": {
+    "en": "Present as text",
+    "fr": "Présenter un texte"
+  },
+  "文字要求（选填）": {
+    "en": "Writing preferences (optional)",
+    "fr": "Préférences de rédaction (facultatif)"
+  },
+  "根据当前书稿、聊天和新的想法生成，旧版本会保留。": {
+    "en": "Use the current manuscript, conversation, and new ideas. Previous versions are kept.",
+    "fr": "Utiliser le manuscrit, la conversation et les nouvelles idées. Les versions précédentes sont conservées."
+  },
+  "先把聊天生成文字稿，再继续制作影片。": {
+    "en": "Create a manuscript from the conversation first, then continue to the film.",
+    "fr": "Créez d’abord un manuscrit à partir de la conversation, puis continuez vers le film."
+  },
+  "将分镜改写成文字，原分镜和旧版本会保留。": {
+    "en": "Adapt the storyboard into prose. The original storyboard and previous versions are kept.",
+    "fr": "Adapter le storyboard en prose. Le storyboard et les versions précédentes sont conservés."
+  },
+  "先把书稿和聊天整理成可拍摄的分镜，确认后继续编排视频素材。旧版本会保留。": {
+    "en": "Turn the manuscript and conversation into a storyboard, then confirm it to prepare video assets. Previous versions are kept.",
+    "fr": "Transformer le manuscrit et la conversation en storyboard, puis le confirmer pour préparer les médias. Les versions précédentes sont conservées."
+  },
+  "分镜预览": {
+    "en": "Storyboard preview",
+    "fr": "Aperçu du storyboard"
+  },
+  "文字预览": {
+    "en": "Text preview",
+    "fr": "Aperçu du texte"
+  },
+  "沿用原图": {
+    "en": "Reuse the original image",
+    "fr": "Réutiliser l’image originale"
+  },
+  "沿用原声音素材": {
+    "en": "Reuse the original audio",
+    "fr": "Réutiliser le son original"
+  },
+  "按新想法重新生成": {
+    "en": "Regenerate with new ideas",
+    "fr": "Régénérer avec les nouvelles idées"
+  },
+  "生成分镜": {
+    "en": "Generate storyboard",
+    "fr": "Générer le storyboard"
+  },
+  "确认分镜并继续": {
+    "en": "Confirm storyboard and continue",
+    "fr": "Confirmer le storyboard et continuer"
+  },
+  "确认文字新版本": {
+    "en": "Confirm new text version",
+    "fr": "Confirmer la nouvelle version du texte"
+  },
+  "正在读取整本书…": {
+    "en": "Reading the full book…",
+    "fr": "Lecture du livre entier…"
+  },
+  "整书朗读原文": {
+    "en": "Full book narration text",
+    "fr": "Texte intégral à lire"
+  },
+  "查看整书朗读费用": {
+    "en": "Check full book narration cost",
+    "fr": "Voir le coût de la lecture intégrale"
+  },
+  "按整本分镜顺序朗读已标记的台词，画面和动作说明不参与。": {
+    "en": "Read marked dialogue in storyboard order, excluding visual and action directions.",
+    "fr": "Lire les dialogues marqués dans l’ordre du storyboard, sans les indications visuelles ou les actions."
+  },
+  "按整本书的章节顺序朗读，图片和已有声音不参与。": {
+    "en": "Read all chapters in book order, excluding images and existing audio.",
+    "fr": "Lire tous les chapitres dans l’ordre, sans les images ni les sons existants."
+  },
+  "长文会自动分段，统一确认费用。": {
+    "en": "Long texts are split automatically, with one total cost confirmation.",
+    "fr": "Les textes longs sont divisés automatiquement, avec une confirmation du coût total."
+  },
+  "添加{0}": {
+    "en": "Add {0}",
+    "fr": "Ajouter {0}"
+  },
+  "共 {0} 字 · {1} 段声音": {
+    "en": "{0} characters · {1} audio segments",
+    "fr": "{0} caractères · {1} segments audio"
+  },
+  "确认生成整书{0} · {1}": {
+    "en": "Generate full book {0} · {1}",
+    "fr": "Générer pour tout le livre : {0} · {1}"
+  },
+  "稿件": {
+    "en": "Manuscript",
+    "fr": "Manuscrit"
+  },
+  "查看稿件版本": {
+    "en": "Manuscript version",
+    "fr": "Version du manuscrit"
+  },
+  "文字版": {
+    "en": "Text",
+    "fr": "Texte"
+  },
+  "分镜版": {
+    "en": "Storyboard",
+    "fr": "Storyboard"
+  },
+  "已切换故事，请回到原故事查看生成结果。": {
+    "en": "The story changed. Return to the original story to view the result.",
+    "fr": "L’histoire a changé. Revenez à l’histoire initiale pour consulter le résultat."
+  },
+  "操作未完成，原稿已保留": {
+    "en": "The action did not finish. Your original manuscript is safe.",
+    "fr": "L’action n’a pas abouti. Le manuscrit original est conservé."
+  },
+  "分镜未生成，请重试": {
+    "en": "The storyboard was not generated. Please try again.",
+    "fr": "Le storyboard n’a pas été généré. Réessayez."
+  },
+  "书稿未保存": {
+    "en": "The manuscript has not been saved.",
+    "fr": "Le manuscrit n’a pas été enregistré."
+  },
+  "已切换作品，声音保留在原作品仓库中": {
+    "en": "The work changed. Audio remains in the original work’s library.",
+    "fr": "L’œuvre a changé. Les sons restent dans la bibliothèque de l’œuvre initiale."
+  },
+  "声音操作未完成": {
+    "en": "The audio action did not finish.",
+    "fr": "L’opération audio n’a pas abouti."
+  },
+  "这份书稿的朗读已提交，请到声音仓库核对已有结果，避免重复生成。": {
+    "en": "Narration has already been submitted for this manuscript. Check the audio library before generating again.",
+    "fr": "La narration a déjà été envoyée pour ce manuscrit. Vérifiez la bibliothèque audio avant de recommencer."
+  },
+  "书稿已修改，请重新查看费用": {
+    "en": "The manuscript changed. Please check the cost again.",
+    "fr": "Le manuscrit a changé. Vérifiez à nouveau le coût."
+  },
+  "部分声音尚未确认，已完成的声音保留在仓库，请先核对任务和费用，暂勿重复提交。": {
+    "en": "Some audio results are not confirmed. Completed audio is in the library. Check tasks and costs before submitting again.",
+    "fr": "Certains résultats audio ne sont pas confirmés. Les sons terminés sont dans la bibliothèque. Vérifiez les tâches et les coûts avant de recommencer."
+  },
+  "声音已生成，期间书稿有新修改；声音保留在仓库，请核对后插入。": {
+    "en": "Audio is ready, but the manuscript changed during generation. Check the audio in the library before inserting it.",
+    "fr": "Le son est prêt, mais le manuscrit a changé. Vérifiez le son dans la bibliothèque avant de l’insérer."
+  },
+  "图片取回时网络中断，请恢复原任务。": {
+    "en": "The connection was interrupted while retrieving the images. Resume the original task.",
+    "fr": "La connexion a été interrompue lors de la récupération des images. Reprenez la tâche initiale."
+  },
+  "{0} 场戏 · {1} 个镜头": {
+    "en": "{0} scenes · {1} shots",
+    "fr": "{0} scènes · {1} plans"
+  },
+  "{0} 节": {
+    "en": "{0} sections",
+    "fr": "{0} sections"
+  },
+  "{0} 句台词": {
+    "en": "{0} dialogue lines",
+    "fr": "{0} répliques"
+  },
+  "{0} 张图片": {
+    "en": "{0} images",
+    "fr": "{0} images"
+  },
+  "无音乐": {
+    "en": "No music",
+    "fr": "Sans musique"
+  },
+  "{0} 段音乐 · 时长待读取": {
+    "en": "{0} music clips · duration unavailable",
+    "fr": "{0} extraits musicaux · durée indisponible"
+  },
+  "{0} 秒音乐": {
+    "en": "{0}s of music",
+    "fr": "{0} s de musique"
+  },
+  "{0} 段有声书": {
+    "en": "{0} narration clips",
+    "fr": "{0} extraits narrés"
+  },
+  "镜头参考图": {
+    "en": "Shot reference images",
+    "fr": "Images de référence du plan"
+  },
+  "镜头参考图 {0}": {
+    "en": "Shot reference image {0}",
+    "fr": "Image de référence du plan {0}"
+  },
+  "公历 {0}": {
+    "en": "Gregorian {0}",
+    "fr": "Grégorien {0}"
+  },
+  "农历 {0}": {
+    "en": "Lunar {0}",
+    "fr": "Lunaire {0}"
+  },
+  "给来信的留言": {
+    "en": "Your note to the letter",
+    "fr": "Votre message pour la lettre"
+  },
+  "这里还没有单独给来信留言；已保存的书稿也可以作为创作参考。": {
+    "en": "No separate note here yet. Saved writing can also inform the letter.",
+    "fr": "Aucun message distinct ici. Vos textes enregistrés peuvent aussi nourrir la lettre."
+  },
+  "结合最新创作，再读一遍": {
+    "en": "Reread with the latest writing",
+    "fr": "Relire avec les derniers textes"
+  },
+  "转换成一场": {
+    "en": "Convert to scene",
+    "fr": "Convertir en scène"
+  },
+  "转换成一个镜头": {
+    "en": "Convert to shot",
+    "fr": "Convertir en plan"
+  },
+  "场": {
+    "en": "Scene",
+    "fr": "Scène"
+  },
   "当前文章": {
     "en": "Current article",
     "fr": "Article actuel"
@@ -457,6 +698,14 @@
   "目标故事": {
     "en": "Destination story",
     "fr": "Histoire de destination"
+  },
+  "创建于 {0}": {
+    "en": "Created {0}",
+    "fr": "Créée le {0}"
+  },
+  "这里选择的是独立故事；同一故事的版本在故事内查看。": {
+    "en": "Choose a separate story here. View its versions within that story.",
+    "fr": "Choisissez une histoire ici. Ses versions sont accessibles dans cette histoire."
   },
   "选择故事": {
     "en": "Choose a story",
@@ -3426,6 +3675,10 @@
     "en": "Recording — click the square to stop",
     "fr": "录音中，再点方块停止"
   },
+  "听写中，文字会显示在输入框": {
+    "en": "Listening · Words appear in the message box",
+    "fr": "Dictée en cours · Le texte apparaît dans le champ de saisie"
+  },
   "正在把声音转成文字…": {
     "en": "Transcribing audio…",
     "fr": "正在把声音转成文字…"
@@ -4882,9 +5135,9 @@
     "en": "Generate music from the current manuscript",
     "fr": "根据当前书稿生成音乐"
   },
-  "确认生成约30秒配乐（预计 ¥": {
-    "en": "Confirm approximately 30 seconds of music (estimated ¥",
-    "fr": "确认生成约30秒配乐（预计 ¥"
+  "确认生成约30秒配乐（预计 {0}）": {
+    "en": "Confirm approximately 30 seconds of music (estimated {0})",
+    "fr": "Confirmer environ 30 secondes de musique (estimation : {0})"
   },
   "音乐列表读取失败，请关闭后重试。": {
     "en": "Could not load music. Close this window and try again.",
@@ -12817,5 +13070,13 @@
   "这个账号需要协助处理，请联系管理员": {
     "en": "这个账号需要协助处理，请联系管理员",
     "fr": "这个账号需要协助处理，请联系管理员"
+  },
+  "当前分镜已放入视频表格": {
+    "en": "The current storyboard is now in the video table",
+    "fr": "Le storyboard actuel est maintenant dans le tableau vidéo"
+  },
+  "分镜未导入，请重试": {
+    "en": "Could not import the storyboard. Please try again.",
+    "fr": "Impossible d’importer le storyboard. Veuillez réessayer."
   }
 }

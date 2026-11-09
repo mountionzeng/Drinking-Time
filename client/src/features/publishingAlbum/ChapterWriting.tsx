@@ -1,3 +1,5 @@
+import { BookSoundMenu } from "./BookSoundMenu";
+import { newWritingBlock, restoreStyledBlocks, blockBody } from "./chapterBlockTree";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { registerDraftRecovery, readRecoveredDraft, clearRecoveredDraft, updateRecoveredDraft } from "@/features/appVersion/draftRecovery";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
@@ -160,10 +162,18 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       const currentModule = module.current?.scope === contextScope ? module.current : undefined;
       const start = currentModule ? selection.current?.start ?? body.length : body.length;
       const end = selection.current?.end ?? start;
-      return { draft: body, module: currentModule, cursor: start, ...(currentModule && end > start ? { selection: { start, end } } : {}), scope: contextScope };
+      return { manuscriptKind: chapter.blocks.manuscriptKind ?? (draftRef.current.writingStyle?.some(block => block.format === "shot") ? "storyboard" : "text"), draft: body, module: currentModule, cursor: start, ...(currentModule && end > start ? { selection: { start, end } } : {}), scope: contextScope };
     }} />
     <span role="status" className="sr-only">{saving ? _ui("正在自动保存") : dirty ? _ui("等待自动保存") : _ui("已保存")}</span>
     {titleEditor ?? <input aria-label={_ui("章节标题")} maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />}
+    {!comparison && <BookSoundMenu storyId={chapter.storyId} chapterId={chapter.id} kind={chapter.blocks.manuscriptKind ?? (draft.writingStyle?.some(block => block.format === "shot") ? "storyboard" : "text")} disabled={disabled} onInsert={async texts => {
+      await prepare();
+      const existing = (draftRef.current.writingStyle ? restoreStyledBlocks(draftRef.current.body, draftRef.current.writingStyle) : restoreWritingBlocks(draftRef.current.body, null));
+      const additions = texts.filter(text => !existing.some(block => block.text === text)).map(text => newWritingBlock(text));
+      const blocks = [...additions, ...existing];
+      update({ ...draftRef.current, body: blockBody(blocks), writingStyle: writingStyleOf(blocks) });
+      await prepare();
+    }} />}
     <ChapterTextModules footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
     {!renderHeader && changeNote}
     {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}

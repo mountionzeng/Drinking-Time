@@ -17,6 +17,8 @@ vi.mock("./publishingVideoStoryboard", async importOriginal => ({
 const dir = await mkdtemp(path.join(os.tmpdir(), "book-video-flow-"));
 const previous = process.env.LOCAL_PERSIST_PATH;
 const previousDb = process.env.DATABASE_URL;
+const previousChapters = process.env.CHAPTER_PACKAGE_ENABLED;
+process.env.CHAPTER_PACKAGE_ENABLED = "false"; // Legacy video cases; the versioned path is exercised below.
 process.env.LOCAL_PERSIST_PATH = path.join(dir, "db.json");
 process.env.DATABASE_URL = "";
 const db = await import("../db");
@@ -26,6 +28,7 @@ async function reviewAndAdopt(input: Parameters<typeof service.adoptBookVideo>[0
   return service.adoptBookVideo({...input,reviewedRevision:r.revision});
 }
 afterAll(async () => {
+  if (previousChapters === undefined) delete process.env.CHAPTER_PACKAGE_ENABLED; else process.env.CHAPTER_PACKAGE_ENABLED = previousChapters;
   if (previous === undefined) delete process.env.LOCAL_PERSIST_PATH;
   else process.env.LOCAL_PERSIST_PATH = previous;
   if (previousDb === undefined) delete process.env.DATABASE_URL;
@@ -377,4 +380,95 @@ it.each([false,true])('inherits rendered frames and chosen endpoints when legacy
  const {getStoryMaterialState}=await import('./storyMaterials');
  expect((await getStoryMaterialState(input.storyId,31))?.shots[0].imageVersions.some(i=>i.id===image.id)).toBe(true);
  expect((await service.listBookVideoRecords(input))[0].storyboardSnapshot?.shots[0].generationParams).toBe(changed.shots[0].generationParams);
+});
+
+it("connects chat and manuscript conversion to reviewable render inputs and an adopted video version", async () => {
+  process.env.CHAPTER_PACKAGE_ENABLED = "true";
+  try {
+    const input = await fixture();
+    const { insertChapter } = await import("../repositories/chapters");
+    const workflow = await import("./bookWorkflow");
+    const chapter = await insertChapter({ storyId: input.storyId, userId: input.userId, content: { title: "原书", layout: null, blocks: { body: "爷爷修好了旧伞。", blockIds: [], manuscriptKind: "text", containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] } } });
+    const conversation = [{ role: "user" as const, content: "给家人看，发朋友圈，温暖克制，七秒。" }];
+    mocks.compute.mockResolvedValueOnce({ parsed: { chapters: [{ title: "影片分镜", modules: [
+      { format: "scene", text: "修伞", parent: null }, { format: "shot", text: "桌边近景", parent: 0 },
+      { format: "text", text: "爷爷修好了旧伞。", parent: 1, dialogue: true },
+    ] }] } });
+    const owner = { storyId: input.storyId, userId: input.userId, actor: { userId: input.userId, name: "测试作者" } };
+    const film = await workflow.generateFilmManuscript({ ...owner, id: crypto.randomUUID(), chapterId: chapter.id, request: "做成影片", conversation });
+    expect(film.status).toBe("review");
+    const manuscript = await workflow.adoptManuscriptConversion({ ...owner, id: film.id, revision: film.revision });
+    await service.proposeBookVideo(input);
+    expect(mocks.compute.mock.calls.at(-1)?.[0].context.conversation).toEqual(conversation);
+    const ready = await service.generateBookVideo({ ...input, confirmBrief: true });
+    expect(ready.preview?.shots[0]).toMatchObject({ subject: "伞", action: "修伞", imageRequirement: "保留水彩", videoRequirement: "固定机位", soundRequirement: "雨声", voiceText: "爷爷修好了旧伞。" });
+    const adopted = await reviewAndAdopt({ ...input, actor: owner.actor });
+    expect(adopted.shots[0]).toMatchObject({ dialogue: "爷爷修好了旧伞。" });
+    const record = (await service.listBookVideoRecords(input))[0];
+    expect(record).toMatchObject({ status: "adopted", videoVersion: 1 });
+    expect(JSON.stringify(record)).toContain(manuscript.id);
+  } finally { process.env.CHAPTER_PACKAGE_ENABLED = "false"; }
+});
+
+it('imports the current storyboard directly without AI, preserves its source and reuses a retry', async () => {
+  const input = await fixture();
+  const { insertChapter, listChapters } = await import('../repositories/chapters');
+  const { blockBody, writingStyleOf, newWritingBlock } = await import('../../client/src/features/publishingAlbum/chapterBlockTree');
+  const { getBookWorkflow } = await import('./bookWorkflow');
+  const image = await db.createGeneratedImage({storyId:input.storyId,userId:31,projectId:null,shotNo:null,imageUrl:'/api/images/direct.png',imageKey:null,prompt:'原图',generationType:'initial',isCurrent:false});
+  const audio = await db.createStoryAudioAssetRow({storyId:input.storyId,userId:31,storageKey:'c'.repeat(32),displayName:'整书台词',sourceKind:'local-upload',mediaKind:'narration',status:'ready',durationFrames:390,durationSeconds:13});
+  const music = await db.createStoryAudioAssetRow({storyId:input.storyId,userId:31,storageKey:'d'.repeat(32),displayName:'整书配乐',sourceKind:'local-upload',mediaKind:'music',status:'ready',durationFrames:300,durationSeconds:10});
+  const { bookAudioText } = await import('../../shared/bookAudioBlock');
+  const blocks = [
+    newWritingBlock(bookAudioText(input.storyId,audio.id,'整书台词','narration')),
+    newWritingBlock(bookAudioText(input.storyId,music.id,'整书配乐','music')),
+    {...newWritingBlock('雨中'),id:'scene',format:'scene' as const},
+    {...newWritingBlock('开伞','scene'),id:'shot',format:'shot' as const},
+    {...newWritingBlock('分镜草案 · 0–13秒（13秒）\n开场画面：伞的近景。\n画面运动：慢慢拉远。\n结束画面：完整雨街。\n声音建议：雨声。','shot'),id:'description'},
+    {...newWritingBlock('这把伞，还能陪我们很久。','shot'),id:'dialogue',videoRole:'dialogue' as const},
+    newWritingBlock(`![图片](${image.imageUrl})`,'shot'),
+  ];
+  const chapter = await insertChapter({storyId:input.storyId,userId:31,content:{title:'现有分镜',layout:null,blocks:{body:blockBody(blocks),writingStyle:writingStyleOf(blocks),manuscriptKind:'storyboard',blockIds:[],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+  const before = await listChapters(input.storyId,31,'all');
+  const request = {...input,chapterId:chapter.id,expectedFingerprint:(await getBookWorkflow(input)).drafts.storyboard.fingerprint,actor:{userId:31,name:'测试作者'}};
+  await expect(service.importBookStoryboard({...request,userId:99})).rejects.toThrow('故事不存在');
+  await expect(service.importBookStoryboard({...request,expectedFingerprint:'outdated'})).rejects.toThrow('分镜');
+  const result = await service.importBookStoryboard(request);
+  expect(result.shots).toHaveLength(1);
+  expect(result.shots[0]).toMatchObject({dialogue:'这把伞，还能陪我们很久。',durationMs:13000,action:'画面运动：慢慢拉远。'});
+  expect(result.shots[0].scriptText).toContain('结束画面：完整雨街。');
+  expect(result.shots[0].sound).toContain('声音建议：雨声。');
+  expect(result.shots[0].sound).toContain(`整书声音（待对齐）：${bookAudioText(input.storyId,audio.id,'整书台词','narration')}`);
+  expect(result.shots[0].publishingVideo).toMatchObject({referenceImageIds:[image.id]});
+  expect(mocks.compute).not.toHaveBeenCalled();
+  expect(mocks.generate).not.toHaveBeenCalled();
+  expect(await listChapters(input.storyId,31,'all')).toEqual(before);
+  const history = await service.listBookVideoRecords(input);
+  expect(history[0]).toMatchObject({status:'adopted',videoVersion:1,manuscriptSource:{kind:'storyboard',number:1},author:request.actor});
+  expect((await service.importBookStoryboard(request)).shots).toEqual(result.shots);
+  expect(await service.listBookVideoRecords(input)).toHaveLength(1);
+  const current = (await db.getStoryById(input.storyId,31))!.body as any;
+  const oldTimeline = (await db.getStoryTimeline(input.storyId,31))!;
+  const oldSubtitle = {tracks:[{id:'subtitles',cues:[{id:'old-cue',text:'旧版字幕',startFrame:0,durationFrames:180,textRevision:1,sourceTextRevision:1,provenance:{kind:'manual'}}]}]};
+  await db.updateStoryTimeline({storyId:input.storyId,userId:31,expectedVersion:oldTimeline.version,items:(oldTimeline.items as any[]).map(item=>({...item,durationFrames:180,plannedDurationMs:6000,timelineStartFrame:60})),extensions:{subtitleTracks:oldSubtitle}});
+  await db.createGeneratedImage({storyId:input.storyId,userId:31,projectId:null,shotNo:'SH01',shotIdentity:current.shots[0].stableShotId,imageUrl:'/api/images/old-video.png',imageKey:null,prompt:'旧视频图片',generationType:'initial',isCurrent:true});
+  expect(await db.updateStoryBodyIfRevision({id:input.storyId,userId:31,expectedRevision:current._revision,body:{...current,_revision:current._revision+1,shots:current.shots.map((shot:any)=>({...shot,dialogue:'视频里另改过的旧台词',durationMs:6000}))}})).toBe(true);
+  const next = await service.importBookStoryboard({...request,id:crypto.randomUUID()});
+  expect(next.shots[0]).toMatchObject({dialogue:'这把伞，还能陪我们很久。',durationMs:13000});
+  const retained = await service.listBookVideoRecords(input);
+  expect(retained[0].storyboardSnapshot?.shots[0]).toMatchObject({dialogue:'视频里另改过的旧台词',durationMs:6000});
+  expect(retained[1].videoVersion).toBe(2);
+  const { getStoryMaterialState } = await import('./storyMaterials');
+  const material = (await getStoryMaterialState(input.storyId,31))!;
+  expect(material.timeline.items[0]).toMatchObject({durationFrames:390,timelineStartFrame:0,plannedDurationMs:13000});
+  expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).toContain('这把伞，还能陪我们很久。');
+  expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).not.toContain('旧版字幕');
+  expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='music').clips).toEqual([expect.objectContaining({assetId:music.id,durationFrames:300,timelineStartFrame:0})]);
+  expect(material.shots[0].currentImage).toBeNull();
+  expect(material.shots[0].imageGenerationReferences?.map(image=>image.id)).toEqual([image.id]);
+  const saved = (await db.getStoryById(input.storyId,31))!.body as any;
+  const archived = saved.videoWorkflow.versions.at(-1);
+  expect(archived.material.timeline.items[0]).toMatchObject({durationFrames:180,timelineStartFrame:60});
+  expect(archived.material.timeline.extensions.subtitleTracks).toEqual(oldSubtitle);
+  expect(await listChapters(input.storyId,31,'all')).toEqual(before);
 });

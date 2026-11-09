@@ -427,7 +427,7 @@ it('adds text inside an opened imported chapter even if its saved fold flag was 
   expect(after[1].parentId).toBe('chapter-a');
 });
 
-it.each(['image', 'audio'] as const)('inserts %s inside an open imported chapter with an old saved fold flag', kind => {
+it.each(['image', 'audio'] as const)('inserts %s at its intended scope while an imported chapter is selected', kind => {
   let value = 'First';
   let style: any = [{ id: 'chapter-a', parentId: null, format: 'heading1', collapsed: true, lineCount: 1 }];
   const imageInsert = { current: null } as any;
@@ -444,7 +444,13 @@ it.each(['image', 'audio'] as const)('inserts %s inside an open imported chapter
   tree = draw();
   const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;
   expect(after).toHaveLength(2);
-  expect(after[1].parentId).toBe('chapter-a');
+  if (kind === 'image') {
+    expect(after[1].parentId).toBe('chapter-a');
+  } else {
+    expect(after[0].text).toBe('audio fixture');
+    expect(after[0].parentId).toBeNull();
+    expect(after[1]).toMatchObject({ id: 'chapter-a', text: 'First' });
+  }
 });
 
 it('opens image composition from a mixed selection and preserves source modules', async () => {

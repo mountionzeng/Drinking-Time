@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   story: vi.fn(),
   chapter: vi.fn(),
+  chapters: vi.fn(),
   assets: vi.fn(),
   image: vi.fn(),
   vision: vi.fn(),
@@ -9,7 +10,7 @@ const m = vi.hoisted(() => ({
 vi.mock("../persistence/storyVisualPersistence", () => ({
   loadOwnedStory: m.story,
 }));
-vi.mock("../repositories/chapters", () => ({ getChapter: m.chapter }));
+vi.mock("../repositories/chapters", () => ({ getChapter: m.chapter, listChapters: m.chapters }));
 vi.mock("./imageAssets", () => ({
   getStoryImageAssets: m.assets,
   materializeImageInput: m.image,
@@ -107,4 +108,16 @@ it('rejects audio and oversized groups before invoking models',async()=>{
  m.chapter.mockResolvedValue({storyId:1,blocks:{body:`${'字'.repeat(30001)}\n结尾`,writingStyle:[{id:'a'},{id:'b'}]}});
  await expect(resolveBookModuleSource({...target,moduleId:'a',moduleIds:['a','b']})).rejects.toThrow('30000');
  expect(m.vision).not.toHaveBeenCalled();
+});
+
+it("whole-book sound reads every chapter in the chosen manuscript and invalidates on later-chapter edits", async () => {
+  const rows = [{ id: 3, storyId: 1, blocks: { body: "首章", manuscriptKind: "text" } }, { id: 4, storyId: 1, blocks: { body: "末章", manuscriptKind: "text" } }, { id: 5, storyId: 1, blocks: { body: "其他版本", manuscriptKind: "storyboard" } }];
+  m.chapters.mockResolvedValue(rows);
+  const request = { ...target, moduleId: "whole-book", wholeBook: { kind: "text" as const, dialogueOnly: false } };
+  const result = await resolveBookModuleSource(request);
+  expect(result.source).toBe("首章\n\n末章");
+  rows[1].blocks.body = "已改末章";
+  expect((await resolveBookModuleSource(request)).fingerprint).not.toBe(result.fingerprint);
+  await expect(resolveBookModuleSource({ ...request, wholeBook: { ...request.wholeBook, kind: "storyboard" } })).rejects.toThrow("类型已变化");
+  expect(m.vision).not.toHaveBeenCalled();
 });

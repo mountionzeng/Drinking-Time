@@ -14,7 +14,18 @@ import {
 } from "../../shared/videoWorkflow";
 import { getStoryById } from "../repositories/stories";
 import { mutateBookWorkflow } from "../repositories/bookWorkflow";
-import { getStoryMaterialState } from "./storyMaterials";
+import {
+  getStoryMaterialState,
+  projectStoryTimelineDocument,
+} from "./storyMaterials";
+import { updateStoryAndTimelineAtomic } from "../repositories/timelines";
+import { generatedSubtitleSpans } from "../../shared/generatedSubtitles";
+import { emptyAudioState } from "../../shared/timelineAudioModel";
+import {
+  emptySubtitleState,
+  initializeSubtitleCues,
+} from "../../shared/timelineSubtitleModel";
+import { randomUUID } from "node:crypto";
 import { getStoryRevision } from "./storySync";
 import { exportStoryTimeline } from "./videoExport";
 import { getBookWorkflow } from "./bookWorkflow";
@@ -137,12 +148,80 @@ export async function preserveVideoWhileReplacing(
     before: Record<string, unknown>;
     nextBody: Record<string, unknown>;
     expectedRevision: number;
+    resetEditing?: boolean;
   }
 ) {
   const material = await getStoryMaterialState(input.storyId, input.userId);
   if (!material)
     throw new TRPCError({ code: "NOT_FOUND", message: "视频素材不可读取" });
   try {
+    if (input.resetEditing) {
+      const story = await getStoryById(input.storyId, input.userId);
+      if (!story || getStoryRevision(story.body) !== input.expectedRevision)
+        throw new VideoSnapshotConflictError("确认期间视频已更新");
+      const state = readVideoWorkflow(input.before.videoWorkflow);
+      if (Array.isArray(input.before.shots) && input.before.shots.length)
+        appendVideoSnapshot(state, input.before, material, {
+          ...input,
+          intent: activePlan(input.before)?.creationIntent ?? {
+            purpose: "保留上一版视频",
+            audience: "沿用原受众",
+            platform: "未记录平台",
+          },
+          summary: "按当前分镜建立新视频前保留的剪辑与素材",
+        });
+      const next: Record<string, unknown> = { ...input.nextBody, videoWorkflow: state };
+      if (Buffer.byteLength(JSON.stringify(next), "utf8") > 4 * 1024 * 1024)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "作品版本记录已达容量上限，历史和当前稿均保留，请新建作品继续。",
+        });
+      const timeline = projectStoryTimelineDocument(
+        { ...story, body: next },
+        null
+      );
+      const shots = (next.shots ?? []) as Array<{
+        stableShotId: string;
+        dialogue?: string;
+      }>;
+      const subtitles = initializeSubtitleCues(emptySubtitleState(), {
+        candidates: timeline.items.flatMap(item =>
+          generatedSubtitleSpans(
+            shots.find(shot => shot.stableShotId === item.stableShotId)
+              ?.dialogue ?? "",
+            item.timelineStartFrame ?? 0,
+            item.durationFrames ?? 1
+          ).map(span => ({
+            ...span,
+            id: randomUUID(),
+            provenance: {
+              kind: "shot-dialogue" as const,
+              stableShotId: item.stableShotId,
+            },
+            sourceTextRevision: input.expectedRevision + 1,
+          }))
+        ),
+      });
+      if (subtitles.status !== "ok") throw new Error(subtitles.message);
+      const saved = await updateStoryAndTimelineAtomic({
+        ...input,
+        expectedStoryRevision: input.expectedRevision,
+        expectedTimelineVersion: material.timeline.version,
+        nextStoryBody: next,
+        recordVideoRevision: true,
+        nextTimeline: {
+          items: timeline.items,
+          overlays: [],
+          extensions: {
+            subtitleTracks: subtitles.state,
+            audioTracks: emptyAudioState(),
+            bookMusicReuse: [],
+          },
+        },
+      });
+      return { body: saved.story.body };
+    }
     return await mutateBookWorkflow(
       { ...input, expectedTimelineVersion: material.timeline.version },
       ({ body }) => {
@@ -165,7 +244,11 @@ export async function preserveVideoWhileReplacing(
       }
     );
   } catch (error) {
-    if (error instanceof TRPCError && error.code === "CONFLICT")
+    if (
+      (error instanceof TRPCError && error.code === "CONFLICT") ||
+      (error instanceof Error &&
+        /故事已经更新|时间轴已经更新/.test(error.message))
+    )
       throw new VideoSnapshotConflictError(error.message);
     throw error;
   }

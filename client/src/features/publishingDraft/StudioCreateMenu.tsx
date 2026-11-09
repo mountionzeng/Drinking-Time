@@ -9,6 +9,8 @@ export type StudioCreateRequest = {
   storyId: number;
   kind: "image" | "video" | "music" | "layout";
   instruction: string;
+  videoRecordId?: string;
+  storyboardChapterId?: number;
   warehouseImage?: { imageId: number; role: 'cover' | 'illustration' | 'background' };
 };
 

@@ -360,3 +360,41 @@ it("provider failure remains visible and preserves both drafts", async () => {
     source.blocks.body
   );
 });
+
+it("generates from the current book and conversation, preserving originals and reusing retries", async () => {
+  const input = await fixture();
+  const request = { ...input, chapterId: input.chapter.id, id: randomUUID(), request: "给朋友看，轻松一点", conversation: [{ role: "user" as const, content: "发朋友圈，介绍用途，不夸大效果" }] };
+  const draft = await service.generateFilmManuscript(request);
+  expect(draft.status).toBe("review");
+  expect(compute.mock.calls[0][0].context.conversation).toEqual(request.conversation);
+  expect((await chapters.listChapters(input.storyId, 61, "text"))[0].blocks.body).toBe(source.blocks.body);
+  expect(await service.generateFilmManuscript(request)).toEqual(draft);
+  expect(compute).toHaveBeenCalledTimes(1);
+  await expect(service.generateFilmManuscript({ ...request, userId: 999 })).rejects.toThrow();
+  await expect(service.generateFilmManuscript({ ...request, request: "别的要求" })).rejects.toThrow();
+  const adopted = await service.adoptManuscriptConversion({ ...input, id: draft.id, revision: draft.revision });
+  expect(adopted.source?.id).toBe(input.version.id);
+  const storyboard = (await chapters.listChapters(input.storyId, 61, "storyboard"))[0];
+  const regenerated = await service.generateFilmManuscript({ ...request, id: randomUUID(), chapterId: storyboard.id });
+  expect(regenerated.source.kind).toBe("storyboard");
+  expect(regenerated.status).toBe("review");
+});
+
+it("can turn an adopted storyboard back into a separate text version", async () => {
+  const input = await fixture();
+  const film = await service.generateFilmManuscript({ ...input, id: randomUUID(), request: "影片", conversation: [] });
+  const adopted = await service.adoptManuscriptConversion({ ...input, id: film.id, revision: film.revision });
+  const storyboard = (await chapters.listChapters(input.storyId, 61, "storyboard"))[0];
+  compute.mockResolvedValue({ parsed: { chapters: [{ title: "改编文字", modules: [
+    { format: "heading1", text: "新的一章", parent: null },
+    { format: "text", text: "按文章叙事重写", parent: 0 },
+    { format: "text", text: "", media: 0, parent: 0 },
+  ] }] } });
+  const prose = await service.generateFilmManuscript({ ...input, id: randomUUID(), chapterId: storyboard.id, target: "text", request: "文字呈现", conversation: [] });
+  expect(prose.status).toBe("review");
+  const result = await service.adoptManuscriptConversion({ ...input, id: prose.id, revision: prose.revision });
+  expect(result.kind).toBe("text");
+  expect(result.number).toBe(2);
+  expect(result.source?.id).toBe(adopted.id);
+  expect((await chapters.listChapters(input.storyId, 61, "storyboard"))[0].blocks.body).toBe(storyboard.blocks.body);
+});

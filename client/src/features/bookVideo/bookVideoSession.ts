@@ -7,6 +7,7 @@ export type BookVideoSession = {
   versionId: string;
   layout: PublishingArticleLayout;
   preferredDuration?: string;
+  recordId?: string;
   onAdopt?(): Promise<void>;
   onAlbum?(): void;
 };

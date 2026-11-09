@@ -457,13 +457,9 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
       if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');
       commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added.id);setConversion(null);
     }}/>}
-    {contextSource && !comparison && <div className="flex flex-wrap items-center gap-3"><BookVideoStartButton storyId={contextSource.storyId} disabled={disabled} />{footerActions}<BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
-      const index=blocks.findIndex(block=>block.id===activeId), selected=blocks[index];
-      const current=selected && importedChapterIds?.includes(selected.id) ? {...selected,collapsed:false} : selected;
-      const at=index<0?blocks.length:isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
-      const parent=current?isHeading(current)&&!current.collapsed?current.id:current.parentId:null;
-      const audio=newWritingBlock(text,parent), next=[...blocks.slice(0,at),audio,...blocks.slice(at)];
-      commit(next,writingBlockOffset(next,at),false);setActiveId(audio.id);
+    {contextSource && !comparison && <div className="flex flex-wrap items-center gap-3"><BookVideoStartButton storyId={contextSource.storyId} disabled={disabled} />{footerActions}<BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} wholeBook={{ chapterId: Number(contextSource.chapterId), kind: blocks.some(block => block.format === "shot") ? "storyboard" : "text" }} prepare={prepareMedia} onInsert={text => {
+      const audio=newWritingBlock(text), next=[audio,...blocks];
+      commit(next,0,false);setActiveId(audio.id);
     }}/></div>}
     {cacheError && <p role="alert" className="text-xs text-destructive">{_ui("本机无法保存模块格式，请暂时不要关闭页面。")}</p>}
   </section>;

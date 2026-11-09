@@ -35,6 +35,7 @@ export type ManuscriptVersion = ManuscriptReference & {
   fingerprint: string;
 };
 export type ConversionDraft = {
+  conversation?: Array<{ role: "user" | "assistant"; content: string }>;
   id: string;
   target: ManuscriptKind;
   source: ManuscriptReference;

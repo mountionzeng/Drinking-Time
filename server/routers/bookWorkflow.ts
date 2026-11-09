@@ -11,10 +11,16 @@ import {
   proposeManuscriptConversion,
   editConversionDraft,
   adoptManuscriptConversion,
+  generateFilmManuscript,
 } from "../services/bookWorkflow";
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().uuid() });
 export const bookWorkflowRouter = router({
+  generateFilm: protectedProcedure.input(record.extend({
+    target: z.enum(["text", "storyboard"]).default("storyboard"),
+    chapterId: z.number().int().positive().optional(), request: z.string().trim().max(4000),
+    conversation: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(20000) })).max(500).refine(messages => messages.reduce((sum, message) => sum + message.content.length, 0) <= 100000, "聊天内容过长，请先缩小范围"),
+  })).mutation(({ctx,input}) => generateFilmManuscript({ ...input, userId: ctx.user.id, actor: { userId: ctx.user.id, name: ctx.user.name || "未设置称呼" } })),
   get: protectedProcedure
     .input(owner)
     .query(({ ctx, input }) =>

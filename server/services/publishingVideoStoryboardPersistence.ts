@@ -1038,6 +1038,8 @@ async function confirmPublishingVideoShots(input: {
   previewId: string;
   expectedPreviewRevision?: number;
   preserveVideoActor?: VersionActor;
+  /** Start a fresh video from this manuscript; archive the old table and edit before replacement. */
+  preferSourceContent?: boolean;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
@@ -1160,6 +1162,8 @@ async function confirmPublishingVideoShots(input: {
     const reusedManagedIndexes = new Set<number>();
     const stableShotIdByDraftShotId = new Map<string, string>();
     for (const shot of preview.shots) {
+      // A direct import starts a new video from this manuscript, not the old edit's media bindings.
+      if (input.preferSourceContent) continue;
       const previous = previousByDraftShotId.get(shot.draftShotId);
       if (!previous?.stableShotId) continue;
       const current = currentManagedByStableId.get(previous.stableShotId);
@@ -1174,10 +1178,10 @@ async function confirmPublishingVideoShots(input: {
       ...(input.bookSource && preview.shots.every(shot => shot.referenceImageIds !== undefined) ? managedIndexes : []),
       ...(legacyIndex >= 0 ? [legacyIndex] : []),
     ]);
-    const retained = rawShots.filter((_, index) => !removedIndexes.has(index));
+    const retained = input.preferSourceContent ? [] : rawShots.filter((_, index) => !removedIndexes.has(index));
     const replacementIndex =
       managedIndexes[0] ?? (legacyIndex >= 0 ? legacyIndex : rawShots.length);
-    const insertionIndex = rawShots
+    const insertionIndex = input.preferSourceContent ? 0 : rawShots
       .slice(0, replacementIndex)
       .filter((_, index) => !removedIndexes.has(index)).length;
     const usedStableIds = new Set(
@@ -1243,7 +1247,7 @@ async function confirmPublishingVideoShots(input: {
       const current = previous?.stableShotId
         ? currentManagedByStableId.get(previous.stableShotId)?.shot
         : null;
-      if (!previous || !current || !previousConfirmed) return generated;
+      if (input.preferSourceContent || !previous || !current || !previousConfirmed) return generated;
       const provenance = storyBodyRecord(current.publishingVideo);
       const baseline = previousFormalShotBaseline({
         shot: previous,
@@ -1355,8 +1359,8 @@ async function confirmPublishingVideoShots(input: {
         expectedRevision: context.storyRevision,
         body: nextBody,
       };
-      const saved = input.preserveVideoActor && rawShots.length
-        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID() })
+      const saved = input.preserveVideoActor && (rawShots.length || input.preferSourceContent)
+        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID(), resetEditing: input.preferSourceContent })
         : await persistPreparedStoryBody(saveInput);
       return {
         status: "confirmed",

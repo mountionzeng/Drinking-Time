@@ -1,0 +1,511 @@
+{
+  "status": "saved_to_book_video_preview_pending",
+  "title": "launch video 视频分镜实验稿",
+  "source": {
+    "storyId": 1217,
+    "chapterId": 9,
+    "chapterVersion": 108,
+    "bodySha256": "22d81e4c3ecd4544c24fcb3505c154ee53cca2889ca0b938f7df71b934130dd0",
+    "modules": [
+      {
+        "number": 1,
+        "id": "e354b180-74d4-4433-aada-8904a1b2526e",
+        "text": "",
+        "originalRole": "text"
+      },
+      {
+        "number": 2,
+        "id": "a098c8ac-d01b-4a7b-b4db-7887b17ffe91",
+        "text": "![图片](/api/images/1793790053487-9f4aa5f8-9ef8-4ebe-b531-8a01c251a9ea.png)",
+        "originalRole": "text"
+      },
+      {
+        "number": 3,
+        "id": "7376bb77-41e0-4a5e-8806-fda04a8c0342",
+        "text": "我们可以接住你的任何细碎的情绪，她们值得被珍视。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 4,
+        "id": "5ca4269d-fd2f-4f57-9f67-b7085b084e57",
+        "text": "我们相信再聪明的回应，也替不了你亲自感到的瞬间",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 5,
+        "id": "733c4364-f860-4cc4-9d60-14ca5bc6316c",
+        "text": "她是你，和这个世界之间的触角。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 6,
+        "id": "dfc9887a-bcaa-4690-b27c-10b663dbd245",
+        "text": "你的棱角、犹豫和快乐，都会长成故事。  ",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 7,
+        "id": "a90ccef3-3f47-4c75-ae0b-7626aeba7ca0",
+        "text": "![图片](/api/images/1793719657524-3527c695-25b3-4f0d-bd54-3e597c5a1ed1.png)",
+        "originalRole": "text"
+      },
+      {
+        "number": 8,
+        "id": "1f8e9295-8760-4c65-83b5-2a4bc16924f0",
+        "text": "![图片](/api/images/1793719685969-6b606dec-bb54-46e2-9577-fcb91d7d4ae9.png)",
+        "originalRole": "text"
+      },
+      {
+        "number": 9,
+        "id": "270d226a-427d-4ef5-9e1d-34fdac673004",
+        "text": "![图片](/api/images/1793719904805-33d17abf-21a2-4546-8503-b2f38ba25a9a.png)",
+        "originalRole": "text"
+      },
+      {
+        "number": 10,
+        "id": "7e4aaf38-613a-40a2-97a9-f9906987d8a3",
+        "text": "鼠标分别点击图一显示出图二，然后扫过图三。",
+        "originalRole": "text"
+      },
+      {
+        "number": 11,
+        "id": "a1522cb7-9edd-4632-b7f3-1987c3190f9c",
+        "text": "鼠标点击音乐，然后显示视频界面",
+        "originalRole": "text"
+      },
+      {
+        "number": 12,
+        "id": "8d9372f0-244e-4a02-b801-2f549cb3a1c5",
+        "text": "长成音乐，长成电影。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 13,
+        "id": "71d1a99c-738a-40b5-b455-f77ffaac3207",
+        "text": " 画面停在完整的作品上",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 14,
+        "id": "11d0844d-e4ce-4cd2-a87e-23c980a48aaf",
+        "text": "它们完完全全属于你。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 15,
+        "id": "0a7b54d0-2228-4944-a168-b94c2b0558d0",
+        "text": "不需要任何技巧，真切的表达，最重要。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 16,
+        "id": "84c8160c-adca-450e-a965-1187abb3f0e4",
+        "text": "真实的情感，会刺破虚拟世界轻飘飘的表面。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 17,
+        "id": "99aeee4e-522a-41a2-8a64-d97bf3514e31",
+        "text": "",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 18,
+        "id": "9e178c52-ffe8-4e56-9442-4a8cb4187861",
+        "text": "你可以把作品的一部分，送给另一个人。  ",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 19,
+        "id": "4da35f10-5962-4cea-a2e3-4a164c298944",
+        "text": "它被接住，产生回响，  ",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 20,
+        "id": "f1f22c35-8e2e-4f6b-aecc-78073fb0aca1",
+        "text": "并在另一个灵魂中长出新的血肉。  ",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 21,
+        "id": "e776dc5f-40a1-415a-8c7d-f958c732e01b",
+        "text": "于是，你们在同一件作品里相遇。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 22,
+        "id": "5ee7dd3c-1755-4a9a-bc9d-2645fb6a45e2",
+        "text": "生生不息。",
+        "originalRole": "dialogue"
+      },
+      {
+        "number": 23,
+        "id": "165f69f6-b3bb-4828-bd8f-fa13700eb56a",
+        "text": "",
+        "originalRole": "text"
+      }
+    ]
+  },
+  "shots": [
+    {
+      "scene": 1,
+      "shot": 1,
+      "title": "接住细碎的情绪",
+      "durationSec": 13,
+      "sourceModules": [
+        2,
+        3,
+        4
+      ],
+      "voiceModules": [
+        3,
+        4
+      ],
+      "images": [
+        "A"
+      ],
+      "originalDirection": "当前原图已经呈现小茶壶、暗色背景、发光对话框和英文；小茶壶轻蹦、镜头拉远的动作来自你此前的书稿方向。",
+      "startFrame": "小茶壶局部及对话框上沿。",
+      "motion": "建议以原图为底做轻微上浮回落，再平稳拉远至完整对话框；英文保持清晰。当前图片文字已成形，第一版直接保留，逐字出现需另做文字层。",
+      "endFrame": "完整图A：小茶壶在对话框上方，英文全部可读。",
+      "screenText": "No matter how intelligent a response is, it cannot replace that moment you feel for yourself.",
+      "sound": "建议小茶壶轻蹦处配一个很轻的弹跳音；背景音乐缓慢淡入，保持人声清楚。",
+      "gap": "原图为3:2；视频画幅待定。建议完整容纳原图，不裁掉茶壶、附件、语音、发送图标和英文。没有无字底图或已拆分图层。",
+      "startSec": 0,
+      "endSec": 13,
+      "stableDraftId": "launch-video-scene-1-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "a098c8ac-d01b-4a7b-b4db-7887b17ffe91",
+        "7376bb77-41e0-4a5e-8806-fda04a8c0342",
+        "5ca4269d-fd2f-4f57-9f67-b7085b084e57"
+      ],
+      "voiceLines": [
+        "我们可以接住你的任何细碎的情绪，她们值得被珍视。",
+        "我们相信再聪明的回应，也替不了你亲自感到的瞬间"
+      ]
+    },
+    {
+      "scene": 2,
+      "shot": 1,
+      "title": "与世界之间的触角",
+      "durationSec": 4,
+      "sourceModules": [
+        5
+      ],
+      "voiceModules": [
+        5
+      ],
+      "images": [],
+      "originalDirection": "当前书稿只有这句台词。旧V2的方向是对话框中出现文字。",
+      "startFrame": "建议沿用上一镜的界面边缘与色调。",
+      "motion": "建议稳定镜头，让中文句子淡入并停留；不增加实体触角或新人物。",
+      "endFrame": "这句话完整可读，准备进入创作界面。",
+      "screenText": "她是你，和这个世界之间的触角。",
+      "sound": "建议延续同一条低音量背景音乐，无额外效果声。",
+      "gap": "当前没有归属于本镜的独立图片。若承接图A，需确认是否继续显示原英文；只继承风格，不自动把图A设成首帧。",
+      "startSec": 13,
+      "endSec": 17,
+      "stableDraftId": "launch-video-scene-2-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "733c4364-f860-4cc4-9d60-14ca5bc6316c"
+      ],
+      "voiceLines": [
+        "她是你，和这个世界之间的触角。"
+      ]
+    },
+    {
+      "scene": 3,
+      "shot": 1,
+      "title": "文字长成故事",
+      "durationSec": 7,
+      "sourceModules": [
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "voiceModules": [
+        6
+      ],
+      "images": [
+        "B",
+        "C",
+        "D"
+      ],
+      "originalDirection": "鼠标分别点击图一显示出图二，然后扫过图三。",
+      "startFrame": "图B：基于当前内容生成按钮。",
+      "motion": "一个镜头内按顺序呈现三个状态：鼠标点击图B → 图C菜单展开 → 视线/镜头扫到图D的故事与播放器区域。每张图作为步骤素材，不分别变成新镜头。",
+      "endFrame": "图D完整作品页面可见。",
+      "screenText": "你的棱角、犹豫和快乐，都会长成故事。另保留截图中的原有界面文字。",
+      "sound": "建议一个轻微点击声；背景音乐继续。图D里的播放器不是音频文件。",
+      "gap": "三张截图宽高与裁切范围不同，需要统一画布/重建衔接或录屏；图D中的文章与人物图片仅作为产品内作品展示，不转换成新的旁白或独立人物场景。",
+      "startSec": 17,
+      "endSec": 24,
+      "stableDraftId": "launch-video-scene-3-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "dfc9887a-bcaa-4690-b27c-10b663dbd245",
+        "a90ccef3-3f47-4c75-ae0b-7626aeba7ca0",
+        "1f8e9295-8760-4c65-83b5-2a4bc16924f0",
+        "270d226a-427d-4ef5-9e1d-34fdac673004",
+        "7e4aaf38-613a-40a2-97a9-f9906987d8a3"
+      ],
+      "voiceLines": [
+        "你的棱角、犹豫和快乐，都会长成故事。  "
+      ]
+    },
+    {
+      "scene": 4,
+      "shot": 1,
+      "title": "长成音乐和电影",
+      "durationSec": 5,
+      "sourceModules": [
+        11,
+        12
+      ],
+      "voiceModules": [
+        12
+      ],
+      "images": [],
+      "originalDirection": "鼠标点击音乐，然后显示视频界面",
+      "startFrame": "音乐选项可点击的界面状态。",
+      "motion": "先展示点击音乐，再通过剪辑转到视频界面，短暂停在预览与表格上。这里按两个产品步骤之间的剪辑衔接理解，实际页面操作需核对。",
+      "endFrame": "视频预览和分镜表格清楚可见。",
+      "screenText": "长成音乐，长成电影。",
+      "sound": "建议音乐在切到视频界面时略抬起，人声优先。",
+      "gap": "当前本镜没有独立参考图或真实录屏。第三场菜单可以讨论复用，但没有自动跨场借图；视频界面截图待补。",
+      "startSec": 24,
+      "endSec": 29,
+      "stableDraftId": "launch-video-scene-4-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "a1522cb7-9edd-4632-b7f3-1987c3190f9c",
+        "8d9372f0-244e-4a02-b801-2f549cb3a1c5"
+      ],
+      "voiceLines": [
+        "长成音乐，长成电影。"
+      ]
+    },
+    {
+      "scene": 5,
+      "shot": 1,
+      "title": "作品属于你",
+      "durationSec": 12,
+      "sourceModules": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "voiceModules": [
+        14,
+        15,
+        16
+      ],
+      "images": [],
+      "originalDirection": "画面停在完整的作品上",
+      "startFrame": "上一镜呈现的完整作品。",
+      "motion": "按原文停留在作品上；建议仅做极慢的轻推，三句台词逐句出字幕，保留末句停顿。",
+      "endFrame": "仍然是完整作品，画面保持稳定。",
+      "screenText": "与三句旁白同步的字幕；不把画面操作说明显示为字幕。",
+      "sound": "建议平稳配乐，最后一句略微舒展，随后回落。",
+      "gap": "“画面停在完整的作品上”已归类为画面描述，原句保留、不朗读。展示哪件作品尚未指定，图D不会被自动复制过来。",
+      "startSec": 29,
+      "endSec": 41,
+      "stableDraftId": "launch-video-scene-5-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "71d1a99c-738a-40b5-b455-f77ffaac3207",
+        "11d0844d-e4ce-4cd2-a87e-23c980a48aaf",
+        "0a7b54d0-2228-4944-a168-b94c2b0558d0",
+        "84c8160c-adca-450e-a965-1187abb3f0e4"
+      ],
+      "voiceLines": [
+        "它们完完全全属于你。",
+        "不需要任何技巧，真切的表达，最重要。",
+        "真实的情感，会刺破虚拟世界轻飘飘的表面。"
+      ]
+    },
+    {
+      "scene": 6,
+      "shot": 1,
+      "title": "在另一个灵魂里生长",
+      "durationSec": 15,
+      "sourceModules": [
+        18,
+        19,
+        20,
+        21
+      ],
+      "voiceModules": [
+        18,
+        19,
+        20,
+        21
+      ],
+      "images": [],
+      "originalDirection": "当前四句文字描述作品被送出、接住、回响和共同生长，未规定具体画面。",
+      "startFrame": "建议从上一镜作品的一个局部开始。",
+      "motion": "建议沿用网页的手绘线条：作品的一部分移向画面另一侧，被接住后产生轻微回波；接收端长出新的线条或内容，镜头缓慢拉开，让两侧落在同一件作品里。",
+      "endFrame": "两处回应连接为一个完整作品。",
+      "screenText": "四句原文依次作为字幕。",
+      "sound": "建议在“产生回响”处使用很轻的回声质感，音乐温暖舒展。",
+      "gap": "这一镜的具体视觉表现属于新增建议。没有接收者图、分享过程素材或已选背景音；“长出血肉”建议用线条与作品生长表达，不预设写实人体画面。",
+      "startSec": 41,
+      "endSec": 56,
+      "stableDraftId": "launch-video-scene-6-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "9e178c52-ffe8-4e56-9442-4a8cb4187861",
+        "4da35f10-5962-4cea-a2e3-4a164c298944",
+        "f1f22c35-8e2e-4f6b-aecc-78073fb0aca1",
+        "e776dc5f-40a1-415a-8c7d-f958c732e01b"
+      ],
+      "voiceLines": [
+        "你可以把作品的一部分，送给另一个人。  ",
+        "它被接住，产生回响，  ",
+        "并在另一个灵魂中长出新的血肉。  ",
+        "于是，你们在同一件作品里相遇。"
+      ]
+    },
+    {
+      "scene": 7,
+      "shot": 1,
+      "title": "生生不息",
+      "durationSec": 4,
+      "sourceModules": [
+        22
+      ],
+      "voiceModules": [
+        22
+      ],
+      "images": [],
+      "originalDirection": "当前书稿结尾为“生生不息。”。",
+      "startFrame": "上一镜共同作品停住。",
+      "motion": "建议缓慢淡入结尾中文，停留后淡出；若加入产品名，使用现有品牌字样，单独确认。",
+      "endFrame": "“生生不息。”与克制留白。",
+      "screenText": "生生不息。",
+      "sound": "建议音乐尾音自然结束。",
+      "gap": "旧V2曾有Drinking Time与英文Again and again, life goes on.；当前正文已没有后一句，本实验不自动补回。产品名作为可选画面文字，待确认。",
+      "startSec": 56,
+      "endSec": 60,
+      "stableDraftId": "launch-video-scene-7-shot-1-draft-20261106",
+      "sourceModuleIds": [
+        "5ee7dd3c-1755-4a9a-bc9d-2645fb6a45e2"
+      ],
+      "voiceLines": [
+        "生生不息。"
+      ]
+    }
+  ],
+  "totalDurationSec": 60,
+  "images": [
+    {
+      "label": "A",
+      "moduleNumber": 2,
+      "assetId": 2019,
+      "path": ".webdev/images/1793790053487-9f4aa5f8-9ef8-4ebe-b531-8a01c251a9ea.png"
+    },
+    {
+      "label": "B",
+      "moduleNumber": 7,
+      "assetId": 2003,
+      "path": ".webdev/images/1793719657524-3527c695-25b3-4f0d-bd54-3e597c5a1ed1.png"
+    },
+    {
+      "label": "C",
+      "moduleNumber": 8,
+      "assetId": 2004,
+      "path": ".webdev/images/1793719685969-6b606dec-bb54-46e2-9577-fcb91d7d4ae9.png"
+    },
+    {
+      "label": "D",
+      "moduleNumber": 9,
+      "assetId": 2005,
+      "path": ".webdev/images/1793719904805-33d17abf-21a2-4546-8503-b2f38ba25a9a.png"
+    }
+  ],
+  "omittedEmptyModules": [
+    1,
+    17,
+    23
+  ],
+  "roleCorrections": [
+    {
+      "moduleNumber": 13,
+      "current": "visual_description",
+      "proposed": "visual_description",
+      "status": "applied_in_book",
+      "previous": "dialogue"
+    }
+  ],
+  "audio": {
+    "onlineAttempt": {
+      "operationId": "ad3a11cc-e2e2-4590-b667-34b0034aca0c",
+      "quotedCompute": 0.06,
+      "localChargedCompute": 0,
+      "status": "failed_http_500",
+      "hold": "released",
+      "attempts": 1
+    },
+    "localPreview": {
+      "voice": "Tingting",
+      "provider": "macOS offline speech",
+      "cost": 0,
+      "status": "rejected_by_user",
+      "durationSec": 60,
+      "path": "outputs/launch-video-storyboard-20261106/launch-video-60s-local-preview.mp3",
+      "sceneSpeechDurationsSec": [
+        9.87,
+        3.01,
+        3.88,
+        2.32,
+        11,
+        12.7,
+        1.01
+      ]
+    },
+    "currentPreview": {
+      "provider": "302/minimaxi",
+      "model": "speech-2.8-turbo",
+      "voice": "audiobook_female_1",
+      "status": "provisional_use_authorized",
+      "durationSec": 43.668,
+      "operationId": "75d1b656-6247-4932-ac2e-cf82ffc50094",
+      "attempts": 1,
+      "quotedCompute": 0.06,
+      "localChargedCompute": 0.06,
+      "assetId": 8,
+      "path": "outputs/launch-video-storyboard-20261106/launch-video-302-minimax-narration.mp3",
+      "timelineAdopted": false
+    },
+    "elevenlabsPreview": {
+      "provider": "302/elevenlabs",
+      "model": "eleven_multilingual_v2",
+      "voice": "Sarah",
+      "assetId": 9,
+      "durationSec": 46.718549,
+      "localChargedCompute": 0.06,
+      "attempts": 1,
+      "path": "outputs/launch-video-storyboard-20261106/launch-video-302-elevenlabs-sarah-narration.mp3",
+      "timelineAdopted": false,
+      "status": "voice_selection_continues_in_separate_chat",
+      "threadId": "01a1b107-2516-74a3-b480-d4e82eee8ac5"
+    }
+  },
+  "sourceFilesUnmodified": false,
+  "adopted": false,
+  "manuscript": {
+    "chapterId": 9,
+    "version": 110,
+    "originalVersion": 108,
+    "originalVersionVerified": true,
+    "totalModules": 44,
+    "originalModulesPreserved": 23,
+    "sceneCount": 7,
+    "shotCount": 7
+  },
+  "videoPreview": {
+    "recordId": "42f2cdf8-9d94-4ebe-9d3c-23b389384f80",
+    "status": "direction_saved_preview_interrupted",
+    "adopted": false
+  }
+}

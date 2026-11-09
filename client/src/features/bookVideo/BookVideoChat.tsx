@@ -111,6 +111,9 @@ export function BookVideoChat({
     onProgressChange?.(progress);
   }, [onProgressChange, progress]);
   useEffect(() => () => onProgressChange?.(""), [onProgressChange]);
+  useEffect(() => {
+    if (session?.recordId) { setSelected(session.recordId); setOpened(session.recordId); }
+  }, [session?.recordId]);
   const records = query.data?.records ?? [];
   const current = records.find(r => r.id === selected);
   const detail =
@@ -303,7 +306,7 @@ export function BookVideoChat({
           assertScope();
           const workflow = await utils.bookWorkflow.get.fetch({ storyId });
           if (!workflow.drafts.storyboard.version || workflow.drafts.storyboard.dirty)
-            throw new Error("请先到书页的‘作品版本与转换’，确认分镜版并保存版本，再继续制作视频。文字版和原视频都会保留。");
+            throw new Error("请先到书页的‘生成新版本’，选择做成影片并确认分镜，再继续制作视频。文字版和原视频都会保留。");
           assertScope();
           const parentId = selected ?? undefined;
           if (

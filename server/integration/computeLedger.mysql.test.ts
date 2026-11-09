@@ -49,6 +49,22 @@ function raceInputs(base: unknown[], leadMs = 600): unknown[] {
 }
 
 describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
+  it("website and WeChat registration grants race across processes but credit only five units", async () => {
+    await withMysqlTestDatabase(async database => {
+      const setup = await mysql.createConnection(database.databaseUrl);
+      let userId: number;
+      try { userId = await seedUser(setup); } finally { await setup.end(); }
+      const inputs = raceInputs(["web-login-gift:v1:test", "wechat-registration-gift:test"].map(idempotencyKey => ({
+        action: "grant", userId, amountMinor: 2_500_000, idempotencyKey,
+        oncePerAccountPrefixes: ["web-login-gift:", "wechat-registration-gift:"],
+      })));
+      const results = await Promise.all(inputs.map(input => workerResult<{kind:string}>(startWorker(database.databaseUrl, input))));
+      expect(results.map(r => r.kind).sort()).toEqual(["appended", "duplicate"]);
+      const balance = await workerResult<{balanceMinor:number}>(startWorker(database.databaseUrl, { action:"balance", userId }));
+      expect(balance.balanceMinor).toBe(2_500_000);
+    });
+  }, 300_000);
+
   it("一致性只读快照能在 MySQL 返回余额、待处理与历史", async () => {
     await withMysqlTestDatabase(async database => {
       const setup = await mysql.createConnection(database.databaseUrl);

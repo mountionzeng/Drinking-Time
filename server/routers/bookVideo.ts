@@ -14,17 +14,22 @@ import {
   generateBookVideo,
   editBookVideo,
   adoptBookVideo,
+  importBookStoryboard,
 } from "../services/bookVideoCreation";
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().min(8).max(100) });
 export const bookVideoRouter = router({
+  importStoryboard: protectedProcedure
+    .input(record.extend({ chapterId: z.number().int().positive(), expectedFingerprint: z.string().min(1).max(128) }))
+    .mutation(({ ctx, input }) => importBookStoryboard({ ...input, userId: ctx.user.id,
+      actor: { userId: ctx.user.id, name: ctx.user.name || "未设置称呼" } })),
   prepareManuscript: protectedProcedure
     .input(owner.extend({ request: z.string().trim().min(1).max(4000) }))
     .mutation(() => {
       if (!chapterEnabled())
         // The legacy article-to-video conversation still works with chapters off.
         return { chapters: [], shotCount: 0, changed: false };
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "请从书页的“作品版本与转换”生成并确认独立分镜版，原文字版会保留。" });
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "请从书页的“生成新版本”生成并确认独立分镜版，原文字版会保留。" });
     }),
   list: protectedProcedure.input(owner).query(async ({ ctx, input }) => {
     const records = await listBookVideoRecords({

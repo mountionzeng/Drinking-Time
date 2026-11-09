@@ -1,4 +1,3 @@
-vi.mock("./BookWorkflowControls", () => ({ BookWorkflowControls: () => <div>稿件与作品版本</div> }));
 vi.mock("wouter", () => ({ useLocation: () => ["/editing", vi.fn()] }));
 vi.mock("./BookMusicInsert",()=>({BookMusicInsert:()=>null}));
 import React from "react";
@@ -49,6 +48,7 @@ vi.mock("./useChapters", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    bookWorkflow: { get: { useQuery: () => ({ data: undefined }) } },
     creationAgent: { importStoryMaterial: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
     chapterDelivery: {
       status: { useQuery: () => ({ data: { enabled: deliveryState.enabled } }) },

@@ -24,6 +24,39 @@
 
 ## 当前在场
 
+- 2026-11-09 手机验收发布会话：独占本轮提交/push/生产产物部署窗口；chat 01a1bedb 已释放业务文件，正在固化最终发布快照。仅占发布 QA 和会话看板，不修改其在做的业务代码；不变更生产配置/数据库，不纳入 outputs 私人素材。发布回归占用已释放的 FilmVersionDraft.tsx 与 BookWritingContext.test.tsx：收窄章节查询刷新、更新整书配乐插入位置断言。
+
+2026-11-09 chat 01a1bedb 当前分镜直入视频表格、声音入口及算力报价完成并释放本轮全部文件（未提交/push/部署）：BookVideoStartButton/PublishingDraftWorkspace、bookVideo路由/Creation、directBookStoryboard、publishingVideoStoryboardPersistence/videoWorkflow、BookMusicInsert/BookSoundMenu及相关测试/字典/账本QA。用户授权真实1217最终视频V6来自分镜V2；7镜60秒、13段台词/字幕、4张原参考图和配乐14已入表，章9修订144及章10原文未变，旧视频V2/V3/V4/V5快照保留。修复旧剪辑时长/图片/字幕继承、配乐复用标记与刷新后不跳转；声音入口坐标点击遮挡修复，报价显示0.60算力。最终75项、类型、构建77草稿保护、88卡及差异检查通过；真实3000实点验收，无AI/付费调用。整书朗读13/15仍待逐镜对齐，未渲染成片。详见docs/qa/2026-11-09-book-video-workflow.md及/tmp/book-current-video-table.jpg。其余会话修改保留，发布窗口仍由手机验收发布会话管理。
+
+
+
+2026-11-09 chat 01a1bedb 统一新版本与整书声音本地完成并释放文件（未提交/push/部署）：书页版本/生成新版本与聊天共用影片或文字流程；标题单一添加声音菜单，文字为有声书、分镜为台词，配乐和朗读按整书处理。中英法文案、转换→视频素材需求来源及长文朗读指纹/续签防重已接入。组合106项、声音18项、最终定向50项（重叠）、类型/构建77草稿保护与88卡账本通过；3000实际入口及英文截图已验收，无真实模型/付费生成。详见 docs/qa/2026-11-09-book-video-workflow.md，原其他会话未提交工作保留。
+
+
+
+
+
+2026-11-09 麦克风/桌面听写本地完成并释放 securityHeaders、useVoiceInput、StoryAgentChat、语言词典及对应测试/账本：修复响应头禁止录音，电脑原话筒复用实时听写，短错误原位显示并隔离跨故事迟到回调。60项相关测试、类型与86卡账本通过。Chrome真实启动/出字/停止成功，测试草稿已清空且未发送；Safari已弹出录音授权，但实时识别启动超时，内置浏览器仍拒绝录音；普通旧ASR403/500未改。未提交/push/部署，不占发布窗口。详见 docs/qa/2026-11-09-microphone-permissions.md。
+
+
+
+
+
+
+
+
+
+
+
+
+2026-11-06 中文三音色短试听完成并释放（chat 01a1b107，main，未提交/部署）：豆包温柔小雅/温暖阿虎、MiniMax淡雅学姐同稿66字符一次生成资产10/11/12，13.92/11.645875/12.968375秒，实际合计0.06算力。Qwen旧版本404/Model not exist，应用0扣费，未重试且未保留不可用适配。最终87专项、类型、84卡、三文件解码/206通过；只变更storyVoice302及对应测试、旁白测试、本地配置/示例/QA与账本，本轮没有保留storyNarration/storyAudioImport行为增量。默认暂为minimaxi/danya_xuejie，等待用户选择，未写书稿/分镜/Page。输出outputs/launch-video-storyboard-20261106/chinese-auditions/，QA docs/qa/2026-11-06-chinese-voice-auditions.md。
+
+2026-11-06 ElevenLabs选声反馈复查完成并释放（chat 01a1b107，main）：用户否定Sarah英语语调中文，本作品淘汰候选9，保留历史资产/账务。只读完整25音色中仅Stella Gu标签zh但描述冷淡疏离，未找到适合温暖叙述的原生中文选项，未再付费；仅更新声音QA/功能卡听验结论，84卡校验通过，未改原对话书稿/分镜/Page。运行配置仍Sarah，下一次生成前须重新选声，不能将接口成功视为用户认可。
+
+
+2026-11-06 ElevenLabs中文试听完成并释放（chat 01a1b107，main，未提交/部署）：storyVoice302/storyNarration/storyAudioImport及对应测试、本地配置/示例、账本与独立QA。302实际模型eleven_multilingual_v2、Sarah音色EXAVITQu4vr4xnSDxMaL，故事1217同稿一次生成资产9，46.718549秒，应用结算0.06算力；供应商标价约0.0699 PTC而非实际账单。84专项、类型、完整解码/206读取通过，章节9仍version108，未采用时间轴；MiniMax/OpenAI保留，未动原对话Page/实验稿与章/节/场/镜头代码。音频outputs/launch-video-storyboard-20261106/launch-video-302-elevenlabs-sarah-narration.mp3，听感待用户确认；QA docs/qa/2026-11-06-302-elevenlabs-narration.md。
+
+
 2026-11-04 批量有声书/台词完成并释放 BookBlockCanvas/ChapterTextModules/BookModuleConvert、bookMedia路由/storyNarration及测试/账本：多选仅提取文字，完整原文预览/全组报价签名和源变更拒绝，结果按末源插入并入仓库；台词批量分类一次提交。91项相关测试、类型通过；3000实点六项菜单/两段朗读预览，未付费生成、未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
 
 2026-11-04 模块删除快捷键完成并释放 BookBlockCanvas、BookWritingContext.test 及账本/QA：单选多选 Delete/Backspace 复用删除撤销，选择后书页聚焦，保护文字编辑/IME/连发/组合键。61项相关测试、类型通过；主仓3000纯内存临时页实测单删、多删、恢复与输入保护，临时文件已清理；未改真实书稿、未提交/部署。QA docs/qa/2026-11-04-book-multiselect-menu.md。
@@ -202,6 +235,53 @@
 ---
 
 ## 最近落地
+
+- 2026-11-09 素材提交前失败恢复完成并释放（未提交）：useMaterialCapture及新增hook测试，只对尚未上传的新批次解锁读取/暂存失败，未知请求保留原锁定与幂等。32项相关/类型通过；既有6份原件真实3000读取与SHA/Range验证通过。QA见2026-11-09-mobile-import.md；按用户要求不再尝试镜像，不占合并部署窗口。
+
+- 2026-11-09 素材极简布局完成并释放（未提交）：素材区改输入栏双图标，移除长说明/重复入口，返回聊天与系统分享移至原更多操作；MOV误选短提示，未改变素材生成或原件。触达MobileCaptureAttachments/MobileCaptureChatView/MobileChatView/MobileCompanionActions、materialCaptureDraft和测试/账本。48项相关测试及类型通过，真实浏览器图标选文件/分享展开/返回聊天通过；QA见2026-11-09-mobile-import.md，未付费/部署。
+
+2026-11-09 chat 01a1bedb 书页简化第一步完成并释放：按用户截图移除文字版、分镜版、作品版本与转换三个按钮及展开表单；仅ChapterWorkspace/测试mock/账本/QA，原稿历史保留。3000截图核对、12专项、类型、88卡通过；未提交/部署，后续交互按用户逐步确认。
+
+
+2026-11-09 双稿件与视频版本完成并释放（chat 01a1bedb，main e75430bd）：章/节文字稿与场/镜分镜稿独立版本、用途驱动互转预览/采用、历史恢复、来源/作者/时间及视频剪辑快照导出。旧视频留档与新方案替换同事务。169专项、类型、88卡账本、草稿保护构建及3000入口实点通过；真实模型/MySQL/触屏未验收，未付费生成/push/部署。工作树分支已清理，其他会话脏文件保留，合并窗口释放。QA docs/qa/2026-11-09-book-video-workflow.md。
+
+
+- 2026-11-09 回形针用途提示完成并释放（未提交）：MobileCaptureAttachments 原按钮下标“素材”，展开区说明图像/录音/文字整理为新故事并保留原件，不增加按钮。14项既有测试通过；用户确认手机文本到电脑本地可见。QA见2026-11-09-mobile-import.md，不占合并/发布窗口。
+
+- 2026-11-09 手机导入修复本地完成并释放（未提交）：回形针单击打开文件选择，保留录音/分享；目标列表标当前故事与创建时间区分同名独立故事。42项相关测试、类型通过；Chrome真实filechooser及导入表单通过，自动选文件受扩展权限限制，手机上传待复验。触达MobileCaptureAttachments/MobileChatView/MobileCompanionActions、测试、词典与账本；详见docs/qa/2026-11-09-mobile-import.md。未改真实故事、未付费或部署。
+
+2026-11-09 手机一键实时听写完成本地实现并释放（main 50f4c97a，未push/部署）：原位话筒单击启动浏览器识别，中间文字进入输入框、结果去重追加草稿、停止/错误保留已识别内容，卸载拒绝迟到结果；无API时自动启动旧录后转写兼容，失败只显示短提示。78相关+26架构测试、类型/86卡通过；主仓3000隔离页模拟识别实点单击/实时文字/末次修正/停止恢复，临时文件已删，无付费调用/业务写入。iOS/Android真机识别、系统分享仍待验，截图旧豆包403/302 500未修复。QA docs/qa/2026-11-09-mobile-live-dictation.md。
+
+2026-11-09 本地页面补验完成并释放（main，证据提交 71fd6cb8）：浏览器已可用，手机素材原文/整理稿展开、同故事聊天收起重开、视频分镜稿与剪辑预览第03镜往返通过；四张图片加载成功，两页无捕获的控制台error。已恢复书稿界面，无付费调用/故事内容修改；功能提交9d9a75c2及本轮证据均在本地main，未push/部署。真机录音/系统分享/真实供应商失败恢复/生产MySQL仍未验。详见docs/qa/2026-11-09-other-worktree-integration.md。
+
+2026-11-09 其他工作区验收完成并释放（main，提交 9d9a75c2，未推送/部署）：手机素材网页代码已在main，手机聊天重开保留会话，MJ已完成但取回失败保留原任务，分镜稿显示最新视频失败原因；用户明确选择维持无任务号超时自动释放规则，旧预占改动未合。273项相关（2项提权隔离复跑）、118恢复/发布回归、77草稿安全、类型/86卡通过；3000手机入口及模块编译HTTP200。Work设置禁用浏览器自动操作，真机/真实付费/生产MySQL未验，未清理其他会话工作区。QA docs/qa/2026-11-09-other-worktree-integration.md。
+
+2026-11-08 书稿标题、场镜/视频与来信发布准备完成并释放（main，待部署）：dbdd25b4 已提交且推送 origin/main；隔离完整测试6848通过/73跳过、类型/构建/86卡/差异门禁通过，热点 StoryboardReviewBoard 已抽出 StoryboardManuscriptSection 保持原交互。打包前确认101个源码文件与提交一致，174项产物在 /private/tmp/book-overview-release-20261108/，版本3fb2627c-3f06-472c-a481-94f4b9e296bd。生产 SSH 在密钥交换前连接关闭，本机及浏览器 HTTPS 同样连接中断，未能只读预检或部署，未碰生产文件/配置/库；恢复连接后先核对当前生产清单、保留旧资源并部署 dbdd25b4，禁止无基线直接覆盖。无其他会话改动或本地素材被提交。
+
+2026-11-08 场/章编号字号完成并释放（main，未提交/部署）：BookBlockCanvas 的场/章及导入章编号统一26设计像素，位置与层级沿用原样；53项现有回归、类型及3000场字号截图通过。证据见 docs/qa/2026-11-08-book-outline-overview.md。
+
+2026-11-08 场镜/章节层级与概览完成并释放（main，未提交/部署）：chapterBlockTree/bookBlockLayout/bookBlockSelection/BookBlockCanvas、新增bookOutlineSummary、bookStoryboardPreparation、对应测试/词典/账本/QA。统一父子转换和排序、真实内容统计与展开参考图、新生成场展开/镜头收起；150专项+77草稿安全、类型/86卡/差异检查通过。3000实点7场7镜及第三镜3图加载，当前书稿仅通过正常控件保存折叠状态，原文媒体顺序不变，无付费生成。证据 docs/qa/2026-11-08-book-outline-overview.md。
+
+
+2026-11-08 来信日期/精简展示完成并释放（main，未提交/部署）：按用户要求删除书稿列表、摘录和来源说明，后台选材不变；页头公历/农历明确，旧信阅读与翻译输入对经核验的“今天九月最后一天”补农历标签，生成上下文区分两种历法，原存档不改。51项相关测试、类型、86卡、差异检查及3000实际页面通过，无付费调用。释放 dailyLetterCalendar、emotionDailyReference302、来信桌面/手机/正文、翻译、词典与账本；QA docs/qa/2026-11-08-daily-letter-calendar.md。
+
+2026-11-08 每日来信创作读取修复完成并释放（main，未提交/部署）：修正空章节污染正文日期、最近正文优先选材及 who=u 旧消息日期；桌面/手机共用当前可读书稿与旧信来源回执，明确凌晨旧信早于晚间保存，来信专用留言不再误称全站无内容。59项相关回归、12项最终定向复跑、类型/86卡/差异检查通过，3000实测11月6日分镜正文与日期；未付费生成、未重写历史信、未开启长期采集。释放 dailyLetterWorks/emotionDailyReference302/emotionDailyLetters、来信路由与桌面/手机/共享来源展示、stories、语言词典及账本。QA docs/qa/2026-11-08-daily-letter-writing.md。
+
+2026-11-07 同一视频双视图与自动剪辑修订完成并释放（本对话，main，未提交/部署）：BookVideoWorkspace、EditingStudioPage/EditingNleWorkspace、StoryboardPanel/ReviewBoard、新逐镜表；visual persistence/timelines、creationAgent 时间轴保存、videoEditHistory、VideoVersionHistory及测试/QA/账本。正式镜头共享稳定编号与时间排序、每镜生成菜单、同控制器切换，候选确认门保留；剪辑CAS原子留存最近30状态，不修改成品组合。258项/19文件、类型、86卡、差异检查通过，主仓3000真实第03镜选择→Preview03/00:16及三参考图、三项生成菜单、候选返回均通过。修正旧镜头视频列表缺省和隐藏返回文字框高度问题。未改真实时间轴、未购买媒体；整版恢复与生产MySQL实测仍为缺口。QA docs/qa/2026-11-07-unified-video-storyboard.md，截图 outputs/unified-video-20261107/。
+
+2026-11-06 视频宽幅分镜稿完成并释放（main，未提交/部署）：BookVideoChat/test、BookVideoWorkspace/test、bookVideoReviewDraft、EditingStudioPage、spine-bridge.test及QA/账本。视频默认展示逐镜稿，聊天原入口直达，同一草稿会话；原剪辑/Preview另视图保留，切换不生成/采用。83专项、类型、主仓3000实页及草稿切换/取消通过；7镜60秒、4书图与旧画面可见，候选V3仍ready/revision4。截图outputs/launch-video-storyboard-20261106/video-workspace-wide-storyboard.png，QA docs/qa/2026-11-06-video-wide-storyboard.md。
+
+2026-11-06 通用分镜稿与图片继承完成并释放（main，未提交/部署）：原视频对话增加默认先整理分镜稿选项，完整模块连续分组、原子版本保存与干净书页接收；跨格式/发布版本继承生成画面及人工首尾帧，折叠图数可见。180专项、类型、85卡及差异检查通过。故事1217实际V3已生成7镜60秒待确认预览，13段台词逐字相同、4书图+旧画面2010可见；修复整片文本90秒超时与误报，未购买媒体、未采用正式视频。进度Page sequence10，QA docs/qa/2026-11-06-reusable-book-storyboard.md；配音会话修改保留。
+
+2026-11-06 有声书男女声选择完成并释放（chat 01a1b107，main，未提交/部署）：用户认可豆包女声温柔小雅/男声温暖阿虎，BookModuleConvert新增选择、默认女声，切换重报费用；bookMedia/storyNarration/shared映射绑定签名并保留未知防重，时间轴全局配置不变。77项相关测试、类型、84卡及3000真实选声/报价验证通过，无新增付费或书稿写入。QA docs/qa/2026-11-06-audiobook-voice-choice.md。
+
+2026-11-06 launch video真实分镜稿已保存并释放原对话范围（main，未提交/部署）：章节9版本110为7场7镜，原23模块与4图完整保留，模块13改画面描述，版本108可恢复。真实持久结构/13段台词/1与3图归属、浏览器重开截图及84卡验证通过；Page修订8和实验md/json同步。V3方向记录42f2cdf8已保存，逐镜预览两次请求均被文本超时或配音热更新中断，仍proposed/revision3、无preview，未adopt；原正式镜头完全不变。恢复须等服务稳定和原claim到期后沿同记录继续，勿新建重复方案。声音已转独立对话01a1b107继续。QA docs/qa/2026-11-06-launch-video-manuscript.md。
+
+2026-11-06 302正式旁白续修完成并释放（main，未提交/部署）：storyVoice302/storyNarration/storyAudioImport及测试，本地TTS配置和示例、账本/QA与实验文档。MiniMax Speech 2.8 Turbo女性有声书音色真实一次生成成功，故事1217资产8、43.668秒、0.06算力已结算；原书章节9版本108保留，未采用时间轴。80专项、类型、完整MP3解码/本地206读取及Page音频更新读回通过。原OpenAI上游500未宣称修复；本机Tingting试听已弃用。详见 docs/qa/2026-11-06-302-minimax-narration.md。
+
+2026-11-06 launch video 分镜实验完成并释放文档范围（未提交）：个人Page https://chatgpt.com/space/page_0e014f713e608191acd65cef0fdcdc01 及 docs/brainstorms/2026-11-06-launch-video-storyboard-experiment.md/json 已记录7场7镜60秒、23模块全去向与待确认项；20非空模块精确覆盖、13段旁白原文、章节9版本108及正文hash未变。用户新增授权可花少量算力后，在线Alloy旁白仅提交一次（operationId ad3a11cc-e2e2-4590-b667-34b0034aca0c，报价0.06），上游HTTP500，本地账本actualCostMinor=0/hold released，未重试；另生成免费Tingting本机60秒节奏试听于 outputs/launch-video-storyboard-20261106/，已上传Page附件。Page图文/附件已读回及浏览器核对。未采用新视频、未改真实书稿、未部署。用户新建格式对话01a1b0d8-8b48-7c30-99de-3d1a16469158已完成本地实现与629项相关验证，精确音乐入出点仍待接入；本原对话只维护上述实验文稿，没有修改该对话代码。
+
+2026-11-06 书稿章/节/场/镜头格式本地完成并释放（main，未提交/部署）：chapterBlockTree、ChapterTextModules、BookBlockCanvas、bookBlockLayout/Selection、shared/bookWritingStyle/Numbering、bookStoryboardModules/bookVideoSource及规划接口、测试与账本。原菜单新增真实场/镜头子树，移动/折叠携带全部图文音频，编号随位置推导、标题与ID不变；章/节及微信目录保留。显式镜头一镜一行优先转视频，旧第N幕路径保留；归属不完整明确拒绝，音乐仍沿用整片顺接，逐镜音轨入/出点待接入。84文件626项+新增3项定向复跑累计629测试、类型/84卡/差异检查通过；主仓3000纯内存实际拖动二场三镜→一场二镜、两图/台词展开、重开、整场折叠和菜单通过。未改真实故事、未付费生成、未push；临时验证文件清理，其他会话脏文件及原对话brainstorms保留。QA docs/qa/2026-11-06-book-scene-shot-modules.md。
 
 2026-11-05 本对话书稿/视频汇总发布完成，main/生产发布窗口已释放：42ee3e29已push并上线book-video-20261105；前端版本b705715c-e7be-4c3b-83b6-94a5417a5966。6733测试、类型/构建/83卡/41迁移基线通过；175产物哈希、正式HTTPS/ready/mysql/required与发送平台菜单实点通过，保留旧资源和dist备份。未改生产配置/数据库、未付费生成；其他会话4份修改与outputs保留，MySQL集成未配置不算通过。无本轮临时worktree/分支。QA docs/qa/2026-11-05-book-video-release.md。
 

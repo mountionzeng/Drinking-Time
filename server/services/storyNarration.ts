@@ -232,7 +232,7 @@ async function resolveCue(input: {
     const source=await resolveBookModuleSource({...input,...input.bookTarget});
     if(source.image || source.parts?.some(part=>part.image))throw new Error("请选择文字模块生成有声书");
     if(source.source.length>5000)throw new Error("每次有声书最多5000字，请减少所选文字或先拆分模块");
-    return {cue:{id:input.subtitleCueId,text:source.source,textRevision:1,speechBindingId:null},timeline:null};
+    return {cue:{id:input.subtitleCueId,text:source.source,textRevision:input.bookTarget.wholeBook ? parseInt(source.fingerprint.slice(0, 12), 16) : 1,speechBindingId:null},timeline:null};
   }
   const [story, timeline] = await Promise.all([
     loadOwnedStory({ storyId: input.storyId, userId: input.userId }),
@@ -297,7 +297,7 @@ export async function quoteStoryNarration(input: {
     subtitleCueId: cue.id,
     textRevision: cue.textRevision,
     textHash: narrationTextHash(cue.text),
-    bindingId: cue.speechBindingId ?? randomUUID(),
+    bindingId: cue.speechBindingId ?? (input.bookTarget?.wholeBook ? sha256(JSON.stringify({ storyId: input.storyId, cue: cue.id, revision: cue.textRevision, text: cue.text, provider, voice })) : randomUUID()),
     provider,
     voice,
     maxCostMinor: estimateStoryNarrationCostMinor(cue.text),

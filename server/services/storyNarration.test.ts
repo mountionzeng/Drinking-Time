@@ -668,3 +668,23 @@ it('rejects oversized selected narration instead of truncating it',async()=>{
  const chapter=await insertChapter({storyId,userId:897,content:{title:'书',layout:null,blocks:{body:'甲'.repeat(2500)+'\n'+'乙'.repeat(2500),blockIds:['a','b'],writingStyle:['a','b'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false})),containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
  await expect(quoteStoryNarration({storyId,userId:897,subtitleCueId:'too-long',bookTarget:{chapterId:chapter.id,moduleId:'a',moduleIds:['a','b']},now:()=>NOW})).rejects.toThrow('最多5000字');
 });
+
+it('binds each full-book narration segment to all chapters and reuses renewed quotes without another provider call', async () => {
+  const { insertChapter, saveChapterContent } = await import('../repositories/chapters');
+  const { storyId } = await seed(895);
+  const blocks = (body: string) => ({ body, blockIds: [], manuscriptKind: 'text' as const, containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] });
+  const first = await insertChapter({ storyId, userId: 895, content: { title: '开头', layout: null, blocks: blocks('甲'.repeat(4800)) } });
+  const last = await insertChapter({ storyId, userId: 895, content: { title: '末章', layout: null, blocks: blocks('末章不可遗漏') } });
+  const request = { storyId, userId: 895, subtitleCueId: 'whole-book-segment-0', voiceGender: 'female' as const, bookTarget: { chapterId: first.id, moduleId: 'whole-book', wholeBook: { kind: 'text' as const, dialogueOnly: false, segment: 0 } }, now: () => NOW };
+  const original = await quoteStoryNarration(request);
+  const renewed = await quoteStoryNarration({ ...request, now: () => NOW + 1000 });
+  const generateVoice = vi.fn(async (_input: { text: string }) => ({ audioUrl: 'https://file.302.ai/voice/test.mp3', provider: 'doubao', voice: 'zh_female_wenrouxiaoya_moon_bigtts' }));
+  const generate = { storyId, userId: 895, subtitleCueId: request.subtitleCueId, operationId: 'whole-book-one', quoteToken: original.quoteToken, dependencies: { now: () => NOW + 2000, generateVoice, materializeRemote: fakeProviderAsset(90) } };
+  expect(await generateStoryNarrationCandidate(generate)).toMatchObject({ status: 'candidate-ready' });
+  expect(await generateStoryNarrationCandidate({ ...generate, quoteToken: renewed.quoteToken })).toMatchObject({ status: 'candidate-ready', replayed: true });
+  expect(generateVoice).toHaveBeenCalledTimes(1);
+  expect(generateVoice.mock.calls[0][0].text).toHaveLength(4800);
+  await saveChapterContent({ id: last.id, userId: 895, expectedVersion: last.version, reason: 'autosave', content: { blocks: { ...last.blocks, body: '末章有新修改' } } });
+  expect(await generateStoryNarrationCandidate({ ...generate, operationId: 'stale-whole-book' })).toMatchObject({ status: 'error' });
+  expect(generateVoice).toHaveBeenCalledTimes(1);
+});

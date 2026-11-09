@@ -1,13 +1,15 @@
+import { wholeBookSoundText, narrationSegments, type WholeBookSound } from "../../shared/bookSound";
+import { manuscriptRows } from "../repositories/bookWorkflow";
 import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
-import { getChapter } from "../repositories/chapters";
+import { getChapter, listChapters } from "../repositories/chapters";
 import { loadOwnedStory } from "../persistence/storyVisualPersistence";
 import { readBookImage } from "../../shared/bookImageBlock";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 import { getStoryImageAssets, materializeImageInput } from "./imageAssets";
 import { invokeVisionJson } from "./visionChannel";
-export type BookModuleTarget = { chapterId: number; moduleId: string; moduleIds?: string[] };
+export type BookModuleTarget = { chapterId: number; moduleId: string; moduleIds?: string[]; wholeBook?: WholeBookSound };
 export async function resolveBookModuleSource(
   input: BookModuleTarget & { storyId: number; userId: number }
 ) {
@@ -15,6 +17,18 @@ export async function resolveBookModuleSource(
   const chapter = story && (await getChapter(input.chapterId, input.userId));
   if (!chapter || chapter.storyId !== input.storyId)
     throw new Error("模块不存在或无权访问");
+  if (input.wholeBook) {
+    const rows = manuscriptRows(await listChapters(input.storyId, input.userId, "all"), input.wholeBook.kind);
+    if (!rows.some(row => row.id === input.chapterId)) throw new Error("当前稿件类型已变化，请重新打开添加声音");
+    const fullText = wholeBookSoundText(rows, input.wholeBook.dialogueOnly);
+    if (!fullText.trim()) throw new Error(input.wholeBook.dialogueOnly ? "分镜中还没有标记台词，请先将需要朗读的文字设为台词" : "请先保存书中的文字");
+    if (fullText.length > 100000) throw new Error("当前整书声音最多支持10万字，请先拆分作品；未截取正文。");
+    const segments = narrationSegments(fullText);
+    const source = input.wholeBook.segment === undefined ? fullText : segments[input.wholeBook.segment];
+    if (source === undefined) throw new Error("书稿已变化，请重新确认朗读范围");
+    return { source, image: null, parts: [{ id: "whole-book", text: source, image: null }],
+      fingerprint: createHash("sha256").update(JSON.stringify({ kind: input.wholeBook.kind, dialogueOnly: input.wholeBook.dialogueOnly, fullText })).digest("hex") };
+  }
   const texts = writingModuleTexts(chapter.blocks.body, chapter.blocks.writingStyle);
   if (input.moduleIds) {
     const ids = new Set(input.moduleIds);
