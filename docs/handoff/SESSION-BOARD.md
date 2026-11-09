@@ -24,7 +24,8 @@
 
 ## 当前在场
 
-- 2026-11-09 手机验收发布会话：独占本轮提交/push/生产产物部署窗口；chat 01a1bedb 已释放业务文件，正在固化最终发布快照。仅占发布 QA 和会话看板，不修改其在做的业务代码；不变更生产配置/数据库，不纳入 outputs 私人素材。发布回归占用已释放的 FilmVersionDraft.tsx 与 BookWritingContext.test.tsx：收窄章节查询刷新、更新整书配乐插入位置断言。
+2026-11-09 手机验收与工作流发布完成，释放提交/部署窗口：6e3ea4fe、cfa6fe12及此前4提交已push main；生产版本6b247713-cfad-4f08-831f-3cb9bdaa4536，174产物哈希、HTTPS手机/编辑页/ready通过，麦克风self已上线，配置和数据库未改。6914全量、215小程序、73隔离MySQL及最终77项通过，原跳过如实保留。真机新图片/系统分享、旧ASR上游仍留缺口；outputs私人素材留本地。详见docs/qa/2026-11-09-mobile-workflow-release.md。
+
 
 2026-11-09 chat 01a1bedb 当前分镜直入视频表格、声音入口及算力报价完成并释放本轮全部文件（未提交/push/部署）：BookVideoStartButton/PublishingDraftWorkspace、bookVideo路由/Creation、directBookStoryboard、publishingVideoStoryboardPersistence/videoWorkflow、BookMusicInsert/BookSoundMenu及相关测试/字典/账本QA。用户授权真实1217最终视频V6来自分镜V2；7镜60秒、13段台词/字幕、4张原参考图和配乐14已入表，章9修订144及章10原文未变，旧视频V2/V3/V4/V5快照保留。修复旧剪辑时长/图片/字幕继承、配乐复用标记与刷新后不跳转；声音入口坐标点击遮挡修复，报价显示0.60算力。最终75项、类型、构建77草稿保护、88卡及差异检查通过；真实3000实点验收，无AI/付费调用。整书朗读13/15仍待逐镜对齐，未渲染成片。详见docs/qa/2026-11-09-book-video-workflow.md及/tmp/book-current-video-table.jpg。其余会话修改保留，发布窗口仍由手机验收发布会话管理。
 
