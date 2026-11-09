@@ -12,9 +12,18 @@ import {
   videoTakeFailureLabel,
   videoTakeIdsToRefresh,
   videoTakeProgress,
+  latestVideoTakeFailure,
 } from "./videoAssetViewModel";
 
 describe("videoAssetViewModel", () => {
+  it("shows only the latest failed take without inventing billing status", () => {
+    const failed = {id: 3, status: "failed" as const, errorMessage: "prompt parameter error or image not approved"};
+    expect(latestVideoTakeFailure([failed])).toContain("MJ 未通过");
+    expect(latestVideoTakeFailure([{id: 1, status: "timeout", errorMessage: null}])).toBe("视频生成失败，请查看任务状态。");
+    expect(latestVideoTakeFailure([failed, {id: 4, status: "processing", errorMessage: null}])).toBeNull();
+    expect(latestVideoTakeFailure([{id: 4, status: "available", errorMessage: null}, failed])).toBeNull();
+    expect(latestVideoTakeFailure([])).toBeNull();
+  });
   it("keeps timeline affordances strict by canonical status", () => {
     expect(videoTakeAffordance("available")).toMatchObject({
       canPlay: true,

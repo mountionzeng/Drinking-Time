@@ -35,6 +35,7 @@ import {
   emptyNewStorySession,
   newStorySessionKey,
   readNewStorySession,
+  sourceOnCompanionOpen,
 } from "./newStorySession";
 import "./mobileNewStoryCompanion.css";
 
@@ -234,12 +235,15 @@ export function MobileNewStoryCompanion({
         isSubmitting: creating,
         submit,
       };
+  const previousPageSource = useRef<MemoryFollowupSource | null | undefined>(undefined);
   function changeOpen(next: boolean) {
     if (!next && (actionLocked || voiceBusy)) return;
     if (next) {
+      const nextSource = sourceOnCompanionOpen(activeMemory, memorySource, previousPageSource.current);
       const different =
-        activeMemory?.id !== memorySource?.id ||
-        activeMemory?.storyId !== memorySource?.storyId;
+        activeMemory?.kind !== nextSource?.kind ||
+        activeMemory?.id !== nextSource?.id ||
+        activeMemory?.storyId !== nextSource?.storyId;
       if (
         followsWritingSource(activeMemory, memorySource) &&
         !actionLocked && !memoryThinking && !voiceBusy
@@ -247,10 +251,12 @@ export function MobileNewStoryCompanion({
         // Queued turns already own immutable snapshots. Keep unsent words while
         // following the current text or selected module in the same session.
         setActiveMemory(memorySource);
+        previousPageSource.current = memorySource;
         setError(null);
       } else if (!memoryLocked && !busy && !unsynced && !session.draft.trim()) {
         if (different) memoryBaseline.current = null;
-        setActiveMemory(memorySource);
+        setActiveMemory(nextSource);
+        previousPageSource.current = memorySource;
         setError(null);
       } else if (different) {
         setError(
@@ -274,13 +280,14 @@ export function MobileNewStoryCompanion({
       )
         memoryBaseline.current = null;
       setActiveMemory(source);
+      previousPageSource.current = memorySource;
       setError(null);
       setOpen(true);
     };
     window.addEventListener("dt:open-mobile-companion", openFromEditor);
     return () =>
       window.removeEventListener("dt:open-mobile-companion", openFromEditor);
-  }, [memoryLocked, busy, unsynced, session.draft, activeMemory]);
+  }, [memoryLocked, busy, unsynced, session.draft, activeMemory, memorySource]);
   const writing = activeMemory?.kind === "text" && Boolean(activeMemory.text);
   const height = writing
     ? Math.max(180, viewport.height - 28)
@@ -449,6 +456,7 @@ export function MobileNewStoryCompanion({
                 onModuleAction={() => setOpen(false)}
                 onNewStory={() => {
                   setActiveMemory(null);
+                  previousPageSource.current = memorySource;
                   setSession(emptyNewStorySession());
                   setError(null);
                   firstSend.current = false;
@@ -482,6 +490,7 @@ export function MobileNewStoryCompanion({
                 onLocked={setActionLocked}
                 onNewStory={() => {
                   setActiveMemory(null);
+                  previousPageSource.current = memorySource;
                   setSession(emptyNewStorySession());
                   setError(null);
                   firstSend.current = false;

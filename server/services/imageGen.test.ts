@@ -2219,6 +2219,19 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     // this was a transport drop over an already-paid job.
     expect(result.message).toContain("terminated");
     expect(result.message).toContain("other side closed");
+    expect(result).toMatchObject({ providerTaskId: "task-terminated", errorCode: "timeout_pending" });
+  });
+
+  it("保留已完成任务的编号，图片下载失败可继续恢复而不会重新提交", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/out.png" } },
+      { ok: false, status: 503, json: {} },
+    ]);
+    const result = await resume302MidjourneyTask("already-paid-task", { fetcher, mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS });
+    expect(result).toMatchObject({ status: "error", providerTaskId: "already-paid-task", errorCode: "timeout_pending" });
+    expect(result.message).toContain("下载暂时失败");
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
   it("图生图断连时保留「提交结果未知」，不把可能已扣费的任务说成安全失败", async () => {

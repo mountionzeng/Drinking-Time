@@ -2232,16 +2232,23 @@ async function poll302MidjourneyTask(
         }
 
         const stored = await Promise.all(
-          imageUrls.map(imageUrl => storeImageFromUrl(imageUrl, fetcher))
+          imageUrls.map(async imageUrl => {
+            try {
+              return await storeImageFromUrl(imageUrl, fetcher);
+            } catch (error) {
+              return { status: "error" as const, message: providerErrorMessage(error, "download failed") };
+            }
+          })
         );
         const failedIndex = stored.findIndex(
           candidate => candidate.status !== "ok"
         );
         if (failedIndex >= 0) {
-          recordFailure("midjourney");
           return {
             status: "error",
-            message: `302 Midjourney candidate ${failedIndex + 1} could not be stored: ${stored[failedIndex]?.message ?? "unknown storage error"}`,
+            message: `图片已生成，下载暂时失败，请恢复原任务。（${stored[failedIndex]?.message ?? "download failed"}）`,
+            providerTaskId: taskId,
+            errorCode: "timeout_pending",
           };
         }
 

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { StoryboardEditRow } from "@/features/creationEditor/views/StoryboardEditRow";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
+import { latestVideoTakeFailure } from "@/features/creationEditor/videoAssetViewModel";
 import type { StoryShotEditableField } from "@shared/shotDirector";
 import { displayShotCode } from "@shared/shotIdentity";
 import { estimateStoryNarrationCostMinor } from "@shared/narrationCost";
@@ -76,6 +77,7 @@ export function StoryboardManuscriptSection(props: Props) {
       renderMedia={entry => {
         const shot = props.creationShots.get(entry.shot.shotNo);
         const frames = shot ? storyboardShotFrameImages(shot) : [];
+        const videoFailure = latestVideoTakeFailure(shot?.videoTakes ?? []);
         return <div className="grid grid-cols-2 gap-1">{frames.map(frame => <button type="button" key={frame.id}
           aria-label={`${displayShotCode(entry.shot)} · ${t("查看图片")}`}
           onClick={() => props.setPreviewMedia({ kind: "image", url: frame.imageUrl, label: displayShotCode(entry.shot) })}
@@ -83,6 +85,7 @@ export function StoryboardManuscriptSection(props: Props) {
           <img src={frame.imageUrl} alt={displayShotCode(entry.shot)} loading="lazy" className="aspect-video w-full object-contain" />
         </button>)}{frames.length === 0 && <span className="col-span-2 text-xs text-muted-foreground">{t("暂无图片")}</span>}
           {(shot?.videoTakes ?? []).filter(take => take.videoUrl).map(take => <video key={take.id} src={take.videoUrl!} controls preload="none" aria-label={`${displayShotCode(entry.shot)} · Take ${take.id}`} className="col-span-2 aspect-video w-full rounded-sm" />)}
+          {videoFailure && <p role="alert" className="col-span-2 text-xs text-destructive">{videoFailure}</p>}
         </div>;
       }}
       onGenerate={(entry, kind) => {

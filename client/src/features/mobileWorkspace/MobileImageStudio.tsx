@@ -113,6 +113,12 @@ export function MobileImageStudio({
   const recoverable =
     receipt?.status === "pending" ||
     isRecoverablePublishingCoverGeneration(receipt);
+  const receiptError = !isMemory ? receipt?.error : undefined;
+  const visibleError = error || (recoverable && receiptError
+    ? receipt?.taskId && /fetch failed|timeout|terminated|socket|econn|下载暂时失败/i.test(receiptError)
+      ? t("图片取回时网络中断，请恢复原任务。")
+      : receiptError
+    : undefined);
   const busy = generate.isPending || adopt.isPending;
   const needsTextConfirmation =
     !isMemory && (!content?.body.trim() || !sourceMatches);
@@ -326,9 +332,9 @@ export function MobileImageStudio({
                 )}
               </div>
             ) : null}
-            {error ? (
+            {visibleError ? (
               <p role="alert" className="px-5 pt-4 text-sm text-destructive">
-                {error}
+                {visibleError}
               </p>
             ) : null}
             {!isMemory && recoverable ? (
@@ -413,7 +419,7 @@ export function MobileImageStudio({
                 Boolean(recoverable) ||
                 !sourceMatches
               }
-              generationError={isMemory ? undefined : receipt?.error}
+              generationError={isMemory || recoverable ? undefined : receipt?.error}
               generationStartedAt={
                 generate.isPending ? generate.submittedAt : undefined
               }

@@ -1971,7 +1971,9 @@
         "server/services/bookVideoImageContinuity.ts",
         "client/src/features/bookVideo/BookVideoWorkspace.tsx",
         "client/src/features/bookVideo/bookVideoReviewDraft.ts",
-        "client/src/features/storyAgent/views/StoryboardManuscriptTable.tsx"
+        "client/src/features/storyAgent/views/StoryboardManuscriptTable.tsx",
+        "client/src/features/storyAgent/views/StoryboardManuscriptSection.tsx",
+        "client/src/features/creationEditor/videoAssetViewModel.ts"
       ],
       "evidence": [
         "server/services/publishingVideoStoryboard.test.ts",
@@ -2033,7 +2035,8 @@
         "client/src/features/bookVideo/BookVideoWorkspace.test.tsx",
         "docs/qa/2026-11-06-video-wide-storyboard.md",
         "client/src/features/storyAgent/views/StoryboardManuscriptTable.test.tsx",
-        "docs/qa/2026-11-07-unified-video-storyboard.md"
+        "docs/qa/2026-11-07-unified-video-storyboard.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2312,6 +2315,11 @@
           "date": "2026-11-07",
           "kind": "fix",
           "summary": "正式视频统一逐镜稿和剪辑预览两种投影，切换保留选择、播放位置和生成会话，待确认方案保留原聊天入口。每镜一个生成菜单复用原图像/视频流程和旁白估价确认；主仓3000实点第03镜切换、三张参考图、候选返回和三项菜单，未购买媒体。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "分镜稿对应镜头显示最新视频任务失败原因，不从供应商错误文字猜测扣费；新任务进行中或成功时不显示旧错误。相关状态与渲染测试通过，未发起视频生成。"
         }
       ]
     },
@@ -7497,7 +7505,8 @@
         "docs/qa/2026-11-04-book-editor-release.md",
         "client/src/features/publishingAlbum/bookPlatformExport.test.ts",
         "client/src/features/publishingDraft/publishingCoverExport.test.ts",
-        "docs/qa/2026-11-04-book-send-platforms.md"
+        "docs/qa/2026-11-04-book-send-platforms.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -7614,6 +7623,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "恢复书稿发送的平台选择：小程序/朋友圈/其他平台及原文章链接；复用六平台尺寸、X分条规则和图片导出，准备已保存的当前草稿及全部配图，分享副本不改原稿、不自动改写或发布。36项专项、76项草稿安全及类型通过，真实6图朋友圈1080×1080与小红书1080×1440预览通过。本地未提交/部署，详见book-send-platforms QA。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "手机图文恢复区显示已存的图片任务错误；MJ已生成但下载失败时保留原任务号及恢复状态，恢复只查询原任务，避免重新购买。相关测试通过，真实付费及真机未验。"
         }
       ]
     },
@@ -7989,7 +8003,8 @@
         "docs/qa/2026-10-20-mobile-create-menu.md",
         "docs/qa/2026-10-24-mobile-text-confirmation.md",
         "scripts/verify-mobile-text-confirmation.cjs",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -8067,6 +8082,11 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "修复失败聊天恢复记录误锁独立模块生成/合并按钮；保留消息与聊天顺序保护，实际提交和编辑中仍锁定。复现回归先红后绿，手机真实音乐生成及合并成功。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "重开聊天在页面来源不变或为空时保留当前会话，显式新建和原上下文不被覆盖；真实页面变更仍跟随，原账号隔离与未同步草稿保护保持。相关隔离回归通过，浏览器自动操作被工作设置禁用，真机未验。"
         }
       ]
     },
@@ -9870,7 +9890,8 @@
         "docs/qa/2026-10-31-web-material-capture.md",
         "client/src/features/mobileWorkspace/captureRecordingError.test.ts",
         "client/src/features/mobileWorkspace/MobileCaptureAttachments.test.tsx",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "新批次新建故事，不覆盖正在编辑的故事；普通聊天行为保留。",
@@ -9922,6 +9943,11 @@
           "date": "2026-11-01",
           "kind": "verification",
           "summary": "390px手机入口实点虚构文字素材发送、整理为独立故事1216、打开书稿通过；本轮未测试文件上传或真机录音。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "复核手机素材网页入口已在main；素材路由、原件及转写恢复自动化通过。真机分享、录音权限、真实供应商及上线继续列为缺口，状态保持partial。"
         }
       ]
     },
@@ -10445,7 +10471,8 @@
         "docs/qa/2026-11-04-storyboard-auto-recovery.md",
         "client/src/features/storyAgent/views/pollStoryboardImage.test.ts",
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
-        "server/services/storyboardImageTask.test.ts"
+        "server/services/storyboardImageTask.test.ts",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -10499,6 +10526,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "分镜图片已受理后的正常排队改为自动取回原任务，串行每6秒查询、10分钟上限、作用域离开取消；成功刷新画面行/仓库，明确失败和未确认提交不自动重买。Legnext复用timeout_pending区分等待与明确失败；三次历史生成已各入仓4图，新自动流程为模拟测试验证，未新购媒体。详见storyboard-auto-recovery QA。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "MJ成功后文件下载失败返回已有任务号与待恢复状态，复用原任务而不重新提交。无任务号封面预占按用户选择维持原自动释放规则。"
         }
       ]
     },
@@ -11032,5 +11064,5 @@
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-08"
+  "updatedAt": "2026-11-09"
 }

@@ -1,4 +1,5 @@
 {
+  "图片取回时网络中断，请恢复原任务。": { "en": "The connection was interrupted while retrieving the images. Resume the original task.", "fr": "La connexion a été interrompue lors de la récupération des images. Reprenez la tâche initiale." },
   "{0} 场戏 · {1} 个镜头": {"en": "{0} scenes · {1} shots", "fr": "{0} scènes · {1} plans"},
   "{0} 节": {"en": "{0} sections", "fr": "{0} sections"},
   "{0} 句台词": {"en": "{0} dialogue lines", "fr": "{0} répliques"},

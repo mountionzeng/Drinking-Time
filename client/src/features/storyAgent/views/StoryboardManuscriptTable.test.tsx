@@ -6,6 +6,7 @@ import {
   type ManuscriptEntry,
 } from "./StoryboardManuscriptTable";
 import { buildStoryboardMatrixLayout } from "./storyboardMatrixLayout";
+import { StoryboardManuscriptSection } from "./StoryboardManuscriptSection";
 vi.stubGlobal("React", React);
 const entries = [
   {
@@ -46,6 +47,19 @@ const callbacks = {
     <img src={`/${entry.stableShotId}.png`} />
   ),
 };
+it("shows the latest video failure in the corresponding shot without claiming a charge outcome", () => {
+  const props = {
+    visible: true, timeline: undefined, viewport: { contentWidth: 500 }, shots: [], selectedShotNo: null,
+    selectMatrixShot: vi.fn(), shotActions: {}, updateShotTimingPreview: vi.fn(), entries, timings: [],
+    isShotRenderActive: () => false, generatingVoiceShotIds: [], voiceGenerationErrors: {},
+    creationShots: new Map([[1, { videoTakes: [{id: 1, status: "failed", errorMessage: "视频提交失败"}] }]]),
+    setPreviewMedia: vi.fn(), renderImage: vi.fn(), renderVideo: vi.fn(),
+  };
+  const html = renderToStaticMarkup(<StoryboardManuscriptSection {...props as any} />);
+  const first = html.slice(html.indexOf('data-shot-id="a"'), html.indexOf('data-shot-id="b"'));
+  expect(first).toContain("视频提交失败");
+  expect(first).not.toContain("未扣费");
+});
 it("follows the same timeline layout as the matrix without renumbering or separating media and text", () => {
   const layout = buildStoryboardMatrixLayout({
     entries,

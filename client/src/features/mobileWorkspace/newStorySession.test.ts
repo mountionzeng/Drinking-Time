@@ -4,7 +4,9 @@ import {
   emptyNewStorySession,
   newStorySessionKey,
   readNewStorySession,
+  sourceOnCompanionOpen,
 } from "./newStorySession";
+import { storyFollowupSource } from "./mobileMemoryFollowup";
 import { BIRD_GESTURES, nextBirdGesture } from "./xiaoyiGestures";
 describe("independent new story session", () => {
   it("does not select a viewed story when no new conversation exists", () => {
@@ -68,5 +70,19 @@ describe("bird gestures", () => {
         expect(nextBirdGesture(previous, () => random)).not.toBe(previous);
       expect(BIRD_GESTURES[previous].at(-1)?.[1]).toBe("turn");
     }
+  });
+});
+
+describe("reopening the companion", () => {
+  const story = storyFollowupSource(7, "旧故事");
+  const other = storyFollowupSource(8, "另一个故事");
+  it("keeps the conversation when the page has no source or the source is unchanged", () => {
+    expect(sourceOnCompanionOpen(story, null, story)).toBe(story);
+    expect(sourceOnCompanionOpen(other, story, story)).toBe(other);
+    expect(sourceOnCompanionOpen(null, story, story)).toBeNull();
+  });
+  it("follows a genuinely new page source and starts from the page on first open", () => {
+    expect(sourceOnCompanionOpen(story, other, story)).toBe(other);
+    expect(sourceOnCompanionOpen(null, story, undefined)).toBe(story);
   });
 });
