@@ -83,7 +83,10 @@ vi.mock("@/lib/trpc", () => ({
     },
     storyAgent: {
       storyList: {
-        useQuery: () => ({ data: { stories: [{ id: 7, title: "故事" }] } }),
+        useQuery: () => ({ data: { stories: [
+          { id: 7, title: "故事", createdAt: new Date("2026-10-31T11:27:12Z") },
+          { id: 8, title: "故事", createdAt: new Date("2026-11-01T11:34:41Z") },
+        ] } }),
       },
       storyMaterialState: { useQuery: () => ({ data: { shots: [] } }) },
     },
@@ -118,7 +121,7 @@ function setup(
       n.type === "button" &&
       ["保存记忆", "确认加入", "导入"].includes(n.props.children)
   );
-  return { props, submit: button.props.onClick };
+  return { props, submit: button.props.onClick, tree };
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -126,6 +129,15 @@ beforeEach(() => {
   mock.setters = [];
   mock.save.mockResolvedValue({});
   mock.revise.mockResolvedValue({ versionId: "v2", history: { revision: 5 } });
+});
+it("distinguishes independent same-title stories by creation time and keeps the current story selected", () => {
+  const {tree} = setup("import");
+  const options = nodes(tree).filter(n=>n.type === "option" && [7,8].includes(n.props.value));
+  expect(options).toHaveLength(2);
+  expect(options[0].props.children.join("")).toContain("当前故事");
+  expect(options[0].props.children.join("")).toContain("2026/10/31 19:27");
+  expect(options[1].props.children.join("")).toContain("2026/11/01 19:34");
+  expect(nodes(tree).find(n=>n.type === "select")?.props.value).toBe(7);
 });
 it("marks the draft in its current story and refreshes both memory views", async () => {
   const { submit } = setup("memory");

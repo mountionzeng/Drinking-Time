@@ -413,6 +413,12 @@ export default function StoryAgentChat({
     [rerenderSelectionImage, rerenderingMessageId]
   );
   const [input, setInput] = useState("");
+  const [voicePreview, setVoicePreview] = useState("");
+  const [voiceNotice, setVoiceNotice] = useState("");
+  useEffect(() => {
+    setVoicePreview("");
+    setVoiceNotice("");
+  }, [accountId, activeStoryId]);
   const [revisionProvider, setRevisionProvider] = useState<"midjourney" | "gpt-image">("gpt-image");
   const [photoAssetRequest, setPhotoAssetRequest] =
     useState<PhotoAssetRequest | null>(null);
@@ -622,11 +628,14 @@ export default function StoryAgentChat({
   }, [clearSelection, resizeAndFocusInput, sendMessage]);
 
   const handleVoiceError = useCallback((message: string) => {
-    alert(message);
+    setVoiceNotice(message);
   }, []);
 
   const voice = useVoiceInput({
     language: "zh",
+    preferLive: true,
+    scopeKey: `${accountId}:${activeStoryId}`,
+    onPreview: setVoicePreview,
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
@@ -2132,6 +2141,9 @@ export default function StoryAgentChat({
           </div>
         ) : null}
 
+        {voiceNotice && !voice.isBusy && (
+          <p role="status" className="mt-1.5 text-xs text-muted-foreground">{voiceNotice}</p>
+        )}
         {voice.isBusy && (
           <div
             className={`flex items-center gap-1.5 text-[10px] ${!activeSelection && pendingMedia.length === 0 ? "mt-2.5" : "mt-1.5"}`}
@@ -2140,7 +2152,7 @@ export default function StoryAgentChat({
             {voice.isRecording ? (
               <>
                 <span className="h-1.5 w-1.5 rounded-full bg-nayin animate-pulse" />
-                {_ui("录音中，再点方块停止")}</>
+                {_ui(voice.isLive ? "听写中，文字会显示在输入框" : "录音中，再点方块停止")}</>
             ) : (
               <>
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -2182,7 +2194,10 @@ export default function StoryAgentChat({
             ) : null}
             <button
               type="button"
-              onClick={voice.toggleRecording}
+              onClick={() => {
+                setVoiceNotice("");
+                voice.toggleRecording();
+              }}
               disabled={isReplying || voice.isTranscribing || isImportingMedia}
               className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
               style={
@@ -2224,7 +2239,8 @@ export default function StoryAgentChat({
           <textarea
             ref={inputRef}
             rows={3}
-            value={input}
+            value={[input, voicePreview].filter(Boolean).join(" ")}
+            readOnly={Boolean(voicePreview)}
             onChange={e => {
               setInput(e.target.value);
               // auto-resize

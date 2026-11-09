@@ -109,12 +109,13 @@ export function useMaterialCapture(userId: number) {
     const generation = epoch.current, snapshot = {...current,submitted:true};
     if (!snapshot.text.trim() && !snapshot.files.length) return;
     busyRef.current = true; setBusy(true); setError("");
-    let received=false;
+    let received=false, uploadStarted=false;
     try {
       await updateDraft(snapshot);
       // File IDs are deterministic within this batch, so a network retry uses identical input.
       const files = await Promise.all(snapshot.files.map((file,index) => captureFilePayload(file,`${snapshot.id.slice(0,24)}${index.toString(16).padStart(12,"0")}`)));
       if (generation !== epoch.current) return;
+      uploadStarted=true;
       const receipt = await receive.mutateAsync({expectedUserId:userId,id:snapshot.id,origin:snapshot.origin,text:snapshot.text,files});
       received=true;
       if (generation !== epoch.current) return;
@@ -126,7 +127,10 @@ export function useMaterialCapture(userId: number) {
       await process.mutateAsync({expectedUserId:userId,id:receipt.id});
       await Promise.all([history.refetch(),utils.storyAgent.storyList.invalidate()]);
     } catch (e) { if (generation === epoch.current) {
-      if(!received && (e as {data?:{code?:string}})?.data?.code === "BAD_REQUEST") void updateDraft({...snapshot,submitted:false}).catch(() => {});
+      // Local read/storage failures are editable only if this batch has never been uploaded.
+      // A retry of an uncertain earlier upload must retain its immutable payload.
+      const localFailure = !uploadStarted && !current.submitted;
+      if(!received && (localFailure || (e as {data?:{code?:string}})?.data?.code === "BAD_REQUEST")) void updateDraft({...snapshot,submitted:false}).catch(() => {});
       setError(e instanceof Error ? e.message : "尚未完成，素材已保留"); void history.refetch();
     } }
     finally { busyRef.current = false; if(generation === epoch.current) setBusy(false); }

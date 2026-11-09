@@ -2,6 +2,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { CaptureReceipt } from "@shared/materialCapture";
+vi.mock("react", async () => ({
+  ...(await vi.importActual<typeof React>("react")),
+  useRef: (value: unknown) => ({ current: value }),
+}));
 import { MobileCaptureButton, MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
 
 function receipt(id: string, storyId: number | null, status: CaptureReceipt["status"] = "saved"): CaptureReceipt {
@@ -18,6 +22,34 @@ function render(overrides: Partial<CaptureController> = {}, storyId = 1215) {
 }
 
 describe("capture receipts in a story conversation", () => {
+  it("opens the file picker in the paperclip tap and keeps collection controls available", () => {
+    const capture = { ready:true, busy:false, activate:vi.fn(), addFiles:vi.fn() } as unknown as CaptureController;
+    const tree = MobileCaptureButton({capture});
+    const [input, button] = tree.props.children;
+    const click = vi.fn();
+    input.props.ref.current = {click};
+    button.props.onClick();
+    expect(capture.activate).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(input.props.multiple).toBe(true);
+    const file = new File(["audio"], "voice.m4a", {type:"audio/mp4"});
+    const target = {files:[file],value:"voice.m4a"};
+    input.props.onChange({target});
+    expect(capture.addFiles).toHaveBeenCalledWith([file]);
+    expect(target.value).toBe("");
+    input.props.onChange({target:{files:[],value:""}});
+    expect(capture.addFiles).toHaveBeenCalledOnce();
+  });
+  it.each(["busy", "locked", "recording"])("does not reopen the picker while %s", flag => {
+    const capture = {ready:true,[flag]:true,activate:vi.fn(),addFiles:vi.fn()} as unknown as CaptureController;
+    const [input,button] = MobileCaptureButton({capture}).props.children;
+    const click = vi.fn();
+    input.props.ref.current = {click};
+    button.props.onClick();
+    expect(button.props.disabled).toBe(true);
+    expect(click).not.toHaveBeenCalled();
+    expect(capture.activate).not.toHaveBeenCalled();
+  });
   it("prevents switching to material capture while dictation owns the microphone", () => {
     const capture = {ready:true,busy:false,activate:vi.fn()} as unknown as CaptureController;
     expect(renderToStaticMarkup(<MobileCaptureButton capture={capture} disabled />)).toContain('disabled=""');
