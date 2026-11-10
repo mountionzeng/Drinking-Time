@@ -47,6 +47,7 @@ vi.mock('@/lib/trpc', () => ({
       proposeGapTransition: { useMutation: makeMutation },
       proposeExtractedFrameTransition: { useMutation: makeMutation },
     },
+    artSystems: { write: { useMutation: makeMutation } },
     artAgent: {
       riff: { useMutation: makeMutation },
       analyzeReference: { useMutation: makeMutation },

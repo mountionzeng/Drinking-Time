@@ -312,8 +312,9 @@ describe("local persistence write-failure semantics", () => {
   });
 
   it("rolls back both visual and extension slices when a slice write fails", async () => {
+    const { id: storyId } = await db.createStory({ userId: 1, title: "Timeline rollback", body: { _revision: 1, shots: [] } });
     await db.updateStoryTimeline({
-      storyId: 142,
+      storyId,
       userId: 1,
       expectedVersion: 0,
       items: [{ stableShotId: "shot-before" }],
@@ -325,7 +326,7 @@ describe("local persistence write-failure semantics", () => {
 
     await expect(
       db.updateStoryTimeline({
-        storyId: 142,
+        storyId,
         userId: 1,
         expectedVersion: 1,
         items: [{ stableShotId: "shot-should-not-land" }],
@@ -335,7 +336,7 @@ describe("local persistence write-failure semantics", () => {
       })
     ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
 
-    expect(await db.getStoryTimeline(142, 1)).toMatchObject({
+    expect(await db.getStoryTimeline(storyId, 1)).toMatchObject({
       version: 1,
       items: [{ stableShotId: "shot-before" }],
       extensions: {
