@@ -237,6 +237,8 @@
 
 ## 最近落地
 
+2026-11-06 拾光算力只读流水（`4d824576`，分支 `feat/shiguang-compute-statement`，待审，未合并、未部署）：`POST /api/shiguang/compute/statement` 复用余额鉴权，只返回本人预占、结算和释放。触达 `server/db.ts` 只读导出、`server/repositories/computeLedger.ts`、`server/services/computeLedger.ts`、`server/_core/shiguangComputeBridge.ts` 及测试和功能账本。6 项桥测试、类型检查和功能账本通过。未改 `.env`、价格或退款。
+
 - 2026-11-09 素材提交前失败恢复完成并释放（未提交）：useMaterialCapture及新增hook测试，只对尚未上传的新批次解锁读取/暂存失败，未知请求保留原锁定与幂等。32项相关/类型通过；既有6份原件真实3000读取与SHA/Range验证通过。QA见2026-11-09-mobile-import.md；按用户要求不再尝试镜像，不占合并部署窗口。
 
 - 2026-11-09 素材极简布局完成并释放（未提交）：素材区改输入栏双图标，移除长说明/重复入口，返回聊天与系统分享移至原更多操作；MOV误选短提示，未改变素材生成或原件。触达MobileCaptureAttachments/MobileCaptureChatView/MobileChatView/MobileCompanionActions、materialCaptureDraft和测试/账本。48项相关测试及类型通过，真实浏览器图标选文件/分享展开/返回聊天通过；QA见2026-11-09-mobile-import.md，未付费/部署。

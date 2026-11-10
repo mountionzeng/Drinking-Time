@@ -15,6 +15,7 @@ import {
   getDb,
   listProviderAttemptsForOperation,
   readComputeStatementSnapshot,
+  listUserBillingStatementSources as readUserBillingStatementSources,
   recordProviderAttempt,
   reserveComputeCredit,
   type CreditAccountSummary,
@@ -56,6 +57,13 @@ export function readAccountComputeStatementSnapshot(
   ...args: Parameters<typeof readComputeStatementSnapshot>
 ) {
   return readComputeStatementSnapshot(...args);
+}
+
+/** 拾光流水只走账本读口，不经预占或结算。 */
+export function listUserBillingStatementSources(
+  ...args: Parameters<typeof readUserBillingStatementSources>
+) {
+  return readUserBillingStatementSources(...args);
 }
 
 export type ReserveForOperationInput = {
