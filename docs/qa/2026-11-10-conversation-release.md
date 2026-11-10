@@ -28,3 +28,15 @@
 ## 验收边界
 
 生产离线语音自检只使用合成虚构句子，不写用户作品、不购买媒体。真实模型图像质量、付费视频成片、未关联图片设帧及自由意图路由仍继承来源QA中的缺口。部署或哈希验证不等于这些流程全部验收完成。
+
+## 正式发布结果
+
+- 代码main已push至 `50de687f746de779d3445caed5052c7787fe575d`：包括5d84b690联合代码、0abe8db0保留算力账单的合并、173d5b85测试fixture与引用文档、50de687f限额修复。没有把其他会话手机号修复混入产物；其4个业务/测试文件及验收文档与发布前哈希一致，outputs保留本地。
+- 最终隔离快照与提交逐文件一致。全量 **871文件7116项通过、25文件74项原配置跳过**；补充最终71项通过。真实MySQL合计73项通过/1原有跳过，小程序215项通过；类型、92卡、41迁移、差异和前后端构建通过。首轮环境和fixture失败已按上述过程修复/重跑，不把跳过计为通过。
+- 生产版本 `9c3613ce-f740-418b-bdbb-4c59552052be`；清单 `/opt/Drinking-Time/dist.release-conversation-release-20261110.json`。发布包仅5项变化产物与对齐worker；累计276项应用产物（含保留旧静态资源）及1项support脚本SHA256全数一致。
+- 旧版备份 `/opt/Drinking-Time/dist.bak-conversation-release-20261110`，已有PM2 drinking-time重启后ready/mysql/authentication required。重启健康重试中曾短暂连接拒绝，最终就绪后才标发布成功；未触发回滚。
+- ECS通过真实域名HTTPS逐项核对healthz、readyz、editing、m、app-release均200；网页HTML和新JS/CSS逐字节匹配。新artSystems.read未登录返回401；麦克风仍为self。发布前后.env、package、lock、schema及迁移journal哈希不变，生产41条迁移哈希一致，未执行数据库迁移/写入。
+- 生产原有Python3.6不能安装目标依赖，改用已有Python3.11私有venv；旧pip解析和海外依赖下载问题经私有环境内更新pip/使用既有阿里云镜像解决，未改系统Python或生产.env。实际torch2.8.0+cpu/Whisper20250625/numpy2.0.2验证通过，pip check无坏依赖，完整冻结记录位于.runtime/book-video-audio/requirements.lock。
+- 使用本机合成的虚构英文句子，在生产临时目录完成真实离线对齐，置信度0.8564、边界0.01–3.51秒；原句不改，业务ready仍正常。只证明依赖和对齐链路可运行，不替代用户作品中文听感/长录音压力验收。
+- 本机直接curl正式站仍遇TLS连接中断，未取得本机登录态UI复验；公网HTTPS证据来自ECS经正式域名，不宣称已完成新一轮真机/付费生成验收。
+- 本轮发布针对截图所指网页制作流程及本轮代码清理。历史原生小程序0.1.1103qb候选没有随网页发布而变成体验版或正式版；原生仓库其他并行工作保留。
